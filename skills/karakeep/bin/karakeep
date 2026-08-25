@@ -1,22 +1,11 @@
 #!/usr/bin/env bash
-# karakeep — save a bookmark (link + optional images + note) to KaraKeep, into a folder.
-# Usage: karakeep save --url <url> [--title <t>] [--note <text|@file>] [--list <name>] [--asset <path>]... [--tag <t>]...
+# karakeep - save/search KaraKeep bookmarks and browse folders (lists).
+# Subcommands:
+#   karakeep save   --url <url> [--title <t>] [--note <text|@file>] [--list <name> | --list-id <id>] [--asset <path>]... [--tag <t>]...
+#   karakeep lists  [filter]             # folders as "Parent > Name  [id]" (filter = case-insensitive substring)
+#   karakeep search <query> [--limit N]  # full-text bookmark search -> "title<TAB>url<TAB>id"
 set -euo pipefail
 err(){ echo "karakeep: $*" >&2; exit 1; }
-
-[ "${1:-}" = save ] || err "usage: karakeep save --url <url> [...]"; shift
-url="" title="" note="" list=""; assets=(); tags=()
-while [ $# -gt 0 ]; do case "$1" in
-  --url) url="${2:?}"; shift 2;;
-  --title) title="${2:?}"; shift 2;;
-  --note) note="${2:?}"; shift 2;;
-  --list) list="${2:?}"; shift 2;;
-  --asset) assets+=("${2:?}"); shift 2;;
-  --tag) tags+=("${2:?}"); shift 2;;
-  *) err "unknown arg: $1";;
-esac; done
-[ -n "$url" ] || err "--url required"
-if [ "${note:0:1}" = "@" ]; then nf="${note:1}"; [ -r "$nf" ] || err "note file unreadable: $nf"; note=$(cat "$nf"); fi
 
 key="${KARAKEEP_API_KEY:-}"; addr="${KARAKEEP_ADDR:-}"
 if [ -r "$HOME/.hermes/.env" ]; then
@@ -27,14 +16,60 @@ addr="${addr:-http://localhost:3000}"; [ -n "$key" ] || err "KARAKEEP_API_KEY no
 api="$addr/api/v1"; AUTH=(-H "Authorization: Bearer $key")
 kk(){ curl -fsS --max-time 60 "${AUTH[@]}" "$@"; }
 
-# resolve list name -> id (0 -> error, >1 -> ambiguous)
-list_id=""
-if [ -n "$list" ]; then
-  matches=$(kk "$api/lists" | jq -r --arg n "$list" '.lists[] | select(.name==$n) | .id')
+# jq: emit "<immediate parent> > <name>\t<id>" for every list ("<name>\t<id>" if top-level)
+PATHS='.lists as $L | ($L|map({key:.id,value:.name})|from_entries) as $n
+  | $L[] | ((if .parentId then (($n[.parentId]) // "?")+" > " else "" end)+.name) + "\t" + .id'
+
+cmd="${1:-}"; shift 2>/dev/null || true
+case "$cmd" in
+  lists)
+    filter="${1:-}"
+    out=$(kk "$api/lists" | jq -r "$PATHS" | sort -f)
+    [ -n "$filter" ] && out=$(printf '%s\n' "$out" | grep -i -- "$filter" || true)
+    if [ -n "$out" ]; then printf '%s\n' "$out" | sed 's/\t/  [/; s/$/]/'; else echo "(no folders match '$filter')"; fi
+    exit 0;;
+  search)
+    q="${1:-}"; [ -n "$q" ] || err "usage: karakeep search <query> [--limit N]"; shift 2>/dev/null || true
+    lim=20; while [ $# -gt 0 ]; do case "$1" in --limit) lim="${2:?}"; shift 2;; *) shift;; esac; done
+    kk -G "$api/bookmarks/search" --data-urlencode "q=$q" --data-urlencode "limit=$lim" \
+      | jq -r '.bookmarks[]? | [(.title // .content.title // .content.url // "untitled"), (.content.url // ""), .id] | @tsv'
+    exit 0;;
+  save) : ;;
+  *) err "usage: karakeep <save|lists|search> ...";;
+esac
+
+# ---- save ----
+url="" title="" note="" list="" list_id=""; assets=(); tags=()
+while [ $# -gt 0 ]; do case "$1" in
+  --url) url="${2:?}"; shift 2;;
+  --title) title="${2:?}"; shift 2;;
+  --note) note="${2:?}"; shift 2;;
+  --list) list="${2:?}"; shift 2;;
+  --list-id) list_id="${2:?}"; shift 2;;
+  --asset) assets+=("${2:?}"); shift 2;;
+  --tag) tags+=("${2:?}"); shift 2;;
+  *) err "unknown arg: $1";;
+esac; done
+[ -n "$url" ] || err "--url required"
+if [ "${note:0:1}" = "@" ]; then nf="${note:1}"; [ -r "$nf" ] || err "note file unreadable: $nf"; note=$(cat "$nf"); fi
+
+# resolve --list name -> id (skip if --list-id given). Ambiguous -> print candidates with paths.
+if [ -z "$list_id" ] && [ -n "$list" ]; then
+  all=$(kk "$api/lists")
+  matches=$(printf '%s' "$all" | jq -r --arg n "$list" '.lists[] | select((.name|ascii_downcase)==($n|ascii_downcase)) | .id')
   cnt=$(printf '%s' "$matches" | grep -c . || true)
-  [ "$cnt" -eq 0 ] && err "list '$list' not found"
-  [ "$cnt" -gt 1 ] && err "list '$list' ambiguous ($cnt matches); disambiguate"
-  list_id="$matches"
+  if [ "$cnt" -eq 0 ]; then
+    err "list '$list' not found (browse: karakeep lists \"$list\")"
+  elif [ "$cnt" -eq 1 ]; then
+    list_id="$matches"
+  else
+    { echo "karakeep: list '$list' is ambiguous ($cnt matches) - re-run with --list-id <id>:"
+      printf '%s' "$all" | jq -r --arg n "$list" '.lists as $L | ($L|map({key:.id,value:.name})|from_entries) as $m
+        | $L[] | select((.name|ascii_downcase)==($n|ascii_downcase))
+        | "  " + ((if .parentId then (($m[.parentId])//"?")+" > " else "" end)+.name) + "  [" + .id + "]"'
+    } >&2
+    exit 2
+  fi
 fi
 
 bid=$(kk -X POST "$api/bookmarks" -H 'Content-Type: application/json' \
@@ -43,8 +78,7 @@ bid=$(kk -X POST "$api/bookmarks" -H 'Content-Type: application/json' \
 
 if [ -n "$title" ] || [ -n "$note" ]; then
   kk -X PATCH "$api/bookmarks/$bid" -H 'Content-Type: application/json' \
-    -d "$(jq -nc --arg t "$title" --arg n "$note" \
-      '{} + (if $t=="" then {} else {title:$t} end) + (if $n=="" then {} else {note:$n} end)')" >/dev/null \
+    -d "$(jq -nc --arg t "$title" --arg n "$note" '{} + (if $t=="" then {} else {title:$t} end) + (if $n=="" then {} else {note:$n} end)')" >/dev/null \
     || err "bookmark update failed"
 fi
 
@@ -64,4 +98,5 @@ if [ "${#tags[@]}" -gt 0 ]; then
 fi
 
 pub="${KARAKEEP_PUBLIC_URL:-$addr}"
-jq -nc --arg id "$bid" --arg v "$pub/dashboard/preview/$bid" '{bookmarkId:$id, viewUrl:$v}'
+jq -nc --arg id "$bid" --arg v "$pub/dashboard/preview/$bid" --arg lid "$list_id" \
+  '{bookmarkId:$id, viewUrl:$v, listId:(if $lid=="" then null else $lid end)}'
