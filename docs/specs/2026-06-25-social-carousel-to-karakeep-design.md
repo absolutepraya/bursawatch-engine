@@ -4,6 +4,12 @@
 **Status:** Approved design, ready for implementation plan
 **Owner:** Abhip / Yanto (Hermes agent on the VPS)
 
+> **Implementation note (2026-06-25):** During build, cobalt's TikTok module turned out to
+> be broken (fails for every TikTok URL from any IP). The fetch skill (named `media`, not a
+> separate orchestrator) therefore routes **TikTok -> tikwm.com** and **Instagram/X -> cobalt**.
+> Verified working: TikTok (tikwm) and Instagram (cobalt, no cookies). X stays best-effort. The
+> cobalt container (now on port 9009, since cap-minio holds 9000/9001) is kept for IG/X.
+
 ## Goal
 
 Let Abhip send Yanto a TikTok / Instagram / Twitter(X) post link in chat and have
