@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# karakeep — save a bookmark (link + optional images + note) to KaraKeep, into a folder.
+# Usage: karakeep save --url <url> [--title <t>] [--note <text|@file>] [--list <name>] [--asset <path>]... [--tag <t>]...
+set -euo pipefail
+err(){ echo "karakeep: $*" >&2; exit 1; }
+
+[ "${1:-}" = save ] || err "usage: karakeep save --url <url> [...]"; shift
+url="" title="" note="" list=""; assets=(); tags=()
+while [ $# -gt 0 ]; do case "$1" in
+  --url) url="${2:?}"; shift 2;;
+  --title) title="${2:?}"; shift 2;;
+  --note) note="${2:?}"; shift 2;;
+  --list) list="${2:?}"; shift 2;;
+  --asset) assets+=("${2:?}"); shift 2;;
+  --tag) tags+=("${2:?}"); shift 2;;
+  *) err "unknown arg: $1";;
+esac; done
+[ -n "$url" ] || err "--url required"
+if [ "${note:0:1}" = "@" ]; then nf="${note:1}"; [ -r "$nf" ] || err "note file unreadable: $nf"; note=$(cat "$nf"); fi
+
+key="${KARAKEEP_API_KEY:-}"; addr="${KARAKEEP_ADDR:-}"
+if [ -r "$HOME/.hermes/.env" ]; then
+  [ -z "$key" ] && key=$(grep -E '^KARAKEEP_API_KEY=' "$HOME/.hermes/.env" | head -1 | cut -d= -f2-)
+  [ -z "$addr" ] && addr=$(grep -E '^KARAKEEP_ADDR=' "$HOME/.hermes/.env" | head -1 | cut -d= -f2-)
+fi
+addr="${addr:-http://localhost:3000}"; [ -n "$key" ] || err "KARAKEEP_API_KEY not set"
+api="$addr/api/v1"; AUTH=(-H "Authorization: Bearer $key")
+kk(){ curl -fsS --max-time 60 "${AUTH[@]}" "$@"; }
+
+# resolve list name -> id (0 -> error, >1 -> ambiguous)
+list_id=""
+if [ -n "$list" ]; then
+  matches=$(kk "$api/lists" | jq -r --arg n "$list" '.lists[] | select(.name==$n) | .id')
+  cnt=$(printf '%s' "$matches" | grep -c . || true)
+  [ "$cnt" -eq 0 ] && err "list '$list' not found"
+  [ "$cnt" -gt 1 ] && err "list '$list' ambiguous ($cnt matches); disambiguate"
+  list_id="$matches"
+fi
+
+bid=$(kk -X POST "$api/bookmarks" -H 'Content-Type: application/json' \
+  -d "$(jq -nc --arg u "$url" '{type:"link", url:$u}')" | jq -r '.id // empty')
+[ -n "$bid" ] || err "bookmark create failed"
+
+if [ -n "$title" ] || [ -n "$note" ]; then
+  kk -X PATCH "$api/bookmarks/$bid" -H 'Content-Type: application/json' \
+    -d "$(jq -nc --arg t "$title" --arg n "$note" \
+      '{} + (if $t=="" then {} else {title:$t} end) + (if $n=="" then {} else {note:$n} end)')" >/dev/null \
+    || err "bookmark update failed"
+fi
+
+for a in "${assets[@]:-}"; do [ -n "$a" ] || continue
+  [ -r "$a" ] || err "asset unreadable: $a"
+  aid=$(kk -X POST "$api/assets" -F "file=@$a" | jq -r '.assetId // empty')
+  [ -n "$aid" ] || err "asset upload failed: $a"
+  kk -X POST "$api/bookmarks/$bid/assets" -H 'Content-Type: application/json' \
+    -d "$(jq -nc --arg id "$aid" '{id:$id, assetType:"userUploaded"}')" >/dev/null || err "asset attach failed: $a"
+done
+
+if [ -n "$list_id" ]; then kk -X PUT "$api/lists/$list_id/bookmarks/$bid" >/dev/null || err "add-to-list failed"; fi
+
+if [ "${#tags[@]}" -gt 0 ]; then
+  tjson=$(printf '%s\n' "${tags[@]}" | jq -R . | jq -s '{tags: map({tagName: .})}')
+  kk -X POST "$api/bookmarks/$bid/tags" -H 'Content-Type: application/json' -d "$tjson" >/dev/null || true
+fi
+
+pub="${KARAKEEP_PUBLIC_URL:-$addr}"
+jq -nc --arg id "$bid" --arg v "$pub/dashboard/preview/$bid" '{bookmarkId:$id, viewUrl:$v}'
