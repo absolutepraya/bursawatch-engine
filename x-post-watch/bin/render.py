@@ -1,0 +1,150 @@
+from __future__ import annotations
+
+import re
+from html.parser import HTMLParser
+
+from models import Profile, SourcePost
+
+
+DISCORD_LIMIT = 2000
+
+
+class _TextParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.parts: list[str] = []
+        self.href: str | None = None
+
+    def handle_starttag(self, tag, attrs):
+        values = dict(attrs)
+        if tag in {"p", "div", "br"}:
+            self.parts.append("\n")
+        elif tag == "li":
+            self.parts.append("\n- ")
+        elif tag == "strong":
+            self.parts.append("**")
+        elif tag in {"em", "i"}:
+            self.parts.append("*")
+        elif tag == "a":
+            self.href = values.get("href")
+
+    def handle_endtag(self, tag):
+        if tag == "strong":
+            self.parts.append("**")
+        elif tag in {"em", "i"}:
+            self.parts.append("*")
+        elif tag == "a" and self.href:
+            self.parts.append(f" (<{self.href}>)")
+            self.href = None
+
+    def handle_data(self, data):
+        self.parts.append(re.sub(r"([`~|])", r"\\\1", data))
+
+
+def markdown(html: str) -> str:
+    parser = _TextParser()
+    parser.feed(html)
+    return re.sub(r"\n{3,}", "\n\n", "".join(parser.parts)).strip()
+
+
+def _split_plain(value: str, limit: int) -> list[str]:
+    """Split only source text, never a Markdown link or quote block we add."""
+    value = value.strip()
+    if not value:
+        return []
+    result: list[str] = []
+    while len(value) > limit:
+        candidates = (value.rfind("\n\n", 0, limit + 1), value.rfind("\n", 0, limit + 1), value.rfind(" ", 0, limit + 1))
+        cut = next((candidate for candidate in candidates if candidate > 0), limit)
+        result.append(value[:cut].rstrip())
+        value = value[cut:].lstrip()
+    return result + [value]
+
+
+def _append_text(prefix: str, text: str) -> list[str]:
+    limit = DISCORD_LIMIT - len(prefix)
+    if limit <= 0:
+        raise ValueError("Discord heading exceeds its message limit")
+    chunks = _split_plain(text, limit)
+    if not chunks:
+        return [prefix.rstrip()]
+    return [prefix + chunks[0], *_split_plain("\n\n".join(chunks[1:]), DISCORD_LIMIT)]
+
+
+def _append_atomic(messages: list[str], value: str, separator: str) -> None:
+    """Keep links and quote blocks whole, placing them in a new message if needed."""
+    if len(value) > DISCORD_LIMIT:
+        raise ValueError("atomic Discord section exceeds its message limit")
+    if len(messages[-1]) + len(separator) + len(value) <= DISCORD_LIMIT:
+        messages[-1] += separator + value
+    else:
+        messages.append(value)
+
+
+def _truncate(value: str, limit: int = 400) -> str:
+    if len(value) <= limit:
+        return value
+    cut = value.rfind(" ", 0, limit)
+    return value[:cut if cut > 0 else limit].rstrip() + "…"
+
+
+def _quoted_block(content_html: str, quoted_url: str) -> str:
+    quoted = _truncate(markdown(content_html) or "Quoted post text unavailable")
+    name, separator, content = quoted.partition(":")
+    if not separator or not name.strip():
+        name, content = "Quoted post", quoted
+    lines = [f"> **{name.strip()}**"]
+    content_lines = content.strip().splitlines()
+    last_content_line = max(index for index, line in enumerate(content_lines) if line.strip())
+    for index, line in enumerate(content_lines):
+        if not line.strip():
+            lines.append("> \u200b")
+        elif index == last_content_line:
+            lines.append(f"> {line} [View quoted on X](<{quoted_url}>)")
+        else:
+            lines.append(f"> {line}")
+    return "\n".join(lines)
+
+
+def _article_block(label: str | None, article_url: str) -> str:
+    safe_label = re.sub(r"([`~|*_])", r"\\\1", " ".join((label or "Quoted X Article").split()))
+    return f"> **{safe_label}**\n> [Read Article on X](<{article_url}>)"
+
+
+def _excerpt_block(content_html: str) -> str:
+    excerpt = _truncate(markdown(content_html), 400)
+    if not excerpt:
+        return ""
+    blank = chr(0x200B)
+    return "\n".join(f"> {line or blank}" for line in excerpt.splitlines())
+
+
+def _thread_text(thread_posts: tuple[SourcePost, ...]) -> str:
+    parts = [markdown(post.content_html) or "*(No text)*" for post in thread_posts]
+    return "\n\n".join(parts)
+
+
+def render_post(profile: Profile, post: SourcePost, summary: str | None = None, title: str | None = None, thread_posts: tuple[SourcePost, ...] | None = None) -> list[str]:
+    heading = f"### {profile.twitter_emoji} {title}\n-# {profile.emoji} {profile.display_name}" if title else f"### {profile.twitter_emoji}{profile.emoji} {profile.display_name}"
+    prefix = f"{heading}\n\n"
+    if summary is not None:
+        messages = _append_text(prefix, summary.strip())
+        if post.quoted_content_html:
+            _append_atomic(messages, _quoted_block(post.quoted_content_html, post.quoted_url or post.url), "\n\n")
+        # RSSHub can provide an Article's opening text in the authored quote.
+        # Keep a small source excerpt beside the summary instead of hiding it.
+        if post.quoted_article_url:
+            excerpt = _excerpt_block(post.content_html)
+            if excerpt:
+                _append_atomic(messages, excerpt, "\n\n")
+        _append_atomic(messages, f"[View on X](<{post.url}>)", "\n\n")
+        if post.quoted_article_url:
+            _append_atomic(messages, _article_block(post.quoted_article_label, post.quoted_article_url), "\n")
+        return messages
+    messages = _append_text(prefix, _thread_text(thread_posts or (post,)))
+    _append_atomic(messages, f"[View on X](<{post.url}>)", " ")
+    if post.quoted_content_html:
+        _append_atomic(messages, _quoted_block(post.quoted_content_html, post.quoted_url or post.url), "\n")
+    if post.quoted_article_url:
+        _append_atomic(messages, _article_block(post.quoted_article_label, post.quoted_article_url), "\n")
+    return messages

@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+
+if ! git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "deployment refused: Hermes source is not a Git worktree" >&2
+  exit 1
+fi
+
+if [ -n "$(git -C "$repo_root" status --porcelain --untracked-files=normal)" ]; then
+  echo "deployment refused: Hermes worktree is not clean" >&2
+  exit 1
+fi
+
+if ! git -C "$repo_root" remote get-url origin >/dev/null 2>&1; then
+  echo "deployment refused: origin is not configured" >&2
+  exit 1
+fi
+
+if ! git -C "$repo_root" fetch --quiet --prune origin; then
+  echo "deployment refused: origin could not be refreshed" >&2
+  exit 1
+fi
+
+head_sha="$(git -C "$repo_root" rev-parse HEAD)"
+published_refs="$(git -C "$repo_root" for-each-ref --contains="$head_sha" --format='%(refname)' refs/remotes/origin/)"
+if [ -z "$published_refs" ]; then
+  echo "deployment refused: commit $head_sha is not published to origin" >&2
+  exit 1
+fi
+
+printf 'published commit: %s\n' "$head_sha"

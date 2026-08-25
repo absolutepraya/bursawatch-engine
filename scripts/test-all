@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+python_bin="${PYTHON:-$repo_root/.venv/bin/python}"
+
+if ! command -v "$python_bin" >/dev/null 2>&1 && [ ! -x "$python_bin" ]; then
+  echo "test runner not found: $python_bin" >&2
+  exit 1
+fi
+
+run_suite() {
+  local name="$1" directory="$2" target="$3"
+  printf '\n== %s ==\n' "$name"
+  (cd "$repo_root/$directory" && "$python_bin" -m pytest -q "$target")
+}
+
+run_suite dotfiles-sync dotfiles-sync tests
+run_suite idx-ca-watch idx-ca-watch tests
+run_suite idx-market-news-watch idx-market-news-watch tests
+run_suite idx-ssf-watch-phintraco-weekly idx-ssf-watch-phintraco-weekly tests
+run_suite idx-swing-watch-phintraco-daily idx-swing-watch-phintraco-daily tests
+run_suite job-watcher job-watcher bin
+run_suite karakeep-backup karakeep-backup tests
+run_suite kelas-investasi-gtw-watch kelas-investasi-gtw-watch tests
+run_suite mac-job-executors mac-job-executors tests
+run_suite mm-weekly-log-normalizer mm-weekly-log-normalizer tests
+run_suite mm mm tests
+run_suite polymarket-signal-watch polymarket-signal-watch tests
+run_suite scele-digest scele-digest tests
+run_suite skills-update skills-update tests
+run_suite telegram-resilience telegram-resilience tests
+run_suite us-etf-dca-watch us-etf-dca-watch tests
+run_suite x-post-watch x-post-watch tests
+run_suite yanto-gateway-voice yanto-gateway-voice tests
+
+printf '\n== security-audit ==\n'
+(cd "$repo_root" && PYTHONPATH=security-audit/bin "$python_bin" -m pytest -q security-audit/bin)
+
+run_suite repository-policy . tests

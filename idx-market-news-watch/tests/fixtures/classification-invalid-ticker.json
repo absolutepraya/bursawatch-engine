@@ -1,0 +1,15 @@
+{
+  "candidate_key": "tuntun:13597:INCO",
+  "ticker": "INCO",
+  "event_class": "material_contract",
+  "summary": "Darma Henwa disclosed a Rp22 trillion contract. The announcement identifies the contract as material to operations.",
+  "material_facts": [
+    "The disclosed contract value is Rp22 trillion."
+  ],
+  "ranking_band": 1,
+  "dedupe_facts": [
+    "DEWA contract Rp22 trillion"
+  ],
+  "eligible": true,
+  "source_evidence": "DEWA (Darma Henwa): kontrak Rp22 triliun."
+}

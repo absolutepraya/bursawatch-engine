@@ -1,0 +1,15 @@
+#!/usr/bin/env python3
+"""Quick status probe for idx-ca-watch."""
+import sys, json
+from pathlib import Path
+sys.path.insert(0, str(Path.home() / ".agents" / "skills" / "idx-ca-watch" / "bin"))
+import scan
+
+p = scan.state_path()
+st = json.loads(p.read_text()) if p.exists() else {}
+seen = st.get("seen", {})
+scored = [v for v in seen.values() if v.get("scored")]
+print(f"last_run : {st.get('last_run')}")
+print(f"cache    : {len(seen)} seen ({len(scored)} scored)")
+print(f"runs     : {st.get('stats', {}).get('runs')}")
+print(f"state    : {p}")

@@ -1,0 +1,162 @@
+{
+  "version": 1,
+  "profiles": [
+    {
+      "id": "kutekians",
+      "enabled": true,
+      "profile_url": "https://x.com/Kutekians",
+      "handle": "Kutekians",
+      "display_name": "Almer Sad, CFA",
+      "twitter_emoji": "<:twitter:1531672630602498129>",
+      "emoji": "<:kutekians:1531673483459821729>",
+      "discord_channels": [
+        {
+          "key": "macro",
+          "channel_id": "1531655369884045382",
+          "description": "Broad economic, business, market, sector, and cross-asset analysis."
+        }
+      ],
+      "forward_normal_post": true,
+      "forward_quote_post": true,
+      "forward_reply": false,
+      "forward_repost": false,
+      "forward_media": true,
+      "enable_llm_title": true,
+      "enable_llm_summary": true,
+      "enable_llm_routing": false,
+      "enable_llm_relevance_filter": true,
+      "additional_prompt_instruction": "",
+      "max_items_per_poll": 50,
+      "thread_handling": {
+        "mode": "disabled",
+        "max_posts": 10,
+        "max_age_minutes": 240,
+        "settle_minutes": 60
+      }
+    },
+    {
+      "id": "rickyho1989",
+      "enabled": true,
+      "profile_url": "https://x.com/rickyho_1989",
+      "handle": "rickyho_1989",
+      "display_name": "Ricky Ho",
+      "twitter_emoji": "<:twitter:1531672630602498129>",
+      "emoji": "<:rickyho1989:1531920390434328577>",
+      "discord_channels": [
+        {
+          "key": "macro",
+          "channel_id": "1531655369884045382",
+          "description": "Broad economic, business, market, sector, and cross-asset analysis."
+        },
+        {
+          "key": "id_stock",
+          "channel_id": "1525102508714889257",
+          "description": "Direct IDX-listed company or ticker thesis."
+        },
+        {
+          "key": "us_stock",
+          "channel_id": "1532266331737686199",
+          "description": "Direct NYSE- or Nasdaq-listed security thesis, including ADRs."
+        }
+      ],
+      "forward_normal_post": true,
+      "forward_quote_post": true,
+      "forward_reply": false,
+      "forward_repost": false,
+      "forward_media": true,
+      "enable_llm_title": true,
+      "enable_llm_summary": true,
+      "enable_llm_routing": true,
+      "enable_llm_relevance_filter": true,
+      "additional_prompt_instruction": "",
+      "max_items_per_poll": 50,
+      "thread_handling": {
+        "mode": "disabled",
+        "max_posts": 10,
+        "max_age_minutes": 240,
+        "settle_minutes": 60
+      }
+    },
+    {
+      "id": "writingtorch",
+      "enabled": true,
+      "profile_url": "https://x.com/writingtorch",
+      "handle": "writingtorch",
+      "display_name": "Torch",
+      "twitter_emoji": "<:twitter:1531672630602498129>",
+      "emoji": "<:writingtorch:1532596179853115594>",
+      "discord_channels": [
+        {
+          "key": "macro",
+          "channel_id": "1531655369884045382",
+          "description": "Broad economic, business, market, sector, and cross-asset analysis."
+        },
+        {
+          "key": "id_stock",
+          "channel_id": "1525102508714889257",
+          "description": "Direct IDX-listed company or ticker thesis."
+        }
+      ],
+      "forward_normal_post": true,
+      "forward_quote_post": true,
+      "forward_reply": false,
+      "forward_repost": false,
+      "forward_media": true,
+      "enable_llm_title": true,
+      "enable_llm_summary": true,
+      "enable_llm_routing": true,
+      "enable_llm_relevance_filter": true,
+      "additional_prompt_instruction": "",
+      "max_items_per_poll": 50,
+      "thread_handling": {
+        "mode": "self_chain",
+        "max_posts": 10,
+        "max_age_minutes": 240,
+        "settle_minutes": 15
+      }
+    },
+    {
+      "id": "arvinhonami",
+      "enabled": true,
+      "profile_url": "https://x.com/ArvinHonami",
+      "handle": "ArvinHonami",
+      "display_name": "Arvin Honami",
+      "twitter_emoji": "<:twitter:1531672630602498129>",
+      "emoji": "<:arvinhonami:1533149571759472772>",
+      "discord_channels": [
+        {
+          "key": "macro",
+          "channel_id": "1531655369884045382",
+          "description": "Broad economic, business, market, sector, and cross-asset analysis."
+        },
+        {
+          "key": "id_stock",
+          "channel_id": "1525102508714889257",
+          "description": "Direct IDX-listed company or ticker thesis."
+        },
+        {
+          "key": "us_stock",
+          "channel_id": "1532266331737686199",
+          "description": "Direct NYSE- or Nasdaq-listed security thesis, including ADRs."
+        }
+      ],
+      "forward_normal_post": true,
+      "forward_quote_post": true,
+      "forward_reply": false,
+      "forward_repost": false,
+      "forward_media": true,
+      "enable_llm_title": true,
+      "enable_llm_summary": true,
+      "enable_llm_routing": true,
+      "enable_llm_relevance_filter": true,
+      "additional_prompt_instruction": "Arvin often posts jokes, short reactions, or viral social commentary. Forward concise posts when they still contain a concrete market, macroeconomic, policy, company, asset-price, or investing thesis. Exclude purely comedic, social, or viral reactions that only mention money, banks, companies, or the IHSG without meaningful market information or implications.",
+      "max_items_per_poll": 50,
+      "thread_handling": {
+        "mode": "disabled",
+        "max_posts": 10,
+        "max_age_minutes": 240,
+        "settle_minutes": 60
+      }
+    }
+  ]
+}

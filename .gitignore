@@ -1,0 +1,68 @@
+# macOS and editor artifacts
+.DS_Store
+**/.DS_Store
+.idea/
+.vscode/
+
+# Python environments and caches
+.venv/
+**/.venv/
+venv/
+**/venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+**/.pytest_cache/
+.coverage
+coverage/
+htmlcov/
+
+# Agent, browser, and worktree scratch space
+.playwright-mcp/
+.superpowers/
+**/.superpowers/
+.worktrees/
+.wt/state.json
+.wt/allocations.json
+
+# Credentials and machine-local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+cobalt/compose/cookies.json
+
+# Runtime state and logs
+state/
+**/state/
+state.json
+**/state.json
+state.db
+state.db-*
+**/state.db
+**/state.db-*
+*.sqlite
+*.sqlite3
+*.log
+
+# Generated and temporary artifacts
+*.bak
+*.bak-*
+*.backup
+*.backup-*
+*.orig
+*.tmp
+tmp/
+**/tmp/
+dist/
+**/dist/
+build/
+**/build/
+mm-weekly-log-normalizer/local-backfill/
+mm-weekly-log-normalizer/preview/
+
+# Independent repository, intentionally outside parent history
+hermes-agent-starter/
