@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Run ON THE VPS. Tests the fetch-media skill's TikTok (tikwm) path.
+# Run ON THE VPS. Tests the cobalt skill's TikTok (tikwm) path.
 # Override TEST_TT to use a different public TikTok photo URL.
 set -euo pipefail
 TEST_TT="${TEST_TT:-https://vt.tiktok.com/ZSCFXvRDG/}"
-BIN=~/.agents/skills/fetch-media/bin/fetch-media
+BIN=~/.agents/skills/cobalt/bin/cobalt
 
 out=$("$BIN" "$TEST_TT")
 echo "$out" | jq -e '.host=="tiktok" and .count >= 2 and (.images|length)==.count and .type=="carousel"' >/dev/null \

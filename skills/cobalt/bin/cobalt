@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# fetch-media — download photos/slides/video from a TikTok/Instagram/Twitter(X) link.
+# cobalt — download photos/slides/video from a TikTok/Instagram/Twitter(X) link.
 # Routes by host: TikTok -> tikwm.com API (handles photo mode); Instagram/X -> self-hosted cobalt.
 # Prints JSON describing what was downloaded.
-# Usage: fetch-media <url> [--out <dir>]
+# Usage: cobalt <url> [--out <dir>]
 set -euo pipefail
-err(){ echo "fetch-media: $*" >&2; exit 1; }
+err(){ echo "cobalt: $*" >&2; exit 1; }
 
-url="${1:-}"; [ -n "$url" ] || err "usage: fetch-media <url> [--out <dir>]"; shift
+url="${1:-}"; [ -n "$url" ] || err "usage: cobalt <url> [--out <dir>]"; shift
 outdir=""
 while [ $# -gt 0 ]; do case "$1" in
   --out) outdir="${2:?}"; shift 2;;
@@ -21,7 +21,7 @@ case "$host" in
   *) err "unsupported host '$host' (tiktok / instagram / twitter|x only)";;
 esac
 
-outdir="${outdir:-$(mktemp -d /tmp/fetchmedia-XXXXXX)}"; mkdir -p "$outdir"
+outdir="${outdir:-$(mktemp -d /tmp/cobalt-XXXXXX)}"; mkdir -p "$outdir"
 caption=""; audio_u=""; type="single"; media=()
 
 if [ "$svc" = tiktok ]; then

@@ -3,7 +3,7 @@
 set -euo pipefail
 ROOT="$HOME/Documents/Projects/Hermes/cobalt"
 
-for s in fetch-media karakeep; do
+for s in cobalt karakeep; do
   [ -d "$ROOT/skills/$s" ] || continue
   rsync -a "$ROOT/skills/$s/" "vps:.agents/skills/$s/"
   ssh vps "chmod +x ~/.agents/skills/$s/bin/* 2>/dev/null; chmod 600 ~/.agents/skills/$s/SKILL.md 2>/dev/null; true"

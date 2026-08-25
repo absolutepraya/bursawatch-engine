@@ -1,9 +1,9 @@
 ---
-name: fetch-media
+name: cobalt
 description: Download photos, slides, or video from a TikTok, Instagram, or Twitter/X link. Use when the user shares such a link and you need its media files locally (e.g. to read carousel slides or archive a post).
 ---
 
-# fetch-media — fetch a social post's media
+# cobalt — fetch a social post's media
 
 Downloads media from one TikTok / Instagram / Twitter(X) URL and prints JSON
 describing what it saved. Routes by host:
@@ -14,16 +14,16 @@ describing what it saved. Routes by host:
 
 ## Usage
 
-    fetch-media <url> [--out <dir>]
+    cobalt <url> [--out <dir>]
 
 ## Output (stdout JSON)
 
-    {"source_url":"…","host":"tiktok","type":"carousel","caption":"…","images":["/tmp/fetchmedia-…/01.jpg", …],"audio":null,"count":6}
+    {"source_url":"…","host":"tiktok","type":"carousel","caption":"…","images":["/tmp/cobalt-…/01.jpg", …],"audio":null,"count":6}
 
 - `type` is `carousel` (multiple slides) or `single`.
 - `caption` is the post caption when available (TikTok title) — useful for the note.
 - `images` are absolute paths; read each one (vision) to extract content.
-- Exits non-zero with `fetch-media: <reason>` on unsupported host, API error, or download failure.
+- Exits non-zero with `cobalt: <reason>` on unsupported host, API error, or download failure.
 
 ## Notes
 
