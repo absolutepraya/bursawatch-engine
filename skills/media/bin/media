@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# cobalt — download photos/slides/video from a TikTok/Instagram/Twitter(X) link.
+# media - download photos/slides/video from a TikTok/Instagram/Twitter(X) link.
 # Routes by host: TikTok -> tikwm.com API (handles photo mode); Instagram/X -> self-hosted cobalt.
 # Prints JSON describing what was downloaded.
-# Usage: cobalt <url> [--out <dir>]
+# Usage: media <url> [--out <dir>]
 set -euo pipefail
-err(){ echo "cobalt: $*" >&2; exit 1; }
+err(){ echo "media: $*" >&2; exit 1; }
 
-url="${1:-}"; [ -n "$url" ] || err "usage: cobalt <url> [--out <dir>]"; shift
+url="${1:-}"; [ -n "$url" ] || err "usage: media <url> [--out <dir>]"; shift
 outdir=""
 while [ $# -gt 0 ]; do case "$1" in
   --out) outdir="${2:?}"; shift 2;;
@@ -21,8 +21,8 @@ case "$host" in
   *) err "unsupported host '$host' (tiktok / instagram / twitter|x only)";;
 esac
 
-outdir="${outdir:-$(mktemp -d /tmp/cobalt-XXXXXX)}"; mkdir -p "$outdir"
-caption=""; audio_u=""; type="single"; media=()
+outdir="${outdir:-$(mktemp -d /tmp/media-XXXXXX)}"; mkdir -p "$outdir"
+caption=""; audio_u=""; type="single"; items=()
 
 if [ "$svc" = tiktok ]; then
   # TikTok via tikwm.com (cobalt's TikTok module is unreliable; tikwm handles photo mode)
@@ -30,16 +30,16 @@ if [ "$svc" = tiktok ]; then
   resp=$(curl -fsS --max-time 60 -H 'User-Agent: Mozilla/5.0' "${tapi}?url=${url}") || err "tikwm request failed"
   [ "$(printf '%s' "$resp" | jq -r '.code // -1')" = "0" ] || err "tikwm error: $(printf '%s' "$resp" | jq -r '.msg // "unknown"')"
   caption=$(printf '%s' "$resp" | jq -r '.data.title // ""')
-  mapfile -t media < <(printf '%s' "$resp" | jq -r '.data.images[]? // empty')
-  if [ "${#media[@]}" -gt 0 ]; then
+  mapfile -t items < <(printf '%s' "$resp" | jq -r '.data.images[]? // empty')
+  if [ "${#items[@]}" -gt 0 ]; then
     type="carousel"
   else
     v=$(printf '%s' "$resp" | jq -r '.data.play // empty'); [ -n "$v" ] || err "no media in tikwm response"
-    media=("$v"); type="single"
+    items=("$v"); type="single"
   fi
   audio_u=$(printf '%s' "$resp" | jq -r '.data.music // empty')
 else
-  # Instagram / X via self-hosted cobalt
+  # Instagram / X via the self-hosted cobalt instance
   capi="${COBALT_API_URL:-}"
   if [ -z "$capi" ] && [ -r "$HOME/.hermes/.env" ]; then
     capi=$(grep -E '^COBALT_API_URL=' "$HOME/.hermes/.env" | head -1 | cut -d= -f2-)
@@ -50,16 +50,16 @@ else
   status=$(printf '%s' "$resp" | jq -r '.status // "error"')
   [ "$status" = error ] && err "cobalt error: $(printf '%s' "$resp" | jq -r '.error.code // "unknown"')"
   case "$status" in
-    picker) mapfile -t media < <(printf '%s' "$resp" | jq -r '.picker[]|select(.type=="photo" or .type=="gif" or .type=="video")|.url'); type="carousel";;
-    tunnel|redirect) mapfile -t media < <(printf '%s' "$resp" | jq -r '.url'); type="single";;
+    picker) mapfile -t items < <(printf '%s' "$resp" | jq -r '.picker[]|select(.type=="photo" or .type=="gif" or .type=="video")|.url'); type="carousel";;
+    tunnel|redirect) mapfile -t items < <(printf '%s' "$resp" | jq -r '.url'); type="single";;
     *) err "unexpected cobalt status '$status'";;
   esac
   audio_u=$(printf '%s' "$resp" | jq -r '.audio // empty')
 fi
-[ "${#media[@]}" -gt 0 ] || err "no media returned for $url"
+[ "${#items[@]}" -gt 0 ] || err "no media returned for $url"
 
 i=0; files=()
-for m in "${media[@]}"; do
+for m in "${items[@]}"; do
   i=$((i+1))
   ext=$(printf '%s' "$m" | sed -E 's/\?.*//; s/.*\.//' | grep -iE '^(jpe?g|png|webp|gif|mp4)$' || true)
   f=$(printf '%s/%02d.%s' "$outdir" "$i" "${ext:-jpg}")
