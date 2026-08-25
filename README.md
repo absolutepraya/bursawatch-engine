@@ -1,13 +1,14 @@
-# media -> KaraKeep (Yanto)
+# Cobalt media service (Yanto)
 
-Send Yanto a TikTok / Instagram / Twitter(X) link to save its images + an extracted
-note into a KaraKeep folder. TikTok and Instagram work out of the box; X is best-effort.
+Cobalt supports Yanto's social-media extraction workflow. TikTok and Instagram work out of
+the box; X is best-effort. The independent shared `karakeep` skill can consume extracted
+media when a user asks to save it as a bookmark.
 
 ## Pieces
 - `compose/` - self-hosted cobalt container (VPS `~/cobalt/`, `localhost:9009`, mem 512m). Serves Instagram + X.
 - `skills/media/` - fetch a post's media: TikTok via tikwm.com, Instagram/X via cobalt. Prints JSON (image paths + caption).
-- `skills/karakeep/` - save a bookmark (link + images + note) into a named folder.
-- Yanto orchestrates: `media <url>` -> read images (vision) -> `karakeep save` -> reply.
+- The shared `karakeep` skill lives under `~/.agents/skills/karakeep` on each machine, not in this Cobalt project.
+- Yanto can orchestrate: `media <url>` -> read images (vision) -> `karakeep save` -> reply.
 
 ## Why two fetch backends
 cobalt's TikTok module is currently broken (fails for every TikTok URL, from any IP); tikwm.com
@@ -24,7 +25,7 @@ Edit here -> `./deploy.sh` -> test on the VPS (`bash ~/cobalt-tests/test-media.s
 Tests are integration-style; the TikTok test needs a public TikTok photo URL in `TEST_TT`.
 
 ## Config (VPS, never synced)
-- `~/.hermes/.env`: `KARAKEEP_API_KEY`, `KARAKEEP_ADDR`, `COBALT_API_URL`.
+- `~/.hermes/.env`: `COBALT_API_URL`.
 - `~/cobalt/cookies.json`: add IG/X session cookies to improve reliability.
 
 See `docs/specs/` for the design and `docs/plans/` for the implementation plan.
