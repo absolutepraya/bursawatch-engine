@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # karakeep - save/search KaraKeep bookmarks and browse folders (lists).
 # Subcommands:
-#   karakeep save   --url <url> [--title <t>] [--note <text|@file>] [--list <name> | --list-id <id>] [--asset <path>]... [--tag <t>]...
+#   karakeep save   --url <product-url> [--title <t>] [--note <text|@file>] [--source <url>] [--list <name> | --list-id <id>] [--asset <path>]... [--tag <t>]...
 #   karakeep lists  [filter]             # folders as "Parent > Name  [id]" (filter = case-insensitive substring)
 #   karakeep search <query> [--limit N]  # full-text bookmark search -> "title<TAB>url<TAB>id"
 set -euo pipefail
@@ -39,11 +39,12 @@ case "$cmd" in
 esac
 
 # ---- save ----
-url="" title="" note="" list="" list_id=""; assets=(); tags=()
+url="" title="" note="" source="" list="" list_id=""; assets=(); tags=()
 while [ $# -gt 0 ]; do case "$1" in
   --url) url="${2:?}"; shift 2;;
   --title) title="${2:?}"; shift 2;;
   --note) note="${2:?}"; shift 2;;
+  --source) source="${2:?}"; shift 2;;
   --list) list="${2:?}"; shift 2;;
   --list-id) list_id="${2:?}"; shift 2;;
   --asset) assets+=("${2:?}"); shift 2;;
@@ -52,6 +53,8 @@ while [ $# -gt 0 ]; do case "$1" in
 esac; done
 [ -n "$url" ] || err "--url required"
 if [ "${note:0:1}" = "@" ]; then nf="${note:1}"; [ -r "$nf" ] || err "note file unreadable: $nf"; note=$(cat "$nf"); fi
+# --source: keep provenance in the note; --url stays the actual product/store page.
+if [ -n "$source" ]; then note="${note:+$note$'\n\n'}Source: $source"; fi
 
 # resolve --list name -> id (skip if --list-id given). Ambiguous -> print candidates with paths.
 if [ -z "$list_id" ] && [ -n "$list" ]; then
