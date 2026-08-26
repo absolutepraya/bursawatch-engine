@@ -101,7 +101,7 @@ def deliver_oldest_ready_event(
         _persist(persist)
         return False
     if dry_run:
-        _print_intended(event, chunks)
+        _print_intended(event, chunks, media_root)
         return False
 
     try:
@@ -188,7 +188,7 @@ def _oldest_deliverable_event(state: Mapping[str, object]) -> dict[str, object] 
     if not isinstance(outbox, list):
         return None
     for item in outbox:
-        if isinstance(item, dict) and isinstance(item.get("title"), str) and isinstance(item.get("summary"), str):
+        if isinstance(item, dict) and item.get("agent_phase") in ("ready", "delivering") and isinstance(item.get("title"), str) and isinstance(item.get("summary"), str):
             return item
     return None
 
@@ -217,14 +217,14 @@ def _media_path(item: object, media_root: Path) -> Path:
     raise FileNotFoundError("captured source media is unavailable")
 
 
-def _print_intended(event: Mapping[str, object], chunks: list[str]) -> None:
+def _print_intended(event: Mapping[str, object], chunks: list[str], media_root: Path) -> None:
     event_key = str(event["event_key"])
     for index in range(int(event["text_index"]), len(chunks)):
         post_text(chunks[index], DISCORD_CHANNEL_ID, True, nonce(event_key, f"text:{index}"))
     for index in range(int(event["next_media_index"]), len(_media(event))):
         item = _media(event)[index]
         try:
-            path = _media_path(item, _configured_media_root())
+            path = _media_path(item, media_root)
         except FileNotFoundError:
             path = Path("<missing-source-image>")
         print(f"would post file channel={DISCORD_CHANNEL_ID} path={path} nonce={nonce(event_key, f'media:{index}')}")

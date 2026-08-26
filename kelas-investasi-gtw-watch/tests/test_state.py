@@ -267,7 +267,7 @@ def test_claim_oldest_agent_leases_only_once_until_expired() -> None:
 
     assert claim_oldest_agent(value, at("2026-08-11T09:00:00+07:00")) is event
     assert claim_oldest_agent(value, at("2026-08-11T09:01:00+07:00")) is None
-    assert claim_oldest_agent(value, at("2026-08-11T09:05:00+07:00")) is event
+    assert claim_oldest_agent(value, at("2026-08-11T09:15:00+07:00")) is event
 
 
 @pytest.mark.parametrize(

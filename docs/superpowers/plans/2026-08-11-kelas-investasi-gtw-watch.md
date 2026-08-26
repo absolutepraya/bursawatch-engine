@@ -443,3 +443,11 @@ Report job ID, execution ID, source header ID, Discord text ID, attachment count
 - Spec coverage: Tasks 1 and 2 cover exact #GTW detection, 20-minute grouping, no backfill, and exclusions. Tasks 3 and 5 cover the exact approved rendering, plan rows, source link, text-first media, and retries. Tasks 4 and 6 cover Telethon plus shared resilience. Tasks 7 and 8 cover documentation, checksums, no-post proof, registration approval, heartbeat, and natural evidence.
 - Placeholder scan: no incomplete marker, deferred implementation, or unspecified error-handling step appears.
 - Type consistency: models and parser precede state; state precedes renderer and agent protocol; Telegram source and Discord delivery precede scanner; scanner precedes docs, deployment, and registration.
+
+## Task 7 documentation review evidence, 2026-08-11
+
+- Corrected the shared PolyCop inventory to five watchers, including `kelas-investasi-gtw-watch`, and updated the shared checksum inventory to five scanners.
+- Removed the unsupported `KELAS_INVESTASI_GTW_FORCE_HEARTBEAT` instruction from the Kelas deployment runbook.
+- Documented the supported isolated watcher state and media paths, while explicitly recording that the shared resilience state, lock, and production JSONL log remain live paths that a no-post run may touch. The runbook no longer claims production-state-free verification or guaranteed heartbeat output.
+- Local verification passed: `telegram-resilience/tests/test_documentation.py`, 4 passed; `telegram-resilience/tests`, 21 passed; `kelas-investasi-gtw-watch/tests`, 110 passed.
+- No SSH, deployment, scheduler, runtime state, external delivery, or Git operation was performed.

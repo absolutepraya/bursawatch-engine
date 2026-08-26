@@ -567,6 +567,16 @@ class PolyCopResilience:
                 endpoint=_safe_endpoint(endpoint),
             )
 
+    def record_safe_release(self, lease_id: str | None, watcher: str, now: datetime) -> None:
+        """Release a probe that failed locally before Telegram was contacted."""
+        _require_aware(now)
+        with self._lock():
+            state = self._load()
+            circuit = self._lease(state, lease_id, now)
+            circuit.update({"status": "closed", "lease_id": None, "lease_expires_at": None, "next_probe_at": None})
+            self._save(state)
+            self._log("safe_release", now, watcher=watcher)
+
     def claim_notification(self, watcher: str, now: datetime) -> PendingNotification | None:
         _require_aware(now)
         with self._lock():

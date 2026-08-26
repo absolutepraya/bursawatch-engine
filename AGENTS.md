@@ -71,7 +71,7 @@ The deployed VPS runtime remains canonical. Dotfiles is the scrubbed backup that
 
 ## Shared PolyCop Telegram session
 
-- `idx-market-news-watch`, `idx-swing-watch-phintraco-daily`, `idx-ssf-watch-phintraco-weekly`, and `polymarket-signal-watch` share exactly one Telegram user session: `POLYCOP_SESSION_STRING`. Do not add watcher-specific Telegram session variables or auth files.
+- `idx-market-news-watch`, `idx-swing-watch-phintraco-daily`, `idx-ssf-watch-phintraco-weekly`, `kelas-investasi-gtw-watch`, and `polymarket-signal-watch` share exactly one Telegram user session: `POLYCOP_SESSION_STRING`. Do not add watcher-specific Telegram session variables or auth files.
 - The shared control plane is `~/.hermes/state/telegram-resilience-polyclop.json`, owned only by `telegram-resilience`. It serializes healthy probes, coordinates transport backoff, and records an authorization hold. Never reset, edit, or copy this state as source code.
 - Before creating a Telegram client, each watcher must acquire the shared probe through `acquire_probe_after_active_lease`. A peer's active healthy lease may be waited briefly; a transport cooldown or authorization hold must exit cleanly without advancing provider cursors, queues, outboxes, or delivery state.
 - An unauthenticated session is an `auth_required` incident, not a transport retry. Transport failures use the shared bounded backoff and one claimed operational notification. Do not log session strings, API hashes, or other credentials.

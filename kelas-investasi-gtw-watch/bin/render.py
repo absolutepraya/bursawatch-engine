@@ -34,17 +34,21 @@ def _split(prefix: str, summary: str, plan_block: str) -> list[str]:
     if len(complete) <= MAX_DISCORD_CHARACTERS:
         return [complete]
 
-    # The entire source plan and deep link must remain together. The first
-    # message keeps the visible header, later messages continue only summary.
+    # Partition the summary first. The header is only present in the first
+    # chunk; the plan and deep link are a single suffix appended only after
+    # every summary chunk. This prevents a boundary split from rendering the
+    # same summary both with the header and again before the suffix.
     capacity = MAX_DISCORD_CHARACTERS - len(prefix)
     chunks = _chunks(summary, capacity)
+    suffix = "\n\n" + plan_block
     messages = [prefix + chunks[0]]
-    for chunk in chunks[1:-1]:
-        messages.append(chunk)
-    final = chunks[-1] + "\n\n" + plan_block
-    if len(final) > MAX_DISCORD_CHARACTERS:
-        raise ValueError("summary leaves no safe Discord space for source plan")
-    messages.append(final)
+    messages.extend(chunks[1:])
+    if len(messages[-1] + suffix) <= MAX_DISCORD_CHARACTERS:
+        messages[-1] += suffix
+    elif len(suffix) <= MAX_DISCORD_CHARACTERS:
+        messages.append(suffix)
+    else:
+        raise ValueError("source plan exceeds Discord message limit")
     return messages
 
 
@@ -54,11 +58,16 @@ def _chunks(value: str, capacity: int) -> list[str]:
     chunks: list[str] = []
     remaining = value
     while len(remaining) > capacity:
-        boundary = remaining.rfind(" ", 0, capacity + 1)
+        # Keep a delimiter at index ``capacity`` in the next chunk. Including
+        # it in the current chunk would make that chunk one character too
+        # long, while dropping it would alter the rendered summary.
+        boundary = remaining.rfind(" ", 0, capacity)
         if boundary <= 0:
             boundary = capacity
-        chunks.append(remaining[:boundary].rstrip())
-        remaining = remaining[boundary:].lstrip()
+        else:
+            boundary += 1
+        chunks.append(remaining[:boundary])
+        remaining = remaining[boundary:]
     chunks.append(remaining)
     return chunks
 

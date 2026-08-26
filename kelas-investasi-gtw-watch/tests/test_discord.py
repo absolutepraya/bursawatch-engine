@@ -184,6 +184,19 @@ def test_no_post_environment_is_resolved_by_delivery(tmp_path: Path, monkeypatch
     assert event["text_index"] == 0
 
 
+def test_no_post_uses_effective_custom_media_root(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    media_root = tmp_path / "custom-media"
+    media_root.mkdir()
+    event = ready_event(media=[image(media_root, "one.jpg")])
+    event["text_index"] = 1
+
+    assert not deliver_oldest_ready_event(state_with(event), now(), True, media_root=media_root)
+
+    output = capsys.readouterr().out
+    assert str(media_root / "one.jpg") in output
+    assert "<missing-source-image>" not in output
+
+
 def test_rejects_outside_or_nonimage_media_without_leaking_path(tmp_path: Path) -> None:
     outside = tmp_path.parent / "outside.jpg"
     outside.write_bytes(b"\xff\xd8\xffimage")

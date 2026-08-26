@@ -15,11 +15,16 @@ from parsing import extract_plan, parse_gtw_header
 
 
 QUIET_WINDOW = timedelta(minutes=20)
-AGENT_LEASE = timedelta(minutes=5)
+AGENT_LEASE = timedelta(minutes=15)
+DELIVERY_PHASE = "delivering"
 
 
 class CorruptStateError(RuntimeError):
     """Persisted state was quarantined and must not be reset automatically."""
+
+
+class RunLockBusyError(RuntimeError):
+    """The watcher lock is already owned by an active process."""
 
 
 def new_state() -> dict[str, object]:
@@ -99,6 +104,18 @@ def claim_oldest_agent(value: dict[str, object], now: datetime) -> dict[str, obj
     return None
 
 
+def restore_expired_claim(event: dict[str, object], now: datetime) -> bool:
+    """Make an expired agent lease claimable again without accepting a late submission."""
+    if event.get("agent_phase") != "claimed":
+        return False
+    lease = event.get("agent_lease_until")
+    if not isinstance(lease, str) or _time(lease) > now:
+        return False
+    event["agent_phase"] = "ready"
+    event["agent_lease_until"] = None
+    return True
+
+
 @contextmanager
 def run_lock(path: Path) -> Iterator[None]:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -106,7 +123,7 @@ def run_lock(path: Path) -> Iterator[None]:
         try:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
-            raise RuntimeError(f"watcher is already running: {path}") from error
+            raise RunLockBusyError(f"watcher is already running: {path}") from error
         try:
             yield
         finally:
@@ -401,7 +418,7 @@ def _is_image(path: Path) -> bool:
 
 
 def _valid_agent_lease(phase: object, lease: object) -> bool:
-    if phase == "ready":
+    if phase in ("ready", DELIVERY_PHASE):
         return lease is None
     if phase == "claimed":
         return _timestamp(lease)

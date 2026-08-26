@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from render import render_event
+from render import _split, render_event
 
 
 def event(
@@ -71,3 +71,50 @@ def test_renderer_allows_exactly_two_thousand_characters() -> None:
     messages = render_event(event(summary=summary))
     assert len(messages) == 1
     assert len(messages[0]) == 2_000
+
+
+def test_summary_that_fills_first_chunk_keeps_plan_in_following_chunk() -> None:
+    baseline = render_event(event(summary="*(Ringkasan)* x"))[0]
+    header_length = baseline.index("*(Ringkasan)* ")
+    summary_prefix = "*(Ringkasan)* "
+    summary = summary_prefix + "x " * 925
+
+    messages = render_event(event(summary=summary))
+
+    assert len(messages) == 2
+    assert header_length + len(summary) <= 2_000
+    assert len(messages[0]) <= 2_000
+    assert "*(Ringkasan)*" in messages[0]
+    assert "*(Ringkasan)*" not in messages[1]
+    assert "*Plan sumber*" in messages[1]
+    assert messages[1].endswith("[View on Telegram](<https://t.me/kelasinvestasiid/101>)")
+    assert "*(Ringkasan)*" not in "\n".join(messages[1:])
+
+
+def test_split_boundary_renders_summary_once_before_suffix() -> None:
+    header = "H" * 100
+    summary = "*(Ringkasan)* " + "x " * 693
+    plan = "P" * 500
+
+    messages = _split(header, summary, plan)
+
+    assert len(messages) == 2
+    assert all(len(message) <= 2_000 for message in messages)
+    assert messages[0] == header + summary
+    assert messages[1] == "\n\n" + plan
+    assert "".join(message.removeprefix(header).removesuffix("\n\n" + plan) for message in messages) == summary
+    assert "".join(messages).count(summary) == 1
+    assert "".join(messages).count(plan) == 1
+
+
+def test_render_summary_with_boundary_delimiter_never_exceeds_discord_limit() -> None:
+    messages = render_event(
+        event(
+            title="tt",
+            summary="*(Ringkasan)* " + "x " * 1_000,
+        )
+    )
+
+    assert all(len(message) <= 2_000 for message in messages)
+    assert "".join(messages).count("*(Ringkasan)*") == 1
+    assert "".join(messages).count("*Plan sumber*") == 1
