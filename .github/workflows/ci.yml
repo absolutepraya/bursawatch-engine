@@ -37,9 +37,9 @@ jobs:
         run: |
           while IFS= read -r script; do
             bash -n "$script"
-          done < <(git ls-files '*.sh' '*/bin/*' 'scripts/*' | while IFS= read -r path; do
-            if head -n 1 "$path" | grep -Eq '^#!.*(ba|z)?sh'; then
-              printf '%s\n' "$path"
+          done < <(git ls-files '*.sh' '*/bin/*' 'scripts/*' | while IFS= read -r script_path; do
+            if head -n 1 "$script_path" | grep -Eq '^#!.*(ba|z)?sh'; then
+              printf '%s\n' "$script_path"
             fi
           done)
 

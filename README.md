@@ -34,5 +34,25 @@ Source-of-truth dev dirs for the Hermes cron skills that deploy to the VPS at
 ## Tests
 From any watcher directory: `../.venv/bin/python -m pytest -q`.
 
+Run every deterministic focused suite from the repository root:
+
+```bash
+bash scripts/test-all
+```
+
+## Repository boundaries
+
+- This private repository is the canonical development source for Hermes cron skills, Cobalt, and Yanto's lifecycle-voice plugin.
+- `hermes-agent-starter/` remains an independent repository and is intentionally ignored here.
+- Runtime state, credentials, caches, worktrees, generated previews, and MM backfill outputs are never tracked.
+- Cobalt cookies remain machine-local at `cobalt/compose/cookies.json`; the reviewed compose definition stays tracked.
+- Dotfiles owns machine configuration and scrubbed VPS runtime snapshots, not duplicate Hermes development source.
+
+## Validation and deployment
+
+GitHub Actions runs read-only tests, shell syntax checks, and tracked-file policy checks. It has no secrets, VPS access, or deployment authority. A GitHub push never deploys anything.
+
+All deployments remain explicit local commands. The deploy scripts refuse a dirty worktree or a commit that is not published to `origin`, then copy only their documented source paths to the VPS. Continue to verify deployed checksums and the cron-specific no-post path after every manual deployment.
+
 ## Docs
 `docs/specs/` and `docs/plans/` — design + implementation plans (e.g. the cron heartbeat unification).
