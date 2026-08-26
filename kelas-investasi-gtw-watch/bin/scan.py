@@ -21,7 +21,7 @@ if str(_RESILIENCE_BIN) not in sys.path:
 from telegram_resilience import PolyCopResilience, acquire_probe_after_active_lease, is_transport_error
 
 from agent_protocol import RetryableSubmissionError, agent_item, build_wake_payload, validate_submission
-from discord import DISCORD_CHANNEL_ID, deliver_oldest_ready_event, post_text
+from discord import DISCORD_CHANNEL_ID, deliver_oldest_ready_event, nonce, post_text
 from state import RunLockBusyError, claim_oldest_agent, load_state, observe_messages, ready_events, restore_expired_claim, run_lock, save_state
 from telegram_source import capture_image, fetch_unseen_messages, make_client, resolve_source
 
@@ -76,7 +76,8 @@ def post_heartbeat(content: str, now: datetime, dry_run: bool) -> None:
     if dry_run:
         print(content)
         return
-    post_text(content, HEARTBEAT_CHANNEL_ID, False, f"{WATCHER_NAME}:heartbeat:{now.astimezone(WIB):%Y%m%d%H}")
+    hour = now.astimezone(WIB).strftime("%Y%m%d%H")
+    post_text(content, HEARTBEAT_CHANNEL_ID, False, nonce(f"heartbeat:{hour}", "status"))
 
 
 async def _disconnect(client: object | None) -> None:

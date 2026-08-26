@@ -147,6 +147,18 @@ def test_unavailable_source_attempts_fatal_heartbeat_and_main_returns_nonzero(mo
     assert scan.main([]) == 1
 
 
+def test_heartbeat_uses_a_stable_discord_length_nonce(monkeypatch: pytest.MonkeyPatch) -> None:
+    import scan
+
+    calls: list[tuple[str, str, bool, str]] = []
+    monkeypatch.setattr(scan, "post_text", lambda *args: calls.append(args))
+    moment = at("2026-08-11T09:00:00+07:00")
+
+    scan.post_heartbeat("heartbeat", moment, False)
+
+    assert calls == [("heartbeat", "1505162000420835388", False, "3abb1eb66e74807b23239d72")]
+
+
 async def _raise_async(error: BaseException) -> object:
     raise error
 
