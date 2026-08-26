@@ -382,7 +382,7 @@ Expected: the new SKILL.md and shared inventory are absent.
 Document all Global Constraints, exact text format, source-instruction safety, no direct Telegram posting, deployment through ./deploy.sh kelas-investasi-gtw-watch, runtime docs sync, wrapper checksum, and this no-post command:
 
 ~~~bash
-ssh vps 'KELAS_INVESTASI_GTW_NO_POST=1 KELAS_INVESTASI_GTW_STATE_PATH=/tmp/kelas-investasi-gtw-state.json KELAS_INVESTASI_GTW_FORCE_HEARTBEAT=1 ~/.hermes/scripts/kelas-investasi-gtw-watch.sh'
+ssh vps 'KELAS_INVESTASI_GTW_NO_POST=1 KELAS_INVESTASI_GTW_STATE_PATH=/tmp/kelas-investasi-gtw-state.json KELAS_INVESTASI_GTW_STATE_MEDIA_ROOT=/tmp/kelas-investasi-gtw-media ~/.hermes/scripts/kelas-investasi-gtw-watch.sh'
 ~~~
 
 Update AGENTS.md shared PolyCop watcher list and root README cron inventory. Do not modify the dotfiles mirror.
@@ -397,7 +397,7 @@ Run:
 
 ~~~bash
 ./.venv/bin/python -m pytest -q
-ssh vps 'KELAS_INVESTASI_GTW_NO_POST=1 KELAS_INVESTASI_GTW_STATE_PATH=/tmp/kelas-investasi-gtw-state.json KELAS_INVESTASI_GTW_FORCE_HEARTBEAT=1 ~/.hermes/scripts/kelas-investasi-gtw-watch.sh'
+ssh vps 'KELAS_INVESTASI_GTW_NO_POST=1 KELAS_INVESTASI_GTW_STATE_PATH=/tmp/kelas-investasi-gtw-state.json KELAS_INVESTASI_GTW_STATE_MEDIA_ROOT=/tmp/kelas-investasi-gtw-media ~/.hermes/scripts/kelas-investasi-gtw-watch.sh'
 git rev-parse --is-inside-work-tree
 ~~~
 
@@ -417,7 +417,7 @@ Expected: all tests pass; isolated no-post prints intended heartbeat and creates
 Do not run this before approval:
 
 ~~~bash
-ssh vps '$HOME/.local/bin/hermes cron create "0 * * * *" --name kelas-investasi-gtw-watch --deliver discord:1505162000420835388 --script ~/.hermes/scripts/kelas-investasi-gtw-watch.sh --no-agent --workdir /home/praya'
+ssh vps '$HOME/.local/bin/hermes cron create "0 * * * *" --name kelas-investasi-gtw-watch --deliver discord:1505162000420835388 --skill kelas-investasi-gtw-watch --script ~/.hermes/scripts/kelas-investasi-gtw-watch.sh --workdir /home/praya'
 ~~~
 
 Explain that the first natural execution is cursor initialization only and sends no historical #GTW alerts.
