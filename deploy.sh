@@ -15,7 +15,7 @@ repo_root="$(cd "$(dirname "$0")" && pwd)"
 
 cron="${1:?usage: deploy.sh <cron> [file]}"
 file="${2:-}"
-src="$HOME/Documents/Projects/Hermes/$cron/bin"
+src="$repo_root/$cron/bin"
 dst="vps:.agents/skills/$cron/bin"
 
 [[ "$cron" =~ ^[a-z0-9][a-z0-9-]*$ ]] || {
