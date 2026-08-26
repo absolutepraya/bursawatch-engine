@@ -14,6 +14,6 @@ done < "$env_file"
 
 export PYTHONPATH="$HOME/.agents/skills/telegram-resilience/bin"
 set +e
-"$python_bin" "$HOME/.agents/skills/kelas-investasi-gtw-watch/bin/scan.py" "$@" 2>&1 | sed -E 's/(POLYCOP_SESSION_STRING|DISCORD_BOT_TOKEN|TELEGRAM_API_ID|TELEGRAM_API_HASH)=[^[:space:]]+/\1=<redacted>/g' >> "$log_file"
+"$python_bin" "$HOME/.agents/skills/kelas-investasi-gtw-watch/bin/scan.py" "$@" 2>&1 | sed -E 's/(POLYCOP_SESSION_STRING|DISCORD_BOT_TOKEN|TELEGRAM_API_ID|TELEGRAM_API_HASH)=[^[:space:]]+/\1=<redacted>/g' | tee -a "$log_file"
 status=${PIPESTATUS[0]}
 exit "$status"

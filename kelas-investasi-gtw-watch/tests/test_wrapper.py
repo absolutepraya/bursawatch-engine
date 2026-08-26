@@ -12,4 +12,5 @@ def test_wrapper_uses_restricted_environment_shared_runtime_and_sanitized_log() 
         assert key in wrapper
     assert '"$HOME/.local/share/uv/tools/yahoo-finance-mcp/bin/python"' in wrapper
     assert '"$HOME/.logs/kelas-investasi-gtw-watch.log"' in wrapper
+    assert '| tee -a "$log_file"' in wrapper
     assert 'exit "$status"' in wrapper
