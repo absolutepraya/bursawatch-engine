@@ -417,7 +417,7 @@ Expected: all tests pass; isolated no-post prints intended heartbeat and creates
 Do not run this before approval:
 
 ~~~bash
-ssh vps '$HOME/.local/bin/hermes cron create "0 * * * *" --name kelas-investasi-gtw-watch --deliver discord:1505162000420835388 --skill kelas-investasi-gtw-watch --script ~/.hermes/scripts/kelas-investasi-gtw-watch.sh --workdir /home/praya'
+ssh vps '$HOME/.local/bin/hermes cron create "0 * * * *" --name kelas-investasi-gtw-watch --deliver discord:1505162000420835388 --skill kelas-investasi-gtw-watch --script kelas-investasi-gtw-watch.sh --workdir /home/praya'
 ~~~
 
 Explain that the first natural execution is cursor initialization only and sends no historical #GTW alerts.
