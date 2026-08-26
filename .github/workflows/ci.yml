@@ -52,4 +52,5 @@ jobs:
       - name: Run deterministic focused suites
         env:
           PYTHON: python
+          SCELE_TEST_PROFILE: ${{ github.workspace }}/scele-digest/tests/fixtures/course-profile.json
         run: bash scripts/test-all
