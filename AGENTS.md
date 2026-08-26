@@ -1,8 +1,10 @@
-# Hermes cron development
+# Hermes development repository
 
 ## Scope
 
-This directory is the Mac development home for Hermes cron skills. These rules apply to every cron directory here, including new and renamed crons. They do **not** apply under `cobalt/`, which is an independent repository with its own workflow.
+This private repository is the canonical Mac development home for Hermes cron skills, Cobalt, and Yanto's lifecycle-voice plugin. These rules apply throughout the repository, including new and renamed crons. Cobalt is part of the parent Git history, while its service-specific workflow remains documented under `cobalt/`.
+
+`hermes-agent-starter/` is a separate repository with its own remote and workflow. It is intentionally ignored by the parent repository. Never stage, commit, rewrite, or deploy it through Hermes repository commands.
 
 ## Terms
 
@@ -10,16 +12,29 @@ This directory is the Mac development home for Hermes cron skills. These rules a
 - **Runtime skill**: the deployed VPS directory at `~/.agents/skills/<cron>/`.
 - **Live state**: the runtime `state/` files that own cursors, deduplication, alert suppression, retries, and checkpoints.
 - **Dotfiles mirror**: `~/.dotfiles/vps/agents/skills/`, a backup mirror pulled from the VPS. It is never an authoring or deployment target.
+- **Published commit**: a clean commit reachable from the configured `origin` remote. Only published commits are eligible for deployment.
+
+## Repository and dotfiles boundaries
+
+- Track reviewed development source in this repository. Do not track credentials, runtime state, caches, generated previews, local backfills, virtual environments, or worktrees.
+- `.worktrees/` and other repository scratch space are local-only. They must not be added to Git or dotfiles capture coverage.
+- Dotfiles owns machine configuration and scrubbed VPS runtime snapshots. It does not own duplicate Hermes development source.
+- `Documents/Projects/Hermes/**`, including this `AGENTS.md` and `yanto-gateway-voice/`, is intentionally absent from the dotfiles Mac capture map. Do not restore the retired `mac/hermes/` snapshot.
+- Herdr `*.sock` files are runtime IPC artifacts and must remain excluded from dotfiles captures.
+- Live files and runtime state remain canonical on their owning machine. Before any Mac/VPS copy, compare the exact files and obtain approval for the first VPS write in the conversation.
 
 ## Source of truth and deployment
 
 1. Develop code in `<cron>/bin/` here, not by editing the VPS runtime or dotfiles mirror.
-2. Deploy executable changes with `./deploy.sh <cron>` from this directory. Deploy one file with `./deploy.sh <cron> <file>` only when the smaller scope is intentional.
-3. `deploy.sh` copies only `bin/`. If `SKILL.md` changes, sync that exact file separately to `vps:~/.agents/skills/<cron>/SKILL.md` after its local review.
-4. Never overwrite between this Mac and the VPS without first comparing the relevant files. A newer timestamp is not evidence that a version is correct.
-5. Confirm deployment by comparing the local and VPS checksums of each changed runtime file.
-6. Never edit `~/.dotfiles/vps/agents/skills/<cron>/`. The scheduled dotfiles sync mirrors the VPS into that path.
-7. Never deploy, reset, delete, or hand-edit live `state/`. State is production data, not source code.
+2. GitHub Actions is validation only. It has read-only repository permissions, no secrets, no VPS access, and no deployment authority. A push must never deploy automatically.
+3. Before deployment, commit the intended scope, push it to `origin`, and use a clean checkout. Deployment guards must reject dirty or local-only source.
+4. Deploy executable cron changes with `./deploy.sh <cron>` from this repository. Deploy one file with `./deploy.sh <cron> <file>` only when the smaller scope is intentional.
+5. `deploy.sh` copies only `bin/`. If `SKILL.md` changes, sync that exact file separately to `vps:~/.agents/skills/<cron>/SKILL.md` after its local review.
+6. Use `cobalt/deploy.sh` for Cobalt and `yanto-gateway-voice/deploy.sh --apply` for the voice plugin. Their deployment guards enforce the same published-commit boundary.
+7. Never overwrite between this Mac and the VPS without first comparing the relevant files. A newer timestamp is not evidence that a version is correct.
+8. Confirm deployment by comparing the local and VPS checksums of each changed runtime file.
+9. Never edit `~/.dotfiles/vps/agents/skills/<cron>/`. The scheduled dotfiles sync mirrors the VPS into that path.
+10. Never deploy, reset, delete, or hand-edit live `state/`. State is production data, not source code.
 
 ## Required development loop
 
