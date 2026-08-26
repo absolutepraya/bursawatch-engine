@@ -9,6 +9,7 @@ from models import SourceMedia, SourceMessage
 
 
 SOURCE_ID = 2142109618
+SOURCE_USERNAME = "kelasinvestasiid"
 
 
 class TelegramSourceError(RuntimeError):
@@ -44,6 +45,12 @@ async def resolve_source(client: Any) -> Any:
         entity = getattr(dialog, "entity", None)
         if getattr(entity, "id", None) == SOURCE_ID:
             return entity
+    try:
+        entity = await client.get_entity(SOURCE_USERNAME)
+    except Exception as error:
+        raise TelegramSourceError("Telegram source is inaccessible") from error
+    if getattr(entity, "id", None) == SOURCE_ID:
+        return entity
     raise TelegramSourceError("Telegram source is inaccessible")
 
 

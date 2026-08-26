@@ -45,11 +45,13 @@ class FakeClient:
         image: bytes | None = None,
         accessible: bool = True,
         dialogs: list[Dialog] | None = None,
+        fallback_entity: Channel | None = None,
     ) -> None:
         self.messages = messages
         self.image = image
         self.accessible = accessible
         self.dialogs = dialogs if dialogs is not None else [Dialog(Channel(SOURCE_ID))]
+        self.fallback_entity = fallback_entity
         self.iter_kwargs: dict[str, object] | None = None
 
     async def iter_messages(self, entity: object, **kwargs: object):
@@ -61,6 +63,11 @@ class FakeClient:
         if not self.accessible:
             raise RuntimeError("not permitted")
         return self.dialogs
+
+    async def get_entity(self, source: str) -> Channel:
+        if not self.accessible or source != "kelasinvestasiid" or self.fallback_entity is None:
+            raise RuntimeError("not permitted")
+        return self.fallback_entity
 
     async def get_messages(self, entity: object, ids: int) -> Raw | None:
         return next((message for message in self.messages if message.id == ids), None)
@@ -113,6 +120,18 @@ def test_source_is_resolved_from_matching_dialog_entity() -> None:
     target = Channel(SOURCE_ID)
     client = FakeClient(dialogs=[Dialog(Channel(999)), Dialog(target)])
     assert asyncio.run(resolve_source(client)) is target
+
+
+def test_source_falls_back_to_public_username_and_verifies_its_id() -> None:
+    target = Channel(SOURCE_ID)
+    client = FakeClient(dialogs=[Dialog(Channel(999))], fallback_entity=target)
+    assert asyncio.run(resolve_source(client)) is target
+
+
+def test_source_rejects_public_username_with_wrong_id() -> None:
+    client = FakeClient(dialogs=[Dialog(Channel(999))], fallback_entity=Channel(998))
+    with pytest.raises(TelegramSourceError, match="source is inaccessible"):
+        asyncio.run(resolve_source(client))
 
 
 def test_incomplete_credentials_do_not_expose_session(monkeypatch: pytest.MonkeyPatch) -> None:
