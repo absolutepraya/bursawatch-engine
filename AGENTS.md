@@ -36,6 +36,18 @@ This private repository is the canonical Mac development home for Hermes cron sk
 9. Never edit `~/.dotfiles/vps/agents/skills/<cron>/`. The scheduled dotfiles sync mirrors the VPS into that path.
 10. Never deploy, reset, delete, or hand-edit live `state/`. State is production data, not source code.
 
+## Post-deployment dotfiles capture
+
+The deployed VPS runtime remains canonical. Dotfiles is the scrubbed backup that captures it afterward, never a second deployment target.
+
+1. After deploying and verifying a cron, confirm the VPS `dotfiles-sync` job can reach the Mac with `~/.hermes/scripts/dotfiles-sync.sh --check`.
+2. The registered Hermes job is `804f44f0be6e`. Let its normal schedule perform the capture unless the user explicitly asks for an immediate run in the current conversation. For an approved immediate run, use `/home/praya/.local/bin/hermes cron run 804f44f0be6e`; never invoke the wrapper as a substitute for the registered run.
+3. Verify the registered execution record is `completed`, the saved output contains `mac=ok vps=ok` plus `git=push` or `git=noop`, and the job remains enabled with a valid next run.
+4. Verify `~/dotfiles` is clean and its `config` HEAD equals `origin/config`. A scheduler `ok` label without saved output and Git parity is not sufficient evidence.
+5. Confirm each changed runtime source is present in the expected snapshot path. Cron skills map from `~/.agents/skills/<cron>/` to `vps/agents/skills/<cron>/`; Hermes wrappers map from `~/.hermes/scripts/` to `vps/hermes/scripts/`; the registry maps to `vps/hermes/cron/jobs.json`.
+6. Compare VPS runtime and dotfiles snapshot checksums for changed source files when they are expected to be byte-identical. For intentionally scrubbed files, verify the scrubbed content and path instead of requiring an identical checksum.
+7. State, credentials, databases, logs, virtual environments, caches, and other capture-map exclusions must remain absent. Never weaken exclusions merely to make a snapshot look complete.
+
 ## Required development loop
 
 1. Read the cron's `SKILL.md`, scanner, wrapper, tests, and current VPS behavior that the change affects.
@@ -130,5 +142,6 @@ Before yielding a cron change, confirm:
 - No deprecated payload key, alias, or renamed path remains.
 - Tests prove the changed behavior and all affected tests pass.
 - The VPS runtime matches the reviewed local source.
+- The changed VPS runtime source has been captured into dotfiles, or the handoff explicitly says the next scheduled capture is still pending. Verification includes saved output and `config`/`origin/config` parity, not only scheduler status.
 - No-post verification exercised the real rendering and posting path without producing an external message.
 - Live state and dotfiles mirror were not edited as source.
