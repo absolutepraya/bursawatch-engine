@@ -37,9 +37,14 @@ def make_client() -> Any:
 
 async def resolve_source(client: Any) -> Any:
     try:
-        return await client.get_entity(SOURCE_ID)
+        dialogs = await client.get_dialogs()
     except Exception as error:
         raise TelegramSourceError("Telegram source is inaccessible") from error
+    for dialog in dialogs:
+        entity = getattr(dialog, "entity", None)
+        if getattr(entity, "id", None) == SOURCE_ID:
+            return entity
+    raise TelegramSourceError("Telegram source is inaccessible")
 
 
 async def latest_message_id(client: Any, entity: Any) -> int | None:

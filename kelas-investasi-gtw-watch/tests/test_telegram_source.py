@@ -27,11 +27,29 @@ class Raw:
         self.document = document
 
 
+class Dialog:
+    def __init__(self, entity: object) -> None:
+        self.entity = entity
+
+
+class Channel:
+    def __init__(self, channel_id: int) -> None:
+        self.id = channel_id
+
+
 class FakeClient:
-    def __init__(self, messages: list[Raw] = [], *, image: bytes | None = None, accessible: bool = True) -> None:
+    def __init__(
+        self,
+        messages: list[Raw] = [],
+        *,
+        image: bytes | None = None,
+        accessible: bool = True,
+        dialogs: list[Dialog] | None = None,
+    ) -> None:
         self.messages = messages
         self.image = image
         self.accessible = accessible
+        self.dialogs = dialogs if dialogs is not None else [Dialog(Channel(SOURCE_ID))]
         self.iter_kwargs: dict[str, object] | None = None
 
     async def iter_messages(self, entity: object, **kwargs: object):
@@ -39,11 +57,10 @@ class FakeClient:
         for message in self.messages:
             yield message
 
-    async def get_entity(self, source_id: int) -> object:
+    async def get_dialogs(self) -> list[Dialog]:
         if not self.accessible:
             raise RuntimeError("not permitted")
-        assert source_id == SOURCE_ID
-        return object()
+        return self.dialogs
 
     async def get_messages(self, entity: object, ids: int) -> Raw | None:
         return next((message for message in self.messages if message.id == ids), None)
@@ -90,6 +107,12 @@ def test_capture_image_rejects_empty_download(tmp_path: Path) -> None:
 def test_inaccessible_source_is_sanitized() -> None:
     with pytest.raises(TelegramSourceError, match="source is inaccessible"):
         asyncio.run(resolve_source(FakeClient(accessible=False)))
+
+
+def test_source_is_resolved_from_matching_dialog_entity() -> None:
+    target = Channel(SOURCE_ID)
+    client = FakeClient(dialogs=[Dialog(Channel(999)), Dialog(target)])
+    assert asyncio.run(resolve_source(client)) is target
 
 
 def test_incomplete_credentials_do_not_expose_session(monkeypatch: pytest.MonkeyPatch) -> None:
