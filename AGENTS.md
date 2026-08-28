@@ -10,6 +10,8 @@ This private repository is the canonical Mac development home for Hermes cron sk
 
 - Use English by default for questions, status updates, explanations, and final responses, including when the user mixes English and Indonesian.
 - Use Indonesian only when the user explicitly asks for it or when producing an Indonesian-facing deliverable.
+- This policy applies only to the interactive agent conversation. It does not change a cron's rendered message, summary, prompt, notification, or delivery-language contract.
+- Preserve each cron's specified output language. An Indonesian cron summary remains Indonesian unless the user explicitly changes that cron's contract.
 
 ## Terms
 
