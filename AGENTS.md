@@ -6,6 +6,11 @@ This private repository is the canonical Mac development home for Hermes cron sk
 
 `hermes-agent-starter/` is a separate repository with its own remote and workflow. It is intentionally ignored by the parent repository. Never stage, commit, rewrite, or deploy it through Hermes repository commands.
 
+## Conversation language
+
+- Use English by default for questions, status updates, explanations, and final responses, including when the user mixes English and Indonesian.
+- Use Indonesian only when the user explicitly asks for it or when producing an Indonesian-facing deliverable.
+
 ## Terms
 
 - **Dev source**: the cron directory in this repository, for example `us-etf-dca-watch/`.
