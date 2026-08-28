@@ -16,6 +16,7 @@ Source-of-truth dev dirs for the Hermes cron skills that deploy to the VPS at
 | `dotfiles-sync` | VPS-owned staged backup of Mac and VPS configuration | VPS only; Mac is read over SSH |
 | `karakeep-backup` | VPS-scheduled, Mac-local Karakeep Netscape HTML export | Mac command only, triggered by VPS SSH |
 | `skills-update` | VPS-scheduled, Mac-local global skills update | Mac command only, triggered by VPS SSH |
+| `sharing-cleanup` | No-agent weekly cleanup of Nextcloud `Sharing/` contents, retaining the folder | VPS only; WebDAV DELETE moves items to Nextcloud Trash |
 | `security-audit` | VPS RKHunter, SSH, UFW, listener, Fail2ban, patch, and reboot-state audit | local parser/config tests yes; live dry run and scheduled verification on the VPS |
 | `mm-weekly-log-normalizer` | MM weekly-log DRAFT normalizer and Review Bundle renderer | local tests yes; VPS runtime code deployed, active `every 14d` Hermes interval currently anchored around Sunday 16:05 WIB, with a Sunday 15:45 WIB Evidence Week boundary |
 
