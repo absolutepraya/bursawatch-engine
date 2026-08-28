@@ -165,17 +165,26 @@ async def _capture_event_media(client: object, entity: object, event: dict[str, 
     media = event.get("media")
     if not isinstance(media, list):
         return
+    header_message_id = event.get("header_message_id")
+    header_media = next(
+        (
+            item
+            for item in media
+            if isinstance(item, Mapping) and item.get("message_id") == header_message_id
+        ),
+        None,
+    )
+    if header_media is None:
+        event["media"] = []
+        return
     captured: list[dict[str, object]] = []
-    for item in media:
-        if not isinstance(item, Mapping):
-            raise RuntimeError("source media is unavailable")
-        message_id, ordinal = item.get("message_id"), item.get("ordinal")
-        if not isinstance(message_id, int) or not isinstance(ordinal, int):
-            raise RuntimeError("source media is unavailable")
-        existing = item.get("path")
-        if _verified_captured_path(existing, destination):
-            captured.append({"message_id": message_id, "ordinal": ordinal, "path": str(Path(str(existing)).resolve())})
-            continue
+    message_id, ordinal = header_media.get("message_id"), header_media.get("ordinal")
+    if not isinstance(message_id, int) or not isinstance(ordinal, int):
+        raise RuntimeError("source media is unavailable")
+    existing = header_media.get("path")
+    if _verified_captured_path(existing, destination):
+        captured.append({"message_id": message_id, "ordinal": ordinal, "path": str(Path(str(existing)).resolve())})
+    else:
         captured.append({"message_id": message_id, "ordinal": ordinal, "path": str(await capture_image(client, entity, message_id, ordinal, destination))})
     event["media"] = captured
 

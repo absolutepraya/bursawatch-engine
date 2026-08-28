@@ -9,13 +9,19 @@ def at(value: str) -> datetime:
     return datetime.fromisoformat(value)
 
 
-def header(message_id: int, ticker: str, posted_at: str = "2026-08-11T09:00:00+07:00") -> SourceMessage:
+def header(
+    message_id: int,
+    ticker: str,
+    posted_at: str = "2026-08-11T09:00:00+07:00",
+    *,
+    media: tuple[SourceMedia, ...] = (),
+) -> SourceMessage:
     return SourceMessage(
         message_id=message_id,
         posted_at=at(posted_at),
         text=f"Good to watch - {ticker} #GTW",
         reply_to_message_id=None,
-        media=(),
+        media=media,
     )
 
 

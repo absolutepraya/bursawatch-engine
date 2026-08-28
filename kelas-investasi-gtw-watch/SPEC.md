@@ -5,7 +5,7 @@
 - Read only public Telegram `@kelasinvestasiid`, source ID `2142109618`.
 - Accept only an anchored, case-insensitive `Good to watch - <IDX ticker> #GTW` header.
 - Read incrementally in ascending Telegram message-ID order. First observation sets the newest cursor and exits with no event, so the watcher never backfills.
-- Include contiguous eligible analysis text and Telegram photos. Exclude replies, disclaimers, promotions, article links, unrelated messages, and non-photo documents.
+- Include contiguous eligible analysis text. Forward only the first Telegram photo attached to the eligible header, never a photo from a later source message. Exclude replies, disclaimers, promotions, article links, unrelated messages, and non-photo documents.
 - Close a bundle at the next eligible header or after an inter-message quiet interval greater than 20 minutes. Header closure is immediately eligible; an otherwise-final bundle becomes eligible only after more than 20 quiet minutes.
 
 ## Resilience and state
@@ -22,7 +22,7 @@ The scanner extracts source Buy area, Target, and Stoploss values, with `-` for 
 {"event_key":"<header-id>:<TICKER>","title":"<TICKER>: <source-grounded thesis>","summary":"*(Ringkasan)* <one source-grounded Indonesian paragraph>"}
 ```
 
-The scanner rejects extra keys, an unmatched event key, invalid title or summary format, source instruction leakage, investment advice, certainty, external facts, and noncanonical plan claims. Only the scanner posts to Discord. It posts text before source images, preserves image order, and retries only the unfinished delivery leg.
+The scanner rejects extra keys, an unmatched event key, invalid title or summary format, source instruction leakage, investment advice, certainty, external facts, and noncanonical plan claims. Only the scanner posts to Discord. It posts text before the one header image and retries only the unfinished delivery leg.
 
 Successful runs write `🫀 kelas-investasi-gtw, HH:MM WIB, scanned=N pending=N delivered=N` to `#hermes`. Fatal errors use `❌ kelas-investasi-gtw, HH:MM WIB, failed: <sanitized reason>`.
 

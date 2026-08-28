@@ -1,8 +1,8 @@
 # Kelas Investasi GTW Watch
 
-`kelas-investasi-gtw-watch` is the Mac development source for a future-only Telegram `#GTW` watcher. It observes public channel `@kelasinvestasiid` (ID `2142109618`) and, after a complete eligible bundle is summarized and validated, delivers one Discord text message then the source images in their original order to `#stock-news` (`1525102508714889257`) as Yanto.
+`kelas-investasi-gtw-watch` is the Mac development source for a future-only Telegram `#GTW` watcher. It observes public channel `@kelasinvestasiid` (ID `2142109618`) and, after a complete eligible bundle is summarized and validated, delivers one Discord text message then only the header's source image to `#stock-news` (`1525102508714889257`) as Yanto.
 
-The exact eligible header is case-insensitive `Good to watch - <IDX ticker> #GTW`. The watcher includes only contiguous analysis text and Telegram photos within the bundle boundary. A next eligible header closes the preceding bundle immediately; otherwise the final bundle requires more than 20 quiet minutes. Replies, disclaimers, promotions, article links, unrelated posts, and non-photo documents are excluded.
+The exact eligible header is case-insensitive `Good to watch - <IDX ticker> #GTW`. The watcher includes contiguous eligible analysis text within the bundle boundary, but forwards only the first photo attached to the eligible header. Photos on later source messages are never forwarded. A next eligible header closes the preceding bundle immediately; otherwise the final bundle requires more than 20 quiet minutes. Replies, disclaimers, promotions, article links, unrelated posts, and non-photo documents are excluded.
 
 ## Safety and ownership
 

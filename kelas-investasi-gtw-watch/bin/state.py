@@ -165,7 +165,6 @@ def _append_message(value: dict[str, object], message: SourceMessage) -> None:
     candidate["source_message_ids"].append(message.message_id)
     if message.text.strip():
         candidate["source_text"] = f"{candidate['source_text']}\n{message.text}".strip()
-    candidate["media"].extend(_media(message))
     candidate["last_message_at"] = message.posted_at.isoformat()
 
 

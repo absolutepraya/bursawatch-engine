@@ -58,6 +58,23 @@ def test_analysis_within_quiet_window_stays_in_its_header_bundle(gap: str) -> No
     assert event["plan"] == {"buy_area": "605 sampai 630", "targets": "655", "stoploss": "<573"}
 
 
+def test_only_header_image_is_kept_when_analysis_messages_include_media() -> None:
+    value = initialized_state()
+    observe_messages(
+        value,
+        [
+            header(101, "CTRA", media=(image(101),)),
+            analysis(102, media=(image(102),)),
+            analysis(103, text="Katalis lanjutan", media=(image(103),)),
+        ],
+        at("2026-08-11T09:00:00+07:00"),
+    )
+
+    event = ready_events(value, at("2026-08-11T09:20:01+07:00"))[0]
+
+    assert event["media"] == [{"message_id": 101, "ordinal": 0}]
+
+
 def test_next_gtw_header_makes_prior_bundle_ready_immediately() -> None:
     value = initialized_state()
     observe_messages(
@@ -124,7 +141,7 @@ def test_in_window_non_reply_non_analysis_is_excluded(text: str) -> None:
     assert event["source_message_ids"] == [101, 102]
 
 
-def test_image_only_continuation_is_preserved_in_source_order() -> None:
+def test_image_only_continuation_is_not_forwarded() -> None:
     value = initialized_state()
     observe_messages(
         value,
@@ -135,7 +152,7 @@ def test_image_only_continuation_is_preserved_in_source_order() -> None:
     event = ready_events(value, at("2026-08-11T09:20:01+07:00"))[0]
 
     assert event["source_message_ids"] == [101, 102]
-    assert event["media"] == [{"message_id": 102, "ordinal": 0}, {"message_id": 102, "ordinal": 1}]
+    assert event["media"] == []
 
 
 def test_replayed_messages_are_not_duplicated() -> None:

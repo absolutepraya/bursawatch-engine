@@ -213,16 +213,16 @@ def test_no_eligible_source_has_no_wake_and_no_discord_call(monkeypatch: pytest.
     assert scan.run(now=at("2026-08-11T09:00:00+07:00"), dry_run=True) == {"wakeAgent": False}
 
 
-def test_media_capture_failure_is_fatal_and_leaves_event_unpersisted(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_continuation_media_is_not_captured_or_persisted(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     import scan
 
     _configure(monkeypatch, tmp_path, [header(101, "CTRA"), analysis(102, media=(image(102),)), header(103, "BREN")])
     _initialized(tmp_path / "state.json")
-    monkeypatch.setattr(scan, "capture_image", lambda *args: _raise_async(RuntimeError("download failed")))
+    monkeypatch.setattr(scan, "capture_image", lambda *args: pytest.fail("continuation media was captured"))
 
-    with pytest.raises(RuntimeError, match="download failed"):
-        scan.run(now=at("2026-08-11T09:00:00+07:00"), dry_run=True)
-    assert load_state(tmp_path / "state.json")["outbox"] == []
+    scan.run(now=at("2026-08-11T09:00:00+07:00"), dry_run=True)
+
+    assert load_state(tmp_path / "state.json")["outbox"][0]["media"] == []
 
 
 def test_expired_submission_restores_claim_without_mutation_or_delivery(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -281,7 +281,7 @@ def test_restart_reuses_verified_captured_media_without_redownload(monkeypatch: 
     destination.mkdir()
     cached = destination / "already.jpg"
     cached.write_bytes(b"\xff\xd8\xffsource")
-    event = {"media": [{"message_id": 102, "ordinal": 0, "path": str(cached)}]}
+    event = {"header_message_id": 102, "media": [{"message_id": 102, "ordinal": 0, "path": str(cached)}]}
     calls: list[int] = []
 
     async def capture(*_args: object) -> Path:
@@ -295,6 +295,33 @@ def test_restart_reuses_verified_captured_media_without_redownload(monkeypatch: 
 
     assert calls == []
     assert event["media"] == [{"message_id": 102, "ordinal": 0, "path": str(cached.resolve())}]
+
+
+def test_capture_keeps_only_the_header_image_for_existing_outbox_event(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import asyncio
+    import scan
+
+    destination = tmp_path / "media"
+    event = {
+        "header_message_id": 101,
+        "media": [
+            {"message_id": 101, "ordinal": 0},
+            {"message_id": 102, "ordinal": 0},
+            {"message_id": 103, "ordinal": 0},
+        ],
+    }
+    captured: list[int] = []
+
+    async def capture(_client: object, _entity: object, message_id: int, _ordinal: int, _destination: Path) -> Path:
+        captured.append(message_id)
+        return destination / f"{message_id}.jpg"
+
+    monkeypatch.setattr(scan, "capture_image", capture)
+
+    asyncio.run(scan._capture_event_media(object(), object(), event, destination))
+
+    assert captured == [101]
+    assert event["media"] == [{"message_id": 101, "ordinal": 0, "path": str((destination / "101.jpg").resolve())}]
 
 
 def test_heartbeat_and_fatal_formats_are_exact_and_sanitized() -> None:

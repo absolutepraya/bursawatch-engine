@@ -5,7 +5,7 @@ description: Deterministic future-only Kelas Investasi #GTW bundle watcher for D
 
 # Kelas Investasi GTW Watch
 
-This standalone no-agent watcher reads only the public Telegram source `@kelasinvestasiid` (source ID `2142109618`). It accepts only case-insensitive `Good to watch - <IDX ticker> #GTW` headers, collects their contiguous source analysis and Telegram photos, and sends an accepted source-grounded summary followed by those source images to Discord `#stock-news`.
+This standalone no-agent watcher reads only the public Telegram source `@kelasinvestasiid` (source ID `2142109618`). It accepts only case-insensitive `Good to watch - <IDX ticker> #GTW` headers, collects their contiguous source analysis, and sends an accepted source-grounded summary followed by only the first photo attached to the header to Discord `#stock-news`. Photos from later messages are never forwarded.
 
 It is not a Telegram posting tool. Do not post, reply, react, forward, or otherwise write to Telegram. It does not trade, evaluate a source thesis, forward promotions, or backfill historical signals.
 
