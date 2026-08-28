@@ -161,6 +161,9 @@ def observe_posts(state: dict, profile: Profile, posts: list[SourcePost], forwar
     if record is None:
         state["profiles"][profile.id] = {"cursor": ordered[-1].post_id if ordered else None}
         return 0, None
+    if record.get("cursor") is None:
+        record["cursor"] = ordered[-1].post_id if ordered else None
+        return 0, None
     cursor = int(record.get("cursor") or 0)
     fresh = [post for post in ordered if int(post.post_id) > cursor]
     if any(post.kind.value == "ambiguous" for post in fresh):
