@@ -59,3 +59,18 @@ def test_plan_accepts_singular_target_and_no_labels() -> None:
     assert extract_plan("Target: 655").targets == "655"
     plan = extract_plan("Analisis saham CTRA tanpa rencana")
     assert (plan.buy_area, plan.targets, plan.stoploss) == ("-", "-", "-")
+
+
+def test_plan_accepts_bulleted_source_labels_and_strips_gain_annotations() -> None:
+    plan = extract_plan(
+        "\n".join(
+            (
+                "• Buy area: 660–765",
+                "• TP 1: 875 → potensi gain sekitar +22,4%",
+                "• TP 2: 995 → potensi gain sekitar +39,2%",
+                "• Stoploss utama: <620 → potensi risiko sekitar -10%",
+            )
+        )
+    )
+
+    assert (plan.buy_area, plan.targets, plan.stoploss) == ("660 sampai 765", "875, 995", "<620")

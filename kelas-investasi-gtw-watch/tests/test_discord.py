@@ -59,6 +59,16 @@ def test_delivery_sends_text_then_images_in_source_order(tmp_path: Path, monkeyp
     assert state["outbox"] == []
 
 
+def test_delivery_targets_id_stocks_news(monkeypatch: pytest.MonkeyPatch) -> None:
+    event = ready_event()
+    channels: list[str] = []
+    monkeypatch.setattr(discord, "post_text", lambda _content, channel_id, *_args: channels.append(channel_id))
+
+    assert deliver_oldest_ready_event(state_with(event), now(), False) is True
+
+    assert channels == ["1525102458253217803"]
+
+
 def test_second_image_failure_retries_only_second_image(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     event = ready_event(media=[image(tmp_path, "one.jpg"), image(tmp_path, "two.jpg")])
     event["text_index"] = 1

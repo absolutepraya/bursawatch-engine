@@ -1,11 +1,11 @@
 ---
 name: kelas-investasi-gtw-watch
-description: Deterministic future-only Kelas Investasi #GTW bundle watcher for Discord stock-news delivery.
+description: Deterministic future-only Kelas Investasi #GTW bundle watcher for Discord id-stocks-news delivery.
 ---
 
 # Kelas Investasi GTW Watch
 
-This standalone no-agent watcher reads only the public Telegram source `@kelasinvestasiid` (source ID `2142109618`). It accepts only case-insensitive `Good to watch - <IDX ticker> #GTW` headers, collects their contiguous source analysis, and sends an accepted source-grounded summary followed by only the first photo attached to the header to Discord `#stock-news`. Photos from later messages are never forwarded.
+This standalone no-agent watcher reads only the public Telegram source `@kelasinvestasiid` (source ID `2142109618`). It accepts only case-insensitive `Good to watch - <IDX ticker> #GTW` headers, collects their contiguous source analysis, and sends an accepted source-grounded summary followed by only the first photo attached to the header to Discord `#id-stocks-news`. Photos from later messages are never forwarded.
 
 It is not a Telegram posting tool. Do not post, reply, react, forward, or otherwise write to Telegram. It does not trade, evaluate a source thesis, forward promotions, or backfill historical signals.
 
@@ -27,7 +27,20 @@ Hermes must submit strict JSON with exactly these fields and no others:
 {"event_key":"101:CTRA","title":"CTRA: Thesis sumber singkat","summary":"*(Ringkasan)* Satu paragraf Bahasa Indonesia yang hanya memakai fakta dan plan sumber."}
 ```
 
-`event_key` must match the claimed bundle. `title` starts with the exact ticker and a colon, is source-grounded, and has no ending punctuation. `summary` starts exactly with `*(Ringkasan)* `, contains no external facts, investment advice, certainty, narrator framing, or invented plan values. Hermes never posts Discord directly; it returns the JSON to `scan.py --submit-analysis` and the scanner validates it before delivery.
+`event_key` must match the claimed bundle. `title` starts with the exact ticker and a colon, is source-grounded, and has no ending punctuation. `summary` starts exactly with `*(Ringkasan)* `, contains no external facts, investment advice, certainty, narrator framing, or invented plan values. Hermes never posts Discord directly; the scanner validates and delivers accepted output.
+
+## Submission
+
+After producing the strict JSON, submit it exactly once through the wrapper. Do not return the JSON as your final response.
+
+```bash
+"$HOME/.hermes/scripts/kelas-investasi-gtw-watch.sh" --submit-analysis "$(cat <<'JSON'
+{"event_key":"<supplied item.event_key>","title":"<source-grounded title>","summary":"*(Ringkasan)* <source-grounded Indonesian paragraph>"}
+JSON
+)"
+```
+
+The wrapper persists the accepted fields only while the matching 15-minute lease is active, then posts the text followed by the one header image. Do not call `scan.py` directly, post to Discord yourself, or return natural-language output.
 
 ## No-post control
 

@@ -10,4 +10,4 @@ Return only one JSON object with exactly `event_key`, `title`, and `summary`:
 
 Use only facts and normalized plan values in the supplied source. Do not add prices, catalysts, news, advice to buy or sell, certainty, generic alert emoji, a `Good to Watch` label, a middle-dot separator, URLs, or narrator framing. The title starts with the supplied ticker and colon and has no ending punctuation. The summary begins exactly `*(Ringkasan)* ` and is one Indonesian paragraph.
 
-Do not post to Telegram or Discord. Submit the JSON through the scanner's `--submit-analysis` boundary; the scanner alone validates it, handles retry state, and delivers accepted output.
+Do not post to Telegram or Discord. Submit the JSON through `~/.hermes/scripts/kelas-investasi-gtw-watch.sh --submit-analysis`; the scanner alone validates it, handles retry state, and delivers accepted output.

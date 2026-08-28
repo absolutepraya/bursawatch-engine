@@ -130,6 +130,41 @@ def test_invalid_summary_keeps_exact_claimed_event_pending(monkeypatch: pytest.M
     assert saved["outbox"][0]["agent_phase"] == "claimed"
 
 
+def test_submission_reparses_stale_persisted_plan_before_validation(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import scan
+
+    _configure(monkeypatch, tmp_path, [])
+    value = new_state()
+    value["cursor"] = 100
+    observe_messages(
+        value,
+        [
+            header(101, "CDIA"),
+            analysis(102, "• Buy area: 660–765\n• TP 1: 875 → potensi gain\n• TP 2: 995 → potensi gain\n• Stoploss utama: <620 → potensi risiko"),
+            header(103, "BREN"),
+        ],
+        at("2026-08-11T09:00:00+07:00"),
+    )
+    event = value["outbox"][0]
+    event["plan"] = {"buy_area": "-", "targets": "-", "stoploss": "-"}
+    event["agent_phase"] = "claimed"
+    event["agent_lease_until"] = "2026-08-11T09:15:00+07:00"
+    save_state(tmp_path / "state.json", value)
+
+    scan.submit_analysis_payload(
+        {
+            "event_key": "101:CDIA",
+            "title": "CDIA: Buy area",
+            "summary": "*(Ringkasan)* CDIA buy area 660 sampai 765, TP 875, 995, stoploss <620",
+        },
+        dry_run=True,
+        now=at("2026-08-11T09:01:00+07:00"),
+    )
+
+    saved = load_state(tmp_path / "state.json")
+    assert saved["outbox"][0]["plan"] == {"buy_area": "660 sampai 765", "targets": "875, 995", "stoploss": "<620"}
+
+
 def test_unavailable_source_attempts_fatal_heartbeat_and_main_returns_nonzero(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     import scan
 

@@ -22,6 +22,7 @@ from telegram_resilience import PolyCopResilience, acquire_probe_after_active_le
 
 from agent_protocol import RetryableSubmissionError, agent_item, build_wake_payload, validate_submission
 from discord import DISCORD_CHANNEL_ID, deliver_oldest_ready_event, nonce, post_text
+from parsing import extract_plan
 from state import RunLockBusyError, claim_oldest_agent, load_state, observe_messages, ready_events, restore_expired_claim, run_lock, save_state
 from telegram_source import capture_image, fetch_unseen_messages, make_client, resolve_source
 
@@ -241,6 +242,8 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None, now: d
         if restore_expired_claim(event, submission_now):
             save_state(path, state)
             raise ValueError("submission agent lease has expired")
+        plan = extract_plan(str(event["source_text"]))
+        event["plan"] = {"buy_area": plan.buy_area, "targets": plan.targets, "stoploss": plan.stoploss}
         validated = validate_submission(event, payload)
         event["title"] = validated["title"]
         event["summary"] = validated["summary"]
