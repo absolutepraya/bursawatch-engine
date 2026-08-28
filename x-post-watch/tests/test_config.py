@@ -44,8 +44,22 @@ def test_canonical_thread_handling_matches_writer_patterns():
 
     assert (profiles["kutekians"].thread_handling.mode, profiles["kutekians"].thread_handling.settle_minutes) == ("disabled", 60)
     assert (profiles["rickyho1989"].thread_handling.mode, profiles["rickyho1989"].thread_handling.settle_minutes) == ("disabled", 60)
-    assert (profiles["writingtorch"].thread_handling.mode, profiles["writingtorch"].thread_handling.settle_minutes) == ("self_chain", 15)
+    assert (profiles["writingtorch"].thread_handling.mode, profiles["writingtorch"].thread_handling.max_posts, profiles["writingtorch"].thread_handling.settle_minutes) == ("self_chain", 20, 15)
     assert (profiles["arvinhonami"].thread_handling.mode, profiles["arvinhonami"].thread_handling.settle_minutes) == ("disabled", 60)
+
+
+def test_canonical_insider_tracker_profile_is_threaded_and_routed():
+    canonical_config = Path(__file__).resolve().parents[1] / "config" / "watches.json"
+    profile = {item.id: item for item in config_module.load_watch_config(canonical_config).profiles}["insidertracker"]
+
+    assert profile.handle == "InsiderTrackX"
+    assert profile.emoji == "<:insidertracker:1537444489134604448>"
+    assert [channel.key for channel in profile.discord_channels] == ["macro", "id_stock", "us_stock"]
+    assert profile.enable_llm_title is True
+    assert profile.enable_llm_summary is True
+    assert profile.enable_llm_routing is True
+    assert profile.enable_llm_relevance_filter is True
+    assert (profile.thread_handling.mode, profile.thread_handling.max_posts, profile.thread_handling.max_age_minutes, profile.thread_handling.settle_minutes) == ("self_chain", 20, 240, 15)
 
 
 @pytest.mark.parametrize(

@@ -110,7 +110,7 @@
       "max_items_per_poll": 50,
       "thread_handling": {
         "mode": "self_chain",
-        "max_posts": 10,
+        "max_posts": 20,
         "max_age_minutes": 240,
         "settle_minutes": 15
       }
@@ -156,6 +156,49 @@
         "max_posts": 10,
         "max_age_minutes": 240,
         "settle_minutes": 60
+      }
+    },
+    {
+      "id": "insidertracker",
+      "enabled": true,
+      "profile_url": "https://x.com/InsiderTrackX",
+      "handle": "InsiderTrackX",
+      "display_name": "Insider Tracker",
+      "twitter_emoji": "<:twitter:1531672630602498129>",
+      "emoji": "<:insidertracker:1537444489134604448>",
+      "discord_channels": [
+        {
+          "key": "macro",
+          "channel_id": "1531655369884045382",
+          "description": "Broad economic, business, market, sector, and cross-asset analysis."
+        },
+        {
+          "key": "id_stock",
+          "channel_id": "1525102508714889257",
+          "description": "Direct IDX-listed company or ticker thesis."
+        },
+        {
+          "key": "us_stock",
+          "channel_id": "1532266331737686199",
+          "description": "Direct NYSE- or Nasdaq-listed security thesis, including ADRs."
+        }
+      ],
+      "forward_normal_post": true,
+      "forward_quote_post": true,
+      "forward_reply": false,
+      "forward_repost": false,
+      "forward_media": true,
+      "enable_llm_title": true,
+      "enable_llm_summary": true,
+      "enable_llm_routing": true,
+      "enable_llm_relevance_filter": true,
+      "additional_prompt_instruction": "",
+      "max_items_per_poll": 50,
+      "thread_handling": {
+        "mode": "self_chain",
+        "max_posts": 20,
+        "max_age_minutes": 240,
+        "settle_minutes": 15
       }
     }
   ]

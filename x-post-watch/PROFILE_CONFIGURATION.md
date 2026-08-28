@@ -43,7 +43,7 @@ Each profile must include every field below. The parser rejects missing and unkn
   "enable_llm_relevance_filter": false,
   "additional_prompt_instruction": "",
   "max_items_per_poll": 50,
-  "thread_handling": {"mode": "self_chain", "max_posts": 10, "max_age_minutes": 240, "settle_minutes": 60}
+  "thread_handling": {"mode": "self_chain", "max_posts": 20, "max_age_minutes": 240, "settle_minutes": 60}
 }
 ```
 
@@ -66,7 +66,7 @@ Each profile must include every field below. The parser rejects missing and unkn
 | `enable_llm_relevance_filter` | Require a closed relevance decision before generation. Irrelevant posts are removed without Discord delivery and count in the next heartbeat. Direct ticker disclosures, earnings, corporate actions, dilution, rights issues, private placements, and `#RangkumKeterbukaanInformasi` / `#RangkumReport` are always relevant safeguards. |
 | `additional_prompt_instruction` | Optional trusted profile-specific LLM instruction. Empty by default, normalized to one line, and capped at 800 characters. Use it for a writer's durable pattern, not to duplicate the shared relevance or routing rules. |
 | `max_items_per_poll` | RSSHub item cap, integer from 1 to 100. Keep `50` unless there is a concrete reason to change it. |
-| `thread_handling` | `self_chain` collects up to 10 same-author quote/reply continuations within four hours and waits for its configured quiet window after first observation or its latest continuation. `disabled` sends each eligible post immediately, without holding or assembling a chain; its three numeric fields remain required but are ignored. |
+| `thread_handling` | `self_chain` collects up to 20 same-author quote/reply continuations within four hours. A lone post waits only until its non-resetting maximum deadline from first observation; an observed multi-post chain is ready immediately. `disabled` sends each eligible post immediately, without holding or assembling a chain; its three numeric fields remain required but are ignored. |
 
 ## Supported delivery modes
 
@@ -106,7 +106,7 @@ Each profile must include every field below. The parser rejects missing and unkn
   "enable_llm_relevance_filter": true,
   "additional_prompt_instruction": "",
   "max_items_per_poll": 50,
-  "thread_handling": {"mode": "self_chain", "max_posts": 10, "max_age_minutes": 240, "settle_minutes": 60}
+  "thread_handling": {"mode": "self_chain", "max_posts": 20, "max_age_minutes": 240, "settle_minutes": 60}
 }
 ```
 
@@ -137,7 +137,7 @@ Each profile must include every field below. The parser rejects missing and unkn
   "enable_llm_relevance_filter": true,
   "additional_prompt_instruction": "",
   "max_items_per_poll": 50,
-  "thread_handling": {"mode": "self_chain", "max_posts": 10, "max_age_minutes": 240, "settle_minutes": 60}
+  "thread_handling": {"mode": "self_chain", "max_posts": 20, "max_age_minutes": 240, "settle_minutes": 60}
 }
 ```
 
@@ -221,7 +221,7 @@ Summary mode hides raw source text and ordinary quote blocks. A quoted-Article l
    rm -rf "$smoke_dir"
    ```
 
-7. Confirm the Hermes `x-post-watch` job remains active and scheduled hourly. Do not reset, edit, or backfill live state to prove a new profile. Wait for its next eligible post unless the user explicitly approves a test send.
+7. Confirm the Hermes `x-post-watch` job remains active and scheduled every minute. Do not reset, edit, or backfill live state to prove a new profile. Wait for its next eligible post unless the user explicitly approves a test send.
 
 ## Operational failures
 
