@@ -90,8 +90,8 @@ def _parse_thread_handling(value: object, label: str) -> ThreadHandling:
     max_posts = thread["max_posts"]
     max_age_minutes = thread["max_age_minutes"]
     settle_minutes = thread["settle_minutes"]
-    if type(max_posts) is not int or not 1 <= max_posts <= 10:
-        raise ValueError(f"{label}.max_posts must be an integer from 1 to 10")
+    if type(max_posts) is not int or not 1 <= max_posts <= 20:
+        raise ValueError(f"{label}.max_posts must be an integer from 1 to 20")
     if type(max_age_minutes) is not int or not 1 <= max_age_minutes <= 1440:
         raise ValueError(f"{label}.max_age_minutes must be an integer from 1 to 1440")
     if type(settle_minutes) is not int or not 1 <= settle_minutes <= 240:

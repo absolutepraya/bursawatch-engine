@@ -20,6 +20,15 @@ def test_load_config_builds_profile_and_feed_url(config_path):
     assert profile.thread_handling.settle_minutes == 60
 
 
+def test_load_config_accepts_twenty_post_self_chain(config_path, profile_payload):
+    profile_payload["thread_handling"]["max_posts"] = 20
+    write_config(config_path, {"version": 1, "profiles": [profile_payload]})
+
+    profile = config_module.load_watch_config(config_path).profiles[0]
+
+    assert profile.thread_handling.max_posts == 20
+
+
 def test_canonical_almer_profile_uses_llm_summary():
     canonical_config = Path(__file__).resolve().parents[1] / "config" / "watches.json"
     profiles = {profile.id: profile for profile in config_module.load_watch_config(canonical_config).profiles}
@@ -55,7 +64,7 @@ def test_canonical_thread_handling_matches_writer_patterns():
         ("enable_llm_relevance_filter", "yes", "boolean"),
         ("additional_prompt_instruction", 1, "must be text"),
         ("max_items_per_poll", 101, "1 to 100"),
-        ("thread_handling", {"mode": "self_chain", "max_posts": 11, "max_age_minutes": 240, "settle_minutes": 60}, "1 to 10"),
+        ("thread_handling", {"mode": "self_chain", "max_posts": 21, "max_age_minutes": 240, "settle_minutes": 60}, "1 to 20"),
     ],
 )
 def test_load_config_rejects_invalid_profile_fields(config_path, profile_payload, field, value, message):
