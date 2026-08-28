@@ -43,6 +43,9 @@ def test_load_state_adds_filtered_counter_to_existing_live_state(tmp_path):
 
 
 def test_lone_self_chain_keeps_one_deadline_then_child_is_ready_immediately(config_path):
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    payload["profiles"][0]["thread_handling"]["settle_minutes"] = 15
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     started = datetime(2026, 8, 1, 9, 0, tzinfo=UTC)
     root = SourcePost(profile.id, "101", "https://x.com/Kutekians/status/101", started, "Root context", PostKind.NORMAL, None, None, (SourceMedia("https://img.example/root.jpg", 0),), ())
@@ -51,8 +54,10 @@ def test_lone_self_chain_keeps_one_deadline_then_child_is_ready_immediately(conf
     value["profiles"][profile.id] = {"cursor": "100"}
     state.observe_posts(value, profile, [root], lambda post: post.kind is PostKind.NORMAL, lambda post: post.related_url is not None, started)
     assert state.is_ready(value["outbox"][0], started + timedelta(minutes=14)) is False
+    assert state.is_ready(value["outbox"][0], started + timedelta(minutes=15)) is True
     state.observe_posts(value, profile, [root, child], lambda post: post.kind is PostKind.NORMAL, lambda post: post.related_url is not None, started + timedelta(minutes=1))
     event = value["outbox"][0]
+    assert len(value["outbox"]) == 1
     assert [post["post_id"] for post in event["thread_posts"]] == ["101", "102"]
     assert state.is_ready(event, started + timedelta(minutes=1)) is True
 
@@ -66,6 +71,7 @@ def test_same_poll_root_and_continuation_use_the_newest_complete_thread(config_p
     value["profiles"][profile.id] = {"cursor": "100"}
     state.observe_posts(value, profile, [root, child], lambda post: post.kind is PostKind.NORMAL, lambda post: post.related_url is not None, now)
     event = value["outbox"][0]
+    assert len(value["outbox"]) == 1
     assert event["post_id"] == "102"
     assert [post["post_id"] for post in event["thread_posts"]] == ["101", "102"]
     assert state.is_ready(event, now) is True
