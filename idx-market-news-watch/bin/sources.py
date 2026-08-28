@@ -9,22 +9,23 @@ from state import complete_provider_bootstrap, provider_bootstrap_complete
 
 
 _TUNTUN_TOPIC_ID = 3743
+_IDX_TICKER = r"[A-Z]{4}"
 _TICKER_LEAD = re.compile(
-    r"^(?P<ticker>[A-Z]{2,5})\s*(?:\([^\r\n)]+\))?\s*:\s*\S.*$"
+    rf"^(?P<ticker>{_IDX_TICKER})\s*(?:\([^\r\n)]+\))?\s*:\s*\S.*$"
 )
 _SPECIAL_TOPIC = re.compile(
-    r"^Special Topics?\s*:\s*(?P<ticker>[A-Z]{2,5})\s*(?:\([^\r\n)]+\))?\s*:\s*\S.*$"
+    rf"^Special Topics?\s*:\s*(?P<ticker>{_IDX_TICKER})\s*(?:\([^\r\n)]+\))?\s*:\s*\S.*$"
 )
-_TUNTUN_DECORATED_HEADLINE = re.compile(r"^📰\s*(?P<ticker>[A-Z]{2,5})(?=\s)")
+_TUNTUN_DECORATED_HEADLINE = re.compile(rf"^📰\s*(?P<ticker>{_IDX_TICKER})(?=\s)")
 _TUNTUN_DECORATED_PARENTHESIZED_TICKER = re.compile(
-    r"^📰\s*[^\r\n()]+?\s*\((?P<ticker>[A-Z]{2,5})\)(?=\s|:|-|$)"
+    rf"^📰\s*[^\r\n()]+?\s*\((?P<ticker>{_IDX_TICKER})\)(?=\s|:|-|$)"
 )
 _TUNTUN_FOREIGN_PARTNER_HEADLINE = re.compile(
-    r"^📰\s*.+?\s+China-(?P<ticker>[A-Z]{2,5})(?=\s|:|-|\(|$)"
+    rf"^📰\s*.+?\s+China-(?P<ticker>{_IDX_TICKER})(?=\s|:|-|\(|$)"
 )
 _TUNTUN_SUBSIDIARY_HEADLINE = re.compile(
-    r"^(?:📰\s*)?Anak\s+[Uu]saha\s+(?P<primary>[A-Z]{2,5})"
-    r"(?:\s*(?:,|dan|&)\s*(?P<secondary>[A-Z]{2,5}))?\b"
+    rf"^(?:📰\s*)?Anak\s+[Uu]saha\s+(?P<primary>{_IDX_TICKER})"
+    rf"(?:\s*(?:,|dan|&)\s*(?P<secondary>{_IDX_TICKER}))?\b"
 )
 _TUNTUN_EXCLUDED_CONTENT = re.compile(
     r"(?:^|[:\n])\s*(?:daily|midday|evening|market|macro|sector)\b"
@@ -32,13 +33,13 @@ _TUNTUN_EXCLUDED_CONTENT = re.compile(
     re.IGNORECASE,
 )
 _PHINTRACO_TICKER_TITLE = re.compile(
-    r"^(?:Notes|Company Flash):\s*(?P<ticker>[A-Z]{2,5})(?=\s|:|-|\(|$)"
+    rf"^(?:Notes|Company Flash):\s*(?P<ticker>{_IDX_TICKER})(?=\s|:|-|\(|$)"
 )
-_PHINTRACO_COMPANY_NOTES_TICKER = re.compile(r"[–-]\s*(?P<ticker>[A-Z]{2,5})\.IJ\b")
+_PHINTRACO_COMPANY_NOTES_TICKER = re.compile(rf"[–-]\s*(?P<ticker>{_IDX_TICKER})\.IJ\b")
 _PHINTRACO_BRANDED_NOTES = re.compile(r"^Phintraco Sekuritas Notes\s*\|", re.IGNORECASE)
-_PHINTRACO_HEADLINE_TICKER = re.compile(r"^(?P<ticker>[A-Z]{2,5})(?=\s|:|-|\(|$)")
+_PHINTRACO_HEADLINE_TICKER = re.compile(rf"^(?P<ticker>{_IDX_TICKER})(?=\s|:|-|\(|$)")
 _PHINTRACO_STOCK_LINE = re.compile(
-    r"^(?P<ticker>[A-Z]{2,5})\s*(?:\([^\r\n)]+\))?\s*(?::|-)\s*\S.*$"
+    rf"^(?P<ticker>{_IDX_TICKER})\s*(?:\([^\r\n)]+\))?\s*(?::|-)\s*\S.*$"
 )
 _NON_ISSUER_TICKERS = frozenset({"BEI", "BI", "CPO", "FED", "IDX", "IHSG", "JCI", "LQ45", "OIL", "USD"})
 

@@ -222,7 +222,7 @@ def test_ranking_uses_event_weight_then_band_then_fact_count_then_publication_ti
     few_facts = _selection_candidate(
         Provider.TUNTUN,
         403,
-        "FEW",
+        "FEWS",
         published_at,
         ranking_band=2,
         material_facts=("a",),
@@ -246,7 +246,7 @@ def test_ranking_uses_event_weight_then_band_then_fact_count_then_publication_ti
 
     ranked = rank_tier_two([routine, other, few_facts, many_facts_later, many_facts_earlier])
 
-    assert [item.ticker for item in ranked] == ["EARL", "MANY", "FEW", "OTHR", "ROUT"]
+    assert [item.ticker for item in ranked] == ["EARL", "MANY", "FEWS", "OTHR", "ROUT"]
 
 
 def test_digest_window_only_exists_on_weekday_wib_due_instants():

@@ -38,7 +38,7 @@ class Tier(StrEnum):
     TWO = "two"
 
 
-_TICKER_PATTERN = re.compile(r"[A-Z]{2,5}")
+_TICKER_PATTERN = re.compile(r"[A-Z]{4}")
 _PROVIDER_URL_ROOTS = {
     Provider.PHINTRACO: "https://t.me/phintasprofits",
     Provider.TUNTUN: "https://t.me/tuntunsekuritas",
@@ -99,7 +99,7 @@ class CompanyCandidate:
     def __post_init__(self) -> None:
         _require_positive_message_id(self.source_message_id)
         if _TICKER_PATTERN.fullmatch(self.ticker) is None:
-            raise ValueError("ticker must match [A-Z]{2,5}")
+            raise ValueError("ticker must match [A-Z]{4}")
         _require_aware_timestamp(self.published_at, "published_at")
 
     @property

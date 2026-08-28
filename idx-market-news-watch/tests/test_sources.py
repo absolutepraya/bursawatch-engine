@@ -73,6 +73,22 @@ def test_tuntun_decorated_brand_headline_prefers_parenthesized_idx_ticker():
     assert [candidate.ticker for candidate in candidates] == ["SMGR"]
 
 
+def test_tuntun_decorated_headline_ignores_non_ticker_parenthetical_label():
+    candidates = TuntunNewsAdapter().extract_candidates(
+        message_id=14359,
+        text=(
+            "📰 BAJA Masuk Daftar Saham dengan Konsentrasi Kepemilikan Tinggi (HSC)\n\n"
+            "BEI memasukkan PT Saranacentral Bajatama Tbk (BAJA) ke dalam daftar saham dengan "
+            "High Shareholding Concentration (HSC)."
+        ),
+        published_at=datetime(2026, 8, 12, 6, 43, 16, tzinfo=timezone.utc),
+        topic_id=3743,
+        direct_image=False,
+    )
+
+    assert [candidate.ticker for candidate in candidates] == ["BAJA"]
+
+
 def test_tuntun_foreign_partner_headline_uses_the_listed_issuer_after_the_hyphen():
     candidates = TuntunNewsAdapter().extract_candidates(
         message_id=14132,
