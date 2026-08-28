@@ -52,13 +52,24 @@ def test_canonical_insider_tracker_profile_is_threaded_and_routed():
     canonical_config = Path(__file__).resolve().parents[1] / "config" / "watches.json"
     profile = {item.id: item for item in config_module.load_watch_config(canonical_config).profiles}["insidertracker"]
 
+    assert profile.enabled is True
+    assert profile.profile_url == "https://x.com/InsiderTrackX"
     assert profile.handle == "InsiderTrackX"
+    assert profile.display_name == "Insider Tracker"
+    assert profile.twitter_emoji == "<:twitter:1531672630602498129>"
     assert profile.emoji == "<:insidertracker:1537444489134604448>"
-    assert [channel.key for channel in profile.discord_channels] == ["macro", "id_stock", "us_stock"]
+    assert [(channel.key, channel.channel_id, channel.description) for channel in profile.discord_channels] == [
+        ("macro", "1531655369884045382", "Broad economic, business, market, sector, and cross-asset analysis."),
+        ("id_stock", "1525102508714889257", "Direct IDX-listed company or ticker thesis."),
+        ("us_stock", "1532266331737686199", "Direct NYSE- or Nasdaq-listed security thesis, including ADRs."),
+    ]
+    assert (profile.forward_normal_post, profile.forward_quote_post, profile.forward_reply, profile.forward_repost, profile.forward_media) == (True, True, False, False, True)
     assert profile.enable_llm_title is True
     assert profile.enable_llm_summary is True
     assert profile.enable_llm_routing is True
     assert profile.enable_llm_relevance_filter is True
+    assert profile.additional_prompt_instruction == ""
+    assert profile.max_items_per_poll == 50
     assert (profile.thread_handling.mode, profile.thread_handling.max_posts, profile.thread_handling.max_age_minutes, profile.thread_handling.settle_minutes) == ("self_chain", 20, 240, 15)
 
 
