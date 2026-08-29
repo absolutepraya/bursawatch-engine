@@ -111,14 +111,12 @@ def _quoted_block(content_html: str, quoted_url: str) -> str:
         name, content = "Quoted post", quoted
     lines = [f"> **{name.strip()}**"]
     content_lines = content.strip().splitlines()
-    last_content_line = max(index for index, line in enumerate(content_lines) if line.strip())
-    for index, line in enumerate(content_lines):
+    for line in content_lines:
         if not line.strip():
             lines.append("> \u200b")
-        elif index == last_content_line:
-            lines.append(f"> {line} [View quoted on X](<{quoted_url}>)")
         else:
             lines.append(f"> {line}")
+    lines.append(f"> [View quoted on X](<{quoted_url}>)")
     return "\n".join(lines)
 
 
@@ -137,9 +135,9 @@ def render_post(profile: Profile, post: SourcePost, summary: str | None = None, 
     prefix = f"{heading}\n\n"
     if summary is not None:
         messages = _append_text(prefix, summary.strip())
-        if post.quoted_content_html:
-            _append_atomic(messages, _quoted_block(post.quoted_content_html, post.quoted_url or post.url), "\n\n")
         _append_atomic(messages, f"[View on X](<{post.url}>)", "\n\n")
+        if post.quoted_content_html:
+            _append_atomic(messages, _quoted_block(post.quoted_content_html, post.quoted_url or post.url), "\n")
         if post.quoted_article_url:
             _append_atomic(messages, _article_block(post.quoted_article_label, post.quoted_article_url), "\n")
         return messages

@@ -27,7 +27,7 @@ def test_submit_title_only_preserves_raw_post_and_quote(tmp_path, monkeypatch, c
     result = scan.submit_analysis_payload({"event_key": "kutekians:102", "is_relevant": True, "title": "BI: Tiga Indikator untuk Pasar"})
 
     assert result == {"submitted": True, "delivered": 1}
-    assert sent == [("### <:twitter:1531672630602498129> BI: Tiga Indikator untuk Pasar\n-# <:kutekians:1531673483459821729> Almer Sad, CFA\n\nRaw original [View on X](<https://x.com/Kutekians/status/102>)\n> **Quoted author**\n> Quoted raw [View quoted on X](<https://x.com/a/status/101>)", "1531655369884045382")]
+    assert sent == [("### <:twitter:1531672630602498129> BI: Tiga Indikator untuk Pasar\n-# <:kutekians:1531673483459821729> Almer Sad, CFA\n\nRaw original [View on X](<https://x.com/Kutekians/status/102>)\n> **Quoted author**\n> Quoted raw\n> [View quoted on X](<https://x.com/a/status/101>)", "1531655369884045382")]
 
 
 def test_submit_summary_validates_then_drains_only_summary_event(tmp_path, monkeypatch, config_path, profile_payload):

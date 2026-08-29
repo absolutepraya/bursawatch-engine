@@ -7,7 +7,7 @@ from models import PostKind, SourcePost
 def test_render_quote_post_exact(config_path):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Market note", PostKind.QUOTE, "https://x.com/original/status/101", "Kepala Warga Tai.: Quote note", (), ())
-    assert render.render_post(profile, post) == ["### <:twitter:1531672630602498129><:kutekians:1531673483459821729> Almer Sad, CFA\n\nMarket note [View on X](<https://x.com/Kutekians/status/102>)\n> **Kepala Warga Tai.**\n> Quote note [View quoted on X](<https://x.com/original/status/101>)"]
+    assert render.render_post(profile, post) == ["### <:twitter:1531672630602498129><:kutekians:1531673483459821729> Almer Sad, CFA\n\nMarket note [View on X](<https://x.com/Kutekians/status/102>)\n> **Kepala Warga Tai.**\n> Quote note\n> [View quoted on X](<https://x.com/original/status/101>)"]
 
 
 def test_render_splits_long_post(config_path):
@@ -37,7 +37,7 @@ def test_render_truncates_quote_text_at_word_boundary(config_path):
     post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Own", PostKind.QUOTE, "https://x.com/a/status/1", "quoted " * 100, (), ())
     rendered = render.render_post(profile, post)[0]
     assert "quoted quoted" in rendered
-    assert "… [View quoted on X]" in rendered
+    assert "…\n> [View quoted on X]" in rendered
     assert len(rendered) < 700
 
 
@@ -46,7 +46,7 @@ def test_render_preserves_blank_quote_paragraph_without_bare_marker(config_path)
     post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Own", PostKind.QUOTE, "https://x.com/a/status/1", "Name: First paragraph\n\nSecond paragraph", (), ())
     rendered = render.render_post(profile, post)[0]
     assert "> \u200b" in rendered
-    assert "> Second paragraph [View quoted on X]" in rendered
+    assert "> Second paragraph\n> [View quoted on X]" in rendered
 
 
 def test_render_summary_retains_quoted_post_text(config_path, profile_payload):
@@ -56,7 +56,7 @@ def test_render_summary_retains_quoted_post_text(config_path, profile_payload):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Raw original", PostKind.QUOTE, "https://x.com/original/status/101", "Quoted raw", (), ())
     summary = "*(Ringkasan)* Ini ringkasan inti."
-    assert render.render_post(profile, post, summary, "Pasar: Ringkasan Inti") == ["### <:twitter:1531672630602498129> Pasar: Ringkasan Inti\n-# <:kutekians:1531673483459821729> Almer Sad, CFA\n\n*(Ringkasan)* Ini ringkasan inti.\n\n> **Quoted post**\n> Quoted raw [View quoted on X](<https://x.com/original/status/101>)\n\n[View on X](<https://x.com/Kutekians/status/102>)"]
+    assert render.render_post(profile, post, summary, "Pasar: Ringkasan Inti") == ["### <:twitter:1531672630602498129> Pasar: Ringkasan Inti\n-# <:kutekians:1531673483459821729> Almer Sad, CFA\n\n*(Ringkasan)* Ini ringkasan inti.\n\n[View on X](<https://x.com/Kutekians/status/102>)\n> **Quoted post**\n> Quoted raw\n> [View quoted on X](<https://x.com/original/status/101>)"]
 
 
 def test_render_article_quote_block_is_visible_without_article_body(config_path, profile_payload):
@@ -82,6 +82,7 @@ def test_render_quoted_source_url_as_anchor_without_raw_url(config_path, profile
     rendered = "\n".join(render.render_post(profile, post, "*(Ringkasan)* Ringkasan inti.", "Pasar: Ringkasan"))
     assert f"Source context {source_url}" not in rendered
     assert f"[Read source](<{source_url}>)" in rendered
+    assert f"[Read source](<{source_url}>)\n> [View quoted on X]" in rendered
     assert "trailing text that should not render" not in rendered
 
 
