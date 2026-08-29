@@ -95,7 +95,7 @@ The deployed VPS runtime remains canonical. Dotfiles is the scrubbed backup that
 
 ## Security Audit
 
-- Develop the VPS Security Audit in `security-audit/`. Its Hermes wrapper runs daily at 07:30 WIB but gates the full deterministic audit to an exact three-day cadence. It delivers only to `#security` (`1535121748129873940`).
+- Develop the VPS Security Audit in `security-audit/`. Its Hermes wrapper runs daily at 07:30 WIB but gates the full deterministic audit to an exact three-day cadence. Every invocation posts one operational heartbeat to `#heartbeat` (`1505162000420835388`); only actionable findings are delivered to `#security` (`1535121748129873940`), without a heartbeat line.
 - The daily APT security-update timer is a separate remediation path. The Hermes audit reports its health and must never reboot the VPS. Package-managed service restarts are allowed.
 - Preserve the separation: the audit scans the Debian-packaged RKHunter database and inspects state, but it must not alter firewall rules, accounts, SSH policy, package selections, or the RKHunter property baseline. System configuration files live under `security-audit/system-config/` and require reviewed, approved `sudo install` deployment plus a preserved backup and SSH preflight.
 - Keep exposure expectations in `security-audit/config/baseline.json`. A new listener or UFW rule is a finding, never an implicitly accepted baseline. Do not manually run the scheduled Hermes job as a smoke test because it runs RKHunter and posts to Discord.
