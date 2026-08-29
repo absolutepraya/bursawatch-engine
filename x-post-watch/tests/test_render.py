@@ -66,9 +66,23 @@ def test_render_article_quote_block_is_visible_without_article_body(config_path,
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Raw authored post", PostKind.NORMAL, None, None, (), (), quoted_article_url="https://x.com/i/article/123", quoted_article_label="Ricky Ho")
     rendered = "\n".join(render.render_post(profile, post, "*(Ringkasan)* Ringkasan inti.", "Pasar: Artikel"))
-    assert "> Raw authored post" in rendered
     assert "> **Ricky Ho**" in rendered
+    assert "> *(Article)*" in rendered
     assert "[Read Article on X](<https://x.com/i/article/123>)" in rendered
+    assert "Raw authored post" not in rendered
+
+
+def test_render_quoted_source_url_as_anchor_without_raw_url(config_path, profile_payload):
+    profile_payload["enable_llm_title"] = True
+    profile_payload["enable_llm_summary"] = True
+    config_path.write_text(__import__("json").dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    source_url = "https://www.bloomberg.com/news/articles/2026-08-14/example?utm_source=twitter"
+    post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Author text", PostKind.QUOTE, "https://x.com/business/status/101", f"Bloomberg: Source context {source_url} trailing text that should not render", (), ())
+    rendered = "\n".join(render.render_post(profile, post, "*(Ringkasan)* Ringkasan inti.", "Pasar: Ringkasan"))
+    assert f"Source context {source_url}" not in rendered
+    assert f"[Read source](<{source_url}>)" in rendered
+    assert "trailing text that should not render" not in rendered
 
 
 def test_render_title_places_writer_in_muted_byline(config_path, profile_payload):

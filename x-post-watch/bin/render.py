@@ -7,6 +7,7 @@ from models import Profile, SourcePost
 
 
 DISCORD_LIMIT = 2000
+SOURCE_URL_RE = re.compile(r"https?://[^\s<>()]+")
 
 
 class _TextParser(HTMLParser):
@@ -88,8 +89,23 @@ def _truncate(value: str, limit: int = 400) -> str:
     return value[:cut if cut > 0 else limit].rstrip() + "…"
 
 
+def _quoted_text(content_html: str) -> str:
+    """Keep the first cited source link clickable without exposing its raw URL."""
+    quoted = markdown(content_html) or "Quoted post text unavailable"
+    match = SOURCE_URL_RE.search(quoted)
+    if not match:
+        return _truncate(quoted)
+    source_url = match.group(0).rstrip(".,;:!?")
+    prefix = quoted[:match.start()].rstrip()
+    # HTML anchors become `label (<url>)` in markdown(). Remove the orphaned
+    # opening parenthesis when the URL becomes its own Discord anchor.
+    if prefix.endswith("("):
+        prefix = prefix[:-1].rstrip()
+    return f"{_truncate(prefix)} [Read source](<{source_url}>)".strip()
+
+
 def _quoted_block(content_html: str, quoted_url: str) -> str:
-    quoted = _truncate(markdown(content_html) or "Quoted post text unavailable")
+    quoted = _quoted_text(content_html)
     name, separator, content = quoted.partition(":")
     if not separator or not name.strip():
         name, content = "Quoted post", quoted
@@ -108,15 +124,7 @@ def _quoted_block(content_html: str, quoted_url: str) -> str:
 
 def _article_block(label: str | None, article_url: str) -> str:
     safe_label = re.sub(r"([`~|*_])", r"\\\1", " ".join((label or "Quoted X Article").split()))
-    return f"> **{safe_label}**\n> [Read Article on X](<{article_url}>)"
-
-
-def _excerpt_block(content_html: str) -> str:
-    excerpt = _truncate(markdown(content_html), 400)
-    if not excerpt:
-        return ""
-    blank = chr(0x200B)
-    return "\n".join(f"> {line or blank}" for line in excerpt.splitlines())
+    return f"> **{safe_label}**\n> *(Article)*\n> [Read Article on X](<{article_url}>)"
 
 
 def _thread_text(thread_posts: tuple[SourcePost, ...]) -> str:
@@ -131,12 +139,6 @@ def render_post(profile: Profile, post: SourcePost, summary: str | None = None, 
         messages = _append_text(prefix, summary.strip())
         if post.quoted_content_html:
             _append_atomic(messages, _quoted_block(post.quoted_content_html, post.quoted_url or post.url), "\n\n")
-        # RSSHub can provide an Article's opening text in the authored quote.
-        # Keep a small source excerpt beside the summary instead of hiding it.
-        if post.quoted_article_url:
-            excerpt = _excerpt_block(post.content_html)
-            if excerpt:
-                _append_atomic(messages, excerpt, "\n\n")
         _append_atomic(messages, f"[View on X](<{post.url}>)", "\n\n")
         if post.quoted_article_url:
             _append_atomic(messages, _article_block(post.quoted_article_label, post.quoted_article_url), "\n")
