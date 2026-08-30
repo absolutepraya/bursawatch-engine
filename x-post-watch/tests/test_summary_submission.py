@@ -154,3 +154,47 @@ def test_submit_irrelevant_disclosure_is_rejected_and_keeps_agent_event(tmp_path
 
     event = state.load_state(storage)["outbox"][0]
     assert event["agent_phase"] == "awaiting_agent"
+
+
+def test_submit_promotional_post_is_discarded_even_if_agent_marks_it_relevant(tmp_path, monkeypatch, config_path, profile_payload):
+    profile_payload["enable_llm_title"] = True
+    profile_payload["enable_llm_summary"] = True
+    profile_payload["enable_llm_routing"] = True
+    profile_payload["discord_channels"].append({"key": "id_stock", "channel_id": "1525102508714889257", "description": "IDX"})
+    storage = tmp_path / "state.json"
+    config_path.write_text(json.dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    post = SourcePost(
+        profile.id,
+        "102",
+        "https://x.com/Kutekians/status/102",
+        datetime.now(UTC),
+        "Product is live. CA: 0xfc861e02605addab95d8e6b8e662100e987cb9aa. Hold $INSIDER and unlock benefits. 80% of revenue will be used to buy back $INSIDER.",
+        PostKind.NORMAL,
+        None,
+        None,
+        (),
+        (),
+    )
+    value = state.new_state()
+    value["profiles"][profile.id] = {"cursor": "101"}
+    state.observe_posts(value, profile, [post], lambda candidate: True)
+    assert state.claim_oldest_agent(value, {profile.id: profile}, datetime.now(UTC)) is not None
+    state.save_state(storage, value)
+    monkeypatch.setenv("X_POST_WATCH_STATE_PATH", str(storage))
+    monkeypatch.setenv("X_POST_WATCH_CONFIG_PATH", str(config_path))
+    sent = []
+    monkeypatch.setattr(scan.discord, "post_text", lambda *args: sent.append(args))
+
+    result = scan.submit_analysis_payload({
+        "event_key": "kutekians:102",
+        "is_relevant": True,
+        "title": "Produk Crypto Insider Tracker",
+        "summary": "*(Ringkasan)* Produk promosi.",
+        "route": "macro",
+    })
+
+    assert result == {"submitted": True, "ignored": True, "delivered": 0}
+    assert sent == []
+    assert state.load_state(storage)["outbox"] == []
+    assert state.load_state(storage)["filtered_since_last_heartbeat"] == 1

@@ -14,7 +14,7 @@ import discord
 import render
 import rsshub
 import state
-from agent_protocol import agent_item, build_wake_payload, requires_relevance, validate_submission
+from agent_protocol import agent_item, build_wake_payload, is_promotional, requires_relevance, validate_submission
 
 
 WIB = ZoneInfo("Asia/Jakarta")
@@ -188,10 +188,11 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
         if profile is None or not profile.uses_llm:
             raise ValueError("analysis profile is not enabled")
         analysis = validate_submission(profile, payload)
-        if analysis.get("is_relevant") is False:
-            event = state.awaiting_analysis_event(value, analysis["event_key"])
-            thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]]))
-            if requires_relevance(state.deserialize_post(event["post"]), thread_posts):
+        event = state.awaiting_analysis_event(value, analysis["event_key"])
+        thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]]))
+        promotional = is_promotional(state.deserialize_post(event["post"]), thread_posts)
+        if analysis.get("is_relevant") is False or promotional:
+            if not promotional and requires_relevance(state.deserialize_post(event["post"]), thread_posts):
                 raise ValueError("direct market disclosure must be relevant")
             state.discard_analysis(value, analysis["event_key"])
             state.save_state(storage, value)

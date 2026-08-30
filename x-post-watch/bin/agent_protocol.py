@@ -17,6 +17,14 @@ MARKET_DISCLOSURE_RE = re.compile(
     r"(?:\$[A-Z]{2,6}\b|#Rangkum(?:KeterbukaanInformasi|Report)\b|\b(?:private placement|pmthmetd|rights issue|hmetd|stock split|buyback|dividen|dividend|earnings?|laba bersih|pendapatan|revenue|ebitda|keterbukaan informasi|corporate action|dilusi)\b)",
     re.IGNORECASE,
 )
+PROMOTIONAL_SIGNAL_RES = (
+    re.compile(r"\b(?:hold|buy|stake|mint|claim)\s+\$[A-Z][A-Z0-9]{1,9}\b", re.IGNORECASE),
+    re.compile(r"\b(?:unlock|access)\b.{0,100}\b(?:benefit|feature|reward|alert|watchlist|api)\b", re.IGNORECASE | re.DOTALL),
+    re.compile(r"\b(?:app|product|platform|service)\s+(?:is\s+)?live\b", re.IGNORECASE),
+    re.compile(r"\b(?:CA|contract address)\s*:\s*0x[0-9a-f]{20,}\b", re.IGNORECASE),
+    re.compile(r"\b(?:presale|airdrop|referral|giveaway|promo(?:tion)?)\b", re.IGNORECASE),
+    re.compile(r"\b(?:revenue|fees?)\b.{0,100}\b(?:buy\s*back|rewards?|tokenized|holders?)\b", re.IGNORECASE | re.DOTALL),
+)
 
 
 def instruction_for(profile: Profile, relevance_guard_required: bool = False) -> str:
@@ -27,7 +35,9 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
     if profile.enable_llm_relevance_filter:
         relevance = (
             "First decide whether this is substantive economy, business, capital-markets news, analysis, opinion, market education, or an investing view. For a thread, decide from the combined thread, not only its latest post. "
+            "Exclude advertisements and product promotions, including marketing for apps, services, tokens, paid tiers, APIs, alerts, rewards, presales, or referral programs. "
             "Exclude surveys, promotions, greetings, personal updates, event invitations, generic engagement, and unrelated random posts. "
+            "An advertisement remains irrelevant even when it mentions a ticker, revenue, buybacks, a contract address, or other financial terms. "
             "Do not reject a substantive thread merely because one continuation is brief, casual, or only adds context. "
             "If it is not relevant, return exactly event_key and is_relevant false, with no title, summary, or route. "
             "If it is relevant, set is_relevant true and continue. "
@@ -75,7 +85,14 @@ def event_key(profile_id: str, post_id: str) -> str:
     return f"{profile_id}:{post_id}"
 
 
+def is_promotional(post: SourcePost, thread_posts: tuple[SourcePost, ...] | None = None) -> bool:
+    text = "\n\n".join(render.markdown(item.content_html) for item in (thread_posts or (post,)))
+    return sum(bool(pattern.search(text)) for pattern in PROMOTIONAL_SIGNAL_RES) >= 2
+
+
 def requires_relevance(post: SourcePost, thread_posts: tuple[SourcePost, ...] | None = None) -> bool:
+    if is_promotional(post, thread_posts):
+        return False
     return any(MARKET_DISCLOSURE_RE.search(render.markdown(item.content_html)) for item in (thread_posts or (post,)))
 
 

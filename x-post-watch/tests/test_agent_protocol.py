@@ -115,6 +115,29 @@ def test_direct_market_disclosure_requires_a_relevant_decision(config_path, prof
     assert "must be relevant" in item["instruction"].lower()
 
 
+def test_promotional_thread_is_not_forced_relevant_by_financial_language(config_path, profile_payload):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    post = SourcePost(
+        profile.id,
+        "102",
+        "https://x.com/Kutekians/status/102",
+        datetime.now(UTC),
+        "Insider Crypto Tracker is live. CA: 0xfc861e02605addab95d8e6b8e662100e987cb9aa. Hold $INSIDER and unlock benefits. 80% of revenue will be used to buy back $INSIDER.",
+        PostKind.NORMAL,
+        None,
+        None,
+        (),
+        (),
+    )
+
+    item = agent_protocol.agent_item(profile, post)
+
+    assert agent_protocol.is_promotional(post) is True
+    assert agent_protocol.requires_relevance(post) is False
+    assert item["relevance_guard_required"] is False
+    assert "advertisements and product promotions" in item["instruction"]
+
+
 def test_submission_accepts_only_macro_id_stock_or_us_stock_route(config_path, profile_payload):
     profile_payload["enable_llm_title"] = True
     profile_payload["enable_llm_summary"] = True
