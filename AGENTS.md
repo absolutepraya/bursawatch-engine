@@ -24,6 +24,7 @@ This private repository is the canonical Mac development home for Hermes cron sk
 ## Repository and dotfiles boundaries
 
 - Track reviewed development source in this repository. Do not track credentials, runtime state, caches, generated previews, local backfills, virtual environments, or worktrees.
+- `CONTEXT.md` files are temporary agent working knowledge, not repository source. Never stage or commit them, even when an existing `CONTEXT.md` is modified.
 - `.worktrees/` and other repository scratch space are local-only. They must not be added to Git or dotfiles capture coverage.
 - Dotfiles owns machine configuration and scrubbed VPS runtime snapshots. It does not own duplicate Hermes development source.
 - `Documents/Projects/Hermes/**`, including this `AGENTS.md` and `yanto-gateway-voice/`, is intentionally absent from the dotfiles Mac capture map. Do not restore the retired `mac/hermes/` snapshot.
