@@ -57,9 +57,9 @@ def test_tier_policy_covers_every_eligible_class(event_class, tier):
     assert tier_for_event_class(event_class) is tier
 
 
-@pytest.mark.parametrize("ticker", ["D", "HSC", "TOOLONG", "dewa", "DE-WA"])
+@pytest.mark.parametrize("ticker", ["D", "TOOLONG", "dewa", "DE-WA"])
 def test_candidate_rejects_non_exchange_ticker(ticker):
-    with pytest.raises(ValueError, match=r"ticker must match \[A-Z\]\{4\}"):
+    with pytest.raises(ValueError, match=r"ticker must match \[A-Z\]\{2,5\}"):
         CompanyCandidate(
             provider=Provider.TUNTUN,
             source_message_id=13597,

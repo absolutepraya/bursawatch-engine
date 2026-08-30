@@ -98,6 +98,37 @@ def test_load_state_migrates_valid_legacy_provider_lanes(tmp_path, monkeypatch):
     assert persisted["providers"]["tuntun"]["bootstrap_complete"] is True
     assert persisted["providers"]["phintraco"]["bootstrap_complete"] is False
 
+
+def test_load_state_accepts_legacy_two_to_five_letter_candidate_tickers(tmp_path, monkeypatch):
+    path = tmp_path / "state.json"
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(path))
+    legacy_state = empty_state()
+    legacy_state["candidates"] = {
+        "tuntun:14359:HSC": {
+            "candidate": {
+                "provider": "tuntun",
+                "source_message_id": 14359,
+                "ticker": "HSC",
+                "source_kind": "tuntun_standalone",
+                "published_at": "2026-08-12T06:43:16+00:00",
+                "source_text": "📰 BAJA Masuk Daftar Saham dengan Konsentrasi Kepemilikan Tinggi (HSC)",
+                "direct_image": False,
+            },
+            "phase": "delivered",
+            "enqueued_at": "2026-08-12T13:43:16+07:00",
+            "retry": {"attempts": 0, "next_attempt_at": None, "last_error": None},
+            "agent_lease_until": None,
+            "classification": None,
+            "selection": None,
+        }
+    }
+    path.write_text(json.dumps(legacy_state), encoding="utf-8")
+    os.chmod(path, 0o600)
+
+    restored = load_state()
+
+    assert restored["candidates"]["tuntun:14359:HSC"]["candidate"]["ticker"] == "HSC"
+
 def test_terminal_rank_suppression_never_requeues(tmp_path, monkeypatch, candidate):
     monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_path / "state.json"))
     state = empty_state()
