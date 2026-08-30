@@ -1,0 +1,6 @@
+worktree_path = ".worktrees"
+port_offset_interval = 100
+max_slots = 9
+name_strategy = "cities"
+branch_template = "{user}/{name}"
+default_base = "origin/main"
