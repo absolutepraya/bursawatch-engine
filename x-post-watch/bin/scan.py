@@ -20,6 +20,7 @@ from agent_protocol import agent_item, build_wake_payload, requires_relevance, v
 WIB = ZoneInfo("Asia/Jakarta")
 HEARTBEAT_CHANNEL_ID = "1505162000420835388"
 WATCHER_HEARTBEAT_NAME = "x-post"
+OWNER_MENTION = "<@443342168434933760>"
 
 
 @dataclass
@@ -29,11 +30,18 @@ class RunStats:
     queued: int = 0
     delivered: int = 0
     degraded: bool = False
+    needs_attention: bool = False
     reasons: list[str] = field(default_factory=list)
 
     def note_empty_profile(self, handle: str) -> None:
         self.degraded = True
         self.reasons.append(f"{handle}: empty source feed")
+
+    def note_source_error(self, reason: str) -> None:
+        self.degraded = True
+        self.reasons.append(reason)
+        if "HTTP 401" in reason or "HTTP 403" in reason:
+            self.needs_attention = True
 
     def tokens(self) -> str:
         return f"{self.fetched} fetched · {self.filtered} filtered · {self.queued} queued · {self.delivered} delivered · {len(self.reasons)} errors"
@@ -49,7 +57,8 @@ def config_path() -> Path:
 
 def format_heartbeat(now: datetime, stats: RunStats) -> str:
     suffix = f" · {stats.reasons[0]}" if stats.reasons else ""
-    return f"🫀 {WATCHER_HEARTBEAT_NAME} · {now.astimezone(WIB):%H:%M} WIB · {stats.tokens()}" + (" ⚠️" if stats.degraded else "") + suffix
+    attention = f" {OWNER_MENTION}" if stats.needs_attention else ""
+    return f"🫀 {WATCHER_HEARTBEAT_NAME} · {now.astimezone(WIB):%H:%M} WIB · {stats.tokens()}" + (" ⚠️" if stats.degraded else "") + suffix + attention
 
 
 def format_fatal(now: datetime, reason: str) -> str:
@@ -148,7 +157,7 @@ def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, o
                         stats.degraded = True; stats.reasons.append(f"{profile.id}: {reason}")
                     state.save_state(storage, value)
                 except rsshub.SourceFetchError as exc:
-                    stats.degraded = True; stats.reasons.append(f"{profile.id}: {exc}")
+                    stats.note_source_error(f"{profile.id}: {exc}")
             while (event_index := _next_deliverable_index(value, profiles, now)) is not None:
                 if not _deliver(value, profiles, event_index, dry_run, storage, stats): break
             discord.post_text(format_heartbeat(now, stats), HEARTBEAT_CHANNEL_ID, dry_run, discord.nonce("heartbeat", now.astimezone(WIB).strftime("%Y%m%d%H")))

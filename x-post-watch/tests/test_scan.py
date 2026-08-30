@@ -17,6 +17,27 @@ def test_run_stats_marks_an_empty_profile_feed_as_degraded():
 
     assert stats.degraded is True
     assert stats.reasons == ["InsiderTrackX: empty source feed"]
+    assert stats.needs_attention is False
+
+
+def test_heartbeat_mentions_owner_for_authentication_failure():
+    stats = scan.RunStats()
+
+    stats.note_source_error("insidertracker: RSSHub X feed HTTP 403: authentication rejected")
+
+    heartbeat = scan.format_heartbeat(datetime(2026, 7, 28, 6, 0, tzinfo=scan.WIB), stats)
+    assert stats.needs_attention is True
+    assert heartbeat.endswith("<@443342168434933760>")
+
+
+def test_heartbeat_does_not_mention_owner_for_non_auth_source_failure():
+    stats = scan.RunStats()
+
+    stats.note_source_error("insidertracker: RSSHub X feed HTTP 500")
+
+    heartbeat = scan.format_heartbeat(datetime(2026, 7, 28, 6, 0, tzinfo=scan.WIB), stats)
+    assert stats.needs_attention is False
+    assert "443342168434933760" not in heartbeat
 
 
 def test_delivery_sends_thread_media_then_external_quote_media(tmp_path, monkeypatch, config_path):
