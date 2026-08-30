@@ -8,7 +8,8 @@ from types import SimpleNamespace
 
 import delivery
 import scan
-from domain import EventClass, Provider
+from domain import CompanyCandidate, EventClass, Provider, SourceKind
+from selection import SelectionCandidate
 from state import claim_oldest_pending_analysis, empty_state, enqueue_candidate, load_state, save_state
 
 
@@ -74,6 +75,51 @@ def test_message_topic_id_reads_the_forum_root_reply_message_id():
     )
 
     assert scan._message_topic_id(message) == 3743
+
+
+def test_route_pending_suppresses_same_provider_repost(tmp_state, monkeypatch):
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_state))
+    published_at = datetime.fromisoformat("2026-08-14T08:00:00+07:00")
+    state = empty_state()
+
+    def add_candidate(message_id, source_text, dedupe_facts):
+        candidate = CompanyCandidate(
+            provider=Provider.TUNTUN,
+            source_message_id=message_id,
+            ticker="INDY",
+            source_kind=SourceKind.TUNTUN_STANDALONE,
+            published_at=published_at,
+            source_text=source_text,
+            direct_image=False,
+        )
+        enqueue_candidate(state, candidate, published_at)
+        record = state["candidates"][candidate.key]
+        record["phase"] = "pending_selection"
+        record["classification"] = EventClass.CORPORATE_ACTION.value
+        record["selection"] = {
+            "summary": source_text,
+            "ranking_band": 1,
+            "material_facts": [source_text],
+            "dedupe_facts": dedupe_facts,
+        }
+        return candidate
+
+    original = add_candidate(
+        14395,
+        "INDY mendirikan dua anak usaha baru di bidang logistik dan kepelabuhanan.",
+        ["INDY mendirikan dua anak usaha baru"],
+    )
+    repost = add_candidate(
+        14396,
+        "INDY membentuk dua anak usaha baru, TRADE dan TRADA, di bidang logistik dan pelayanan kepelabuhanan.",
+        ["INDY membentuk TRADE dan TRADA"],
+    )
+    save_state(state, tmp_state)
+
+    assert scan._route_pending(state) == 2
+    assert state["candidates"][original.key]["phase"] == "pending_delivery"
+    assert state["candidates"][repost.key]["phase"] == "suppressed_duplicate"
+    assert state["dedupe"] == {repost.key: original.key}
 
 
 def test_run_delivers_every_eligible_event_immediately_as_standalone_news(tmp_state, monkeypatch):

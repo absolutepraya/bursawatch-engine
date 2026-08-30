@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
@@ -14,6 +15,14 @@ _PRE_MARKET_TIME = time(8, 30)
 _AFTER_CLOSE_TIME = time(16, 30)
 _MAX_DIGEST_CANDIDATES = 10
 _DUPLICATE_INTERVAL = timedelta(hours=24)
+_SAME_PROVIDER_DUPLICATE_INTERVAL = timedelta(days=7)
+_SOURCE_TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
+_SOURCE_STOP_WORDS = frozenset(
+    "akan anak atau bagi bahwa dalam dari dan dengan ini itu kepada karena "
+    "masih melalui menjadi pada para perseroan perusahaan sebagai serta "
+    "tersebut tidak untuk yang telah dapat lebih sekitar hingga oleh dalam "
+    "sebuah satu dua tiga empat lima tahun juta miliar triliun".split()
+)
 _TIER_TWO_EVENT_WEIGHTS = {
     EventClass.QUANTIFIED_OPERATIONAL_EXECUTION: 0,
     EventClass.OTHER_COMPANY_OPERATION: 1,
@@ -32,6 +41,23 @@ def _normalize_fact(value: object, field_name: str) -> str:
 
 def _normalize_dedupe_fact(value: object, field_name: str) -> str:
     return _normalize_fact(value, field_name).casefold()
+
+
+def _source_tokens(item: SelectionCandidate) -> frozenset[str]:
+    return frozenset(
+        token
+        for token in _SOURCE_TOKEN_PATTERN.findall(item.candidate.source_text.casefold())
+        if len(token) >= 3 and token not in _SOURCE_STOP_WORDS
+    )
+
+
+def _strong_source_overlap(left: SelectionCandidate, right: SelectionCandidate) -> bool:
+    left_tokens = _source_tokens(left)
+    right_tokens = _source_tokens(right)
+    if not left_tokens or not right_tokens:
+        return False
+    overlap = len(left_tokens & right_tokens)
+    return overlap >= 5 and overlap / min(len(left_tokens), len(right_tokens)) >= 0.4
 
 
 def _normalize_fact_sequence(
@@ -129,16 +155,17 @@ class DigestWindow:
 
 
 def is_confident_duplicate(left: SelectionCandidate, right: SelectionCandidate) -> bool:
-    """Return true only for the deliberately strict cross-provider duplicate rule."""
+    """Return true only for a same-event duplicate with strong source evidence."""
     if not isinstance(left, SelectionCandidate) or not isinstance(right, SelectionCandidate):
         raise ValueError("duplicate checks require SelectionCandidate values")
-    if left.provider is right.provider:
-        return False
     if left.ticker != right.ticker or left.event_class is not right.event_class:
         return False
-    if abs(left.published_at - right.published_at) > _DUPLICATE_INTERVAL:
+    interval = _SAME_PROVIDER_DUPLICATE_INTERVAL if left.provider is right.provider else _DUPLICATE_INTERVAL
+    if abs(left.published_at - right.published_at) > interval:
         return False
-    return len(left.normalized_dedupe_facts & right.normalized_dedupe_facts) >= 2
+    if len(left.normalized_dedupe_facts & right.normalized_dedupe_facts) >= 2:
+        return True
+    return left.provider is right.provider and _strong_source_overlap(left, right)
 
 
 def _record_for(state: dict[str, object], item: SelectionCandidate) -> dict[str, object]:

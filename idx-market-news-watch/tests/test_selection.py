@@ -41,9 +41,18 @@ def _selection_candidate(
     ranking_band=1,
     material_facts=("reported volume",),
     dedupe_facts=("production volume", "reporting period"),
+    source_text=None,
 ):
     return SelectionCandidate(
-        candidate=_candidate(provider, message_id, ticker, published_at),
+        candidate=CompanyCandidate(
+            provider=provider,
+            source_message_id=message_id,
+            ticker=ticker,
+            source_kind=SourceKind.CORPORATE_ENTRY,
+            published_at=published_at,
+            source_text=source_text or f"{ticker} source update.",
+            direct_image=False,
+        ),
         event_class=event_class,
         ranking_band=ranking_band,
         material_facts=material_facts,
@@ -135,7 +144,7 @@ def test_monday_premarket_window_includes_friday_after_close_and_weekend():
     assert window.start.isoformat() == "2026-07-17T16:30:00+07:00"
 
 
-def test_duplicate_requires_distinct_providers_matching_class_two_facts_and_24_hours(
+def test_duplicate_matches_same_provider_with_shared_facts_and_seven_day_window(
     dewa_tuntun, dewa_phintraco
 ):
     same_provider = _selection_candidate(
@@ -158,9 +167,61 @@ def test_duplicate_requires_distinct_providers_matching_class_two_facts_and_24_h
         dewa_tuntun.published_at + timedelta(hours=24, seconds=1),
     )
 
-    assert not is_confident_duplicate(dewa_tuntun, same_provider)
+    assert is_confident_duplicate(dewa_tuntun, same_provider)
     assert not is_confident_duplicate(dewa_tuntun, different_class)
     assert not is_confident_duplicate(dewa_tuntun, too_late)
+
+
+def test_same_provider_duplicate_can_use_strong_source_overlap_without_shared_facts():
+    published_at = datetime.fromisoformat("2026-08-14T08:00:00+07:00")
+    original = _selection_candidate(
+        Provider.TUNTUN,
+        14395,
+        "INDY",
+        published_at,
+        event_class=EventClass.CORPORATE_ACTION,
+        dedupe_facts=("INDY mendirikan dua anak usaha baru",),
+        source_text=(
+            "INDY mendirikan dua anak usaha baru di bidang logistik dan kepelabuhanan. "
+            "Langkah ini memperkuat integrasi rantai pasok dan membuka sumber pendapatan baru."
+        ),
+    )
+    repost = _selection_candidate(
+        Provider.TUNTUN,
+        14396,
+        "INDY",
+        published_at + timedelta(minutes=7),
+        event_class=EventClass.CORPORATE_ACTION,
+        dedupe_facts=("INDY membentuk TRADE dan TRADA",),
+        source_text=(
+            "INDY membentuk dua anak usaha baru, TRADE dan TRADA, di bidang logistik dan "
+            "pelayanan kepelabuhanan untuk memperkuat diversifikasi bisnis."
+        ),
+    )
+
+    assert is_confident_duplicate(original, repost)
+
+
+def test_same_provider_different_event_is_not_duplicate():
+    published_at = datetime.fromisoformat("2026-08-14T08:00:00+07:00")
+    first = _selection_candidate(
+        Provider.TUNTUN,
+        14403,
+        "GGRM",
+        published_at,
+        event_class=EventClass.FINANCIAL_RESULTS_OR_GUIDANCE,
+        source_text="GGRM laba bersih meningkat menjadi Rp2,97 triliun pada semester pertama.",
+    )
+    second = _selection_candidate(
+        Provider.TUNTUN,
+        14406,
+        "GGRM",
+        published_at + timedelta(days=3),
+        event_class=EventClass.FINANCING_OR_OWNERSHIP,
+        source_text="GGRM menambah modal Rp200 miliar kepada SDHI untuk operasional Bandara Dhoho.",
+    )
+
+    assert not is_confident_duplicate(first, second)
 
 
 def test_tier_one_bypasses_digest_and_ineligible_is_terminal(tmp_path, monkeypatch):
