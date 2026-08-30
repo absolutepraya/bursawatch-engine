@@ -25,6 +25,14 @@ PROMOTIONAL_SIGNAL_RES = (
     re.compile(r"\b(?:presale|airdrop|referral|giveaway|promo(?:tion)?)\b", re.IGNORECASE),
     re.compile(r"\b(?:revenue|fees?)\b.{0,100}\b(?:buy\s*back|rewards?|tokenized|holders?)\b", re.IGNORECASE | re.DOTALL),
 )
+PROMOTIONAL_HARD_SIGNAL_RES = (
+    re.compile(r"\bmember(?:[-\s]+)only\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:premium|paid|subscriber(?:[-\s]+only)?|subscription|berlangganan|eksklusif|exclusive)\b"
+        r".{0,80}\b(?:research|analysis|saham|stock|report|signal|akses|access|content|konten)\b",
+        re.IGNORECASE | re.DOTALL,
+    ),
+)
 
 
 def instruction_for(profile: Profile, relevance_guard_required: bool = False) -> str:
@@ -35,7 +43,7 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
     if profile.enable_llm_relevance_filter:
         relevance = (
             "First decide whether this is substantive economy, business, capital-markets news, analysis, opinion, market education, or an investing view. For a thread, decide from the combined thread, not only its latest post. "
-            "Exclude advertisements and product promotions, including marketing for apps, services, tokens, paid tiers, APIs, alerts, rewards, presales, or referral programs. "
+            "Exclude advertisements and product promotions, including marketing for apps, services, tokens, paid tiers, paid or member-only research, premium or subscriber content, APIs, alerts, rewards, presales, referral programs, and clickbait profit promises. "
             "Exclude surveys, promotions, greetings, personal updates, event invitations, generic engagement, and unrelated random posts. "
             "An advertisement remains irrelevant even when it mentions a ticker, revenue, buybacks, a contract address, or other financial terms. "
             "Do not reject a substantive thread merely because one continuation is brief, casual, or only adds context. "
@@ -87,7 +95,9 @@ def event_key(profile_id: str, post_id: str) -> str:
 
 def is_promotional(post: SourcePost, thread_posts: tuple[SourcePost, ...] | None = None) -> bool:
     text = "\n\n".join(render.markdown(item.content_html) for item in (thread_posts or (post,)))
-    return sum(bool(pattern.search(text)) for pattern in PROMOTIONAL_SIGNAL_RES) >= 2
+    return any(pattern.search(text) for pattern in PROMOTIONAL_HARD_SIGNAL_RES) or sum(
+        bool(pattern.search(text)) for pattern in PROMOTIONAL_SIGNAL_RES
+    ) >= 2
 
 
 def requires_relevance(post: SourcePost, thread_posts: tuple[SourcePost, ...] | None = None) -> bool:

@@ -138,6 +138,43 @@ def test_promotional_thread_is_not_forced_relevant_by_financial_language(config_
     assert "advertisements and product promotions" in item["instruction"]
 
 
+def test_member_only_stock_promotion_is_deterministically_discarded(config_path, profile_payload):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    post = SourcePost(
+        profile.id,
+        "2089649063310569955",
+        "https://x.com/doktermarket/status/2089649063310569955",
+        datetime.now(UTC),
+        "Member Only: Saham Properti Ini Berpeluang Beri Cuan 20-140% https://www.doktermarket.com/2026/08/member-only-saham-properti-ini_04974221.html",
+        PostKind.NORMAL,
+        None,
+        None,
+        (),
+        (),
+    )
+
+    assert agent_protocol.is_promotional(post) is True
+    assert agent_protocol.requires_relevance(post) is False
+
+
+def test_doktermarket_analysis_link_is_not_by_itself_promotional(config_path, profile_payload):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    post = SourcePost(
+        profile.id,
+        "2090372937425780921",
+        "https://x.com/doktermarket/status/2090372937425780921",
+        datetime.now(UTC),
+        "ARCI Capai Target Kenaikan Pertama https://www.doktermarket.com/2026/08/arci-capai-target-kenaikan-pertama.html",
+        PostKind.NORMAL,
+        None,
+        None,
+        (),
+        (),
+    )
+
+    assert agent_protocol.is_promotional(post) is False
+
+
 def test_submission_accepts_only_macro_id_stock_or_us_stock_route(config_path, profile_payload):
     profile_payload["enable_llm_title"] = True
     profile_payload["enable_llm_summary"] = True
