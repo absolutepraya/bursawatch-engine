@@ -22,6 +22,7 @@ htmlcov/
 .playwright-mcp/
 .superpowers/
 **/.superpowers/
+**/CONTEXT.md
 .worktrees/
 .wt/state.json
 .wt/allocations.json
