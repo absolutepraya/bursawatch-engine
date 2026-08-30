@@ -6,6 +6,14 @@ This private repository is the canonical Mac development home for Hermes cron sk
 
 `hermes-agent-starter/` is a separate repository with its own remote and workflow. It is intentionally ignored by the parent repository. Never stage, commit, rewrite, or deploy it through Hermes repository commands.
 
+## Child project instructions
+
+When working inside a project or cron directory, read its local `AGENTS.md` before changing anything. A child file supplements this root contract and may add project-specific rules, but it cannot weaken root safety, approval, deployment, or credential rules.
+
+Current child instruction files:
+
+- `x-post-watch/AGENTS.md`: X account intake, profile configuration, classifier boundaries, promotion exclusions, and watcher deployment.
+
 ## Conversation language
 
 - Use English by default for questions, status updates, explanations, and final responses, including when the user mixes English and Indonesian.
