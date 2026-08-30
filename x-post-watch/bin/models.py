@@ -42,6 +42,7 @@ class Profile:
     additional_prompt_instruction: str
     max_items_per_poll: int
     thread_handling: ThreadHandling
+    source: str = "rsshub"
 
     @property
     def feed_url(self) -> str:

@@ -173,7 +173,11 @@ def parse_feed(payload: object, profile: Profile) -> list[SourcePost]:
     return result
 
 
-def fetch_profile_items(profile: Profile, session: requests.Session | None = None) -> list[SourcePost]:
+def fetch_profile_items(profile: Profile, session: requests.Session | None = None, after_id: str | None = None) -> list[SourcePost]:
+    if profile.source == "direct_x":
+        from direct_x import fetch_profile_items as fetch_direct_x_items
+
+        return fetch_direct_x_items(profile, session=session, after_id=after_id)
     client = session or requests.Session()
     try:
         response = client.get(profile.feed_url, timeout=30)

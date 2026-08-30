@@ -10,6 +10,15 @@ def test_heartbeat_format_is_canonical():
     assert value == "🫀 x-post · 06:00 WIB · 0 fetched · 0 filtered · 0 queued · 0 delivered · 0 errors"
 
 
+def test_run_stats_marks_an_empty_profile_feed_as_degraded():
+    stats = scan.RunStats()
+
+    stats.note_empty_profile("InsiderTrackX")
+
+    assert stats.degraded is True
+    assert stats.reasons == ["InsiderTrackX: empty source feed"]
+
+
 def test_delivery_sends_thread_media_then_external_quote_media(tmp_path, monkeypatch, config_path):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     root = SourcePost(profile.id, "101", "https://x.com/Kutekians/status/101", datetime.now(UTC), "Root", PostKind.QUOTE, "https://x.com/external/status/0", "Earlier external quote", (SourceMedia("https://img.example/root.jpg", 0),), (SourceMedia("https://img.example/root-quote.jpg", 0),))

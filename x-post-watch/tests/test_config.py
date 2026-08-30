@@ -20,6 +20,15 @@ def test_load_config_builds_profile_and_feed_url(config_path):
     assert profile.thread_handling.settle_minutes == 60
 
 
+def test_load_config_accepts_a_direct_x_source(config_path, profile_payload):
+    profile_payload["source"] = "direct_x"
+    write_config(config_path, {"version": 1, "profiles": [profile_payload]})
+
+    profile = config_module.load_watch_config(config_path).profiles[0]
+
+    assert profile.source == "direct_x"
+
+
 def test_load_config_accepts_twenty_post_self_chain(config_path, profile_payload):
     profile_payload["thread_handling"]["max_posts"] = 20
     write_config(config_path, {"version": 1, "profiles": [profile_payload]})
@@ -53,6 +62,7 @@ def test_canonical_insider_tracker_profile_is_threaded_and_routed():
     profile = {item.id: item for item in config_module.load_watch_config(canonical_config).profiles}["insidertracker"]
 
     assert profile.enabled is True
+    assert profile.source == "direct_x"
     assert profile.profile_url == "https://x.com/InsiderTrackX"
     assert profile.handle == "InsiderTrackX"
     assert profile.display_name == "Insider Tracker"
@@ -87,6 +97,7 @@ def test_canonical_insider_tracker_profile_is_threaded_and_routed():
         ("enable_llm_summary", "yes", "boolean"),
         ("enable_llm_routing", "yes", "boolean"),
         ("enable_llm_relevance_filter", "yes", "boolean"),
+        ("source", "unsupported", "rsshub or direct_x"),
         ("additional_prompt_instruction", 1, "must be text"),
         ("max_items_per_poll", 101, "1 to 100"),
         ("thread_handling", {"mode": "self_chain", "max_posts": 21, "max_age_minutes": 240, "settle_minutes": 60}, "1 to 20"),

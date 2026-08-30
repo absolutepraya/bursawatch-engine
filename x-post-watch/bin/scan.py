@@ -31,6 +31,10 @@ class RunStats:
     degraded: bool = False
     reasons: list[str] = field(default_factory=list)
 
+    def note_empty_profile(self, handle: str) -> None:
+        self.degraded = True
+        self.reasons.append(f"{handle}: empty source feed")
+
     def tokens(self) -> str:
         return f"{self.fetched} fetched · {self.filtered} filtered · {self.queued} queued · {self.delivered} delivered · {len(self.reasons)} errors"
 
@@ -129,8 +133,11 @@ def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, o
             for profile in watches.profiles:
                 if not profile.enabled: continue
                 try:
-                    posts = rsshub.fetch_profile_items(profile)
+                    record = value["profiles"].get(profile.id) or {}
+                    posts = rsshub.fetch_profile_items(profile, after_id=record.get("cursor"))
                     stats.fetched += len(posts)
+                    if not posts:
+                        stats.note_empty_profile(profile.handle)
                     queued, reason = state.observe_posts(
                         value, profile, posts,
                         lambda post: rsshub.is_forwardable(profile, post),

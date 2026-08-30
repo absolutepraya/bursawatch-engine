@@ -161,6 +161,7 @@
     {
       "id": "insidertracker",
       "enabled": true,
+      "source": "direct_x",
       "profile_url": "https://x.com/InsiderTrackX",
       "handle": "InsiderTrackX",
       "display_name": "Insider Tracker",

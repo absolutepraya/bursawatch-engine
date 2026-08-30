@@ -1,6 +1,6 @@
 ---
 name: x-post-watch
-description: Hermes cron support skill for configuration-driven RSSHub X post forwarding and optional Indonesian summaries.
+description: Hermes cron support skill for configuration-driven X post forwarding and optional Indonesian summaries.
 user-invocable: false
 ---
 

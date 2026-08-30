@@ -31,6 +31,7 @@ PROFILE_FIELDS = {
     "max_items_per_poll",
     "thread_handling",
 }
+OPTIONAL_PROFILE_FIELDS = {"source"}
 ID_RE = re.compile(r"[a-z0-9][a-z0-9_-]*")
 HANDLE_RE = re.compile(r"[A-Za-z0-9_]{1,15}")
 EMOJI_RE = re.compile(r"<:[A-Za-z0-9_]+:\d{17,20}>")
@@ -123,7 +124,7 @@ def _parse_profile(index: int, value: object) -> Profile:
     profile = _expect_object(value, f"profiles[{index}]")
     fields = set(profile)
     missing = PROFILE_FIELDS - fields
-    unknown = fields - PROFILE_FIELDS
+    unknown = fields - PROFILE_FIELDS - OPTIONAL_PROFILE_FIELDS
     if missing:
         raise ValueError(f"profiles[{index}] missing fields: {', '.join(sorted(missing))}")
     if unknown:
@@ -151,6 +152,9 @@ def _parse_profile(index: int, value: object) -> Profile:
     max_items = profile["max_items_per_poll"]
     if type(max_items) is not int or not 1 <= max_items <= 100:
         raise ValueError(f"profiles[{index}].max_items_per_poll must be an integer from 1 to 100")
+    source = profile.get("source", "rsshub")
+    if source not in {"rsshub", "direct_x"}:
+        raise ValueError("profiles[].source must be rsshub or direct_x")
 
     return Profile(
         id=profile_id,
@@ -173,6 +177,7 @@ def _parse_profile(index: int, value: object) -> Profile:
         additional_prompt_instruction=_parse_additional_prompt_instruction(profile["additional_prompt_instruction"], f"profiles[{index}].additional_prompt_instruction"),
         max_items_per_poll=max_items,
         thread_handling=_parse_thread_handling(profile["thread_handling"], f"profiles[{index}].thread_handling"),
+        source=source,
     )
 
 

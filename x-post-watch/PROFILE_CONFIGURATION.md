@@ -18,12 +18,13 @@ No profile creates a historical backfill. Its first successful poll only records
 
 ## Every config field
 
-Each profile must include every field below. The parser rejects missing and unknown fields.
+Each profile must include the required fields below. `source` is optional and defaults to `rsshub`. The parser rejects missing required and unknown fields.
 
 ```json
 {
   "id": "example_writer",
   "enabled": true,
+  "source": "rsshub",
   "profile_url": "https://x.com/example_writer",
   "handle": "example_writer",
   "display_name": "Example Writer",
@@ -51,7 +52,8 @@ Each profile must include every field below. The parser rejects missing and unkn
 | --- | --- |
 | `id` | Stable lowercase letters, digits, `_`, or `-`. Never rename after initial cursor creation. |
 | `enabled` | `false` stops fetching and delivery for that profile without deleting its cursor. |
-| `profile_url` / `handle` | Must identify the same X account. The watcher reads RSSHub's user timeline for `handle`. |
+| `source` | Optional source selector, either `rsshub` or `direct_x`. Defaults to `rsshub`. The direct source reads public X pages and VxTwitter. |
+| `profile_url` / `handle` | Must identify the same X account. RSSHub reads its user timeline, while `direct_x` reads the public profile page for `handle`. |
 | `display_name` | Muted writer byline, not the generated title. |
 | `twitter_emoji` / `emoji` | Discord custom emoji markup. Both must be `<:name:17-to-20-digit-id>`. |
 | `discord_channels` | Non-empty ordered array of `{key, channel_id, description}`. Keys and channel IDs must be unique. A non-routing profile has exactly one entry; a routing profile has at least two. |
@@ -65,7 +67,7 @@ Each profile must include every field below. The parser rejects missing and unkn
 | `enable_llm_routing` | Require the agent to return `macro`, `id_stock`, or `us_stock`, then route once. |
 | `enable_llm_relevance_filter` | Require a closed relevance decision before generation. Irrelevant posts are removed without Discord delivery and count in the next heartbeat. Direct ticker disclosures, earnings, corporate actions, dilution, rights issues, private placements, and `#RangkumKeterbukaanInformasi` / `#RangkumReport` are always relevant safeguards. |
 | `additional_prompt_instruction` | Optional trusted profile-specific LLM instruction. Empty by default, normalized to one line, and capped at 800 characters. Use it for a writer's durable pattern, not to duplicate the shared relevance or routing rules. |
-| `max_items_per_poll` | RSSHub item cap, integer from 1 to 100. Keep `50` unless there is a concrete reason to change it. |
+| `max_items_per_poll` | Source item cap, integer from 1 to 100. Keep `50` unless there is a concrete reason to change it. |
 | `thread_handling` | `self_chain` collects up to 20 same-author quote/reply continuations within four hours. A lone post waits only until its non-resetting maximum deadline from first observation; an observed multi-post chain is ready immediately. `disabled` sends each eligible post immediately, without holding or assembling a chain; its three numeric fields remain required but are ignored. |
 
 ## Supported delivery modes
