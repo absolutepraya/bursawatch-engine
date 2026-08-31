@@ -42,6 +42,36 @@ def test_load_state_adds_filtered_counter_to_existing_live_state(tmp_path):
     assert value["filtered_since_last_heartbeat"] == 0
 
 
+def test_new_state_contains_delivery_ledger_and_cleanup_queue():
+    value = state.new_state()
+
+    assert value["version"] == 2
+    assert value["deliveries"] == []
+    assert value["cleanup"] == []
+
+
+def test_delivery_ledger_keeps_message_ids_and_queues_old_bundle_cleanup():
+    value = state.new_state()
+    event = {
+        "profile_id": "kutekians",
+        "post_id": "101",
+        "thread_root_id": "101",
+        "post": {"post_id": "101", "published_at": "2026-08-21T10:00:00+00:00", "url": "https://x.com/Kutekians/status/101"},
+        "thread_posts": [{"post_id": "101", "published_at": "2026-08-21T10:00:00+00:00", "url": "https://x.com/Kutekians/status/101"}],
+        "text_message_ids": ["old-text"],
+        "media_message_ids": ["old-media"],
+    }
+    old = state.record_delivery(value, event, "channel", datetime(2026, 8, 21, tzinfo=UTC), False)
+    replacement = dict(event, post_id="102", thread_root_id="102", post={**event["post"], "post_id": "102"}, thread_posts=[{**event["thread_posts"][0], "post_id": "102"}], text_message_ids=["new-text"], media_message_ids=[], replacement_of=[old["delivery_id"]])
+
+    new = state.record_delivery(value, replacement, "channel", datetime(2026, 8, 21, 1, tzinfo=UTC), False)
+    state.queue_replacement_cleanup(value, new)
+
+    assert new["text_message_ids"] == ["new-text"]
+    assert value["cleanup"][0]["message_ids"] == ["old-text", "old-media"]
+    assert old["replacement_pending"] is True
+
+
 def test_empty_first_poll_then_first_post_initializes_without_backfill(config_path):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     first_poll = datetime(2026, 8, 1, 9, 0, tzinfo=UTC)

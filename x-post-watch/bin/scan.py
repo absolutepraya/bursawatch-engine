@@ -5,7 +5,7 @@ import argparse
 import json
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -14,6 +14,7 @@ import discord
 import render
 import rsshub
 import state
+import supersession
 from agent_protocol import agent_item, build_wake_payload, is_promotional, requires_relevance, validate_submission
 
 
@@ -82,17 +83,120 @@ def _target_channel(profile, event: dict) -> str:
     return profile.channel_for(event["route"]).channel_id
 
 
-def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, storage: Path, stats: RunStats) -> bool:
+def _event_source_ids(event: dict) -> set[str]:
+    return {item.get("post_id") for item in event.get("thread_posts", [event.get("post", {})]) if item.get("post_id")}
+
+
+def _thread_extension(profile, old: dict, event: dict) -> bool:
+    if profile.thread_handling.mode != "self_chain":
+        return False
+    if old.get("thread_root_id") != event.get("thread_root_id"):
+        return False
+    old_ids = set(old.get("source_post_ids", []))
+    new_ids = _event_source_ids(event)
+    if not old_ids or not old_ids < new_ids:
+        return False
+    try:
+        old_time = datetime.fromisoformat(old["published_at"])
+        new_time = datetime.fromisoformat(event["post"]["published_at"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    if (old_time.tzinfo is None) != (new_time.tzinfo is None):
+        return False
+    delta = new_time - old_time
+    return timedelta(0) <= delta <= timedelta(minutes=profile.thread_handling.max_age_minutes)
+
+
+def _annotate_replacements(value: dict, profile, fresh_ids: set[str], verifier: supersession.EditHistoryVerifier, now: datetime, stats: RunStats) -> None:
+    if not fresh_ids:
+        return
+    for event in value["outbox"]:
+        if event.get("profile_id") != profile.id or not (_event_source_ids(event) & fresh_ids):
+            continue
+        replacement_ids = event.setdefault("replacement_of", [])
+        checks = event.setdefault("supersession_checks", {})
+        for old in value["deliveries"]:
+            old_id = old.get("delivery_id")
+            if old.get("profile_id") != profile.id or not old_id:
+                continue
+            if old.get("superseded_by") or old.get("replacement_pending") or old_id in replacement_ids:
+                continue
+            if any(item.get("replacement_of") and old_id in item.get("replacement_of", []) for item in value["outbox"]):
+                continue
+            if _thread_extension(profile, old, event):
+                replacement_ids.append(old_id)
+                event["updated_tweet"] = True
+                continue
+            if not supersession.is_candidate(old, event):
+                continue
+            confirmed = False
+            for old_post, new_post in supersession.candidate_pairs(old, event):
+                pair_key = f"{old_post.get('post_id')}:{new_post.get('post_id')}"
+                previous = checks.get(pair_key)
+                if isinstance(previous, dict) and previous.get("status") == "not_superseded":
+                    continue
+                if isinstance(previous, dict) and previous.get("status") == "unknown":
+                    try:
+                        checked_at = datetime.fromisoformat(previous["checked_at"])
+                        if now - checked_at < timedelta(minutes=15):
+                            continue
+                    except (KeyError, TypeError, ValueError):
+                        pass
+                result = verifier.verify(old_post.get("url", ""), old_post.get("post_id", ""), new_post.get("post_id", ""))
+                checks[pair_key] = {"status": result.status, "checked_at": now.isoformat()}
+                if result.status == "confirmed":
+                    confirmed = True
+                    break
+                if result.status == "unknown":
+                    attention_key = f"{old_id}:{pair_key}"
+                    attention = event.setdefault("supersession_attention", [])
+                    if attention_key not in attention:
+                        attention.append(attention_key)
+                        stats.note_source_error(f"{profile.id}: {result.reason} for {old_post.get('post_id')} to {new_post.get('post_id')}")
+            if confirmed:
+                replacement_ids.append(old_id)
+                event["updated_tweet"] = True
+
+
+def _retry_cleanup(value: dict, dry_run: bool, storage: Path, stats: RunStats) -> None:
+    if dry_run:
+        return
+    for item in list(value["cleanup"]):
+        remaining: list[str] = []
+        for message_id in item.get("message_ids", []):
+            try:
+                discord.delete_message(item["channel_id"], message_id, dry_run)
+            except Exception as exc:
+                remaining.append(message_id)
+                stats.note_source_error(f"supersession cleanup: {' '.join(str(exc).split())[:140]}")
+        item["attempts"] = int(item.get("attempts", 0)) + 1
+        if remaining:
+            item["message_ids"] = remaining
+        else:
+            state.finish_cleanup(value, item)
+    state.save_state(storage, value)
+
+
+def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, storage: Path, stats: RunStats, now: datetime | None = None) -> bool:
     event = value["outbox"][event_index]
     profile = profiles[event["profile_id"]]
     post = state.deserialize_post(event["post"])
     thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]]))
     channel_id = _target_channel(profile, event)
-    messages = render.render_post(profile, post, event.get("summary") if profile.enable_llm_summary else None, event.get("title"), thread_posts)
+    messages = render.render_post(
+        profile,
+        post,
+        event.get("summary") if profile.enable_llm_summary else None,
+        event.get("title"),
+        thread_posts,
+        bool(event.get("updated_tweet")),
+    )
     try:
         if event["text_index"] < len(messages):
             index = event["text_index"]
-            discord.post_text(messages[index], channel_id, dry_run, discord.nonce(f"{profile.id}:{post.post_id}", f"text:{index}"))
+            message_id = discord.post_text(messages[index], channel_id, dry_run, discord.nonce(f"{profile.id}:{post.post_id}", f"text:{index}"))
+            if message_id is not None:
+                event.setdefault("text_message_ids", []).append(message_id)
             event["text_index"] += 1
             state.save_state(storage, value)
             return True
@@ -110,7 +214,9 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
                     all_media.append(media)
         if profile.forward_media and event["media_index"] < len(all_media):
             index = event["media_index"]
-            discord.post_media(all_media[index].url, channel_id, dry_run, discord.nonce(f"{profile.id}:{post.post_id}", f"media:{index}"), storage.parent / "media")
+            message_id = discord.post_media(all_media[index].url, channel_id, dry_run, discord.nonce(f"{profile.id}:{post.post_id}", f"media:{index}"), storage.parent / "media")
+            if message_id is not None:
+                event.setdefault("media_message_ids", []).append(message_id)
             event["media_index"] += 1
             state.save_state(storage, value)
             return True
@@ -121,6 +227,10 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
         stats.reasons.append(event["last_error"])
         state.save_state(storage, value)
         return False
+    delivered_at = now or datetime.now(WIB)
+    record = state.record_delivery(value, event, channel_id, delivered_at, dry_run)
+    if record is not None:
+        state.queue_replacement_cleanup(value, record)
     value["outbox"].pop(event_index)
     state.save_state(storage, value)
     stats.delivered += 1
@@ -139,8 +249,11 @@ def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, o
         try:
             watches = config.load_watch_config(config_path())
             value = state.load_state(storage)
+            state.prune_deliveries(value, now)
             stats.filtered = state.take_filtered_since_last_heartbeat(value)
             profiles = {profile.id: profile for profile in watches.profiles}
+            verifier = supersession.EditHistoryVerifier()
+            _retry_cleanup(value, dry_run, storage, stats)
             for profile in watches.profiles:
                 if not profile.enabled: continue
                 try:
@@ -149,6 +262,7 @@ def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, o
                     stats.fetched += len(posts)
                     if not posts:
                         stats.note_empty_profile(profile.handle)
+                    fresh_ids = state.fresh_post_ids(value, profile, posts)
                     queued, reason = state.observe_posts(
                         value, profile, posts,
                         lambda post: rsshub.is_forwardable(profile, post),
@@ -159,11 +273,13 @@ def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, o
                         stats.degraded = True
                         stats.needs_attention = True
                         stats.reasons.append(f"{profile.id}: {reason}")
+                    _annotate_replacements(value, profile, fresh_ids, verifier, now, stats)
                     state.save_state(storage, value)
                 except rsshub.SourceFetchError as exc:
                     stats.note_source_error(f"{profile.id}: {exc}")
             while (event_index := _next_deliverable_index(value, profiles, now)) is not None:
-                if not _deliver(value, profiles, event_index, dry_run, storage, stats): break
+                if not _deliver(value, profiles, event_index, dry_run, storage, stats, now): break
+            _retry_cleanup(value, dry_run, storage, stats)
             discord.post_text(format_heartbeat(now, stats), HEARTBEAT_CHANNEL_ID, dry_run, discord.nonce("heartbeat", now.astimezone(WIB).strftime("%Y%m%d%H")))
             event = state.claim_oldest_agent(value, profiles, now)
             state.save_state(storage, value)
@@ -206,8 +322,9 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
         stats = RunStats()
         now = datetime.now(WIB)
         while (event_index := _next_deliverable_index(value, profiles, now)) is not None:
-            if not _deliver(value, profiles, event_index, dry_run, storage, stats):
+            if not _deliver(value, profiles, event_index, dry_run, storage, stats, now):
                 break
+        _retry_cleanup(value, dry_run, storage, stats)
     return {"submitted": True, "delivered": stats.delivered}
 
 

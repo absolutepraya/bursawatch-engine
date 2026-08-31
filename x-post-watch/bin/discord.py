@@ -60,3 +60,25 @@ def post_media(url: str, channel_id: str, dry_run: bool, nonce_value: str, direc
     finally:
         path.unlink(missing_ok=True)
     return result
+
+
+def delete_message(channel_id: str, message_id: str, dry_run: bool) -> None:
+    if dry_run:
+        print(f"[dry-run] Discord delete {channel_id}/{message_id}")
+        return
+    response = requests.delete(
+        f"{API}/channels/{channel_id}/messages/{message_id}",
+        headers={"Authorization": f"Bot {_token()}"},
+        timeout=30,
+    )
+    if response.status_code not in {204, 404}:
+        if response.status_code == 429:
+            raise DiscordRetryAfter(float(response.json().get("retry_after", 1)))
+        raise RuntimeError(f"Discord delete HTTP {response.status_code}")
+    verification = requests.get(
+        f"{API}/channels/{channel_id}/messages/{message_id}",
+        headers={"Authorization": f"Bot {_token()}"},
+        timeout=30,
+    )
+    if verification.status_code != 404:
+        raise RuntimeError(f"Discord delete verification HTTP {verification.status_code}")

@@ -10,13 +10,28 @@ from models import PostKind, Profile, SourceMedia, SourcePost
 
 
 def new_state() -> dict:
-    return {"version": 1, "profiles": {}, "outbox": [], "filtered_since_last_heartbeat": 0}
+    return {
+        "version": 2,
+        "profiles": {},
+        "outbox": [],
+        "deliveries": [],
+        "cleanup": [],
+        "filtered_since_last_heartbeat": 0,
+    }
 
 
 def load_state(path: Path) -> dict:
     if not path.exists(): return new_state()
     value = json.loads(path.read_text(encoding="utf-8"))
-    if type(value) is not dict or value.get("version") != 1 or type(value.get("profiles")) is not dict or type(value.get("outbox")) is not list:
+    if type(value) is not dict or value.get("version") not in {1, 2} or type(value.get("profiles")) is not dict or type(value.get("outbox")) is not list:
+        raise ValueError("x-post-watch state is invalid")
+    if value.get("version") == 1:
+        value["version"] = 2
+    if "deliveries" not in value:
+        value["deliveries"] = []
+    if "cleanup" not in value:
+        value["cleanup"] = []
+    if type(value["deliveries"]) is not list or type(value["cleanup"]) is not list:
         raise ValueError("x-post-watch state is invalid")
     if "filtered_since_last_heartbeat" not in value:
         value["filtered_since_last_heartbeat"] = 0
@@ -26,6 +41,9 @@ def load_state(path: Path) -> dict:
     # agent task so the title and summary are produced together before any
     # delivery. This is a schema migration, never a cursor reset or replay.
     for event in value["outbox"]:
+        event.setdefault("text_message_ids", [])
+        event.setdefault("media_message_ids", [])
+        event.setdefault("replacement_of", [])
         if "summary_phase" in event:
             event.pop("summary_phase", None)
             event.pop("summary_lease_until", None)
@@ -35,6 +53,103 @@ def load_state(path: Path) -> dict:
             event["agent_phase"] = "pending"
             event["agent_lease_until"] = None
     return value
+
+
+def fresh_post_ids(value: dict, profile: Profile, posts: list[SourcePost]) -> set[str]:
+    record = value["profiles"].get(profile.id)
+    if record is None or record.get("cursor") is None:
+        return set()
+    cursor = int(record.get("cursor") or 0)
+    return {post.post_id for post in posts if int(post.post_id) > cursor}
+
+
+def _delivery_id(event: dict) -> str:
+    return f"{event['profile_id']}:{event['post_id']}"
+
+
+def _parse_time(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def prune_deliveries(value: dict, now: datetime, retention_days: int = 90) -> None:
+    cutoff = now - timedelta(days=retention_days)
+    pending = {item.get("old_delivery_id") for item in value["cleanup"] if isinstance(item, dict)}
+    kept: list[dict] = []
+    for record in value["deliveries"]:
+        delivered_at = _parse_time(record.get("delivered_at"))
+        if delivered_at is None or delivered_at >= cutoff or record.get("delivery_id") in pending:
+            kept.append(record)
+    value["deliveries"] = kept
+
+
+def delivery_by_id(value: dict, delivery_id: str) -> dict | None:
+    return next((item for item in value["deliveries"] if item.get("delivery_id") == delivery_id), None)
+
+
+def pending_cleanup_for(value: dict, delivery_id: str) -> bool:
+    return any(item.get("old_delivery_id") == delivery_id for item in value["cleanup"])
+
+
+def record_delivery(value: dict, event: dict, channel_id: str, delivered_at: datetime, dry_run: bool) -> dict | None:
+    if dry_run:
+        return None
+    delivery_id = _delivery_id(event)
+    existing = delivery_by_id(value, delivery_id)
+    if existing is not None:
+        return existing
+    thread_posts = event.get("thread_posts") or [event["post"]]
+    record = {
+        "delivery_id": delivery_id,
+        "profile_id": event["profile_id"],
+        "thread_root_id": event.get("thread_root_id", event["post_id"]),
+        "post_id": event["post_id"],
+        "source_post_ids": [item["post_id"] for item in thread_posts],
+        "source_urls": [item["url"] for item in thread_posts],
+        "thread_posts": thread_posts,
+        "published_at": event["post"].get("published_at"),
+        "channel_id": channel_id,
+        "text_message_ids": list(event.get("text_message_ids", [])),
+        "media_message_ids": list(event.get("media_message_ids", [])),
+        "delivered_at": delivered_at.isoformat(),
+        "superseded_by": None,
+        "replacement_of": list(event.get("replacement_of", [])),
+        "replacement_pending": False,
+    }
+    value["deliveries"].append(record)
+    return record
+
+
+def queue_replacement_cleanup(value: dict, new_record: dict) -> None:
+    for old_id in new_record.get("replacement_of", []):
+        old = delivery_by_id(value, old_id)
+        if old is None or old.get("superseded_by") or pending_cleanup_for(value, old_id):
+            continue
+        message_ids = list(old.get("text_message_ids", [])) + list(old.get("media_message_ids", []))
+        old["replacement_pending"] = True
+        if not message_ids:
+            old["superseded_by"] = new_record["delivery_id"]
+            old["replacement_pending"] = False
+            continue
+        value["cleanup"].append({
+            "old_delivery_id": old_id,
+            "replacement_delivery_id": new_record["delivery_id"],
+            "channel_id": old["channel_id"],
+            "message_ids": message_ids,
+            "attempts": 0,
+        })
+
+
+def finish_cleanup(value: dict, item: dict) -> None:
+    old = delivery_by_id(value, item["old_delivery_id"])
+    if old is not None:
+        old["superseded_by"] = item["replacement_delivery_id"]
+        old["replacement_pending"] = False
+    value["cleanup"].remove(item)
 
 
 def save_state(path: Path, value: dict) -> None:

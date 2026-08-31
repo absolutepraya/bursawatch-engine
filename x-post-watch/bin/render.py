@@ -130,8 +130,16 @@ def _thread_text(thread_posts: tuple[SourcePost, ...]) -> str:
     return "\n\n".join(parts)
 
 
-def render_post(profile: Profile, post: SourcePost, summary: str | None = None, title: str | None = None, thread_posts: tuple[SourcePost, ...] | None = None) -> list[str]:
-    heading = f"### {profile.twitter_emoji} {title}\n-# {profile.emoji} {profile.display_name}" if title else f"### {profile.twitter_emoji}{profile.emoji} {profile.display_name}"
+def render_post(
+    profile: Profile,
+    post: SourcePost,
+    summary: str | None = None,
+    title: str | None = None,
+    thread_posts: tuple[SourcePost, ...] | None = None,
+    updated_tweet: bool = False,
+) -> list[str]:
+    byline = f"{profile.display_name} (Updated Tweet)" if updated_tweet else profile.display_name
+    heading = f"### {profile.twitter_emoji} {title}\n-# {profile.emoji} {byline}" if title else f"### {profile.twitter_emoji}{profile.emoji} {byline}"
     prefix = f"{heading}\n\n"
     if summary is not None:
         messages = _append_text(prefix, summary.strip())

@@ -93,3 +93,12 @@ def test_render_title_places_writer_in_muted_byline(config_path, profile_payload
     post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Raw original", PostKind.NORMAL, None, None, (), ())
     rendered = render.render_post(profile, post, title="BI: Tiga Indikator untuk Membaca Pasar")[0]
     assert rendered.startswith("### <:twitter:1531672630602498129> BI: Tiga Indikator untuk Membaca Pasar\n-# <:kutekians:1531673483459821729> Almer Sad, CFA\n\nRaw original")
+
+
+def test_render_updated_tweet_uses_the_agreed_byline(config_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Raw original", PostKind.NORMAL, None, None, (), ())
+
+    rendered = render.render_post(profile, post, title="BI: Ringkasan", updated_tweet=True)[0]
+
+    assert "-# <:kutekians:1531673483459821729> Almer Sad, CFA (Updated Tweet)" in rendered
