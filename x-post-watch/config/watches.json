@@ -193,7 +193,7 @@
       "enable_llm_summary": true,
       "enable_llm_routing": true,
       "enable_llm_relevance_filter": true,
-      "additional_prompt_instruction": "",
+      "additional_prompt_instruction": "Treat posts promoting the $INSIDER token or Insider Crypto Tracker's own crypto product as advertisements and mark them irrelevant. Exclude token staking, burns, buybacks, tokenomics, flywheel, token utility, token access, and token price or holding calls, even when they mention revenue, percentages, financial terms, or market language. Continue forwarding independent substantive market analysis that only mentions the account or links to its site without promoting $INSIDER or the product.",
       "max_items_per_poll": 50,
       "thread_handling": {
         "mode": "self_chain",

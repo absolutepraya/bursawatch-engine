@@ -33,6 +33,11 @@ PROMOTIONAL_HARD_SIGNAL_RES = (
         re.IGNORECASE | re.DOTALL,
     ),
 )
+INSIDER_TRACKER_TOKEN_PROMOTION_RE = re.compile(
+    r"(?=.*(?:\$\s*INSIDER\b|\bINSIDER\s+token\b))"
+    r"(?=.*\b(?:stake(?:d|ing)?|burn(?:ed|ing)?|buy\s*back|flywheel|tokenomics?|crypto(?:\s+tracker)?|token\s+utility|token\s+holders?)\b)",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 def instruction_for(profile: Profile, relevance_guard_required: bool = False) -> str:
@@ -95,6 +100,8 @@ def event_key(profile_id: str, post_id: str) -> str:
 
 def is_promotional(post: SourcePost, thread_posts: tuple[SourcePost, ...] | None = None) -> bool:
     text = "\n\n".join(render.markdown(item.content_html) for item in (thread_posts or (post,)))
+    if post.profile_id == "insidertracker" and INSIDER_TRACKER_TOKEN_PROMOTION_RE.search(text):
+        return True
     return any(pattern.search(text) for pattern in PROMOTIONAL_HARD_SIGNAL_RES) or sum(
         bool(pattern.search(text)) for pattern in PROMOTIONAL_SIGNAL_RES
     ) >= 2

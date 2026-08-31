@@ -138,6 +138,24 @@ def test_promotional_thread_is_not_forced_relevant_by_financial_language(config_
     assert "advertisements and product promotions" in item["instruction"]
 
 
+def test_insider_tracker_token_promotion_is_deterministically_discarded(config_path, profile_payload):
+    post = SourcePost(
+        "insidertracker",
+        "2090891308827054155",
+        "https://x.com/InsiderTrackX/status/2090891308827054155",
+        datetime.now(UTC),
+        "4% of $INSIDER supply was burned. Users are staking $INSIDER in the flywheel and 80% of revenue funds buybacks.",
+        PostKind.NORMAL,
+        None,
+        None,
+        (),
+        (),
+    )
+
+    assert agent_protocol.is_promotional(post) is True
+    assert agent_protocol.requires_relevance(post) is False
+
+
 def test_member_only_stock_promotion_is_deterministically_discarded(config_path, profile_payload):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     post = SourcePost(

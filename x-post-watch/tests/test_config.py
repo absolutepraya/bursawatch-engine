@@ -78,7 +78,8 @@ def test_canonical_insider_tracker_profile_is_threaded_and_routed():
     assert profile.enable_llm_summary is True
     assert profile.enable_llm_routing is True
     assert profile.enable_llm_relevance_filter is True
-    assert profile.additional_prompt_instruction == ""
+    assert "$INSIDER" in profile.additional_prompt_instruction
+    assert "mark them irrelevant" in profile.additional_prompt_instruction
     assert profile.max_items_per_poll == 50
     assert (profile.thread_handling.mode, profile.thread_handling.max_posts, profile.thread_handling.max_age_minutes, profile.thread_handling.settle_minutes) == ("self_chain", 20, 240, 15)
 
