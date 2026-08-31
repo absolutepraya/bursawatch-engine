@@ -14,7 +14,7 @@ Source-of-truth dev dirs for the Hermes cron skills that deploy to the VPS at
 | `scele-digest` | University SCELE daily digest (LLM agent job; `bin/send-digest` is the deterministic renderer) | renderer yes |
 | `x-post-watch` | Configuration-driven RSSHub X post forwarder with optional Hermes titles and summaries | tests yes; live source and Discord no-post smoke run on the VPS |
 | `dotfiles-sync` | VPS-owned staged backup of Mac and VPS configuration | VPS only; Mac is read over SSH |
-| `karakeep-backup` | VPS-scheduled, Mac-local Karakeep Netscape HTML export | Mac command only, triggered by VPS SSH |
+| `marka-backup` | VPS-scheduled, Mac-local Marka Netscape HTML export | Mac command only, triggered by VPS SSH |
 | `skills-update` | VPS-scheduled, Mac-local global skills update | Mac command only, triggered by VPS SSH |
 | `sharing-cleanup` | No-agent weekly cleanup of Nextcloud `Sharing/` contents, retaining the folder | VPS only; WebDAV DELETE moves items to Nextcloud Trash |
 | `security-audit` | VPS RKHunter, SSH, UFW, listener, Fail2ban, patch, and reboot-state audit | local parser/config tests yes; live dry run and scheduled verification on the VPS |

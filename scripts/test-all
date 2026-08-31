@@ -21,7 +21,7 @@ run_suite idx-market-news-watch idx-market-news-watch tests
 run_suite idx-ssf-watch-phintraco-weekly idx-ssf-watch-phintraco-weekly tests
 run_suite idx-swing-watch-phintraco-daily idx-swing-watch-phintraco-daily tests
 run_suite job-watcher job-watcher bin
-run_suite karakeep-backup karakeep-backup tests
+run_suite marka-backup marka-backup tests
 run_suite kelas-investasi-gtw-watch kelas-investasi-gtw-watch tests
 run_suite mac-job-executors mac-job-executors tests
 run_suite mm-weekly-log-normalizer mm-weekly-log-normalizer tests

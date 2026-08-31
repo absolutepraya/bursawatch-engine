@@ -19,7 +19,7 @@ Current child instruction files:
 - `idx-ssf-watch-phintraco-weekly/AGENTS.md`: source-only weekly SSF forwarding.
 - `idx-swing-watch-phintraco-daily/AGENTS.md`: source-only daily swing-call forwarding.
 - `job-watcher/AGENTS.md`: Indonesia-only job discovery, scoring, and no-post verification.
-- `karakeep-backup/AGENTS.md`: Mac-local Karakeep export and VPS-triggered execution.
+- `marka-backup/AGENTS.md`: Mac-local Marka export and VPS-triggered execution.
 - `kelas-investasi-gtw-watch/AGENTS.md`: future-only Telegram bundle capture and source-image delivery.
 - `mm/AGENTS.md`: owner-only Manual Activity Record capture.
 - `mm-weekly-log-normalizer/AGENTS.md`: evidence-bound MM draft generation and delivery.
