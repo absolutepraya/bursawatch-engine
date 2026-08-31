@@ -31,7 +31,7 @@ def test_render_matches_approved_stock_news_layout() -> None:
         "### <:telegram:1531657996432576618> CTRA: Akumulasi kuat di area breakout\n"
         "-# <:kelasinvestasi:1536570114772574218> Kelas Investasi\n\n"
         "*(Ringkasan)* Ringkasan tervalidasi.\n\n"
-        "*Plan sumber*\n- Buy area: 605 sampai 630\n- Target: 655, 675, 700\n- Stoploss: <573\n\n"
+        "*Plan sumber*\n- **Buy area:** 605 sampai 630\n- **Target:** 655, 675, 700\n- **Stoploss:** <573\n\n"
         "[View on Telegram](<https://t.me/kelasinvestasiid/101>)"
     )
 
@@ -39,7 +39,7 @@ def test_render_matches_approved_stock_news_layout() -> None:
 def test_render_uses_dash_for_missing_plan_fields_and_header_deep_link() -> None:
     text = render_event(event(buy_area="-", targets="-", stoploss="-", header_message_id=777))[0]
 
-    assert "- Buy area: -\n- Target: -\n- Stoploss: -" in text
+    assert "- **Buy area:** -\n- **Target:** -\n- **Stoploss:** -" in text
     assert text.endswith("[View on Telegram](<https://t.me/kelasinvestasiid/777>)")
 
 

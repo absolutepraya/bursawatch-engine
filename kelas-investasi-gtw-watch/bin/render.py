@@ -20,9 +20,9 @@ def render_event(event: Mapping[str, object]) -> list[str]:
     plan_values = plan if isinstance(plan, Mapping) else {}
     plan_block = (
         "*Plan sumber*\n"
-        f"- Buy area: {_escape(_plan_value(plan_values, 'buy_area'))}\n"
-        f"- Target: {_escape(_plan_value(plan_values, 'targets'))}\n"
-        f"- Stoploss: {_escape(_plan_value(plan_values, 'stoploss'))}\n\n"
+        f"- **Buy area:** {_escape(_plan_value(plan_values, 'buy_area'))}\n"
+        f"- **Target:** {_escape(_plan_value(plan_values, 'targets'))}\n"
+        f"- **Stoploss:** {_escape(_plan_value(plan_values, 'stoploss'))}\n\n"
         f"[View on Telegram](<https://t.me/kelasinvestasiid/{message_id}>)"
     )
     prefix = f"### {TELEGRAM_EMOJI} {title}\n-# {KELAS_INVESTASI_EMOJI} Kelas Investasi\n\n"
