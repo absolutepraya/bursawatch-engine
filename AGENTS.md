@@ -74,11 +74,12 @@ The deployed VPS runtime remains canonical. Dotfiles is the scrubbed backup that
 
 1. After deploying and verifying a cron, from this Mac run `~/.dotfiles/sync-mac.sh --check` or `sync-mac --check`. This SSHes to the VPS and asks the VPS wrapper to perform its no-side-effect transport and rendering check.
 2. The registered Hermes job is `804f44f0be6e`. Let its normal schedule perform the capture unless the user explicitly asks for an immediate run in the current conversation. For an approved immediate run from this Mac, use `~/.dotfiles/sync-mac.sh` or the `sync-mac` alias. The helper triggers the registered job on the VPS, where the capture stages this Mac as `mac`, scrubs and scans the snapshot, and commits and pushes `config`. Never invoke the VPS wrapper directly from this Mac and never substitute an unregistered manual script for the registered run.
-3. Verify the registered execution record is `completed`, the saved output contains `mac=ok vps=ok` plus `git=push` or `git=noop`, and the job remains enabled with a valid next run.
-4. Verify `~/dotfiles` is clean and its `config` HEAD equals `origin/config`. A scheduler `ok` label without saved output and Git parity is not sufficient evidence.
-5. Confirm each changed runtime source is present in the expected snapshot path. Cron skills map from `~/.agents/skills/<cron>/` to `vps/agents/skills/<cron>/`; Hermes wrappers map from `~/.hermes/scripts/` to `vps/hermes/scripts/`; the registry maps to `vps/hermes/cron/jobs.json`.
-6. Compare VPS runtime and dotfiles snapshot checksums for changed source files when they are expected to be byte-identical. For intentionally scrubbed files, verify the scrubbed content and path instead of requiring an identical checksum.
-7. State, credentials, databases, logs, virtual environments, caches, and other capture-map exclusions must remain absent. Never weaken exclusions merely to make a snapshot look complete.
+3. In interactive requests, “run dotfiles sync” means run `sync-mac` from this Mac. It does not mean `sync.sh` or direct invocation of the VPS wrapper.
+4. Verify the registered execution record is `completed`, the saved output contains `mac=ok vps=ok` plus `git=push` or `git=noop`, and the job remains enabled with a valid next run.
+5. Verify `~/dotfiles` is clean and its `config` HEAD equals `origin/config`. A scheduler `ok` label without saved output and Git parity is not sufficient evidence.
+6. Confirm each changed runtime source is present in the expected snapshot path. Cron skills map from `~/.agents/skills/<cron>/` to `vps/agents/skills/<cron>/`; Hermes wrappers map from `~/.hermes/scripts/` to `vps/hermes/scripts/`; the registry maps to `vps/hermes/cron/jobs.json`.
+7. Compare VPS runtime and dotfiles snapshot checksums for changed source files when they are expected to be byte-identical. For intentionally scrubbed files, verify the scrubbed content and path instead of requiring an identical checksum.
+8. State, credentials, databases, logs, virtual environments, caches, and other capture-map exclusions must remain absent. Never weaken exclusions merely to make a snapshot look complete.
 
 ## Required development loop
 
