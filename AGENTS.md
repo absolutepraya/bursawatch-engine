@@ -72,8 +72,8 @@ Current child instruction files:
 
 The deployed VPS runtime remains canonical. Dotfiles is the scrubbed backup that captures it afterward, never a second deployment target.
 
-1. After deploying and verifying a cron, confirm the VPS `dotfiles-sync` job can reach the Mac with `~/.hermes/scripts/dotfiles-sync.sh --check`.
-2. The registered Hermes job is `804f44f0be6e`. Let its normal schedule perform the capture unless the user explicitly asks for an immediate run in the current conversation. For an approved immediate run, use `/home/praya/.local/bin/hermes cron run 804f44f0be6e`; never invoke the wrapper as a substitute for the registered run.
+1. After deploying and verifying a cron, from this Mac run `~/.dotfiles/sync-mac.sh --check` or `sync-mac --check`. This SSHes to the VPS and asks the VPS wrapper to perform its no-side-effect transport and rendering check.
+2. The registered Hermes job is `804f44f0be6e`. Let its normal schedule perform the capture unless the user explicitly asks for an immediate run in the current conversation. For an approved immediate run from this Mac, use `~/.dotfiles/sync-mac.sh` or the `sync-mac` alias. The helper triggers the registered job on the VPS, where the capture stages this Mac as `mac`, scrubs and scans the snapshot, and commits and pushes `config`. Never invoke the VPS wrapper directly from this Mac and never substitute an unregistered manual script for the registered run.
 3. Verify the registered execution record is `completed`, the saved output contains `mac=ok vps=ok` plus `git=push` or `git=noop`, and the job remains enabled with a valid next run.
 4. Verify `~/dotfiles` is clean and its `config` HEAD equals `origin/config`. A scheduler `ok` label without saved output and Git parity is not sufficient evidence.
 5. Confirm each changed runtime source is present in the expected snapshot path. Cron skills map from `~/.agents/skills/<cron>/` to `vps/agents/skills/<cron>/`; Hermes wrappers map from `~/.hermes/scripts/` to `vps/hermes/scripts/`; the registry maps to `vps/hermes/cron/jobs.json`.
