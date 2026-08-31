@@ -12,6 +12,22 @@ When working inside a project or cron directory, read its local `AGENTS.md` befo
 
 Current child instruction files:
 
+- `cobalt/AGENTS.md`: Cobalt media service, cookies, compose, and deployment boundaries.
+- `dotfiles-sync/AGENTS.md`: VPS-owned configuration backup and capture safety.
+- `idx-ca-watch/AGENTS.md`: IDX corporate-action screening and scoring boundaries.
+- `idx-market-news-watch/AGENTS.md`: deterministic company-news intake and shared Telegram resilience.
+- `idx-ssf-watch-phintraco-weekly/AGENTS.md`: source-only weekly SSF forwarding.
+- `idx-swing-watch-phintraco-daily/AGENTS.md`: source-only daily swing-call forwarding.
+- `job-watcher/AGENTS.md`: Indonesia-only job discovery, scoring, and no-post verification.
+- `karakeep-backup/AGENTS.md`: Mac-local Karakeep export and VPS-triggered execution.
+- `kelas-investasi-gtw-watch/AGENTS.md`: future-only Telegram bundle capture and source-image delivery.
+- `mm/AGENTS.md`: owner-only Manual Activity Record capture.
+- `mm-weekly-log-normalizer/AGENTS.md`: evidence-bound MM draft generation and delivery.
+- `polymarket-signal-watch/AGENTS.md`: deterministic PolyCop signal screening and bot interaction.
+- `scele-digest/AGENTS.md`: unattended SCELE, Telegram, Todoist, and Discord digest workflow.
+- `security-audit/AGENTS.md`: read-only security posture auditing and approved system-config changes.
+- `skills-update/AGENTS.md`: VPS-triggered Mac global skills update.
+- `us-etf-dca-watch/AGENTS.md`: no-agent ETF signal monitoring and market-window verification.
 - `x-post-watch/AGENTS.md`: X account intake, profile configuration, classifier boundaries, promotion exclusions, and watcher deployment.
 
 ## Conversation language
