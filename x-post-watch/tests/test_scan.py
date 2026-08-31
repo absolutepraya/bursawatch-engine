@@ -17,7 +17,10 @@ def test_run_stats_marks_an_empty_profile_feed_as_degraded():
 
     assert stats.degraded is True
     assert stats.reasons == ["InsiderTrackX: empty source feed"]
-    assert stats.needs_attention is False
+    assert stats.needs_attention is True
+
+    heartbeat = scan.format_heartbeat(datetime(2026, 7, 28, 6, 0, tzinfo=scan.WIB), stats)
+    assert heartbeat.endswith("<@443342168434933760>")
 
 
 def test_heartbeat_mentions_owner_for_authentication_failure():
@@ -30,14 +33,28 @@ def test_heartbeat_mentions_owner_for_authentication_failure():
     assert heartbeat.endswith("<@443342168434933760>")
 
 
-def test_heartbeat_does_not_mention_owner_for_non_auth_source_failure():
+def test_heartbeat_mentions_owner_for_non_auth_source_failure():
     stats = scan.RunStats()
 
     stats.note_source_error("insidertracker: RSSHub X feed HTTP 500")
 
     heartbeat = scan.format_heartbeat(datetime(2026, 7, 28, 6, 0, tzinfo=scan.WIB), stats)
-    assert stats.needs_attention is False
-    assert "443342168434933760" not in heartbeat
+    assert stats.needs_attention is True
+    assert heartbeat.endswith("<@443342168434933760>")
+
+
+def test_heartbeat_mentions_owner_for_any_degraded_state():
+    stats = scan.RunStats(degraded=True)
+
+    heartbeat = scan.format_heartbeat(datetime(2026, 7, 28, 6, 0, tzinfo=scan.WIB), stats)
+
+    assert heartbeat.endswith("<@443342168434933760>")
+
+
+def test_fatal_heartbeat_mentions_owner():
+    value = scan.format_fatal(datetime(2026, 7, 28, 6, 0, tzinfo=scan.WIB), "unexpected runtime failure")
+
+    assert value == "❌ x-post · 06:00 WIB · failed: unexpected runtime failure <@443342168434933760>"
 
 
 def test_delivery_sends_thread_media_then_external_quote_media(tmp_path, monkeypatch, config_path):

@@ -35,13 +35,13 @@ class RunStats:
 
     def note_empty_profile(self, handle: str) -> None:
         self.degraded = True
+        self.needs_attention = True
         self.reasons.append(f"{handle}: empty source feed")
 
     def note_source_error(self, reason: str) -> None:
         self.degraded = True
+        self.needs_attention = True
         self.reasons.append(reason)
-        if "HTTP 401" in reason or "HTTP 403" in reason:
-            self.needs_attention = True
 
     def tokens(self) -> str:
         return f"{self.fetched} fetched · {self.filtered} filtered · {self.queued} queued · {self.delivered} delivered · {len(self.reasons)} errors"
@@ -57,12 +57,13 @@ def config_path() -> Path:
 
 def format_heartbeat(now: datetime, stats: RunStats) -> str:
     suffix = f" · {stats.reasons[0]}" if stats.reasons else ""
-    attention = f" {OWNER_MENTION}" if stats.needs_attention else ""
+    attention = f" {OWNER_MENTION}" if stats.degraded or stats.needs_attention else ""
     return f"🫀 {WATCHER_HEARTBEAT_NAME} · {now.astimezone(WIB):%H:%M} WIB · {stats.tokens()}" + (" ⚠️" if stats.degraded else "") + suffix + attention
 
 
 def format_fatal(now: datetime, reason: str) -> str:
-    return f"❌ {WATCHER_HEARTBEAT_NAME} · {now.astimezone(WIB):%H:%M} WIB · failed: {' '.join(reason.split())[:180]}"
+    failure = " ".join(reason.split())[:180]
+    return f"❌ {WATCHER_HEARTBEAT_NAME} · {now.astimezone(WIB):%H:%M} WIB · failed: {failure} {OWNER_MENTION}"
 
 
 def _next_deliverable_index(value: dict, profiles: dict, now: datetime) -> int | None:
@@ -116,6 +117,7 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
     except Exception as exc:
         event["last_error"] = " ".join(str(exc).split())[:180]
         stats.degraded = True
+        stats.needs_attention = True
         stats.reasons.append(event["last_error"])
         state.save_state(storage, value)
         return False
@@ -154,7 +156,9 @@ def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, o
                     )
                     stats.queued += queued
                     if reason:
-                        stats.degraded = True; stats.reasons.append(f"{profile.id}: {reason}")
+                        stats.degraded = True
+                        stats.needs_attention = True
+                        stats.reasons.append(f"{profile.id}: {reason}")
                     state.save_state(storage, value)
                 except rsshub.SourceFetchError as exc:
                     stats.note_source_error(f"{profile.id}: {exc}")
