@@ -62,8 +62,8 @@ def test_scanner_and_watchdog_wrappers_share_the_durable_default_state_path():
     assert 'install -d -m 700 "$(dirname "$STATE_PATH")"' in scanner
 
 
-def test_deploy_guide_includes_independent_minutely_watchdog_schedule():
-    guide = (ROOT / "DEPLOY.md").read_text(encoding="utf-8")
+def test_agents_includes_independent_minutely_watchdog_schedule():
+    guide = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
 
     assert "## Independent watchdog schedule" in guide
     assert "watchdog-wrapper.sh" in guide

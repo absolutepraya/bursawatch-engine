@@ -4,9 +4,9 @@ description: Hermes cron support skill for deterministic IDX company-news classi
 user-invocable: false
 ---
 
-# idx-market-news-watch
+# IDX Market News Watch runtime contract
 
-This is a cron-only support skill. It processes only the one `items[]` entry supplied by the watcher when `wakeAgent` is true. It must not inspect state, fetch sources, expand scope, or process historical material.
+This is the Hermes runtime prompt. The canonical development, deployment, and verification guidance is in `AGENTS.md`. It processes only the one `items[]` entry supplied by the watcher when `wakeAgent` is true. It must not inspect state, fetch sources, expand scope, or process historical material.
 
 ## Source boundary
 
@@ -55,7 +55,7 @@ The scanner owns deterministic validation, duplicate handling, ranking, durable 
 
 ## Shared Telegram resilience
 
-This no-agent watcher uses `telegram-resilience` with the shared
+Its deterministic no-agent intake phase uses `telegram-resilience` with the shared
 `POLYCOP_SESSION_STRING` profile. Its control-plane state is
 `~/.hermes/state/telegram-resilience-polyclop.json`. During a shared transport
 cooldown, another watcher's active probe, or an authorization hold, it exits

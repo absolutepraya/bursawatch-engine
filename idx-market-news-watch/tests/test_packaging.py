@@ -77,7 +77,7 @@ def test_skill_records_no_backfill_and_all_dry_run_controls():
         assert variable in skill
 
 
-def test_deploy_runbook_has_exact_vps_local_smoke_and_registration_commands():
-    deploy = (ROOT / "DEPLOY.md").read_text()
-    assert "IDX_MARKET_NEWS_NO_POST=1 IDX_MARKET_NEWS_STATE_PATH=/tmp/idx-market-news-smoke.json IDX_MARKET_NEWS_FORCE_HEARTBEAT=1 bash ~/.hermes/scripts/idx-market-news-watch.sh" in deploy
-    assert "~/.hermes/hermes-agent/venv/bin/hermes cron create --name idx-market-news-watch --deliver discord:1505162000420835388 --skill idx-market-news-watch --script ~/.hermes/scripts/idx-market-news-watch.sh '* * * * *' 'Process only the supplied idx-market-news-watch items according to the loaded skill. Do not reply in natural language.'" in deploy
+def test_agents_has_exact_vps_local_smoke_and_preserves_existing_scheduler_boundary():
+    agents = (ROOT / "AGENTS.md").read_text()
+    assert "IDX_MARKET_NEWS_NO_POST=1 IDX_MARKET_NEWS_STATE_PATH=/tmp/idx-market-news-smoke.json IDX_MARKET_NEWS_FORCE_HEARTBEAT=1 bash ~/.hermes/scripts/idx-market-news-watch.sh" in agents
+    assert "Never create, enable, reschedule, or manually trigger the existing Hermes job as a smoke test." in agents

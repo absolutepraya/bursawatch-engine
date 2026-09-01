@@ -4,9 +4,9 @@ description: Hermes cron support skill. Hourly scan of IDX corporate-action disc
 user-invocable: false
 ---
 
-# IDX CA watch
+# IDX CA Watch runtime contract
 
-`bin/scan.py` deterministically fetches, deduplicates, extracts disclosure text, applies hard red flags, stores state, creates the chart attachment, and posts the heartbeat. When it returns `{"wakeAgent": true, "items": [...]}`, evaluate each item under this contract.
+This is the Hermes runtime prompt. The canonical development, deployment, and verification guidance is in `AGENTS.md`. `bin/scan.py` deterministically fetches, deduplicates, extracts disclosure text, applies hard red flags, stores state, creates the chart attachment, and posts the heartbeat. When it returns `{"wakeAgent": true, "items": [...]}`, evaluate each item under this contract.
 
 Alerts go to `1517510484025151538`. Heartbeats and operational status go to `1505162000420835388`.
 

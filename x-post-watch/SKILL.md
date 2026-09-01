@@ -4,9 +4,9 @@ description: Hermes cron support skill for configuration-driven X post forwardin
 user-invocable: false
 ---
 
-# X Post Watch
+# X Post Watch runtime contract
 
-This is a cron-only support skill. The scanner is authoritative for source fetching, filtering, cursors, durable outbox state, rendering, media, heartbeat, and Discord delivery. The Hermes agent creates only the required source-grounded Bahasa Indonesia fields for the single `item` emitted when `wakeAgent` is `true`.
+This is the Hermes runtime prompt. The canonical development, deployment, and verification guidance is in `AGENTS.md`. The scanner is authoritative for source fetching, filtering, cursors, durable outbox state, rendering, media, heartbeat, and Discord delivery. The Hermes agent creates only the required source-grounded Bahasa Indonesia fields for the single `item` emitted when `wakeAgent` is `true`.
 
 When `wakeAgent` is `false`, do nothing and do not reply in natural language. Do not inspect state, fetch X, open links, browse, process historical posts, or post to Discord.
 
@@ -57,13 +57,6 @@ Title plus summary plus route:
 
 The command validates the exact event key and requested field shapes, persists them only while the matching 15-minute agent lease is active, then sends Discord text and ordered thread media followed by external quoted media itself.
 
-## Dry run
+## Failure and heartbeat boundary
 
-```bash
-X_POST_WATCH_NO_POST=1
-X_POST_WATCH_STATE_PATH=/tmp/x-post-watch-state.json
-X_POST_WATCH_CONFIG_PATH=/tmp/x-post-watch-watches.json
-X_POST_WATCH_FORCE_HEARTBEAT=1
-```
-
-Dry runs print intended Discord operations and never post or use live state.
+The scanner, not the agent, owns the `#hermes` heartbeat and fatal reporting. An invalid, expired, or rejected submission remains under deterministic scanner handling; do not compensate with a natural-language reply, direct Discord post, state edit, or retry outside the supplied submission command.

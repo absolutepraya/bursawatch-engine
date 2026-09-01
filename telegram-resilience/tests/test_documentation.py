@@ -48,14 +48,14 @@ def test_resilience_readme_requires_safe_probe_and_no_manual_cron_trigger() -> N
         assert required in text
 
 
-def test_resilience_readme_and_kelas_deploy_inventory_and_no_post_boundary() -> None:
+def test_resilience_readme_and_kelas_agents_inventory_and_no_post_boundary() -> None:
     resilience_readme = (ROOT / "telegram-resilience" / "README.md").read_text(encoding="utf-8")
-    deploy = (ROOT / "kelas-investasi-gtw-watch" / "DEPLOY.md").read_text(encoding="utf-8")
+    agents = (ROOT / "kelas-investasi-gtw-watch" / "AGENTS.md").read_text(encoding="utf-8")
 
     assert "five" in resilience_readme
     assert "kelas-investasi-gtw-watch" in resilience_readme
     assert "all five `scan.py` files" in resilience_readme
-    assert "KELAS_INVESTASI_GTW_FORCE_HEARTBEAT" not in deploy
-    assert "shared Telegram resilience state" in deploy
-    assert "KELAS_INVESTASI_GTW_STATE_MEDIA_ROOT=/tmp/kelas-investasi-gtw-media" in deploy
-    assert "production-state-free smoke test" in deploy
+    assert "KELAS_INVESTASI_GTW_FORCE_HEARTBEAT" not in agents
+    assert "telegram-resilience" in agents
+    assert "KELAS_INVESTASI_GTW_STATE_MEDIA_ROOT=/tmp/kelas-investasi-gtw-media" in agents
+    assert "production-state-free smoke test" in agents
