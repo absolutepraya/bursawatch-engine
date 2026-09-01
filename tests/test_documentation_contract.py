@@ -18,6 +18,48 @@ REDUNDANT_ROOT_DOCS = {
     "README.md", "SPEC.md", "DEPLOY.md", "DESIGN.md", "PLAN.md",
     "PROFILE_CONFIGURATION.md", "CRON_PROMPT.md", "CONTEXT.md",
 }
+AGENT_GOVERNANCE_ANCHORS = {
+    "idx-ca-watch": (
+        "zero is unquantified or below five percent",
+        "idx-ca-health",
+        "IDX_CA_PY=",
+    ),
+    "idx-market-news-watch": (
+        "issuer-specific ticker-led standalone news",
+        "Anak Usaha <TICKER>",
+        "individual company entries in Corporate posts",
+        "issuer-specific Special Topics",
+    ),
+    "kelas-investasi-gtw-watch": (
+        "DISCORD_BOT_TOKEN",
+        "POLYCOP_SESSION_STRING",
+        "matching 15-minute agent lease",
+    ),
+    "mm-weekly-log-normalizer": (
+        "registers the recurring `every 14d` interval",
+        "actual successful trigger time",
+    ),
+    "scele-digest": (
+        "todos_added",
+        "Include every new deadline key",
+        "records candidate keys as consumed",
+    ),
+    "x-post-watch": (
+        "unknown root, profile, channel, or thread fields are rejected",
+        "17 to 20 digit ID",
+        "age is one to 1,440 minutes",
+        "settling is one to 240 minutes",
+        "The five forwarding booleans",
+        "Surveys, greetings, personal updates",
+        "relevance_guard_required",
+        "outside the Indonesia or US-listed universe",
+    ),
+}
+DEPLOYMENT_ONLY_SCHEDULER_PATTERNS = (
+    re.compile(r"\bregister\b[^.\n]{0,120}\b(?:cron|schedule|interval)\b", re.I),
+    re.compile(r"\b(?:create|add|enable|reschedule|retarget)\s+(?:an?\s+)?(?:Hermes\s+)?(?:cron|schedule)\b", re.I),
+    re.compile(r"\bHermes starts an interval\b", re.I),
+)
 
 
 def root_markdown_names(cron: str) -> set[str]:
@@ -75,4 +117,20 @@ def test_active_instructions_do_not_link_to_removed_context_files() -> None:
         if path.is_file():
             assert not markdown_link_to_context.search(path.read_text()), (
                 f"{path.relative_to(ROOT)}: link to removed CONTEXT.md"
+            )
+
+
+def test_agent_backed_agents_documents_keep_reviewed_governance_anchors() -> None:
+    for cron, anchors in AGENT_GOVERNANCE_ANCHORS.items():
+        text = (ROOT / cron / "AGENTS.md").read_text(encoding="utf-8")
+        for anchor in anchors:
+            assert anchor in text, f"{cron}: AGENTS.md missing governance anchor {anchor!r}"
+
+
+def test_agent_backed_skills_exclude_deployment_only_scheduler_instructions() -> None:
+    for cron in AGENT_BACKED_CRONS:
+        text = (ROOT / cron / "SKILL.md").read_text(encoding="utf-8")
+        for pattern in DEPLOYMENT_ONLY_SCHEDULER_PATTERNS:
+            assert not pattern.search(text), (
+                f"{cron}: SKILL.md contains deployment-only scheduler instruction {pattern.pattern!r}"
             )

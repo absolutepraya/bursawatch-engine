@@ -18,7 +18,12 @@ The feed is for high-conviction corporate-action catalysts over approximately on
 - Severe dilution, defensive refinancing, financial distress, UMA, suspension, PKPU, FCA/PPK, and other overriding adverse conditions cannot post. Negative trailing net income, an approximate 50 percent or larger net-income collapse, or current ratio below one without net cash is also disqualifying.
 - Never score or describe RSI, moving averages, ATR, volume, price momentum, liquidity, or chart patterns. The chart is visual context only.
 
-The score has four integer components: `materiality` (0 to 3), `fundamental_impact` (0 to 3), `structure_alignment` (0 to 2), and `execution_certainty` (0 to 2). Its total must equal `score`. Materiality uses the most relevant disclosed base, such as market capitalization, annual revenue, assets, shares outstanding, free float, or another directly relevant company base. Without a usable denominator or key transaction term, it is at most one.
+The score has four integer components and its total must equal `score`:
+
+1. `materiality`, 0 to 3: zero is unquantified or below five percent of the relevant base; one is five percent to below 10 percent; two is 10 percent to below 25 percent; three is at least 25 percent or a material control or free-float change. Use the relevant disclosed denominator, such as market capitalization, annual revenue, assets, shares outstanding, free float, or another directly relevant company base. Without a usable denominator or key transaction term, it is at most one.
+2. `fundamental_impact`, 0 to 3: score only a disclosed, supportable path to revenue, earnings, cash flow, productive assets, capital structure, control, or free float. Broad management language without a specific economic path is zero or one.
+3. `structure_alignment`, 0 to 2: score disclosed terms that protect or improve public-shareholder economics, including a credible controller commitment. Pure dilution, opaque related-party economics, or unaligned rescue financing is zero.
+4. `execution_certainty`, 0 to 2: score disclosed price, size, parties, funding, approvals, timetable, and other material terms. An early plan without key terms is zero.
 
 Publish only when all gates hold: total score 7 to 10, materiality at least two, fundamental impact at least two, execution certainty at least one, a usable `fundamental_context` denominator, and no red flag or financial-distress condition. Score seven means a material catalyst with one meaningful remaining uncertainty, eight has a clear benefit and credible execution, and nine or 10 is highly material or transformative with measured impact and little uncertainty. A label alone never qualifies. Record every evaluated item, including a suppression, so it cannot re-escalate.
 
@@ -34,6 +39,20 @@ The scanner validates the gates and renders the alert to Discord `15175104840251
 - Use `IDX_CA_WATCH_NO_POST=1` with `IDX_CA_STATE_PATH` set to an isolated path for a deterministic smoke test. `IDX_CA_WATCH_BOOTSTRAP_RESET=1` is permitted only for that isolated state, never production state.
 - Do not manually run the scheduled production scan as a smoke test. It can post alerts and perform chart work.
 - After an approved deployment, compare local and VPS SHA-256 checksums for every changed `bin/` file, `SKILL.md`, and wrapper; then inspect the no-post output, target-channel heartbeat and alert path, and a natural scheduler record. The deployed runtime, not the dotfiles snapshot, is authoritative.
+
+## VPS capability checks and watchdog
+
+The wrapper uses `$HOME/.local/share/uv/tools/yahoo-finance-mcp/bin/python`. Its IDX fetch and PDF-extraction dependencies are `curl_cffi`, `cloudscraper`, and `pypdf`; inspect the existing runtime before any approved dependency change. The scanner uses the shared chart script at `~/.agents/skills/chart/bin/chart.sh` and the `CHART_IMG_API_KEY` loaded only by its wrapper.
+
+On an approved VPS verification path, use these read-only probes with that runtime interpreter, not a Mac substitute:
+
+```bash
+IDX_CA_PY="$HOME/.local/share/uv/tools/yahoo-finance-mcp/bin/python"
+$IDX_CA_PY -c "import sys; sys.path.insert(0,'$HOME/.agents/skills/idx-ca-watch/bin'); import scan; print(scan.fetch_page(1,3).get('ResultCount'))"
+$IDX_CA_PY -c "import sys; sys.path.insert(0,'$HOME/.agents/skills/idx-ca-watch/bin'); import scan; print(scan.render_chart('BBCA')); print(scan.market_metrics('BBCA')['avg_value_idr'])"
+```
+
+`idx-ca-health` is the safe operational probe for cache growth. The gateway-independent `bin/watchdog.py` checks for a stale successful scan and prunes old chart and log artifacts; it is separate from Hermes and must retain the VPS runtime interpreter and `HOME` environment. Do not create, change, or run its scheduler entry without explicit approval.
 
 ## Development and deployment
 
