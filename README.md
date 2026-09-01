@@ -1,7 +1,14 @@
 # Hermes crons (Mac dev home)
 
-Source-of-truth dev dirs for the Hermes cron skills that deploy to the VPS at
-`~/.agents/skills/<cron>/`. **One workflow for all:** edit here → `./deploy.sh <cron>` → verify.
+Source-of-truth development directories for Hermes scheduled crons that deploy to
+the VPS at `~/.agents/skills/<cron>/`. **One workflow for all:** edit here →
+`./deploy.sh <cron>` → verify.
+
+Every scheduled cron has `AGENTS.md` plus exactly one contract file. `AGENTS.md`
+is the development and domain source of truth. `CRON.md` is the concise
+operational contract for a deterministic no-agent cron, while `SKILL.md` is the
+runtime prompt Hermes loads for an agent-backed cron. Reusable non-cron skills
+retain their own `SKILL.md` files.
 
 | Cron | What it is | Mac-runnable? |
 |---|---|---|
@@ -23,10 +30,11 @@ Source-of-truth dev dirs for the Hermes cron skills that deploy to the VPS at
 `mm` is the paired owner-only Hermes skill for saving explicitly supplied Manual Activity Records. It is not a scheduled cron.
 
 ## Workflow
-1. Edit the skill under `<cron>/bin/`.
+1. Read the cron's `AGENTS.md` and its `CRON.md` or `SKILL.md`, then edit source under `<cron>/bin/`.
 2. `./deploy.sh <cron>` copies `bin/` to the VPS. Single file: `./deploy.sh <cron> scan.py`.
-3. Verify with the watcher's dry-run controls. Run network verification on the VPS for `idx-ca-watch`, `polymarket-signal-watch`, and `idx-swing-watch-phintraco-daily`.
-4. The VPS uses `~/.local/share/uv/tools/yahoo-finance-mcp/bin/python` for market watchers.
+3. For a changed contract file, commit and push first, compare it with the VPS copy, obtain approval for the first VPS write, then sync only that file and compare checksums.
+4. Verify with the watcher's dry-run controls. Run network verification on the VPS for `idx-ca-watch`, `polymarket-signal-watch`, and `idx-swing-watch-phintraco-daily`.
+5. The VPS uses `~/.local/share/uv/tools/yahoo-finance-mcp/bin/python` for market watchers.
 
 ## Don't
 - Don't edit `~/.dotfiles/vps/agents/skills/<cron>/`. It is an `rsync --delete` backup mirror pulled **from** the VPS.
@@ -57,4 +65,5 @@ GitHub Actions runs read-only tests, shell syntax checks, and tracked-file polic
 All deployments remain explicit local commands. The deploy scripts refuse a dirty worktree or a commit that is not published to `origin`, then copy only their documented source paths to the VPS. Continue to verify deployed checksums and the cron-specific no-post path after every manual deployment.
 
 ## Docs
-`docs/specs/` and `docs/plans/` — design + implementation plans (e.g. the cron heartbeat unification).
+
+Current cron guidance lives in each cron's `AGENTS.md` plus its single contract file. Historical decisions and implementation records remain under [`docs/adr/`](docs/adr/), [`docs/specs/`](docs/specs/), and [`docs/superpowers/`](docs/superpowers/), including the [documentation-governance design](docs/superpowers/specs/2026-08-22-hermes-documentation-governance-and-dotfiles-boundary-design.md) and [implementation plan](docs/superpowers/plans/2026-08-22-hermes-documentation-governance-and-dotfiles-boundary.md).

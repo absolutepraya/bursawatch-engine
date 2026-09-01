@@ -29,37 +29,38 @@ def root_markdown_names(cron: str) -> set[str]:
 
 
 def test_cron_classification_is_complete_and_disjoint() -> None:
-    assert NO_AGENT_CRONS.isdisjoint(AGENT_BACKED_CRONS)
-    assert len(ALL_CRONS) == 16
-    assert all((ROOT / cron).is_dir() for cron in ALL_CRONS)
+    assert NO_AGENT_CRONS.isdisjoint(AGENT_BACKED_CRONS), "cron classes overlap"
+    assert len(ALL_CRONS) == 16, "update the reviewed cron classification"
+    assert all((ROOT / cron).is_dir() for cron in ALL_CRONS), "missing cron source directory"
 
 
 def test_cron_root_document_shape() -> None:
     for cron in sorted(ALL_CRONS):
         markdown_names = root_markdown_names(cron)
-        assert "AGENTS.md" in markdown_names
+        assert "AGENTS.md" in markdown_names, f"{cron}: missing AGENTS.md"
 
         if cron in NO_AGENT_CRONS:
-            assert "CRON.md" in markdown_names
-            assert "SKILL.md" not in markdown_names
+            assert "CRON.md" in markdown_names, f"{cron}: missing no-agent CRON.md"
+            assert "SKILL.md" not in markdown_names, f"{cron}: no-agent cron has SKILL.md"
         else:
-            assert "SKILL.md" in markdown_names
-            assert "CRON.md" not in markdown_names
+            assert "SKILL.md" in markdown_names, f"{cron}: missing agent-backed SKILL.md"
+            assert "CRON.md" not in markdown_names, f"{cron}: agent-backed cron has CRON.md"
 
 
 def test_cron_directories_have_no_redundant_or_nested_markdown() -> None:
     for cron in sorted(ALL_CRONS):
-        assert not root_markdown_names(cron) & REDUNDANT_ROOT_DOCS
+        redundant_docs = root_markdown_names(cron) & REDUNDANT_ROOT_DOCS
+        assert not redundant_docs, f"{cron}: redundant root documents {sorted(redundant_docs)}"
         nested_markdown = {
             path.relative_to(ROOT / cron)
             for path in (ROOT / cron).rglob("*.md")
             if path.parent != ROOT / cron
         }
-        assert not nested_markdown
+        assert not nested_markdown, f"{cron}: nested Markdown {sorted(nested_markdown)}"
 
 
 def test_context_map_is_not_active() -> None:
-    assert not (ROOT / "CONTEXT-MAP.md").exists()
+    assert not (ROOT / "CONTEXT-MAP.md").exists(), "remove root CONTEXT-MAP.md after transfer"
 
 
 def test_active_instructions_do_not_link_to_removed_context_files() -> None:
@@ -72,4 +73,6 @@ def test_active_instructions_do_not_link_to_removed_context_files() -> None:
     markdown_link_to_context = re.compile(r"\]\([^)]*CONTEXT\.md(?:[)#?]|$)", re.I)
     for path in instruction_paths:
         if path.is_file():
-            assert not markdown_link_to_context.search(path.read_text())
+            assert not markdown_link_to_context.search(path.read_text()), (
+                f"{path.relative_to(ROOT)}: link to removed CONTEXT.md"
+            )

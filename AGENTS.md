@@ -2,7 +2,9 @@
 
 ## Scope
 
-This private repository is the canonical Mac development home for Hermes cron skills, Cobalt, and Yanto's lifecycle-voice plugin. These rules apply throughout the repository, including new and renamed crons. Cobalt is part of the parent Git history, while its service-specific workflow remains documented under `cobalt/`.
+This private repository is the canonical Mac development home for Hermes cron sources, reusable agent skills, Cobalt, and Yanto's lifecycle-voice plugin. These rules apply throughout the repository, including new and renamed crons. Cobalt is part of the parent Git history, while its service-specific workflow remains documented under `cobalt/`.
+
+Job Watcher and Security Audit deliver deterministic output through Hermes, but Job Watcher's role and location policy and Security Audit's remediation boundary remain independent from Yanto's conversational voice rules.
 
 `hermes-agent-starter/` is a separate repository with its own remote and workflow. It is intentionally ignored by the parent repository. Never stage, commit, rewrite, or deploy it through Hermes repository commands.
 
@@ -19,13 +21,14 @@ Current child instruction files:
 - `idx-ssf-watch-phintraco-weekly/AGENTS.md`: source-only weekly SSF forwarding.
 - `idx-swing-watch-phintraco-daily/AGENTS.md`: source-only daily swing-call forwarding.
 - `job-watcher/AGENTS.md`: Indonesia-only job discovery, scoring, and no-post verification.
-- `marka-backup/AGENTS.md`: Mac-local Marka export and VPS-triggered execution.
+- `marka-backup/AGENTS.md`: VPS-native Marka export, Nextcloud publishing, and read-only Mac mirror.
 - `kelas-investasi-gtw-watch/AGENTS.md`: future-only Telegram bundle capture and source-image delivery.
 - `mm/AGENTS.md`: owner-only Manual Activity Record capture.
 - `mm-weekly-log-normalizer/AGENTS.md`: evidence-bound MM draft generation and delivery.
 - `polymarket-signal-watch/AGENTS.md`: deterministic PolyCop signal screening and bot interaction.
 - `scele-digest/AGENTS.md`: unattended SCELE, Telegram, Todoist, and Discord digest workflow.
 - `security-audit/AGENTS.md`: read-only security posture auditing and approved system-config changes.
+- `sharing-cleanup/AGENTS.md`: deterministic Nextcloud Sharing-folder cleanup and safe dry-run verification.
 - `skills-update/AGENTS.md`: VPS-triggered Mac global skills update.
 - `us-etf-dca-watch/AGENTS.md`: no-agent ETF signal monitoring and market-window verification.
 - `x-post-watch/AGENTS.md`: X account intake, profile configuration, classifier boundaries, promotion exclusions, and watcher deployment.
@@ -40,15 +43,26 @@ Current child instruction files:
 ## Terms
 
 - **Dev source**: the cron directory in this repository, for example `us-etf-dca-watch/`.
-- **Runtime skill**: the deployed VPS directory at `~/.agents/skills/<cron>/`.
+- **No-agent cron contract**: `CRON.md` in a deterministic cron directory. It documents the scheduler, executable, boundaries, checks, and deployment contract; Hermes does not load it as an agent skill.
+- **Agent-backed cron skill**: `SKILL.md` in a cron directory whose Hermes job attaches that skill. Hermes loads it through `skills.external_dirs`, so it must retain that filename.
+- **Reusable agent skill**: any non-cron `SKILL.md`, such as `cobalt/skills/media/SKILL.md` or `mm/SKILL.md`.
+- **Runtime cron directory**: the deployed VPS directory at `~/.agents/skills/<cron>/`. The `skills` path is a Hermes runtime convention and is not a requirement that every cron have a `SKILL.md`.
 - **Live state**: the runtime `state/` files that own cursors, deduplication, alert suppression, retries, and checkpoints.
 - **Dotfiles mirror**: `~/.dotfiles/vps/agents/skills/`, a backup mirror pulled from the VPS. It is never an authoring or deployment target.
 - **Published commit**: a clean commit reachable from the configured `origin` remote. Only published commits are eligible for deployment.
 
+## Cron documentation model
+
+Every scheduled cron source directory contains one `AGENTS.md` and exactly one contract file. `AGENTS.md` is the canonical development and domain source. A deterministic no-agent cron has `CRON.md`, its concise operational contract. An agent-backed cron has `SKILL.md`, the concise model-facing runtime prompt that Hermes loads. A cron must never have both contract files.
+
+The no-agent crons are `dotfiles-sync`, `idx-ssf-watch-phintraco-weekly`, `idx-swing-watch-phintraco-daily`, `job-watcher`, `marka-backup`, `polymarket-signal-watch`, `security-audit`, `sharing-cleanup`, `skills-update`, and `us-etf-dca-watch`. The agent-backed crons are `idx-ca-watch`, `idx-market-news-watch`, `kelas-investasi-gtw-watch`, `mm-weekly-log-normalizer`, `scele-digest`, and `x-post-watch`.
+
+This policy applies only to scheduled cron documentation at a cron directory root. Reusable non-cron skills, including `mm/SKILL.md` and `cobalt/skills/media/SKILL.md`, retain their own skill contracts.
+
 ## Repository and dotfiles boundaries
 
 - Track reviewed development source in this repository. Do not track credentials, runtime state, caches, generated previews, local backfills, virtual environments, or worktrees.
-- `CONTEXT.md` files are temporary agent working knowledge, not repository source. Never stage or commit them, even when an existing `CONTEXT.md` is modified.
+- `CONTEXT.md` files are temporary agent working knowledge, not repository source. Do not create, stage, or commit them. Before deleting an ignored context file, compare it with the owning `AGENTS.md`, transfer only unique current non-secret knowledge, and leave worktree scratch context files untouched.
 - `.worktrees/` and other repository scratch space are local-only. They must not be added to Git or dotfiles capture coverage.
 - Dotfiles owns machine configuration and scrubbed VPS runtime snapshots. It does not own duplicate Hermes development source.
 - `Documents/Projects/Hermes/**`, including this `AGENTS.md` and `yanto-gateway-voice/`, is intentionally absent from the dotfiles Mac capture map. Do not restore the retired `mac/hermes/` snapshot.
@@ -61,7 +75,7 @@ Current child instruction files:
 2. GitHub Actions is validation only. It has read-only repository permissions, no secrets, no VPS access, and no deployment authority. A push must never deploy automatically.
 3. Before deployment, commit the intended scope, push it to `origin`, and use a clean checkout. Deployment guards must reject dirty or local-only source.
 4. Deploy executable cron changes with `./deploy.sh <cron>` from this repository. Deploy one file with `./deploy.sh <cron> <file>` only when the smaller scope is intentional.
-5. `deploy.sh` copies only `bin/`. If `SKILL.md` changes, sync that exact file separately to `vps:~/.agents/skills/<cron>/SKILL.md` after its local review.
+5. `deploy.sh` copies only `bin/`. If a no-agent cron's `CRON.md` changes, sync that exact file separately to `vps:~/.agents/skills/<cron>/CRON.md` after its local review. If an agent-backed cron's `SKILL.md` changes, sync that exact file separately to `vps:~/.agents/skills/<cron>/SKILL.md`.
 6. Use `cobalt/deploy.sh` for Cobalt and `yanto-gateway-voice/deploy.sh --apply` for the voice plugin. Their deployment guards enforce the same published-commit boundary.
 7. Never overwrite between this Mac and the VPS without first comparing the relevant files. A newer timestamp is not evidence that a version is correct.
 8. Confirm deployment by comparing the local and VPS checksums of each changed runtime file.
@@ -83,7 +97,7 @@ The deployed VPS runtime remains canonical. Dotfiles is the scrubbed backup that
 
 ## Required development loop
 
-1. Read the cron's `SKILL.md`, scanner, wrapper, tests, and current VPS behavior that the change affects.
+1. Read the cron's `CRON.md` when it is a no-agent cron, or its `SKILL.md` when Hermes attaches an agent skill. Then read the scanner, wrapper, tests, and current VPS behavior that the change affects.
 2. Preserve the cron's deterministic boundary. Fetching, parsing, scoring, deduplication, gating, persistence, rendering, and direct platform posting belong in the deterministic script. LLM work is limited to the explicit wake-on-findings contract, if the cron has one.
 3. Add or update a behavioral regression test for every bug fix or user-visible change. Test output, transitions, boundaries, suppression, and failure handling. Do not test source text or incidental implementation details.
 4. Run the focused test first, then the cron's complete test suite using the shared project environment:
@@ -146,7 +160,7 @@ Hermes `cron.wrap_response` is intentionally set to `false` globally. Every cron
 
 A cron is not complete until its identity is consistent across:
 
-- local directory and `SKILL.md` front matter
+- local directory and its contract file: `CRON.md` for no-agent crons, `SKILL.md` for agent-backed crons
 - `bin/` scanner and wrapper names
 - VPS runtime skill path
 - `~/.hermes/scripts/` wrapper
@@ -171,7 +185,7 @@ Use a trailing warning marker for degraded runs. Use this fatal form when the ru
 Before yielding a cron change, confirm:
 
 - Scope is limited to the requested behavior.
-- Every caller, wrapper, skill instruction, and deployment target reflects the same contract.
+- Every caller, wrapper, cron contract, agent skill prompt where applicable, and deployment target reflects the same contract.
 - No deprecated payload key, alias, or renamed path remains.
 - Tests prove the changed behavior and all affected tests pass.
 - The VPS runtime matches the reviewed local source.
