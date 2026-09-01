@@ -16,7 +16,11 @@ The source is Phintraco Sekuritas Official Telegram channel `1444713822`. Alerts
 
 Accept individual `Trading Buy`, `Buy on Support`, and `Speculative Buy` calls with the required source fields, qualifying source-marked outcomes and status updates, and validated same-ticker reply updates. Exclude sell calls, weekly bundles and PDFs, market reviews, media-only posts, and nearby inferred charts.
 
-An alert keeps source values and source-post time. A qualifying same-message photo is the only permitted Source Chart; a genuine no-photo source renders `Chart: Unavailable from source`. An outbox event is identified solely by Telegram source message ID. The phases are `pending_media_capture`, `pending_text`, `pending_chart`, and `delivered`, with strict FIFO text/chart adjacency and retries that never repeat successful text.
+On first successful activation, bootstrap from the newest Telegram message ID and forward no history. Only later calls are eligible. A message ID is a one-time event, so Telegram edits are ignored and changed captions, targets, advisor names, or charts are never revisited.
+
+Normalize header spacing around the separator and uppercase the ticker. Accept `Entry`, `Stop-loss` or `Stoploss`, and unnumbered or numbered targets; require one entry, one stop-loss, and at least one target. Render targets in numeric order, source ranges with `to`, and inequalities unchanged. Preserve the complete rationale except for transport-safe whitespace normalization. Do not summarize, translate, calculate, or interpret source values.
+
+The Telegram source-post timestamp, converted to `Asia/Jakarta`, is authoritative for the signal date and weekday. A caption date is only a parser fallback outside the runtime message path. Canonical rendering is `### <:phintraco:1531272488645038091> BUY: **TICKER**`, followed by bold field labels for Type, Entry, Stop-loss, ordered Targets, Signal date, Reasons, and Source. Values remain plain text and the alert must fit in one Discord text message. A qualifying same-message photo is the only permitted Source Chart and is attached immediately after text; a genuine no-photo source appends `**Chart:** Unavailable from source` instead. An outbox event is identified solely by Telegram source message ID. The phases are `pending_media_capture`, `pending_text`, `pending_chart`, and `delivered`, with strict FIFO text/chart adjacency and retries that never repeat successful text.
 
 ## State, data, and credential ownership
 

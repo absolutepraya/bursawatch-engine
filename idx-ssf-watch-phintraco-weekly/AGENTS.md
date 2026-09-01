@@ -14,9 +14,15 @@ The source is Telegram channel `1444713822`. Alerts go directly to Discord `#id-
 
 ## Deterministic behavior and invariants
 
+Read unseen source messages in ascending Telegram message-ID order. A candidate must have a document attachment with MIME type `application/pdf` and a filename that case-insensitively begins `Weekly SSF review` and ends `.pdf`. The candidate message ID is the report identity, so two source messages remain distinct even when their contents match.
+
+On first successful activation, scan only far enough to identify the newest valid Weekly SSF Review, forward that one report, then persist the newest observed message ID. If bootstrap finds no valid report, persist the newest observed ID and forward nothing. Do not replay older valid reports.
+
 Accept only a qualifying Weekly SSF Review PDF. A valid report has four pages, five ordered IDX underlyings, all three 1-, 2-, and 3-month contract fields, valid Long or Short strategies, source numeric values, and exactly five native technical charts arranged two on page one, two on page two, and one on page three. Invalid reports are terminal for their Telegram message ID and never produce partial delivery.
 
 For a valid report, parse all five underlyings and extract all charts before creating the outbox. Each event is keyed by `<source_message_id>:<ticker>` and follows `pending_text -> pending_chart -> delivered`. Delivery is strict FIFO: text, matching source chart, then the next underlying. A failed chart retries only the chart and blocks later events; successful text is never duplicated.
+
+The canonical alert begins `### <:phintraco:1531272488645038091> [SSF] LONG|SHORT|MIXED: TICKER`. Direction is derived only from the three source contract strategies. It renders source report date and underlying price, then the 1-, 2-, and 3-month contract blocks with strategy, purchase price, target price, and support or resistance, followed by `**Source:** Phintraco Sekuritas | Weekly SSF Review`. Only the contract labels are bold; dynamic source text is Discord-Markdown escaped; each underlying fits in one text message. The native chart is a separate immediate attachment. Never add generated analysis, confidence, market enrichment, execution advice, or a chart-unavailable substitute.
 
 ## State, data, and credential ownership
 
