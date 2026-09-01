@@ -8,10 +8,10 @@ COMMON_STATE_PATH = "~/.hermes/state/telegram-resilience-polyclop.json"
 def test_each_polycop_watcher_documents_the_shared_resilience_contract() -> None:
     documents = (
         ROOT / "idx-market-news-watch" / "SKILL.md",
-        ROOT / "idx-swing-watch-phintraco-daily" / "SKILL.md",
-        ROOT / "idx-ssf-watch-phintraco-weekly" / "SKILL.md",
+        ROOT / "idx-swing-watch-phintraco-daily" / "CRON.md",
+        ROOT / "idx-ssf-watch-phintraco-weekly" / "CRON.md",
         ROOT / "kelas-investasi-gtw-watch" / "SKILL.md",
-        ROOT / "polymarket-signal-watch" / "SKILL.md",
+        ROOT / "polymarket-signal-watch" / "CRON.md",
     )
 
     for document in documents:
