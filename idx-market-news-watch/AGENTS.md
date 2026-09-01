@@ -34,6 +34,32 @@ Allowed event classes are `financial_results_or_guidance`, `corporate_action`, `
 
 Eligible news is delivered as one text-only Discord message per ticker to `1525102508714889257`, immediately after deterministic validation, deduplication, and classification. No pre-market, post-market, or intraday heading is added, and multiple tickers are never batched. Operational heartbeats and failure notices go only to `1505162000420835388`.
 
+### Candidate identity and duplicate boundary
+
+- A candidate identity is the provider, immutable source-message ID, and ticker: `provider:source_message_id:ticker`. One source message can therefore create a separate candidate for each identified ticker.
+- A cross-provider duplicate is confident only when both candidates have the same ticker and event class, their publication times are at most 24 hours apart, and they share at least two normalized `dedupe_facts`. An uncertain match, a different event class, insufficient shared facts, or a distinct development remains a separate candidate. Same-provider replay handling is broader and uses its own seven-day/source-overlap rule.
+
+### Yahoo quote and text rendering contract
+
+`get_market_snapshot()` requests ten days of Yahoo Finance daily history for `<ticker>.JK`. When Yahoo supplies a finite positive `fast_info.last_price`, the renderer uses it as the current price; otherwise it falls back to the most recent daily close, with the preceding and sixth-most-recent closes providing the 1D and 1W comparisons. The current source has no explicit IDX-session calendar or timestamp validation, so it does not promise a separate regular-session price rule or an after-session official-close selection beyond that fallback. It also does not independently detect a stale quote.
+
+An unavailable, invalid, or too-short quote returns no snapshot and degrades only that item's rendering: the valid news message still posts with its issuer heading, factual body, and separator, but without the market-data block. That condition does not suppress other eligible news and does not currently emit a separate quote-degraded heartbeat.
+
+Yahoo's nonempty `longName` is the canonical issuer name. If Yahoo does not provide one, the renderer falls back to the provider's ticker/name wording, then the ticker itself. Every message has this exact text-only layout:
+
+```text
+### <provider emoji> <TICKER> (<canonical issuer name>)
+<one to five factual Indonesian sentences from the validated summary>
+┈┈┈┈┈┈┈┈┈┈┈┈┈
+*Harga terakhir (IDR):* <rounded IDR price>
+<direction emoji>1D: <IDR change> (<percent change>)
+<direction emoji>1W: <IDR change> (<percent change>)
+```
+
+The three market-data lines are present only when a snapshot is valid. The body is the validated summary, never raw source text, and contains no investment language. There is no tier, session, per-entry timestamp, source link, source image, or follow-up media message. A Tier One or Tier Two item uses the same standalone layout, and each ticker is posted as exactly one Discord text message.
+
+Before each post, the scanner persists that item's rendered text and deterministic nonce. A successful text post alone marks that item delivered. A Discord error, absent message ID, or rate limit leaves only that item in `pending_delivery` with its durable payload and retry metadata; retries wait 1, 2, 4, 8, 15, 30, then 60 minutes, while a longer Discord `retry_after` is honored. Retrying one item neither batches it with nor suppresses another item.
+
 This watcher uses the shared `POLYCOP_SESSION_STRING` profile and `telegram-resilience` control plane at `~/.hermes/state/telegram-resilience-polyclop.json`. Before creating a Telegram client, it acquires `acquire_probe_after_active_lease`. A cooldown, peer probe lease, transport backoff, or authorization hold exits cleanly without advancing a provider cursor, candidate queue, delivery outbox, or other production state. Do not add a watcher-specific session, reset the shared state, replay candidates, or manually post an item.
 
 The scanner's durable state is `~/.hermes/state/idx-market-news.json`. It and the shared resilience control state are production data, not deploy inputs.
