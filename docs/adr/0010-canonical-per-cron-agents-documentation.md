@@ -1,6 +1,6 @@
 # Canonical per-cron AGENTS.md documentation
 
-Status: proposed
+Status: accepted
 
 ## Context
 
@@ -46,4 +46,4 @@ Keep the Hermes repository independent from dotfiles. Remove stale Hermes and Ma
 
 ## Status and follow-up
 
-This ADR is proposed alongside the design specification. The user approved the design after the contract was clarified to require `CRON.md` for no-agent crons and `SKILL.md` for agent-backed crons. It becomes accepted with the implementation commit. The implementation must preserve the current uncommitted worktree changes unless they are separately reviewed and must verify that no runtime schedule, state, credential, or delivery behavior changed.
+The documentation contract is implemented and accepted after the local documentation-shape and shared protocol tests pass. Every scheduled cron now has `AGENTS.md` plus exactly one matching contract: `CRON.md` for no-agent crons or `SKILL.md` for agent-backed crons. The implementation preserves the current uncommitted main-worktree changes unless they are separately reviewed and must not change runtime schedules, state, credentials, or delivery behavior.
