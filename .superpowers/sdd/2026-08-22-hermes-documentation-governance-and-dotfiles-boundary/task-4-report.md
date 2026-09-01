@@ -7,6 +7,7 @@ Complete. The six agent-backed cron roots now contain only `AGENTS.md` and Herme
 ## Commit
 
 - `1647065141b31dc9365682627b4275ccff85ca28` `docs: consolidate agent-backed cron governance`
+- `887fcef a9103f1fd245228b5b9ccbc62d9d9620b` `docs: complete task 4 governance fixes`
 
 ## Files changed
 
@@ -90,3 +91,62 @@ Exact output:
 ```
 
 Total: 511 passed. `git diff --check` passed with no output.
+
+## Fix round 1 finalization
+
+Reviewed the current Task 4 fix diff at `887fcef` against every finding. No additional correction was necessary: the six `AGENTS.md` files contain the transferred current domain and development contracts, the six `SKILL.md` files contain only runtime contracts, the IDX CA capability and watchdog guidance is present, the X Post schema states the five forwarding booleans and actual thread ranges, and the documentation policy test covers governance anchors and deployment-only scheduler instructions.
+
+Fresh-process verification was run from the isolated worktree with the shared repository interpreter because `../.venv/bin/python` is not present from this worktree:
+
+```bash
+for target in tests/test_documentation_contract.py telegram-resilience/tests/test_documentation.py idx-ca-watch/tests idx-market-news-watch/tests kelas-investasi-gtw-watch/tests mm-weekly-log-normalizer/tests scele-digest/tests x-post-watch/tests; do
+  ../../.venv/bin/python -m pytest -q "$target" || exit $?
+done
+```
+
+Exact output:
+
+```text
+.......                                                                  [100%]
+7 passed in 0.02s
+....                                                                     [100%]
+4 passed in 0.01s
+...........................................                              [100%]
+43 passed in 0.03s
+........................................................................ [ 57%]
+.....................................................                    [100%]
+125 passed in 0.89s
+........................................................................ [ 60%]
+................................................                         [100%]
+120 passed in 0.13s
+........................................................................ [ 80%]
+.................                                                        [100%]
+89 passed in 0.50s
+..................                                                       [100%]
+18 passed in 0.06s
+........................................................................ [ 68%]
+.................................                                        [100%]
+105 passed in 0.13s
+```
+
+Total: 511 passed.
+
+The final `git diff --check` command completed with no output.
+
+## Fix round 2
+
+Clarified that deployed X Post Watch profile IDs are stable cursor-state namespaces and must not be renamed. Documented that `enabled: false` stops new polling, cursor updates, and queueing, but does not suppress delivery or agent processing of already queued events.
+
+```bash
+../../.venv/bin/python -m pytest -q tests/test_documentation_contract.py && ../../.venv/bin/python -m pytest -q x-post-watch/tests
+```
+
+Exact output:
+
+```text
+.......                                                                  [100%]
+7 passed in 0.02s
+........................................................................ [ 68%]
+.................................                                        [100%]
+105 passed in 0.16s
+```
