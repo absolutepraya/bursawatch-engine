@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 import discord
-from discord import DiscordRateLimitError, deliver_oldest_ready_event, nonce, post_text
+from discord import DiscordDeliveryError, DiscordRateLimitError, deliver_oldest_ready_event, nonce, post_text
 from state import load_state, new_state, save_state
 
 
@@ -114,6 +114,11 @@ def test_429_uses_retry_after(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
     assert event["next_attempt_at"] == (now() + timedelta(seconds=17.5)).isoformat()
     assert event["attempts"] == 1
+
+
+def test_discord_delivery_errors_have_a_safe_category() -> None:
+    assert str(DiscordDeliveryError("Discord request failed")) == "Discord request failed"
+    assert str(DiscordRateLimitError(17.5)) == "Discord rate limited"
 
 
 def test_missing_local_image_is_retried_with_sanitized_error(tmp_path: Path) -> None:

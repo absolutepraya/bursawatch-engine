@@ -20,7 +20,11 @@ RETRY_INITIAL_SECONDS = 60
 RETRY_CAP_SECONDS = 15 * 60
 
 
-class DiscordRateLimitError(RuntimeError):
+class DiscordDeliveryError(RuntimeError):
+    """A Discord delivery operation failed with a safe public reason."""
+
+
+class DiscordRateLimitError(DiscordDeliveryError):
     def __init__(self, retry_after: float) -> None:
         super().__init__("Discord rate limited")
         self.retry_after = retry_after
@@ -137,7 +141,7 @@ def deliver_oldest_ready_event(
 def _post(channel_id: str, **kwargs: Any) -> requests.Response:
     token = os.environ.get("DISCORD_BOT_TOKEN")
     if not token:
-        raise RuntimeError("Discord bot token is not configured")
+        raise DiscordDeliveryError("Discord bot token is not configured")
     try:
         response = requests.post(
             f"{DISCORD_API}/channels/{channel_id}/messages",
@@ -146,11 +150,11 @@ def _post(channel_id: str, **kwargs: Any) -> requests.Response:
             **kwargs,
         )
     except requests.RequestException as error:
-        raise RuntimeError("Discord request failed") from error
+        raise DiscordDeliveryError("Discord request failed") from error
     if response.status_code == 429:
         raise DiscordRateLimitError(_retry_after(response))
     if not response.ok:
-        raise RuntimeError(f"Discord API returned HTTP {response.status_code}: {_response_error(response)}")
+        raise DiscordDeliveryError("Discord API request was rejected")
     return response
 
 
@@ -168,7 +172,7 @@ def _message_id(response: requests.Response) -> str:
     try:
         payload = response.json()
     except requests.RequestException as error:
-        raise RuntimeError("Discord API returned an invalid response") from error
+        raise DiscordDeliveryError("Discord API returned an invalid response") from error
     value = payload.get("id") if isinstance(payload, dict) else None
     return str(value) if value is not None else ""
 
@@ -259,6 +263,8 @@ def _sanitize(error: BaseException) -> str:
     # paths, tokens, or arbitrary exception strings there.
     if isinstance(error, DiscordRateLimitError):
         return "Discord rate limited"
+    if isinstance(error, DiscordDeliveryError):
+        return str(error)
     if isinstance(error, FileNotFoundError):
         return "captured source media is unavailable"
     if "cursor" in str(error).lower():

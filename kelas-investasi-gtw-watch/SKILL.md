@@ -25,3 +25,11 @@ JSON
 ```
 
 Do not call `scan.py` directly or return natural-language output. The scanner validates the matching 15-minute lease, then delivers text and only the header image. `KELAS_INVESTASI_GTW_NO_POST=1` remains the non-posting operational control.
+
+The wrapper persists the accepted fields only while the matching 15-minute lease is active. If the scanner rejects the submitted JSON, it reports a safe `submission_rejected=<code>` warning heartbeat, exits nonzero, and leaves the event eligible for retry. This is an agent-output problem, not evidence that the Telegram source is unavailable. Do not expose or repeat raw validation details.
+
+## No-post control
+
+Set `KELAS_INVESTASI_GTW_NO_POST=1` for deterministic verification. It prints intended Discord operations and the heartbeat without Discord writes or delivery-cursor changes. It does not authorize state resets, Telegram writes, or a manual Hermes cron trigger.
+
+The source is future-only: on first successful observation the scanner records the current highest Telegram message ID and exits. It must not turn historical messages into events.

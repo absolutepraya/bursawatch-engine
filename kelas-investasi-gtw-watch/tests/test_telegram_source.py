@@ -8,6 +8,7 @@ import pytest
 
 from telegram_source import (
     SOURCE_ID,
+    TelegramMediaError,
     TelegramSourceError,
     capture_image,
     fetch_unseen_messages,
@@ -106,7 +107,7 @@ def test_capture_image_writes_the_downloaded_source_bytes(tmp_path: Path) -> Non
 
 
 def test_capture_image_rejects_empty_download(tmp_path: Path) -> None:
-    with pytest.raises(TelegramSourceError, match="image download was empty"):
+    with pytest.raises(TelegramMediaError, match="image download was empty"):
         asyncio.run(capture_image(FakeClient([raw(102, photo=object())], image=b""), object(), 102, 0, tmp_path))
     assert not list(tmp_path.iterdir())
 

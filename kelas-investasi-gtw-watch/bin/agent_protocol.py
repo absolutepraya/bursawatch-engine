@@ -29,6 +29,18 @@ _ALLOWED_CONNECTORS = frozenset({"dan", "dengan", "di", "ke", "yang", "untuk", "
 class RetryableSubmissionError(ValueError):
     """Agent output is rejected while the event remains eligible for retry."""
 
+    def __init__(self, reason_code: str, message: str) -> None:
+        self.reason_code = reason_code
+        super().__init__(message)
+
+
+class SubmissionValidationError(ValueError):
+    """Internal validation failure with a safe externally visible category."""
+
+    def __init__(self, reason_code: str, message: str) -> None:
+        self.reason_code = reason_code
+        super().__init__(message)
+
 
 def agent_item(event: Mapping[str, object]) -> dict[str, object]:
     """Return the closed, deterministic source context supplied to Hermes."""
@@ -67,18 +79,20 @@ def validate_submission(event: Mapping[str, object], payload: object) -> dict[st
     try:
         value = _json_object(payload)
         if set(value) != _SUBMISSION_FIELDS:
-            raise ValueError("submission has unexpected or missing fields")
+            raise SubmissionValidationError("invalid_schema", "submission has unexpected or missing fields")
         event_key = _text(value, "event_key")
         if event_key != _text(event, "event_key"):
-            raise ValueError("event_key does not match the active event")
+            raise SubmissionValidationError("event_key_mismatch", "event_key does not match the active event")
         ticker = _ticker(event)
         title = _title(value.get("title"), ticker)
         summary = _summary(value.get("summary"))
         _reject_unsafe_or_ungrounded(event, title, summary)
     except RetryableSubmissionError:
         raise
+    except SubmissionValidationError as error:
+        raise RetryableSubmissionError(error.reason_code, str(error)) from error
     except (TypeError, ValueError, json.JSONDecodeError) as error:
-        raise RetryableSubmissionError(str(error)) from error
+        raise RetryableSubmissionError("invalid_submission", "submission is invalid") from error
     return {"event_key": event_key, "title": title, "summary": summary}
 
 
@@ -87,45 +101,45 @@ def _json_object(payload: object) -> Mapping[str, object]:
         try:
             payload = json.loads(payload)
         except (TypeError, json.JSONDecodeError) as error:
-            raise ValueError("submission must be valid JSON") from error
+            raise SubmissionValidationError("invalid_json", "submission must be valid JSON") from error
     if type(payload) is not dict:
-        raise ValueError("submission must be a JSON object")
+        raise SubmissionValidationError("invalid_schema", "submission must be a JSON object")
     return payload
 
 
 def _title(value: object, ticker: str) -> str:
     if not isinstance(value, str):
-        raise ValueError("title must be text")
+        raise SubmissionValidationError("invalid_title", "title must be text")
     title = " ".join(value.split())
     if not 5 <= len(title) <= MAX_TITLE_CHARACTERS:
-        raise ValueError("title length is invalid")
+        raise SubmissionValidationError("invalid_title", "title length is invalid")
     if not title.startswith(f"{ticker}:"):
-        raise ValueError("title must begin with the source ticker and colon")
+        raise SubmissionValidationError("invalid_title", "title must begin with the source ticker and colon")
     if "http://" in title.lower() or "https://" in title.lower() or title.endswith((".", "!", "?")):
-        raise ValueError("title must be a plain headline without URL or ending punctuation")
+        raise SubmissionValidationError("invalid_title", "title must be a plain headline without URL or ending punctuation")
     return title
 
 
 def _summary(value: object) -> str:
     if not isinstance(value, str):
-        raise ValueError("summary must be text")
+        raise SubmissionValidationError("invalid_summary", "summary must be text")
     summary = value.strip()
     if not summary.startswith(SUMMARY_PREFIX):
-        raise ValueError("summary must start with the Ringkasan prefix")
+        raise SubmissionValidationError("invalid_summary", "summary must start with the Ringkasan prefix")
     body = summary[len(SUMMARY_PREFIX):].strip()
     if not body or "\n" in body or len(summary) > MAX_SUMMARY_CHARACTERS:
-        raise ValueError("summary must be one nonempty single-line paragraph within the limit")
+        raise SubmissionValidationError("invalid_summary", "summary must be one nonempty single-line paragraph within the limit")
     return SUMMARY_PREFIX + body
 
 
 def _reject_unsafe_or_ungrounded(event: Mapping[str, object], title: str, summary: str) -> None:
     output = f"{title}\n{summary[len(SUMMARY_PREFIX):]}"
     if _FORBIDDEN_VISIBLE_FORMATTING.search(output):
-        raise RetryableSubmissionError("submission contains forbidden visible formatting")
+        raise RetryableSubmissionError("forbidden_formatting", "submission contains forbidden visible formatting")
     if _FORBIDDEN_LEAKAGE.search(output):
-        raise RetryableSubmissionError("submission contains source instruction leakage")
+        raise RetryableSubmissionError("source_instruction_leakage", "submission contains source instruction leakage")
     if _FORBIDDEN_ADVICE.search(output):
-        raise RetryableSubmissionError("submission contains investment advice or certainty")
+        raise RetryableSubmissionError("investment_advice_or_certainty", "submission contains investment advice or certainty")
     source = _text(event, "source_text")
     plan = _plan(event)
     # Apply the same normalized PlanSource check to both agent-visible fields.
@@ -139,7 +153,7 @@ def _reject_unsafe_or_ungrounded(event: Mapping[str, object], title: str, summar
     output_tokens = _TOKEN.findall(output.lower())
     unsupported = [token for token in output_tokens if token not in allowed and token not in _ALLOWED_CONNECTORS]
     if unsupported:
-        raise RetryableSubmissionError("submission contains ungrounded claims")
+        raise RetryableSubmissionError("ungrounded_claims", "submission contains ungrounded claims")
 
 
 def _reject_noncanonical_plan_claims(summary: str, plan: Mapping[str, str]) -> None:
@@ -147,7 +161,7 @@ def _reject_noncanonical_plan_claims(summary: str, plan: Mapping[str, str]) -> N
     for match in _PLAN_CLAIM.finditer(summary):
         field = _plan_field(match.group("label"))
         if _normalize_plan_claim(match.group("value")) != _normalize_plan_claim(plan[field]):
-            raise RetryableSubmissionError("submission contains noncanonical source plan values")
+            raise RetryableSubmissionError("noncanonical_plan", "submission contains noncanonical source plan values")
 
 
 def _normalize_plan_claim(value: str) -> str:

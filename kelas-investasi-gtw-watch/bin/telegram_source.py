@@ -16,6 +16,10 @@ class TelegramSourceError(RuntimeError):
     """A Telegram source operation failed without exposing credentials."""
 
 
+class TelegramMediaError(TelegramSourceError):
+    """A Telegram source image could not be captured safely."""
+
+
 def make_client() -> Any:
     """Create the shared-PolyCop Telethon client from required environment values."""
     session = os.environ.get("POLYCOP_SESSION_STRING")
@@ -88,15 +92,15 @@ async def capture_image(client: Any, entity: Any, message_id: int, ordinal: int,
     try:
         message = await client.get_messages(entity, ids=message_id)
     except Exception as error:
-        raise TelegramSourceError("Telegram source image is inaccessible") from error
+        raise TelegramMediaError("Telegram source image is inaccessible") from error
     if message is None or getattr(message, "photo", None) is None:
-        raise TelegramSourceError("Telegram source image is inaccessible")
+        raise TelegramMediaError("Telegram source image is inaccessible")
     try:
         payload = await client.download_media(message, file=bytes)
     except Exception as error:
-        raise TelegramSourceError("Telegram image download failed") from error
+        raise TelegramMediaError("Telegram image download failed") from error
     if not isinstance(payload, bytes) or not payload:
-        raise TelegramSourceError("Telegram image download was empty")
+        raise TelegramMediaError("Telegram image download was empty")
     path = Path(destination) / f"kelas-investasi-{message_id}-{ordinal}.jpg"
     _atomic_write(path, payload)
     return path
