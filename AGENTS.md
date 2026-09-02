@@ -65,7 +65,7 @@ This policy applies only to scheduled cron documentation at a cron directory roo
 
 ## Repository and dotfiles boundaries
 
-- Track reviewed development source in this repository. Do not track credentials, runtime state, caches, generated previews, local backfills, virtual environments, or worktrees.
+- Track reviewed development source in this repository. Do not track credentials, runtime state, caches, generated previews, skill-evaluation outputs, local backfills, virtual environments, or worktrees.
 - `CONTEXT.md` files are temporary agent working knowledge, not repository source. Do not create, stage, commit, or capture them in dotfiles. Before deleting an existing ignored context file, compare it with the owning `AGENTS.md`, transfer only unique current non-secret knowledge, and leave worktree scratch context files untouched.
 - `.worktrees/` and other repository scratch space are local-only. They must not be added to Git or dotfiles capture coverage.
 - Dotfiles owns machine configuration and scrubbed VPS runtime snapshots. It does not own duplicate Hermes development source.
