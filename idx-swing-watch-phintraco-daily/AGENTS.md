@@ -10,7 +10,7 @@ The watcher forwards individual Phintraco IDX buy recommendations, qualifying ou
 
 The live registry owns active no-agent job `2b5c0a128652`, `idx-swing-watch-phintraco-daily`, on `* * * * *` (WIB). Hermes runs `idx-swing-watch-phintraco-daily.sh` and delivers raw output to `#hermes` (`1505162000420835388`).
 
-The source is Phintraco Sekuritas Official Telegram channel `1444713822`. Alerts go directly to `#id-stocks-swing` (`1525102458253217803`); operational heartbeats and fatal notices go directly to `#hermes`. Production state, media, lock, and watchdog notices live under the deployed cron's private state directory.
+The source is Phintraco Sekuritas Official Telegram channel `1444713822`. Alerts go directly to `#id-stocks-swing` (`1525102458253217803`); the channel is also a destination for `x-post-watch`'s `id_stock_swing` route, which delivers source-grounded X technical analyses in its own format. Operational heartbeats and fatal notices go directly to `#hermes`. Production state, media, lock, and watchdog notices live under the deployed cron's private state directory.
 
 ## Deterministic behavior and invariants
 

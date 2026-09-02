@@ -299,6 +299,11 @@
           "description": "Direct IDX-listed company or ticker thesis."
         },
         {
+          "key": "id_stock_swing",
+          "channel_id": "1525102458253217803",
+          "description": "Direct IDX technical-analysis or swing-trading thesis."
+        },
+        {
           "key": "us_stock",
           "channel_id": "1532266331737686199",
           "description": "Direct NYSE- or Nasdaq-listed security thesis, including ADRs."
@@ -313,7 +318,7 @@
       "enable_llm_summary": true,
       "enable_llm_routing": true,
       "enable_llm_relevance_filter": true,
-      "additional_prompt_instruction": "Forward substantive stock, market, and Elliott Wave analysis. Route company-specific IDX and US-listed analysis correctly. Exclude greetings, generic engagement, trading-group performance marketing, paid courses, paid research, signal-service promotions, and clickbait profit promises.",
+      "additional_prompt_instruction": "Forward substantive stock, market, and Elliott Wave analysis. For IDX posts, use id_stock_swing when the central thesis is technical price action or a trade setup, including wave counts, chart patterns, support or resistance, breakout or breakdown, indicators, entry, target, stop-loss, risk/reward, or a defined price path. Use id_stock for IDX news, fundamentals, valuation, earnings, or corporate actions. A valuation-based target is not swing. US-listed technical posts remain us_stock. Exclude greetings, generic engagement, trading-group performance marketing, paid courses, paid research, signal-service promotions, and clickbait profit promises.",
       "max_items_per_poll": 50,
       "thread_handling": {
         "mode": "disabled",

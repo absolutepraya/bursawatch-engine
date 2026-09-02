@@ -65,7 +65,8 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
         routing = (
             "When route_required is true, classify the central thesis, not named entities. "
             "Use macro for market-wide financial conditions or behavior, including leverage, derivatives, liquidity, valuations, investor positioning, bubbles, broad sector or AI-cycle risk, even when companies or ETFs are examples. "
-            "Use id_stock only for a direct IDX-listed company or ticker thesis, results, corporate action, or valuation. "
+            "Use id_stock_swing only for a direct IDX-listed company or ticker thesis whose central argument is technical price action or a trade setup, including Elliott Wave or wave counts, chart patterns, support or resistance, breakouts or breakdowns, technical indicators, entry, target, stop-loss, risk/reward, or a defined price path. A target price derived from earnings, DCF, or valuation remains id_stock. "
+            "Use id_stock for a direct IDX-listed company or ticker thesis, results, corporate action, fundamentals, or valuation when the central argument is not a technical trade setup. "
             "Use us_stock only for a direct NYSE- or Nasdaq-listed security thesis, including an ADR. "
             "If a central ticker's issuer, exchange, or listing country is unknown or ambiguous, look it up before choosing a route. Use the available Yahoo Finance tool first, then Serper, then Brave Search. "
             "Use lookup results only to identify the issuer, exchange, listing country, exact exchange ticker, and route. Do not add any other lookup fact to the title or summary. "
@@ -75,7 +76,7 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
             f"Choose exactly one configured route key: {channels}. "
         )
     title_and_summary = (
-        "For id_stock or us_stock, start the first word of the title with the exact exchange ticker, followed by a colon, for example MYOR: or META:. "
+        "For id_stock, id_stock_swing, or us_stock, start the first word of the title with the exact exchange ticker, followed by a colon, for example MYOR: or META:. "
         "For macro, write a concise natural headline and do not invent a ticker. "
         "Start only the first summary paragraph with *(Ringkasan)*. Never repeat that label in the second paragraph. "
         "Write summaries directly and factually, as the source account's own analysis. Do not describe Ricky or the writer as a narrator, including penulis, Ricky menyebutkan, Ricky merangkum, menurut tweet ini, or similar framing. "

@@ -59,6 +59,7 @@ def test_submit_summary_validates_then_drains_only_summary_event(tmp_path, monke
     ("route", "channel", "title"),
     [
         ("id_stock", "1525102508714889257", "MYOR: Uji Rute Saham Indonesia"),
+        ("id_stock_swing", "1525102458253217803", "BBNI: Uji Rute Swing Indonesia"),
         ("us_stock", "1532266331737686199", "META: Uji Rute Saham AS"),
     ],
 )
@@ -69,6 +70,7 @@ def test_submit_summary_routes_stock_analysis_to_its_configured_channel(tmp_path
     profile_payload["discord_channels"] = [
         {"key": "macro", "channel_id": "1531655369884045382", "description": "Macro"},
         {"key": "id_stock", "channel_id": "1525102508714889257", "description": "IDX"},
+        {"key": "id_stock_swing", "channel_id": "1525102458253217803", "description": "IDX swing"},
         {"key": "us_stock", "channel_id": "1532266331737686199", "description": "US listed"},
     ]
     config_path.write_text(json.dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")

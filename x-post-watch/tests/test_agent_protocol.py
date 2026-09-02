@@ -193,13 +193,14 @@ def test_doktermarket_analysis_link_is_not_by_itself_promotional(config_path, pr
     assert agent_protocol.is_promotional(post) is False
 
 
-def test_submission_accepts_only_macro_id_stock_or_us_stock_route(config_path, profile_payload):
+def test_submission_accepts_only_configured_routes(config_path, profile_payload):
     profile_payload["enable_llm_title"] = True
     profile_payload["enable_llm_summary"] = True
     profile_payload["enable_llm_routing"] = True
     profile_payload["discord_channels"] = [
         {"key": "macro", "channel_id": "1531655369884045382", "description": "Macro"},
         {"key": "id_stock", "channel_id": "1525102508714889257", "description": "IDX"},
+        {"key": "id_stock_swing", "channel_id": "1525102458253217803", "description": "IDX swing"},
         {"key": "us_stock", "channel_id": "1532266331737686199", "description": "US listed"},
     ]
     config_path.write_text(__import__("json").dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
@@ -207,6 +208,8 @@ def test_submission_accepts_only_macro_id_stock_or_us_stock_route(config_path, p
     payload = {"event_key": "kutekians:102", "is_relevant": True, "title": "MYOR: Uji Rute Saham Indonesia", "summary": "*(Ringkasan)* Uji rute.", "route": "id_stock"}
 
     assert agent_protocol.validate_submission(profile, payload)["route"] == "id_stock"
+    payload["route"] = "id_stock_swing"
+    assert agent_protocol.validate_submission(profile, payload)["route"] == "id_stock_swing"
     payload["route"] = "us_stock"
     assert agent_protocol.validate_submission(profile, payload)["route"] == "us_stock"
     payload["route"] = "other"
@@ -228,12 +231,14 @@ def test_agent_routing_instruction_prioritizes_market_thesis_over_company_exampl
     assert "do not add any other lookup fact to the title or summary" in instruction
     assert "lookup remains inconclusive" in instruction
     assert "choose macro" in instruction
+    assert "id_stock_swing" in instruction
+    assert "a target price derived from earnings, dcf, or valuation remains id_stock" in instruction
     assert "spcx" not in instruction
 
 
 def test_agent_instruction_requires_ticker_first_stock_titles_and_direct_summary_voice(config_path, profile_payload):
     instruction = agent_protocol.instruction_for(__import__("config").load_watch_config(config_path).profiles[0]).lower()
-    assert "id_stock or us_stock" in instruction
+    assert "id_stock, id_stock_swing, or us_stock" in instruction
     assert "first word of the title" in instruction
     assert "never repeat that label in the second paragraph" in instruction
     assert "do not describe ricky or the writer" in instruction
