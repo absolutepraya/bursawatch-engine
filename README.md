@@ -46,6 +46,8 @@ retain their own `SKILL.md` files.
 ## Tests
 From any watcher directory: `../.venv/bin/python -m pytest -q`.
 
+From the repository root, `./.venv/bin/python -m pytest -q` runs the repository policy tests only. Cron projects intentionally use isolated script-local imports, so `bash scripts/test-all` is the canonical command for the complete suite.
+
 Run every deterministic focused suite from the repository root:
 
 ```bash
