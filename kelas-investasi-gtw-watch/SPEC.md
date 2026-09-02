@@ -24,7 +24,7 @@ The scanner extracts source Buy area, Target, and Stoploss values, with `-` for 
 
 The scanner rejects extra keys, an unmatched event key, invalid title or summary format, source instruction leakage, investment advice, certainty, external facts, and noncanonical plan claims. Only the scanner posts to Discord. It posts text before the one header image and retries only the unfinished delivery leg.
 
-Successful runs write `🫀 kelas-investasi-gtw, HH:MM WIB, scanned=N pending=N delivered=N` to `#hermes`. Fatal errors use `❌ kelas-investasi-gtw, HH:MM WIB, failed: <sanitized reason>`.
+Successful runs write `🫀 kelas-investasi-gtw, HH:MM WIB, scanned=N pending=N delivered=N` to `#hermes`. A Discord delivery retry appends `⚠️` to that heartbeat. Submission validation failures write `🫀 kelas-investasi-gtw, HH:MM WIB, submission_rejected=<code> event=<event-key> pending=N ⚠️` and leave the event claimed for retry. They are agent-output failures, not Telegram provider failures. Provider fatal errors use `❌ kelas-investasi-gtw, HH:MM WIB, failed: <sanitized reason>`.
 
 ## No-post mode
 

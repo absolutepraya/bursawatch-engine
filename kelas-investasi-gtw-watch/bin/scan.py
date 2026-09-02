@@ -5,7 +5,6 @@ import argparse
 import asyncio
 import json
 import os
-import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -21,10 +20,10 @@ if str(_RESILIENCE_BIN) not in sys.path:
 from telegram_resilience import PolyCopResilience, acquire_probe_after_active_lease, is_transport_error
 
 from agent_protocol import RetryableSubmissionError, agent_item, build_wake_payload, validate_submission
-from discord import DISCORD_CHANNEL_ID, deliver_oldest_ready_event, nonce, post_text
+from discord import DISCORD_CHANNEL_ID, DiscordDeliveryError, deliver_oldest_ready_event, nonce, post_text
 from parsing import extract_plan
-from state import RunLockBusyError, claim_oldest_agent, load_state, observe_messages, ready_events, restore_expired_claim, run_lock, save_state
-from telegram_source import capture_image, fetch_unseen_messages, make_client, resolve_source
+from state import CorruptStateError, RunLockBusyError, claim_oldest_agent, load_state, observe_messages, ready_events, restore_expired_claim, run_lock, save_state
+from telegram_source import TelegramMediaError, TelegramSourceError, capture_image, fetch_unseen_messages, make_client, resolve_source
 
 
 WIB = ZoneInfo("Asia/Jakarta")
@@ -50,21 +49,23 @@ def resilience() -> PolyCopResilience:
     return PolyCopResilience.from_defaults()
 
 
-def format_heartbeat(now: datetime, *, scanned: int, pending: int, delivered: int) -> str:
+def format_heartbeat(now: datetime, *, scanned: int, pending: int, delivered: int, warning: bool = False) -> str:
     _require_aware(now)
-    return f"🫀 {WATCHER_NAME}, {now.astimezone(WIB):%H:%M} WIB, scanned={scanned} pending={pending} delivered={delivered}"
+    suffix = " ⚠️" if warning else ""
+    return f"🫀 {WATCHER_NAME}, {now.astimezone(WIB):%H:%M} WIB, scanned={scanned} pending={pending} delivered={delivered}{suffix}"
 
 
 def _fatal_reason(reason: object) -> str:
-    # Provider exception strings can include session details, URLs, and paths.
-    # Only known operational categories may reach a public scheduler transcript.
-    text = re.sub(r"\s+", " ", str(reason)).lower()
-    if "source" in text or "telegram" in text:
-        return "Telegram source is unavailable"
-    if "media" in text or "download" in text or "image" in text:
+    if isinstance(reason, RetryableSubmissionError):
+        return f"submission rejected: {reason.reason_code}"
+    if isinstance(reason, TelegramMediaError):
         return "Telegram source media is unavailable"
-    if "state" in text:
+    if isinstance(reason, TelegramSourceError):
+        return "Telegram source is unavailable"
+    if isinstance(reason, CorruptStateError):
         return "watcher state is unavailable"
+    if isinstance(reason, DiscordDeliveryError):
+        return "Discord delivery is unavailable"
     return "watcher operation failed"
 
 
@@ -73,12 +74,13 @@ def format_fatal(now: datetime, reason: object) -> str:
     return f"❌ {WATCHER_NAME}, {now.astimezone(WIB):%H:%M} WIB, failed: {_fatal_reason(reason)}"
 
 
-def post_heartbeat(content: str, now: datetime, dry_run: bool) -> None:
+def post_heartbeat(content: str, now: datetime, dry_run: bool, *, nonce_seed: str | None = None) -> None:
     if dry_run:
         print(content)
         return
     hour = now.astimezone(WIB).strftime("%Y%m%d%H")
-    post_text(content, HEARTBEAT_CHANNEL_ID, False, nonce(f"heartbeat:{hour}", "status"))
+    seed = nonce_seed or f"heartbeat:{hour}"
+    post_text(content, HEARTBEAT_CHANNEL_ID, False, nonce(seed, "status"))
 
 
 async def _disconnect(client: object | None) -> None:
@@ -127,14 +129,15 @@ async def _run(now: datetime, dry_run: bool) -> dict[str, object]:
                 save_state(path, state)
 
                 delivered = _drain_due_delivery(state, path, now, dry_run)
+                warning = _has_delivery_warning(state)
 
                 claim = claim_oldest_agent(state, now)
                 if claim is not None:
                     save_state(path, state)
                     payload = build_wake_payload(agent_item(claim))
-                    post_heartbeat(format_heartbeat(now, scanned=len(messages), pending=len(state["outbox"]), delivered=delivered), now, dry_run)
+                    post_heartbeat(format_heartbeat(now, scanned=len(messages), pending=len(state["outbox"]), delivered=delivered, warning=warning), now, dry_run)
                     return payload
-                post_heartbeat(format_heartbeat(now, scanned=len(messages), pending=len(state["outbox"]), delivered=delivered), now, dry_run)
+                post_heartbeat(format_heartbeat(now, scanned=len(messages), pending=len(state["outbox"]), delivered=delivered, warning=warning), now, dry_run)
                 return {"wakeAgent": False}
             except Exception as error:
                 if probe_outcome is None and is_transport_error(error):
@@ -181,7 +184,7 @@ async def _capture_event_media(client: object, entity: object, event: dict[str, 
     captured: list[dict[str, object]] = []
     message_id, ordinal = header_media.get("message_id"), header_media.get("ordinal")
     if not isinstance(message_id, int) or not isinstance(ordinal, int):
-        raise RuntimeError("source media is unavailable")
+        raise TelegramMediaError("Telegram source media is unavailable")
     existing = header_media.get("path")
     if _verified_captured_path(existing, destination):
         captured.append({"message_id": message_id, "ordinal": ordinal, "path": str(Path(str(existing)).resolve())})
@@ -218,6 +221,18 @@ def _drain_due_delivery(state: dict[str, object], path: Path, now: datetime, dry
     return delivered
 
 
+def _has_delivery_warning(state: Mapping[str, object]) -> bool:
+    outbox = state.get("outbox")
+    if not isinstance(outbox, list):
+        return False
+    return any(
+        isinstance(event, Mapping)
+        and event.get("agent_phase") in ("ready", "delivering")
+        and (event.get("last_error") is not None or int(event.get("attempts", 0) or 0) > 0)
+        for event in outbox
+    )
+
+
 def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, object]:
     return asyncio.run(_run(_require_aware(now or datetime.now(WIB)), _dry_run(dry_run)))
 
@@ -244,7 +259,11 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None, now: d
             raise ValueError("submission agent lease has expired")
         plan = extract_plan(str(event["source_text"]))
         event["plan"] = {"buy_area": plan.buy_area, "targets": plan.targets, "stoploss": plan.stoploss}
-        validated = validate_submission(event, payload)
+        try:
+            validated = validate_submission(event, payload)
+        except RetryableSubmissionError as error:
+            _post_submission_warning(state, event, error, submission_now, _dry_run(dry_run))
+            raise
         event["title"] = validated["title"]
         event["summary"] = validated["summary"]
         # Submitted work is delivery-only. It can never re-enter the agent
@@ -254,6 +273,26 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None, now: d
         save_state(path, state)
         delivered = _drain_due_delivery(state, path, submission_now, _dry_run(dry_run))
         return {"wakeAgent": False, "delivered": delivered}
+
+
+def _post_submission_warning(
+    state: Mapping[str, object],
+    event: Mapping[str, object],
+    error: RetryableSubmissionError,
+    now: datetime,
+    dry_run: bool,
+) -> None:
+    event_key = str(event.get("event_key", "unknown"))
+    pending = len(state.get("outbox", [])) if isinstance(state.get("outbox"), list) else 0
+    content = (
+        f"🫀 {WATCHER_NAME}, {now.astimezone(WIB):%H:%M} WIB, "
+        f"submission_rejected={error.reason_code} event={event_key} pending={pending} ⚠️"
+    )
+    hour = now.astimezone(WIB).strftime("%Y%m%d%H")
+    try:
+        post_heartbeat(content, now, dry_run, nonce_seed=f"submission:{hour}:{event_key}:{error.reason_code}")
+    except Exception:
+        pass
 
 
 def main(argv: list[str] | None = None) -> int:
