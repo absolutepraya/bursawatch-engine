@@ -77,6 +77,33 @@ def test_message_topic_id_reads_the_forum_root_reply_message_id():
     assert scan._message_topic_id(message) == 3743
 
 
+def test_pending_count_ignores_terminal_abandoned_candidates():
+    state = empty_state()
+    state["candidates"] = {
+        "abandoned": {"phase": "abandoned"},
+        "pending-analysis": {"phase": "pending_analysis"},
+        "pending-delivery": {"phase": "pending_delivery"},
+    }
+
+    assert scan._pending_count(state) == 2
+
+
+def test_health_warning_ignores_retry_history_on_terminal_candidates():
+    state = empty_state()
+    state["candidates"] = {
+        "delivered": {
+            "phase": "delivered",
+            "retry": {"attempts": 3},
+        },
+        "abandoned": {
+            "phase": "abandoned",
+            "retry": {"attempts": 2},
+        },
+    }
+
+    assert scan._health_and_warning(state) == (False, False, False)
+
+
 def test_route_pending_suppresses_same_provider_repost(tmp_state, monkeypatch):
     monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_state))
     published_at = datetime.fromisoformat("2026-08-14T08:00:00+07:00")

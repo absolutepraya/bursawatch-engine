@@ -52,6 +52,14 @@ HEARTBEAT_CHANNEL_ID = "1505162000420835388"
 PHINTRACO_ENTITY = "phintasprofits"
 TUNTUN_ENTITY = "tuntunsekuritas"
 _DELIVERY_CONTRACT_MIGRATION_KEY = "immediate_delivery_contract_v1"
+_ACTIVE_PHASES = frozenset(
+    {
+        "pending_analysis",
+        "awaiting_agent",
+        "pending_selection",
+        "pending_delivery",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -449,7 +457,7 @@ def _pending_count(state: Mapping[str, object]) -> int:
     return sum(
         1
         for record in candidates.values()
-        if isinstance(record, Mapping) and record.get("phase") not in {"delivered", "suppressed_rank", "suppressed_duplicate", "suppressed_ineligible", "delivery_failed"}
+        if isinstance(record, Mapping) and record.get("phase") in _ACTIVE_PHASES
     )
 
 
@@ -460,6 +468,7 @@ def _health_and_warning(state: Mapping[str, object]) -> tuple[bool, bool, bool]:
     provider_errored = any(isinstance(lane, Mapping) and lane.get("last_error") for lane in providers.values())
     retrying = any(
         isinstance(record, Mapping)
+        and record.get("phase") in _ACTIVE_PHASES
         and isinstance(record.get("retry"), Mapping)
         and int(record["retry"].get("attempts", 0)) > 0
         for record in candidates.values()
