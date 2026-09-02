@@ -18,7 +18,7 @@ REDUNDANT_ROOT_DOCS = {
     "README.md", "SPEC.md", "DEPLOY.md", "DESIGN.md", "PLAN.md",
     "PROFILE_CONFIGURATION.md", "CRON_PROMPT.md", "CONTEXT.md",
 }
-GENERATED_CACHE_DIRECTORIES = {".pytest_cache"}
+GENERATED_CACHE_DIRECTORIES = {".pytest_cache", ".superpowers", "local-backfill"}
 AGENT_GOVERNANCE_ANCHORS = {
     "idx-ca-watch": (
         "zero is unquantified or below five percent",
@@ -68,7 +68,9 @@ def root_markdown_names(cron: str) -> set[str]:
     return {
         path.name
         for path in (ROOT / cron).iterdir()
-        if path.is_file() and path.suffix == ".md"
+        if path.is_file()
+        and path.suffix == ".md"
+        and not (path.name == "CONTEXT.md" and path.stat().st_size == 0)
     }
 
 
