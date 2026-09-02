@@ -48,6 +48,20 @@ class Session:
         raise AssertionError(f"unexpected URL: {url}")
 
 
+class ModernProfileSession(Session):
+    def get(self, url, timeout, headers=None):
+        if url == "https://x.com/Kutekians":
+            return Response(
+                200,
+                text=(
+                    '<a href="/i/status/999">quoted post</a>'
+                    '<a href="/Kutekians/status/101">own post</a>'
+                    '<a href="/other/status/202">other post</a>'
+                ),
+            )
+        return super().get(url, timeout, headers=headers)
+
+
 def test_fetches_and_expands_a_same_author_thread(config_path):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
 
@@ -58,6 +72,14 @@ def test_fetches_and_expands_a_same_author_thread(config_path):
     assert posts[1].related_url == "https://x.com/Kutekians/status/101"
     assert posts[0].content_html == "Root context"
     assert [media.url for media in posts[0].media] == ["https://pbs.twimg.com/media/root.jpg"]
+
+
+def test_discovers_posts_from_current_profile_status_links(config_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+
+    posts = direct_x.fetch_profile_items(profile, ModernProfileSession(), after_id=100)
+
+    assert [post.post_id for post in posts] == ["101", "102"]
 
 
 def test_keeps_visible_profile_posts_when_no_new_thread_exists(config_path):

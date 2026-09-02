@@ -11,11 +11,19 @@ from rsshub import SourceFetchError
 
 
 TWEET_ID_RE = re.compile(r'data-tweet-id="(\d+)"')
+STATUS_URL_RE = re.compile(r'(?:https://(?:www\.)?x\.com/|/)([A-Za-z0-9_]{1,15})/status/(\d+)')
 USER_AGENT = "Mozilla/5.0 (X-post-watch; +https://x.com/)"
 
 
-def _tweet_ids(document: str) -> list[str]:
-    return list(dict.fromkeys(TWEET_ID_RE.findall(document)))
+def _tweet_ids(document: str, handle: str | None = None) -> list[str]:
+    ids = TWEET_ID_RE.findall(document)
+    if handle is not None:
+        ids.extend(
+            post_id
+            for author, post_id in STATUS_URL_RE.findall(document)
+            if author.casefold() == handle.casefold()
+        )
+    return list(dict.fromkeys(ids))
 
 
 def _get(session: requests.Session, url: str) -> requests.Response:
@@ -109,7 +117,7 @@ def _payload(session: requests.Session, profile: Profile, post_id: str) -> dict[
 def fetch_profile_items(profile: Profile, session: requests.Session | None = None, after_id: str | None = None) -> list[SourcePost]:
     client = session or requests.Session()
     profile_response = _get(client, profile.profile_url)
-    visible_ids = _tweet_ids(profile_response.text)[: profile.max_items_per_poll]
+    visible_ids = _tweet_ids(profile_response.text, profile.handle)[: profile.max_items_per_poll]
     payloads = {post_id: _payload(client, profile, post_id) for post_id in visible_ids}
     fresh_ids = [post_id for post_id in visible_ids if after_id is None or int(post_id) > int(after_id)]
     if not fresh_ids:
@@ -131,7 +139,7 @@ def fetch_profile_items(profile: Profile, session: requests.Session | None = Non
     result: dict[str, SourcePost] = {}
     for conversation_id in conversations:
         response = _get(client, _post_url(profile.handle, conversation_id))
-        thread_ids = _tweet_ids(response.text) or [conversation_id]
+        thread_ids = _tweet_ids(response.text, profile.handle) or [conversation_id]
         for post_id in thread_ids:
             payload = payloads.setdefault(post_id, _payload(client, profile, post_id))
             author = payload.get("user_screen_name")
