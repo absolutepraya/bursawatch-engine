@@ -239,6 +239,88 @@
         "max_age_minutes": 240,
         "settle_minutes": 60
       }
+    },
+    {
+      "id": "txthariansaham",
+      "enabled": true,
+      "profile_url": "https://x.com/txthariansaham",
+      "handle": "txthariansaham",
+      "display_name": "Ga Cuan Ga tidur",
+      "twitter_emoji": "<:twitter:1531672630602498129>",
+      "emoji": "<:txthariansaham:1540780954929340476>",
+      "discord_channels": [
+        {
+          "key": "macro",
+          "channel_id": "1531655369884045382",
+          "description": "Broad economic, business, market, sector, and cross-asset analysis."
+        },
+        {
+          "key": "id_stock",
+          "channel_id": "1525102508714889257",
+          "description": "Direct IDX-listed company or ticker thesis."
+        }
+      ],
+      "forward_normal_post": true,
+      "forward_quote_post": true,
+      "forward_reply": false,
+      "forward_repost": false,
+      "forward_media": true,
+      "enable_llm_title": true,
+      "enable_llm_summary": true,
+      "enable_llm_routing": true,
+      "enable_llm_relevance_filter": true,
+      "additional_prompt_instruction": "Forward substantive IDX company, IHSG, macro, and market-analysis posts. Exclude casual reactions, greetings, memes, generic engagement, unsupported hype, clickbait profit promises, and paid research or trading-service promotions.",
+      "max_items_per_poll": 50,
+      "thread_handling": {
+        "mode": "disabled",
+        "max_posts": 10,
+        "max_age_minutes": 240,
+        "settle_minutes": 60
+      }
+    },
+    {
+      "id": "wavetiga",
+      "enabled": true,
+      "source": "direct_x",
+      "profile_url": "https://x.com/wavetiga",
+      "handle": "wavetiga",
+      "display_name": "Andriy",
+      "twitter_emoji": "<:twitter:1531672630602498129>",
+      "emoji": "<:wavetiga:1540781022143316129>",
+      "discord_channels": [
+        {
+          "key": "macro",
+          "channel_id": "1531655369884045382",
+          "description": "Broad economic, business, market, sector, and cross-asset analysis."
+        },
+        {
+          "key": "id_stock",
+          "channel_id": "1525102508714889257",
+          "description": "Direct IDX-listed company or ticker thesis."
+        },
+        {
+          "key": "us_stock",
+          "channel_id": "1532266331737686199",
+          "description": "Direct NYSE- or Nasdaq-listed security thesis, including ADRs."
+        }
+      ],
+      "forward_normal_post": true,
+      "forward_quote_post": true,
+      "forward_reply": false,
+      "forward_repost": false,
+      "forward_media": true,
+      "enable_llm_title": true,
+      "enable_llm_summary": true,
+      "enable_llm_routing": true,
+      "enable_llm_relevance_filter": true,
+      "additional_prompt_instruction": "Forward substantive stock, market, and Elliott Wave analysis. Route company-specific IDX and US-listed analysis correctly. Exclude greetings, generic engagement, trading-group performance marketing, paid courses, paid research, signal-service promotions, and clickbait profit promises.",
+      "max_items_per_poll": 50,
+      "thread_handling": {
+        "mode": "disabled",
+        "max_posts": 10,
+        "max_age_minutes": 240,
+        "settle_minutes": 60
+      }
     }
   ]
 }

@@ -108,6 +108,41 @@ def test_canonical_doktermarket_profile_is_routed_and_media_enabled():
     assert (profile.thread_handling.mode, profile.thread_handling.max_posts, profile.thread_handling.max_age_minutes, profile.thread_handling.settle_minutes) == ("disabled", 10, 240, 60)
 
 
+def test_canonical_txthariansaham_profile_is_routed_and_uses_rsshub():
+    canonical_config = Path(__file__).resolve().parents[1] / "config" / "watches.json"
+    profile = {item.id: item for item in config_module.load_watch_config(canonical_config).profiles}["txthariansaham"]
+
+    assert profile.enabled is True
+    assert profile.source == "rsshub"
+    assert profile.profile_url == "https://x.com/txthariansaham"
+    assert profile.handle == "txthariansaham"
+    assert profile.display_name == "Ga Cuan Ga tidur"
+    assert profile.emoji == "<:txthariansaham:1540780954929340476>"
+    assert [channel.key for channel in profile.discord_channels] == ["macro", "id_stock"]
+    assert (profile.forward_normal_post, profile.forward_quote_post, profile.forward_reply, profile.forward_repost, profile.forward_media) == (True, True, False, False, True)
+    assert (profile.enable_llm_title, profile.enable_llm_summary, profile.enable_llm_routing, profile.enable_llm_relevance_filter) == (True, True, True, True)
+    assert "IDX company" in profile.additional_prompt_instruction
+    assert (profile.thread_handling.mode, profile.thread_handling.max_posts, profile.thread_handling.max_age_minutes, profile.thread_handling.settle_minutes) == ("disabled", 10, 240, 60)
+
+
+def test_canonical_wavetiga_profile_is_direct_x_and_fully_routed():
+    canonical_config = Path(__file__).resolve().parents[1] / "config" / "watches.json"
+    profile = {item.id: item for item in config_module.load_watch_config(canonical_config).profiles}["wavetiga"]
+
+    assert profile.enabled is True
+    assert profile.source == "direct_x"
+    assert profile.profile_url == "https://x.com/wavetiga"
+    assert profile.handle == "wavetiga"
+    assert profile.display_name == "Andriy"
+    assert profile.emoji == "<:wavetiga:1540781022143316129>"
+    assert [channel.key for channel in profile.discord_channels] == ["macro", "id_stock", "us_stock"]
+    assert (profile.forward_normal_post, profile.forward_quote_post, profile.forward_reply, profile.forward_repost, profile.forward_media) == (True, True, False, False, True)
+    assert (profile.enable_llm_title, profile.enable_llm_summary, profile.enable_llm_routing, profile.enable_llm_relevance_filter) == (True, True, True, True)
+    assert "Elliott Wave" in profile.additional_prompt_instruction
+    assert "paid courses" in profile.additional_prompt_instruction
+    assert (profile.thread_handling.mode, profile.thread_handling.max_posts, profile.thread_handling.max_age_minutes, profile.thread_handling.settle_minutes) == ("disabled", 10, 240, 60)
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
