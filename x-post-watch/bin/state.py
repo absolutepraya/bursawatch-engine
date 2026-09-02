@@ -63,6 +63,30 @@ def fresh_post_ids(value: dict, profile: Profile, posts: list[SourcePost]) -> se
     return {post.post_id for post in posts if int(post.post_id) > cursor}
 
 
+def source_retry_active(record: dict, now: datetime) -> bool:
+    value = record.get("source_retry_until")
+    if not isinstance(value, str):
+        return False
+    try:
+        retry_until = datetime.fromisoformat(value)
+    except ValueError:
+        record.pop("source_retry_until", None)
+        return False
+    if (retry_until.tzinfo is None) != (now.tzinfo is None):
+        record.pop("source_retry_until", None)
+        return False
+    if retry_until > now:
+        return True
+    record.pop("source_retry_until", None)
+    return False
+
+
+def set_source_retry(record: dict, now: datetime, retry_after_seconds: int | None) -> None:
+    if retry_after_seconds is None or retry_after_seconds <= 0:
+        return
+    record["source_retry_until"] = (now + timedelta(seconds=retry_after_seconds)).isoformat()
+
+
 def _delivery_id(event: dict) -> str:
     return f"{event['profile_id']}:{event['post_id']}"
 

@@ -3,10 +3,11 @@ from models import PostKind
 
 
 class Response:
-    def __init__(self, status_code, *, text="", payload=None):
+    def __init__(self, status_code, *, text="", payload=None, headers=None):
         self.status_code = status_code
         self.text = text
         self._payload = payload
+        self.headers = headers or {}
 
     def json(self):
         return self._payload
@@ -82,14 +83,46 @@ def test_discovers_posts_from_current_profile_status_links(config_path):
     assert [post.post_id for post in posts] == ["101", "102"]
 
 
-def test_keeps_visible_profile_posts_when_no_new_thread_exists(config_path):
+def test_does_not_fetch_status_details_when_no_new_thread_exists(config_path):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     session = Session()
 
     posts = direct_x.fetch_profile_items(profile, session, after_id=101)
 
-    assert [post.post_id for post in posts] == ["101"]
-    assert session.urls == [
-        "https://x.com/Kutekians",
-        "https://api.vxtwitter.com/Kutekians/status/101",
-    ]
+    assert posts == []
+    assert session.urls == ["https://x.com/Kutekians"]
+
+
+def test_missing_status_links_are_a_source_error(config_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+
+    class EmptyProfileSession(Session):
+        def get(self, url, timeout, headers=None):
+            if url == "https://x.com/Kutekians":
+                return Response(200, text="<html>signed-out shell</html>")
+            return super().get(url, timeout, headers=headers)
+
+    try:
+        direct_x.fetch_profile_items(profile, EmptyProfileSession(), after_id="101")
+    except direct_x.SourceFetchError as exc:
+        assert str(exc) == "direct X profile returned no status links"
+    else:
+        raise AssertionError("expected a source fetch error")
+
+
+def test_429_preserves_retry_after_for_source_cooldown(config_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+
+    class RateLimitedSession(Session):
+        def get(self, url, timeout, headers=None):
+            if url == "https://x.com/Kutekians":
+                return Response(429, headers={"Retry-After": "3182"})
+            return super().get(url, timeout, headers=headers)
+
+    try:
+        direct_x.fetch_profile_items(profile, RateLimitedSession(), after_id=None)
+    except direct_x.SourceFetchError as exc:
+        assert str(exc) == "direct X feed HTTP 429 (retry after 3182s)"
+        assert exc.retry_after_seconds == 3182
+    else:
+        raise AssertionError("expected a source fetch error")

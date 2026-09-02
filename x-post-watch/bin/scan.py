@@ -258,9 +258,12 @@ def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, o
                 if not profile.enabled: continue
                 try:
                     record = value["profiles"].get(profile.id) or {}
+                    if state.source_retry_active(record, now):
+                        value["profiles"][profile.id] = record
+                        continue
                     posts = rsshub.fetch_profile_items(profile, after_id=record.get("cursor"))
                     stats.fetched += len(posts)
-                    if not posts:
+                    if not posts and (profile.source != "direct_x" or record.get("cursor") is None):
                         stats.note_empty_profile(profile.handle)
                     fresh_ids = state.fresh_post_ids(value, profile, posts)
                     queued, reason = state.observe_posts(
@@ -276,6 +279,10 @@ def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, o
                     _annotate_replacements(value, profile, fresh_ids, verifier, now, stats)
                     state.save_state(storage, value)
                 except rsshub.SourceFetchError as exc:
+                    if exc.retry_after_seconds is not None:
+                        record = value["profiles"].setdefault(profile.id, {})
+                        state.set_source_retry(record, now, exc.retry_after_seconds)
+                        state.save_state(storage, value)
                     stats.note_source_error(f"{profile.id}: {exc}")
             while (event_index := _next_deliverable_index(value, profiles, now)) is not None:
                 if not _deliver(value, profiles, event_index, dry_run, storage, stats, now): break

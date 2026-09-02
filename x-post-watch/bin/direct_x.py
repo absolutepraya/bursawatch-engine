@@ -34,7 +34,19 @@ def _get(session: requests.Session, url: str) -> requests.Response:
     except requests.RequestException as exc:
         raise SourceFetchError("direct X feed request failed") from exc
     if response.status_code >= 400:
-        raise SourceFetchError(f"direct X feed HTTP {response.status_code}")
+        retry_after = None
+        if response.status_code == 429:
+            headers = getattr(response, "headers", {})
+            value = headers.get("Retry-After") if hasattr(headers, "get") else None
+            try:
+                retry_after = max(0, int(value))
+            except (TypeError, ValueError):
+                pass
+        detail = f" (retry after {retry_after}s)" if retry_after is not None else ""
+        raise SourceFetchError(
+            f"direct X feed HTTP {response.status_code}{detail}",
+            retry_after_seconds=retry_after,
+        )
     return response
 
 
@@ -118,10 +130,13 @@ def fetch_profile_items(profile: Profile, session: requests.Session | None = Non
     client = session or requests.Session()
     profile_response = _get(client, profile.profile_url)
     visible_ids = _tweet_ids(profile_response.text, profile.handle)[: profile.max_items_per_poll]
-    payloads = {post_id: _payload(client, profile, post_id) for post_id in visible_ids}
+    if not visible_ids:
+        raise SourceFetchError("direct X profile returned no status links")
     fresh_ids = [post_id for post_id in visible_ids if after_id is None or int(post_id) > int(after_id)]
     if not fresh_ids:
-        return sorted((_source_post(profile, payload) for payload in payloads.values()), key=lambda post: int(post.post_id))
+        return []
+
+    payloads = {post_id: _payload(client, profile, post_id) for post_id in fresh_ids}
 
     if after_id is None:
         return [_source_post(profile, payloads[post_id]) for post_id in fresh_ids]

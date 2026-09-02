@@ -16,7 +16,9 @@ RELATION_TYPES = {"quote", "reply", "repost"}
 
 
 class SourceFetchError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, retry_after_seconds: int | None = None) -> None:
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
 
 
 class _MediaParser(HTMLParser):

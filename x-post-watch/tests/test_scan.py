@@ -1,9 +1,52 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import scan
 import state
 import supersession
 from models import PostKind, SourceMedia, SourcePost
+
+
+def test_run_skips_a_profile_during_source_retry_cooldown(tmp_path, monkeypatch, config_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    now = datetime(2026, 8, 24, 10, 0, tzinfo=scan.WIB)
+    storage = tmp_path / "state.json"
+    value = state.new_state()
+    value["profiles"][profile.id] = {
+        "cursor": "101",
+        "source_retry_until": (now + timedelta(minutes=10)).isoformat(),
+    }
+    state.save_state(storage, value)
+    calls = []
+    heartbeats = []
+    monkeypatch.setattr(scan, "state_path", lambda: storage)
+    monkeypatch.setattr(scan, "config_path", lambda: config_path)
+    monkeypatch.setattr(scan.rsshub, "fetch_profile_items", lambda *args, **kwargs: calls.append(args) or [])
+    monkeypatch.setattr(scan.discord, "post_text", lambda message, *args: heartbeats.append(message))
+
+    result = scan.run(now=now, dry_run=True)
+
+    assert result["wakeAgent"] is False
+    assert calls == []
+    assert "<@443342168434933760>" not in heartbeats[0]
+
+
+def test_run_persists_source_retry_after(tmp_path, monkeypatch, config_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    now = datetime(2026, 8, 24, 10, 0, tzinfo=scan.WIB)
+    storage = tmp_path / "state.json"
+    monkeypatch.setattr(scan, "state_path", lambda: storage)
+    monkeypatch.setattr(scan, "config_path", lambda: config_path)
+    monkeypatch.setattr(
+        scan.rsshub,
+        "fetch_profile_items",
+        lambda *args, **kwargs: (_ for _ in ()).throw(scan.rsshub.SourceFetchError("HTTP 429", retry_after_seconds=60)),
+    )
+    monkeypatch.setattr(scan.discord, "post_text", lambda *args: None)
+
+    scan.run(now=now, dry_run=True)
+
+    saved = state.load_state(storage)
+    assert saved["profiles"][profile.id]["source_retry_until"] == (now + timedelta(seconds=60)).isoformat()
 
 
 def test_heartbeat_format_is_canonical():
