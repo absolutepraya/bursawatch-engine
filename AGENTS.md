@@ -33,6 +33,10 @@ Current child instruction files:
 - `us-etf-dca-watch/AGENTS.md`: no-agent ETF signal monitoring and market-window verification.
 - `x-post-watch/AGENTS.md`: X account intake, profile configuration, classifier boundaries, promotion exclusions, and watcher deployment.
 
+## Documentation maintenance
+
+`AGENTS.md` files are living, verified sources of project instructions. When a documented fact, path, schedule, ownership boundary, workflow, or safety rule changes, update the affected `AGENTS.md` in the same change. If the user explicitly asks to add, change, or remove `AGENTS.md` content, apply that request and check for conflicting copies. Keep the file concise, factual, and aligned with the current source and runtime instead of preserving stale history.
+
 ## Conversation language
 
 - Use English by default for questions, status updates, explanations, and final responses, including when the user mixes English and Indonesian.
@@ -62,7 +66,7 @@ This policy applies only to scheduled cron documentation at a cron directory roo
 ## Repository and dotfiles boundaries
 
 - Track reviewed development source in this repository. Do not track credentials, runtime state, caches, generated previews, local backfills, virtual environments, or worktrees.
-- `CONTEXT.md` files are temporary agent working knowledge, not repository source. Do not create, stage, or commit them. Before deleting an ignored context file, compare it with the owning `AGENTS.md`, transfer only unique current non-secret knowledge, and leave worktree scratch context files untouched.
+- `CONTEXT.md` files are temporary agent working knowledge, not repository source. Do not create, stage, commit, or capture them in dotfiles. Before deleting an existing ignored context file, compare it with the owning `AGENTS.md`, transfer only unique current non-secret knowledge, and leave worktree scratch context files untouched.
 - `.worktrees/` and other repository scratch space are local-only. They must not be added to Git or dotfiles capture coverage.
 - Dotfiles owns machine configuration and scrubbed VPS runtime snapshots. It does not own duplicate Hermes development source.
 - `Documents/Projects/Hermes/**`, including this `AGENTS.md` and `yanto-gateway-voice/`, is intentionally absent from the dotfiles Mac capture map. Do not restore the retired `mac/hermes/` snapshot.
@@ -161,9 +165,9 @@ Hermes `cron.wrap_response` is intentionally set to `false` globally. Every cron
 A cron is not complete until its identity is consistent across:
 
 - local directory and its contract file: `CRON.md` for no-agent crons, `SKILL.md` for agent-backed crons
-- `bin/` scanner and wrapper names
+- `bin/` executable and, where applicable, wrapper names
 - VPS runtime skill path
-- `~/.hermes/scripts/` wrapper
+- `~/.hermes/scripts/` direct script or wrapper
 - registered Hermes cron job
 - root `README.md` inventory
 - tests, fixtures, and deployment instructions
