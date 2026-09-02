@@ -26,3 +26,21 @@ $ /Users/absolutepraya/Documents/Projects/Hermes/.venv/bin/python -c 'from pathl
 $ git diff --check
 (no output, exit 0)
 ```
+
+## Fix round 2 checks
+
+The canonical `idx-market-news-watch/AGENTS.md` now documents the implementation's exact quote and replay boundaries: 1D uses Yahoo `fast_info.previous_close` when valid and otherwise `closes[-2]`; same-provider replays must be within seven days and have either two shared normalized facts or strong overlap of at least five tokens and 40% of the smaller source.
+
+```text
+$ /Users/absolutepraya/Documents/Projects/Hermes/.venv/bin/python -m pytest -q tests/test_documentation_contract.py
+.......                                                                  [100%]
+7 passed in 0.02s
+
+$ /Users/absolutepraya/Documents/Projects/Hermes/.venv/bin/python -m pytest -q idx-market-news-watch/tests
+........................................................................ [ 57%]
+.....................................................                    [100%]
+125 passed in 0.90s
+
+$ git diff --check
+(no output, exit 0)
+```
