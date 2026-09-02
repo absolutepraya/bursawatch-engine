@@ -18,6 +18,7 @@ REDUNDANT_ROOT_DOCS = {
     "README.md", "SPEC.md", "DEPLOY.md", "DESIGN.md", "PLAN.md",
     "PROFILE_CONFIGURATION.md", "CRON_PROMPT.md", "CONTEXT.md",
 }
+GENERATED_CACHE_DIRECTORIES = {".pytest_cache"}
 AGENT_GOVERNANCE_ANCHORS = {
     "idx-ca-watch": (
         "zero is unquantified or below five percent",
@@ -70,6 +71,15 @@ def root_markdown_names(cron: str) -> set[str]:
     }
 
 
+def nested_markdown_names(cron_root: Path) -> set[Path]:
+    return {
+        path.relative_to(cron_root)
+        for path in cron_root.rglob("*.md")
+        if path.parent != cron_root
+        and not (set(path.relative_to(cron_root).parts) & GENERATED_CACHE_DIRECTORIES)
+    }
+
+
 def test_cron_classification_is_complete_and_disjoint() -> None:
     assert NO_AGENT_CRONS.isdisjoint(AGENT_BACKED_CRONS), "cron classes overlap"
     assert len(ALL_CRONS) == 16, "update the reviewed cron classification"
@@ -93,12 +103,19 @@ def test_cron_directories_have_no_redundant_or_nested_markdown() -> None:
     for cron in sorted(ALL_CRONS):
         redundant_docs = root_markdown_names(cron) & REDUNDANT_ROOT_DOCS
         assert not redundant_docs, f"{cron}: redundant root documents {sorted(redundant_docs)}"
-        nested_markdown = {
-            path.relative_to(ROOT / cron)
-            for path in (ROOT / cron).rglob("*.md")
-            if path.parent != ROOT / cron
-        }
+        nested_markdown = nested_markdown_names(ROOT / cron)
         assert not nested_markdown, f"{cron}: nested Markdown {sorted(nested_markdown)}"
+
+
+def test_nested_markdown_ignores_generated_cache_but_not_source_docs(tmp_path: Path) -> None:
+    cache_readme = tmp_path / ".pytest_cache" / "README.md"
+    cache_readme.parent.mkdir()
+    cache_readme.write_text("generated cache")
+    source_doc = tmp_path / "references" / "guide.md"
+    source_doc.parent.mkdir()
+    source_doc.write_text("source documentation")
+
+    assert nested_markdown_names(tmp_path) == {Path("references/guide.md")}
 
 
 def test_context_map_is_not_active() -> None:
