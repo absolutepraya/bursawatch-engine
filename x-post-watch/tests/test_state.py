@@ -52,14 +52,15 @@ def test_new_state_contains_delivery_ledger_and_cleanup_queue():
 
 def test_source_retry_cooldown_expires_without_touching_cursor():
     now = datetime(2026, 8, 24, 10, 0, tzinfo=UTC)
-    record = {"cursor": "101"}
+    value = state.new_state()
+    value["profiles"]["kutekians"] = {"cursor": "101"}
 
-    state.set_source_retry(record, now, 60)
+    state.set_source_retry(value, now, 60)
 
-    assert state.source_retry_active(record, now + timedelta(seconds=59)) is True
-    assert record["cursor"] == "101"
-    assert state.source_retry_active(record, now + timedelta(seconds=60)) is False
-    assert "source_retry_until" not in record
+    assert state.source_retry_active(value, now + timedelta(seconds=59)) is True
+    assert value["profiles"]["kutekians"]["cursor"] == "101"
+    assert state.source_retry_active(value, now + timedelta(seconds=60)) is False
+    assert "source_retry_until" not in value
 
 
 def test_delivery_ledger_keeps_message_ids_and_queues_old_bundle_cleanup():

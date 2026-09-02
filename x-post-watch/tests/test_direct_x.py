@@ -110,19 +110,19 @@ def test_missing_status_links_are_a_source_error(config_path):
         raise AssertionError("expected a source fetch error")
 
 
-def test_429_preserves_retry_after_for_source_cooldown(config_path):
+def test_429_requests_three_hour_cooldown(config_path):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
 
     class RateLimitedSession(Session):
         def get(self, url, timeout, headers=None):
             if url == "https://x.com/Kutekians":
-                return Response(429, headers={"Retry-After": "3182"})
+                return Response(429)
             return super().get(url, timeout, headers=headers)
 
     try:
         direct_x.fetch_profile_items(profile, RateLimitedSession(), after_id=None)
     except direct_x.SourceFetchError as exc:
-        assert str(exc) == "direct X feed HTTP 429 (retry after 3182s)"
-        assert exc.retry_after_seconds == 3182
+        assert str(exc) == "direct X feed HTTP 429 (three-hour cooldown)"
+        assert exc.retry_after_seconds == 3 * 60 * 60
     else:
         raise AssertionError("expected a source fetch error")

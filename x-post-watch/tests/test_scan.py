@@ -11,10 +11,8 @@ def test_run_skips_a_profile_during_source_retry_cooldown(tmp_path, monkeypatch,
     now = datetime(2026, 8, 24, 10, 0, tzinfo=scan.WIB)
     storage = tmp_path / "state.json"
     value = state.new_state()
-    value["profiles"][profile.id] = {
-        "cursor": "101",
-        "source_retry_until": (now + timedelta(minutes=10)).isoformat(),
-    }
+    value["source_retry_until"] = (now + timedelta(minutes=10)).isoformat()
+    value["profiles"][profile.id] = {"cursor": "101"}
     state.save_state(storage, value)
     calls = []
     heartbeats = []
@@ -46,7 +44,7 @@ def test_run_persists_source_retry_after(tmp_path, monkeypatch, config_path):
     scan.run(now=now, dry_run=True)
 
     saved = state.load_state(storage)
-    assert saved["profiles"][profile.id]["source_retry_until"] == (now + timedelta(seconds=60)).isoformat()
+    assert saved["source_retry_until"] == (now + timedelta(seconds=60)).isoformat()
 
 
 def test_heartbeat_format_is_canonical():

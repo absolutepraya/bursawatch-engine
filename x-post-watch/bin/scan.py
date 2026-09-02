@@ -257,10 +257,9 @@ def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, o
             for profile in watches.profiles:
                 if not profile.enabled: continue
                 try:
+                    if state.source_retry_active(value, now):
+                        break
                     record = value["profiles"].get(profile.id) or {}
-                    if state.source_retry_active(record, now):
-                        value["profiles"][profile.id] = record
-                        continue
                     posts = rsshub.fetch_profile_items(profile, after_id=record.get("cursor"))
                     stats.fetched += len(posts)
                     if not posts and (profile.source != "direct_x" or record.get("cursor") is None):
@@ -280,8 +279,7 @@ def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, o
                     state.save_state(storage, value)
                 except rsshub.SourceFetchError as exc:
                     if exc.retry_after_seconds is not None:
-                        record = value["profiles"].setdefault(profile.id, {})
-                        state.set_source_retry(record, now, exc.retry_after_seconds)
+                        state.set_source_retry(value, now, exc.retry_after_seconds)
                         state.save_state(storage, value)
                     stats.note_source_error(f"{profile.id}: {exc}")
             while (event_index := _next_deliverable_index(value, profiles, now)) is not None:

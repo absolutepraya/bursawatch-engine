@@ -13,6 +13,7 @@ from rsshub import SourceFetchError
 TWEET_ID_RE = re.compile(r'data-tweet-id="(\d+)"')
 STATUS_URL_RE = re.compile(r'(?:https://(?:www\.)?x\.com/|/)([A-Za-z0-9_]{1,15})/status/(\d+)')
 USER_AGENT = "Mozilla/5.0 (X-post-watch; +https://x.com/)"
+RATE_LIMIT_COOLDOWN_SECONDS = 3 * 60 * 60
 
 
 def _tweet_ids(document: str, handle: str | None = None) -> list[str]:
@@ -34,19 +35,12 @@ def _get(session: requests.Session, url: str) -> requests.Response:
     except requests.RequestException as exc:
         raise SourceFetchError("direct X feed request failed") from exc
     if response.status_code >= 400:
-        retry_after = None
         if response.status_code == 429:
-            headers = getattr(response, "headers", {})
-            value = headers.get("Retry-After") if hasattr(headers, "get") else None
-            try:
-                retry_after = max(0, int(value))
-            except (TypeError, ValueError):
-                pass
-        detail = f" (retry after {retry_after}s)" if retry_after is not None else ""
-        raise SourceFetchError(
-            f"direct X feed HTTP {response.status_code}{detail}",
-            retry_after_seconds=retry_after,
-        )
+            raise SourceFetchError(
+                "direct X feed HTTP 429 (three-hour cooldown)",
+                retry_after_seconds=RATE_LIMIT_COOLDOWN_SECONDS,
+            )
+        raise SourceFetchError(f"direct X feed HTTP {response.status_code}")
     return response
 
 

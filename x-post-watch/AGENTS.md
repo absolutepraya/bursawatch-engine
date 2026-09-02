@@ -9,7 +9,7 @@ This file supplements the repository root `AGENTS.md`. It is the development and
 - Development source is this directory. The deployed runtime is `~/.agents/skills/x-post-watch/`; its wrapper is `~/.hermes/scripts/x-post-watch.sh`.
 - The live state directory, cursors, outbox, media, and `~/.dotfiles/vps/agents/skills/x-post-watch/` are not authoring targets. Never reset, edit, replay, or backfill them without explicit approval.
 
-The watcher polls every enabled profile each minute. RSSHub is the default source. A `direct_x` profile reads a public X profile, expands same-author threads through public X status pages, and uses VxTwitter for details. Once its cursor is initialized, it requests VxTwitter details only for newer status IDs; a `Retry-After` cooldown from HTTP 429 is persisted per profile. RSSHub handles X authentication on the VPS, while direct X profiles use public endpoints only.
+The watcher polls every enabled profile each minute. RSSHub is the default source. A `direct_x` profile reads a public X profile, expands same-author threads through public X status pages, and uses VxTwitter for details. Once its cursor is initialized, it requests VxTwitter details only for newer status IDs; the first HTTP 429 starts an automatic three-hour cooldown for all profile fetching. RSSHub handles X authentication on the VPS, while direct X profiles use public endpoints only.
 
 ## Profile schema and safe configuration
 
