@@ -14,6 +14,7 @@ retain their own `SKILL.md` files.
 |---|---|---|
 | `polymarket-signal-watch` | Polymarket PolyCop signal screener (Telegram) | tests yes; a live run needs the VPS Telethon session |
 | `idx-ca-watch` | IDX corporate-action screener | edit on Mac, **verify on the VPS** because IDX Cloudflare blocks non-datacenter IPs |
+| `idx-market-news-watch` | Deterministic issuer-specific IDX market-news watcher with an agent-backed scoring and delivery step | tests yes; live source and Telegram verification run on the VPS |
 | `us-etf-dca-watch` | US ETF DCA timing monitor for SPY, QQQ, and SMH | yes |
 | `idx-swing-watch-phintraco-daily` | Phintraco Daily Swing Call forwarder (Telegram text then source chart) | tests yes; a live run needs the VPS Telethon session |
 | `idx-ssf-watch-phintraco-weekly` | Phintraco Weekly SSF Review forwarder (source-only text then native analyst chart) | tests yes; a live run needs the VPS Telethon session |
@@ -21,6 +22,7 @@ retain their own `SKILL.md` files.
 | `scele-digest` | University SCELE daily digest (LLM agent job; `bin/send-digest` is the deterministic renderer) | renderer yes |
 | `x-post-watch` | Configuration-driven RSSHub X post forwarder with optional Hermes titles and summaries | tests yes; live source and Discord no-post smoke run on the VPS |
 | `dotfiles-sync` | VPS-owned staged backup of Mac and VPS configuration | VPS only; Mac is read over SSH |
+| `job-watcher` | Indonesia-only job discovery, scoring, and Discord notification watcher | tests yes; live no-post verification runs on the VPS |
 | `marka-backup` | VPS-scheduled, direct Marka Netscape HTML export to Nextcloud | VPS Python cron; Mac is a read-only synced mirror |
 | `skills-update` | VPS-scheduled, Mac-local global skills update | Mac command only, triggered by VPS SSH |
 | `sharing-cleanup` | No-agent weekly cleanup of Nextcloud `Sharing/` contents, retaining the folder | VPS only; WebDAV DELETE moves items to Nextcloud Trash |

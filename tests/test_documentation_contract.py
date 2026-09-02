@@ -61,6 +61,7 @@ DEPLOYMENT_ONLY_SCHEDULER_PATTERNS = (
     re.compile(r"\b(?:create|add|enable|reschedule|retarget)\s+(?:an?\s+)?(?:Hermes\s+)?(?:cron|schedule)\b", re.I),
     re.compile(r"\bHermes starts an interval\b", re.I),
 )
+README_CRON_TABLE_HEADER = "| Cron | What it is | Mac-runnable? |"
 
 
 def root_markdown_names(cron: str) -> set[str]:
@@ -80,10 +81,28 @@ def nested_markdown_names(cron_root: Path) -> set[Path]:
     }
 
 
+def readme_cron_inventory() -> set[str]:
+    lines = (ROOT / "README.md").read_text(encoding="utf-8").splitlines()
+    header_index = lines.index(README_CRON_TABLE_HEADER)
+    inventory: set[str] = set()
+
+    for line in lines[header_index + 2:]:
+        if not line.startswith("|"):
+            break
+        match = re.match(r"^\|\s*`([^`]+)`\s*\|", line)
+        assert match, f"README.md: malformed cron inventory row {line!r}"
+        inventory.add(match.group(1))
+
+    return inventory
+
+
 def test_cron_classification_is_complete_and_disjoint() -> None:
     assert NO_AGENT_CRONS.isdisjoint(AGENT_BACKED_CRONS), "cron classes overlap"
     assert len(ALL_CRONS) == 16, "update the reviewed cron classification"
     assert all((ROOT / cron).is_dir() for cron in ALL_CRONS), "missing cron source directory"
+    assert readme_cron_inventory() == ALL_CRONS, (
+        "README.md cron inventory must match the reviewed cron classification"
+    )
 
 
 def test_cron_root_document_shape() -> None:
