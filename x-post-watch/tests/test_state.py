@@ -42,6 +42,23 @@ def test_load_state_adds_filtered_counter_to_existing_live_state(tmp_path):
     assert value["filtered_since_last_heartbeat"] == 0
 
 
+def test_load_state_migrates_legacy_profile_cooldown_to_global_three_hours(tmp_path):
+    path = tmp_path / "state.json"
+    path.write_text(json.dumps({
+        "version": 2,
+        "profiles": {"kutekians": {"cursor": "101", "source_retry_until": "2026-08-24T11:31:00+07:00"}},
+        "outbox": [],
+    }), encoding="utf-8")
+    before = datetime.now(UTC)
+
+    value = state.load_state(path)
+
+    retry_until = datetime.fromisoformat(value["source_retry_until"])
+    assert retry_until >= before + timedelta(seconds=state.SOURCE_RATE_LIMIT_COOLDOWN_SECONDS - 1)
+    assert retry_until <= datetime.now(UTC) + timedelta(seconds=state.SOURCE_RATE_LIMIT_COOLDOWN_SECONDS + 1)
+    assert "source_retry_until" not in value["profiles"]["kutekians"]
+
+
 def test_new_state_contains_delivery_ledger_and_cleanup_queue():
     value = state.new_state()
 

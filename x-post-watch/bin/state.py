@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import asdict
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from models import PostKind, Profile, SourceMedia, SourcePost
+
+SOURCE_RATE_LIMIT_COOLDOWN_SECONDS = 3 * 60 * 60
 
 
 def new_state() -> dict:
@@ -37,6 +39,14 @@ def load_state(path: Path) -> dict:
         value["filtered_since_last_heartbeat"] = 0
     if type(value["filtered_since_last_heartbeat"]) is not int or value["filtered_since_last_heartbeat"] < 0:
         raise ValueError("x-post-watch state is invalid")
+    legacy_source_retry = False
+    for record in value["profiles"].values():
+        if type(record) is dict and record.pop("source_retry_until", None) is not None:
+            legacy_source_retry = True
+    if legacy_source_retry and not isinstance(value.get("source_retry_until"), str):
+        value["source_retry_until"] = (
+            datetime.now(UTC) + timedelta(seconds=SOURCE_RATE_LIMIT_COOLDOWN_SECONDS)
+        ).isoformat()
     # Summary-only events predate title generation. Requeue them as one fresh
     # agent task so the title and summary are produced together before any
     # delivery. This is a schema migration, never a cursor reset or replay.
