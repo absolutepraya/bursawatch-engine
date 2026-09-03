@@ -255,9 +255,9 @@
           "description": "Broad economic, business, market, sector, and cross-asset analysis."
         },
         {
-          "key": "id_stock",
-          "channel_id": "1525102508714889257",
-          "description": "Direct IDX-listed company or ticker thesis."
+          "key": "id_stock_swing",
+          "channel_id": "1525102458253217803",
+          "description": "Direct IDX technical-analysis or swing-trading thesis."
         }
       ],
       "forward_normal_post": true,
@@ -269,7 +269,7 @@
       "enable_llm_summary": true,
       "enable_llm_routing": true,
       "enable_llm_relevance_filter": true,
-      "additional_prompt_instruction": "Forward substantive IDX company, IHSG, macro, and market-analysis posts. Exclude casual reactions, greetings, memes, generic engagement, unsupported hype, clickbait profit promises, and paid research or trading-service promotions.",
+      "additional_prompt_instruction": "Forward substantive IDX stock chart and technical analysis, IHSG, macro, and market-analysis posts. Route direct technical IDX stock theses to id_stock_swing and broad market or macro theses to macro. Exclude casual reactions, greetings, memes, generic engagement, unsupported hype, clickbait profit promises, and paid research or trading-service promotions.",
       "max_items_per_poll": 50,
       "thread_handling": {
         "mode": "disabled",
