@@ -37,8 +37,11 @@ def test_render_truncates_quote_text_at_word_boundary(config_path):
     post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Own", PostKind.QUOTE, "https://x.com/a/status/1", "quoted " * 100, (), ())
     rendered = render.render_post(profile, post)[0]
     assert "quoted quoted" in rendered
-    assert "…\n> [View quoted on X]" in rendered
-    assert len(rendered) < 700
+    assert "...\n> [View quoted on X]" in rendered
+    assert "…" not in rendered
+    quoted_content = rendered.split("> **Quoted post**\n> ", 1)[1].split("\n> [View quoted on X]", 1)[0]
+    assert quoted_content.endswith("...")
+    assert len(quoted_content) <= render.QUOTED_TEXT_LIMIT + 3
 
 
 def test_render_preserves_blank_quote_paragraph_without_bare_marker(config_path):
