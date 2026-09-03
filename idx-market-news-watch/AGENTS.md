@@ -32,7 +32,7 @@ Allowed event classes are `financial_results_or_guidance`, `corporate_action`, `
 
 ## Delivery, state, and shared Telegram resilience
 
-Eligible news is delivered as one text-only Discord message per ticker to `1525102508714889257`, immediately after deterministic validation, deduplication, and classification. No pre-market, post-market, or intraday heading is added, and multiple tickers are never batched. Operational heartbeats and failure notices go only to `1505162000420835388`.
+Eligible news is delivered as one text-only Discord message per ticker to `1525102508714889257`, immediately after deterministic validation, deduplication, and classification. No pre-market, post-market, or intraday heading is added, and multiple tickers are never batched. Operational heartbeats and failure notices go only to `1505162000420835388`. The registered agent-backed Hermes job uses `local` delivery because scanner stdout is control protocol, not a Discord heartbeat; only the scanner's explicit heartbeat and fatal posts belong in `#hermes`.
 
 ### Candidate identity and duplicate boundary
 

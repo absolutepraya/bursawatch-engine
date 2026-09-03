@@ -19,9 +19,9 @@
 - Exclude late replies, disclaimer, article links, promotions, and unrelated posts.
 - Use only POLYCOP_SESSION_STRING through acquire_probe_after_active_lease. A cooldown or auth hold must not mutate cursor, pending bundle, or outbox.
 - Text precedes source image attachments in original order. Retrying an image never duplicates delivered text.
-- Use exactly <:telegram:1531657996432576618> and <:kelasinvestasi:1536570114772574218> in rendered text. Do not use generic alert emoji, Good to Watch label, or middle-dot separator.
+- Use exactly <:telegram:1531657996432576618> and <:kelasinvestasi:1536570114772574218> in rendered text. Do not use generic alert emoji or Good to Watch label.
 - Plan source always renders Buy area, Target, and Stoploss rows. Missing values are -.
-- Successful heartbeat: 🫀 kelas-investasi-gtw, HH:MM WIB, scanned=N pending=N delivered=N. Fatal: ❌ kelas-investasi-gtw, HH:MM WIB, failed: <sanitized reason>.
+- Successful heartbeat: 🫀 kelas-investasi-gtw · HH:MM WIB · scanned=N pending=N delivered=N. Fatal: ❌ kelas-investasi-gtw · HH:MM WIB · failed: <sanitized reason>.
 - Run the final suite with ../.venv/bin/python -m pytest -q. Do not create a watcher-specific virtual environment.
 - This workspace has no Git repository. Never initialize one. At each commit checkpoint, record that git rev-parse --is-inside-work-tree fails and make no commit.
 
@@ -417,14 +417,14 @@ Expected: all tests pass; isolated no-post prints intended heartbeat and creates
 Do not run this before approval:
 
 ~~~bash
-ssh vps '$HOME/.local/bin/hermes cron create "0 * * * *" --name kelas-investasi-gtw-watch --deliver discord:1505162000420835388 --skill kelas-investasi-gtw-watch --script kelas-investasi-gtw-watch.sh --workdir /home/praya'
+ssh vps '$HOME/.local/bin/hermes cron create "0 * * * *" --name kelas-investasi-gtw-watch --deliver local --skill kelas-investasi-gtw-watch --script kelas-investasi-gtw-watch.sh --workdir /home/praya'
 ~~~
 
 Explain that the first natural execution is cursor initialization only and sends no historical #GTW alerts.
 
 - [ ] **Step 2: After approval, create and inspect job**
 
-Run the approved command. Verify name, schedule, enabled state, no-agent script, #hermes delivery, and WIB next-run through hermes cron list. Never hand-edit ~/.hermes/cron/jobs.json.
+Run the approved command. Verify name, schedule, enabled state, agent-backed script, `local` delivery, and WIB next-run through `hermes cron list`. The scanner's explicit heartbeat and fatal posts go to #hermes; its control stdout must not be forwarded there. Never hand-edit ~/.hermes/cron/jobs.json.
 
 - [ ] **Step 3: Verify natural cold start**
 

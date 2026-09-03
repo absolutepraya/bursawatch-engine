@@ -52,7 +52,7 @@ def resilience() -> PolyCopResilience:
 def format_heartbeat(now: datetime, *, scanned: int, pending: int, delivered: int, warning: bool = False) -> str:
     _require_aware(now)
     suffix = " ⚠️" if warning else ""
-    return f"🫀 {WATCHER_NAME}, {now.astimezone(WIB):%H:%M} WIB, scanned={scanned} pending={pending} delivered={delivered}{suffix}"
+    return f"🫀 {WATCHER_NAME} · {now.astimezone(WIB):%H:%M} WIB · scanned={scanned} pending={pending} delivered={delivered}{suffix}"
 
 
 def _fatal_reason(reason: object) -> str:
@@ -71,7 +71,7 @@ def _fatal_reason(reason: object) -> str:
 
 def format_fatal(now: datetime, reason: object) -> str:
     _require_aware(now)
-    return f"❌ {WATCHER_NAME}, {now.astimezone(WIB):%H:%M} WIB, failed: {_fatal_reason(reason)}"
+    return f"❌ {WATCHER_NAME} · {now.astimezone(WIB):%H:%M} WIB · failed: {_fatal_reason(reason)}"
 
 
 def post_heartbeat(content: str, now: datetime, dry_run: bool, *, nonce_seed: str | None = None) -> None:
@@ -285,7 +285,7 @@ def _post_submission_warning(
     event_key = str(event.get("event_key", "unknown"))
     pending = len(state.get("outbox", [])) if isinstance(state.get("outbox"), list) else 0
     content = (
-        f"🫀 {WATCHER_NAME}, {now.astimezone(WIB):%H:%M} WIB, "
+        f"🫀 {WATCHER_NAME} · {now.astimezone(WIB):%H:%M} WIB · "
         f"submission_rejected={error.reason_code} event={event_key} pending={pending} ⚠️"
     )
     hour = now.astimezone(WIB).strftime("%Y%m%d%H")

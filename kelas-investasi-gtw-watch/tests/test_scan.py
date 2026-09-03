@@ -178,7 +178,7 @@ def test_unavailable_source_attempts_fatal_heartbeat_and_main_returns_nonzero(mo
         scan.run(now=at("2026-08-11T09:00:00+07:00"), dry_run=False)
 
     assert client.disconnected is True
-    assert posted == ["❌ kelas-investasi-gtw, 09:00 WIB, failed: Telegram source is unavailable"]
+    assert posted == ["❌ kelas-investasi-gtw · 09:00 WIB · failed: Telegram source is unavailable"]
     monkeypatch.setattr(scan, "run", lambda: (_ for _ in ()).throw(RuntimeError("source unavailable")))
     assert scan.main([]) == 1
 
@@ -213,7 +213,7 @@ def test_rejected_submission_emits_safe_warning_and_keeps_bnbr_claimed(monkeypat
         scan.submit_analysis_payload(payload, dry_run=False, now=at("2026-08-21T12:01:00+07:00"))
 
     assert error.value.reason_code == "source_instruction_leakage"
-    assert warnings == ["🫀 kelas-investasi-gtw, 12:01 WIB, submission_rejected=source_instruction_leakage event=10031:BNBR pending=1 ⚠️"]
+    assert warnings == ["🫀 kelas-investasi-gtw · 12:01 WIB · submission_rejected=source_instruction_leakage event=10031:BNBR pending=1 ⚠️"]
     saved = load_state(tmp_path / "state.json")
     assert saved["outbox"][0]["agent_phase"] == "claimed"
     assert saved["outbox"][0]["title"] is None
@@ -257,7 +257,7 @@ def test_delivery_failure_marks_the_normal_heartbeat_degraded(monkeypatch: pytes
     monkeypatch.setattr(scan, "post_heartbeat", lambda content, *_args, **_kwargs: heartbeats.append(content))
 
     assert scan.run(now=at("2026-08-21T12:01:00+07:00"), dry_run=True) == {"wakeAgent": False}
-    assert heartbeats == ["🫀 kelas-investasi-gtw, 12:01 WIB, scanned=0 pending=1 delivered=0 ⚠️"]
+    assert heartbeats == ["🫀 kelas-investasi-gtw · 12:01 WIB · scanned=0 pending=1 delivered=0 ⚠️"]
 
 
 def test_heartbeat_uses_a_stable_discord_length_nonce(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -441,5 +441,5 @@ def test_heartbeat_and_fatal_formats_are_exact_and_sanitized() -> None:
     import scan
 
     moment = at("2026-08-11T09:03:00+07:00")
-    assert scan.format_heartbeat(moment, scanned=2, pending=1, delivered=0) == "🫀 kelas-investasi-gtw, 09:03 WIB, scanned=2 pending=1 delivered=0"
-    assert scan.format_fatal(moment, "token=abc\nvery bad") == "❌ kelas-investasi-gtw, 09:03 WIB, failed: watcher operation failed"
+    assert scan.format_heartbeat(moment, scanned=2, pending=1, delivered=0) == "🫀 kelas-investasi-gtw · 09:03 WIB · scanned=2 pending=1 delivered=0"
+    assert scan.format_fatal(moment, "token=abc\nvery bad") == "❌ kelas-investasi-gtw · 09:03 WIB · failed: watcher operation failed"

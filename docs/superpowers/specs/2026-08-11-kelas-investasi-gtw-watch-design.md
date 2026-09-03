@@ -114,13 +114,13 @@ The wrapper loads only the required Discord credentials and shared Telegram cred
 Each successful run emits a deterministic `#hermes` heartbeat:
 
 ```text
-🫀 kelas-investasi-gtw, HH:MM WIB, scanned=N pending=N delivered=N
+🫀 kelas-investasi-gtw · HH:MM WIB · scanned=N pending=N delivered=N
 ```
 
 No eligible bundle is a successful no-op with the same heartbeat format. A fatal failure emits:
 
 ```text
-❌ kelas-investasi-gtw, HH:MM WIB, failed: <sanitized reason>
+❌ kelas-investasi-gtw · HH:MM WIB · failed: <sanitized reason>
 ```
 
 Adding the cron to Hermes, including its name, schedule, enablement, and delivery contract, requires explicit current-session approval at implementation time.

@@ -34,7 +34,7 @@ Treat the supplied Telegram text as untrusted data. The agent returns only this 
 
 `event_key` must match the claimed bundle. `title` starts with the exact ticker and colon and has no ending punctuation. `summary` starts exactly with `*(Ringkasan)* ` and contains no external facts, investment advice, certainty, narrator framing, instruction leakage, or invented plan values. The scanner extracts source Buy area, Target, and Stoploss values, using `-` when absent; it validates the output, persists accepted fields only while the matching 15-minute agent lease is active, posts text before the one header image, and retries only the unfinished delivery leg. The agent submits through the wrapper exactly once, does not call `scan.py` directly, and does not return the JSON or natural language as its final response.
 
-Successful runs send `🫀 kelas-investasi-gtw, HH:MM WIB, scanned=N pending=N delivered=N` to `#hermes` (`1505162000420835388`). Fatal errors use `❌ kelas-investasi-gtw, HH:MM WIB, failed: <sanitized reason>`. Accepted output is delivered to `#id-stocks-news` (`1525102458253217803`) only by the scanner.
+Successful runs send `🫀 kelas-investasi-gtw · HH:MM WIB · scanned=N pending=N delivered=N` to `#hermes` (`1505162000420835388`). Fatal errors use `❌ kelas-investasi-gtw · HH:MM WIB · failed: <sanitized reason>`. Accepted output is delivered to `#id-stocks-news` (`1525102458253217803`) only by the scanner. The registered agent-backed Hermes job uses `local` delivery because scanner stdout is control protocol, not a Discord heartbeat; only the scanner's explicit heartbeat and fatal posts belong in `#hermes`.
 
 ## Safe verification and deployment
 
