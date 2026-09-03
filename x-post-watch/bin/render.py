@@ -7,6 +7,7 @@ from models import Profile, SourcePost
 
 
 DISCORD_LIMIT = 2000
+QUOTED_TEXT_LIMIT = 100
 SOURCE_URL_RE = re.compile(r"https?://[^\s<>()]+")
 
 
@@ -82,11 +83,11 @@ def _append_atomic(messages: list[str], value: str, separator: str) -> None:
         messages.append(value)
 
 
-def _truncate(value: str, limit: int = 400) -> str:
+def _truncate(value: str, limit: int = QUOTED_TEXT_LIMIT) -> str:
     if len(value) <= limit:
         return value
     cut = value.rfind(" ", 0, limit)
-    return value[:cut if cut > 0 else limit].rstrip() + "…"
+    return value[:cut if cut > 0 else limit].rstrip() + "..."
 
 
 def _quoted_text(content_html: str) -> str:
