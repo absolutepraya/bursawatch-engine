@@ -31,7 +31,7 @@ Publish only when all gates hold: total score 7 to 10, materiality at least two,
 
 For a qualifying item, the agent writes one or two short factual Bahasa Indonesia paragraphs. It starts with the core action, names parties and material numbers, and states only supported economic implication and remaining uncertainty. It adds no heading, bullets, technical metrics, disclaimer, or conclusion. The agent copies supplied `ticker`, `company_name`, `fundamental_context`, `health`, `red_flags`, `pdf_url`, and `chart_path` verbatim; it supplies only `ca_label`, `summary`, and the four score components through `scan.py post-alert`, then records the same evaluated total through `scan.py record-score`.
 
-The scanner validates the gates and renders the alert to Discord `1517510484025151538` with the chart attached. Operational heartbeats and failures go only to `1505162000420835388`. Agent replies must never be posted directly to either channel.
+The scanner validates the gates and renders the alert to Discord `1517510484025151538` with the chart attached. Operational heartbeats and failures go only to `1505162000420835388`. Agent replies must never be posted directly to either channel. The registered agent-backed Hermes job uses `local` delivery because scanner stdout is control protocol; the scanner owns both alert and heartbeat posts.
 
 ## State, safety, and verification
 

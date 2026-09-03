@@ -62,7 +62,7 @@ def test_run_stats_marks_an_empty_profile_feed_as_degraded():
     assert stats.needs_attention is True
 
     heartbeat = scan.format_heartbeat(datetime(2026, 7, 28, 6, 0, tzinfo=scan.WIB), stats)
-    assert heartbeat.endswith("<@443342168434933760>")
+    assert heartbeat.endswith("<@443342168434933760> ⚠️")
 
 
 def test_heartbeat_mentions_owner_for_authentication_failure():
@@ -72,7 +72,7 @@ def test_heartbeat_mentions_owner_for_authentication_failure():
 
     heartbeat = scan.format_heartbeat(datetime(2026, 7, 28, 6, 0, tzinfo=scan.WIB), stats)
     assert stats.needs_attention is True
-    assert heartbeat.endswith("<@443342168434933760>")
+    assert heartbeat.endswith("<@443342168434933760> ⚠️")
 
 
 def test_heartbeat_mentions_owner_for_non_auth_source_failure():
@@ -82,7 +82,7 @@ def test_heartbeat_mentions_owner_for_non_auth_source_failure():
 
     heartbeat = scan.format_heartbeat(datetime(2026, 7, 28, 6, 0, tzinfo=scan.WIB), stats)
     assert stats.needs_attention is True
-    assert heartbeat.endswith("<@443342168434933760>")
+    assert heartbeat.endswith("<@443342168434933760> ⚠️")
 
 
 def test_heartbeat_mentions_owner_for_any_degraded_state():
@@ -90,7 +90,7 @@ def test_heartbeat_mentions_owner_for_any_degraded_state():
 
     heartbeat = scan.format_heartbeat(datetime(2026, 7, 28, 6, 0, tzinfo=scan.WIB), stats)
 
-    assert heartbeat.endswith("<@443342168434933760>")
+    assert heartbeat.endswith("<@443342168434933760> ⚠️")
 
 
 def test_fatal_heartbeat_mentions_owner():
@@ -144,7 +144,7 @@ def test_cleanup_failure_keeps_new_delivery_and_mentions_owner(tmp_path, monkeyp
 
     assert value["cleanup"][0]["message_ids"] == ["old-text"]
     assert stats.needs_attention is True
-    assert scan.format_heartbeat(datetime(2026, 8, 21, 10, tzinfo=scan.WIB), stats).endswith("<@443342168434933760>")
+    assert scan.format_heartbeat(datetime(2026, 8, 21, 10, tzinfo=scan.WIB), stats).endswith("<@443342168434933760> ⚠️")
 
 
 def test_confirmed_edit_history_marks_new_event_as_updated_replacement(config_path):

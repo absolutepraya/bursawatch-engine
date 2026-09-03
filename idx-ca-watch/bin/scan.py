@@ -8,7 +8,7 @@ from pathlib import Path
 API_URL = "https://www.idx.co.id/primary/ListedCompany/GetAnnouncement"
 FIN_REPORT_URL = "https://www.idx.co.id/primary/ListedCompany/GetFinancialReport"
 IDX_BASE = "https://www.idx.co.id"
-ALERT_CHANNEL = "1517510484025151538"      # scored CA alerts (agent reply via cron deliver)
+ALERT_CHANNEL = "1517510484025151538"      # scored CA alerts (scanner posts directly)
 HEARTBEAT_CHANNEL = "1505162000420835388"  # heartbeats / bootstrap / status / errors
 SEEN_TTL_DAYS = 45
 PAGE_SIZE = 100

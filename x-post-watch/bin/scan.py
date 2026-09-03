@@ -59,7 +59,8 @@ def config_path() -> Path:
 def format_heartbeat(now: datetime, stats: RunStats) -> str:
     suffix = f" · {stats.reasons[0]}" if stats.reasons else ""
     attention = f" {OWNER_MENTION}" if stats.degraded or stats.needs_attention else ""
-    return f"🫀 {WATCHER_HEARTBEAT_NAME} · {now.astimezone(WIB):%H:%M} WIB · {stats.tokens()}" + (" ⚠️" if stats.degraded else "") + suffix + attention
+    warning = " ⚠️" if stats.degraded else ""
+    return f"🫀 {WATCHER_HEARTBEAT_NAME} · {now.astimezone(WIB):%H:%M} WIB · {stats.tokens()}" + suffix + attention + warning
 
 
 def format_fatal(now: datetime, reason: str) -> str:
