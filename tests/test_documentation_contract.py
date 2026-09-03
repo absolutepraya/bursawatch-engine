@@ -10,7 +10,7 @@ NO_AGENT_CRONS = {
     "skills-update", "us-etf-dca-watch",
 }
 AGENT_BACKED_CRONS = {
-    "idx-ca-watch", "idx-market-news-watch", "kelas-investasi-gtw-watch",
+    "idx-market-news-watch", "kelas-investasi-gtw-watch",
     "mm-weekly-log-normalizer", "scele-digest", "x-post-watch",
 }
 ALL_CRONS = NO_AGENT_CRONS | AGENT_BACKED_CRONS
@@ -20,11 +20,6 @@ REDUNDANT_ROOT_DOCS = {
 }
 GENERATED_CACHE_DIRECTORIES = {".pytest_cache", ".superpowers", "local-backfill"}
 AGENT_GOVERNANCE_ANCHORS = {
-    "idx-ca-watch": (
-        "zero is unquantified or below five percent",
-        "idx-ca-health",
-        "IDX_CA_PY=",
-    ),
     "idx-market-news-watch": (
         "issuer-specific ticker-led standalone news",
         "Anak Usaha <TICKER>",
@@ -100,7 +95,7 @@ def readme_cron_inventory() -> set[str]:
 
 def test_cron_classification_is_complete_and_disjoint() -> None:
     assert NO_AGENT_CRONS.isdisjoint(AGENT_BACKED_CRONS), "cron classes overlap"
-    assert len(ALL_CRONS) == 16, "update the reviewed cron classification"
+    assert len(ALL_CRONS) == 15, "update the reviewed cron classification"
     assert all((ROOT / cron).is_dir() for cron in ALL_CRONS), "missing cron source directory"
     assert readme_cron_inventory() == ALL_CRONS, (
         "README.md cron inventory must match the reviewed cron classification"

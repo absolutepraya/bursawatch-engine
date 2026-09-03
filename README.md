@@ -13,7 +13,6 @@ retain their own `SKILL.md` files.
 | Cron | What it is | Mac-runnable? |
 |---|---|---|
 | `polymarket-signal-watch` | Polymarket PolyCop signal screener (Telegram) | tests yes; a live run needs the VPS Telethon session |
-| `idx-ca-watch` | IDX corporate-action screener | edit on Mac, **verify on the VPS** because IDX Cloudflare blocks non-datacenter IPs |
 | `idx-market-news-watch` | Deterministic issuer-specific IDX market-news watcher with an agent-backed scoring and delivery step | tests yes; live source and Telegram verification run on the VPS |
 | `us-etf-dca-watch` | US ETF DCA timing monitor for SPY, QQQ, and SMH | yes |
 | `idx-swing-watch-phintraco-daily` | Phintraco Daily Swing Call forwarder (Telegram text then source chart) | tests yes; a live run needs the VPS Telethon session |
@@ -35,7 +34,7 @@ retain their own `SKILL.md` files.
 1. Read the cron's `AGENTS.md` and its `CRON.md` or `SKILL.md`, then edit source under `<cron>/bin/`.
 2. `./deploy.sh <cron>` copies `bin/` to the VPS. Single file: `./deploy.sh <cron> scan.py`.
 3. For a changed contract file, commit and push first, compare it with the VPS copy, obtain approval for the first VPS write, then sync only that file and compare checksums.
-4. Verify with the watcher's dry-run controls. Run network verification on the VPS for `idx-ca-watch`, `polymarket-signal-watch`, and `idx-swing-watch-phintraco-daily`.
+4. Verify with the watcher's dry-run controls. Run network verification on the VPS for `polymarket-signal-watch` and `idx-swing-watch-phintraco-daily`.
 5. The VPS uses `~/.local/share/uv/tools/yahoo-finance-mcp/bin/python` for market watchers.
 
 ## Don't

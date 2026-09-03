@@ -16,7 +16,6 @@ Current child instruction files:
 
 - `cobalt/AGENTS.md`: Cobalt media service, cookies, compose, and deployment boundaries.
 - `dotfiles-sync/AGENTS.md`: VPS-owned configuration backup and capture safety.
-- `idx-ca-watch/AGENTS.md`: IDX corporate-action screening and scoring boundaries.
 - `idx-market-news-watch/AGENTS.md`: deterministic company-news intake and shared Telegram resilience.
 - `idx-ssf-watch-phintraco-weekly/AGENTS.md`: source-only weekly SSF forwarding.
 - `idx-swing-watch-phintraco-daily/AGENTS.md`: source-only daily swing-call forwarding.
@@ -59,7 +58,7 @@ Current child instruction files:
 
 Every scheduled cron source directory contains one `AGENTS.md` and exactly one contract file. `AGENTS.md` is the canonical development and domain source. A deterministic no-agent cron has `CRON.md`, its concise operational contract. An agent-backed cron has `SKILL.md`, the concise model-facing runtime prompt that Hermes loads. A cron must never have both contract files.
 
-The no-agent crons are `dotfiles-sync`, `idx-ssf-watch-phintraco-weekly`, `idx-swing-watch-phintraco-daily`, `job-watcher`, `marka-backup`, `polymarket-signal-watch`, `security-audit`, `sharing-cleanup`, `skills-update`, and `us-etf-dca-watch`. The agent-backed crons are `idx-ca-watch`, `idx-market-news-watch`, `kelas-investasi-gtw-watch`, `mm-weekly-log-normalizer`, `scele-digest`, and `x-post-watch`.
+The no-agent crons are `dotfiles-sync`, `idx-ssf-watch-phintraco-weekly`, `idx-swing-watch-phintraco-daily`, `job-watcher`, `marka-backup`, `polymarket-signal-watch`, `security-audit`, `sharing-cleanup`, `skills-update`, and `us-etf-dca-watch`. The agent-backed crons are `idx-market-news-watch`, `kelas-investasi-gtw-watch`, `mm-weekly-log-normalizer`, `scele-digest`, and `x-post-watch`.
 
 This policy applies only to scheduled cron documentation at a cron directory root. Reusable non-cron skills, including `mm/SKILL.md` and `cobalt/skills/media/SKILL.md`, retain their own skill contracts.
 
@@ -118,7 +117,7 @@ The cron projects intentionally keep their executable modules importable as loca
 
 - Use `~/Documents/Projects/Hermes/.venv` for local tests. Do not create watcher-specific Mac virtual environments.
 - Market watcher runtime uses `~/.local/share/uv/tools/yahoo-finance-mcp/bin/python` on the VPS. Do not reinstall its `uv` tool without restoring shared dependencies required by other watchers.
-- Verify `idx-ca-watch`, `polymarket-signal-watch`, and `idx-swing-watch-phintraco-daily` against the VPS. Their relevant data sources are not reliably verifiable from the Mac.
+- Verify `polymarket-signal-watch` and `idx-swing-watch-phintraco-daily` against the VPS. Their relevant data sources are not reliably verifiable from the Mac.
 - Treat upstream data as delayed and fallible. Surface source health, rate limits, timeouts, and stale data. Do not invent missing news, prices, disclosures, or successful delivery.
 - Keep every cron's time-zone and market-window logic explicit and test its boundaries. Cron cadence must land inside, not merely adjacent to, the intended window.
 
