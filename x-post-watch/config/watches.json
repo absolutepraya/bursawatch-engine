@@ -250,11 +250,6 @@
       "emoji": "<:txthariansaham:1540780954929340476>",
       "discord_channels": [
         {
-          "key": "macro",
-          "channel_id": "1531655369884045382",
-          "description": "Broad economic, business, market, sector, and cross-asset analysis."
-        },
-        {
           "key": "id_stock_swing",
           "channel_id": "1525102458253217803",
           "description": "Direct IDX technical-analysis or swing-trading thesis."
@@ -267,9 +262,9 @@
       "forward_media": true,
       "enable_llm_title": true,
       "enable_llm_summary": true,
-      "enable_llm_routing": true,
+      "enable_llm_routing": false,
       "enable_llm_relevance_filter": true,
-      "additional_prompt_instruction": "Forward substantive IDX stock chart and technical analysis, IHSG, macro, and market-analysis posts. Route direct technical IDX stock theses to id_stock_swing and broad market or macro theses to macro. Exclude casual reactions, greetings, memes, generic engagement, unsupported hype, clickbait profit promises, and paid research or trading-service promotions.",
+      "additional_prompt_instruction": "Forward substantive IDX stock chart and technical analysis to the swing channel. Exclude casual reactions, greetings, memes, generic engagement, unsupported hype, clickbait profit promises, and paid research or trading-service promotions.",
       "max_items_per_poll": 50,
       "thread_handling": {
         "mode": "disabled",
