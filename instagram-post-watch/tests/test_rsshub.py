@@ -26,7 +26,9 @@ def test_image_caption_strips_media_but_preserves_text_and_links(configured_prof
     post = rsshub.parse_feed(load_fixture("image-post.json"), configured_profile)[0]
     assert post.publication_id == "media-1001"
     assert post.caption_html == '<p>Caption <a href="https://example.com/report">with a link</a></p>'
-    assert post.media == (post.media[0],)
+    assert [(asset.url, asset.kind, asset.index) for asset in post.media] == [
+        ("https://cdn.example/image.jpg", MediaKind.IMAGE, 0),
+    ]
     assert post.media[0].kind is MediaKind.IMAGE
 
 
@@ -55,6 +57,50 @@ def test_media_tags_are_removed_without_losing_caption_after_a_reel(configured_p
     assert post.caption_html == "<p>After video</p>"
 
 
+def test_self_closing_video_does_not_hide_following_caption(configured_profile):
+    payload = {"items": [{
+        "id": "media-1005", "url": "https://instagram.com/reel/SELF/",
+        "date_published": "2026-08-24T11:01:00Z",
+        "content_html": "<video src=\"https://cdn.example/a.mp4\"/><p>Visible caption</p>",
+    }]}
+    assert rsshub.parse_feed(payload, configured_profile)[0].caption_html == "<p>Visible caption</p>"
+
+
+@pytest.mark.parametrize("url", [
+    "http://127.0.0.1/internal.jpg",
+    "https://127.0.0.1/internal.jpg",
+    "file:///tmp/image.jpg",
+    "javascript:alert(1)",
+    "https://cdn.example:8080/image.jpg",
+])
+def test_media_urls_stay_inside_supported_public_http_boundary(configured_profile, url):
+    payload = {"items": [{
+        "id": "media-1006", "url": "https://instagram.com/p/URLBOUNDARY/",
+        "date_published": "2026-08-24T11:02:00Z", "content_html": f'<img src="{url}">',
+    }]}
+    assert rsshub.parse_feed(payload, configured_profile) == []
+
+
+@pytest.mark.parametrize("url", [
+    "http://cdn.example/image.jpg",
+    "https://cdn.example/image.jpg",
+])
+def test_public_http_image_urls_are_extracted(configured_profile, url):
+    payload = {"items": [{
+        "id": "media-1007", "url": "https://instagram.com/p/PUBLICURL/",
+        "date_published": "2026-08-24T11:03:00Z", "content_html": f'<img src="{url}">',
+    }]}
+    assert rsshub.parse_feed(payload, configured_profile)[0].media[0].url == url
+
+
+def test_unsafe_shortcode_and_naive_timestamp_are_filtered(configured_profile):
+    payload = {"items": [
+        {"id": "safe", "url": "https://instagram.com/p/../", "date_published": "2026-08-24T11:04:00Z", "content_html": '<img src="https://cdn.example/a.jpg">'},
+        {"id": "naive", "url": "https://instagram.com/p/NAIVE/", "date_published": "2026-08-24T11:04:00", "content_html": '<img src="https://cdn.example/a.jpg">'},
+    ]}
+    assert rsshub.parse_feed(payload, configured_profile) == []
+
+
 def test_private_and_malformed_publications_are_filtered(configured_profile):
     assert rsshub.parse_feed(load_fixture("private-profile.json"), configured_profile) == []
     assert rsshub.parse_feed(load_fixture("malformed-feed.json"), configured_profile) == []
@@ -69,6 +115,22 @@ def test_fetch_uses_one_request_timeout_and_sanitizes_errors(configured_profile)
     with pytest.raises(rsshub.SourceFetchError, match="RSSHub request failed") as error:
         rsshub.fetch_profile_items(configured_profile, BrokenSession())
     assert "secret" not in str(error.value)
+
+
+def test_fetch_closes_response_and_sanitizes_generic_response_failure(configured_profile):
+    class Response:
+        def __init__(self): self.closed = False
+        def raise_for_status(self): raise RuntimeError("body=secret url=https://private.example")
+        def close(self): self.closed = True
+
+    response = Response()
+    class Session:
+        def get(self, *args, **kwargs): return response
+
+    with pytest.raises(rsshub.SourceFetchError, match="source failed") as error:
+        rsshub.fetch_profile_items(configured_profile, Session())
+    assert "secret" not in str(error.value)
+    assert response.closed is True
 
 
 def test_fetch_rejects_non_object_or_missing_items(configured_profile):

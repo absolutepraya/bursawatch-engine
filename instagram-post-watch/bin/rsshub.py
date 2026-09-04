@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime
 from html.parser import HTMLParser
+import ipaddress
+import re
 from urllib.parse import urlparse
 
 import requests
@@ -11,6 +13,40 @@ from models import MediaKind, Profile, PublicationKind, SourceMedia, SourcePost
 
 class SourceFetchError(RuntimeError):
     pass
+
+
+_SAFE_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def _safe_component(value: object) -> str | None:
+    candidate = str(value).strip() if isinstance(value, (str, int)) else ""
+    if not candidate or candidate in {".", ".."} or not _SAFE_COMPONENT.fullmatch(candidate):
+        return None
+    return candidate
+
+
+def is_supported_media_url(value: object) -> bool:
+    if not isinstance(value, str) or len(value) > 4096:
+        return False
+    parsed = urlparse(value)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+        return False
+    hostname = parsed.hostname.lower().rstrip(".")
+    if hostname == "localhost" or hostname.endswith((".localhost", ".local", ".internal")):
+        return False
+    try:
+        port = parsed.port
+    except ValueError:
+        return False
+    if port not in {None, 80, 443}:
+        return False
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        address = None
+    if address is not None and (address.is_private or address.is_loopback or address.is_link_local or address.is_reserved or address.is_multicast or address.is_unspecified):
+        return False
+    return True
 
 
 class _MediaCaptionParser(HTMLParser):
@@ -40,7 +76,9 @@ class _MediaCaptionParser(HTMLParser):
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.handle_starttag(tag, attrs)
-        if tag not in self._media_tags:
+        if tag == "video":
+            self.handle_endtag(tag)
+        elif tag not in self._media_tags:
             self.handle_endtag(tag)
 
     def handle_endtag(self, tag: str) -> None:
@@ -73,7 +111,7 @@ def _publication_url(value: object) -> tuple[PublicationKind, str] | None:
     if parsed.query or parsed.fragment:
         return None
     parts = [part for part in parsed.path.split("/") if part]
-    if len(parts) != 2 or parts[0] not in {"p", "reel"} or not parts[1]:
+    if len(parts) != 2 or parts[0] not in {"p", "reel"} or _safe_component(parts[1]) is None:
         return None
     return (PublicationKind.REEL if parts[0] == "reel" else PublicationKind.POST, parts[1])
 
@@ -121,7 +159,7 @@ def _parse_item(item: object, profile: Profile) -> SourcePost | None:
     seen: set[str] = set()
     media: list[SourceMedia] = []
     for url, media_kind in parser.media:
-        if not isinstance(url, str) or not url or url in seen:
+        if not is_supported_media_url(url) or url in seen:
             continue
         seen.add(url)
         media.append(SourceMedia(url, media_kind, len(media)))
@@ -132,7 +170,12 @@ def _parse_item(item: object, profile: Profile) -> SourcePost | None:
         published_at = datetime.fromisoformat(str(published).replace("Z", "+00:00"))
     except (TypeError, ValueError):
         return None
-    return SourcePost(profile.id, _stable_id(item, shortcode), str(item["url"]), published_at, "".join(parser.caption), kind, tuple(media))
+    if published_at.tzinfo is None or published_at.utcoffset() is None:
+        return None
+    publication_id = _safe_component(_stable_id(item, shortcode))
+    if publication_id is None:
+        return None
+    return SourcePost(profile.id, publication_id, str(item["url"]), published_at, "".join(parser.caption), kind, tuple(media))
 
 
 def parse_feed(payload: object, profile: Profile, after_id: str | None = None) -> list[SourcePost]:
@@ -156,6 +199,7 @@ def parse_feed(payload: object, profile: Profile, after_id: str | None = None) -
 
 def fetch_profile_items(profile: Profile, session: requests.Session | None = None, after_id: str | None = None) -> list[SourcePost]:
     client = session or requests.Session()
+    response = None
     try:
         response = client.get(profile.feed_url, timeout=30)
         response.raise_for_status()
@@ -164,7 +208,20 @@ def fetch_profile_items(profile: Profile, session: requests.Session | None = Non
         raise SourceFetchError("RSSHub request failed") from exc
     except (ValueError, TypeError) as exc:
         raise SourceFetchError("RSSHub returned invalid JSON") from exc
-    return parse_feed(payload, profile, after_id)
+    except Exception as exc:
+        raise SourceFetchError("RSSHub source failed") from exc
+    finally:
+        if response is not None:
+            try:
+                response.close()
+            except Exception:
+                pass
+    try:
+        return parse_feed(payload, profile, after_id)
+    except SourceFetchError:
+        raise
+    except Exception as exc:
+        raise SourceFetchError("RSSHub source failed") from exc
 
 
 def is_forwardable(profile: Profile, post: SourcePost) -> bool:
