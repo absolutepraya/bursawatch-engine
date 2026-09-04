@@ -1,4 +1,5 @@
 import json
+import socket
 from datetime import UTC
 from pathlib import Path
 
@@ -107,6 +108,45 @@ def test_empty_query_or_fragment_delimiters_are_rejected(configured_profile, url
         "date_published": "2026-08-24T11:03:00Z", "content_html": '<img src="https://cdn.example/image.jpg">',
     }]}
     assert rsshub.parse_feed(payload, configured_profile) == []
+
+
+@pytest.mark.parametrize("url", [
+    "https://instagram.com/p/CANONICAL;param",
+    "https://instagram.com/p/CANONICAL/;param",
+    " https://instagram.com/p/CANONICAL/",
+    "https://instagram.com/p/CANONICAL/ ",
+    "\thttps://instagram.com/p/CANONICAL/",
+    "https://instagram.com/p/CANONICAL/\n",
+    "https://instagram.com/p/CANONICAL/\x7f",
+])
+def test_publication_url_params_and_control_whitespace_are_rejected(configured_profile, url):
+    payload = {"items": [{
+        "id": "media-1010", "url": url,
+        "date_published": "2026-08-24T11:03:00Z", "content_html": '<img src="https://cdn.example/image.jpg">',
+    }]}
+    assert rsshub.parse_feed(payload, configured_profile) == []
+
+
+def test_canonical_publication_urls_are_preserved(configured_profile):
+    payload = {"items": [
+        {"id": "media-1011", "url": "https://instagram.com/p/CANONICAL/", "date_published": "2026-08-24T11:03:00Z", "content_html": '<img src="https://cdn.example/image.jpg">'},
+        {"id": "media-1012", "url": "https://www.instagram.com/reel/REELCODE", "date_published": "2026-08-24T11:04:00Z", "content_html": '<video src="https://cdn.example/video.mp4"></video>'},
+    ]}
+    posts = rsshub.parse_feed(payload, configured_profile)
+    assert [(post.kind, post.url) for post in posts] == [
+        (PublicationKind.POST, "https://instagram.com/p/CANONICAL/"),
+        (PublicationKind.REEL, "https://www.instagram.com/reel/REELCODE"),
+    ]
+
+
+@pytest.mark.parametrize("address", ["100.64.0.1", "10.0.0.1", "169.254.0.1", "240.0.0.1", "224.0.0.1"])
+def test_public_resolver_requires_global_unicast_addresses(monkeypatch, address):
+    monkeypatch.setattr(
+        rsshub.socket,
+        "getaddrinfo",
+        lambda host, port, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, port))],
+    )
+    assert rsshub.is_publicly_resolvable_media_url("https://cdn.example/image.jpg") is False
 
 
 def test_unsafe_shortcode_and_naive_timestamp_are_filtered(configured_profile):

@@ -17,7 +17,7 @@ import urllib3
 from urllib3.util import connection as urllib3_connection
 
 from models import DownloadLimits, DownloadedAsset, DownloadedPublication, MediaKind, SourceMedia, SourcePost
-from rsshub import is_publicly_resolvable_media_url, is_supported_media_url
+from rsshub import is_public_ip_address, is_publicly_resolvable_media_url, is_supported_media_url
 
 
 class MediaDownloadError(RuntimeError):
@@ -47,7 +47,7 @@ def _connection_public_addresses(host: str, port: int) -> tuple[str, ...]:
             address = ipaddress.ip_address(record[4][0])
         except (IndexError, ValueError):
             continue
-        if address.is_private or address.is_loopback or address.is_link_local or address.is_reserved or address.is_multicast or address.is_unspecified:
+        if not is_public_ip_address(address):
             continue
         if record[4][0] not in addresses:
             addresses.append(record[4][0])

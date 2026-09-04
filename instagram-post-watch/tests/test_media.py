@@ -1,4 +1,6 @@
 import hashlib
+import io
+import socket
 from pathlib import Path
 
 import pytest
@@ -138,6 +140,106 @@ def test_connection_policy_binds_to_connection_time_public_address(monkeypatch):
         connection._new_conn()
     assert connection_targets == []
     assert connection.host == "cdn.example"
+
+
+@pytest.mark.parametrize("address", ["100.64.0.1", "10.0.0.1", "169.254.0.1", "240.0.0.1", "224.0.0.1"])
+def test_connection_time_resolver_requires_global_unicast_addresses(monkeypatch, address):
+    monkeypatch.setattr(
+        media.socket,
+        "getaddrinfo",
+        lambda host, port, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, port))],
+    )
+    connection_targets = []
+    monkeypatch.setattr(media.urllib3_connection, "create_connection", lambda target, *args, **kwargs: connection_targets.append(target))
+    with pytest.raises(urllib3.exceptions.NewConnectionError, match="connection address rejected"):
+        media._PinnedHTTPSConnection("cdn.example", 443)._new_conn()
+    assert connection_targets == []
+
+
+def test_real_session_download_pins_adapter_proxy_bypass_dns_and_tls(monkeypatch, tmp_path):
+    source = SourceMedia("https://cdn.example/image.jpg", MediaKind.IMAGE, 0)
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.invalid:8080")
+    monkeypatch.setattr(
+        rsshub.socket,
+        "getaddrinfo",
+        lambda host, port, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))],
+    )
+
+    blocked_session = requests.Session()
+    blocked_session.proxies["https"] = "http://proxy.invalid:8080"
+    dns_calls = []
+
+    def rebinding_getaddrinfo(host, port, **kwargs):
+        dns_calls.append(host)
+        address = "93.184.216.34" if len(dns_calls) == 1 else "127.0.0.1"
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, port))]
+
+    monkeypatch.setattr(media.socket, "getaddrinfo", rebinding_getaddrinfo)
+    blocked_targets = []
+    monkeypatch.setattr(media.urllib3_connection, "create_connection", lambda target, *args, **kwargs: blocked_targets.append(target))
+    with pytest.raises(media.MediaDownloadError, match="media download failed"):
+        media.download_publication(post([source]), tmp_path, blocked_session, DownloadLimits())
+    assert isinstance(blocked_session.adapters["https://"], media._PinnedHTTPSAdapter)
+    assert blocked_session.trust_env is False
+    assert blocked_session.proxies == {}
+    assert blocked_targets == []
+
+    class FakeSocket:
+        def __init__(self):
+            self.sent = bytearray()
+            self.timeout = None
+
+        def settimeout(self, value):
+            self.timeout = value
+
+        def gettimeout(self):
+            return self.timeout
+
+        def sendall(self, data):
+            self.sent.extend(data)
+
+        def makefile(self, *args, **kwargs):
+            return io.BytesIO(b"HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: 3\r\n\r\nimg")
+
+        def close(self):
+            pass
+
+        def selected_alpn_protocol(self):
+            return None
+
+    live_session = requests.Session()
+    live_session.proxies["https"] = "http://proxy.invalid:8080"
+    connected_sockets = []
+    connection_targets = []
+    sni_hosts = []
+
+    monkeypatch.setattr(
+        media.socket,
+        "getaddrinfo",
+        lambda host, port, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))],
+    )
+
+    def fake_create_connection(target, *args, **kwargs):
+        connection_targets.append(target)
+        sock = FakeSocket()
+        connected_sockets.append(sock)
+        return sock
+
+    def fake_ssl_wrap_socket_and_match_hostname(sock, **kwargs):
+        sni_hosts.append(kwargs["server_hostname"])
+        return media.urllib3.connection._WrappedAndVerifiedSocket(sock, True)
+
+    monkeypatch.setattr(media.urllib3_connection, "create_connection", fake_create_connection)
+    monkeypatch.setattr(media.urllib3.connection, "_ssl_wrap_socket_and_match_hostname", fake_ssl_wrap_socket_and_match_hostname)
+    downloaded = media.download_publication(post([source]), tmp_path, live_session, DownloadLimits())
+
+    assert isinstance(live_session.adapters["https://"], media._PinnedHTTPSAdapter)
+    assert live_session.trust_env is False
+    assert live_session.proxies == {}
+    assert connection_targets == [("93.184.216.34", 443)]
+    assert sni_hosts == ["cdn.example"]
+    assert b"Host: cdn.example" in bytes(connected_sockets[0].sent)
+    assert downloaded.assets[0].sha256 == hashlib.sha256(b"img").hexdigest()
 
 
 @pytest.mark.parametrize("publication_id", ["..", "../escape", "nested/name", "\\escape"])

@@ -45,9 +45,20 @@ def is_supported_media_url(value: object) -> bool:
         address = ipaddress.ip_address(hostname)
     except ValueError:
         address = None
-    if address is not None and (address.is_private or address.is_loopback or address.is_link_local or address.is_reserved or address.is_multicast or address.is_unspecified):
+    if address is not None and not is_public_ip_address(address):
         return False
     return True
+
+
+def is_public_ip_address(address: ipaddress._BaseAddress) -> bool:
+    return address.is_global and not (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_reserved
+        or address.is_multicast
+        or address.is_unspecified
+    )
 
 
 def is_publicly_resolvable_media_url(value: object) -> bool:
@@ -67,7 +78,7 @@ def is_publicly_resolvable_media_url(value: object) -> bool:
             address = ipaddress.ip_address(address_info[4][0])
         except (IndexError, ValueError):
             return False
-        if address.is_private or address.is_loopback or address.is_link_local or address.is_reserved or address.is_multicast or address.is_unspecified:
+        if not is_public_ip_address(address):
             return False
     return True
 
@@ -128,10 +139,14 @@ class _MediaCaptionParser(HTMLParser):
 def _publication_url(value: object) -> tuple[PublicationKind, str] | None:
     if not isinstance(value, str):
         return None
+    if value != value.strip() or any(ord(character) < 32 or ord(character) == 127 for character in value):
+        return None
     if "?" in value or "#" in value:
         return None
     parsed = urlparse(value)
     if parsed.scheme != "https" or parsed.netloc.lower() not in {"instagram.com", "www.instagram.com"}:
+        return None
+    if parsed.params:
         return None
     if not parsed.path.startswith("/"):
         return None
