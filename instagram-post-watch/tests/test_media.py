@@ -5,8 +5,18 @@ import pytest
 import requests
 
 import media
+import rsshub
 from models import DownloadLimits, MediaKind, SourceMedia, SourcePost, PublicationKind
 from datetime import datetime, UTC
+
+
+@pytest.fixture(autouse=True)
+def public_dns_only(monkeypatch):
+    def getaddrinfo(host, port, **kwargs):
+        if host == "private.example":
+            return [(2, 1, 6, "", ("127.0.0.1", port))]
+        return [(2, 1, 6, "", ("93.184.216.34", port))]
+    monkeypatch.setattr(rsshub.socket, "getaddrinfo", getaddrinfo)
 
 
 class FakeResponse:
@@ -14,6 +24,7 @@ class FakeResponse:
         self.chunks = chunks
         self.headers = {"content-type": content_type}
         self.closed = False
+        self.status_code = 200
 
     def raise_for_status(self): pass
 
@@ -90,6 +101,25 @@ def test_download_rejects_unsafe_media_url_without_request(tmp_path, url):
         media.download_publication(post([source]), tmp_path, FakeSession([]), DownloadLimits())
 
 
+def test_download_rejects_http_and_private_resolved_hostname(tmp_path):
+    for url in ("http://cdn.example/x.jpg", "https://private.example/x.jpg"):
+        source = SourceMedia(url, MediaKind.IMAGE, 0)
+        with pytest.raises(media.MediaDownloadError, match="unsupported media URL"):
+            media.download_publication(post([source]), tmp_path, FakeSession([]), DownloadLimits())
+
+
+def test_download_rejects_redirect_without_following_it(tmp_path):
+    source = SourceMedia("https://cdn.example/x.jpg", MediaKind.IMAGE, 0)
+    response = FakeResponse([], "image/jpeg")
+    response.status_code = 302
+    response.headers["location"] = "https://private.example/x.jpg"
+    session = FakeSession([response])
+    with pytest.raises(media.MediaDownloadError, match="redirects are not supported"):
+        media.download_publication(post([source]), tmp_path, session, DownloadLimits())
+    assert session.calls[0][1]["allow_redirects"] is False
+    assert response.closed is True
+
+
 @pytest.mark.parametrize("publication_id", ["..", "../escape", "nested/name", "\\escape"])
 def test_download_rejects_event_id_traversal(tmp_path, publication_id):
     unsafe = SourcePost("profile", publication_id, "https://instagram.com/p/ABC/", datetime.now(UTC), "", PublicationKind.POST, ())
@@ -139,6 +169,24 @@ def test_reel_sampling_includes_cover_and_at_most_cap(tmp_path):
     assert len(calls) == 4
 
 
+def test_sampling_rejects_unmanaged_or_symlinked_inputs_and_frame_root(tmp_path):
+    outside = tmp_path.parent / "outside-reel.mp4"
+    outside.write_bytes(b"video")
+    cover = tmp_path / "cover.jpg"
+    cover.write_bytes(b"cover")
+    with pytest.raises(media.FrameSamplingError, match="managed media file"):
+        media.sample_reel_frames(outside, cover, tmp_path, 2, duration_seconds=2.0)
+
+    video = tmp_path / "reel.mp4"
+    video.write_bytes(b"video")
+    frame_root = tmp_path / "reel-frames"
+    outside_dir = tmp_path / "outside-frames"
+    outside_dir.mkdir()
+    frame_root.symlink_to(outside_dir, target_is_directory=True)
+    with pytest.raises(media.FrameSamplingError, match="frame directory"):
+        media.sample_reel_frames(video, cover, tmp_path, 2, duration_seconds=2.0)
+
+
 def test_sampling_failure_is_sanitized_and_preserves_video(tmp_path):
     video = tmp_path / "reel.mp4"
     cover = tmp_path / "cover.jpg"
@@ -146,11 +194,28 @@ def test_sampling_failure_is_sanitized_and_preserves_video(tmp_path):
     cover.write_bytes(b"cover")
 
     def runner(command):
-        raise media.FrameSamplingError("ffmpeg failed")
+        raise RuntimeError("ffmpeg failed with /secret/path")
 
     with pytest.raises(media.FrameSamplingError, match="frame sampling failed") as error:
         media.sample_reel_frames(video, cover, tmp_path, 5, runner=runner, duration_seconds=12.0)
     assert "ffmpeg failed" not in str(error.value)
+    assert video.exists()
+
+
+def test_sampling_failure_preserves_original_video_when_cleanup_also_fails(tmp_path, monkeypatch):
+    video = tmp_path / "reel.mp4"
+    cover = tmp_path / "cover.jpg"
+    video.write_bytes(b"video")
+    cover.write_bytes(b"cover")
+    (tmp_path / "reel-frames").mkdir()
+    monkeypatch.setattr(media.Path, "unlink", lambda self, missing_ok=False: (_ for _ in ()).throw(OSError("/secret/path")))
+    def runner(command):
+        Path(command[-1]).write_bytes(b"partial")
+        raise RuntimeError("runner /bad/path")
+    with pytest.raises(media.FrameSamplingError, match="frame sampling failed") as error:
+        media.sample_reel_frames(video, cover, tmp_path, 2, runner=runner, duration_seconds=2.0)
+    assert error.value.cleanup_failed is True
+    assert "/bad/path" not in str(error.value)
     assert video.exists()
 
 
@@ -197,3 +262,12 @@ def test_cleanup_failure_is_visible_and_sanitized(tmp_path, monkeypatch):
     with pytest.raises(media.MediaCleanupError, match="cleanup failed") as error:
         media.cleanup_event_media(tmp_path, "event-1")
     assert "secret" not in str(error.value)
+
+
+def test_cleanup_rejects_unresolved_event_symlink(tmp_path):
+    target = tmp_path / "target"
+    target.mkdir()
+    (tmp_path / "alias").symlink_to(target, target_is_directory=True)
+    with pytest.raises(media.MediaCleanupError, match="cleanup failed"):
+        media.cleanup_event_media(tmp_path, "alias")
+    assert target.exists()

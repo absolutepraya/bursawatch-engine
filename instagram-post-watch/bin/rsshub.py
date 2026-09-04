@@ -4,6 +4,7 @@ from datetime import datetime
 from html.parser import HTMLParser
 import ipaddress
 import re
+import socket
 from urllib.parse import urlparse
 
 import requests
@@ -29,7 +30,7 @@ def is_supported_media_url(value: object) -> bool:
     if not isinstance(value, str) or len(value) > 4096:
         return False
     parsed = urlparse(value)
-    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+    if parsed.scheme.lower() != "https" or not parsed.hostname or parsed.username or parsed.password:
         return False
     hostname = parsed.hostname.lower().rstrip(".")
     if hostname == "localhost" or hostname.endswith((".localhost", ".local", ".internal")):
@@ -46,6 +47,28 @@ def is_supported_media_url(value: object) -> bool:
         address = None
     if address is not None and (address.is_private or address.is_loopback or address.is_link_local or address.is_reserved or address.is_multicast or address.is_unspecified):
         return False
+    return True
+
+
+def is_publicly_resolvable_media_url(value: object) -> bool:
+    if not is_supported_media_url(value):
+        return False
+    parsed = urlparse(value)
+    hostname = parsed.hostname
+    assert hostname is not None
+    try:
+        addresses = socket.getaddrinfo(hostname, parsed.port or 443, type=socket.SOCK_STREAM)
+    except OSError:
+        return False
+    if not addresses:
+        return False
+    for address_info in addresses:
+        try:
+            address = ipaddress.ip_address(address_info[4][0])
+        except (IndexError, ValueError):
+            return False
+        if address.is_private or address.is_loopback or address.is_link_local or address.is_reserved or address.is_multicast or address.is_unspecified:
+            return False
     return True
 
 
@@ -110,7 +133,13 @@ def _publication_url(value: object) -> tuple[PublicationKind, str] | None:
         return None
     if parsed.query or parsed.fragment:
         return None
-    parts = [part for part in parsed.path.split("/") if part]
+    if not parsed.path.startswith("/"):
+        return None
+    parts = parsed.path.split("/")
+    if parts and parts[0] == "":
+        parts = parts[1:]
+    if parts and parts[-1] == "":
+        parts = parts[:-1]
     if len(parts) != 2 or parts[0] not in {"p", "reel"} or _safe_component(parts[1]) is None:
         return None
     return (PublicationKind.REEL if parts[0] == "reel" else PublicationKind.POST, parts[1])

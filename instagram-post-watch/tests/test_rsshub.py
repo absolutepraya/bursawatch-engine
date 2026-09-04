@@ -81,16 +81,20 @@ def test_media_urls_stay_inside_supported_public_http_boundary(configured_profil
     assert rsshub.parse_feed(payload, configured_profile) == []
 
 
-@pytest.mark.parametrize("url", [
-    "http://cdn.example/image.jpg",
-    "https://cdn.example/image.jpg",
-])
-def test_public_http_image_urls_are_extracted(configured_profile, url):
+def test_http_image_urls_are_rejected(configured_profile):
     payload = {"items": [{
         "id": "media-1007", "url": "https://instagram.com/p/PUBLICURL/",
-        "date_published": "2026-08-24T11:03:00Z", "content_html": f'<img src="{url}">',
+        "date_published": "2026-08-24T11:03:00Z", "content_html": '<img src="http://cdn.example/image.jpg">',
     }]}
-    assert rsshub.parse_feed(payload, configured_profile)[0].media[0].url == url
+    assert rsshub.parse_feed(payload, configured_profile) == []
+
+
+def test_duplicate_publication_path_separators_are_rejected(configured_profile):
+    payload = {"items": [{
+        "id": "media-1008", "url": "https://instagram.com/p//DUPLICATE//",
+        "date_published": "2026-08-24T11:03:00Z", "content_html": '<img src="https://cdn.example/image.jpg">',
+    }]}
+    assert rsshub.parse_feed(payload, configured_profile) == []
 
 
 def test_unsafe_shortcode_and_naive_timestamp_are_filtered(configured_profile):
