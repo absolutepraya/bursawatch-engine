@@ -77,6 +77,8 @@ Read the source adapter, scanner, wrapper, state model, renderer, affected tests
 
 Publish a clean reviewed commit before deployment. Deploy executable changes with `./deploy.sh x-post-watch`. Compare the reviewed config and `SKILL.md` against the VPS before synchronizing them separately, then verify local and VPS SHA-256 parity for every changed file. Use an isolated no-post smoke only:
 
+`deploy.sh` copies the runtime `bin/` tree but does not update the Hermes scheduler wrapper. When `bin/x-post-watch.sh` changes, synchronize that reviewed file separately to `vps:.hermes/scripts/x-post-watch.sh`, set mode `755`, and compare its checksum before running the smoke.
+
 ```bash
 smoke_dir="$(mktemp -d /tmp/x-post-watch-smoke.XXXXXX)"
 X_POST_WATCH_NO_POST=1 X_POST_WATCH_STATE_PATH="$smoke_dir/state.json" "$HOME/.hermes/scripts/x-post-watch.sh"
