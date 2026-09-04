@@ -26,10 +26,19 @@ def _safe_component(value: object) -> str | None:
     return candidate
 
 
+def _parse_url(value: str):
+    try:
+        return urlparse(value)
+    except ValueError:
+        return None
+
+
 def is_supported_media_url(value: object) -> bool:
     if not isinstance(value, str) or len(value) > 4096:
         return False
-    parsed = urlparse(value)
+    parsed = _parse_url(value)
+    if parsed is None:
+        return False
     if parsed.scheme.lower() != "https" or not parsed.hostname or parsed.username or parsed.password:
         return False
     hostname = parsed.hostname.lower().rstrip(".")
@@ -64,7 +73,9 @@ def is_public_ip_address(address: ipaddress._BaseAddress) -> bool:
 def is_publicly_resolvable_media_url(value: object) -> bool:
     if not is_supported_media_url(value):
         return False
-    parsed = urlparse(value)
+    parsed = _parse_url(value)
+    if parsed is None:
+        return False
     hostname = parsed.hostname
     assert hostname is not None
     try:
@@ -143,7 +154,9 @@ def _publication_url(value: object) -> tuple[PublicationKind, str] | None:
         return None
     if "?" in value or "#" in value:
         return None
-    parsed = urlparse(value)
+    parsed = _parse_url(value)
+    if parsed is None:
+        return None
     if parsed.scheme != "https" or parsed.netloc.lower() not in {"instagram.com", "www.instagram.com"}:
         return None
     if parsed.params:

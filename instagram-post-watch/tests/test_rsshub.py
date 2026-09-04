@@ -127,6 +127,30 @@ def test_publication_url_params_and_control_whitespace_are_rejected(configured_p
     assert rsshub.parse_feed(payload, configured_profile) == []
 
 
+def test_malformed_bracketed_publication_url_is_filtered_without_losing_valid_item(configured_profile):
+    payload = {"items": [
+        {"id": "bad-publication", "url": "https://[instagram.com/p/BAD/", "date_published": "2026-08-24T11:03:00Z", "content_html": '<img src="https://cdn.example/bad.jpg">'},
+        {"id": "valid-publication", "url": "https://instagram.com/p/VALIDBRACKET/", "date_published": "2026-08-24T11:04:00Z", "content_html": '<img src="https://cdn.example/valid.jpg">'},
+    ]}
+    posts = rsshub.parse_feed(payload, configured_profile)
+    assert [post.publication_id for post in posts] == ["valid-publication"]
+
+
+def test_malformed_bracketed_media_url_is_filtered_without_losing_valid_items(configured_profile):
+    payload = {"items": [
+        {
+            "id": "mixed-media",
+            "url": "https://instagram.com/p/MIXEDMEDIA/",
+            "date_published": "2026-08-24T11:03:00Z",
+            "content_html": '<img src="https://[bad"><img src="https://cdn.example/valid.jpg">',
+        },
+        {"id": "valid-publication", "url": "https://instagram.com/p/VALIDMEDIA/", "date_published": "2026-08-24T11:04:00Z", "content_html": '<img src="https://cdn.example/next.jpg">'},
+    ]}
+    posts = rsshub.parse_feed(payload, configured_profile)
+    assert [post.publication_id for post in posts] == ["mixed-media", "valid-publication"]
+    assert [asset.url for asset in posts[0].media] == ["https://cdn.example/valid.jpg"]
+
+
 def test_canonical_publication_urls_are_preserved(configured_profile):
     payload = {"items": [
         {"id": "media-1011", "url": "https://instagram.com/p/CANONICAL/", "date_published": "2026-08-24T11:03:00Z", "content_html": '<img src="https://cdn.example/image.jpg">'},
