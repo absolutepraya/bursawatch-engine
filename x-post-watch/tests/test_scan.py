@@ -116,6 +116,43 @@ def test_delivery_sends_thread_media_then_external_quote_media(tmp_path, monkeyp
     assert delivered == ["https://img.example/root.jpg", "https://img.example/latest.jpg", "https://img.example/root-quote.jpg", "https://img.example/quote.jpg"]
 
 
+def test_delivery_omit_last_removes_only_final_unique_bundle_media(tmp_path, monkeypatch, config_path, profile_payload):
+    profile_payload["media_policy"] = "omit_last"
+    config_path.write_text(__import__("json").dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    root = SourcePost(profile.id, "101", "https://x.com/Kutekians/status/101", datetime.now(UTC), "Root", PostKind.QUOTE, "https://x.com/external/status/0", "Earlier external quote", (SourceMedia("https://img.example/root.jpg", 0),), (SourceMedia("https://img.example/root-quote.jpg", 0),))
+    latest = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Latest", PostKind.QUOTE, "https://x.com/external/status/1", "External: Quote", (SourceMedia("https://img.example/latest.jpg", 0),), (SourceMedia("https://img.example/quote.jpg", 0),))
+    value = state.new_state()
+    value["outbox"].append({
+        "profile_id": profile.id, "post_id": latest.post_id, "text_index": 1, "media_index": 0,
+        "post": state.serialize_post(latest), "thread_posts": [state.serialize_post(root), state.serialize_post(latest)],
+    })
+    delivered = []
+    monkeypatch.setattr(scan.discord, "post_media", lambda url, *_args: delivered.append(url) or "test")
+    storage = tmp_path / "state.json"
+    while value["outbox"]:
+        assert scan._deliver(value, {profile.id: profile}, 0, True, storage, scan.RunStats()) is True
+    assert delivered == ["https://img.example/root.jpg", "https://img.example/latest.jpg", "https://img.example/root-quote.jpg"]
+
+
+def test_delivery_omit_last_drops_the_only_media_item(tmp_path, monkeypatch, config_path, profile_payload):
+    profile_payload["media_policy"] = "omit_last"
+    config_path.write_text(__import__("json").dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    post = SourcePost(profile.id, "101", "https://x.com/Kutekians/status/101", datetime.now(UTC), "Post", PostKind.NORMAL, None, None, (SourceMedia("https://img.example/only.jpg", 0),), ())
+    value = state.new_state()
+    value["outbox"].append({
+        "profile_id": profile.id, "post_id": post.post_id, "text_index": 1, "media_index": 0,
+        "post": state.serialize_post(post), "thread_posts": [state.serialize_post(post)],
+    })
+    delivered = []
+    monkeypatch.setattr(scan.discord, "post_media", lambda url, *_args: delivered.append(url) or "test")
+
+    assert scan._deliver(value, {profile.id: profile}, 0, True, tmp_path / "state.json", scan.RunStats()) is True
+    assert delivered == []
+    assert value["outbox"] == []
+
+
 def test_delivery_persists_discord_message_id_in_ledger(tmp_path, monkeypatch, config_path):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     post = SourcePost(profile.id, "101", "https://x.com/Kutekians/status/101", datetime.now(UTC), "A post", PostKind.NORMAL, None, None, (), ())

@@ -15,6 +15,7 @@ def test_load_config_builds_profile_and_feed_url(config_path):
     profile = config.profiles[0]
     assert profile.id == "kutekians"
     assert profile.feed_url == "http://127.0.0.1:1200/twitter/user/Kutekians?format=json"
+    assert profile.media_policy == "all"
     assert profile.thread_handling.max_posts == 10
     assert profile.thread_handling.max_age_minutes == 240
     assert profile.thread_handling.settle_minutes == 60
@@ -36,6 +37,13 @@ def test_load_config_accepts_twenty_post_self_chain(config_path, profile_payload
     profile = config_module.load_watch_config(config_path).profiles[0]
 
     assert profile.thread_handling.max_posts == 20
+
+
+def test_load_config_defaults_media_policy_for_older_profiles(config_path, profile_payload):
+    profile_payload.pop("media_policy")
+    write_config(config_path, {"version": 1, "profiles": [profile_payload]})
+
+    assert config_module.load_watch_config(config_path).profiles[0].media_policy == "all"
 
 
 def test_canonical_almer_profile_uses_llm_summary():
@@ -68,6 +76,7 @@ def test_canonical_insider_tracker_profile_is_threaded_and_routed():
     assert profile.display_name == "Insider Tracker"
     assert profile.twitter_emoji == "<:twitter:1531672630602498129>"
     assert profile.emoji == "<:insidertracker:1537444489134604448>"
+    assert profile.media_policy == "omit_last"
     assert [(channel.key, channel.channel_id, channel.description) for channel in profile.discord_channels] == [
         ("macro_news", "1531655369884045382", "Broad economic, business, market, sector, and cross-asset analysis."),
         ("id_stocks_news", "1525102508714889257", "Direct IDX-listed company or ticker thesis."),
@@ -194,6 +203,7 @@ def test_canonical_wavetiga_profile_is_direct_x_and_fully_routed():
         ("enable_llm_routing", "yes", "boolean"),
         ("enable_llm_relevance_filter", "yes", "boolean"),
         ("source", "unsupported", "rsshub or direct_x"),
+        ("media_policy", "drop_last_two", "all or omit_last"),
         ("additional_prompt_instruction", 1, "must be text"),
         ("max_items_per_poll", 101, "1 to 100"),
         ("thread_handling", {"mode": "self_chain", "max_posts": 21, "max_age_minutes": 240, "settle_minutes": 60}, "1 to 20"),

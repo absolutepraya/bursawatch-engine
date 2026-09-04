@@ -31,7 +31,8 @@ PROFILE_FIELDS = {
     "max_items_per_poll",
     "thread_handling",
 }
-OPTIONAL_PROFILE_FIELDS = {"source"}
+OPTIONAL_PROFILE_FIELDS = {"source", "media_policy"}
+MEDIA_POLICIES = {"all", "omit_last"}
 ID_RE = re.compile(r"[a-z0-9][a-z0-9_-]*")
 HANDLE_RE = re.compile(r"[A-Za-z0-9_]{1,15}")
 EMOJI_RE = re.compile(r"<:[A-Za-z0-9_]+:\d{17,20}>")
@@ -109,6 +110,13 @@ def _parse_additional_prompt_instruction(value: object, label: str) -> str:
     return instruction
 
 
+def _parse_media_policy(value: object, label: str) -> str:
+    policy = _expect_string(value, label)
+    if policy not in MEDIA_POLICIES:
+        raise ValueError(f"{label} must be all or omit_last")
+    return policy
+
+
 def _validate_profile_url(profile_url: str, handle: str) -> None:
     parsed = urlparse(profile_url)
     if parsed.scheme != "https" or parsed.netloc.lower() not in {"x.com", "www.x.com"}:
@@ -155,6 +163,7 @@ def _parse_profile(index: int, value: object) -> Profile:
     source = profile.get("source", "rsshub")
     if source not in {"rsshub", "direct_x"}:
         raise ValueError("profiles[].source must be rsshub or direct_x")
+    media_policy = _parse_media_policy(profile.get("media_policy", "all"), f"profiles[{index}].media_policy")
 
     return Profile(
         id=profile_id,
@@ -178,6 +187,7 @@ def _parse_profile(index: int, value: object) -> Profile:
         max_items_per_poll=max_items,
         thread_handling=_parse_thread_handling(profile["thread_handling"], f"profiles[{index}].thread_handling"),
         source=source,
+        media_policy=media_policy,
     )
 
 

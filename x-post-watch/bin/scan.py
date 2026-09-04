@@ -97,6 +97,24 @@ def _event_source_ids(event: dict) -> set[str]:
     return {item.get("post_id") for item in event.get("thread_posts", [event.get("post", {})]) if item.get("post_id")}
 
 
+def _delivery_media(profile, thread_posts):
+    all_media = []
+    seen_media: set[str] = set()
+    for thread_post in thread_posts:
+        for media in thread_post.media:
+            if media.url not in seen_media:
+                seen_media.add(media.url)
+                all_media.append(media)
+    for thread_post in thread_posts:
+        for media in thread_post.quoted_media:
+            if media.url not in seen_media:
+                seen_media.add(media.url)
+                all_media.append(media)
+    if profile.media_policy == "omit_last":
+        return all_media[:-1]
+    return all_media
+
+
 def _thread_extension(profile, old: dict, event: dict) -> bool:
     if profile.thread_handling.mode != "self_chain":
         return False
@@ -210,18 +228,7 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
             event["text_index"] += 1
             state.save_state(storage, value)
             return True
-        all_media = []
-        seen_media: set[str] = set()
-        for thread_post in thread_posts:
-            for media in thread_post.media:
-                if media.url not in seen_media:
-                    seen_media.add(media.url)
-                    all_media.append(media)
-        for thread_post in thread_posts:
-            for media in thread_post.quoted_media:
-                if media.url not in seen_media:
-                    seen_media.add(media.url)
-                    all_media.append(media)
+        all_media = _delivery_media(profile, thread_posts)
         if profile.forward_media and event["media_index"] < len(all_media):
             index = event["media_index"]
             message_id = discord.post_media(all_media[index].url, channel_id, dry_run, discord.nonce(f"{profile.id}:{post.post_id}", f"media:{index}"), storage.parent / "media")

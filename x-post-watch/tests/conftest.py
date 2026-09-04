@@ -27,6 +27,7 @@ def profile_payload() -> dict:
         "forward_reply": False,
         "forward_repost": False,
         "forward_media": True,
+        "media_policy": "all",
         "enable_llm_title": False,
         "enable_llm_summary": False,
         "enable_llm_routing": False,
