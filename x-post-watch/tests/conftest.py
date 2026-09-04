@@ -18,7 +18,7 @@ def profile_payload() -> dict:
         "twitter_emoji": "<:twitter:1531672630602498129>",
         "emoji": "<:kutekians:1531673483459821729>",
         "discord_channels": [{
-            "key": "macro",
+            "key": "macro_news",
             "channel_id": "1531655369884045382",
             "description": "Broad economic, business, market, sector, and cross-asset analysis.",
         }],

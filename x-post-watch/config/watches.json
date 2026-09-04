@@ -11,7 +11,7 @@
       "emoji": "<:kutekians:1531673483459821729>",
       "discord_channels": [
         {
-          "key": "macro",
+          "key": "macro_news",
           "channel_id": "1531655369884045382",
           "description": "Broad economic, business, market, sector, and cross-asset analysis."
         }
@@ -44,17 +44,17 @@
       "emoji": "<:rickyho1989:1531920390434328577>",
       "discord_channels": [
         {
-          "key": "macro",
+          "key": "macro_news",
           "channel_id": "1531655369884045382",
           "description": "Broad economic, business, market, sector, and cross-asset analysis."
         },
         {
-          "key": "id_stock",
+          "key": "id_stocks_news",
           "channel_id": "1525102508714889257",
           "description": "Direct IDX-listed company or ticker thesis."
         },
         {
-          "key": "us_stock",
+          "key": "us_stocks_news",
           "channel_id": "1532266331737686199",
           "description": "Direct NYSE- or Nasdaq-listed security thesis, including ADRs."
         }
@@ -87,12 +87,12 @@
       "emoji": "<:writingtorch:1532596179853115594>",
       "discord_channels": [
         {
-          "key": "macro",
+          "key": "macro_news",
           "channel_id": "1531655369884045382",
           "description": "Broad economic, business, market, sector, and cross-asset analysis."
         },
         {
-          "key": "id_stock",
+          "key": "id_stocks_news",
           "channel_id": "1525102508714889257",
           "description": "Direct IDX-listed company or ticker thesis."
         }
@@ -125,17 +125,17 @@
       "emoji": "<:arvinhonami:1533149571759472772>",
       "discord_channels": [
         {
-          "key": "macro",
+          "key": "macro_news",
           "channel_id": "1531655369884045382",
           "description": "Broad economic, business, market, sector, and cross-asset analysis."
         },
         {
-          "key": "id_stock",
+          "key": "id_stocks_news",
           "channel_id": "1525102508714889257",
           "description": "Direct IDX-listed company or ticker thesis."
         },
         {
-          "key": "us_stock",
+          "key": "us_stocks_news",
           "channel_id": "1532266331737686199",
           "description": "Direct NYSE- or Nasdaq-listed security thesis, including ADRs."
         }
@@ -169,17 +169,17 @@
       "emoji": "<:insidertracker:1537444489134604448>",
       "discord_channels": [
         {
-          "key": "macro",
+          "key": "macro_news",
           "channel_id": "1531655369884045382",
           "description": "Broad economic, business, market, sector, and cross-asset analysis."
         },
         {
-          "key": "id_stock",
+          "key": "id_stocks_news",
           "channel_id": "1525102508714889257",
           "description": "Direct IDX-listed company or ticker thesis."
         },
         {
-          "key": "us_stock",
+          "key": "us_stocks_news",
           "channel_id": "1532266331737686199",
           "description": "Direct NYSE- or Nasdaq-listed security thesis, including ADRs."
         }
@@ -212,17 +212,17 @@
       "emoji": "<:doktermarket:1540234049807720508>",
       "discord_channels": [
         {
-          "key": "macro",
+          "key": "macro_news",
           "channel_id": "1531655369884045382",
           "description": "Broad economic, business, market, sector, and cross-asset analysis."
         },
         {
-          "key": "id_stock",
+          "key": "id_stocks_news",
           "channel_id": "1525102508714889257",
           "description": "Direct IDX-listed company or ticker thesis."
         },
         {
-          "key": "id_stock_swing",
+          "key": "id_stocks_swing",
           "channel_id": "1525102458253217803",
           "description": "Direct IDX technical-analysis or swing-trading thesis."
         }
@@ -236,7 +236,7 @@
       "enable_llm_summary": true,
       "enable_llm_routing": true,
       "enable_llm_relevance_filter": true,
-      "additional_prompt_instruction": "DokterMarket frequently publishes Indonesian macro updates and IDX stock analysis, but also promotes paid or member-only research. Exclude promotional or sales posts, including Member Only or member-only teasers, premium or subscriber content, paid research, subscription or access invitations, signal-service marketing, and clickbait profit promises. For a direct IDX ticker, use id_stock_swing only when the central thesis is technical charting or a trade setup, such as wave counts, support or resistance, breakouts, indicators, entry, target, or stop-loss; otherwise use id_stock. Do not reject ordinary market news or substantive analysis merely because it links to doktermarket.com.",
+      "additional_prompt_instruction": "DokterMarket frequently publishes Indonesian macro updates and IDX stock analysis, but also promotes paid or member-only research. Exclude promotional or sales posts, including Member Only or member-only teasers, premium or subscriber content, paid research, subscription or access invitations, signal-service marketing, and clickbait profit promises. For a direct IDX ticker, use id_stocks_swing only when the central thesis is technical charting or a trade setup, such as wave counts, support or resistance, breakouts, indicators, entry, target, or stop-loss; otherwise use id_stocks_news. Do not reject ordinary market news or substantive analysis merely because it links to doktermarket.com.",
       "max_items_per_poll": 50,
       "thread_handling": {
         "mode": "disabled",
@@ -255,17 +255,17 @@
       "emoji": "<:txthariansaham:1540780954929340476>",
       "discord_channels": [
         {
-          "key": "macro",
+          "key": "macro_news",
           "channel_id": "1531655369884045382",
           "description": "Broad economic, business, market, sector, and cross-asset analysis."
         },
         {
-          "key": "id_stock",
+          "key": "id_stocks_news",
           "channel_id": "1525102508714889257",
           "description": "Direct IDX-listed company or ticker thesis."
         },
         {
-          "key": "id_stock_swing",
+          "key": "id_stocks_swing",
           "channel_id": "1525102458253217803",
           "description": "Direct IDX technical-analysis or swing-trading thesis."
         }
@@ -279,7 +279,7 @@
       "enable_llm_summary": true,
       "enable_llm_routing": true,
       "enable_llm_relevance_filter": true,
-      "additional_prompt_instruction": "Forward substantive IDX analysis. Use id_stock_swing only for a direct IDX ticker's technical chart or trade setup, including wave counts, chart patterns, support or resistance, breakout or breakdown, indicators, entry, target, stop-loss, or risk/reward. Use id_stock for dividend schedules, earnings, corporate actions, issuer news, fundamentals, or valuation. Use macro for broad IHSG, market-wide, or foreign-flow posts. Do not route to swing merely because a post contains numbers, tickers, or a target price. Exclude casual reactions, greetings, memes, generic engagement, unsupported hype, clickbait profit promises, and paid research or trading-service promotions.",
+      "additional_prompt_instruction": "Forward substantive IDX analysis. Use id_stocks_swing only for a direct IDX ticker's technical chart or trade setup, including wave counts, chart patterns, support or resistance, breakout or breakdown, indicators, entry, target, stop-loss, or risk/reward. Use id_stocks_news for dividend schedules, earnings, corporate actions, issuer news, fundamentals, or valuation. Use macro_news for broad IHSG, market-wide, or foreign-flow posts. Do not route to swing merely because a post contains numbers, tickers, or a target price. Exclude casual reactions, greetings, memes, generic engagement, unsupported hype, clickbait profit promises, and paid research or trading-service promotions.",
       "max_items_per_poll": 50,
       "thread_handling": {
         "mode": "disabled",
@@ -299,22 +299,22 @@
       "emoji": "<:wavetiga:1540781022143316129>",
       "discord_channels": [
         {
-          "key": "macro",
+          "key": "macro_news",
           "channel_id": "1531655369884045382",
           "description": "Broad economic, business, market, sector, and cross-asset analysis."
         },
         {
-          "key": "id_stock",
+          "key": "id_stocks_news",
           "channel_id": "1525102508714889257",
           "description": "Direct IDX-listed company or ticker thesis."
         },
         {
-          "key": "id_stock_swing",
+          "key": "id_stocks_swing",
           "channel_id": "1525102458253217803",
           "description": "Direct IDX technical-analysis or swing-trading thesis."
         },
         {
-          "key": "us_stock",
+          "key": "us_stocks_news",
           "channel_id": "1532266331737686199",
           "description": "Direct NYSE- or Nasdaq-listed security thesis, including ADRs."
         }
@@ -328,7 +328,7 @@
       "enable_llm_summary": true,
       "enable_llm_routing": true,
       "enable_llm_relevance_filter": true,
-      "additional_prompt_instruction": "Forward substantive stock, market, and Elliott Wave analysis. For IDX posts, use id_stock_swing when the central thesis is technical price action or a trade setup, including wave counts, chart patterns, support or resistance, breakout or breakdown, indicators, entry, target, stop-loss, risk/reward, or a defined price path. Use id_stock for IDX news, fundamentals, valuation, earnings, or corporate actions. A valuation-based target is not swing, and numbers, tickers, or an image alone are not evidence of a technical setup. US-listed technical posts remain us_stock. Exclude greetings, generic engagement, trading-group performance marketing, paid courses, paid research, signal-service promotions, and clickbait profit promises.",
+      "additional_prompt_instruction": "Forward substantive stock, market, and Elliott Wave analysis. For IDX posts, use id_stocks_swing when the central thesis is technical price action or a trade setup, including wave counts, chart patterns, support or resistance, breakout or breakdown, indicators, entry, target, stop-loss, risk/reward, or a defined price path. Use id_stocks_news for IDX news, fundamentals, valuation, earnings, or corporate actions. A valuation-based target is not swing, and numbers, tickers, or an image alone are not evidence of a technical setup. US-listed posts use us_stocks_news, the US stocks news route. Exclude greetings, generic engagement, trading-group performance marketing, paid courses, paid research, signal-service promotions, and clickbait profit promises.",
       "max_items_per_poll": 50,
       "thread_handling": {
         "mode": "disabled",
@@ -348,12 +348,12 @@
       "emoji": "<:aldotjahjadi:1541368062643798127>",
       "discord_channels": [
         {
-          "key": "macro",
+          "key": "macro_news",
           "channel_id": "1531655369884045382",
           "description": "Broad economic, business, market, sector, and cross-asset analysis."
         },
         {
-          "key": "id_stock",
+          "key": "id_stocks_news",
           "channel_id": "1525102508714889257",
           "description": "Direct IDX-listed company or ticker thesis."
         }
@@ -367,7 +367,7 @@
       "enable_llm_summary": true,
       "enable_llm_routing": true,
       "enable_llm_relevance_filter": true,
-      "additional_prompt_instruction": "Forward substantive Indonesian macro, market, and IDX-listed company analysis. Keep broad IHSG, rates, bonds, FX, commodities, global-risk, and market-wide views in macro; keep direct IDX company, earnings, corporate-action, and valuation theses in id_stock. Exclude generic biographies or praise of an investor or other person, standalone track records, annual-return statistics, and performance-history posts without a concrete macro, market, policy, or company thesis. Also exclude reposts, casual reactions, greetings, memes, generic engagement, unsupported hype, clickbait profit promises, and paid research or trading-service promotions.",
+      "additional_prompt_instruction": "Forward substantive Indonesian macro, market, and IDX-listed company analysis. Keep broad IHSG, rates, bonds, FX, commodities, global-risk, and market-wide views in macro_news; keep direct IDX company, earnings, corporate-action, and valuation theses in id_stocks_news. Exclude generic biographies or praise of an investor or other person, standalone track records, annual-return statistics, and performance-history posts without a concrete macro, market, policy, or company thesis. Also exclude reposts, casual reactions, greetings, memes, generic engagement, unsupported hype, clickbait profit promises, and paid research or trading-service promotions.",
       "max_items_per_poll": 50,
       "thread_handling": {
         "mode": "self_chain",

@@ -58,9 +58,9 @@ def test_submit_summary_validates_then_drains_only_summary_event(tmp_path, monke
 @pytest.mark.parametrize(
     ("route", "channel", "title"),
     [
-        ("id_stock", "1525102508714889257", "MYOR: Uji Rute Saham Indonesia"),
-        ("id_stock_swing", "1525102458253217803", "BBNI: Uji Rute Swing Indonesia"),
-        ("us_stock", "1532266331737686199", "META: Uji Rute Saham AS"),
+        ("id_stocks_news", "1525102508714889257", "MYOR: Uji Rute Saham Indonesia"),
+        ("id_stocks_swing", "1525102458253217803", "BBNI: Uji Rute Swing Indonesia"),
+        ("us_stocks_news", "1532266331737686199", "META: Uji Rute Saham AS"),
     ],
 )
 def test_submit_summary_routes_stock_analysis_to_its_configured_channel(tmp_path, monkeypatch, config_path, profile_payload, route, channel, title):
@@ -68,10 +68,10 @@ def test_submit_summary_routes_stock_analysis_to_its_configured_channel(tmp_path
     profile_payload["enable_llm_summary"] = True
     profile_payload["enable_llm_routing"] = True
     profile_payload["discord_channels"] = [
-        {"key": "macro", "channel_id": "1531655369884045382", "description": "Macro"},
-        {"key": "id_stock", "channel_id": "1525102508714889257", "description": "IDX"},
-        {"key": "id_stock_swing", "channel_id": "1525102458253217803", "description": "IDX swing"},
-        {"key": "us_stock", "channel_id": "1532266331737686199", "description": "US listed"},
+        {"key": "macro_news", "channel_id": "1531655369884045382", "description": "Macro"},
+        {"key": "id_stocks_news", "channel_id": "1525102508714889257", "description": "IDX"},
+        {"key": "id_stocks_swing", "channel_id": "1525102458253217803", "description": "IDX swing"},
+        {"key": "us_stocks_news", "channel_id": "1532266331737686199", "description": "US listed"},
     ]
     config_path.write_text(json.dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
     profile = __import__("config").load_watch_config(config_path).profiles[0]
@@ -102,9 +102,9 @@ def test_submit_summary_overrides_clear_txth_route_with_deterministic_route(tmp_
         "enable_llm_summary": True,
         "enable_llm_routing": True,
         "discord_channels": [
-            {"key": "macro", "channel_id": "1531655369884045382", "description": "Macro"},
-            {"key": "id_stock", "channel_id": "1525102508714889257", "description": "IDX"},
-            {"key": "id_stock_swing", "channel_id": "1525102458253217803", "description": "IDX swing"},
+            {"key": "macro_news", "channel_id": "1531655369884045382", "description": "Macro"},
+            {"key": "id_stocks_news", "channel_id": "1525102508714889257", "description": "IDX"},
+            {"key": "id_stocks_swing", "channel_id": "1525102458253217803", "description": "IDX swing"},
         ],
     })
     config_path.write_text(json.dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
@@ -126,7 +126,7 @@ def test_submit_summary_overrides_clear_txth_route_with_deterministic_route(tmp_
         "is_relevant": True,
         "title": "BBRI: Chart Harian Menunjukkan Breakout",
         "summary": "*(Ringkasan)* Breakout resistance dengan entry dan stop-loss.",
-        "route": "id_stock",
+        "route": "id_stocks_news",
     })
 
     assert result == {"submitted": True, "delivered": 1}
@@ -143,8 +143,8 @@ def test_submit_summary_drops_deterministically_irrelevant_aldo_post(tmp_path, m
         "enable_llm_summary": True,
         "enable_llm_routing": True,
         "discord_channels": [
-            {"key": "macro", "channel_id": "1531655369884045382", "description": "Macro"},
-            {"key": "id_stock", "channel_id": "1525102508714889257", "description": "IDX"},
+            {"key": "macro_news", "channel_id": "1531655369884045382", "description": "Macro"},
+            {"key": "id_stocks_news", "channel_id": "1525102508714889257", "description": "IDX"},
         ],
     })
     config_path.write_text(json.dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
@@ -166,7 +166,7 @@ def test_submit_summary_drops_deterministically_irrelevant_aldo_post(tmp_path, m
         "is_relevant": True,
         "title": "Druckenmiller: Rekam Jejak Investasi",
         "summary": "*(Ringkasan)* Rekam jejak investasi.",
-        "route": "macro",
+        "route": "macro_news",
     })
 
     assert result == {"submitted": True, "ignored": True, "delivered": 0}
@@ -244,7 +244,7 @@ def test_submit_promotional_post_is_discarded_even_if_agent_marks_it_relevant(tm
     profile_payload["enable_llm_title"] = True
     profile_payload["enable_llm_summary"] = True
     profile_payload["enable_llm_routing"] = True
-    profile_payload["discord_channels"].append({"key": "id_stock", "channel_id": "1525102508714889257", "description": "IDX"})
+    profile_payload["discord_channels"].append({"key": "id_stocks_news", "channel_id": "1525102508714889257", "description": "IDX"})
     storage = tmp_path / "state.json"
     config_path.write_text(json.dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
     profile = __import__("config").load_watch_config(config_path).profiles[0]
@@ -275,7 +275,7 @@ def test_submit_promotional_post_is_discarded_even_if_agent_marks_it_relevant(tm
         "is_relevant": True,
         "title": "Produk Crypto Insider Tracker",
         "summary": "*(Ringkasan)* Produk promosi.",
-        "route": "macro",
+        "route": "macro_news",
     })
 
     assert result == {"submitted": True, "ignored": True, "delivered": 0}

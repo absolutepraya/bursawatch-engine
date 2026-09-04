@@ -235,7 +235,7 @@ def test_clear_idx_chart_setup_is_deterministically_routed_to_swing():
     profile = _canonical_profile("doktermarket")
     post = _source_post(profile.id, "2092071113228787737", "ADRO: Menembus Resisten, pola inverted head and shoulders, target pertama 2750.")
 
-    assert agent_protocol.deterministic_route(profile, post) == "id_stock_swing"
+    assert agent_protocol.deterministic_route(profile, post) == "id_stocks_swing"
 
 
 def test_txth_news_boundaries_are_deterministically_routed():
@@ -244,9 +244,9 @@ def test_txth_news_boundaries_are_deterministically_routed():
     foreign_flow = _source_post(profile.id, "2091763719059747022", "Asing net sell Rp391,96 miliar pada midday. Asing membeli TINS dan menjual BBRI.")
     technical = _source_post(profile.id, "2091763719059747023", "BBRI breakout resistance pada chart harian, dengan entry dan stop-loss.")
 
-    assert agent_protocol.deterministic_route(profile, dividend) == "id_stock"
-    assert agent_protocol.deterministic_route(profile, foreign_flow) == "macro"
-    assert agent_protocol.deterministic_route(profile, technical) == "id_stock_swing"
+    assert agent_protocol.deterministic_route(profile, dividend) == "id_stocks_news"
+    assert agent_protocol.deterministic_route(profile, foreign_flow) == "macro_news"
+    assert agent_protocol.deterministic_route(profile, technical) == "id_stocks_swing"
 
 
 def test_submission_accepts_only_configured_routes(config_path, profile_payload):
@@ -254,20 +254,28 @@ def test_submission_accepts_only_configured_routes(config_path, profile_payload)
     profile_payload["enable_llm_summary"] = True
     profile_payload["enable_llm_routing"] = True
     profile_payload["discord_channels"] = [
-        {"key": "macro", "channel_id": "1531655369884045382", "description": "Macro"},
-        {"key": "id_stock", "channel_id": "1525102508714889257", "description": "IDX"},
-        {"key": "id_stock_swing", "channel_id": "1525102458253217803", "description": "IDX swing"},
-        {"key": "us_stock", "channel_id": "1532266331737686199", "description": "US listed"},
+        {"key": "macro_news", "channel_id": "1531655369884045382", "description": "Macro"},
+        {"key": "id_stocks_news", "channel_id": "1525102508714889257", "description": "IDX"},
+        {"key": "id_stocks_swing", "channel_id": "1525102458253217803", "description": "IDX swing"},
+        {"key": "us_stocks_news", "channel_id": "1532266331737686199", "description": "US listed"},
     ]
     config_path.write_text(__import__("json").dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
     profile = __import__("config").load_watch_config(config_path).profiles[0]
-    payload = {"event_key": "kutekians:102", "is_relevant": True, "title": "MYOR: Uji Rute Saham Indonesia", "summary": "*(Ringkasan)* Uji rute.", "route": "id_stock"}
+    payload = {"event_key": "kutekians:102", "is_relevant": True, "title": "MYOR: Uji Rute Saham Indonesia", "summary": "*(Ringkasan)* Uji rute.", "route": "id_stocks_news"}
 
-    assert agent_protocol.validate_submission(profile, payload)["route"] == "id_stock"
+    assert agent_protocol.validate_submission(profile, payload)["route"] == "id_stocks_news"
+    payload["route"] = "id_stocks_swing"
+    assert agent_protocol.validate_submission(profile, payload)["route"] == "id_stocks_swing"
+    payload["route"] = "us_stocks_news"
+    assert agent_protocol.validate_submission(profile, payload)["route"] == "us_stocks_news"
+    payload["route"] = "macro"
+    assert agent_protocol.validate_submission(profile, payload)["route"] == "macro_news"
+    payload["route"] = "id_stock"
+    assert agent_protocol.validate_submission(profile, payload)["route"] == "id_stocks_news"
     payload["route"] = "id_stock_swing"
-    assert agent_protocol.validate_submission(profile, payload)["route"] == "id_stock_swing"
+    assert agent_protocol.validate_submission(profile, payload)["route"] == "id_stocks_swing"
     payload["route"] = "us_stock"
-    assert agent_protocol.validate_submission(profile, payload)["route"] == "us_stock"
+    assert agent_protocol.validate_submission(profile, payload)["route"] == "us_stocks_news"
     payload["route"] = "other"
     with pytest.raises(ValueError, match="configured channel key"):
         agent_protocol.validate_submission(profile, payload)
@@ -275,7 +283,7 @@ def test_submission_accepts_only_configured_routes(config_path, profile_payload)
 
 def test_agent_routing_instruction_prioritizes_market_thesis_over_company_examples(config_path, profile_payload):
     profile_payload["enable_llm_routing"] = True
-    profile_payload["discord_channels"].append({"key": "id_stock", "channel_id": "1525102508714889257", "description": "IDX"})
+    profile_payload["discord_channels"].append({"key": "id_stocks_news", "channel_id": "1525102508714889257", "description": "IDX"})
     config_path.write_text(__import__("json").dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     instruction = agent_protocol.instruction_for(profile).lower()
@@ -286,15 +294,17 @@ def test_agent_routing_instruction_prioritizes_market_thesis_over_company_exampl
     assert "yahoo finance tool first, then serper, then brave search" in instruction
     assert "do not add any other lookup fact to the title or summary" in instruction
     assert "lookup remains inconclusive" in instruction
-    assert "choose macro" in instruction
-    assert "id_stock_swing" in instruction
-    assert "a target price derived from earnings, dcf, or valuation remains id_stock" in instruction
+    assert "choose macro_news" in instruction
+    assert "id_stocks_swing" in instruction
+    assert "a target derived from earnings, dcf, or valuation remains id_stocks_news" in instruction
+    assert "there is no separate us swing route" in instruction
+    assert "ticker, number, target price, company name, or chart image alone" in instruction
     assert "spcx" not in instruction
 
 
 def test_agent_instruction_requires_ticker_first_stock_titles_and_direct_summary_voice(config_path, profile_payload):
     instruction = agent_protocol.instruction_for(__import__("config").load_watch_config(config_path).profiles[0]).lower()
-    assert "id_stock, id_stock_swing, or us_stock" in instruction
+    assert "id_stocks_news, id_stocks_swing, or us_stocks_news" in instruction
     assert "first word of the title" in instruction
     assert "never repeat that label in the second paragraph" in instruction
     assert "do not describe ricky or the writer" in instruction

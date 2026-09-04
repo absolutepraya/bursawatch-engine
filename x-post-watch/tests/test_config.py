@@ -69,9 +69,9 @@ def test_canonical_insider_tracker_profile_is_threaded_and_routed():
     assert profile.twitter_emoji == "<:twitter:1531672630602498129>"
     assert profile.emoji == "<:insidertracker:1537444489134604448>"
     assert [(channel.key, channel.channel_id, channel.description) for channel in profile.discord_channels] == [
-        ("macro", "1531655369884045382", "Broad economic, business, market, sector, and cross-asset analysis."),
-        ("id_stock", "1525102508714889257", "Direct IDX-listed company or ticker thesis."),
-        ("us_stock", "1532266331737686199", "Direct NYSE- or Nasdaq-listed security thesis, including ADRs."),
+        ("macro_news", "1531655369884045382", "Broad economic, business, market, sector, and cross-asset analysis."),
+        ("id_stocks_news", "1525102508714889257", "Direct IDX-listed company or ticker thesis."),
+        ("us_stocks_news", "1532266331737686199", "Direct NYSE- or Nasdaq-listed security thesis, including ADRs."),
     ]
     assert (profile.forward_normal_post, profile.forward_quote_post, profile.forward_reply, profile.forward_repost, profile.forward_media) == (True, True, False, False, True)
     assert profile.enable_llm_title is True
@@ -96,9 +96,9 @@ def test_canonical_doktermarket_profile_is_routed_and_media_enabled():
     assert profile.twitter_emoji == "<:twitter:1531672630602498129>"
     assert profile.emoji == "<:doktermarket:1540234049807720508>"
     assert [(channel.key, channel.channel_id, channel.description) for channel in profile.discord_channels] == [
-        ("macro", "1531655369884045382", "Broad economic, business, market, sector, and cross-asset analysis."),
-        ("id_stock", "1525102508714889257", "Direct IDX-listed company or ticker thesis."),
-        ("id_stock_swing", "1525102458253217803", "Direct IDX technical-analysis or swing-trading thesis."),
+        ("macro_news", "1531655369884045382", "Broad economic, business, market, sector, and cross-asset analysis."),
+        ("id_stocks_news", "1525102508714889257", "Direct IDX-listed company or ticker thesis."),
+        ("id_stocks_swing", "1525102458253217803", "Direct IDX technical-analysis or swing-trading thesis."),
     ]
     assert (profile.forward_normal_post, profile.forward_quote_post, profile.forward_reply, profile.forward_repost, profile.forward_media) == (True, True, False, False, True)
     assert profile.enable_llm_title is True
@@ -121,9 +121,9 @@ def test_canonical_txthariansaham_profile_is_routed_and_uses_rsshub():
     assert profile.display_name == "Ga Cuan Ga tidur"
     assert profile.emoji == "<:txthariansaham:1540780954929340476>"
     assert [(channel.key, channel.channel_id) for channel in profile.discord_channels] == [
-        ("macro", "1531655369884045382"),
-        ("id_stock", "1525102508714889257"),
-        ("id_stock_swing", "1525102458253217803"),
+        ("macro_news", "1531655369884045382"),
+        ("id_stocks_news", "1525102508714889257"),
+        ("id_stocks_swing", "1525102458253217803"),
     ]
     assert (profile.forward_normal_post, profile.forward_quote_post, profile.forward_reply, profile.forward_repost, profile.forward_media) == (True, True, False, False, True)
     assert (profile.enable_llm_title, profile.enable_llm_summary, profile.enable_llm_routing, profile.enable_llm_relevance_filter) == (True, True, True, True)
@@ -144,8 +144,8 @@ def test_canonical_aldotjahjadi8_profile_is_routed_and_threaded():
     assert profile.twitter_emoji == "<:twitter:1531672630602498129>"
     assert profile.emoji == "<:aldotjahjadi:1541368062643798127>"
     assert [(channel.key, channel.channel_id) for channel in profile.discord_channels] == [
-        ("macro", "1531655369884045382"),
-        ("id_stock", "1525102508714889257"),
+        ("macro_news", "1531655369884045382"),
+        ("id_stocks_news", "1525102508714889257"),
     ]
     assert (profile.forward_normal_post, profile.forward_quote_post, profile.forward_reply, profile.forward_repost, profile.forward_media) == (True, True, False, False, True)
     assert (profile.enable_llm_title, profile.enable_llm_summary, profile.enable_llm_routing, profile.enable_llm_relevance_filter) == (True, True, True, True)
@@ -165,15 +165,15 @@ def test_canonical_wavetiga_profile_is_direct_x_and_fully_routed():
     assert profile.display_name == "Andriy"
     assert profile.emoji == "<:wavetiga:1540781022143316129>"
     assert [(channel.key, channel.channel_id) for channel in profile.discord_channels] == [
-        ("macro", "1531655369884045382"),
-        ("id_stock", "1525102508714889257"),
-        ("id_stock_swing", "1525102458253217803"),
-        ("us_stock", "1532266331737686199"),
+        ("macro_news", "1531655369884045382"),
+        ("id_stocks_news", "1525102508714889257"),
+        ("id_stocks_swing", "1525102458253217803"),
+        ("us_stocks_news", "1532266331737686199"),
     ]
     assert (profile.forward_normal_post, profile.forward_quote_post, profile.forward_reply, profile.forward_repost, profile.forward_media) == (True, True, False, False, True)
     assert (profile.enable_llm_title, profile.enable_llm_summary, profile.enable_llm_routing, profile.enable_llm_relevance_filter) == (True, True, True, True)
     assert "Elliott Wave" in profile.additional_prompt_instruction
-    assert "id_stock_swing" in profile.additional_prompt_instruction
+    assert "id_stocks_swing" in profile.additional_prompt_instruction
     assert "valuation-based target is not swing" in profile.additional_prompt_instruction
     assert "paid courses" in profile.additional_prompt_instruction
     assert (profile.thread_handling.mode, profile.thread_handling.max_posts, profile.thread_handling.max_age_minutes, profile.thread_handling.settle_minutes) == ("disabled", 10, 240, 60)
@@ -244,8 +244,8 @@ def test_load_config_rejects_duplicate_routing_channel_keys(config_path, profile
     profile_payload.update({
         "enable_llm_routing": True,
         "discord_channels": [
-            {"key": "macro", "channel_id": "1531655369884045382", "description": "Macro"},
-            {"key": "macro", "channel_id": "1525102508714889257", "description": "Duplicate"},
+            {"key": "macro_news", "channel_id": "1531655369884045382", "description": "Macro"},
+            {"key": "macro_news", "channel_id": "1525102508714889257", "description": "Duplicate"},
         ],
     })
     write_config(config_path, {"version": 1, "profiles": [profile_payload]})
@@ -257,8 +257,8 @@ def test_load_config_rejects_duplicate_routing_channel_ids(config_path, profile_
     profile_payload.update({
         "enable_llm_routing": True,
         "discord_channels": [
-            {"key": "macro", "channel_id": "1531655369884045382", "description": "Macro"},
-            {"key": "id_stock", "channel_id": "1531655369884045382", "description": "IDX"},
+            {"key": "macro_news", "channel_id": "1531655369884045382", "description": "Macro"},
+            {"key": "id_stocks_news", "channel_id": "1531655369884045382", "description": "IDX"},
         ],
     })
     write_config(config_path, {"version": 1, "profiles": [profile_payload]})

@@ -16,6 +16,7 @@ import rsshub
 import state
 import supersession
 from agent_protocol import (
+    normalize_route,
     agent_item,
     build_wake_payload,
     deterministic_route,
@@ -89,7 +90,7 @@ def _next_deliverable_index(value: dict, profiles: dict, now: datetime) -> int |
 def _target_channel(profile, event: dict) -> str:
     if not profile.enable_llm_routing:
         return profile.discord_channels[0].channel_id
-    return profile.channel_for(event["route"]).channel_id
+    return profile.channel_for(normalize_route(profile, event["route"])).channel_id
 
 
 def _event_source_ids(event: dict) -> set[str]:
