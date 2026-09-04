@@ -1,3 +1,6 @@
+import requests
+import pytest
+
 import direct_x
 from models import PostKind
 
@@ -11,6 +14,21 @@ class Response:
 
     def json(self):
         return self._payload
+
+
+class ProxySession:
+    def __init__(self, *outcomes):
+        self.proxies = {}
+        self.outcomes = list(outcomes)
+        self.urls = []
+
+    def get(self, url, timeout, headers=None):
+        assert timeout == 30
+        self.urls.append(url)
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
 
 
 class Session:
@@ -126,3 +144,90 @@ def test_429_requests_three_hour_cooldown(config_path):
         assert exc.retry_after_seconds == 3 * 60 * 60
     else:
         raise AssertionError("expected a source fetch error")
+
+
+def test_proxy_session_retries_a_transport_failure_through_fallback(monkeypatch):
+    primary = ProxySession(requests.ConnectionError("primary unavailable"))
+    fallback = ProxySession(Response(200, text="ok"))
+    sessions = iter([primary, fallback])
+    monkeypatch.setattr(direct_x.requests, "Session", lambda: next(sessions))
+    monkeypatch.setenv(direct_x.PRIMARY_PROXY_ENV, "http://primary.example:3010")
+    monkeypatch.setenv(direct_x.FALLBACK_PROXY_ENV, "http://fallback.example:443")
+
+    client = direct_x._configured_session()
+    response = direct_x._get(client, "https://x.com/wavetiga")
+
+    assert response.status_code == 200
+    assert primary.urls == ["https://x.com/wavetiga"]
+    assert fallback.urls == ["https://x.com/wavetiga"]
+    assert primary.proxies == {
+        "http": "http://primary.example:3010",
+        "https": "http://primary.example:3010",
+    }
+    assert fallback.proxies == {
+        "http": "http://fallback.example:443",
+        "https": "http://fallback.example:443",
+    }
+    assert next(sessions, None) is None
+
+
+def test_proxy_session_stays_on_fallback_for_the_rest_of_the_poll(monkeypatch):
+    primary = ProxySession(Response(503))
+    fallback = ProxySession(Response(200, text="first"), Response(200, text="second"))
+    sessions = iter([primary, fallback])
+    monkeypatch.setattr(direct_x.requests, "Session", lambda: next(sessions))
+    monkeypatch.setenv(direct_x.PRIMARY_PROXY_ENV, "http://primary.example:3010")
+    monkeypatch.setenv(direct_x.FALLBACK_PROXY_ENV, "http://fallback.example:443")
+
+    client = direct_x._configured_session()
+    assert direct_x._get(client, "https://x.com/wavetiga").text == "first"
+    assert direct_x._get(client, "https://api.vxtwitter.com/wavetiga/status/1").text == "second"
+
+    assert primary.urls == ["https://x.com/wavetiga"]
+    assert fallback.urls == [
+        "https://x.com/wavetiga",
+        "https://api.vxtwitter.com/wavetiga/status/1",
+    ]
+
+
+def test_proxy_session_only_cools_down_when_both_routes_are_rate_limited(monkeypatch):
+    primary = ProxySession(Response(429))
+    fallback = ProxySession(Response(429))
+    sessions = iter([primary, fallback])
+    monkeypatch.setattr(direct_x.requests, "Session", lambda: next(sessions))
+    monkeypatch.setenv(direct_x.PRIMARY_PROXY_ENV, "http://primary.example:3010")
+    monkeypatch.setenv(direct_x.FALLBACK_PROXY_ENV, "http://fallback.example:443")
+
+    client = direct_x._configured_session()
+    with pytest.raises(direct_x.SourceFetchError) as error:
+        direct_x._get(client, "https://x.com/wavetiga")
+
+    assert str(error.value) == "direct X feed HTTP 429 (three-hour cooldown)"
+    assert error.value.retry_after_seconds == 3 * 60 * 60
+
+
+def test_rate_limit_on_already_active_fallback_does_not_start_global_cooldown(monkeypatch):
+    primary = ProxySession(Response(503))
+    fallback = ProxySession(Response(200, text="first"), Response(429))
+    sessions = iter([primary, fallback])
+    monkeypatch.setattr(direct_x.requests, "Session", lambda: next(sessions))
+    monkeypatch.setenv(direct_x.PRIMARY_PROXY_ENV, "http://primary.example:3010")
+    monkeypatch.setenv(direct_x.FALLBACK_PROXY_ENV, "http://fallback.example:443")
+
+    client = direct_x._configured_session()
+    assert direct_x._get(client, "https://x.com/wavetiga").text == "first"
+
+    with pytest.raises(direct_x.SourceFetchError) as error:
+        direct_x._get(client, "https://api.vxtwitter.com/wavetiga/status/1")
+
+    assert str(error.value) == "direct X feed HTTP 429"
+    assert error.value.retry_after_seconds is None
+
+
+def test_missing_proxy_configuration_fails_closed(config_path, monkeypatch):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    monkeypatch.delenv(direct_x.PRIMARY_PROXY_ENV, raising=False)
+    monkeypatch.delenv(direct_x.FALLBACK_PROXY_ENV, raising=False)
+
+    with pytest.raises(direct_x.SourceFetchError, match="proxy configuration"):
+        direct_x.fetch_profile_items(profile)

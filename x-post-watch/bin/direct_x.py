@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import html
+import logging
+import os
 import re
 from datetime import UTC, datetime
+from urllib.parse import urlsplit
 
 import requests
 
@@ -14,6 +17,68 @@ TWEET_ID_RE = re.compile(r'data-tweet-id="(\d+)"')
 STATUS_URL_RE = re.compile(r'(?:https://(?:www\.)?x\.com/|/)([A-Za-z0-9_]{1,15})/status/(\d+)')
 USER_AGENT = "Mozilla/5.0 (X-post-watch; +https://x.com/)"
 RATE_LIMIT_COOLDOWN_SECONDS = 3 * 60 * 60
+PRIMARY_PROXY_ENV = "X_POST_WATCH_PROXY_PRIMARY"
+FALLBACK_PROXY_ENV = "X_POST_WATCH_PROXY_FALLBACK"
+RECOVERABLE_PROXY_STATUS_CODES = {403, 407, 429} | set(range(500, 600))
+LOGGER = logging.getLogger(__name__)
+
+
+def _valid_proxy_url(value: str) -> bool:
+    try:
+        parsed = urlsplit(value)
+        return parsed.scheme in {"http", "https"} and bool(parsed.hostname) and parsed.port is not None
+    except ValueError:
+        return False
+
+
+class _ProxySession:
+    def __init__(self, proxy_urls: tuple[str, str]) -> None:
+        self._sessions = []
+        for proxy_url in proxy_urls:
+            session = requests.Session()
+            session.trust_env = False
+            session.proxies.update({"http": proxy_url, "https": proxy_url})
+            self._sessions.append(session)
+        self._active_index = 0
+        self.attempt_statuses: list[int | None] = []
+        self.attempted_routes: list[int] = []
+        self.used_fallback = False
+
+    def _switch_to_fallback(self) -> None:
+        if self._active_index == 0:
+            self._active_index = 1
+            self.used_fallback = True
+            LOGGER.info("direct X fallback proxy used")
+
+    def get(self, url: str, timeout: int, headers: dict[str, str] | None = None) -> requests.Response:
+        self.attempt_statuses = []
+        self.attempted_routes = []
+        for index in range(self._active_index, len(self._sessions)):
+            self.attempted_routes.append(index)
+            try:
+                response = self._sessions[index].get(url, timeout=timeout, headers=headers)
+            except requests.RequestException:
+                self.attempt_statuses.append(None)
+                if index == 0:
+                    self._switch_to_fallback()
+                    continue
+                raise
+
+            self.attempt_statuses.append(response.status_code)
+            if response.status_code in RECOVERABLE_PROXY_STATUS_CODES and index == 0:
+                self._switch_to_fallback()
+                continue
+            return response
+
+        raise requests.RequestException("direct X proxy request failed")
+
+
+def _configured_session() -> _ProxySession:
+    primary = os.environ.get(PRIMARY_PROXY_ENV, "").strip()
+    fallback = os.environ.get(FALLBACK_PROXY_ENV, "").strip()
+    if not primary or not fallback or not _valid_proxy_url(primary) or not _valid_proxy_url(fallback):
+        raise SourceFetchError("direct X proxy configuration is missing or invalid")
+    return _ProxySession((primary, fallback))
 
 
 def _tweet_ids(document: str, handle: str | None = None) -> list[str]:
@@ -36,10 +101,14 @@ def _get(session: requests.Session, url: str) -> requests.Response:
         raise SourceFetchError("direct X feed request failed") from exc
     if response.status_code >= 400:
         if response.status_code == 429:
-            raise SourceFetchError(
-                "direct X feed HTTP 429 (three-hour cooldown)",
-                retry_after_seconds=RATE_LIMIT_COOLDOWN_SECONDS,
-            )
+            statuses = getattr(session, "attempt_statuses", ())
+            attempted_routes = getattr(session, "attempted_routes", ())
+            if not attempted_routes or len(attempted_routes) >= 2 and all(status == 429 for status in statuses):
+                raise SourceFetchError(
+                    "direct X feed HTTP 429 (three-hour cooldown)",
+                    retry_after_seconds=RATE_LIMIT_COOLDOWN_SECONDS,
+                )
+            raise SourceFetchError("direct X feed HTTP 429")
         raise SourceFetchError(f"direct X feed HTTP {response.status_code}")
     return response
 
@@ -121,7 +190,7 @@ def _payload(session: requests.Session, profile: Profile, post_id: str) -> dict[
 
 
 def fetch_profile_items(profile: Profile, session: requests.Session | None = None, after_id: str | None = None) -> list[SourcePost]:
-    client = session or requests.Session()
+    client = session or _configured_session()
     profile_response = _get(client, profile.profile_url)
     visible_ids = _tweet_ids(profile_response.text, profile.handle)[: profile.max_items_per_poll]
     if not visible_ids:
