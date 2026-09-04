@@ -8,6 +8,7 @@ from models import Profile, SourcePost
 
 DISCORD_LIMIT = 2000
 QUOTED_TEXT_LIMIT = 100
+EMOJI_RE = re.compile(r"[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u200D]+")
 SOURCE_URL_RE = re.compile(r"https?://[^\s<>()]+")
 
 
@@ -47,6 +48,11 @@ def markdown(html: str) -> str:
     parser = _TextParser()
     parser.feed(html)
     return re.sub(r"\n{3,}", "\n\n", "".join(parser.parts)).strip()
+
+
+def strip_emojis(value: str) -> str:
+    """Remove emoji glyphs from a writer name while preserving its text."""
+    return re.sub(r"\s+", " ", EMOJI_RE.sub("", value)).strip()
 
 
 def _split_plain(value: str, limit: int) -> list[str]:
@@ -139,7 +145,8 @@ def render_post(
     thread_posts: tuple[SourcePost, ...] | None = None,
     updated_tweet: bool = False,
 ) -> list[str]:
-    byline = f"{profile.display_name} (Updated Tweet)" if updated_tweet else profile.display_name
+    writer_name = strip_emojis(profile.display_name)
+    byline = f"{writer_name} (Updated Tweet)" if updated_tweet else writer_name
     heading = f"### {profile.twitter_emoji} {title}\n-# {profile.emoji} {byline}" if title else f"### {profile.twitter_emoji}{profile.emoji} {byline}"
     prefix = f"{heading}\n\n"
     if summary is not None:

@@ -4,6 +4,12 @@ import render
 from models import PostKind, SourcePost
 
 
+def test_strip_emojis_preserves_writer_text():
+    assert render.strip_emojis("IHSG Journal 🍀🌞") == "IHSG Journal"
+    assert render.strip_emojis("Aldo 🤝🏽 🇮🇩") == "Aldo"
+    assert render.strip_emojis("Almer Sad, CFA") == "Almer Sad, CFA"
+
+
 def test_render_quote_post_exact(config_path):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Market note", PostKind.QUOTE, "https://x.com/original/status/101", "Kepala Warga Tai.: Quote note", (), ())
@@ -96,6 +102,19 @@ def test_render_title_places_writer_in_muted_byline(config_path, profile_payload
     post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Raw original", PostKind.NORMAL, None, None, (), ())
     rendered = render.render_post(profile, post, title="BI: Tiga Indikator untuk Membaca Pasar")[0]
     assert rendered.startswith("### <:twitter:1531672630602498129> BI: Tiga Indikator untuk Membaca Pasar\n-# <:kutekians:1531673483459821729> Almer Sad, CFA\n\nRaw original")
+
+
+def test_render_title_strips_writer_emojis_from_muted_byline(config_path, profile_payload):
+    profile_payload["display_name"] = "IHSG Journal 🍀🌞"
+    config_path.write_text(__import__("json").dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Raw original", PostKind.NORMAL, None, None, (), ())
+
+    rendered = render.render_post(profile, post, title="IHSG: Ringkasan")[0]
+
+    assert "-# <:kutekians:1531673483459821729> IHSG Journal\n\n" in rendered
+    assert "🍀" not in rendered
+    assert "🌞" not in rendered
 
 
 def test_render_updated_tweet_uses_the_agreed_byline(config_path):
