@@ -1,0 +1,8 @@
+{
+  "items": [
+    {"url": "https://cdn.example/not-instagram.jpg", "content_html": "<img src=\"https://cdn.example/not-an-id.jpg\">"},
+    {"id": "story", "url": "https://www.instagram.com/stories/demo/123/", "content_html": "story"},
+    {"id": "live", "url": "https://www.instagram.com/live/123/", "content_html": "live"},
+    {"id": "missing-media", "url": "https://www.instagram.com/p/NO_MEDIA/", "content_html": "<p>caption only</p>"}
+  ]
+}

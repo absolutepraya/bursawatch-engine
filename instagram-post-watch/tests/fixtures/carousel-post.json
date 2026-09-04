@@ -1,0 +1,10 @@
+{
+  "items": [
+    {
+      "id": "media-1002",
+      "url": "https://instagram.com/p/CAROUSEL/",
+      "date_published": "2026-08-24T09:00:00Z",
+      "content_html": "<p>Four slides</p><img src=\"https://cdn.example/1.jpg\"><img src=\"https://cdn.example/2.jpg\"><img src=\"https://cdn.example/1.jpg\"><img src=\"https://cdn.example/3.jpg\"><img src=\"https://cdn.example/4.jpg\">"
+    }
+  ]
+}

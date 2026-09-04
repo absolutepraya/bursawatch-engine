@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -88,3 +89,25 @@ class SourcePost:
     caption_html: str
     kind: PublicationKind
     media: tuple[SourceMedia, ...]
+
+
+@dataclass(frozen=True)
+class DownloadedAsset:
+    source: SourceMedia
+    path: Path
+    sha256: str
+    size_bytes: int
+    content_type: str
+
+
+@dataclass(frozen=True)
+class DownloadLimits:
+    max_asset_bytes: int = 25 * 1024 * 1024
+    max_publication_bytes: int = 128 * 1024 * 1024
+    timeout_seconds: int = 30
+
+
+@dataclass(frozen=True)
+class DownloadedPublication:
+    assets: tuple[DownloadedAsset, ...]
+    media_root: Path

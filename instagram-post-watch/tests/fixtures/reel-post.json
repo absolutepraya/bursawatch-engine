@@ -1,0 +1,11 @@
+{
+  "items": [
+    {
+      "media_id": "media-1003",
+      "url": "https://www.instagram.com/reel/REEL123/",
+      "date_published": "2026-08-24T10:00:00+00:00",
+      "title": "A reel",
+      "content_html": "<p>Reel caption</p><video src=\"https://cdn.example/reel.mp4\" poster=\"https://cdn.example/cover.jpg\"><source src=\"https://cdn.example/reel.mp4\"></video>"
+    }
+  ]
+}
