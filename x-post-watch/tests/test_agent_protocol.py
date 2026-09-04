@@ -238,6 +238,15 @@ def test_clear_idx_chart_setup_is_deterministically_routed_to_swing():
     assert agent_protocol.deterministic_route(profile, post) == "id_stocks_swing"
 
 
+def test_ihsg_technical_setup_takes_macro_precedence_over_swing():
+    profile = _canonical_profile("doktermarket")
+    technical = _source_post(profile.id, "2092071113228787738", "IHSG: support 6473, stochastic menguat, target gap 6705 pada chart harian.")
+    nontechnical = _source_post(profile.id, "2092071113228787739", "IHSG melemah karena tekanan saham perbankan dan arus dana asing.")
+
+    assert agent_protocol.deterministic_route(profile, technical) == "macro_news"
+    assert agent_protocol.deterministic_route(profile, nontechnical) == "macro_news"
+
+
 def test_txth_news_boundaries_are_deterministically_routed():
     profile = _canonical_profile("txthariansaham")
     dividend = _source_post(profile.id, "2091750335014691145", "Jadwal pembagian dividen tunai dari Panin Sekuritas.")
@@ -296,6 +305,7 @@ def test_agent_routing_instruction_prioritizes_market_thesis_over_company_exampl
     assert "lookup remains inconclusive" in instruction
     assert "choose macro_news" in instruction
     assert "id_stocks_swing" in instruction
+    assert "ihsg always takes precedence over id_stocks_swing" in instruction
     assert "a target derived from earnings, dcf, or valuation remains id_stocks_news" in instruction
     assert "there is no separate us swing route" in instruction
     assert "ticker, number, target price, company name, or chart image alone" in instruction

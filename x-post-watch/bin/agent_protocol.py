@@ -59,6 +59,7 @@ TXTH_ID_STOCK_SIGNAL_RE = re.compile(
     r"\b(?:dividen|dividend|jadwal\s+pembagian|earnings?|laba|pendapatan|corporate\s+action|keterbukaan|rights?\s+issue|buyback|stock\s+split|merger|akuisisi)\b",
     re.IGNORECASE,
 )
+IHSG_MACRO_SIGNAL_RE = re.compile(r"\b(?:IHSG|Indeks\s+Harga\s+Saham\s+Gabungan)\b", re.IGNORECASE)
 ALDO_GENERIC_TRACK_RECORD_RE = re.compile(
     r"\b(?:track\s+record|rekam\s+jejak|annual\s+returns?|average\s+(?:annual\s+)?returns?|rata-rata\s+(?:imbal\s+hasil|return)|no\s+losing\s+years?|tanpa\s+(?:satu\s+pun\s+)?tahun\s+(?:yang\s+)?rugi|legendary\s+track\s+record)\b",
     re.IGNORECASE,
@@ -93,7 +94,7 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
     if profile.enable_llm_routing:
         routing = (
             "When route_required is true, classify the central thesis, not named entities. Apply these route boundaries in order. "
-            "Use macro_news for economy-wide, market-wide, IHSG, cross-asset, monetary or fiscal policy, rates, inflation, FX, bonds, foreign flows, global risk, commodities, leverage, derivatives, liquidity, investor positioning, bubbles, or broad sector risk, even when companies or ETFs are examples. "
+            "Use macro_news for economy-wide, market-wide, or IHSG theses, including any technical or non-technical analysis of IHSG or the Indeks Harga Saham Gabungan. IHSG always takes precedence over id_stocks_swing, even when the post contains charts, waves, support, resistance, targets, entries, or other technical signals. Also use macro_news for cross-asset, monetary or fiscal policy, rates, inflation, FX, bonds, foreign flows, global risk, commodities, leverage, derivatives, liquidity, investor positioning, bubbles, or broad sector risk, even when companies or ETFs are examples. "
             "Use id_stocks_news for direct IDX-listed company news or analysis, including dividends, earnings, corporate actions, fundamentals, and valuation. "
             "Use id_stocks_swing only for a direct IDX-listed company or ticker whose central thesis is technical charting or a trade setup, including Elliott Wave or wave counts, chart patterns, support or resistance, breakouts or breakdowns, technical indicators, entry, target, stop-loss, risk/reward, or a defined price path. A target derived from earnings, DCF, or valuation remains id_stocks_news. "
             "Use us_stocks_news for direct NYSE- or Nasdaq-listed security news or analysis, including earnings, corporate actions, fundamentals, valuation, and technical analysis. This route delivers to the configured US stocks news channel; there is no separate US swing route. "
@@ -167,6 +168,8 @@ def deterministic_route(
     has_technical_setup = bool(TECHNICAL_TRADE_SIGNAL_RE.search(text) and DIRECT_TICKER_RE.search(text))
     configured = {channel.key for channel in profile.discord_channels}
 
+    if IHSG_MACRO_SIGNAL_RE.search(text) and "macro_news" in configured:
+        return "macro_news"
     if has_technical_setup and "id_stocks_swing" in configured:
         return "id_stocks_swing"
     if profile.id == "txthariansaham":
