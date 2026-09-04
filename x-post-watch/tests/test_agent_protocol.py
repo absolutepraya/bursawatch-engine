@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 import agent_protocol
+import config as config_module
 from models import PostKind, SourcePost
 
 
@@ -191,6 +192,61 @@ def test_doktermarket_analysis_link_is_not_by_itself_promotional(config_path, pr
     )
 
     assert agent_protocol.is_promotional(post) is False
+
+
+def _canonical_profile(profile_id: str):
+    canonical_config = __import__("pathlib").Path(__file__).resolve().parents[1] / "config" / "watches.json"
+    return {item.id: item for item in config_module.load_watch_config(canonical_config).profiles}[profile_id]
+
+
+def _source_post(profile_id: str, post_id: str, text: str) -> SourcePost:
+    return SourcePost(
+        profile_id,
+        post_id,
+        f"https://x.com/example/status/{post_id}",
+        datetime.now(UTC),
+        text,
+        PostKind.NORMAL,
+        None,
+        None,
+        (),
+        (),
+    )
+
+
+def test_aldotjahjadi_generic_investor_track_record_is_deterministically_irrelevant():
+    profile = _canonical_profile("aldotjahjadi8")
+    generic = _source_post(
+        profile.id,
+        "2092189697150005608",
+        "Pelajaran dari rekam jejak investasi Stanley Druckenmiller: 30% annual returns selama 30 tahun dan no losing years.",
+    )
+    macro = _source_post(
+        profile.id,
+        "2092189062409195602",
+        "Peringatan Druckenmiller soal disiplin fiskal dan inflasi, dengan risiko yield obligasi yang lebih tinggi.",
+    )
+
+    assert agent_protocol.is_deterministically_irrelevant(profile, generic) is True
+    assert agent_protocol.is_deterministically_irrelevant(profile, macro) is False
+
+
+def test_clear_idx_chart_setup_is_deterministically_routed_to_swing():
+    profile = _canonical_profile("doktermarket")
+    post = _source_post(profile.id, "2092071113228787737", "ADRO: Menembus Resisten, pola inverted head and shoulders, target pertama 2750.")
+
+    assert agent_protocol.deterministic_route(profile, post) == "id_stock_swing"
+
+
+def test_txth_news_boundaries_are_deterministically_routed():
+    profile = _canonical_profile("txthariansaham")
+    dividend = _source_post(profile.id, "2091750335014691145", "Jadwal pembagian dividen tunai dari Panin Sekuritas.")
+    foreign_flow = _source_post(profile.id, "2091763719059747022", "Asing net sell Rp391,96 miliar pada midday. Asing membeli TINS dan menjual BBRI.")
+    technical = _source_post(profile.id, "2091763719059747023", "BBRI breakout resistance pada chart harian, dengan entry dan stop-loss.")
+
+    assert agent_protocol.deterministic_route(profile, dividend) == "id_stock"
+    assert agent_protocol.deterministic_route(profile, foreign_flow) == "macro"
+    assert agent_protocol.deterministic_route(profile, technical) == "id_stock_swing"
 
 
 def test_submission_accepts_only_configured_routes(config_path, profile_payload):

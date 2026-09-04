@@ -98,6 +98,7 @@ def test_canonical_doktermarket_profile_is_routed_and_media_enabled():
     assert [(channel.key, channel.channel_id, channel.description) for channel in profile.discord_channels] == [
         ("macro", "1531655369884045382", "Broad economic, business, market, sector, and cross-asset analysis."),
         ("id_stock", "1525102508714889257", "Direct IDX-listed company or ticker thesis."),
+        ("id_stock_swing", "1525102458253217803", "Direct IDX technical-analysis or swing-trading thesis."),
     ]
     assert (profile.forward_normal_post, profile.forward_quote_post, profile.forward_reply, profile.forward_repost, profile.forward_media) == (True, True, False, False, True)
     assert profile.enable_llm_title is True
@@ -105,6 +106,7 @@ def test_canonical_doktermarket_profile_is_routed_and_media_enabled():
     assert profile.enable_llm_routing is True
     assert profile.enable_llm_relevance_filter is True
     assert "Member Only" in profile.additional_prompt_instruction
+    assert "technical charting" in profile.additional_prompt_instruction
     assert (profile.thread_handling.mode, profile.thread_handling.max_posts, profile.thread_handling.max_age_minutes, profile.thread_handling.settle_minutes) == ("disabled", 10, 240, 60)
 
 
@@ -119,11 +121,14 @@ def test_canonical_txthariansaham_profile_is_routed_and_uses_rsshub():
     assert profile.display_name == "Ga Cuan Ga tidur"
     assert profile.emoji == "<:txthariansaham:1540780954929340476>"
     assert [(channel.key, channel.channel_id) for channel in profile.discord_channels] == [
+        ("macro", "1531655369884045382"),
+        ("id_stock", "1525102508714889257"),
         ("id_stock_swing", "1525102458253217803"),
     ]
     assert (profile.forward_normal_post, profile.forward_quote_post, profile.forward_reply, profile.forward_repost, profile.forward_media) == (True, True, False, False, True)
-    assert (profile.enable_llm_title, profile.enable_llm_summary, profile.enable_llm_routing, profile.enable_llm_relevance_filter) == (True, True, False, True)
-    assert "swing channel" in profile.additional_prompt_instruction
+    assert (profile.enable_llm_title, profile.enable_llm_summary, profile.enable_llm_routing, profile.enable_llm_relevance_filter) == (True, True, True, True)
+    assert "dividend schedules" in profile.additional_prompt_instruction
+    assert "do not route to swing merely" in profile.additional_prompt_instruction.lower()
     assert (profile.thread_handling.mode, profile.thread_handling.max_posts, profile.thread_handling.max_age_minutes, profile.thread_handling.settle_minutes) == ("disabled", 10, 240, 60)
 
 

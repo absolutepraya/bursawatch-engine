@@ -15,7 +15,15 @@ import render
 import rsshub
 import state
 import supersession
-from agent_protocol import agent_item, build_wake_payload, is_promotional, requires_relevance, validate_submission
+from agent_protocol import (
+    agent_item,
+    build_wake_payload,
+    deterministic_route,
+    is_deterministically_irrelevant,
+    is_promotional,
+    requires_relevance,
+    validate_submission,
+)
 
 
 WIB = ZoneInfo("Asia/Jakarta")
@@ -315,14 +323,18 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
             raise ValueError("analysis profile is not enabled")
         analysis = validate_submission(profile, payload)
         event = state.awaiting_analysis_event(value, analysis["event_key"])
+        post = state.deserialize_post(event["post"])
         thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]]))
-        promotional = is_promotional(state.deserialize_post(event["post"]), thread_posts)
-        if analysis.get("is_relevant") is False or promotional:
-            if not promotional and requires_relevance(state.deserialize_post(event["post"]), thread_posts):
+        promotional = is_promotional(post, thread_posts)
+        if is_deterministically_irrelevant(profile, post, thread_posts) or analysis.get("is_relevant") is False or promotional:
+            if not promotional and not is_deterministically_irrelevant(profile, post, thread_posts) and requires_relevance(post, thread_posts):
                 raise ValueError("direct market disclosure must be relevant")
             state.discard_analysis(value, analysis["event_key"])
             state.save_state(storage, value)
             return {"submitted": True, "ignored": True, "delivered": 0}
+        route_override = deterministic_route(profile, post, thread_posts)
+        if route_override is not None:
+            analysis["route"] = route_override
         state.submit_analysis(value, analysis["event_key"], {key: item for key, item in analysis.items() if key not in {"event_key", "is_relevant"}})
         state.save_state(storage, value)
         stats = RunStats()

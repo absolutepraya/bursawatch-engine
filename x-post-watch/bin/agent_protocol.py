@@ -38,6 +38,29 @@ INSIDER_TRACKER_TOKEN_PROMOTION_RE = re.compile(
     r"(?=.*\b(?:stake(?:d|ing)?|burn(?:ed|ing)?|buy\s*back|flywheel|tokenomics?|crypto(?:\s+tracker)?|token\s+utility|token\s+holders?)\b)",
     re.IGNORECASE | re.DOTALL,
 )
+TECHNICAL_TRADE_SIGNAL_RE = re.compile(
+    r"\b(?:elliott\s+wave|wave\s+count|wave|gelombang|chart|grafik|teknikal|technical|support|resistance|resisten|breakout|breakdown|indikator|indicator|entry|stop[- ]?loss|risk\s*/\s*reward|risk[- ]?reward|pola\s+(?:inverted\s+)?head\s+and\s+shoulders?)\b",
+    re.IGNORECASE,
+)
+DIRECT_TICKER_RE = re.compile(
+    r"(?:[$#]\s*[A-Z][A-Z0-9]{1,5}\b|(?<![A-Za-z])[A-Z][A-Z0-9]{2,5}(?![A-Za-z]))"
+)
+TXTH_MACRO_SIGNAL_RE = re.compile(
+    r"\b(?:asing|foreign|net\s*(?:buy|sell)|IHSG|arus\s+dana|big\s+banks?|market[- ]wide|pasar\s+(?:secara\s+)?keseluruhan)\b",
+    re.IGNORECASE,
+)
+TXTH_ID_STOCK_SIGNAL_RE = re.compile(
+    r"\b(?:dividen|dividend|jadwal\s+pembagian|earnings?|laba|pendapatan|corporate\s+action|keterbukaan|rights?\s+issue|buyback|stock\s+split|merger|akuisisi)\b",
+    re.IGNORECASE,
+)
+ALDO_GENERIC_TRACK_RECORD_RE = re.compile(
+    r"\b(?:track\s+record|rekam\s+jejak|annual\s+returns?|average\s+(?:annual\s+)?returns?|rata-rata\s+(?:imbal\s+hasil|return)|no\s+losing\s+years?|tanpa\s+(?:satu\s+pun\s+)?tahun\s+(?:yang\s+)?rugi|legendary\s+track\s+record)\b",
+    re.IGNORECASE,
+)
+ALDO_SUBSTANTIVE_THESIS_RE = re.compile(
+    r"\b(?:inflasi|inflation|fiskal|fiscal|yield|obligasi|bond|suku\s+bunga|interest\s+rates?|IHSG|pasar|market|saham|stock|emiten|earnings?|laba|revenue|corporate\s+action|dividen|dividend|rupiah|komoditas|commodit(?:y|ies)|risiko|risk|kebijakan|policy)\b",
+    re.IGNORECASE,
+)
 
 
 def instruction_for(profile: Profile, relevance_guard_required: bool = False) -> str:
@@ -106,6 +129,44 @@ def is_promotional(post: SourcePost, thread_posts: tuple[SourcePost, ...] | None
     return any(pattern.search(text) for pattern in PROMOTIONAL_HARD_SIGNAL_RES) or sum(
         bool(pattern.search(text)) for pattern in PROMOTIONAL_SIGNAL_RES
     ) >= 2
+
+
+def _source_text(post: SourcePost, thread_posts: tuple[SourcePost, ...] | None = None) -> str:
+    return "\n\n".join(render.markdown(item.content_html) for item in (thread_posts or (post,)))
+
+
+def is_deterministically_irrelevant(
+    profile: Profile,
+    post: SourcePost,
+    thread_posts: tuple[SourcePost, ...] | None = None,
+) -> bool:
+    """Reject profile-specific generic posts before the model can forward them."""
+    if profile.id != "aldotjahjadi8":
+        return False
+    text = _source_text(post, thread_posts)
+    return bool(ALDO_GENERIC_TRACK_RECORD_RE.search(text)) and not ALDO_SUBSTANTIVE_THESIS_RE.search(text)
+
+
+def deterministic_route(
+    profile: Profile,
+    post: SourcePost,
+    thread_posts: tuple[SourcePost, ...] | None = None,
+) -> str | None:
+    """Override only unambiguous per-profile routing signals."""
+    if not profile.enable_llm_routing:
+        return None
+    text = _source_text(post, thread_posts)
+    has_technical_setup = bool(TECHNICAL_TRADE_SIGNAL_RE.search(text) and DIRECT_TICKER_RE.search(text))
+    configured = {channel.key for channel in profile.discord_channels}
+
+    if has_technical_setup and "id_stock_swing" in configured:
+        return "id_stock_swing"
+    if profile.id == "txthariansaham":
+        if "macro" in configured and TXTH_MACRO_SIGNAL_RE.search(text):
+            return "macro"
+        if "id_stock" in configured and TXTH_ID_STOCK_SIGNAL_RE.search(text):
+            return "id_stock"
+    return None
 
 
 def requires_relevance(post: SourcePost, thread_posts: tuple[SourcePost, ...] | None = None) -> bool:

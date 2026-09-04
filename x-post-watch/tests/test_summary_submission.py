@@ -92,6 +92,88 @@ def test_submit_summary_routes_stock_analysis_to_its_configured_channel(tmp_path
     assert sent[0][1] == channel
 
 
+def test_submit_summary_overrides_clear_txth_route_with_deterministic_route(tmp_path, monkeypatch, config_path, profile_payload):
+    profile_payload.update({
+        "id": "txthariansaham",
+        "profile_url": "https://x.com/txthariansaham",
+        "handle": "txthariansaham",
+        "display_name": "Ga Cuan Ga tidur",
+        "enable_llm_title": True,
+        "enable_llm_summary": True,
+        "enable_llm_routing": True,
+        "discord_channels": [
+            {"key": "macro", "channel_id": "1531655369884045382", "description": "Macro"},
+            {"key": "id_stock", "channel_id": "1525102508714889257", "description": "IDX"},
+            {"key": "id_stock_swing", "channel_id": "1525102458253217803", "description": "IDX swing"},
+        ],
+    })
+    config_path.write_text(json.dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    storage = tmp_path / "state.json"
+    post = SourcePost(profile.id, "2091763719059747023", "https://x.com/txthariansaham/status/2091763719059747023", datetime.now(UTC), "BBRI breakout resistance pada chart harian, dengan entry dan stop-loss.", PostKind.NORMAL, None, None, (), ())
+    value = state.new_state()
+    value["profiles"][profile.id] = {"cursor": "2091763719059747022"}
+    state.observe_posts(value, profile, [post], lambda candidate: True)
+    assert state.claim_oldest_agent(value, {profile.id: profile}, datetime.now(UTC)) is not None
+    state.save_state(storage, value)
+    monkeypatch.setenv("X_POST_WATCH_STATE_PATH", str(storage))
+    monkeypatch.setenv("X_POST_WATCH_CONFIG_PATH", str(config_path))
+    sent = []
+    monkeypatch.setattr(scan.discord, "post_text", lambda content, channel, dry_run, nonce: sent.append((content, channel)) or "test")
+
+    result = scan.submit_analysis_payload({
+        "event_key": f"{profile.id}:{post.post_id}",
+        "is_relevant": True,
+        "title": "BBRI: Chart Harian Menunjukkan Breakout",
+        "summary": "*(Ringkasan)* Breakout resistance dengan entry dan stop-loss.",
+        "route": "id_stock",
+    })
+
+    assert result == {"submitted": True, "delivered": 1}
+    assert sent[0][1] == "1525102458253217803"
+
+
+def test_submit_summary_drops_deterministically_irrelevant_aldo_post(tmp_path, monkeypatch, config_path, profile_payload):
+    profile_payload.update({
+        "id": "aldotjahjadi8",
+        "profile_url": "https://x.com/aldotjahjadi8",
+        "handle": "aldotjahjadi8",
+        "display_name": "IHSG Journal",
+        "enable_llm_title": True,
+        "enable_llm_summary": True,
+        "enable_llm_routing": True,
+        "discord_channels": [
+            {"key": "macro", "channel_id": "1531655369884045382", "description": "Macro"},
+            {"key": "id_stock", "channel_id": "1525102508714889257", "description": "IDX"},
+        ],
+    })
+    config_path.write_text(json.dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    storage = tmp_path / "state.json"
+    post = SourcePost(profile.id, "2092189697150005608", "https://x.com/aldotjahjadi8/status/2092189697150005608", datetime.now(UTC), "Pelajaran dari rekam jejak investasi Stanley Druckenmiller: 30% annual returns selama 30 tahun dan no losing years.", PostKind.NORMAL, None, None, (), ())
+    value = state.new_state()
+    value["profiles"][profile.id] = {"cursor": "2092189062409195602"}
+    state.observe_posts(value, profile, [post], lambda candidate: True)
+    assert state.claim_oldest_agent(value, {profile.id: profile}, datetime.now(UTC)) is not None
+    state.save_state(storage, value)
+    monkeypatch.setenv("X_POST_WATCH_STATE_PATH", str(storage))
+    monkeypatch.setenv("X_POST_WATCH_CONFIG_PATH", str(config_path))
+    sent = []
+    monkeypatch.setattr(scan.discord, "post_text", lambda *args: sent.append(args))
+
+    result = scan.submit_analysis_payload({
+        "event_key": f"{profile.id}:{post.post_id}",
+        "is_relevant": True,
+        "title": "Druckenmiller: Rekam Jejak Investasi",
+        "summary": "*(Ringkasan)* Rekam jejak investasi.",
+        "route": "macro",
+    })
+
+    assert result == {"submitted": True, "ignored": True, "delivered": 0}
+    assert sent == []
+    assert state.load_state(storage)["outbox"] == []
+
+
 def test_submit_summary_rejects_invalid_value_without_mutating_state(tmp_path, monkeypatch, config_path, profile_payload):
     profile_payload["enable_llm_title"] = True
     profile_payload["enable_llm_summary"] = True
