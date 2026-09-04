@@ -321,6 +321,45 @@
         "max_age_minutes": 240,
         "settle_minutes": 60
       }
+    },
+    {
+      "id": "aldotjahjadi8",
+      "enabled": true,
+      "source": "rsshub",
+      "profile_url": "https://x.com/aldotjahjadi8",
+      "handle": "aldotjahjadi8",
+      "display_name": "IHSG Journal 🍀🌞",
+      "twitter_emoji": "<:twitter:1531672630602498129>",
+      "emoji": "<:aldotjahjadi:1541368062643798127>",
+      "discord_channels": [
+        {
+          "key": "macro",
+          "channel_id": "1531655369884045382",
+          "description": "Broad economic, business, market, sector, and cross-asset analysis."
+        },
+        {
+          "key": "id_stock",
+          "channel_id": "1525102508714889257",
+          "description": "Direct IDX-listed company or ticker thesis."
+        }
+      ],
+      "forward_normal_post": true,
+      "forward_quote_post": true,
+      "forward_reply": false,
+      "forward_repost": false,
+      "forward_media": true,
+      "enable_llm_title": true,
+      "enable_llm_summary": true,
+      "enable_llm_routing": true,
+      "enable_llm_relevance_filter": true,
+      "additional_prompt_instruction": "Forward substantive Indonesian macro, market, and IDX-listed company analysis. Keep broad IHSG, rates, bonds, FX, commodities, global-risk, and market-wide views in macro; keep direct IDX company, earnings, corporate-action, and valuation theses in id_stock. Exclude reposts, casual reactions, greetings, memes, generic engagement, unsupported hype, clickbait profit promises, and paid research or trading-service promotions.",
+      "max_items_per_poll": 50,
+      "thread_handling": {
+        "mode": "self_chain",
+        "max_posts": 20,
+        "max_age_minutes": 240,
+        "settle_minutes": 15
+      }
     }
   ]
 }

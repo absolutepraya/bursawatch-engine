@@ -127,6 +127,28 @@ def test_canonical_txthariansaham_profile_is_routed_and_uses_rsshub():
     assert (profile.thread_handling.mode, profile.thread_handling.max_posts, profile.thread_handling.max_age_minutes, profile.thread_handling.settle_minutes) == ("disabled", 10, 240, 60)
 
 
+def test_canonical_aldotjahjadi8_profile_is_routed_and_threaded():
+    canonical_config = Path(__file__).resolve().parents[1] / "config" / "watches.json"
+    profile = {item.id: item for item in config_module.load_watch_config(canonical_config).profiles}["aldotjahjadi8"]
+
+    assert profile.enabled is True
+    assert profile.source == "rsshub"
+    assert profile.profile_url == "https://x.com/aldotjahjadi8"
+    assert profile.handle == "aldotjahjadi8"
+    assert profile.display_name == "IHSG Journal 🍀🌞"
+    assert profile.twitter_emoji == "<:twitter:1531672630602498129>"
+    assert profile.emoji == "<:aldotjahjadi:1541368062643798127>"
+    assert [(channel.key, channel.channel_id) for channel in profile.discord_channels] == [
+        ("macro", "1531655369884045382"),
+        ("id_stock", "1525102508714889257"),
+    ]
+    assert (profile.forward_normal_post, profile.forward_quote_post, profile.forward_reply, profile.forward_repost, profile.forward_media) == (True, True, False, False, True)
+    assert (profile.enable_llm_title, profile.enable_llm_summary, profile.enable_llm_routing, profile.enable_llm_relevance_filter) == (True, True, True, True)
+    assert "global-risk" in profile.additional_prompt_instruction
+    assert "paid research" in profile.additional_prompt_instruction
+    assert (profile.thread_handling.mode, profile.thread_handling.max_posts, profile.thread_handling.max_age_minutes, profile.thread_handling.settle_minutes) == ("self_chain", 20, 240, 15)
+
+
 def test_canonical_wavetiga_profile_is_direct_x_and_fully_routed():
     canonical_config = Path(__file__).resolve().parents[1] / "config" / "watches.json"
     profile = {item.id: item for item in config_module.load_watch_config(canonical_config).profiles}["wavetiga"]
