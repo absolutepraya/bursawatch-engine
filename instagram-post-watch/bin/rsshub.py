@@ -128,10 +128,10 @@ class _MediaCaptionParser(HTMLParser):
 def _publication_url(value: object) -> tuple[PublicationKind, str] | None:
     if not isinstance(value, str):
         return None
+    if "?" in value or "#" in value:
+        return None
     parsed = urlparse(value)
     if parsed.scheme != "https" or parsed.netloc.lower() not in {"instagram.com", "www.instagram.com"}:
-        return None
-    if parsed.query or parsed.fragment:
         return None
     if not parsed.path.startswith("/"):
         return None

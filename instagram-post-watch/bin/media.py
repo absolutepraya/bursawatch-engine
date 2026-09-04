@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import math
 import os
 import re
+import socket
 import shutil
 import subprocess
 import tempfile
@@ -11,6 +13,8 @@ from pathlib import Path
 from typing import Callable
 
 import requests
+import urllib3
+from urllib3.util import connection as urllib3_connection
 
 from models import DownloadLimits, DownloadedAsset, DownloadedPublication, MediaKind, SourceMedia, SourcePost
 from rsshub import is_publicly_resolvable_media_url, is_supported_media_url
@@ -32,6 +36,61 @@ class MediaCleanupError(RuntimeError):
     pass
 
 
+def _connection_public_addresses(host: str, port: int) -> tuple[str, ...]:
+    try:
+        records = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        raise urllib3.exceptions.NameResolutionError(host, None, exc) from exc
+    addresses: list[str] = []
+    for record in records:
+        try:
+            address = ipaddress.ip_address(record[4][0])
+        except (IndexError, ValueError):
+            continue
+        if address.is_private or address.is_loopback or address.is_link_local or address.is_reserved or address.is_multicast or address.is_unspecified:
+            continue
+        if record[4][0] not in addresses:
+            addresses.append(record[4][0])
+    if not addresses:
+        raise urllib3.exceptions.NewConnectionError(None, "media connection address rejected")
+    return tuple(addresses)
+
+
+class _PinnedHTTPSConnection(urllib3.connection.HTTPSConnection):
+    def _new_conn(self):
+        last_error = None
+        for address in _connection_public_addresses(self.host, self.port):
+            try:
+                # Connect to the validated IP while the inherited HTTPS connect keeps self.host for SNI and Host verification.
+                return urllib3_connection.create_connection(
+                    (address, self.port),
+                    self.timeout,
+                    source_address=self.source_address,
+                    socket_options=self.socket_options,
+                )
+            except OSError as exc:
+                last_error = exc
+        raise urllib3.exceptions.NewConnectionError(None, "media connection failed") from last_error
+
+
+class _PinnedHTTPSConnectionPool(urllib3.connectionpool.HTTPSConnectionPool):
+    ConnectionCls = _PinnedHTTPSConnection
+
+
+class _PinnedHTTPSAdapter(requests.adapters.HTTPAdapter):
+    def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
+        self.poolmanager = urllib3.PoolManager(num_pools=connections, maxsize=maxsize, block=block, **pool_kwargs)
+        self.poolmanager.pool_classes_by_scheme["https"] = _PinnedHTTPSConnectionPool
+
+
+def _ensure_connection_policy(session: requests.Session) -> None:
+    if not getattr(session, "_instagram_pinned_https", False):
+        session.trust_env = False
+        session.proxies.clear()
+        session.mount("https://", _PinnedHTTPSAdapter())
+        session._instagram_pinned_https = True
+
+
 _CONTENT_TYPES = {
     (MediaKind.IMAGE, "image/jpeg"): ".jpg",
     (MediaKind.IMAGE, "image/png"): ".png",
@@ -51,6 +110,17 @@ def _best_effort_unlink(paths) -> bool:
         except Exception:
             failed = True
     return failed
+
+
+def _best_effort_cleanup(directory: Path, patterns: tuple[str, ...], extra_paths=()) -> bool:
+    failed = False
+    paths = list(extra_paths)
+    for pattern in patterns:
+        try:
+            paths.extend(directory.glob(pattern))
+        except Exception:
+            failed = True
+    return _best_effort_unlink(paths) or failed
 
 
 def _managed_regular_file(path: Path, root: Path) -> Path:
@@ -82,6 +152,8 @@ def download_publication(post: SourcePost, root: Path, session: requests.Session
     assets: list[DownloadedAsset] = []
     total = 0
     try:
+        if isinstance(session, requests.Session):
+            _ensure_connection_policy(session)
         for source in post.media:
             if not is_supported_media_url(source.url):
                 raise MediaDownloadError("unsupported media URL")
@@ -132,11 +204,11 @@ def download_publication(post: SourcePost, root: Path, session: requests.Session
                     except Exception:
                         pass
     except MediaDownloadError as exc:
-        cleanup_failed = _best_effort_unlink(list(media_root.glob("*.tmp")) + [asset.path for asset in assets])
+        cleanup_failed = _best_effort_cleanup(media_root, ("*.tmp",), [asset.path for asset in assets])
         exc.cleanup_failed = exc.cleanup_failed or cleanup_failed
         raise
     except Exception as exc:
-        cleanup_failed = _best_effort_unlink(list(media_root.glob("*.tmp")) + [asset.path for asset in assets])
+        cleanup_failed = _best_effort_cleanup(media_root, ("*.tmp",), [asset.path for asset in assets])
         raise MediaDownloadError("media download failed", cleanup_failed=cleanup_failed) from exc
     return DownloadedPublication(tuple(assets), media_root)
 
@@ -187,7 +259,7 @@ def sample_reel_frames(video_path: Path, cover_path: Path, root: Path, max_frame
             frames.append(DownloadedAsset(SourceMedia(output.as_uri(), MediaKind.IMAGE, index), output, hashlib.sha256(data).hexdigest(), len(data), "image/jpeg"))
     except Exception as exc:
         # The original downloaded video is the deliverable fallback. Sampling only creates analysis artifacts.
-        cleanup_failed = _best_effort_unlink(list(frame_root.glob("*")))
+        cleanup_failed = _best_effort_cleanup(frame_root, ("*",))
         raise FrameSamplingError("frame sampling failed", cleanup_failed=cleanup_failed) from exc
     return tuple(frames)
 

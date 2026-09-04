@@ -97,6 +97,18 @@ def test_duplicate_publication_path_separators_are_rejected(configured_profile):
     assert rsshub.parse_feed(payload, configured_profile) == []
 
 
+@pytest.mark.parametrize("url", [
+    "https://instagram.com/p/CANONICAL/?",
+    "https://instagram.com/p/CANONICAL/#",
+])
+def test_empty_query_or_fragment_delimiters_are_rejected(configured_profile, url):
+    payload = {"items": [{
+        "id": "media-1009", "url": url,
+        "date_published": "2026-08-24T11:03:00Z", "content_html": '<img src="https://cdn.example/image.jpg">',
+    }]}
+    assert rsshub.parse_feed(payload, configured_profile) == []
+
+
 def test_unsafe_shortcode_and_naive_timestamp_are_filtered(configured_profile):
     payload = {"items": [
         {"id": "safe", "url": "https://instagram.com/p/../", "date_published": "2026-08-24T11:04:00Z", "content_html": '<img src="https://cdn.example/a.jpg">'},

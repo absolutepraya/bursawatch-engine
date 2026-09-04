@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 import requests
+import urllib3
 
 import media
 import rsshub
@@ -120,6 +121,25 @@ def test_download_rejects_redirect_without_following_it(tmp_path):
     assert response.closed is True
 
 
+def test_connection_policy_binds_to_connection_time_public_address(monkeypatch):
+    calls = []
+
+    def rebinding_getaddrinfo(host, port, **kwargs):
+        calls.append(host)
+        address = "93.184.216.34" if len(calls) == 1 else "127.0.0.1"
+        return [(2, 1, 6, "", (address, port))]
+
+    monkeypatch.setattr(media.socket, "getaddrinfo", rebinding_getaddrinfo)
+    assert rsshub.is_publicly_resolvable_media_url("https://cdn.example/x.jpg") is True
+    connection_targets = []
+    monkeypatch.setattr(media.urllib3_connection, "create_connection", lambda address, *args, **kwargs: connection_targets.append(address))
+    connection = media._PinnedHTTPSConnection("cdn.example", 443)
+    with pytest.raises(urllib3.exceptions.NewConnectionError, match="connection address rejected"):
+        connection._new_conn()
+    assert connection_targets == []
+    assert connection.host == "cdn.example"
+
+
 @pytest.mark.parametrize("publication_id", ["..", "../escape", "nested/name", "\\escape"])
 def test_download_rejects_event_id_traversal(tmp_path, publication_id):
     unsafe = SourcePost("profile", publication_id, "https://instagram.com/p/ABC/", datetime.now(UTC), "", PublicationKind.POST, ())
@@ -147,6 +167,20 @@ def test_download_timeout_is_sanitized_and_leaves_no_final_file(tmp_path):
     with pytest.raises(media.MediaDownloadError, match="media download failed") as error:
         media.download_publication(post([source]), tmp_path, TimeoutSession(), DownloadLimits())
     assert "secret" not in str(error.value)
+
+
+def test_download_cleanup_enumeration_failure_preserves_original_error(tmp_path, monkeypatch):
+    source = SourceMedia("https://cdn.example/fail.jpg", MediaKind.IMAGE, 0)
+
+    class BrokenResponse(FakeResponse):
+        def iter_content(self, chunk_size):
+            raise RuntimeError("response secret /private/body")
+
+    monkeypatch.setattr(media.Path, "glob", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("cleanup /private/path")))
+    with pytest.raises(media.MediaDownloadError, match="media download failed") as error:
+        media.download_publication(post([source]), tmp_path, FakeSession([BrokenResponse([])]), DownloadLimits())
+    assert error.value.cleanup_failed is True
+    assert "/private" not in str(error.value)
 
 
 def test_reel_sampling_includes_cover_and_at_most_cap(tmp_path):
@@ -216,6 +250,19 @@ def test_sampling_failure_preserves_original_video_when_cleanup_also_fails(tmp_p
         media.sample_reel_frames(video, cover, tmp_path, 2, runner=runner, duration_seconds=2.0)
     assert error.value.cleanup_failed is True
     assert "/bad/path" not in str(error.value)
+    assert video.exists()
+
+
+def test_sampling_cleanup_enumeration_failure_preserves_original_error(tmp_path, monkeypatch):
+    video = tmp_path / "reel.mp4"
+    cover = tmp_path / "cover.jpg"
+    video.write_bytes(b"video")
+    cover.write_bytes(b"cover")
+    monkeypatch.setattr(media.Path, "glob", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("cleanup /private/path")))
+    with pytest.raises(media.FrameSamplingError, match="frame sampling failed") as error:
+        media.sample_reel_frames(video, cover, tmp_path, 2, runner=lambda command: (_ for _ in ()).throw(RuntimeError("runner /private/path")), duration_seconds=2.0)
+    assert error.value.cleanup_failed is True
+    assert "/private" not in str(error.value)
     assert video.exists()
 
 
