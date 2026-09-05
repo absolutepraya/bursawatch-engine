@@ -16,7 +16,7 @@ import requests
 import urllib3
 from urllib3.util import connection as urllib3_connection
 
-from models import DownloadLimits, DownloadedAsset, DownloadedPublication, MediaKind, SourceMedia, SourcePost
+from models import DownloadLimits, DownloadedAsset, DownloadedPublication, FailedAsset, MediaKind, SourceMedia, SourcePost
 from rsshub import is_public_ip_address, is_publicly_resolvable_media_url, is_supported_media_url
 
 
@@ -135,7 +135,22 @@ def _managed_regular_file(path: Path, root: Path) -> Path:
     return resolved
 
 
-def download_publication(post: SourcePost, root: Path, session: requests.Session, limits: DownloadLimits) -> DownloadedPublication:
+def _download_failure_reason(error: MediaDownloadError) -> str:
+    message = str(error)
+    if "content type" in message:
+        return "unsupported_content_type"
+    if "unsupported media URL" in message:
+        return "unsupported_media_url"
+    if "redirects" in message:
+        return "redirect_not_supported"
+    if "asset size limit" in message:
+        return "asset_size_limit"
+    if "publication size limit" in message:
+        return "publication_size_limit"
+    return "download_failed"
+
+
+def download_publication(post: SourcePost, root: Path, session: requests.Session, limits: DownloadLimits, *, allow_partial: bool = False) -> DownloadedPublication:
     root_resolved = root.resolve()
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", post.publication_id) or post.publication_id in {".", ".."}:
         raise MediaDownloadError("unsafe publication identifier")
@@ -150,16 +165,21 @@ def download_publication(post: SourcePost, root: Path, session: requests.Session
     except Exception as exc:
         raise MediaDownloadError("media directory creation failed") from exc
     assets: list[DownloadedAsset] = []
+    failed_assets: list[FailedAsset] = []
     total = 0
     try:
         if isinstance(session, requests.Session):
             _ensure_connection_policy(session)
         for source in post.media:
             if not is_supported_media_url(source.url):
+                if allow_partial:
+                    failed_assets.append(FailedAsset(source, "unsupported_media_url"))
+                    continue
                 raise MediaDownloadError("unsupported media URL")
             if not isinstance(source.index, int) or source.index < 0:
                 raise MediaDownloadError("unsafe media index")
             response = None
+            temporary_name = None
             try:
                 if not is_publicly_resolvable_media_url(source.url):
                     raise MediaDownloadError("unsupported media URL")
@@ -193,9 +213,17 @@ def download_publication(post: SourcePost, root: Path, session: requests.Session
                     raise MediaDownloadError("unsafe media path")
                 os.replace(temporary_name, final_path)
                 assets.append(DownloadedAsset(source, final_path, digest.hexdigest(), size, content_type))
-            except MediaDownloadError:
+            except MediaDownloadError as exc:
+                if allow_partial:
+                    _best_effort_cleanup(media_root, (), [Path(temporary_name)] if temporary_name else ())
+                    failed_assets.append(FailedAsset(source, _download_failure_reason(exc)))
+                    continue
                 raise
             except Exception as exc:
+                if allow_partial:
+                    _best_effort_cleanup(media_root, (), [Path(temporary_name)] if temporary_name else ())
+                    failed_assets.append(FailedAsset(source, "download_failed"))
+                    continue
                 raise MediaDownloadError("media download failed") from exc
             finally:
                 if response is not None:
@@ -210,7 +238,7 @@ def download_publication(post: SourcePost, root: Path, session: requests.Session
     except Exception as exc:
         cleanup_failed = _best_effort_cleanup(media_root, ("*.tmp",), [asset.path for asset in assets])
         raise MediaDownloadError("media download failed", cleanup_failed=cleanup_failed) from exc
-    return DownloadedPublication(tuple(assets), media_root)
+    return DownloadedPublication(tuple(assets), media_root, tuple(failed_assets))
 
 
 def sample_reel_frames(video_path: Path, cover_path: Path, root: Path, max_frames: int, *, runner: Callable[[list[str]], None] | None = None, duration_seconds: float | None = None) -> tuple[DownloadedAsset, ...]:
@@ -262,6 +290,13 @@ def sample_reel_frames(video_path: Path, cover_path: Path, root: Path, max_frame
         cleanup_failed = _best_effort_cleanup(frame_root, ("*",))
         raise FrameSamplingError("frame sampling failed", cleanup_failed=cleanup_failed) from exc
     return tuple(frames)
+
+
+def sample_reel_frames_observed(video_path: Path, cover_path: Path, root: Path, max_frames: int, *, runner: Callable[[list[str]], None] | None = None, duration_seconds: float | None = None) -> tuple[tuple[DownloadedAsset, ...], tuple[FailedAsset, ...]]:
+    try:
+        return sample_reel_frames(video_path, cover_path, root, max_frames, runner=runner, duration_seconds=duration_seconds), ()
+    except FrameSamplingError:
+        return (), (FailedAsset(SourceMedia("analysis-frame://sampled", MediaKind.IMAGE, 0), "frame_sampling_failed"),)
 
 
 def cleanup_event_media(root: Path, event_id: str) -> None:

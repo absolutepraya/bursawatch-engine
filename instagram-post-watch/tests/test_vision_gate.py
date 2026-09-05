@@ -91,6 +91,21 @@ def test_text_with_missing_confidence_is_uncertain_and_cannot_be_text_only(tmp_p
     assert decision.asset_paths == (assets[0].path,)
 
 
+def test_detected_but_unusable_paddle_text_cannot_reach_text_only(tmp_path, profile):
+    assets = (asset(tmp_path, 0),)
+    results = (ocr.OCRResult(status=ocr.OCRStatus.UNCERTAIN, text="Revenue", error="ocr output uncertain"),)
+
+    decision = vision_gate.decide_vision_mode(
+        "Detailed caption with enough context that would otherwise allow text only.",
+        assets,
+        results,
+        profile,
+    )
+
+    assert decision.mode is vision_gate.VisionMode.VISION_PARTIAL
+    assert decision.asset_paths == (assets[0].path,)
+
+
 def test_two_uncertain_assets_return_full_with_all_publication_images(tmp_path, profile):
     assets = (asset(tmp_path, 0), asset(tmp_path, 1), asset(tmp_path, 2))
     results = (
@@ -225,6 +240,17 @@ def test_failed_asset_observation_returns_partial_without_inventing_path(tmp_pat
     assert decision.reason == vision_gate.REASON_PARTIAL_UNCERTAIN
     assert decision.asset_paths == ()
     assert decision.analysis_ids == (vision_gate.analysis_id(failed),)
+
+
+def test_failed_asset_analysis_id_uses_bounded_reason_label():
+    failed = FailedAsset(SourceMedia("https://cdn.example/missing.jpg", MediaKind.IMAGE, 4), "download failed /secret/path " + "x" * 200)
+
+    identifier = vision_gate.analysis_id(failed)
+
+    assert identifier.startswith("failed:image:4:")
+    assert "/secret" not in identifier
+    assert " " not in identifier
+    assert len(identifier) <= 80
 
 
 def test_mismatched_assets_and_results_fail_closed_with_available_image_paths(tmp_path, profile):

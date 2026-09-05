@@ -262,36 +262,70 @@ def test_cache_malformed_metadata_values_are_misses(tmp_path):
     assert backend.calls == 1
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        '{"status":"no_text","text":"poisoned","confidence":null,',
+        '{"status":"no_text","text":"","confidence":0.9,',
+        '{"status":"success","text":"","confidence":0.9,',
+        '{"status":"success","text":"ok","confidence":null,',
+        '{"status":"success","text":"ok","confidence":0.4,"min_confidence":0.8,',
+    ],
+)
+def test_cache_rejects_impossible_status_payload_combinations(tmp_path, payload):
+    source = asset(tmp_path, sha256="b" * 64)
+    cache_root = tmp_path / "cache"
+    cache_root.mkdir()
+    key = ocr.cache_key(source.sha256, "fake:v1", ("eng",), ocr.DEFAULT_PREPROCESSING_VERSION)
+    (cache_root / f"{key}.json").write_text(
+        payload
+        + '"engine_id":"fake","model_version":"v1","languages":["eng"],'
+        + '"image_sha256":"'
+        + source.sha256
+        + '","preprocessing_version":"'
+        + ocr.DEFAULT_PREPROCESSING_VERSION
+        + '"}',
+        encoding="utf-8",
+    )
+    backend = FakeBackend(ocr.OCRResult(status=ocr.OCRStatus.SUCCESS, text="fresh", confidence=0.9, min_confidence=0.9))
+
+    assert ocr.extract_cached(source, cache_root, backend, ("eng",)).text == "fresh"
+    assert backend.calls == 1
+
+
 def test_paddle_runtime_mapping_binds_languages_to_constructor_config(tmp_path):
     calls = []
 
     def runner(config, path, timeout_seconds):
         calls.append((config, path, timeout_seconds))
-        return [[(None, ("Laba bersih naik", 0.92))]]
+        return ocr.OCRResult(status=ocr.OCRStatus.SUCCESS, text="Laba bersih naik", confidence=0.92, min_confidence=0.92, model_version=config.model_version)
 
     backend = ocr.PaddleOCRBackend(model_version="PP-OCRv5", runner=runner, timeout_seconds=3)
     result = backend.extract(asset(tmp_path).path, ("ind", "eng"))
 
     assert result.status is ocr.OCRStatus.SUCCESS
     assert result.text == "Laba bersih naik"
-    assert calls[0][0].constructor_kwargs == {"lang": "latin", "ocr_version": "PP-OCRv5"}
-    assert calls[0][0].model_version == "PP-OCRv5-latin"
+    assert [selection.constructor_kwargs for selection in calls[0][0].selections] == [
+        {"lang": "id", "ocr_version": "PP-OCRv5"},
+        {"lang": "en", "ocr_version": "PP-OCRv5"},
+    ]
+    assert calls[0][0].model_version == "PP-OCRv5-id+PP-OCRv5-en"
     assert calls[0][2] == 3
 
 
 @pytest.mark.parametrize(
     ("languages", "kwargs", "model_version"),
     [
-        (("ind",), {"lang": "latin", "ocr_version": "PP-OCRv5"}, "PP-OCRv5-latin"),
-        (("eng",), {"lang": "en", "ocr_version": "PP-OCRv5"}, "PP-OCRv5-en"),
-        (("ind", "eng"), {"lang": "latin", "ocr_version": "PP-OCRv5"}, "PP-OCRv5-latin"),
+        (("ind",), [{"lang": "id", "ocr_version": "PP-OCRv5"}], "PP-OCRv5-id"),
+        (("eng",), [{"lang": "en", "ocr_version": "PP-OCRv5"}], "PP-OCRv5-en"),
+        (("ind", "eng"), [{"lang": "id", "ocr_version": "PP-OCRv5"}, {"lang": "en", "ocr_version": "PP-OCRv5"}], "PP-OCRv5-id+PP-OCRv5-en"),
     ],
 )
 def test_paddle_runtime_config_is_explicit_for_supported_languages(languages, kwargs, model_version):
     backend = ocr.PaddleOCRBackend(model_version="PP-OCRv5", runner=lambda config, path, timeout: ())
     config = backend.runtime_config(languages)
 
-    assert config.constructor_kwargs == kwargs
+    assert [selection.constructor_kwargs for selection in config.selections] == kwargs
     assert config.model_version == model_version
 
 
@@ -329,11 +363,93 @@ def test_paddle_accumulation_stops_at_per_asset_limit(tmp_path):
             iterated += 1
             yield (None, ("x" * 200, 0.9))
 
-    backend = ocr.PaddleOCRBackend(model_version="PP-OCRv5", runner=lambda config, path, timeout: (lines(),))
+    def runner(config, path, timeout):
+        return ocr.parse_paddle_output((lines(),), config)
+
+    backend = ocr.PaddleOCRBackend(model_version="PP-OCRv5", runner=runner)
     parsed = backend.extract(asset(tmp_path).path, ("eng",))
 
     assert len(parsed.text) == ocr.MAX_TEXT_PER_ASSET
     assert iterated < 200
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        ((None, ("Revenue", None)),),
+        ((None, ("Revenue", "bad")),),
+        ((None, ("Revenue", float("nan"))),),
+        ((None, ("", 0.9)),),
+    ],
+)
+def test_paddle_malformed_or_confidence_less_detected_output_is_uncertain(raw):
+    config = ocr.PaddleOCRBackend(model_version="PP-OCRv5", runner=lambda cfg, path, timeout: ()).runtime_config(("eng",))
+
+    parsed = ocr.parse_paddle_output((raw,), config)
+
+    assert parsed.status is ocr.OCRStatus.UNCERTAIN
+    assert parsed.error == "ocr output uncertain"
+
+
+def test_paddle_unexpected_output_structure_is_error():
+    config = ocr.PaddleOCRBackend(model_version="PP-OCRv5", runner=lambda cfg, path, timeout: ()).runtime_config(("eng",))
+
+    parsed = ocr.parse_paddle_output({"unexpected": "shape"}, config)
+
+    assert parsed.status is ocr.OCRStatus.ERROR
+    assert parsed.error == "ocr output malformed"
+
+
+def test_paddle_compact_result_limit_is_sanitized():
+    config = ocr.PaddleOCRBackend(model_version="PP-OCRv5", runner=lambda cfg, path, timeout: ()).runtime_config(("eng",))
+    raw = (((None, ("x", 0.9)) for _ in range(ocr.MAX_PADDLE_RESULT_LINES + 1)),)
+
+    parsed = ocr.parse_paddle_output(raw, config)
+
+    assert parsed.status is ocr.OCRStatus.ERROR
+    assert parsed.error == "ocr output exceeded limit"
+
+
+def test_paddle_worker_returns_compact_result_not_raw_payload(monkeypatch, tmp_path):
+    calls = []
+
+    class FakeEngine:
+        def __init__(self, **kwargs):
+            calls.append(kwargs)
+
+        def ocr(self, path):
+            return [[(None, ("Revenue", 0.95))]]
+
+    class FakeModule:
+        PaddleOCR = FakeEngine
+
+    monkeypatch.setattr(ocr.importlib, "import_module", lambda name: FakeModule)
+    config = ocr.PaddleOCRBackend(model_version="PP-OCRv5").runtime_config(("eng",))
+
+    parsed = ocr._paddle_worker_extract(config, tmp_path / "image.jpg")
+
+    assert parsed.status is ocr.OCRStatus.SUCCESS
+    assert parsed.text == "Revenue"
+    assert calls == [{"lang": "en", "ocr_version": "PP-OCRv5"}]
+
+
+def test_paddle_cache_identity_uses_concrete_model_selection(tmp_path):
+    source = asset(tmp_path, sha256="c" * 64)
+    calls = 0
+
+    def runner(config, path, timeout):
+        nonlocal calls
+        calls += 1
+        return ocr.OCRResult(status=ocr.OCRStatus.SUCCESS, text=config.model_version, confidence=0.9, min_confidence=0.9, model_version=config.model_version)
+
+    backend = ocr.PaddleOCRBackend(model_version="PP-OCRv5", runner=runner)
+
+    ind = ocr.extract_cached(source, tmp_path / "cache", backend, ("ind",))
+    eng = ocr.extract_cached(source, tmp_path / "cache", backend, ("eng",))
+
+    assert ind.text == "PP-OCRv5-id"
+    assert eng.text == "PP-OCRv5-en"
+    assert calls == 2
 
 
 def test_tesseract_parsing_caps_without_processing_all_words():

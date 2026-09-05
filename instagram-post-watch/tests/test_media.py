@@ -85,6 +85,66 @@ def test_publication_size_limit_removes_prior_assets_and_closes_all_responses(tm
     assert not list((tmp_path / "event-1").glob("*"))
 
 
+def test_partial_download_retains_successful_siblings_and_failed_observations(tmp_path):
+    sources = [
+        SourceMedia("https://cdn.example/one.jpg", MediaKind.IMAGE, 0),
+        SourceMedia("https://cdn.example/two.jpg", MediaKind.IMAGE, 1),
+        SourceMedia("https://cdn.example/three.jpg", MediaKind.IMAGE, 2),
+    ]
+    responses = [
+        FakeResponse([b"one"]),
+        FakeResponse([b"bad"], "text/html"),
+        FakeResponse([b"three"]),
+    ]
+
+    downloaded = media.download_publication(post(sources), tmp_path, FakeSession(responses), DownloadLimits(), allow_partial=True)
+
+    assert [asset.source.index for asset in downloaded.assets] == [0, 2]
+    assert [failed.source.index for failed in downloaded.failed_assets] == [1]
+    assert downloaded.failed_assets[0].reason == "unsupported_content_type"
+    assert all(asset.path.exists() for asset in downloaded.assets)
+
+
+def test_partial_download_failure_handoff_reaches_gate_without_fake_path(tmp_path, config_path):
+    import ocr
+    import vision_gate
+    from config import load_watch_config
+
+    sources = [
+        SourceMedia("https://cdn.example/one.jpg", MediaKind.IMAGE, 0),
+        SourceMedia("https://cdn.example/two.jpg", MediaKind.IMAGE, 1),
+    ]
+    downloaded = media.download_publication(
+        post(sources),
+        tmp_path,
+        FakeSession([FakeResponse([b"one"]), FakeResponse([b"bad"], "text/html")]),
+        DownloadLimits(),
+        allow_partial=True,
+    )
+
+    decision = vision_gate.decide_vision_mode(
+        "Detailed caption with sufficient source context for the available slide.",
+        downloaded.assets,
+        (ocr.OCRResult(status=ocr.OCRStatus.SUCCESS, text="Revenue grew with high confidence.", confidence=0.95),),
+        load_watch_config(config_path).profiles[0],
+        failed_assets=downloaded.failed_assets,
+    )
+
+    assert decision.mode is vision_gate.VisionMode.VISION_PARTIAL
+    assert decision.asset_paths == ()
+    assert decision.analysis_ids == (vision_gate.analysis_id(downloaded.failed_assets[0]),)
+
+
+def test_partial_download_strict_mode_still_raises_and_cleans_successful_siblings(tmp_path):
+    sources = [
+        SourceMedia("https://cdn.example/one.jpg", MediaKind.IMAGE, 0),
+        SourceMedia("https://cdn.example/two.jpg", MediaKind.IMAGE, 1),
+    ]
+    with pytest.raises(media.MediaDownloadError, match="unsupported media content type"):
+        media.download_publication(post(sources), tmp_path, FakeSession([FakeResponse([b"one"]), FakeResponse([b"bad"], "text/html")]), DownloadLimits())
+    assert not list((tmp_path / "event-1").glob("*"))
+
+
 def test_rejects_non_media_content_type(tmp_path):
     source = SourceMedia("https://cdn/file", MediaKind.IMAGE, 0)
     with pytest.raises(media.MediaDownloadError, match="content type"):
@@ -335,6 +395,28 @@ def test_sampling_failure_is_sanitized_and_preserves_video(tmp_path):
     with pytest.raises(media.FrameSamplingError, match="frame sampling failed") as error:
         media.sample_reel_frames(video, cover, tmp_path, 5, runner=runner, duration_seconds=12.0)
     assert "ffmpeg failed" not in str(error.value)
+    assert video.exists()
+
+
+def test_reel_sampling_observation_returns_failed_asset_and_preserves_video(tmp_path):
+    video = tmp_path / "reel.mp4"
+    cover = tmp_path / "cover.jpg"
+    video.write_bytes(b"video")
+    cover.write_bytes(b"cover")
+
+    frames, failures = media.sample_reel_frames_observed(
+        video,
+        cover,
+        tmp_path,
+        3,
+        runner=lambda command: (_ for _ in ()).throw(RuntimeError("ffmpeg /secret/path")),
+        duration_seconds=12.0,
+    )
+
+    assert frames == ()
+    assert len(failures) == 1
+    assert failures[0].source.kind is MediaKind.IMAGE
+    assert failures[0].reason == "frame_sampling_failed"
     assert video.exists()
 
 

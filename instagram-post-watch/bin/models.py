@@ -103,7 +103,7 @@ class DownloadedAsset:
 @dataclass(frozen=True)
 class FailedAsset:
     source: SourceMedia
-    reason: str
+    reason: str = "download_failed"
 
 
 @dataclass(frozen=True)
@@ -117,3 +117,4 @@ class DownloadLimits:
 class DownloadedPublication:
     assets: tuple[DownloadedAsset, ...]
     media_root: Path
+    failed_assets: tuple[FailedAsset, ...] = ()

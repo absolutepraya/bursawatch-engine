@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import hashlib
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -22,6 +23,16 @@ REASON_MULTIPLE_UNCERTAIN = "multiple_uncertain_assets"
 REASON_SPARSE_CONTEXT = "sparse_context"
 REASON_VISUAL_REFERENCE = "visual_reference"
 REASON_ASSET_RESULT_MISMATCH = "asset_result_mismatch"
+KNOWN_FAILED_REASONS = {
+    "asset_size_limit",
+    "decode_failed",
+    "download_failed",
+    "frame_sampling_failed",
+    "publication_size_limit",
+    "redirect_not_supported",
+    "unsupported_content_type",
+    "unsupported_media_url",
+}
 
 
 class VisionMode(StrEnum):
@@ -72,7 +83,8 @@ def _uncertain(result: OCRResult, profile: Profile) -> bool:
 
 def analysis_id(asset: DownloadedAsset | FailedAsset) -> str:
     if isinstance(asset, FailedAsset):
-        return f"failed:{asset.source.kind.value}:{asset.source.index}:{asset.reason}"
+        reason = asset.reason if asset.reason in KNOWN_FAILED_REASONS else f"failure_{hashlib.sha256(asset.reason.encode('utf-8', errors='ignore')).hexdigest()[:12]}"
+        return f"failed:{asset.source.kind.value}:{asset.source.index}:{reason}"
     return f"{asset.source.kind.value}:{asset.source.index}:{asset.sha256[:12]}"
 
 

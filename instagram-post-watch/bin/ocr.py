@@ -25,6 +25,8 @@ MAX_TEXT_PER_PUBLICATION = 16000
 DEFAULT_PREPROCESSING_VERSION = "preprocess-1"
 DEFAULT_TIMEOUT_SECONDS = 30
 MAX_TESSERACT_STDOUT_BYTES = 512 * 1024
+MAX_PADDLE_RESULT_LINES = 256
+MAX_PADDLE_COMPACT_BYTES = 64 * 1024
 _TESSERACT_REQUIRED_FIELDS = {"conf", "text"}
 
 
@@ -62,10 +64,17 @@ class OCROutputLimitExceeded(RuntimeError):
 
 
 @dataclass(frozen=True)
+class PaddleModelSelection:
+    source_language: str
+    model_version: str
+    constructor_kwargs: dict[str, str]
+
+
+@dataclass(frozen=True)
 class PaddleRuntimeConfig:
     languages: tuple[str, ...]
     model_version: str
-    constructor_kwargs: dict[str, str]
+    selections: tuple[PaddleModelSelection, ...]
 
 
 class OCRBackend(Protocol):
@@ -111,11 +120,14 @@ def _backend_model_version(backend: OCRBackend, languages: tuple[str, ...]) -> s
 
 
 def _result_with_context(result: OCRResult, backend: OCRBackend, languages: tuple[str, ...], model_version: str) -> OCRResult:
+    min_confidence = result.min_confidence
+    if OCRStatus(result.status) is OCRStatus.SUCCESS and min_confidence is None:
+        min_confidence = result.confidence
     return OCRResult(
         status=OCRStatus(result.status),
         text=_cap_text(result.text, MAX_TEXT_PER_ASSET),
         confidence=result.confidence,
-        min_confidence=result.min_confidence,
+        min_confidence=min_confidence,
         engine_id=result.engine_id or backend.engine_id,
         model_version=result.model_version or model_version,
         languages=tuple(languages),
@@ -162,6 +174,16 @@ def _optional_confidence(value: object) -> float | None:
     return parsed
 
 
+def _cache_payload_consistent(status: OCRStatus, text: str, confidence: float | None, min_confidence: float | None) -> bool:
+    if status is OCRStatus.NO_TEXT:
+        return text == "" and confidence is None and min_confidence is None
+    if status is OCRStatus.SUCCESS:
+        if not text or confidence is None or min_confidence is None:
+            return False
+        return min_confidence <= confidence
+    return False
+
+
 def _read_cache(
     path: Path,
     *,
@@ -201,6 +223,8 @@ def _read_cache(
             return None
         confidence = _optional_confidence(payload.get("confidence"))
         min_confidence = _optional_confidence(payload.get("min_confidence"))
+        if not _cache_payload_consistent(status, _cap_text(text, MAX_TEXT_PER_ASSET), confidence, min_confidence):
+            return None
         return OCRResult(
             status=status,
             text=_cap_text(text, MAX_TEXT_PER_ASSET),
@@ -416,11 +440,97 @@ class TesseractBackend:
         return parse_tesseract_tsv(stdout)
 
 
+def _paddle_line(line: object) -> tuple[str, float] | None:
+    try:
+        candidate = line[1]
+        text = normalize_text(candidate[0])
+        confidence = float(candidate[1])
+    except (TypeError, ValueError, IndexError, KeyError):
+        return None
+    if not text or not math.isfinite(confidence):
+        return None
+    return text, max(0.0, min(confidence, 1.0))
+
+
+def _iter_paddle_lines(raw: object):
+    if type(raw) in {str, bytes} or not hasattr(raw, "__iter__"):
+        raise ValueError("ocr output malformed")
+    for page in raw:
+        if type(page) in {str, bytes} or not hasattr(page, "__iter__"):
+            raise ValueError("ocr output malformed")
+        for line in page:
+            yield line
+
+
+def parse_paddle_output(raw: object, config: PaddleRuntimeConfig) -> OCRResult:
+    text_parts: list[str] = []
+    confidences: list[float] = []
+    malformed_seen = False
+    line_count = 0
+    try:
+        for line in _iter_paddle_lines(raw):
+            line_count += 1
+            if line_count > MAX_PADDLE_RESULT_LINES:
+                return OCRResult(OCRStatus.ERROR, engine_id="paddleocr", model_version=config.model_version, error="ocr output exceeded limit")
+            parsed = _paddle_line(line)
+            if parsed is None:
+                malformed_seen = True
+                continue
+            text, confidence = parsed
+            text_parts.append(text)
+            confidences.append(confidence)
+            compact_bytes = len(json.dumps({"text": text_parts, "confidence": confidences}, separators=(",", ":")).encode("utf-8"))
+            if compact_bytes > MAX_PADDLE_COMPACT_BYTES:
+                return OCRResult(OCRStatus.ERROR, engine_id="paddleocr", model_version=config.model_version, error="ocr output exceeded limit")
+            if sum(len(part) + 1 for part in text_parts) >= MAX_TEXT_PER_ASSET:
+                break
+    except ValueError:
+        return OCRResult(OCRStatus.ERROR, engine_id="paddleocr", model_version=config.model_version, error="ocr output malformed")
+    text = _cap_text(" ".join(text_parts), MAX_TEXT_PER_ASSET)
+    if not text:
+        if malformed_seen:
+            return OCRResult(OCRStatus.UNCERTAIN, engine_id="paddleocr", model_version=config.model_version, error="ocr output uncertain")
+        return OCRResult(OCRStatus.NO_TEXT, engine_id="paddleocr", model_version=config.model_version)
+    if malformed_seen or not confidences:
+        return OCRResult(OCRStatus.UNCERTAIN, text=text, engine_id="paddleocr", model_version=config.model_version, error="ocr output uncertain")
+    confidence = sum(confidences) / len(confidences)
+    min_confidence = min(confidences)
+    return OCRResult(OCRStatus.SUCCESS, text=text, confidence=confidence, min_confidence=min_confidence, engine_id="paddleocr", model_version=config.model_version)
+
+
+def _merge_ocr_results(results: tuple[OCRResult, ...], config: PaddleRuntimeConfig) -> OCRResult:
+    if any(result.status is OCRStatus.ERROR for result in results):
+        return OCRResult(OCRStatus.ERROR, engine_id="paddleocr", model_version=config.model_version, error="ocr output malformed")
+    status = OCRStatus.SUCCESS
+    if any(result.status is OCRStatus.UNCERTAIN for result in results):
+        status = OCRStatus.UNCERTAIN
+    elif all(result.status is OCRStatus.NO_TEXT for result in results):
+        return OCRResult(OCRStatus.NO_TEXT, engine_id="paddleocr", model_version=config.model_version)
+    texts = [result.text for result in results if result.text]
+    confidences = [result.confidence for result in results if result.confidence is not None]
+    min_confidences = [result.min_confidence for result in results if result.min_confidence is not None]
+    text = _cap_text(" ".join(texts), MAX_TEXT_PER_ASSET)
+    if status is OCRStatus.UNCERTAIN:
+        return OCRResult(OCRStatus.UNCERTAIN, text=text, engine_id="paddleocr", model_version=config.model_version, error="ocr output uncertain")
+    if not text or not confidences or not min_confidences:
+        return OCRResult(OCRStatus.UNCERTAIN, text=text, engine_id="paddleocr", model_version=config.model_version, error="ocr output uncertain")
+    return OCRResult(OCRStatus.SUCCESS, text=text, confidence=sum(confidences) / len(confidences), min_confidence=min(min_confidences), engine_id="paddleocr", model_version=config.model_version)
+
+
+def _paddle_worker_extract(config: PaddleRuntimeConfig, image_path: Path) -> OCRResult:
+    module = importlib.import_module("paddleocr")
+    results: list[OCRResult] = []
+    for selection in config.selections:
+        engine = module.PaddleOCR(**selection.constructor_kwargs)
+        selection_config = PaddleRuntimeConfig(config.languages, selection.model_version, (selection,))
+        results.append(parse_paddle_output(engine.ocr(str(image_path)), selection_config))
+    return _merge_ocr_results(tuple(results), config)
+
+
 def _paddle_worker(config: PaddleRuntimeConfig, image_path: str, queue) -> None:
     try:
-        module = importlib.import_module("paddleocr")
-        engine = module.PaddleOCR(**config.constructor_kwargs)
-        queue.put(("ok", engine.ocr(image_path)))
+        result = _paddle_worker_extract(config, Path(image_path))
+        queue.put(("ok", asdict(result) | {"status": result.status.value}))
     except ImportError:
         queue.put(("unavailable", None))
     except Exception:
@@ -444,7 +554,10 @@ def _run_paddle_process(config: PaddleRuntimeConfig, path: Path, timeout_seconds
     except Exception as exc:
         raise RuntimeError("ocr backend failed") from exc
     if status == "ok":
-        return payload
+        try:
+            return OCRResult(status=OCRStatus(payload["status"]), text=payload.get("text", ""), confidence=payload.get("confidence"), min_confidence=payload.get("min_confidence"), engine_id=payload.get("engine_id", "paddleocr"), model_version=payload.get("model_version", config.model_version), error=payload.get("error"))
+        except Exception as exc:
+            raise RuntimeError("ocr backend failed") from exc
     if status == "unavailable":
         raise OCRBackendUnavailable("ocr backend unavailable")
     raise RuntimeError("ocr backend failed")
@@ -472,50 +585,34 @@ class PaddleOCRBackend:
 
     def runtime_config(self, languages: tuple[str, ...]) -> PaddleRuntimeConfig:
         language_set = tuple(languages)
+        selection_map = {
+            "ind": PaddleModelSelection("ind", f"{self._model_version}-id", {"lang": "id", "ocr_version": self._model_version}),
+            "eng": PaddleModelSelection("eng", f"{self._model_version}-en", {"lang": "en", "ocr_version": self._model_version}),
+        }
         if language_set == ("eng",):
-            lang = "en"
-        elif language_set in {("ind",), ("ind", "eng")}:
-            # PaddleOCR's public runtime uses its Latin-script recognition family for Indonesian text.
-            lang = "latin"
+            selections = (selection_map["eng"],)
+        elif language_set == ("ind",):
+            selections = (selection_map["ind"],)
+        elif language_set == ("ind", "eng"):
+            selections = (selection_map["ind"], selection_map["eng"])
         else:
             raise ValueError("unsupported OCR language")
-        version = f"{self._model_version}-{lang}"
-        return PaddleRuntimeConfig(language_set, version, {"lang": lang, "ocr_version": self._model_version})
+        version = "+".join(selection.model_version for selection in selections)
+        return PaddleRuntimeConfig(language_set, version, selections)
 
     def extract(self, path: Path, languages: tuple[str, ...]) -> OCRResult:
         try:
             config = self.runtime_config(languages)
-            raw = self._runner(config, path, self.timeout_seconds)
+            result = self._runner(config, path, self.timeout_seconds)
         except (OCRBackendUnavailable, TimeoutError):
             raise
         except ValueError:
             raise
         except Exception as exc:
             raise RuntimeError("ocr backend failed") from exc
-        text_parts: list[str] = []
-        confidences: list[float] = []
-        for page in raw or ():
-            for line in page or ():
-                try:
-                    text = normalize_text(line[1][0])
-                    confidence = float(line[1][1])
-                except (TypeError, ValueError, IndexError):
-                    continue
-                if text and math.isfinite(confidence):
-                    text_parts.append(text)
-                    confidences.append(max(0.0, min(confidence, 1.0)))
-                    if sum(len(part) + 1 for part in text_parts) >= MAX_TEXT_PER_ASSET:
-                        break
-            if sum(len(part) + 1 for part in text_parts) >= MAX_TEXT_PER_ASSET:
-                break
-        text = _cap_text(" ".join(text_parts), MAX_TEXT_PER_ASSET)
-        if not text:
-            return OCRResult(OCRStatus.NO_TEXT, engine_id=self.engine_id, model_version=config.model_version)
-        confidence = sum(confidences) / len(confidences) if confidences else None
-        min_confidence = min(confidences) if confidences else None
-        if not confidences:
-            return OCRResult(OCRStatus.UNCERTAIN, text=text, engine_id=self.engine_id, model_version=config.model_version, error="ocr confidence unavailable")
-        return OCRResult(OCRStatus.SUCCESS, text=text, confidence=confidence, min_confidence=min_confidence, engine_id=self.engine_id, model_version=config.model_version)
+        if not isinstance(result, OCRResult):
+            raise RuntimeError("ocr backend failed")
+        return result
 
 
 def build_backend(engine: str | None = None) -> OCRBackend:
