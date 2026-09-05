@@ -7,7 +7,7 @@ import pytest
 import ocr
 import vision_gate
 from config import load_watch_config
-from models import DownloadedAsset, MediaKind, SourceMedia
+from models import DownloadedAsset, FailedAsset, MediaKind, SourceMedia
 
 
 @pytest.fixture
@@ -81,6 +81,16 @@ def test_one_low_confidence_text_asset_returns_partial(tmp_path, profile):
     assert decision.asset_paths == (assets[1].path,)
 
 
+def test_text_with_missing_confidence_is_uncertain_and_cannot_be_text_only(tmp_path, profile):
+    assets = (asset(tmp_path, 0),)
+    results = (ocr.OCRResult(status=ocr.OCRStatus.SUCCESS, text="Revenue grew strongly across all core segments", confidence=None),)
+
+    decision = vision_gate.decide_vision_mode("Detailed quarterly result discussion with enough context.", assets, results, profile)
+
+    assert decision.mode is vision_gate.VisionMode.VISION_PARTIAL
+    assert decision.asset_paths == (assets[0].path,)
+
+
 def test_two_uncertain_assets_return_full_with_all_publication_images(tmp_path, profile):
     assets = (asset(tmp_path, 0), asset(tmp_path, 1), asset(tmp_path, 2))
     results = (
@@ -123,6 +133,33 @@ def test_visual_reference_caption_returns_full(tmp_path, profile, caption):
     assert decision.asset_ids == (0, 1)
 
 
+@pytest.mark.parametrize("caption", ["see slides for details", "the annotated tables are important", "diagrammatic view"])
+def test_visual_reference_caption_matches_approved_inflections(tmp_path, profile, caption):
+    assets = (asset(tmp_path, 0),)
+
+    decision = vision_gate.decide_vision_mode(
+        caption,
+        assets,
+        (result("High confidence text with sufficient analytical context for review.", 0.95),),
+        profile,
+    )
+
+    assert decision.mode is vision_gate.VisionMode.VISION_FULL
+    assert decision.reason == vision_gate.REASON_VISUAL_REFERENCE
+
+
+def test_generic_non_visual_comparison_does_not_force_full_vision(tmp_path, profile):
+    assets = (asset(tmp_path, 0),)
+    caption = (
+        "This compares operating margins against last year using written figures in the caption, "
+        "with enough context to judge the publication without visual interpretation."
+    )
+
+    decision = vision_gate.decide_vision_mode(caption, assets, (result("", None, ocr.OCRStatus.NO_TEXT),), profile)
+
+    assert decision.mode is vision_gate.VisionMode.TEXT_ONLY
+
+
 def test_blank_ocr_with_descriptive_caption_remains_text_only(tmp_path, profile):
     assets = (asset(tmp_path, 0),)
     descriptive = (
@@ -152,5 +189,73 @@ def test_reel_full_uses_sampled_frame_paths_never_original_video(tmp_path, profi
 
     assert decision.mode is vision_gate.VisionMode.VISION_FULL
     assert decision.asset_ids == (0, 1)
+    assert decision.analysis_ids == (vision_gate.analysis_id(cover), vision_gate.analysis_id(frame))
+    assert len(set(decision.analysis_ids)) == len(decision.analysis_ids)
     assert decision.asset_paths == (cover.path, frame.path)
     assert original_video.path not in decision.asset_paths
+
+
+def test_reel_analysis_ids_do_not_collide_with_original_video(tmp_path, profile):
+    original_video = asset(tmp_path, 0, kind=MediaKind.VIDEO, name="reel.mp4")
+    cover = asset(tmp_path, 0, name="cover.jpg")
+    frame = asset(tmp_path, 1, name="frame-1.jpg")
+
+    video_id = vision_gate.analysis_id(original_video)
+    cover_id = vision_gate.analysis_id(cover)
+    frame_id = vision_gate.analysis_id(frame)
+
+    assert len({video_id, cover_id, frame_id}) == 3
+    assert cover_id.startswith("image:0:")
+    assert frame_id.startswith("image:1:")
+
+
+def test_failed_asset_observation_returns_partial_without_inventing_path(tmp_path, profile):
+    available = asset(tmp_path, 0)
+    failed = FailedAsset(SourceMedia("https://cdn.example/missing.jpg", MediaKind.IMAGE, 1), "download_failed")
+
+    decision = vision_gate.decide_vision_mode(
+        "Quarterly written context is otherwise complete enough for analysis.",
+        (available,),
+        (result("High confidence extracted text from available slide.", 0.95),),
+        profile,
+        failed_assets=(failed,),
+    )
+
+    assert decision.mode is vision_gate.VisionMode.VISION_PARTIAL
+    assert decision.reason == vision_gate.REASON_PARTIAL_UNCERTAIN
+    assert decision.asset_paths == ()
+    assert decision.analysis_ids == (vision_gate.analysis_id(failed),)
+
+
+def test_mismatched_assets_and_results_fail_closed_with_available_image_paths(tmp_path, profile):
+    first = asset(tmp_path, 0)
+    second = asset(tmp_path, 1)
+
+    decision = vision_gate.decide_vision_mode(
+        "Quarterly result discussion with enough written context.",
+        (first, second),
+        (result("Only one OCR result arrived.", 0.95),),
+        profile,
+    )
+
+    assert decision.mode is vision_gate.VisionMode.VISION_FULL
+    assert decision.reason == vision_gate.REASON_ASSET_RESULT_MISMATCH
+    assert decision.asset_paths == (first.path, second.path)
+
+
+def test_reel_sampling_failure_keeps_original_video_out_of_vision_paths(tmp_path, profile):
+    original_video = asset(tmp_path, 0, kind=MediaKind.VIDEO, name="reel.mp4")
+    failed_frame = FailedAsset(SourceMedia("analysis-frame://cover", MediaKind.IMAGE, 0), "frame_sampling_failed")
+
+    decision = vision_gate.decide_vision_mode(
+        "The caption says see slide for visual details.",
+        (original_video,),
+        (result("", None, ocr.OCRStatus.NO_TEXT),),
+        profile,
+        failed_assets=(failed_frame,),
+    )
+
+    assert decision.mode is vision_gate.VisionMode.VISION_FULL
+    assert decision.asset_paths == ()
+    assert original_video.path not in decision.asset_paths
+    assert decision.analysis_ids == (vision_gate.analysis_id(failed_frame),)

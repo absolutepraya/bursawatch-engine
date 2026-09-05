@@ -101,6 +101,12 @@ class DownloadedAsset:
 
 
 @dataclass(frozen=True)
+class FailedAsset:
+    source: SourceMedia
+    reason: str
+
+
+@dataclass(frozen=True)
 class DownloadLimits:
     max_asset_bytes: int = 25 * 1024 * 1024
     max_publication_bytes: int = 128 * 1024 * 1024

@@ -5,14 +5,14 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from models import DownloadedAsset, MediaKind, Profile
+from models import DownloadedAsset, FailedAsset, MediaKind, Profile
 from ocr import OCRResult, OCRStatus, normalize_text
 
 
 MIN_AGGREGATE_CONTEXT_CHARS = 80
 NOISE_WORD_RATIO_MIN = 0.45
 VISUAL_REFERENCE_RE = re.compile(
-    r"\b(chart|table|diagram|annotation|annotated|visual comparison|comparison|see\s+slide|slide\s+\d+)\b",
+    r"\b(charts?|tables?|diagrams?|annotations?|annotated|visual\s+comparisons?|see\s+slides?|slides?\s+\d+|diagrammatic)\b",
     re.IGNORECASE,
 )
 
@@ -21,6 +21,7 @@ REASON_PARTIAL_UNCERTAIN = "partial_uncertain_assets"
 REASON_MULTIPLE_UNCERTAIN = "multiple_uncertain_assets"
 REASON_SPARSE_CONTEXT = "sparse_context"
 REASON_VISUAL_REFERENCE = "visual_reference"
+REASON_ASSET_RESULT_MISMATCH = "asset_result_mismatch"
 
 
 class VisionMode(StrEnum):
@@ -35,6 +36,7 @@ class VisionDecision:
     reason: str
     asset_ids: tuple[int, ...]
     asset_paths: tuple[Path, ...]
+    analysis_ids: tuple[str, ...] = ()
 
 
 def _context_length(caption_text: str, results: tuple[OCRResult, ...]) -> int:
@@ -54,9 +56,11 @@ def _mostly_noise(text: str) -> bool:
 
 
 def _uncertain(result: OCRResult, profile: Profile) -> bool:
-    if result.status in {OCRStatus.ERROR, OCRStatus.TIMEOUT, OCRStatus.UNAVAILABLE}:
+    if result.status in {OCRStatus.ERROR, OCRStatus.TIMEOUT, OCRStatus.UNAVAILABLE, OCRStatus.UNCERTAIN}:
         return True
     if result.status is OCRStatus.SUCCESS:
+        if result.confidence is None and result.text:
+            return True
         if result.min_confidence is not None and result.min_confidence < profile.ocr_min_confidence:
             return True
         if result.confidence is not None and result.confidence < profile.ocr_min_confidence:
@@ -66,12 +70,25 @@ def _uncertain(result: OCRResult, profile: Profile) -> bool:
     return False
 
 
-def _vision_assets(assets: tuple[DownloadedAsset, ...]) -> tuple[DownloadedAsset, ...]:
+def analysis_id(asset: DownloadedAsset | FailedAsset) -> str:
+    if isinstance(asset, FailedAsset):
+        return f"failed:{asset.source.kind.value}:{asset.source.index}:{asset.reason}"
+    return f"{asset.source.kind.value}:{asset.source.index}:{asset.sha256[:12]}"
+
+
+def _vision_assets(assets: tuple[DownloadedAsset | FailedAsset, ...]) -> tuple[DownloadedAsset | FailedAsset, ...]:
     return tuple(asset for asset in assets if asset.source.kind is MediaKind.IMAGE)
 
 
-def _decision(mode: VisionMode, reason: str, assets: tuple[DownloadedAsset, ...]) -> VisionDecision:
-    return VisionDecision(mode, reason, tuple(asset.source.index for asset in assets), tuple(asset.path for asset in assets))
+def _decision(mode: VisionMode, reason: str, assets: tuple[DownloadedAsset | FailedAsset, ...]) -> VisionDecision:
+    downloaded = tuple(asset for asset in assets if isinstance(asset, DownloadedAsset))
+    return VisionDecision(
+        mode,
+        reason,
+        tuple(asset.source.index for asset in assets),
+        tuple(asset.path for asset in downloaded),
+        tuple(analysis_id(asset) for asset in assets),
+    )
 
 
 def decide_vision_mode(
@@ -79,18 +96,21 @@ def decide_vision_mode(
     assets: tuple[DownloadedAsset, ...],
     results: tuple[OCRResult, ...],
     profile: Profile,
+    *,
+    failed_assets: tuple[FailedAsset, ...] = (),
 ) -> VisionDecision:
     if len(assets) != len(results):
-        raise ValueError("assets and OCR results must have the same length")
-    vision_assets = _vision_assets(assets)
+        return _decision(VisionMode.VISION_FULL, REASON_ASSET_RESULT_MISMATCH, _vision_assets((*assets, *failed_assets)))
+    vision_assets = _vision_assets((*assets, *failed_assets))
     if VISUAL_REFERENCE_RE.search(caption_text):
         return _decision(VisionMode.VISION_FULL, REASON_VISUAL_REFERENCE, vision_assets)
 
     uncertain_assets = tuple(asset for asset, result in zip(assets, results, strict=True) if asset.source.kind is MediaKind.IMAGE and _uncertain(result, profile))
-    if len(uncertain_assets) >= 2:
+    all_uncertain_assets = (*uncertain_assets, *failed_assets)
+    if len(all_uncertain_assets) >= 2:
         return _decision(VisionMode.VISION_FULL, REASON_MULTIPLE_UNCERTAIN, vision_assets)
-    if len(uncertain_assets) == 1:
-        return _decision(VisionMode.VISION_PARTIAL, REASON_PARTIAL_UNCERTAIN, uncertain_assets)
+    if len(all_uncertain_assets) == 1:
+        return _decision(VisionMode.VISION_PARTIAL, REASON_PARTIAL_UNCERTAIN, all_uncertain_assets)
 
     if _context_length(caption_text, results) < MIN_AGGREGATE_CONTEXT_CHARS:
         return _decision(VisionMode.VISION_FULL, REASON_SPARSE_CONTEXT, vision_assets)

@@ -163,3 +163,181 @@ def test_parse_tesseract_tsv_ignores_invalid_confidence_and_blank_words():
     assert result.status is ocr.OCRStatus.SUCCESS
     assert result.text == "Total Assets"
     assert result.confidence == pytest.approx(0.83)
+
+
+def test_parse_tesseract_tsv_distinguishes_blank_from_malformed():
+    blank = ocr.parse_tesseract_tsv("level\tconf\ttext\n5\t-1\t\n")
+    malformed = ocr.parse_tesseract_tsv("not a tsv document with recognized headers")
+
+    assert blank.status is ocr.OCRStatus.NO_TEXT
+    assert malformed.status is ocr.OCRStatus.ERROR
+    assert malformed.error == "ocr output malformed"
+
+
+@pytest.mark.parametrize("confidence", ["", "bad", "nan", "inf"])
+def test_parse_tesseract_tsv_with_text_but_invalid_confidence_is_uncertain(confidence):
+    parsed = ocr.parse_tesseract_tsv(f"level\tconf\ttext\n5\t{confidence}\tRevenue\n")
+
+    assert parsed.status is ocr.OCRStatus.UNCERTAIN
+    assert parsed.text == "Revenue"
+    assert parsed.confidence is None
+    assert parsed.error == "ocr confidence unavailable"
+
+
+def test_parse_tesseract_tsv_any_text_word_with_invalid_confidence_is_uncertain():
+    parsed = ocr.parse_tesseract_tsv(
+        "level\tconf\ttext\n"
+        "5\t96\tRevenue\n"
+        "5\tbad\tGrowth\n"
+    )
+
+    assert parsed.status is ocr.OCRStatus.UNCERTAIN
+    assert parsed.text == "Revenue Growth"
+    assert parsed.error == "ocr confidence unavailable"
+
+
+def test_tesseract_runner_output_limit_is_sanitized_by_cache(tmp_path):
+    source = asset(tmp_path, sha256="5" * 64)
+
+    def runner(command, timeout_seconds, max_stdout_bytes):
+        raise ocr.OCROutputLimitExceeded("stdout contained raw OCR text")
+
+    backend = ocr.TesseractBackend(binary="tesseract", runner=runner)
+    result = ocr.extract_cached(source, tmp_path / "cache", backend, ("eng",))
+
+    assert result.status is ocr.OCRStatus.ERROR
+    assert result.error == "ocr backend failed"
+
+
+def test_cache_mismatch_is_a_miss_not_a_trusted_hit(tmp_path):
+    source = asset(tmp_path, sha256="6" * 64)
+    cache_root = tmp_path / "cache"
+    cache_root.mkdir()
+    key = ocr.cache_key(source.sha256, "fake:v1", ("eng",), ocr.DEFAULT_PREPROCESSING_VERSION)
+    (cache_root / f"{key}.json").write_text(
+        '{"status":"success","text":"stale","confidence":0.99,'
+        '"engine_id":"other","model_version":"v1","languages":["eng"],'
+        '"image_sha256":"' + source.sha256 + '","preprocessing_version":"' + ocr.DEFAULT_PREPROCESSING_VERSION + '"}',
+        encoding="utf-8",
+    )
+    backend = FakeBackend(ocr.OCRResult(status=ocr.OCRStatus.SUCCESS, text="fresh", confidence=0.9))
+
+    result = ocr.extract_cached(source, cache_root, backend, ("eng",))
+
+    assert result.text == "fresh"
+    assert backend.calls == 1
+
+
+def test_cache_rejects_invalid_embedded_status_and_symlinked_file(tmp_path):
+    source = asset(tmp_path, sha256="7" * 64)
+    cache_root = tmp_path / "cache"
+    cache_root.mkdir()
+    key = ocr.cache_key(source.sha256, "fake:v1", ("eng",), ocr.DEFAULT_PREPROCESSING_VERSION)
+    cache_file = cache_root / f"{key}.json"
+    cache_file.write_text('{"status":"not-real"}', encoding="utf-8")
+    backend = FakeBackend(ocr.OCRResult(status=ocr.OCRStatus.NO_TEXT))
+
+    assert ocr.extract_cached(source, cache_root, backend, ("eng",)).status is ocr.OCRStatus.NO_TEXT
+    cache_file.unlink()
+    cache_file.symlink_to(tmp_path / "missing-cache.json")
+
+    with pytest.raises(ocr.OCRCacheError, match="cache path is invalid"):
+        ocr.extract_cached(source, cache_root, backend, ("eng",))
+
+
+def test_cache_malformed_metadata_values_are_misses(tmp_path):
+    source = asset(tmp_path, sha256="9" * 64)
+    cache_root = tmp_path / "cache"
+    cache_root.mkdir()
+    key = ocr.cache_key(source.sha256, "fake:v1", ("eng",), ocr.DEFAULT_PREPROCESSING_VERSION)
+    (cache_root / f"{key}.json").write_text(
+        '{"status":"success","text":"tampered","confidence":"high",'
+        '"engine_id":"fake","model_version":"v1","languages":["eng"],'
+        '"image_sha256":"' + source.sha256 + '","preprocessing_version":"' + ocr.DEFAULT_PREPROCESSING_VERSION + '"}',
+        encoding="utf-8",
+    )
+    backend = FakeBackend(ocr.OCRResult(status=ocr.OCRStatus.SUCCESS, text="fresh", confidence=0.9))
+
+    assert ocr.extract_cached(source, cache_root, backend, ("eng",)).text == "fresh"
+    assert backend.calls == 1
+
+
+def test_paddle_runtime_mapping_binds_languages_to_constructor_config(tmp_path):
+    calls = []
+
+    def runner(config, path, timeout_seconds):
+        calls.append((config, path, timeout_seconds))
+        return [[(None, ("Laba bersih naik", 0.92))]]
+
+    backend = ocr.PaddleOCRBackend(model_version="PP-OCRv5", runner=runner, timeout_seconds=3)
+    result = backend.extract(asset(tmp_path).path, ("ind", "eng"))
+
+    assert result.status is ocr.OCRStatus.SUCCESS
+    assert result.text == "Laba bersih naik"
+    assert calls[0][0].constructor_kwargs == {"lang": "latin", "ocr_version": "PP-OCRv5"}
+    assert calls[0][0].model_version == "PP-OCRv5-latin"
+    assert calls[0][2] == 3
+
+
+@pytest.mark.parametrize(
+    ("languages", "kwargs", "model_version"),
+    [
+        (("ind",), {"lang": "latin", "ocr_version": "PP-OCRv5"}, "PP-OCRv5-latin"),
+        (("eng",), {"lang": "en", "ocr_version": "PP-OCRv5"}, "PP-OCRv5-en"),
+        (("ind", "eng"), {"lang": "latin", "ocr_version": "PP-OCRv5"}, "PP-OCRv5-latin"),
+    ],
+)
+def test_paddle_runtime_config_is_explicit_for_supported_languages(languages, kwargs, model_version):
+    backend = ocr.PaddleOCRBackend(model_version="PP-OCRv5", runner=lambda config, path, timeout: ())
+    config = backend.runtime_config(languages)
+
+    assert config.constructor_kwargs == kwargs
+    assert config.model_version == model_version
+
+
+def test_paddle_rejects_unknown_language():
+    backend = ocr.PaddleOCRBackend(model_version="PP-OCRv5", runner=lambda config, path, timeout: ())
+
+    with pytest.raises(ValueError, match="unsupported OCR language"):
+        backend.runtime_config(("fra",))
+
+
+def test_paddle_constructor_failure_and_timeout_are_sanitized(tmp_path):
+    source = asset(tmp_path, sha256="8" * 64)
+
+    unavailable = ocr.PaddleOCRBackend(
+        model_version="PP-OCRv5",
+        runner=lambda config, path, timeout: (_ for _ in ()).throw(ocr.OCRBackendUnavailable("missing package path")),
+    )
+    timeout = ocr.PaddleOCRBackend(
+        model_version="PP-OCRv5",
+        runner=lambda config, path, timeout: (_ for _ in ()).throw(TimeoutError("raw model timeout")),
+    )
+
+    assert ocr.extract_cached(source, tmp_path / "cache-a", unavailable, ("eng",)).error == "ocr backend unavailable"
+    timed_out = ocr.extract_cached(source, tmp_path / "cache-b", timeout, ("eng",))
+    assert timed_out.status is ocr.OCRStatus.TIMEOUT
+    assert timed_out.error == "ocr backend timed out"
+
+
+def test_paddle_accumulation_stops_at_per_asset_limit(tmp_path):
+    iterated = 0
+
+    def lines():
+        nonlocal iterated
+        for _ in range(200):
+            iterated += 1
+            yield (None, ("x" * 200, 0.9))
+
+    backend = ocr.PaddleOCRBackend(model_version="PP-OCRv5", runner=lambda config, path, timeout: (lines(),))
+    parsed = backend.extract(asset(tmp_path).path, ("eng",))
+
+    assert len(parsed.text) == ocr.MAX_TEXT_PER_ASSET
+    assert iterated < 200
+
+
+def test_tesseract_parsing_caps_without_processing_all_words():
+    parsed = ocr.parse_tesseract_tsv("level\tconf\ttext\n" + "\n".join(f"5\t99\t{'x' * 200}" for _ in range(200)))
+
+    assert parsed.status is ocr.OCRStatus.SUCCESS
+    assert len(parsed.text) == ocr.MAX_TEXT_PER_ASSET
