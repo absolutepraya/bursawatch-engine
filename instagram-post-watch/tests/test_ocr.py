@@ -184,6 +184,16 @@ def test_parse_tesseract_tsv_with_text_but_invalid_confidence_is_uncertain(confi
     assert parsed.error == "ocr confidence unavailable"
 
 
+@pytest.mark.parametrize("confidence", ["-2", "101", "200"])
+def test_parse_tesseract_tsv_with_out_of_range_confidence_is_uncertain(confidence):
+    parsed = ocr.parse_tesseract_tsv(f"level\tconf\ttext\n5\t{confidence}\tRevenue\n")
+
+    assert parsed.status is ocr.OCRStatus.UNCERTAIN
+    assert parsed.text == "Revenue"
+    assert parsed.confidence is None
+    assert parsed.error == "ocr confidence unavailable"
+
+
 def test_parse_tesseract_tsv_any_text_word_with_invalid_confidence_is_uncertain():
     parsed = ocr.parse_tesseract_tsv(
         "level\tconf\ttext\n"
@@ -293,6 +303,29 @@ def test_cache_rejects_impossible_status_payload_combinations(tmp_path, payload)
     assert backend.calls == 1
 
 
+@pytest.mark.parametrize(
+    "backend_result",
+    [
+        ocr.OCRResult(status=ocr.OCRStatus.NO_TEXT, text="poisoned", confidence=None),
+        ocr.OCRResult(status=ocr.OCRStatus.NO_TEXT, text="", confidence=0.9),
+        ocr.OCRResult(status=ocr.OCRStatus.SUCCESS, text="", confidence=0.9, min_confidence=0.9),
+        ocr.OCRResult(status=ocr.OCRStatus.SUCCESS, text="ok", confidence=None),
+        ocr.OCRResult(status=ocr.OCRStatus.SUCCESS, text="ok", confidence=0.4, min_confidence=0.8),
+    ],
+)
+def test_extract_cached_normalizes_impossible_backend_success_or_blank_results(tmp_path, backend_result):
+    source = asset(tmp_path, sha256="d" * 64)
+    backend = FakeBackend(backend_result)
+
+    first = ocr.extract_cached(source, tmp_path / "cache", backend, ("eng",))
+    second = ocr.extract_cached(source, tmp_path / "cache", backend, ("eng",))
+
+    assert first.status is ocr.OCRStatus.UNCERTAIN
+    assert first.error == "ocr output uncertain"
+    assert backend.calls == 2
+    assert second.status is ocr.OCRStatus.UNCERTAIN
+
+
 def test_paddle_runtime_mapping_binds_languages_to_constructor_config(tmp_path):
     calls = []
 
@@ -386,6 +419,16 @@ def test_paddle_malformed_or_confidence_less_detected_output_is_uncertain(raw):
     config = ocr.PaddleOCRBackend(model_version="PP-OCRv5", runner=lambda cfg, path, timeout: ()).runtime_config(("eng",))
 
     parsed = ocr.parse_paddle_output((raw,), config)
+
+    assert parsed.status is ocr.OCRStatus.UNCERTAIN
+    assert parsed.error == "ocr output uncertain"
+
+
+@pytest.mark.parametrize("confidence", [-0.1, 1.01, float("nan"), float("inf")])
+def test_paddle_out_of_range_confidence_is_uncertain(confidence):
+    config = ocr.PaddleOCRBackend(model_version="PP-OCRv5", runner=lambda cfg, path, timeout: ()).runtime_config(("eng",))
+
+    parsed = ocr.parse_paddle_output((((None, ("Revenue", confidence)),),), config)
 
     assert parsed.status is ocr.OCRStatus.UNCERTAIN
     assert parsed.error == "ocr output uncertain"

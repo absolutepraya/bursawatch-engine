@@ -106,6 +106,30 @@ def test_detected_but_unusable_paddle_text_cannot_reach_text_only(tmp_path, prof
     assert decision.asset_paths == (assets[0].path,)
 
 
+@pytest.mark.parametrize(
+    "parsed",
+    [
+        ocr.parse_tesseract_tsv("level\tconf\ttext\n5\t200\tRevenue growth exceeded expectations\n"),
+        ocr.parse_paddle_output(
+            (((None, ("Revenue growth exceeded expectations", 2.0)),),),
+            ocr.PaddleOCRBackend(model_version="PP-OCRv5", runner=lambda cfg, path, timeout: ()).runtime_config(("eng",)),
+        ),
+    ],
+)
+def test_out_of_range_ocr_confidence_cannot_reach_text_only(tmp_path, profile, parsed):
+    assets = (asset(tmp_path, 0),)
+
+    decision = vision_gate.decide_vision_mode(
+        "Detailed caption with enough context that would otherwise allow text only.",
+        assets,
+        (parsed,),
+        profile,
+    )
+
+    assert parsed.status is ocr.OCRStatus.UNCERTAIN
+    assert decision.mode is vision_gate.VisionMode.VISION_PARTIAL
+
+
 def test_two_uncertain_assets_return_full_with_all_publication_images(tmp_path, profile):
     assets = (asset(tmp_path, 0), asset(tmp_path, 1), asset(tmp_path, 2))
     results = (

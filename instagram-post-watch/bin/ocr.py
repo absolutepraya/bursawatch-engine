@@ -120,18 +120,16 @@ def _backend_model_version(backend: OCRBackend, languages: tuple[str, ...]) -> s
 
 
 def _result_with_context(result: OCRResult, backend: OCRBackend, languages: tuple[str, ...], model_version: str) -> OCRResult:
-    min_confidence = result.min_confidence
-    if OCRStatus(result.status) is OCRStatus.SUCCESS and min_confidence is None:
-        min_confidence = result.confidence
+    normalized = _normalize_extracted_result(result)
     return OCRResult(
-        status=OCRStatus(result.status),
-        text=_cap_text(result.text, MAX_TEXT_PER_ASSET),
-        confidence=result.confidence,
-        min_confidence=min_confidence,
+        status=normalized.status,
+        text=normalized.text,
+        confidence=normalized.confidence,
+        min_confidence=normalized.min_confidence,
         engine_id=result.engine_id or backend.engine_id,
         model_version=result.model_version or model_version,
         languages=tuple(languages),
-        error=result.error,
+        error=normalized.error,
     )
 
 
@@ -182,6 +180,23 @@ def _cache_payload_consistent(status: OCRStatus, text: str, confidence: float | 
             return False
         return min_confidence <= confidence
     return False
+
+
+def _normalize_extracted_result(result: OCRResult) -> OCRResult:
+    status = OCRStatus(result.status)
+    text = _cap_text(result.text, MAX_TEXT_PER_ASSET)
+    confidence = result.confidence
+    min_confidence = result.min_confidence
+    if status is OCRStatus.SUCCESS and min_confidence is None:
+        min_confidence = confidence
+    try:
+        confidence = _optional_confidence(confidence)
+        min_confidence = _optional_confidence(min_confidence)
+    except ValueError:
+        return OCRResult(OCRStatus.UNCERTAIN, text=text, engine_id=result.engine_id, model_version=result.model_version, languages=result.languages, error="ocr output uncertain")
+    if status in {OCRStatus.SUCCESS, OCRStatus.NO_TEXT} and not _cache_payload_consistent(status, text, confidence, min_confidence):
+        return OCRResult(OCRStatus.UNCERTAIN, text=text if text else "", engine_id=result.engine_id, model_version=result.model_version, languages=result.languages, error="ocr output uncertain")
+    return OCRResult(status, text, confidence, min_confidence, result.engine_id, result.model_version, result.languages, result.error)
 
 
 def _read_cache(
@@ -333,8 +348,8 @@ def parse_tesseract_tsv(tsv: str) -> OCRResult:
         except (TypeError, ValueError):
             invalid_confidence = True
             continue
-        if math.isfinite(confidence) and confidence >= 0:
-            confidences.append(min(confidence / 100, 1.0))
+        if math.isfinite(confidence) and 0 <= confidence <= 100:
+            confidences.append(confidence / 100)
         else:
             invalid_confidence = True
         if sum(len(part) + 1 for part in words) >= MAX_TEXT_PER_ASSET:
@@ -447,9 +462,9 @@ def _paddle_line(line: object) -> tuple[str, float] | None:
         confidence = float(candidate[1])
     except (TypeError, ValueError, IndexError, KeyError):
         return None
-    if not text or not math.isfinite(confidence):
+    if not text or not math.isfinite(confidence) or not 0 <= confidence <= 1:
         return None
-    return text, max(0.0, min(confidence, 1.0))
+    return text, confidence
 
 
 def _iter_paddle_lines(raw: object):
