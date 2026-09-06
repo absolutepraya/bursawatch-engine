@@ -33,6 +33,7 @@ MAX_STATE_BYTES = 4 * 1024 * 1024
 MAX_PROFILES = 256
 MAX_OUTBOX_EVENTS = 2_000
 MAX_DELIVERIES = 4_000
+MAX_CLEANUP_ENTRIES = 2_000
 MAX_MEDIA_ASSETS = 100
 MAX_OCR_RESULTS = 100
 MAX_TEXT = 4_000
@@ -65,6 +66,7 @@ _ROOT_KEYS = {
     "profiles",
     "outbox",
     "deliveries",
+    "cleanup",
     "filtered_since_last_heartbeat",
 }
 _PROFILE_KEYS = {"cursor", "cursor_published_at"}
@@ -72,6 +74,7 @@ _EVENT_KEYS = {
     "event_key",
     "profile_id",
     "publication_id",
+    "source_publication_url",
     "post",
     "downloaded_publication",
     "ocr_results",
@@ -100,6 +103,14 @@ _DELIVERY_KEYS = {
     "delivered_at",
     "cleanup_pending",
 }
+_CLEANUP_KEYS = {
+    "event_key",
+    "profile_id",
+    "publication_id",
+    "media_root",
+    "attempts",
+    "last_error",
+}
 _PHASES = {"pending", "awaiting_agent", "ready"}
 _ANALYSIS_KEYS = {"title", "summary", "route", "is_relevant"}
 
@@ -110,6 +121,7 @@ def new_state() -> dict:
         "profiles": {},
         "outbox": [],
         "deliveries": [],
+        "cleanup": [],
         "filtered_since_last_heartbeat": 0,
     }
 
@@ -184,6 +196,47 @@ def _safe_local_path(value: object) -> str:
     if any(part in {".", ".."} for part in Path(path_text).parts):
         raise _invalid()
     return path_text
+
+
+def _reject_symlink_components(path: Path) -> None:
+    current = Path(path.anchor)
+    for part in path.parts[1:]:
+        current /= part
+        try:
+            mode = os.lstat(current).st_mode
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise _invalid() from exc
+        if stat.S_ISLNK(mode):
+            raise _invalid()
+
+
+def _validated_media_root(value: object) -> Path:
+    root = Path(_safe_local_path(value))
+    _reject_symlink_components(root)
+    try:
+        resolved = root.resolve(strict=False)
+    except (OSError, RuntimeError) as exc:
+        raise _invalid() from exc
+    if resolved == Path(resolved.anchor):
+        raise _invalid()
+    return root
+
+
+def _confined_local_path(value: object, root: Path) -> Path:
+    path = Path(_safe_local_path(value))
+    _reject_symlink_components(root)
+    _reject_symlink_components(path)
+    try:
+        resolved_root = root.resolve(strict=False)
+        resolved_path = path.resolve(strict=False)
+        relative = resolved_path.relative_to(resolved_root)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise _invalid() from exc
+    if not relative.parts:
+        raise _invalid()
+    return path
 
 
 def _safe_publication_url(value: object) -> str:
@@ -316,11 +369,7 @@ def _deserialize_downloaded_asset(value: object, media_root: Path) -> Downloaded
     raw = _require_object(value)
     if set(raw) != {"source", "path", "sha256", "size_bytes", "content_type"}:
         raise _invalid()
-    path = Path(_safe_local_path(raw["path"]))
-    try:
-        path.relative_to(media_root)
-    except ValueError as exc:
-        raise _invalid() from exc
+    path = _confined_local_path(raw["path"], media_root)
     size_bytes = raw["size_bytes"]
     if type(size_bytes) is not int or not 0 <= size_bytes <= 25 * 1024 * 1024:
         raise _invalid()
@@ -377,7 +426,7 @@ def deserialize_downloaded_publication(value: object) -> DownloadedPublication:
     raw = _require_object(value)
     if set(raw) != {"assets", "media_root", "failed_assets"}:
         raise _invalid()
-    media_root = Path(_safe_local_path(raw["media_root"]))
+    media_root = _validated_media_root(raw["media_root"])
     assets_value = raw["assets"]
     failed_value = raw["failed_assets"]
     if type(assets_value) is not list or type(failed_value) is not list:
@@ -482,7 +531,11 @@ def serialize_vision_decision(value: VisionDecision) -> dict[str, object]:
     asset_ids = tuple(value.asset_ids)
     if len(asset_ids) > MAX_MEDIA_ASSETS or any(type(item) is not int or not 0 <= item < MAX_MEDIA_ASSETS for item in asset_ids):
         raise _invalid()
-    asset_paths = [_safe_local_path(item) for item in value.asset_paths]
+    asset_paths = []
+    for item in value.asset_paths:
+        path = Path(_safe_local_path(item))
+        _reject_symlink_components(path)
+        asset_paths.append(str(path))
     if len(asset_paths) > MAX_MEDIA_ASSETS:
         raise _invalid()
     analysis_ids = [_safe_token(item) for item in value.analysis_ids]
@@ -563,17 +616,27 @@ def _validate_event(value: object) -> dict[str, object]:
     post = deserialize_post(event["post"])
     if post.profile_id != profile_id or post.publication_id != publication_id:
         raise _invalid()
+    source_publication_url = _safe_publication_url(event["source_publication_url"])
+    if source_publication_url != post.url:
+        raise _invalid()
     downloaded = event["downloaded_publication"]
+    downloaded_value = None
     if downloaded is not None:
-        deserialize_downloaded_publication(downloaded)
+        downloaded_value = deserialize_downloaded_publication(downloaded)
     ocr_results = event["ocr_results"]
     if type(ocr_results) is not list or len(ocr_results) > MAX_OCR_RESULTS:
         raise _invalid()
     for result in ocr_results:
         deserialize_ocr_result(result)
     vision = event["vision_decision"]
+    vision_value = None
     if vision is not None:
-        deserialize_vision_decision(vision)
+        vision_value = deserialize_vision_decision(vision)
+        if vision_value.asset_paths:
+            if downloaded_value is None:
+                raise _invalid()
+            for path in vision_value.asset_paths:
+                _confined_local_path(path, downloaded_value.media_root)
     phase = event["agent_phase"]
     if type(phase) is not str or phase not in _PHASES:
         raise _invalid()
@@ -619,6 +682,25 @@ def _validate_delivery(value: object) -> dict[str, object]:
     return delivery
 
 
+def _validate_cleanup(value: object) -> dict[str, object]:
+    cleanup = _require_object(value)
+    if set(cleanup) != _CLEANUP_KEYS:
+        raise _invalid()
+    profile_id = _safe_component(cleanup["profile_id"])
+    publication_id = _safe_component(cleanup["publication_id"])
+    if _safe_token(cleanup["event_key"]) != f"{profile_id}:{publication_id}":
+        raise _invalid()
+    media_root = cleanup["media_root"]
+    if media_root is not None:
+        _validated_media_root(media_root)
+    attempts = cleanup["attempts"]
+    if type(attempts) is not int or not 0 <= attempts <= MAX_CLEANUP_ENTRIES:
+        raise _invalid()
+    if cleanup["last_error"] is not None:
+        _safe_error(cleanup["last_error"])
+    return cleanup
+
+
 def _validate_state(value: object) -> dict[str, object]:
     root = _require_object(value)
     if set(root) != _ROOT_KEYS or root["version"] != STATE_VERSION or type(root["version"]) is not int:
@@ -652,6 +734,15 @@ def _validate_state(value: object) -> dict[str, object]:
         raise _invalid()
     for delivery in deliveries:
         _validate_delivery(delivery)
+    cleanup = root["cleanup"]
+    if type(cleanup) is not list or len(cleanup) > MAX_CLEANUP_ENTRIES:
+        raise _invalid()
+    cleanup_keys: set[str] = set()
+    for item in cleanup:
+        normalized = _validate_cleanup(item)
+        if normalized["event_key"] in cleanup_keys:
+            raise _invalid()
+        cleanup_keys.add(normalized["event_key"])
     filtered = root["filtered_since_last_heartbeat"]
     if type(filtered) is not int or not 0 <= filtered <= MAX_DELIVERIES:
         raise _invalid()
@@ -719,8 +810,24 @@ def load_state(path: Path) -> dict:
     return _validate_state(value)
 
 
-def save_state(path: Path, value: dict) -> None:
+def _serialized_state_bytes(value: dict) -> bytes:
     _validate_state(value)
+    try:
+        serialized = json.dumps(
+            value,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, UnicodeError, ValueError) as exc:
+        raise _invalid() from exc
+    if len(serialized) > MAX_STATE_BYTES:
+        raise ValueError("instagram-post-watch state exceeds the size limit")
+    return serialized
+
+
+def save_state(path: Path, value: dict) -> None:
+    serialized = _serialized_state_bytes(value)
     target = _absolute_path(path)
     _check_parent_chain(target)
     parent = target.parent
@@ -734,8 +841,8 @@ def save_state(path: Path, value: dict) -> None:
     try:
         fd, temporary_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=parent)
         os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(value, handle, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(serialized)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary_name, target)
@@ -809,6 +916,7 @@ def _event_for_publication(profile: Profile, publication: SourcePost, prepared: 
         "event_key": event_key,
         "profile_id": profile.id,
         "publication_id": publication.publication_id,
+        "source_publication_url": publication.url,
         **metadata,
         "agent_phase": "pending" if profile.uses_llm else "ready",
         "agent_lease_until": None,
@@ -1014,6 +1122,27 @@ def discard_analysis(value: dict, event_key: str, now: datetime | None = None) -
     _aware_datetime(reference_time)
     event = awaiting_analysis_event(value, event_key)
     _active_lease(event, reference_time)
+    downloaded = event["downloaded_publication"]
+    media_root = None
+    if downloaded is not None:
+        media_root = str(deserialize_downloaded_publication(downloaded).media_root)
+    cleanup_entry = {
+        "event_key": event["event_key"],
+        "profile_id": event["profile_id"],
+        "publication_id": event["publication_id"],
+        "media_root": media_root,
+        "attempts": 0,
+        "last_error": None,
+    }
+    _validate_cleanup(cleanup_entry)
+    candidate = {
+        **value,
+        "outbox": [item for item in value["outbox"] if item is not event],
+        "cleanup": [*value["cleanup"], cleanup_entry],
+        "filtered_since_last_heartbeat": value["filtered_since_last_heartbeat"] + 1,
+    }
+    _validate_state(candidate)
+    value["cleanup"].append(cleanup_entry)
     value["outbox"].remove(event)
     value["filtered_since_last_heartbeat"] += 1
     _validate_state(value)

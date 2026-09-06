@@ -79,6 +79,7 @@ def test_new_state_has_version_one_and_empty_delivery_ledgers():
         "profiles": {},
         "outbox": [],
         "deliveries": [],
+        "cleanup": [],
         "filtered_since_last_heartbeat": 0,
     }
 
@@ -112,6 +113,7 @@ def test_later_observation_queues_unseen_publications_in_chronological_order(con
     assert created == 2
     assert [event["publication_id"] for event in value["outbox"]] == ["media-101", "media-102"]
     assert value["profiles"][profile.id]["cursor"] == "media-102"
+    assert value["outbox"][0]["source_publication_url"] == value["outbox"][0]["post"]["url"]
 
 
 def test_duplicate_publication_is_not_queued_twice(config_path, tmp_path):
@@ -316,6 +318,14 @@ def test_discard_removes_only_active_event_and_increments_filtered_count(config_
     state.discard_analysis(value, claimed["event_key"], NOW + timedelta(minutes=4))
 
     assert [event["publication_id"] for event in value["outbox"]] == ["media-102"]
+    assert value["cleanup"] == [{
+        "event_key": f"{profile.id}:media-101",
+        "profile_id": profile.id,
+        "publication_id": "media-101",
+        "media_root": str(tmp_path / "media-101"),
+        "attempts": 0,
+        "last_error": None,
+    }]
     assert value["filtered_since_last_heartbeat"] == 1
     assert state.take_filtered_since_last_heartbeat(value) == 1
     assert value["filtered_since_last_heartbeat"] == 0
@@ -385,3 +395,83 @@ def test_save_is_atomic_creates_parent_and_rejects_symlink_target_or_parent(tmp_
     link_parent.symlink_to(real_parent, target_is_directory=True)
     with pytest.raises(ValueError, match="state is invalid"):
         state.save_state(link_parent / "state.json", value)
+
+
+def test_save_rejects_oversized_serialized_bytes_before_replacing_target(tmp_path, monkeypatch):
+    path = tmp_path / "state.json"
+    path.write_text("sentinel", encoding="utf-8")
+    monkeypatch.setattr(state, "MAX_STATE_BYTES", 16)
+
+    with pytest.raises(ValueError, match="exceeds the size limit"):
+        state.save_state(path, state.new_state())
+
+    assert path.read_text(encoding="utf-8") == "sentinel"
+    assert not list(tmp_path.glob(".*.tmp"))
+
+
+def test_downloaded_asset_rejects_symlink_and_resolved_escape(tmp_path):
+    root = tmp_path / "media"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    target = outside / "image.jpg"
+    target.write_bytes(b"image")
+    linked_file = root / "linked.jpg"
+    linked_file.symlink_to(target)
+
+    downloaded = DownloadedPublication(
+        (DownloadedAsset(SourceMedia("https://cdn.example/image.jpg", MediaKind.IMAGE, 0), linked_file, "a" * 64, 5, "image/jpeg"),),
+        root,
+    )
+    with pytest.raises(ValueError, match="state is invalid"):
+        state.serialize_downloaded_publication(downloaded)
+
+    linked_directory = root / "linked-directory"
+    linked_directory.symlink_to(outside, target_is_directory=True)
+    escaped_path = linked_directory / "image.jpg"
+    escaped = DownloadedPublication(
+        (DownloadedAsset(SourceMedia("https://cdn.example/image.jpg", MediaKind.IMAGE, 0), escaped_path, "a" * 64, 5, "image/jpeg"),),
+        root,
+    )
+    with pytest.raises(ValueError, match="state is invalid"):
+        state.serialize_downloaded_publication(escaped)
+
+
+def test_vision_paths_require_downloaded_root_and_cannot_escape_it(config_path, tmp_path):
+    profile = _profile(config_path)
+    value = state.new_state()
+    state.observe_publications(value, profile, [_publication(profile.id, "100", 0)], NOW, lambda item: {})
+    post = _publication(profile.id, "101", 1)
+    outside = tmp_path / "outside.jpg"
+    outside.write_bytes(b"image")
+    root = tmp_path / "media-101"
+    root.mkdir()
+    downloaded = DownloadedPublication(
+        (DownloadedAsset(SourceMedia("https://cdn.example/image.jpg", MediaKind.IMAGE, 0), root / "0.jpg", "a" * 64, 5, "image/jpeg"),),
+        root,
+    )
+    vision = VisionDecision(VisionMode.VISION_PARTIAL, "partial_uncertain_assets", (0,), (outside,), ("image:0:aaaaaaaaaaaa",))
+
+    with pytest.raises(ValueError, match="publication preparation failed"):
+        state.observe_publications(
+            value,
+            profile,
+            [post],
+            NOW + timedelta(minutes=1),
+            lambda item: {"post": item, "downloaded_publication": downloaded, "vision_decision": vision},
+        )
+    assert value["profiles"][profile.id]["cursor"] == "media-100"
+    assert value["outbox"] == []
+
+    inside = root / "0.jpg"
+    vision_without_download = VisionDecision(VisionMode.VISION_PARTIAL, "partial_uncertain_assets", (0,), (inside,), ("image:0:aaaaaaaaaaaa",))
+    with pytest.raises(ValueError, match="publication preparation failed"):
+        state.observe_publications(
+            value,
+            profile,
+            [post],
+            NOW + timedelta(minutes=1),
+            lambda item: {"post": item, "vision_decision": vision_without_download},
+        )
+    assert value["profiles"][profile.id]["cursor"] == "media-100"
+    assert value["outbox"] == []
