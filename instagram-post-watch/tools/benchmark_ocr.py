@@ -54,6 +54,8 @@ class PaddleAssetBoundary:
     allowed_files: frozenset[str]
     initial_snapshot: dict[str, tuple[str, int, int]]
     bindings: dict[str, dict[str, object]]
+    verified_runtime: dict[str, str]
+    temp_dir: Path
 
 
 def _peak_rss_bytes() -> int:
@@ -85,19 +87,19 @@ def _safe_label(value: object) -> str:
 def _safe_notes(value: str) -> str:
     notes = re.sub(r"[\x00-\x1f\x7f]", " ", value[: MAX_NOTE_LENGTH * 4])
     notes = re.sub(
-        r"(?i)\b(?:token|password|secret|api[_-]?key|access[_-]?token|client[_-]?secret|secret[_-]?key)\s*[:=]\s*(?:\"[^\"]*\"|'[^']*'|[^,;\n]+)",
+        r"(?i)\b(?:[A-Z][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD)|token|password|secret|api[_-]?key)\s*[:=]\s*(?:\"[^\"]*\"|'[^']*'|[^,;\n]+)",
         "[redacted]",
         notes,
     )
-    notes = re.sub(r"(?i)\bAuthorization\s*:\s*Bearer\s+[^,;\n]+", "[redacted]", notes)
-    notes = re.sub(r"(?<![A-Za-z0-9])(?:/[^,;\n]+|[A-Za-z]:[\\/][^,;\n]+)", "[path-redacted]", notes)
+    notes = re.sub(r"(?i)\bAuthorization\s*:\s*(?:Basic|Bearer)\s+[^,;\n]+", "[redacted]", notes)
+    notes = re.sub(r"(?<![A-Za-z0-9])(?:/[^,;\n]+|[A-Za-z]:[\\/][^,;\n]+|\\\\[^,;\n]+|\.\.?[\\/][^,;\n]+)", "[path-redacted]", notes)
     return re.sub(r"\s+", " ", notes).strip()[:MAX_NOTE_LENGTH]
 
 
 def _safe_preprocessing_version(value: str) -> str:
     if not isinstance(value, str) or not value or len(value) > MAX_METADATA_LENGTH:
         raise BenchmarkInputError("preprocessing version is invalid")
-    if re.search(r"(?i)(?:token|password|secret|api[_-]?key)\s*[:=]", value):
+    if re.search(r"(?i)\b(?:[A-Z][A-Z0-9_]*(?:TOKEN|SECRET|KEY|PASSWORD)|token|password|secret|api[_-]?key)\s*[:=]", value):
         raise BenchmarkInputError("preprocessing version is invalid")
     normalized = re.sub(r"[^A-Za-z0-9_.:+-]", "_", value)
     if not normalized.strip("_."):
@@ -179,8 +181,15 @@ def _validate_paddle_manifest(
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         raise BenchmarkInputError("paddle model manifest is invalid")
-    if not isinstance(payload, dict) or not isinstance(payload.get("models"), dict):
+    if not isinstance(payload, dict) or not isinstance(payload.get("models"), dict) or not isinstance(payload.get("verified_runtime"), dict):
         raise BenchmarkInputError("paddle model manifest is invalid")
+    verified_runtime = payload["verified_runtime"]
+    if verified_runtime.get("sandbox") != "preflight-verified":
+        raise BenchmarkInputError("paddle runtime sandbox is not verified")
+    if not isinstance(verified_runtime.get("paddle_version"), str) or not re.fullmatch(r"[A-Za-z0-9_.+-]{1,64}", verified_runtime["paddle_version"]):
+        raise BenchmarkInputError("paddle runtime metadata is invalid")
+    if not isinstance(verified_runtime.get("constructor_api_sha256"), str) or not re.fullmatch(r"[a-fA-F0-9]{64}", verified_runtime["constructor_api_sha256"]):
+        raise BenchmarkInputError("paddle runtime metadata is invalid")
     names: list[str] = []
     bindings: dict[str, dict[str, object]] = {}
     for selection_id, model in payload["models"].items():
@@ -239,7 +248,7 @@ def _validate_paddle_manifest(
             parent = parent.parent
     if set(snapshot) - allowed_entries:
         raise BenchmarkInputError("paddle model tree has unmanaged files")
-    return names_set, snapshot, bindings
+    return names_set, snapshot, bindings, {key: str(value) for key, value in verified_runtime.items()}
 
 
 def _validate_effective_assets(boundary: PaddleAssetBoundary, effective_model_version: str) -> None:
@@ -295,10 +304,12 @@ def _normalize_engine(engine: str) -> str:
 
 
 @contextmanager
-def _paddle_offline_environment() -> PaddleAssetBoundary:
+def _paddle_offline_environment(output_parent: Path) -> PaddleAssetBoundary:
     """Require and scope a manifest-backed, pre-provisioned Paddle model tree."""
     if os.environ.get("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE") != "1":
         raise BenchmarkInputError("paddleocr requires explicit offline mode")
+    if os.environ.get("INSTAGRAM_POST_WATCH_PADDLEOCR_SANDBOX") != "preflight-verified":
+        raise BenchmarkInputError("paddleocr requires a verified sandbox wrapper")
     model_dir_value = os.environ.get("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", "")
     manifest_path_value = os.environ.get("INSTAGRAM_POST_WATCH_PADDLEOCR_MANIFEST", "")
     model_dir = Path(model_dir_value).expanduser()
@@ -316,8 +327,14 @@ def _paddle_offline_environment() -> PaddleAssetBoundary:
         manifest_path.relative_to(model_dir)
     except ValueError as exc:
         raise BenchmarkInputError("paddle model manifest is outside model directory") from exc
-    allowed_files, initial_snapshot, bindings = _validate_paddle_manifest(model_dir, manifest_path)
-    boundary = PaddleAssetBoundary(model_dir, manifest_path, allowed_files, initial_snapshot, bindings)
+    allowed_files, initial_snapshot, bindings, verified_runtime = _validate_paddle_manifest(model_dir, manifest_path)
+    temp_dir = output_parent / ".instagram-post-watch-paddle-tmp"
+    if temp_dir.is_symlink() or (temp_dir.exists() and not temp_dir.is_dir()):
+        raise BenchmarkInputError("paddle temporary directory is invalid")
+    if temp_dir.exists() and any(temp_dir.iterdir()):
+        raise BenchmarkInputError("paddle temporary directory is not empty")
+    temp_dir.mkdir(exist_ok=True)
+    boundary = PaddleAssetBoundary(model_dir, manifest_path, allowed_files, initial_snapshot, bindings, verified_runtime, temp_dir)
     updates = {
         "PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK": "True",
         "PADDLE_PDX_OFFLINE": "1",
@@ -325,6 +342,7 @@ def _paddle_offline_environment() -> PaddleAssetBoundary:
         "PADDLE_HOME": str(model_dir),
         "PADDLE_PDX_CACHE_HOME": str(model_dir),
         "INSTAGRAM_POST_WATCH_PADDLEOCR_HARD_OFFLINE": "1",
+        "INSTAGRAM_POST_WATCH_PADDLEOCR_SANDBOX": "preflight-verified",
         "INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_BINDINGS": json.dumps(bindings, sort_keys=True),
         "HF_HUB_OFFLINE": "1",
         "TRANSFORMERS_OFFLINE": "1",
@@ -334,24 +352,38 @@ def _paddle_offline_environment() -> PaddleAssetBoundary:
         "XDG_CACHE_HOME": str(model_dir),
         "XDG_CONFIG_HOME": str(model_dir),
         "XDG_DATA_HOME": str(model_dir),
-        "TMPDIR": str(model_dir),
-        "TEMP": str(model_dir),
-        "TMP": str(model_dir),
+        "TMPDIR": str(temp_dir),
+        "TEMP": str(temp_dir),
+        "TMP": str(temp_dir),
         "HOME": str(model_dir),
     }
     previous = {key: os.environ.get(key) for key in updates}
+    previous_tempdir = tempfile.tempdir
+    previous_cwd = Path.cwd()
     os.environ.update(updates)
+    tempfile.tempdir = str(temp_dir)
+    os.chdir(temp_dir)
     try:
         yield boundary
     finally:
         try:
             _assert_model_tree_unchanged(boundary)
         finally:
-            for key, value in previous.items():
-                if value is None:
-                    os.environ.pop(key, None)
-                else:
-                    os.environ[key] = value
+            try:
+                if any(temp_dir.iterdir()):
+                    raise BenchmarkInputError("paddle temporary directory changed during benchmark")
+            finally:
+                try:
+                    temp_dir.rmdir()
+                except OSError:
+                    pass
+                tempfile.tempdir = previous_tempdir
+                os.chdir(previous_cwd)
+                for key, value in previous.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
 
 
 def _effective_backend_metadata(backend: OCRBackend, languages: tuple[str, ...]) -> tuple[str, str, tuple[str, ...]]:
@@ -427,7 +459,7 @@ def run_benchmark(
     backend: OCRBackend | None = None,
 ) -> BenchmarkResult:
     """Benchmark an injected or Task 3 backend without using OCR cache/state."""
-    input_dir = Path(input_dir)
+    input_dir = Path(input_dir).absolute()
     output = _validate_destination(Path(output))
     engine = _normalize_engine(engine)
     language_set = _normalise_languages(languages)
@@ -435,7 +467,7 @@ def run_benchmark(
     if len(accuracy_notes) > MAX_NOTE_LENGTH:
         raise BenchmarkInputError("accuracy notes are too long")
     paths = _image_paths(input_dir)
-    offline_context = _paddle_offline_environment() if backend is None and engine == "paddleocr" else nullcontext()
+    offline_context = _paddle_offline_environment(output.parent) if backend is None and engine == "paddleocr" else nullcontext()
     started = time.perf_counter()
     images: list[dict[str, object]] = []
     failed = False

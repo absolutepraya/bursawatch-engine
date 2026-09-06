@@ -5,6 +5,7 @@ import hashlib
 import os
 import socket
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -55,8 +56,27 @@ def provision_paddle_assets(model_dir: Path) -> Path:
             "artifacts": [{"path": f"{selection}/model.bin", "sha256": hashlib.sha256(asset.read_bytes()).hexdigest()}],
         }
     manifest = model_dir / "manifest.json"
-    manifest.write_text(json.dumps({"models": models}), encoding="utf-8")
+    manifest.write_text(
+        json.dumps(
+            {
+                "verified_runtime": {
+                    "sandbox": "preflight-verified",
+                    "paddle_version": "3.0.0-preflight",
+                    "constructor_api_sha256": "a" * 64,
+                },
+                "models": models,
+            }
+        ),
+        encoding="utf-8",
+    )
     return manifest
+
+
+def configure_paddle(monkeypatch: pytest.MonkeyPatch, model_dir: Path, manifest: Path) -> None:
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE", "1")
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_SANDBOX", "preflight-verified")
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", str(model_dir))
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MANIFEST", str(manifest))
 
 
 def test_benchmark_is_lexical_and_reports_relative_paths(tmp_path: Path):
@@ -202,9 +222,7 @@ def test_paddle_offline_environment_is_set_before_construction(tmp_path: Path, m
         return ProvisionedPaddleBackend()
 
     monkeypatch.setattr(benchmark_ocr, "build_backend", factory)
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE", "1")
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", str(model_dir))
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MANIFEST", str(manifest))
+    configure_paddle(monkeypatch, model_dir, manifest)
     guarded_keys = (
         "PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK",
         "PADDLE_PDX_OFFLINE",
@@ -238,9 +256,7 @@ def test_paddle_alias_gets_the_same_guard_and_restores_environment(tmp_path: Pat
         return ProvisionedPaddleBackend()
 
     monkeypatch.setattr(benchmark_ocr, "build_backend", factory)
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE", "1")
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", str(model_dir))
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MANIFEST", str(manifest))
+    configure_paddle(monkeypatch, model_dir, manifest)
     monkeypatch.setenv("PADDLE_PDX_OFFLINE", "caller-value")
     benchmark_ocr.run_benchmark(input_dir, tmp_path / "report.json", "paddle")
     assert seen["engine"] == "paddleocr"
@@ -255,9 +271,7 @@ def test_empty_or_incomplete_paddle_manifest_fails_closed(tmp_path: Path, monkey
     model_dir.mkdir()
     manifest = model_dir / "manifest.json"
     manifest.write_text(json.dumps({"files": []}), encoding="utf-8")
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE", "1")
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", str(model_dir))
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MANIFEST", str(manifest))
+    configure_paddle(monkeypatch, model_dir, manifest)
     input_dir = tmp_path / "images"
     input_dir.mkdir()
     (input_dir / "a.jpg").write_bytes(b"a")
@@ -273,9 +287,7 @@ def test_manifest_digest_mismatch_and_missing_artifact_fail_closed(tmp_path: Pat
     payload = json.loads(manifest.read_text(encoding="utf-8"))
     payload["models"]["PP-OCRv5-id"]["artifacts"][0]["sha256"] = "0" * 64
     manifest.write_text(json.dumps(payload), encoding="utf-8")
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE", "1")
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", str(model_dir))
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MANIFEST", str(manifest))
+    configure_paddle(monkeypatch, model_dir, manifest)
     input_dir = tmp_path / "images"
     input_dir.mkdir()
     (input_dir / "a.jpg").write_bytes(b"a")
@@ -295,9 +307,7 @@ def test_manifest_rejects_unexpected_existing_file(tmp_path: Path, monkeypatch: 
     model_dir.mkdir()
     manifest = provision_paddle_assets(model_dir)
     (model_dir / "unexpected.cache").write_bytes(b"not listed")
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE", "1")
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", str(model_dir))
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MANIFEST", str(manifest))
+    configure_paddle(monkeypatch, model_dir, manifest)
     input_dir = tmp_path / "images"
     input_dir.mkdir()
     (input_dir / "a.jpg").write_bytes(b"a")
@@ -315,9 +325,7 @@ def test_manifest_rejects_one_byte_model_artifacts(tmp_path: Path, monkeypatch: 
     payload = json.loads(manifest.read_text(encoding="utf-8"))
     payload["models"]["PP-OCRv5-id"]["artifacts"][0]["sha256"] = hashlib.sha256(tiny.read_bytes()).hexdigest()
     manifest.write_text(json.dumps(payload), encoding="utf-8")
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE", "1")
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", str(model_dir))
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MANIFEST", str(manifest))
+    configure_paddle(monkeypatch, model_dir, manifest)
     input_dir = tmp_path / "images"
     input_dir.mkdir()
     (input_dir / "a.jpg").write_bytes(b"a")
@@ -345,6 +353,85 @@ def test_paddle_worker_hard_offline_guard_denies_network_before_backend(monkeypa
     assert events == [("error", None)]
 
 
+def test_python_offline_guard_denies_resolvers_connectors_and_sends():
+    left, right = socket.socketpair()
+    with tempfile.NamedTemporaryFile() as handle:
+        calls = [
+            lambda: socket.getaddrinfo("example.invalid", 443),
+            lambda: socket.gethostbyname("example.invalid"),
+            lambda: socket.gethostbyname_ex("example.invalid"),
+            lambda: socket.gethostbyaddr("127.0.0.1"),
+            lambda: socket.getfqdn("example.invalid"),
+            lambda: socket.getnameinfo(("127.0.0.1", 443), 0),
+            lambda: socket.create_connection(("127.0.0.1", 443)),
+            lambda: left.connect(("127.0.0.1", 443)),
+            lambda: left.connect_ex(("127.0.0.1", 443)),
+            lambda: left.send(b"x"),
+            lambda: left.sendall(b"x"),
+            lambda: left.sendfile(handle),
+            lambda: left.sendto(b"x", ("127.0.0.1", 443)),
+        ]
+        if hasattr(left, "sendmsg"):
+            calls.append(lambda: left.sendmsg([b"x"]))
+        try:
+            with ocr.paddle_offline_network_guard():
+                for call in calls:
+                    with pytest.raises(OSError):
+                        call()
+        finally:
+            left.close()
+            right.close()
+
+
+def test_verified_sandbox_marker_blocks_external_write_attempt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    manifest = provision_paddle_assets(model_dir)
+    input_dir = tmp_path / "images"
+    input_dir.mkdir()
+    (input_dir / "a.jpg").write_bytes(b"a")
+    configure_paddle(monkeypatch, model_dir, manifest)
+    monkeypatch.delenv("INSTAGRAM_POST_WATCH_PADDLEOCR_SANDBOX")
+    attempted = tmp_path / "external-attempt"
+
+    def factory(engine):
+        attempted.write_text("must not run", encoding="utf-8")
+        return ProvisionedPaddleBackend()
+
+    monkeypatch.setattr(benchmark_ocr, "build_backend", factory)
+    assert benchmark_ocr.main(
+        ["--input-dir", str(input_dir), "--output", str(tmp_path / "report.json"), "--engine", "paddleocr"]
+    ) == 2
+    assert not attempted.exists()
+
+
+def test_paddle_tempfile_state_is_scoped_and_restored(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    input_dir = tmp_path / "images"
+    input_dir.mkdir()
+    (input_dir / "a.jpg").write_bytes(b"a")
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    manifest = provision_paddle_assets(model_dir)
+    configure_paddle(monkeypatch, model_dir, manifest)
+    stale = tmp_path / "stale-temp"
+    tempfile.tempdir = str(stale)
+    original_cwd = Path.cwd()
+    seen = {}
+
+    def factory(engine):
+        seen["tempdir"] = tempfile.gettempdir()
+        return ProvisionedPaddleBackend()
+
+    monkeypatch.setattr(benchmark_ocr, "build_backend", factory)
+    try:
+        benchmark_ocr.run_benchmark(input_dir, tmp_path / "report.json", "paddleocr")
+        assert seen["tempdir"] == str(tmp_path / ".instagram-post-watch-paddle-tmp")
+        assert tempfile.tempdir == str(stale)
+        assert Path.cwd() == original_cwd
+    finally:
+        tempfile.tempdir = None
+
+
 def test_paddle_offline_environment_is_restored_after_exception(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     input_dir = tmp_path / "images"
     input_dir.mkdir()
@@ -357,9 +444,7 @@ def test_paddle_offline_environment_is_restored_after_exception(tmp_path: Path, 
         raise RuntimeError("construction failed")
 
     monkeypatch.setattr(benchmark_ocr, "build_backend", factory)
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE", "1")
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", str(model_dir))
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MANIFEST", str(manifest))
+    configure_paddle(monkeypatch, model_dir, manifest)
     monkeypatch.setenv("HOME", "caller-home")
     with pytest.raises(RuntimeError):
         benchmark_ocr.run_benchmark(input_dir, tmp_path / "report.json", "paddleocr")
@@ -383,9 +468,7 @@ def test_paddle_model_tree_changes_fail_closed(tmp_path: Path, monkeypatch: pyte
         return WritesCache()
 
     monkeypatch.setattr(benchmark_ocr, "build_backend", factory)
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE", "1")
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", str(model_dir))
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MANIFEST", str(manifest))
+    configure_paddle(monkeypatch, model_dir, manifest)
     with pytest.raises(benchmark_ocr.BenchmarkInputError):
         benchmark_ocr.run_benchmark(input_dir, tmp_path / "report.json", "paddleocr")
     assert not (tmp_path / "report.json").exists()
@@ -399,9 +482,7 @@ def test_paddle_model_ancestor_symlink_is_rejected(tmp_path: Path, monkeypatch: 
     manifest = provision_paddle_assets(model_dir)
     link_root = tmp_path / "link-root"
     os.symlink(real_root, link_root)
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE", "1")
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", str(link_root / "models"))
-    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MANIFEST", str(link_root / "models" / manifest.name))
+    configure_paddle(monkeypatch, link_root / "models", link_root / "models" / manifest.name)
     input_dir = tmp_path / "images"
     input_dir.mkdir()
     (input_dir / "a.jpg").write_bytes(b"a")
@@ -463,6 +544,37 @@ def test_preprocessing_and_notes_are_bounded_and_redacted(tmp_path: Path):
     assert "key hidden" not in report["accuracy_notes"]
     assert "bearer hidden" not in report["accuracy_notes"]
     assert "/" not in report["accuracy_notes"]
+
+
+@pytest.mark.parametrize(
+    "note",
+    [
+        'AWS_SECRET_ACCESS_KEY="aws hidden value"',
+        "PRIVATE_KEY=private hidden value",
+        "X_API_KEY: x hidden value",
+        "Authorization: Basic basic hidden value",
+        "source C:\\private\\my secret.pem",
+        "source \\\\server\\share\\my secret.pem",
+        "source ../relative secret.pem",
+    ],
+)
+def test_common_secret_and_path_forms_do_not_reach_report(tmp_path: Path, note: str):
+    input_dir = tmp_path / "images"
+    input_dir.mkdir()
+    (input_dir / "a.jpg").write_bytes(b"a")
+    report = benchmark_ocr.run_benchmark(
+        input_dir, tmp_path / "report.json", "tesseract", backend=FakeBackend(), accuracy_notes=note
+    ).report
+    rendered = report["accuracy_notes"]
+    assert "hidden" not in rendered
+    assert "secret.pem" not in rendered
+    assert "C:" not in rendered
+    assert "server" not in rendered
+
+
+def test_preprocessing_rejects_arbitrary_secret_names():
+    with pytest.raises(benchmark_ocr.BenchmarkInputError):
+        benchmark_ocr._safe_preprocessing_version("AWS_SECRET_ACCESS_KEY=leak")
 
 
 def test_effective_runtime_languages_are_normalized_before_reporting(tmp_path: Path):

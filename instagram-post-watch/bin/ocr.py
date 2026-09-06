@@ -608,19 +608,23 @@ def _validate_paddle_worker_bindings(config: PaddleRuntimeConfig) -> dict:
 def paddle_offline_network_guard():
     """Deny DNS and socket connection attempts for an offline Paddle worker."""
     denied = lambda *args, **kwargs: (_ for _ in ()).throw(OSError("offline OCR network denied"))
-    methods = ["connect", "connect_ex", "sendto"]
+    methods = ["connect", "connect_ex", "send", "sendall", "sendfile", "sendto"]
     if hasattr(socket.socket, "sendmsg"):
         methods.append("sendmsg")
-    original = {"getaddrinfo": socket.getaddrinfo, "create_connection": socket.create_connection}
+    resolver_names = ["getaddrinfo", "gethostbyname", "gethostbyname_ex", "gethostbyaddr", "getfqdn", "getnameinfo"]
+    original = {name: getattr(socket, name) for name in resolver_names}
+    original["create_connection"] = socket.create_connection
     original.update({method: getattr(socket.socket, method) for method in methods})
-    socket.getaddrinfo = denied
+    for name in resolver_names:
+        setattr(socket, name, denied)
     socket.create_connection = denied
     for method in methods:
         setattr(socket.socket, method, denied)
     try:
         yield
     finally:
-        socket.getaddrinfo = original["getaddrinfo"]
+        for name in resolver_names:
+            setattr(socket, name, original[name])
         socket.create_connection = original["create_connection"]
         for method in methods:
             setattr(socket.socket, method, original[method])
