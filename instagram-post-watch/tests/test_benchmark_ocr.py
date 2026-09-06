@@ -27,12 +27,29 @@ class FalseyBackend(FakeBackend):
         return False
 
 
+class ProvisionedPaddleBackend(FakeBackend):
+    engine_id = "paddleocr"
+    model_version = "PP-OCRv5-id+PP-OCRv5-en"
+
+
 class StatusBackend(FakeBackend):
     def __init__(self, status: ocr.OCRStatus):
         self.status = status
 
     def extract(self, path: Path, languages: tuple[str, ...]) -> ocr.OCRResult:
         return ocr.OCRResult(self.status)
+
+
+def provision_paddle_assets(model_dir: Path) -> Path:
+    for selection in ("PP-OCRv5-id", "PP-OCRv5-en"):
+        asset_dir = model_dir / selection
+        asset_dir.mkdir(parents=True)
+        (asset_dir / "model.bin").write_bytes(selection.encode())
+    manifest = model_dir / "manifest.json"
+    manifest.write_text(
+        json.dumps({"files": ["PP-OCRv5-id/model.bin", "PP-OCRv5-en/model.bin"]}), encoding="utf-8"
+    )
+    return manifest
 
 
 def test_benchmark_is_lexical_and_reports_relative_paths(tmp_path: Path):
@@ -54,7 +71,7 @@ def test_benchmark_is_lexical_and_reports_relative_paths(tmp_path: Path):
     assert result.failed is False
     assert [image["path"] for image in report["images"]] == ["a.png", "b.jpg"]
     assert all("/" not in image["path"] for image in report["images"])
-    assert report["accuracy_notes"] == "manual [redacted] [path-redacted]"
+    assert report["accuracy_notes"] == "manual [redacted]"
     assert report["languages"] == ["ind", "eng"]
     assert report["images"][0]["character_count"] == 1
     assert report["images"][0]["confidence"] == 0.91
@@ -170,17 +187,116 @@ def test_paddle_offline_environment_is_set_before_construction(tmp_path: Path, m
     (input_dir / "a.jpg").write_bytes(b"a")
     model_dir = tmp_path / "models"
     model_dir.mkdir()
+    manifest = provision_paddle_assets(model_dir)
     seen = {}
 
     def factory(engine):
         seen.update({key: os.environ.get(key) for key in ("PADDLE_PDX_OFFLINE", "PADDLEOCR_HOME", "PADDLE_PDX_CACHE_HOME")})
-        return FakeBackend()
+        return ProvisionedPaddleBackend()
 
     monkeypatch.setattr(benchmark_ocr, "build_backend", factory)
     monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE", "1")
     monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", str(model_dir))
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MANIFEST", str(manifest))
+    guarded_keys = (
+        "PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK",
+        "PADDLE_PDX_OFFLINE",
+        "PADDLEOCR_HOME",
+        "PADDLE_HOME",
+        "PADDLE_PDX_CACHE_HOME",
+        "HF_HUB_OFFLINE",
+        "TRANSFORMERS_OFFLINE",
+    )
+    for key in guarded_keys:
+        monkeypatch.setenv(key, f"caller-{key.lower()}")
     benchmark_ocr.run_benchmark(input_dir, tmp_path / "report.json", "paddleocr")
     assert seen == {"PADDLE_PDX_OFFLINE": "1", "PADDLEOCR_HOME": str(model_dir), "PADDLE_PDX_CACHE_HOME": str(model_dir)}
+    for key in guarded_keys:
+        assert os.environ[key] == f"caller-{key.lower()}"
+
+
+def test_paddle_alias_gets_the_same_guard_and_restores_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    input_dir = tmp_path / "images"
+    input_dir.mkdir()
+    (input_dir / "a.jpg").write_bytes(b"a")
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    manifest = provision_paddle_assets(model_dir)
+    seen = {}
+
+    def factory(engine):
+        seen["engine"] = engine
+        seen["offline"] = os.environ.get("PADDLE_PDX_OFFLINE")
+        return ProvisionedPaddleBackend()
+
+    monkeypatch.setattr(benchmark_ocr, "build_backend", factory)
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE", "1")
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", str(model_dir))
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MANIFEST", str(manifest))
+    monkeypatch.setenv("PADDLE_PDX_OFFLINE", "caller-value")
+    benchmark_ocr.run_benchmark(input_dir, tmp_path / "report.json", "paddle")
+    assert seen == {"engine": "paddleocr", "offline": "1"}
+    assert os.environ["PADDLE_PDX_OFFLINE"] == "caller-value"
+
+
+def test_empty_or_incomplete_paddle_manifest_fails_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    manifest = model_dir / "manifest.json"
+    manifest.write_text(json.dumps({"files": []}), encoding="utf-8")
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE", "1")
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", str(model_dir))
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MANIFEST", str(manifest))
+    input_dir = tmp_path / "images"
+    input_dir.mkdir()
+    (input_dir / "a.jpg").write_bytes(b"a")
+    assert benchmark_ocr.main(
+        ["--input-dir", str(input_dir), "--output", str(tmp_path / "report.json"), "--engine", "paddleocr"]
+    ) == 2
+
+
+def test_paddle_model_tree_changes_fail_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    input_dir = tmp_path / "images"
+    input_dir.mkdir()
+    (input_dir / "a.jpg").write_bytes(b"a")
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    manifest = provision_paddle_assets(model_dir)
+
+    def factory(engine):
+        class WritesCache(ProvisionedPaddleBackend):
+            def extract(self, path: Path, languages: tuple[str, ...]) -> ocr.OCRResult:
+                (model_dir / "cache.tmp").write_text("unexpected", encoding="utf-8")
+                return super().extract(path, languages)
+
+        return WritesCache()
+
+    monkeypatch.setattr(benchmark_ocr, "build_backend", factory)
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE", "1")
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", str(model_dir))
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MANIFEST", str(manifest))
+    with pytest.raises(benchmark_ocr.BenchmarkInputError):
+        benchmark_ocr.run_benchmark(input_dir, tmp_path / "report.json", "paddleocr")
+    assert not (tmp_path / "report.json").exists()
+
+
+def test_paddle_model_ancestor_symlink_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    real_root = tmp_path / "real-root"
+    real_root.mkdir()
+    model_dir = real_root / "models"
+    model_dir.mkdir()
+    manifest = provision_paddle_assets(model_dir)
+    link_root = tmp_path / "link-root"
+    os.symlink(real_root, link_root)
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE", "1")
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", str(link_root / "models"))
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MANIFEST", str(link_root / "models" / manifest.name))
+    input_dir = tmp_path / "images"
+    input_dir.mkdir()
+    (input_dir / "a.jpg").write_bytes(b"a")
+    assert benchmark_ocr.main(
+        ["--input-dir", str(input_dir), "--output", str(tmp_path / "report.json"), "--engine", "paddle"]
+    ) == 2
 
 
 def test_atomic_writer_cleans_temp_on_replace_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -221,12 +337,32 @@ def test_preprocessing_and_notes_are_bounded_and_redacted(tmp_path: Path):
         "tesseract",
         backend=FakeBackend(),
         preprocessing_version="preprocess / local\nrun",
-        accuracy_notes="token: hidden password=secret\x00 /private/path",
+        accuracy_notes='token: "hidden value" password=secret\x00 source /private/my secret.jpg',
     ).report
     assert report["preprocessing_version"] == "preprocess___local_run"
     assert "hidden" not in report["accuracy_notes"]
+    assert "secret.jpg" not in report["accuracy_notes"]
     assert "secret" not in report["accuracy_notes"]
     assert "/" not in report["accuracy_notes"]
+
+
+def test_effective_runtime_languages_are_normalized_before_reporting(tmp_path: Path):
+    input_dir = tmp_path / "images"
+    input_dir.mkdir()
+    (input_dir / "a.jpg").write_bytes(b"a")
+
+    class RuntimeConfig:
+        model_version = "runtime-1"
+        languages = ("IND", "eng")
+
+    class RuntimeBackend(FakeBackend):
+        def runtime_config(self, languages):
+            return RuntimeConfig()
+
+    report = benchmark_ocr.run_benchmark(
+        input_dir, tmp_path / "report.json", "tesseract", backend=RuntimeBackend()
+    ).report
+    assert report["languages"] == ["ind", "eng"]
 
 
 def test_malformed_input_returns_nonzero(tmp_path: Path):

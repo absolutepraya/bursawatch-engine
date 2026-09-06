@@ -16,6 +16,7 @@ import time
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import Sequence
 
 
@@ -31,6 +32,7 @@ DEFAULT_LANGUAGES = ("ind", "eng")
 DEFAULT_PREPROCESSING_VERSION = "preprocess-1"
 MAX_NOTE_LENGTH = 2000
 MAX_METADATA_LENGTH = 200
+MAX_MANIFEST_FILES = 512
 FAILED_STATUSES = frozenset({OCRStatus.ERROR, OCRStatus.TIMEOUT, OCRStatus.UNAVAILABLE, OCRStatus.UNCERTAIN})
 
 
@@ -42,6 +44,14 @@ class BenchmarkInputError(ValueError):
 class BenchmarkResult:
     report: dict[str, object]
     failed: bool = False
+
+
+@dataclass(frozen=True)
+class PaddleAssetBoundary:
+    model_dir: Path
+    manifest_path: Path
+    allowed_files: frozenset[str]
+    initial_snapshot: dict[str, tuple[str, int, int]]
 
 
 def _peak_rss_bytes() -> int:
@@ -71,10 +81,13 @@ def _safe_label(value: object) -> str:
 
 
 def _safe_notes(value: str) -> str:
-    notes = re.sub(r"[\x00-\x1f\x7f]", " ", value)
-    notes = re.sub(r"(?i)(?:token|password|secret|api[_-]?key)\s*[:=]\s*[^\s,;]+", "[redacted]", notes)
-    notes = re.sub(r"(?<![A-Za-z0-9])/(?:[^\s,;]+)", "[path-redacted]", notes)
-    notes = re.sub(r"(?i)\b[A-Z]:\\[^\s,;]+", "[path-redacted]", notes)
+    notes = re.sub(r"[\x00-\x1f\x7f]", " ", value[: MAX_NOTE_LENGTH * 4])
+    notes = re.sub(
+        r"(?i)\b(?:token|password|secret|api[_-]?key)\s*[:=]\s*(?:\"[^\"]*\"|'[^']*'|[^,;\n]+)",
+        "[redacted]",
+        notes,
+    )
+    notes = re.sub(r"(?<![A-Za-z0-9])(?:/[^,;\n]+|[A-Za-z]:[\\/][^,;\n]+)", "[path-redacted]", notes)
     return re.sub(r"\s+", " ", notes).strip()[:MAX_NOTE_LENGTH]
 
 
@@ -106,6 +119,99 @@ def _validate_destination(output: Path) -> Path:
     return destination
 
 
+def _reject_symlink_ancestors(path: Path) -> None:
+    absolute = path.absolute()
+    current = Path(absolute.anchor)
+    for component in absolute.parts[1:]:
+        current /= component
+        if current.is_symlink():
+            raise BenchmarkInputError("path contains a symlink")
+
+
+def _safe_manifest_name(value: object) -> str:
+    if not isinstance(value, str) or not value or len(value) > MAX_METADATA_LENGTH * 4:
+        raise BenchmarkInputError("paddle model manifest is invalid")
+    if re.search(r"[\x00-\x1f\x7f\\]", value):
+        raise BenchmarkInputError("paddle model manifest is invalid")
+    relative = PurePosixPath(value)
+    if relative.is_absolute() or ".." in relative.parts or "." in relative.parts or not relative.parts:
+        raise BenchmarkInputError("paddle model manifest is invalid")
+    return relative.as_posix()
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _snapshot_model_tree(model_dir: Path) -> dict[str, tuple[str, int, int]]:
+    snapshot: dict[str, tuple[str, int, int]] = {}
+    for path in sorted(model_dir.rglob("*"), key=lambda item: item.relative_to(model_dir).as_posix()):
+        relative = path.relative_to(model_dir).as_posix()
+        _reject_symlink_ancestors(path)
+        if path.is_symlink():
+            raise BenchmarkInputError("paddle model tree contains a symlink")
+        if path.is_dir():
+            snapshot[relative] = ("dir", 0, 0)
+        elif path.is_file():
+            stat = path.stat()
+            snapshot[relative] = ("file", stat.st_size, int(stat.st_mtime_ns) ^ int(_file_sha256(path)[:16], 16))
+        else:
+            raise BenchmarkInputError("paddle model tree contains an invalid entry")
+    return snapshot
+
+
+def _validate_paddle_manifest(model_dir: Path, manifest_path: Path) -> tuple[frozenset[str], dict[str, tuple[str, int, int]]]:
+    _reject_symlink_ancestors(model_dir)
+    _reject_symlink_ancestors(manifest_path)
+    if manifest_path.is_symlink() or not manifest_path.is_file():
+        raise BenchmarkInputError("paddle model manifest is invalid")
+    try:
+        manifest_root = manifest_path.relative_to(model_dir).as_posix()
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise BenchmarkInputError("paddle model manifest is invalid")
+    if not isinstance(payload, dict) or not isinstance(payload.get("files"), list):
+        raise BenchmarkInputError("paddle model manifest is invalid")
+    names = [_safe_manifest_name(item) for item in payload["files"]]
+    if not names or len(names) > MAX_MANIFEST_FILES or len(set(names)) != len(names):
+        raise BenchmarkInputError("paddle model manifest is invalid")
+    names_set = frozenset(names)
+    for name in names:
+        path = model_dir / name
+        _reject_symlink_ancestors(path)
+        if path.is_symlink() or not path.is_file():
+            raise BenchmarkInputError("paddle model asset is missing")
+    snapshot = _snapshot_model_tree(model_dir)
+    allowed_entries = set(names_set) | {manifest_root}
+    for name in names_set:
+        parent = PurePosixPath(name).parent
+        while str(parent) != ".":
+            allowed_entries.add(parent.as_posix())
+            parent = parent.parent
+    if set(snapshot) - allowed_entries:
+        raise BenchmarkInputError("paddle model tree has unmanaged files")
+    return names_set, snapshot
+
+
+def _validate_effective_assets(boundary: PaddleAssetBoundary, effective_model_version: str) -> None:
+    selection_ids = tuple(part for part in effective_model_version.split("+") if part)
+    if not selection_ids or any(not re.fullmatch(r"[A-Za-z0-9_.:-]{1,200}", item) for item in selection_ids):
+        raise BenchmarkInputError("paddle model selection is invalid")
+    for selection_id in selection_ids:
+        if not any(PurePosixPath(name).parts[0] == selection_id for name in boundary.allowed_files):
+            raise BenchmarkInputError("paddle model asset inventory is incomplete")
+
+
+def _assert_model_tree_unchanged(boundary: PaddleAssetBoundary) -> None:
+    current = _snapshot_model_tree(boundary.model_dir)
+    if current != boundary.initial_snapshot:
+        raise BenchmarkInputError("paddle model tree changed during benchmark")
+
+
 def _atomic_write_json(output: Path, report: dict[str, object]) -> None:
     temporary_name: str | None = None
     try:
@@ -134,15 +240,39 @@ def _atomic_write_json(output: Path, report: dict[str, object]) -> None:
                 pass
 
 
+def _normalize_engine(engine: str) -> str:
+    selected = engine.strip().lower()
+    if selected == "paddle":
+        return "paddleocr"
+    if selected in {"tesseract", "paddleocr"}:
+        return selected
+    raise BenchmarkInputError("unknown OCR engine")
+
+
 @contextmanager
-def _paddle_offline_environment():
-    """Require and scope a pre-provisioned local Paddle model/runtime directory."""
+def _paddle_offline_environment() -> PaddleAssetBoundary:
+    """Require and scope a manifest-backed, pre-provisioned Paddle model tree."""
     if os.environ.get("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE") != "1":
         raise BenchmarkInputError("paddleocr requires explicit offline mode")
     model_dir_value = os.environ.get("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", "")
+    manifest_path_value = os.environ.get("INSTAGRAM_POST_WATCH_PADDLEOCR_MANIFEST", "")
     model_dir = Path(model_dir_value).expanduser()
-    if not model_dir_value or model_dir.is_symlink() or not model_dir.is_absolute() or not model_dir.is_dir():
+    manifest_path = Path(manifest_path_value).expanduser()
+    if (
+        not model_dir_value
+        or not model_dir.is_absolute()
+        or model_dir.is_symlink()
+        or not model_dir.is_dir()
+        or not manifest_path_value
+        or not manifest_path.is_absolute()
+    ):
         raise BenchmarkInputError("paddleocr model directory is invalid")
+    try:
+        manifest_path.relative_to(model_dir)
+    except ValueError as exc:
+        raise BenchmarkInputError("paddle model manifest is outside model directory") from exc
+    allowed_files, initial_snapshot = _validate_paddle_manifest(model_dir, manifest_path)
+    boundary = PaddleAssetBoundary(model_dir, manifest_path, allowed_files, initial_snapshot)
     updates = {
         "PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK": "True",
         "PADDLE_PDX_OFFLINE": "1",
@@ -155,13 +285,16 @@ def _paddle_offline_environment():
     previous = {key: os.environ.get(key) for key in updates}
     os.environ.update(updates)
     try:
-        yield
+        yield boundary
     finally:
-        for key, value in previous.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
+        try:
+            _assert_model_tree_unchanged(boundary)
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
 
 
 def _effective_backend_metadata(backend: OCRBackend, languages: tuple[str, ...]) -> tuple[str, str, tuple[str, ...]]:
@@ -172,8 +305,7 @@ def _effective_backend_metadata(backend: OCRBackend, languages: tuple[str, ...])
         effective_languages = getattr(config, "languages", languages)
         if not isinstance(model_version, str) or not model_version:
             raise BenchmarkInputError("OCR model version is invalid")
-        if not isinstance(effective_languages, tuple) or not all(isinstance(item, str) for item in effective_languages):
-            raise BenchmarkInputError("OCR language set is invalid")
+        effective_languages = _normalise_languages(effective_languages)
         return _safe_label(backend.engine_id), _safe_label(model_version), effective_languages
     return _safe_label(backend.engine_id), _safe_label(backend.model_version), languages
 
@@ -240,6 +372,7 @@ def run_benchmark(
     """Benchmark an injected or Task 3 backend without using OCR cache/state."""
     input_dir = Path(input_dir)
     output = _validate_destination(Path(output))
+    engine = _normalize_engine(engine)
     language_set = _normalise_languages(languages)
     preprocessing_version = _safe_preprocessing_version(preprocessing_version)
     if len(accuracy_notes) > MAX_NOTE_LENGTH:
@@ -250,9 +383,11 @@ def run_benchmark(
     images: list[dict[str, object]] = []
     failed = False
 
-    with offline_context:
+    with offline_context as paddle_boundary:
         selected = backend if backend is not None else build_backend(engine)
         engine_id, model_version, effective_languages = _effective_backend_metadata(selected, language_set)
+        if paddle_boundary is not None:
+            _validate_effective_assets(paddle_boundary, model_version)
         for path in paths:
             image_started = time.perf_counter()
             try:
@@ -297,7 +432,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input-dir", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--engine", required=True, choices=("tesseract", "paddleocr"))
+    parser.add_argument("--engine", required=True, choices=("tesseract", "paddle", "paddleocr"))
     parser.add_argument("--languages", nargs="+", default=list(DEFAULT_LANGUAGES), metavar="LANG")
     parser.add_argument("--preprocessing-version", default=DEFAULT_PREPROCESSING_VERSION)
     parser.add_argument("--accuracy-notes", default="")
