@@ -33,6 +33,7 @@ DEFAULT_PREPROCESSING_VERSION = "preprocess-1"
 MAX_NOTE_LENGTH = 2000
 MAX_METADATA_LENGTH = 200
 MAX_MANIFEST_FILES = 512
+MIN_MODEL_ARTIFACT_BYTES = 1024
 FAILED_STATUSES = frozenset({OCRStatus.ERROR, OCRStatus.TIMEOUT, OCRStatus.UNAVAILABLE, OCRStatus.UNCERTAIN})
 
 
@@ -52,6 +53,7 @@ class PaddleAssetBoundary:
     manifest_path: Path
     allowed_files: frozenset[str]
     initial_snapshot: dict[str, tuple[str, int, int]]
+    bindings: dict[str, dict[str, object]]
 
 
 def _peak_rss_bytes() -> int:
@@ -83,10 +85,11 @@ def _safe_label(value: object) -> str:
 def _safe_notes(value: str) -> str:
     notes = re.sub(r"[\x00-\x1f\x7f]", " ", value[: MAX_NOTE_LENGTH * 4])
     notes = re.sub(
-        r"(?i)\b(?:token|password|secret|api[_-]?key)\s*[:=]\s*(?:\"[^\"]*\"|'[^']*'|[^,;\n]+)",
+        r"(?i)\b(?:token|password|secret|api[_-]?key|access[_-]?token|client[_-]?secret|secret[_-]?key)\s*[:=]\s*(?:\"[^\"]*\"|'[^']*'|[^,;\n]+)",
         "[redacted]",
         notes,
     )
+    notes = re.sub(r"(?i)\bAuthorization\s*:\s*Bearer\s+[^,;\n]+", "[redacted]", notes)
     notes = re.sub(r"(?<![A-Za-z0-9])(?:/[^,;\n]+|[A-Za-z]:[\\/][^,;\n]+)", "[path-redacted]", notes)
     return re.sub(r"\s+", " ", notes).strip()[:MAX_NOTE_LENGTH]
 
@@ -164,27 +167,69 @@ def _snapshot_model_tree(model_dir: Path) -> dict[str, tuple[str, int, int]]:
     return snapshot
 
 
-def _validate_paddle_manifest(model_dir: Path, manifest_path: Path) -> tuple[frozenset[str], dict[str, tuple[str, int, int]]]:
+def _validate_paddle_manifest(
+    model_dir: Path, manifest_path: Path
+) -> tuple[frozenset[str], dict[str, tuple[str, int, int]], dict[str, dict[str, object]]]:
     _reject_symlink_ancestors(model_dir)
     _reject_symlink_ancestors(manifest_path)
-    if manifest_path.is_symlink() or not manifest_path.is_file():
+    if manifest_path.is_symlink() or not manifest_path.is_file() or manifest_path.stat().st_nlink != 1:
         raise BenchmarkInputError("paddle model manifest is invalid")
     try:
         manifest_root = manifest_path.relative_to(model_dir).as_posix()
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         raise BenchmarkInputError("paddle model manifest is invalid")
-    if not isinstance(payload, dict) or not isinstance(payload.get("files"), list):
+    if not isinstance(payload, dict) or not isinstance(payload.get("models"), dict):
         raise BenchmarkInputError("paddle model manifest is invalid")
-    names = [_safe_manifest_name(item) for item in payload["files"]]
-    if not names or len(names) > MAX_MANIFEST_FILES or len(set(names)) != len(names):
+    names: list[str] = []
+    bindings: dict[str, dict[str, object]] = {}
+    for selection_id, model in payload["models"].items():
+        if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,200}", selection_id) or not isinstance(model, dict):
+            raise BenchmarkInputError("paddle model manifest is invalid")
+        model_root = _safe_manifest_name(model.get("model_dir"))
+        artifacts = model.get("artifacts")
+        constructor_kwargs = model.get("constructor_kwargs")
+        if not isinstance(artifacts, list) or not artifacts or not isinstance(constructor_kwargs, dict) or not constructor_kwargs:
+            raise BenchmarkInputError("paddle model manifest is invalid")
+        absolute_model_root = model_dir / model_root
+        _reject_symlink_ancestors(absolute_model_root)
+        if absolute_model_root.is_symlink() or not absolute_model_root.is_dir():
+            raise BenchmarkInputError("paddle model directory is missing")
+        binding_artifacts: list[dict[str, str]] = []
+        binding_kwargs: dict[str, str] = {}
+        for key, value in constructor_kwargs.items():
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", key):
+                raise BenchmarkInputError("paddle model constructor binding is invalid")
+            if _safe_manifest_name(value) != model_root:
+                raise BenchmarkInputError("paddle model constructor binding is invalid")
+            binding_kwargs[key] = str(absolute_model_root)
+        for artifact in artifacts:
+            if not isinstance(artifact, dict):
+                raise BenchmarkInputError("paddle model manifest is invalid")
+            name = _safe_manifest_name(artifact.get("path"))
+            digest = artifact.get("sha256")
+            if not isinstance(digest, str) or not re.fullmatch(r"[a-fA-F0-9]{64}", digest):
+                raise BenchmarkInputError("paddle model manifest is invalid")
+            try:
+                PurePosixPath(name).relative_to(PurePosixPath(model_root))
+            except ValueError as exc:
+                raise BenchmarkInputError("paddle model artifact is outside its model directory") from exc
+            path = model_dir / name
+            _reject_symlink_ancestors(path)
+            if path.is_symlink() or not path.is_file() or path.stat().st_nlink != 1:
+                raise BenchmarkInputError("paddle model artifact is invalid")
+            if path.stat().st_size < MIN_MODEL_ARTIFACT_BYTES or _file_sha256(path).lower() != digest.lower():
+                raise BenchmarkInputError("paddle model artifact digest mismatch")
+            names.append(name)
+            binding_artifacts.append({"path": str(path), "sha256": digest.lower()})
+        bindings[selection_id] = {
+            "model_dir": str(absolute_model_root),
+            "artifacts": binding_artifacts,
+            "constructor_kwargs": binding_kwargs,
+        }
+    if not bindings or len(names) > MAX_MANIFEST_FILES or len(set(names)) != len(names):
         raise BenchmarkInputError("paddle model manifest is invalid")
     names_set = frozenset(names)
-    for name in names:
-        path = model_dir / name
-        _reject_symlink_ancestors(path)
-        if path.is_symlink() or not path.is_file():
-            raise BenchmarkInputError("paddle model asset is missing")
     snapshot = _snapshot_model_tree(model_dir)
     allowed_entries = set(names_set) | {manifest_root}
     for name in names_set:
@@ -194,7 +239,7 @@ def _validate_paddle_manifest(model_dir: Path, manifest_path: Path) -> tuple[fro
             parent = parent.parent
     if set(snapshot) - allowed_entries:
         raise BenchmarkInputError("paddle model tree has unmanaged files")
-    return names_set, snapshot
+    return names_set, snapshot, bindings
 
 
 def _validate_effective_assets(boundary: PaddleAssetBoundary, effective_model_version: str) -> None:
@@ -202,7 +247,7 @@ def _validate_effective_assets(boundary: PaddleAssetBoundary, effective_model_ve
     if not selection_ids or any(not re.fullmatch(r"[A-Za-z0-9_.:-]{1,200}", item) for item in selection_ids):
         raise BenchmarkInputError("paddle model selection is invalid")
     for selection_id in selection_ids:
-        if not any(PurePosixPath(name).parts[0] == selection_id for name in boundary.allowed_files):
+        if selection_id not in boundary.bindings:
             raise BenchmarkInputError("paddle model asset inventory is incomplete")
 
 
@@ -271,16 +316,28 @@ def _paddle_offline_environment() -> PaddleAssetBoundary:
         manifest_path.relative_to(model_dir)
     except ValueError as exc:
         raise BenchmarkInputError("paddle model manifest is outside model directory") from exc
-    allowed_files, initial_snapshot = _validate_paddle_manifest(model_dir, manifest_path)
-    boundary = PaddleAssetBoundary(model_dir, manifest_path, allowed_files, initial_snapshot)
+    allowed_files, initial_snapshot, bindings = _validate_paddle_manifest(model_dir, manifest_path)
+    boundary = PaddleAssetBoundary(model_dir, manifest_path, allowed_files, initial_snapshot, bindings)
     updates = {
         "PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK": "True",
         "PADDLE_PDX_OFFLINE": "1",
         "PADDLEOCR_HOME": str(model_dir),
         "PADDLE_HOME": str(model_dir),
         "PADDLE_PDX_CACHE_HOME": str(model_dir),
+        "INSTAGRAM_POST_WATCH_PADDLEOCR_HARD_OFFLINE": "1",
+        "INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_BINDINGS": json.dumps(bindings, sort_keys=True),
         "HF_HUB_OFFLINE": "1",
         "TRANSFORMERS_OFFLINE": "1",
+        "HF_HOME": str(model_dir),
+        "HF_HUB_CACHE": str(model_dir),
+        "TRANSFORMERS_CACHE": str(model_dir),
+        "XDG_CACHE_HOME": str(model_dir),
+        "XDG_CONFIG_HOME": str(model_dir),
+        "XDG_DATA_HOME": str(model_dir),
+        "TMPDIR": str(model_dir),
+        "TEMP": str(model_dir),
+        "TMP": str(model_dir),
+        "HOME": str(model_dir),
     }
     previous = {key: os.environ.get(key) for key in updates}
     os.environ.update(updates)

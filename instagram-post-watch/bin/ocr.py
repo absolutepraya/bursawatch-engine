@@ -9,9 +9,11 @@ import multiprocessing
 import os
 import re
 import selectors
+import socket
 import subprocess
 import tempfile
 import time
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -532,19 +534,106 @@ def _merge_ocr_results(results: tuple[OCRResult, ...], config: PaddleRuntimeConf
     return OCRResult(OCRStatus.SUCCESS, text=text, confidence=sum(confidences) / len(confidences), min_confidence=min(min_confidences), engine_id="paddleocr", model_version=config.model_version)
 
 
-def _paddle_worker_extract(config: PaddleRuntimeConfig, image_path: Path) -> OCRResult:
+def _paddle_worker_extract(config: PaddleRuntimeConfig, image_path: Path, bindings: dict | None = None) -> OCRResult:
     module = importlib.import_module("paddleocr")
     results: list[OCRResult] = []
     for selection in config.selections:
-        engine = module.PaddleOCR(**selection.constructor_kwargs)
+        constructor_kwargs = dict(selection.constructor_kwargs)
+        if bindings is not None:
+            constructor_kwargs.update(bindings[selection.model_version]["constructor_kwargs"])
+        engine = module.PaddleOCR(**constructor_kwargs)
         selection_config = PaddleRuntimeConfig(config.languages, selection.model_version, (selection,))
         results.append(parse_paddle_output(engine.ocr(str(image_path)), selection_config))
     return _merge_ocr_results(tuple(results), config)
 
 
+def _paddle_path_has_symlink_ancestor(path: Path) -> bool:
+    absolute = path.absolute()
+    current = Path(absolute.anchor)
+    for component in absolute.parts[1:]:
+        current /= component
+        if current.is_symlink():
+            return True
+    return False
+
+
+def _validate_paddle_worker_bindings(config: PaddleRuntimeConfig) -> dict:
+    """Revalidate the benchmark's exact local model bindings in the worker."""
+    raw = os.environ.get("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_BINDINGS", "")
+    try:
+        payload = json.loads(raw)
+        if type(payload) is not dict:
+            raise ValueError
+        for selection in config.selections:
+            binding = payload[selection.model_version]
+            model_dir = Path(binding["model_dir"])
+            artifacts = binding["artifacts"]
+            constructor_kwargs = binding["constructor_kwargs"]
+            if not model_dir.is_absolute() or _paddle_path_has_symlink_ancestor(model_dir) or not model_dir.is_dir():
+                raise ValueError
+            if type(artifacts) is not list or not artifacts:
+                raise ValueError
+            if type(constructor_kwargs) is not dict or not constructor_kwargs:
+                raise ValueError
+            for key, value in constructor_kwargs.items():
+                if not isinstance(key, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", key):
+                    raise ValueError
+                path = Path(value)
+                if path != model_dir or not path.is_absolute():
+                    raise ValueError
+            for artifact in artifacts:
+                path = Path(artifact["path"])
+                digest = artifact["sha256"]
+                try:
+                    path.relative_to(model_dir)
+                except ValueError as exc:
+                    raise ValueError from exc
+                if not path.is_absolute() or _paddle_path_has_symlink_ancestor(path):
+                    raise ValueError
+                stat = path.stat()
+                if not path.is_file() or path.is_symlink() or stat.st_nlink != 1 or stat.st_size < 1024 or type(digest) is not str or not re.fullmatch(r"[a-fA-F0-9]{64}", digest):
+                    raise ValueError
+                hasher = hashlib.sha256()
+                with path.open("rb") as handle:
+                    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                        hasher.update(chunk)
+                if hasher.hexdigest() != digest:
+                    raise ValueError
+        return payload
+    except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise OCRBackendUnavailable("ocr backend unavailable") from exc
+
+
+@contextmanager
+def paddle_offline_network_guard():
+    """Deny DNS and socket connection attempts for an offline Paddle worker."""
+    denied = lambda *args, **kwargs: (_ for _ in ()).throw(OSError("offline OCR network denied"))
+    methods = ["connect", "connect_ex", "sendto"]
+    if hasattr(socket.socket, "sendmsg"):
+        methods.append("sendmsg")
+    original = {"getaddrinfo": socket.getaddrinfo, "create_connection": socket.create_connection}
+    original.update({method: getattr(socket.socket, method) for method in methods})
+    socket.getaddrinfo = denied
+    socket.create_connection = denied
+    for method in methods:
+        setattr(socket.socket, method, denied)
+    try:
+        yield
+    finally:
+        socket.getaddrinfo = original["getaddrinfo"]
+        socket.create_connection = original["create_connection"]
+        for method in methods:
+            setattr(socket.socket, method, original[method])
+
+
 def _paddle_worker(config: PaddleRuntimeConfig, image_path: str, queue) -> None:
     try:
-        result = _paddle_worker_extract(config, Path(image_path))
+        if os.environ.get("INSTAGRAM_POST_WATCH_PADDLEOCR_HARD_OFFLINE") == "1":
+            with paddle_offline_network_guard():
+                bindings = _validate_paddle_worker_bindings(config)
+                result = _paddle_worker_extract(config, Path(image_path), bindings)
+        else:
+            result = _paddle_worker_extract(config, Path(image_path))
         queue.put(("ok", asdict(result) | {"status": result.status.value}))
     except ImportError:
         queue.put(("unavailable", None))

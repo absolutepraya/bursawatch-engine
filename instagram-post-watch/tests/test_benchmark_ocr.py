@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
+import socket
 import sys
 from pathlib import Path
 
@@ -41,14 +43,19 @@ class StatusBackend(FakeBackend):
 
 
 def provision_paddle_assets(model_dir: Path) -> Path:
+    models = {}
     for selection in ("PP-OCRv5-id", "PP-OCRv5-en"):
         asset_dir = model_dir / selection
         asset_dir.mkdir(parents=True)
-        (asset_dir / "model.bin").write_bytes(selection.encode())
+        asset = asset_dir / "model.bin"
+        asset.write_bytes((selection.encode() * 512)[:2048])
+        models[selection] = {
+            "model_dir": selection,
+            "constructor_kwargs": {"model_dir": selection},
+            "artifacts": [{"path": f"{selection}/model.bin", "sha256": hashlib.sha256(asset.read_bytes()).hexdigest()}],
+        }
     manifest = model_dir / "manifest.json"
-    manifest.write_text(
-        json.dumps({"files": ["PP-OCRv5-id/model.bin", "PP-OCRv5-en/model.bin"]}), encoding="utf-8"
-    )
+    manifest.write_text(json.dumps({"models": models}), encoding="utf-8")
     return manifest
 
 
@@ -227,6 +234,7 @@ def test_paddle_alias_gets_the_same_guard_and_restores_environment(tmp_path: Pat
     def factory(engine):
         seen["engine"] = engine
         seen["offline"] = os.environ.get("PADDLE_PDX_OFFLINE")
+        seen["bindings"] = json.loads(os.environ["INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_BINDINGS"])
         return ProvisionedPaddleBackend()
 
     monkeypatch.setattr(benchmark_ocr, "build_backend", factory)
@@ -235,7 +243,10 @@ def test_paddle_alias_gets_the_same_guard_and_restores_environment(tmp_path: Pat
     monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MANIFEST", str(manifest))
     monkeypatch.setenv("PADDLE_PDX_OFFLINE", "caller-value")
     benchmark_ocr.run_benchmark(input_dir, tmp_path / "report.json", "paddle")
-    assert seen == {"engine": "paddleocr", "offline": "1"}
+    assert seen["engine"] == "paddleocr"
+    assert seen["offline"] == "1"
+    assert seen["bindings"]["PP-OCRv5-id"]["model_dir"] == str(model_dir / "PP-OCRv5-id")
+    assert seen["bindings"]["PP-OCRv5-en"]["artifacts"][0]["path"] == str(model_dir / "PP-OCRv5-en" / "model.bin")
     assert os.environ["PADDLE_PDX_OFFLINE"] == "caller-value"
 
 
@@ -253,6 +264,106 @@ def test_empty_or_incomplete_paddle_manifest_fails_closed(tmp_path: Path, monkey
     assert benchmark_ocr.main(
         ["--input-dir", str(input_dir), "--output", str(tmp_path / "report.json"), "--engine", "paddleocr"]
     ) == 2
+
+
+def test_manifest_digest_mismatch_and_missing_artifact_fail_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    manifest = provision_paddle_assets(model_dir)
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["models"]["PP-OCRv5-id"]["artifacts"][0]["sha256"] = "0" * 64
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE", "1")
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", str(model_dir))
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MANIFEST", str(manifest))
+    input_dir = tmp_path / "images"
+    input_dir.mkdir()
+    (input_dir / "a.jpg").write_bytes(b"a")
+    assert benchmark_ocr.main(
+        ["--input-dir", str(input_dir), "--output", str(tmp_path / "report.json"), "--engine", "paddleocr"]
+    ) == 2
+
+    payload["models"]["PP-OCRv5-id"]["artifacts"][0]["path"] = "PP-OCRv5-id/missing.bin"
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+    assert benchmark_ocr.main(
+        ["--input-dir", str(input_dir), "--output", str(tmp_path / "report-2.json"), "--engine", "paddleocr"]
+    ) == 2
+
+
+def test_manifest_rejects_unexpected_existing_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    manifest = provision_paddle_assets(model_dir)
+    (model_dir / "unexpected.cache").write_bytes(b"not listed")
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE", "1")
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", str(model_dir))
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MANIFEST", str(manifest))
+    input_dir = tmp_path / "images"
+    input_dir.mkdir()
+    (input_dir / "a.jpg").write_bytes(b"a")
+    assert benchmark_ocr.main(
+        ["--input-dir", str(input_dir), "--output", str(tmp_path / "report.json"), "--engine", "paddleocr"]
+    ) == 2
+
+
+def test_manifest_rejects_one_byte_model_artifacts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    manifest = provision_paddle_assets(model_dir)
+    tiny = model_dir / "PP-OCRv5-id" / "model.bin"
+    tiny.write_bytes(b"x")
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["models"]["PP-OCRv5-id"]["artifacts"][0]["sha256"] = hashlib.sha256(tiny.read_bytes()).hexdigest()
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE", "1")
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", str(model_dir))
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MANIFEST", str(manifest))
+    input_dir = tmp_path / "images"
+    input_dir.mkdir()
+    (input_dir / "a.jpg").write_bytes(b"a")
+    assert benchmark_ocr.main(
+        ["--input-dir", str(input_dir), "--output", str(tmp_path / "report.json"), "--engine", "paddleocr"]
+    ) == 2
+
+
+def test_paddle_worker_hard_offline_guard_denies_network_before_backend(monkeypatch: pytest.MonkeyPatch):
+    config = ocr.PaddleRuntimeConfig((), "test", ())
+    events = []
+
+    class Queue:
+        def put(self, value):
+            events.append(value)
+
+    def attempts_network(config, image_path, bindings=None):
+        socket.getaddrinfo("example.invalid", 443)
+        raise AssertionError("network guard did not run")
+
+    monkeypatch.setattr(ocr, "_paddle_worker_extract", attempts_network)
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_HARD_OFFLINE", "1")
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_BINDINGS", "{}")
+    ocr._paddle_worker(config, "image.jpg", Queue())
+    assert events == [("error", None)]
+
+
+def test_paddle_offline_environment_is_restored_after_exception(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    input_dir = tmp_path / "images"
+    input_dir.mkdir()
+    (input_dir / "a.jpg").write_bytes(b"a")
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    manifest = provision_paddle_assets(model_dir)
+
+    def factory(engine):
+        raise RuntimeError("construction failed")
+
+    monkeypatch.setattr(benchmark_ocr, "build_backend", factory)
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE", "1")
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", str(model_dir))
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MANIFEST", str(manifest))
+    monkeypatch.setenv("HOME", "caller-home")
+    with pytest.raises(RuntimeError):
+        benchmark_ocr.run_benchmark(input_dir, tmp_path / "report.json", "paddleocr")
+    assert os.environ["HOME"] == "caller-home"
 
 
 def test_paddle_model_tree_changes_fail_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -337,12 +448,20 @@ def test_preprocessing_and_notes_are_bounded_and_redacted(tmp_path: Path):
         "tesseract",
         backend=FakeBackend(),
         preprocessing_version="preprocess / local\nrun",
-        accuracy_notes='token: "hidden value" password=secret\x00 source /private/my secret.jpg',
+        accuracy_notes=(
+            'token: "hidden value" password=secret ACCESS_TOKEN="access hidden" '
+            'CLIENT_SECRET=client hidden SECRET_KEY: "key hidden" Authorization: Bearer bearer hidden\x00 '
+            'source /private/my secret.jpg'
+        ),
     ).report
     assert report["preprocessing_version"] == "preprocess___local_run"
     assert "hidden" not in report["accuracy_notes"]
     assert "secret.jpg" not in report["accuracy_notes"]
     assert "secret" not in report["accuracy_notes"]
+    assert "access hidden" not in report["accuracy_notes"]
+    assert "client hidden" not in report["accuracy_notes"]
+    assert "key hidden" not in report["accuracy_notes"]
+    assert "bearer hidden" not in report["accuracy_notes"]
     assert "/" not in report["accuracy_notes"]
 
 
