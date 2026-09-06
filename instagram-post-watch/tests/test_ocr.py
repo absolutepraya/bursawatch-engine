@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -219,6 +221,25 @@ def test_tesseract_runner_output_limit_is_sanitized_by_cache(tmp_path):
     assert result.error == "ocr backend failed"
 
 
+def test_tesseract_retries_no_text_with_sparse_text_segmentation(tmp_path):
+    calls = []
+
+    def runner(command, timeout_seconds, max_stdout_bytes):
+        calls.append(command)
+        if command[command.index("--psm") + 1] == "3":
+            return "level\tconf\ttext\n5\t-1\t\n"
+        return "level\tconf\ttext\n5\t88\tHeading\n"
+
+    backend = ocr.TesseractBackend(binary="tesseract", runner=runner)
+    result = backend.extract(tmp_path / "cover.jpg", ("eng",))
+
+    assert result.status is ocr.OCRStatus.SUCCESS
+    assert result.text == "Heading"
+    assert len(calls) == 2
+    assert calls[0][-3:] == ["--psm", "3", "tsv"]
+    assert calls[1][-3:] == ["--psm", "11", "tsv"]
+
+
 def test_cache_mismatch_is_a_miss_not_a_trusted_hit(tmp_path):
     source = asset(tmp_path, sha256="6" * 64)
     cache_root = tmp_path / "cache"
@@ -339,8 +360,22 @@ def test_paddle_runtime_mapping_binds_languages_to_constructor_config(tmp_path):
     assert result.status is ocr.OCRStatus.SUCCESS
     assert result.text == "Laba bersih naik"
     assert [selection.constructor_kwargs for selection in calls[0][0].selections] == [
-        {"lang": "id", "ocr_version": "PP-OCRv5"},
-        {"lang": "en", "ocr_version": "PP-OCRv5"},
+        {
+            "text_detection_model_name": "PP-OCRv5_mobile_det",
+            "text_recognition_model_name": "latin_PP-OCRv5_mobile_rec",
+            "use_doc_orientation_classify": False,
+            "use_doc_unwarping": False,
+            "use_textline_orientation": False,
+            "enable_mkldnn": False,
+        },
+        {
+            "text_detection_model_name": "PP-OCRv5_mobile_det",
+            "text_recognition_model_name": "en_PP-OCRv5_mobile_rec",
+            "use_doc_orientation_classify": False,
+            "use_doc_unwarping": False,
+            "use_textline_orientation": False,
+            "enable_mkldnn": False,
+        },
     ]
     assert calls[0][0].model_version == "PP-OCRv5-id+PP-OCRv5-en"
     assert calls[0][2] == 3
@@ -349,9 +384,24 @@ def test_paddle_runtime_mapping_binds_languages_to_constructor_config(tmp_path):
 @pytest.mark.parametrize(
     ("languages", "kwargs", "model_version"),
     [
-        (("ind",), [{"lang": "id", "ocr_version": "PP-OCRv5"}], "PP-OCRv5-id"),
-        (("eng",), [{"lang": "en", "ocr_version": "PP-OCRv5"}], "PP-OCRv5-en"),
-        (("ind", "eng"), [{"lang": "id", "ocr_version": "PP-OCRv5"}, {"lang": "en", "ocr_version": "PP-OCRv5"}], "PP-OCRv5-id+PP-OCRv5-en"),
+        (
+            ("ind",),
+            [{"text_detection_model_name": "PP-OCRv5_mobile_det", "text_recognition_model_name": "latin_PP-OCRv5_mobile_rec", "use_doc_orientation_classify": False, "use_doc_unwarping": False, "use_textline_orientation": False, "enable_mkldnn": False}],
+            "PP-OCRv5-id",
+        ),
+        (
+            ("eng",),
+            [{"text_detection_model_name": "PP-OCRv5_mobile_det", "text_recognition_model_name": "en_PP-OCRv5_mobile_rec", "use_doc_orientation_classify": False, "use_doc_unwarping": False, "use_textline_orientation": False, "enable_mkldnn": False}],
+            "PP-OCRv5-en",
+        ),
+        (
+            ("ind", "eng"),
+            [
+                {"text_detection_model_name": "PP-OCRv5_mobile_det", "text_recognition_model_name": "latin_PP-OCRv5_mobile_rec", "use_doc_orientation_classify": False, "use_doc_unwarping": False, "use_textline_orientation": False, "enable_mkldnn": False},
+                {"text_detection_model_name": "PP-OCRv5_mobile_det", "text_recognition_model_name": "en_PP-OCRv5_mobile_rec", "use_doc_orientation_classify": False, "use_doc_unwarping": False, "use_textline_orientation": False, "enable_mkldnn": False},
+            ],
+            "PP-OCRv5-id+PP-OCRv5-en",
+        ),
     ],
 )
 def test_paddle_runtime_config_is_explicit_for_supported_languages(languages, kwargs, model_version):
@@ -443,6 +493,15 @@ def test_paddle_unexpected_output_structure_is_error():
     assert parsed.error == "ocr output malformed"
 
 
+def test_paddle_mapping_without_rec_fields_is_error():
+    config = ocr.PaddleOCRBackend(model_version="PP-OCRv5", runner=lambda cfg, path, timeout: ()).runtime_config(("eng",))
+
+    parsed = ocr.parse_paddle_output([{"unexpected": "shape"}], config)
+
+    assert parsed.status is ocr.OCRStatus.ERROR
+    assert parsed.error == "ocr output malformed"
+
+
 def test_paddle_compact_result_limit_is_sanitized():
     config = ocr.PaddleOCRBackend(model_version="PP-OCRv5", runner=lambda cfg, path, timeout: ()).runtime_config(("eng",))
     raw = (((None, ("x", 0.9)) for _ in range(ocr.MAX_PADDLE_RESULT_LINES + 1)),)
@@ -460,7 +519,7 @@ def test_paddle_worker_returns_compact_result_not_raw_payload(monkeypatch, tmp_p
         def __init__(self, **kwargs):
             calls.append(kwargs)
 
-        def ocr(self, path):
+        def predict(self, path):
             return [[(None, ("Revenue", 0.95))]]
 
     class FakeModule:
@@ -473,7 +532,52 @@ def test_paddle_worker_returns_compact_result_not_raw_payload(monkeypatch, tmp_p
 
     assert parsed.status is ocr.OCRStatus.SUCCESS
     assert parsed.text == "Revenue"
-    assert calls == [{"lang": "en", "ocr_version": "PP-OCRv5"}]
+    assert calls == [
+        {
+            "text_detection_model_name": "PP-OCRv5_mobile_det",
+            "text_recognition_model_name": "en_PP-OCRv5_mobile_rec",
+            "use_doc_orientation_classify": False,
+            "use_doc_unwarping": False,
+            "use_textline_orientation": False,
+            "enable_mkldnn": False,
+        }
+    ]
+
+
+def test_paddle_parser_accepts_current_result_mapping():
+    config = ocr.PaddleOCRBackend(model_version="PP-OCRv5", runner=lambda config, path, timeout: ()).runtime_config(("eng",))
+    result = ocr.parse_paddle_output(
+        [{"rec_texts": ["Revenue", "naik"], "rec_scores": [0.95, 0.88]}],
+        config,
+    )
+
+    assert result.status is ocr.OCRStatus.SUCCESS
+    assert result.text == "Revenue naik"
+    assert result.confidence == pytest.approx(0.915)
+    assert result.min_confidence == pytest.approx(0.88)
+
+
+def test_paddle_worker_rejects_dot_segments_in_model_bindings(tmp_path, monkeypatch):
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    artifact = model_dir / "model.bin"
+    artifact.write_bytes(b"model")
+    config = ocr.PaddleOCRBackend(model_version="PP-OCRv5", runner=lambda config, path, timeout: ()).runtime_config(("eng",))
+    monkeypatch.setenv(
+        "INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_BINDINGS",
+        json.dumps(
+            {
+                "PP-OCRv5-en": {
+                    "model_dir": str(model_dir),
+                    "artifacts": [{"path": str(artifact), "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest()}],
+                    "constructor_kwargs": {"text_recognition_model_dir": str(model_dir / ".." / "models")},
+                }
+            }
+        ),
+    )
+
+    with pytest.raises(ocr.OCRBackendUnavailable):
+        ocr._validate_paddle_worker_bindings(config)
 
 
 def test_paddle_cache_identity_uses_concrete_model_selection(tmp_path):

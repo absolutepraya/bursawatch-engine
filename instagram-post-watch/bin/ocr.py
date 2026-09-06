@@ -29,6 +29,9 @@ DEFAULT_TIMEOUT_SECONDS = 30
 MAX_TESSERACT_STDOUT_BYTES = 512 * 1024
 MAX_PADDLE_RESULT_LINES = 256
 MAX_PADDLE_COMPACT_BYTES = 64 * 1024
+DEFAULT_TESSERACT_PSM = "3"
+TESSERACT_FALLBACK_PSM = "11"
+DEFAULT_TESSERACT_MODEL_VERSION = "system-psm3-fallback11"
 _TESSERACT_REQUIRED_FIELDS = {"conf", "text"}
 
 
@@ -69,7 +72,7 @@ class OCROutputLimitExceeded(RuntimeError):
 class PaddleModelSelection:
     source_language: str
     model_version: str
-    constructor_kwargs: dict[str, str]
+    constructor_kwargs: dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -418,7 +421,7 @@ class TesseractBackend:
         self,
         *,
         binary: str = "tesseract",
-        model_version: str = "system",
+        model_version: str = DEFAULT_TESSERACT_MODEL_VERSION,
         timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
         max_stdout_bytes: int = MAX_TESSERACT_STDOUT_BYTES,
         runner: Callable[[list[str], int, int], str] | None = None,
@@ -445,16 +448,28 @@ class TesseractBackend:
             raise ValueError("unsupported OCR language") from exc
 
     def extract(self, path: Path, languages: tuple[str, ...]) -> OCRResult:
-        command = [self.binary, str(path), "stdout", "-l", self.map_languages(languages), "tsv"]
+        base_command = [self.binary, str(path), "stdout", "-l", self.map_languages(languages)]
         try:
-            stdout = self._runner(command, self.timeout_seconds, self.max_stdout_bytes)
+            stdout = self._runner(base_command + ["--psm", DEFAULT_TESSERACT_PSM, "tsv"], self.timeout_seconds, self.max_stdout_bytes)
         except FileNotFoundError as exc:
             raise OCRBackendUnavailable("ocr backend unavailable") from exc
         except (subprocess.TimeoutExpired, TimeoutError):
             raise
         except (subprocess.CalledProcessError, OCROutputLimitExceeded) as exc:
             raise RuntimeError("ocr backend failed") from exc
-        return parse_tesseract_tsv(stdout)
+        result = parse_tesseract_tsv(stdout)
+        if result.status is not OCRStatus.NO_TEXT:
+            return result
+        try:
+            fallback_stdout = self._runner(base_command + ["--psm", TESSERACT_FALLBACK_PSM, "tsv"], self.timeout_seconds, self.max_stdout_bytes)
+        except FileNotFoundError as exc:
+            raise OCRBackendUnavailable("ocr backend unavailable") from exc
+        except (subprocess.TimeoutExpired, TimeoutError):
+            raise
+        except (subprocess.CalledProcessError, OCROutputLimitExceeded) as exc:
+            raise RuntimeError("ocr backend failed") from exc
+        fallback = parse_tesseract_tsv(fallback_stdout)
+        return fallback if fallback.status is not OCRStatus.NO_TEXT else result
 
 
 def _paddle_line(line: object) -> tuple[str, float] | None:
@@ -479,13 +494,32 @@ def _iter_paddle_lines(raw: object):
             yield line
 
 
+def _iter_paddle_result_lines(raw: object):
+    """Yield text and confidence pairs from PaddleOCR 3.x or legacy output."""
+    if type(raw) in {str, bytes} or not hasattr(raw, "__iter__"):
+        raise ValueError("ocr output malformed")
+    for page in raw:
+        if hasattr(page, "get"):
+            texts = page.get("rec_texts")
+            scores = page.get("rec_scores")
+            if texts is None or scores is None:
+                raise ValueError("ocr output malformed")
+            if not isinstance(texts, (list, tuple)) or not isinstance(scores, (list, tuple)) or len(texts) != len(scores):
+                raise ValueError("ocr output malformed")
+            for text, confidence in zip(texts, scores):
+                yield (None, (text, confidence))
+            continue
+        for line in _iter_paddle_lines((page,)):
+            yield line
+
+
 def parse_paddle_output(raw: object, config: PaddleRuntimeConfig) -> OCRResult:
     text_parts: list[str] = []
     confidences: list[float] = []
     malformed_seen = False
     line_count = 0
     try:
-        for line in _iter_paddle_lines(raw):
+        for line in _iter_paddle_result_lines(raw):
             line_count += 1
             if line_count > MAX_PADDLE_RESULT_LINES:
                 return OCRResult(OCRStatus.ERROR, engine_id="paddleocr", model_version=config.model_version, error="ocr output exceeded limit")
@@ -543,7 +577,7 @@ def _paddle_worker_extract(config: PaddleRuntimeConfig, image_path: Path, bindin
             constructor_kwargs.update(bindings[selection.model_version]["constructor_kwargs"])
         engine = module.PaddleOCR(**constructor_kwargs)
         selection_config = PaddleRuntimeConfig(config.languages, selection.model_version, (selection,))
-        results.append(parse_paddle_output(engine.ocr(str(image_path)), selection_config))
+        results.append(parse_paddle_output(engine.predict(str(image_path)), selection_config))
     return _merge_ocr_results(tuple(results), config)
 
 
@@ -555,6 +589,10 @@ def _paddle_path_has_symlink_ancestor(path: Path) -> bool:
         if current.is_symlink():
             return True
     return False
+
+
+def _paddle_path_has_dot_segment(path: Path) -> bool:
+    return any(component in {".", ".."} for component in path.parts)
 
 
 def _validate_paddle_worker_bindings(config: PaddleRuntimeConfig) -> dict:
@@ -569,7 +607,12 @@ def _validate_paddle_worker_bindings(config: PaddleRuntimeConfig) -> dict:
             model_dir = Path(binding["model_dir"])
             artifacts = binding["artifacts"]
             constructor_kwargs = binding["constructor_kwargs"]
-            if not model_dir.is_absolute() or _paddle_path_has_symlink_ancestor(model_dir) or not model_dir.is_dir():
+            if (
+                not model_dir.is_absolute()
+                or _paddle_path_has_dot_segment(model_dir)
+                or _paddle_path_has_symlink_ancestor(model_dir)
+                or not model_dir.is_dir()
+            ):
                 raise ValueError
             if type(artifacts) is not list or not artifacts:
                 raise ValueError
@@ -578,12 +621,25 @@ def _validate_paddle_worker_bindings(config: PaddleRuntimeConfig) -> dict:
             for key, value in constructor_kwargs.items():
                 if not isinstance(key, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", key):
                     raise ValueError
-                path = Path(value)
-                if path != model_dir or not path.is_absolute():
+                if key.endswith("_dir"):
+                    if not isinstance(value, str):
+                        raise ValueError
+                    path = Path(value)
+                    if not path.is_absolute() or _paddle_path_has_dot_segment(path) or _paddle_path_has_symlink_ancestor(path):
+                        raise ValueError
+                    try:
+                        path.relative_to(model_dir)
+                    except ValueError as exc:
+                        raise ValueError from exc
+                    if not path.is_dir():
+                        raise ValueError
+                elif type(value) not in {str, bool, int, float}:
                     raise ValueError
             for artifact in artifacts:
                 path = Path(artifact["path"])
                 digest = artifact["sha256"]
+                if _paddle_path_has_dot_segment(path):
+                    raise ValueError
                 try:
                     path.relative_to(model_dir)
                 except ValueError as exc:
@@ -591,7 +647,7 @@ def _validate_paddle_worker_bindings(config: PaddleRuntimeConfig) -> dict:
                 if not path.is_absolute() or _paddle_path_has_symlink_ancestor(path):
                     raise ValueError
                 stat = path.stat()
-                if not path.is_file() or path.is_symlink() or stat.st_nlink != 1 or stat.st_size < 1024 or type(digest) is not str or not re.fullmatch(r"[a-fA-F0-9]{64}", digest):
+                if not path.is_file() or path.is_symlink() or stat.st_nlink != 1 or stat.st_size < 256 or type(digest) is not str or not re.fullmatch(r"[a-fA-F0-9]{64}", digest):
                     raise ValueError
                 hasher = hashlib.sha256()
                 with path.open("rb") as handle:
@@ -693,9 +749,30 @@ class PaddleOCRBackend:
 
     def runtime_config(self, languages: tuple[str, ...]) -> PaddleRuntimeConfig:
         language_set = tuple(languages)
+        common_kwargs = {
+            "text_detection_model_name": "PP-OCRv5_mobile_det",
+            "use_doc_orientation_classify": False,
+            "use_doc_unwarping": False,
+            "use_textline_orientation": False,
+            "enable_mkldnn": False,
+        }
         selection_map = {
-            "ind": PaddleModelSelection("ind", f"{self._model_version}-id", {"lang": "id", "ocr_version": self._model_version}),
-            "eng": PaddleModelSelection("eng", f"{self._model_version}-en", {"lang": "en", "ocr_version": self._model_version}),
+            "ind": PaddleModelSelection(
+                "ind",
+                f"{self._model_version}-id",
+                common_kwargs
+                | {
+                    "text_recognition_model_name": "latin_PP-OCRv5_mobile_rec",
+                },
+            ),
+            "eng": PaddleModelSelection(
+                "eng",
+                f"{self._model_version}-en",
+                common_kwargs
+                | {
+                    "text_recognition_model_name": "en_PP-OCRv5_mobile_rec",
+                },
+            ),
         }
         if language_set == ("eng",):
             selections = (selection_map["eng"],)
@@ -728,7 +805,7 @@ def build_backend(engine: str | None = None) -> OCRBackend:
     if selected == "tesseract":
         return TesseractBackend(
             binary=os.environ.get("INSTAGRAM_POST_WATCH_TESSERACT_BINARY", "tesseract"),
-            model_version=os.environ.get("INSTAGRAM_POST_WATCH_TESSERACT_MODEL_VERSION", "system"),
+            model_version=os.environ.get("INSTAGRAM_POST_WATCH_TESSERACT_MODEL_VERSION", DEFAULT_TESSERACT_MODEL_VERSION),
         )
     if selected in {"paddleocr", "paddle"}:
         return PaddleOCRBackend(model_version=os.environ.get("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_VERSION", "PP-OCRv5"))

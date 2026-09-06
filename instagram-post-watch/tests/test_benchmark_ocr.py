@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import hashlib
+import inspect
 import os
 import socket
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 import pytest
@@ -62,6 +64,7 @@ def provision_paddle_assets(model_dir: Path) -> Path:
                 "verified_runtime": {
                     "sandbox": "preflight-verified",
                     "paddle_version": "3.0.0-preflight",
+                    "paddleocr_version": "3.7.0-preflight",
                     "constructor_api_sha256": "a" * 64,
                 },
                 "models": models,
@@ -77,6 +80,25 @@ def configure_paddle(monkeypatch: pytest.MonkeyPatch, model_dir: Path, manifest:
     monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_SANDBOX", "preflight-verified")
     monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", str(model_dir))
     monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MANIFEST", str(manifest))
+
+
+def run_provisioned_paddle_child(
+    monkeypatch: pytest.MonkeyPatch,
+    input_dir: Path,
+    output: Path,
+    *,
+    engine: str = "paddleocr",
+):
+    monkeypatch.setattr(benchmark_ocr, "_write_systemd_network_attestation", lambda path, challenge: None)
+    monkeypatch.setattr(benchmark_ocr, "_validate_installed_paddle_runtime", lambda expected: None)
+    return benchmark_ocr.run_benchmark(
+        input_dir,
+        output,
+        engine,
+        _sandbox_child=True,
+        _sandbox_attestation=output.parent / "attestation.json",
+        _sandbox_challenge="a" * 32,
+    )
 
 
 def test_benchmark_is_lexical_and_reports_relative_paths(tmp_path: Path):
@@ -104,6 +126,14 @@ def test_benchmark_is_lexical_and_reports_relative_paths(tmp_path: Path):
     assert report["images"][0]["confidence"] == 0.91
     assert report["images"][0]["latency_seconds"] >= 0
     assert report["total_latency_seconds"] >= 0
+    assert report["median_latency_seconds"] >= 0
+    assert report["images"][0]["text_recovery"] == "complete"
+    assert report["text_recovery"] == {
+        "assets_total": 2,
+        "assets_with_text": 2,
+        "coverage_ratio": 1.0,
+        "classes": {"complete": 2, "partial": 0, "none": 0},
+    }
     assert report["peak_rss_bytes"] > 0
 
 
@@ -234,8 +264,9 @@ def test_paddle_offline_environment_is_set_before_construction(tmp_path: Path, m
     )
     for key in guarded_keys:
         monkeypatch.setenv(key, f"caller-{key.lower()}")
-    benchmark_ocr.run_benchmark(input_dir, tmp_path / "report.json", "paddleocr")
-    assert seen == {"PADDLE_PDX_OFFLINE": "1", "PADDLEOCR_HOME": str(model_dir), "PADDLE_PDX_CACHE_HOME": str(model_dir)}
+    run_provisioned_paddle_child(monkeypatch, input_dir, tmp_path / "report.json")
+    runtime_dir = str(tmp_path / ".instagram-post-watch-paddle-tmp")
+    assert seen == {"PADDLE_PDX_OFFLINE": "1", "PADDLEOCR_HOME": runtime_dir, "PADDLE_PDX_CACHE_HOME": runtime_dir}
     for key in guarded_keys:
         assert os.environ[key] == f"caller-{key.lower()}"
 
@@ -258,7 +289,7 @@ def test_paddle_alias_gets_the_same_guard_and_restores_environment(tmp_path: Pat
     monkeypatch.setattr(benchmark_ocr, "build_backend", factory)
     configure_paddle(monkeypatch, model_dir, manifest)
     monkeypatch.setenv("PADDLE_PDX_OFFLINE", "caller-value")
-    benchmark_ocr.run_benchmark(input_dir, tmp_path / "report.json", "paddle")
+    run_provisioned_paddle_child(monkeypatch, input_dir, tmp_path / "report.json", engine="paddle")
     assert seen["engine"] == "paddleocr"
     assert seen["offline"] == "1"
     assert seen["bindings"]["PP-OCRv5-id"]["model_dir"] == str(model_dir / "PP-OCRv5-id")
@@ -332,6 +363,139 @@ def test_manifest_rejects_one_byte_model_artifacts(tmp_path: Path, monkeypatch: 
     assert benchmark_ocr.main(
         ["--input-dir", str(input_dir), "--output", str(tmp_path / "report.json"), "--engine", "paddleocr"]
     ) == 2
+
+
+def test_manifest_requires_paddleocr_runtime_version(tmp_path: Path):
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    manifest = provision_paddle_assets(model_dir)
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    del payload["verified_runtime"]["paddleocr_version"]
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(benchmark_ocr.BenchmarkInputError, match="runtime metadata"):
+        benchmark_ocr._validate_paddle_manifest(model_dir, manifest)
+
+
+def test_model_tree_snapshot_retains_full_sha256(tmp_path: Path):
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    provision_paddle_assets(model_dir)
+    image = model_dir / "PP-OCRv5-id" / "model.bin"
+    snapshot = benchmark_ocr._snapshot_model_tree(model_dir)
+
+    assert snapshot["PP-OCRv5-id/model.bin"] == ("file", image.stat().st_size, hashlib.sha256(image.read_bytes()).hexdigest())
+    assert len(snapshot["PP-OCRv5-id/model.bin"][2]) == 64
+
+
+def test_installed_paddle_runtime_metadata_is_exact(monkeypatch: pytest.MonkeyPatch):
+    class FakePaddleOCR:
+        def __init__(self, model_name=None):
+            self.model_name = model_name
+
+    monkeypatch.setitem(sys.modules, "paddle", types.SimpleNamespace(__version__="3.3.1"))
+    monkeypatch.setitem(sys.modules, "paddleocr", types.SimpleNamespace(__version__="3.7.0", PaddleOCR=FakePaddleOCR))
+    expected = {
+        "paddle_version": "3.3.1",
+        "paddleocr_version": "3.7.0",
+        "constructor_api_sha256": hashlib.sha256(str(inspect.signature(FakePaddleOCR)).encode("utf-8")).hexdigest(),
+    }
+
+    benchmark_ocr._validate_installed_paddle_runtime(expected)
+    expected["paddleocr_version"] = "3.7.1"
+    with pytest.raises(benchmark_ocr.BenchmarkInputError, match="drifted"):
+        benchmark_ocr._validate_installed_paddle_runtime(expected)
+
+
+def test_paddle_sandbox_attestation_is_challenge_and_namespace_bound(tmp_path: Path):
+    attestation = tmp_path / "attestation.json"
+    argv = ["benchmark_ocr.py", "--engine", "paddleocr"]
+    attestation.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "sandbox": "systemd-private-network",
+                "challenge": "a" * 32,
+                "network_namespace": "net:[22]",
+                "host_network_namespace": "net:[11]",
+                "interfaces": ["lo"],
+                "routes": [],
+                "ipv6_routes": [],
+                "argv_sha256": benchmark_ocr._argv_sha256(argv),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    benchmark_ocr._read_systemd_network_attestation(attestation, "a" * 32, argv)
+    with pytest.raises(benchmark_ocr.BenchmarkInputError):
+        benchmark_ocr._read_systemd_network_attestation(attestation, "b" * 32, argv)
+
+
+def test_paddle_sandbox_attestation_writer_requires_private_network(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    namespaces = iter(("net:[22]", "net:[11]"))
+    monkeypatch.setattr(benchmark_ocr, "_network_namespace", lambda path: next(namespaces))
+    monkeypatch.setattr(benchmark_ocr.socket, "if_nameindex", lambda: [(1, "lo")])
+    monkeypatch.setattr(benchmark_ocr, "_route_entries", lambda path: [])
+    written = {}
+    monkeypatch.setattr(benchmark_ocr, "_atomic_write_json", lambda path, payload: written.update(payload=payload))
+
+    benchmark_ocr._write_systemd_network_attestation(tmp_path / "attestation.json", "a" * 32)
+
+    assert written["payload"]["sandbox"] == "systemd-private-network"
+    assert written["payload"]["interfaces"] == ["lo"]
+    assert written["payload"]["routes"] == []
+
+
+def test_paddle_sandbox_command_is_allowlisted_and_path_bounded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    input_dir = tmp_path / "images"
+    input_dir.mkdir()
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    output = tmp_path / "reports" / "report.json"
+    output.parent.mkdir()
+    attestation = tmp_path / "reports" / "attestation.json"
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", str(model_dir))
+    monkeypatch.setattr(benchmark_ocr, "_trusted_paddle_sandbox_wrapper", lambda: Path("/usr/bin/systemd-run"))
+
+    command = benchmark_ocr._build_paddle_sandbox_command(
+        input_dir=input_dir,
+        output=output,
+        attestation=attestation,
+        challenge="a" * 32,
+        languages=("ind", "eng"),
+        preprocessing_version="preprocess-1",
+        accuracy_notes="safe",
+    )
+
+    assert command[0] == "/usr/bin/systemd-run"
+    assert "--property=PrivateNetwork=yes" in command
+    assert "--property=RestrictAddressFamilies=AF_UNIX" in command
+    assert "--" in command
+    assert "sh" not in command and "-c" not in command
+    with pytest.raises(benchmark_ocr.BenchmarkInputError, match="overlap"):
+        benchmark_ocr._build_paddle_sandbox_command(
+            input_dir=input_dir,
+            output=input_dir / "report.json",
+            attestation=attestation,
+            challenge="a" * 32,
+            languages=("eng",),
+            preprocessing_version="preprocess-1",
+            accuracy_notes="safe",
+        )
+
+
+def test_paddle_requires_an_allowlisted_os_sandbox_wrapper(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    input_dir = tmp_path / "images"
+    input_dir.mkdir()
+    (input_dir / "a.jpg").write_bytes(b"a")
+    configure_paddle(monkeypatch, tmp_path / "models", tmp_path / "models" / "manifest.json")
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_SANDBOX_WRAPPER", "/tmp/untrusted-wrapper")
+
+    assert benchmark_ocr.main(
+        ["--input-dir", str(input_dir), "--output", str(tmp_path / "report.json"), "--engine", "paddleocr"]
+    ) == 2
+    assert not (tmp_path / "report.json").exists()
 
 
 def test_paddle_worker_hard_offline_guard_denies_network_before_backend(monkeypatch: pytest.MonkeyPatch):
@@ -424,8 +588,9 @@ def test_paddle_tempfile_state_is_scoped_and_restored(tmp_path: Path, monkeypatc
 
     monkeypatch.setattr(benchmark_ocr, "build_backend", factory)
     try:
-        benchmark_ocr.run_benchmark(input_dir, tmp_path / "report.json", "paddleocr")
+        run_provisioned_paddle_child(monkeypatch, input_dir, tmp_path / "report.json")
         assert seen["tempdir"] == str(tmp_path / ".instagram-post-watch-paddle-tmp")
+        assert not (tmp_path / ".instagram-post-watch-paddle-tmp").exists()
         assert tempfile.tempdir == str(stale)
         assert Path.cwd() == original_cwd
     finally:
@@ -447,7 +612,7 @@ def test_paddle_offline_environment_is_restored_after_exception(tmp_path: Path, 
     configure_paddle(monkeypatch, model_dir, manifest)
     monkeypatch.setenv("HOME", "caller-home")
     with pytest.raises(RuntimeError):
-        benchmark_ocr.run_benchmark(input_dir, tmp_path / "report.json", "paddleocr")
+        run_provisioned_paddle_child(monkeypatch, input_dir, tmp_path / "report.json")
     assert os.environ["HOME"] == "caller-home"
 
 
