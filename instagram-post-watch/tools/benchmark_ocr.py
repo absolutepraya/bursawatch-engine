@@ -42,15 +42,9 @@ MAX_MANIFEST_FILES = 512
 MIN_MODEL_ARTIFACT_BYTES = 256
 FAILED_STATUSES = frozenset({OCRStatus.ERROR, OCRStatus.TIMEOUT, OCRStatus.UNAVAILABLE, OCRStatus.UNCERTAIN})
 MAX_SANDBOX_ATTESTATION_BYTES = 8192
-PADDLE_SANDBOX_WRAPPER = Path("/usr/bin/systemd-run")
-PADDLE_SANDBOX_ATTESTATION = "systemd-private-network"
-PADDLE_SANDBOX_PROPERTIES = (
-    "--property=PrivateNetwork=yes",
-    "--property=NoNewPrivileges=yes",
-    "--property=PrivateTmp=yes",
-    "--property=ProtectSystem=strict",
-    "--property=RestrictAddressFamilies=AF_UNIX",
-)
+PADDLE_SANDBOX_WRAPPER = Path("/usr/bin/unshare")
+PADDLE_SANDBOX_ATTESTATION = "unshare-user-network"
+PADDLE_SANDBOX_FLAGS = ("-Urn", "--")
 
 
 class BenchmarkInputError(ValueError):
@@ -398,13 +392,26 @@ def _route_entries(path: str) -> list[str]:
         lines = Path(path).read_text(encoding="utf-8").splitlines()
     except (OSError, UnicodeError) as exc:
         raise BenchmarkInputError("paddle sandbox attestation is unavailable") from exc
-    entries = [line[:256] for line in lines[1:] if line.strip()]
+    if path == "/proc/net/route" and lines:
+        lines = lines[1:]
+    entries = [line[:256] for line in lines if line.strip()]
     if len(entries) > 16:
         raise BenchmarkInputError("paddle sandbox attestation is invalid")
     return entries
 
 
-def _write_systemd_network_attestation(path: Path, challenge: str) -> None:
+def _route_is_loopback_only(route: str) -> bool:
+    fields = route.split()
+    return bool(fields) and fields[-1] == "lo"
+
+
+def _routes_are_loopback_only(routes: object) -> bool:
+    return isinstance(routes, list) and len(routes) <= 16 and all(
+        isinstance(route, str) and len(route) <= 256 and _route_is_loopback_only(route) for route in routes
+    )
+
+
+def _write_unshare_network_attestation(path: Path, challenge: str) -> None:
     if not re.fullmatch(r"[a-f0-9]{32}", challenge):
         raise BenchmarkInputError("paddle sandbox challenge is invalid")
     path = _sandbox_path(path, label="paddle sandbox attestation")
@@ -418,7 +425,12 @@ def _write_systemd_network_attestation(path: Path, challenge: str) -> None:
         raise BenchmarkInputError("paddle sandbox attestation is unavailable") from exc
     routes = _route_entries("/proc/net/route")
     ipv6_routes = _route_entries("/proc/net/ipv6_route")
-    if current_namespace == host_namespace or interfaces != ["lo"] or routes or ipv6_routes:
+    if (
+        current_namespace == host_namespace
+        or interfaces != ["lo"]
+        or not _routes_are_loopback_only(routes)
+        or not _routes_are_loopback_only(ipv6_routes)
+    ):
         raise BenchmarkInputError("paddle sandbox network is not private")
     _atomic_write_json(
         path,
@@ -436,7 +448,7 @@ def _write_systemd_network_attestation(path: Path, challenge: str) -> None:
     )
 
 
-def _read_systemd_network_attestation(path: Path, challenge: str, expected_argv: Sequence[str]) -> None:
+def _read_unshare_network_attestation(path: Path, challenge: str, expected_argv: Sequence[str]) -> None:
     path = _sandbox_path(path, label="paddle sandbox attestation")
     try:
         if path.stat().st_size > MAX_SANDBOX_ATTESTATION_BYTES:
@@ -466,8 +478,8 @@ def _read_systemd_network_attestation(path: Path, challenge: str, expected_argv:
         or not isinstance(payload["host_network_namespace"], str)
         or payload["network_namespace"] == payload["host_network_namespace"]
         or payload["interfaces"] != ["lo"]
-        or payload["routes"] != []
-        or payload["ipv6_routes"] != []
+        or not _routes_are_loopback_only(payload["routes"])
+        or not _routes_are_loopback_only(payload["ipv6_routes"])
         or payload["argv_sha256"] != _argv_sha256(expected_argv)
     ):
         raise BenchmarkInputError("paddle sandbox attestation is invalid")
@@ -526,14 +538,7 @@ def _build_paddle_sandbox_command(
     ]
     return [
         str(wrapper),
-        "--wait",
-        "--quiet",
-        "--collect",
-        *PADDLE_SANDBOX_PROPERTIES,
-        f"--property=ReadOnlyPaths={input_dir}",
-        f"--property=ReadOnlyPaths={model_dir}",
-        f"--property=ReadWritePaths={output.parent}",
-        "--",
+        *PADDLE_SANDBOX_FLAGS,
         str(python),
         *child_arguments,
     ]
@@ -584,7 +589,9 @@ def _run_paddle_benchmark_in_sandbox(
     child_argv = command[command.index("--") + 2 :]
     try:
         completed = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False, timeout=600)
-        _read_systemd_network_attestation(attestation, challenge, child_argv)
+        if completed.returncode != 0 and not attestation.exists():
+            raise BenchmarkInputError("paddle sandbox preflight unavailable: unshare -Urn failed")
+        _read_unshare_network_attestation(attestation, challenge, child_argv)
         report = json.loads(output.read_text(encoding="utf-8"))
     except (OSError, subprocess.TimeoutExpired, UnicodeError, json.JSONDecodeError) as exc:
         raise BenchmarkInputError("paddle sandbox benchmark failed") from exc
@@ -771,7 +778,7 @@ def run_benchmark(
     if engine == "paddleocr" and backend is None:
         if _sandbox_attestation is None or _sandbox_challenge is None:
             raise BenchmarkInputError("paddleocr requires a sandbox attestation")
-        _write_systemd_network_attestation(_sandbox_attestation, _sandbox_challenge)
+        _write_unshare_network_attestation(_sandbox_attestation, _sandbox_challenge)
     paths = _image_paths(input_dir)
     offline_context = _paddle_offline_environment(output.parent) if backend is None and engine == "paddleocr" else nullcontext()
     started = time.perf_counter()

@@ -89,7 +89,7 @@ def run_provisioned_paddle_child(
     *,
     engine: str = "paddleocr",
 ):
-    monkeypatch.setattr(benchmark_ocr, "_write_systemd_network_attestation", lambda path, challenge: None)
+    monkeypatch.setattr(benchmark_ocr, "_write_unshare_network_attestation", lambda path, challenge: None)
     monkeypatch.setattr(benchmark_ocr, "_validate_installed_paddle_runtime", lambda expected: None)
     return benchmark_ocr.run_benchmark(
         input_dir,
@@ -414,22 +414,22 @@ def test_paddle_sandbox_attestation_is_challenge_and_namespace_bound(tmp_path: P
         json.dumps(
             {
                 "version": 1,
-                "sandbox": "systemd-private-network",
+                "sandbox": "unshare-user-network",
                 "challenge": "a" * 32,
                 "network_namespace": "net:[22]",
                 "host_network_namespace": "net:[11]",
                 "interfaces": ["lo"],
-                "routes": [],
-                "ipv6_routes": [],
+                "routes": ["0 0 0 0 lo"],
+                "ipv6_routes": ["0 0 0 0 lo"],
                 "argv_sha256": benchmark_ocr._argv_sha256(argv),
             }
         ),
         encoding="utf-8",
     )
 
-    benchmark_ocr._read_systemd_network_attestation(attestation, "a" * 32, argv)
+    benchmark_ocr._read_unshare_network_attestation(attestation, "a" * 32, argv)
     with pytest.raises(benchmark_ocr.BenchmarkInputError):
-        benchmark_ocr._read_systemd_network_attestation(attestation, "b" * 32, argv)
+        benchmark_ocr._read_unshare_network_attestation(attestation, "b" * 32, argv)
 
 
 def test_paddle_sandbox_attestation_writer_requires_private_network(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -440,11 +440,13 @@ def test_paddle_sandbox_attestation_writer_requires_private_network(tmp_path: Pa
     written = {}
     monkeypatch.setattr(benchmark_ocr, "_atomic_write_json", lambda path, payload: written.update(payload=payload))
 
-    benchmark_ocr._write_systemd_network_attestation(tmp_path / "attestation.json", "a" * 32)
+    benchmark_ocr._write_unshare_network_attestation(tmp_path / "attestation.json", "a" * 32)
 
-    assert written["payload"]["sandbox"] == "systemd-private-network"
+    assert written["payload"]["sandbox"] == "unshare-user-network"
     assert written["payload"]["interfaces"] == ["lo"]
     assert written["payload"]["routes"] == []
+    assert benchmark_ocr._routes_are_loopback_only(["0 0 0 0 lo"])
+    assert not benchmark_ocr._routes_are_loopback_only(["0 0 0 0 eth0"])
 
 
 def test_paddle_sandbox_command_is_allowlisted_and_path_bounded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -456,7 +458,7 @@ def test_paddle_sandbox_command_is_allowlisted_and_path_bounded(tmp_path: Path, 
     output.parent.mkdir()
     attestation = tmp_path / "reports" / "attestation.json"
     monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", str(model_dir))
-    monkeypatch.setattr(benchmark_ocr, "_trusted_paddle_sandbox_wrapper", lambda: Path("/usr/bin/systemd-run"))
+    monkeypatch.setattr(benchmark_ocr, "_trusted_paddle_sandbox_wrapper", lambda: Path("/usr/bin/unshare"))
 
     command = benchmark_ocr._build_paddle_sandbox_command(
         input_dir=input_dir,
@@ -468,9 +470,8 @@ def test_paddle_sandbox_command_is_allowlisted_and_path_bounded(tmp_path: Path, 
         accuracy_notes="safe",
     )
 
-    assert command[0] == "/usr/bin/systemd-run"
-    assert "--property=PrivateNetwork=yes" in command
-    assert "--property=RestrictAddressFamilies=AF_UNIX" in command
+    assert command[:4] == ["/usr/bin/unshare", "-Urn", "--", str(Path(sys.executable).resolve())]
+    assert "systemd-run" not in command
     assert "--" in command
     assert "sh" not in command and "-c" not in command
     with pytest.raises(benchmark_ocr.BenchmarkInputError, match="overlap"):
@@ -483,6 +484,23 @@ def test_paddle_sandbox_command_is_allowlisted_and_path_bounded(tmp_path: Path, 
             preprocessing_version="preprocess-1",
             accuracy_notes="safe",
         )
+
+
+def test_paddle_unshare_failure_reports_preflight_requirement(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    input_dir = tmp_path / "images"
+    input_dir.mkdir()
+    (input_dir / "a.jpg").write_bytes(b"a")
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    output_dir = tmp_path / "reports"
+    output_dir.mkdir()
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE", "1")
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", str(model_dir))
+    monkeypatch.setattr(benchmark_ocr, "_trusted_paddle_sandbox_wrapper", lambda: Path("/usr/bin/unshare"))
+    monkeypatch.setattr(benchmark_ocr.subprocess, "run", lambda *args, **kwargs: types.SimpleNamespace(returncode=1))
+
+    with pytest.raises(benchmark_ocr.BenchmarkInputError, match="preflight unavailable"):
+        benchmark_ocr.run_benchmark(input_dir, output_dir / "report.json", "paddleocr")
 
 
 def test_paddle_requires_an_allowlisted_os_sandbox_wrapper(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -547,7 +565,7 @@ def test_python_offline_guard_denies_resolvers_connectors_and_sends():
             right.close()
 
 
-def test_verified_sandbox_marker_blocks_external_write_attempt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_caller_sandbox_marker_cannot_replace_os_boundary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     model_dir = tmp_path / "models"
     model_dir.mkdir()
     manifest = provision_paddle_assets(model_dir)
@@ -555,7 +573,8 @@ def test_verified_sandbox_marker_blocks_external_write_attempt(tmp_path: Path, m
     input_dir.mkdir()
     (input_dir / "a.jpg").write_bytes(b"a")
     configure_paddle(monkeypatch, model_dir, manifest)
-    monkeypatch.delenv("INSTAGRAM_POST_WATCH_PADDLEOCR_SANDBOX")
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_SANDBOX", "preflight-verified")
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_SANDBOX_WRAPPER", "/tmp/untrusted-wrapper")
     attempted = tmp_path / "external-attempt"
 
     def factory(engine):
