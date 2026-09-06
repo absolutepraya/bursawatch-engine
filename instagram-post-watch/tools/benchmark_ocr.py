@@ -6,10 +6,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
+import os
 import re
 import resource
 import sys
+import tempfile
 import time
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -26,6 +30,8 @@ IMAGE_SUFFIXES = frozenset({".bmp", ".gif", ".jpeg", ".jpg", ".png", ".tif", ".t
 DEFAULT_LANGUAGES = ("ind", "eng")
 DEFAULT_PREPROCESSING_VERSION = "preprocess-1"
 MAX_NOTE_LENGTH = 2000
+MAX_METADATA_LENGTH = 200
+FAILED_STATUSES = frozenset({OCRStatus.ERROR, OCRStatus.TIMEOUT, OCRStatus.UNAVAILABLE, OCRStatus.UNCERTAIN})
 
 
 class BenchmarkInputError(ValueError):
@@ -35,7 +41,7 @@ class BenchmarkInputError(ValueError):
 @dataclass(frozen=True)
 class BenchmarkResult:
     report: dict[str, object]
-    unavailable: bool = False
+    failed: bool = False
 
 
 def _peak_rss_bytes() -> int:
@@ -61,14 +67,115 @@ def _normalise_languages(values: Sequence[str]) -> tuple[str, ...]:
 
 def _safe_label(value: object) -> str:
     label = str(value)
-    return label[:200] if re.fullmatch(r"[A-Za-z0-9_.:+-]{1,200}", label) else "unknown"
+    return label[:MAX_METADATA_LENGTH] if re.fullmatch(r"[A-Za-z0-9_.:+-]{1,200}", label) else "unknown"
 
 
 def _safe_notes(value: str) -> str:
-    notes = re.sub(r"(?i)(?:token|password|secret|api[_-]?key)\s*=\s*[^\s,;]+", "[redacted]", value)
+    notes = re.sub(r"[\x00-\x1f\x7f]", " ", value)
+    notes = re.sub(r"(?i)(?:token|password|secret|api[_-]?key)\s*[:=]\s*[^\s,;]+", "[redacted]", notes)
     notes = re.sub(r"(?<![A-Za-z0-9])/(?:[^\s,;]+)", "[path-redacted]", notes)
     notes = re.sub(r"(?i)\b[A-Z]:\\[^\s,;]+", "[path-redacted]", notes)
-    return notes[:MAX_NOTE_LENGTH]
+    return re.sub(r"\s+", " ", notes).strip()[:MAX_NOTE_LENGTH]
+
+
+def _safe_preprocessing_version(value: str) -> str:
+    if not isinstance(value, str) or not value or len(value) > MAX_METADATA_LENGTH:
+        raise BenchmarkInputError("preprocessing version is invalid")
+    if re.search(r"(?i)(?:token|password|secret|api[_-]?key)\s*[:=]", value):
+        raise BenchmarkInputError("preprocessing version is invalid")
+    normalized = re.sub(r"[^A-Za-z0-9_.:+-]", "_", value)
+    if not normalized.strip("_."):
+        raise BenchmarkInputError("preprocessing version is invalid")
+    return normalized[:MAX_METADATA_LENGTH]
+
+
+def _validate_destination(output: Path) -> Path:
+    destination = output.absolute()
+    if destination.is_symlink() or (destination.exists() and not destination.is_file()):
+        raise BenchmarkInputError("output path is invalid")
+    parent = destination.parent
+    if not parent.exists() or not parent.is_dir():
+        raise BenchmarkInputError("output directory is invalid")
+    current = parent
+    while True:
+        if current.is_symlink():
+            raise BenchmarkInputError("output directory is invalid")
+        if current.parent == current:
+            break
+        current = current.parent
+    return destination
+
+
+def _atomic_write_json(output: Path, report: dict[str, object]) -> None:
+    temporary_name: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=output.parent, prefix=f".{output.name}.", suffix=".tmp", delete=False
+        ) as handle:
+            temporary_name = handle.name
+            json.dump(report, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_name, output)
+        temporary_name = None
+        directory_fd = os.open(output.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    except (OSError, ValueError, TypeError) as exc:
+        raise BenchmarkInputError("output path is invalid") from exc
+    finally:
+        if temporary_name is not None:
+            try:
+                Path(temporary_name).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+@contextmanager
+def _paddle_offline_environment():
+    """Require and scope a pre-provisioned local Paddle model/runtime directory."""
+    if os.environ.get("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE") != "1":
+        raise BenchmarkInputError("paddleocr requires explicit offline mode")
+    model_dir_value = os.environ.get("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", "")
+    model_dir = Path(model_dir_value).expanduser()
+    if not model_dir_value or model_dir.is_symlink() or not model_dir.is_absolute() or not model_dir.is_dir():
+        raise BenchmarkInputError("paddleocr model directory is invalid")
+    updates = {
+        "PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK": "True",
+        "PADDLE_PDX_OFFLINE": "1",
+        "PADDLEOCR_HOME": str(model_dir),
+        "PADDLE_HOME": str(model_dir),
+        "PADDLE_PDX_CACHE_HOME": str(model_dir),
+        "HF_HUB_OFFLINE": "1",
+        "TRANSFORMERS_OFFLINE": "1",
+    }
+    previous = {key: os.environ.get(key) for key in updates}
+    os.environ.update(updates)
+    try:
+        yield
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def _effective_backend_metadata(backend: OCRBackend, languages: tuple[str, ...]) -> tuple[str, str, tuple[str, ...]]:
+    config_factory = getattr(backend, "runtime_config", None)
+    if callable(config_factory):
+        config = config_factory(languages)
+        model_version = getattr(config, "model_version", None)
+        effective_languages = getattr(config, "languages", languages)
+        if not isinstance(model_version, str) or not model_version:
+            raise BenchmarkInputError("OCR model version is invalid")
+        if not isinstance(effective_languages, tuple) or not all(isinstance(item, str) for item in effective_languages):
+            raise BenchmarkInputError("OCR language set is invalid")
+        return _safe_label(backend.engine_id), _safe_label(model_version), effective_languages
+    return _safe_label(backend.engine_id), _safe_label(backend.model_version), languages
 
 
 def _image_paths(input_dir: Path) -> list[Path]:
@@ -92,24 +199,32 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _safe_result(result: OCRResult, backend: OCRBackend, languages: tuple[str, ...]) -> OCRResult:
+def _safe_result(result: OCRResult, backend: OCRBackend, languages: tuple[str, ...]) -> tuple[OCRResult, bool]:
     """Keep injected backends from placing unbounded or sensitive values in output."""
+    invalid = not isinstance(result, OCRResult)
     try:
         status = OCRStatus(result.status)
-    except (TypeError, ValueError):
-        return OCRResult(OCRStatus.ERROR, engine_id=backend.engine_id, model_version=backend.model_version, languages=languages)
-    text = result.text if isinstance(result.text, str) else ""
-    confidence = result.confidence if isinstance(result.confidence, (int, float)) else None
-    if confidence is not None and not 0 <= confidence <= 1:
+    except (AttributeError, TypeError, ValueError):
+        status = OCRStatus.ERROR
+        invalid = True
+    text = result.text if isinstance(getattr(result, "text", ""), str) else ""
+    confidence = getattr(result, "confidence", None)
+    if confidence is not None and (not isinstance(confidence, (int, float)) or not math.isfinite(float(confidence)) or not 0 <= confidence <= 1):
         confidence = None
-    return OCRResult(
+        invalid = True
+    if status is OCRStatus.SUCCESS and (not text or confidence is None):
+        invalid = True
+    if status is OCRStatus.NO_TEXT and (text or confidence is not None):
+        invalid = True
+    safe = OCRResult(
         status=status,
         text=text[:4000],
         confidence=confidence,
-        engine_id=str(result.engine_id or backend.engine_id)[:200],
-        model_version=str(result.model_version or backend.model_version)[:200],
+        engine_id=_safe_label(getattr(result, "engine_id", "") or backend.engine_id),
+        model_version=_safe_label(getattr(result, "model_version", "") or backend.model_version),
         languages=languages,
     )
+    return safe, invalid
 
 
 def run_benchmark(
@@ -124,60 +239,58 @@ def run_benchmark(
 ) -> BenchmarkResult:
     """Benchmark an injected or Task 3 backend without using OCR cache/state."""
     input_dir = Path(input_dir)
-    output = Path(output)
+    output = _validate_destination(Path(output))
     language_set = _normalise_languages(languages)
-    if not preprocessing_version or len(preprocessing_version) > 200:
-        raise BenchmarkInputError("preprocessing version is invalid")
+    preprocessing_version = _safe_preprocessing_version(preprocessing_version)
     if len(accuracy_notes) > MAX_NOTE_LENGTH:
         raise BenchmarkInputError("accuracy notes are too long")
     paths = _image_paths(input_dir)
-    selected = backend or build_backend(engine)
+    offline_context = _paddle_offline_environment() if backend is None and engine == "paddleocr" else nullcontext()
     started = time.perf_counter()
     images: list[dict[str, object]] = []
-    unavailable = False
+    failed = False
 
-    for path in paths:
-        image_started = time.perf_counter()
-        try:
-            _sha256(path)
-            result = _safe_result(selected.extract(path, language_set), selected, language_set)
-        except OCRBackendUnavailable:
-            result = OCRResult(OCRStatus.UNAVAILABLE, engine_id=selected.engine_id, model_version=selected.model_version, languages=language_set)
-        except (OSError, ValueError):
-            raise BenchmarkInputError("an input image is malformed or unreadable")
-        except TimeoutError:
-            result = OCRResult(OCRStatus.TIMEOUT, engine_id=selected.engine_id, model_version=selected.model_version, languages=language_set)
-        except Exception:
-            result = OCRResult(OCRStatus.ERROR, engine_id=selected.engine_id, model_version=selected.model_version, languages=language_set)
-        unavailable = unavailable or result.status is OCRStatus.UNAVAILABLE
-        images.append(
-            {
-                "path": path.relative_to(input_dir).as_posix(),
-                "latency_seconds": round(time.perf_counter() - image_started, 6),
-                "status": result.status.value,
-                "character_count": len(result.text),
-                "confidence": result.confidence,
-            }
-        )
+    with offline_context:
+        selected = backend if backend is not None else build_backend(engine)
+        engine_id, model_version, effective_languages = _effective_backend_metadata(selected, language_set)
+        for path in paths:
+            image_started = time.perf_counter()
+            try:
+                _sha256(path)
+            except BenchmarkInputError:
+                raise
+            try:
+                raw_result = selected.extract(path, effective_languages)
+                result, invalid = _safe_result(raw_result, selected, effective_languages)
+            except OCRBackendUnavailable:
+                result, invalid = OCRResult(OCRStatus.UNAVAILABLE, engine_id=engine_id, model_version=model_version, languages=effective_languages), False
+            except TimeoutError:
+                result, invalid = OCRResult(OCRStatus.TIMEOUT, engine_id=engine_id, model_version=model_version, languages=effective_languages), False
+            except Exception:
+                result, invalid = OCRResult(OCRStatus.ERROR, engine_id=engine_id, model_version=model_version, languages=effective_languages), False
+            failed = failed or invalid or result.status in FAILED_STATUSES
+            images.append(
+                {
+                    "path": path.relative_to(input_dir).as_posix(),
+                    "latency_seconds": round(time.perf_counter() - image_started, 6),
+                    "status": result.status.value,
+                    "character_count": len(result.text),
+                    "confidence": result.confidence,
+                }
+            )
 
     report = {
-        "engine_id": _safe_label(selected.engine_id),
-        "model_version": _safe_label(selected.model_version),
-        "languages": list(language_set),
+        "engine_id": engine_id,
+        "model_version": model_version,
+        "languages": list(effective_languages),
         "preprocessing_version": preprocessing_version,
         "images": images,
         "total_latency_seconds": round(time.perf_counter() - started, 6),
         "peak_rss_bytes": _peak_rss_bytes(),
         "accuracy_notes": _safe_notes(accuracy_notes),
     }
-    try:
-        output.parent.mkdir(parents=True, exist_ok=True)
-        if output.is_symlink() or (output.exists() and not output.is_file()):
-            raise OSError("output path is invalid")
-        output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    except OSError as exc:
-        raise BenchmarkInputError("output path is invalid") from exc
-    return BenchmarkResult(report, unavailable=unavailable)
+    _atomic_write_json(output, report)
+    return BenchmarkResult(report, failed=failed)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -205,7 +318,7 @@ def main(argv: Sequence[str] | None = None, *, backend: OCRBackend | None = None
         )
     except (BenchmarkInputError, OCRBackendUnavailable, ValueError):
         return 2
-    return 2 if result.unavailable else 0
+    return 2 if result.failed else 0
 
 
 if __name__ == "__main__":
