@@ -19,6 +19,7 @@ from models import (
     PublicationKind,
     SourceMedia,
     SourcePost,
+    source_locator_digest,
 )
 
 
@@ -353,7 +354,11 @@ def test_reel_protocol_normalizes_colliding_original_cover_and_frame_indexes(con
     }
     frame = {
         **original_cover,
-        "source": {**original_cover["source"], "index": 1},
+        "source": {
+            **original_cover["source"],
+            "index": 1,
+            "locator_digest": source_locator_digest(frame_path.as_uri()),
+        },
         "path": str(frame_path),
         "sha256": "b" * 64,
         "size_bytes": frame_path.stat().st_size,
