@@ -382,7 +382,11 @@ def _network_namespace(path: str) -> str:
         value = os.readlink(path)
     except OSError as exc:
         raise BenchmarkInputError("paddle sandbox attestation is unavailable") from exc
-    if not re.fullmatch(r"net:\[\d+\]", value):
+    return _validate_network_namespace_value(value)
+
+
+def _validate_network_namespace_value(value: object) -> str:
+    if not isinstance(value, str) or not re.fullmatch(r"net:\[\d+\]", value):
         raise BenchmarkInputError("paddle sandbox attestation is invalid")
     return value
 
@@ -411,14 +415,14 @@ def _routes_are_loopback_only(routes: object) -> bool:
     )
 
 
-def _write_unshare_network_attestation(path: Path, challenge: str) -> None:
+def _write_unshare_network_attestation(path: Path, challenge: str, expected_host_namespace: str) -> None:
     if not re.fullmatch(r"[a-f0-9]{32}", challenge):
         raise BenchmarkInputError("paddle sandbox challenge is invalid")
+    expected_host_namespace = _validate_network_namespace_value(expected_host_namespace)
     path = _sandbox_path(path, label="paddle sandbox attestation")
     if path.exists():
         raise BenchmarkInputError("paddle sandbox attestation already exists")
     current_namespace = _network_namespace("/proc/self/ns/net")
-    host_namespace = _network_namespace("/proc/1/ns/net")
     try:
         interfaces = sorted(name for _index, name in socket.if_nameindex())
     except OSError as exc:
@@ -426,7 +430,7 @@ def _write_unshare_network_attestation(path: Path, challenge: str) -> None:
     routes = _route_entries("/proc/net/route")
     ipv6_routes = _route_entries("/proc/net/ipv6_route")
     if (
-        current_namespace == host_namespace
+        current_namespace == expected_host_namespace
         or interfaces != ["lo"]
         or not _routes_are_loopback_only(routes)
         or not _routes_are_loopback_only(ipv6_routes)
@@ -439,7 +443,7 @@ def _write_unshare_network_attestation(path: Path, challenge: str) -> None:
             "sandbox": PADDLE_SANDBOX_ATTESTATION,
             "challenge": challenge,
             "network_namespace": current_namespace,
-            "host_network_namespace": host_namespace,
+            "host_network_namespace": expected_host_namespace,
             "interfaces": interfaces,
             "routes": routes,
             "ipv6_routes": ipv6_routes,
@@ -448,7 +452,13 @@ def _write_unshare_network_attestation(path: Path, challenge: str) -> None:
     )
 
 
-def _read_unshare_network_attestation(path: Path, challenge: str, expected_argv: Sequence[str]) -> None:
+def _read_unshare_network_attestation(
+    path: Path,
+    challenge: str,
+    expected_argv: Sequence[str],
+    expected_host_namespace: str,
+) -> None:
+    expected_host_namespace = _validate_network_namespace_value(expected_host_namespace)
     path = _sandbox_path(path, label="paddle sandbox attestation")
     try:
         if path.stat().st_size > MAX_SANDBOX_ATTESTATION_BYTES:
@@ -476,7 +486,8 @@ def _read_unshare_network_attestation(path: Path, challenge: str, expected_argv:
         or payload["challenge"] != challenge
         or not isinstance(payload["network_namespace"], str)
         or not isinstance(payload["host_network_namespace"], str)
-        or payload["network_namespace"] == payload["host_network_namespace"]
+        or payload["network_namespace"] == expected_host_namespace
+        or payload["host_network_namespace"] != expected_host_namespace
         or payload["interfaces"] != ["lo"]
         or not _routes_are_loopback_only(payload["routes"])
         or not _routes_are_loopback_only(payload["ipv6_routes"])
@@ -499,6 +510,7 @@ def _build_paddle_sandbox_command(
     languages: tuple[str, ...],
     preprocessing_version: str,
     accuracy_notes: str,
+    host_namespace: str,
 ) -> list[str]:
     wrapper = _trusted_paddle_sandbox_wrapper()
     input_dir = _sandbox_path(input_dir, label="benchmark input")
@@ -512,6 +524,7 @@ def _build_paddle_sandbox_command(
         raise BenchmarkInputError("paddle model directory is invalid")
     if not re.fullmatch(r"[a-f0-9]{32}", challenge):
         raise BenchmarkInputError("paddle sandbox challenge is invalid")
+    host_namespace = _validate_network_namespace_value(host_namespace)
     if output.parent == input_dir or output.parent.is_relative_to(input_dir) or input_dir.is_relative_to(output.parent):
         raise BenchmarkInputError("benchmark input and output paths overlap")
     if output.parent == model_dir or output.parent.is_relative_to(model_dir) or model_dir.is_relative_to(output.parent):
@@ -535,6 +548,8 @@ def _build_paddle_sandbox_command(
         str(attestation),
         "--paddle-sandbox-challenge",
         challenge,
+        "--paddle-sandbox-host-namespace",
+        host_namespace,
     ]
     return [
         str(wrapper),
@@ -573,6 +588,7 @@ def _run_paddle_benchmark_in_sandbox(
 ) -> BenchmarkResult:
     if os.environ.get("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE") != "1":
         raise BenchmarkInputError("paddleocr requires explicit offline mode")
+    host_namespace = _network_namespace("/proc/self/ns/net")
     challenge = secrets.token_hex(16)
     attestation = output.parent / f".{output.name}.sandbox-{challenge}.json"
     if attestation.exists() or attestation.is_symlink():
@@ -585,13 +601,14 @@ def _run_paddle_benchmark_in_sandbox(
         languages=languages,
         preprocessing_version=preprocessing_version,
         accuracy_notes=accuracy_notes,
+        host_namespace=host_namespace,
     )
     child_argv = command[command.index("--") + 2 :]
     try:
         completed = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False, timeout=600)
         if completed.returncode != 0 and not attestation.exists():
             raise BenchmarkInputError("paddle sandbox preflight unavailable: unshare -Urn failed")
-        _read_unshare_network_attestation(attestation, challenge, child_argv)
+        _read_unshare_network_attestation(attestation, challenge, child_argv, host_namespace)
         report = json.loads(output.read_text(encoding="utf-8"))
     except (OSError, subprocess.TimeoutExpired, UnicodeError, json.JSONDecodeError) as exc:
         raise BenchmarkInputError("paddle sandbox benchmark failed") from exc
@@ -757,6 +774,7 @@ def run_benchmark(
     _sandbox_child: bool = False,
     _sandbox_attestation: Path | None = None,
     _sandbox_challenge: str | None = None,
+    _sandbox_host_namespace: str | None = None,
 ) -> BenchmarkResult:
     """Benchmark an injected or Task 3 backend without using OCR cache/state."""
     input_dir = Path(input_dir).absolute()
@@ -776,9 +794,9 @@ def run_benchmark(
             accuracy_notes=accuracy_notes,
         )
     if engine == "paddleocr" and backend is None:
-        if _sandbox_attestation is None or _sandbox_challenge is None:
+        if _sandbox_attestation is None or _sandbox_challenge is None or _sandbox_host_namespace is None:
             raise BenchmarkInputError("paddleocr requires a sandbox attestation")
-        _write_unshare_network_attestation(_sandbox_attestation, _sandbox_challenge)
+        _write_unshare_network_attestation(_sandbox_attestation, _sandbox_challenge, _sandbox_host_namespace)
     paths = _image_paths(input_dir)
     offline_context = _paddle_offline_environment(output.parent) if backend is None and engine == "paddleocr" else nullcontext()
     started = time.perf_counter()
@@ -862,6 +880,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--paddle-sandbox-child", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--paddle-sandbox-attestation", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--paddle-sandbox-challenge", help=argparse.SUPPRESS)
+    parser.add_argument("--paddle-sandbox-host-namespace", help=argparse.SUPPRESS)
     return parser
 
 
@@ -881,6 +900,7 @@ def main(argv: Sequence[str] | None = None, *, backend: OCRBackend | None = None
             _sandbox_child=args.paddle_sandbox_child,
             _sandbox_attestation=args.paddle_sandbox_attestation,
             _sandbox_challenge=args.paddle_sandbox_challenge,
+            _sandbox_host_namespace=args.paddle_sandbox_host_namespace,
         )
     except (BenchmarkInputError, OCRBackendUnavailable, ValueError):
         return 2

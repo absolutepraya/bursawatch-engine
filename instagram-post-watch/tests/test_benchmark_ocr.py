@@ -89,7 +89,7 @@ def run_provisioned_paddle_child(
     *,
     engine: str = "paddleocr",
 ):
-    monkeypatch.setattr(benchmark_ocr, "_write_unshare_network_attestation", lambda path, challenge: None)
+    monkeypatch.setattr(benchmark_ocr, "_write_unshare_network_attestation", lambda path, challenge, host_namespace: None)
     monkeypatch.setattr(benchmark_ocr, "_validate_installed_paddle_runtime", lambda expected: None)
     return benchmark_ocr.run_benchmark(
         input_dir,
@@ -98,6 +98,7 @@ def run_provisioned_paddle_child(
         _sandbox_child=True,
         _sandbox_attestation=output.parent / "attestation.json",
         _sandbox_challenge="a" * 32,
+        _sandbox_host_namespace="net:[11]",
     )
 
 
@@ -409,7 +410,7 @@ def test_installed_paddle_runtime_metadata_is_exact(monkeypatch: pytest.MonkeyPa
 
 def test_paddle_sandbox_attestation_is_challenge_and_namespace_bound(tmp_path: Path):
     attestation = tmp_path / "attestation.json"
-    argv = ["benchmark_ocr.py", "--engine", "paddleocr"]
+    argv = ["benchmark_ocr.py", "--engine", "paddleocr", "--paddle-sandbox-host-namespace", "net:[11]"]
     attestation.write_text(
         json.dumps(
             {
@@ -427,20 +428,25 @@ def test_paddle_sandbox_attestation_is_challenge_and_namespace_bound(tmp_path: P
         encoding="utf-8",
     )
 
-    benchmark_ocr._read_unshare_network_attestation(attestation, "a" * 32, argv)
+    benchmark_ocr._read_unshare_network_attestation(attestation, "a" * 32, argv, "net:[11]")
     with pytest.raises(benchmark_ocr.BenchmarkInputError):
-        benchmark_ocr._read_unshare_network_attestation(attestation, "b" * 32, argv)
+        benchmark_ocr._read_unshare_network_attestation(attestation, "b" * 32, argv, "net:[11]")
+    with pytest.raises(benchmark_ocr.BenchmarkInputError):
+        benchmark_ocr._read_unshare_network_attestation(attestation, "a" * 32, argv, "net:[12]")
 
 
 def test_paddle_sandbox_attestation_writer_requires_private_network(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    namespaces = iter(("net:[22]", "net:[11]"))
-    monkeypatch.setattr(benchmark_ocr, "_network_namespace", lambda path: next(namespaces))
+    def read_namespace(path: str) -> str:
+        assert path == "/proc/self/ns/net"
+        return "net:[22]"
+
+    monkeypatch.setattr(benchmark_ocr, "_network_namespace", read_namespace)
     monkeypatch.setattr(benchmark_ocr.socket, "if_nameindex", lambda: [(1, "lo")])
     monkeypatch.setattr(benchmark_ocr, "_route_entries", lambda path: [])
     written = {}
     monkeypatch.setattr(benchmark_ocr, "_atomic_write_json", lambda path, payload: written.update(payload=payload))
 
-    benchmark_ocr._write_unshare_network_attestation(tmp_path / "attestation.json", "a" * 32)
+    benchmark_ocr._write_unshare_network_attestation(tmp_path / "attestation.json", "a" * 32, "net:[11]")
 
     assert written["payload"]["sandbox"] == "unshare-user-network"
     assert written["payload"]["interfaces"] == ["lo"]
@@ -468,9 +474,15 @@ def test_paddle_sandbox_command_is_allowlisted_and_path_bounded(tmp_path: Path, 
         languages=("ind", "eng"),
         preprocessing_version="preprocess-1",
         accuracy_notes="safe",
+        host_namespace="net:[11]",
     )
 
     assert command[:4] == ["/usr/bin/unshare", "-Urn", "--", str(Path(sys.executable).resolve())]
+    child_argv = command[command.index("--") + 2 :]
+    assert child_argv[-2:] == ["--paddle-sandbox-host-namespace", "net:[11]"]
+    assert benchmark_ocr._argv_sha256(child_argv) != benchmark_ocr._argv_sha256(
+        [*child_argv[:-1], "net:[12]"]
+    )
     assert "systemd-run" not in command
     assert "--" in command
     assert "sh" not in command and "-c" not in command
@@ -483,6 +495,7 @@ def test_paddle_sandbox_command_is_allowlisted_and_path_bounded(tmp_path: Path, 
             languages=("eng",),
             preprocessing_version="preprocess-1",
             accuracy_notes="safe",
+            host_namespace="net:[11]",
         )
 
 
@@ -496,11 +509,19 @@ def test_paddle_unshare_failure_reports_preflight_requirement(tmp_path: Path, mo
     output_dir.mkdir()
     monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_OFFLINE", "1")
     monkeypatch.setenv("INSTAGRAM_POST_WATCH_PADDLEOCR_MODEL_DIR", str(model_dir))
+    namespace_paths = []
+
+    def read_namespace(path: str) -> str:
+        namespace_paths.append(path)
+        return "net:[11]"
+
+    monkeypatch.setattr(benchmark_ocr, "_network_namespace", read_namespace)
     monkeypatch.setattr(benchmark_ocr, "_trusted_paddle_sandbox_wrapper", lambda: Path("/usr/bin/unshare"))
     monkeypatch.setattr(benchmark_ocr.subprocess, "run", lambda *args, **kwargs: types.SimpleNamespace(returncode=1))
 
     with pytest.raises(benchmark_ocr.BenchmarkInputError, match="preflight unavailable"):
         benchmark_ocr.run_benchmark(input_dir, output_dir / "report.json", "paddleocr")
+    assert namespace_paths == ["/proc/self/ns/net"]
 
 
 def test_paddle_requires_an_allowlisted_os_sandbox_wrapper(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
