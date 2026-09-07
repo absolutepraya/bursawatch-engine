@@ -32,7 +32,7 @@ def test_load_config_builds_instagram_feed_url(config_path):
 
     assert profile.handle == "beyondthefundamental"
     assert profile.feed_url == (
-        "http://127.0.0.1:1200/instagram/2/user/"
+        "http://127.0.0.1:1201/instagram/2/user/"
         "beyondthefundamental?format=json"
     )
 

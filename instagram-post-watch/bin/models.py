@@ -40,7 +40,7 @@ class Profile:
 
     @property
     def feed_url(self) -> str:
-        return f"http://127.0.0.1:1200/instagram/2/user/{self.handle}?format=json"
+        return f"http://127.0.0.1:1201/instagram/2/user/{self.handle}?format=json"
 
     @property
     def uses_llm(self) -> bool:

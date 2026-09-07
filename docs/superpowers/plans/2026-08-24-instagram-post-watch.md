@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Watch public Instagram posts and reels only. Exclude stories, comments, tagged posts, mentions, live broadcasts, and private-account monitoring.
-- Use the authenticated RSSHub web API route `http://127.0.0.1:1200/instagram/2/user/<handle>?format=json`; direct Instagram scraping and alternate production fetchers are out of scope.
+- Use the isolated Instagram RSSHub web API route `http://127.0.0.1:1201/instagram/2/user/<handle>?format=json`; direct Instagram scraping and alternate production fetchers are out of scope.
 - Keep Instagram credentials in VPS RSSHub service configuration only. Never place credentials, cookies, signed URLs, or raw provider bodies in source, logs, tests, payloads, or commits.
 - Run OCR for every downloaded image and every sampled reel frame, including assets later supplied to the LLM.
 - Use `text_only` when OCR is complete and sufficient, `vision_partial` for failed or uncertain assets, and `vision_full` when the publication needs complete visual context.
@@ -77,7 +77,7 @@
 **Interfaces:**
 - Produces `Profile`, `DiscordChannel`, `SourcePost`, `SourceMedia`, `PublicationKind`, and `MediaKind` models for later tasks.
 - Produces `load_watch_config(path: Path) -> WatchConfig`.
-- Produces `Profile.feed_url`, exactly `http://127.0.0.1:1200/instagram/2/user/<handle>?format=json`.
+- Produces `Profile.feed_url`, exactly `http://127.0.0.1:1201/instagram/2/user/<handle>?format=json`.
 
 - [ ] **Step 1: Create the source directories and approved first profile fixture**
 
@@ -98,7 +98,7 @@ def test_load_config_builds_instagram_feed_url(config_path):
     profile = config_module.load_watch_config(config_path).profiles[0]
     assert profile.handle == "beyondthefundamental"
     assert profile.feed_url == (
-        "http://127.0.0.1:1200/instagram/2/user/"
+        "http://127.0.0.1:1201/instagram/2/user/"
         "beyondthefundamental?format=json"
     )
 ```

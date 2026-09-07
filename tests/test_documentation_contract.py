@@ -56,7 +56,7 @@ AGENT_GOVERNANCE_ANCHORS = {
         "IG_COOKIE",
         "IG_USERNAME",
         "IG_PASSWORD",
-        "instagram/2/user/<handle>?format=json",
+        "127.0.0.1:1201/instagram/2/user/<handle>?format=json",
         "config/watches.json` is the exact JSON configuration boundary",
         "strict validator rejects unknown fields at every object boundary",
         "Credentials, cookies, signed CDN URLs, raw provider response bodies, and local secret paths",
