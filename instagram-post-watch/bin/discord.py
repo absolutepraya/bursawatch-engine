@@ -43,6 +43,13 @@ class DiscordRetryAfter(DiscordDeliveryError):
         super().__init__("Discord rate limited")
 
 
+def discord_length(value: str) -> int:
+    """Return Discord's UTF-16 code-unit length for a text value."""
+    if not isinstance(value, str):
+        raise TypeError("Discord content must be text")
+    return len(value.encode("utf-16-le", "surrogatepass")) // 2
+
+
 def nonce(event_key: str, leg: str) -> str:
     """Return one deterministic nonce for one durable Instagram delivery leg."""
     if not isinstance(event_key, str) or not isinstance(leg, str):
@@ -104,12 +111,19 @@ def _request(channel_id: str, *, json_payload: dict[str, object] | None = None, 
 
 
 def post_text(content: str, channel_id: str, dry_run: bool, nonce_value: str) -> str | None:
-    if not isinstance(content, str) or len(content) > DISCORD_LIMIT:
+    if not isinstance(content, str) or discord_length(content) > DISCORD_LIMIT:
         raise ValueError("Discord text content exceeds 2,000 characters")
     if dry_run:
         print(f"[dry-run] Discord text channel={channel_id} nonce={nonce_value}")
         return None
-    return _request(channel_id, json_payload={"content": content, "nonce": nonce_value})
+    return _request(
+        channel_id,
+        json_payload={
+            "content": content,
+            "nonce": nonce_value,
+            "allowed_mentions": {"parse": []},
+        },
+    )
 
 
 def _lstat_components(path: Path) -> None:
@@ -124,7 +138,33 @@ def _lstat_components(path: Path) -> None:
             raise ValueError("Discord media path is invalid")
 
 
+def _validated_media_root() -> Path:
+    configured_root = os.environ.get("INSTAGRAM_POST_WATCH_MEDIA_ROOT")
+    if not configured_root:
+        raise ValueError("Discord media root is unavailable")
+    root = Path(configured_root)
+    if (
+        not root.is_absolute()
+        or root == Path(root.anchor)
+        or len(configured_root) > MAX_MEDIA_PATH_CHARACTERS
+        or "\x00" in configured_root
+        or "://" in configured_root
+        or any(part in {".", ".."} for part in configured_root.split(os.sep))
+        or any(part in {".", ".."} for part in root.parts)
+    ):
+        raise ValueError("Discord media root is invalid")
+    try:
+        _lstat_components(root)
+        mode = os.lstat(root).st_mode
+        if not stat.S_ISDIR(mode):
+            raise ValueError("Discord media root is invalid")
+        return root.resolve(strict=True)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise ValueError("Discord media root is invalid") from exc
+
+
 def _validated_media_path(path: Path) -> tuple[Path, str]:
+    root = _validated_media_root()
     if not isinstance(path, Path):
         path = Path(path)
     path_text = str(path)
@@ -134,6 +174,7 @@ def _validated_media_path(path: Path) -> tuple[Path, str]:
         or len(path_text) > MAX_MEDIA_PATH_CHARACTERS
         or "\x00" in path_text
         or "://" in path_text
+        or any(part in {".", ".."} for part in path_text.split(os.sep))
         or any(part in {".", ".."} for part in path.parts)
     ):
         raise ValueError("Discord media path is invalid")
@@ -148,22 +189,10 @@ def _validated_media_path(path: Path) -> tuple[Path, str]:
         raise ValueError("Discord media path is unavailable") from exc
     if size <= 0 or size > MAX_MEDIA_BYTES:
         raise ValueError("Discord media size is invalid")
-
-    configured_root = os.environ.get("INSTAGRAM_POST_WATCH_MEDIA_ROOT")
-    if configured_root:
-        root = Path(configured_root)
-        if (
-            not root.is_absolute()
-            or any(part in {".", ".."} for part in root.parts)
-            or "\x00" in configured_root
-        ):
-            raise ValueError("Discord media root is invalid")
-        _lstat_components(root)
-        try:
-            resolved_root = root.resolve(strict=True)
-            resolved.relative_to(resolved_root)
-        except (OSError, RuntimeError, ValueError) as exc:
-            raise ValueError("Discord media path is outside the watcher media root") from exc
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValueError("Discord media path is outside the watcher media root") from exc
 
     media_type = mimetypes.guess_type(resolved.name)[0]
     if media_type not in _ALLOWED_MEDIA_TYPES:
@@ -211,7 +240,11 @@ def post_media(path: Path, channel_id: str, dry_run: bool, nonce_value: str) -> 
                 json_payload=None,
                 files={
                     "files[0]": (source.name, content, content_type),
-                    "payload_json": (None, json.dumps({"nonce": nonce_value}), "application/json"),
+                    "payload_json": (
+                        None,
+                        json.dumps({"nonce": nonce_value, "allowed_mentions": {"parse": []}}),
+                        "application/json",
+                    ),
                 },
             )
     except DiscordDeliveryError:

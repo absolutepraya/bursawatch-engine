@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json as json_module
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -82,9 +83,14 @@ def test_render_reel_marker_is_added_only_when_not_already_identified(profile):
     reel = make_post(profile.id, kind=PublicationKind.REEL, caption="A short market clip")
     marked = render.render_publication(profile, reel)[0]
     identified = render.render_publication(profile, make_post(profile.id, kind=PublicationKind.REEL, caption="Our Reel on rates"))[0]
+    hidden = render.render_publication(
+        profile,
+        make_post(profile.id, kind=PublicationKind.REEL, caption="<script>reel</script><p>A short market clip</p>"),
+    )[0]
 
     assert "(Reel)" in marked
     assert "(Reel)" not in identified
+    assert "(Reel)" in hidden
 
 
 def test_render_splits_long_unicode_caption_and_keeps_source_link_final(profile):
@@ -92,7 +98,7 @@ def test_render_splits_long_unicode_caption_and_keeps_source_link_final(profile)
     messages = render.render_publication(profile, make_post(profile.id, caption=caption))
 
     assert len(messages) > 1
-    assert all(len(message) <= render.DISCORD_LIMIT for message in messages)
+    assert all(render.discord_length(message) <= render.DISCORD_LIMIT for message in messages)
     assert messages[0].startswith("### 📸 Beyond thy Fundamental")
     assert sum("### 📸" in message for message in messages) == 1
     assert sum("[View on Instagram]" in message for message in messages) == 1
@@ -122,6 +128,10 @@ def _media_path(tmp_path: Path, name: str) -> Path:
     return path
 
 
+def _use_media_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_MEDIA_ROOT", str(tmp_path))
+
+
 def test_nonce_is_deterministic_prefixed_and_unique_per_leg():
     first = discord.nonce("beyondthefundamental:DcaLqsggXrE", "text:0")
     assert first == discord.nonce("beyondthefundamental:DcaLqsggXrE", "text:0")
@@ -137,15 +147,19 @@ def test_text_and_ordered_media_uploads_use_module_apis(tmp_path: Path, monkeypa
         assert headers["Authorization"] == "Bot test-token"
         assert timeout == 30
         if json is not None:
+            assert json["allowed_mentions"] == {"parse": []}
             calls.append(("text", json["nonce"], json["content"]))
         else:
             assert files is not None
             upload = files["files[0]"]
+            payload = json_module.loads(files["payload_json"][1])
+            assert payload["allowed_mentions"] == {"parse": []}
             calls.append(("media", upload[0], None))
             assert upload[1].read() == b"media bytes"
         return FakeResponse()
 
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "test-token")
+    _use_media_root(tmp_path, monkeypatch)
     monkeypatch.setattr(discord.requests, "post", fake_post)
     first = _media_path(tmp_path, "slide-1.jpg")
     second = _media_path(tmp_path, "slide-2.jpg")
@@ -168,10 +182,12 @@ def test_image_and_video_uploads_use_local_files_and_multipart_payload(tmp_path:
         assert files is not None
         media = files["files[0]"]
         observed.append((media[0], media[2]))
-        assert files["payload_json"][1].startswith('{"nonce":')
+        payload = json_module.loads(files["payload_json"][1])
+        assert payload["allowed_mentions"] == {"parse": []}
         return FakeResponse()
 
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "token")
+    _use_media_root(tmp_path, monkeypatch)
     monkeypatch.setattr(discord.requests, "post", fake_post)
     discord.post_media(_media_path(tmp_path, "slide.webp"), "123", False, "nonce-image")
     discord.post_media(_media_path(tmp_path, "reel.mp4"), "123", False, "nonce-video")
@@ -179,8 +195,88 @@ def test_image_and_video_uploads_use_local_files_and_multipart_payload(tmp_path:
     assert observed == [("slide.webp", "image/webp"), ("reel.mp4", "video/mp4")]
 
 
+def test_ordered_four_image_uploads_preserve_source_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "token")
+    _use_media_root(tmp_path, monkeypatch)
+    observed: list[str] = []
+
+    def fake_post(_url, *, headers, json=None, files=None, timeout):
+        assert json is None
+        assert headers["Authorization"] == "Bot token"
+        assert timeout == 30
+        assert files is not None
+        upload = files["files[0]"]
+        observed.append(upload[0])
+        assert json_module.loads(files["payload_json"][1])["allowed_mentions"] == {"parse": []}
+        upload[1].read()
+        return FakeResponse()
+
+    monkeypatch.setattr(discord.requests, "post", fake_post)
+    paths = [_media_path(tmp_path, f"slide-{index}.jpg") for index in range(4)]
+    for index, path in enumerate(paths):
+        assert discord.post_media(path, "123", False, discord.nonce("event", f"media:{index}")) == "123456789"
+
+    assert observed == [f"slide-{index}.jpg" for index in range(4)]
+
+
+def test_media_retry_is_independent_after_text_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "token")
+    _use_media_root(tmp_path, monkeypatch)
+    source = _media_path(tmp_path, "slide-0.jpg")
+    calls: list[str] = []
+    media_attempts = 0
+
+    def fake_post(_url, *, headers, json=None, files=None, timeout):
+        nonlocal media_attempts
+        assert headers["Authorization"] == "Bot token"
+        assert timeout == 30
+        if json is not None:
+            assert json["allowed_mentions"] == {"parse": []}
+            calls.append("text")
+            return FakeResponse()
+        assert files is not None
+        assert json_module.loads(files["payload_json"][1])["allowed_mentions"] == {"parse": []}
+        calls.append("media")
+        media_attempts += 1
+        if media_attempts == 1:
+            return FakeResponse(429, {"retry_after": 1.5})
+        return FakeResponse()
+
+    monkeypatch.setattr(discord.requests, "post", fake_post)
+    assert discord.post_text("caption", "123", False, discord.nonce("event", "text:0")) == "123456789"
+    with pytest.raises(discord.DiscordRetryAfter):
+        discord.post_media(source, "123", False, discord.nonce("event", "media:0"))
+    assert discord.post_media(source, "123", False, discord.nonce("event", "media:0")) == "123456789"
+
+    assert calls == ["text", "media", "media"]
+    assert media_attempts == 2
+
+
+def test_text_limit_uses_utf16_code_units(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "token")
+    calls = 0
+
+    def fake_post(_url, *, headers, json=None, files=None, timeout):
+        nonlocal calls
+        calls += 1
+        assert json is not None
+        assert json["allowed_mentions"] == {"parse": []}
+        return FakeResponse()
+
+    monkeypatch.setattr(discord.requests, "post", fake_post)
+    exactly_at_limit = "a" * 1_998 + "😀"
+    over_limit = "a" * 1_999 + "😀"
+
+    assert discord.discord_length(exactly_at_limit) == 2_000
+    assert discord.post_text(exactly_at_limit, "123", False, "nonce") == "123456789"
+    with pytest.raises(ValueError, match="2,000"):
+        discord.post_text(over_limit, "123", False, "nonce")
+    assert calls == 1
+
+
 def test_dry_run_makes_no_http_calls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(discord.requests, "post", lambda *args, **kwargs: pytest.fail("HTTP was called"))
+    _use_media_root(tmp_path, monkeypatch)
     path = _media_path(tmp_path, "slide.png")
 
     assert discord.post_text("text", "123", True, "text-nonce") is None
@@ -208,7 +304,8 @@ def test_status_and_429_errors_are_sanitized(monkeypatch: pytest.MonkeyPatch):
     assert secret not in str(limited.value)
 
 
-def test_media_path_rejects_symlinks_and_non_local_urls(tmp_path: Path):
+def test_media_path_rejects_symlinks_and_non_local_urls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    _use_media_root(tmp_path, monkeypatch)
     source = _media_path(tmp_path, "source.jpg")
     link = tmp_path / "link.jpg"
     try:
@@ -222,8 +319,29 @@ def test_media_path_rejects_symlinks_and_non_local_urls(tmp_path: Path):
         discord.post_media(Path("https://cdn.example/image.jpg"), "123", True, "nonce")
 
 
+def test_media_upload_requires_a_valid_watcher_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    source = _media_path(tmp_path, "source.jpg")
+    monkeypatch.delenv("INSTAGRAM_POST_WATCH_MEDIA_ROOT", raising=False)
+    with pytest.raises(ValueError, match="media root"):
+        discord.post_media(source, "123", True, "nonce")
+
+    invalid_root = tmp_path / "not-a-directory"
+    invalid_root.write_bytes(b"not a directory")
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_MEDIA_ROOT", str(invalid_root))
+    with pytest.raises(ValueError, match="media root"):
+        discord.post_media(source, "123", True, "nonce")
+
+    valid_root = tmp_path / "root"
+    valid_root.mkdir()
+    outside = _media_path(tmp_path, "outside.jpg")
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_MEDIA_ROOT", str(valid_root))
+    with pytest.raises(ValueError, match="outside"):
+        discord.post_media(outside, "123", True, "nonce")
+
+
 def test_upload_temporary_copy_is_removed_after_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "token")
+    _use_media_root(tmp_path, monkeypatch)
     source = _media_path(tmp_path, "slide.jpg")
 
     def fail_post(*args, **kwargs):

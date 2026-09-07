@@ -16,17 +16,36 @@ _REEL_RE = re.compile(r"\breels?\b", re.IGNORECASE)
 _MARKDOWN_SPECIALS_RE = re.compile(r"([\\`*_[\]~|<>])")
 
 
+def discord_length(value: str) -> int:
+    """Return Discord's UTF-16 code-unit length for a text value."""
+    if not isinstance(value, str):
+        raise TypeError("Discord content must be text")
+    return len(value.encode("utf-16-le", "surrogatepass")) // 2
+
+
 def _safe_prefix(value: str, limit: int) -> str:
-    """Return a bounded prefix without cutting an explicit UTF-16 pair."""
-    if len(value) <= limit:
+    """Return a bounded prefix without cutting an astral character or pair."""
+    if limit < 0:
+        raise ValueError("text limit is invalid")
+    if discord_length(value) <= limit:
         return value
-    cut = limit
-    if cut and cut < len(value):
-        previous = ord(value[cut - 1])
-        current = ord(value[cut])
-        if 0xD800 <= previous <= 0xDBFF and 0xDC00 <= current <= 0xDFFF:
-            cut -= 1
-    return value[:cut]
+    units = 0
+    index = 0
+    while index < len(value):
+        character = value[index]
+        codepoint = ord(character)
+        width = 2 if codepoint > 0xFFFF else 1
+        step = 1
+        if 0xD800 <= codepoint <= 0xDBFF and index + 1 < len(value):
+            next_codepoint = ord(value[index + 1])
+            if 0xDC00 <= next_codepoint <= 0xDFFF:
+                width = 2
+                step = 2
+        if units + width > limit:
+            break
+        units += width
+        index += step
+    return value[:index]
 
 
 def _escape_caption_text(value: str) -> str:
@@ -111,37 +130,35 @@ def _escape_heading(value: str, limit: int) -> str:
 def _reel_marker_needed(post: SourcePost, *, body: str, title: str | None) -> bool:
     if post.kind is not PublicationKind.REEL:
         return False
-    return not any(_REEL_RE.search(value) for value in (body, title or "", post.caption_html))
+    visible_caption = markdown(post.caption_html)
+    return not any(_REEL_RE.search(value) for value in (body, title or "", visible_caption))
 
 
 def _cut_at_boundary(value: str, limit: int) -> int:
-    if len(value) <= limit:
+    prefix = _safe_prefix(value, limit)
+    if prefix == value:
         return len(value)
     candidates = (
-        value.rfind("\n\n", 0, limit + 1),
-        value.rfind("\n", 0, limit + 1),
-        value.rfind(" ", 0, limit + 1),
+        prefix.rfind("\n\n"),
+        prefix.rfind("\n"),
+        prefix.rfind(" "),
     )
-    cut = next((candidate for candidate in candidates if candidate > 0), limit)
-    if cut and cut < len(value):
-        previous = ord(value[cut - 1])
-        current = ord(value[cut])
-        if 0xD800 <= previous <= 0xDBFF and 0xDC00 <= current <= 0xDFFF:
-            cut -= 1
-    return max(1, cut)
+    cut = next((candidate for candidate in candidates if candidate > 0), len(prefix))
+    if cut <= 0:
+        raise ValueError("Discord text cannot fit within the message limit")
+    return cut
 
 
 def _split_body(body: str, first_limit: int, footer: str) -> list[str]:
     """Split body text while reserving space for the final source link."""
-    if first_limit <= 0 or len(footer) + 2 >= DISCORD_LIMIT:
+    if first_limit <= 0 or discord_length(footer) + 2 >= DISCORD_LIMIT:
         raise ValueError("Instagram source link exceeds Discord message limit")
     remaining = body.strip()
     messages: list[str] = []
     first = True
     while remaining:
-        prefix_length = DISCORD_LIMIT - first_limit if first else 0
         available = first_limit if first else DISCORD_LIMIT
-        final_size = len(remaining) + 2 + len(footer)
+        final_size = discord_length(remaining) + 2 + discord_length(footer)
         if final_size <= available:
             messages.append(remaining)
             break
@@ -149,8 +166,6 @@ def _split_body(body: str, first_limit: int, footer: str) -> list[str]:
         messages.append(remaining[:cut].rstrip())
         remaining = remaining[cut:].lstrip()
         first = False
-        if prefix_length < 0:
-            raise ValueError("Instagram heading exceeds Discord message limit")
     return messages
 
 def render_publication(
@@ -182,15 +197,15 @@ def render_publication(
     footer = f"[View on Instagram](<{post.url}>)"
     if not body:
         message = f"{heading}\n\n{footer}"
-        if len(message) > DISCORD_LIMIT:
+        if discord_length(message) > DISCORD_LIMIT:
             raise ValueError("Instagram heading exceeds Discord message limit")
         return [message]
 
-    first_limit = DISCORD_LIMIT - len(heading) - 2
+    first_limit = DISCORD_LIMIT - discord_length(heading) - 2
     body_chunks = _split_body(body, first_limit, footer)
     messages = [f"{heading}\n\n{body_chunks[0]}"]
     messages.extend(body_chunks[1:])
     messages[-1] = f"{messages[-1]}\n\n{footer}"
-    if any(len(message) > DISCORD_LIMIT for message in messages):
+    if any(discord_length(message) > DISCORD_LIMIT for message in messages):
         raise ValueError("Instagram publication exceeds Discord message limit")
     return messages
