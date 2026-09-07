@@ -8,7 +8,15 @@ import pytest
 
 import config
 import state
-from models import DownloadedAsset, DownloadedPublication, MediaKind, PublicationKind, SourceMedia, SourcePost
+from models import (
+    DownloadedAsset,
+    DownloadedPublication,
+    MediaKind,
+    PublicationKind,
+    SourceMedia,
+    SourcePost,
+    source_locator_digest,
+)
 from ocr import OCRResult, OCRStatus
 from vision_gate import VisionDecision, VisionMode
 
@@ -191,6 +199,10 @@ def test_serialized_post_drops_media_url_but_preserves_timezone_and_order():
     restored = state.deserialize_post(serialized)
 
     assert "sig=secret" not in json.dumps(serialized)
+    assert all(item["url"] == "" for item in serialized["media"])
+    assert serialized["media"][0]["locator_digest"] == source_locator_digest(
+        "https://cdn.example/first.jpg?sig=secret"
+    )
     assert restored.published_at == post.published_at
     assert restored.published_at.tzinfo is not None
     assert [(item.kind, item.index) for item in restored.media] == [
@@ -211,11 +223,45 @@ def test_downloaded_ocr_and_vision_metadata_roundtrip_without_signed_urls(tmp_pa
     restored_vision = state.deserialize_vision_decision(vision)
 
     assert "token=secret" not in json.dumps(downloaded)
+    assert downloaded["assets"][0]["source"]["url"] == ""
+    assert downloaded["assets"][0]["source"]["locator_digest"] == source_locator_digest(
+        "https://cdn.example/signed.jpg?token=secret"
+    )
     assert restored_downloaded.media_root == prepared["downloaded_publication"].media_root
     assert restored_downloaded.assets[0].path == prepared["downloaded_publication"].assets[0].path
     assert restored_ocr == prepared["ocr_results"][0]
     assert restored_vision.mode is VisionMode.VISION_PARTIAL
     assert restored_vision.asset_paths == prepared["vision_decision"].asset_paths
+
+
+def test_source_media_state_requires_a_locator_digest():
+    serialized = state.serialize_post(_publication("beyondthefundamental", "ABC123", 1))
+    del serialized["media"][0]["locator_digest"]
+
+    with pytest.raises(ValueError, match="state is invalid"):
+        state.deserialize_post(serialized)
+
+
+def test_source_media_digest_must_match_the_transient_url():
+    post = _publication("beyondthefundamental", "ABC123", 1)
+    mismatched_media = SourceMedia(
+        post.media[0].url,
+        MediaKind.IMAGE,
+        0,
+        "a" * 64,
+    )
+    mismatched = SourcePost(
+        post.profile_id,
+        post.publication_id,
+        post.url,
+        post.published_at,
+        post.caption_html,
+        post.kind,
+        (mismatched_media,),
+    )
+
+    with pytest.raises(ValueError, match="state is invalid"):
+        state.serialize_post(mismatched)
 
 
 def test_event_keeps_text_and_media_progress_independent(config_path, tmp_path):

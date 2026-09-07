@@ -20,6 +20,7 @@ from models import (
     PublicationKind,
     SourceMedia,
     SourcePost,
+    source_locator_digest,
 )
 from ocr import OCRResult, OCRStatus
 from vision_gate import VisionDecision, VisionMode
@@ -278,6 +279,19 @@ def _publication_kind(value: object) -> PublicationKind:
         raise _invalid() from exc
 
 
+def _source_locator_digest(media: SourceMedia) -> str:
+    digest = _bounded_string(media.locator_digest, 64)
+    if not _SAFE_HASH.fullmatch(digest):
+        raise _invalid()
+    if media.url:
+        try:
+            if source_locator_digest(media.url) != digest:
+                raise _invalid()
+        except (TypeError, UnicodeError, ValueError) as exc:
+            raise _invalid() from exc
+    return digest
+
+
 def _serialize_source_media(media: SourceMedia) -> dict[str, object]:
     if not isinstance(media, SourceMedia):
         raise _invalid()
@@ -285,8 +299,9 @@ def _serialize_source_media(media: SourceMedia) -> dict[str, object]:
         raise _invalid()
     return {
         # Media URLs from RSSHub can be signed CDN URLs. They are deliberately
-        # omitted from durable state while kind and source order are retained.
+        # omitted from durable state while a one-way locator identity is retained.
         "url": "",
+        "locator_digest": _source_locator_digest(media),
         "kind": _media_kind(media.kind).value,
         "index": media.index,
     }
@@ -294,14 +309,17 @@ def _serialize_source_media(media: SourceMedia) -> dict[str, object]:
 
 def _deserialize_source_media(value: object) -> SourceMedia:
     raw = _require_object(value)
-    if set(raw) not in ({"url", "kind", "index"}, {"kind", "index"}):
+    if set(raw) != {"url", "locator_digest", "kind", "index"}:
         raise _invalid()
-    if "url" in raw and raw["url"] != "":
+    if raw["url"] != "":
+        raise _invalid()
+    locator_digest = _bounded_string(raw["locator_digest"], 64)
+    if not _SAFE_HASH.fullmatch(locator_digest):
         raise _invalid()
     index = raw.get("index")
     if type(index) is not int or not 0 <= index < MAX_MEDIA_ASSETS:
         raise _invalid()
-    return SourceMedia("", _media_kind(raw.get("kind")), index)
+    return SourceMedia("", _media_kind(raw.get("kind")), index, locator_digest)
 
 
 def serialize_post(post: SourcePost) -> dict[str, object]:

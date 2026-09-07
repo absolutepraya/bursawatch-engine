@@ -138,6 +138,7 @@ _OCR_UNCERTAIN_STATUS_VALUES = frozenset(
 _FAILED_ASSET_STATUS_VALUES = frozenset(KNOWN_FAILED_REASONS)
 _BOUNDED_FAILURE_STATUS_RE = re.compile(r"^failure_[0-9a-f]{12}$")
 _NON_IMAGE_UNAVAILABLE_STATUS = OCRStatus.UNAVAILABLE.value
+_SOURCE_LOCATOR_DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class _CaptionTextParser(HTMLParser):
@@ -541,7 +542,10 @@ def _normalize_reel_event(event: dict) -> dict:
 
 
 def _source_media_key(source) -> tuple[int, MediaKind, str]:
-    return source.index, MediaKind(source.kind), source.url
+    locator_digest = source.locator_digest
+    if type(locator_digest) is not str or _SOURCE_LOCATOR_DIGEST_RE.fullmatch(locator_digest) is None:
+        raise ValueError("source media locator identity is invalid")
+    return source.index, MediaKind(source.kind), locator_digest
 
 
 def _validate_source_media_coverage(post, downloaded) -> None:

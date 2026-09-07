@@ -11,7 +11,15 @@ import config
 import ocr
 import state
 import vision_gate
-from models import DownloadedAsset, DownloadedPublication, FailedAsset, MediaKind, PublicationKind, SourceMedia, SourcePost
+from models import (
+    DownloadedAsset,
+    DownloadedPublication,
+    FailedAsset,
+    MediaKind,
+    PublicationKind,
+    SourceMedia,
+    SourcePost,
+)
 
 
 NOW = datetime(2026, 8, 25, 10, 0, tzinfo=UTC)
@@ -189,7 +197,7 @@ def test_agent_item_rejects_missing_source_media(config_path, tmp_path, post_kin
         agent_protocol.agent_item(profile, event)
 
 
-@pytest.mark.parametrize("field", ["index", "kind", "url"])
+@pytest.mark.parametrize("field", ["index", "kind", "locator_digest"])
 def test_agent_item_requires_exact_source_media_identity(config_path, tmp_path, field):
     profile = _profile(config_path)
     event = _event(profile, tmp_path)
@@ -199,7 +207,25 @@ def test_agent_item_requires_exact_source_media_identity(config_path, tmp_path, 
     elif field == "kind":
         source[field] = MediaKind.VIDEO.value
     else:
-        source[field] = "https://cdn.example/not-the-source.jpg?token=signed-secret"
+        source[field] = "a" * 64
+
+    with pytest.raises(ValueError, match="analysis event is invalid"):
+        agent_protocol.agent_item(profile, event)
+
+
+def test_reloaded_event_rejects_swapped_source_locator_identity(config_path, tmp_path):
+    profile = _profile(config_path)
+    event = json.loads(json.dumps(_event(profile, tmp_path)))
+
+    assert all(source["url"] == "" for source in event["post"]["media"])
+    assert all(
+        "cdn.example" not in json.dumps(source)
+        for source in event["post"]["media"]
+    )
+    assert "signed-secret" not in json.dumps(event)
+    event["downloaded_publication"]["assets"][0]["source"]["locator_digest"] = (
+        event["post"]["media"][1]["locator_digest"]
+    )
 
     with pytest.raises(ValueError, match="analysis event is invalid"):
         agent_protocol.agent_item(profile, event)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -73,11 +74,22 @@ class MediaKind(StrEnum):
     VIDEO = "video"
 
 
+def source_locator_digest(url: str) -> str:
+    if type(url) is not str or not url:
+        raise ValueError("source locator is invalid")
+    return hashlib.sha256(url.encode("utf-8")).hexdigest()
+
+
 @dataclass(frozen=True)
 class SourceMedia:
     url: str
     kind: MediaKind
     index: int
+    locator_digest: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.locator_digest and isinstance(self.url, str) and self.url:
+            object.__setattr__(self, "locator_digest", source_locator_digest(self.url))
 
 
 @dataclass(frozen=True)
