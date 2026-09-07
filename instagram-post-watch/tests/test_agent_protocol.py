@@ -160,6 +160,62 @@ def test_text_only_payload_contains_all_ocr_but_no_image_paths(config_path, tmp_
     assert all("cdn.example" not in str(value) for value in item.values())
 
 
+@pytest.mark.parametrize(
+    ("post_kind", "media_kinds", "missing_index"),
+    [
+        (PublicationKind.POST, (MediaKind.IMAGE, MediaKind.IMAGE), 1),
+        (PublicationKind.REEL, (MediaKind.VIDEO, MediaKind.IMAGE), 0),
+    ],
+)
+def test_agent_item_rejects_missing_source_media(config_path, tmp_path, post_kind, media_kinds, missing_index):
+    profile = _profile(config_path)
+    event = _event(
+        profile,
+        tmp_path,
+        count=2,
+        post_kind=post_kind,
+        media_kinds=media_kinds,
+    )
+    if post_kind is PublicationKind.REEL:
+        event["post"]["url"] = "https://www.instagram.com/reel/ABC123/"
+        event["source_publication_url"] = event["post"]["url"]
+    event["downloaded_publication"]["assets"] = [
+        asset
+        for asset in event["downloaded_publication"]["assets"]
+        if asset["source"]["index"] != missing_index
+    ]
+
+    with pytest.raises(ValueError, match="analysis event is invalid"):
+        agent_protocol.agent_item(profile, event)
+
+
+@pytest.mark.parametrize("field", ["index", "kind", "url"])
+def test_agent_item_requires_exact_source_media_identity(config_path, tmp_path, field):
+    profile = _profile(config_path)
+    event = _event(profile, tmp_path)
+    source = event["downloaded_publication"]["assets"][0]["source"]
+    if field == "index":
+        source[field] = 7
+    elif field == "kind":
+        source[field] = MediaKind.VIDEO.value
+    else:
+        source[field] = "https://cdn.example/not-the-source.jpg?token=signed-secret"
+
+    with pytest.raises(ValueError, match="analysis event is invalid"):
+        agent_protocol.agent_item(profile, event)
+
+
+def test_agent_item_rejects_duplicate_source_representation(config_path, tmp_path):
+    profile = _profile(config_path)
+    event = _event(profile, tmp_path)
+    event["downloaded_publication"]["assets"].append(
+        dict(event["downloaded_publication"]["assets"][0])
+    )
+
+    with pytest.raises(ValueError, match="analysis event is invalid"):
+        agent_protocol.agent_item(profile, event)
+
+
 def test_partial_payload_contains_only_uncertain_image_path(config_path, tmp_path):
     profile = _profile(config_path)
     results = (_result("Clear first slide text."), _result("Uncertain second slide.", 0.40))
@@ -342,6 +398,86 @@ def test_failed_download_is_labeled_without_inventing_a_path(config_path, tmp_pa
         "min_confidence": None,
     }
     assert "OCR unavailable: download_failed" in item["post_text"]
+    assert agent_protocol.build_wake_payload(item)["wakeAgent"] is True
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        ocr.OCRStatus.ERROR,
+        ocr.OCRStatus.TIMEOUT,
+        ocr.OCRStatus.UNCERTAIN,
+        ocr.OCRStatus.UNAVAILABLE,
+    ],
+)
+def test_downloaded_image_ocr_failure_stays_available_and_selects_vision(
+    config_path, tmp_path, status
+):
+    profile = _profile(config_path)
+    item = agent_protocol.agent_item(
+        profile,
+        _event(
+            profile,
+            tmp_path,
+            results=(_result("Clear first slide."), _result("Backend failed.", 0.4, status)),
+            vision_mode=vision_gate.VisionMode.VISION_PARTIAL,
+            selected_indexes=(1,),
+        ),
+    )
+
+    assert item["ocr_assets"][1]["available"] is True
+    assert item["ocr_assets"][1]["status"] == status.value
+    assert item["vision_asset_ids"] == [1]
+    assert item["vision_asset_path_ids"] == [1]
+    assert agent_protocol.build_wake_payload(item)["wakeAgent"] is True
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        ocr.OCRStatus.ERROR,
+        ocr.OCRStatus.TIMEOUT,
+        ocr.OCRStatus.UNCERTAIN,
+        ocr.OCRStatus.UNAVAILABLE,
+    ],
+)
+def test_text_only_rejects_uncertain_downloaded_image_ocr(config_path, tmp_path, status):
+    profile = _profile(config_path)
+    event = _event(
+        profile,
+        tmp_path,
+        results=(_result("Backend failed.", 0.4, status), _result("Clear second slide.")),
+    )
+
+    with pytest.raises(ValueError, match="text-only vision"):
+        agent_protocol.agent_item(profile, event)
+
+
+def test_non_image_unavailable_marker_is_allowed_only_for_unprocessed_video(config_path, tmp_path):
+    profile = _profile(config_path)
+    event = _event(
+        profile,
+        tmp_path,
+        results=(_result("Cover text."),),
+        count=2,
+        post_kind=PublicationKind.REEL,
+        media_kinds=(MediaKind.VIDEO, MediaKind.IMAGE),
+    )
+    event["post"]["url"] = "https://www.instagram.com/reel/ABC123/"
+    event["source_publication_url"] = event["post"]["url"]
+
+    item = agent_protocol.agent_item(profile, event)
+
+    assert item["ocr_assets"][0] == {
+        "index": 0,
+        "kind": "video",
+        "available": False,
+        "status": "unavailable",
+        "text": "",
+        "confidence": None,
+        "min_confidence": None,
+    }
+    assert agent_protocol.build_wake_payload(item)["wakeAgent"] is True
 
 
 def test_caption_and_ocr_are_delimited_as_untrusted_source_data(config_path, tmp_path):
@@ -507,11 +643,15 @@ def test_agent_item_rejects_media_root_outside_configured_watcher_root(config_pa
 def test_agent_item_rejects_nested_media_root_with_matching_event_basename(config_path, tmp_path):
     profile = _profile(config_path)
     event = _event(profile, tmp_path)
+    source_assets = event["downloaded_publication"]["assets"]
     nested_root = tmp_path / "nested" / "ABC123"
     nested_root.mkdir(parents=True)
     event["downloaded_publication"]["media_root"] = str(nested_root)
     event["downloaded_publication"]["assets"] = []
-    event["downloaded_publication"]["failed_assets"] = []
+    event["downloaded_publication"]["failed_assets"] = [
+        {"source": asset["source"], "reason": "download_failed"}
+        for asset in source_assets
+    ]
     event["ocr_results"] = []
 
     with pytest.raises(ValueError, match="does not match the watcher media root"):
@@ -614,7 +754,6 @@ def test_wake_payload_rejects_not_processed_image_status(config_path, tmp_path):
     ("available", "status"),
     [
         (True, "download_failed"),
-        (True, "unavailable"),
         (True, "failure_custom"),
         (False, "success"),
         (False, "uncertain"),
@@ -641,6 +780,43 @@ def test_wake_payload_rejects_forged_ocr_availability_status(
         agent_protocol.build_wake_payload(item)
 
 
+@pytest.mark.parametrize("status", ["garbage", "failure_custom", "not_processed"])
+def test_wake_payload_rejects_unallowlisted_ocr_status(config_path, tmp_path, status):
+    profile = _profile(config_path)
+    item = agent_protocol.agent_item(profile, _event(profile, tmp_path))
+    item["ocr_assets"][0]["status"] = status
+
+    with pytest.raises(ValueError, match="allowlisted"):
+        agent_protocol.build_wake_payload(item)
+
+
+def test_wake_payload_allows_bounded_failed_asset_status(config_path, tmp_path):
+    profile = _profile(config_path)
+    item = agent_protocol.agent_item(
+        profile,
+        _event(
+            profile,
+            tmp_path,
+            results=(_result("Clear"), _result("Uncertain", 0.4)),
+            vision_mode=vision_gate.VisionMode.VISION_PARTIAL,
+            selected_indexes=(1,),
+        ),
+    )
+    item["ocr_assets"][1].update(
+        {
+            "available": False,
+            "status": "failure_0123456789ab",
+            "text": "",
+            "confidence": None,
+            "min_confidence": None,
+        }
+    )
+    item["vision_asset_path_ids"] = []
+    item["vision_asset_paths"] = []
+
+    assert agent_protocol.build_wake_payload(item)["wakeAgent"] is True
+
+
 def test_wake_payload_does_not_drop_unavailable_assets_from_vision_selection(config_path, tmp_path):
     profile = _profile(config_path)
     partial = agent_protocol.agent_item(
@@ -659,7 +835,7 @@ def test_wake_payload_does_not_drop_unavailable_assets_from_vision_selection(con
     partial["vision_asset_path_ids"] = []
     partial["vision_asset_paths"] = []
 
-    with pytest.raises(ValueError, match="vision asset indexes"):
+    with pytest.raises(ValueError, match="unavailable OCR asset"):
         agent_protocol.build_wake_payload(partial)
 
 

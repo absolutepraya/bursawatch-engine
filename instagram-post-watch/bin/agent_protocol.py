@@ -131,17 +131,13 @@ _OCR_ASSET_KEYS = {
 _EVENT_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*:[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SAFE_STATUS_RE = re.compile(r"^[A-Za-z0-9_:-]{1,64}$")
 _UNTRUSTED_DELIMITER_RE = re.compile(r"\[/?\s*UNTRUSTED\b[^\]\r\n]{0,256}\]", re.IGNORECASE)
-_UNAVAILABLE_ASSET_STATUSES = {
-    "asset_size_limit",
-    "decode_failed",
-    "download_failed",
-    "frame_sampling_failed",
-    "publication_size_limit",
-    "redirect_not_supported",
-    "unavailable",
-    "unsupported_content_type",
-    "unsupported_media_url",
-}
+_OCR_STATUS_VALUES = frozenset(status.value for status in OCRStatus)
+_OCR_UNCERTAIN_STATUS_VALUES = frozenset(
+    status.value for status in (OCRStatus.ERROR, OCRStatus.TIMEOUT, OCRStatus.UNCERTAIN, OCRStatus.UNAVAILABLE)
+)
+_FAILED_ASSET_STATUS_VALUES = frozenset(KNOWN_FAILED_REASONS)
+_BOUNDED_FAILURE_STATUS_RE = re.compile(r"^failure_[0-9a-f]{12}$")
+_NON_IMAGE_UNAVAILABLE_STATUS = OCRStatus.UNAVAILABLE.value
 
 
 class _CaptionTextParser(HTMLParser):
@@ -364,6 +360,12 @@ def _event_media_root(value: object, event_key: str) -> Path:
     return root
 
 
+def _failure_status(reason: str) -> str:
+    if reason in KNOWN_FAILED_REASONS:
+        return reason
+    return f"failure_{hashlib.sha256(reason.encode('utf-8', errors='ignore')).hexdigest()[:12]}"
+
+
 def _raw_analysis_id(value: object, *, index: int | None = None, failed: bool = False) -> str | None:
     if not isinstance(value, dict):
         return None
@@ -378,11 +380,7 @@ def _raw_analysis_id(value: object, *, index: int | None = None, failed: bool = 
         reason = value.get("reason")
         if type(reason) is not str:
             return None
-        bounded_reason = (
-            reason
-            if reason in KNOWN_FAILED_REASONS
-            else f"failure_{hashlib.sha256(reason.encode('utf-8', errors='ignore')).hexdigest()[:12]}"
-        )
+        bounded_reason = _failure_status(reason)
         return f"failed:{kind}:{source_index}:{bounded_reason}"
     digest = value.get("sha256")
     if type(digest) is not str or len(digest) < 12:
@@ -542,6 +540,34 @@ def _normalize_reel_event(event: dict) -> dict:
     return normalized
 
 
+def _source_media_key(source) -> tuple[int, MediaKind, str]:
+    return source.index, MediaKind(source.kind), source.url
+
+
+def _validate_source_media_coverage(post, downloaded) -> None:
+    expected = {_source_media_key(source) for source in post.media}
+    if len(expected) != len(post.media):
+        raise ValueError("source media is duplicated")
+    expected_indexes = {source.index for source in post.media}
+    represented: set[tuple[int, MediaKind, str]] = set()
+    for asset in (*downloaded.assets, *downloaded.failed_assets):
+        key = _source_media_key(asset.source)
+        if key in expected:
+            if key in represented:
+                raise ValueError("source media is represented more than once")
+            represented.add(key)
+            continue
+        if (
+            post.kind is PublicationKind.REEL
+            and asset.source.kind is MediaKind.IMAGE
+            and asset.source.index not in expected_indexes
+        ):
+            continue
+        raise ValueError("unexpected source media asset")
+    if represented != expected:
+        raise ValueError("source media is missing")
+
+
 def _ordered_ocr_records(downloaded, ocr_results, failed_assets):
     all_downloaded = tuple(downloaded.assets)
     downloaded_indexes = [asset.source.index for asset in all_downloaded]
@@ -584,11 +610,12 @@ def _ocr_asset_payload(records) -> list[dict[str, object]]:
         source = failed.source if failed is not None else asset.source
         kind = MediaKind(source.kind).value
         if failed is not None:
+            status = _failure_status(failed.reason)
             result.append({
                 "index": index,
                 "kind": kind,
                 "available": False,
-                "status": failed.reason,
+                "status": status,
                 "text": "",
                 "confidence": None,
                 "min_confidence": None,
@@ -631,7 +658,7 @@ def _context_text(caption: str, records, vision_paths: tuple[Path, ...]) -> str:
         kind_ordinals[kind] += 1
         kind_label = kind.value.capitalize()
         if failed is not None:
-            body = f"OCR unavailable: {failed.reason}"
+            body = f"OCR unavailable: {_failure_status(failed.reason)}"
         elif ocr_result is None:
             body = "OCR unavailable for this asset."
         else:
@@ -772,6 +799,7 @@ def _event_parts(profile: Profile, event: dict) -> tuple[SourcePost, object, tup
         if downloaded_raw is None or vision_raw is None:
             raise ValueError("analysis event media metadata is missing")
         downloaded = deserialize_downloaded_publication(downloaded_raw)
+        _validate_source_media_coverage(post, downloaded)
         vision = deserialize_vision_decision(vision_raw)
         ocr_results = tuple(deserialize_ocr_result(value) for value in normalized_event["ocr_results"])
     except ValueError as exc:
@@ -859,12 +887,22 @@ def _validate_ocr_asset(value: object) -> dict[str, object]:
         or not 0 <= float(min_confidence) <= 1
     ):
         raise ValueError("wake payload OCR minimum confidence is invalid")
-    if status == "not_processed":
-        raise ValueError("wake payload OCR not_processed status is invalid")
-    if available and (status in _UNAVAILABLE_ASSET_STATUSES or status.startswith("failure_")):
-        raise ValueError("available OCR asset has an unavailable status")
-    if not available and status not in _UNAVAILABLE_ASSET_STATUSES and not status.startswith("failure_"):
-        raise ValueError("unavailable OCR asset has an available status")
+    is_ocr_status = status in _OCR_STATUS_VALUES
+    is_failed_asset_status = (
+        status in _FAILED_ASSET_STATUS_VALUES or _BOUNDED_FAILURE_STATUS_RE.fullmatch(status) is not None
+    )
+    if not is_ocr_status and not is_failed_asset_status:
+        raise ValueError(f"wake payload OCR status is not allowlisted: {status}")
+    if available and is_failed_asset_status:
+        raise ValueError("available OCR asset has a failed-asset status")
+    if not available and not (
+        is_failed_asset_status
+        or (
+            kind == MediaKind.VIDEO.value
+            and status == _NON_IMAGE_UNAVAILABLE_STATUS
+        )
+    ):
+        raise ValueError("unavailable OCR asset has an invalid status")
     if not available and (text or confidence is not None or min_confidence is not None):
         raise ValueError("unavailable OCR asset contains OCR output")
     return dict(value)
@@ -884,7 +922,7 @@ def _payload_ocr_is_uncertain(asset: Mapping[str, object], min_confidence: float
     if not asset["available"]:
         return True
     status = asset["status"]
-    if status in {"error", "timeout", "unavailable", "uncertain", "not_processed"}:
+    if status in _OCR_UNCERTAIN_STATUS_VALUES:
         return True
     if status != OCRStatus.SUCCESS.value:
         return False
