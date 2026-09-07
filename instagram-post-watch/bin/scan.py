@@ -268,27 +268,40 @@ def _target_channel(profile: Profile, event: dict) -> str:
 
 
 def _source_media_by_index(post: SourcePost, downloaded: DownloadedPublication) -> tuple[DownloadedAsset, ...]:
-    expected = {item.index: item.kind for item in post.media}
+    # Reel covers and sampled frames are analysis-only. The original reel
+    # video is the only reel asset sent to Discord.
+    expected_sources = tuple(
+        item
+        for item in post.media
+        if post.kind is not PublicationKind.REEL or item.kind is MediaKind.VIDEO
+    )
+    expected = {item.index: item for item in expected_sources}
+    failed = {item.source.index: item for item in downloaded.failed_assets}
     selected: dict[int, DownloadedAsset] = {}
     for asset in sorted(downloaded.assets, key=lambda item: item.source.index):
-        if asset.source.index in expected and asset.source.kind is expected[asset.source.index]:
-            if asset.source.index in selected:
-                raise ValueError("source media indexes are duplicated")
-            selected[asset.source.index] = asset
-    if set(selected) != set(expected):
-        raise ValueError("source media is unavailable")
-    return tuple(selected[index] for index in sorted(expected))
-
-
-def _cleanup_entry(event: dict, media_root: str | None) -> dict[str, object]:
-    return {
-        "event_key": event["event_key"],
-        "profile_id": event["profile_id"],
-        "publication_id": event["publication_id"],
-        "media_root": media_root,
-        "attempts": 0,
-        "last_error": None,
-    }
+        expected_source = expected.get(asset.source.index)
+        if expected_source is None:
+            continue
+        if (
+            asset.source.kind is not expected_source.kind
+            or asset.source.locator_digest != expected_source.locator_digest
+        ):
+            raise ValueError("source media identity mismatch")
+        if asset.source.index in selected:
+            raise ValueError("source media indexes are duplicated")
+        selected[asset.source.index] = asset
+    for index, expected_source in expected.items():
+        if index in selected:
+            continue
+        failed_source = failed.get(index)
+        if failed_source is None:
+            raise ValueError("source media is unavailable")
+        if (
+            failed_source.source.kind is not expected_source.kind
+            or failed_source.source.locator_digest != expected_source.locator_digest
+        ):
+            raise ValueError("source media identity mismatch")
+    return tuple(selected[index] for index in sorted(selected))
 
 
 def _delivery_media_root(event: dict) -> str | None:
@@ -306,6 +319,21 @@ def _retry_media_cleanup(value: dict, storage: Path, stats: RunStats, *, no_post
         return
     changed = False
     for item in list(value["cleanup"]):
+        event_key = item["event_key"]
+        if any(event.get("event_key") == event_key for event in value["outbox"]):
+            # A retry may have recreated this event's media before cleanup was
+            # attempted. The active outbox owns that directory now.
+            continue
+        delivery = next(
+            (entry for entry in value["deliveries"] if entry.get("event_key") == event_key),
+            None,
+        )
+        if delivery is not None and not delivery.get("cleanup_pending", False):
+            # A stale duplicate cleanup entry must not delete media owned by a
+            # completed delivery whose cleanup is already settled.
+            value["cleanup"].remove(item)
+            changed = True
+            continue
         media_root = item.get("media_root")
         try:
             if media_root is not None:
@@ -347,9 +375,15 @@ def _finalize_delivery(
         media_message_ids=event["media_message_ids"],
         cleanup_pending=media_root is not None,
     )
-    value["outbox"].pop(event_index)
     if media_root is not None:
-        value["cleanup"].append(_cleanup_entry(event, media_root))
+        state.queue_media_cleanup(
+            value,
+            event["event_key"],
+            event["profile_id"],
+            event["publication_id"],
+            media_root,
+        )
+    value["outbox"].pop(event_index)
     state.save_state(storage, value)
     stats.delivered += 1
     return True
@@ -546,17 +580,6 @@ def _prepare_event(
         session.close()
     if not isinstance(downloaded, DownloadedPublication):
         raise ValueError("media preparation returned an invalid publication")
-    source_indexes = {item.index for item in post.media}
-    failed_source_assets = tuple(
-        failed for failed in downloaded.failed_assets if failed.source.index in source_indexes
-    )
-    if failed_source_assets:
-        stats.note_media_failure(profile)
-        try:
-            media.cleanup_event_media(downloaded.media_root.parent, downloaded.media_root.name)
-        except Exception:
-            stats.note_error(f"{profile.handle}: media cleanup failed")
-        raise ValueError("source media preparation failed")
     if downloaded.failed_assets:
         stats.note_media_failure(profile)
     downloaded = _reel_analysis_assets(post, downloaded, profile, stats)
@@ -701,6 +724,26 @@ def _claim_agent(
         return agent_protocol.build_wake_payload(None)
 
 
+def _note_reclaimed_agent_leases(value: dict, now: datetime, stats: RunStats) -> None:
+    reclaimed = 0
+    for event in value.get("outbox", []):
+        if event.get("agent_phase") != "awaiting_agent":
+            continue
+        raw_lease = event.get("agent_lease_until")
+        expired = raw_lease is None
+        if isinstance(raw_lease, str):
+            try:
+                lease = datetime.fromisoformat(raw_lease)
+            except ValueError:
+                expired = True
+            else:
+                expired = lease <= now
+        if expired:
+            reclaimed += 1
+    if reclaimed:
+        stats.note_error(f"reclaimed {reclaimed} expired agent lease(s)")
+
+
 def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, object]:
     now = now or datetime.now(WIB)
     if now.tzinfo is None or now.utcoffset() is None:
@@ -721,6 +764,7 @@ def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, o
             state.prune_deliveries(value, now)
             stats.filtered = state.take_filtered_since_last_heartbeat(value)
             profiles = {profile.id: profile for profile in watches.profiles}
+            _retry_media_cleanup(value, storage, stats, no_post=no_post)
             backend: object | None = None
             for profile in watches.profiles:
                 if not profile.enabled:
@@ -779,9 +823,9 @@ def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, o
                     state.save_state(storage, value)
 
             if not no_post:
-                _retry_media_cleanup(value, storage, stats, no_post=False)
                 _drain_deliveries(value, profiles, storage, stats, now)
                 _retry_media_cleanup(value, storage, stats, no_post=False)
+                _note_reclaimed_agent_leases(value, now, stats)
                 _post_heartbeat(now, stats)
                 return _claim_agent(value, profiles, storage, now, stats)
 

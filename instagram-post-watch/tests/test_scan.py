@@ -184,30 +184,84 @@ def test_source_failure_keeps_cursor_and_has_no_discord_side_effect(tmp_path, mo
     assert calls == []
 
 
-def test_source_asset_failure_keeps_cursor_and_does_not_queue_partial_delivery(tmp_path, monkeypatch, config_path):
+def test_partial_source_failure_queues_event_ocr_and_keeps_successful_assets(tmp_path, monkeypatch, config_path):
     profile = config.load_watch_config(config_path).profiles[0]
     storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
     _initialize_cursor(storage, profile, _post(profile.id, "baseline", 0))
-    post = _post(profile.id, "asset-failure", 1)
+    post = _post(
+        profile.id,
+        "asset-failure",
+        1,
+        media=(
+            SourceMedia("https://cdn.example/failed.jpg", MediaKind.IMAGE, 0),
+            SourceMedia("https://cdn.example/success.jpg", MediaKind.IMAGE, 1),
+        ),
+    )
     monkeypatch.setattr(scan.rsshub, "fetch_profile_items", lambda *_args, **_kwargs: [post])
 
     def download(current_post, root, *_args, **_kwargs):
         event_root = root / current_post.publication_id
         return DownloadedPublication(
-            (),
+            (_asset(event_root, current_post.media[1]),),
             event_root,
             (FailedAsset(current_post.media[0], "download_failed"),),
         )
 
     monkeypatch.setattr(scan.media, "download_publication", download)
     monkeypatch.setattr(scan.ocr, "build_backend", lambda *_args: FakeBackend())
-    monkeypatch.setattr(scan.media, "cleanup_event_media", lambda *_args: None)
+    ocr_calls: list[int] = []
+
+    def extract(asset, *_args):
+        ocr_calls.append(asset.source.index)
+        return ocr.OCRResult(
+            ocr.OCRStatus.SUCCESS,
+            text="The successful slide contains enough market context for analysis.",
+            confidence=0.99,
+            min_confidence=0.98,
+            engine_id="fake",
+            model_version="fake-v1",
+            languages=("ind", "eng"),
+        )
+
+    monkeypatch.setattr(scan.ocr, "extract_cached", extract)
 
     scan.run(now=NOW + timedelta(minutes=1), dry_run=True)
 
     saved = state.load_state(storage)
-    assert saved["profiles"][profile.id]["cursor"] == "baseline"
-    assert saved["outbox"] == []
+    event = saved["outbox"][0]
+    assert saved["profiles"][profile.id]["cursor"] == "asset-failure"
+    assert [asset["source"]["index"] for asset in event["downloaded_publication"]["assets"]] == [1]
+    assert [asset["source"]["index"] for asset in event["downloaded_publication"]["failed_assets"]] == [0]
+    assert ocr_calls == [1]
+    decision = state.deserialize_vision_decision(event["vision_decision"])
+    assert decision.mode is vision_gate.VisionMode.VISION_PARTIAL
+
+
+def test_retried_event_owns_media_before_stale_cleanup_runs(tmp_path, monkeypatch, config_path):
+    profile = config.load_watch_config(config_path).profiles[0]
+    storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
+    baseline = _post(profile.id, "baseline", 0)
+    post = _post(profile.id, "retried", 1)
+    value = state.new_state()
+    state.observe_publications(value, profile, [baseline], NOW, lambda _: {})
+    state.queue_media_cleanup(
+        value,
+        f"{profile.id}:{post.publication_id}",
+        profile.id,
+        post.publication_id,
+        str(media_root / post.publication_id),
+    )
+    state.observe_publications(value, profile, [post], NOW + timedelta(minutes=1), lambda item: _prepared(item, media_root))
+    state.save_state(storage, value)
+    cleaned: list[tuple[Path, str]] = []
+    monkeypatch.setattr(scan.media, "cleanup_event_media", lambda root, event_id: cleaned.append((root, event_id)))
+
+    stats = scan.RunStats()
+    scan._retry_media_cleanup(value, storage, stats, no_post=False)
+
+    assert cleaned == []
+    assert [item["event_key"] for item in state.load_state(storage)["cleanup"]] == [f"{profile.id}:{post.publication_id}"]
+    assert state.load_state(storage)["outbox"][0]["event_key"] == f"{profile.id}:{post.publication_id}"
 
 
 def test_carousel_is_one_event_and_every_image_is_ocrd(tmp_path, monkeypatch, config_path):
@@ -305,6 +359,43 @@ def test_reel_frames_are_ocrd_but_delivery_keeps_source_order(tmp_path, monkeypa
     assert ocr_calls == [1, 2]
     assert [item["source"]["kind"] for item in event["downloaded_publication"]["assets"]] == ["video", "image", "image"]
     assert [item["source"]["index"] for item in event["downloaded_publication"]["assets"]] == [0, 1, 2]
+
+
+def test_reel_delivery_sends_only_original_video_not_cover_or_sampled_frames(tmp_path, monkeypatch, config_path):
+    profile = config.load_watch_config(config_path).profiles[0]
+    storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
+    _initialize_cursor(storage, profile, _post(profile.id, "baseline", 0))
+    reel = _post(
+        profile.id,
+        "deliver-reel",
+        1,
+        kind=PublicationKind.REEL,
+        media=(
+            SourceMedia("https://cdn.example/reel.mp4", MediaKind.VIDEO, 0),
+            SourceMedia("https://cdn.example/reel-cover.jpg", MediaKind.IMAGE, 1),
+        ),
+    )
+    prepared = _prepared(reel, media_root)
+    event = _queued_event(storage, profile, reel, prepared, NOW + timedelta(minutes=1))
+    value = state.load_state(storage)
+    claimed = state.claim_oldest_agent(value, {profile.id: profile}, datetime.now(scan.WIB))
+    assert claimed is not None
+    state.save_state(storage, value)
+    legs: list[tuple[str, str]] = []
+    monkeypatch.setattr(scan.discord, "post_text", lambda *_args: legs.append(("text", "text")) or "text-id")
+    monkeypatch.setattr(scan.discord, "post_media", lambda path, *_args: legs.append(("media", path.name)) or f"media-{path.name}")
+    monkeypatch.setattr(scan.media, "cleanup_event_media", lambda *_args: None)
+
+    result = scan.submit_analysis_payload({
+        "event_key": event["event_key"],
+        "is_relevant": True,
+        "title": "Macro: Reel",
+        "summary": "*(Ringkasan)* Reel",
+        "route": "macro",
+    })
+
+    assert result == {"submitted": True, "ignored": False, "delivered": 1}
+    assert [value for kind, value in legs if kind == "media"] == ["0.mp4"]
 
 
 def test_no_post_does_not_send_heartbeat_or_claim_agent(tmp_path, monkeypatch, config_path):
@@ -510,7 +601,8 @@ def test_expired_agent_lease_is_reclaimed_by_next_non_no_post_run(tmp_path, monk
     assert claimed is not None
     state.save_state(storage, value)
     monkeypatch.setattr(scan.rsshub, "fetch_profile_items", lambda *_args, **_kwargs: [])
-    monkeypatch.setattr(scan.discord, "post_text", lambda *_args: "heartbeat")
+    heartbeats: list[str] = []
+    monkeypatch.setattr(scan.discord, "post_text", lambda content, *_args: heartbeats.append(content) or "heartbeat")
     monkeypatch.setattr(scan.agent_protocol, "agent_item", lambda _profile, _event: {
         "event_key": event["event_key"],
         "profile_handle": profile.handle,
@@ -542,6 +634,7 @@ def test_expired_agent_lease_is_reclaimed_by_next_non_no_post_run(tmp_path, monk
     renewed = state.load_state(storage)["outbox"][0]
     assert renewed["agent_phase"] == "awaiting_agent"
     assert renewed["agent_lease_until"] != claimed["agent_lease_until"]
+    assert any("reclaimed 1 expired agent lease(s)" in content and "⚠️" in content for content in heartbeats)
 
 
 def test_direct_market_disclosure_cannot_be_marked_irrelevant(tmp_path, monkeypatch, config_path):

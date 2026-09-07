@@ -196,6 +196,35 @@ def _is_private(item: dict) -> bool:
     return isinstance(metadata, dict) and (metadata.get("private") is True or metadata.get("is_private") is True)
 
 
+def _is_truthy_reel_flag(value: object) -> bool:
+    if value is True:
+        return True
+    return isinstance(value, str) and value.strip().casefold() in {"1", "true", "yes"}
+
+
+def _is_reel_item(item: dict, media: list[tuple[str, MediaKind]]) -> bool:
+    """Recognize clips even when RSSHub gives them a /p/ publication URL."""
+    metadata_sources = [item]
+    metadata = item.get("metadata")
+    if isinstance(metadata, dict):
+        metadata_sources.append(metadata)
+    for source in metadata_sources:
+        if _is_truthy_reel_flag(source.get("is_reel")):
+            return True
+        for key in ("product_type", "type"):
+            value = source.get(key)
+            if isinstance(value, str) and value.strip().casefold() in {
+                "clip",
+                "clips",
+                "igtv",
+                "reel",
+                "reels",
+                "video",
+            }:
+                return True
+    return any(media_kind is MediaKind.VIDEO for _url, media_kind in media)
+
+
 def _parse_item(item: object, profile: Profile) -> SourcePost | None:
     if not isinstance(item, dict) or _is_private(item):
         return None
@@ -213,6 +242,8 @@ def _parse_item(item: object, profile: Profile) -> SourcePost | None:
         parser.close()
     except Exception:
         return None
+    if _is_reel_item(item, parser.media):
+        kind = PublicationKind.REEL
     seen: set[str] = set()
     media: list[SourceMedia] = []
     for url, media_kind in parser.media:
@@ -241,16 +272,19 @@ def parse_feed(payload: object, profile: Profile, after_id: str | None = None) -
     if payload.get("private") is True or isinstance(payload.get("profile"), dict) and payload["profile"].get("is_private") is True:
         return []
     posts: list[SourcePost] = []
-    cursor_seen = after_id is None
     for item in payload["items"]:
         post = _parse_item(item, profile)
         if post is None:
             continue
-        if not cursor_seen:
-            if post.publication_id == after_id:
-                cursor_seen = True
-            continue
         posts.append(post)
+    if after_id is None:
+        return posts
+    for index, post in enumerate(posts):
+        if post.publication_id == after_id:
+            return posts[index + 1:]
+    # RSSHub returns one page. If the durable cursor is not on that page,
+    # return the page and let durable timestamp/ID comparisons and deduplication
+    # decide which entries are new.
     return posts
 
 

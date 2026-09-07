@@ -48,6 +48,37 @@ def test_reel_is_forwardable_when_reels_are_enabled(configured_profile):
     assert [asset.kind for asset in post.media] == [MediaKind.VIDEO, MediaKind.IMAGE]
 
 
+@pytest.mark.parametrize("metadata", [
+    {"product_type": "clips"},
+    {"product_type": "igtv"},
+    {"type": "reel"},
+    {"is_reel": True},
+])
+def test_reel_metadata_promotes_p_url_to_reel(configured_profile, metadata):
+    payload = {"items": [{
+        "id": "metadata-reel",
+        "url": "https://instagram.com/p/METADATAREEL/",
+        "date_published": "2026-08-24T10:00:00Z",
+        "content_html": '<p>Video publication</p><video src="https://cdn.example/reel.mp4"></video>',
+        **metadata,
+    }]}
+
+    posts = rsshub.parse_feed(payload, configured_profile)
+
+    assert posts[0].kind is PublicationKind.REEL
+
+
+def test_video_media_promotes_p_url_to_reel_without_metadata(configured_profile):
+    payload = {"items": [{
+        "id": "video-p-reel",
+        "url": "https://instagram.com/p/VIDEOPREEL/",
+        "date_published": "2026-08-24T10:00:00Z",
+        "content_html": '<p>Video publication</p><video src="https://cdn.example/reel.mp4"></video>',
+    }]}
+
+    assert rsshub.parse_feed(payload, configured_profile)[0].kind is PublicationKind.REEL
+
+
 def test_media_tags_are_removed_without_losing_caption_after_a_reel(configured_profile):
     payload = {"items": [{
         "id": "media-1004", "url": "https://instagram.com/reel/AFTER/",
@@ -233,3 +264,11 @@ def test_after_id_returns_only_newer_feed_entries(configured_profile):
     })
     posts = rsshub.parse_feed(payload, configured_profile, after_id="media-1002")
     assert [post.publication_id for post in posts] == ["media-1003"]
+
+
+def test_after_id_missing_from_page_returns_the_page_for_durable_filtering(configured_profile):
+    payload = load_fixture("carousel-post.json")
+
+    posts = rsshub.parse_feed(payload, configured_profile, after_id="cursor-not-on-page")
+
+    assert [post.publication_id for post in posts] == ["media-1002"]
