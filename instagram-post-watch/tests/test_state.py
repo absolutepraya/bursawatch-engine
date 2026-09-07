@@ -79,11 +79,11 @@ def _prepared(post: SourcePost, root: Path) -> dict:
     }
 
 
-def test_new_state_has_version_one_and_empty_delivery_ledgers():
+def test_new_state_has_version_two_and_empty_delivery_ledgers():
     value = state.new_state()
 
     assert value == {
-        "version": 1,
+        "version": 2,
         "profiles": {},
         "outbox": [],
         "deliveries": [],
@@ -223,6 +223,7 @@ def test_downloaded_ocr_and_vision_metadata_roundtrip_without_signed_urls(tmp_pa
     restored_vision = state.deserialize_vision_decision(vision)
 
     assert "token=secret" not in json.dumps(downloaded)
+    assert "cdn.example" not in json.dumps(downloaded)
     assert downloaded["assets"][0]["source"]["url"] == ""
     assert downloaded["assets"][0]["source"]["locator_digest"] == source_locator_digest(
         "https://cdn.example/signed.jpg?token=secret"
@@ -262,6 +263,74 @@ def test_source_media_digest_must_match_the_transient_url():
 
     with pytest.raises(ValueError, match="state is invalid"):
         state.serialize_post(mismatched)
+
+
+def test_state_version_mismatch_is_rejected_without_migration(tmp_path):
+    path = tmp_path / "state.json"
+    legacy = state.new_state()
+    legacy["version"] = 1
+    path.write_text(json.dumps(legacy), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="state is invalid"):
+        state.load_state(path)
+
+    future = state.new_state()
+    future["version"] = state.STATE_VERSION + 1
+    path.write_text(json.dumps(future), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="state is invalid"):
+        state.load_state(path)
+
+
+def test_event_rejects_swapped_downloaded_locator_identity(config_path, tmp_path):
+    profile = _profile(config_path)
+    value = state.new_state()
+    state.observe_publications(value, profile, [_publication(profile.id, "100", 0)], NOW, lambda item: {})
+    post = SourcePost(
+        profile.id,
+        "media-swapped",
+        "https://instagram.com/p/SWAPPED/",
+        NOW + timedelta(minutes=1),
+        "Caption",
+        PublicationKind.POST,
+        (
+            SourceMedia("https://cdn.example/first.jpg?token=first", MediaKind.IMAGE, 0),
+            SourceMedia("https://cdn.example/second.jpg?token=second", MediaKind.IMAGE, 1),
+        ),
+    )
+    media_root = tmp_path / post.publication_id
+    media_root.mkdir(parents=True)
+    downloaded = DownloadedPublication(
+        (
+            DownloadedAsset(
+                SourceMedia(post.media[1].url, MediaKind.IMAGE, 0),
+                media_root / "0.jpg",
+                "a" * 64,
+                1,
+                "image/jpeg",
+            ),
+            DownloadedAsset(
+                SourceMedia(post.media[0].url, MediaKind.IMAGE, 1),
+                media_root / "1.jpg",
+                "b" * 64,
+                1,
+                "image/jpeg",
+            ),
+        ),
+        media_root,
+    )
+
+    with pytest.raises(ValueError, match="publication preparation failed"):
+        state.observe_publications(
+            value,
+            profile,
+            [post],
+            NOW + timedelta(minutes=2),
+            lambda item: {"downloaded_publication": downloaded},
+        )
+
+    assert value["profiles"][profile.id]["cursor"] == "media-100"
+    assert value["outbox"] == []
 
 
 def test_event_keeps_text_and_media_progress_independent(config_path, tmp_path):

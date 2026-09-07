@@ -270,6 +270,7 @@ def _target_channel(profile: Profile, event: dict) -> str:
 def _source_media_by_index(post: SourcePost, downloaded: DownloadedPublication) -> tuple[DownloadedAsset, ...]:
     # Reel covers and sampled frames are analysis-only. The original reel
     # video is the only reel asset sent to Discord.
+    state.validate_source_media_coverage(post, downloaded)
     expected_sources = tuple(
         item
         for item in post.media

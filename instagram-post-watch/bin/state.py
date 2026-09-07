@@ -26,7 +26,10 @@ from ocr import OCRResult, OCRStatus
 from vision_gate import VisionDecision, VisionMode
 
 
-STATE_VERSION = 1
+# Version 2 is intentionally incompatible with version 1. Locator digests are
+# required to bind downloaded assets to their source, and a v1 state file has
+# no safe way to reconstruct them without retaining raw signed URLs.
+STATE_VERSION = 2
 AGENT_LEASE_DURATION = timedelta(minutes=15)
 DELIVERY_RETENTION = timedelta(days=90)
 
@@ -459,6 +462,34 @@ def deserialize_downloaded_publication(value: object) -> DownloadedPublication:
     return DownloadedPublication(assets, media_root, failed_assets)
 
 
+def validate_source_media_coverage(post: SourcePost, downloaded: DownloadedPublication) -> None:
+    """Require every source asset to be represented by its exact locator identity."""
+    if not isinstance(post, SourcePost) or not isinstance(downloaded, DownloadedPublication):
+        raise _invalid()
+    expected = {source.index: source for source in post.media}
+    actual: dict[int, SourceMedia] = {}
+    for item in (*downloaded.assets, *downloaded.failed_assets):
+        if not isinstance(item, (DownloadedAsset, FailedAsset)):
+            raise _invalid()
+        source = item.source
+        if source.index in actual:
+            raise _invalid()
+        expected_source = expected.get(source.index)
+        if expected_source is None:
+            # Reel frame assets are analysis-only and may extend the source
+            # indexes, but they must remain images and cannot replace sources.
+            if post.kind is not PublicationKind.REEL or _media_kind(source.kind) is not MediaKind.IMAGE:
+                raise _invalid()
+        elif (
+            _media_kind(source.kind) is not _media_kind(expected_source.kind)
+            or _source_locator_digest(source) != _source_locator_digest(expected_source)
+        ):
+            raise _invalid()
+        actual[source.index] = source
+    if not set(expected).issubset(actual):
+        raise _invalid()
+
+
 def _serialize_confidence(value: object) -> float | None:
     if value is None:
         return None
@@ -641,6 +672,9 @@ def _validate_event(value: object) -> dict[str, object]:
     downloaded_value = None
     if downloaded is not None:
         downloaded_value = deserialize_downloaded_publication(downloaded)
+        validate_source_media_coverage(post, downloaded_value)
+    elif post.media:
+        raise _invalid()
     ocr_results = event["ocr_results"]
     if type(ocr_results) is not list or len(ocr_results) > MAX_OCR_RESULTS:
         raise _invalid()

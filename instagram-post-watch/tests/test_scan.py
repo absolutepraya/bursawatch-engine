@@ -398,6 +398,44 @@ def test_reel_delivery_sends_only_original_video_not_cover_or_sampled_frames(tmp
     assert [value for kind, value in legs if kind == "media"] == ["0.mp4"]
 
 
+def test_delivery_rejects_swapped_source_locator_identity(tmp_path, config_path):
+    profile = config.load_watch_config(config_path).profiles[0]
+    post = _post(
+        profile.id,
+        "swapped-delivery",
+        1,
+        media=(
+            SourceMedia("https://cdn.example/first.jpg?token=first", MediaKind.IMAGE, 0),
+            SourceMedia("https://cdn.example/second.jpg?token=second", MediaKind.IMAGE, 1),
+        ),
+    )
+    media_root = tmp_path / post.publication_id
+    first = _asset(media_root, post.media[0])
+    second = _asset(media_root, post.media[1])
+    swapped = DownloadedPublication(
+        (
+            DownloadedAsset(
+                SourceMedia(post.media[1].url, MediaKind.IMAGE, 0),
+                first.path,
+                first.sha256,
+                first.size_bytes,
+                first.content_type,
+            ),
+            DownloadedAsset(
+                SourceMedia(post.media[0].url, MediaKind.IMAGE, 1),
+                second.path,
+                second.sha256,
+                second.size_bytes,
+                second.content_type,
+            ),
+        ),
+        media_root,
+    )
+
+    with pytest.raises(ValueError, match="state is invalid"):
+        scan._source_media_by_index(post, swapped)
+
+
 def test_no_post_does_not_send_heartbeat_or_claim_agent(tmp_path, monkeypatch, config_path):
     profile = config.load_watch_config(config_path).profiles[0]
     storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
