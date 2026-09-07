@@ -58,6 +58,9 @@ def _install_paths(monkeypatch, tmp_path: Path, config_path: Path) -> tuple[Path
     storage = tmp_path / "state" / "state.json"
     media_root = tmp_path / "state" / "media"
     cache_root = tmp_path / "state" / "ocr-cache"
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_STATE_PATH", str(storage))
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_MEDIA_ROOT", str(media_root))
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_OCR_CACHE_PATH", str(cache_root))
     monkeypatch.setattr(scan, "state_path", lambda: storage)
     monkeypatch.setattr(scan, "config_path", lambda: config_path)
     monkeypatch.setattr(scan, "media_root_path", lambda: media_root)
@@ -148,6 +151,20 @@ def test_first_observation_initializes_cursor_without_backfill(tmp_path, monkeyp
     saved = state.load_state(storage)
     assert result == {"wakeAgent": False, "item": None}
     assert saved["profiles"][profile.id]["cursor"] == "newest"
+    assert saved["outbox"] == []
+
+
+def test_first_observation_uses_complete_feed_before_poll_cap(tmp_path, monkeypatch, config_path):
+    profile = config.load_watch_config(config_path).profiles[0]
+    storage, _media_root = _install_paths(monkeypatch, tmp_path, config_path)
+    posts = [_post(profile.id, f"publication-{index:03d}", index) for index in range(profile.max_items_per_poll + 3)]
+    monkeypatch.setattr(scan.rsshub, "fetch_profile_items", lambda *_args, **_kwargs: posts)
+    monkeypatch.setattr(scan.ocr, "build_backend", lambda *_args: pytest.fail("first observation must not build OCR"))
+
+    scan.run(now=NOW, dry_run=True)
+
+    saved = state.load_state(storage)
+    assert saved["profiles"][profile.id]["cursor"] == posts[-1].publication_id
     assert saved["outbox"] == []
 
 
@@ -295,6 +312,7 @@ def test_no_post_does_not_send_heartbeat_or_claim_agent(tmp_path, monkeypatch, c
     storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
     _initialize_cursor(storage, profile, _post(profile.id, "baseline", 0))
     _install_download_and_ocr(monkeypatch, media_root)
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_NO_POST", "1")
     monkeypatch.setattr(scan.rsshub, "fetch_profile_items", lambda *_args, **_kwargs: [_post(profile.id, "new", 1)])
     calls: list[object] = []
     monkeypatch.setattr(scan.discord, "post_text", lambda *args: calls.append(args))
@@ -306,6 +324,66 @@ def test_no_post_does_not_send_heartbeat_or_claim_agent(tmp_path, monkeypatch, c
     assert result == {"wakeAgent": False, "item": None}
     assert calls == []
     assert claimed == []
+
+
+def test_no_post_requires_isolated_paths_before_creating_lock_or_media(tmp_path, monkeypatch, config_path):
+    for name in (
+        "INSTAGRAM_POST_WATCH_NO_POST",
+        "INSTAGRAM_POST_WATCH_STATE_PATH",
+        "INSTAGRAM_POST_WATCH_MEDIA_ROOT",
+        "INSTAGRAM_POST_WATCH_OCR_CACHE_PATH",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(scan, "config_path", lambda: config_path)
+
+    with pytest.raises(ValueError, match="explicit isolated state and media paths"):
+        scan.run(now=NOW, dry_run=True)
+
+    assert not (tmp_path / "state").exists()
+
+
+def test_batch_preparation_failure_persists_cleanup_for_every_attempted_root(tmp_path, monkeypatch, config_path):
+    profile = config.load_watch_config(config_path).profiles[0]
+    storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
+    _initialize_cursor(storage, profile, _post(profile.id, "baseline", 0))
+    posts = [_post(profile.id, "prepared", 1), _post(profile.id, "failed-later", 2)]
+    monkeypatch.setattr(scan.rsshub, "fetch_profile_items", lambda *_args, **_kwargs: posts)
+    _install_download_and_ocr(monkeypatch, media_root)
+
+    def download(post, root, _session, _limits, *, allow_partial=False):
+        del allow_partial
+        if post.publication_id == "failed-later":
+            raise RuntimeError("provider body token=secret")
+        event_root = root / post.publication_id
+        return DownloadedPublication(tuple(_asset(event_root, source) for source in post.media), event_root)
+
+    monkeypatch.setattr(scan.media, "download_publication", download)
+
+    scan.run(now=NOW + timedelta(minutes=1), dry_run=True)
+
+    saved = state.load_state(storage)
+    assert {item["event_key"] for item in saved["cleanup"]} == {
+        f"{profile.id}:prepared",
+        f"{profile.id}:failed-later",
+    }
+    assert all(item["media_root"] == str(media_root / item["publication_id"]) for item in saved["cleanup"])
+    assert saved["outbox"] == []
+
+
+def test_cleanup_failure_remains_retryable(tmp_path, monkeypatch, config_path):
+    storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
+    value = state.new_state()
+    state.queue_media_cleanup(value, "profile:publication", "profile", "publication", str(media_root / "publication"))
+    state.save_state(storage, value)
+    monkeypatch.setattr(scan.media, "cleanup_event_media", lambda *_args: (_ for _ in ()).throw(RuntimeError("cannot remove")))
+
+    stats = scan.RunStats()
+    scan._retry_media_cleanup(value, storage, stats, no_post=False)
+
+    saved = state.load_state(storage)
+    assert saved["cleanup"][0]["attempts"] == 1
+    assert saved["cleanup"][0]["last_error"] == "media cleanup failed"
+    assert stats.degraded is True
 
 
 def test_heartbeat_and_fatal_never_expose_urls_paths_or_secrets():
@@ -475,11 +553,111 @@ def test_direct_market_disclosure_cannot_be_marked_irrelevant(tmp_path, monkeypa
     value = state.load_state(storage)
     state.claim_oldest_agent(value, {profile.id: profile}, datetime.now(scan.WIB))
     state.save_state(storage, value)
+    heartbeats: list[str] = []
+    monkeypatch.setattr(scan.discord, "post_text", lambda content, *_args: heartbeats.append(content) or "heartbeat")
 
     with pytest.raises(ValueError, match="direct market disclosure"):
         scan.submit_analysis_payload({"event_key": event["event_key"], "is_relevant": False})
 
-    assert state.load_state(storage)["outbox"][0]["agent_phase"] == "awaiting_agent"
+    saved = state.load_state(storage)
+    assert saved["outbox"][0]["agent_phase"] == "awaiting_agent"
+    assert saved["outbox"][0]["last_error"] == "analysis submission failed"
+    assert len(heartbeats) == 1
+    assert heartbeats[0].startswith("🫀 instagram-post")
+
+
+def test_invalid_submission_heartbeat_redacts_provider_details_and_preserves_error(tmp_path, monkeypatch, config_path):
+    profile = config.load_watch_config(config_path).profiles[0]
+    storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
+    _initialize_cursor(storage, profile, _post(profile.id, "baseline", 0))
+    post = _post(profile.id, "invalid-submission", 1)
+    event = _queued_event(storage, profile, post, _prepared(post, media_root), NOW + timedelta(minutes=1))
+    value = state.load_state(storage)
+    state.claim_oldest_agent(value, {profile.id: profile}, NOW)
+    state.save_state(storage, value)
+    monkeypatch.setattr(
+        scan.agent_protocol,
+        "validate_submission",
+        lambda *_args: (_ for _ in ()).throw(ValueError("provider token=secret https://provider.example/body")),
+    )
+    heartbeats: list[str] = []
+    monkeypatch.setattr(scan.discord, "post_text", lambda content, *_args: heartbeats.append(content) or "heartbeat")
+
+    with pytest.raises(ValueError, match="provider token=secret"):
+        scan.submit_analysis_payload({"event_key": event["event_key"], "is_relevant": True})
+
+    saved = state.load_state(storage)
+    assert saved["outbox"][0]["last_error"] == "analysis submission failed"
+    assert len(heartbeats) == 1
+    assert "secret" not in heartbeats[0]
+    assert "https://" not in heartbeats[0]
+
+
+def test_discord_delivery_failure_is_heartbeat_visible_and_keeps_event_error(tmp_path, monkeypatch, config_path):
+    profile = config.load_watch_config(config_path).profiles[0]
+    storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
+    _initialize_cursor(storage, profile, _post(profile.id, "baseline", 0))
+    post = _post(profile.id, "delivery-failure", 1)
+    event = _queued_event(storage, profile, post, _prepared(post, media_root), NOW + timedelta(minutes=1))
+    value = state.load_state(storage)
+    state.claim_oldest_agent(value, {profile.id: profile}, NOW)
+    state.submit_analysis(
+        value,
+        event["event_key"],
+        {"title": "Macro: failure", "summary": "*(Ringkasan)* failure", "route": "macro", "is_relevant": True},
+        NOW,
+    )
+    state.save_state(storage, value)
+    monkeypatch.setattr(scan.rsshub, "fetch_profile_items", lambda *_args, **_kwargs: [])
+    heartbeats: list[str] = []
+
+    def post_text(content, *_args):
+        if content.startswith("🫀"):
+            heartbeats.append(content)
+            return "heartbeat"
+        raise RuntimeError("Discord provider token=secret")
+
+    monkeypatch.setattr(scan.discord, "post_text", post_text)
+
+    scan.run(now=NOW + timedelta(minutes=1), dry_run=False)
+
+    saved = state.load_state(storage)
+    assert saved["outbox"][0]["last_error"] == "Discord delivery failed"
+    assert len(heartbeats) == 1
+    assert "Discord delivery failed" in heartbeats[0]
+    assert "secret" not in heartbeats[0]
+
+
+def test_delivery_drain_caps_legs_and_marks_remaining_backlog(tmp_path, config_path, monkeypatch):
+    profile = config.load_watch_config(config_path).profiles[0]
+    value = {
+        "outbox": [
+            {
+                "profile_id": profile.id,
+                "event_key": f"{profile.id}:publication-{index}",
+                "ready_after": None,
+                "agent_phase": "ready",
+            }
+            for index in range(scan.MAX_DELIVERY_LEGS_PER_INVOCATION + 1)
+        ]
+    }
+    calls: list[int] = []
+
+    def deliver(current, _profiles, event_index, _dry_run, _storage, stats, _now):
+        calls.append(event_index)
+        stats.delivery_legs += 1
+        current["outbox"].pop(event_index)
+        return True
+
+    monkeypatch.setattr(scan, "_deliver", deliver)
+    stats = scan.RunStats()
+    scan._drain_deliveries(value, {profile.id: profile}, tmp_path / "state.json", stats, NOW)
+
+    assert len(calls) == scan.MAX_DELIVERY_LEGS_PER_INVOCATION
+    assert len(value["outbox"]) == 1
+    assert stats.degraded is True
+    assert stats.needs_attention is True
+    assert any("delivery backlog remains" in reason for reason in stats.reasons)
 
 
 def test_wrapper_preserves_submit_arguments_and_exit_status(tmp_path):
@@ -511,6 +689,27 @@ def test_wrapper_preserves_submit_arguments_and_exit_status(tmp_path):
     assert capture.read_text(encoding="utf-8").splitlines() == [str(scanner), "submit-analysis", "--json", '{"event_key":"profile:publication"}']
     assert "not-for-output" not in completed.stdout
     assert "not-for-output" not in completed.stderr
+
+
+def test_wrapper_rejects_no_post_without_isolated_paths(tmp_path):
+    fake_python = tmp_path / "fake-python"
+    fake_python.write_text("#!/bin/sh\nexit 9\n", encoding="utf-8")
+    fake_python.chmod(0o755)
+
+    completed = subprocess.run(
+        [str(Path(__file__).resolve().parent.parent / "bin" / "instagram-post-watch.sh")],
+        env={
+            **os_environ(),
+            "HOME": str(tmp_path / "home"),
+            "INSTAGRAM_POST_WATCH_PY": str(fake_python),
+            "INSTAGRAM_POST_WATCH_NO_POST": "1",
+        },
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "requires an absolute INSTAGRAM_POST_WATCH_STATE_PATH" in completed.stderr
 
 
 def os_environ() -> dict[str, str]:

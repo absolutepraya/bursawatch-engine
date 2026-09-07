@@ -1148,6 +1148,37 @@ def discard_analysis(value: dict, event_key: str, now: datetime | None = None) -
     _validate_state(value)
 
 
+def queue_media_cleanup(
+    value: dict,
+    event_key: str,
+    profile_id: str,
+    publication_id: str,
+    media_root: str | None,
+) -> dict[str, object]:
+    _validate_state(value)
+    profile_id = _safe_component(profile_id)
+    publication_id = _safe_component(publication_id)
+    event_key = _safe_token(event_key)
+    if event_key != f"{profile_id}:{publication_id}":
+        raise _invalid()
+    cleanup_entry = {
+        "event_key": event_key,
+        "profile_id": profile_id,
+        "publication_id": publication_id,
+        "media_root": media_root,
+        "attempts": 0,
+        "last_error": None,
+    }
+    _validate_cleanup(cleanup_entry)
+    for item in value["cleanup"]:
+        if item["event_key"] == event_key:
+            return item
+    candidate = {**value, "cleanup": [*value["cleanup"], cleanup_entry]}
+    _validate_state(candidate)
+    value["cleanup"].append(cleanup_entry)
+    return cleanup_entry
+
+
 def prune_deliveries(value: dict, now: datetime) -> None:
     _validate_state(value)
     _aware_datetime(now)
