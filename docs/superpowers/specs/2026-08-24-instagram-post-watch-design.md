@@ -29,13 +29,13 @@ https://www.instagram.com/beyondthefundamental
 
 ## Source and authentication
 
-The source adapter uses the authenticated RSSHub private Instagram route:
+The source adapter uses the authenticated RSSHub Instagram web API route:
 
 ```text
-http://127.0.0.1:1200/instagram/user/<handle>?format=json
+http://127.0.0.1:1200/instagram/2/user/<handle>?format=json
 ```
 
-The RSSHub container owns `IG_USERNAME` and `IG_PASSWORD` through its VPS-local `.env`. The watcher does not receive or log those values. The account should be a dedicated watcher account, and the private RSSHub route must be compatible with its authentication configuration.
+The RSSHub container owns `IG_COOKIE` through its VPS-local `.env`. The watcher does not receive or log the cookie. The account should be a dedicated watcher account. RSSHub's legacy private route accepts `IG_USERNAME` and `IG_PASSWORD`, but its login flow does not support 2FA, so the watcher uses the cookie-based web API route instead.
 
 The watcher accepts only Instagram profile URLs and publication URLs for `/p/` and `/reel/` forms. If the source explicitly reports a private target, the profile is skipped and the heartbeat is degraded. The watcher does not discover private accounts or attempt to bypass Instagram access controls.
 

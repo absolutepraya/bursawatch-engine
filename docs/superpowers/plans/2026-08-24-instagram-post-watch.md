@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Watch public Instagram posts and reels only. Exclude stories, comments, tagged posts, mentions, live broadcasts, and private-account monitoring.
-- Use the authenticated RSSHub route `http://127.0.0.1:1200/instagram/user/<handle>?format=json`; direct Instagram scraping and alternate production fetchers are out of scope.
+- Use the authenticated RSSHub web API route `http://127.0.0.1:1200/instagram/2/user/<handle>?format=json`; direct Instagram scraping and alternate production fetchers are out of scope.
 - Keep Instagram credentials in VPS RSSHub service configuration only. Never place credentials, cookies, signed URLs, or raw provider bodies in source, logs, tests, payloads, or commits.
 - Run OCR for every downloaded image and every sampled reel frame, including assets later supplied to the LLM.
 - Use `text_only` when OCR is complete and sufficient, `vision_partial` for failed or uncertain assets, and `vision_full` when the publication needs complete visual context.
@@ -77,7 +77,7 @@
 **Interfaces:**
 - Produces `Profile`, `DiscordChannel`, `SourcePost`, `SourceMedia`, `PublicationKind`, and `MediaKind` models for later tasks.
 - Produces `load_watch_config(path: Path) -> WatchConfig`.
-- Produces `Profile.feed_url`, exactly `http://127.0.0.1:1200/instagram/user/<handle>?format=json`.
+- Produces `Profile.feed_url`, exactly `http://127.0.0.1:1200/instagram/2/user/<handle>?format=json`.
 
 - [ ] **Step 1: Create the source directories and approved first profile fixture**
 
@@ -98,7 +98,7 @@ def test_load_config_builds_instagram_feed_url(config_path):
     profile = config_module.load_watch_config(config_path).profiles[0]
     assert profile.handle == "beyondthefundamental"
     assert profile.feed_url == (
-        "http://127.0.0.1:1200/instagram/user/"
+        "http://127.0.0.1:1200/instagram/2/user/"
         "beyondthefundamental?format=json"
     )
 ```
@@ -648,7 +648,7 @@ Add `instagram-post-watch/AGENTS.md` to the root child instruction list and add 
 
 - [ ] **Step 3: Extend documentation-contract tests**
 
-Add `instagram-post-watch` to `AGENT_BACKED_CRONS`, increase the reviewed total from `15` to `16`, and add governance anchors that must remain in its `AGENTS.md`, including `IG_USERNAME`, `IG_PASSWORD`, `vision_partial`, `vision_full`, `public posts and reels`, and `15-minute agent leases`. Keep the existing `x-post-watch` anchors unchanged.
+Add `instagram-post-watch` to `AGENT_BACKED_CRONS`, increase the reviewed total from `15` to `16`, and add governance anchors that must remain in its `AGENTS.md`, including `IG_COOKIE`, `IG_USERNAME`, `IG_PASSWORD`, the cookie-based `/instagram/2/user/<handle>?format=json` route, `vision_partial`, `vision_full`, `public posts and reels`, and `15-minute agent leases`. Keep the existing `x-post-watch` anchors unchanged.
 
 - [ ] **Step 4: Add the watcher suite to `scripts/test-all`**
 
@@ -737,7 +737,7 @@ From a VPS-local agent, inspect the current RSSHub compose environment, deployed
 
 - [ ] **Step 2: Obtain approval for the first VPS write**
 
-Show the user the sanitized diff covering the RSSHub `IG_USERNAME` and `IG_PASSWORD` variable references, isolated OCR environment path, deployed watcher files, and intended cron registration. Do not write any VPS file until this approval is recorded in the current conversation.
+Show the user the sanitized diff covering the RSSHub `IG_COOKIE` variable reference, isolated OCR environment path, deployed watcher files, and intended cron registration. Do not write any VPS file until this approval is recorded in the current conversation.
 
 - [ ] **Step 3: Configure RSSHub authentication and the isolated OCR runtime**
 

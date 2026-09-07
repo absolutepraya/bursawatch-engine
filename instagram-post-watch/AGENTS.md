@@ -7,8 +7,8 @@ and domain source of truth for the agent-backed `instagram-post-watch` cron.
 ## Source and authentication
 
 - Development source is `instagram-post-watch/bin/`; `config/watches.json` is the reviewed watched-profile and OCR policy. The deployed runtime is `~/.agents/skills/instagram-post-watch/`, with the wrapper at `~/.hermes/scripts/instagram-post-watch.sh`.
-- The watcher reads public posts and reels only through the authenticated local RSSHub route `http://127.0.0.1:1200/instagram/user/<handle>?format=json`. It does not directly scrape Instagram and has no Meta Graph, Picuki, Picnob, or Cobalt fallback.
-- RSSHub owns `IG_USERNAME` and `IG_PASSWORD` in its VPS-local configuration. Credential values never enter source, logs, wake payloads, state, commits, or Discord content. The watcher must not receive or print them.
+- The watcher reads public posts and reels only through the authenticated local RSSHub web API route `http://127.0.0.1:1200/instagram/2/user/<handle>?format=json`. It does not directly scrape Instagram and has no Meta Graph, Picuki, Picnob, or Cobalt fallback.
+- RSSHub owns `IG_COOKIE` in its VPS-local configuration. The legacy private route uses `IG_USERNAME` and `IG_PASSWORD`, but this watcher does not use that route because its login flow does not support 2FA. Credential and cookie values never enter source, logs, wake payloads, state, commits, or Discord content. The watcher must not receive or print them.
 - `config/watches.json` is the exact JSON configuration boundary. Its root, profile, and channel objects contain only schema-defined keys, and the strict validator rejects unknown fields at every object boundary.
 - Credentials, cookies, signed CDN URLs, raw provider response bodies, and local secret paths are explicitly excluded from source, logs, wake payloads, and persistent state.
 - The first profile is `beyondthefundamental`, with `macro` channel `1531655369884045382` and `id_stock` channel `1525102508714889257`. Profile IDs are durable state namespaces and must not be renamed after deployment.
