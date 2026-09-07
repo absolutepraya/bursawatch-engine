@@ -17,6 +17,11 @@ from models import DownloadedAsset, DownloadedPublication, FailedAsset, MediaKin
 NOW = datetime(2026, 8, 25, 10, 0, tzinfo=UTC)
 
 
+@pytest.fixture(autouse=True)
+def isolated_watcher_media_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_MEDIA_ROOT", str(tmp_path))
+
+
 def _profile(config_path: Path):
     return config.load_watch_config(config_path).profiles[0]
 
@@ -142,6 +147,8 @@ def test_text_only_payload_contains_all_ocr_but_no_image_paths(config_path, tmp_
 
     assert set(item) == agent_protocol._ITEM_KEYS
     assert item["vision_mode"] == "text_only"
+    assert item["vision_asset_ids"] == []
+    assert item["vision_asset_path_ids"] == []
     assert item["vision_asset_paths"] == []
     assert "Image 1 OCR" in item["post_text"]
     assert "Image 2 OCR" in item["post_text"]
@@ -164,6 +171,8 @@ def test_partial_payload_contains_only_uncertain_image_path(config_path, tmp_pat
     item = agent_protocol.agent_item(profile, event)
 
     assert item["vision_mode"] == "vision_partial"
+    assert item["vision_asset_ids"] == [1]
+    assert item["vision_asset_path_ids"] == [1]
     assert item["vision_asset_paths"] == [str(tmp_path / "ABC123" / "1.jpg")]
     assert len(item["vision_asset_paths"]) == 1
     assert "Image 1 OCR" in item["post_text"]
@@ -184,6 +193,8 @@ def test_full_payload_contains_every_ordered_image_path(config_path, tmp_path):
     item = agent_protocol.agent_item(profile, event)
 
     assert item["vision_mode"] == "vision_full"
+    assert item["vision_asset_ids"] == [0, 1]
+    assert item["vision_asset_path_ids"] == [0, 1]
     assert item["vision_asset_paths"] == [
         str(tmp_path / "ABC123" / "0.jpg"),
         str(tmp_path / "ABC123" / "1.jpg"),
@@ -220,6 +231,11 @@ def test_reel_payload_keeps_video_and_sampled_frame_ocr_in_order_and_guards(conf
         "Cover says market structure.",
         "Frame says earnings are slowing.",
     ]
+    assert [asset["kind"] for asset in ocr_assets] == ["video", "image", "image"]
+    assert "[UNTRUSTED Video 1 OCR]" in item["post_text"]
+    assert "[/UNTRUSTED Video 1 OCR]" in item["post_text"]
+    assert "[UNTRUSTED Image 1 OCR]" in item["post_text"]
+    assert "[UNTRUSTED Image 2 OCR]" in item["post_text"]
     assert video_text in item["post_text"]
     assert "Cover says market structure." in item["post_text"]
     reel_post = _post(profile, kind=PublicationKind.REEL, media_kinds=media_kinds, count=3)
@@ -241,11 +257,16 @@ def test_failed_download_is_labeled_without_inventing_a_path(config_path, tmp_pa
     item = agent_protocol.agent_item(profile, event)
 
     assert item["vision_asset_paths"] == []
+    assert item["vision_asset_ids"] == [1]
+    assert item["vision_asset_path_ids"] == []
     assert item["ocr_assets"][1] == {
         "index": 1,
+        "kind": "image",
+        "available": False,
         "status": "download_failed",
         "text": "",
         "confidence": None,
+        "min_confidence": None,
     }
     assert "OCR unavailable: download_failed" in item["post_text"]
 
@@ -361,7 +382,7 @@ def test_wake_payload_rejects_arbitrary_paths_and_invalid_vision_modes(config_pa
         ),
     )
     partial["vision_mode"] = "text_only"
-    with pytest.raises(ValueError, match="text-only"):
+    with pytest.raises(ValueError, match="text-only vision"):
         agent_protocol.build_wake_payload(partial)
 
     full = agent_protocol.agent_item(
@@ -375,8 +396,109 @@ def test_wake_payload_rejects_arbitrary_paths_and_invalid_vision_modes(config_pa
         ),
     )
     full["vision_asset_paths"] = []
-    with pytest.raises(ValueError, match="full vision"):
+    with pytest.raises(ValueError, match="vision path"):
         agent_protocol.build_wake_payload(full)
+
+
+def test_wake_payload_requires_configured_media_root_ancestor(config_path, tmp_path, monkeypatch):
+    profile = _profile(config_path)
+    item = agent_protocol.agent_item(profile, _event(profile, tmp_path))
+
+    monkeypatch.delenv("INSTAGRAM_POST_WATCH_MEDIA_ROOT")
+    with pytest.raises(ValueError, match="watcher media root"):
+        agent_protocol.build_wake_payload(item)
+
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_MEDIA_ROOT", str(tmp_path))
+    outside_event_root = tmp_path.parent / f"{tmp_path.name}-outside" / "ABC123"
+    outside_event_root.mkdir(parents=True)
+    item["vision_asset_root"] = str(outside_event_root)
+    with pytest.raises(ValueError, match="outside the watcher media root"):
+        agent_protocol.build_wake_payload(item)
+
+
+def test_agent_item_rejects_media_root_outside_configured_watcher_root(config_path, tmp_path):
+    profile = _profile(config_path)
+    outside_parent = tmp_path.parent / f"{tmp_path.name}-outside-agent"
+
+    with pytest.raises(ValueError, match="outside the watcher media root"):
+        agent_protocol.agent_item(profile, _event(profile, outside_parent))
+
+
+def test_wake_payload_enforces_exact_vision_ids_and_paths(config_path, tmp_path):
+    profile = _profile(config_path)
+    partial = agent_protocol.agent_item(
+        profile,
+        _event(
+            profile,
+            tmp_path,
+            results=(_result("Clear"), _result("Uncertain", 0.4)),
+            vision_mode=vision_gate.VisionMode.VISION_PARTIAL,
+            selected_indexes=(1,),
+        ),
+    )
+
+    partial["vision_asset_ids"] = []
+    with pytest.raises(ValueError, match="vision path indexes"):
+        agent_protocol.build_wake_payload(partial)
+
+    partial = agent_protocol.agent_item(
+        profile,
+        _event(
+            profile,
+            tmp_path,
+            results=(_result("Clear"), _result("Uncertain", 0.4)),
+            vision_mode=vision_gate.VisionMode.VISION_PARTIAL,
+            selected_indexes=(1,),
+        ),
+    )
+    partial["vision_asset_path_ids"] = []
+    partial["vision_asset_paths"] = []
+    with pytest.raises(ValueError, match="path indexes"):
+        agent_protocol.build_wake_payload(partial)
+
+    text_only = agent_protocol.agent_item(profile, _event(profile, tmp_path))
+    text_only["vision_asset_ids"] = [0]
+    with pytest.raises(ValueError, match="selected vision mode"):
+        agent_protocol.build_wake_payload(text_only)
+
+    full = agent_protocol.agent_item(
+        profile,
+        _event(
+            profile,
+            tmp_path,
+            results=(_result("", None, ocr.OCRStatus.NO_TEXT), _result("", None, ocr.OCRStatus.NO_TEXT)),
+            vision_mode=vision_gate.VisionMode.VISION_FULL,
+            selected_indexes=(0, 1),
+        ),
+    )
+    full["vision_asset_ids"] = [0]
+    with pytest.raises(ValueError, match="vision path indexes"):
+        agent_protocol.build_wake_payload(full)
+
+
+def test_wake_payload_requires_path_for_downloaded_not_processed_image(config_path, tmp_path):
+    profile = _profile(config_path)
+    item = agent_protocol.agent_item(
+        profile,
+        _event(
+            profile,
+            tmp_path,
+            results=(_result("Clear"), _result("Uncertain", 0.4)),
+            vision_mode=vision_gate.VisionMode.VISION_PARTIAL,
+            selected_indexes=(1,),
+        ),
+    )
+    item["ocr_assets"][1]["status"] = "not_processed"
+    item["vision_asset_path_ids"] = []
+    item["vision_asset_paths"] = []
+
+    with pytest.raises(ValueError, match="path indexes"):
+        agent_protocol.build_wake_payload(item)
+
+    text_only = agent_protocol.agent_item(profile, _event(profile, tmp_path))
+    text_only["ocr_assets"][0]["status"] = "not_processed"
+    with pytest.raises(ValueError, match="text-only vision"):
+        agent_protocol.build_wake_payload(text_only)
 
 
 def test_wake_payload_rejects_duplicate_or_unordered_ocr_asset_indexes(config_path, tmp_path):
@@ -384,6 +506,38 @@ def test_wake_payload_rejects_duplicate_or_unordered_ocr_asset_indexes(config_pa
     item = agent_protocol.agent_item(profile, _event(profile, tmp_path))
 
     item["ocr_assets"] = [dict(item["ocr_assets"][0]), dict(item["ocr_assets"][0])]
+    with pytest.raises(ValueError, match="ordered and unique"):
+        agent_protocol.build_wake_payload(item)
+
+
+def test_wake_payload_rejects_duplicate_or_unordered_vision_indexes(config_path, tmp_path):
+    profile = _profile(config_path)
+    item = agent_protocol.agent_item(
+        profile,
+        _event(
+            profile,
+            tmp_path,
+            results=(_result("", None, ocr.OCRStatus.NO_TEXT), _result("", None, ocr.OCRStatus.NO_TEXT)),
+            vision_mode=vision_gate.VisionMode.VISION_FULL,
+            selected_indexes=(0, 1),
+        ),
+    )
+
+    item["vision_asset_ids"] = [0, 0]
+    with pytest.raises(ValueError, match="ordered and unique"):
+        agent_protocol.build_wake_payload(item)
+
+    item = agent_protocol.agent_item(
+        profile,
+        _event(
+            profile,
+            tmp_path,
+            results=(_result("", None, ocr.OCRStatus.NO_TEXT), _result("", None, ocr.OCRStatus.NO_TEXT)),
+            vision_mode=vision_gate.VisionMode.VISION_FULL,
+            selected_indexes=(0, 1),
+        ),
+    )
+    item["vision_asset_path_ids"] = [1, 0]
     with pytest.raises(ValueError, match="ordered and unique"):
         agent_protocol.build_wake_payload(item)
 

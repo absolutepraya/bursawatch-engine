@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from html.parser import HTMLParser
+import math
+import os
 import re
 from pathlib import Path
+import stat
 from urllib.parse import urlparse
 
 from models import MediaKind, Profile, PublicationKind, SourcePost
@@ -15,7 +18,7 @@ from state import (
     deserialize_post,
     deserialize_vision_decision,
 )
-from vision_gate import VisionMode, _uncertain
+from vision_gate import VisionMode, _mostly_noise, _uncertain
 
 
 MAX_POST_TEXT = 16_000
@@ -101,8 +104,11 @@ _ITEM_KEYS = {
     "caption_text",
     "post_text",
     "ocr_assets",
+    "ocr_min_confidence",
     "vision_mode",
     "vision_asset_root",
+    "vision_asset_ids",
+    "vision_asset_path_ids",
     "vision_asset_paths",
     "media_count",
     "title_required",
@@ -112,20 +118,18 @@ _ITEM_KEYS = {
     "relevance_guard_required",
     "instruction",
 }
-_OCR_ASSET_KEYS = {"index", "status", "text", "confidence"}
+_OCR_ASSET_KEYS = {
+    "index",
+    "kind",
+    "available",
+    "status",
+    "text",
+    "confidence",
+    "min_confidence",
+}
 _EVENT_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*:[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SAFE_STATUS_RE = re.compile(r"^[A-Za-z0-9_:-]{1,64}$")
 _UNTRUSTED_DELIMITER_RE = re.compile(r"\[/?\s*UNTRUSTED\b[^\]\r\n]{0,256}\]", re.IGNORECASE)
-_NO_PATH_VISION_STATUSES = {
-    "download_failed",
-    "frame_sampling_failed",
-    "publication_size_limit",
-    "unsupported_content_type",
-    "unsupported_media_url",
-    "not_processed",
-}
-
-
 class _CaptionTextParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -273,7 +277,8 @@ def _safe_local_path(value: object, root: Path) -> Path:
     if any(part in {".", ".."} for part in candidate.parts):
         raise ValueError("vision path is invalid")
     try:
-        if candidate.is_symlink() or not candidate.is_file():
+        _lstat_components(candidate)
+        if not candidate.is_file():
             raise ValueError("vision path is invalid")
         resolved = candidate.resolve(strict=True)
         resolved.relative_to(root)
@@ -286,14 +291,63 @@ def _safe_media_root(value: object) -> Path:
     if type(value) is not str or not value or len(value) > MAX_LOCAL_PATH_CHARACTERS:
         raise ValueError("media root is invalid")
     candidate = Path(value)
-    if not candidate.is_absolute() or any(part in {".", ".."} for part in candidate.parts):
+    if (
+        not candidate.is_absolute()
+        or "\x00" in value
+        or any(part in {".", ".."} for part in candidate.parts)
+    ):
         raise ValueError("media root is invalid")
     try:
-        if candidate.is_symlink() or not candidate.is_dir():
+        _lstat_components(candidate)
+        if not candidate.is_dir():
             raise ValueError("media root is invalid")
         return candidate.resolve(strict=True)
     except (OSError, RuntimeError, ValueError) as exc:
         raise ValueError("media root is invalid") from exc
+
+
+def _lstat_components(path: Path) -> None:
+    current = Path(path.anchor)
+    for part in path.parts[1:]:
+        current /= part
+        try:
+            mode = os.lstat(current).st_mode
+        except OSError as exc:
+            raise ValueError("path is unavailable") from exc
+        if stat.S_ISLNK(mode):
+            raise ValueError("path contains a symlink")
+
+
+def _configured_media_root() -> Path:
+    configured = os.environ.get("INSTAGRAM_POST_WATCH_MEDIA_ROOT")
+    if not configured:
+        raise ValueError("watcher media root is unavailable")
+    if len(configured) > MAX_LOCAL_PATH_CHARACTERS:
+        raise ValueError("watcher media root is invalid")
+    try:
+        root = Path(configured)
+        if not root.is_absolute() or root == Path(root.anchor):
+            raise ValueError("watcher media root is invalid")
+        if any(part in {".", ".."} for part in root.parts):
+            raise ValueError("watcher media root is invalid")
+        _lstat_components(root)
+        if not stat.S_ISDIR(os.lstat(root).st_mode):
+            raise ValueError("watcher media root is invalid")
+        return root.resolve(strict=True)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise ValueError("watcher media root is invalid") from exc
+
+
+def _event_media_root(value: object, event_key: str) -> Path:
+    root = _safe_media_root(value)
+    configured_root = _configured_media_root()
+    try:
+        relative = root.relative_to(configured_root)
+    except ValueError as exc:
+        raise ValueError("vision root is outside the watcher media root") from exc
+    if not relative.parts or root.name != event_key.split(":", 1)[1]:
+        raise ValueError("vision root does not match the watcher media root")
+    return root
 
 
 def _ordered_ocr_records(downloaded, ocr_results, failed_assets):
@@ -334,19 +388,40 @@ def _ordered_ocr_records(downloaded, ocr_results, failed_assets):
 
 def _ocr_asset_payload(records) -> list[dict[str, object]]:
     result: list[dict[str, object]] = []
-    for index, _asset, ocr_result, failed in records:
+    for index, asset, ocr_result, failed in records:
+        source = failed.source if failed is not None else asset.source
+        kind = MediaKind(source.kind).value
         if failed is not None:
-            result.append({"index": index, "status": failed.reason, "text": "", "confidence": None})
+            result.append({
+                "index": index,
+                "kind": kind,
+                "available": False,
+                "status": failed.reason,
+                "text": "",
+                "confidence": None,
+                "min_confidence": None,
+            })
             continue
         if ocr_result is None:
-            result.append({"index": index, "status": "not_processed", "text": "", "confidence": None})
+            result.append({
+                "index": index,
+                "kind": kind,
+                "available": True,
+                "status": "not_processed",
+                "text": "",
+                "confidence": None,
+                "min_confidence": None,
+            })
             continue
         assert isinstance(ocr_result, OCRResult)
         result.append({
             "index": index,
+            "kind": kind,
+            "available": True,
             "status": OCRStatus(ocr_result.status).value,
             "text": _clean_text(ocr_result.text, MAX_OCR_CHARACTERS),
             "confidence": ocr_result.confidence,
+            "min_confidence": ocr_result.min_confidence,
         })
     return result
 
@@ -355,7 +430,12 @@ def _context_text(caption: str, records, vision_paths: tuple[Path, ...]) -> str:
     sections: list[tuple[str, str, str, int]] = [
         ("[UNTRUSTED INSTAGRAM CAPTION]", caption, "[/UNTRUSTED INSTAGRAM CAPTION]", MAX_CAPTION_CHARACTERS),
     ]
-    for ordinal, (index, _asset, ocr_result, failed) in enumerate(records, start=1):
+    kind_ordinals = {MediaKind.IMAGE: 0, MediaKind.VIDEO: 0}
+    for index, asset, ocr_result, failed in records:
+        source = failed.source if failed is not None else asset.source
+        kind = MediaKind(source.kind)
+        kind_ordinals[kind] += 1
+        kind_label = kind.value.capitalize()
         if failed is not None:
             body = f"OCR unavailable: {failed.reason}"
         elif ocr_result is None:
@@ -364,9 +444,9 @@ def _context_text(caption: str, records, vision_paths: tuple[Path, ...]) -> str:
             assert isinstance(ocr_result, OCRResult)
             body = _clean_text(ocr_result.text, MAX_OCR_CHARACTERS)
         sections.append((
-            f"[UNTRUSTED Image {ordinal} OCR]",
+            f"[UNTRUSTED {kind_label} {kind_ordinals[kind]} OCR]",
             body,
-            f"[/UNTRUSTED Image {ordinal} OCR]",
+            f"[/UNTRUSTED {kind_label} {kind_ordinals[kind]} OCR]",
             MAX_OCR_CHARACTERS,
         ))
     if vision_paths:
@@ -418,58 +498,65 @@ def _context_text(caption: str, records, vision_paths: tuple[Path, ...]) -> str:
     return rendered
 
 
-def _validated_vision_paths_with_results(downloaded, decision, profile: Profile, ocr_results: tuple[OCRResult, ...]) -> list[str]:
-    root = _safe_media_root(str(downloaded.media_root))
+def _validated_vision_selection(
+    downloaded,
+    decision,
+    profile: Profile,
+    ocr_results: tuple[OCRResult, ...],
+    root: Path,
+) -> tuple[tuple[int, ...], tuple[int, ...], tuple[str, ...]]:
     records = _ordered_ocr_records(downloaded, ocr_results, downloaded.failed_assets)
     image_records = tuple(
-        (asset, result)
-        for _index, asset, result, failed in records
-        if asset is not None and asset.source.kind is MediaKind.IMAGE and failed is None and result is not None
+        record
+        for record in records
+        if (record[3].source if record[3] is not None else record[1].source).kind is MediaKind.IMAGE
     )
-    image_assets = tuple(asset for asset, _result in image_records)
-    image_results = tuple(result for _asset, result in image_records)
-    if any(
-        asset is not None and asset.source.kind is MediaKind.IMAGE and result is None and failed is None
-        for _index, asset, result, failed in records
-    ):
-        raise ValueError("OCR results do not match publication images")
-    image_indexes = tuple(asset.source.index for asset in image_assets)
-    failed_indexes = tuple(sorted(
-        asset.source.index
-        for _index, _asset, _result, asset in records
-        if asset is not None and asset.source.kind is MediaKind.IMAGE
-    ))
+    image_indexes = tuple(record[0] for record in image_records)
+    available_image_records = tuple(record for record in image_records if record[1] is not None and record[3] is None)
+    available_image_indexes = tuple(record[0] for record in available_image_records)
     selected_ids = tuple(decision.asset_ids)
+    if any(type(index) is not int or not 0 <= index < MAX_MEDIA_ASSETS for index in selected_ids):
+        raise ValueError("vision asset indexes are invalid")
     if len(set(selected_ids)) != len(selected_ids):
         raise ValueError("vision asset indexes are invalid")
     if decision.mode is VisionMode.TEXT_ONLY:
         if decision.asset_paths or decision.asset_ids or decision.analysis_ids:
             raise ValueError("text-only vision decision contains assets")
-        return []
+        if any(
+            failed is not None or result is None or _uncertain(result, profile)
+            for _index, asset, result, failed in image_records
+        ):
+            raise ValueError("text-only vision decision contains uncertain images")
+        return (), (), ()
+    if len(decision.analysis_ids) != len(selected_ids):
+        raise ValueError("vision decision analysis IDs do not match assets")
     if decision.mode is VisionMode.VISION_FULL:
-        expected_ids = tuple(sorted((*image_indexes, *failed_indexes)))
+        expected_ids = image_indexes
     elif decision.mode is VisionMode.VISION_PARTIAL:
         uncertain_indexes = tuple(
-            asset.source.index
-            for asset, result in zip(image_assets, image_results, strict=True)
-            if _uncertain(result, profile)
+            index
+            for index, asset, result, failed in image_records
+            if failed is not None or result is None or _uncertain(result, profile)
         )
-        expected_ids = tuple(sorted((*uncertain_indexes, *failed_indexes)))
+        expected_ids = uncertain_indexes
+        if not expected_ids:
+            raise ValueError("partial vision has no uncertain or failed image assets")
     else:
         raise ValueError("vision mode is invalid")
-    if tuple(sorted(selected_ids)) != expected_ids:
+    if selected_ids != expected_ids:
         raise ValueError("vision decision asset indexes do not match OCR")
     path_by_index = {
-        asset.source.index: _safe_local_path(str(asset.path), root)
-        for asset in image_assets
+        record[0]: _safe_local_path(str(record[1].path), root)
+        for record in available_image_records
     }
-    expected_paths = tuple(path_by_index[index] for index in expected_ids if index in path_by_index)
+    expected_path_ids = tuple(index for index in expected_ids if index in path_by_index)
+    expected_paths = tuple(path_by_index[index] for index in expected_path_ids)
     selected_paths = tuple(_safe_local_path(str(path), root) for path in decision.asset_paths)
     if selected_paths != expected_paths:
         raise ValueError("vision paths do not match the decision")
     if len(selected_paths) > MAX_MEDIA_ASSETS:
         raise ValueError("too many vision paths")
-    return [str(path) for path in selected_paths]
+    return expected_ids, expected_path_ids, selected_paths
 
 
 def _event_parts(profile: Profile, event: dict) -> tuple[SourcePost, object, tuple[OCRResult, ...], object]:
@@ -497,7 +584,14 @@ def _event_parts(profile: Profile, event: dict) -> tuple[SourcePost, object, tup
 def agent_item(profile: Profile, event: dict) -> dict[str, object]:
     post, downloaded, ocr_results, vision = _event_parts(profile, event)
     records = _ordered_ocr_records(downloaded, ocr_results, downloaded.failed_assets)
-    vision_paths = _validated_vision_paths_with_results(downloaded, vision, profile, ocr_results)
+    media_root = _event_media_root(str(downloaded.media_root), event["event_key"])
+    vision_ids, vision_path_ids, vision_paths = _validated_vision_selection(
+        downloaded,
+        vision,
+        profile,
+        ocr_results,
+        media_root,
+    )
     caption = caption_text(post)
     combined_ocr = "\n".join(
         _clean_text(result.text, MAX_OCR_CHARACTERS)
@@ -512,11 +606,14 @@ def agent_item(profile: Profile, event: dict) -> dict[str, object]:
         "post_url": post.url,
         "post_kind": PublicationKind(post.kind).value,
         "caption_text": caption,
-        "post_text": _context_text(caption, records, tuple(Path(path) for path in vision_paths)),
+        "post_text": _context_text(caption, records, vision_paths),
         "ocr_assets": _ocr_asset_payload(records),
+        "ocr_min_confidence": profile.ocr_min_confidence,
         "vision_mode": VisionMode(vision.mode).value,
-        "vision_asset_root": str(_safe_media_root(str(downloaded.media_root))),
-        "vision_asset_paths": vision_paths,
+        "vision_asset_root": str(media_root),
+        "vision_asset_ids": list(vision_ids),
+        "vision_asset_path_ids": list(vision_path_ids),
+        "vision_asset_paths": [str(path) for path in vision_paths],
         "media_count": len(post.media),
         "title_required": profile.enable_llm_title,
         "summary_required": profile.enable_llm_summary,
@@ -534,6 +631,12 @@ def _validate_ocr_asset(value: object) -> dict[str, object]:
     index = value["index"]
     if type(index) is not int or not 0 <= index < MAX_MEDIA_ASSETS:
         raise ValueError("wake payload OCR index is invalid")
+    kind = value["kind"]
+    if type(kind) is not str or kind not in {media_kind.value for media_kind in MediaKind}:
+        raise ValueError("wake payload OCR media kind is invalid")
+    available = value["available"]
+    if type(available) is not bool:
+        raise ValueError("wake payload OCR availability is invalid")
     status = value["status"]
     if type(status) is not str or not _SAFE_STATUS_RE.fullmatch(status):
         raise ValueError("wake payload OCR status is invalid")
@@ -541,9 +644,50 @@ def _validate_ocr_asset(value: object) -> dict[str, object]:
     if type(text) is not str or len(text) > MAX_OCR_CHARACTERS:
         raise ValueError("wake payload OCR text is invalid")
     confidence = value["confidence"]
-    if confidence is not None and (type(confidence) not in {int, float} or not 0 <= float(confidence) <= 1):
+    if confidence is not None and (
+        type(confidence) not in {int, float}
+        or not math.isfinite(float(confidence))
+        or not 0 <= float(confidence) <= 1
+    ):
         raise ValueError("wake payload OCR confidence is invalid")
+    min_confidence = value["min_confidence"]
+    if min_confidence is not None and (
+        type(min_confidence) not in {int, float}
+        or not math.isfinite(float(min_confidence))
+        or not 0 <= float(min_confidence) <= 1
+    ):
+        raise ValueError("wake payload OCR minimum confidence is invalid")
     return dict(value)
+
+
+def _validate_ordered_indexes(value: object, label: str) -> list[int]:
+    if type(value) is not list or len(value) > MAX_MEDIA_ASSETS:
+        raise ValueError(f"wake payload {label} are invalid")
+    if any(type(index) is not int or not 0 <= index < MAX_MEDIA_ASSETS for index in value):
+        raise ValueError(f"wake payload {label} are invalid")
+    if value != sorted(value) or len(set(value)) != len(value):
+        raise ValueError(f"wake payload {label} must be ordered and unique")
+    return list(value)
+
+
+def _payload_ocr_is_uncertain(asset: Mapping[str, object], min_confidence: float) -> bool:
+    if not asset["available"]:
+        return True
+    status = asset["status"]
+    if status in {"error", "timeout", "unavailable", "uncertain", "not_processed"}:
+        return True
+    if status != OCRStatus.SUCCESS.value:
+        return False
+    text = asset["text"]
+    confidence = asset["confidence"]
+    recorded_minimum = asset["min_confidence"]
+    if confidence is None and text:
+        return True
+    if recorded_minimum is not None and float(recorded_minimum) < min_confidence:
+        return True
+    if confidence is not None and float(confidence) < min_confidence:
+        return True
+    return _mostly_noise(str(text))
 
 
 def _validate_item(item: Mapping[str, object]) -> dict[str, object]:
@@ -586,12 +730,19 @@ def _validate_item(item: Mapping[str, object]) -> dict[str, object]:
         raise ValueError("wake payload publication URL is invalid")
     if item["vision_mode"] not in {mode.value for mode in VisionMode}:
         raise ValueError("wake payload vision mode is invalid")
-    root = _safe_media_root(item["vision_asset_root"])
     event_parts = item["event_key"].split(":", 1)
-    if len(event_parts) != 2 or root.name != event_parts[1]:
-        raise ValueError("wake payload vision root does not match the event")
+    if len(event_parts) != 2:
+        raise ValueError("wake payload event key is invalid")
+    root = _event_media_root(item["vision_asset_root"], item["event_key"])
     if not item["instruction"].startswith(INSTRUCTION_PREFIX):
         raise ValueError("wake payload instruction is not trusted")
+    min_confidence = item["ocr_min_confidence"]
+    if (
+        type(min_confidence) not in {int, float}
+        or not math.isfinite(float(min_confidence))
+        or not 0 <= float(min_confidence) <= 1
+    ):
+        raise ValueError("wake payload OCR minimum confidence is invalid")
     ocr_assets = item["ocr_assets"]
     if type(ocr_assets) is not list or len(ocr_assets) > MAX_MEDIA_ASSETS:
         raise ValueError("wake payload OCR assets are invalid")
@@ -599,6 +750,20 @@ def _validate_item(item: Mapping[str, object]) -> dict[str, object]:
     ocr_indexes = [asset["index"] for asset in validated_ocr]
     if ocr_indexes != sorted(ocr_indexes) or len(set(ocr_indexes)) != len(ocr_indexes):
         raise ValueError("wake payload OCR indexes must be ordered and unique")
+    ocr_by_index = {asset["index"]: asset for asset in validated_ocr}
+    image_assets = [asset for asset in validated_ocr if asset["kind"] == MediaKind.IMAGE.value]
+    image_indexes = [asset["index"] for asset in image_assets]
+    available_image_indexes = [asset["index"] for asset in image_assets if asset["available"]]
+    vision_ids = _validate_ordered_indexes(item["vision_asset_ids"], "vision asset indexes")
+    path_ids = _validate_ordered_indexes(item["vision_asset_path_ids"], "vision path indexes")
+    if any(index not in ocr_by_index for index in vision_ids):
+        raise ValueError("vision asset indexes do not match OCR assets")
+    if any(index not in vision_ids for index in path_ids):
+        raise ValueError("vision path indexes do not match selected assets")
+    if any(ocr_by_index[index]["kind"] != MediaKind.IMAGE.value for index in vision_ids):
+        raise ValueError("vision asset indexes must select image assets")
+    if any(not ocr_by_index[index]["available"] for index in path_ids):
+        raise ValueError("vision paths cannot select unavailable assets")
     paths = item["vision_asset_paths"]
     if type(paths) is not list or len(paths) > MAX_MEDIA_ASSETS:
         raise ValueError("wake payload vision paths are invalid")
@@ -609,14 +774,34 @@ def _validate_item(item: Mapping[str, object]) -> dict[str, object]:
         validated_paths.append(str(_safe_local_path(path, root)))
     if len(set(validated_paths)) != len(validated_paths):
         raise ValueError("wake payload vision paths are duplicated")
+    if len(path_ids) != len(validated_paths):
+        raise ValueError("vision path indexes do not align with paths")
     vision_mode = item["vision_mode"]
-    if vision_mode == VisionMode.TEXT_ONLY.value and validated_paths:
-        raise ValueError("text-only vision cannot contain paths")
-    if vision_mode == VisionMode.VISION_FULL.value and not validated_paths:
-        raise ValueError("full vision must contain selected paths")
-    if vision_mode == VisionMode.VISION_PARTIAL.value and not validated_paths:
-        if not any(asset["status"] in _NO_PATH_VISION_STATUSES for asset in validated_ocr):
-            raise ValueError("partial vision must contain selected paths")
+    if vision_mode == VisionMode.TEXT_ONLY.value:
+        if any(_payload_ocr_is_uncertain(asset, float(min_confidence)) for asset in image_assets):
+            raise ValueError("text-only vision contains uncertain images")
+        expected_ids = []
+        expected_path_ids = []
+    elif vision_mode == VisionMode.VISION_FULL.value:
+        expected_ids = image_indexes
+        expected_path_ids = available_image_indexes
+    elif vision_mode == VisionMode.VISION_PARTIAL.value:
+        expected_ids = [
+            asset["index"]
+            for asset in image_assets
+            if _payload_ocr_is_uncertain(asset, float(min_confidence))
+        ]
+        if not expected_ids:
+            raise ValueError("partial vision has no uncertain or failed image assets")
+        expected_path_ids = [
+            index for index in expected_ids if ocr_by_index[index]["available"]
+        ]
+    else:
+        raise ValueError("wake payload vision mode is invalid")
+    if vision_ids != expected_ids:
+        raise ValueError("vision asset indexes do not match the selected vision mode")
+    if path_ids != expected_path_ids:
+        raise ValueError("vision path indexes do not match the selected vision mode")
     media_count = item["media_count"]
     if type(media_count) is not int or not 0 <= media_count <= MAX_MEDIA_ASSETS:
         raise ValueError("wake payload media count is invalid")
@@ -632,6 +817,8 @@ def _validate_item(item: Mapping[str, object]) -> dict[str, object]:
     result = dict(item)
     result["vision_asset_root"] = str(root)
     result["ocr_assets"] = validated_ocr
+    result["vision_asset_ids"] = vision_ids
+    result["vision_asset_path_ids"] = path_ids
     result["vision_asset_paths"] = validated_paths
     return result
 
