@@ -446,6 +446,30 @@ def test_discard_removes_only_active_event_and_increments_filtered_count(config_
     assert value["filtered_since_last_heartbeat"] == 0
 
 
+def test_discard_reuses_existing_cleanup_for_retried_event(config_path, tmp_path):
+    profile = _profile(config_path)
+    value = state.new_state()
+    baseline = _publication(profile.id, "100", 0)
+    post = _publication(profile.id, "retry-discard", 1)
+    state.observe_publications(value, profile, [baseline], NOW, lambda item: {})
+    prepared = _prepared(post, tmp_path)
+    state.queue_media_cleanup(
+        value,
+        f"{profile.id}:{post.publication_id}",
+        profile.id,
+        post.publication_id,
+        str(prepared["downloaded_publication"].media_root),
+    )
+    state.observe_publications(value, profile, [post], NOW + timedelta(minutes=1), lambda item: prepared)
+    claimed = state.claim_oldest_agent(value, {profile.id: profile}, NOW + timedelta(minutes=2))
+    assert claimed is not None
+
+    state.discard_analysis(value, claimed["event_key"], NOW + timedelta(minutes=2))
+
+    assert value["outbox"] == []
+    assert len(value["cleanup"]) == 1
+
+
 def test_delivery_ledger_retains_recent_entries_and_prunes_older_than_ninety_days(config_path, tmp_path):
     profile = _profile(config_path)
     value = state.new_state()

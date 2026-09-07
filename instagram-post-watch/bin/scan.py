@@ -657,15 +657,16 @@ def _profile_posts(
         return [], [], []
     stats.fetched += len(posts)
     ordered = sorted(posts, key=lambda post: (post.published_at, post.publication_id))
-    limited = ordered[: profile.max_items_per_poll]
+    fresh = list(state.publications_after_cursor(value, profile.id, ordered))
+    limited = fresh[: profile.max_items_per_poll]
     eligible: list[SourcePost] = []
     for post in limited:
         if rsshub.is_forwardable(profile, post):
             eligible.append(post)
         else:
             stats.filtered += 1
-    if len(limited) < len(posts):
-        stats.filtered += len(posts) - len(limited)
+    if len(limited) < len(fresh):
+        stats.filtered += len(fresh) - len(limited)
     return eligible, limited, ordered
 
 

@@ -168,6 +168,27 @@ def test_first_observation_uses_complete_feed_before_poll_cap(tmp_path, monkeypa
     assert saved["outbox"] == []
 
 
+def test_cursor_rollover_filters_before_poll_cap_when_cursor_is_missing_from_page(tmp_path, monkeypatch, config_path):
+    profile = config.load_watch_config(config_path).profiles[0]
+    storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
+    baseline = _post(profile.id, "baseline", 0)
+    _initialize_cursor(storage, profile, baseline)
+    fresh = [_post(profile.id, f"fresh-{index:03d}", index + 1) for index in range(profile.max_items_per_poll + 2)]
+    feed = [baseline, *fresh]
+    _install_download_and_ocr(monkeypatch, media_root)
+    monkeypatch.setattr(scan.rsshub, "fetch_profile_items", lambda *_args, **_kwargs: feed)
+
+    scan.run(now=NOW + timedelta(minutes=1), dry_run=True)
+    first = state.load_state(storage)
+    assert len(first["outbox"]) == profile.max_items_per_poll
+    assert first["profiles"][profile.id]["cursor"] == fresh[profile.max_items_per_poll - 1].publication_id
+
+    scan.run(now=NOW + timedelta(minutes=2), dry_run=True)
+    second = state.load_state(storage)
+    assert len(second["outbox"]) == profile.max_items_per_poll + 2
+    assert second["profiles"][profile.id]["cursor"] == fresh[-1].publication_id
+
+
 def test_source_failure_keeps_cursor_and_has_no_discord_side_effect(tmp_path, monkeypatch, config_path):
     profile = config.load_watch_config(config_path).profiles[0]
     storage, _media_root = _install_paths(monkeypatch, tmp_path, config_path)
@@ -345,7 +366,8 @@ def test_reel_frames_are_ocrd_but_delivery_keeps_source_order(tmp_path, monkeypa
     def sampled(video_path, cover_path, root, max_frames):
         assert video_path.name == "0.mp4"
         assert cover_path.name == "1.jpg"
-        frame = _asset(root / "reel-frames", SourceMedia("file:///frame.jpg", MediaKind.IMAGE, 1))
+        frame_path = root / "reel-frames" / "1.jpg"
+        frame = _asset(root / "reel-frames", SourceMedia(frame_path.as_uri(), MediaKind.IMAGE, 1))
         cover = DownloadedAsset(SourceMedia(cover_path.as_uri(), MediaKind.IMAGE, 0), cover_path, "b" * 64, 1, "image/jpeg")
         return (cover, frame), ()
 

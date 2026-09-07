@@ -477,8 +477,26 @@ def validate_source_media_coverage(post: SourcePost, downloaded: DownloadedPubli
         expected_source = expected.get(source.index)
         if expected_source is None:
             # Reel frame assets are analysis-only and may extend the source
-            # indexes, but they must remain images and cannot replace sources.
+            # indexes, but they must be tied to the managed sampler output.
             if post.kind is not PublicationKind.REEL or _media_kind(source.kind) is not MediaKind.IMAGE:
+                raise _invalid()
+            if isinstance(item, DownloadedAsset):
+                try:
+                    relative = item.path.resolve(strict=False).relative_to(downloaded.media_root.resolve(strict=False))
+                except (OSError, RuntimeError, ValueError) as exc:
+                    raise _invalid() from exc
+                if len(relative.parts) < 2 or not relative.parts[-2].endswith("-frames"):
+                    raise _invalid()
+                try:
+                    expected_digest = source_locator_digest(item.path.as_uri())
+                except (OSError, ValueError) as exc:
+                    raise _invalid() from exc
+                if source.locator_digest != expected_digest:
+                    raise _invalid()
+            elif source.locator_digest not in {
+                source_locator_digest("analysis-frame://missing"),
+                source_locator_digest("analysis-frame://sampled"),
+            }:
                 raise _invalid()
         elif (
             _media_kind(source.kind) is not _media_kind(expected_source.kind)
@@ -789,12 +807,13 @@ def _validate_state(value: object) -> dict[str, object]:
     cleanup = root["cleanup"]
     if type(cleanup) is not list or len(cleanup) > MAX_CLEANUP_ENTRIES:
         raise _invalid()
-    cleanup_keys: set[str] = set()
+    cleanup_keys: set[tuple[str, str | None]] = set()
     for item in cleanup:
         normalized = _validate_cleanup(item)
-        if normalized["event_key"] in cleanup_keys:
+        cleanup_key = (normalized["event_key"], normalized["media_root"])
+        if cleanup_key in cleanup_keys:
             raise _invalid()
-        cleanup_keys.add(normalized["event_key"])
+        cleanup_keys.add(cleanup_key)
     filtered = root["filtered_since_last_heartbeat"]
     if type(filtered) is not int or not 0 <= filtered <= MAX_DELIVERIES:
         raise _invalid()
@@ -1012,6 +1031,33 @@ def _is_newer_than_cursor(post: SourcePost, cursor: str, cursor_time: datetime |
     return _id_is_newer(post.publication_id, cursor)
 
 
+def publications_after_cursor(value: dict, profile_id: str, publications: Sequence[SourcePost]) -> tuple[SourcePost, ...]:
+    """Return source publications newer than the durable profile cursor.
+
+    RSSHub exposes one page, so the cursor may be absent from a later page. The
+    durable timestamp and ID comparison remains the source of truth in that
+    case, rather than treating an absent cursor as an empty feed.
+    """
+    _validate_state(value)
+    profile_key = _safe_component(profile_id)
+    if not isinstance(publications, Sequence) or isinstance(publications, (str, bytes, bytearray)):
+        raise _invalid()
+    for publication in publications:
+        if not isinstance(publication, SourcePost) or publication.profile_id != profile_key:
+            raise _invalid()
+        _aware_datetime(publication.published_at)
+    record = value["profiles"].get(profile_key)
+    if not isinstance(record, dict) or record["cursor"] is None:
+        return tuple(publications)
+    cursor = record["cursor"]
+    cursor_time = _parse_aware_datetime(record["cursor_published_at"])
+    return tuple(
+        publication
+        for publication in publications
+        if _is_newer_than_cursor(publication, cursor, cursor_time)
+    )
+
+
 def observe_publications(
     value: dict,
     profile: Profile,
@@ -1187,14 +1233,24 @@ def discard_analysis(value: dict, event_key: str, now: datetime | None = None) -
         "last_error": None,
     }
     _validate_cleanup(cleanup_entry)
+    existing_cleanup = next(
+        (
+            item
+            for item in value["cleanup"]
+            if item["event_key"] == cleanup_entry["event_key"]
+            and item["media_root"] == cleanup_entry["media_root"]
+        ),
+        None,
+    )
     candidate = {
         **value,
         "outbox": [item for item in value["outbox"] if item is not event],
-        "cleanup": [*value["cleanup"], cleanup_entry],
+        "cleanup": value["cleanup"] if existing_cleanup is not None else [*value["cleanup"], cleanup_entry],
         "filtered_since_last_heartbeat": value["filtered_since_last_heartbeat"] + 1,
     }
     _validate_state(candidate)
-    value["cleanup"].append(cleanup_entry)
+    if existing_cleanup is None:
+        value["cleanup"].append(cleanup_entry)
     value["outbox"].remove(event)
     value["filtered_since_last_heartbeat"] += 1
     _validate_state(value)
@@ -1223,7 +1279,7 @@ def queue_media_cleanup(
     }
     _validate_cleanup(cleanup_entry)
     for item in value["cleanup"]:
-        if item["event_key"] == event_key:
+        if item["event_key"] == event_key and item["media_root"] == media_root:
             return item
     candidate = {**value, "cleanup": [*value["cleanup"], cleanup_entry]}
     _validate_state(candidate)
