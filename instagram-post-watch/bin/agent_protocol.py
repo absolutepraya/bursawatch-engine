@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from html.parser import HTMLParser
+import hashlib
 import math
 import os
 import re
@@ -18,7 +19,7 @@ from state import (
     deserialize_post,
     deserialize_vision_decision,
 )
-from vision_gate import VisionMode, _mostly_noise, _uncertain
+from vision_gate import KNOWN_FAILED_REASONS, VisionMode, _mostly_noise, _uncertain, analysis_id
 
 
 MAX_POST_TEXT = 16_000
@@ -130,6 +131,19 @@ _OCR_ASSET_KEYS = {
 _EVENT_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*:[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SAFE_STATUS_RE = re.compile(r"^[A-Za-z0-9_:-]{1,64}$")
 _UNTRUSTED_DELIMITER_RE = re.compile(r"\[/?\s*UNTRUSTED\b[^\]\r\n]{0,256}\]", re.IGNORECASE)
+_UNAVAILABLE_ASSET_STATUSES = {
+    "asset_size_limit",
+    "decode_failed",
+    "download_failed",
+    "frame_sampling_failed",
+    "publication_size_limit",
+    "redirect_not_supported",
+    "unavailable",
+    "unsupported_content_type",
+    "unsupported_media_url",
+}
+
+
 class _CaptionTextParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -345,9 +359,187 @@ def _event_media_root(value: object, event_key: str) -> Path:
         relative = root.relative_to(configured_root)
     except ValueError as exc:
         raise ValueError("vision root is outside the watcher media root") from exc
-    if not relative.parts or root.name != event_key.split(":", 1)[1]:
+    if not relative.parts or root.parent != configured_root or root.name != event_key.split(":", 1)[1]:
         raise ValueError("vision root does not match the watcher media root")
     return root
+
+
+def _raw_analysis_id(value: object, *, index: int | None = None, failed: bool = False) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    source = value.get("source")
+    if not isinstance(source, dict):
+        return None
+    kind = source.get("kind")
+    source_index = source.get("index") if index is None else index
+    if type(kind) is not str or type(source_index) is not int:
+        return None
+    if failed:
+        reason = value.get("reason")
+        if type(reason) is not str:
+            return None
+        bounded_reason = (
+            reason
+            if reason in KNOWN_FAILED_REASONS
+            else f"failure_{hashlib.sha256(reason.encode('utf-8', errors='ignore')).hexdigest()[:12]}"
+        )
+        return f"failed:{kind}:{source_index}:{bounded_reason}"
+    digest = value.get("sha256")
+    if type(digest) is not str or len(digest) < 12:
+        return None
+    return f"{kind}:{source_index}:{digest[:12]}"
+
+
+def _normalize_reel_event(event: dict) -> dict:
+    post = event.get("post")
+    downloaded = event.get("downloaded_publication")
+    if (
+        not isinstance(post, dict)
+        or post.get("kind") != PublicationKind.REEL.value
+        or not isinstance(downloaded, dict)
+        or not isinstance(downloaded.get("assets"), list)
+        or not isinstance(downloaded.get("failed_assets"), list)
+    ):
+        return event
+
+    raw_assets = downloaded["assets"]
+    raw_failed = downloaded["failed_assets"]
+    all_entries = [*raw_assets, *raw_failed]
+    if not all_entries or any(not isinstance(entry, dict) for entry in all_entries):
+        return event
+    raw_indexes = [
+        entry.get("source", {}).get("index")
+        if isinstance(entry.get("source"), dict)
+        else None
+        for entry in all_entries
+    ]
+    if any(type(index) is not int for index in raw_indexes):
+        return event
+
+    kept_asset_positions: list[int] = []
+    aliases: dict[int, int] = {}
+    seen_paths: dict[tuple[str, str], int] = {}
+    for position, entry in enumerate(raw_assets):
+        source = entry.get("source")
+        path = entry.get("path")
+        kind = source.get("kind") if isinstance(source, dict) else None
+        path_key = (kind, path) if type(kind) is str and type(path) is str else None
+        if path_key is not None and path_key in seen_paths:
+            aliases[position] = seen_paths[path_key]
+            continue
+        if path_key is not None:
+            seen_paths[path_key] = position
+        kept_asset_positions.append(position)
+
+    duplicate_indexes = len(set(raw_indexes)) != len(raw_indexes)
+    duplicate_paths = len(kept_asset_positions) != len(raw_assets)
+    if not duplicate_indexes and not duplicate_paths:
+        return event
+    if len(kept_asset_positions) + len(raw_failed) > MAX_MEDIA_ASSETS:
+        raise ValueError("reel asset count is invalid")
+
+    canonical_for_position: dict[int, tuple[int, str]] = {}
+    raw_to_canonical: dict[str, tuple[int, str]] = {}
+    raw_indexes_by_analysis: dict[str, set[int]] = {}
+    raw_paths_by_analysis: dict[str, str] = {}
+    normalized_assets: list[dict[str, object]] = []
+    normalized_failed: list[dict[str, object]] = []
+
+    def register(position: int, entry: dict, *, failed: bool, canonical_index: int) -> None:
+        raw_id = _raw_analysis_id(entry, failed=failed)
+        canonical_id = _raw_analysis_id(entry, index=canonical_index, failed=failed)
+        if raw_id is None or canonical_id is None:
+            raise ValueError("reel asset identity is invalid")
+        previous = raw_to_canonical.get(raw_id)
+        if previous is not None and previous != (canonical_index, canonical_id):
+            raise ValueError("reel asset identity is ambiguous")
+        raw_to_canonical[raw_id] = (canonical_index, canonical_id)
+        raw_indexes_by_analysis.setdefault(raw_id, set()).add(raw_indexes[position])
+        if not failed:
+            path = entry.get("path")
+            if type(path) is not str:
+                raise ValueError("reel asset path is invalid")
+            prior_path = raw_paths_by_analysis.get(raw_id)
+            if prior_path is not None and prior_path != path:
+                raise ValueError("reel asset identity is ambiguous")
+            raw_paths_by_analysis[raw_id] = path
+        canonical_for_position[position] = (canonical_index, canonical_id)
+        normalized_source = dict(entry["source"])
+        normalized_source["index"] = canonical_index
+        normalized_entry = dict(entry)
+        normalized_entry["source"] = normalized_source
+        (normalized_failed if failed else normalized_assets).append(normalized_entry)
+
+    for canonical_index, position in enumerate(kept_asset_positions):
+        register(position, raw_assets[position], failed=False, canonical_index=canonical_index)
+    failed_offset = len(kept_asset_positions)
+    for failed_position, entry in enumerate(raw_failed):
+        register(
+            len(raw_assets) + failed_position,
+            entry,
+            failed=True,
+            canonical_index=failed_offset + failed_position,
+        )
+    for position, kept_position in aliases.items():
+        canonical_for_position[position] = canonical_for_position[kept_position]
+        raw_id = _raw_analysis_id(raw_assets[position], failed=False)
+        kept_id = _raw_analysis_id(raw_assets[kept_position], failed=False)
+        if raw_id is None or kept_id is None:
+            raise ValueError("reel asset identity is invalid")
+        raw_to_canonical[raw_id] = raw_to_canonical[kept_id]
+        raw_indexes_by_analysis.setdefault(raw_id, set()).add(raw_indexes[position])
+        raw_paths_by_analysis[raw_id] = raw_paths_by_analysis[kept_id]
+
+    normalized = dict(event)
+    normalized_downloaded = dict(downloaded)
+    normalized_downloaded["assets"] = normalized_assets
+    normalized_downloaded["failed_assets"] = normalized_failed
+    normalized["downloaded_publication"] = normalized_downloaded
+
+    raw_results = event.get("ocr_results")
+    if isinstance(raw_results, list):
+        raw_image_positions = [
+            position
+            for position, entry in enumerate(raw_assets)
+            if isinstance(entry.get("source"), dict) and entry["source"].get("kind") == MediaKind.IMAGE.value
+        ]
+        kept_image_positions = [position for position in kept_asset_positions if position in raw_image_positions]
+        if len(raw_results) == len(raw_assets):
+            normalized["ocr_results"] = [raw_results[position] for position in kept_asset_positions]
+        elif len(raw_results) == len(raw_image_positions):
+            result_by_position = dict(zip(raw_image_positions, raw_results, strict=True))
+            normalized["ocr_results"] = [result_by_position[position] for position in kept_image_positions]
+
+    raw_decision = event.get("vision_decision")
+    if isinstance(raw_decision, dict):
+        raw_ids = raw_decision.get("asset_ids")
+        raw_analysis_ids = raw_decision.get("analysis_ids")
+        if isinstance(raw_ids, list) and isinstance(raw_analysis_ids, list) and len(raw_ids) == len(raw_analysis_ids):
+            normalized_ids: list[int] = []
+            normalized_analysis_ids: list[str] = []
+            normalized_paths: list[str] = []
+            seen_canonical_ids: set[int] = set()
+            for raw_id, raw_analysis in zip(raw_ids, raw_analysis_ids, strict=True):
+                if type(raw_id) is not int or type(raw_analysis) is not str:
+                    raise ValueError("reel vision asset identity is invalid")
+                mapping = raw_to_canonical.get(raw_analysis)
+                if mapping is None or raw_id not in raw_indexes_by_analysis.get(raw_analysis, set()):
+                    raise ValueError("reel vision analysis ID does not match its asset")
+                canonical_index, canonical_analysis = mapping
+                if canonical_index in seen_canonical_ids:
+                    continue
+                seen_canonical_ids.add(canonical_index)
+                normalized_ids.append(canonical_index)
+                normalized_analysis_ids.append(canonical_analysis)
+                path = raw_paths_by_analysis.get(raw_analysis)
+                if path is not None:
+                    normalized_paths.append(path)
+            normalized_decision = dict(raw_decision)
+            normalized_decision["asset_ids"] = normalized_ids
+            normalized_decision["analysis_ids"] = normalized_analysis_ids
+            normalized_decision["asset_paths"] = normalized_paths
+            normalized["vision_decision"] = normalized_decision
+    return normalized
 
 
 def _ordered_ocr_records(downloaded, ocr_results, failed_assets):
@@ -403,11 +595,13 @@ def _ocr_asset_payload(records) -> list[dict[str, object]]:
             })
             continue
         if ocr_result is None:
+            if source.kind is MediaKind.IMAGE:
+                raise ValueError("downloaded image OCR is missing")
             result.append({
                 "index": index,
                 "kind": kind,
-                "available": True,
-                "status": "not_processed",
+                "available": False,
+                "status": "unavailable",
                 "text": "",
                 "confidence": None,
                 "min_confidence": None,
@@ -439,7 +633,7 @@ def _context_text(caption: str, records, vision_paths: tuple[Path, ...]) -> str:
         if failed is not None:
             body = f"OCR unavailable: {failed.reason}"
         elif ocr_result is None:
-            body = "OCR not processed for this asset."
+            body = "OCR unavailable for this asset."
         else:
             assert isinstance(ocr_result, OCRResult)
             body = _clean_text(ocr_result.text, MAX_OCR_CHARACTERS)
@@ -545,6 +739,13 @@ def _validated_vision_selection(
         raise ValueError("vision mode is invalid")
     if selected_ids != expected_ids:
         raise ValueError("vision decision asset indexes do not match OCR")
+    record_by_index = {
+        record[0]: record[1] if record[1] is not None else record[3]
+        for record in records
+    }
+    expected_analysis_ids = tuple(analysis_id(record_by_index[index]) for index in selected_ids)
+    if tuple(decision.analysis_ids) != expected_analysis_ids:
+        raise ValueError("vision decision analysis IDs do not match assets")
     path_by_index = {
         record[0]: _safe_local_path(str(record[1].path), root)
         for record in available_image_records
@@ -563,15 +764,16 @@ def _event_parts(profile: Profile, event: dict) -> tuple[SourcePost, object, tup
     if type(event) is not dict or set(event) != _EVENT_KEYS:
         raise ValueError("analysis event has an unexpected schema")
     try:
-        _validate_event(event)
-        post = deserialize_post(event["post"])
-        downloaded_raw = event["downloaded_publication"]
-        vision_raw = event["vision_decision"]
+        normalized_event = _normalize_reel_event(event)
+        _validate_event(normalized_event)
+        post = deserialize_post(normalized_event["post"])
+        downloaded_raw = normalized_event["downloaded_publication"]
+        vision_raw = normalized_event["vision_decision"]
         if downloaded_raw is None or vision_raw is None:
             raise ValueError("analysis event media metadata is missing")
         downloaded = deserialize_downloaded_publication(downloaded_raw)
         vision = deserialize_vision_decision(vision_raw)
-        ocr_results = tuple(deserialize_ocr_result(value) for value in event["ocr_results"])
+        ocr_results = tuple(deserialize_ocr_result(value) for value in normalized_event["ocr_results"])
     except ValueError as exc:
         raise ValueError("analysis event is invalid") from exc
     if event["profile_id"] != profile.id or post.profile_id != profile.id:
@@ -657,6 +859,14 @@ def _validate_ocr_asset(value: object) -> dict[str, object]:
         or not 0 <= float(min_confidence) <= 1
     ):
         raise ValueError("wake payload OCR minimum confidence is invalid")
+    if status == "not_processed":
+        raise ValueError("wake payload OCR not_processed status is invalid")
+    if available and (status in _UNAVAILABLE_ASSET_STATUSES or status.startswith("failure_")):
+        raise ValueError("available OCR asset has an unavailable status")
+    if not available and status not in _UNAVAILABLE_ASSET_STATUSES and not status.startswith("failure_"):
+        raise ValueError("unavailable OCR asset has an available status")
+    if not available and (text or confidence is not None or min_confidence is not None):
+        raise ValueError("unavailable OCR asset contains OCR output")
     return dict(value)
 
 
