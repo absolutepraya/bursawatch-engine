@@ -9,6 +9,8 @@ and domain source of truth for the agent-backed `instagram-post-watch` cron.
 - Development source is `instagram-post-watch/bin/`; `config/watches.json` is the reviewed watched-profile and OCR policy. The deployed runtime is `~/.agents/skills/instagram-post-watch/`, with the wrapper at `~/.hermes/scripts/instagram-post-watch.sh`.
 - The watcher reads public posts and reels only through the authenticated local RSSHub route `http://127.0.0.1:1200/instagram/user/<handle>?format=json`. It does not directly scrape Instagram and has no Meta Graph, Picuki, Picnob, or Cobalt fallback.
 - RSSHub owns `IG_USERNAME` and `IG_PASSWORD` in its VPS-local configuration. Credential values never enter source, logs, wake payloads, state, commits, or Discord content. The watcher must not receive or print them.
+- `config/watches.json` is the exact JSON configuration boundary. Its root, profile, and channel objects contain only schema-defined keys, and the strict validator rejects unknown fields at every object boundary.
+- Credentials, cookies, signed CDN URLs, raw provider response bodies, and local secret paths are explicitly excluded from source, logs, wake payloads, and persistent state.
 - The first profile is `beyondthefundamental`, with `macro` channel `1531655369884045382` and `id_stock` channel `1525102508714889257`. Profile IDs are durable state namespaces and must not be renamed after deployment.
 
 ## Media, OCR, and vision
@@ -35,6 +37,7 @@ and domain source of truth for the agent-backed `instagram-post-watch` cron.
 ## Development, testing, and deployment
 
 - Read this file and `SKILL.md` before changing the watcher. Keep the runtime skill limited to the model-facing event contract, with no scheduler-only registration instructions.
-- Run the focused watcher suite from the cron directory with `../.venv/bin/python -m pytest -q tests`, and run the complete repository suite with `bash scripts/test-all` from the repository root. Use isolated no-post controls for smoke verification.
-- Commit and publish a clean reviewed source before deployment. `./deploy.sh instagram-post-watch` copies `bin/` only. Compare and synchronize `SKILL.md` separately after review, then verify local and VPS checksums.
+- Run the focused watcher suite from the cron directory with `../.venv/bin/python -m pytest -q tests`, and run the complete repository suite with `bash scripts/test-all` from the repository root.
+- `INSTAGRAM_POST_WATCH_NO_POST=1` suppresses Discord heartbeat delivery and agent claiming. No-post verification must use isolated `INSTAGRAM_POST_WATCH_STATE_PATH` and `INSTAGRAM_POST_WATCH_MEDIA_ROOT` paths, must not mutate live state, and must not create external messages.
+- Commit and publish a clean reviewed source before deployment. `./deploy.sh instagram-post-watch` copies `bin/` only. After exact file comparison and explicit approval for the first VPS write, sync the reviewed `config/watches.json` separately to `vps:~/.agents/skills/instagram-post-watch/config/watches.json` and the reviewed `SKILL.md` separately to `vps:~/.agents/skills/instagram-post-watch/SKILL.md`. Verify SHA-256 checksums for every changed file.
 - Never author in `~/.dotfiles/vps/agents/skills/instagram-post-watch/`; it is a VPS-to-Mac backup mirror. Never edit deployed live state, reset cursors, replay events, or alter media state as source. Obtain approval for the first VPS write and for every operational schedule or destination change.
