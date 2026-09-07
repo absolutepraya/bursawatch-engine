@@ -1,7 +1,7 @@
 # Instagram Post Watch Design
 
-**Date:** 2026-08-24  
-**Status:** Approved design, ready for implementation planning  
+**Date:** 2026-08-24
+**Status:** Approved design, ready for implementation planning
 **Owner:** Abhip / Yanto
 
 ## Goal
