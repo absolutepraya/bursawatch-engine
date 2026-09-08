@@ -231,6 +231,50 @@ def test_aldotjahjadi_generic_investor_track_record_is_deterministically_irrelev
     assert agent_protocol.is_deterministically_irrelevant(profile, macro) is False
 
 
+def test_generic_ai_productivity_post_is_deterministically_irrelevant():
+    profile = _canonical_profile("rickyho1989")
+    post = _source_post(
+        profile.id,
+        "2092905855750664457",
+        "AI memangkas pekerjaan tiga hari menjadi setengah hari dan mengembalikan waktu untuk berpikir, belajar, dan berefleksi.",
+    )
+
+    assert agent_protocol.is_deterministically_irrelevant(profile, post) is True
+
+
+def test_generic_trading_education_is_deterministically_irrelevant():
+    profile = _canonical_profile("wavetiga")
+    post = _source_post(
+        profile.id,
+        "2092902756449386686",
+        "Persentase menjadi bahasa universal dalam trading untuk membandingkan perubahan harga dan kinerja.",
+    )
+
+    assert agent_protocol.is_deterministically_irrelevant(profile, post) is True
+
+
+def test_stock_word_does_not_make_generic_investing_advice_eligible():
+    profile = _canonical_profile("rickyho1989")
+    post = _source_post(
+        profile.id,
+        "2092902756449386688",
+        "Cara berinvestasi di saham dengan mindset dan disiplin yang benar.",
+    )
+
+    assert agent_protocol.is_deterministically_irrelevant(profile, post) is True
+
+
+def test_concrete_stock_analysis_remains_eligible_after_generic_education_filter():
+    profile = _canonical_profile("wavetiga")
+    post = _source_post(
+        profile.id,
+        "2092902756449386687",
+        "BBRI breakout resistance pada chart harian dengan target dan stop-loss berdasarkan struktur harga.",
+    )
+
+    assert agent_protocol.is_deterministically_irrelevant(profile, post) is False
+
+
 def test_clear_idx_chart_setup_is_deterministically_routed_to_swing():
     profile = _canonical_profile("doktermarket")
     post = _source_post(profile.id, "2092071113228787737", "ADRO: Menembus Resisten, pola inverted head and shoulders, target pertama 2750.")
@@ -310,6 +354,16 @@ def test_agent_routing_instruction_prioritizes_market_thesis_over_company_exampl
     assert "there is no separate us swing route" in instruction
     assert "ticker, number, target price, company name, or chart image alone" in instruction
     assert "spcx" not in instruction
+
+
+def test_agent_relevance_instruction_excludes_non_stock_and_generic_advice(config_path, profile_payload):
+    instruction = agent_protocol.instruction_for(__import__("config").load_watch_config(config_path).profiles[0]).lower()
+
+    assert "central thesis is substantively about the stock market" in instruction
+    assert "no concrete stock-market thesis" in instruction
+    assert "generic trading or investing education and advice" in instruction
+    assert "mentality, mindset, psychology" in instruction
+    assert "advice about how to trade or invest is not eligible" in instruction
 
 
 def test_agent_instruction_requires_ticker_first_stock_titles_and_direct_summary_voice(config_path, profile_payload):

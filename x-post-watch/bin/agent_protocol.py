@@ -23,6 +23,35 @@ MARKET_DISCLOSURE_RE = re.compile(
     r"(?:\$[A-Z]{2,6}\b|#Rangkum(?:KeterbukaanInformasi|Report)\b|\b(?:private placement|pmthmetd|rights issue|hmetd|stock split|buyback|dividen|dividend|earnings?|laba bersih|pendapatan|revenue|ebitda|keterbukaan informasi|corporate action|dilusi)\b)",
     re.IGNORECASE,
 )
+STOCK_MARKET_CONTEXT_RE = re.compile(
+    r"(?:\$[A-Z][A-Z0-9]{1,5}\b|#Rangkum(?:KeterbukaanInformasi|Report)\b|"
+    r"\b(?:saham|stock(?:s)?|equity|equities|emiten|issuer|ticker|"
+    r"stock market|pasar saham|pasar modal|harga saham|share price|"
+    r"listed company|perusahaan tercatat|bursa efek|BEI|IDX|IHSG|"
+    r"NYSE|Nasdaq|S&P 500|Dow Jones|market cap|earnings?|dividen|"
+    r"dividend|corporate action|private placement|rights issue|stock split|"
+    r"buyback|keterbukaan informasi|laba bersih)\b)",
+    re.IGNORECASE,
+)
+GENERIC_FINANCIAL_ACTIVITY_RE = re.compile(
+    r"\b(?:trading|trader|trade|invest(?:ing|ment)?|investasi|berinvestasi|investor|"
+    r"portfolio|portofolio|spekulasi|speculation)\b",
+    re.IGNORECASE,
+)
+GENERIC_EDUCATIONAL_ADVICE_RE = re.compile(
+    r"\b(?:tips?|cara|how\s+to|panduan|guide|pelajaran|lesson|mindset|"
+    r"mental(?:ity)?|mentalitas|psikologi|psychology|disiplin|discipline|"
+    r"emosi|emotion|fear|greed|sabar|patience|persentase|percentage|"
+    r"strateg(?:y|i)|technique|teknik|technical\s+analysis|"
+    r"analisis\s+teknikal|risk\s+management|money\s+management|"
+    r"manajemen\s+risiko|bahasa\s+universal)\b",
+    re.IGNORECASE,
+)
+CLEAR_NON_STOCK_MARKET_RE = re.compile(
+    r"\b(?:AI|artificial\s+intelligence)\b.{0,160}\b(?:productiv(?:ity|itas)|"
+    r"pekerjaan|work|thinking|berpikir|learning|belajar|study|waktu|time)\b",
+    re.IGNORECASE | re.DOTALL,
+)
 PROMOTIONAL_SIGNAL_RES = (
     re.compile(r"\b(?:hold|buy|stake|mint|claim)\s+\$[A-Z][A-Z0-9]{1,9}\b", re.IGNORECASE),
     re.compile(r"\b(?:unlock|access)\b.{0,100}\b(?:benefit|feature|reward|alert|watchlist|api)\b", re.IGNORECASE | re.DOTALL),
@@ -70,6 +99,17 @@ ALDO_SUBSTANTIVE_THESIS_RE = re.compile(
 )
 
 
+def _has_stock_market_context(text: str) -> bool:
+    return bool(STOCK_MARKET_CONTEXT_RE.search(text) or DIRECT_TICKER_RE.search(text))
+
+
+def _is_generic_trading_education(text: str) -> bool:
+    return bool(
+        GENERIC_FINANCIAL_ACTIVITY_RE.search(text)
+        and GENERIC_EDUCATIONAL_ADVICE_RE.search(text)
+    )
+
+
 def instruction_for(profile: Profile, relevance_guard_required: bool = False) -> str:
     channels = "; ".join(
         f"{channel.key}: {channel.description}" for channel in profile.discord_channels
@@ -77,7 +117,10 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
     relevance = ""
     if profile.enable_llm_relevance_filter:
         relevance = (
-            "First decide whether this is substantive economy, business, capital-markets news, analysis, opinion, market education, or an investing view. For a thread, decide from the combined thread, not only its latest post. "
+            "First decide whether the central thesis is substantively about the stock market: listed shares, stock indices, listed companies or issuers, stock prices, equity valuation, earnings, dividends, corporate actions, or a macro or cross-asset factor with an explicit stock-market implication. For a thread, decide from the combined thread, not only its latest post. "
+            "Exclude general economy, business, AI, technology, productivity, career, personal-finance, crypto, forex, commodities, bonds, or other content when it has no concrete stock-market thesis. "
+            "Exclude generic trading or investing education and advice, including tips, how-to content, strategies, techniques, technical-analysis lessons, percentages, risk or money management, mentality, mindset, psychology, discipline, patience, fear, greed, or emotional-control lessons. "
+            "A concrete stock-market news item or analysis remains eligible, but advice about how to trade or invest is not eligible merely because it mentions markets, money, trading, investing, or percentages. "
             "Exclude advertisements and product promotions, including marketing for apps, services, tokens, paid tiers, paid or member-only research, premium or subscriber content, APIs, alerts, rewards, presales, referral programs, and clickbait profit promises. "
             "Exclude surveys, promotions, greetings, personal updates, event invitations, generic engagement, and unrelated random posts. "
             "An advertisement remains irrelevant even when it mentions a ticker, revenue, buybacks, a contract address, or other financial terms. "
@@ -149,11 +192,18 @@ def is_deterministically_irrelevant(
     post: SourcePost,
     thread_posts: tuple[SourcePost, ...] | None = None,
 ) -> bool:
-    """Reject profile-specific generic posts before the model can forward them."""
-    if profile.id != "aldotjahjadi8":
-        return False
+    """Reject clear generic education and unrelated content before the model can forward it."""
     text = _source_text(post, thread_posts)
-    return bool(ALDO_GENERIC_TRACK_RECORD_RE.search(text)) and not ALDO_SUBSTANTIVE_THESIS_RE.search(text)
+    if profile.id == "aldotjahjadi8" and ALDO_GENERIC_TRACK_RECORD_RE.search(text):
+        if not ALDO_SUBSTANTIVE_THESIS_RE.search(text):
+            return True
+    if _is_generic_trading_education(text):
+        return True
+    if CLEAR_NON_STOCK_MARKET_RE.search(text) and not _has_stock_market_context(text):
+        return True
+    if _has_stock_market_context(text):
+        return False
+    return False
 
 
 def deterministic_route(
@@ -183,7 +233,12 @@ def deterministic_route(
 def requires_relevance(post: SourcePost, thread_posts: tuple[SourcePost, ...] | None = None) -> bool:
     if is_promotional(post, thread_posts):
         return False
-    return any(MARKET_DISCLOSURE_RE.search(render.markdown(item.content_html)) for item in (thread_posts or (post,)))
+    return any(
+        MARKET_DISCLOSURE_RE.search(text)
+        and _has_stock_market_context(text)
+        and not _is_generic_trading_education(text)
+        for text in (render.markdown(item.content_html) for item in (thread_posts or (post,)))
+    )
 
 
 def agent_item(profile: Profile, post: SourcePost, thread_posts: tuple[SourcePost, ...] | None = None) -> dict[str, str | bool | None]:

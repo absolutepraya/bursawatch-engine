@@ -174,6 +174,40 @@ def test_submit_summary_drops_deterministically_irrelevant_aldo_post(tmp_path, m
     assert state.load_state(storage)["outbox"] == []
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "AI memangkas pekerjaan tiga hari menjadi setengah hari dan mengembalikan waktu untuk berpikir, belajar, dan berefleksi.",
+        "Persentase menjadi bahasa universal dalam trading untuk membandingkan perubahan harga dan kinerja.",
+    ],
+)
+def test_submit_drops_generic_non_stock_or_trading_education_even_if_agent_marks_relevant(tmp_path, monkeypatch, config_path, profile_payload, text):
+    profile_payload["enable_llm_title"] = True
+    config_path.write_text(json.dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    storage = tmp_path / "state.json"
+    post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), text, PostKind.NORMAL, None, None, (), ())
+    value = state.new_state()
+    value["profiles"][profile.id] = {"cursor": "101"}
+    state.observe_posts(value, profile, [post], lambda candidate: True)
+    state.claim_oldest_agent(value, {profile.id: profile}, datetime.now(UTC))
+    state.save_state(storage, value)
+    monkeypatch.setenv("X_POST_WATCH_STATE_PATH", str(storage))
+    monkeypatch.setenv("X_POST_WATCH_CONFIG_PATH", str(config_path))
+    sent = []
+    monkeypatch.setattr(scan.discord, "post_text", lambda *args: sent.append(args))
+
+    result = scan.submit_analysis_payload({
+        "event_key": "kutekians:102",
+        "is_relevant": True,
+        "title": "Tidak boleh diteruskan",
+    })
+
+    assert result == {"submitted": True, "ignored": True, "delivered": 0}
+    assert sent == []
+    assert state.load_state(storage)["outbox"] == []
+
+
 def test_submit_summary_rejects_invalid_value_without_mutating_state(tmp_path, monkeypatch, config_path, profile_payload):
     profile_payload["enable_llm_title"] = True
     profile_payload["enable_llm_summary"] = True
