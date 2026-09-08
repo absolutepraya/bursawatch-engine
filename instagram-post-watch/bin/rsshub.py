@@ -287,7 +287,21 @@ def parse_feed(payload: object, profile: Profile, after_id: str | None = None) -
         return posts
     for index, post in enumerate(posts):
         if post.publication_id == after_id:
-            return posts[index + 1:]
+            if len(posts) == 1:
+                return []
+            order = [
+                (current.published_at, current.publication_id)
+                for current in posts
+            ]
+            newest_first = all(left >= right for left, right in zip(order, order[1:]))
+            oldest_first = all(left <= right for left, right in zip(order, order[1:]))
+            if newest_first and not oldest_first:
+                return posts[:index]
+            if oldest_first and not newest_first:
+                return posts[index + 1:]
+            # A mixed-order page is unusual. Return the full page and let
+            # durable timestamp/ID comparisons decide which entries are new.
+            return posts
     # RSSHub returns one page. If the durable cursor is not on that page,
     # return the page and let durable timestamp/ID comparisons and deduplication
     # decide which entries are new.

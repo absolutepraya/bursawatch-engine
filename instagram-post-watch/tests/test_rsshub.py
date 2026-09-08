@@ -303,6 +303,27 @@ def test_after_id_returns_only_newer_feed_entries(configured_profile):
     assert [post.publication_id for post in posts] == ["media-1003"]
 
 
+def test_after_id_returns_newer_entries_when_feed_is_newest_first(configured_profile):
+    payload = {"items": [
+        {
+            "id": "media-newest", "url": "https://instagram.com/p/NEWEST/",
+            "date_published": "2026-08-24T11:00:00Z", "content_html": "<img src=\"https://cdn.example/newest.jpg\">",
+        },
+        {
+            "id": "media-cursor", "url": "https://instagram.com/p/CURSOR/",
+            "date_published": "2026-08-24T10:00:00Z", "content_html": "<img src=\"https://cdn.example/cursor.jpg\">",
+        },
+        {
+            "id": "media-older", "url": "https://instagram.com/p/OLDER/",
+            "date_published": "2026-08-24T09:00:00Z", "content_html": "<img src=\"https://cdn.example/older.jpg\">",
+        },
+    ]}
+
+    posts = rsshub.parse_feed(payload, configured_profile, after_id="media-cursor")
+
+    assert [post.publication_id for post in posts] == ["media-newest"]
+
+
 def test_after_id_missing_from_page_returns_the_page_for_durable_filtering(configured_profile):
     payload = load_fixture("carousel-post.json")
 
