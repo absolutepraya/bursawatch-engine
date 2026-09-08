@@ -16,6 +16,7 @@ def test_load_config_builds_profile_and_feed_url(config_path):
     assert profile.id == "kutekians"
     assert profile.feed_url == "http://127.0.0.1:1200/twitter/user/Kutekians?format=json"
     assert profile.media_policy == "all"
+    assert profile.relevance_scope == "stock_market"
     assert profile.thread_handling.max_posts == 10
     assert profile.thread_handling.max_age_minutes == 240
     assert profile.thread_handling.settle_minutes == 60
@@ -28,6 +29,16 @@ def test_load_config_accepts_a_direct_x_source(config_path, profile_payload):
     profile = config_module.load_watch_config(config_path).profiles[0]
 
     assert profile.source == "direct_x"
+
+
+@pytest.mark.parametrize("scope", ["stock_market", "financial_market", "indonesia_economy"])
+def test_load_config_accepts_relevance_scopes(config_path, profile_payload, scope):
+    profile_payload["relevance_scope"] = scope
+    write_config(config_path, {"version": 1, "profiles": [profile_payload]})
+
+    profile = config_module.load_watch_config(config_path).profiles[0]
+
+    assert profile.relevance_scope == scope
 
 
 def test_load_config_accepts_twenty_post_self_chain(config_path, profile_payload):
@@ -163,6 +174,52 @@ def test_canonical_aldotjahjadi8_profile_is_routed_and_threaded():
     assert (profile.thread_handling.mode, profile.thread_handling.max_posts, profile.thread_handling.max_age_minutes, profile.thread_handling.settle_minutes) == ("self_chain", 20, 240, 15)
 
 
+def test_canonical_kobeissi_profile_is_financial_market_scoped():
+    canonical_config = Path(__file__).resolve().parents[1] / "config" / "watches.json"
+    profile = {item.id: item for item in config_module.load_watch_config(canonical_config).profiles}["kobeissiletter"]
+
+    assert profile.enabled is True
+    assert profile.source == "rsshub"
+    assert profile.profile_url == "https://x.com/KobeissiLetter"
+    assert profile.handle == "KobeissiLetter"
+    assert profile.display_name == "The Kobeissi Letter"
+    assert profile.twitter_emoji == "<:twitter:1531672630602498129>"
+    assert profile.emoji == "<:kobeissiletter:1542781230225952830>"
+    assert profile.relevance_scope == "financial_market"
+    assert [(channel.key, channel.channel_id) for channel in profile.discord_channels] == [
+        ("macro_news", "1531655369884045382"),
+        ("us_stocks_news", "1532266331737686199"),
+    ]
+    assert (profile.forward_normal_post, profile.forward_quote_post, profile.forward_reply, profile.forward_repost, profile.forward_media) == (True, True, False, False, True)
+    assert (profile.enable_llm_title, profile.enable_llm_summary, profile.enable_llm_routing, profile.enable_llm_relevance_filter) == (True, True, True, True)
+    assert "commodities" in profile.additional_prompt_instruction
+    assert "weekly-letter" in profile.additional_prompt_instruction
+    assert (profile.thread_handling.mode, profile.thread_handling.max_posts, profile.thread_handling.max_age_minutes, profile.thread_handling.settle_minutes) == ("self_chain", 20, 240, 15)
+
+
+def test_canonical_idnfinancials_profile_is_indonesia_economy_scoped():
+    canonical_config = Path(__file__).resolve().parents[1] / "config" / "watches.json"
+    profile = {item.id: item for item in config_module.load_watch_config(canonical_config).profiles}["idnfinancials"]
+
+    assert profile.enabled is True
+    assert profile.source == "rsshub"
+    assert profile.profile_url == "https://x.com/IDNFinancials"
+    assert profile.handle == "IDNFinancials"
+    assert profile.display_name == "IDN Financials"
+    assert profile.twitter_emoji == "<:twitter:1531672630602498129>"
+    assert profile.emoji == "<:idnfinancials:1542781829952704512>"
+    assert profile.relevance_scope == "indonesia_economy"
+    assert [(channel.key, channel.channel_id) for channel in profile.discord_channels] == [
+        ("macro_news", "1531655369884045382"),
+        ("id_stocks_news", "1525102508714889257"),
+    ]
+    assert (profile.forward_normal_post, profile.forward_quote_post, profile.forward_reply, profile.forward_repost, profile.forward_media) == (True, True, False, False, True)
+    assert (profile.enable_llm_title, profile.enable_llm_summary, profile.enable_llm_routing, profile.enable_llm_relevance_filter) == (True, True, True, True)
+    assert "infrastructure" in profile.additional_prompt_instruction
+    assert "SpaceX" in profile.additional_prompt_instruction
+    assert (profile.thread_handling.mode, profile.thread_handling.max_posts, profile.thread_handling.max_age_minutes, profile.thread_handling.settle_minutes) == ("disabled", 10, 240, 60)
+
+
 def test_canonical_wavetiga_profile_is_direct_x_and_fully_routed():
     canonical_config = Path(__file__).resolve().parents[1] / "config" / "watches.json"
     profile = {item.id: item for item in config_module.load_watch_config(canonical_config).profiles}["wavetiga"]
@@ -202,6 +259,7 @@ def test_canonical_wavetiga_profile_is_direct_x_and_fully_routed():
         ("enable_llm_summary", "yes", "boolean"),
         ("enable_llm_routing", "yes", "boolean"),
         ("enable_llm_relevance_filter", "yes", "boolean"),
+        ("relevance_scope", "unsupported", "stock_market, financial_market, or indonesia_economy"),
         ("source", "unsupported", "rsshub or direct_x"),
         ("media_policy", "drop_last_two", "all or omit_last"),
         ("additional_prompt_instruction", 1, "must be text"),
