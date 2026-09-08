@@ -312,6 +312,72 @@ def test_carousel_is_one_event_and_every_image_is_ocrd(tmp_path, monkeypatch, co
     assert len(event["ocr_results"]) == 2
 
 
+@pytest.mark.parametrize(
+    ("caption", "ocr_text", "expected_reason"),
+    [
+        (
+            "A caption with investing context.",
+            "Cara berinvestasi di saham dengan mindset dan disiplin yang benar.",
+            "generic_investing_education",
+        ),
+        (
+            "BBRI breakout resistance, entry 4200, target 4800, stop-loss 3950.",
+            "BBRI breakout resistance, entry 4200, target 4800, stop-loss 3950.",
+            "actionable_trade_setup",
+        ),
+    ],
+)
+def test_obvious_instagram_noise_is_ocrd_then_filtered_before_llm(
+    tmp_path,
+    monkeypatch,
+    config_path,
+    caption,
+    ocr_text,
+    expected_reason,
+):
+    profile = config.load_watch_config(config_path).profiles[0]
+    storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
+    _initialize_cursor(storage, profile, _post(profile.id, "baseline", 0))
+    post = _post(
+        profile.id,
+        "education",
+        1,
+        caption=caption,
+        media=(
+            SourceMedia("https://cdn.example/education-0.jpg", MediaKind.IMAGE, 0),
+            SourceMedia("https://cdn.example/education-1.jpg", MediaKind.IMAGE, 1),
+        ),
+    )
+    ocr_calls = _install_download_and_ocr(monkeypatch, media_root)
+
+    def educational_extract(asset, *_args):
+        ocr_calls.append(asset.source.index)
+        return ocr.OCRResult(
+            ocr.OCRStatus.SUCCESS,
+            text=ocr_text,
+            confidence=0.99,
+            min_confidence=0.98,
+            engine_id="fake",
+            model_version="fake-v1",
+            languages=("ind", "eng"),
+        )
+
+    monkeypatch.setattr(scan.ocr, "extract_cached", educational_extract)
+    monkeypatch.setattr(scan.rsshub, "fetch_profile_items", lambda *_args, **_kwargs: [post])
+    heartbeats: list[str] = []
+    monkeypatch.setattr(scan.discord, "post_text", lambda content, *_args: heartbeats.append(content) or "heartbeat")
+
+    result = scan.run(now=NOW + timedelta(minutes=1), dry_run=False)
+
+    saved = state.load_state(storage)
+    assert result == {"wakeAgent": False, "item": None}
+    assert saved["outbox"] == []
+    assert ocr_calls == [0, 1]
+    assert len(heartbeats) == 1
+    assert "1 filtered" in heartbeats[0]
+    assert f"{expected_reason}=1" in heartbeats[0]
+
+
 def test_ocr_failure_chooses_partial_vision_and_sparse_text_chooses_full(tmp_path, monkeypatch, config_path):
     profile = config.load_watch_config(config_path).profiles[0]
     storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
@@ -413,7 +479,7 @@ def test_reel_delivery_sends_only_first_image_not_sampled_frames(tmp_path, monke
         "is_relevant": True,
         "title": "Macro: Reel",
         "summary": "*(Ringkasan)* Reel",
-        "route": "macro",
+        "route": "macro_news",
     })
 
     assert result == {"submitted": True, "ignored": False, "delivered": 1}
@@ -596,7 +662,7 @@ def test_filtered_submission_cleans_owned_media(tmp_path, monkeypatch, config_pa
     result = scan.submit_analysis_payload({"event_key": event["event_key"], "is_relevant": False})
 
     saved = state.load_state(storage)
-    assert result == {"submitted": True, "ignored": True, "delivered": 0}
+    assert result == {"submitted": True, "ignored": True, "delivered": 0, "reason": "not_stock_market_related"}
     assert saved["outbox"] == []
     assert saved["filtered_since_last_heartbeat"] == 1
     assert cleaned == [(media_root, post.publication_id)]
@@ -629,7 +695,7 @@ def test_valid_submission_sends_text_before_first_carousel_image(tmp_path, monke
         "is_relevant": True,
         "title": "Macro: Market conditions",
         "summary": "*(Ringkasan)* Market conditions remain important",
-        "route": "macro",
+        "route": "macro_news",
     }
 
     result = scan.submit_analysis_payload(payload)

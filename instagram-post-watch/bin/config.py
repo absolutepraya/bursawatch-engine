@@ -132,8 +132,8 @@ def _parse_profile(index: int, value: object) -> Profile:
     _validate_profile_url(profile_url, handle)
     channels = _parse_channels(profile["discord_channels"], f"profiles[{index}].discord_channels")
     enable_llm_routing = _expect_bool(profile["enable_llm_routing"], f"profiles[{index}].enable_llm_routing")
-    if enable_llm_routing and not {"macro", "id_stock"}.issubset(channel.key for channel in channels):
-        raise ValueError(f"profiles[{index}].discord_channels must contain macro and id_stock when enable_llm_routing is true")
+    if enable_llm_routing and not {"macro_news", "id_stocks_news"}.issubset(channel.key for channel in channels):
+        raise ValueError(f"profiles[{index}].discord_channels must contain macro_news and id_stocks_news when enable_llm_routing is true")
     max_items = profile["max_items_per_poll"]
     if type(max_items) is not int or not 1 <= max_items <= 100:
         raise ValueError(f"profiles[{index}].max_items_per_poll must be an integer from 1 to 100")

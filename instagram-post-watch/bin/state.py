@@ -1111,7 +1111,13 @@ def observe_publications(
             event_key = f"{profile.id}:{publication.publication_id}"
             if event_key in known:
                 continue
-            new_events.append(_event_for_publication(profile, publication, prepare_event(publication)))
+            prepared = prepare_event(publication)
+            # A deterministic post-preparation filter may return None after
+            # OCR has completed. The cursor still advances, but no LLM event
+            # or delivery state is created for the filtered publication.
+            if prepared is None:
+                continue
+            new_events.append(_event_for_publication(profile, publication, prepared))
             known.add(event_key)
     except Exception as exc:
         # Do not advance the cursor or append a partial outbox when media/OCR

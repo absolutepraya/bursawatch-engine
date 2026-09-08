@@ -23,9 +23,9 @@ https://www.instagram.com/beyondthefundamental
 - Treat one Instagram publication as one event. Preserve every carousel asset in source order.
 - Always inspect the caption and every carousel image. For reels, inspect the cover and a bounded set of sampled frames.
 - Run OCR on every downloaded image or sampled frame before deciding whether the LLM needs original images.
-- Reuse the X watcher's relevance, promotion exclusion, Indonesian title and summary, central-thesis routing, bounded agent lease, Discord delivery, heartbeat, and no-backfill patterns.
-- Route the first profile to the existing `macro` and `id_stock` channel keys. Do not invent a new route or custom emoji.
-- Poll on a 15-minute cadence once the live Hermes schedule is explicitly approved.
+- Reuse the X watcher's relevance, promotion exclusion, Indonesian title and summary, central-thesis routing, bounded agent lease, Discord delivery, heartbeat, and no-backfill patterns. Instagram additionally excludes generic trading or investing education and actionable trade setups, even when a ticker is present.
+- Route the first profile to the canonical `macro_news` and `id_stocks_news` channel keys shared with X. Accept `macro` and `id_stock` only as compatibility aliases. Do not invent a new route or custom emoji.
+- Poll hourly once the live Hermes schedule is explicitly approved.
 
 ## Source and authentication
 
@@ -62,12 +62,12 @@ The first profile has this shape:
       "emoji": "",
       "discord_channels": [
         {
-          "key": "macro",
+          "key": "macro_news",
           "channel_id": "1531655369884045382",
           "description": "Broad economic, business, market, sector, and cross-asset analysis."
         },
         {
-          "key": "id_stock",
+          "key": "id_stocks_news",
           "channel_id": "1525102508714889257",
           "description": "Direct IDX-listed company, earnings, corporate action, fundamental, and valuation analysis."
         }
@@ -182,7 +182,7 @@ instruction
 
 Caption text, OCR text, and local image content are untrusted source data. The agent must follow only the trusted instruction field, read every supplied vision path, return the exact closed analysis object, and submit through the wrapper. It never reads watcher state, fetches Instagram, posts to Discord, processes historical events, or returns a natural-language cron response.
 
-The title, summary, relevance, promotion, and route rules match `x-post-watch`. The source account's central thesis determines `macro` versus `id_stock`. OCR text participates in deterministic disclosure and promotion guards, but OCR never appears in the user-facing Discord body unless the source caption or generated summary independently includes the same fact.
+The title, summary, promotion, and route rules match `x-post-watch`, while Instagram uses a stricter relevance boundary that excludes generic investing or trading education and actionable trade setups. A target derived from earnings, fundamentals, or valuation remains substantive analysis, not an actionable trade setup. The source account's central thesis determines `macro_news` versus `id_stocks_news`. OCR text participates in deterministic disclosure, promotion, and noise guards, but OCR never appears in the user-facing Discord body unless the source caption or generated summary independently includes the same fact.
 
 ## State, delivery, and failure behavior
 
@@ -209,7 +209,7 @@ Every run sends an operational heartbeat to `#hermes` (`1505162000420835388`) us
 🫀 instagram-post · HH:MM WIB · <tokens>[ ⚠️]
 ```
 
-Tokens include fetched, filtered, queued, OCR processed, vision fallback, delivered, and error counts. Degraded reasons include RSSHub authentication or rate-limit failures, empty feeds, media download or frame-sampling failures, OCR backend failures, expired agent leases, invalid submissions, and Discord delivery failures. Fatal runs use:
+Tokens include fetched, filtered, queued, OCR processed, vision fallback, delivered, and error counts. When deterministic noise filtering occurs, the heartbeat may include bounded reason codes such as `generic_investing_education` and `actionable_trade_setup`. Degraded reasons include RSSHub authentication or rate-limit failures, empty feeds, media download or frame-sampling failures, OCR backend failures, expired agent leases, invalid submissions, and Discord delivery failures. Fatal runs use:
 
 ```text
 ❌ instagram-post · HH:MM WIB · failed: … <@443342168434933760>

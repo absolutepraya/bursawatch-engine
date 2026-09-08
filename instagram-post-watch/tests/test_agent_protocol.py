@@ -977,10 +977,63 @@ def test_instruction_contains_exact_routes_and_no_untrusted_source_text(config_p
     instruction = agent_protocol.instruction_for(profile).lower()
 
     assert "choose exactly one configured route key" in instruction
-    assert "macro" in instruction
-    assert "id_stock" in instruction
+    assert "macro_news" in instruction
+    assert "id_stocks_news" in instruction
+    assert "generic trading and investing education" in instruction
+    assert "actionable trade setups" in instruction
     assert "do not add any other lookup fact" in instruction
     assert "fetch instagram" in instruction
+
+
+@pytest.mark.parametrize(
+    ("caption", "expected_reason"),
+    [
+        (
+            "Cara berinvestasi di saham dengan mindset dan disiplin yang benar.",
+            "generic_investing_education",
+        ),
+        (
+            "BBRI breakout resistance, entry 4200, target 4800, stop-loss 3950.",
+            "actionable_trade_setup",
+        ),
+    ],
+)
+def test_instagram_noise_filter_returns_sanitized_reason_codes(config_path, caption, expected_reason):
+    profile = _profile(config_path)
+    post = _post(profile, caption=caption)
+
+    assert agent_protocol.deterministic_filter_reason(post) == expected_reason
+
+
+def test_concrete_company_analysis_survives_instagram_noise_filter(config_path):
+    profile = _profile(config_path)
+    post = _post(
+        profile,
+        caption="BBRI earnings declined 20%, valuation is stretched, and the fundamental target is lower.",
+    )
+
+    assert agent_protocol.deterministic_filter_reason(post) is None
+
+
+def test_legacy_route_aliases_normalize_to_canonical_keys(config_path):
+    profile = _profile(config_path)
+    macro_payload = {
+        "event_key": f"{profile.id}:ABC123",
+        "is_relevant": True,
+        "title": "Pasar Indonesia Menghadapi Tekanan Likuiditas",
+        "summary": "*(Ringkasan)* Likuiditas menjadi faktor utama pergerakan pasar.",
+        "route": "macro",
+    }
+    stock_payload = {
+        "event_key": f"{profile.id}:ABC123",
+        "is_relevant": True,
+        "title": "BBCA: Pertumbuhan Kredit Menguat",
+        "summary": "*(Ringkasan)* Pertumbuhan kredit mendukung tesis emiten.",
+        "route": "id_stock",
+    }
+
+    assert agent_protocol.validate_submission(profile, macro_payload)["route"] == "macro_news"
+    assert agent_protocol.validate_submission(profile, stock_payload)["route"] == "id_stocks_news"
 
 
 def test_submission_accepts_exact_relevant_shape_and_indonesian_rules(config_path):
@@ -990,7 +1043,7 @@ def test_submission_accepts_exact_relevant_shape_and_indonesian_rules(config_pat
         "is_relevant": True,
         "title": "Pasar Indonesia Menghadapi Tekanan Likuiditas",
         "summary": "*(Ringkasan)* Likuiditas menjadi faktor utama pergerakan pasar.",
-        "route": "macro",
+        "route": "macro_news",
     }
 
     assert agent_protocol.validate_submission(profile, payload) == payload
@@ -1003,10 +1056,10 @@ def test_id_stock_title_requires_ticker_prefix(config_path):
         "is_relevant": True,
         "title": "BBCA: Pertumbuhan Kredit Menguat",
         "summary": "*(Ringkasan)* Pertumbuhan kredit mendukung tesis emiten.",
-        "route": "id_stock",
+        "route": "id_stocks_news",
     }
 
-    assert agent_protocol.validate_submission(profile, payload)["route"] == "id_stock"
+    assert agent_protocol.validate_submission(profile, payload)["route"] == "id_stocks_news"
     payload["title"] = "Pertumbuhan Kredit Menguat"
     with pytest.raises(ValueError, match="ticker"):
         agent_protocol.validate_submission(profile, payload)
@@ -1025,7 +1078,7 @@ def test_irrelevant_submission_is_exactly_two_fields(config_path):
     "payload",
     [
         {"event_key": "other:ABC123", "is_relevant": False},
-        {"event_key": "beyondthefundamental:ABC123", "is_relevant": True, "title": "Missing summary", "route": "macro"},
+        {"event_key": "beyondthefundamental:ABC123", "is_relevant": True, "title": "Missing summary", "route": "macro_news"},
         {
             "event_key": "beyondthefundamental:ABC123",
             "is_relevant": True,
@@ -1038,7 +1091,7 @@ def test_irrelevant_submission_is_exactly_two_fields(config_path):
             "is_relevant": True,
             "title": "A valid macro headline",
             "summary": "*(Ringkasan)* " + "x" * 1_600,
-            "route": "macro",
+            "route": "macro_news",
         },
     ],
 )

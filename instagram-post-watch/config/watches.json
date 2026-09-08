@@ -12,12 +12,12 @@
       "emoji": "",
       "discord_channels": [
         {
-          "key": "macro",
+          "key": "macro_news",
           "channel_id": "1531655369884045382",
           "description": "Broad economic, business, market, sector, and cross-asset analysis."
         },
         {
-          "key": "id_stock",
+          "key": "id_stocks_news",
           "channel_id": "1525102508714889257",
           "description": "Direct IDX-listed company, earnings, corporate action, fundamental, and valuation analysis."
         }
@@ -29,7 +29,7 @@
       "enable_llm_summary": true,
       "enable_llm_routing": true,
       "enable_llm_relevance_filter": true,
-      "additional_prompt_instruction": "Always use the caption and all carousel OCR together. Preserve the account's own thesis.",
+      "additional_prompt_instruction": "Always use the caption and all carousel OCR together. Preserve the account's own thesis. The shared Instagram relevance boundary excludes generic trading or investing education, mindset advice, and actionable trade setups; keep concrete market, issuer, earnings, valuation, corporate-action, or macro theses.",
       "max_items_per_poll": 20,
       "ocr_languages": ["ind", "eng"],
       "ocr_min_confidence": 0.70,

@@ -21,12 +21,12 @@ def profile_payload() -> dict:
         "emoji": "",
         "discord_channels": [
             {
-                "key": "macro",
+                "key": "macro_news",
                 "channel_id": "1531655369884045382",
                 "description": "Broad economic, business, market, sector, and cross-asset analysis.",
             },
             {
-                "key": "id_stock",
+                "key": "id_stocks_news",
                 "channel_id": "1525102508714889257",
                 "description": "Direct IDX-listed company, earnings, corporate action, fundamental, and valuation analysis.",
             },

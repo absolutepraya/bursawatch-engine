@@ -19,12 +19,12 @@ def test_load_config_parses_the_approved_profile(config_path):
     assert profile.source == "rsshub"
     assert profile.platform_emoji == "📸"
     assert profile.emoji == ""
-    assert tuple(channel.key for channel in profile.discord_channels) == ("macro", "id_stock")
+    assert tuple(channel.key for channel in profile.discord_channels) == ("macro_news", "id_stocks_news")
     assert profile.ocr_languages == ("ind", "eng")
     assert profile.ocr_min_confidence == 0.70
     assert profile.max_reel_frames == 5
     assert profile.uses_llm is True
-    assert profile.channel_for("macro").channel_id == "1531655369884045382"
+    assert profile.channel_for("macro_news").channel_id == "1531655369884045382"
 
 
 def test_load_config_builds_instagram_feed_url(config_path):
@@ -136,7 +136,7 @@ def test_load_config_rejects_unknown_root_fields(config_path, profile_payload):
 
 
 def test_load_config_rejects_duplicate_channel_keys(config_path, profile_payload):
-    profile_payload["discord_channels"][1]["key"] = "macro"
+    profile_payload["discord_channels"][1]["key"] = "macro_news"
     write_config(config_path, {"version": 1, "profiles": [profile_payload]})
 
     with pytest.raises(ValueError, match="keys must be unique"):
@@ -151,11 +151,11 @@ def test_load_config_rejects_invalid_discord_snowflake(config_path, profile_payl
         config_module.load_watch_config(config_path)
 
 
-def test_load_config_requires_macro_and_id_stock_when_routing_is_enabled(config_path, profile_payload):
+def test_load_config_requires_canonical_news_channels_when_routing_is_enabled(config_path, profile_payload):
     profile_payload["discord_channels"] = [profile_payload["discord_channels"][0]]
     write_config(config_path, {"version": 1, "profiles": [profile_payload]})
 
-    with pytest.raises(ValueError, match="macro and id_stock"):
+    with pytest.raises(ValueError, match="macro_news and id_stocks_news"):
         config_module.load_watch_config(config_path)
 
 

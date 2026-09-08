@@ -19,10 +19,10 @@
 - Use `text_only` when OCR is complete and sufficient, `vision_partial` for failed or uncertain assets, and `vision_full` when the publication needs complete visual context.
 - Keep local media and sampled frames under runtime state until delivery completes. Never edit or capture live state as source.
 - Use an isolated VPS OCR environment. Never add OCR dependencies to the shared Yahoo Finance Python environment.
-- Reuse the X watcher's relevance, promotion exclusion, Indonesian title and summary, central-thesis routing, lease, delivery, heartbeat, and no-backfill boundaries.
-- Use `macro` and `id_stock` as the first profile's only destination keys. Do not invent custom Discord emoji.
+- Reuse the X watcher's relevance, promotion exclusion, Indonesian title and summary, central-thesis routing, lease, delivery, heartbeat, and no-backfill boundaries. Instagram additionally excludes generic trading or investing education and actionable trade setups, even when a ticker is present.
+- Use the X watcher's canonical `macro_news` and `id_stocks_news` destination keys for the first profile. Accept the old `macro` and `id_stock` values only as compatibility aliases. Do not invent custom Discord emoji.
 - Use the `instagram-post` heartbeat name and `#hermes` channel `1505162000420835388`.
-- The intended Hermes cadence is `*/15 * * * *` in `Asia/Jakarta`, but local source work does not register or change a live cron.
+- The intended Hermes cadence is `0 * * * *` in `Asia/Jakarta`, but local source work does not register or change a live cron.
 - Do not edit `~/.dotfiles/vps/agents/skills/`. It is a backup mirror from the VPS, not an authoring target.
 - Do not modify `~/.hermes/cron/jobs.json` by hand. Use the supported Hermes CLI only after explicit operational approval.
 - The implementation starts in an isolated worktree created through the `wt` workflow at execution time. Do not edit the current worktree during implementation.
@@ -87,7 +87,7 @@ Run:
 mkdir -p instagram-post-watch/bin instagram-post-watch/config instagram-post-watch/tests/fixtures instagram-post-watch/tools
 ```
 
-Write `config/watches.json` with the exact profile from the approved design: `beyondthefundamental`, source `rsshub`, public profile URL, platform emoji `📸`, empty account emoji, `macro` and `id_stock` channels, all post/reel/media forwarding enabled, all four LLM switches enabled, OCR languages `ind` and `eng`, confidence `0.70`, maximum five reel frames, and a per-poll cap of `20`.
+Write `config/watches.json` with the exact profile from the approved design: `beyondthefundamental`, source `rsshub`, public profile URL, platform emoji `📸`, empty account emoji, `macro_news` and `id_stocks_news` channels, all post/reel/media forwarding enabled, all four LLM switches enabled, OCR languages `ind` and `eng`, confidence `0.70`, maximum five reel frames, and a per-poll cap of `20`.
 
 - [ ] **Step 2: Write failing configuration tests**
 
@@ -152,7 +152,7 @@ class Profile:
     def channel_for(self, key: str) -> DiscordChannel: ...
 ```
 
-Accept `https://instagram.com/<handle>` and `https://www.instagram.com/<handle>` without a query, fragment, parameters, extra path, or trailing slash. Accept handles matching `[A-Za-z0-9._]{1,30}`. Require `source == "rsshub"`, non-empty `platform_emoji`, and allow `emoji == ""`. Require `macro` and `id_stock` channels when routing is enabled. Reject unknown keys at every object boundary.
+Accept `https://instagram.com/<handle>` and `https://www.instagram.com/<handle>` without a query, fragment, parameters, extra path, or trailing slash. Accept handles matching `[A-Za-z0-9._]{1,30}`. Require `source == "rsshub"`, non-empty `platform_emoji`, and allow `emoji == ""`. Require `macro_news` and `id_stocks_news` channels when routing is enabled. Reject unknown keys at every object boundary.
 
 - [ ] **Step 5: Run the focused tests**
 
@@ -473,7 +473,7 @@ Build `post_text` from a clearly labeled caption section followed by one section
 
 - [ ] **Step 4: Implement shared relevance, promotion, routing, title, and summary rules**
 
-Port the X watcher rules into the Instagram-specific source context. Apply deterministic promotion guards to caption plus OCR text. Direct ticker disclosures, earnings, corporate actions, dilution, rights issues, private placements, and the approved disclosure hashtags force relevance unless the combined source is promotional. Route the central thesis to exactly one configured key. Keep titles source-grounded Bahasa Indonesia and summaries under 1,600 characters with exactly one `*(Ringkasan)* ` prefix.
+Port the X watcher rules into the Instagram-specific source context. Apply deterministic promotion and noise guards to caption plus OCR text after OCR completes and before an LLM lease is claimed. The noise guard filters generic trading or investing education, mindset advice, and actionable trade setups; a target derived from earnings, fundamentals, or valuation remains substantive analysis. Ambiguous content remains with the LLM. Direct ticker disclosures, earnings, corporate actions, dilution, rights issues, private placements, and the approved disclosure hashtags force relevance unless the combined source is promotional or matches the deterministic noise boundary. Route the central thesis to exactly one canonical configured key. Keep titles source-grounded Bahasa Indonesia and summaries under 1,600 characters with exactly one `*(Ringkasan)* ` prefix.
 
 - [ ] **Step 5: Write the runtime `SKILL.md` contract**
 
@@ -590,7 +590,7 @@ Acquire a process lock before source observation and submission. Use an isolated
 
 - [ ] **Step 4: Implement run statistics and canonical heartbeat output**
 
-Track fetched, filtered, queued, OCR processed, vision partial, vision full, delivered, and error counts. Emit:
+Track fetched, filtered, queued, OCR processed, vision partial, vision full, delivered, and error counts. Include only bounded deterministic filter reason codes such as `generic_investing_education` and `actionable_trade_setup` when they occur. Emit:
 
 ```text
 🫀 instagram-post · HH:MM WIB · <tokens>[ · <first sanitized reason> <@443342168434933760> ⚠️]
