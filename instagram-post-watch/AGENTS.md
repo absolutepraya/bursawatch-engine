@@ -32,7 +32,7 @@ and domain source of truth for the agent-backed `instagram-post-watch` cron.
 ## Heartbeat and cadence
 
 - Every run reports the short heartbeat name `instagram-post` to Discord `#hermes` (`1505162000420835388`) using `🫀 instagram-post · HH:MM WIB · <tokens>` and a sanitized warning or fatal form when degraded.
-- The intended source cadence is `*/15 * * * *` in `Asia/Jakarta`. This is a source intention, not proof of live registration. Any Hermes schedule registration, enablement, rescheduling, or delivery change requires explicit approval and the supported Hermes CLI. Never hand-edit `~/.hermes/cron/jobs.json`.
+- The intended source cadence is `0 * * * *` in `Asia/Jakarta`, once per hour. This is a source intention, not proof of live registration. Any Hermes schedule registration, enablement, rescheduling, or delivery change requires explicit approval and the supported Hermes CLI. Never hand-edit `~/.hermes/cron/jobs.json`.
 
 ## Development, testing, and deployment
 

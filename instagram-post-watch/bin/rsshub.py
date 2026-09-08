@@ -5,6 +5,7 @@ from html.parser import HTMLParser
 import ipaddress
 import re
 import socket
+import time
 from urllib.parse import urlparse
 
 import requests
@@ -14,6 +15,11 @@ from models import MediaKind, Profile, PublicationKind, SourceMedia, SourcePost
 
 class SourceFetchError(RuntimeError):
     pass
+
+
+RSSHUB_REQUEST_TIMEOUT_SECONDS = 75
+RSSHUB_REQUEST_ATTEMPTS = 2
+RSSHUB_RETRY_DELAY_SECONDS = 1.0
 
 
 _SAFE_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -290,23 +296,28 @@ def parse_feed(payload: object, profile: Profile, after_id: str | None = None) -
 
 def fetch_profile_items(profile: Profile, session: requests.Session | None = None, after_id: str | None = None) -> list[SourcePost]:
     client = session or requests.Session()
-    response = None
-    try:
-        response = client.get(profile.feed_url, timeout=30)
-        response.raise_for_status()
-        payload = response.json()
-    except requests.RequestException as exc:
-        raise SourceFetchError("RSSHub request failed") from exc
-    except (ValueError, TypeError) as exc:
-        raise SourceFetchError("RSSHub returned invalid JSON") from exc
-    except Exception as exc:
-        raise SourceFetchError("RSSHub source failed") from exc
-    finally:
-        if response is not None:
-            try:
-                response.close()
-            except Exception:
-                pass
+    payload = None
+    for attempt in range(RSSHUB_REQUEST_ATTEMPTS):
+        response = None
+        try:
+            response = client.get(profile.feed_url, timeout=RSSHUB_REQUEST_TIMEOUT_SECONDS)
+            response.raise_for_status()
+            payload = response.json()
+            break
+        except requests.RequestException as exc:
+            if attempt + 1 >= RSSHUB_REQUEST_ATTEMPTS:
+                raise SourceFetchError("RSSHub request failed") from exc
+        except (ValueError, TypeError) as exc:
+            raise SourceFetchError("RSSHub returned invalid JSON") from exc
+        except Exception as exc:
+            raise SourceFetchError("RSSHub source failed") from exc
+        finally:
+            if response is not None:
+                try:
+                    response.close()
+                except Exception:
+                    pass
+        time.sleep(RSSHUB_RETRY_DELAY_SECONDS)
     try:
         return parse_feed(payload, profile, after_id)
     except SourceFetchError:

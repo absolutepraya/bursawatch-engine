@@ -217,14 +217,51 @@ def test_private_and_malformed_publications_are_filtered(configured_profile):
     assert rsshub.parse_feed(load_fixture("malformed-feed.json"), configured_profile) == []
 
 
-def test_fetch_uses_one_request_timeout_and_sanitizes_errors(configured_profile):
+def test_fetch_retries_transient_request_once_with_bounded_timeout(configured_profile, monkeypatch):
+    calls = []
+    sleeps = []
+
+    class Response:
+        def __init__(self): self.closed = False
+        def raise_for_status(self): pass
+        def json(self): return load_fixture("image-post.json")
+        def close(self): self.closed = True
+
+    response = Response()
+
     class BrokenSession:
         def get(self, *args, **kwargs):
-            assert kwargs == {"timeout": 30}
+            calls.append(kwargs)
+            if len(calls) == 1:
+                raise requests.ConnectionError("password=secret response body should not leak")
+            return response
+
+    monkeypatch.setattr(rsshub.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    posts = rsshub.fetch_profile_items(configured_profile, BrokenSession())
+
+    assert len(posts) == 1
+    assert calls == [
+        {"timeout": rsshub.RSSHUB_REQUEST_TIMEOUT_SECONDS},
+        {"timeout": rsshub.RSSHUB_REQUEST_TIMEOUT_SECONDS},
+    ]
+    assert sleeps == [rsshub.RSSHUB_RETRY_DELAY_SECONDS]
+    assert response.closed is True
+
+
+def test_fetch_sanitizes_exhausted_transient_errors(configured_profile, monkeypatch):
+    calls = []
+
+    class BrokenSession:
+        def get(self, *args, **kwargs):
+            calls.append(kwargs)
             raise requests.ConnectionError("password=secret response body should not leak")
+
+    monkeypatch.setattr(rsshub.time, "sleep", lambda _seconds: None)
 
     with pytest.raises(rsshub.SourceFetchError, match="RSSHub request failed") as error:
         rsshub.fetch_profile_items(configured_profile, BrokenSession())
+    assert calls == [{"timeout": rsshub.RSSHUB_REQUEST_TIMEOUT_SECONDS}] * rsshub.RSSHUB_REQUEST_ATTEMPTS
     assert "secret" not in str(error.value)
 
 
