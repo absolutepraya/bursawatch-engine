@@ -17,6 +17,7 @@ and domain source of truth for the agent-backed `instagram-post-watch` cron.
 
 - A publication is one event. Always retain the caption and download every carousel image in source order. For reels, retain the original video and sample the cover plus the bounded frame set for analysis.
 - Run OCR on every downloaded image and every sampled reel frame before the LLM decision. Tesseract is the selected backend based on the VPS benchmark. PaddleOCR is an optional, watcher-owned isolated backend and must not be installed into the shared Yahoo Finance environment.
+- Discord delivery sends only the first successfully downloaded original image per publication, normally the first carousel image or reel cover. If no original image is available, it falls back to the first available original asset. Analysis and OCR still retain every downloaded source image and sampled reel frame.
 - Keep downloads, sampled frames, OCR references, and temporary uploads below the configured `INSTAGRAM_POST_WATCH_MEDIA_ROOT`, inside event-managed directories. Clean only the event's managed media after all delivery legs and state records are complete. Never edit live state or capture media and OCR caches as source.
 - Use `text_only` when the caption and complete OCR are sufficient, `vision_partial` when only failed or uncertain assets need visual review, and `vision_full` when the publication needs complete visual context. The scanner supplies local vision paths only for the selected assets and always owns original-media delivery.
 

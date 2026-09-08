@@ -347,7 +347,7 @@ def test_ocr_failure_chooses_partial_vision_and_sparse_text_chooses_full(tmp_pat
     assert sparse_decision.asset_ids == (0,)
 
 
-def test_reel_frames_are_ocrd_but_delivery_keeps_source_order(tmp_path, monkeypatch, config_path):
+def test_reel_frames_are_ocrd_and_persisted_for_analysis(tmp_path, monkeypatch, config_path):
     profile = config.load_watch_config(config_path).profiles[0]
     storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
     _initialize_cursor(storage, profile, _post(profile.id, "baseline", 0))
@@ -383,7 +383,7 @@ def test_reel_frames_are_ocrd_but_delivery_keeps_source_order(tmp_path, monkeypa
     assert [item["source"]["index"] for item in event["downloaded_publication"]["assets"]] == [0, 1, 2]
 
 
-def test_reel_delivery_sends_only_original_video_not_cover_or_sampled_frames(tmp_path, monkeypatch, config_path):
+def test_reel_delivery_sends_only_first_image_not_sampled_frames(tmp_path, monkeypatch, config_path):
     profile = config.load_watch_config(config_path).profiles[0]
     storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
     _initialize_cursor(storage, profile, _post(profile.id, "baseline", 0))
@@ -417,7 +417,24 @@ def test_reel_delivery_sends_only_original_video_not_cover_or_sampled_frames(tmp
     })
 
     assert result == {"submitted": True, "ignored": False, "delivered": 1}
-    assert [value for kind, value in legs if kind == "media"] == ["0.mp4"]
+    assert [value for kind, value in legs if kind == "media"] == ["1.jpg"]
+
+
+def test_delivery_media_falls_back_to_first_asset_when_no_image_exists(tmp_path, config_path):
+    profile = config.load_watch_config(config_path).profiles[0]
+    reel = _post(
+        profile.id,
+        "video-only-reel",
+        1,
+        kind=PublicationKind.REEL,
+        media=(SourceMedia("https://cdn.example/reel.mp4", MediaKind.VIDEO, 0),),
+    )
+    media_root = tmp_path / reel.publication_id
+    downloaded = DownloadedPublication((_asset(media_root, reel.media[0]),), media_root)
+
+    selected = scan._delivery_media(reel, downloaded)
+
+    assert [asset.path.name for asset in selected] == ["0.mp4"]
 
 
 def test_delivery_rejects_swapped_source_locator_identity(tmp_path, config_path):
@@ -585,7 +602,7 @@ def test_filtered_submission_cleans_owned_media(tmp_path, monkeypatch, config_pa
     assert cleaned == [(media_root, post.publication_id)]
 
 
-def test_valid_submission_sends_text_before_ordered_carousel_media(tmp_path, monkeypatch, config_path):
+def test_valid_submission_sends_text_before_first_carousel_image(tmp_path, monkeypatch, config_path):
     profile = config.load_watch_config(config_path).profiles[0]
     storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
     _initialize_cursor(storage, profile, _post(profile.id, "baseline", 0))
@@ -619,11 +636,11 @@ def test_valid_submission_sends_text_before_ordered_carousel_media(tmp_path, mon
 
     saved = state.load_state(storage)
     assert result == {"submitted": True, "ignored": False, "delivered": 1}
-    assert [kind for kind, _value in legs] == ["text", "media", "media"]
-    assert [value for kind, value in legs if kind == "media"] == ["0.jpg", "1.jpg"]
+    assert [kind for kind, _value in legs] == ["text", "media"]
+    assert [value for kind, value in legs if kind == "media"] == ["0.jpg"]
     assert saved["outbox"] == []
     assert saved["deliveries"][0]["text_message_ids"] == ["text-id"]
-    assert saved["deliveries"][0]["media_message_ids"] == ["media-0.jpg", "media-1.jpg"]
+    assert saved["deliveries"][0]["media_message_ids"] == ["media-0.jpg"]
 
 
 def test_delivery_retry_keeps_failed_leg_and_retries_independently(tmp_path, monkeypatch, config_path):

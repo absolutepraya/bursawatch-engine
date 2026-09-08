@@ -268,14 +268,10 @@ def _target_channel(profile: Profile, event: dict) -> str:
 
 
 def _source_media_by_index(post: SourcePost, downloaded: DownloadedPublication) -> tuple[DownloadedAsset, ...]:
-    # Reel covers and sampled frames are analysis-only. The original reel
-    # video is the only reel asset sent to Discord.
+    # Sampled reel frames are analysis-only. All returned assets are original
+    # source assets; delivery applies its one-image limit separately.
     state.validate_source_media_coverage(post, downloaded)
-    expected_sources = tuple(
-        item
-        for item in post.media
-        if post.kind is not PublicationKind.REEL or item.kind is MediaKind.VIDEO
-    )
+    expected_sources = tuple(post.media)
     expected = {item.index: item for item in expected_sources}
     failed = {item.source.index: item for item in downloaded.failed_assets}
     selected: dict[int, DownloadedAsset] = {}
@@ -303,6 +299,17 @@ def _source_media_by_index(post: SourcePost, downloaded: DownloadedPublication) 
         ):
             raise ValueError("source media identity mismatch")
     return tuple(selected[index] for index in sorted(selected))
+
+
+def _delivery_media(post: SourcePost, downloaded: DownloadedPublication) -> tuple[DownloadedAsset, ...]:
+    source_assets = _source_media_by_index(post, downloaded)
+    if not source_assets:
+        return ()
+    first_image = next(
+        (asset for asset in source_assets if asset.source.kind is MediaKind.IMAGE),
+        None,
+    )
+    return (first_image or source_assets[0],)
 
 
 def _delivery_media_root(event: dict) -> str | None:
@@ -432,7 +439,7 @@ def _deliver(
             state.save_state(storage, value)
             return True
 
-        original_assets = _source_media_by_index(post, downloaded)
+        original_assets = _delivery_media(post, downloaded)
         if profile.forward_media and event["media_index"] < len(original_assets):
             index = event["media_index"]
             asset = original_assets[index]
