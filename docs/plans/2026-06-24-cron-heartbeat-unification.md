@@ -428,7 +428,7 @@ cd ~/.dotfiles && git add docs/superpowers mac/agents/AGENTS.md vps/agents/AGENT
 - [ ] **Step 5: Final cross-feed verification (after a real hour rolls over)**
 
 ```bash
-~/.agents/skills/discord/bin/dch 1505162000420835388 --limit 12
+~/.agents/skills/discord/bin/discord read 1505162000420835388 --limit 12
 ```
 Expected: `🫀 polycop · …`, `🫀 idx-ca · …` (no colour split) within the hour; `🫀 us-etf-dca · …` after its next pre-open run; `🫀 scele · …` after its next daily run. No `🫀 PolyCop` (capital), no `(0🟢 0🟡 0🔴)`.
 
