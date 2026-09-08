@@ -132,10 +132,11 @@ def _use_media_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("INSTAGRAM_POST_WATCH_MEDIA_ROOT", str(tmp_path))
 
 
-def test_nonce_is_deterministic_prefixed_and_unique_per_leg():
+def test_nonce_is_deterministic_bounded_and_unique_per_leg():
     first = discord.nonce("beyondthefundamental:DcaLqsggXrE", "text:0")
     assert first == discord.nonce("beyondthefundamental:DcaLqsggXrE", "text:0")
-    assert first.startswith("instagram-post-watch:")
+    assert len(first) == 24
+    assert int(first, 16) >= 0
     assert first != discord.nonce("beyondthefundamental:DcaLqsggXrE", "media:0")
 
 

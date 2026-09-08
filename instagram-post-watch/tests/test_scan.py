@@ -553,6 +553,14 @@ def test_heartbeat_and_fatal_never_expose_urls_paths_or_secrets():
     assert fatal.endswith(scan.OWNER_MENTION)
 
 
+def test_discord_nonce_fits_discord_limit():
+    value = scan.discord.nonce("heartbeat", "202608261035")
+
+    assert len(value) == 24
+    assert len(value) <= 25
+    assert value == hashlib.sha256(b"instagram-post-watch:heartbeat:202608261035").hexdigest()[:24]
+
+
 def test_filtered_submission_cleans_owned_media(tmp_path, monkeypatch, config_path):
     profile = config.load_watch_config(config_path).profiles[0]
     storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)

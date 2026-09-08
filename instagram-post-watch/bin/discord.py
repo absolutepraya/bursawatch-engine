@@ -55,7 +55,7 @@ def nonce(event_key: str, leg: str) -> str:
     if not isinstance(event_key, str) or not isinstance(leg, str):
         raise ValueError("Discord nonce inputs are invalid")
     digest = hashlib.sha256(f"instagram-post-watch:{event_key}:{leg}".encode("utf-8")).hexdigest()[:24]
-    return f"instagram-post-watch:{digest}"
+    return digest
 
 
 def _token() -> str:
