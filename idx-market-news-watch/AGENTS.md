@@ -43,20 +43,20 @@ Eligible news is delivered as one text-only Discord message per ticker to `15251
 
 `get_market_snapshot()` requests ten days of Yahoo Finance daily history for `<ticker>.JK`. When Yahoo supplies a finite positive `fast_info.last_price`, the renderer uses it as the current price; otherwise it falls back to the most recent daily close. The 1D comparison uses Yahoo `fast_info.previous_close` when valid, falling back to `closes[-2]`; the 1W comparison uses `closes[-6]`. The current source has no explicit IDX-session calendar or timestamp validation, so it does not promise a separate regular-session price rule or an after-session official-close selection beyond that fallback. It also does not independently detect a stale quote.
 
-An unavailable, invalid, or too-short quote returns no snapshot and degrades only that item's rendering: the valid news message still posts with its issuer heading, factual body, and separator, but without the market-data block. That condition does not suppress other eligible news and does not currently emit a separate quote-degraded heartbeat.
+An unavailable, invalid, or too-short quote returns no snapshot and degrades only that item's rendering: the valid news message still posts with its issuer heading, factual body, separator, and placeholder market-data block. That condition does not suppress other eligible news and does not currently emit a separate quote-degraded heartbeat.
 
-Yahoo's nonempty `longName` is the canonical issuer name. If Yahoo does not provide one, the renderer falls back to the provider's ticker/name wording, then the ticker itself. Every message has this exact text-only layout:
+Yahoo's nonempty `longName` is the canonical issuer name. If Yahoo does not provide one, the renderer prefers an explicit legal issuer name from provider text, such as `PT Bakrie Telecom Tbk`, then a concise provider company name, then the ticker itself. Every message has this exact text-only layout:
 
 ```text
 ### <provider emoji> <TICKER> (<canonical issuer name>)
 <one to five factual Indonesian sentences from the validated summary>
 ┈┈┈┈┈┈┈┈┈┈┈┈┈
-*Harga terakhir (IDR):* <rounded IDR price>
+<market-data block, with `Harga terakhir (IDR): -` when unavailable>
 <direction emoji>1D: <IDR change> (<percent change>)
 <direction emoji>1W: <IDR change> (<percent change>)
 ```
 
-The three market-data lines are present only when a snapshot is valid. The body is the validated summary, never raw source text, and contains no investment language. There is no tier, session, per-entry timestamp, source link, source image, or follow-up media message. A Tier One or Tier Two item uses the same standalone layout, and each ticker is posted as exactly one Discord text message.
+The three market-data lines are always present. When a snapshot is unavailable, the exact block is `Harga terakhir (IDR): -`, followed by the grey `1D: -` and `1W: -` lines. The body is the validated summary, never raw source text, and contains no investment language. There is no tier, session, per-entry timestamp, source link, source image, or follow-up media message. A Tier One or Tier Two item uses the same standalone layout, and each ticker is posted as exactly one Discord text message.
 
 Before each post, the scanner persists that item's rendered text and deterministic nonce. A successful text post alone marks that item delivered. A Discord error, absent message ID, or rate limit leaves only that item in `pending_delivery` with its durable payload and retry metadata; retries wait 1, 2, 4, 8, 15, 30, then 60 minutes, while a longer Discord `retry_after` is honored. Retrying one item neither batches it with nor suppresses another item.
 

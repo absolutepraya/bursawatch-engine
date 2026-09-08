@@ -26,12 +26,30 @@ def _number(value: object) -> float | None:
 
 
 def fallback_company_name(ticker: str, source_text: str) -> str:
-    """Use provider wording only when Yahoo has no canonical issuer name."""
+    """Return the most complete issuer name available in provider text."""
     escaped = re.escape(ticker)
+    legal_name = re.compile(
+        r"(?P<name>PT\s+[A-Za-z0-9][A-Za-z0-9.,&'’/ -]*?"
+        r"(?:\s+\(Persero\))?\s+Tbk\.?)\b",
+        re.IGNORECASE,
+    )
     patterns = (
         rf"\b{escaped}\s*\(([^)]+)\)",
         rf"\b([^\n()]+?)\s*\({escaped}\)",
     )
+
+    for pattern in patterns:
+        match = re.search(pattern, source_text, flags=re.IGNORECASE)
+        if match:
+            parenthetical = " ".join(match.group(1).split()).strip(" -:|")
+            legal_match = legal_name.search(parenthetical)
+            if legal_match:
+                return " ".join(legal_match.group("name").split()).strip(" -:|")
+
+    legal_match = legal_name.search(source_text)
+    if legal_match:
+        return " ".join(legal_match.group("name").split()).strip(" -:|")
+
     for pattern in patterns:
         match = re.search(pattern, source_text, flags=re.IGNORECASE)
         if match:

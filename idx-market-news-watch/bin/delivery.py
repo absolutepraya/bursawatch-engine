@@ -106,6 +106,12 @@ def _entry(item: SelectionCandidate) -> str:
             f"{_direction_emoji(snapshot.one_day_change)}1D: {_change(snapshot.one_day_change, snapshot.one_day_percent)}\n"
             f"{_direction_emoji(snapshot.one_week_change)}1W: {_change(snapshot.one_week_change, snapshot.one_week_percent)}"
         )
+    else:
+        lines.append(
+            "Harga terakhir (IDR): -\n"
+            f"{_DIRECTION_EMOJIS['flat']}1D: -\n"
+            f"{_DIRECTION_EMOJIS['flat']}1W: -"
+        )
     return "\n".join(lines)
 
 

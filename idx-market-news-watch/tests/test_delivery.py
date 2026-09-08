@@ -23,7 +23,15 @@ class Response:
         return self._payload
 
 
-def _item(provider, message_id, ticker, event_class, published_at, facts=("contract value",)):
+def _item(
+    provider,
+    message_id,
+    ticker,
+    event_class,
+    published_at,
+    facts=("contract value",),
+    source_text="source text is not reposted",
+):
     return SelectionCandidate(
         candidate=CompanyCandidate(
             provider=provider,
@@ -31,7 +39,7 @@ def _item(provider, message_id, ticker, event_class, published_at, facts=("contr
             ticker=ticker,
             source_kind=SourceKind.CORPORATE_ENTRY,
             published_at=published_at,
-            source_text="source text is not reposted",
+            source_text=source_text,
             direct_image=False,
         ),
         event_class=event_class,
@@ -84,6 +92,11 @@ def test_news_item_has_no_delivery_window_heading(dewa_tier_one):
     assert "┈" * 13 in alert
     assert "[Sumber]" not in alert
     assert "BUY" not in alert
+    assert (
+        "Harga terakhir (IDR): -\n"
+        "<:grey:1531279158913536182>1D: -\n"
+        "<:grey:1531279158913536182>1W: -"
+    ) in alert
     assert len(alert) <= 2000
 
 
@@ -118,6 +131,26 @@ def test_entry_uses_yahoo_snapshot_for_canonical_name_and_rupiah_changes(monkeyp
         "<:green:1531274822221434911>1D: +32 (+7,27%)\n"
         "<:red:1531274756853202974>1W: -18 (-3,67%)"
     ) in alert
+
+
+def test_entry_uses_complete_legal_name_when_quote_is_unavailable():
+    item = _item(
+        Provider.TUNTUN,
+        1542081138334503023,
+        "BTEL",
+        EventClass.FINANCING_OR_OWNERSHIP,
+        datetime(2026, 8, 20, 6, 18, tzinfo=timezone.utc),
+        facts=("ownership clarification",),
+        source_text=(
+            "📰 BTEL (Mengklarifikasi Kepemilikan 4,85 Miliar Saham PT Bakrie Telecom Tbk)\n\n"
+            "Protelindo mengklarifikasi kepemilikan saham BTEL."
+        ),
+    )
+
+    alert = delivery.format_news_item(item)
+
+    assert "BTEL (PT Bakrie Telecom Tbk)" in alert
+    assert "BTEL (Mengklarifikasi Kepemilikan" not in alert
 
 
 def test_flat_market_change_uses_grey_emoji(monkeypatch, dewa_tier_one):
