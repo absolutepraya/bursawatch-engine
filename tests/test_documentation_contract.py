@@ -11,7 +11,8 @@ NO_AGENT_CRONS = {
 }
 AGENT_BACKED_CRONS = {
     "idx-market-news-watch", "kelas-investasi-gtw-watch",
-    "mm-weekly-log-normalizer", "scele-digest", "x-post-watch",
+    "instagram-post-watch", "mm-weekly-log-normalizer", "scele-digest",
+    "x-post-watch",
 }
 ALL_CRONS = NO_AGENT_CRONS | AGENT_BACKED_CRONS
 REDUNDANT_ROOT_DOCS = {
@@ -49,6 +50,29 @@ AGENT_GOVERNANCE_ANCHORS = {
         "Surveys, greetings, personal updates",
         "relevance_guard_required",
         "outside the Indonesia or US-listed universe",
+    ),
+    "instagram-post-watch": (
+        "public posts and reels",
+        "IG_COOKIE",
+        "IG_USERNAME",
+        "IG_PASSWORD",
+        "127.0.0.1:1201/instagram/2/user/<handle>?format=json",
+        "config/watches.json` is the exact JSON configuration boundary",
+        "strict validator rejects unknown fields at every object boundary",
+        "Credentials, cookies, signed CDN URLs, raw provider response bodies, and local secret paths",
+        "vision_partial",
+        "vision_full",
+        "15-minute agent leases",
+        "INSTAGRAM_POST_WATCH_NO_POST=1` suppresses Discord heartbeat delivery and agent claiming",
+        "isolated `INSTAGRAM_POST_WATCH_STATE_PATH` and `INSTAGRAM_POST_WATCH_MEDIA_ROOT` paths",
+        "must not mutate live state",
+        "must not create external messages",
+        "deploy.sh instagram-post-watch` copies `bin/` only",
+        "exact file comparison",
+        "first VPS write",
+        "vps:~/.agents/skills/instagram-post-watch/config/watches.json",
+        "vps:~/.agents/skills/instagram-post-watch/SKILL.md",
+        "SHA-256 checksums",
     ),
 }
 DEPLOYMENT_ONLY_SCHEDULER_PATTERNS = (
@@ -95,7 +119,7 @@ def readme_cron_inventory() -> set[str]:
 
 def test_cron_classification_is_complete_and_disjoint() -> None:
     assert NO_AGENT_CRONS.isdisjoint(AGENT_BACKED_CRONS), "cron classes overlap"
-    assert len(ALL_CRONS) == 15, "update the reviewed cron classification"
+    assert len(ALL_CRONS) == 16, "update the reviewed cron classification"
     assert all((ROOT / cron).is_dir() for cron in ALL_CRONS), "missing cron source directory"
     assert readme_cron_inventory() == ALL_CRONS, (
         "README.md cron inventory must match the reviewed cron classification"

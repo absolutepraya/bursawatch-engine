@@ -1,0 +1,12 @@
+{
+  "version": "https://jsonfeed.org/version/1",
+  "items": [
+    {
+      "id": "media-1001",
+      "url": "https://www.instagram.com/p/ABC123/",
+      "date_published": "2026-08-24T08:00:00+00:00",
+      "title": "A single image",
+      "content_html": "<p>Caption <a href=\"https://example.com/report\">with a link</a></p><img src=\"https://cdn.example/image.jpg\" alt=\"chart\">"
+    }
+  ]
+}

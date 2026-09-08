@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "profiles": [
+    {
+      "id": "beyondthefundamental",
+      "enabled": true,
+      "source": "rsshub",
+      "profile_url": "https://www.instagram.com/beyondthefundamental",
+      "handle": "beyondthefundamental",
+      "display_name": "Beyond thy Fundamental",
+      "platform_emoji": "📸",
+      "emoji": "",
+      "discord_channels": [
+        {
+          "key": "macro",
+          "channel_id": "1531655369884045382",
+          "description": "Broad economic, business, market, sector, and cross-asset analysis."
+        },
+        {
+          "key": "id_stock",
+          "channel_id": "1525102508714889257",
+          "description": "Direct IDX-listed company, earnings, corporate action, fundamental, and valuation analysis."
+        }
+      ],
+      "forward_post": true,
+      "forward_reel": true,
+      "forward_media": true,
+      "enable_llm_title": true,
+      "enable_llm_summary": true,
+      "enable_llm_routing": true,
+      "enable_llm_relevance_filter": true,
+      "additional_prompt_instruction": "Always use the caption and all carousel OCR together. Preserve the account's own thesis.",
+      "max_items_per_poll": 20,
+      "ocr_languages": ["ind", "eng"],
+      "ocr_min_confidence": 0.70,
+      "max_reel_frames": 5
+    }
+  ]
+}
