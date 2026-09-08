@@ -335,7 +335,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
         thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]]))
         promotional = is_promotional(post, thread_posts)
         if is_deterministically_irrelevant(profile, post, thread_posts) or analysis.get("is_relevant") is False or promotional:
-            if not promotional and not is_deterministically_irrelevant(profile, post, thread_posts) and requires_relevance(post, thread_posts):
+            if not promotional and not is_deterministically_irrelevant(profile, post, thread_posts) and requires_relevance(post, thread_posts, profile):
                 raise ValueError("direct market disclosure must be relevant")
             state.discard_analysis(value, analysis["event_key"])
             state.save_state(storage, value)

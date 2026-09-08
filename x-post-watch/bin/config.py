@@ -27,12 +27,14 @@ PROFILE_FIELDS = {
     "enable_llm_summary",
     "enable_llm_routing",
     "enable_llm_relevance_filter",
+    "relevance_scope",
     "additional_prompt_instruction",
     "max_items_per_poll",
     "thread_handling",
 }
-OPTIONAL_PROFILE_FIELDS = {"source", "media_policy"}
+OPTIONAL_PROFILE_FIELDS = {"source", "media_policy", "relevance_scope"}
 MEDIA_POLICIES = {"all", "omit_last"}
+RELEVANCE_SCOPES = {"stock_market", "financial_market", "indonesia_economy"}
 ID_RE = re.compile(r"[a-z0-9][a-z0-9_-]*")
 HANDLE_RE = re.compile(r"[A-Za-z0-9_]{1,15}")
 EMOJI_RE = re.compile(r"<:[A-Za-z0-9_]+:\d{17,20}>")
@@ -117,6 +119,13 @@ def _parse_media_policy(value: object, label: str) -> str:
     return policy
 
 
+def _parse_relevance_scope(value: object, label: str) -> str:
+    scope = _expect_string(value, label)
+    if scope not in RELEVANCE_SCOPES:
+        raise ValueError(f"{label} must be stock_market, financial_market, or indonesia_economy")
+    return scope
+
+
 def _validate_profile_url(profile_url: str, handle: str) -> None:
     parsed = urlparse(profile_url)
     if parsed.scheme != "https" or parsed.netloc.lower() not in {"x.com", "www.x.com"}:
@@ -131,7 +140,7 @@ def _validate_profile_url(profile_url: str, handle: str) -> None:
 def _parse_profile(index: int, value: object) -> Profile:
     profile = _expect_object(value, f"profiles[{index}]")
     fields = set(profile)
-    missing = PROFILE_FIELDS - fields
+    missing = PROFILE_FIELDS - fields - OPTIONAL_PROFILE_FIELDS
     unknown = fields - PROFILE_FIELDS - OPTIONAL_PROFILE_FIELDS
     if missing:
         raise ValueError(f"profiles[{index}] missing fields: {', '.join(sorted(missing))}")
@@ -164,6 +173,7 @@ def _parse_profile(index: int, value: object) -> Profile:
     if source not in {"rsshub", "direct_x"}:
         raise ValueError("profiles[].source must be rsshub or direct_x")
     media_policy = _parse_media_policy(profile.get("media_policy", "all"), f"profiles[{index}].media_policy")
+    relevance_scope = _parse_relevance_scope(profile.get("relevance_scope", "stock_market"), f"profiles[{index}].relevance_scope")
 
     return Profile(
         id=profile_id,
@@ -183,6 +193,7 @@ def _parse_profile(index: int, value: object) -> Profile:
         enable_llm_summary=_expect_bool(profile["enable_llm_summary"], f"profiles[{index}].enable_llm_summary"),
         enable_llm_routing=enable_llm_routing,
         enable_llm_relevance_filter=_expect_bool(profile["enable_llm_relevance_filter"], f"profiles[{index}].enable_llm_relevance_filter"),
+        relevance_scope=relevance_scope,
         additional_prompt_instruction=_parse_additional_prompt_instruction(profile["additional_prompt_instruction"], f"profiles[{index}].additional_prompt_instruction"),
         max_items_per_poll=max_items,
         thread_handling=_parse_thread_handling(profile["thread_handling"], f"profiles[{index}].thread_handling"),

@@ -366,6 +366,57 @@ def test_agent_relevance_instruction_excludes_non_stock_and_generic_advice(confi
     assert "advice about how to trade or invest is not eligible" in instruction
 
 
+def test_financial_market_scope_accepts_cross_asset_context(config_path, profile_payload):
+    profile_payload["relevance_scope"] = "financial_market"
+    profile_payload["enable_llm_routing"] = True
+    profile_payload["discord_channels"].append({"key": "us_stocks_news", "channel_id": "1532266331737686199", "description": "US listed"})
+    config_path.write_text(__import__("json").dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    post = _source_post(profile.id, "2092074324261802432", "Bitcoin rises above $80,000 as crypto rally gains momentum.")
+
+    instruction = agent_protocol.instruction_for(profile).lower()
+
+    assert "financial markets" in instruction
+    assert "commodities, energy, bonds, yields, interest rates, fx, currencies" in instruction
+    assert "crypto" in instruction
+    assert "cross-asset, and financial-market theses" in instruction
+    assert agent_protocol.requires_relevance(post, profile=profile) is True
+
+
+def test_indonesia_economy_scope_accepts_major_developments_and_excludes_trump_spacex(config_path, profile_payload):
+    profile_payload["id"] = "idnfinancials"
+    profile_payload["handle"] = "IDNFinancials"
+    profile_payload["profile_url"] = "https://x.com/IDNFinancials"
+    profile_payload["relevance_scope"] = "indonesia_economy"
+    profile_payload["enable_llm_routing"] = True
+    profile_payload["discord_channels"].append({"key": "id_stocks_news", "channel_id": "1525102508714889257", "description": "IDX"})
+    config_path.write_text(__import__("json").dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    solar = _source_post(profile.id, "2092938904819355818", "Presiden meresmikan 14 proyek pembangkit listrik tenaga surya dengan kapasitas 5,3 GW.")
+    dsi = _source_post(profile.id, "2092506126445383726", "DSI mengumumkan jajaran komisaris dan direksi untuk tata kelola ekspor komoditas strategis Indonesia.")
+    trump = _source_post(profile.id, "2092506536795148752", "Donald Trump membeli saham SpaceX senilai US$50.000 menurut laporan keterbukaan keuangan.")
+
+    instruction = agent_protocol.instruction_for(profile).lower()
+
+    assert "indonesia's economy, business, government, infrastructure" in instruction
+    assert "even when no ticker is named" in instruction
+    assert agent_protocol.is_deterministically_irrelevant(profile, solar) is False
+    assert agent_protocol.is_deterministically_irrelevant(profile, dsi) is False
+    assert agent_protocol.is_deterministically_irrelevant(profile, trump) is True
+    assert agent_protocol.requires_relevance(trump, profile=profile) is False
+
+
+def test_kobeissi_weekly_letter_notice_is_promotional():
+    post = _source_post(
+        "kobeissiletter",
+        "2083983670956666930",
+        "The Kobeissi Letter for the week of August 3rd has been published and may be viewed through the link below: tinyurl.com/TheKobeissiLetter",
+    )
+
+    assert agent_protocol.is_promotional(post) is True
+    assert agent_protocol.requires_relevance(post) is False
+
+
 def test_agent_instruction_requires_ticker_first_stock_titles_and_direct_summary_voice(config_path, profile_payload):
     instruction = agent_protocol.instruction_for(__import__("config").load_watch_config(config_path).profiles[0]).lower()
     assert "id_stocks_news, id_stocks_swing, or us_stocks_news" in instruction

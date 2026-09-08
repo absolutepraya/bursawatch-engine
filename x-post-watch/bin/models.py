@@ -39,6 +39,7 @@ class Profile:
     enable_llm_summary: bool
     enable_llm_routing: bool
     enable_llm_relevance_filter: bool
+    relevance_scope: str
     additional_prompt_instruction: str
     max_items_per_poll: int
     thread_handling: ThreadHandling
