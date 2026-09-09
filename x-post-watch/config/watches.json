@@ -417,7 +417,7 @@
       "enable_llm_routing": true,
       "enable_llm_relevance_filter": true,
       "relevance_scope": "financial_market",
-      "additional_prompt_instruction": "Forward substantive analysis of equities, indices, commodities, energy, bonds, yields, rates, FX, currencies, derivatives, liquidity, macroeconomics, and crypto. Route direct US-listed company theses to us_stocks_news and all other substantive financial-market theses to macro_news. Exclude weekly-letter or paid-research publication notices, generic trading or investing education, and unrelated political or social commentary. Do not treat a link or the word BREAKING alone as substantive.",
+      "additional_prompt_instruction": "Forward substantive analysis across the configured financial-market scope, including commodities. Route direct US-listed company theses to us_stocks_news and other substantive theses to macro_news. Exclude distribution notices whose main purpose is announcing, linking to, or soliciting signups for The Kobeissi Letter, weekly-letter, newsletter, reports, research products, or Chart of the Week. This includes published, view/read-through-link, sign-up, FREE, free, paid, and member-only access notices. Only forward posts whose supplied text contains a substantive market fact, analysis, forecast, or argument. Exclude generic trading or investing education and unrelated political or social commentary. A link, account identity, date, chart label, or BREAKING alone is not substantive.",
       "max_items_per_poll": 50,
       "thread_handling": {
         "mode": "self_chain",

@@ -194,6 +194,8 @@ def test_canonical_kobeissi_profile_is_financial_market_scoped():
     assert (profile.enable_llm_title, profile.enable_llm_summary, profile.enable_llm_routing, profile.enable_llm_relevance_filter) == (True, True, True, True)
     assert "commodities" in profile.additional_prompt_instruction
     assert "weekly-letter" in profile.additional_prompt_instruction
+    assert "Chart of the Week" in profile.additional_prompt_instruction
+    assert "soliciting signups" in profile.additional_prompt_instruction
     assert (profile.thread_handling.mode, profile.thread_handling.max_posts, profile.thread_handling.max_age_minutes, profile.thread_handling.settle_minutes) == ("self_chain", 20, 240, 15)
 
 

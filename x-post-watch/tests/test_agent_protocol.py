@@ -113,7 +113,7 @@ def test_direct_market_disclosure_requires_a_relevant_decision(config_path, prof
 
     assert agent_protocol.requires_relevance(post) is True
     assert item["relevance_guard_required"] is True
-    assert "must be relevant" in item["instruction"].lower()
+    assert "must be treated as relevant" in item["instruction"].lower()
 
 
 def test_promotion_like_disclosure_keeps_the_positive_relevance_safeguard(config_path, profile_payload):
@@ -136,6 +136,32 @@ def test_promotion_like_disclosure_keeps_the_positive_relevance_safeguard(config
     assert agent_protocol.requires_relevance(post) is True
     assert item["relevance_guard_required"] is True
     assert "advertisements and product promotions" in item["instruction"]
+
+
+def test_kobeissi_publication_notice_with_free_does_not_trigger_relevance_guard():
+    profile = _canonical_profile("kobeissiletter")
+    post = _source_post(
+        profile.id,
+        "2094130531256390123",
+        "The Kobeissi Letter for the week of August 31st has been published and may be viewed through the link below. "
+        "https://tinyurl.com/TheKobeissiLetter The Chart of the Week for the week of August 31st has been published. "
+        "View or sign up for FREE through the link below. https://tinyurl.com/TKLChartofWeek",
+    )
+
+    item = agent_protocol.agent_item(profile, post)
+
+    assert agent_protocol.requires_relevance(post, profile=profile) is False
+    assert item["relevance_guard_required"] is False
+    assert "substantive fact, event, analysis, forecast, argument, or implication" in item["instruction"]
+
+
+def test_bare_uppercase_word_does_not_count_as_market_context(config_path, profile_payload):
+    profile_payload["relevance_scope"] = "financial_market"
+    config_path.write_text(__import__("json").dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    post = _source_post(profile.id, "2094130531256390124", "Sign up for FREE through the link below.")
+
+    assert agent_protocol.requires_relevance(post, profile=profile) is False
 
 
 def _canonical_profile(profile_id: str):
@@ -252,6 +278,8 @@ def test_agent_relevance_instruction_excludes_non_stock_and_generic_advice(confi
 
     assert "central thesis is substantively about the stock market" in instruction
     assert "no concrete stock-market thesis" in instruction
+    assert "finance or economics relevance is necessary but not sufficient" in instruction
+    assert "publication notice" in instruction
     assert "generic trading or investing education and advice" in instruction
     assert "mentality, mindset, psychology" in instruction
     assert "advice about how to trade or invest is not eligible" in instruction

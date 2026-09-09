@@ -274,6 +274,51 @@ def test_submit_irrelevant_disclosure_is_rejected_and_keeps_agent_event(tmp_path
     assert event["agent_phase"] == "awaiting_agent"
 
 
+def test_submit_ignores_kobeissi_publication_notice_without_posting(tmp_path, monkeypatch, config_path, profile_payload):
+    profile_payload.update({
+        "id": "kobeissiletter",
+        "profile_url": "https://x.com/KobeissiLetter",
+        "handle": "KobeissiLetter",
+        "relevance_scope": "financial_market",
+        "enable_llm_title": True,
+    })
+    config_path.write_text(json.dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    storage = tmp_path / "state.json"
+    post = SourcePost(
+        profile.id,
+        "2094130531256390123",
+        "https://x.com/KobeissiLetter/status/2094130531256390123",
+        datetime.now(UTC),
+        "The Kobeissi Letter for the week of August 31st has been published and may be viewed through the link below. "
+        "https://tinyurl.com/TheKobeissiLetter The Chart of the Week for the week of August 31st has been published. "
+        "View or sign up for FREE through the link below. https://tinyurl.com/TKLChartofWeek",
+        PostKind.NORMAL,
+        None,
+        None,
+        (),
+        (),
+    )
+    value = state.new_state()
+    value["profiles"][profile.id] = {"cursor": "2094130531256390122"}
+    state.observe_posts(value, profile, [post], lambda candidate: True)
+    assert state.claim_oldest_agent(value, {profile.id: profile}, datetime.now(UTC)) is not None
+    state.save_state(storage, value)
+    monkeypatch.setenv("X_POST_WATCH_STATE_PATH", str(storage))
+    monkeypatch.setenv("X_POST_WATCH_CONFIG_PATH", str(config_path))
+    sent = []
+    monkeypatch.setattr(scan.discord, "post_text", lambda *args: sent.append(args))
+
+    result = scan.submit_analysis_payload({
+        "event_key": "kobeissiletter:2094130531256390123",
+        "is_relevant": False,
+    })
+
+    assert result == {"submitted": True, "ignored": True, "delivered": 0}
+    assert sent == []
+    assert state.load_state(storage)["outbox"] == []
+
+
 def test_submit_accepts_promotional_post_when_agent_marks_it_relevant(tmp_path, monkeypatch, config_path, profile_payload):
     profile_payload["enable_llm_title"] = True
     profile_payload["enable_llm_summary"] = True

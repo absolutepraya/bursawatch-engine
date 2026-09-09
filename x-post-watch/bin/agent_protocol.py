@@ -74,7 +74,11 @@ IHSG_MACRO_SIGNAL_RE = re.compile(r"\b(?:IHSG|Indeks\s+Harga\s+Saham\s+Gabungan)
 
 
 def _has_stock_market_context(text: str) -> bool:
-    return bool(STOCK_MARKET_CONTEXT_RE.search(text) or DIRECT_TICKER_RE.search(text))
+    # A bare all-caps token is not reliable market evidence. Ordinary words
+    # such as FREE, LIVE, and WEEK can match the ticker-shaped fallback.
+    # Explicitly marked tickers and substantive market terms are sufficient;
+    # an unmarked token alone should remain an LLM relevance decision.
+    return bool(STOCK_MARKET_CONTEXT_RE.search(text))
 
 
 def _has_relevance_context(profile: Profile | None, text: str) -> bool:
@@ -118,6 +122,7 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
                 "A concrete stock-market news item or analysis remains eligible, but advice about how to trade or invest is not eligible merely because it mentions markets, money, trading, investing, or percentages. "
             )
         relevance += (
+            "Finance or economics relevance is necessary but not sufficient. The supplied post or complete thread must itself contain a substantive fact, event, analysis, forecast, argument, or implication about an asset, market, issuer, economy, policy, or financial development. A finance-related account name, ticker-shaped token, number, chart label, date, URL, publication notice, signup invitation, or free or paid offer alone is not a substantive thesis. A link is eligible only when the post text itself contains that substantive thesis; do not infer it from the linked page. "
             "Exclude generic trading or investing education and advice, including tips, how-to content, strategies, techniques, technical-analysis lessons, percentages, risk or money management, mentality, mindset, psychology, discipline, patience, fear, greed, or emotional-control lessons. "
             + eligibility
             + "Exclude advertisements and product promotions, including marketing for apps, services, tokens, paid tiers, paid or member-only research, premium or subscriber content, APIs, alerts, rewards, presales, referral programs, and clickbait profit promises. "
@@ -129,7 +134,7 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
         )
     if relevance_guard_required:
         relevance += (
-            "The scanner detected a clear direct market-disclosure signal. It must be relevant. "
+            "The scanner detected a clear substantive market signal. It must be treated as relevant. "
             "Never return is_relevant false for it. "
         )
     routing = ""
