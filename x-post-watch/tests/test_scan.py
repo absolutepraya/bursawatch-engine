@@ -25,7 +25,7 @@ def test_run_skips_a_profile_during_source_retry_cooldown(tmp_path, monkeypatch,
 
     assert result["wakeAgent"] is False
     assert calls == []
-    assert "<@443342168434933760>" not in heartbeats[0]
+    assert "<@" not in heartbeats[0]
 
 
 def test_run_persists_source_retry_after(tmp_path, monkeypatch, config_path):
@@ -89,7 +89,7 @@ def test_run_stats_marks_an_empty_profile_feed_as_degraded():
 
     heartbeat = scan.format_heartbeat(datetime(2026, 7, 28, 6, 0, tzinfo=scan.WIB), stats)
     assert heartbeat.endswith("InsiderTrackX: empty source feed ⚠️")
-    assert "<@443342168434933760>" not in heartbeat
+    assert "<@" not in heartbeat
 
 
 def test_heartbeat_does_not_mention_owner_for_authentication_failure():
@@ -100,7 +100,7 @@ def test_heartbeat_does_not_mention_owner_for_authentication_failure():
     heartbeat = scan.format_heartbeat(datetime(2026, 7, 28, 6, 0, tzinfo=scan.WIB), stats)
     assert stats.needs_attention is True
     assert heartbeat.endswith("authentication rejected ⚠️")
-    assert "<@443342168434933760>" not in heartbeat
+    assert "<@" not in heartbeat
 
 
 def test_heartbeat_does_not_mention_owner_for_non_auth_source_failure():
@@ -111,7 +111,7 @@ def test_heartbeat_does_not_mention_owner_for_non_auth_source_failure():
     heartbeat = scan.format_heartbeat(datetime(2026, 7, 28, 6, 0, tzinfo=scan.WIB), stats)
     assert stats.needs_attention is True
     assert heartbeat.endswith("HTTP 500 ⚠️")
-    assert "<@443342168434933760>" not in heartbeat
+    assert "<@" not in heartbeat
 
 
 def test_heartbeat_does_not_mention_owner_for_any_degraded_state():
@@ -120,14 +120,14 @@ def test_heartbeat_does_not_mention_owner_for_any_degraded_state():
     heartbeat = scan.format_heartbeat(datetime(2026, 7, 28, 6, 0, tzinfo=scan.WIB), stats)
 
     assert heartbeat.endswith("⚠️")
-    assert "<@443342168434933760>" not in heartbeat
+    assert "<@" not in heartbeat
 
 
 def test_fatal_heartbeat_does_not_mention_owner():
     value = scan.format_fatal(datetime(2026, 7, 28, 6, 0, tzinfo=scan.WIB), "unexpected runtime failure")
 
     assert value == "❌ x-post · 06:00 WIB · failed: unexpected runtime failure"
-    assert "<@443342168434933760>" not in value
+    assert "<@" not in value
 
 
 def test_delivery_sends_thread_media_then_external_quote_media(tmp_path, monkeypatch, config_path):
@@ -214,7 +214,7 @@ def test_cleanup_failure_keeps_new_delivery_without_owner_mention(tmp_path, monk
     assert stats.needs_attention is True
     heartbeat = scan.format_heartbeat(datetime(2026, 8, 21, 10, tzinfo=scan.WIB), stats)
     assert heartbeat.endswith("⚠️")
-    assert "<@443342168434933760>" not in heartbeat
+    assert "<@" not in heartbeat
 
 
 def test_confirmed_edit_history_marks_new_event_as_updated_replacement(config_path):

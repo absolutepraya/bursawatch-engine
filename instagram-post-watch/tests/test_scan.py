@@ -632,8 +632,8 @@ def test_heartbeat_and_fatal_never_expose_urls_paths_or_secrets():
         assert "/home/" not in value
     assert heartbeat.endswith("⚠️")
     assert fatal == "❌ instagram-post · 10:00 WIB · failed: token=<redacted> <local path> <external source>"
-    assert "<@443342168434933760>" not in heartbeat
-    assert "<@443342168434933760>" not in fatal
+    assert "<@" not in heartbeat
+    assert "<@" not in fatal
 
 
 def test_discord_nonce_fits_discord_limit():

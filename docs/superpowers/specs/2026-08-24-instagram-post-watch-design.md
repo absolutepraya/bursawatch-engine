@@ -212,7 +212,7 @@ Every run sends an operational heartbeat to `#hermes` (`1505162000420835388`) us
 Tokens include fetched, filtered, queued, OCR processed, vision fallback, delivered, and error counts. Relevance filtering occurs through the LLM submission path and has no OCR-derived deterministic reason-code counter. Degraded reasons include RSSHub authentication or rate-limit failures, empty feeds, media download or frame-sampling failures, OCR backend failures, expired agent leases, invalid submissions, and Discord delivery failures. Fatal runs use:
 
 ```text
-❌ instagram-post · HH:MM WIB · failed: … <@443342168434933760>
+❌ instagram-post · HH:MM WIB · failed: …
 ```
 
 Credentials, cookies, signed URLs, raw provider bodies, and local secret paths never appear in logs, heartbeats, payloads, tests, or commits.
