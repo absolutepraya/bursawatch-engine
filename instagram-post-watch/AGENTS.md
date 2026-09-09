@@ -30,6 +30,71 @@ and domain source of truth for the agent-backed `instagram-post-watch` cron.
 - Route by central thesis, exactly once. `macro_news` covers broad economy, market, sector, and cross-asset theses. `id_stocks_news` covers a direct IDX-listed company, earnings, corporate action, fundamentals, or valuation thesis. Do not route by a merely named company or duplicate a publication across channels.
 - Use 15-minute agent leases. Relevance, title, summary, routing, delivery, cleanup, and invalid-submission transitions remain scanner-controlled and durable.
 
+## Profile emoji onboarding
+
+Use the reusable VPS-local `profile-emoji` skill when a watched Instagram
+account needs a profile-picture emoji. For a known watcher account, pass its
+stable profile ID as the emoji name source. Otherwise use the helper's
+deterministic `ig_<handle>` default or an explicit reviewed name. Invoke it
+through SSH:
+
+```bash
+ssh vps '~/.agents/skills/profile-emoji/bin/profile-emoji prepare --platform instagram --account https://www.instagram.com/<handle>/ --profile-id <stable_id> --json'
+```
+
+During research, run `ensure` without `--apply` when the guild result is
+needed. It returns an existing emoji without changing it, or reports
+`would_create` when the name is absent. The helper uses the VPS-local
+Instagram source path and never receives or prints `IG_COOKIE`.
+
+The proposed profile's `emoji` value is either the existing full
+`<:name:id>` markup or an explicitly pending creation step. Never invent an
+ID, copy a signed CDN URL into config, or pass an arbitrary image URL. After
+the user approves the complete profile and emoji creation, run `ensure
+--apply`, copy the returned markup and ID into the final JSON, and continue
+with config approval, future-only initialization, publish, deploy, and
+verification. If the name already exists, use its returned markup unchanged.
+The helper never removes or rebuilds an existing snapshot.
+
+The normal onboarding command does not create an image file. The helper holds
+the source and circular PNG in VPS process memory only, then sends the PNG to
+Discord when creation is approved. The helper has no image-file output option.
+
+## Account onboarding workflow
+
+When the user says `watch this Instagram account <url>` or asks for several
+accounts, treat it as a request to research and draft profiles, not as
+permission to silently change production. Use this workflow:
+
+1. Normalize every URL or handle and identify each exact public account.
+   Inspect representative current posts and reels, including captions,
+   carousels, links, media, and source errors when present.
+2. Test the configured Instagram RSSHub route for each account. Record source
+   readiness and any recovery or degradation without copying cookies, signed
+   CDN URLs, or provider response bodies into the proposal.
+3. Run the VPS-local `profile-emoji prepare` and read-only `ensure` workflow
+   independently for every account. Use the stable watcher profile ID as the
+   default emoji name. Record an existing full `<:name:id>` markup, or record a
+   pending creation decision when the helper reports `would_create`.
+4. Propose a complete JSON profile for each account, including the stable ID,
+   exact handle, canonical profile URL, display name, platform and account
+   emoji fields, channels, forwarding and OCR policy, LLM flags, prompt
+   refinement, poll cap, and media limits. Explain non-default choices from
+   observed behavior.
+5. Ask only for unresolved choices or authority that source inspection cannot
+   establish, including channel access, source fallback acceptance, ambiguous
+   delivery policy, and activation or backfill preference. A missing emoji is a
+   creation step, not a reason to invent an ID.
+6. Show all proposed profiles and wait for approval. After approval, run
+   `profile-emoji ensure --apply` only for approved missing emojis, copy each
+   returned markup and ID into the final JSON, then update config, initialize
+   future-only state, publish, deploy, and verify. One blocked account must not
+   hide successful preparation or existing emojis for the others.
+
+The onboarding response must separate observed facts, proposed defaults, and
+unresolved decisions. Never enable a draft, reset state, replay history, or
+deploy before the complete batch is approved.
+
 ## Heartbeat and cadence
 
 - Every run reports the short heartbeat name `instagram-post` to Discord `#hermes` (`1505162000420835388`) using `🫀 instagram-post · HH:MM WIB · <tokens>` and a sanitized warning or fatal form when degraded.

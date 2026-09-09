@@ -33,6 +33,8 @@ retain their own `SKILL.md` files.
 
 `guess-stock` is the paired read-only skill for evidence-bound IDX ticker identification. Its tracked source, deterministic fingerprint matcher, and TradingView Indonesia scanner adapter live under `guess-stock/`; its runtime copy is VPS-local under `~/.hermes/skills/research/guess-stock/`.
 
+`profile-emoji` is the reusable VPS-local skill for turning a trusted X or Instagram profile picture into a static circular Discord emoji. It uses Yanto's VPS-local token, creates an absent emoji only with an explicit apply flag, and returns an existing emoji unchanged. It is not a scheduled cron and is deployed with `profile-emoji/deploy.sh`.
+
 The reviewed `rsshub-instagram/` support source defines the dedicated
 `rsshub-instagram` container used only by `instagram-post-watch`. Its VPS-local
 `.env` remains outside source control. The general `~/rsshub` instance remains

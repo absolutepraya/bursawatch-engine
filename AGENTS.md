@@ -25,6 +25,7 @@ Current child instruction files:
 - `kelas-investasi-gtw-watch/AGENTS.md`: future-only Telegram bundle capture and source-image delivery.
 - `mm/AGENTS.md`: owner-only Manual Activity Record capture.
 - `mm-weekly-log-normalizer/AGENTS.md`: evidence-bound MM draft generation and delivery.
+- `profile-emoji/AGENTS.md`: VPS-local X and Instagram profile image to Discord emoji onboarding.
 - `polymarket-signal-watch/AGENTS.md`: deterministic PolyCop signal screening and bot interaction.
 - `scele-digest/AGENTS.md`: unattended SCELE, Telegram, Todoist, and Discord digest workflow.
 - `security-audit/AGENTS.md`: read-only security posture auditing and approved system-config changes.
@@ -50,6 +51,8 @@ Current child instruction files:
 - **No-agent cron contract**: `CRON.md` in a deterministic cron directory. It documents the scheduler, executable, boundaries, checks, and deployment contract; Hermes does not load it as an agent skill.
 - **Agent-backed cron skill**: `SKILL.md` in a cron directory whose Hermes job attaches that skill. Hermes loads it through `skills.external_dirs`, so it must retain that filename.
 - **Reusable agent skill**: any non-cron `SKILL.md`, such as `cobalt/skills/media/SKILL.md` or `mm/SKILL.md`.
+- **Profile emoji snapshot**: the static circular PNG and Discord custom emoji created by `profile-emoji` for a watched X or Instagram account. It is an onboarding snapshot, not an avatar synchronization record.
+- **Discord emoji markup**: the full watcher-config value `<:emoji_name:emoji_id>`. The shorthand `:emoji_name:` is human-facing only.
 - **Runtime cron directory**: the deployed VPS directory at `~/.agents/skills/<cron>/`. The `skills` path is a Hermes runtime convention and is not a requirement that every cron have a `SKILL.md`.
 - **Live state**: the runtime `state/` files that own cursors, deduplication, alert suppression, retries, and checkpoints.
 - **Dotfiles mirror**: `~/.dotfiles/vps/agents/skills/`, a backup mirror pulled from the VPS. It is never an authoring or deployment target.
@@ -81,10 +84,41 @@ This policy applies only to scheduled cron documentation at a cron directory roo
 4. Deploy executable cron changes with `./deploy.sh <cron>` from this repository. Deploy one file with `./deploy.sh <cron> <file>` only when the smaller scope is intentional.
 5. `deploy.sh` copies only `bin/`. If a no-agent cron's `CRON.md` changes, sync that exact file separately to `vps:~/.agents/skills/<cron>/CRON.md` after its local review. If an agent-backed cron's `SKILL.md` changes, sync that exact file separately to `vps:~/.agents/skills/<cron>/SKILL.md`.
 6. Use `cobalt/deploy.sh` for Cobalt and `yanto-gateway-voice/deploy.sh --apply` for the voice plugin. Their deployment guards enforce the same published-commit boundary.
-7. Never overwrite between this Mac and the VPS without first comparing the relevant files. A newer timestamp is not evidence that a version is correct.
-8. Confirm deployment by comparing the local and VPS checksums of each changed runtime file.
-9. Never edit `~/.dotfiles/vps/agents/skills/<cron>/`. The scheduled dotfiles sync mirrors the VPS into that path.
-10. Never deploy, reset, delete, or hand-edit live `state/`. State is production data, not source code.
+7. `profile-emoji/deploy.sh` deploys the reusable profile emoji skill and its VPS wrapper. Compare the exact source and `SKILL.md` with the VPS before the first write, then compare checksums after deployment.
+8. Never overwrite between this Mac and the VPS without first comparing the relevant files. A newer timestamp is not evidence that a version is correct.
+9. Confirm deployment by comparing the local and VPS checksums of each changed runtime file.
+10. Never edit `~/.dotfiles/vps/agents/skills/<cron>/`. The scheduled dotfiles sync mirrors the VPS into that path.
+11. Never deploy, reset, delete, or hand-edit live `state/`. State is production data, not source code.
+
+## Profile emoji helper
+
+`profile-emoji/` is the canonical source for the reusable VPS-local helper at
+`~/.agents/skills/profile-emoji/`. The Mac agent invokes it through SSH. The
+wrapper reads only Yanto's VPS-local `DISCORD_BOT_TOKEN`; Discord and
+Instagram credentials never move to the Mac. `prepare` resolves and masks an
+image without Discord access. `ensure` performs a read-only guild lookup by
+default and creates an absent emoji only with `--apply`. An existing emoji
+name is returned unchanged, and the helper has no operation that deletes,
+recreates, or refreshes it. The default guild is the reviewed target guild
+`940285152335110204`; callers must not infer a different guild from the bot's
+guild list.
+
+The helper returns the human shorthand, full Discord markup, numeric ID, image
+hash, and canonical profile URL. It does not return the transient image CDN
+URL. X and Instagram onboarding remains responsible for the complete profile
+proposal, approval, watcher config edit, future-only initialization, and
+deployment.
+
+The fetched profile page, source image, and circular PNG exist only in VPS
+process memory. The helper has no image-file output option, so it does not
+write them to `/tmp`, watcher state, a cache, or the Mac. Discord's stored
+custom emoji is the only durable image asset created by the workflow.
+
+When an X or Instagram watch request names one or more accounts, the matching
+watcher onboarding workflow runs the helper independently for each account:
+it prepares the image, checks the reviewed guild for an existing name, and
+creates only approved missing emojis before writing the final watcher config.
+One blocked account must not hide results for the others.
 
 ## Post-deployment dotfiles capture
 

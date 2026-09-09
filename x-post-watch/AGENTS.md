@@ -51,6 +51,37 @@ The five forwarding booleans control normal posts, authored quotes, replies to o
 
 Before adding or changing a profile, inspect the account and representative current posts, test viable source paths for feed completeness, threads, media, and errors, then propose every unspecified field. Explain the delivery, title, Indonesian-summary, relevance, media, and thread recommendations from observed behavior. Ask before any ambiguous delivery choice, unavailable channel or emoji, test send, replay, or state reset. First successful observation records the newest cursor and never backfills.
 
+## Profile emoji onboarding
+
+Use the reusable VPS-local `profile-emoji` skill for account avatars. For a
+known watcher account, pass its stable profile ID as the emoji name source. For
+a standalone account, use the helper's deterministic `x_<handle>` default or
+an explicit reviewed name. Invoke it through SSH:
+
+```bash
+ssh vps '~/.agents/skills/profile-emoji/bin/profile-emoji prepare --platform x --account https://x.com/<handle> --profile-id <stable_id> --json'
+```
+
+During research, run `ensure` without `--apply` when the guild result is
+needed. It returns an existing emoji without changing it, or reports
+`would_create` when the name is absent. The helper's default guild is the
+reviewed target guild. Do not pass Yanto's token or any Instagram cookie from
+the Mac, and do not use an arbitrary image URL.
+
+The proposed profile's `emoji` value must be the full `<:name:id>` markup. If
+the helper reports `would_create`, do not invent an ID or write a placeholder
+that could pass validation. Show the profile proposal with emoji creation as
+an explicit pending step. After the user approves the complete profile and
+that creation step, run `ensure --apply`, copy the returned markup and ID into
+the final JSON, and continue with the watcher's own config, future-only
+initialization, publish, deploy, and verification flow. If the name already
+exists, copy its returned markup unchanged. The helper never removes or
+rebuilds an existing snapshot.
+
+The normal onboarding command does not create an image file. The helper holds
+the source and circular PNG in VPS process memory only, then sends the PNG to
+Discord when creation is approved. The helper has no image-file output option.
+
 ## Account onboarding workflow
 
 When the user says `watch this X account <url>`, treat it as a request to
@@ -68,16 +99,22 @@ Use this workflow:
    narrowest shared `relevance_scope`, the route set, and any account-specific
    prompt refinement. The LLM remains the owner of negative content relevance;
    do not turn observed noise into a deterministic pre-filter.
-4. Propose a complete JSON profile, including the stable `id`, exact `handle`,
+4. Run the VPS-local `profile-emoji prepare` and read-only `ensure` workflow for
+   the account. Use the stable profile ID as the default name for a known
+   watcher. Record an existing full emoji markup, or record a pending creation
+   decision when the helper reports `would_create`.
+5. Propose a complete JSON profile, including the stable `id`, exact `handle`,
    canonical `profile_url`, display name, both emoji fields, destination
    channels, all forwarding booleans, media policy, four LLM flags, relevance
    scope, account-specific prompt, poll cap, and thread policy. Explain every
    non-default recommendation using the observed account behavior.
-5. Ask only for unresolved user choices or authority that cannot be discovered
+6. Ask only for unresolved user choices or authority that cannot be discovered
    safely: a custom Discord emoji, a channel that Yanto cannot access, an
    ambiguous delivery choice, profile-specific exclusions, source fallback
    acceptance, or activation and backfill preference. Do not ask the user to supply facts that the account or source inspection can establish.
-6. Show the proposed JSON and wait for approval. After approval, add the
+7. Show the proposed JSON and wait for approval. After approval, run
+   `profile-emoji ensure --apply` only for approved missing emojis, copy each
+   returned full markup and ID into the final profile JSON, then add the
    profile with its stable ID, use future-only initialization by recording the
    newest successful observation without OCR, LLM, delivery, or historical
    replay, then run the reviewed test, publish, deploy, and verify the natural
