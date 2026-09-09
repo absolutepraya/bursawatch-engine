@@ -593,7 +593,7 @@ Acquire a process lock before source observation and submission. Use an isolated
 Track fetched, filtered, queued, OCR processed, vision partial, vision full, delivered, and error counts. Do not add OCR-derived deterministic noise reason codes. Relevance decisions are made through the LLM submission path. Emit:
 
 ```text
-🫀 instagram-post · HH:MM WIB · <tokens>[ · <first sanitized reason> <@443342168434933760> ⚠️]
+🫀 instagram-post · HH:MM WIB · <tokens>[ · <first sanitized reason> ⚠️]
 ```
 
 Emit the fatal form on unhandled execution failure. Never include credentials, local secret paths, signed URLs, or raw provider response text.
