@@ -1,7 +1,10 @@
 services:
   rsshub-instagram:
     container_name: rsshub-instagram
-    image: diygod/rsshub
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: rsshub-instagram:ca-trust
     mem_limit: 768m
     restart: always
     command: ['node', 'dist/index.mjs']
@@ -16,7 +19,7 @@ services:
       IG_COOKIE: ${IG_COOKIE:?set IG_COOKIE in .env}
       PROXY_URI: ${PROXY_URI:?set PROXY_URI in .env}
     healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:1200/healthz']
+      test: ['CMD-SHELL', 'test -r /etc/ssl/certs/ca-certificates.crt && curl -f http://localhost:1200/healthz']
       interval: 30s
       timeout: 10s
       retries: 3
