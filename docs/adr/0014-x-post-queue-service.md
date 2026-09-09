@@ -1,6 +1,6 @@
 # Separate X source polling from queue servicing
 
-Status: accepted design, live worker registration pending explicit approval
+Status: accepted and deployed
 
 ## Context
 
@@ -28,10 +28,9 @@ Expose the active LLM outbox count and oldest ready-event age in the heartbeat.
 Implement and verify this for X first. Do not change Instagram as part of this
 first rollout. Do not reset, replay, or backfill live state.
 
-The proposed live companion job is a separate Hermes registration with a
-minute-level cadence and `x-post-watch` skill, using
-`x-post-watch-queue.sh`. Registering or rescheduling it remains an explicit
-production approval step.
+The live companion job is registered as `x-post-queue-worker` with job ID
+`ca1839ba1dcf`, a minute-level cadence, the `x-post-watch` skill, and
+`x-post-watch-queue.sh`.
 
 ## Consequences
 
@@ -43,4 +42,5 @@ production approval step.
 - Only one LLM event is claimed per worker invocation. Sustained input above
   agent throughput still produces visible backlog growth instead of silent
   loss.
-- The worker is not live until its Hermes job is explicitly registered.
+- The worker is live only as a queue service. The source poller remains on its
+  existing cadence.

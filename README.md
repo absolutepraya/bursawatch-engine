@@ -19,7 +19,7 @@ retain their own `SKILL.md` files.
 | `idx-ssf-watch-phintraco-weekly` | Phintraco Weekly SSF Review forwarder (source-only text then native analyst chart) | tests yes; a live run needs the VPS Telethon session |
 | `kelas-investasi-gtw-watch` | Future-only Kelas Investasi `#GTW` bundle watcher, source-grounded summary then source images to Discord | tests yes; a live run needs the VPS Telethon session |
 | `scele-digest` | University SCELE daily digest (LLM agent job; `bin/send-digest` is the deterministic renderer) | renderer yes |
-| `x-post-watch` | Configuration-driven RSSHub X post forwarder with optional Hermes titles and summaries | tests yes; live source and Discord no-post smoke run on the VPS |
+| `x-post-watch` | Configuration-driven RSSHub X post forwarder with a separate minute-level queue worker and optional Hermes titles and summaries | tests yes; live source and Discord no-post smoke run on the VPS |
 | `instagram-post-watch` | Authenticated RSSHub Instagram post and reel watcher with OCR, selective vision, and Discord delivery | tests yes; live source, OCR, and Discord no-post verification run on the VPS |
 | `dotfiles-sync` | VPS-owned staged backup of Mac and VPS configuration | VPS only; Mac is read over SSH |
 | `job-watcher` | Indonesia-only job discovery, scoring, and Discord notification watcher | tests yes; live no-post verification runs on the VPS |

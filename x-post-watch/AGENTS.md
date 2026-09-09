@@ -6,10 +6,10 @@ This file supplements the repository root `AGENTS.md`. It is the development and
 
 - `config/watches.json` is the canonical watched-account configuration.
 - `bin/` owns source adapters, structural source eligibility, cursor and outbox state transitions, rendering, media delivery, heartbeats, and the wrappers. Negative content relevance is decided by the LLM.
-- Development source is this directory. The deployed runtime is `~/.agents/skills/x-post-watch/`; its wrapper is `~/.hermes/scripts/x-post-watch.sh`.
+- Development source is this directory. The deployed runtime is `~/.agents/skills/x-post-watch/`; its source-polling wrapper is `~/.hermes/scripts/x-post-watch.sh` and its queue-worker wrapper is `~/.hermes/scripts/x-post-watch-queue.sh`.
 - The live state directory, cursors, outbox, media, and `~/.dotfiles/vps/agents/skills/x-post-watch/` are not authoring targets. Never reset, edit, replay, or backfill them without explicit approval.
 
-The source-polling job currently runs every 10 minutes. Keep source polling cadence independent from queue servicing: `bin/x-post-watch-queue.sh` sets `X_POST_WATCH_QUEUE_ONLY=1`, skips RSSHub and direct-X polling, and still delivers ready events, claims one LLM event, and sends the standard heartbeat. Do not increase source polling to reduce queue latency. RSSHub is the default source. A `direct_x` profile reads a public X profile, expands same-author threads through public X status pages, and uses VxTwitter for details. Once its cursor is initialized, it requests VxTwitter details only for newer status IDs; the first HTTP 429 starts an automatic three-hour cooldown for all profile fetching. RSSHub handles X authentication on the VPS, while direct X profiles use public endpoints only.
+The source-polling job currently runs every 10 minutes, while the registered `x-post-queue-worker` runs every minute. Keep source polling cadence independent from queue servicing: `bin/x-post-watch-queue.sh` sets `X_POST_WATCH_QUEUE_ONLY=1`, skips RSSHub and direct-X polling, and still delivers ready events, claims one LLM event, and sends the standard heartbeat. Do not increase source polling to reduce queue latency. RSSHub is the default source. A `direct_x` profile reads a public X profile, expands same-author threads through public X status pages, and uses VxTwitter for details. Once its cursor is initialized, it requests VxTwitter details only for newer status IDs; the first HTTP 429 starts an automatic three-hour cooldown for all profile fetching. RSSHub handles X authentication on the VPS, while direct X profiles use public endpoints only.
 
 ## Profile schema and safe configuration
 
@@ -79,7 +79,7 @@ Read the source adapter, scanner, wrapper, state model, renderer, affected tests
 
 Publish a clean reviewed commit before deployment. Deploy executable changes with `./deploy.sh x-post-watch`. Compare the reviewed config and `SKILL.md` against the VPS before synchronizing them separately, then verify local and VPS SHA-256 parity for every changed file. Use an isolated no-post smoke only:
 
-`deploy.sh` copies the runtime `bin/` tree but does not update the Hermes scheduler wrappers. When `bin/x-post-watch.sh` or `bin/x-post-watch-queue.sh` changes, synchronize each reviewed file separately to its corresponding path under `vps:.hermes/scripts/`, set mode `755`, and compare its checksum before running the smoke. The queue-only wrapper must not be registered as a live Hermes job until its schedule receives explicit approval.
+`deploy.sh` copies the runtime `bin/` tree but does not update the Hermes scheduler wrappers. When `bin/x-post-watch.sh` or `bin/x-post-watch-queue.sh` changes, synchronize each reviewed file separately to its corresponding path under `vps:.hermes/scripts/`, set mode `755`, and compare its checksum before running the smoke. The queue-only wrapper is registered as the minute-level `x-post-queue-worker` job.
 
 ```bash
 smoke_dir="$(mktemp -d /tmp/x-post-watch-smoke.XXXXXX)"
