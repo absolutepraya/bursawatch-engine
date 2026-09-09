@@ -40,7 +40,6 @@ from ocr import OCRResult, OCRStatus
 WIB = ZoneInfo("Asia/Jakarta")
 HEARTBEAT_CHANNEL_ID = "1505162000420835388"
 WATCHER_HEARTBEAT_NAME = "instagram-post"
-OWNER_MENTION = "<@443342168434933760>"
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "watches.json"
 DEFAULT_STATE_PATH = Path(__file__).resolve().parent.parent / "state" / "state.json"
 DEFAULT_MEDIA_ROOT = Path(__file__).resolve().parent.parent / "state" / "media"
@@ -202,17 +201,16 @@ def _process_lock(storage: Path, *, blocking: bool) -> Iterator[bool]:
 
 def format_heartbeat(now: datetime, stats: RunStats) -> str:
     suffix = f" · {stats.reasons[0]}" if stats.reasons else ""
-    attention = f" {OWNER_MENTION}" if stats.degraded or stats.needs_attention else ""
     warning = " ⚠️" if stats.degraded else ""
     return (
         f"🫀 {WATCHER_HEARTBEAT_NAME} · {now.astimezone(WIB):%H:%M} WIB · "
-        f"{stats.tokens()}{suffix}{attention}{warning}"
+        f"{stats.tokens()}{suffix}{warning}"
     )
 
 
 def format_fatal(now: datetime, reason: object) -> str:
     failure = _sanitize_reason(reason)
-    return f"❌ {WATCHER_HEARTBEAT_NAME} · {now.astimezone(WIB):%H:%M} WIB · failed: {failure} {OWNER_MENTION}"
+    return f"❌ {WATCHER_HEARTBEAT_NAME} · {now.astimezone(WIB):%H:%M} WIB · failed: {failure}"
 
 
 def _post_heartbeat(now: datetime, stats: RunStats) -> None:

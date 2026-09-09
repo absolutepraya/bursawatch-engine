@@ -28,7 +28,6 @@ from agent_protocol import (
 WIB = ZoneInfo("Asia/Jakarta")
 HEARTBEAT_CHANNEL_ID = "1505162000420835388"
 WATCHER_HEARTBEAT_NAME = "x-post"
-OWNER_MENTION = "<@443342168434933760>"
 
 
 @dataclass
@@ -71,14 +70,13 @@ def config_path() -> Path:
 
 def format_heartbeat(now: datetime, stats: RunStats) -> str:
     suffix = f" · {stats.reasons[0]}" if stats.reasons else ""
-    attention = f" {OWNER_MENTION}" if stats.degraded or stats.needs_attention else ""
     warning = " ⚠️" if stats.degraded else ""
-    return f"🫀 {WATCHER_HEARTBEAT_NAME} · {now.astimezone(WIB):%H:%M} WIB · {stats.tokens()}" + suffix + attention + warning
+    return f"🫀 {WATCHER_HEARTBEAT_NAME} · {now.astimezone(WIB):%H:%M} WIB · {stats.tokens()}" + suffix + warning
 
 
 def format_fatal(now: datetime, reason: str) -> str:
     failure = " ".join(reason.split())[:180]
-    return f"❌ {WATCHER_HEARTBEAT_NAME} · {now.astimezone(WIB):%H:%M} WIB · failed: {failure} {OWNER_MENTION}"
+    return f"❌ {WATCHER_HEARTBEAT_NAME} · {now.astimezone(WIB):%H:%M} WIB · failed: {failure}"
 
 
 def _next_deliverable_index(value: dict, profiles: dict, now: datetime) -> int | None:
