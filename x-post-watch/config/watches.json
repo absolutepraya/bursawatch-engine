@@ -425,47 +425,6 @@
         "max_age_minutes": 240,
         "settle_minutes": 15
       }
-    },
-    {
-      "id": "idnfinancials",
-      "enabled": true,
-      "source": "rsshub",
-      "profile_url": "https://x.com/IDNFinancials",
-      "handle": "IDNFinancials",
-      "display_name": "IDN Financials",
-      "twitter_emoji": "<:twitter:1531672630602498129>",
-      "emoji": "<:idnfinancials:1542781829952704512>",
-      "discord_channels": [
-        {
-          "key": "macro_news",
-          "channel_id": "1531655369884045382",
-          "description": "Broad economic, business, market, sector, and cross-asset analysis."
-        },
-        {
-          "key": "id_stocks_news",
-          "channel_id": "1525102508714889257",
-          "description": "Direct IDX-listed company or ticker thesis."
-        }
-      ],
-      "forward_normal_post": true,
-      "forward_quote_post": true,
-      "forward_reply": false,
-      "forward_repost": false,
-      "forward_media": true,
-      "media_policy": "all",
-      "enable_llm_title": true,
-      "enable_llm_summary": true,
-      "enable_llm_routing": true,
-      "enable_llm_relevance_filter": true,
-      "relevance_scope": "indonesia_economy",
-      "additional_prompt_instruction": "Forward substantive Indonesian economic, business, government, infrastructure, energy, strategic-industry, state-owned-enterprise, IDX, and market news even when no ticker is named. Route direct confirmed IDX-listed issuer news to id_stocks_news; route Indonesian government, infrastructure, strategic-company, market-wide, and cross-asset theses to macro_news. Exclude posts where Donald Trump personally buys or discloses buying SpaceX shares, even when the text mentions financial disclosure or shares. Do not infer a ticker, tender offer, pump, or market impact not stated by the source. Exclude generic promotions, greetings, and unrelated engagement.",
-      "max_items_per_poll": 50,
-      "thread_handling": {
-        "mode": "disabled",
-        "max_posts": 10,
-        "max_age_minutes": 240,
-        "settle_minutes": 60
-      }
     }
   ]
 }

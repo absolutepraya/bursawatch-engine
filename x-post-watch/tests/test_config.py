@@ -199,27 +199,12 @@ def test_canonical_kobeissi_profile_is_financial_market_scoped():
     assert (profile.thread_handling.mode, profile.thread_handling.max_posts, profile.thread_handling.max_age_minutes, profile.thread_handling.settle_minutes) == ("self_chain", 20, 240, 15)
 
 
-def test_canonical_idnfinancials_profile_is_indonesia_economy_scoped():
+def test_canonical_config_excludes_idnfinancials_profile():
     canonical_config = Path(__file__).resolve().parents[1] / "config" / "watches.json"
-    profile = {item.id: item for item in config_module.load_watch_config(canonical_config).profiles}["idnfinancials"]
+    profiles = config_module.load_watch_config(canonical_config).profiles
 
-    assert profile.enabled is True
-    assert profile.source == "rsshub"
-    assert profile.profile_url == "https://x.com/IDNFinancials"
-    assert profile.handle == "IDNFinancials"
-    assert profile.display_name == "IDN Financials"
-    assert profile.twitter_emoji == "<:twitter:1531672630602498129>"
-    assert profile.emoji == "<:idnfinancials:1542781829952704512>"
-    assert profile.relevance_scope == "indonesia_economy"
-    assert [(channel.key, channel.channel_id) for channel in profile.discord_channels] == [
-        ("macro_news", "1531655369884045382"),
-        ("id_stocks_news", "1525102508714889257"),
-    ]
-    assert (profile.forward_normal_post, profile.forward_quote_post, profile.forward_reply, profile.forward_repost, profile.forward_media) == (True, True, False, False, True)
-    assert (profile.enable_llm_title, profile.enable_llm_summary, profile.enable_llm_routing, profile.enable_llm_relevance_filter) == (True, True, True, True)
-    assert "infrastructure" in profile.additional_prompt_instruction
-    assert "SpaceX" in profile.additional_prompt_instruction
-    assert (profile.thread_handling.mode, profile.thread_handling.max_posts, profile.thread_handling.max_age_minutes, profile.thread_handling.settle_minutes) == ("disabled", 10, 240, 60)
+    assert all(profile.id != "idnfinancials" for profile in profiles)
+    assert all(profile.handle.casefold() != "idnfinancials" for profile in profiles)
 
 
 def test_canonical_wavetiga_profile_is_direct_x_and_fully_routed():
