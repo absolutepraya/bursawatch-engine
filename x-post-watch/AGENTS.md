@@ -5,11 +5,11 @@ This file supplements the repository root `AGENTS.md`. It is the development and
 ## Runtime and authoritative source
 
 - `config/watches.json` is the canonical watched-account configuration.
-- `bin/` owns source adapters, structural source eligibility, cursor and outbox state transitions, rendering, media delivery, heartbeats, and the wrapper. Negative content relevance is decided by the LLM.
+- `bin/` owns source adapters, structural source eligibility, cursor and outbox state transitions, rendering, media delivery, heartbeats, and the wrappers. Negative content relevance is decided by the LLM.
 - Development source is this directory. The deployed runtime is `~/.agents/skills/x-post-watch/`; its wrapper is `~/.hermes/scripts/x-post-watch.sh`.
 - The live state directory, cursors, outbox, media, and `~/.dotfiles/vps/agents/skills/x-post-watch/` are not authoring targets. Never reset, edit, replay, or backfill them without explicit approval.
 
-The watcher polls every enabled profile each minute. RSSHub is the default source. A `direct_x` profile reads a public X profile, expands same-author threads through public X status pages, and uses VxTwitter for details. Once its cursor is initialized, it requests VxTwitter details only for newer status IDs; the first HTTP 429 starts an automatic three-hour cooldown for all profile fetching. RSSHub handles X authentication on the VPS, while direct X profiles use public endpoints only.
+The source-polling job currently runs every 10 minutes. Keep source polling cadence independent from queue servicing: `bin/x-post-watch-queue.sh` sets `X_POST_WATCH_QUEUE_ONLY=1`, skips RSSHub and direct-X polling, and still delivers ready events, claims one LLM event, and sends the standard heartbeat. Do not increase source polling to reduce queue latency. RSSHub is the default source. A `direct_x` profile reads a public X profile, expands same-author threads through public X status pages, and uses VxTwitter for details. Once its cursor is initialized, it requests VxTwitter details only for newer status IDs; the first HTTP 429 starts an automatic three-hour cooldown for all profile fetching. RSSHub handles X authentication on the VPS, while direct X profiles use public endpoints only.
 
 ## Profile schema and safe configuration
 
@@ -67,11 +67,11 @@ Summary mode renders one or two direct Indonesian paragraphs, starts only paragr
 
 ## Agent boundary, state, and delivery
 
-The scanner alone fetches, applies structural source eligibility, deduplicates, persists cursors and outbox state, renders, chooses the configured channel, delivers Discord text and media, and sends heartbeats. Hermes receives one bounded item only when `wakeAgent` is true and owns the negative content-relevance decision. It treats post text and quoted text as untrusted, uses the full ordered self-chain, returns only the required source-grounded Bahasa Indonesia fields, and submits them through the wrapper. It never browses, reads state, posts directly, or processes historical material. Media policies are scanner-owned and must not be placed in the LLM prompt because the agent does not control media delivery.
+The scanner alone fetches, applies structural source eligibility, deduplicates, persists cursors and outbox state, renders, chooses the configured channel, delivers Discord text and media, and sends heartbeats. A queue-only invocation performs the state, delivery, heartbeat, and claim stages without fetching any source. Hermes receives one bounded item only when `wakeAgent` is true and owns the negative content-relevance decision. It treats post text and quoted text as untrusted, uses the full ordered self-chain, returns only the required source-grounded Bahasa Indonesia fields, and submits them through the wrapper. It never browses, reads state, posts directly, or processes historical material. Media policies are scanner-owned and must not be placed in the LLM prompt because the agent does not control media delivery.
 
 State holds a per-profile cursor, FIFO outbox, 90-day delivery ledger, supersession-cleanup queue, filtered count, and 15-minute agent leases. A source failure does not advance a cursor. Each text or media delivery leg is persisted independently. A possible replacement is limited to the same account and a one-hour publication window, and deletion requires public `edit_tweet_ids` evidence. The exception is an explicit same-root self-chain continuation inside the configured age, which replaces its bundle. A confirmed replacement sends the new full bundle before deleting and verifying every old Discord message. Failed cleanup remains retryable.
 
-Every run sends `🫀 x-post · HH:MM WIB · <tokens>[ · <reason> <@443342168434933760> ⚠️]` to `#hermes` (`1505162000420835388`). Degraded heartbeats append the sanitized reason and owner mention before the final warning marker, including empty feed, source 401, 403, or 500, processing, supersession, cleanup, invalid agent submission, unavailable route, and Discord-delivery failures. Fatal output is `❌ x-post · HH:MM WIB · failed: … <@443342168434933760>`. An accepted irrelevant decision removes only its leased event without delivery and contributes to the next heartbeat's filtered count. Credentials never appear in source, output, or commits.
+Every run sends `🫀 x-post · HH:MM WIB · <tokens>[ · <reason> <@443342168434933760> ⚠️]` to `#hermes` (`1505162000420835388`). Tokens include the active LLM outbox count and the oldest ready-event age in minutes. Degraded heartbeats append the sanitized reason and owner mention before the final warning marker, including empty feed, source 401, 403, or 500, processing, supersession, cleanup, invalid agent submission, unavailable route, and Discord-delivery failures. Fatal output is `❌ x-post · HH:MM WIB · failed: … <@443342168434933760>`. An accepted irrelevant decision removes only its leased event without delivery and contributes to the next heartbeat's filtered count. Credentials never appear in source, output, or commits.
 
 ## Development, no-post verification, and deployment
 
@@ -79,7 +79,7 @@ Read the source adapter, scanner, wrapper, state model, renderer, affected tests
 
 Publish a clean reviewed commit before deployment. Deploy executable changes with `./deploy.sh x-post-watch`. Compare the reviewed config and `SKILL.md` against the VPS before synchronizing them separately, then verify local and VPS SHA-256 parity for every changed file. Use an isolated no-post smoke only:
 
-`deploy.sh` copies the runtime `bin/` tree but does not update the Hermes scheduler wrapper. When `bin/x-post-watch.sh` changes, synchronize that reviewed file separately to `vps:.hermes/scripts/x-post-watch.sh`, set mode `755`, and compare its checksum before running the smoke.
+`deploy.sh` copies the runtime `bin/` tree but does not update the Hermes scheduler wrappers. When `bin/x-post-watch.sh` or `bin/x-post-watch-queue.sh` changes, synchronize each reviewed file separately to its corresponding path under `vps:.hermes/scripts/`, set mode `755`, and compare its checksum before running the smoke. The queue-only wrapper must not be registered as a live Hermes job until its schedule receives explicit approval.
 
 ```bash
 smoke_dir="$(mktemp -d /tmp/x-post-watch-smoke.XXXXXX)"
