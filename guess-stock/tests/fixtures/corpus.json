@@ -1,0 +1,43 @@
+[
+  {
+    "case_id": "price-volume-snapshot",
+    "input_kinds": ["chart"],
+    "as_of": "2026-08-19",
+    "observed": {"price": 192, "volume": "189.01M", "volume_average": "21.2M"},
+    "expected_ticker": "APEX",
+    "expected_status": "Confirmed"
+  },
+  {
+    "case_id": "current-chart-not-answer-time",
+    "input_kinds": ["chart"],
+    "as_of": "2026-08-26",
+    "observed": {"price": 296, "volume": "772.53K"},
+    "expected_ticker": "MINA",
+    "expected_status": "Confirmed"
+  },
+  {
+    "case_id": "semantic-brand-resolution",
+    "input_kinds": ["clue", "social"],
+    "as_of": null,
+    "observed": {"semantic_reference": "Energen", "group_clue": "Bakrie"},
+    "expected_ticker": "ENRG",
+    "expected_status": "Strong lead"
+  },
+  {
+    "case_id": "keystats-needs-multiple-fields",
+    "input_kinds": ["keystats"],
+    "as_of": "2026-06-30",
+    "observed": {"total_assets": "193B", "total_liabilities": "230B", "total_equity": "-38B"},
+    "expected_ticker": "INPS",
+    "expected_status": "Strong lead"
+  },
+  {
+    "case_id": "user-correction-hard-negative",
+    "input_kinds": ["chart"],
+    "as_of": "2026-08-21",
+    "observed": {"price": 685, "volume": "829.15M"},
+    "expected_ticker": "BRMS",
+    "expected_status": "Confirmed",
+    "rejected_tickers": ["KIJA"]
+  }
+]
