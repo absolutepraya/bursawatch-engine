@@ -41,6 +41,7 @@ PHINTRACO_EMOJI = "<:phintraco:1531272488645038091>"
 UP_EMOJI = "<:up:1531285100346740766>"
 DOWN_EMOJI = "<:down:1531285063986053200>"
 PDF_FILENAME_RE = re.compile(r"^weekly ssf review.*\.pdf$", re.IGNORECASE)
+DISPLAYED_CONTRACT_HORIZON_MONTHS = 1
 
 
 @dataclass(frozen=True)
@@ -329,6 +330,8 @@ def format_ssf_alert(
 ) -> str:
     sections = []
     for contract in underlying.contracts:
+        if contract.horizon_months != DISPLAYED_CONTRACT_HORIZON_MONTHS:
+            continue
         sections.append(
             "\n".join(
                 (

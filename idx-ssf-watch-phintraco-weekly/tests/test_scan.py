@@ -54,7 +54,9 @@ def test_33681_preserves_indf_short_contract_values(tmp_state: Path) -> None:
     assert "[SSF] SHORT<:down:" not in alert
 
 
-def test_33568_mixed_indf_heading_and_source_faithful_contracts(tmp_state: Path) -> None:
+def test_33568_mixed_indf_heading_and_source_faithful_one_month_contract(
+    tmp_state: Path,
+) -> None:
     review = parse_weekly_ssf_pdf(33568, FIXTURE_DIR / "33568.pdf")
     indf = review.underlyings[0]
 
@@ -65,15 +67,26 @@ def test_33568_mixed_indf_heading_and_source_faithful_contracts(tmp_state: Path)
     assert alert.startswith("### <:phintraco:1531272488645038091> [SSF] MIXED: INDF\n")
     assert "Report date: Mon, Jul 6 2026" in alert
     assert "Underlying price: 6925" in alert
-    for contract in indf.contracts:
-        assert f"**{contract.horizon_months}-month contract**" in alert
-        marker = "<:up:1531285100346740766>" if contract.strategy == "Long" else "<:down:1531285063986053200>"
-        assert f"Strategy: {contract.strategy}{marker}" in alert
-        assert f"Purchase price: {contract.purchase_price}" in alert
-        assert f"Target price: {contract.target_price}" in alert
-        assert f"Support / resistance: {contract.support_resistance}" in alert
+    contract = indf.contracts[0]
+    assert f"**{contract.horizon_months}-month contract**" in alert
+    marker = "<:up:1531285100346740766>" if contract.strategy == "Long" else "<:down:1531285063986053200>"
+    assert f"Strategy: {contract.strategy}{marker}" in alert
+    assert f"Purchase price: {contract.purchase_price}" in alert
+    assert f"Target price: {contract.target_price}" in alert
+    assert f"Support / resistance: {contract.support_resistance}" in alert
+    assert "**2-month contract**" not in alert
+    assert "**3-month contract**" not in alert
     assert alert.endswith("Source: [Phintraco Sekuritas](<https://t.me/phintraprofits/33568>) | Weekly SSF Review")
     assert len(alert) < 2000
+
+
+def test_ssf_alert_renders_only_the_one_month_contract(tmp_state: Path) -> None:
+    review = parse_weekly_ssf_pdf(33568, FIXTURE_DIR / "33568.pdf")
+    alert = format_ssf_alert(review.underlyings[0], review.report_date, review.source_message_id)
+
+    assert alert.count("**1-month contract**") == 1
+    assert "**2-month contract**" not in alert
+    assert "**3-month contract**" not in alert
 
 
 def test_malformed_fifth_page_is_rejected(tmp_state: Path) -> None:
