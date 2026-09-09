@@ -53,6 +53,98 @@ function isBusinessProfileSchemaFailure(status, body) {
   return status === 400 && typeof body === 'string' && body.includes(businessSchemaError);
 }
 
+function bestImageCandidate(media) {
+  const candidates = media && media.image_versions2 && media.image_versions2.candidates;
+  if (!Array.isArray(candidates)) {
+    return null;
+  }
+  const usable = candidates.filter((candidate) => candidate && typeof candidate.url === 'string' && candidate.url);
+  return usable.sort((left, right) => Number(right.width || 0) - Number(left.width || 0))[0] || null;
+}
+
+function bestVideoCandidate(media) {
+  const candidates = media && media.video_versions;
+  if (!Array.isArray(candidates)) {
+    return null;
+  }
+  return candidates.find((candidate) => candidate && typeof candidate.url === 'string' && candidate.url) || null;
+}
+
+function graphMediaNode(media, item, username, type) {
+  const image = bestImageCandidate(media);
+  if (!image) {
+    return null;
+  }
+  const id = media && (media.pk ?? media.id);
+  if (id === undefined || id === null || String(id).trim() === '') {
+    return null;
+  }
+
+  const width = Number(image.width || media.original_width || item.original_width || 0);
+  const height = Number(image.height || media.original_height || item.original_height || 0);
+  const node = {
+    __typename: type,
+    id: String(id),
+    shortcode: item.code,
+    taken_at_timestamp: Number(item.taken_at),
+    owner: { username },
+    display_url: image.url,
+    dimensions: { width, height },
+  };
+  if (type === 'GraphVideo') {
+    const video = bestVideoCandidate(media);
+    if (!video) {
+      return null;
+    }
+    node.video_url = video.url;
+  }
+  return node;
+}
+
+function graphItemNode(item, username) {
+  if (!item || typeof item !== 'object' || typeof item.code !== 'string' || !item.code) {
+    return null;
+  }
+  const summary = item.caption && typeof item.caption.text === 'string' ? item.caption.text : '';
+  const caption = summary ? { edges: [{ node: { text: summary } }] } : { edges: [] };
+  const productType = item.product_type;
+
+  if (productType === 'carousel_container') {
+    if (!Array.isArray(item.carousel_media) || item.carousel_media.length === 0) {
+      return null;
+    }
+    const children = item.carousel_media.map((media) => {
+      const type = Number(media && media.media_type) === 2 ? 'GraphVideo' : 'GraphImage';
+      return graphMediaNode(media, item, username, type);
+    });
+    if (children.some((child) => child === null)) {
+      return null;
+    }
+    const node = graphMediaNode(item, item, username, 'GraphSidecar');
+    if (!node) {
+      return null;
+    }
+    node.edge_media_to_caption = caption;
+    node.edge_sidecar_to_children = { edges: children.map((child) => ({ node: child })) };
+    return node;
+  }
+
+  const type = productType === 'clips' || productType === 'igtv' || Number(item.media_type) === 2
+    ? 'GraphVideo'
+    : productType === 'feed'
+      ? 'GraphImage'
+      : null;
+  if (!type) {
+    return null;
+  }
+  const node = graphMediaNode(item, item, username, type);
+  if (!node) {
+    return null;
+  }
+  node.edge_media_to_caption = caption;
+  return node;
+}
+
 function profileInfoFallbackBody(body, username) {
   if (!username || !instagramHandlePattern.test(username)) {
     return null;
@@ -76,11 +168,21 @@ function profileInfoFallbackBody(body, username) {
     return null;
   }
 
+  const graphEdges = payload.items.map((item) => {
+    const node = graphItemNode(item, username);
+    return node ? { node } : null;
+  });
+  if (graphEdges.some((edge) => edge === null)) {
+    return null;
+  }
+
   return JSON.stringify({
     data: {
       user: {
         ...user,
         username: typeof user.username === 'string' && user.username ? user.username : username,
+        edge_felix_video_timeline: { edges: [] },
+        edge_owner_to_timeline_media: { edges: graphEdges },
       },
     },
   });

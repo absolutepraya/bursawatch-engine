@@ -31,8 +31,9 @@ advancing through old publications.
   `web_profile_info` returns HTTP 400 containing Instagram's deleted
   `business_category_subvertical` schema message, then the same handle's feed
   endpoint returns a valid JSON object with an items array and a user object
-  containing an ID. It synthesizes the minimal `{data:{user}}` shape expected by
-  the existing RSSHub route and lets that route fetch the feed normally.
+  containing an ID. It synthesizes the minimal guest-compatible `{data:{user}}`
+  shape expected by the existing RSSHub route, including its timeline edges,
+  and lets that route render the feed normally.
 - For every other status, endpoint, profile, or malformed feed response, the
   original response is preserved. The dispatcher does not scrape HTML, switch
   platforms, bypass the configured residential proxy, or expose credentials.
