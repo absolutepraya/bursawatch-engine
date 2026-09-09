@@ -124,29 +124,6 @@ def test_later_observation_queues_unseen_publications_in_chronological_order(con
     assert value["outbox"][0]["source_publication_url"] == value["outbox"][0]["post"]["url"]
 
 
-def test_observation_skips_publications_filtered_after_preparation(config_path, tmp_path):
-    profile = _profile(config_path)
-    value = state.new_state()
-    state.observe_publications(value, profile, [_publication(profile.id, "100", 0)], NOW, lambda item: {})
-
-    def prepare(item):
-        if item.publication_id == "media-101":
-            return None
-        return _prepared(item, tmp_path)
-
-    created = state.observe_publications(
-        value,
-        profile,
-        [_publication(profile.id, "101", 1), _publication(profile.id, "102", 2)],
-        NOW + timedelta(minutes=3),
-        prepare,
-    )
-
-    assert created == 1
-    assert [event["publication_id"] for event in value["outbox"]] == ["media-102"]
-    assert value["profiles"][profile.id]["cursor"] == "media-102"
-
-
 def test_duplicate_publication_is_not_queued_twice(config_path, tmp_path):
     profile = _profile(config_path)
     value = state.new_state()

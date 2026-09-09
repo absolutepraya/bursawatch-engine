@@ -116,14 +116,14 @@ def test_direct_market_disclosure_requires_a_relevant_decision(config_path, prof
     assert "must be relevant" in item["instruction"].lower()
 
 
-def test_promotional_thread_is_not_forced_relevant_by_financial_language(config_path, profile_payload):
+def test_promotion_like_disclosure_keeps_the_positive_relevance_safeguard(config_path, profile_payload):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     post = SourcePost(
         profile.id,
         "102",
         "https://x.com/Kutekians/status/102",
         datetime.now(UTC),
-        "Insider Crypto Tracker is live. CA: 0xfc861e02605addab95d8e6b8e662100e987cb9aa. Hold $INSIDER and unlock benefits. 80% of revenue will be used to buy back $INSIDER.",
+        "Insider Crypto Tracker is live. CA: 0xfc861e02605addab95d8e6b8e662100e987cb9aa. Hold $BBCA and unlock benefits. 80% of revenue will be used to buy back $BBCA.",
         PostKind.NORMAL,
         None,
         None,
@@ -133,65 +133,9 @@ def test_promotional_thread_is_not_forced_relevant_by_financial_language(config_
 
     item = agent_protocol.agent_item(profile, post)
 
-    assert agent_protocol.is_promotional(post) is True
-    assert agent_protocol.requires_relevance(post) is False
-    assert item["relevance_guard_required"] is False
+    assert agent_protocol.requires_relevance(post) is True
+    assert item["relevance_guard_required"] is True
     assert "advertisements and product promotions" in item["instruction"]
-
-
-def test_insider_tracker_token_promotion_is_deterministically_discarded(config_path, profile_payload):
-    post = SourcePost(
-        "insidertracker",
-        "2090891308827054155",
-        "https://x.com/InsiderTrackX/status/2090891308827054155",
-        datetime.now(UTC),
-        "4% of $INSIDER supply was burned. Users are staking $INSIDER in the flywheel and 80% of revenue funds buybacks.",
-        PostKind.NORMAL,
-        None,
-        None,
-        (),
-        (),
-    )
-
-    assert agent_protocol.is_promotional(post) is True
-    assert agent_protocol.requires_relevance(post) is False
-
-
-def test_member_only_stock_promotion_is_deterministically_discarded(config_path, profile_payload):
-    profile = __import__("config").load_watch_config(config_path).profiles[0]
-    post = SourcePost(
-        profile.id,
-        "2089649063310569955",
-        "https://x.com/doktermarket/status/2089649063310569955",
-        datetime.now(UTC),
-        "Member Only: Saham Properti Ini Berpeluang Beri Cuan 20-140% https://www.doktermarket.com/2026/08/member-only-saham-properti-ini_04974221.html",
-        PostKind.NORMAL,
-        None,
-        None,
-        (),
-        (),
-    )
-
-    assert agent_protocol.is_promotional(post) is True
-    assert agent_protocol.requires_relevance(post) is False
-
-
-def test_doktermarket_analysis_link_is_not_by_itself_promotional(config_path, profile_payload):
-    profile = __import__("config").load_watch_config(config_path).profiles[0]
-    post = SourcePost(
-        profile.id,
-        "2090372937425780921",
-        "https://x.com/doktermarket/status/2090372937425780921",
-        datetime.now(UTC),
-        "ARCI Capai Target Kenaikan Pertama https://www.doktermarket.com/2026/08/arci-capai-target-kenaikan-pertama.html",
-        PostKind.NORMAL,
-        None,
-        None,
-        (),
-        (),
-    )
-
-    assert agent_protocol.is_promotional(post) is False
 
 
 def _canonical_profile(profile_id: str):
@@ -214,65 +158,12 @@ def _source_post(profile_id: str, post_id: str, text: str) -> SourcePost:
     )
 
 
-def test_aldotjahjadi_generic_investor_track_record_is_deterministically_irrelevant():
+def test_profile_specific_negative_relevance_stays_in_agent_guidance():
     profile = _canonical_profile("aldotjahjadi8")
-    generic = _source_post(
-        profile.id,
-        "2092189697150005608",
-        "Pelajaran dari rekam jejak investasi Stanley Druckenmiller: 30% annual returns selama 30 tahun dan no losing years.",
-    )
-    macro = _source_post(
-        profile.id,
-        "2092189062409195602",
-        "Peringatan Druckenmiller soal disiplin fiskal dan inflasi, dengan risiko yield obligasi yang lebih tinggi.",
-    )
+    instruction = agent_protocol.instruction_for(profile).lower()
 
-    assert agent_protocol.is_deterministically_irrelevant(profile, generic) is True
-    assert agent_protocol.is_deterministically_irrelevant(profile, macro) is False
-
-
-def test_generic_ai_productivity_post_is_deterministically_irrelevant():
-    profile = _canonical_profile("rickyho1989")
-    post = _source_post(
-        profile.id,
-        "2092905855750664457",
-        "AI memangkas pekerjaan tiga hari menjadi setengah hari dan mengembalikan waktu untuk berpikir, belajar, dan berefleksi.",
-    )
-
-    assert agent_protocol.is_deterministically_irrelevant(profile, post) is True
-
-
-def test_generic_trading_education_is_deterministically_irrelevant():
-    profile = _canonical_profile("wavetiga")
-    post = _source_post(
-        profile.id,
-        "2092902756449386686",
-        "Persentase menjadi bahasa universal dalam trading untuk membandingkan perubahan harga dan kinerja.",
-    )
-
-    assert agent_protocol.is_deterministically_irrelevant(profile, post) is True
-
-
-def test_stock_word_does_not_make_generic_investing_advice_eligible():
-    profile = _canonical_profile("rickyho1989")
-    post = _source_post(
-        profile.id,
-        "2092902756449386688",
-        "Cara berinvestasi di saham dengan mindset dan disiplin yang benar.",
-    )
-
-    assert agent_protocol.is_deterministically_irrelevant(profile, post) is True
-
-
-def test_concrete_stock_analysis_remains_eligible_after_generic_education_filter():
-    profile = _canonical_profile("wavetiga")
-    post = _source_post(
-        profile.id,
-        "2092902756449386687",
-        "BBRI breakout resistance pada chart harian dengan target dan stop-loss berdasarkan struktur harga.",
-    )
-
-    assert agent_protocol.is_deterministically_irrelevant(profile, post) is False
+    assert "exclude generic biographies or praise of an investor" in instruction
+    assert "paid research or trading-service promotions" in instruction
 
 
 def test_clear_idx_chart_setup_is_deterministically_routed_to_swing():
@@ -383,12 +274,13 @@ def test_financial_market_scope_accepts_cross_asset_context(config_path, profile
     assert agent_protocol.requires_relevance(post, profile=profile) is True
 
 
-def test_indonesia_economy_scope_accepts_major_developments_and_excludes_trump_spacex(config_path, profile_payload):
+def test_indonesia_economy_scope_uses_profile_guidance_for_source_exceptions(config_path, profile_payload):
     profile_payload["id"] = "idnfinancials"
     profile_payload["handle"] = "IDNFinancials"
     profile_payload["profile_url"] = "https://x.com/IDNFinancials"
     profile_payload["relevance_scope"] = "indonesia_economy"
     profile_payload["enable_llm_routing"] = True
+    profile_payload["additional_prompt_instruction"] = "Exclude posts where Donald Trump personally buys or discloses buying SpaceX shares."
     profile_payload["discord_channels"].append({"key": "id_stocks_news", "channel_id": "1525102508714889257", "description": "IDX"})
     config_path.write_text(__import__("json").dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
     profile = __import__("config").load_watch_config(config_path).profiles[0]
@@ -400,21 +292,10 @@ def test_indonesia_economy_scope_accepts_major_developments_and_excludes_trump_s
 
     assert "indonesia's economy, business, government, infrastructure" in instruction
     assert "even when no ticker is named" in instruction
-    assert agent_protocol.is_deterministically_irrelevant(profile, solar) is False
-    assert agent_protocol.is_deterministically_irrelevant(profile, dsi) is False
-    assert agent_protocol.is_deterministically_irrelevant(profile, trump) is True
-    assert agent_protocol.requires_relevance(trump, profile=profile) is False
-
-
-def test_kobeissi_weekly_letter_notice_is_promotional():
-    post = _source_post(
-        "kobeissiletter",
-        "2083983670956666930",
-        "The Kobeissi Letter for the week of August 3rd has been published and may be viewed through the link below: tinyurl.com/TheKobeissiLetter",
-    )
-
-    assert agent_protocol.is_promotional(post) is True
-    assert agent_protocol.requires_relevance(post) is False
+    assert agent_protocol.requires_relevance(solar, profile=profile) is True
+    assert agent_protocol.requires_relevance(dsi, profile=profile) is True
+    assert agent_protocol.requires_relevance(trump, profile=profile) is True
+    assert "donald trump personally buys or discloses buying spacex shares" in instruction
 
 
 def test_agent_instruction_requires_ticker_first_stock_titles_and_direct_summary_voice(config_path, profile_payload):

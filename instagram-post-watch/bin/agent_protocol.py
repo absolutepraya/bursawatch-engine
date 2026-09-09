@@ -31,7 +31,6 @@ MAX_MEDIA_ASSETS = 100
 MAX_LOCAL_PATH_CHARACTERS = 4_096
 MAX_PATH_CONTEXT_CHARACTERS = 4_096
 MAX_INSTRUCTION_CHARACTERS = 8_000
-_FILTER_REASON_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 SUMMARY_PREFIX = "*(Ringkasan)* "
 SUMMARY_LABEL = SUMMARY_PREFIX.rstrip()
@@ -51,64 +50,6 @@ MARKET_DISCLOSURE_RE = re.compile(
     r"dividen|dividend|earnings?|laba bersih|pendapatan|revenue|ebitda|"
     r"keterbukaan informasi|corporate action|dilusi)\b)",
     re.IGNORECASE,
-)
-
-GENERIC_FINANCIAL_ACTIVITY_RE = re.compile(
-    r"\b(?:trading|trader|trade|invest(?:ing|ment)?|investasi|berinvestasi|investor|"
-    r"portfolio|portofolio|spekulasi|speculation)\b",
-    re.IGNORECASE,
-)
-GENERIC_EDUCATIONAL_ADVICE_RE = re.compile(
-    r"\b(?:tips?|cara|how\s+to|panduan|guide|pelajaran|lesson|mindset|"
-    r"mental(?:ity)?|mentalitas|psikologi|psychology|disiplin|discipline|"
-    r"emosi|emotion|fear|greed|sabar|patience|persentase|percentage|"
-    r"strateg(?:y|i)|technique|teknik|technical\s+analysis|"
-    r"analisis\s+teknikal|risk\s+management|money\s+management|"
-    r"manajemen\s+risiko|bahasa\s+universal)\b",
-    re.IGNORECASE,
-)
-ACTIONABLE_TRADE_SIGNAL_RE = re.compile(
-    r"\b(?:entry|take\s+profit|stop[-\s]?loss|breakout|breakdown|support|resistance|resisten|"
-    r"chart|grafik|teknikal|technical|indikator|indicator|elliott\s+wave|"
-    r"wave\s+count|gelombang|risk\s*/\s*reward|risk[-\s]?reward)\b",
-    re.IGNORECASE,
-)
-ACTIONABLE_TRADE_CALL_RE = re.compile(
-    r"\b(?:buy|sell|beli|jual|target(?:\s+price)?)\b",
-    re.IGNORECASE,
-)
-FUNDAMENTAL_ANALYSIS_RE = re.compile(
-    r"\b(?:earnings?|laba|pendapatan|revenue|ebitda|valuation|valuasi|fundamental|"
-    r"dcf|dividen|dividend|corporate\s+action|keterbukaan|rights?\s+issue|"
-    r"private\s+placement|buyback|dilusi|outlook)\b",
-    re.IGNORECASE,
-)
-DIRECT_TICKER_RE = re.compile(
-    r"(?:[$#]\s*[A-Z][A-Z0-9]{1,5}\b|(?<![A-Za-z])[A-Z][A-Z0-9]{2,5}(?![A-Za-z]))"
-)
-
-PROMOTIONAL_SIGNAL_RES = (
-    re.compile(r"\b(?:hold|buy|stake|mint|claim)\s+\$[A-Z][A-Z0-9]{1,9}\b", re.IGNORECASE),
-    re.compile(
-        r"\b(?:unlock|access)\b.{0,100}\b(?:benefit|feature|reward|alert|watchlist|api)\b",
-        re.IGNORECASE | re.DOTALL,
-    ),
-    re.compile(r"\b(?:app|product|platform|service)\s+(?:is\s+)?live\b", re.IGNORECASE),
-    re.compile(r"\b(?:CA|contract address)\s*:\s*0x[0-9a-f]{20,}\b", re.IGNORECASE),
-    re.compile(r"\b(?:presale|airdrop|referral|giveaway|promo(?:tion)?)\b", re.IGNORECASE),
-    re.compile(
-        r"\b(?:revenue|fees?)\b.{0,100}\b(?:buy\s*back|rewards?|tokenized|holders?)\b",
-        re.IGNORECASE | re.DOTALL,
-    ),
-)
-PROMOTIONAL_HARD_SIGNAL_RES = (
-    re.compile(r"\bmember(?:[-\s]+)only\b", re.IGNORECASE),
-    re.compile(
-        r"\b(?:premium|paid|subscriber(?:[-\s]+only)?|subscription|berlangganan|"
-        r"eksklusif|exclusive)\b.{0,80}\b(?:research|analysis|saham|stock|report|"
-        r"signal|akses|access|content|konten)\b",
-        re.IGNORECASE | re.DOTALL,
-    ),
 )
 
 _EVENT_KEYS = {
@@ -238,50 +179,9 @@ def _source_text(post: SourcePost, ocr_text: str) -> str:
     return _clean_text("\n".join((caption_text(post), ocr_text)), MAX_POST_TEXT)
 
 
-def is_promotional(post: SourcePost, ocr_text: str = "") -> bool:
-    if not isinstance(post, SourcePost):
-        raise ValueError("post must be a source publication")
-    combined = _source_text(post, ocr_text)
-    if any(pattern.search(combined) for pattern in PROMOTIONAL_HARD_SIGNAL_RES):
-        return True
-    return sum(bool(pattern.search(combined)) for pattern in PROMOTIONAL_SIGNAL_RES) >= 2
-
-
-def _is_generic_trading_education(text: str) -> bool:
-    return bool(
-        GENERIC_FINANCIAL_ACTIVITY_RE.search(text)
-        and GENERIC_EDUCATIONAL_ADVICE_RE.search(text)
-    )
-
-
-def _is_actionable_trade_setup(text: str) -> bool:
-    if not DIRECT_TICKER_RE.search(text):
-        return False
-    if ACTIONABLE_TRADE_SIGNAL_RE.search(text):
-        return True
-    return bool(
-        ACTIONABLE_TRADE_CALL_RE.search(text)
-        and not FUNDAMENTAL_ANALYSIS_RE.search(text)
-    )
-
-
-def deterministic_filter_reason(post: SourcePost, ocr_text: str = "") -> str | None:
-    """Return a safe reason for an obvious post-preparation noise match."""
-    if not isinstance(post, SourcePost):
-        raise ValueError("post must be a source publication")
-    combined = _source_text(post, ocr_text)
-    if _is_generic_trading_education(combined):
-        return "generic_investing_education"
-    if _is_actionable_trade_setup(combined):
-        return "actionable_trade_setup"
-    return None
-
-
 def requires_relevance(post: SourcePost, ocr_text: str = "") -> bool:
     combined = _source_text(post, ocr_text)
-    if is_promotional(post, ocr_text):
-        return False
-    return bool(MARKET_DISCLOSURE_RE.search(combined) and deterministic_filter_reason(post, ocr_text) is None)
+    return bool(MARKET_DISCLOSURE_RE.search(combined))
 
 
 def instruction_for(profile: Profile, relevance_guard_required: bool = False) -> str:
@@ -315,7 +215,7 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
         )
     if relevance_guard_required:
         relevance += (
-            "This source has a deterministic direct market-disclosure signal. It must be relevant. "
+            "The scanner detected a clear direct market-disclosure signal. It must be relevant. "
             "Never return is_relevant false for it. "
         )
     routing = ""

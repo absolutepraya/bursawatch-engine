@@ -133,7 +133,7 @@ def test_submit_summary_overrides_clear_txth_route_with_deterministic_route(tmp_
     assert sent[0][1] == "1525102458253217803"
 
 
-def test_submit_summary_drops_deterministically_irrelevant_aldo_post(tmp_path, monkeypatch, config_path, profile_payload):
+def test_submit_summary_accepts_profile_specific_noise_when_llm_marks_it_relevant(tmp_path, monkeypatch, config_path, profile_payload):
     profile_payload.update({
         "id": "aldotjahjadi8",
         "profile_url": "https://x.com/aldotjahjadi8",
@@ -159,7 +159,7 @@ def test_submit_summary_drops_deterministically_irrelevant_aldo_post(tmp_path, m
     monkeypatch.setenv("X_POST_WATCH_STATE_PATH", str(storage))
     monkeypatch.setenv("X_POST_WATCH_CONFIG_PATH", str(config_path))
     sent = []
-    monkeypatch.setattr(scan.discord, "post_text", lambda *args: sent.append(args))
+    monkeypatch.setattr(scan.discord, "post_text", lambda *args: sent.append(args) or "test")
 
     result = scan.submit_analysis_payload({
         "event_key": f"{profile.id}:{post.post_id}",
@@ -169,8 +169,8 @@ def test_submit_summary_drops_deterministically_irrelevant_aldo_post(tmp_path, m
         "route": "macro_news",
     })
 
-    assert result == {"submitted": True, "ignored": True, "delivered": 0}
-    assert sent == []
+    assert result == {"submitted": True, "delivered": 1}
+    assert sent
     assert state.load_state(storage)["outbox"] == []
 
 
@@ -181,7 +181,7 @@ def test_submit_summary_drops_deterministically_irrelevant_aldo_post(tmp_path, m
         "Persentase menjadi bahasa universal dalam trading untuk membandingkan perubahan harga dan kinerja.",
     ],
 )
-def test_submit_drops_generic_non_stock_or_trading_education_even_if_agent_marks_relevant(tmp_path, monkeypatch, config_path, profile_payload, text):
+def test_submit_accepts_generic_non_stock_or_trading_education_when_agent_marks_relevant(tmp_path, monkeypatch, config_path, profile_payload, text):
     profile_payload["enable_llm_title"] = True
     config_path.write_text(json.dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
     profile = __import__("config").load_watch_config(config_path).profiles[0]
@@ -195,7 +195,7 @@ def test_submit_drops_generic_non_stock_or_trading_education_even_if_agent_marks
     monkeypatch.setenv("X_POST_WATCH_STATE_PATH", str(storage))
     monkeypatch.setenv("X_POST_WATCH_CONFIG_PATH", str(config_path))
     sent = []
-    monkeypatch.setattr(scan.discord, "post_text", lambda *args: sent.append(args))
+    monkeypatch.setattr(scan.discord, "post_text", lambda *args: sent.append(args) or "test")
 
     result = scan.submit_analysis_payload({
         "event_key": "kutekians:102",
@@ -203,8 +203,8 @@ def test_submit_drops_generic_non_stock_or_trading_education_even_if_agent_marks
         "title": "Tidak boleh diteruskan",
     })
 
-    assert result == {"submitted": True, "ignored": True, "delivered": 0}
-    assert sent == []
+    assert result == {"submitted": True, "delivered": 1}
+    assert sent
     assert state.load_state(storage)["outbox"] == []
 
 
@@ -274,7 +274,7 @@ def test_submit_irrelevant_disclosure_is_rejected_and_keeps_agent_event(tmp_path
     assert event["agent_phase"] == "awaiting_agent"
 
 
-def test_submit_promotional_post_is_discarded_even_if_agent_marks_it_relevant(tmp_path, monkeypatch, config_path, profile_payload):
+def test_submit_accepts_promotional_post_when_agent_marks_it_relevant(tmp_path, monkeypatch, config_path, profile_payload):
     profile_payload["enable_llm_title"] = True
     profile_payload["enable_llm_summary"] = True
     profile_payload["enable_llm_routing"] = True
@@ -302,7 +302,7 @@ def test_submit_promotional_post_is_discarded_even_if_agent_marks_it_relevant(tm
     monkeypatch.setenv("X_POST_WATCH_STATE_PATH", str(storage))
     monkeypatch.setenv("X_POST_WATCH_CONFIG_PATH", str(config_path))
     sent = []
-    monkeypatch.setattr(scan.discord, "post_text", lambda *args: sent.append(args))
+    monkeypatch.setattr(scan.discord, "post_text", lambda *args: sent.append(args) or "test")
 
     result = scan.submit_analysis_payload({
         "event_key": "kutekians:102",
@@ -312,7 +312,7 @@ def test_submit_promotional_post_is_discarded_even_if_agent_marks_it_relevant(tm
         "route": "macro_news",
     })
 
-    assert result == {"submitted": True, "ignored": True, "delivered": 0}
-    assert sent == []
+    assert result == {"submitted": True, "delivered": 1}
+    assert sent
     assert state.load_state(storage)["outbox"] == []
-    assert state.load_state(storage)["filtered_since_last_heartbeat"] == 1
+    assert state.load_state(storage)["filtered_since_last_heartbeat"] == 0

@@ -313,27 +313,24 @@ def test_carousel_is_one_event_and_every_image_is_ocrd(tmp_path, monkeypatch, co
 
 
 @pytest.mark.parametrize(
-    ("caption", "ocr_text", "expected_reason"),
+    ("caption", "ocr_text"),
     [
+        (
+            "The Járngreipr SURI-HALO.",
+            "Investor ownership percentage, earnings, and valuation analysis.",
+        ),
         (
             "A caption with investing context.",
             "Cara berinvestasi di saham dengan mindset dan disiplin yang benar.",
-            "generic_investing_education",
-        ),
-        (
-            "BBRI breakout resistance, entry 4200, target 4800, stop-loss 3950.",
-            "BBRI breakout resistance, entry 4200, target 4800, stop-loss 3950.",
-            "actionable_trade_setup",
         ),
     ],
 )
-def test_obvious_instagram_noise_is_ocrd_then_filtered_before_llm(
+def test_ocr_context_reaches_llm_relevance_decision(
     tmp_path,
     monkeypatch,
     config_path,
     caption,
     ocr_text,
-    expected_reason,
 ):
     profile = config.load_watch_config(config_path).profiles[0]
     storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
@@ -370,12 +367,13 @@ def test_obvious_instagram_noise_is_ocrd_then_filtered_before_llm(
     result = scan.run(now=NOW + timedelta(minutes=1), dry_run=False)
 
     saved = state.load_state(storage)
-    assert result == {"wakeAgent": False, "item": None}
-    assert saved["outbox"] == []
+    assert result["wakeAgent"] is True
+    assert result["item"]["event_key"].endswith(":education")
+    assert len(saved["outbox"]) == 1
     assert ocr_calls == [0, 1]
     assert len(heartbeats) == 1
-    assert "1 filtered" in heartbeats[0]
-    assert f"{expected_reason}=1" in heartbeats[0]
+    assert "1 queued" in heartbeats[0]
+    assert "filters:" not in heartbeats[0]
 
 
 def test_ocr_failure_chooses_partial_vision_and_sparse_text_chooses_full(tmp_path, monkeypatch, config_path):
@@ -662,13 +660,13 @@ def test_filtered_submission_cleans_owned_media(tmp_path, monkeypatch, config_pa
     result = scan.submit_analysis_payload({"event_key": event["event_key"], "is_relevant": False})
 
     saved = state.load_state(storage)
-    assert result == {"submitted": True, "ignored": True, "delivered": 0, "reason": "not_stock_market_related"}
+    assert result == {"submitted": True, "ignored": True, "delivered": 0}
     assert saved["outbox"] == []
     assert saved["filtered_since_last_heartbeat"] == 1
     assert cleaned == [(media_root, post.publication_id)]
 
 
-def test_valid_submission_sends_text_before_first_carousel_image(tmp_path, monkeypatch, config_path):
+def test_valid_submission_sends_text_before_first_carousel_image_without_promotion_guard(tmp_path, monkeypatch, config_path):
     profile = config.load_watch_config(config_path).profiles[0]
     storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
     _initialize_cursor(storage, profile, _post(profile.id, "baseline", 0))
@@ -676,6 +674,7 @@ def test_valid_submission_sends_text_before_first_carousel_image(tmp_path, monke
         profile.id,
         "delivery",
         1,
+        caption="Premium research subscription is live",
         media=(
             SourceMedia("https://cdn.example/first.jpg", MediaKind.IMAGE, 0),
             SourceMedia("https://cdn.example/second.jpg", MediaKind.IMAGE, 1),

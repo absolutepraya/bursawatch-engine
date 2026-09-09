@@ -291,7 +291,7 @@ def test_full_payload_contains_every_ordered_image_path(config_path, tmp_path):
 def test_reel_payload_keeps_video_and_sampled_frame_ocr_in_order_and_guards(config_path, tmp_path):
     profile = _profile(config_path)
     media_kinds = (MediaKind.VIDEO, MediaKind.IMAGE, MediaKind.IMAGE)
-    video_text = "Premium research subscription is live"
+    video_text = "Premium research subscription is live; $BBCA earnings are slowing"
     event = _event(
         profile,
         tmp_path,
@@ -325,8 +325,7 @@ def test_reel_payload_keeps_video_and_sampled_frame_ocr_in_order_and_guards(conf
     assert video_text in item["post_text"]
     assert "Cover says market structure." in item["post_text"]
     reel_post = _post(profile, kind=PublicationKind.REEL, media_kinds=media_kinds, count=3)
-    assert agent_protocol.is_promotional(reel_post, video_text) is True
-    assert agent_protocol.requires_relevance(reel_post, video_text) is False
+    assert agent_protocol.requires_relevance(reel_post, video_text) is True
 
 
 def test_reel_protocol_normalizes_colliding_original_cover_and_frame_indexes(config_path, tmp_path):
@@ -945,12 +944,12 @@ def test_source_context_is_bounded_without_dropping_asset_labels(config_path, tm
     assert "[UNTRUSTED Image 2 OCR]" in item["post_text"]
 
 
-def test_promotion_guard_includes_ocr_and_wins_over_disclosure(config_path, tmp_path):
+def test_positive_disclosure_safeguard_includes_ocr_even_with_promotion_language(config_path, tmp_path):
     profile = _profile(config_path)
     post = _post(profile, caption="Premium research subscription is live")
 
-    assert agent_protocol.is_promotional(post, "Hold $BBCA and unlock benefits") is True
-    assert agent_protocol.requires_relevance(post, "Private placement and earnings") is False
+    assert agent_protocol.requires_relevance(post, "Hold $BBCA and unlock benefits") is True
+    assert agent_protocol.requires_relevance(post, "Private placement and earnings") is True
 
 
 @pytest.mark.parametrize("signal", [
@@ -985,34 +984,17 @@ def test_instruction_contains_exact_routes_and_no_untrusted_source_text(config_p
     assert "fetch instagram" in instruction
 
 
-@pytest.mark.parametrize(
-    ("caption", "expected_reason"),
-    [
-        (
-            "Cara berinvestasi di saham dengan mindset dan disiplin yang benar.",
-            "generic_investing_education",
-        ),
-        (
-            "BBRI breakout resistance, entry 4200, target 4800, stop-loss 3950.",
-            "actionable_trade_setup",
-        ),
-    ],
-)
-def test_instagram_noise_filter_returns_sanitized_reason_codes(config_path, caption, expected_reason):
-    profile = _profile(config_path)
-    post = _post(profile, caption=caption)
-
-    assert agent_protocol.deterministic_filter_reason(post) == expected_reason
-
-
-def test_concrete_company_analysis_survives_instagram_noise_filter(config_path):
+def test_relevance_guard_is_not_affected_by_model_noise_words(config_path):
     profile = _profile(config_path)
     post = _post(
         profile,
-        caption="BBRI earnings declined 20%, valuation is stretched, and the fundamental target is lower.",
+        caption="Substantive market publication",
     )
 
-    assert agent_protocol.deterministic_filter_reason(post) is None
+    assert agent_protocol.requires_relevance(
+        post,
+        "BBRI earnings declined 20%; investor ownership percentage and valuation are discussed.",
+    ) is True
 
 
 def test_legacy_route_aliases_normalize_to_canonical_keys(config_path):

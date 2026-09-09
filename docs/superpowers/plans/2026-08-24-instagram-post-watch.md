@@ -19,7 +19,7 @@
 - Use `text_only` when OCR is complete and sufficient, `vision_partial` for failed or uncertain assets, and `vision_full` when the publication needs complete visual context.
 - Keep local media and sampled frames under runtime state until delivery completes. Never edit or capture live state as source.
 - Use an isolated VPS OCR environment. Never add OCR dependencies to the shared Yahoo Finance Python environment.
-- Reuse the X watcher's relevance, promotion exclusion, Indonesian title and summary, central-thesis routing, lease, delivery, heartbeat, and no-backfill boundaries. Instagram additionally excludes generic trading or investing education and actionable trade setups, even when a ticker is present.
+- Reuse the X watcher's shared LLM-owned content-relevance policy, Indonesian title and summary, central-thesis routing, lease, delivery, heartbeat, and no-backfill boundaries. Instagram additionally excludes generic trading or investing education and actionable trade setups, even when a ticker is present.
 - Use the X watcher's canonical `macro_news` and `id_stocks_news` destination keys for the first profile. Accept the old `macro` and `id_stock` values only as compatibility aliases. Do not invent custom Discord emoji.
 - Use the `instagram-post` heartbeat name and `#hermes` channel `1505162000420835388`.
 - The intended Hermes cadence is `0 * * * *` in `Asia/Jakarta`, but local source work does not register or change a live cron.
@@ -442,7 +442,7 @@ Expected: all state and lease tests pass.
 
 **Interfaces:**
 - Consumes `Profile`, `SourcePost`, serialized OCR results, vision decisions, and active local asset paths.
-- Produces `agent_item(profile: Profile, event: dict) -> dict`, `build_wake_payload(item)`, `validate_submission(profile, payload)`, `instruction_for(profile, relevance_guard_required)`, `is_promotional(post, ocr_text)`, and `requires_relevance(post, ocr_text)`.
+- Produces `agent_item(profile: Profile, event: dict) -> dict`, `build_wake_payload(item)`, `validate_submission(profile, payload)`, `instruction_for(profile, relevance_guard_required)`, and `requires_relevance(post, ocr_text)`.
 
 - [ ] **Step 1: Write failing payload and submission tests**
 
@@ -473,7 +473,7 @@ Build `post_text` from a clearly labeled caption section followed by one section
 
 - [ ] **Step 4: Implement shared relevance, promotion, routing, title, and summary rules**
 
-Port the X watcher rules into the Instagram-specific source context. Apply deterministic promotion and noise guards to caption plus OCR text after OCR completes and before an LLM lease is claimed. The noise guard filters generic trading or investing education, mindset advice, and actionable trade setups; a target derived from earnings, fundamentals, or valuation remains substantive analysis. Ambiguous content remains with the LLM. Direct ticker disclosures, earnings, corporate actions, dilution, rights issues, private placements, and the approved disclosure hashtags force relevance unless the combined source is promotional or matches the deterministic noise boundary. Route the central thesis to exactly one canonical configured key. Keep titles source-grounded Bahasa Indonesia and summaries under 1,600 characters with exactly one `*(Ringkasan)* ` prefix.
+Port the X watcher rules into the Instagram-specific source context. Pass caption plus OCR text to the LLM after OCR completes, and let the LLM own the relevance decision for generic trading or investing education, mindset advice, actionable trade setups, promotions, profile-specific exclusions, and unrelated content. Keep deterministic handling limited to source eligibility and the positive direct-disclosure safeguard; it must never discard a publication for content noise. A target derived from earnings, fundamentals, or valuation remains substantive analysis. Route the central thesis to exactly one canonical configured key. Keep titles source-grounded Bahasa Indonesia and summaries under 1,600 characters with exactly one `*(Ringkasan)* ` prefix.
 
 - [ ] **Step 5: Write the runtime `SKILL.md` contract**
 
@@ -590,7 +590,7 @@ Acquire a process lock before source observation and submission. Use an isolated
 
 - [ ] **Step 4: Implement run statistics and canonical heartbeat output**
 
-Track fetched, filtered, queued, OCR processed, vision partial, vision full, delivered, and error counts. Include only bounded deterministic filter reason codes such as `generic_investing_education` and `actionable_trade_setup` when they occur. Emit:
+Track fetched, filtered, queued, OCR processed, vision partial, vision full, delivered, and error counts. Do not add OCR-derived deterministic noise reason codes. Relevance decisions are made through the LLM submission path. Emit:
 
 ```text
 🫀 instagram-post · HH:MM WIB · <tokens>[ · <first sanitized reason> <@443342168434933760> ⚠️]
@@ -600,7 +600,7 @@ Emit the fatal form on unhandled execution failure. Never include credentials, l
 
 - [ ] **Step 5: Implement agent submission and delivery drain**
 
-Validate the profile and active lease, reject mismatched or expired `event_key`, apply the deterministic promotion and relevance guards, persist accepted analysis, and deliver the oldest ready event. Send all text legs first, then every original image or reel video in source order. Remove the event and its managed media directory only after all legs and ledger state are persisted.
+Validate the profile and active lease, reject mismatched or expired `event_key`, enforce the positive disclosure safeguard, persist the LLM's accepted or irrelevant decision, and deliver the oldest ready event. Send all text legs first, then every original image or reel video in source order. Remove the event and its managed media directory only after all legs and ledger state are persisted.
 
 - [ ] **Step 6: Implement the Bash wrapper**
 

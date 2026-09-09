@@ -31,7 +31,7 @@ Current child instruction files:
 - `sharing-cleanup/AGENTS.md`: deterministic Nextcloud Sharing-folder cleanup and safe dry-run verification.
 - `skills-update/AGENTS.md`: VPS-triggered Mac global skills update.
 - `us-etf-dca-watch/AGENTS.md`: no-agent ETF signal monitoring and market-window verification.
-- `x-post-watch/AGENTS.md`: X account intake, profile configuration, classifier boundaries, promotion exclusions, and watcher deployment.
+- `x-post-watch/AGENTS.md`: X account intake, profile configuration, shared LLM relevance policy, and watcher deployment.
 
 ## Documentation maintenance
 
@@ -104,7 +104,7 @@ The deployed VPS runtime remains canonical. Dotfiles is the scrubbed backup that
 The cron projects intentionally keep their executable modules importable as local script trees, so their tests must run in isolated processes. A root `pytest` invocation is limited to repository policy tests under `tests/`; run `bash scripts/test-all` for the complete cron suite.
 
 1. Read the cron's `CRON.md` when it is a no-agent cron, or its `SKILL.md` when Hermes attaches an agent skill. Then read the scanner, wrapper, tests, and current VPS behavior that the change affects.
-2. Preserve the cron's deterministic boundary. Fetching, parsing, scoring, deduplication, gating, persistence, rendering, and direct platform posting belong in the deterministic script. LLM work is limited to the explicit wake-on-findings contract, if the cron has one.
+2. Preserve the cron's deterministic boundary. Fetching, parsing, source eligibility, deduplication, structural gating, persistence, rendering, and direct platform posting belong in the deterministic script. An agent-backed cron may delegate an explicitly documented content-relevance decision to its one bounded wake-on-findings contract; the scanner retains source, state, and delivery ownership.
 3. Add or update a behavioral regression test for every bug fix or user-visible change. Test output, transitions, boundaries, suppression, and failure handling. Do not test source text or incidental implementation details.
 4. Run the focused test first, then the cron's complete test suite using the shared project environment:
    ```bash

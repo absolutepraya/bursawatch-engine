@@ -55,58 +55,6 @@ IDN_ECONOMY_CONTEXT_RE = re.compile(
     r"bank\s+Indonesia|APBN|fiskal|fiscal|moneter|monetary|komisaris|direksi)\b",
     re.IGNORECASE,
 )
-GENERIC_FINANCIAL_ACTIVITY_RE = re.compile(
-    r"\b(?:trading|trader|trade|invest(?:ing|ment)?|investasi|berinvestasi|investor|"
-    r"portfolio|portofolio|spekulasi|speculation)\b",
-    re.IGNORECASE,
-)
-GENERIC_EDUCATIONAL_ADVICE_RE = re.compile(
-    r"\b(?:tips?|cara|how\s+to|panduan|guide|pelajaran|lesson|mindset|"
-    r"mental(?:ity)?|mentalitas|psikologi|psychology|disiplin|discipline|"
-    r"emosi|emotion|fear|greed|sabar|patience|persentase|percentage|"
-    r"strateg(?:y|i)|technique|teknik|technical\s+analysis|"
-    r"analisis\s+teknikal|risk\s+management|money\s+management|"
-    r"manajemen\s+risiko|bahasa\s+universal)\b",
-    re.IGNORECASE,
-)
-CLEAR_NON_STOCK_MARKET_RE = re.compile(
-    r"\b(?:AI|artificial\s+intelligence)\b.{0,160}\b(?:productiv(?:ity|itas)|"
-    r"pekerjaan|work|thinking|berpikir|learning|belajar|study|waktu|time)\b",
-    re.IGNORECASE | re.DOTALL,
-)
-PROMOTIONAL_SIGNAL_RES = (
-    re.compile(r"\b(?:hold|buy|stake|mint|claim)\s+\$[A-Z][A-Z0-9]{1,9}\b", re.IGNORECASE),
-    re.compile(r"\b(?:unlock|access)\b.{0,100}\b(?:benefit|feature|reward|alert|watchlist|api)\b", re.IGNORECASE | re.DOTALL),
-    re.compile(r"\b(?:app|product|platform|service)\s+(?:is\s+)?live\b", re.IGNORECASE),
-    re.compile(r"\b(?:CA|contract address)\s*:\s*0x[0-9a-f]{20,}\b", re.IGNORECASE),
-    re.compile(r"\b(?:presale|airdrop|referral|giveaway|promo(?:tion)?)\b", re.IGNORECASE),
-    re.compile(r"\b(?:revenue|fees?)\b.{0,100}\b(?:buy\s*back|rewards?|tokenized|holders?)\b", re.IGNORECASE | re.DOTALL),
-)
-PROMOTIONAL_HARD_SIGNAL_RES = (
-    re.compile(r"\bmember(?:[-\s]+)only\b", re.IGNORECASE),
-    re.compile(
-        r"\b(?:premium|paid|subscriber(?:[-\s]+only)?|subscription|berlangganan|eksklusif|exclusive)\b"
-        r".{0,80}\b(?:research|analysis|saham|stock|report|signal|akses|access|content|konten)\b",
-        re.IGNORECASE | re.DOTALL,
-    ),
-)
-KOBEISSI_NEWSLETTER_PROMOTION_RE = re.compile(
-    r"\b(?:The\s+)?Kobeissi\s+Letter\b.{0,120}\b(?:week\s+of|weekly|published|"
-    r"viewed|read\s+(?:the\s+)?full\s+(?:letter|report))\b",
-    re.IGNORECASE | re.DOTALL,
-)
-IDN_TRUMP_SPACEX_PERSONAL_DISCLOSURE_RE = re.compile(
-    r"(?=.*\b(?:donald\s+)?trump\b)"
-    r"(?=.*\bspacex\b)"
-    r"(?=.*\b(?:beli|membeli|purchase(?:d)?|buy(?:s|ing)?|saham|shares?)\b)"
-    r"(?=.*\b(?:keterbukaan|disclosure|senilai|nilai|worth|financial)\b)",
-    re.IGNORECASE | re.DOTALL,
-)
-INSIDER_TRACKER_TOKEN_PROMOTION_RE = re.compile(
-    r"(?=.*(?:\$\s*INSIDER\b|\bINSIDER\s+token\b))"
-    r"(?=.*\b(?:stake(?:d|ing)?|burn(?:ed|ing)?|buy\s*back|flywheel|tokenomics?|crypto(?:\s+tracker)?|token\s+utility|token\s+holders?)\b)",
-    re.IGNORECASE | re.DOTALL,
-)
 TECHNICAL_TRADE_SIGNAL_RE = re.compile(
     r"\b(?:elliott\s+wave|wave\s+count|wave|gelombang|chart|grafik|teknikal|technical|support|resistance|resisten|breakout|breakdown|indikator|indicator|entry|stop[- ]?loss|risk\s*/\s*reward|risk[- ]?reward|pola\s+(?:inverted\s+)?head\s+and\s+shoulders?)\b",
     re.IGNORECASE,
@@ -123,14 +71,6 @@ TXTH_ID_STOCK_SIGNAL_RE = re.compile(
     re.IGNORECASE,
 )
 IHSG_MACRO_SIGNAL_RE = re.compile(r"\b(?:IHSG|Indeks\s+Harga\s+Saham\s+Gabungan)\b", re.IGNORECASE)
-ALDO_GENERIC_TRACK_RECORD_RE = re.compile(
-    r"\b(?:track\s+record|rekam\s+jejak|annual\s+returns?|average\s+(?:annual\s+)?returns?|rata-rata\s+(?:imbal\s+hasil|return)|no\s+losing\s+years?|tanpa\s+(?:satu\s+pun\s+)?tahun\s+(?:yang\s+)?rugi|legendary\s+track\s+record)\b",
-    re.IGNORECASE,
-)
-ALDO_SUBSTANTIVE_THESIS_RE = re.compile(
-    r"\b(?:inflasi|inflation|fiskal|fiscal|yield|obligasi|bond|suku\s+bunga|interest\s+rates?|IHSG|pasar|market|saham|stock|emiten|earnings?|laba|revenue|corporate\s+action|dividen|dividend|rupiah|komoditas|commodit(?:y|ies)|risiko|risk|kebijakan|policy)\b",
-    re.IGNORECASE,
-)
 
 
 def _has_stock_market_context(text: str) -> bool:
@@ -144,13 +84,6 @@ def _has_relevance_context(profile: Profile | None, text: str) -> bool:
     if scope == "indonesia_economy":
         return _has_stock_market_context(text) or bool(IDN_ECONOMY_CONTEXT_RE.search(text))
     return _has_stock_market_context(text)
-
-
-def _is_generic_trading_education(text: str) -> bool:
-    return bool(
-        GENERIC_FINANCIAL_ACTIVITY_RE.search(text)
-        and GENERIC_EDUCATIONAL_ADVICE_RE.search(text)
-    )
 
 
 def instruction_for(profile: Profile, relevance_guard_required: bool = False) -> str:
@@ -196,7 +129,7 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
         )
     if relevance_guard_required:
         relevance += (
-            "This source has a deterministic direct market-disclosure signal. It must be relevant. "
+            "The scanner detected a clear direct market-disclosure signal. It must be relevant. "
             "Never return is_relevant false for it. "
         )
     routing = ""
@@ -252,40 +185,8 @@ def event_key(profile_id: str, post_id: str) -> str:
     return f"{profile_id}:{post_id}"
 
 
-def is_promotional(post: SourcePost, thread_posts: tuple[SourcePost, ...] | None = None) -> bool:
-    text = "\n\n".join(render.markdown(item.content_html) for item in (thread_posts or (post,)))
-    if post.profile_id == "kobeissiletter" and KOBEISSI_NEWSLETTER_PROMOTION_RE.search(text):
-        return True
-    if post.profile_id == "insidertracker" and INSIDER_TRACKER_TOKEN_PROMOTION_RE.search(text):
-        return True
-    return any(pattern.search(text) for pattern in PROMOTIONAL_HARD_SIGNAL_RES) or sum(
-        bool(pattern.search(text)) for pattern in PROMOTIONAL_SIGNAL_RES
-    ) >= 2
-
-
 def _source_text(post: SourcePost, thread_posts: tuple[SourcePost, ...] | None = None) -> str:
     return "\n\n".join(render.markdown(item.content_html) for item in (thread_posts or (post,)))
-
-
-def is_deterministically_irrelevant(
-    profile: Profile,
-    post: SourcePost,
-    thread_posts: tuple[SourcePost, ...] | None = None,
-) -> bool:
-    """Reject clear generic education and unrelated content before the model can forward it."""
-    text = _source_text(post, thread_posts)
-    if profile.id == "idnfinancials" and IDN_TRUMP_SPACEX_PERSONAL_DISCLOSURE_RE.search(text):
-        return True
-    if profile.id == "aldotjahjadi8" and ALDO_GENERIC_TRACK_RECORD_RE.search(text):
-        if not ALDO_SUBSTANTIVE_THESIS_RE.search(text):
-            return True
-    if _is_generic_trading_education(text):
-        return True
-    if CLEAR_NON_STOCK_MARKET_RE.search(text) and not _has_stock_market_context(text):
-        return True
-    if _has_stock_market_context(text):
-        return False
-    return False
 
 
 def deterministic_route(
@@ -317,18 +218,12 @@ def requires_relevance(
     thread_posts: tuple[SourcePost, ...] | None = None,
     profile: Profile | None = None,
 ) -> bool:
-    if is_promotional(post, thread_posts):
-        return False
-    if profile is not None and profile.id == "idnfinancials":
-        if IDN_TRUMP_SPACEX_PERSONAL_DISCLOSURE_RE.search(_source_text(post, thread_posts)):
-            return False
     texts = (render.markdown(item.content_html) for item in (thread_posts or (post,)))
     if profile is not None and profile.relevance_scope in {"financial_market", "indonesia_economy"}:
-        return any(_has_relevance_context(profile, text) and not _is_generic_trading_education(text) for text in texts)
+        return any(_has_relevance_context(profile, text) for text in texts)
     return any(
         MARKET_DISCLOSURE_RE.search(text)
         and _has_stock_market_context(text)
-        and not _is_generic_trading_education(text)
         for text in texts
     )
 

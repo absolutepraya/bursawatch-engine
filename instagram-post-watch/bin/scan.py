@@ -67,7 +67,6 @@ class RunStats:
     degraded: bool = False
     needs_attention: bool = False
     reasons: list[str] = field(default_factory=list)
-    filter_reasons: dict[str, int] = field(default_factory=dict)
 
     def note_error(self, reason: str, *, count: int = 1) -> None:
         self.degraded = True
@@ -83,21 +82,12 @@ class RunStats:
     def note_ocr_failure(self, profile: Profile) -> None:
         self.note_error(f"{profile.handle}: OCR degraded")
 
-    def note_filter(self, reason: str, *, count: int = 1) -> None:
-        if not agent_protocol._FILTER_REASON_RE.fullmatch(reason):
-            raise ValueError("filter reason is invalid")
-        self.filter_reasons[reason] = self.filter_reasons.get(reason, 0) + max(1, count)
-
     def tokens(self) -> str:
-        tokens = (
+        return (
             f"{self.fetched} fetched · {self.filtered} filtered · {self.queued} queued · "
             f"{self.ocr} OCR · {self.vision_fallback} vision fallback · "
             f"{self.delivered} delivered · {self.delivery_legs} delivery legs · {self.errors} errors"
         )
-        if self.filter_reasons:
-            filters = ",".join(f"{key}={value}" for key, value in sorted(self.filter_reasons.items()))
-            tokens += f" · filters: {filters}"
-        return tokens
 
 
 def _sanitize_reason(reason: object) -> str:
@@ -639,17 +629,6 @@ def _prepare_event(
     }
 
 
-def _prepared_ocr_text(prepared: dict[str, object]) -> str:
-    values = prepared.get("ocr_results", ())
-    if not isinstance(values, (list, tuple)):
-        return ""
-    return "\n".join(
-        result.text
-        for result in values
-        if isinstance(result, OCRResult) and result.text
-    )
-
-
 def _advance_filtered_cursor(value: dict, profile: Profile, posts: list[SourcePost]) -> None:
     if not posts:
         return
@@ -800,8 +779,6 @@ def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, o
                 if not profile.enabled:
                     continue
                 prepared_roots: dict[str, Path] = {}
-                filtered_roots: dict[str, Path] = {}
-                filtered_reasons: dict[str, int] = {}
                 try:
                     posts, limited_source_posts, complete_source_posts = _profile_posts(profile, value, stats)
                     profile_record = value["profiles"].get(profile.id)
@@ -828,7 +805,7 @@ def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, o
                         continue
                     if backend is None:
                         backend = _ocr_backend_for_run()
-                    def prepare(post: SourcePost, profile: Profile = profile) -> dict[str, object] | None:
+                    def prepare(post: SourcePost, profile: Profile = profile) -> dict[str, object]:
                         prepared_roots[post.publication_id] = root / post.publication_id
                         prepared = _prepare_event(
                             post,
@@ -841,21 +818,9 @@ def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, o
                         downloaded = prepared.get("downloaded_publication")
                         if isinstance(downloaded, DownloadedPublication):
                             prepared_roots[post.publication_id] = downloaded.media_root
-                        reason = agent_protocol.deterministic_filter_reason(
-                            post,
-                            _prepared_ocr_text(prepared),
-                        )
-                        if reason is not None:
-                            filtered_roots[post.publication_id] = prepared_roots[post.publication_id]
-                            filtered_reasons[reason] = filtered_reasons.get(reason, 0) + 1
-                            return None
                         return prepared
                     queued = state.observe_publications(value, profile, posts, now, prepare)
                     stats.queued += queued
-                    for reason, count in filtered_reasons.items():
-                        stats.filtered += count
-                        stats.note_filter(reason, count=count)
-                    _queue_prepared_cleanup(value, profile, filtered_roots, storage, stats)
                     _advance_filtered_cursor(value, profile, limited_source_posts)
                     state.save_state(storage, value)
                 except rsshub.SourceFetchError:
@@ -939,11 +904,9 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
             analysis = agent_protocol.validate_submission(profile, payload)
             post = state.deserialize_post(event["post"])
             ocr_text = _analysis_ocr_text(event)
-            promotional = agent_protocol.is_promotional(post, ocr_text)
             irrelevant = analysis.get("is_relevant") is False
-            deterministic_reason = agent_protocol.deterministic_filter_reason(post, ocr_text)
-            if promotional or irrelevant or deterministic_reason is not None:
-                if irrelevant and not promotional and agent_protocol.requires_relevance(post, ocr_text):
+            if irrelevant:
+                if agent_protocol.requires_relevance(post, ocr_text):
                     raise ValueError("direct market disclosure must be relevant")
                 state.discard_analysis(value, analysis["event_key"], now)
                 state.save_state(storage, value)
@@ -951,8 +914,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 _retry_media_cleanup(value, storage, stats, no_post=no_post)
                 if stats.degraded and not no_post:
                     _post_heartbeat(now, stats)
-                reason = "promotion" if promotional else deterministic_reason or "not_stock_market_related"
-                return {"submitted": True, "ignored": True, "delivered": 0, "reason": reason}
+                return {"submitted": True, "ignored": True, "delivered": 0}
 
             state.submit_analysis(
                 value,

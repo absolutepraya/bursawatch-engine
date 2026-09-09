@@ -1112,11 +1112,6 @@ def observe_publications(
             if event_key in known:
                 continue
             prepared = prepare_event(publication)
-            # A deterministic post-preparation filter may return None after
-            # OCR has completed. The cursor still advances, but no LLM event
-            # or delivery state is created for the filtered publication.
-            if prepared is None:
-                continue
             new_events.append(_event_for_publication(profile, publication, prepared))
             known.add(event_key)
     except Exception as exc:
