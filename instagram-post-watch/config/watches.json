@@ -34,6 +34,142 @@
       "ocr_languages": ["ind", "eng"],
       "ocr_min_confidence": 0.70,
       "max_reel_frames": 5
+    },
+    {
+      "id": "investart_id",
+      "enabled": true,
+      "source": "rsshub",
+      "profile_url": "https://www.instagram.com/investart_id",
+      "handle": "investart_id",
+      "display_name": "Investart",
+      "platform_emoji": "📸",
+      "emoji": "",
+      "discord_channels": [
+        {
+          "key": "macro_news",
+          "channel_id": "1531655369884045382",
+          "description": "Broad economic, business, market, sector, and cross-asset analysis."
+        },
+        {
+          "key": "id_stocks_news",
+          "channel_id": "1525102508714889257",
+          "description": "Direct IDX-listed company, earnings, corporate action, fundamental, and valuation analysis."
+        }
+      ],
+      "forward_post": true,
+      "forward_reel": true,
+      "forward_media": true,
+      "enable_llm_title": true,
+      "enable_llm_summary": true,
+      "enable_llm_routing": true,
+      "enable_llm_relevance_filter": true,
+      "additional_prompt_instruction": "Prioritize concrete market and issuer content, including IDX/company news, IPOs, index or MSCI changes, earnings, valuation, and corporate actions. Exclude Investart product or service promotions, generic investing education, trading tips, mindset content, and actionable trade setups even when they mention a ticker.",
+      "max_items_per_poll": 20,
+      "ocr_languages": ["ind", "eng"],
+      "ocr_min_confidence": 0.70,
+      "max_reel_frames": 5
+    },
+    {
+      "id": "avenirresearch_id",
+      "enabled": true,
+      "source": "rsshub",
+      "profile_url": "https://www.instagram.com/avenirresearch.id",
+      "handle": "avenirresearch.id",
+      "display_name": "Avenir Research",
+      "platform_emoji": "📸",
+      "emoji": "",
+      "discord_channels": [
+        {
+          "key": "macro_news",
+          "channel_id": "1531655369884045382",
+          "description": "Broad economic, business, market, sector, and cross-asset analysis."
+        },
+        {
+          "key": "id_stocks_news",
+          "channel_id": "1525102508714889257",
+          "description": "Direct IDX-listed company, earnings, corporate action, fundamental, and valuation analysis."
+        }
+      ],
+      "forward_post": true,
+      "forward_reel": true,
+      "forward_media": true,
+      "enable_llm_title": true,
+      "enable_llm_summary": true,
+      "enable_llm_routing": true,
+      "enable_llm_relevance_filter": true,
+      "additional_prompt_instruction": "Prioritize substantive equity research and market intelligence about IDX or global listed issuers, earnings, dividends, suspensions, rights issues, corporate actions, valuation, and macro developments with stock-market implications. Exclude research-service promotions, generic education, trading tips, mindset content, and actionable trade setups.",
+      "max_items_per_poll": 20,
+      "ocr_languages": ["ind", "eng"],
+      "ocr_min_confidence": 0.70,
+      "max_reel_frames": 5
+    },
+    {
+      "id": "acresresearch",
+      "enabled": true,
+      "source": "rsshub",
+      "profile_url": "https://www.instagram.com/acresresearch",
+      "handle": "acresresearch",
+      "display_name": "Acres Research",
+      "platform_emoji": "📸",
+      "emoji": "",
+      "discord_channels": [
+        {
+          "key": "macro_news",
+          "channel_id": "1531655369884045382",
+          "description": "Broad economic, business, market, sector, and cross-asset analysis."
+        },
+        {
+          "key": "id_stocks_news",
+          "channel_id": "1525102508714889257",
+          "description": "Direct IDX-listed company, earnings, corporate action, fundamental, and valuation analysis."
+        }
+      ],
+      "forward_post": true,
+      "forward_reel": true,
+      "forward_media": true,
+      "enable_llm_title": true,
+      "enable_llm_summary": true,
+      "enable_llm_routing": true,
+      "enable_llm_relevance_filter": true,
+      "additional_prompt_instruction": "Prioritize substantive alternative-finance, economic, business, market, issuer, and industry research with a clear stock-market implication, including IPO, financing, valuation, and strategic-industry analysis. Exclude generic education, investing or trading tips, mindset content, promotions, and posts without a concrete market or issuer thesis.",
+      "max_items_per_poll": 20,
+      "ocr_languages": ["ind", "eng"],
+      "ocr_min_confidence": 0.70,
+      "max_reel_frames": 5
+    },
+    {
+      "id": "sectorsapp",
+      "enabled": true,
+      "source": "rsshub",
+      "profile_url": "https://www.instagram.com/sectorsapp",
+      "handle": "sectorsapp",
+      "display_name": "Sectors",
+      "platform_emoji": "📸",
+      "emoji": "",
+      "discord_channels": [
+        {
+          "key": "macro_news",
+          "channel_id": "1531655369884045382",
+          "description": "Broad economic, business, market, sector, and cross-asset analysis."
+        },
+        {
+          "key": "id_stocks_news",
+          "channel_id": "1525102508714889257",
+          "description": "Direct IDX-listed company, earnings, corporate action, fundamental, and valuation analysis."
+        }
+      ],
+      "forward_post": true,
+      "forward_reel": true,
+      "forward_media": true,
+      "enable_llm_title": true,
+      "enable_llm_summary": true,
+      "enable_llm_routing": true,
+      "enable_llm_relevance_filter": true,
+      "additional_prompt_instruction": "Prioritize substantive data-driven IDX company and sector analysis, earnings, valuation, corporate actions, ownership or insider activity, price or volume context, and market structure when the post explains a market thesis. Exclude product, platform, data or API, subscription, signal, or event promotions; generic trading education; mindset content; and actionable buy or sell, entry, target, stop-loss, breakout, or support or resistance setups.",
+      "max_items_per_poll": 20,
+      "ocr_languages": ["ind", "eng"],
+      "ocr_min_confidence": 0.70,
+      "max_reel_frames": 5
     }
   ]
 }

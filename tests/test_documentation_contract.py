@@ -50,6 +50,9 @@ AGENT_GOVERNANCE_ANCHORS = {
         "Surveys, greetings, personal updates",
         "relevance_guard_required",
         "outside the Indonesia or US-listed universe",
+        "When the user says `watch this X account <url>`",
+        "Propose a complete JSON profile",
+        "Do not ask the user to supply facts that the account or source inspection can establish",
     ),
     "instagram-post-watch": (
         "public posts and reels",
@@ -73,6 +76,8 @@ AGENT_GOVERNANCE_ANCHORS = {
         "vps:~/.agents/skills/instagram-post-watch/config/watches.json",
         "vps:~/.agents/skills/instagram-post-watch/SKILL.md",
         "SHA-256 checksums",
+        "dedicated `rsshub-instagram` dispatcher",
+        "first successful observation records the newest source publication",
     ),
 }
 DEPLOYMENT_ONLY_SCHEDULER_PATTERNS = (

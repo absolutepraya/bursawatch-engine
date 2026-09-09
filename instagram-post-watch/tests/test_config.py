@@ -1,6 +1,7 @@
 import json
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -34,6 +35,32 @@ def test_load_config_builds_instagram_feed_url(config_path):
     assert profile.feed_url == (
         "http://127.0.0.1:1201/instagram/2/user/"
         "beyondthefundamental?format=json"
+    )
+
+
+def test_load_config_contains_the_approved_public_profile_rollout():
+    watches = config_module.load_watch_config(Path(__file__).parent.parent / "config" / "watches.json")
+
+    assert [profile.id for profile in watches.profiles] == [
+        "beyondthefundamental",
+        "investart_id",
+        "avenirresearch_id",
+        "acresresearch",
+        "sectorsapp",
+    ]
+    assert [profile.handle for profile in watches.profiles] == [
+        "beyondthefundamental",
+        "investart_id",
+        "avenirresearch.id",
+        "acresresearch",
+        "sectorsapp",
+    ]
+    assert all(profile.enabled and profile.source == "rsshub" for profile in watches.profiles)
+    assert all(profile.uses_llm for profile in watches.profiles)
+    assert all(profile.max_items_per_poll == 20 for profile in watches.profiles)
+    assert all(
+        tuple(channel.key for channel in profile.discord_channels) == ("macro_news", "id_stocks_news")
+        for profile in watches.profiles
     )
 
 

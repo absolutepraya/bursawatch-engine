@@ -51,6 +51,44 @@ The five forwarding booleans control normal posts, authored quotes, replies to o
 
 Before adding or changing a profile, inspect the account and representative current posts, test viable source paths for feed completeness, threads, media, and errors, then propose every unspecified field. Explain the delivery, title, Indonesian-summary, relevance, media, and thread recommendations from observed behavior. Ask before any ambiguous delivery choice, unavailable channel or emoji, test send, replay, or state reset. First successful observation records the newest cursor and never backfills.
 
+## Account onboarding workflow
+
+When the user says `watch this X account <url>`, treat it as a request to
+research and draft a profile, not as permission to silently change production.
+Use this workflow:
+
+1. Normalize the URL and identify the exact public handle. Inspect the account
+   description and a representative set of current posts, including quotes,
+   replies, reposts, threads, links, images, and videos when present.
+2. Test the viable source paths for this account. Record whether each path is
+   reachable and sufficiently complete for authored posts, quote reposts,
+   threads, timestamps, media, and error handling. Do not call a source ready
+   from a health endpoint alone.
+3. Determine the account's observed content scope and noise. Recommend the
+   narrowest shared `relevance_scope`, the route set, and any account-specific
+   prompt refinement. The LLM remains the owner of negative content relevance;
+   do not turn observed noise into a deterministic pre-filter.
+4. Propose a complete JSON profile, including the stable `id`, exact `handle`,
+   canonical `profile_url`, display name, both emoji fields, destination
+   channels, all forwarding booleans, media policy, four LLM flags, relevance
+   scope, account-specific prompt, poll cap, and thread policy. Explain every
+   non-default recommendation using the observed account behavior.
+5. Ask only for unresolved user choices or authority that cannot be discovered
+   safely: a custom Discord emoji, a channel that Yanto cannot access, an
+   ambiguous delivery choice, profile-specific exclusions, source fallback
+   acceptance, or activation and backfill preference. Do not ask the user to supply facts that the account or source inspection can establish.
+6. Show the proposed JSON and wait for approval. After approval, add the
+   profile with its stable ID, use future-only initialization by recording the
+   newest successful observation without OCR, LLM, delivery, or historical
+   replay, then run the reviewed test, publish, deploy, and verify the natural
+   execution and delivery path.
+
+The onboarding response must clearly separate observed facts, proposed defaults,
+and unresolved decisions. A missing custom emoji may remain an explicit empty
+value when the user accepts that default. Never invent a Discord emoji ID or
+channel permission. Never test-send, reset state, replay history, enable a
+profile, or deploy a draft before the user approves the complete profile.
+
 ## Source, relevance, routing, and rendering
 
 Standalone X Articles are ignored. An authored post that merely links to an Article remains eligible but loses the Article card and text. An authored quote of an Article renders only its compact quoted-Article label, `Read Article on X` link, and cover or preview media, never Article body text. `forward_quote_post` controls authored quote reposts, while `forward_repost` controls native reposts; a quote repost does not inherit the native repost setting. A same-author quote or reply can continue a self-chain even if `forward_reply` is false; replies to other accounts still follow `forward_reply`. Conflicting or malformed relation metadata is skipped with a degraded heartbeat.

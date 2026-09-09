@@ -1,0 +1,21 @@
+services:
+  rsshub-instagram:
+    container_name: rsshub-instagram
+    image: diygod/rsshub
+    mem_limit: 768m
+    restart: always
+    command: ['node', 'dist/index.mjs']
+    ports:
+      - '127.0.0.1:1201:1200'
+    volumes:
+      - ./proxy-dispatcher.cjs:/app/instagram-proxy-dispatcher.cjs:ro
+    environment:
+      NODE_ENV: production
+      CACHE_TYPE: memory
+      NODE_OPTIONS: '--max-http-header-size=32768 --require=/app/instagram-proxy-dispatcher.cjs'
+      PROXY_URI: ${PROXY_URI:?set PROXY_URI in .env}
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:1200/healthz']
+      interval: 30s
+      timeout: 10s
+      retries: 3

@@ -31,6 +31,11 @@ retain their own `SKILL.md` files.
 
 `mm` is the paired owner-only Hermes skill for saving explicitly supplied Manual Activity Records. It is not a scheduled cron.
 
+The reviewed `rsshub-instagram/` support source defines the dedicated
+`rsshub-instagram` container used only by `instagram-post-watch`. Its VPS-local
+`.env` remains outside source control. The general `~/rsshub` instance remains
+the source for X and other RSSHub watchers.
+
 ## Workflow
 1. Read the cron's `AGENTS.md` and its `CRON.md` or `SKILL.md`, then edit source under `<cron>/bin/`.
 2. `./deploy.sh <cron>` copies `bin/` to the VPS. Single file: `./deploy.sh <cron> scan.py`.
