@@ -37,6 +37,8 @@ class RunStats:
     filtered: int = 0
     queued: int = 0
     delivered: int = 0
+    pending: int = 0
+    oldest_pending_minutes: int = 0
     degraded: bool = False
     needs_attention: bool = False
     reasons: list[str] = field(default_factory=list)
@@ -52,7 +54,11 @@ class RunStats:
         self.reasons.append(reason)
 
     def tokens(self) -> str:
-        return f"{self.fetched} fetched · {self.filtered} filtered · {self.queued} queued · {self.delivered} delivered · {len(self.reasons)} errors"
+        return (
+            f"{self.fetched} fetched · {self.filtered} filtered · {self.queued} queued · "
+            f"{self.delivered} delivered · {len(self.reasons)} errors · "
+            f"{self.pending} pending · oldest {self.oldest_pending_minutes}m"
+        )
 
 
 def state_path() -> Path:
@@ -83,6 +89,30 @@ def _next_deliverable_index(value: dict, profiles: dict, now: datetime) -> int |
         if state.is_ready(event, now) and (not profile.uses_llm or event.get("agent_phase") == "ready"):
             return index
     return None
+
+
+def _queue_metrics(value: dict, profiles: dict, now: datetime) -> tuple[int, int]:
+    """Return active LLM outbox count and oldest ready-event age in minutes."""
+    pending = 0
+    ages: list[int] = []
+    for event in value["outbox"]:
+        profile = profiles.get(event.get("profile_id"))
+        if profile is None or not profile.uses_llm:
+            continue
+        if event.get("agent_phase") not in {"pending", "awaiting_agent", "ready"}:
+            continue
+        pending += 1
+        ready_after = event.get("ready_after")
+        if not isinstance(ready_after, str):
+            continue
+        try:
+            ready_at = datetime.fromisoformat(ready_after)
+        except ValueError:
+            continue
+        if (ready_at.tzinfo is None) != (now.tzinfo is None) or ready_at > now:
+            continue
+        ages.append(max(0, int((now - ready_at).total_seconds() // 60)))
+    return pending, max(ages, default=0)
 
 
 def _target_channel(profile, event: dict) -> str:
@@ -252,9 +282,18 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
     return True
 
 
-def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, object]:
+def run(
+    now: datetime | None = None,
+    dry_run: bool | None = None,
+    queue_only: bool | None = None,
+) -> dict[str, object]:
     now = now or datetime.now(WIB)
     dry_run = bool(dry_run) or os.environ.get("X_POST_WATCH_NO_POST") == "1"
+    queue_only = (
+        os.environ.get("X_POST_WATCH_QUEUE_ONLY") == "1"
+        if queue_only is None
+        else bool(queue_only)
+    )
     storage = state_path()
     storage.parent.mkdir(parents=True, exist_ok=True)
     with (storage.parent / "run.lock").open("w") as lock:
@@ -269,45 +308,48 @@ def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, o
             profiles = {profile.id: profile for profile in watches.profiles}
             verifier = supersession.EditHistoryVerifier()
             _retry_cleanup(value, dry_run, storage, stats)
-            for profile in watches.profiles:
-                if not profile.enabled: continue
-                try:
-                    if state.source_retry_active(value, now):
-                        break
-                    record = value["profiles"].get(profile.id) or {}
-                    posts = rsshub.fetch_profile_items(profile, after_id=record.get("cursor"))
-                    stats.fetched += len(posts)
-                    if not posts and (profile.source != "direct_x" or record.get("cursor") is None):
-                        stats.note_empty_profile(profile.handle)
-                    fresh_ids = state.fresh_post_ids(value, profile, posts)
-                    queued, reason = state.observe_posts(
-                        value, profile, posts,
-                        lambda post: rsshub.is_forwardable(profile, post),
-                        lambda post: rsshub.is_self_thread_post(profile, post), now,
-                    )
-                    stats.queued += queued
-                    if reason:
-                        stats.degraded = True
-                        stats.needs_attention = True
-                        stats.reasons.append(f"{profile.id}: {reason}")
-                    _annotate_replacements(value, profile, fresh_ids, verifier, now, stats)
-                    state.save_state(storage, value)
-                except rsshub.SourceFetchError as exc:
-                    if exc.retry_after_seconds is not None:
-                        state.set_source_retry(value, now, exc.retry_after_seconds)
+            if not queue_only:
+                for profile in watches.profiles:
+                    if not profile.enabled: continue
+                    try:
+                        if state.source_retry_active(value, now):
+                            break
+                        record = value["profiles"].get(profile.id) or {}
+                        posts = rsshub.fetch_profile_items(profile, after_id=record.get("cursor"))
+                        stats.fetched += len(posts)
+                        if not posts and (profile.source != "direct_x" or record.get("cursor") is None):
+                            stats.note_empty_profile(profile.handle)
+                        fresh_ids = state.fresh_post_ids(value, profile, posts)
+                        queued, reason = state.observe_posts(
+                            value, profile, posts,
+                            lambda post: rsshub.is_forwardable(profile, post),
+                            lambda post: rsshub.is_self_thread_post(profile, post), now,
+                        )
+                        stats.queued += queued
+                        if reason:
+                            stats.degraded = True
+                            stats.needs_attention = True
+                            stats.reasons.append(f"{profile.id}: {reason}")
+                        _annotate_replacements(value, profile, fresh_ids, verifier, now, stats)
                         state.save_state(storage, value)
-                    stats.note_source_error(f"{profile.id}: {exc}")
+                    except rsshub.SourceFetchError as exc:
+                        if exc.retry_after_seconds is not None:
+                            state.set_source_retry(value, now, exc.retry_after_seconds)
+                            state.save_state(storage, value)
+                        stats.note_source_error(f"{profile.id}: {exc}")
             while (event_index := _next_deliverable_index(value, profiles, now)) is not None:
                 if not _deliver(value, profiles, event_index, dry_run, storage, stats, now): break
             _retry_cleanup(value, dry_run, storage, stats)
-            discord.post_text(format_heartbeat(now, stats), HEARTBEAT_CHANNEL_ID, dry_run, discord.nonce("heartbeat", now.astimezone(WIB).strftime("%Y%m%d%H")))
+            stats.pending, stats.oldest_pending_minutes = _queue_metrics(value, profiles, now)
+            heartbeat_leg = now.astimezone(WIB).strftime("%Y%m%d%H%M")
+            discord.post_text(format_heartbeat(now, stats), HEARTBEAT_CHANNEL_ID, dry_run, discord.nonce("heartbeat", heartbeat_leg))
             event = state.claim_oldest_agent(value, profiles, now)
             state.save_state(storage, value)
             post = state.deserialize_post(event["post"]) if event else None
             thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]])) if event else None
             return build_wake_payload(agent_item(profiles[event["profile_id"]], post, thread_posts) if event and post else None)
         except Exception as exc:
-            try: discord.post_text(format_fatal(now, str(exc)), HEARTBEAT_CHANNEL_ID, dry_run, discord.nonce("fatal", now.astimezone(WIB).strftime("%Y%m%d%H")))
+            try: discord.post_text(format_fatal(now, str(exc)), HEARTBEAT_CHANNEL_ID, dry_run, discord.nonce("fatal", now.astimezone(WIB).strftime("%Y%m%d%H%M")))
             except Exception: pass
             raise
 

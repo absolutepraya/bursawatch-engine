@@ -47,9 +47,35 @@ def test_run_persists_source_retry_after(tmp_path, monkeypatch, config_path):
     assert saved["source_retry_until"] == (now + timedelta(seconds=60)).isoformat()
 
 
+def test_queue_only_run_skips_source_fetch_and_claims_oldest_agent(tmp_path, monkeypatch, config_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    now = datetime(2026, 8, 24, 10, 0, tzinfo=scan.WIB)
+    observed_at = now - timedelta(hours=2)
+    storage = tmp_path / "state.json"
+    value = state.new_state()
+    value["profiles"][profile.id] = {"cursor": "100"}
+    post = SourcePost(profile.id, "101", "https://x.com/Kutekians/status/101", observed_at, "A substantive market post", PostKind.NORMAL, None, None, (), ())
+    state.observe_posts(value, profile, [post], lambda candidate: candidate.kind is PostKind.NORMAL, now=observed_at)
+    state.save_state(storage, value)
+    heartbeats = []
+    monkeypatch.setattr(scan, "state_path", lambda: storage)
+    monkeypatch.setattr(scan, "config_path", lambda: config_path)
+    monkeypatch.setattr(scan.rsshub, "fetch_profile_items", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("queue-only mode fetched a source")))
+    monkeypatch.setattr(scan.discord, "post_text", lambda message, *args: heartbeats.append(message))
+    monkeypatch.setenv("X_POST_WATCH_QUEUE_ONLY", "1")
+
+    result = scan.run(now=now, dry_run=True)
+
+    assert result["wakeAgent"] is True
+    assert result["item"]["event_key"] == "kutekians:101"
+    assert "1 pending · oldest 60m" in heartbeats[0]
+    saved = state.load_state(storage)
+    assert saved["outbox"][0]["agent_phase"] == "awaiting_agent"
+
+
 def test_heartbeat_format_is_canonical():
     value = scan.format_heartbeat(datetime(2026, 7, 28, 6, 0, tzinfo=scan.WIB), scan.RunStats())
-    assert value == "🫀 x-post · 06:00 WIB · 0 fetched · 0 filtered · 0 queued · 0 delivered · 0 errors"
+    assert value == "🫀 x-post · 06:00 WIB · 0 fetched · 0 filtered · 0 queued · 0 delivered · 0 errors · 0 pending · oldest 0m"
 
 
 def test_run_stats_marks_an_empty_profile_feed_as_degraded():
