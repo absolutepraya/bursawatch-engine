@@ -120,6 +120,16 @@ it prepares the image, checks the reviewed guild for an existing name, and
 creates only approved missing emojis before writing the final watcher config.
 One blocked account must not hide results for the others.
 
+## RSSHub instance boundaries
+
+`rsshub-instagram` is the dedicated Instagram RSSHub instance for
+`instagram-post-watch`, bound to `127.0.0.1:1201`. Its VPS-local compose
+configuration passes `IG_COOKIE` and `PROXY_URI` only to that container.
+The general RSSHub instance at `127.0.0.1:1200` remains the source for other
+RSSHub use, including `x-post-watch`. Do not route X or unrelated feeds
+through the Instagram instance, and never copy the cookie into source,
+logs, state, or agent payloads.
+
 ## Post-deployment dotfiles capture
 
 The deployed VPS runtime remains canonical. Dotfiles is the scrubbed backup that captures it afterward, never a second deployment target.
