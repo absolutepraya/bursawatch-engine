@@ -334,6 +334,14 @@ def test_agent_instruction_requires_ticker_first_stock_titles_and_direct_summary
     assert "do not describe ricky or the writer" in instruction
 
 
+def test_agent_instruction_requires_managed_submission_wrapper(config_path, profile_payload):
+    instruction = agent_protocol.instruction_for(__import__("config").load_watch_config(config_path).profiles[0]).lower()
+
+    assert '"$home/.hermes/scripts/x-post-watch.sh" submit-analysis --json' in instruction
+    assert "wrapper selects the managed interpreter" in instruction
+    assert "never invoke python, python3, uv, or scan.py directly" in instruction
+
+
 def test_agent_instruction_includes_profile_specific_instruction(config_path, profile_payload):
     profile_payload["additional_prompt_instruction"] = "Keep only data-backed market analysis."
     config_path.write_text(__import__("json").dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")

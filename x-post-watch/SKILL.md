@@ -47,6 +47,7 @@ Do not duplicate a post across routes. A ticker, number, target price, company n
 ## Submission
 
 Submit only the closed JSON object matching the requested fields through the local scanner. Replace the placeholder with the supplied `item.event_key`. Do not call another program or return a natural-language response.
+Use the wrapper below exactly. It selects the managed VPS interpreter. Never invoke `python`, `python3`, `uv`, or `scan.py` directly, and do not run helper commands to construct or validate the payload.
 
 ```bash
 "$HOME/.hermes/scripts/x-post-watch.sh" submit-analysis --json '<payload>'
