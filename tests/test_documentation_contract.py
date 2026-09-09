@@ -17,7 +17,7 @@ AGENT_BACKED_CRONS = {
 ALL_CRONS = NO_AGENT_CRONS | AGENT_BACKED_CRONS
 REDUNDANT_ROOT_DOCS = {
     "README.md", "SPEC.md", "DEPLOY.md", "DESIGN.md", "PLAN.md",
-    "PROFILE_CONFIGURATION.md", "CRON_PROMPT.md", "CONTEXT.md",
+    "PROFILE_CONFIGURATION.md", "CRON_PROMPT.md",
 }
 GENERATED_CACHE_DIRECTORIES = {".pytest_cache", ".superpowers", "local-backfill"}
 AGENT_GOVERNANCE_ANCHORS = {
@@ -94,7 +94,7 @@ def root_markdown_names(cron: str) -> set[str]:
         for path in (ROOT / cron).iterdir()
         if path.is_file()
         and path.suffix == ".md"
-        and not (path.name == "CONTEXT.md" and path.stat().st_size == 0)
+        and path.name != "CONTEXT.md"
     }
 
 
@@ -165,6 +165,11 @@ def test_nested_markdown_ignores_generated_cache_but_not_source_docs(tmp_path: P
 
 def test_context_map_is_not_active() -> None:
     assert not (ROOT / "CONTEXT-MAP.md").exists(), "remove root CONTEXT-MAP.md after transfer"
+
+
+def test_context_files_are_ignored_scratch() -> None:
+    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert "**/CONTEXT.md" in gitignore
 
 
 def test_active_instructions_do_not_link_to_removed_context_files() -> None:
