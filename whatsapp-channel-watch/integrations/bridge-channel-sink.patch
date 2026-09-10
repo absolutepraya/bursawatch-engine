@@ -1,7 +1,7 @@
-diff --git a/bridge.js b/bridge.js
-index 6830e1f..0000000 100644
---- a/bridge.js
-+++ b/bridge.js
+diff --git a/scripts/whatsapp-bridge/bridge.js b/scripts/whatsapp-bridge/bridge.js
+index 234cbef..0000000 100644
+--- a/scripts/whatsapp-bridge/bridge.js
++++ b/scripts/whatsapp-bridge/bridge.js
 @@ -25,7 +25,7 @@ import { Boom } from '@hapi/boom';
  import pino from 'pino';
  import path from 'path';
@@ -11,7 +11,7 @@ index 6830e1f..0000000 100644
  import { randomBytes, createHash } from 'crypto';
  import { execFileSync } from 'child_process';
  import { tmpdir } from 'os';
-@@ -99,0 +99,16 @@
+@@ -99,3 +99,18 @@
 +// Optional additive sink for WhatsApp Channel posts. The sink lives in the
 +// watcher runtime so the bridge can keep its existing ownership boundary and
 +// remain usable when the watcher is absent.
@@ -27,8 +27,19 @@ index 6830e1f..0000000 100644
 +} catch (err) {
 +  console.warn('[bridge] WhatsApp Channel sink unavailable:', err?.message || err);
 +}
-+
-@@ -250,0 +250,48 @@
+ // Self-hash of this script file.  Reported in /health so the Python gateway
+ // can detect a running bridge that predates the current bridge.js and
+ // restart it instead of silently reusing stale code (stale-bridge trap:
+@@ -240,9 +255,57 @@ function getContextInfo(messageContent) {
+ function getContextInfo(messageContent) {
+   if (!messageContent || typeof messageContent !== 'object') return {};
+   for (const value of Object.values(messageContent)) {
+     if (value && typeof value === 'object' && value.contextInfo) {
+       return value.contextInfo;
+     }
+   }
+   return {};
+ }
 +async function enqueueChannelMessage(msg) {
 +  if (!channelSink) return false;
 +  const preliminary = channelSink.normalizeChannelMessage({ msg });
@@ -77,7 +88,15 @@ index 6830e1f..0000000 100644
 +  });
 +  return inserted;
 +}
-@@ -558,0 +558,8 @@
+@@ -549,8 +612,15 @@
+       emitDebugEvent({
+         stage: 'upsert',
+         type,
+         fromMe: !!msg.key.fromMe,
+         chatId: redactWhatsAppId(chatId),
+         senderId: redactWhatsAppId(senderId),
+         messageKeys: Object.keys(msg.message || {}),
+       });
 +      // Channel posts are not addressable chats and must bypass the normal
 +      // self-chat, DM, and broadcast filtering path. The sink is additive and
 +      // writes only supported Channel content to its own durable queue.
@@ -85,8 +104,9 @@ index 6830e1f..0000000 100644
 +        await enqueueChannelMessage(msg);
 +        continue;
 +      }
-+
-@@ -1113,3 +1113,4 @@ app.get('/health', (req, res) => {
+@@ -1111,5 +1181,6 @@ app.get('/health', (req, res) => {
+     uptime: process.uptime(),
+     scriptHash: SCRIPT_HASH,
      sendReadReceipts: SEND_READ_RECEIPTS,
 +    channelSink: Boolean(channelSink),
    });
