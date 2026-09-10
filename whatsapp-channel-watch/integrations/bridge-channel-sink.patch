@@ -1,0 +1,93 @@
+diff --git a/bridge.js b/bridge.js
+index 6830e1f..0000000 100644
+--- a/bridge.js
++++ b/bridge.js
+@@ -25,7 +25,7 @@ import { Boom } from '@hapi/boom';
+ import pino from 'pino';
+ import path from 'path';
+ import { mkdirSync, readFileSync, existsSync, readdirSync, unlinkSync } from 'fs';
+-import { fileURLToPath } from 'url';
++import { fileURLToPath, pathToFileURL } from 'url';
+ import { randomBytes, createHash } from 'crypto';
+ import { execFileSync } from 'child_process';
+ import { tmpdir } from 'os';
+@@ -99,0 +99,16 @@
++// Optional additive sink for WhatsApp Channel posts. The sink lives in the
++// watcher runtime so the bridge can keep its existing ownership boundary and
++// remain usable when the watcher is absent.
++const CHANNEL_SINK_PATH = process.env.WHATSAPP_CHANNEL_SINK_PATH
++  || path.join(process.env.HOME || '~', '.agents', 'skills', 'whatsapp-channel-watch', 'bin', 'channel_sink.mjs');
++const CHANNEL_QUEUE_DIR = process.env.WHATSAPP_CHANNEL_QUEUE_DIR
++  || path.join(process.env.HOME || '~', '.hermes', 'state', 'whatsapp-channel-watch', 'queue');
++let channelSink = null;
++try {
++  if (existsSync(CHANNEL_SINK_PATH)) {
++    channelSink = await import(pathToFileURL(CHANNEL_SINK_PATH).href);
++  }
++} catch (err) {
++  console.warn('[bridge] WhatsApp Channel sink unavailable:', err?.message || err);
++}
++
+@@ -250,0 +250,48 @@
++async function enqueueChannelMessage(msg) {
++  if (!channelSink) return false;
++  const preliminary = channelSink.normalizeChannelMessage({ msg });
++  if (!preliminary) return false;
++
++  let mediaPath = null;
++  if (preliminary.media.length > 0) {
++    const chatId = msg.key.remoteJid;
++    const senderId = msg.key.participant || chatId;
++    const senderNumber = senderId.replace(/@.*/, '');
++    try {
++      const event = await extractBridgeEvent({
++        msg,
++        chatId,
++        senderId,
++        senderNumber,
++        botIds: [],
++        isGroup: false,
++        downloadMedia: async (mediaMsg) => downloadMediaMessage(
++          mediaMsg,
++          'buffer',
++          {},
++          { logger, reuploadRequest: sock.updateMediaMessage },
++        ),
++        cacheDirs: {
++          image: IMAGE_CACHE_DIR,
++          document: DOCUMENT_CACHE_DIR,
++          audio: AUDIO_CACHE_DIR,
++        },
++      });
++      mediaPath = event.mediaUrls?.find((value) => typeof value === 'string' && value) || null;
++    } catch (err) {
++      console.warn('[bridge] failed to prepare WhatsApp Channel media:', err?.message || err);
++    }
++  }
++
++  const payload = channelSink.normalizeChannelMessage({ msg, mediaPath });
++  if (!payload) return false;
++  const inserted = channelSink.enqueueChannelEvent(payload, CHANNEL_QUEUE_DIR);
++  emitDebugEvent({
++    stage: inserted ? 'channel_queued' : 'channel_duplicate',
++    channelJid: redactWhatsAppId(payload.channel_jid),
++    messageId: payload.message_id,
++    hasText: Boolean(payload.text),
++    mediaCount: payload.media.length,
++  });
++  return inserted;
++}
+@@ -558,0 +558,8 @@
++      // Channel posts are not addressable chats and must bypass the normal
++      // self-chat, DM, and broadcast filtering path. The sink is additive and
++      // writes only supported Channel content to its own durable queue.
++      if (chatId?.endsWith('@newsletter')) {
++        await enqueueChannelMessage(msg);
++        continue;
++      }
++
+@@ -1113,3 +1113,4 @@ app.get('/health', (req, res) => {
+     sendReadReceipts: SEND_READ_RECEIPTS,
++    channelSink: Boolean(channelSink),
+   });
+ });

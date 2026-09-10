@@ -1,0 +1,242 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import agent_protocol
+import config
+import discord
+import event_queue
+from normalize import deserialize_queue_event
+import render
+import state
+
+
+WATCHER_HEARTBEAT_NAME = "whatsapp-channel"
+WIB = ZoneInfo("Asia/Jakarta")
+
+
+def _default_path(name: str, fallback: str) -> Path:
+    return Path(os.environ.get(name, fallback))
+
+
+def _profile_state(value: dict[str, object], profile_id: str) -> dict[str, object]:
+    profiles = value["profiles"]
+    record = profiles.setdefault(profile_id, {})  # type: ignore[union-attr]
+    if type(record) is not dict:
+        raise ValueError("profile state is invalid")
+    return record
+
+
+def _active_records(value: dict[str, object]) -> list[dict[str, object]]:
+    return [record for record in value["outbox"] if isinstance(record, dict) and record.get("agent_phase") not in {"filtered", "delivered"}]  # type: ignore[union-attr]
+
+
+def _newest(items: list[dict[str, object]]) -> dict[str, object] | None:
+    return max(items, key=state.cursor_key, default=None)
+
+
+def _heartbeat(now: datetime, fetched: int, queued: int, claimed: int, expired: int, errors: list[str]) -> str:
+    warning = " ⚠️" if errors else ""
+    suffix = f" · {errors[0]}" if errors else ""
+    return f"🫀 {WATCHER_HEARTBEAT_NAME} · {now.astimezone(WIB):%H:%M} WIB · {fetched} fetched · {queued} queued · {claimed} claimed · {expired} expired · {len(errors)} errors" + suffix + warning
+
+
+def _delivery_channel(profile: config.ChannelProfile, analysis: dict[str, object]) -> str:
+    route = analysis.get("route")
+    if profile.enable_llm_routing:
+        if not isinstance(route, str):
+            raise ValueError("ready analysis has no route")
+        return profile.channel_for(route).channel_id
+    return profile.discord_channels[0].channel_id
+
+
+def _deliver_ready(
+    value: dict[str, object],
+    profiles: dict[str, config.ChannelProfile],
+    *,
+    dry_run: bool,
+    state_path: Path,
+    errors: list[str],
+) -> int:
+    delivered = 0
+    for record in value["outbox"]:  # type: ignore[union-attr]
+        if not isinstance(record, dict) or record.get("agent_phase") != "ready":
+            continue
+        profile = profiles.get(str(record.get("profile_id")))
+        if profile is None:
+            errors.append(f"unknown profile for {record.get('event_key')}")
+            continue
+        try:
+            event = deserialize_queue_event(record["event"])
+            analysis = record.get("analysis") or {}
+            if type(analysis) is not dict:
+                raise ValueError("ready analysis is invalid")
+            target = _delivery_channel(profile, analysis)
+            messages = render.render_post(
+                profile,
+                event,
+                title=analysis.get("title") if profile.enable_llm_title else None,
+                summary=analysis.get("summary") if profile.enable_llm_summary else None,
+            )
+            text_index = int(record.get("text_index", 0))
+            while text_index < len(messages):
+                discord.post_text(messages[text_index], target, dry_run, discord.nonce(str(record["event_key"]), f"text:{text_index}"))
+                text_index += 1
+                record["text_index"] = text_index
+                state.save(state_path, value)
+            media_index = int(record.get("media_index", 0))
+            if profile.forward_media:
+                while media_index < len(event.media):
+                    media = event.media[media_index]
+                    if not media.path:
+                        raise FileNotFoundError(f"source {media.kind} is unavailable")
+                    discord.post_media(Path(media.path), target, dry_run, discord.nonce(str(record["event_key"]), f"media:{media_index}"))
+                    media_index += 1
+                    record["media_index"] = media_index
+                    state.save(state_path, value)
+            record["agent_phase"] = "delivered"
+            record["delivered_at"] = datetime.now(timezone.utc).isoformat()
+            state.save(state_path, value)
+            delivered += 1
+        except Exception as exc:
+            record["last_error"] = " ".join(str(exc).split())[:180]
+            state.save(state_path, value)
+            errors.append(str(record["last_error"]))
+    return delivered
+
+
+def run(*, config_path: Path, state_path: Path, queue_dir: Path, now: datetime | None = None, no_post: bool = False) -> dict[str, object]:
+    now = now or datetime.now(timezone.utc)
+    watch_config = config.load(config_path)
+    value = state.load(state_path)
+    expired = state.expire_leases(value, now)
+    queued = 0
+    fetched = 0
+    errors: list[str] = []
+    queue_items = event_queue.list_events(queue_dir)
+    by_channel: dict[str, list[dict[str, object]]] = {}
+    for item in queue_items:
+        by_channel.setdefault(str(item["channel_jid"]), []).append(item)
+    known = {str(record.get("event_key")) for record in value["outbox"] if isinstance(record, dict)}
+    profiles = {profile.id: profile for profile in watch_config.profiles}
+
+    for profile in watch_config.profiles:
+        if not profile.enabled:
+            continue
+        items = by_channel.get(profile.channel_jid, [])
+        fetched += len(items)
+        if not items:
+            continue
+        profile_value = _profile_state(value, profile.id)
+        cursor = profile_value.get("cursor")
+        if cursor is None:
+            newest = _newest(items)
+            if newest is not None:
+                profile_value["cursor"] = {"published_at": newest["published_at"], "event_key": newest["event_key"]}
+                profile_value["initialized"] = True
+            continue
+        if type(cursor) is not dict or not {"published_at", "event_key"}.issubset(cursor):
+            errors.append(f"{profile.id}: invalid cursor")
+            continue
+        candidates = [item for item in items if state.cursor_key(item) > (str(cursor["published_at"]), str(cursor["event_key"])) and str(item["event_key"]) not in known]
+        for item in candidates[: profile.max_items_per_poll]:
+            event = deserialize_queue_event(item)
+            value["outbox"].append({
+                "event_key": event.event_key,
+                "profile_id": profile.id,
+                "event": event_queue.serialize_event(event),
+                "agent_phase": "pending" if profile.uses_llm else "ready",
+                "agent_lease_until": None,
+                "analysis": None,
+            })
+            known.add(event.event_key)
+            queued += 1
+        newest = _newest(items)
+        if newest is not None and state.cursor_key(newest) > state.cursor_key(cursor):
+            profile_value["cursor"] = {"published_at": newest["published_at"], "event_key": newest["event_key"]}
+
+    delivered = _deliver_ready(value, profiles, dry_run=no_post, state_path=state_path, errors=errors)
+    claimed_item: dict[str, object] | None = None
+    for record in _active_records(value):
+        if record.get("agent_phase") != "pending":
+            continue
+        profile = profiles.get(str(record.get("profile_id")))
+        if profile is None:
+            errors.append(f"unknown profile for {record.get('event_key')}")
+            continue
+        event = deserialize_queue_event(record["event"])
+        record["agent_phase"] = "awaiting_agent"
+        record["agent_lease_until"] = state.lease_until(now)
+        claimed_item = agent_protocol.agent_item(profile, event)
+        break
+
+    state.save(state_path, value)
+    heartbeat = _heartbeat(now, fetched, queued, int(claimed_item is not None), expired, errors)
+    if not no_post:
+        discord.post_text(heartbeat, "1505162000420835388", False, discord.nonce("heartbeat", now.astimezone(WIB).strftime("%Y%m%d%H%M")))
+    return {
+        "wakeAgent": claimed_item is not None,
+        "item": claimed_item,
+        "heartbeat": heartbeat,
+        "delivered": delivered,
+        "fetched": fetched,
+        "queued": queued,
+        "claimed": int(claimed_item is not None),
+        "expired": expired,
+        "errors": errors,
+    }
+
+
+def submit_analysis(*, config_path: Path, state_path: Path, payload: object, now: datetime | None = None, no_post: bool = False) -> dict[str, object]:
+    now = now or datetime.now(timezone.utc)
+    watch_config = config.load(config_path)
+    value = state.load(state_path)
+    event_key = payload.get("event_key") if isinstance(payload, dict) else None
+    record = next((item for item in value["outbox"] if isinstance(item, dict) and item.get("event_key") == event_key), None)  # type: ignore[union-attr]
+    if record is None:
+        raise ValueError("analysis event_key is not pending")
+    profile = next((item for item in watch_config.profiles if item.id == record.get("profile_id")), None)
+    if profile is None:
+        raise ValueError("analysis profile is not configured")
+    if record.get("agent_phase") != "awaiting_agent":
+        raise ValueError("analysis event is not leased to the agent")
+    until = datetime.fromisoformat(str(record["agent_lease_until"]))
+    if until <= now:
+        raise ValueError("analysis lease expired")
+    result = agent_protocol.validate_submission(profile, payload)
+    record["analysis"] = result
+    record["agent_lease_until"] = None
+    record["agent_phase"] = "filtered" if result.get("is_relevant") is False else "ready"
+    delivered = _deliver_ready(value, {item.id: item for item in watch_config.profiles}, dry_run=no_post, state_path=state_path, errors=[])
+    state.save(state_path, value)
+    return {"accepted": True, "event_key": event_key, "agent_phase": record["agent_phase"], "delivered": delivered}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Process WhatsApp Channel queue")
+    parser.add_argument("command", nargs="?", choices={"run", "submit-analysis"}, default="run")
+    parser.add_argument("--json", dest="payload")
+    parser.add_argument("--no-post", action="store_true")
+    parser.add_argument("--config", type=Path, default=_default_path("WHATSAPP_CHANNEL_WATCH_CONFIG_PATH", "config/watches.json"))
+    parser.add_argument("--state", type=Path, default=_default_path("WHATSAPP_CHANNEL_WATCH_STATE_PATH", "state/state.json"))
+    parser.add_argument("--queue-dir", type=Path, default=_default_path("WHATSAPP_CHANNEL_WATCH_QUEUE_DIR", "queue"))
+    args = parser.parse_args()
+    no_post = args.no_post or os.environ.get("WHATSAPP_CHANNEL_WATCH_NO_POST") == "1"
+    if args.command == "submit-analysis":
+        if not args.payload:
+            parser.error("submit-analysis requires --json")
+        result = submit_analysis(config_path=args.config, state_path=args.state, payload=json.loads(args.payload), no_post=no_post)
+    else:
+        result = run(config_path=args.config, state_path=args.state, queue_dir=args.queue_dir, no_post=no_post)
+    print(json.dumps(result, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

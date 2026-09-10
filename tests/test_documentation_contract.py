@@ -12,7 +12,7 @@ NO_AGENT_CRONS = {
 AGENT_BACKED_CRONS = {
     "idx-market-news-watch", "kelas-investasi-gtw-watch",
     "instagram-post-watch", "mm-weekly-log-normalizer", "scele-digest",
-    "x-post-watch",
+    "whatsapp-channel-watch", "x-post-watch",
 }
 ALL_CRONS = NO_AGENT_CRONS | AGENT_BACKED_CRONS
 REDUNDANT_ROOT_DOCS = {
@@ -79,6 +79,13 @@ AGENT_GOVERNANCE_ANCHORS = {
         "dedicated `rsshub-instagram` dispatcher",
         "first successful observation records the newest source publication",
     ),
+    "whatsapp-channel-watch": (
+        "existing single Baileys bridge",
+        "@newsletter",
+        "future-only",
+        "Channel sink",
+        "no second Baileys session",
+    ),
 }
 DEPLOYMENT_ONLY_SCHEDULER_PATTERNS = (
     re.compile(r"\bregister\b[^.\n]{0,120}\b(?:cron|schedule|interval)\b", re.I),
@@ -124,7 +131,7 @@ def readme_cron_inventory() -> set[str]:
 
 def test_cron_classification_is_complete_and_disjoint() -> None:
     assert NO_AGENT_CRONS.isdisjoint(AGENT_BACKED_CRONS), "cron classes overlap"
-    assert len(ALL_CRONS) == 16, "update the reviewed cron classification"
+    assert len(ALL_CRONS) == 17, "update the reviewed cron classification"
     assert all((ROOT / cron).is_dir() for cron in ALL_CRONS), "missing cron source directory"
     assert readme_cron_inventory() == ALL_CRONS, (
         "README.md cron inventory must match the reviewed cron classification"

@@ -35,6 +35,9 @@ run_suite skills-update skills-update tests
 run_suite telegram-resilience telegram-resilience tests
 run_suite us-etf-dca-watch us-etf-dca-watch tests
 run_suite x-post-watch x-post-watch tests
+run_suite whatsapp-channel-watch whatsapp-channel-watch tests
+printf '\n== whatsapp-channel-watch JavaScript sink ==\n'
+node --test "$repo_root/whatsapp-channel-watch/tests/channel_sink.test.mjs"
 run_suite yanto-gateway-voice yanto-gateway-voice tests
 run_suite profile-emoji profile-emoji tests
 
