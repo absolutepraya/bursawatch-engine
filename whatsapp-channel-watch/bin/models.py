@@ -12,6 +12,20 @@ class DiscordChannel:
 
 
 @dataclass(frozen=True)
+class StatusEmojis:
+    up: str | None
+    down: str | None
+    hold: str | None
+
+    def for_kind(self, kind: str) -> str | None:
+        return {
+            "up": self.up,
+            "down": self.down,
+            "hold": self.hold,
+        }.get(kind)
+
+
+@dataclass(frozen=True)
 class ChannelProfile:
     id: str
     enabled: bool
@@ -19,6 +33,7 @@ class ChannelProfile:
     channel_url: str
     display_name: str
     emoji: str
+    status_emojis: StatusEmojis
     discord_channels: tuple[DiscordChannel, ...]
     forward_media: bool
     enable_llm_title: bool

@@ -11,7 +11,10 @@ index 234cbef..0000000 100644
  import { randomBytes, createHash } from 'crypto';
  import { execFileSync } from 'child_process';
  import { tmpdir } from 'os';
-@@ -99,3 +99,18 @@
+@@ -96,6 +96,21 @@ const DOCUMENT_CACHE_DIR = process.env.HERMES_DOCUMENT_CACHE_DIR
+ const AUDIO_CACHE_DIR = process.env.HERMES_AUDIO_CACHE_DIR
+   || path.join(process.env.HOME || '~', '.hermes', 'audio_cache');
+ 
 +// Optional additive sink for WhatsApp Channel posts. The sink lives in the
 +// watcher runtime so the bridge can keep its existing ownership boundary and
 +// remain usable when the watcher is absent.
@@ -30,13 +33,7 @@ index 234cbef..0000000 100644
  // Self-hash of this script file.  Reported in /health so the Python gateway
  // can detect a running bridge that predates the current bridge.js and
  // restart it instead of silently reusing stale code (stale-bridge trap:
-@@ -240,9 +255,57 @@ function getContextInfo(messageContent) {
- function getContextInfo(messageContent) {
-   if (!messageContent || typeof messageContent !== 'object') return {};
-   for (const value of Object.values(messageContent)) {
-     if (value && typeof value === 'object' && value.contextInfo) {
-       return value.contextInfo;
-     }
+@@ -246,6 +261,54 @@ function getContextInfo(messageContent) {
    }
    return {};
  }
@@ -88,12 +85,10 @@ index 234cbef..0000000 100644
 +  });
 +  return inserted;
 +}
-@@ -549,8 +612,15 @@
-       emitDebugEvent({
-         stage: 'upsert',
-         type,
-         fromMe: !!msg.key.fromMe,
-         chatId: redactWhatsAppId(chatId),
+ 
+ mkdirSync(SESSION_DIR, { recursive: true });
+ 
+@@ -554,6 +617,13 @@ async function startSocket() {
          senderId: redactWhatsAppId(senderId),
          messageKeys: Object.keys(msg.message || {}),
        });
@@ -104,7 +99,10 @@ index 234cbef..0000000 100644
 +        await enqueueChannelMessage(msg);
 +        continue;
 +      }
-@@ -1099,8 +1169,36 @@
+ 
+       // Handle fromMe messages based on mode
+       let fromOwner = false;
+@@ -1099,9 +1169,79 @@
    res.json({
      name: chatId.replace(/@.*/, ''),
      isGroup,
@@ -139,9 +137,52 @@ index 234cbef..0000000 100644
 +    return res.status(502).json({ error: 'Newsletter metadata lookup failed' });
 +  }
 +});
++// Local-only, bounded, read-only newsletter history lookup. It reuses the
++// existing connected socket and never enqueues or forwards historical posts.
++app.get('/newsletter/messages', async (req, res) => {
++  if (!sock || connectionState !== 'connected') {
++    return res.status(503).json({ error: 'Not connected' });
++  }
++
++  const jid = String(req.query?.jid || '').trim();
++  if (!/^[^@\s]+@newsletter$/.test(jid)) {
++    return res.status(400).json({ error: 'Invalid newsletter JID' });
++  }
++
++  const rawSince = req.query?.since;
++  const rawAfter = req.query?.after;
++  const count = Number(req.query?.count ?? 100);
++  const since = rawSince === undefined ? undefined : Number(rawSince);
++  const after = rawAfter === undefined ? undefined : Number(rawAfter);
++  if (!Number.isInteger(count) || count < 1 || count > 100
++    || (since !== undefined && (!Number.isInteger(since) || since < 0))
++    || (after !== undefined && (!Number.isInteger(after) || after < 0))) {
++    return res.status(400).json({ error: 'Invalid newsletter history bounds' });
++  }
++
++  let timeoutId;
++  try {
++    const result = await Promise.race([
++      sock.newsletterFetchMessages(jid, count, since, after),
++      new Promise((_, reject) => {
++        timeoutId = setTimeout(() => reject(new Error('Newsletter history lookup timed out')), 15000);
++      }),
++    ]);
++    return res.json(result);
++  } catch (err) {
++    console.warn('[bridge] newsletter history lookup failed:', err?.message || err);
++    if (err?.message === 'Newsletter history lookup timed out') {
++      return res.status(504).json({ error: 'Newsletter history lookup timed out' });
++    }
++    return res.status(502).json({ error: 'Newsletter history lookup failed' });
++  } finally {
++    clearTimeout(timeoutId);
++  }
++});
+ 
  // Health check
  app.get('/health', (req, res) => {
-@@ -1111,5 +1181,6 @@ app.get('/health', (req, res) => {
+@@ -1111,5 +1251,6 @@ app.get('/health', (req, res) => {
      uptime: process.uptime(),
      scriptHash: SCRIPT_HASH,
      sendReadReceipts: SEND_READ_RECEIPTS,

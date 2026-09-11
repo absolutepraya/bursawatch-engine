@@ -5,14 +5,15 @@ import re
 from pathlib import Path
 from urllib.parse import urlparse
 
-from models import ChannelProfile, DiscordChannel, WatchConfig
+from models import ChannelProfile, DiscordChannel, StatusEmojis, WatchConfig
 
 
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
 _JID_RE = re.compile(r"^[^@\s]+@newsletter$")
 _DISCORD_ID_RE = re.compile(r"^\d{17,20}$")
 _EMOJI_RE = re.compile(r"<:[A-Za-z0-9_]+:\d{17,20}>")
-_CHANNEL_KEYS = {"macro_news", "id_stocks_news", "us_stocks_news"}
+_CHANNEL_KEYS = {"macro_news", "id_stocks_news", "id_stocks_swing"}
+_STATUS_EMOJI_KEYS = {"up", "down", "hold"}
 _SCOPES = {"stock_market", "financial_market", "indonesia_economy"}
 _PROFILE_KEYS = {
     "id",
@@ -21,6 +22,7 @@ _PROFILE_KEYS = {
     "channel_url",
     "display_name",
     "emoji",
+    "status_emojis",
     "discord_channels",
     "forward_media",
     "enable_llm_title",
@@ -63,6 +65,18 @@ def _discord_channel(value: object) -> DiscordChannel:
     return DiscordChannel(key, channel_id, description.strip())
 
 
+def _status_emojis(value: object) -> StatusEmojis:
+    if type(value) is not dict or set(value) != _STATUS_EMOJI_KEYS:
+        raise ValueError("status emojis have unexpected or missing fields")
+    parsed: dict[str, str | None] = {}
+    for key in sorted(_STATUS_EMOJI_KEYS):
+        emoji = value[key]
+        if emoji is not None and (type(emoji) is not str or not _EMOJI_RE.fullmatch(emoji)):
+            raise ValueError(f"status emoji {key} must be a Discord custom emoji or null")
+        parsed[key] = emoji
+    return StatusEmojis(up=parsed["up"], down=parsed["down"], hold=parsed["hold"])
+
+
 def _profile(value: object) -> ChannelProfile:
     if type(value) is not dict or set(value) != _PROFILE_KEYS:
         raise ValueError("profile has unexpected or missing fields")
@@ -80,6 +94,7 @@ def _profile(value: object) -> ChannelProfile:
     emoji = _require_type(value["emoji"], str, "emoji")
     if not _EMOJI_RE.fullmatch(emoji):
         raise ValueError("emoji must use Discord custom emoji syntax")
+    status_emojis = _status_emojis(value["status_emojis"])
     raw_channels = _require_type(value["discord_channels"], list, "discord channels")
     channels = tuple(_discord_channel(item) for item in raw_channels)
     if not channels:
@@ -110,6 +125,7 @@ def _profile(value: object) -> ChannelProfile:
         channel_url=channel_url,
         display_name=display_name.strip(),
         emoji=emoji,
+        status_emojis=status_emojis,
         discord_channels=channels,
         additional_prompt_instruction=additional,
         relevance_scope=relevance_scope,

@@ -173,7 +173,12 @@ def run(*, config_path: Path, state_path: Path, queue_dir: Path, now: datetime |
         event = deserialize_queue_event(record["event"])
         record["agent_phase"] = "awaiting_agent"
         record["agent_lease_until"] = state.lease_until(now)
-        claimed_item = agent_protocol.agent_item(profile, event)
+        route_override = agent_protocol.deterministic_route(profile, event)
+        claimed_item = agent_protocol.agent_item(
+            profile,
+            event,
+            relevance_guard_required=route_override is not None,
+        )
         break
 
     state.save(state_path, value)
@@ -209,7 +214,17 @@ def submit_analysis(*, config_path: Path, state_path: Path, payload: object, now
     until = datetime.fromisoformat(str(record["agent_lease_until"]))
     if until <= now:
         raise ValueError("analysis lease expired")
+    event = deserialize_queue_event(record["event"])
+    route_override = agent_protocol.deterministic_route(profile, event)
     result = agent_protocol.validate_submission(profile, payload)
+    if result.get("is_relevant") is False and route_override is not None:
+        raise ValueError("TechnicalReview posts must be submitted as relevant")
+    if profile.enable_llm_routing:
+        route = result.get("route")
+        if route == "id_stocks_swing" and route_override != "id_stocks_swing":
+            raise ValueError("id_stocks_swing requires a leading #TechnicalReview tag")
+        if route_override is not None:
+            result["route"] = route_override
     record["analysis"] = result
     record["agent_lease_until"] = None
     record["agent_phase"] = "filtered" if result.get("is_relevant") is False else "ready"
