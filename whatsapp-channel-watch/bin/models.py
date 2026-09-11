@@ -18,6 +18,7 @@ class ChannelProfile:
     channel_jid: str
     channel_url: str
     display_name: str
+    emoji: str
     discord_channels: tuple[DiscordChannel, ...]
     forward_media: bool
     enable_llm_title: bool

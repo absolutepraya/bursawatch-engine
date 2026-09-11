@@ -11,6 +11,7 @@ from models import ChannelProfile, DiscordChannel, WatchConfig
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
 _JID_RE = re.compile(r"^[^@\s]+@newsletter$")
 _DISCORD_ID_RE = re.compile(r"^\d{17,20}$")
+_EMOJI_RE = re.compile(r"<:[A-Za-z0-9_]+:\d{17,20}>")
 _CHANNEL_KEYS = {"macro_news", "id_stocks_news", "us_stocks_news"}
 _SCOPES = {"stock_market", "financial_market", "indonesia_economy"}
 _PROFILE_KEYS = {
@@ -19,6 +20,7 @@ _PROFILE_KEYS = {
     "channel_jid",
     "channel_url",
     "display_name",
+    "emoji",
     "discord_channels",
     "forward_media",
     "enable_llm_title",
@@ -75,6 +77,9 @@ def _profile(value: object) -> ChannelProfile:
     display_name = _require_type(value["display_name"], str, "display name")
     if not display_name.strip():
         raise ValueError("display name must not be empty")
+    emoji = _require_type(value["emoji"], str, "emoji")
+    if not _EMOJI_RE.fullmatch(emoji):
+        raise ValueError("emoji must use Discord custom emoji syntax")
     raw_channels = _require_type(value["discord_channels"], list, "discord channels")
     channels = tuple(_discord_channel(item) for item in raw_channels)
     if not channels:
@@ -104,6 +109,7 @@ def _profile(value: object) -> ChannelProfile:
         channel_jid=channel_jid,
         channel_url=channel_url,
         display_name=display_name.strip(),
+        emoji=emoji,
         discord_channels=channels,
         additional_prompt_instruction=additional,
         relevance_scope=relevance_scope,

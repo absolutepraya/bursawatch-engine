@@ -104,6 +104,43 @@ index 234cbef..0000000 100644
 +        await enqueueChannelMessage(msg);
 +        continue;
 +      }
+@@ -1099,8 +1169,36 @@
+   res.json({
+     name: chatId.replace(/@.*/, ''),
+     isGroup,
+     participants: [],
+   });
+ });
++// Read-only local resolver for public WhatsApp Channel invite links. This
++// reuses the already-connected bridge socket and never creates another session.
++app.get('/newsletter/metadata/:invite', async (req, res) => {
++  if (!sock || connectionState !== 'connected') {
++    return res.status(503).json({ error: 'Not connected' });
++  }
++
++  const invite = String(req.params.invite || '').trim();
++  if (!/^[A-Za-z0-9_-]{1,128}$/.test(invite)) {
++    return res.status(400).json({ error: 'Invalid newsletter invite' });
++  }
++
++  try {
++    const metadata = await sock.newsletterMetadata('invite', invite);
++    if (!metadata?.id) {
++      return res.status(404).json({ error: 'Newsletter not found' });
++    }
++    return res.json({
++      id: metadata.id,
++      name: metadata.name || '',
++      invite: metadata.invite || invite,
++      subscribers: metadata.subscribers ?? null,
++    });
++  } catch (err) {
++    console.warn('[bridge] newsletter metadata lookup failed:', err?.message || err);
++    return res.status(502).json({ error: 'Newsletter metadata lookup failed' });
++  }
++});
+ // Health check
+ app.get('/health', (req, res) => {
 @@ -1111,5 +1181,6 @@ app.get('/health', (req, res) => {
      uptime: process.uptime(),
      scriptHash: SCRIPT_HASH,

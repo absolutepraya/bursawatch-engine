@@ -12,6 +12,7 @@ def profile(**overrides):
         "channel_jid": "12345@newsletter",
         "channel_url": "https://whatsapp.com/channel/0029Example",
         "display_name": "BRI Danareksa Sekuritas",
+        "emoji": "<:bridanareksa:1547932957598285844>",
         "discord_channels": [{"key": "macro_news", "channel_id": "1505162000420835388", "description": "Macro and market news"}],
         "forward_media": True,
         "enable_llm_title": True,
@@ -40,6 +41,7 @@ def test_loads_strict_profile(tmp_path):
 
 @pytest.mark.parametrize("change", [
     {"channel_jid": "12345@g.us"},
+    {"emoji": "not-an-emoji"},
     {"discord_channels": []},
     {"max_items_per_poll": 51},
     {"unknown": True},

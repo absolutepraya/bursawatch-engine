@@ -15,6 +15,7 @@ def profile():
         "channel_jid": "12345@newsletter",
         "channel_url": "https://whatsapp.com/channel/0029Example",
         "display_name": "BRI Danareksa Sekuritas",
+        "emoji": "<:bridanareksa:1547932957598285844>",
         "discord_channels": [{"key": "macro_news", "channel_id": "1505162000420835388", "description": "Macro"}],
         "forward_media": True,
         "enable_llm_title": True,

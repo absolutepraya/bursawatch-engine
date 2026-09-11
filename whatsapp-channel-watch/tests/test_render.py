@@ -9,6 +9,7 @@ def profile():
     return ChannelProfile(
         id="channel", enabled=True, channel_jid="1@newsletter",
         channel_url="https://whatsapp.com/channel/example", display_name="BRI Danareksa Sekuritas",
+        emoji="<:bridanareksa:1547932957598285844>",
         discord_channels=(DiscordChannel("macro_news", "1505162000420835388", "Macro"),),
         forward_media=True, enable_llm_title=True, enable_llm_summary=True,
         enable_llm_routing=True, enable_llm_relevance_filter=True,
@@ -24,6 +25,7 @@ def test_render_contains_title_summary_and_channel_source():
     messages = render_post(profile(), event, title="BBCA: Laba Naik", summary="*(Ringkasan)* Ringkasan sumber.")
     assert len(messages) == 1
     assert "BBCA: Laba Naik" in messages[0]
+    assert "<:bridanareksa:1547932957598285844>" in messages[0]
     assert "*(Ringkasan)*" in messages[0]
     assert "https://whatsapp.com/channel/example" in messages[0]
     assert len(messages[0]) <= 2000

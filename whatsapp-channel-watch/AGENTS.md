@@ -33,7 +33,7 @@ watcher's scope.
 
 `config/watches.json` is the exact reviewed configuration boundary. A profile
 uses the stable Channel JID as its source identity and has a human-readable
-display name and public Channel URL. Adding a profile is a proposal, not
+display name, public Channel URL, and reviewed Discord custom emoji. Adding a profile is a proposal, not
 permission to enable it, pair an account, backfill history, or deploy.
 
 When the user says `watch this wa channel <name, URL, or JID>`, inspect and
