@@ -52,6 +52,10 @@ record the newest source item as the cursor. Do not deliver existing history.
   reviewed, and approved before the first VPS write.
 - Every scheduled watcher run must emit the standard `whatsapp-channel`
   heartbeat to Discord `#hermes`, including no-hit runs and degraded runs.
+- `deploy.sh` copies the runtime `bin/` tree but not the Hermes wrapper. When
+  `bin/whatsapp-channel-watch.sh` changes or is first installed, synchronize it
+  separately to `vps:.hermes/scripts/whatsapp-channel-watch.sh`, set mode 755,
+  and compare its checksum before the no-post smoke.
 
 ## Baileys bridge integration
 
