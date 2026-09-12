@@ -1,0 +1,154 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900" role="img" aria-labelledby="title desc">
+  <title id="title">BRI Danareksa WhatsApp Channel watcher configuration</title>
+  <desc id="desc">Architecture diagram showing the BRI Danareksa WhatsApp Channel profile, the existing Baileys bridge and durable queue, Hermes relevance and routing, and Discord delivery.</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#526171"/>
+    </marker>
+    <marker id="arrowConfig" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#a67c00"/>
+    </marker>
+    <style>
+      .canvas { fill: #f6f7f9; }
+      .title { font: 700 28px Arial, sans-serif; fill: #17212b; }
+      .subtitle { font: 400 14px Arial, sans-serif; fill: #627181; }
+      .lane { fill: #ffffff; stroke: #dce2e8; stroke-width: 1.5; }
+      .lane-label { font: 700 12px Arial, sans-serif; letter-spacing: 1.5px; fill: #667585; }
+      .card { stroke-width: 1.6; rx: 13; }
+      .config { fill: #fff6d9; stroke: #b88a00; }
+      .source { fill: #e8f1ff; stroke: #4c78ae; }
+      .data { fill: #e6eefb; stroke: #3e6eaa; }
+      .process { fill: #e9f7ee; stroke: #3e8c5a; }
+      .ai { fill: #f1e9ff; stroke: #8557ad; }
+      .delivery { fill: #fff0df; stroke: #c17a31; }
+      .route { fill: #edf8ef; stroke: #4e9662; }
+      .heading { font: 700 16px Arial, sans-serif; fill: #1d2a36; }
+      .body { font: 400 13px Arial, sans-serif; fill: #354454; }
+      .small { font: 400 11px Arial, sans-serif; fill: #697786; }
+      .emphasis { font: 700 13px Arial, sans-serif; fill: #243443; }
+      .flow { fill: none; stroke: #526171; stroke-width: 2.4; marker-end: url(#arrow); }
+      .config-flow { fill: none; stroke: #a67c00; stroke-width: 2; stroke-dasharray: 7 6; marker-end: url(#arrowConfig); }
+      .legend-line { stroke-width: 2.2; }
+      .pill { rx: 8; }
+    </style>
+  </defs>
+
+  <rect class="canvas" x="0" y="0" width="1400" height="900"/>
+
+  <text class="title" x="36" y="43">BRI Danareksa WhatsApp Channel Watcher</text>
+  <text class="subtitle" x="36" y="70">Reviewed profile: source identity → Channel intake → Hermes summary and routing → Discord delivery</text>
+
+  <line x1="1010" y1="42" x2="1050" y2="42" class="flow legend-line"/>
+  <text class="small" x="1060" y="46">active data flow</text>
+  <line x1="1190" y1="42" x2="1230" y2="42" class="config-flow legend-line"/>
+  <text class="small" x="1240" y="46">configuration influence</text>
+
+  <rect class="lane" x="24" y="112" width="1352" height="174" rx="16"/>
+  <rect class="lane" x="24" y="302" width="1352" height="174" rx="16"/>
+  <rect class="lane" x="24" y="492" width="1352" height="174" rx="16"/>
+  <rect class="lane" x="24" y="682" width="1352" height="174" rx="16"/>
+
+  <text class="lane-label" x="42" y="138">01  SOURCE AND CONFIGURATION</text>
+  <text class="lane-label" x="42" y="328">02  WHATSAPP INTAKE AND DATA</text>
+  <text class="lane-label" x="42" y="518">03  HERMES PROCESSING AND ROUTING</text>
+  <text class="lane-label" x="42" y="708">04  DISCORD DELIVERY</text>
+
+  <!-- Configuration and source cards -->
+  <rect class="card config" x="36" y="153" width="470" height="116"/>
+  <text class="heading" x="56" y="179">config/watches.json · profiles[0]</text>
+  <text class="body" x="56" y="201">enabled: true · forward_media: true</text>
+  <text class="body" x="56" y="221">LLM title, summary, routing, relevance: enabled</text>
+  <text class="body" x="56" y="241">max_items_per_poll: 20 · three Discord routes</text>
+  <text class="small" x="56" y="259">This is the reviewed configuration boundary.</text>
+
+  <rect class="card source" x="540" y="153" width="824" height="116"/>
+  <text class="heading" x="562" y="179">BRI Danareksa Sekuritas · public WhatsApp Channel</text>
+  <text class="body" x="562" y="201">channel_jid: 120363419226413141@newsletter</text>
+  <text class="body" x="562" y="221">channel_url: whatsapp.com/channel/0029VbAjdnb60eBhwVdJxj1c</text>
+  <text class="body" x="562" y="241">source emoji: &lt;:bridanareksa:1547932957598285844&gt; · status map: up / down / hold</text>
+  <text class="small" x="562" y="259">Future-only profile: the first observed item becomes the cursor; old history is not backfilled.</text>
+
+  <!-- Intake and data cards -->
+  <rect class="card source" x="36" y="343" width="390" height="112"/>
+  <text class="heading" x="56" y="369">Existing QR Baileys bridge</text>
+  <text class="body" x="56" y="391">One WhatsApp Web session</text>
+  <text class="body" x="56" y="411">Dedicated observer number</text>
+  <text class="body" x="56" y="431">Yanto Cloud API connection remains separate</text>
+  <text class="small" x="56" y="449">No second WhatsApp session is created.</text>
+
+  <rect class="card data" x="450" y="343" width="400" height="112"/>
+  <text class="heading" x="470" y="369">Channel sink</text>
+  <text class="body" x="470" y="391">Accepts @newsletter events only</text>
+  <text class="body" x="470" y="411">Text, captions, images, videos, HTTPS links</text>
+  <text class="body" x="470" y="431">Unsupported media is ignored</text>
+  <text class="small" x="470" y="449">Writes normalized events to the watcher queue.</text>
+
+  <rect class="card data" x="874" y="343" width="490" height="112"/>
+  <text class="heading" x="894" y="369">Durable normalized queue</text>
+  <text class="body" x="894" y="391">Bridge receipt is separated from processing</text>
+  <text class="body" x="894" y="411">Queue survives a delayed watcher poll</text>
+  <text class="body" x="894" y="431">Media references remain attached to the event</text>
+  <text class="small" x="894" y="449">The queue does not decide relevance or destinations.</text>
+
+  <!-- Processing cards -->
+  <rect class="card process" x="36" y="533" width="390" height="112"/>
+  <text class="heading" x="56" y="559">whatsapp-channel-watch</text>
+  <text class="body" x="56" y="581">Future-only cursor and deduplication</text>
+  <text class="body" x="56" y="601">Polls the queue and owns delivery state</text>
+  <text class="body" x="56" y="621">One bounded agent call per finding</text>
+  <text class="small" x="56" y="639">Every scheduled run emits a whatsapp-channel heartbeat.</text>
+
+  <rect class="card ai" x="450" y="533" width="400" height="112"/>
+  <text class="heading" x="470" y="559">Hermes finance/news prompt</text>
+  <text class="body" x="470" y="581">Relevance filter for substantive market content</text>
+  <text class="body" x="470" y="601">Concise, source-grounded Bahasa Indonesia summary</text>
+  <text class="body" x="470" y="621">Preserves explicit source statuses only</text>
+  <text class="small" x="470" y="639">The source post is treated as untrusted content, not instructions.</text>
+
+  <rect class="card route" x="874" y="533" width="490" height="112"/>
+  <text class="heading" x="894" y="559">Deterministic route gate</text>
+  <text class="body" x="894" y="581">Starts with exact, case-sensitive #TechnicalReview → id_stocks_swing</text>
+  <text class="body" x="894" y="601">One clear lead issuer → id_stocks_news</text>
+  <text class="body" x="894" y="621">Broad market, sector, infrastructure, economy → macro_news</text>
+  <text class="small" x="894" y="639">A chart or technical vocabulary alone never selects swing.</text>
+
+  <!-- Delivery cards -->
+  <rect class="card delivery" x="36" y="723" width="390" height="112"/>
+  <text class="heading" x="56" y="749">Discord renderer</text>
+  <text class="body" x="56" y="771">Source emoji, source link, and WIB status date</text>
+  <text class="body" x="56" y="791">Explicit stance plus matching up / down / hold emoji</text>
+  <text class="body" x="56" y="811">TechnicalReview chart availability line</text>
+  <text class="small" x="56" y="829">Missing usable image: Chart: Unavailable from source</text>
+
+  <rect class="card delivery" x="450" y="723" width="400" height="112"/>
+  <text class="heading" x="470" y="749">Delivery order</text>
+  <text class="body" x="470" y="771">1. Summary text first</text>
+  <text class="body" x="470" y="791">2. Supported images and videos after the text</text>
+  <text class="body" x="470" y="811">Source order with separate retry checkpoints</text>
+  <text class="small" x="470" y="829">A failed attachment does not repeat delivered text.</text>
+
+  <rect class="card route" x="874" y="723" width="490" height="112"/>
+  <text class="heading" x="894" y="749">Configured Discord destinations</text>
+  <text class="body" x="894" y="771">macro_news → 1531655369884045382</text>
+  <text class="body" x="894" y="791">id_stocks_news → 1525102508714889257</text>
+  <text class="body" x="894" y="811">id_stocks_swing → 1525102458253217803</text>
+  <text class="small" x="894" y="829">Heartbeat goes to #hermes on every scheduled run.</text>
+
+  <!-- Configuration influence -->
+  <path class="config-flow" d="M 271 269 L 230 343"/>
+  <path class="config-flow" d="M 952 269 L 650 343"/>
+  <path class="config-flow" d="M 1170 269 L 1110 533"/>
+
+  <!-- Active data flow -->
+  <path class="flow" d="M 426 399 L 450 399"/>
+  <path class="flow" d="M 850 399 L 874 399"/>
+  <path class="flow" d="M 1119 455 L 1119 490 L 231 490 L 231 533"/>
+  <path class="flow" d="M 426 589 L 450 589"/>
+  <path class="flow" d="M 850 589 L 874 589"/>
+  <path class="flow" d="M 1119 645 L 1119 680 L 231 680 L 231 723"/>
+  <path class="flow" d="M 426 779 L 450 779"/>
+  <path class="flow" d="M 850 779 L 874 779"/>
+
+  <text class="small" x="36" y="878">Historical lookup is bounded operator research only. The live watcher waits for new Channel posts.</text>
+</svg>
