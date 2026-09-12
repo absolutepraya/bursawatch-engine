@@ -57,9 +57,10 @@ AGENT_GOVERNANCE_ANCHORS = {
     "instagram-post-watch": (
         "public posts and reels",
         "IG_COOKIE",
+        "IG_PROXY",
         "IG_USERNAME",
         "IG_PASSWORD",
-        "127.0.0.1:1201/instagram/2/user/<handle>?format=json",
+        "127.0.0.1:1200/instagram/2/user/<handle>?format=json",
         "config/watches.json` is the exact JSON configuration boundary",
         "strict validator rejects unknown fields at every object boundary",
         "Credentials, cookies, signed CDN URLs, raw provider response bodies, and local secret paths",
@@ -76,7 +77,7 @@ AGENT_GOVERNANCE_ANCHORS = {
         "vps:~/.agents/skills/instagram-post-watch/config/watches.json",
         "vps:~/.agents/skills/instagram-post-watch/SKILL.md",
         "SHA-256 checksums",
-        "dedicated `rsshub-instagram` dispatcher",
+        "universal RSSHub instance",
         "first successful observation records the newest source publication",
     ),
     "whatsapp-channel-watch": (

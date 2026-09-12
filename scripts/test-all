@@ -16,8 +16,6 @@ run_suite() {
 }
 
 run_suite dotfiles-sync dotfiles-sync tests
-printf '\n== rsshub-instagram ==\n'
-node --test "$repo_root/rsshub-instagram/proxy-dispatcher.test.cjs"
 run_suite idx-market-news-watch idx-market-news-watch tests
 run_suite idx-ssf-watch-phintraco-weekly idx-ssf-watch-phintraco-weekly tests
 run_suite idx-swing-watch-phintraco-daily idx-swing-watch-phintraco-daily tests

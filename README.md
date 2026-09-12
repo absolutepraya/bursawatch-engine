@@ -36,10 +36,10 @@ retain their own `SKILL.md` files.
 
 `profile-emoji` is the reusable VPS-local skill for turning a trusted X or Instagram profile picture into a static circular Discord emoji. It uses Yanto's VPS-local token, creates an absent emoji only with an explicit apply flag, and returns an existing emoji unchanged. It is not a scheduled cron and is deployed with `profile-emoji/deploy.sh`.
 
-The reviewed `rsshub-instagram/` support source defines the dedicated
-`rsshub-instagram` container used only by `instagram-post-watch`. Its VPS-local
-`.env` remains outside source control. The general `~/rsshub` instance remains
-the source for X and other RSSHub watchers.
+The VPS-local `~/rsshub` instance is the universal RSSHub source for Instagram,
+X, and other RSSHub watchers. Its `.env` remains outside source control and
+owns the route-specific Instagram cookie and proxy settings. There is no
+separate Instagram RSSHub container.
 
 ## Workflow
 1. Read the cron's `AGENTS.md` and its `CRON.md` or `SKILL.md`, then edit source under `<cron>/bin/`.

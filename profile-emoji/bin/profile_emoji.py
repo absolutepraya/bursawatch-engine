@@ -41,7 +41,7 @@ PROFILE_HOSTS = {
     "x": frozenset({"x.com", "www.x.com", "twitter.com", "www.twitter.com"}),
     "instagram": frozenset({"instagram.com", "www.instagram.com"}),
 }
-RSSHUB_PORTS = {"x": 1200, "instagram": 1201}
+RSSHUB_PORTS = {"x": 1200, "instagram": 1200}
 AVATAR_KEYS = frozenset(
     {
         "avatar",

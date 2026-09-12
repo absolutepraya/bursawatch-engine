@@ -42,7 +42,7 @@ asset to the Mac. The Discord custom emoji is the only durable image asset
 produced by this helper.
 
 Instagram's authenticated RSSHub cookie remains owned by the VPS-local
-`rsshub-instagram` service. The helper must not read, print, or receive
+universal `rsshub` service. The helper must not read, print, or receive
 `IG_COOKIE`.
 
 ## Development and deployment
