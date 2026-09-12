@@ -9,7 +9,6 @@ def test_each_polycop_watcher_documents_the_shared_resilience_contract() -> None
     documents = (
         ROOT / "idx-market-news-watch" / "SKILL.md",
         ROOT / "idx-swing-watch-phintraco-daily" / "CRON.md",
-        ROOT / "idx-ssf-watch-phintraco-weekly" / "CRON.md",
         ROOT / "kelas-investasi-gtw-watch" / "SKILL.md",
         ROOT / "polymarket-signal-watch" / "CRON.md",
     )
@@ -52,9 +51,9 @@ def test_resilience_readme_and_kelas_agents_inventory_and_no_post_boundary() -> 
     resilience_readme = (ROOT / "telegram-resilience" / "README.md").read_text(encoding="utf-8")
     agents = (ROOT / "kelas-investasi-gtw-watch" / "AGENTS.md").read_text(encoding="utf-8")
 
-    assert "five" in resilience_readme
+    assert "four" in resilience_readme
     assert "kelas-investasi-gtw-watch" in resilience_readme
-    assert "all five `scan.py` files" in resilience_readme
+    assert "all remaining scanner files" in resilience_readme
     assert "KELAS_INVESTASI_GTW_FORCE_HEARTBEAT" not in agents
     assert "telegram-resilience" in agents
     assert "KELAS_INVESTASI_GTW_STATE_MEDIA_ROOT=/tmp/kelas-investasi-gtw-media" in agents
