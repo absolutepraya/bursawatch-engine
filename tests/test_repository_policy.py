@@ -5,7 +5,6 @@ def test_accepts_reviewed_source_and_examples() -> None:
     assert violations_for([
         ".env.example",
         "idx-market-news-watch/bin/scan.py",
-        "idx-ssf-watch-phintraco-weekly/tests/fixtures/ssf/33681.pdf",
         "mm-weekly-log-normalizer/assets/MM-Log-Kerja-Magang-Daffa-base.docx",
     ]) == []
 

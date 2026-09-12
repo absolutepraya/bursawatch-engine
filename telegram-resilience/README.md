@@ -1,11 +1,10 @@
 # PolyCop Telegram Resilience
 
-This directory owns shared, deterministic connection coordination for the five
+This directory owns shared, deterministic connection coordination for the four
 market watchers that use \`POLYCOP_SESSION_STRING\`:
 
 - \`idx-market-news-watch\`
 - \`idx-swing-watch-phintraco-daily\`
-- \`idx-ssf-watch-phintraco-weekly\`
 - \`kelas-investasi-gtw-watch\`
 - \`polymarket-signal-watch\`
 
@@ -46,13 +45,12 @@ deploy the shared module before the scanner changes:
 ```bash
 ./deploy.sh telegram-resilience
 ./deploy.sh idx-swing-watch-phintraco-daily scan.py
-./deploy.sh idx-ssf-watch-phintraco-weekly scan.py
 ./deploy.sh polymarket-signal-watch scan.py
 ./deploy.sh idx-market-news-watch scan.py
 ```
 
 Compare SHA-256 checksums for `telegram_resilience.py`,
-`telegram-resilience-probe.py`, all five `scan.py` files, and the changed
+`telegram-resilience-probe.py`, all remaining scanner files, and the changed
 wrappers before considering the deployment complete. Do not edit live watcher
 state, reset a cursor, replay alerts, or send a Discord test message.
 
