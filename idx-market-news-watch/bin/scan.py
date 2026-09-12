@@ -334,6 +334,7 @@ def _selection_item_from_record(key: str, record: Mapping[str, object]) -> Selec
             material_facts=selection_data["material_facts"],
             dedupe_facts=selection_data["dedupe_facts"],
             summary=selection_data.get("summary", ""),
+            title=selection_data.get("title", ""),
         )
     except (KeyError, TypeError, ValueError) as error:
         raise StateBlockedError(f"candidate {key!r} has invalid durable selection data") from error

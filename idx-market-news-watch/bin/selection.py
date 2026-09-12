@@ -81,6 +81,7 @@ class SelectionCandidate:
     material_facts: tuple[str, ...]
     dedupe_facts: tuple[str, ...]
     summary: str = ""
+    title: str = ""
 
     def __post_init__(self) -> None:
         if not isinstance(self.candidate, CompanyCandidate):
@@ -103,6 +104,8 @@ class SelectionCandidate:
         if not summary:
             summary = " ".join(self.material_facts)
         object.__setattr__(self, "summary", summary)
+        title = " ".join(self.title.split())
+        object.__setattr__(self, "title", title)
 
     @classmethod
     def from_validated_submission(
@@ -120,6 +123,7 @@ class SelectionCandidate:
             material_facts=submission["material_facts"],  # type: ignore[arg-type]
             dedupe_facts=submission["dedupe_facts"],  # type: ignore[arg-type]
             summary=submission.get("summary", ""),  # type: ignore[arg-type]
+            title=submission.get("title", ""),  # type: ignore[arg-type]
         )
 
     @property
@@ -203,6 +207,7 @@ def _selection_candidate_from_record(key: str, record: Mapping[str, object]) -> 
             material_facts=selection_data["material_facts"],
             dedupe_facts=selection_data["dedupe_facts"],
             summary=selection_data.get("summary", ""),
+            title=selection_data.get("title", ""),
         )
     except (KeyError, TypeError, ValueError) as error:
         raise StateBlockedError(f"candidate {key!r} has invalid durable selection data") from error

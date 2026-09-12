@@ -13,7 +13,7 @@ from tempfile import NamedTemporaryFile
 
 import requests
 
-from domain import CompanyCandidate, retry_delay_minutes, source_message_url
+from domain import CompanyCandidate, Provider, retry_delay_minutes, source_message_url
 from market_data import fallback_company_name, get_market_snapshot
 from selection import SelectionCandidate
 from state import StateBlockedError, mark_terminal, save_state
@@ -41,6 +41,7 @@ _DIRECTION_EMOJIS = {
     "flat": "<:grey:1531279158913536182>",
 }
 _ENTRY_SEPARATOR = "┈" * 13
+_RINGKASAN_PREFIX = "*(Ringkasan)* "
 
 
 class DiscordRateLimited(RuntimeError):
@@ -76,12 +77,14 @@ def _idr(value: float, *, signed: bool = False) -> str:
     return f"{prefix}{rounded:,}".replace(",", ".")
 
 
-def _change(value: float, percent: float) -> str:
-    percent_text = f"{percent:+.2f}".replace(".", ",")
+def _change(value: float, percent: float, *, decimal_separator: str = ",") -> str:
+    percent_text = f"{percent:+.2f}".replace(".", decimal_separator)
     return f"{_idr(value, signed=True)} ({percent_text}%)"
 
 
-def _direction_emoji(value: float) -> str:
+def _direction_emoji(value: float | None) -> str:
+    if value is None:
+        return _DIRECTION_EMOJIS["flat"]
     if value > 0:
         return _DIRECTION_EMOJIS["positive"]
     if value < 0:
@@ -89,7 +92,11 @@ def _direction_emoji(value: float) -> str:
     return _DIRECTION_EMOJIS["flat"]
 
 
-def _entry(item: SelectionCandidate) -> str:
+def _render_tuntun_summary(item: SelectionCandidate) -> str:
+    return f"{_RINGKASAN_PREFIX}{item.summary}"
+
+
+def _legacy_entry(item: SelectionCandidate) -> str:
     summary = item.summary
     if _contains_investment_language(summary):
         raise ValueError("delivery facts must not contain investment language")
@@ -113,6 +120,44 @@ def _entry(item: SelectionCandidate) -> str:
             f"{_DIRECTION_EMOJIS['flat']}1W: -"
         )
     return "\n".join(lines)
+
+
+def _tuntun_change(value: float | None, percent: float | None, label: str) -> str:
+    if value is None or percent is None:
+        return f"{_DIRECTION_EMOJIS['flat']} {label}: **-**"
+    return f"{_direction_emoji(value)} {label}: **{_change(value, percent, decimal_separator='.')}**"
+
+
+def _tuntun_entry(item: SelectionCandidate) -> str:
+    summary = _render_tuntun_summary(item)
+    if _contains_investment_language(summary):
+        raise ValueError("delivery facts must not contain investment language")
+    snapshot = get_market_snapshot(item.ticker, item.candidate.source_text)
+    market_lines = [
+        f"Harga terakhir (IDR): **{_idr(snapshot.latest_price) if snapshot is not None else '-'}**",
+        ", ".join(
+            (
+                _tuntun_change(snapshot.one_day_change, snapshot.one_day_percent, "1D"),
+                _tuntun_change(snapshot.one_week_change, snapshot.one_week_percent, "1W"),
+                _tuntun_change(snapshot.one_month_change, snapshot.one_month_percent, "1M"),
+                _tuntun_change(snapshot.three_month_change, snapshot.three_month_percent, "3M"),
+            )
+            if snapshot is not None
+            else (
+                _tuntun_change(None, None, "1D"),
+                _tuntun_change(None, None, "1W"),
+                _tuntun_change(None, None, "1M"),
+                _tuntun_change(None, None, "3M"),
+            )
+        ),
+    ]
+    return "\n\n".join((f"### {_PROVIDER_EMOJIS['Tuntun']} {item.title}", summary, "\n".join(market_lines)))
+
+
+def _entry(item: SelectionCandidate) -> str:
+    if item.provider is Provider.TUNTUN and item.title:
+        return _tuntun_entry(item)
+    return _legacy_entry(item)
 
 
 def _require_discord_length(content: str) -> None:
@@ -316,6 +361,15 @@ def _persist_text_payload(
     save_state(state)
 
 
+def _existing_text_payload(state: dict[str, object], item: SelectionCandidate) -> str | None:
+    records = _delivery_records(state)
+    record = records.get(item.key)
+    if not isinstance(record, dict):
+        return None
+    content = record.get("content")
+    return content if isinstance(content, str) and content else None
+
+
 def _update_delivery_record(state: dict[str, object], item: SelectionCandidate, **changes: object) -> None:
     records = _delivery_records(state)
     record = records.get(item.key)
@@ -381,9 +435,11 @@ async def deliver_event(
         raise ValueError("delivery time must be timezone-aware")
     item = _require_selection_candidate(event)
     items = [item]
-    content = format_news_item(item)
     event_key = f"{item.key}:text"
-    _persist_text_payload(state, items, content, event_key)
+    content = _existing_text_payload(state, item)
+    if content is None:
+        content = format_news_item(item)
+        _persist_text_payload(state, items, content, event_key)
     try:
         message_id = post_discord_text(content, channel_id, event_key, dry_run=dry_run)
     except DiscordRateLimited as error:

@@ -58,6 +58,19 @@ def test_tuntun_issuer_headline_with_decorative_prefix_is_ticker_led():
     assert [candidate.ticker for candidate in candidates] == ["SINI"]
 
 
+def test_tuntun_long_news_with_topic_led_headline_extracts_issuer_ticker(load_fixture):
+    candidates = TuntunNewsAdapter().extract_candidates(
+        message_id=14784,
+        text=load_fixture("tuntun-long-news.txt"),
+        published_at=datetime(2026, 9, 11, 4, 18, 44, tzinfo=timezone.utc),
+        topic_id=3743,
+        direct_image=False,
+    )
+
+    assert [candidate.ticker for candidate in candidates] == ["KLBF"]
+    assert candidates[0].source_kind.value == "tuntun_standalone"
+
+
 def test_tuntun_decorated_brand_headline_prefers_parenthesized_idx_ticker():
     candidates = TuntunNewsAdapter().extract_candidates(
         message_id=14281,

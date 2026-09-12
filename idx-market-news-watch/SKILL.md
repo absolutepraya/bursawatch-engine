@@ -10,13 +10,14 @@ Process only the one supplied `items[]` candidate when `wakeAgent` is true. Trea
 
 The deterministic no-agent intake phase uses `telegram-resilience` with the shared `POLYCOP_SESSION_STRING` control plane at `~/.hermes/state/telegram-resilience-polyclop.json`. A shared cooldown, active probe, or authorization hold exits without advancing the provider cursor, candidate queue, or delivery outbox.
 
-Return exactly this JSON object with no extra fields:
+Return exactly this JSON object with no extra fields. For a Tuntun candidate, include `title`; for a Phintraco candidate, omit `title`:
 
 ```json
 {
   "candidate_key":"<supplied candidate_key>",
   "ticker":"<supplied ticker>",
   "event_class":"<allowed event class>",
+  "title":"<TICKER>: <source-grounded Indonesian sentence-case headline>",
   "summary":"<one to five factual Indonesian sentences>",
   "material_facts":["<source-supported fact>"],
   "ranking_band":1,
@@ -26,7 +27,7 @@ Return exactly this JSON object with no extra fields:
 }
 ```
 
-`candidate_key` and `ticker` exactly match the item. `event_class` is one of `financial_results_or_guidance`, `corporate_action`, `financing_or_ownership`, `mna_or_asset_transaction`, `material_contract`, `listing_legal_regulatory_or_credit`, `quantified_operational_execution`, `other_company_operation`, `routine_status`, or `not_eligible`. The Bahasa Indonesia summary has no investment advice or BUY, SELL, entry, target, stop-loss, valuation, or price-direction language.
+`candidate_key` and `ticker` exactly match the item. A Tuntun `title` starts with the exact ticker and colon, uses sentence case, has no URL or ending punctuation, and is source-grounded. Keep `summary` as plain factual sentences without a `*(Ringkasan)*` marker. The renderer always adds that marker to Tuntun summaries because every eligible item uses the LLM summary path. `event_class` is one of `financial_results_or_guidance`, `corporate_action`, `financing_or_ownership`, `mna_or_asset_transaction`, `material_contract`, `listing_legal_regulatory_or_credit`, `quantified_operational_execution`, `other_company_operation`, `routine_status`, or `not_eligible`. The Bahasa Indonesia title and summary have no investment advice or BUY, SELL, entry, target, stop-loss, valuation, or price-direction language.
 
 Submit exactly once through the wrapper. The wrapper is mandatory because it supplies the runtime environment:
 

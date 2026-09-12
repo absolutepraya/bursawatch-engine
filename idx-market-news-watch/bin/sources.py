@@ -17,6 +17,7 @@ _SPECIAL_TOPIC = re.compile(
     rf"^Special Topics?\s*:\s*(?P<ticker>{_IDX_TICKER})\s*(?:\([^\r\n)]+\))?\s*:\s*\S.*$"
 )
 _TUNTUN_DECORATED_HEADLINE = re.compile(rf"^📰\s*(?P<ticker>{_IDX_TICKER})(?=\s)")
+_TUNTUN_HEADLINE_TICKER = re.compile(rf"(?<![A-Z0-9])(?P<ticker>{_IDX_TICKER})(?![A-Z0-9])")
 _TUNTUN_DECORATED_PARENTHESIZED_TICKER = re.compile(
     rf"^📰\s*[^\r\n()]+?\s*\((?P<ticker>{_IDX_TICKER})\)(?=\s|:|-|$)"
 )
@@ -156,6 +157,27 @@ class TuntunNewsAdapter:
             standalone = _TUNTUN_DECORATED_PARENTHESIZED_TICKER.match(headline)
         if standalone is None:
             standalone = _TUNTUN_DECORATED_HEADLINE.match(headline)
+        if standalone is None and headline.startswith("📰"):
+            ticker = next(
+                (
+                    issuer_ticker
+                    for match in _TUNTUN_HEADLINE_TICKER.finditer(headline)
+                    if (issuer_ticker := _issuer_ticker(match["ticker"])) is not None
+                ),
+                None,
+            )
+            if ticker is not None:
+                return [
+                    _candidate(
+                        self.provider,
+                        message_id,
+                        ticker,
+                        SourceKind.TUNTUN_STANDALONE,
+                        published_at,
+                        content,
+                        direct_image,
+                    )
+                ]
         if standalone is None:
             return []
         ticker = _ticker_from_match(standalone)

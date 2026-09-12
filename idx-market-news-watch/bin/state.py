@@ -87,8 +87,20 @@ _CANDIDATE_PAYLOAD_KEYS = frozenset(
     }
 )
 _RETRY_KEYS = frozenset({"attempts", "next_attempt_at", "last_error"})
-_SELECTION_DATA_KEYS = frozenset({"summary", "ranking_band", "material_facts", "dedupe_facts"})
-_LEGACY_SELECTION_DATA_KEYS = _SELECTION_DATA_KEYS - {"summary"}
+_BASE_SELECTION_DATA_KEYS = frozenset({"summary", "ranking_band", "material_facts", "dedupe_facts"})
+_SELECTION_DATA_KEYS = _BASE_SELECTION_DATA_KEYS | {"title"}
+_LEGACY_SELECTION_DATA_KEYS = _BASE_SELECTION_DATA_KEYS - {"summary"}
+_SELECTION_DATA_KEYS_WITH_TITLE = _SELECTION_DATA_KEYS
+_LEGACY_SELECTION_DATA_KEYS_WITH_TITLE = _LEGACY_SELECTION_DATA_KEYS | {"title"}
+_VALID_SELECTION_DATA_KEYS = frozenset(
+    {
+        _BASE_SELECTION_DATA_KEYS,
+        _SELECTION_DATA_KEYS,
+        _LEGACY_SELECTION_DATA_KEYS,
+        _SELECTION_DATA_KEYS_WITH_TITLE,
+        _LEGACY_SELECTION_DATA_KEYS_WITH_TITLE,
+    }
+)
 
 
 class StateBlockedError(RuntimeError):
@@ -215,10 +227,12 @@ def _validate_retry(value: object, field_name: str) -> None:
 def _validate_selection_data(value: object, field_name: str) -> None:
     if value is None:
         return
-    if not isinstance(value, dict) or set(value) not in {_SELECTION_DATA_KEYS, _LEGACY_SELECTION_DATA_KEYS}:
+    if not isinstance(value, dict) or frozenset(value) not in _VALID_SELECTION_DATA_KEYS:
         raise StateBlockedError(f"malformed state: {field_name} has invalid selection data")
     if "summary" in value and (not isinstance(value["summary"], str) or not value["summary"].strip()):
         raise StateBlockedError(f"malformed state: {field_name}.summary must be nonempty text")
+    if "title" in value and (not isinstance(value["title"], str) or not value["title"].strip()):
+        raise StateBlockedError(f"malformed state: {field_name}.title must be nonempty text")
     ranking_band = value["ranking_band"]
     if not _is_plain_int(ranking_band) or not 1 <= ranking_band <= 5:
         raise StateBlockedError(f"malformed state: {field_name}.ranking_band must be from 1 through 5")
