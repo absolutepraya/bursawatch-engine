@@ -15,6 +15,7 @@ import tempfile
 from domain import (
     Classification,
     CompanyCandidate,
+    Destination,
     EventClass,
     Provider,
     RetryState,
@@ -75,7 +76,7 @@ _CANDIDATE_KEYS = frozenset(
     }
 )
 _LEGACY_CANDIDATE_KEYS = _CANDIDATE_KEYS - {"selection"}
-_CANDIDATE_PAYLOAD_KEYS = frozenset(
+_LEGACY_CANDIDATE_PAYLOAD_KEYS = frozenset(
     {
         "provider",
         "source_message_id",
@@ -86,12 +87,15 @@ _CANDIDATE_PAYLOAD_KEYS = frozenset(
         "direct_image",
     }
 )
+_CANDIDATE_PAYLOAD_KEYS = _LEGACY_CANDIDATE_PAYLOAD_KEYS | {"candidate_id", "source_name"}
 _RETRY_KEYS = frozenset({"attempts", "next_attempt_at", "last_error"})
 _BASE_SELECTION_DATA_KEYS = frozenset({"summary", "ranking_band", "material_facts", "dedupe_facts"})
 _SELECTION_DATA_KEYS = _BASE_SELECTION_DATA_KEYS | {"title"}
 _LEGACY_SELECTION_DATA_KEYS = _BASE_SELECTION_DATA_KEYS - {"summary"}
 _SELECTION_DATA_KEYS_WITH_TITLE = _SELECTION_DATA_KEYS
 _LEGACY_SELECTION_DATA_KEYS_WITH_TITLE = _LEGACY_SELECTION_DATA_KEYS | {"title"}
+_SELECTION_DATA_KEYS_WITH_ROUTE = _SELECTION_DATA_KEYS | {"route"}
+_SELECTION_DATA_KEYS_WITH_TITLE_AND_ROUTE = _SELECTION_DATA_KEYS_WITH_TITLE | {"route"}
 _VALID_SELECTION_DATA_KEYS = frozenset(
     {
         _BASE_SELECTION_DATA_KEYS,
@@ -99,6 +103,8 @@ _VALID_SELECTION_DATA_KEYS = frozenset(
         _LEGACY_SELECTION_DATA_KEYS,
         _SELECTION_DATA_KEYS_WITH_TITLE,
         _LEGACY_SELECTION_DATA_KEYS_WITH_TITLE,
+        _SELECTION_DATA_KEYS_WITH_ROUTE,
+        _SELECTION_DATA_KEYS_WITH_TITLE_AND_ROUTE,
     }
 )
 
@@ -181,19 +187,24 @@ def _candidate_payload(candidate: CompanyCandidate) -> dict[str, object]:
         "provider": candidate.provider.value,
         "source_message_id": candidate.source_message_id,
         "ticker": candidate.ticker,
+        "candidate_id": candidate.candidate_id,
         "source_kind": candidate.source_kind.value,
         "published_at": candidate.published_at.isoformat(),
         "source_text": candidate.source_text,
         "direct_image": candidate.direct_image,
+        "source_name": candidate.source_name,
     }
 
 
 def _candidate_from_payload(payload: object, field_name: str) -> CompanyCandidate:
-    if not isinstance(payload, dict) or set(payload) != _CANDIDATE_PAYLOAD_KEYS:
+    if not isinstance(payload, dict) or frozenset(payload) not in {
+        _LEGACY_CANDIDATE_PAYLOAD_KEYS,
+        _CANDIDATE_PAYLOAD_KEYS,
+    }:
         raise StateBlockedError(f"malformed state: {field_name} has an invalid candidate payload")
     if not _is_plain_int(payload["source_message_id"]):
         raise StateBlockedError(f"malformed state: {field_name}.source_message_id must be an integer")
-    if not isinstance(payload["ticker"], str) or not isinstance(payload["source_text"], str):
+    if (payload["ticker"] is not None and not isinstance(payload["ticker"], str)) or not isinstance(payload["source_text"], str):
         raise StateBlockedError(f"malformed state: {field_name} has invalid candidate text")
     if not isinstance(payload["direct_image"], bool):
         raise StateBlockedError(f"malformed state: {field_name}.direct_image must be boolean")
@@ -207,6 +218,8 @@ def _candidate_from_payload(payload: object, field_name: str) -> CompanyCandidat
             published_at=published_at,
             source_text=payload["source_text"],
             direct_image=payload["direct_image"],
+            candidate_id=payload.get("candidate_id", ""),
+            source_name=payload.get("source_name", "Tuntun Sekuritas"),
         )
     except (TypeError, ValueError) as error:
         raise StateBlockedError(f"malformed state: {field_name} has an invalid candidate") from error
@@ -233,6 +246,11 @@ def _validate_selection_data(value: object, field_name: str) -> None:
         raise StateBlockedError(f"malformed state: {field_name}.summary must be nonempty text")
     if "title" in value and (not isinstance(value["title"], str) or not value["title"].strip()):
         raise StateBlockedError(f"malformed state: {field_name}.title must be nonempty text")
+    if "route" in value:
+        try:
+            Destination(value["route"])
+        except (TypeError, ValueError) as error:
+            raise StateBlockedError(f"malformed state: {field_name}.route is invalid") from error
     ranking_band = value["ranking_band"]
     if not _is_plain_int(ranking_band) or not 1 <= ranking_band <= 5:
         raise StateBlockedError(f"malformed state: {field_name}.ranking_band must be from 1 through 5")

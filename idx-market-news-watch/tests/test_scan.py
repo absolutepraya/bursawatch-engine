@@ -149,6 +149,86 @@ def test_route_pending_suppresses_same_provider_repost(tmp_state, monkeypatch):
     assert state["dedupe"] == {repost.key: original.key}
 
 
+def test_completed_tuntun_update_keeps_its_lead_and_two_best_sections_in_their_routes(tmp_state, monkeypatch):
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_state))
+    now = datetime.fromisoformat("2026-09-11T12:35:30+07:00")
+    state = empty_state()
+    definitions = (
+        ("lead", "BUMI", SourceKind.TUNTUN_UPDATE_LEAD, 1, "id_stocks_news"),
+        ("macro-1", None, SourceKind.TUNTUN_UPDATE_SECTION, 2, "macro_news"),
+        ("macro-2", None, SourceKind.TUNTUN_UPDATE_SECTION, 3, "macro_news"),
+        ("industry-1", None, SourceKind.TUNTUN_UPDATE_SECTION, 1, "macro_news"),
+        ("industry-2", None, SourceKind.TUNTUN_UPDATE_SECTION, 4, "exclude"),
+    )
+    candidates = []
+    for candidate_id, ticker, source_kind, ranking_band, route in definitions:
+        candidate = CompanyCandidate(
+            provider=Provider.TUNTUN,
+            source_message_id=14786,
+            ticker=ticker,
+            candidate_id=candidate_id,
+            source_kind=source_kind,
+            published_at=now,
+            source_text=f"{candidate_id} source evidence.",
+            direct_image=False,
+        )
+        candidates.append(candidate)
+        enqueue_candidate(state, candidate, now)
+        if candidate_id == "industry-2":
+            continue
+        record = state["candidates"][candidate.key]
+        record["phase"] = "pending_selection"
+        record["classification"] = EventClass.OTHER_COMPANY_OPERATION.value
+        record["selection"] = {
+            "summary": "Source evidence is material.",
+            "ranking_band": ranking_band,
+            "material_facts": [f"{candidate_id} fact"],
+            "dedupe_facts": [f"{candidate_id} fact"],
+            "title": f"{ticker}: Source evidence" if ticker else "Source evidence",
+            "route": route,
+        }
+
+    assert scan._route_pending(state) == 0
+    assert state["candidates"][candidates[0].key]["phase"] == "pending_selection"
+
+    final = candidates[-1]
+    record = state["candidates"][final.key]
+    record["phase"] = "pending_selection"
+    record["classification"] = EventClass.NOT_ELIGIBLE.value
+    record["selection"] = {
+        "summary": "The item is not eligible.",
+        "ranking_band": 4,
+        "material_facts": ["industry-2 fact"],
+        "dedupe_facts": ["industry-2 fact"],
+        "title": "Industry item",
+        "route": "exclude",
+    }
+
+    assert scan._route_pending(state) == 5
+    phases = {candidate.candidate_id: state["candidates"][candidate.key]["phase"] for candidate in candidates}
+    assert phases == {
+        "lead": "pending_delivery",
+        "macro-1": "pending_delivery",
+        "macro-2": "suppressed_rank",
+        "industry-1": "pending_delivery",
+        "industry-2": "suppressed_ineligible",
+    }
+
+    posted = []
+
+    async def deliver(current_state, item, channel_id, *_args, **_kwargs):
+        posted.append((item.candidate.candidate_id, channel_id))
+        return True
+
+    monkeypatch.setattr(scan, "deliver_event", deliver)
+    assert asyncio.run(scan._drain_delivery(state, None, now, dry_run=True)) == 3
+    assert posted == [
+        ("industry-1", scan.MACRO_CHANNEL_ID),
+        ("lead", scan.ALERT_CHANNEL_ID),
+        ("macro-1", scan.MACRO_CHANNEL_ID),
+    ]
+
+
 def test_run_delivers_every_eligible_event_immediately_as_standalone_news(tmp_state, monkeypatch):
     _bootstrapped_state(tmp_state)
     fake_clients = FakeClients()
@@ -168,6 +248,7 @@ def test_run_delivers_every_eligible_event_immediately_as_standalone_news(tmp_st
         "ranking_band": 1,
         "dedupe_facts": ["contract", "value"],
         "eligible": True,
+        "route": "id_stocks_news",
         "source_evidence": "The provider message names the contract.",
     }
     submit_result = asyncio.run(
@@ -321,6 +402,7 @@ def test_news_delivery_failure_stays_delivery_work_and_retries_once(tmp_state, m
         "ranking_band": 1,
         "dedupe_facts": ["contract", "value"],
         "eligible": True,
+        "route": "id_stocks_news",
         "source_evidence": "The provider message names the contract.",
     }
     failed = asyncio.run(scan.submit_classification_payload(payload, datetime.fromisoformat("2026-07-14T16:29:00+07:00"), fake_clients))
@@ -364,6 +446,7 @@ def test_failed_tier_two_delivery_retries_without_waiting_for_a_scheduled_window
         "ranking_band": 1,
         "dedupe_facts": ["operations", "activity"],
         "eligible": True,
+        "route": "id_stocks_news",
         "source_evidence": "The provider message names the operational update.",
     }
     failed = asyncio.run(
@@ -405,6 +488,7 @@ def test_tier_two_delivery_does_not_wait_for_a_market_window(tmp_state, monkeypa
                 "ranking_band": 1,
                 "dedupe_facts": ["operations", "activity"],
                 "eligible": True,
+                "route": "id_stocks_news",
                 "source_evidence": "The provider message names the operational update.",
             },
             datetime.fromisoformat("2026-07-14T16:35:00+07:00"),
@@ -463,6 +547,7 @@ def test_submit_classification_cli_is_text_only_even_when_source_has_image(
         "ranking_band": 1,
         "dedupe_facts": ["contract", "value"],
         "eligible": True,
+        "route": "id_stocks_news",
         "source_evidence": "The provider message names the contract.",
     }
 
@@ -496,6 +581,7 @@ def test_reloaded_failed_delivery_retries_once_without_a_hermes_wake(
         "ranking_band": 1,
         "dedupe_facts": ["contract", "value"],
         "eligible": True,
+        "route": "id_stocks_news",
         "source_evidence": "The provider message names the contract.",
     }
     scan.submit_agent_classification(state, candidate, payload, now)

@@ -348,6 +348,7 @@ def test_validated_selection_data_survives_reload_for_duplicate_and_digest_ranki
         }
         if provider is Provider.TUNTUN:
             payload["title"] = f"{ticker}: Operational update"
+            payload["route"] = "id_stocks_news"
         submit_classification(
             current_state,
             claimed,
@@ -401,6 +402,7 @@ def test_legacy_pending_selection_reloads_as_reclassifiable_and_selectable(tmp_p
             "ranking_band": 1,
             "dedupe_facts": ["production volume", "reporting period"],
             "eligible": True,
+            "route": "id_stocks_news",
             "source_evidence": "The provider message directly states the update.",
         },
         now,

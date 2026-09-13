@@ -8,7 +8,7 @@ import pytest
 import delivery
 from market_data import MarketSnapshot
 import state as state_module
-from domain import CompanyCandidate, EventClass, Provider, SourceKind
+from domain import CompanyCandidate, Destination, EventClass, Provider, SourceKind
 from selection import SelectionCandidate
 from state import empty_state, enqueue_candidate, load_state
 
@@ -32,6 +32,7 @@ def _item(
     facts=("contract value",),
     source_text="source text is not reposted",
     title="",
+    source_name="Tuntun Sekuritas",
 ):
     if provider is Provider.TUNTUN and not title:
         title = f"{ticker}: Test news"
@@ -44,6 +45,7 @@ def _item(
             published_at=published_at,
             source_text=source_text,
             direct_image=False,
+            source_name=source_name,
         ),
         event_class=event_class,
         ranking_band=1,
@@ -94,7 +96,8 @@ def test_news_item_has_no_delivery_window_heading(dewa_tier_one):
     )
     assert all(label not in alert for label in ("PRE-MARKET", "POST-MARKET", "INTRA-DAY"))
     assert "┈" * 13 not in alert
-    assert "[Sumber]" not in alert
+    assert "*Sumber: Tuntun Sekuritas*" in alert
+    assert "[View on Telegram](<https://t.me/tuntunsekuritas/13597>)" in alert
     assert "BUY" not in alert
     assert (
         "Harga terakhir (IDR): **-**\n"
@@ -153,6 +156,7 @@ def test_tuntun_entry_uses_generated_title_and_four_horizons(monkeypatch):
         facts=("RAJA acquired a 5% stake.",),
         source_text="RAJA: Akuisisi Layar Nusantara Gas\nRAJA mengakuisisi 5% saham.",
         title="RAJA: Akuisisi Layar Nusantara Gas",
+        source_name="IDXChannel",
     )
     monkeypatch.setattr(
         delivery,
@@ -171,10 +175,71 @@ def test_tuntun_entry_uses_generated_title_and_four_horizons(monkeypatch):
         "<:green:1531274822221434911> 1D: **+5 (+0.61%)**, "
         "<:green:1531274822221434911> 1W: **+10 (+1.23%)**, "
         "<:green:1531274822221434911> 1M: **+5 (+0.61%)**, "
-        "<:green:1531274822221434911> 3M: **+10 (+1.23%)**"
+        "<:green:1531274822221434911> 3M: **+10 (+1.23%)**\n\n"
+        "*Sumber: IDXChannel*\n\n"
+        "[View on Telegram](<https://t.me/tuntunsekuritas/14040>)"
     )
     assert "(PT Rukun Raharja Tbk)" not in alert
     assert "*Harga terakhir" not in alert
+
+
+def test_tuntun_macro_card_uses_the_source_and_telegram_link_without_market_data():
+    item = SelectionCandidate(
+        candidate=CompanyCandidate(
+            provider=Provider.TUNTUN,
+            source_message_id=14786,
+            ticker=None,
+            candidate_id="macro-1",
+            source_kind=SourceKind.TUNTUN_UPDATE_SECTION,
+            published_at=datetime(2026, 9, 11, 5, 35, 30, tzinfo=timezone.utc),
+            source_text="ECB menaikkan suku bunga deposit.",
+            direct_image=False,
+        ),
+        event_class=EventClass.OTHER_COMPANY_OPERATION,
+        ranking_band=1,
+        material_facts=("ECB menaikkan suku bunga deposit.",),
+        dedupe_facts=("ECB deposit rate",),
+        summary="ECB menaikkan suku bunga deposit sebesar 25 basis poin.",
+        title="ECB naikkan suku bunga deposit 25 bps",
+        route=Destination.MACRO_NEWS,
+    )
+
+    alert = delivery.format_news_item(item)
+
+    assert alert == (
+        "### <:tuntun:1531272430985937086> ECB naikkan suku bunga deposit 25 bps\n\n"
+        "*(Ringkasan)* ECB menaikkan suku bunga deposit sebesar 25 basis poin.\n\n"
+        "*Sumber: Tuntun Sekuritas*\n\n"
+        "[View on Telegram](<https://t.me/tuntunsekuritas/14786>)"
+    )
+    assert "Harga terakhir" not in alert
+
+
+def test_tickered_tuntun_macro_card_has_no_issuer_price_block():
+    item = SelectionCandidate(
+        candidate=CompanyCandidate(
+            provider=Provider.TUNTUN,
+            source_message_id=14793,
+            ticker="BUMI",
+            candidate_id="industry-1",
+            source_kind=SourceKind.TUNTUN_UPDATE_SECTION,
+            published_at=datetime(2026, 9, 11, 10, 49, 20, tzinfo=timezone.utc),
+            source_text="Harga minyak meningkat.",
+            direct_image=False,
+        ),
+        event_class=EventClass.OTHER_COMPANY_OPERATION,
+        ranking_band=1,
+        material_facts=("Harga minyak meningkat.",),
+        dedupe_facts=("harga minyak",),
+        summary="Harga minyak meningkat karena risiko pasokan.",
+        title="Harga minyak meningkat karena risiko pasokan",
+        route=Destination.MACRO_NEWS,
+    )
+
+    alert = delivery.format_news_item(item)
+
+    assert "Harga terakhir" not in alert
+    assert "BUMI:" not in alert
 
 
 def test_tuntun_entry_always_marks_the_llm_summary():

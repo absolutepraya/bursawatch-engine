@@ -13,7 +13,7 @@ from tempfile import NamedTemporaryFile
 
 import requests
 
-from domain import CompanyCandidate, Provider, retry_delay_minutes, source_message_url
+from domain import CompanyCandidate, Destination, Provider, retry_delay_minutes, source_message_url
 from market_data import fallback_company_name, get_market_snapshot
 from selection import SelectionCandidate
 from state import StateBlockedError, mark_terminal, save_state
@@ -132,26 +132,35 @@ def _tuntun_entry(item: SelectionCandidate) -> str:
     summary = _render_tuntun_summary(item)
     if _contains_investment_language(summary):
         raise ValueError("delivery facts must not contain investment language")
-    snapshot = get_market_snapshot(item.ticker, item.candidate.source_text)
-    market_lines = [
-        f"Harga terakhir (IDR): **{_idr(snapshot.latest_price) if snapshot is not None else '-'}**",
-        ", ".join(
-            (
-                _tuntun_change(snapshot.one_day_change, snapshot.one_day_percent, "1D"),
-                _tuntun_change(snapshot.one_week_change, snapshot.one_week_percent, "1W"),
-                _tuntun_change(snapshot.one_month_change, snapshot.one_month_percent, "1M"),
-                _tuntun_change(snapshot.three_month_change, snapshot.three_month_percent, "3M"),
-            )
-            if snapshot is not None
-            else (
-                _tuntun_change(None, None, "1D"),
-                _tuntun_change(None, None, "1W"),
-                _tuntun_change(None, None, "1M"),
-                _tuntun_change(None, None, "3M"),
-            )
-        ),
-    ]
-    return "\n\n".join((f"### {_PROVIDER_EMOJIS['Tuntun']} {item.title}", summary, "\n".join(market_lines)))
+    sections = [f"### {_PROVIDER_EMOJIS['Tuntun']} {item.title}", summary]
+    if item.route is Destination.ID_STOCKS_NEWS and item.ticker is not None:
+        snapshot = get_market_snapshot(item.ticker, item.candidate.source_text)
+        market_lines = [
+            f"Harga terakhir (IDR): **{_idr(snapshot.latest_price) if snapshot is not None else '-'}**",
+            ", ".join(
+                (
+                    _tuntun_change(snapshot.one_day_change, snapshot.one_day_percent, "1D"),
+                    _tuntun_change(snapshot.one_week_change, snapshot.one_week_percent, "1W"),
+                    _tuntun_change(snapshot.one_month_change, snapshot.one_month_percent, "1M"),
+                    _tuntun_change(snapshot.three_month_change, snapshot.three_month_percent, "3M"),
+                )
+                if snapshot is not None
+                else (
+                    _tuntun_change(None, None, "1D"),
+                    _tuntun_change(None, None, "1W"),
+                    _tuntun_change(None, None, "1M"),
+                    _tuntun_change(None, None, "3M"),
+                )
+            ),
+        ]
+        sections.append("\n".join(market_lines))
+    sections.extend(
+        (
+            f"*Sumber: {item.candidate.source_name}*",
+            f"[View on Telegram](<{source_message_url(item.candidate)}>)",
+        )
+    )
+    return "\n\n".join(sections)
 
 
 def _entry(item: SelectionCandidate) -> str:

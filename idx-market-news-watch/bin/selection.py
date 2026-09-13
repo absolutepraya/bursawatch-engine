@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from domain import Classification, CompanyCandidate, EventClass, Provider, SourceKind, Tier, tier_for_event_class
+from domain import Classification, CompanyCandidate, Destination, EventClass, Provider, SourceKind, Tier, tier_for_event_class
 from state import StateBlockedError, save_state
 
 
@@ -82,12 +82,15 @@ class SelectionCandidate:
     dedupe_facts: tuple[str, ...]
     summary: str = ""
     title: str = ""
+    route: Destination = Destination.ID_STOCKS_NEWS
 
     def __post_init__(self) -> None:
         if not isinstance(self.candidate, CompanyCandidate):
             raise ValueError("candidate must be a CompanyCandidate")
         if not isinstance(self.event_class, EventClass):
             raise ValueError("event_class must be an EventClass")
+        if not isinstance(self.route, Destination):
+            raise ValueError("route must be a Destination")
         if (
             not isinstance(self.ranking_band, int)
             or isinstance(self.ranking_band, bool)
@@ -124,6 +127,7 @@ class SelectionCandidate:
             dedupe_facts=submission["dedupe_facts"],  # type: ignore[arg-type]
             summary=submission.get("summary", ""),  # type: ignore[arg-type]
             title=submission.get("title", ""),  # type: ignore[arg-type]
+            route=Destination(submission.get("route", Destination.ID_STOCKS_NEWS.value)),
         )
 
     @property
@@ -135,7 +139,7 @@ class SelectionCandidate:
         return self.candidate.provider
 
     @property
-    def ticker(self) -> str:
+    def ticker(self) -> str | None:
         return self.candidate.ticker
 
     @property
@@ -162,7 +166,13 @@ def is_confident_duplicate(left: SelectionCandidate, right: SelectionCandidate) 
     """Return true only for a same-event duplicate with strong source evidence."""
     if not isinstance(left, SelectionCandidate) or not isinstance(right, SelectionCandidate):
         raise ValueError("duplicate checks require SelectionCandidate values")
-    if left.ticker != right.ticker or left.event_class is not right.event_class:
+    if (
+        left.route is not right.route
+        or left.ticker is None
+        or right.ticker is None
+        or left.ticker != right.ticker
+        or left.event_class is not right.event_class
+    ):
         return False
     interval = _SAME_PROVIDER_DUPLICATE_INTERVAL if left.provider is right.provider else _DUPLICATE_INTERVAL
     if abs(left.published_at - right.published_at) > interval:
@@ -199,6 +209,8 @@ def _selection_candidate_from_record(key: str, record: Mapping[str, object]) -> 
             published_at=datetime.fromisoformat(candidate_payload["published_at"]),
             source_text=candidate_payload["source_text"],
             direct_image=candidate_payload["direct_image"],
+            candidate_id=candidate_payload.get("candidate_id", ""),
+            source_name=candidate_payload.get("source_name", "Tuntun Sekuritas"),
         )
         item = SelectionCandidate(
             candidate=candidate,
@@ -208,6 +220,7 @@ def _selection_candidate_from_record(key: str, record: Mapping[str, object]) -> 
             dedupe_facts=selection_data["dedupe_facts"],
             summary=selection_data.get("summary", ""),
             title=selection_data.get("title", ""),
+            route=Destination(selection_data.get("route", Destination.ID_STOCKS_NEWS.value)),
         )
     except (KeyError, TypeError, ValueError) as error:
         raise StateBlockedError(f"candidate {key!r} has invalid durable selection data") from error
@@ -249,13 +262,27 @@ def assign_tier(state: dict[str, object], item: SelectionCandidate) -> Tier | No
     if record.get("phase") != "pending_selection":
         raise StateBlockedError(f"candidate {item.key!r} is not awaiting tier selection")
 
+    if item.route is Destination.EXCLUDE:
+        _set_phase(record, "suppressed_ineligible")
+        save_state(state)
+        return None
     tier = tier_for_event_class(item.event_class)
-    if tier in {Tier.ONE, Tier.TWO}:
+    if item.route is Destination.MACRO_NEWS or tier in {Tier.ONE, Tier.TWO}:
         _set_phase(record, "pending_delivery")
     else:
         _set_phase(record, "suppressed_ineligible")
     save_state(state)
     return tier
+
+
+def rank_update_sections(candidates: Sequence[SelectionCandidate]) -> list[SelectionCandidate]:
+    """Rank already-classified Macro & Global and Industry items for an update's two-card budget."""
+    if isinstance(candidates, (str, bytes)) or any(not isinstance(item, SelectionCandidate) for item in candidates):
+        raise ValueError("candidates must contain only SelectionCandidate values")
+    return sorted(
+        candidates,
+        key=lambda item: (item.ranking_band, -item.material_fact_count, item.key),
+    )
 
 
 def _tier_two_sort_key(item: SelectionCandidate) -> tuple[int, int, int, datetime, str]:
