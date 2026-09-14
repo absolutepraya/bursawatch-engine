@@ -87,7 +87,8 @@ _LEGACY_CANDIDATE_PAYLOAD_KEYS = frozenset(
         "direct_image",
     }
 )
-_CANDIDATE_PAYLOAD_KEYS = _LEGACY_CANDIDATE_PAYLOAD_KEYS | {"candidate_id", "source_name"}
+_CANDIDATE_PAYLOAD_KEYS = _LEGACY_CANDIDATE_PAYLOAD_KEYS | {"candidate_id"}
+_SOURCE_ATTRIBUTION_CANDIDATE_PAYLOAD_KEYS = _CANDIDATE_PAYLOAD_KEYS | {"source_name"}
 _RETRY_KEYS = frozenset({"attempts", "next_attempt_at", "last_error"})
 _BASE_SELECTION_DATA_KEYS = frozenset({"summary", "ranking_band", "material_facts", "dedupe_facts"})
 _SELECTION_DATA_KEYS = _BASE_SELECTION_DATA_KEYS | {"title"}
@@ -192,7 +193,6 @@ def _candidate_payload(candidate: CompanyCandidate) -> dict[str, object]:
         "published_at": candidate.published_at.isoformat(),
         "source_text": candidate.source_text,
         "direct_image": candidate.direct_image,
-        "source_name": candidate.source_name,
     }
 
 
@@ -200,6 +200,7 @@ def _candidate_from_payload(payload: object, field_name: str) -> CompanyCandidat
     if not isinstance(payload, dict) or frozenset(payload) not in {
         _LEGACY_CANDIDATE_PAYLOAD_KEYS,
         _CANDIDATE_PAYLOAD_KEYS,
+        _SOURCE_ATTRIBUTION_CANDIDATE_PAYLOAD_KEYS,
     }:
         raise StateBlockedError(f"malformed state: {field_name} has an invalid candidate payload")
     if not _is_plain_int(payload["source_message_id"]):
@@ -219,7 +220,6 @@ def _candidate_from_payload(payload: object, field_name: str) -> CompanyCandidat
             source_text=payload["source_text"],
             direct_image=payload["direct_image"],
             candidate_id=payload.get("candidate_id", ""),
-            source_name=payload.get("source_name", "Tuntun Sekuritas"),
         )
     except (TypeError, ValueError) as error:
         raise StateBlockedError(f"malformed state: {field_name} has an invalid candidate") from error

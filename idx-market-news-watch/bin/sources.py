@@ -11,7 +11,7 @@ from state import complete_provider_bootstrap, provider_bootstrap_complete
 _TUNTUN_TOPIC_ID = 3743
 _IDX_TICKER = r"[A-Z]{4}"
 _TUNTUN_UPDATE_HEADER = re.compile(r"^(?:Midday|Evening) Update_Tuntun Sekuritas_\d{8}$", re.IGNORECASE)
-_TUNTUN_SOURCE_LINE = re.compile(r"^Sumber\s*:\s*(?P<source>.+?)\s*$", re.IGNORECASE)
+_TUNTUN_SOURCE_LINE = re.compile(r"^Sumber\s*:\s*.+?\s*$", re.IGNORECASE)
 _TICKER_LEAD = re.compile(
     rf"^(?P<ticker>{_IDX_TICKER})\s*(?:\([^\r\n)]+\))?\s*:\s*\S.*$"
 )
@@ -57,7 +57,6 @@ def _candidate(
     direct_image: bool,
     *,
     candidate_id: str = "",
-    source_name: str = "Tuntun Sekuritas",
 ) -> CompanyCandidate:
     return CompanyCandidate(
         provider=provider,
@@ -68,7 +67,6 @@ def _candidate(
         source_text=source_text,
         direct_image=direct_image,
         candidate_id=candidate_id,
-        source_name=source_name,
     )
 
 
@@ -92,17 +90,10 @@ def _headline_ticker(headline: str) -> str | None:
     )
 
 
-def _source_attribution(content: str) -> tuple[str, str]:
-    lines = content.splitlines()
-    source_name = "Tuntun Sekuritas"
-    retained: list[str] = []
-    for line in lines:
-        match = _TUNTUN_SOURCE_LINE.match(line.strip())
-        if match is None:
-            retained.append(line)
-            continue
-        source_name = " ".join(match["source"].strip(" *_").split()) or source_name
-    return "\n".join(retained).strip(), source_name
+def _strip_source_footer(content: str) -> str:
+    return "\n".join(
+        line for line in content.splitlines() if _TUNTUN_SOURCE_LINE.match(line.strip()) is None
+    ).strip()
 
 
 def _section_index(lines: list[str], name: str) -> int | None:
@@ -157,19 +148,19 @@ class TuntunNewsAdapter:
         if topic_id != _TUNTUN_TOPIC_ID:
             return []
 
-        content, source_name = _source_attribution(text.strip())
+        content = _strip_source_footer(text.strip())
         if not content:
             return []
         lines = content.splitlines()
 
         if _TUNTUN_UPDATE_HEADER.fullmatch(lines[0].strip()):
-            return self._extract_update(message_id, lines, published_at, direct_image, source_name)
+            return self._extract_update(message_id, lines, published_at, direct_image)
 
         if _TUNTUN_EXCLUDED_CONTENT.search(content):
             return []
 
         if lines[0].strip() in {"Corporate", "Corporate 🏢"}:
-            return self._extract_corporate(message_id, lines[1:], published_at, direct_image, source_name)
+            return self._extract_corporate(message_id, lines[1:], published_at, direct_image)
 
         special_topic = _SPECIAL_TOPIC.match(lines[0].strip())
         if special_topic is not None:
@@ -185,7 +176,6 @@ class TuntunNewsAdapter:
                     published_at,
                     content,
                     direct_image,
-                    source_name=source_name,
                 )
             ]
 
@@ -204,7 +194,6 @@ class TuntunNewsAdapter:
                     published_at,
                     content,
                     direct_image,
-                    source_name=source_name,
                 )
             ]
 
@@ -225,7 +214,6 @@ class TuntunNewsAdapter:
                     published_at,
                     content,
                     direct_image,
-                    source_name=source_name,
                 )
                 for ticker in tickers
             ]
@@ -247,7 +235,6 @@ class TuntunNewsAdapter:
                     content,
                     direct_image,
                     candidate_id=ticker or "news",
-                    source_name=source_name,
                 )
             ]
         if standalone is None:
@@ -264,7 +251,6 @@ class TuntunNewsAdapter:
                 published_at,
                 content,
                 direct_image,
-                source_name=source_name,
             )
         ]
 
@@ -274,7 +260,6 @@ class TuntunNewsAdapter:
         lines: list[str],
         published_at: datetime,
         direct_image: bool,
-        source_name: str,
     ) -> list[CompanyCandidate]:
         overview_index = _section_index(lines, "Overview")
         if overview_index is None:
@@ -294,7 +279,6 @@ class TuntunNewsAdapter:
                     lead,
                     direct_image,
                     candidate_id="lead",
-                    source_name=source_name,
                 )
             )
 
@@ -319,7 +303,6 @@ class TuntunNewsAdapter:
                         block,
                         direct_image,
                         candidate_id=f"{prefix}-{index}",
-                        source_name=source_name,
                     )
                 )
         return candidates
@@ -330,7 +313,6 @@ class TuntunNewsAdapter:
         lines: list[str],
         published_at: datetime,
         direct_image: bool,
-        source_name: str,
     ) -> list[CompanyCandidate]:
         candidates: list[CompanyCandidate] = []
         for line in lines:
@@ -350,7 +332,6 @@ class TuntunNewsAdapter:
                     published_at,
                     entry,
                     direct_image,
-                    source_name=source_name,
                 )
             )
         return candidates

@@ -154,12 +154,7 @@ def _tuntun_entry(item: SelectionCandidate) -> str:
             ),
         ]
         sections.append("\n".join(market_lines))
-    sections.extend(
-        (
-            f"*Sumber: {item.candidate.source_name}*",
-            f"[View on Telegram](<{source_message_url(item.candidate)}>)",
-        )
-    )
+    sections.append(f"[View on Telegram](<{source_message_url(item.candidate)}>)")
     return "\n\n".join(sections)
 
 

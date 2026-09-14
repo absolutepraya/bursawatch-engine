@@ -109,7 +109,6 @@ class CompanyCandidate:
     source_text: str
     direct_image: bool
     candidate_id: str = ""
-    source_name: str = "Tuntun Sekuritas"
 
     def __post_init__(self) -> None:
         _require_positive_message_id(self.source_message_id)
@@ -118,10 +117,7 @@ class CompanyCandidate:
         candidate_id = self.candidate_id or (self.ticker or "news")
         if _CANDIDATE_ID_PATTERN.fullmatch(candidate_id) is None:
             raise ValueError("candidate_id must use letters, digits, underscores, or hyphens")
-        if not isinstance(self.source_name, str) or not self.source_name.strip() or len(self.source_name.strip()) > 120:
-            raise ValueError("source_name must be nonempty text of at most 120 characters")
         object.__setattr__(self, "candidate_id", candidate_id)
-        object.__setattr__(self, "source_name", self.source_name.strip())
         _require_aware_timestamp(self.published_at, "published_at")
 
     @property

@@ -210,7 +210,6 @@ def _selection_candidate_from_record(key: str, record: Mapping[str, object]) -> 
             source_text=candidate_payload["source_text"],
             direct_image=candidate_payload["direct_image"],
             candidate_id=candidate_payload.get("candidate_id", ""),
-            source_name=candidate_payload.get("source_name", "Tuntun Sekuritas"),
         )
         item = SelectionCandidate(
             candidate=candidate,

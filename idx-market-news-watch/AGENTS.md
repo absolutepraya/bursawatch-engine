@@ -55,13 +55,10 @@ Every new issuer-routed Tuntun item has this text-only layout:
 <blank line>
 Harga terakhir (IDR): **<price>**
 <direction emoji> 1D: **<IDR change> (<percent change>)**, <direction emoji> 1W: **<IDR change> (<percent change>)**, <direction emoji> 1M: **<IDR change> (<percent change>)**, <direction emoji> 3M: **<IDR change> (<percent change>)**
-<blank line>
-*Sumber: <supplied source or Tuntun Sekuritas>*
-<blank line>
 [View on Telegram](<https://t.me/tuntunsekuritas/<source_message_id>>)
 ```
 
-Every macro-routed Tuntun item omits ticker and market data: heading, `*(Ringkasan)*` body, italic source line, then Telegram link. Every Tuntun summary is prefixed with `*(Ringkasan)* ` because every eligible item is summarized by the LLM. The price and each full change value are bolded, percentages use a dot decimal separator, and direction emoji markup has one following space. A missing value is rendered as bold `-` with the grey direction emoji. Phintraco keeps the previous issuer-name, separator, italic-price, comma-decimal, 1D/1W layout. There is no tier, session, per-entry timestamp, source image, or follow-up media message. A Tier One or Tier Two issuer item uses the same standalone layout within its provider contract, and each candidate is posted as exactly one Discord text message.
+Every macro-routed Tuntun item omits ticker and market data: heading, `*(Ringkasan)*` body, then Telegram link. Every Tuntun summary is prefixed with `*(Ringkasan)* ` because every eligible item is summarized by the LLM. The price and each full change value are bolded, percentages use a dot decimal separator, and direction emoji markup has one following space. A missing value is rendered as bold `-` with the grey direction emoji. Phintraco keeps the previous issuer-name, separator, italic-price, comma-decimal, 1D/1W layout. There is no tier, session, per-entry timestamp, source attribution, source image, or follow-up media message. A Tier One or Tier Two issuer item uses the same standalone layout within its provider contract, and each candidate is posted as exactly one Discord text message.
 
 Before each new post, the scanner persists that item's rendered text and deterministic nonce. A pending delivery that already has a rendered payload retries that payload verbatim, even after a formatter deployment. A successful text post alone marks that item delivered. A Discord error, absent message ID, or rate limit leaves only that item in `pending_delivery` with its durable payload and retry metadata; retries wait 1, 2, 4, 8, 15, 30, then 60 minutes, while a longer Discord `retry_after` is honored. Retrying one item neither batches it with nor suppresses another item.
 

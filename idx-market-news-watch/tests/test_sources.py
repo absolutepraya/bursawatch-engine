@@ -71,7 +71,7 @@ def test_tuntun_long_news_with_topic_led_headline_extracts_issuer_ticker(load_fi
     assert candidates[0].source_kind.value == "tuntun_standalone"
 
 
-def test_tuntun_decorated_news_extracts_source_attribution_and_the_headline_issuer():
+def test_tuntun_decorated_news_strips_the_source_footer_and_detects_the_headline_issuer():
     candidates = TuntunNewsAdapter().extract_candidates(
         message_id=14760,
         text=(
@@ -86,7 +86,6 @@ def test_tuntun_decorated_news_extracts_source_attribution_and_the_headline_issu
     )
 
     assert [candidate.ticker for candidate in candidates] == ["MMIX"]
-    assert candidates[0].source_name == "IDXChannel"
     assert "Sumber:" not in candidates[0].source_text
 
 
@@ -99,9 +98,8 @@ def test_tuntun_decorated_macro_news_is_a_routeable_tickerless_candidate():
         direct_image=False,
     )
 
-    assert [(candidate.candidate_id, candidate.ticker, candidate.source_name) for candidate in candidates] == [
-        ("news", None, "Bisnis")
-    ]
+    assert [(candidate.candidate_id, candidate.ticker) for candidate in candidates] == [("news", None)]
+    assert "Sumber:" not in candidates[0].source_text
 
 
 def test_tuntun_midday_update_extracts_its_lead_and_each_macro_or_industry_paragraph():
@@ -135,7 +133,6 @@ def test_tuntun_midday_update_extracts_its_lead_and_each_macro_or_industry_parag
         ("industry-1", "tuntun_update_section", None),
         ("industry-2", "tuntun_update_section", None),
     ]
-    assert all(candidate.source_name == "Tuntun Sekuritas" for candidate in candidates)
 
 
 def test_tuntun_decorated_brand_headline_prefers_parenthesized_idx_ticker():

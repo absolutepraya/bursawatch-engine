@@ -329,7 +329,6 @@ def _selection_item_from_record(key: str, record: Mapping[str, object]) -> Selec
             source_text=payload["source_text"],
             direct_image=payload["direct_image"],
             candidate_id=payload.get("candidate_id", ""),
-            source_name=payload.get("source_name", "Tuntun Sekuritas"),
         )
         item = SelectionCandidate(
             candidate=candidate,
@@ -723,7 +722,6 @@ def _candidate_for_submission(state: Mapping[str, object], candidate_key: object
             source_text=payload["source_text"],
             direct_image=payload["direct_image"],
             candidate_id=payload.get("candidate_id", ""),
-            source_name=payload.get("source_name", "Tuntun Sekuritas"),
         )
     except (KeyError, TypeError, ValueError) as error:
         raise StateBlockedError(f"candidate {candidate_key!r} has invalid durable payload") from error

@@ -32,7 +32,6 @@ def _item(
     facts=("contract value",),
     source_text="source text is not reposted",
     title="",
-    source_name="Tuntun Sekuritas",
 ):
     if provider is Provider.TUNTUN and not title:
         title = f"{ticker}: Test news"
@@ -45,7 +44,6 @@ def _item(
             published_at=published_at,
             source_text=source_text,
             direct_image=False,
-            source_name=source_name,
         ),
         event_class=event_class,
         ranking_band=1,
@@ -96,7 +94,7 @@ def test_news_item_has_no_delivery_window_heading(dewa_tier_one):
     )
     assert all(label not in alert for label in ("PRE-MARKET", "POST-MARKET", "INTRA-DAY"))
     assert "┈" * 13 not in alert
-    assert "*Sumber: Tuntun Sekuritas*" in alert
+    assert "Sumber:" not in alert
     assert "[View on Telegram](<https://t.me/tuntunsekuritas/13597>)" in alert
     assert "BUY" not in alert
     assert (
@@ -156,7 +154,6 @@ def test_tuntun_entry_uses_generated_title_and_four_horizons(monkeypatch):
         facts=("RAJA acquired a 5% stake.",),
         source_text="RAJA: Akuisisi Layar Nusantara Gas\nRAJA mengakuisisi 5% saham.",
         title="RAJA: Akuisisi Layar Nusantara Gas",
-        source_name="IDXChannel",
     )
     monkeypatch.setattr(
         delivery,
@@ -176,14 +173,13 @@ def test_tuntun_entry_uses_generated_title_and_four_horizons(monkeypatch):
         "<:green:1531274822221434911> 1W: **+10 (+1.23%)**, "
         "<:green:1531274822221434911> 1M: **+5 (+0.61%)**, "
         "<:green:1531274822221434911> 3M: **+10 (+1.23%)**\n\n"
-        "*Sumber: IDXChannel*\n\n"
         "[View on Telegram](<https://t.me/tuntunsekuritas/14040>)"
     )
     assert "(PT Rukun Raharja Tbk)" not in alert
     assert "*Harga terakhir" not in alert
 
 
-def test_tuntun_macro_card_uses_the_source_and_telegram_link_without_market_data():
+def test_tuntun_macro_card_uses_the_telegram_link_without_market_data():
     item = SelectionCandidate(
         candidate=CompanyCandidate(
             provider=Provider.TUNTUN,
@@ -209,7 +205,6 @@ def test_tuntun_macro_card_uses_the_source_and_telegram_link_without_market_data
     assert alert == (
         "### <:tuntun:1531272430985937086> ECB naikkan suku bunga deposit 25 bps\n\n"
         "*(Ringkasan)* ECB menaikkan suku bunga deposit sebesar 25 basis poin.\n\n"
-        "*Sumber: Tuntun Sekuritas*\n\n"
         "[View on Telegram](<https://t.me/tuntunsekuritas/14786>)"
     )
     assert "Harga terakhir" not in alert
