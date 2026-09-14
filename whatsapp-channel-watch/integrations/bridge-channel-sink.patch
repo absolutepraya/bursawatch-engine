@@ -120,7 +120,7 @@ index 234cbef..0000000 100644
  
  mkdirSync(SESSION_DIR, { recursive: true });
  
-@@ -531,4 +531,8 @@ async function startSocket() {
+@@ -468,4 +531,8 @@ async function startSocket() {
        if (!PAIR_JSON) {
          console.log('✅ WhatsApp connected!');
        }
