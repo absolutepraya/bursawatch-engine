@@ -143,7 +143,7 @@ index 234cbef..0000000 100644
  
        // Handle fromMe messages based on mode
        let fromOwner = false;
-@@ -1099,9 +1169,79 @@
+@@ -1099,9 +1169,107 @@
    res.json({
      name: chatId.replace(/@.*/, ''),
      isGroup,
@@ -176,6 +176,34 @@ index 234cbef..0000000 100644
 +  } catch (err) {
 +    console.warn('[bridge] newsletter metadata lookup failed:', err?.message || err);
 +    return res.status(502).json({ error: 'Newsletter metadata lookup failed' });
++  }
++});
++// Local-only, explicit Channel onboarding. Follow the requested Channel and
++// subscribe the existing socket to live updates. This does not fetch history,
++// enqueue anything, or advance watcher state.
++app.post('/newsletter/follow', async (req, res) => {
++  if (!sock || connectionState !== 'connected') {
++    return res.status(503).json({ error: 'Not connected' });
++  }
++
++  try {
++    const result = await channelSink.followNewsletter({
++      sock,
++      jid: req.body?.jid,
++    });
++    emitDebugEvent({
++      stage: 'newsletter_followed',
++      channelJid: redactWhatsAppId(result.channel_jid),
++      subscribed: result.subscribed,
++      duration: result.duration,
++    });
++    return res.json(result);
++  } catch (err) {
++    if (err?.message === 'Invalid newsletter JID') {
++      return res.status(400).json({ error: err.message });
++    }
++    console.warn('[bridge] newsletter follow failed:', err?.message || err);
++    return res.status(502).json({ error: 'Newsletter follow failed' });
 +  }
 +});
 +// Local-only, bounded, read-only newsletter history lookup. It reuses the

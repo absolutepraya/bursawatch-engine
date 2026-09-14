@@ -56,10 +56,37 @@ deploy.
 
 When the user says `watch this wa channel <name, URL, or JID>`, inspect and
 normalize the requested Channel, propose a complete profile, and ask only for
-unresolved routing or destination decisions. On first approved observation,
-ensure the already-connected Baileys account follows the approved Channel and
-subscribes to its live updates, then record the newest source item as the
-cursor. Do not deliver existing history.
+unresolved routing or destination decisions. After the complete profile is
+approved and deployed, activate its Channel subscription with the helper below,
+then record the newest source item as the cursor. Do not deliver existing
+history.
+
+## Channel subscription helper
+
+`bin/whatsapp-channel-subscriptions.sh` is the supported operator helper for
+activating approved Channel follows. The deployed command is
+`~/.hermes/scripts/whatsapp-channel-subscriptions.sh`. It reads enabled
+profiles from the live watcher configuration, checks the loopback bridge, and
+uses the existing Baileys socket. It never creates a second session, changes
+watcher config or state, fetches history, or posts to Discord.
+
+Review the targets without changing WhatsApp:
+
+```bash
+ssh vps '~/.hermes/scripts/whatsapp-channel-subscriptions.sh ensure --json'
+```
+
+After the complete profile and watcher configuration are approved and
+deployed, perform the follow and live-update subscription:
+
+```bash
+ssh vps '~/.hermes/scripts/whatsapp-channel-subscriptions.sh ensure --apply --json'
+```
+
+`--apply` is required for the WhatsApp mutation. The bridge also repeats this
+idempotent operation whenever its socket reconnects. A successful helper
+result proves subscription setup only. It does not prove that a future post
+has reached Discord.
 
 ## Operational boundaries
 
@@ -72,10 +99,12 @@ cursor. Do not deliver existing history.
   reviewed, and approved before the first VPS write.
 - Every scheduled watcher run must emit the standard `whatsapp-channel`
   heartbeat to Discord `#hermes`, including no-hit runs and degraded runs.
-- `deploy.sh` copies the runtime `bin/` tree but not the Hermes wrapper. When
-  `bin/whatsapp-channel-watch.sh` changes or is first installed, synchronize it
-  separately to `vps:.hermes/scripts/whatsapp-channel-watch.sh`, set mode 755,
-  and compare its checksum before the no-post smoke.
+- `deploy.sh` copies the runtime `bin/` tree but not the Hermes wrappers. When
+  `bin/whatsapp-channel-watch.sh` or
+  `bin/whatsapp-channel-subscriptions.sh` changes or is first installed,
+  synchronize each separately to its matching file under
+  `vps:.hermes/scripts/`, set mode 755, and compare its checksum before live
+  verification.
 
 ## Baileys bridge integration
 
@@ -84,10 +113,13 @@ VPS-owned Hermes Agent Baileys bridge. It loads the deployed `channel_sink.mjs`
 optionally, bypasses the normal DM and broadcast filters for `@newsletter`
 messages, and writes supported events to this watcher's queue. Apply it only to
 the exact bridge source after comparing the live file and checking the patch.
-It also provides a local-only, read-only newsletter metadata and historical
-message lookup using the already-connected bridge socket. Historical lookup is
+It also provides local-only newsletter metadata and historical message lookup,
+plus an explicit follow and live-update subscription operation, using the
+already-connected bridge socket. Historical lookup is
 for operator research only, must be bounded, and must not enqueue, forward, or
-advance watcher state. Metadata success does not prove that upstream history is
+advance watcher state. The follow operation is bounded to a supplied
+`@newsletter` JID and also must not enqueue, forward, or advance watcher state.
+Metadata success does not prove that upstream history is
 available: the current Baileys history call can return an empty result or time
 out even while live Channel intake is connected. Do not retry indefinitely or
 turn a failed historical review into a backfill. The existing bridge source and
