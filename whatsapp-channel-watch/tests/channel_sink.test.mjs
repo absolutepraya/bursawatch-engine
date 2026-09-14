@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { enqueueChannelEvent, normalizeChannelMessage } from '../bin/channel_sink.mjs';
+import {
+  enqueueChannelEvent,
+  configuredNewsletterJids,
+  followNewsletter,
+  normalizeChannelMessage,
+  normalizeNewsletterJid,
+} from '../bin/channel_sink.mjs';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -39,6 +45,42 @@ test('normalizes captions and supported media without copying raw bytes', () => 
 test('ignores unsupported media and empty malformed timestamps', () => {
   assert.equal(normalizeChannelMessage({msg: base({audioMessage: {mimetype: 'audio/ogg'}})}), null);
   assert.equal(normalizeChannelMessage({msg: base({conversation: 'text'}, {messageTimestamp: 0})}), null);
+});
+
+test('follows a Channel and subscribes to live updates through the existing socket', async () => {
+  const calls = [];
+  const result = await followNewsletter({
+    sock: {
+      async newsletterFollow(jid) { calls.push(['follow', jid]); },
+      async subscribeNewsletterUpdates(jid) { calls.push(['subscribe', jid]); return {duration: '86400'}; },
+    },
+    jid: '12345@newsletter',
+  });
+  assert.deepEqual(calls, [
+    ['follow', '12345@newsletter'],
+    ['subscribe', '12345@newsletter'],
+  ]);
+  assert.deepEqual(result, {
+    channel_jid: '12345@newsletter',
+    followed: true,
+    subscribed: true,
+    duration: '86400',
+  });
+});
+
+test('rejects non-Channel follow targets', () => {
+  assert.throws(() => normalizeNewsletterJid('12345@g.us'), /Invalid newsletter JID/);
+});
+
+test('selects unique enabled Channel profiles from watcher configuration', () => {
+  assert.deepEqual(configuredNewsletterJids({
+    profiles: [
+      {enabled: true, channel_jid: '12345@newsletter'},
+      {enabled: false, channel_jid: '67890@newsletter'},
+      {enabled: true, channel_jid: '12345@newsletter'},
+      {enabled: true, channel_jid: 'not-a-channel'},
+    ],
+  }), ['12345@newsletter']);
 });
 
 test('writes one durable event and deduplicates it', async () => {

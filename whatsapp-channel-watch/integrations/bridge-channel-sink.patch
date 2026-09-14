@@ -11,7 +11,7 @@ index 234cbef..0000000 100644
  import { randomBytes, createHash } from 'crypto';
  import { execFileSync } from 'child_process';
  import { tmpdir } from 'os';
-@@ -96,6 +96,21 @@ const DOCUMENT_CACHE_DIR = process.env.HERMES_DOCUMENT_CACHE_DIR
+@@ -96,6 +96,23 @@ const DOCUMENT_CACHE_DIR = process.env.HERMES_DOCUMENT_CACHE_DIR
  const AUDIO_CACHE_DIR = process.env.HERMES_AUDIO_CACHE_DIR
    || path.join(process.env.HOME || '~', '.hermes', 'audio_cache');
  
@@ -22,6 +22,8 @@ index 234cbef..0000000 100644
 +  || path.join(process.env.HOME || '~', '.agents', 'skills', 'whatsapp-channel-watch', 'bin', 'channel_sink.mjs');
 +const CHANNEL_QUEUE_DIR = process.env.WHATSAPP_CHANNEL_QUEUE_DIR
 +  || path.join(process.env.HOME || '~', '.hermes', 'state', 'whatsapp-channel-watch', 'queue');
++const CHANNEL_CONFIG_PATH = process.env.WHATSAPP_CHANNEL_CONFIG_PATH
++  || path.join(path.dirname(CHANNEL_SINK_PATH), '..', 'config', 'watches.json');
 +let channelSink = null;
 +try {
 +  if (existsSync(CHANNEL_SINK_PATH)) {
@@ -33,7 +35,7 @@ index 234cbef..0000000 100644
  // Self-hash of this script file.  Reported in /health so the Python gateway
  // can detect a running bridge that predates the current bridge.js and
  // restart it instead of silently reusing stale code (stale-bridge trap:
-@@ -246,6 +261,54 @@ function getContextInfo(messageContent) {
+@@ -246,6 +261,84 @@ function getContextInfo(messageContent) {
    }
    return {};
  }
@@ -85,10 +87,49 @@ index 234cbef..0000000 100644
 +  });
 +  return inserted;
 +}
++async function ensureChannelSubscriptions() {
++  if (!channelSink?.configuredNewsletterJids || !sock) return;
++
++  let watchConfig;
++  try {
++    watchConfig = JSON.parse(readFileSync(CHANNEL_CONFIG_PATH, 'utf8'));
++  } catch (err) {
++    if (existsSync(CHANNEL_CONFIG_PATH)) {
++      console.warn('[bridge] WhatsApp Channel config unavailable:', err?.message || err);
++    }
++    return;
++  }
++
++  for (const channelJid of channelSink.configuredNewsletterJids(watchConfig)) {
++    try {
++      const result = await channelSink.followNewsletter({sock, jid: channelJid});
++      emitDebugEvent({
++        stage: 'newsletter_subscribed',
++        channelJid: redactWhatsAppId(result.channel_jid),
++        duration: result.duration,
++      });
++    } catch (err) {
++      console.warn('[bridge] failed to subscribe to WhatsApp Channel:', err?.message || err);
++      emitDebugEvent({
++        stage: 'newsletter_subscribe_error',
++        channelJid: redactWhatsAppId(channelJid),
++      });
++    }
++  }
++}
  
  mkdirSync(SESSION_DIR, { recursive: true });
  
-@@ -554,6 +617,13 @@ async function startSocket() {
+@@ -531,4 +531,8 @@ async function startSocket() {
+       if (!PAIR_JSON) {
+         console.log('✅ WhatsApp connected!');
+       }
++      // Re-establish Channel follow/live-update state after every socket
++      // connection. This is idempotent and deliberately does not fetch or
++      // enqueue historical posts.
++      void ensureChannelSubscriptions();
+       if (PAIR_ONLY) {
+@@ -554,6 +621,13 @@ async function startSocket() {
          senderId: redactWhatsAppId(senderId),
          messageKeys: Object.keys(msg.message || {}),
        });

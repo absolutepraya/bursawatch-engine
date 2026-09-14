@@ -1,6 +1,7 @@
 const NEWSLETTER_SUFFIX = '@newsletter';
 const SUPPORTED_MEDIA = new Set(['image', 'video']);
 const MESSAGE_ID_RE = /^[A-Za-z0-9._:-]{1,256}$/;
+const NEWSLETTER_JID_RE = /^[^@\s]+@newsletter$/;
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, chmodSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
@@ -74,6 +75,46 @@ export function normalizeChannelMessage({ msg, mediaPath = null } = {}) {
     links: linksFromText(text),
     media,
     received_at: new Date().toISOString(),
+  };
+}
+
+export function normalizeNewsletterJid(value) {
+  const jid = String(value || '').trim();
+  if (!NEWSLETTER_JID_RE.test(jid)) throw new Error('Invalid newsletter JID');
+  return jid;
+}
+
+export function configuredNewsletterJids(value) {
+  const profiles = Array.isArray(value?.profiles) ? value.profiles : [];
+  const result = [];
+  for (const profile of profiles) {
+    if (profile?.enabled !== true) continue;
+    try {
+      const jid = normalizeNewsletterJid(profile.channel_jid);
+      if (!result.includes(jid)) result.push(jid);
+    } catch {}
+  }
+  return result;
+}
+
+/**
+ * Make the already-connected Baileys account follow one Channel and request
+ * its live updates. This is an explicit onboarding operation, not part of
+ * message intake, and never fetches or enqueues historical posts.
+ */
+export async function followNewsletter({ sock, jid } = {}) {
+  const channelJid = normalizeNewsletterJid(jid);
+  if (!sock || typeof sock.newsletterFollow !== 'function'
+    || typeof sock.subscribeNewsletterUpdates !== 'function') {
+    throw new Error('Newsletter controls are unavailable');
+  }
+  await sock.newsletterFollow(channelJid);
+  const updates = await sock.subscribeNewsletterUpdates(channelJid);
+  return {
+    channel_jid: channelJid,
+    followed: true,
+    subscribed: true,
+    duration: updates?.duration ?? null,
   };
 }
 

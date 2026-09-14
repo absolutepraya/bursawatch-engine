@@ -57,7 +57,9 @@ deploy.
 When the user says `watch this wa channel <name, URL, or JID>`, inspect and
 normalize the requested Channel, propose a complete profile, and ask only for
 unresolved routing or destination decisions. On first approved observation,
-record the newest source item as the cursor. Do not deliver existing history.
+ensure the already-connected Baileys account follows the approved Channel and
+subscribes to its live updates, then record the newest source item as the
+cursor. Do not deliver existing history.
 
 ## Operational boundaries
 
