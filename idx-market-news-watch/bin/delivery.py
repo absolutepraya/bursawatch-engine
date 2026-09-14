@@ -135,23 +135,25 @@ def _tuntun_entry(item: SelectionCandidate) -> str:
     sections = [f"### {_PROVIDER_EMOJIS['Tuntun']} {item.title}", summary]
     if item.route is Destination.ID_STOCKS_NEWS and item.ticker is not None:
         snapshot = get_market_snapshot(item.ticker, item.candidate.source_text)
+        changes = (
+            (
+                _tuntun_change(snapshot.one_day_change, snapshot.one_day_percent, "1D"),
+                _tuntun_change(snapshot.one_week_change, snapshot.one_week_percent, "1W"),
+                _tuntun_change(snapshot.one_month_change, snapshot.one_month_percent, "1M"),
+                _tuntun_change(snapshot.three_month_change, snapshot.three_month_percent, "3M"),
+            )
+            if snapshot is not None
+            else (
+                _tuntun_change(None, None, "1D"),
+                _tuntun_change(None, None, "1W"),
+                _tuntun_change(None, None, "1M"),
+                _tuntun_change(None, None, "3M"),
+            )
+        )
         market_lines = [
             f"Harga terakhir (IDR): **{_idr(snapshot.latest_price) if snapshot is not None else '-'}**",
-            ", ".join(
-                (
-                    _tuntun_change(snapshot.one_day_change, snapshot.one_day_percent, "1D"),
-                    _tuntun_change(snapshot.one_week_change, snapshot.one_week_percent, "1W"),
-                    _tuntun_change(snapshot.one_month_change, snapshot.one_month_percent, "1M"),
-                    _tuntun_change(snapshot.three_month_change, snapshot.three_month_percent, "3M"),
-                )
-                if snapshot is not None
-                else (
-                    _tuntun_change(None, None, "1D"),
-                    _tuntun_change(None, None, "1W"),
-                    _tuntun_change(None, None, "1M"),
-                    _tuntun_change(None, None, "3M"),
-                )
-            ),
+            f"{changes[0]}, {changes[1]},",
+            f"{changes[2]}, {changes[3]}",
         ]
         sections.append("\n".join(market_lines))
     sections.append(f"[View on Telegram](<{source_message_url(item.candidate)}>)")

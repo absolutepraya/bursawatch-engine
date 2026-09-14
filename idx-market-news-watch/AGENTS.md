@@ -54,7 +54,8 @@ Every new issuer-routed Tuntun item has this text-only layout:
 *(Ringkasan)* <one to five factual Indonesian sentences from the validated summary>
 <blank line>
 Harga terakhir (IDR): **<price>**
-<direction emoji> 1D: **<IDR change> (<percent change>)**, <direction emoji> 1W: **<IDR change> (<percent change>)**, <direction emoji> 1M: **<IDR change> (<percent change>)**, <direction emoji> 3M: **<IDR change> (<percent change>)**
+<direction emoji> 1D: **<IDR change> (<percent change>)**, <direction emoji> 1W: **<IDR change> (<percent change>)**,
+<direction emoji> 1M: **<IDR change> (<percent change>)**, <direction emoji> 3M: **<IDR change> (<percent change>)**
 [View on Telegram](<https://t.me/tuntunsekuritas/<source_message_id>>)
 ```
 

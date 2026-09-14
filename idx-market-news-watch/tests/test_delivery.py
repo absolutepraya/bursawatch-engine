@@ -100,7 +100,7 @@ def test_news_item_has_no_delivery_window_heading(dewa_tier_one):
     assert (
         "Harga terakhir (IDR): **-**\n"
         "<:grey:1531279158913536182> 1D: **-**, "
-        "<:grey:1531279158913536182> 1W: **-**, "
+        "<:grey:1531279158913536182> 1W: **-**,\n"
         "<:grey:1531279158913536182> 1M: **-**, "
         "<:grey:1531279158913536182> 3M: **-**"
     ) in alert
@@ -138,7 +138,7 @@ def test_entry_uses_yahoo_snapshot_for_canonical_name_and_rupiah_changes(monkeyp
     assert (
         "Harga terakhir (IDR): **472**\n"
         "<:green:1531274822221434911> 1D: **+32 (+7.27%)**, "
-        "<:red:1531274756853202974> 1W: **-18 (-3.67%)**, "
+        "<:red:1531274756853202974> 1W: **-18 (-3.67%)**,\n"
         "<:grey:1531279158913536182> 1M: **-**, "
         "<:grey:1531279158913536182> 3M: **-**"
     ) in alert
@@ -170,7 +170,7 @@ def test_tuntun_entry_uses_generated_title_and_four_horizons(monkeypatch):
         "*(Ringkasan)* RAJA acquired a 5% stake.\n\n"
         "Harga terakhir (IDR): **820**\n"
         "<:green:1531274822221434911> 1D: **+5 (+0.61%)**, "
-        "<:green:1531274822221434911> 1W: **+10 (+1.23%)**, "
+        "<:green:1531274822221434911> 1W: **+10 (+1.23%)**,\n"
         "<:green:1531274822221434911> 1M: **+5 (+0.61%)**, "
         "<:green:1531274822221434911> 3M: **+10 (+1.23%)**\n\n"
         "[View on Telegram](<https://t.me/tuntunsekuritas/14040>)"
@@ -279,7 +279,7 @@ def test_tuntun_entry_uses_bold_grey_placeholders_when_market_data_is_unavailabl
     assert "Harga terakhir (IDR): **-**" in alert
     assert (
         "<:grey:1531279158913536182> 1D: **-**, "
-        "<:grey:1531279158913536182> 1W: **-**, "
+        "<:grey:1531279158913536182> 1W: **-**,\n"
         "<:grey:1531279158913536182> 1M: **-**, "
         "<:grey:1531279158913536182> 3M: **-**"
     ) in alert
