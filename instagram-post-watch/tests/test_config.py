@@ -49,7 +49,6 @@ def test_load_config_contains_the_approved_public_profile_rollout():
         "sectorsapp",
         "cukhurukuque",
         "notintofinance",
-        "oura_rc",
     ]
     assert [profile.handle for profile in watches.profiles] == [
         "beyondthefundamental",
@@ -59,7 +58,6 @@ def test_load_config_contains_the_approved_public_profile_rollout():
         "sectorsapp",
         "cukhurukuque",
         "notintofinance",
-        "oura.rc",
     ]
     assert [profile.display_name for profile in watches.profiles] == [
         "Beyond thy Fundamental",
@@ -69,14 +67,13 @@ def test_load_config_contains_the_approved_public_profile_rollout():
         "Sectors",
         "Cukhurukuque",
         "NIFI",
-        "Our Archive",
     ]
     assert all(profile.enabled and profile.source == "rsshub" for profile in watches.profiles)
     assert all(profile.uses_llm for profile in watches.profiles)
     assert all(profile.max_items_per_poll == 20 for profile in watches.profiles)
     assert [profile.platform_emoji for profile in watches.profiles] == [
         "<:instagram:1543621405436805231>",
-    ] * 8
+    ] * 7
     assert [profile.emoji for profile in watches.profiles] == [
         "<:beyondthefundamental:1543622560069976085>",
         "<:investart:1543622543745749062>",
@@ -85,7 +82,6 @@ def test_load_config_contains_the_approved_public_profile_rollout():
         "<:sectors:1543622490914422794>",
         "<:cukhurukuque:1544607707263275058>",
         "<:notintofinance:1544607705094815876>",
-        "<:oura_rc:1544607705925287959>",
     ]
     assert all(
         tuple(channel.key for channel in profile.discord_channels) == ("macro_news", "id_stocks_news")
