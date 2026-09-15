@@ -58,8 +58,8 @@ When the user says `watch this wa channel <name, URL, or JID>`, inspect and
 normalize the requested Channel, propose a complete profile, and ask only for
 unresolved routing or destination decisions. After the complete profile is
 approved and deployed, activate its Channel subscription with the helper below,
-then record the newest source item as the cursor. Do not deliver existing
-history.
+verify every enabled target reports `subscribed`, and only then record the
+newest source item as the cursor. Do not deliver existing history.
 
 ## Channel subscription helper
 
@@ -87,6 +87,17 @@ ssh vps '~/.hermes/scripts/whatsapp-channel-subscriptions.sh ensure --apply --js
 idempotent operation whenever its socket reconnects. A successful helper
 result proves subscription setup only. It does not prove that a future post
 has reached Discord.
+
+## Mandatory subscription gate
+
+Always run the helper for every new or changed enabled profile. A watcher is
+not ready until the no-change preview identifies every enabled Channel and the
+approved activation reports `status: "subscribed"` for every target while the
+bridge reports `connected` with `channel_sink: true`. Do not initialize a
+cursor, declare onboarding complete, or claim live monitoring before this gate
+passes. The bridge reconnect safeguard does not replace this check after a
+configuration change. If activation fails, leave the profile pending and
+report the failure instead of treating the Channel JID alone as subscribed.
 
 ## Operational boundaries
 
