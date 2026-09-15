@@ -12,6 +12,7 @@ import json
 import math
 import os
 import re
+import subprocess
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -40,10 +41,11 @@ MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", 
 
 TELEGRAM_MESSAGE_BASE_URL = "https://t.me/phintraprofits"
 
-STATE_VERSION = 1
+STATE_VERSION = 2
 PHASE_PENDING_MEDIA_CAPTURE = "pending_media_capture"
 PHASE_PENDING_TEXT = "pending_text"
 PHASE_PENDING_CHART = "pending_chart"
+PHASE_PENDING_BOARD = "pending_board"
 PHASE_DELIVERED = "delivered"
 MAX_FATAL_FINGERPRINTS_PER_HOUR = 64
 MAX_RETRY_SECONDS = 15 * 60
@@ -81,6 +83,10 @@ _REQUIRED_EVENT_FIELDS = (
     "attempts",
     "next_attempt_at",
     "last_error",
+    "board_submitted",
+    "board_attempts",
+    "board_next_attempt_at",
+    "board_last_error",
     "created_at",
 )
 _REQUIRED_CALL_FIELDS = (
@@ -113,6 +119,7 @@ _EVENT_PHASES = {
     PHASE_PENDING_MEDIA_CAPTURE,
     PHASE_PENDING_TEXT,
     PHASE_PENDING_CHART,
+    PHASE_PENDING_BOARD,
     PHASE_DELIVERED,
 }
 _CHART_STATUSES = {"absent", "expected", "captured"}
@@ -267,6 +274,17 @@ def _validate_outbox_event(key: object, payload: object) -> None:
         raise ValueError(f"outbox event {key} attempts must be a non-negative integer")
     if event["next_attempt_at"] is not None:
         _parse_aware_datetime(event["next_attempt_at"], f"outbox event {key} next_attempt_at")
+    if type(event["board_submitted"]) is not bool:
+        raise ValueError(f"outbox event {key} board_submitted must be a boolean")
+    if type(event["board_attempts"]) is not int or event["board_attempts"] < 0:
+        raise ValueError(f"outbox event {key} board_attempts must be a non-negative integer")
+    if event["board_next_attempt_at"] is not None:
+        _parse_aware_datetime(
+            event["board_next_attempt_at"],
+            f"outbox event {key} board_next_attempt_at",
+        )
+    if event["board_last_error"] is not None and type(event["board_last_error"]) is not str:
+        raise ValueError(f"outbox event {key} board_last_error must be a string or null")
     if type(event["created_at"]) is not str:
         raise ValueError(f"outbox event {key} created_at must be a string")
 
@@ -293,6 +311,35 @@ def _validate_state(payload: object) -> dict:
         if type(stats[field]) is not int or stats[field] < 0:
             raise ValueError(f"state stats {field} must be a non-negative integer")
     return state
+
+
+def _migrate_state(payload: object) -> tuple[dict, bool]:
+    if type(payload) is not dict:
+        raise ValueError("state must be an object")
+    version = payload.get("version")
+    if type(version) is not int:
+        raise ValueError(f"unsupported state version: {version}")
+    if version == STATE_VERSION:
+        return payload, False
+    if version != 1:
+        raise ValueError(f"unsupported state version: {version}")
+
+    outbox = payload.get("outbox")
+    if type(outbox) is not dict:
+        raise ValueError("state outbox must be an object")
+    for event in outbox.values():
+        if type(event) is not dict:
+            raise ValueError("outbox event must be an object")
+        # Version 1 considered this phase final. It is now the handoff point,
+        # so preserve any retained source media and continue with the owner.
+        if event.get("phase") == PHASE_DELIVERED:
+            event["phase"] = PHASE_PENDING_BOARD
+        event.setdefault("board_submitted", False)
+        event.setdefault("board_attempts", 0)
+        event.setdefault("board_next_attempt_at", None)
+        event.setdefault("board_last_error", None)
+    payload["version"] = STATE_VERSION
+    return payload, True
 
 
 def save_state(state: dict) -> None:
@@ -326,7 +373,10 @@ def load_state() -> dict:
     if not path.exists():
         return empty_state()
     try:
-        state = _validate_state(json.loads(path.read_text()))
+        state, migrated = _migrate_state(json.loads(path.read_text()))
+        state = _validate_state(state)
+        if migrated:
+            save_state(state)
     except Exception as exc:
         stamp = dt.datetime.now(WIB).strftime("%Y%m%d-%H%M%S")
         backup = path.with_name(f"state.corrupt-{stamp}.json")
@@ -362,6 +412,10 @@ def enqueue_call(state: dict, call: SwingCall, now: dt.datetime) -> dict:
         "attempts": 0,
         "next_attempt_at": None,
         "last_error": None,
+        "board_submitted": False,
+        "board_attempts": 0,
+        "board_next_attempt_at": None,
+        "board_last_error": None,
         "created_at": now.isoformat(),
     }
     state["outbox"][key] = event
@@ -409,6 +463,29 @@ def clear_retry(event: dict) -> None:
     event["attempts"] = 0
     event["next_attempt_at"] = None
     event["last_error"] = None
+
+
+def board_retry_due(event: dict, now: dt.datetime) -> bool:
+    _require_aware_datetime(now, "board retry now")
+    raw = event.get("board_next_attempt_at")
+    if raw is None:
+        return True
+    return now >= _parse_aware_datetime(raw, "board_next_attempt_at")
+
+
+def schedule_board_retry(event: dict, now: dt.datetime, error: str) -> None:
+    _require_aware_datetime(now, "board retry now")
+    attempts = int(event.get("board_attempts", 0)) + 1
+    event["board_attempts"] = attempts
+    delay = float(MAX_RETRY_SECONDS) if attempts >= 5 else float(60 * (2 ** (attempts - 1)))
+    event["board_next_attempt_at"] = (now + dt.timedelta(seconds=delay)).isoformat()
+    event["board_last_error"] = re.sub(r"\s+", " ", error).strip()[:240]
+
+
+def clear_board_retry(event: dict) -> None:
+    event["board_attempts"] = 0
+    event["board_next_attempt_at"] = None
+    event["board_last_error"] = None
 
 
 @contextlib.contextmanager
@@ -749,11 +826,7 @@ def deserialize_call(payload: dict) -> SwingCall:
 
 
 def format_signal_datetime(value: dt.datetime) -> str:
-    local = value.astimezone(WIB)
-    return (
-        f"{WEEKDAYS[local.weekday()]}, {MONTHS[local.month - 1]} {local.day} "
-        f"{local.year}, {local:%H:%M} WIB"
-    )
+    return value.astimezone(WIB).strftime("%-d %b %Y %H:%M WIB")
 
 
 def escape_discord_markdown(value: str) -> str:
@@ -764,27 +837,31 @@ def source_message_url(source_message_id: int) -> str:
     return f"{TELEGRAM_MESSAGE_BASE_URL}/{source_message_id}"
 
 
-def format_source_footer(call: SwingCall) -> str:
-    source = f"**Source:** [Phintraco Sekuritas](<{source_message_url(call.source_message_id)}>)"
+def format_analyst_byline(call: SwingCall) -> str:
     if call.advisor_name and call.advisor_role:
-        source += (
-            f" | {escape_discord_markdown(call.advisor_name)}, "
+        return (
+            f"-# {escape_discord_markdown(call.advisor_name)}, "
             f"{escape_discord_markdown(call.advisor_role)}"
         )
-    return source
+    return "-# Phintraco Sekuritas"
 
 
 def format_swing_alert(call: SwingCall) -> str:
     if call.event_kind == "REMINDER":
-        lines = [f"### {PHINTRACO_EMOJI} REMINDER: **{call.ticker}**", ""]
+        lines = [
+            f"### {PHINTRACO_EMOJI} {call.ticker}: Reminder",
+            format_analyst_byline(call),
+            "",
+        ]
         lines.extend(f"**Outcome:** {escape_discord_markdown(outcome)}" for outcome in call.outcomes)
         for target in call.targets:
             label = "Target" if target.number is None else f"Target {target.number}"
             lines.append(f"**{label}:** {escape_discord_markdown(target.value)}")
-        lines.extend([f"**Reminder date:** {format_signal_datetime(call.signal_datetime)}", format_source_footer(call)])
+        lines.append(f"**Reminder date:** {format_signal_datetime(call.signal_datetime)}")
     elif call.event_kind == "STATUS":
         lines = [
-            f"### {PHINTRACO_EMOJI} HOLD: **{call.ticker}**",
+            f"### {PHINTRACO_EMOJI} {call.ticker}: Hold",
+            format_analyst_byline(call),
             "",
             f"**Status:** {escape_discord_markdown(call.status or '')}{HOLD_EMOJI}",
         ]
@@ -795,13 +872,14 @@ def format_swing_alert(call: SwingCall) -> str:
         for target in call.targets:
             label = "Target" if target.number is None else f"Target {target.number}"
             lines.append(f"**{label}:** {escape_discord_markdown(target.value)}")
-        lines.extend([f"**Status date:** {format_signal_datetime(call.signal_datetime)}", format_source_footer(call)])
+        lines.append(f"**Status date:** {format_signal_datetime(call.signal_datetime)}")
     else:
         is_sell = call.event_kind == "SELL"
-        action = "SELL" if is_sell else "BUY"
+        action = "Sell" if is_sell else "Buy"
         type_marker = DOWN_EMOJI if is_sell else UP_EMOJI
         lines = [
-            f"### {PHINTRACO_EMOJI} {action}: **{call.ticker}**",
+            f"### {PHINTRACO_EMOJI} {call.ticker}: {action}",
+            format_analyst_byline(call),
             "",
             f"**Type:** {escape_discord_markdown(call.call_subtype)}{type_marker}",
             f"**Entry:** {escape_discord_markdown(call.entry)}",
@@ -815,12 +893,11 @@ def format_swing_alert(call: SwingCall) -> str:
                 f"**Signal date:** {format_signal_datetime(call.signal_datetime)}",
                 "",
                 f"**Reasons:** {escape_discord_markdown(call.rationale)}",
-                "",
-                format_source_footer(call),
             ]
         )
     if not call.has_source_chart:
         lines.append("**Chart:** Unavailable from source")
+    lines.extend(["", f"[View in Telegram](<{source_message_url(call.source_message_id)}>)"])
     return "\n".join(lines)
 
 
@@ -1186,6 +1263,99 @@ def post_discord_file(path: str, channel_id: str, dry_run: bool, event_key: str)
     return str(response.json()["id"])
 
 
+def board_event_payload(event: dict, call: SwingCall) -> tuple[dict, Path | None]:
+    if call.event_kind == "BUY":
+        kind = "buy"
+        source_title = f"{call.ticker}: {call.call_subtype}"
+        source_status = "New setup"
+        plan = {
+            "entry": call.entry,
+            "stop_loss": call.stop_loss,
+            "targets": [target.value for target in call.targets],
+        }
+    elif call.event_kind == "STATUS":
+        kind = "status"
+        source_title = f"{call.ticker}: Hold"
+        source_status = call.status or "Source status update"
+        plan = None
+    elif call.event_kind == "REMINDER":
+        kind = "reminder"
+        source_title = f"{call.ticker}: Reminder"
+        source_status = "; ".join(call.outcomes)
+        plan = None
+    else:
+        raise ValueError(f"unsupported board source event kind: {call.event_kind}")
+
+    chart = _cached_media_path(event) if call.has_source_chart else None
+    return (
+        {
+            "event_key": f"phintraco:{SOURCE_CHANNEL_ID}:{call.source_message_id}",
+            "source": "phintraco",
+            "kind": kind,
+            "ticker": call.ticker,
+            "published_at": call.signal_datetime.isoformat(),
+            "source_url": source_message_url(call.source_message_id),
+            "all_content": format_swing_alert(call),
+            "source_title": source_title,
+            "source_status": source_status,
+            "plan": plan,
+            "media_path": str(chart) if chart is not None else None,
+            "media_urls": [],
+        },
+        chart,
+    )
+
+
+def _board_wrapper() -> str:
+    return os.environ.get(
+        "IDX_SWING_PLAN_BOARD_WRAPPER",
+        str(Path.home() / ".hermes/scripts/idx-swing-plan-board.sh"),
+    )
+
+
+def submit_board_event(payload: dict, chart: Path | None, dry_run: bool) -> bool:
+    if dry_run or os.environ.get("IDX_SWING_WATCH_PHINTRACO_DAILY_NO_POST") == "1":
+        print(f"[dry-run] board source event {payload['event_key']}")
+        return True
+    # ``chart`` is deliberately passed separately from the event builder so
+    # callers cannot accidentally hand the owner a stale or inferred path.
+    submission = {**payload, "media_path": str(chart) if chart is not None else None}
+    try:
+        completed = subprocess.run(
+            [_board_wrapper(), "submit-source-event", "--stdin"],
+            input=json.dumps(submission, ensure_ascii=False),
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if completed.returncode != 0:
+        return False
+    try:
+        return json.loads(completed.stdout.strip()) == {"accepted": True}
+    except (TypeError, ValueError):
+        return False
+
+
+def drain_board(dry_run: bool) -> bool:
+    if dry_run or os.environ.get("IDX_SWING_WATCH_PHINTRACO_DAILY_NO_POST") == "1":
+        print("[dry-run] board drain")
+        return True
+    try:
+        completed = subprocess.run(
+            [_board_wrapper(), "drain"],
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return completed.returncode == 0
+
+
 def drain_outbox(state: dict, now: dt.datetime, dry_run: bool = False) -> int:
     delivered = 0
     while True:
@@ -1195,12 +1365,21 @@ def drain_outbox(state: dict, now: dt.datetime, dry_run: bool = False) -> int:
         phase = event["phase"]
         if phase == PHASE_DELIVERED:
             media_path = event.get("media_path")
+            board_submitted = bool(event.get("board_submitted"))
             del state["outbox"][event["event_key"]]
+            if board_submitted:
+                state["last_delivery_success"] = now.isoformat()
+                state["stats"]["delivered"] = int(state["stats"].get("delivered", 0)) + 1
             save_state(state)
             if media_path:
                 Path(media_path).unlink(missing_ok=True)
+            if board_submitted:
+                delivered += 1
             continue
-        if not retry_due(event, now):
+        if phase == PHASE_PENDING_BOARD:
+            if not board_retry_due(event, now):
+                return delivered
+        elif not retry_due(event, now):
             return delivered
         if phase == PHASE_PENDING_MEDIA_CAPTURE:
             return delivered
@@ -1250,12 +1429,9 @@ def drain_outbox(state: dict, now: dt.datetime, dry_run: bool = False) -> int:
                 save_state(state)
                 phase = PHASE_PENDING_CHART
             else:
-                del state["outbox"][event["event_key"]]
-                state["last_delivery_success"] = now.isoformat()
-                state["stats"]["delivered"] = int(state["stats"].get("delivered", 0)) + 1
+                event["phase"] = PHASE_PENDING_BOARD
                 save_state(state)
-                delivered += 1
-                continue
+                phase = PHASE_PENDING_BOARD
 
         if phase == PHASE_PENDING_CHART:
             media_path = _cached_media_path(event)
@@ -1290,12 +1466,32 @@ def drain_outbox(state: dict, now: dt.datetime, dry_run: bool = False) -> int:
                 )
                 save_state(state)
                 return delivered
-            del state["outbox"][event["event_key"]]
-            state["last_delivery_success"] = now.isoformat()
-            state["stats"]["delivered"] = int(state["stats"].get("delivered", 0)) + 1
+            clear_retry(event)
+            event["phase"] = PHASE_PENDING_BOARD
             save_state(state)
-            media_path.unlink(missing_ok=True)
-            delivered += 1
+            phase = PHASE_PENDING_BOARD
+
+        if phase == PHASE_PENDING_BOARD:
+            chart = _cached_media_path(event) if call.has_source_chart else None
+            if call.has_source_chart and chart is None:
+                schedule_board_retry(event, current_time(), "cached source chart is missing")
+                save_state(state)
+                return delivered
+            try:
+                payload, chart = board_event_payload(event, call)
+                accepted = submit_board_event(payload, chart, dry_run)
+            except Exception as exc:
+                schedule_board_retry(event, current_time(), str(exc))
+                save_state(state)
+                return delivered
+            if not accepted:
+                schedule_board_retry(event, current_time(), "board source event was not accepted")
+                save_state(state)
+                return delivered
+            event["board_submitted"] = True
+            clear_board_retry(event)
+            event["phase"] = PHASE_DELIVERED
+            save_state(state)
 
 
 def heartbeat_hour_key(now: dt.datetime) -> str:
@@ -1424,17 +1620,22 @@ async def run(now: dt.datetime | None = None, dry_run: bool = False) -> dict:
         try:
             entity = await resolve_source(client)
             if await bootstrap_source(client, entity, state, now):
-                stats = RunStats(0, 0, 0, 0, False)
+                degraded = not drain_board(dry_run)
+                stats = RunStats(0, 0, 0, 0, degraded)
                 post_heartbeat_if_due(state, now, stats, dry_run)
                 return {"wakeAgent": False}
 
             messages, calls, malformed = await ingest_unseen_messages(client, entity, state, now)
-            degraded = malformed > 0
+            degraded = degraded or malformed > 0
             while True:
                 event = oldest_outbox_event(state)
                 if event is None:
                     break
-                if event["phase"] != PHASE_DELIVERED and not retry_due(event, now):
+                if event["phase"] == PHASE_PENDING_BOARD:
+                    due = board_retry_due(event, now)
+                else:
+                    due = event["phase"] == PHASE_DELIVERED or retry_due(event, now)
+                if not due:
                     break
                 if event["phase"] == PHASE_PENDING_MEDIA_CAPTURE:
                     if not await capture_oldest_media(client, entity, state, now):
@@ -1452,6 +1653,7 @@ async def run(now: dt.datetime | None = None, dry_run: bool = False) -> dict:
         finally:
             await client.disconnect()
 
+        degraded = degraded or not drain_board(dry_run)
         pending = len(state.get("outbox") or {})
         degraded = degraded or pending > 0
         stats = RunStats(messages, calls, delivered, pending, degraded)

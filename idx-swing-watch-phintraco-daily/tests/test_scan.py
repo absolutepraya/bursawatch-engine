@@ -13,6 +13,10 @@ FIXTURES = Path(__file__).parent / "fixtures"
 def fixture(name: str) -> str:
     return (FIXTURES / name).read_text()
 
+
+def now() -> dt.datetime:
+    return dt.datetime(2026, 7, 31, 10, 7, tzinfo=scan.WIB)
+
 def test_daily_runtime_identifiers_are_provider_specific():
     assert scan.WATCHER_NAME == "idx-swing-watch-phintraco-daily"
     assert scan.WATCHER_HEARTBEAT_NAME == "idx-swing-phintraco-daily"
@@ -124,16 +128,27 @@ def test_malformed_buy_candidate_is_detectable():
 def test_format_chart_backed_alert_exact():
     call = scan.parse_swing_call(33655, fixture("trading_buy.txt"), has_photo=True)
     assert scan.format_swing_alert(call) == (
-        "### <:phintraco:1531272488645038091> BUY: **SCMA**\n\n"
+        "### <:phintraco:1531272488645038091> SCMA: Buy\n"
+        "-# Alrich Paskalis T, Investment Advisor\n\n"
         "**Type:** Trading Buy<:up:1531285100346740766>\n"
         "**Entry:** 208 to 212\n"
         "**Stop-loss:** <200\n"
         "**Target:** 230\n"
-        "**Signal date:** Fri, Jul 10 2026, 07:00 WIB\n\n"
+        "**Signal date:** 10 Jul 2026 07:00 WIB\n\n"
         "**Reasons:** Konsolidasi bertahan di atas support area 200 menjaga peluang rebound hingga minor uptrend lanjutan. "
         "MACD yang konsisten membentuk histogram positif sejalan dengan peluang tersebut.\n\n"
-        "**Source:** [Phintraco Sekuritas](<https://t.me/phintraprofits/33655>) | Alrich Paskalis T, Investment Advisor"
+        "[View in Telegram](<https://t.me/phintraprofits/33655>)"
     )
+
+
+def test_buy_alert_is_ticker_first_with_byline_and_telegram_footer() -> None:
+    output = scan.format_swing_alert(sample_call())
+    assert output.startswith(
+        "### <:phintraco:1531272488645038091> SCMA: Buy\n"
+        "-# Alrich Paskalis T, Investment Advisor\n\n"
+    )
+    assert "**Signal date:** 10 Jul 2026 07:00 WIB" in output
+    assert output.endswith("[View in Telegram](<https://t.me/phintraprofits/33655>)")
 
 
 def test_format_multi_target_alert_exact():
@@ -147,7 +162,8 @@ def test_future_sell_alert_uses_down_marker():
     buy_call = scan.parse_swing_call(33655, fixture("trading_buy.txt"), has_photo=True)
     sell_call = scan.SwingCall(**{**buy_call.__dict__, "event_kind": "SELL"})
     assert scan.format_swing_alert(sell_call).startswith(
-        "### <:phintraco:1531272488645038091> SELL: **SCMA**\n\n"
+        "### <:phintraco:1531272488645038091> SCMA: Sell\n"
+        "-# Alrich Paskalis T, Investment Advisor\n\n"
         "**Type:** Trading Buy<:down:1531285063986053200>"
     )
 
@@ -155,15 +171,15 @@ def test_future_sell_alert_uses_down_marker():
 def test_format_chartless_alert_exact_suffix():
     call = scan.parse_swing_call(33655, fixture("trading_buy.txt"), has_photo=False)
     assert scan.format_swing_alert(call).endswith(
-        "**Source:** [Phintraco Sekuritas](<https://t.me/phintraprofits/33655>) | Alrich Paskalis T, Investment Advisor\n"
-        "**Chart:** Unavailable from source"
+        "**Chart:** Unavailable from source\n\n"
+        "[View in Telegram](<https://t.me/phintraprofits/33655>)"
     )
 
 
 def test_missing_advisor_falls_back_to_source_only():
     text = fixture("trading_buy.txt").replace("Alrich Paskalis T| Investment Advisor\n", "")
     call = scan.parse_swing_call(33655, text, has_photo=True)
-    assert scan.format_swing_alert(call).endswith("**Source:** [Phintraco Sekuritas](<https://t.me/phintraprofits/33655>)")
+    assert "-# Phintraco Sekuritas" in scan.format_swing_alert(call)
 
 
 def test_dynamic_source_markdown_is_escaped_without_changing_labels():
@@ -182,12 +198,9 @@ def test_dynamic_source_markdown_is_escaped_without_changing_labels():
         r"**Reasons:** back\\slash \*star\* \_under\_ \~tilde\~ \`tick\`"
         in output
     )
-    assert (
-        r"**Source:** [Phintraco Sekuritas](<https://t.me/phintraprofits/33655>) | Al\\rich\*\_\*\~\*\`\*, "
-        "Investment Advisor"
-    ) in output
+    assert r"-# Al\\rich\*\_\*\~\*\`\*, Investment Advisor" in output
     assert "**Reasons:**" in output
-    assert "**Source:**" in output
+    assert "[View in Telegram](<https://t.me/phintraprofits/33655>)" in output
 
 
 @pytest.mark.parametrize(
@@ -209,14 +222,15 @@ def test_dynamic_spoiler_and_masked_link_markdown_is_escaped(source, escaped):
 def test_canonical_fixture_output_is_unchanged_when_no_escape_is_needed():
     call = scan.parse_swing_call(33655, fixture("trading_buy.txt"), has_photo=True)
     assert scan.format_swing_alert(call) == (
-        "### <:phintraco:1531272488645038091> BUY: **SCMA**\n\n"
+        "### <:phintraco:1531272488645038091> SCMA: Buy\n"
+        "-# Alrich Paskalis T, Investment Advisor\n\n"
         "**Type:** Trading Buy<:up:1531285100346740766>\n"
         "**Entry:** 208 to 212\n"
         "**Stop-loss:** <200\n"
         "**Target:** 230\n"
-        "**Signal date:** Fri, Jul 10 2026, 07:00 WIB\n\n"
+        "**Signal date:** 10 Jul 2026 07:00 WIB\n\n"
         "**Reasons:** Konsolidasi bertahan di atas support area 200 menjaga peluang rebound hingga minor uptrend lanjutan. MACD yang konsisten membentuk histogram positif sejalan dengan peluang tersebut.\n\n"
-        "**Source:** [Phintraco Sekuritas](<https://t.me/phintraprofits/33655>) | Alrich Paskalis T, Investment Advisor"
+        "[View in Telegram](<https://t.me/phintraprofits/33655>)"
     )
 
 
@@ -236,10 +250,11 @@ def test_parse_target_reminder_and_format_source_link():
     assert event.event_kind == "REMINDER"
     assert event.outcomes == ("First target 5000 achieved",)
     assert scan.format_swing_alert(event).startswith(
-        "### <:phintraco:1531272488645038091> REMINDER: **INCO**\n\n"
+        "### <:phintraco:1531272488645038091> INCO: Reminder\n"
+        "-# Nauval Maulana, Investment Advisor\n\n"
     )
     assert scan.format_swing_alert(event).endswith(
-        "**Source:** [Phintraco Sekuritas](<https://t.me/phintraprofits/33711>) | Nauval Maulana, Investment Advisor"
+        "[View in Telegram](<https://t.me/phintraprofits/33711>)"
     )
 
 
@@ -276,6 +291,7 @@ def test_photo_reminder_posts_chart_from_exact_source_message(tmp_state, monkeyp
         "post_discord_file",
         lambda path, channel_id, dry_run, event_key: posted.append(("chart", Path(path).name, event_key)) or "chart-34093",
     )
+    monkeypatch.setattr(scan, "submit_board_event", lambda *_: True)
 
     assert scan.drain_outbox(state, dt.datetime(2026, 7, 31, 10, 7, tzinfo=scan.WIB)) == 1
     assert posted == [("text", "34093"), ("chart", "phintraco-34093.jpg", "34093")]
@@ -354,15 +370,15 @@ def test_on_support_update_uses_common_status_format_and_source_timestamp():
         (2, "640"),
     ]
     assert scan.format_swing_alert(event) == (
-        "### <:phintraco:1531272488645038091> HOLD: **BRMS**\n\n"
+        "### <:phintraco:1531272488645038091> BRMS: Hold\n"
+        "-# Alrich Paskalis T, Investment Advisor\n\n"
         "**Status:** On support<:hold:1531284248235868333>\n"
         "**Entry:** >=540\n"
         "**Stop-loss:** <520\n"
         "**Target 1:** 590 to 600\n"
         "**Target 2:** 640\n"
-        "**Status date:** Fri, Jul 17 2026, 10:11 WIB\n"
-        "**Source:** [Phintraco Sekuritas](<https://t.me/phintraprofits/33801>) | "
-        "Alrich Paskalis T, Investment Advisor"
+        "**Status date:** 17 Jul 2026 10:11 WIB\n\n"
+        "[View in Telegram](<https://t.me/phintraprofits/33801>)"
     )
 
 
@@ -389,11 +405,12 @@ def test_reply_status_requires_matching_parent_swing_plan():
     assert event.status == "On track"
     assert event.signal_datetime == dt.datetime(2026, 7, 15, 10, 55, 48, tzinfo=scan.WIB)
     assert scan.format_swing_alert(event) == (
-        "### <:phintraco:1531272488645038091> HOLD: **ESSA**\n\n"
+        "### <:phintraco:1531272488645038091> ESSA: Hold\n"
+        "-# Phintraco Sekuritas\n\n"
         "**Status:** On track<:hold:1531284248235868333>\n"
-        "**Status date:** Wed, Jul 15 2026, 10:55 WIB\n"
-        "**Source:** [Phintraco Sekuritas](<https://t.me/phintraprofits/33735>)\n"
-        "**Chart:** Unavailable from source"
+        "**Status date:** 15 Jul 2026 10:55 WIB\n"
+        "**Chart:** Unavailable from source\n\n"
+        "[View in Telegram](<https://t.me/phintraprofits/33735>)"
     )
     assert (
         scan.parse_reply_status(
@@ -430,7 +447,7 @@ def sample_call(has_photo=True):
 
 def test_missing_state_returns_empty_state(tmp_state):
     state = scan.load_state()
-    assert state["version"] == 1
+    assert state["version"] == 2
     assert state["observed_message_id"] == 0
     assert state["outbox"] == {}
     assert state["blocked"] is False
@@ -442,6 +459,27 @@ def test_state_roundtrip_is_atomic(tmp_state):
     scan.save_state(state)
     assert scan.load_state()["observed_message_id"] == 123
     assert not tmp_state.with_suffix(".tmp").exists()
+
+
+def test_version_one_state_migrates_completed_all_delivery_to_pending_board(tmp_state):
+    state = scan.empty_state()
+    event = scan.enqueue_call(state, sample_call(has_photo=False), now())
+    event["phase"] = scan.PHASE_DELIVERED
+    state["version"] = 1
+    for field in (
+        "board_submitted",
+        "board_attempts",
+        "board_next_attempt_at",
+        "board_last_error",
+    ):
+        del event[field]
+    tmp_state.write_text(json.dumps(state))
+
+    migrated = scan.load_state()
+
+    assert migrated["version"] == scan.STATE_VERSION
+    assert migrated["outbox"]["33655"]["phase"] == scan.PHASE_PENDING_BOARD
+    assert migrated["outbox"]["33655"]["board_submitted"] is False
 
 
 def test_enqueue_call_uses_source_id_and_media_phase(tmp_state):
@@ -981,6 +1019,21 @@ def enqueue_ready(state, call, tmp_path, chart=True):
     return event
 
 
+def enqueue_ready_chart_call(tmp_state, tmp_path):
+    assert scan.state_path() == tmp_state
+    state = scan.empty_state()
+    event = scan.enqueue_call(state, sample_call(has_photo=True), now())
+    media = tmp_path / "media"
+    media.mkdir()
+    chart = media / "phintraco-33655.jpg"
+    chart.write_bytes(b"source chart")
+    event["phase"] = scan.PHASE_PENDING_TEXT
+    event["chart_status"] = "captured"
+    event["media_path"] = str(chart)
+    scan.save_state(state)
+    return state
+
+
 def test_text_then_chart_order_per_call(tmp_state, tmp_path, monkeypatch):
     state = scan.empty_state()
     first = sample_call(has_photo=True)
@@ -991,9 +1044,153 @@ def test_text_then_chart_order_per_call(tmp_state, tmp_path, monkeypatch):
     events = []
     monkeypatch.setattr(scan, "post_discord_text", lambda content, channel_id, dry_run, event_key: events.append(("text", event_key)) or f"text-{event_key}")
     monkeypatch.setattr(scan, "post_discord_file", lambda path, channel_id, dry_run, event_key: events.append(("chart", event_key)) or f"chart-{event_key}")
+    monkeypatch.setattr(scan, "submit_board_event", lambda *_: True)
     delivered = scan.drain_outbox(state, dt.datetime.now(scan.WIB))
     assert delivered == 2
     assert events == [("text", "33655"), ("chart", "33655"), ("text", "33656"), ("chart", "33656")]
+    assert state["outbox"] == {}
+
+
+def test_board_handoff_waits_for_all_text_and_chart(tmp_state, tmp_path, monkeypatch) -> None:
+    state = enqueue_ready_chart_call(tmp_state, tmp_path)
+    submitted = []
+    monkeypatch.setattr(scan, "post_discord_text", lambda *_: "all-text")
+    monkeypatch.setattr(scan, "post_discord_file", lambda *_: "all-chart")
+    monkeypatch.setattr(
+        scan,
+        "submit_board_event",
+        lambda payload, chart, dry_run: submitted.append((payload, chart)) or True,
+    )
+
+    scan.drain_outbox(state, now())
+
+    assert submitted[0][0]["kind"] == "buy"
+    assert submitted[0][0]["plan"] == {
+        "entry": "208 to 212",
+        "stop_loss": "<200",
+        "targets": ["230"],
+    }
+    assert submitted[0][0]["source_status"] == "New setup"
+    assert submitted[0][1].name == "phintraco-33655.jpg"
+    assert state["outbox"] == {}
+
+
+def test_chartless_buy_hands_off_without_media(tmp_state, monkeypatch):
+    state = scan.empty_state()
+    scan.enqueue_call(state, sample_call(has_photo=False), now())
+    submitted = []
+    monkeypatch.setattr(scan, "post_discord_text", lambda *_: "all-text")
+    monkeypatch.setattr(
+        scan,
+        "post_discord_file",
+        lambda *_: pytest.fail("chartless call must not upload"),
+    )
+    monkeypatch.setattr(
+        scan,
+        "submit_board_event",
+        lambda payload, chart, dry_run: submitted.append((payload, chart)) or True,
+    )
+
+    assert scan.drain_outbox(state, now()) == 1
+    assert submitted[0][0]["kind"] == "buy"
+    assert submitted[0][1] is None
+    assert state["outbox"] == {}
+
+
+def test_status_handoff_is_accepted_without_a_primary_plan(tmp_state, monkeypatch):
+    state = scan.empty_state()
+    status = scan.SwingCall(
+        **{
+            **sample_call(has_photo=False).__dict__,
+            "event_kind": "STATUS",
+            "status": "On track",
+            "targets": (),
+        }
+    )
+    scan.enqueue_call(state, status, now())
+    submitted = []
+    monkeypatch.setattr(scan, "post_discord_text", lambda *_: "all-text")
+    monkeypatch.setattr(
+        scan,
+        "submit_board_event",
+        lambda payload, chart, dry_run: submitted.append(payload) or True,
+    )
+
+    assert scan.drain_outbox(state, now()) == 1
+    assert submitted[0]["kind"] == "status"
+    assert submitted[0]["source_status"] == "On track"
+    assert submitted[0]["plan"] is None
+    assert state["outbox"] == {}
+
+
+def test_reminder_board_payload_preserves_explicit_outcomes(tmp_state):
+    reminder = scan.SwingCall(
+        **{
+            **sample_call(has_photo=False).__dict__,
+            "event_kind": "REMINDER",
+            "outcomes": ("First target 230 achieved", "Second target 250 achieved"),
+            "targets": (),
+        }
+    )
+    state = scan.empty_state()
+    event = scan.enqueue_call(state, reminder, now())
+
+    payload, chart = scan.board_event_payload(event, reminder)
+
+    assert payload["kind"] == "reminder"
+    assert payload["source_status"] == "First target 230 achieved; Second target 250 achieved"
+    assert payload["plan"] is None
+    assert chart is None
+
+
+@pytest.mark.parametrize(
+    ("stdout", "expected"),
+    [
+        ('{"accepted":true}', True),
+        ('{"accepted":true,"extra":false}', False),
+        ('{"accepted":false}', False),
+        ("not-json", False),
+    ],
+)
+def test_board_submission_accepts_only_the_owner_acknowledgement(
+    monkeypatch, stdout, expected
+):
+    completed = type("Completed", (), {"returncode": 0, "stdout": stdout})()
+    monkeypatch.setattr(scan.subprocess, "run", lambda *args, **kwargs: completed)
+    monkeypatch.setenv("IDX_SWING_PLAN_BOARD_WRAPPER", "/tmp/board-wrapper")
+
+    assert scan.submit_board_event({"event_key": "phintraco:1444713822:33655"}, None, False) is expected
+
+
+def test_board_retry_preserves_all_ids_and_cached_chart_until_acknowledged(
+    tmp_state, tmp_path, monkeypatch
+):
+    state = enqueue_ready_chart_call(tmp_state, tmp_path)
+    event = state["outbox"]["33655"]
+    all_posts = []
+    monkeypatch.setattr(
+        scan,
+        "post_discord_text",
+        lambda *_: all_posts.append("text") or "all-text",
+    )
+    monkeypatch.setattr(
+        scan,
+        "post_discord_file",
+        lambda *_: all_posts.append("chart") or "all-chart",
+    )
+    monkeypatch.setattr(scan, "current_time", now)
+    monkeypatch.setattr(scan, "submit_board_event", lambda *_: False)
+
+    assert scan.drain_outbox(state, now()) == 0
+    assert event["phase"] == scan.PHASE_PENDING_BOARD
+    assert event["text_discord_id"] == "all-text"
+    assert event["board_attempts"] == 1
+    assert Path(event["media_path"]).is_file()
+    assert all_posts == ["text", "chart"]
+
+    monkeypatch.setattr(scan, "submit_board_event", lambda *_: True)
+    assert scan.drain_outbox(state, now() + dt.timedelta(minutes=1)) == 1
+    assert all_posts == ["text", "chart"]
     assert state["outbox"] == {}
 
 
@@ -1018,6 +1215,7 @@ def test_chart_failure_retries_chart_only_and_blocks_newer_call(tmp_state, tmp_p
     events = []
     monkeypatch.setattr(scan, "post_discord_text", lambda content, channel_id, dry_run, event_key: events.append(("text", event_key)) or f"text-{event_key}")
     monkeypatch.setattr(scan, "post_discord_file", lambda path, channel_id, dry_run, event_key: events.append(("chart", event_key)) or None)
+    monkeypatch.setattr(scan, "submit_board_event", lambda *_: True)
     now = dt.datetime(2026, 7, 10, 8, 0, tzinfo=scan.WIB)
     assert scan.drain_outbox(state, now) == 0
     assert events == [("text", "33655"), ("chart", "33655")]
@@ -1037,6 +1235,7 @@ def test_chartless_call_delivers_text_only(tmp_state, monkeypatch):
     captured = {}
     monkeypatch.setattr(scan, "post_discord_text", lambda content, channel_id, dry_run, event_key: captured.update(content=content) or "text-33655")
     monkeypatch.setattr(scan, "post_discord_file", lambda *args, **kwargs: pytest.fail("chartless call must not upload"))
+    monkeypatch.setattr(scan, "submit_board_event", lambda *_: True)
     assert scan.drain_outbox(state, dt.datetime.now(scan.WIB)) == 1
     assert "**Chart:** Unavailable from source" in captured["content"]
     assert event["event_key"] not in state["outbox"]
@@ -1419,10 +1618,33 @@ def test_run_ingests_and_delivers_text_then_chart(tmp_state, tmp_path, monkeypat
     events = []
     monkeypatch.setattr(scan, "post_discord_text", lambda content, channel_id, dry_run, event_key: events.append("text") or "text-id")
     monkeypatch.setattr(scan, "post_discord_file", lambda path, channel_id, dry_run, event_key: events.append("chart") or "chart-id")
+    monkeypatch.setattr(scan, "drain_board", lambda *_: True)
+    monkeypatch.setattr(scan, "submit_board_event", lambda *_: True)
     result = asyncio.run(scan.run(now=dt.datetime(2026, 7, 10, 8, 0, tzinfo=scan.WIB)))
     assert result == {"wakeAgent": False}
     assert events == ["text", "chart"]
     assert scan.load_state()["outbox"] == {}
+
+
+def test_board_drain_failure_degrades_heartbeat_without_blocking_poll(
+    tmp_state, monkeypatch
+):
+    state = scan.empty_state()
+    state["observed_message_id"] = 33655
+    scan.save_state(state)
+    client = ConnectedFakeTelegramClient([])
+    heartbeat_stats = []
+    monkeypatch.setattr(scan, "make_client", lambda: client)
+    monkeypatch.setattr(scan, "drain_board", lambda *_: False)
+    monkeypatch.setattr(
+        scan,
+        "post_heartbeat_if_due",
+        lambda _state, _now, stats, _dry_run: heartbeat_stats.append(stats) or True,
+    )
+
+    assert asyncio.run(scan.run(now=now())) == {"wakeAgent": False}
+    assert scan.load_state()["observed_message_id"] == 33655
+    assert heartbeat_stats[0].degraded is True
 
 
 def test_run_records_poll_completion_time(tmp_state, monkeypatch):

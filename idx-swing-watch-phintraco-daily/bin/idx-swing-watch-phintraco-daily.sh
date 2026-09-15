@@ -3,6 +3,7 @@ set -euo pipefail
 export TZ="Asia/Jakarta"
 export LC_ALL="${LC_ALL:-C.UTF-8}"
 export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
+export IDX_SWING_PLAN_BOARD_WRAPPER="${IDX_SWING_PLAN_BOARD_WRAPPER:-$HOME/.hermes/scripts/idx-swing-plan-board.sh}"
 RESILIENCE_BIN="$HOME/.agents/skills/telegram-resilience/bin"
 if [[ ! -r "$RESILIENCE_BIN/telegram_resilience.py" ]]; then
   printf '%s FATAL: telegram resilience module missing at %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$RESILIENCE_BIN" >&2
