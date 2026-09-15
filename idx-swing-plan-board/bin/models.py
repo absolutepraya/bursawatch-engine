@@ -184,6 +184,51 @@ class SourceEvent:
         )
 
 
+@dataclass(frozen=True)
+class SubmittedEvent:
+    """Result of durable source-event intake."""
+
+    id: int
+    inserted: bool
+
+
+@dataclass(frozen=True)
+class Episode:
+    """A single board-owned ticker lifecycle."""
+
+    id: int
+    ticker: str
+    lifecycle: str
+    title: str
+    opened_at: datetime
+    latest_material_at: datetime
+    closed_at: datetime | None = None
+    thread_id: str | None = None
+    starter_message_id: str | None = None
+    lifecycle_tag: str | None = None
+    market_tag: str | None = None
+
+
+@dataclass(frozen=True)
+class OutboxOperation:
+    """A persisted Discord intent. It contains no HTTP client or side effect."""
+
+    id: int
+    operation: str
+    episode_id: int
+    payload: Mapping[str, Any]
+    dedupe_key: str
+    attempts: int
+    next_attempt_at: datetime
+    status: str
+    last_error: str | None = None
+
+    @property
+    def kind(self) -> str:
+        """Compatibility spelling for callers that describe an operation as a kind."""
+        return self.operation
+
+
 def _non_empty_string(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
