@@ -29,6 +29,7 @@ _EVENT_KEYS = frozenset(
 )
 _PLAN_KEYS = frozenset({"entry", "stop_loss", "targets"})
 _KINDS = frozenset({"buy", "status", "reminder", "social"})
+_PHINTRACO_SOURCE = "phintraco"
 _TICKER = re.compile(r"[A-Z]{1,10}")
 
 
@@ -73,6 +74,8 @@ class SourceOutcome:
     source_status: str
 
     def __post_init__(self) -> None:
+        if not isinstance(self.state, MarketState):
+            raise ValueError("source outcome state must be a MarketState")
         if not _non_empty_string(self.source_status):
             raise ValueError("source_status must be a non-empty string")
 
@@ -104,6 +107,8 @@ class Checkpoint:
         if not _non_empty_string(self.session_date):
             raise ValueError("session_date must be a non-empty string")
         _parse_aware_timestamp(self.checked_at)
+        if self.state is not None and not isinstance(self.state, MarketState):
+            raise ValueError("checkpoint state must be a MarketState")
         if self.unavailable:
             if self.close_price is not None or self.state is not None:
                 raise ValueError("unavailable checkpoint cannot contain market facts")
@@ -156,8 +161,11 @@ class SourceEvent:
         media_path = _parse_media_path(payload["media_path"])
         media_urls = _parse_media_urls(payload["media_urls"])
 
-        if kind == "buy" and plan is None:
-            raise ValueError("buy source event requires complete plan levels")
+        if kind == "buy":
+            if source != _PHINTRACO_SOURCE:
+                raise ValueError("buy source event must originate from phintraco")
+            if plan is None:
+                raise ValueError("buy source event requires complete plan levels")
         if kind != "buy" and plan is not None:
             raise ValueError(f"{kind} source event cannot contain plan levels")
         return cls(

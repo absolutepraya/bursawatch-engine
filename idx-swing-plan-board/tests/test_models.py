@@ -3,7 +3,7 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 from conftest import example_buy_event, social_event
-from models import MarketState, PlanLevels, SourceEvent
+from models import Checkpoint, MarketState, PlanLevels, SourceEvent, SourceOutcome
 
 
 def test_source_event_is_strict_and_normalizes_ticker() -> None:
@@ -36,6 +36,7 @@ def test_source_event_is_strict_and_normalizes_ticker() -> None:
         {"media_path": "relative/chart.png"},
         {"kind": "sell"},
         {"plan": None},
+        {"source": "x"},
     ],
 )
 def test_source_event_rejects_untrusted_or_incomplete_buy(change: dict) -> None:
@@ -86,3 +87,25 @@ def test_value_objects_are_closed_and_target_mapping_is_bounded() -> None:
     assert MarketState.from_target_number(5) is MarketState.TP5_REACHED
     with pytest.raises(ValueError):
         MarketState.from_target_number(0)
+
+
+def test_source_outcome_and_checkpoint_accept_only_market_states() -> None:
+    outcome = SourceOutcome(MarketState.TP1_REACHED, "Target 1 achieved")
+    checkpoint = Checkpoint.market(
+        session_date="2026-09-19",
+        checked_at="2026-09-19T16:30:00+07:00",
+        close_price="230",
+        state=MarketState.TP1_REACHED,
+    )
+    assert outcome.state is MarketState.TP1_REACHED
+    assert checkpoint.state is MarketState.TP1_REACHED
+
+    with pytest.raises(ValueError):
+        SourceOutcome("TP1 reached", "Target 1 achieved")
+    with pytest.raises(ValueError):
+        Checkpoint.market(
+            session_date="2026-09-19",
+            checked_at="2026-09-19T16:30:00+07:00",
+            close_price="230",
+            state="TP1 reached",
+        )
