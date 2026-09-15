@@ -1,4 +1,5 @@
 from datetime import datetime
+from dataclasses import replace
 from zoneinfo import ZoneInfo
 
 from conftest import example_buy_event
@@ -17,7 +18,14 @@ def test_primary_card_uses_ticker_first_and_live_fields() -> None:
         state=MarketState.TP1_REACHED,
     )
 
-    card = render_primary_card(example_buy_event(), checkpoint)
+    event = replace(
+        example_buy_event(),
+        all_content=(
+            "### <:phintraco:1531272488645038091> SCMA: Buy\n"
+            "-# Alrich Paskalis T, Investment Advisor"
+        ),
+    )
+    card = render_primary_card(event, checkpoint)
 
     assert card.startswith(
         "### <:phintraco:1531272488645038091> SCMA: Buy\n"
@@ -32,6 +40,16 @@ def test_primary_card_uses_ticker_first_and_live_fields() -> None:
     assert "**Last checked:** 19 Sep 2026 16:30 WIB" in card
     assert "**Source:**" not in card
     assert card.endswith("[View in Telegram](<https://t.me/phintraprofits/33655>)")
+
+
+def test_primary_card_uses_firm_byline_when_source_has_none() -> None:
+    card = render_primary_card(example_buy_event())
+
+    assert card.startswith(
+        "### <:phintraco:1531272488645038091> SCMA: Buy\n"
+        "-# Phintraco Sekuritas\n\n"
+    )
+    assert "Alrich Paskalis T" not in card
 
 
 def test_unavailable_checkpoint_preserves_the_source_card_without_fabricating_price() -> None:

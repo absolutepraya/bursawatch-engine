@@ -70,7 +70,7 @@ class DiscordForumClient:
         self,
         name: str,
         content: str,
-        tag_ids: tuple[str, ...] | list[str],
+        tag_names: tuple[str, ...] | list[str],
         chart: Path | str | None,
         nonce_value: str,
     ) -> ForumThread:
@@ -80,7 +80,7 @@ class DiscordForumClient:
         message = self._message(content, nonce_value)
         payload: dict[str, object] = {
             "name": _text(name, "thread name"),
-            "applied_tags": _tag_ids(tag_ids),
+            "applied_tags": self._resolve_tag_names(tag_names),
             "message": message,
         }
         response = self._request_with_media(
@@ -148,7 +148,7 @@ class DiscordForumClient:
         self,
         thread_id: str,
         name: str,
-        tag_ids: tuple[str, ...] | list[str],
+        tag_names: tuple[str, ...] | list[str],
         archived: bool,
     ) -> None:
         """Write the complete desired title, lifecycle/market tags, and archive state."""
@@ -161,7 +161,7 @@ class DiscordForumClient:
             f"/channels/{_id(thread_id)}",
             json={
                 "name": _text(name, "thread name"),
-                "applied_tags": _tag_ids(tag_ids),
+                "applied_tags": self._resolve_tag_names(tag_names),
                 "archived": archived,
             },
         )
@@ -175,7 +175,7 @@ class DiscordForumClient:
             created = self.create_forum_thread(
                 _required(operation_payload, "name"),
                 _required(operation_payload, "content"),
-                _tags(operation_payload),
+                _tag_names(operation_payload),
                 operation_payload.get("chart"),
                 _nonce(operation_payload),
             )
@@ -201,7 +201,7 @@ class DiscordForumClient:
             self.patch_thread(
                 _required(operation_payload, "thread_id"),
                 _required(operation_payload, "name"),
-                _tags(operation_payload),
+                _tag_names(operation_payload),
                 _bool(operation_payload.get("archived"), "archived"),
             )
             return {}
@@ -220,6 +220,27 @@ class DiscordForumClient:
         if not token:
             raise DiscordForumError("Discord bot token is unavailable")
         return token
+
+    def _resolve_tag_names(self, tag_names: tuple[str, ...] | list[str]) -> list[str]:
+        """Resolve reviewed canonical names against the forum's current tag catalog."""
+        required_names = _validated_tag_names(tag_names)
+        response = self._request("GET", f"/channels/{FORUM_CHANNEL_ID}")
+        channel = _json_object(response, "Discord returned an invalid forum channel")
+        available_tags = channel.get("available_tags")
+        if not isinstance(available_tags, list):
+            raise DiscordForumError("Discord returned an invalid forum tag catalog")
+
+        resolved: list[str] = []
+        for required_name in required_names:
+            matches = [
+                _identifier(tag.get("id"))
+                for tag in available_tags
+                if isinstance(tag, Mapping) and tag.get("name") == required_name
+            ]
+            if len(matches) != 1 or matches[0] is None:
+                raise DiscordForumError(f"Discord forum tag is not uniquely available: {required_name}")
+            resolved.append(matches[0])
+        return resolved
 
     def _request_with_media(
         self,
@@ -344,17 +365,17 @@ def _nonce(payload: Mapping[str, object]) -> str:
     return _text(value, "nonce")
 
 
-def _tags(payload: Mapping[str, object]) -> list[str]:
-    return _tag_ids(payload.get("tag_ids", payload.get("applied_tags")))
+def _tag_names(payload: Mapping[str, object]) -> list[str]:
+    return _validated_tag_names(payload.get("tag_names"))
 
 
-def _tag_ids(value: object) -> list[str]:
+def _validated_tag_names(value: object) -> list[str]:
     if not isinstance(value, (list, tuple)) or not value:
-        raise ValueError("forum tag IDs must be a non-empty list")
-    tags = [_text(tag, "forum tag ID") for tag in value]
-    if len(tags) != len(set(tags)):
-        raise ValueError("forum tag IDs must be unique")
-    return tags
+        raise ValueError("forum tag names must be a non-empty list")
+    names = [_text(tag, "forum tag name") for tag in value]
+    if len(names) != len(set(names)):
+        raise ValueError("forum tag names must be unique")
+    return names
 
 
 def _id(value: object) -> str:

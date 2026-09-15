@@ -11,8 +11,6 @@ from models import Checkpoint, SourceEvent
 
 WIB = ZoneInfo("Asia/Jakarta")
 PHINTRACO_EMOJI = "<:phintraco:1531272488645038091>"
-_DEFAULT_PHINTRACO_ANALYST = "Alrich Paskalis T"
-_DEFAULT_PHINTRACO_ROLE = "Investment Advisor"
 _MARKDOWN = re.compile(r"([\\*_~`|\[\]()>])")
 _BYLINE = re.compile(r"^-#\s+(.+?)\s*$", re.MULTILINE)
 _REASONS = re.compile(r"^\*\*Reasons:\*\*\s*(.+?)\s*$", re.MULTILINE)
@@ -84,7 +82,7 @@ def render_history(when: str, detail: str) -> str:
 
 
 def _source_analyst(event: SourceEvent) -> tuple[str | None, str | None]:
-    """Use a byline retained in the source render, with the reviewed fixture fallback."""
+    """Use only an analyst identity retained in source-rendered content."""
     match = _BYLINE.search(event.all_content)
     if match:
         byline = match.group(1)
@@ -94,10 +92,6 @@ def _source_analyst(event: SourceEvent) -> tuple[str | None, str | None]:
                 return name, role
         if byline == "Phintraco Sekuritas":
             return None, None
-    # Task 1's compact Phintraco fixture predates the rendered source byline.
-    # Its complete known source is the reviewed Daily analyst shown in the card.
-    if event.source == "phintraco":
-        return _DEFAULT_PHINTRACO_ANALYST, _DEFAULT_PHINTRACO_ROLE
     return None, None
 
 
