@@ -335,20 +335,24 @@ def test_validated_selection_data_survives_reload_for_duplicate_and_digest_ranki
         enqueue_candidate(current_state, candidate, now)
         claimed = claim_oldest_pending_analysis(current_state, now)
         assert claimed == candidate
+        payload = {
+            "candidate_key": claimed.key,
+            "ticker": claimed.ticker,
+            "event_class": EventClass.QUANTIFIED_OPERATIONAL_EXECUTION.value,
+            "summary": "The company reported an operational update. The source confirms the facts. The update identifies the affected activity.",
+            "material_facts": [f"{ticker} reported volume"],
+            "ranking_band": 1,
+            "dedupe_facts": list(dedupe_facts),
+            "eligible": True,
+            "source_evidence": "The provider message directly states the update.",
+        }
+        if provider is Provider.TUNTUN:
+            payload["title"] = f"{ticker}: Operational update"
+            payload["route"] = "id_stocks_news"
         submit_classification(
             current_state,
             claimed,
-            {
-                "candidate_key": claimed.key,
-                "ticker": claimed.ticker,
-                "event_class": EventClass.QUANTIFIED_OPERATIONAL_EXECUTION.value,
-                "summary": "The company reported an operational update. The source confirms the facts. The update identifies the affected activity.",
-                "material_facts": [f"{ticker} reported volume"],
-                "ranking_band": 1,
-                "dedupe_facts": list(dedupe_facts),
-                "eligible": True,
-                "source_evidence": "The provider message directly states the update.",
-            },
+            payload,
             now,
         )
 
@@ -392,11 +396,13 @@ def test_legacy_pending_selection_reloads_as_reclassifiable_and_selectable(tmp_p
             "candidate_key": claimed.key,
             "ticker": claimed.ticker,
             "event_class": EventClass.QUANTIFIED_OPERATIONAL_EXECUTION.value,
-                "summary": "The company reported an operational update. The source confirms the facts. The update identifies the affected activity.",
+            "title": "LEGA: Operational update",
+            "summary": "The company reported an operational update. The source confirms the facts. The update identifies the affected activity.",
             "material_facts": ["reported volume"],
             "ranking_band": 1,
             "dedupe_facts": ["production volume", "reporting period"],
             "eligible": True,
+            "route": "id_stocks_news",
             "source_evidence": "The provider message directly states the update.",
         },
         now,

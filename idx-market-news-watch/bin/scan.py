@@ -22,12 +22,13 @@ from telegram_resilience import (
 
 from agent_protocol import agent_item, build_wake_payload, submit_classification as submit_agent_classification
 from delivery import deliver_event, post_discord_text
-from domain import CompanyCandidate, EventClass, Provider, SourceKind
+from domain import CompanyCandidate, Destination, EventClass, Provider, SourceKind
 from selection import (
     SelectionCandidate,
     assign_tier,
     is_confident_duplicate,
     pending_selection_candidates,
+    rank_update_sections,
 )
 from sources import PhintracoNewsAdapter, TuntunNewsAdapter, bootstrap_provider, fetch_unseen_messages
 from state import (
@@ -48,6 +49,7 @@ from state import (
 WIB = ZoneInfo("Asia/Jakarta")
 WATCHER_NAME = "idx-market-news"
 ALERT_CHANNEL_ID = "1525102508714889257"
+MACRO_CHANNEL_ID = "1531655369884045382"
 HEARTBEAT_CHANNEL_ID = "1505162000420835388"
 PHINTRACO_ENTITY = "phintasprofits"
 TUNTUN_ENTITY = "tuntunsekuritas"
@@ -326,6 +328,7 @@ def _selection_item_from_record(key: str, record: Mapping[str, object]) -> Selec
             published_at=datetime.fromisoformat(payload["published_at"]),
             source_text=payload["source_text"],
             direct_image=payload["direct_image"],
+            candidate_id=payload.get("candidate_id", ""),
         )
         item = SelectionCandidate(
             candidate=candidate,
@@ -334,6 +337,8 @@ def _selection_item_from_record(key: str, record: Mapping[str, object]) -> Selec
             material_facts=selection_data["material_facts"],
             dedupe_facts=selection_data["dedupe_facts"],
             summary=selection_data.get("summary", ""),
+            title=selection_data.get("title", ""),
+            route=Destination(selection_data.get("route", Destination.ID_STOCKS_NEWS.value)),
         )
     except (KeyError, TypeError, ValueError) as error:
         raise StateBlockedError(f"candidate {key!r} has invalid durable selection data") from error
@@ -381,25 +386,96 @@ def _migrate_scheduled_delivery_backlog(state: dict[str, object], now: datetime)
     return abandoned
 
 
+def _is_tuntun_update(item: SelectionCandidate) -> bool:
+    return item.provider is Provider.TUNTUN and item.candidate.source_kind in {
+        SourceKind.TUNTUN_UPDATE_LEAD,
+        SourceKind.TUNTUN_UPDATE_SECTION,
+    }
+
+
+def _update_is_ready(state: Mapping[str, object], source_message_id: int) -> bool:
+    records = state.get("candidates")
+    if not isinstance(records, Mapping):
+        raise StateBlockedError("malformed state: candidates must be an object")
+    found = False
+    for record in records.values():
+        if not isinstance(record, Mapping):
+            continue
+        payload = record.get("candidate")
+        if not isinstance(payload, Mapping):
+            continue
+        if payload.get("provider") != Provider.TUNTUN.value or payload.get("source_message_id") != source_message_id:
+            continue
+        try:
+            source_kind = SourceKind(payload.get("source_kind"))
+        except (TypeError, ValueError) as error:
+            raise StateBlockedError("malformed state: Tuntun update source kind is invalid") from error
+        if source_kind not in {SourceKind.TUNTUN_UPDATE_LEAD, SourceKind.TUNTUN_UPDATE_SECTION}:
+            continue
+        found = True
+        if record.get("phase") in {"pending_analysis", "awaiting_agent"}:
+            return False
+    return found
+
+
+def _route_one(state: dict[str, object], item: SelectionCandidate, classified: Sequence[SelectionCandidate]) -> None:
+    earlier = [
+        existing
+        for existing in classified
+        if existing.key != item.key
+        and (existing.published_at, existing.key) < (item.published_at, item.key)
+        and is_confident_duplicate(existing, item)
+    ]
+    if earlier:
+        _suppress_duplicate(state, item, min(earlier, key=lambda existing: (existing.published_at, existing.key)))
+        return
+    assign_tier(state, item)
+
+
 def _route_pending(state: dict[str, object]) -> int:
-    """Apply deterministic cross-provider dedupe before immediate delivery routing."""
+    """Route standalone candidates immediately and completed update groups within their card budget."""
     pending = pending_selection_candidates(state)
     classified = _all_classified(state)
     routed = 0
     for item in pending:
-        earlier = [
-            existing
-            for existing in classified
-            if existing.key != item.key
-            and (existing.published_at, existing.key) < (item.published_at, item.key)
-            and is_confident_duplicate(existing, item)
-        ]
-        if earlier:
-            _suppress_duplicate(state, item, min(earlier, key=lambda existing: (existing.published_at, existing.key)))
-            routed += 1
+        if _is_tuntun_update(item):
             continue
-        assign_tier(state, item)
+        _route_one(state, item, classified)
         routed += 1
+
+    update_ids = sorted({item.candidate.source_message_id for item in pending if _is_tuntun_update(item)})
+    for source_message_id in update_ids:
+        if not _update_is_ready(state, source_message_id):
+            continue
+        update_items = [
+            item
+            for item in pending
+            if _is_tuntun_update(item) and item.candidate.source_message_id == source_message_id
+        ]
+        leads = [item for item in update_items if item.candidate.source_kind is SourceKind.TUNTUN_UPDATE_LEAD]
+        sections = [item for item in update_items if item.candidate.source_kind is SourceKind.TUNTUN_UPDATE_SECTION]
+        for lead in leads:
+            _route_one(state, lead, classified)
+            routed += 1
+        eligible_sections = [
+            item
+            for item in sections
+            if item.route is not Destination.EXCLUDE and item.event_class is not EventClass.NOT_ELIGIBLE
+        ]
+        selected = rank_update_sections(eligible_sections)[:2]
+        selected_keys = {item.key for item in selected}
+        for item in selected:
+            _route_one(state, item, classified)
+            routed += 1
+        for item in sections:
+            if item.key in selected_keys:
+                continue
+            mark_terminal(
+                state,
+                item.key,
+                "suppressed_ineligible" if item.route is Destination.EXCLUDE else "suppressed_rank",
+            )
+            routed += 1
     return routed
 
 
@@ -437,10 +513,11 @@ async def _drain_delivery(
         Provider.TUNTUN: runtime.tuntun_entity,
     }
     for item in _pending_delivery(state, now):
+        channel_id = MACRO_CHANNEL_ID if item.route is Destination.MACRO_NEWS else ALERT_CHANNEL_ID
         did_deliver = await deliver_event(
             state,
             item,
-            ALERT_CHANNEL_ID,
+            channel_id,
             now,
             dry_run=dry_run,
             client=None if runtime is None else runtime.client,
@@ -644,6 +721,7 @@ def _candidate_for_submission(state: Mapping[str, object], candidate_key: object
             published_at=datetime.fromisoformat(payload["published_at"]),
             source_text=payload["source_text"],
             direct_image=payload["direct_image"],
+            candidate_id=payload.get("candidate_id", ""),
         )
     except (KeyError, TypeError, ValueError) as error:
         raise StateBlockedError(f"candidate {candidate_key!r} has invalid durable payload") from error

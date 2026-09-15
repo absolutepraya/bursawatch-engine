@@ -13,6 +13,10 @@ class MarketSnapshot:
     one_day_percent: float
     one_week_change: float
     one_week_percent: float
+    one_month_change: float | None = None
+    one_month_percent: float | None = None
+    three_month_change: float | None = None
+    three_month_percent: float | None = None
 
 
 def _number(value: object) -> float | None:
@@ -65,7 +69,7 @@ def get_market_snapshot(ticker: str, source_text: str) -> MarketSnapshot | None:
         import yfinance as yf
 
         quote = yf.Ticker(f"{ticker}.JK")
-        history = quote.history(period="10d", interval="1d", auto_adjust=False, raise_errors=True)
+        history = quote.history(period="1y", interval="1d", auto_adjust=False, raise_errors=True)
         closes = [
             value
             for value in (_number(value) for value in history.get("Close", []))
@@ -79,6 +83,8 @@ def get_market_snapshot(ticker: str, source_text: str) -> MarketSnapshot | None:
         week_ago = closes[-6]
         if latest <= 0 or previous <= 0 or week_ago <= 0:
             return None
+        month_ago = closes[-23] if len(closes) >= 23 else None
+        three_months_ago = closes[-67] if len(closes) >= 67 else None
         try:
             info = quote.get_info()
         except Exception:
@@ -93,6 +99,12 @@ def get_market_snapshot(ticker: str, source_text: str) -> MarketSnapshot | None:
             one_day_percent=((latest / previous) - 1) * 100,
             one_week_change=latest - week_ago,
             one_week_percent=((latest / week_ago) - 1) * 100,
+            one_month_change=None if month_ago is None else latest - month_ago,
+            one_month_percent=None if month_ago is None else ((latest / month_ago) - 1) * 100,
+            three_month_change=None if three_months_ago is None else latest - three_months_ago,
+            three_month_percent=(
+                None if three_months_ago is None else ((latest / three_months_ago) - 1) * 100
+            ),
         )
     except Exception:
         return None

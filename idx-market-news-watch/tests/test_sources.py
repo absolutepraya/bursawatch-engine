@@ -58,6 +58,83 @@ def test_tuntun_issuer_headline_with_decorative_prefix_is_ticker_led():
     assert [candidate.ticker for candidate in candidates] == ["SINI"]
 
 
+def test_tuntun_long_news_with_topic_led_headline_extracts_issuer_ticker(load_fixture):
+    candidates = TuntunNewsAdapter().extract_candidates(
+        message_id=14784,
+        text=load_fixture("tuntun-long-news.txt"),
+        published_at=datetime(2026, 9, 11, 4, 18, 44, tzinfo=timezone.utc),
+        topic_id=3743,
+        direct_image=False,
+    )
+
+    assert [candidate.ticker for candidate in candidates] == ["KLBF"]
+    assert candidates[0].source_kind.value == "tuntun_standalone"
+
+
+def test_tuntun_decorated_news_strips_the_source_footer_and_detects_the_headline_issuer():
+    candidates = TuntunNewsAdapter().extract_candidates(
+        message_id=14760,
+        text=(
+            "📰 Rata Kanan Capital Borong 30,75 Juta Saham MMIX Senilai Rp20 Miliar\n\n"
+            "Rata Kanan Capital resmi masuk sebagai pemegang saham PT Multi Medika Internasional Tbk (MMIX) "
+            "setelah membeli 30,75 juta saham senilai sekitar Rp20 miliar.\n\n"
+            "Sumber: IDXChannel"
+        ),
+        published_at=datetime(2026, 9, 10, 4, 1, 30, tzinfo=timezone.utc),
+        topic_id=3743,
+        direct_image=False,
+    )
+
+    assert [candidate.ticker for candidate in candidates] == ["MMIX"]
+    assert "Sumber:" not in candidates[0].source_text
+
+
+def test_tuntun_decorated_macro_news_is_a_routeable_tickerless_candidate():
+    candidates = TuntunNewsAdapter().extract_candidates(
+        message_id=14761,
+        text="📰 Pemerintah Pertahankan Harga BBM untuk Redam Inflasi\n\nSumber: Bisnis",
+        published_at=datetime(2026, 9, 10, 4, 2, tzinfo=timezone.utc),
+        topic_id=3743,
+        direct_image=False,
+    )
+
+    assert [(candidate.candidate_id, candidate.ticker) for candidate in candidates] == [("news", None)]
+    assert "Sumber:" not in candidates[0].source_text
+
+
+def test_tuntun_midday_update_extracts_its_lead_and_each_macro_or_industry_paragraph():
+    candidates = TuntunNewsAdapter().extract_candidates(
+        message_id=14786,
+        text=(
+            "Midday Update_Tuntun Sekuritas_20260911\n\n"
+            "BUMI Tuntaskan Akuisisi Loyal Metals\n\n"
+            "BUMI menyelesaikan akuisisi untuk memperluas eksposur tembaga dan emas.\n\n"
+            "Overview 🧭\n\nIHSG: 6,490.91 (-1.49%)\n\n"
+            "Macro & Global🌐\n\n"
+            "ECB Naikkan Suku Bunga Deposit 25 bps ke 2,5%\n\n"
+            "Kenaikan memperkuat tren kebijakan moneter global yang lebih hawkish.\n\n"
+            "Rupiah Kembali Tertekan ke Area Rp17.600 per Dolar AS\n\n"
+            "Harga minyak tinggi menjadi tekanan utama rupiah.\n\n"
+            "Industry 🏭\n\n"
+            "Harga Minyak Mendekati US$110 per Barel\n\n"
+            "Brent naik sekitar 6,3% ke US$107,6.\n\n"
+            "Ekspor Batu Bara Indonesia Agustus Turun 23,3% YoY\n\n"
+            "Kekeringan membatasi pengangkutan batu bara menuju terminal."
+        ),
+        published_at=datetime(2026, 9, 11, 5, 35, 30, tzinfo=timezone.utc),
+        topic_id=3743,
+        direct_image=False,
+    )
+
+    assert [(candidate.candidate_id, candidate.source_kind.value, candidate.ticker) for candidate in candidates] == [
+        ("lead", "tuntun_update_lead", "BUMI"),
+        ("macro-1", "tuntun_update_section", None),
+        ("macro-2", "tuntun_update_section", None),
+        ("industry-1", "tuntun_update_section", None),
+        ("industry-2", "tuntun_update_section", None),
+    ]
+
+
 def test_tuntun_decorated_brand_headline_prefers_parenthesized_idx_ticker():
     candidates = TuntunNewsAdapter().extract_candidates(
         message_id=14281,

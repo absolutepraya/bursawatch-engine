@@ -8,7 +8,7 @@ import pytest
 import delivery
 from market_data import MarketSnapshot
 import state as state_module
-from domain import CompanyCandidate, EventClass, Provider, SourceKind
+from domain import CompanyCandidate, Destination, EventClass, Provider, SourceKind
 from selection import SelectionCandidate
 from state import empty_state, enqueue_candidate, load_state
 
@@ -31,7 +31,10 @@ def _item(
     published_at,
     facts=("contract value",),
     source_text="source text is not reposted",
+    title="",
 ):
+    if provider is Provider.TUNTUN and not title:
+        title = f"{ticker}: Test news"
     return SelectionCandidate(
         candidate=CompanyCandidate(
             provider=provider,
@@ -46,6 +49,7 @@ def _item(
         ranking_band=1,
         material_facts=facts,
         dedupe_facts=("counterparty", "term"),
+        title=title,
     )
 
 
@@ -86,17 +90,21 @@ def test_news_item_has_no_delivery_window_heading(dewa_tier_one):
     alert = delivery.format_news_item(dewa_tier_one)
 
     assert alert.startswith(
-        "### <:tuntun:1531272430985937086> DEWA (DEWA)"
+        "### <:tuntun:1531272430985937086> DEWA: Test news"
     )
     assert all(label not in alert for label in ("PRE-MARKET", "POST-MARKET", "INTRA-DAY"))
-    assert "┈" * 13 in alert
-    assert "[Sumber]" not in alert
+    assert "┈" * 13 not in alert
+    assert "Sumber:" not in alert
+    assert "[View on Telegram](<https://t.me/tuntunsekuritas/13597>)" in alert
     assert "BUY" not in alert
     assert (
-        "Harga terakhir (IDR): -\n"
-        "<:grey:1531279158913536182>1D: -\n"
-        "<:grey:1531279158913536182>1W: -"
+        "Harga terakhir (IDR): **-**\n"
+        "<:grey:1531279158913536182> 1D: **-**, "
+        "<:grey:1531279158913536182> 1W: **-**,\n"
+        "<:grey:1531279158913536182> 1M: **-**, "
+        "<:grey:1531279158913536182> 3M: **-**"
     ) in alert
+    assert "*(Ringkasan)*" in alert
     assert len(alert) <= 2000
 
 
@@ -109,6 +117,7 @@ def test_news_item_preserves_material_fact_capitalization():
             EventClass.MNA_OR_ASSET_TRANSACTION,
             datetime(2026, 7, 23, 5, 51, tzinfo=timezone.utc),
             facts=("SINI acquired KMS.", "KMS revenue is projected at US$159 million in 2027."),
+            title="SINI: Akuisisi KMS memperkuat ekspansi",
         )
     )
 
@@ -125,12 +134,180 @@ def test_entry_uses_yahoo_snapshot_for_canonical_name_and_rupiah_changes(monkeyp
 
     alert = delivery.format_news_item(dewa_tier_one)
 
-    assert "DEWA (PT Darma Henwa Tbk)" in alert
+    assert "DEWA: Test news" in alert
     assert (
-        "*Harga terakhir (IDR):* 472\n"
-        "<:green:1531274822221434911>1D: +32 (+7,27%)\n"
-        "<:red:1531274756853202974>1W: -18 (-3,67%)"
+        "Harga terakhir (IDR): **472**\n"
+        "<:green:1531274822221434911> 1D: **+32 (+7.27%)**, "
+        "<:red:1531274756853202974> 1W: **-18 (-3.67%)**,\n"
+        "<:grey:1531279158913536182> 1M: **-**, "
+        "<:grey:1531279158913536182> 3M: **-**"
     ) in alert
+
+
+def test_tuntun_entry_uses_generated_title_and_four_horizons(monkeypatch):
+    item = _item(
+        Provider.TUNTUN,
+        14040,
+        "RAJA",
+        EventClass.MNA_OR_ASSET_TRANSACTION,
+        datetime(2026, 7, 23, 5, 51, tzinfo=timezone.utc),
+        facts=("RAJA acquired a 5% stake.",),
+        source_text="RAJA: Akuisisi Layar Nusantara Gas\nRAJA mengakuisisi 5% saham.",
+        title="RAJA: Akuisisi Layar Nusantara Gas",
+    )
+    monkeypatch.setattr(
+        delivery,
+        "get_market_snapshot",
+        lambda ticker, source_text: MarketSnapshot(
+            "PT Rukun Raharja Tbk", 820, 5, 0.61, 10, 1.23, 5, 0.61, 10, 1.23
+        ),
+    )
+
+    alert = delivery.format_news_item(item)
+
+    assert alert == (
+        "### <:tuntun:1531272430985937086> RAJA: Akuisisi Layar Nusantara Gas\n\n"
+        "*(Ringkasan)* RAJA acquired a 5% stake.\n\n"
+        "Harga terakhir (IDR): **820**\n"
+        "<:green:1531274822221434911> 1D: **+5 (+0.61%)**, "
+        "<:green:1531274822221434911> 1W: **+10 (+1.23%)**,\n"
+        "<:green:1531274822221434911> 1M: **+5 (+0.61%)**, "
+        "<:green:1531274822221434911> 3M: **+10 (+1.23%)**\n\n"
+        "[View on Telegram](<https://t.me/tuntunsekuritas/14040>)"
+    )
+    assert "(PT Rukun Raharja Tbk)" not in alert
+    assert "*Harga terakhir" not in alert
+
+
+def test_tuntun_macro_card_uses_the_telegram_link_without_market_data():
+    item = SelectionCandidate(
+        candidate=CompanyCandidate(
+            provider=Provider.TUNTUN,
+            source_message_id=14786,
+            ticker=None,
+            candidate_id="macro-1",
+            source_kind=SourceKind.TUNTUN_UPDATE_SECTION,
+            published_at=datetime(2026, 9, 11, 5, 35, 30, tzinfo=timezone.utc),
+            source_text="ECB menaikkan suku bunga deposit.",
+            direct_image=False,
+        ),
+        event_class=EventClass.OTHER_COMPANY_OPERATION,
+        ranking_band=1,
+        material_facts=("ECB menaikkan suku bunga deposit.",),
+        dedupe_facts=("ECB deposit rate",),
+        summary="ECB menaikkan suku bunga deposit sebesar 25 basis poin.",
+        title="ECB naikkan suku bunga deposit 25 bps",
+        route=Destination.MACRO_NEWS,
+    )
+
+    alert = delivery.format_news_item(item)
+
+    assert alert == (
+        "### <:tuntun:1531272430985937086> ECB naikkan suku bunga deposit 25 bps\n\n"
+        "*(Ringkasan)* ECB menaikkan suku bunga deposit sebesar 25 basis poin.\n\n"
+        "[View on Telegram](<https://t.me/tuntunsekuritas/14786>)"
+    )
+    assert "Harga terakhir" not in alert
+
+
+def test_tickered_tuntun_macro_card_has_no_issuer_price_block():
+    item = SelectionCandidate(
+        candidate=CompanyCandidate(
+            provider=Provider.TUNTUN,
+            source_message_id=14793,
+            ticker="BUMI",
+            candidate_id="industry-1",
+            source_kind=SourceKind.TUNTUN_UPDATE_SECTION,
+            published_at=datetime(2026, 9, 11, 10, 49, 20, tzinfo=timezone.utc),
+            source_text="Harga minyak meningkat.",
+            direct_image=False,
+        ),
+        event_class=EventClass.OTHER_COMPANY_OPERATION,
+        ranking_band=1,
+        material_facts=("Harga minyak meningkat.",),
+        dedupe_facts=("harga minyak",),
+        summary="Harga minyak meningkat karena risiko pasokan.",
+        title="Harga minyak meningkat karena risiko pasokan",
+        route=Destination.MACRO_NEWS,
+    )
+
+    alert = delivery.format_news_item(item)
+
+    assert "Harga terakhir" not in alert
+    assert "BUMI:" not in alert
+
+
+def test_tuntun_entry_always_marks_the_llm_summary():
+    short = _item(
+        Provider.TUNTUN,
+        14041,
+        "RAJA",
+        EventClass.OTHER_COMPANY_OPERATION,
+        datetime(2026, 7, 23, 5, 51, tzinfo=timezone.utc),
+        source_text="RAJA: headline\n" + "x" * 500,
+        title="RAJA: Headline singkat",
+    )
+    long = _item(
+        Provider.TUNTUN,
+        14042,
+        "RAJA",
+        EventClass.OTHER_COMPANY_OPERATION,
+        datetime(2026, 7, 23, 5, 51, tzinfo=timezone.utc),
+        source_text="RAJA: headline\n" + "x" * 501,
+        title="RAJA: Headline panjang",
+    )
+
+    short_alert = delivery.format_news_item(short)
+    long_alert = delivery.format_news_item(long)
+
+    assert "*(Ringkasan)*" in short_alert
+    assert "*(Ringkasan)*" in long_alert
+
+
+def test_tuntun_entry_uses_bold_grey_placeholders_when_market_data_is_unavailable():
+    item = _item(
+        Provider.TUNTUN,
+        14043,
+        "RAJA",
+        EventClass.OTHER_COMPANY_OPERATION,
+        datetime(2026, 7, 23, 5, 51, tzinfo=timezone.utc),
+        title="RAJA: Pembaruan operasional",
+    )
+
+    alert = delivery.format_news_item(item)
+
+    assert "Harga terakhir (IDR): **-**" in alert
+    assert (
+        "<:grey:1531279158913536182> 1D: **-**, "
+        "<:grey:1531279158913536182> 1W: **-**,\n"
+        "<:grey:1531279158913536182> 1M: **-**, "
+        "<:grey:1531279158913536182> 3M: **-**"
+    ) in alert
+
+
+def test_pending_delivery_reuses_existing_payload_instead_of_reformatting(
+    monkeypatch, tmp_path, dewa_tier_one
+):
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_path / "state.json"))
+    state = empty_state()
+    now = datetime(2026, 7, 14, 13, 30, tzinfo=timezone.utc)
+    enqueue_candidate(state, dewa_tier_one.candidate, now)
+    state["candidates"][dewa_tier_one.key]["phase"] = "pending_delivery"
+    legacy_content = "legacy payload retained"
+    state["stats"]["delivery_payloads"] = {}
+    state["stats"]["delivery_payloads"][dewa_tier_one.key] = {
+        "content": legacy_content,
+        "nonce": "legacy-nonce",
+        "enforce_nonce": True,
+        "text_discord_id": None,
+        "image_discord_id": None,
+        "image_error": None,
+    }
+    posted = []
+    monkeypatch.setattr(delivery, "post_discord_text", lambda content, *args, **kwargs: posted.append(content) or "id")
+
+    assert asyncio.run(delivery.deliver_event(state, dewa_tier_one, "123", now))
+    assert posted == [legacy_content]
 
 
 def test_entry_uses_complete_legal_name_when_quote_is_unavailable():
@@ -145,11 +322,12 @@ def test_entry_uses_complete_legal_name_when_quote_is_unavailable():
             "📰 BTEL (Mengklarifikasi Kepemilikan 4,85 Miliar Saham PT Bakrie Telecom Tbk)\n\n"
             "Protelindo mengklarifikasi kepemilikan saham BTEL."
         ),
+        title="BTEL: Klarifikasi kepemilikan saham",
     )
 
     alert = delivery.format_news_item(item)
 
-    assert "BTEL (PT Bakrie Telecom Tbk)" in alert
+    assert "BTEL: Klarifikasi kepemilikan saham" in alert
     assert "BTEL (Mengklarifikasi Kepemilikan" not in alert
 
 
@@ -162,7 +340,7 @@ def test_flat_market_change_uses_grey_emoji(monkeypatch, dewa_tier_one):
 
     alert = delivery.format_news_item(dewa_tier_one)
 
-    assert alert.count("<:grey:1531279158913536182>") == 2
+    assert alert.count("<:grey:1531279158913536182>") == 4
 
 
 def test_investment_language_guard_does_not_reject_the_factual_word_holds():
@@ -191,12 +369,12 @@ def test_each_news_item_is_a_standalone_message_without_a_shared_heading(monkeyp
     assert asyncio.run(delivery.deliver_event(state, second, "123", now))
 
     assert posted[0].startswith("### <:tuntun:1531272430985937086> DEWA")
-    assert posted[1].startswith("### <:tuntun:1531272430985937086> ADRO (ADRO)")
+    assert posted[1].startswith("### <:tuntun:1531272430985937086> ADRO: Test news")
     assert all("INTRA-DAY" not in message for message in posted)
 
 
 def test_tier_two_uses_the_same_standalone_format_and_oversize_is_rejected(cbre_tier_two):
-    assert delivery.format_news_item(cbre_tier_two).startswith("### <:tuntun:1531272430985937086> CBRE")
+    assert delivery.format_news_item(cbre_tier_two).startswith("### <:tuntun:1531272430985937086> CBRE: Test news")
     oversized = _item(
         Provider.TUNTUN,
         13600,

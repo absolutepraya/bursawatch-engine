@@ -39,7 +39,7 @@ def test_new_state_is_private_and_versioned(tmp_path: Path) -> None:
     assert "TOKEN" not in json.dumps(state).upper()
 
 
-def test_only_one_of_four_watchers_gets_a_probe(tmp_path: Path) -> None:
+def test_only_one_of_three_watchers_gets_a_probe(tmp_path: Path) -> None:
     resilience = _resilience(tmp_path)
 
     owner = resilience.acquire_probe("idx-market-news-watch", WIB_NOW)
@@ -47,13 +47,12 @@ def test_only_one_of_four_watchers_gets_a_probe(tmp_path: Path) -> None:
         resilience.acquire_probe(name, WIB_NOW).kind
         for name in (
             "idx-swing-watch-phintraco-daily",
-            "idx-ssf-watch-phintraco-weekly",
             "polymarket-signal-watch",
         )
     ]
 
     assert owner.kind == "probe"
-    assert later == ["leased", "leased", "leased"]
+    assert later == ["leased", "leased"]
 
 
 def test_transport_failure_opens_one_incident_and_marks_cooldown_watchers(
@@ -131,7 +130,7 @@ def test_unauthorized_session_never_auto_retries(tmp_path: Path) -> None:
         owner.lease_id, "polymarket-signal-watch", WIB_NOW
     )
     later = resilience.acquire_probe(
-        "idx-ssf-watch-phintraco-weekly", WIB_NOW + timedelta(days=1)
+        "idx-swing-watch-phintraco-daily", WIB_NOW + timedelta(days=1)
     )
 
     assert later.kind == "auth_required"
@@ -254,7 +253,7 @@ def test_acknowledged_notification_is_never_claimed_again(tmp_path: Path) -> Non
     resilience.acknowledge_notification(notice.claim_id, WIB_NOW)
 
     assert resilience.claim_notification(
-        "idx-ssf-watch-phintraco-weekly", WIB_NOW + timedelta(seconds=76)
+        "idx-market-news-watch", WIB_NOW + timedelta(seconds=76)
     ) is None
 
 

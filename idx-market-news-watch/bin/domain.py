@@ -15,6 +15,8 @@ class SourceKind(StrEnum):
     TUNTUN_STANDALONE = "tuntun_standalone"
     CORPORATE_ENTRY = "corporate_entry"
     TUNTUN_SPECIAL_TOPIC = "tuntun_special_topic"
+    TUNTUN_UPDATE_LEAD = "tuntun_update_lead"
+    TUNTUN_UPDATE_SECTION = "tuntun_update_section"
     PHINTRACO_NOTE = "phintraco_note"
     PHINTRACO_COMPANY_FLASH = "phintraco_company_flash"
     PHINTRACO_STOCK_INFORMATION = "phintraco_stock_information"
@@ -33,6 +35,12 @@ class EventClass(StrEnum):
     NOT_ELIGIBLE = "not_eligible"
 
 
+class Destination(StrEnum):
+    ID_STOCKS_NEWS = "id_stocks_news"
+    MACRO_NEWS = "macro_news"
+    EXCLUDE = "exclude"
+
+
 class Tier(StrEnum):
     ONE = "one"
     TWO = "two"
@@ -41,6 +49,7 @@ class Tier(StrEnum):
 # Durable state can contain candidates created before intake was narrowed to
 # four-letter IDX symbols. New source candidates are constrained in sources.py.
 _TICKER_PATTERN = re.compile(r"[A-Z]{2,5}")
+_CANDIDATE_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 _PROVIDER_URL_ROOTS = {
     Provider.PHINTRACO: "https://t.me/phintasprofits",
     Provider.TUNTUN: "https://t.me/tuntunsekuritas",
@@ -90,18 +99,25 @@ class SourceMessage:
 
 @dataclass(frozen=True, slots=True)
 class CompanyCandidate:
+    """One source-grounded market-news segment, with an optional listed issuer."""
+
     provider: Provider
     source_message_id: int
-    ticker: str
+    ticker: str | None
     source_kind: SourceKind
     published_at: datetime
     source_text: str
     direct_image: bool
+    candidate_id: str = ""
 
     def __post_init__(self) -> None:
         _require_positive_message_id(self.source_message_id)
-        if _TICKER_PATTERN.fullmatch(self.ticker) is None:
+        if self.ticker is not None and _TICKER_PATTERN.fullmatch(self.ticker) is None:
             raise ValueError("ticker must match [A-Z]{2,5}")
+        candidate_id = self.candidate_id or (self.ticker or "news")
+        if _CANDIDATE_ID_PATTERN.fullmatch(candidate_id) is None:
+            raise ValueError("candidate_id must use letters, digits, underscores, or hyphens")
+        object.__setattr__(self, "candidate_id", candidate_id)
         _require_aware_timestamp(self.published_at, "published_at")
 
     @property
@@ -152,4 +168,4 @@ def retry_delay_minutes(attempt: int) -> int:
 
 
 def candidate_key(candidate: CompanyCandidate) -> str:
-    return f"{candidate.provider.value}:{candidate.source_message_id}:{candidate.ticker}"
+    return f"{candidate.provider.value}:{candidate.source_message_id}:{candidate.candidate_id}"
