@@ -14,7 +14,9 @@ PHINTRACO_EMOJI = "<:phintraco:1531272488645038091>"
 _MARKDOWN = re.compile(r"([\\*_~`|\[\]()>])")
 _BYLINE = re.compile(r"^-#\s+(.+?)\s*$", re.MULTILINE)
 _REASONS = re.compile(r"^\*\*Reasons:\*\*\s*(.+?)\s*$", re.MULTILINE)
+_TYPE = re.compile(r"^\*\*Type:\*\*\s*(.+?)\s*$", re.MULTILINE)
 MAX_DISCORD_CHARACTERS = 2_000
+STATIC_CARD_BUDGET = 1_400
 
 
 def escape(value: str) -> str:
@@ -34,30 +36,41 @@ def analyst_byline(name: str | None, role: str | None) -> str:
     return f"-# {escape(name)}, {escape(role)}" if name and role else "-# Phintraco Sekuritas"
 
 
-def render_source_only_card(title: str) -> str:
-    return f"### {escape(title)}\n\n**Primary plan:** No Phintraco plan yet"
+def render_source_only_card(title: str, source_url: str | None = None) -> str:
+    content = f"### {escape(title)}\n\n**Primary plan:** No Phintraco plan yet"
+    return content + (f"\n\n[View source](<{source_url}>)" if source_url else "")
 
 
 def render_source_reply(event: SourceEvent) -> str:
-    """Keep the watcher's All text, source link, and direct media URLs."""
-    urls = dict.fromkeys((event.source_url, *event.media_urls))
+    """Keep the watcher's All text and source link; media has its own intents."""
+    urls = (event.source_url,)
     missing = [url for url in urls if url not in event.all_content]
     return event.all_content + ("\n\n" + "\n".join(missing) if missing else "")
 
 
 def render_source_replies(event: SourceEvent) -> tuple[str, ...]:
-    """Split only Kelas source context into ordered Discord-sized replies."""
-    content = render_source_reply(event)
-    if event.source != "kelas-investasi" or len(content) <= MAX_DISCORD_CHARACTERS:
-        return (content,)
+    """Split every source adapter's content losslessly in Discord-sized order."""
+    return split_content(render_source_reply(event))
+
+
+def discord_length(content: str) -> int:
+    return len(content.encode("utf-16-le")) // 2
+
+
+def split_content(content: str, limit: int = MAX_DISCORD_CHARACTERS) -> tuple[str, ...]:
     chunks: list[str] = []
     remaining = content
-    while len(remaining) > MAX_DISCORD_CHARACTERS:
-        boundary = remaining.rfind(" ", 0, MAX_DISCORD_CHARACTERS)
-        if boundary <= 0:
-            boundary = MAX_DISCORD_CHARACTERS
-        else:
+    while discord_length(remaining) > limit:
+        units = 0
+        boundary = 0
+        for char in remaining:
+            units += 2 if ord(char) > 0xFFFF else 1
+            if units > limit:
+                break
             boundary += 1
+        whitespace = max(remaining.rfind(" ", 0, boundary), remaining.rfind("\n", 0, boundary))
+        if whitespace > 0:
+            boundary = whitespace + 1
         chunks.append(remaining[:boundary])
         remaining = remaining[boundary:]
     chunks.append(remaining)
@@ -73,22 +86,8 @@ def render_primary_card(
     if event.kind != "buy" or event.plan is None:
         raise ValueError("primary cards require a complete buy event")
 
-    name, role = _source_analyst(event)
-    lines = [
-        f"### {PHINTRACO_EMOJI} {escape(event.ticker)}: Buy",
-        analyst_byline(name, role),
-        "",
-        f"**Entry:** {escape(event.plan.entry)}",
-        f"**Stop-loss:** {escape(event.plan.stop_loss)}",
-    ]
-    for number, target in enumerate(event.plan.targets, start=1):
-        lines.append(f"**Target {number}:** {escape(target)}")
-    lines.append(f"**Signal date:** {format_wib(event.published_at)}")
-
-    if reasons := _source_reasons(event.all_content):
-        lines.extend(["", f"**Reasons:** {reasons}"])
-
-    lines.append(f"**Source status:** {escape(event.source_status or 'New setup')}")
+    static, _ = _primary_static(event)
+    lines = [static, f"**Source status:** {_excerpt(escape(event.source_status or 'New setup'), 220)}"]
     if checkpoint is not None:
         if checkpoint.unavailable:
             lines.append("**Market checkpoint:** Market check unavailable")
@@ -96,9 +95,55 @@ def render_primary_card(
                 lines.extend(_checkpoint_facts(last_valid_checkpoint, include_state=False))
         else:
             lines.extend(_checkpoint_facts(checkpoint))
+    footer = f"[View in Telegram](<{event.source_url}>)"
+    lines.extend(["", footer if discord_length(footer) <= 200 else "Full source link in the source reply below"])
+    return _excerpt("\n".join(lines), MAX_DISCORD_CHARACTERS)
 
-    lines.extend(["", f"[View in Telegram](<{event.source_url}>)"])
-    return "\n".join(lines)
+
+def primary_card_requires_source_reply(event: SourceEvent) -> bool:
+    return _primary_static(event)[1] or discord_length(event.source_url) > 170
+
+
+def _primary_static(event: SourceEvent) -> tuple[str, bool]:
+    # These segments already carry the watcher's transport escaping.
+    byline = _BYLINE.search(event.all_content)
+    lines = [
+        f"### {PHINTRACO_EMOJI} {escape(event.ticker)}: Buy",
+        f"-# {byline.group(1)}" if byline else "-# Phintraco Sekuritas",
+        "",
+    ]
+    if source_type := _TYPE.search(event.all_content):
+        lines.append(f"**Type:** {source_type.group(1)}")
+    lines.extend([f"**Entry:** {escape(event.plan.entry)}", f"**Stop-loss:** {escape(event.plan.stop_loss)}"])
+    targets_start = len(lines)
+    for number, target in enumerate(event.plan.targets, start=1):
+        lines.append(f"**Target {number}:** {escape(target)}")
+    lines.append(f"**Signal date:** {format_wib(event.published_at)}")
+    chart = next((line for line in event.all_content.splitlines() if line.startswith("**Chart:**")), None)
+    if chart:
+        lines.append(chart)
+
+    reasons = _source_reasons(event.all_content)
+    complete = "\n".join(lines + (["", f"**Reasons:** {reasons}"] if reasons else []))
+    if discord_length(complete) <= STATIC_CARD_BUDGET:
+        return complete, False
+    core = "\n".join(lines)
+    if discord_length(core) > STATIC_CARD_BUDGET - 70:
+        compact_targets = "; ".join(f"{number}: {escape(target)}" for number, target in enumerate(event.plan.targets, start=1))
+        compact_lines = lines[:targets_start] + [f"**Targets:** {compact_targets}"] + lines[targets_start + len(event.plan.targets):]
+        core = "\n".join(compact_lines)
+    if discord_length(core) > STATIC_CARD_BUDGET - 70:
+        # Extreme source fields stay complete in ordered source replies.
+        core = _excerpt(core, STATIC_CARD_BUDGET - 70)
+    remaining = STATIC_CARD_BUDGET - discord_length(core) - 15
+    return core + ("\n\n**Reasons:** " + _excerpt(reasons, remaining) if reasons else ""), True
+
+
+def _excerpt(content: str, limit: int) -> str:
+    if discord_length(content) <= limit:
+        return content
+    suffix = "… (full source below)"
+    return split_content(content, max(2, limit - discord_length(suffix)))[0].rstrip("\\ \n") + suffix
 
 
 def render_history(when: str, detail: str) -> str:
@@ -124,7 +169,7 @@ def _source_analyst(event: SourceEvent) -> tuple[str | None, str | None]:
 
 def _source_reasons(content: str) -> str | None:
     match = _REASONS.search(content)
-    return escape(match.group(1)) if match else None
+    return match.group(1) if match else None
 
 
 def _checkpoint_facts(checkpoint: Checkpoint, *, include_state: bool = True) -> list[str]:

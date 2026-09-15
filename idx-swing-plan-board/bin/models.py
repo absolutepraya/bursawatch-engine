@@ -10,6 +10,8 @@ import re
 from typing import Any, Mapping
 from urllib.parse import urlparse
 
+from media_store import validate_media_url
+
 
 _EVENT_KEYS = frozenset(
     {
@@ -289,4 +291,4 @@ def _parse_media_path(value: object) -> str | None:
 def _parse_media_urls(value: object) -> tuple[str, ...]:
     if not isinstance(value, list):
         raise ValueError("media_urls must be a list")
-    return tuple(_validate_url(url, "media_url") for url in value)
+    return tuple(validate_media_url(_validate_url(url, "media_url")) for url in value)

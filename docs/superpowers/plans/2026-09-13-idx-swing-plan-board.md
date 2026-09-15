@@ -330,6 +330,8 @@ Set `FORUM_CHANNEL_ID = "1548273399069933720"` and implement `create_forum_threa
 
 Create uses `POST /channels/<forum-id>/threads` with the starter message payload. Edit uses `PATCH /channels/<thread-id>/messages/<message-id>` and includes retained attachment metadata or a replacement file so source charts cannot disappear. Replies use `POST /channels/<thread-id>/messages`; title, tags, and archive use `PATCH /channels/<thread-id>`. All create operations use a stable SHA-256 nonce. Reapplying an edit or patch writes the complete desired state.
 
+Stable nonce reuse is only a short-window aid. Persist exact operation/message/attachment identity, bot ID, and a read-back boundary before every create POST. Recover ambiguous timeout or interrupted creates by looking up subsequent own messages or active/public-archived forum threads. An inconclusive or exhausted bounded lookup retains pending work without issuing another create. Only a definite rejected POST may clear this snapshot. Serialize HTTP delivery separately from the state lease, honor 429 delays, and expose retained pending/failed health. Split source replies losslessly for all adapters and reserve managed-card space for status/checkpoint edits, retaining complete compacted source in replies.
+
 - [ ] **Step 5: Test requests and no-post behavior, then commit**
 
 Mock `requests.request` and assert forum path, title, two tags, returned thread and starter IDs, safe attachment replacement, 429 retry delay, and that no-post makes no HTTP request. Then run:
@@ -519,7 +521,11 @@ after-close --phase retry
 
 `submit-source-event --stdin` validates `SourceEvent`, copies any supplied local media into the owner directory before acknowledging acceptance, atomically persists event plus outbox, and runs one best-effort drain. A durable intake returns `{"accepted": true}` even when Discord delivery remains retryable.
 
+`drain` returns `{"drained":N,"pending":N,"failed":N}` and a nonzero exit when pending/failed work remains, including backoff. Ordered public X media becomes durable owner acquisition/upload intents, restricted to HTTPS `pbs.twimg.com` and `video.twimg.com`, supported image/MP4 formats, and 8 MiB per attachment. Cache files are private and atomic; no inherited credentials/proxies or unsafe redirects are allowed. No-post does not download remote media.
+
 `after-close --phase initial` runs only at 16:30 WIB on a configured IDX trading day. It saves a valid close and writes history only on market-state transition. An absent close records an initial unavailable attempt without altering prior facts.
+
+Stop-loss or the actual final source target resolves and finishes the plan, with a lifecycle history transition even if a higher target still uses the TP5 tag. Close operation identities include plan, session, and phase. An unclassifiable source plan preserves prior facts, increments `invalid`, and does not block the remaining tickers; that count degrades the heartbeat. Unexpected reconciliation failures produce a sanitized fatal heartbeat.
 
 `after-close --phase retry` runs only at 17:00 WIB for initial failures from the current session. On a second failure it renders `Market check unavailable`, keeps the latest valid price and time, emits no history reply, and does not alter tags. A holiday makes no board mutation.
 
@@ -532,6 +538,8 @@ Scheduled phases call `drain()` and direct-post exactly one heartbeat to `#herme
 - [ ] **Step 5: Implement no-post wrapper and test it**
 
 The wrapper loads only `DISCORD_BOT_TOKEN`, uses `$HOME/.local/share/uv/tools/yahoo-finance-mcp/bin/python`, defaults the database to `$HOME/.hermes/state/idx-swing-board.sqlite3`, and passes arguments unchanged. It never accepts a watcher-supplied database path.
+
+Provide zero-argument sibling scheduler wrappers: `idx-swing-plan-board-close.sh` invokes the generic wrapper with `after-close --phase initial`, and `idx-swing-plan-board-retry.sh` invokes it with `after-close --phase retry`. Test both actual wrapper paths with isolated no-post state. The generic wrapper remains the watcher submission/drain entry point.
 
 Run:
 
@@ -616,6 +624,8 @@ $HOME/.hermes/scripts/idx-swing-plan-board.sh submit-source-event --stdin
 
 It writes JSON to standard input and accepts only `{"accepted": true}`. Board failure uses the existing bounded retry and retains the cached chart. It cannot repeat All text or chart. Every normal daily run also invokes the owner's `drain` command; a drain failure marks the watcher heartbeat degraded but does not block Telegram cursor progress or All delivery.
 
+Use exact boolean acknowledgement, not numeric equality. Keep source-ordered board retries in a separate logical queue so failed/backed-off handoffs never hold subsequent All text/chart pairs. Invoke drain even when already degraded, and consume its pending/failed counts as unhealthy work.
+
 - [ ] **Step 5: Update wrapper and contracts, test retries, then commit**
 
 Export `IDX_SWING_PLAN_BOARD_WRAPPER` with default `$HOME/.hermes/scripts/idx-swing-plan-board.sh`. Do not load new credentials. Document that this watcher submits source events but never reads the board database, updates tags, posts forum content, or calculates prices.
@@ -679,6 +689,8 @@ Expected: FAIL because Kelas state has no board phase or payload adapter.
 - [ ] **Step 3: Migrate Kelas state and add post-All submission**
 
 Migrate state version 1 to version 2 without cursor reset. Add `board_phase`, `board_attempts`, `board_next_attempt_at`, and `board_last_error` to outbox events. After every All text chunk and its header image complete, retain the event until the board owner accepts the submission.
+
+Legacy pending bundles without a source publication time retain `board_phase="unavailable"` when closed and reloaded. Board handoffs keep source order but never block later All text/image pairs; the All and board queues are logically independent.
 
 `board_payload()` must submit `kind="social"`, the parsed ticker, exact first header line as `source_title`, source publication time, rendered existing Kelas content as `all_content`, exact Telegram URL, and the captured first-header image path. It must not use the agent-generated title as a forum title. A failed board handoff retries only the board phase and never calls the agent or replays All text and image legs.
 
@@ -752,7 +764,7 @@ Implement `board_source_event(event, profile) -> dict[str, object] | None`. It r
 
 1. final route is `id_stocks_swing`;
 2. the first nonempty original source-text line matches `^([A-Z][A-Z0-9]{1,9}):\s+(.+)$`;
-3. that exact source title is at most 100 characters and has no second ticker-led clause; and
+3. that exact source title is at most 100 characters and the entire source bundle, including later lines and thread posts, has no second ticker-led clause; and
 4. its ticker equals the ticker prefix in the already accepted route title.
 
 The forum title is the raw exact source line, not the LLM title. `all_content` is the existing rendered X output. Include direct ordered X media URLs only, which the board owner downloads into its own directory. When any condition fails, return `None`; the finished X delivery remains All-only.
@@ -855,11 +867,11 @@ git push origin main
 ./deploy.sh x-post-watch
 ```
 
-Compare the new wrapper and `CRON.md` before copying them. Then use the supported VPS command, never hand-editing `~/.hermes/cron/jobs.json`:
+Compare `idx-swing-plan-board.sh`, `idx-swing-plan-board-close.sh`, `idx-swing-plan-board-retry.sh`, and `CRON.md` before copying them. After approval, install all three wrappers together under `~/.hermes/scripts/`. Then use the supported VPS command, never hand-editing `~/.hermes/cron/jobs.json`:
 
 ```bash
-$HOME/.local/bin/hermes cron create '30 16 * * 1-5' --name idx-swing-plan-board-close --script idx-swing-plan-board.sh --no-agent --deliver local --workdir /home/praya
-$HOME/.local/bin/hermes cron create '0 17 * * 1-5' --name idx-swing-plan-board-retry --script idx-swing-plan-board.sh --no-agent --deliver local --workdir /home/praya
+$HOME/.local/bin/hermes cron create '30 16 * * 1-5' --name idx-swing-plan-board-close --script idx-swing-plan-board-close.sh --no-agent --deliver local --workdir /home/praya
+$HOME/.local/bin/hermes cron create '0 17 * * 1-5' --name idx-swing-plan-board-retry --script idx-swing-plan-board-retry.sh --no-agent --deliver local --workdir /home/praya
 ```
 
 Read returned IDs with `hermes cron list --all`, record them in the final `CRON.md`, commit, publish, synchronize that reviewed contract, and compare its VPS checksum.

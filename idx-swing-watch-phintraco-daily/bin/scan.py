@@ -423,7 +423,10 @@ def enqueue_call(state: dict, call: SwingCall, now: dt.datetime) -> dict:
 
 
 def oldest_outbox_event(state: dict) -> dict | None:
-    outbox = state.get("outbox") or {}
+    # The All queue contains only unfinished text/chart legs. Completed All
+    # events remain durable in the independent board queue below.
+    outbox = {key: event for key, event in (state.get("outbox") or {}).items()
+              if event["phase"] not in {PHASE_PENDING_BOARD, PHASE_DELIVERED}}
     if not outbox:
         return None
     key = min(outbox, key=lambda value: int(value))
@@ -1334,7 +1337,9 @@ def submit_board_event(payload: dict, chart: Path | None, dry_run: bool) -> bool
     if completed.returncode != 0:
         return False
     try:
-        return json.loads(completed.stdout.strip()) == {"accepted": True}
+        acknowledgement = json.loads(completed.stdout.strip())
+        return (type(acknowledgement) is dict and set(acknowledgement) == {"accepted"}
+                and acknowledgement["accepted"] is True)
     except (TypeError, ValueError):
         return False
 
@@ -1353,33 +1358,29 @@ def drain_board(dry_run: bool) -> bool:
         )
     except (OSError, subprocess.SubprocessError):
         return False
-    return completed.returncode == 0
+    try:
+        health = json.loads(completed.stdout.strip())
+        return (completed.returncode == 0 and type(health) is dict
+                and set(health) == {"drained", "pending", "failed"}
+                and all(type(value) is int and value >= 0 for value in health.values())
+                and health["pending"] == 0 and health["failed"] == 0)
+    except (TypeError, ValueError):
+        return False
 
 
 def drain_outbox(state: dict, now: dt.datetime, dry_run: bool = False) -> int:
+    _drain_all_outbox(state, now, dry_run)
+    return _drain_board_outbox(state, now, dry_run)
+
+
+def _drain_all_outbox(state: dict, now: dt.datetime, dry_run: bool) -> int:
     delivered = 0
     while True:
         event = oldest_outbox_event(state)
         if event is None:
             return delivered
         phase = event["phase"]
-        if phase == PHASE_DELIVERED:
-            media_path = event.get("media_path")
-            board_submitted = bool(event.get("board_submitted"))
-            del state["outbox"][event["event_key"]]
-            if board_submitted:
-                state["last_delivery_success"] = now.isoformat()
-                state["stats"]["delivered"] = int(state["stats"].get("delivered", 0)) + 1
-            save_state(state)
-            if media_path:
-                Path(media_path).unlink(missing_ok=True)
-            if board_submitted:
-                delivered += 1
-            continue
-        if phase == PHASE_PENDING_BOARD:
-            if not board_retry_due(event, now):
-                return delivered
-        elif not retry_due(event, now):
+        if not retry_due(event, now):
             return delivered
         if phase == PHASE_PENDING_MEDIA_CAPTURE:
             return delivered
@@ -1471,7 +1472,18 @@ def drain_outbox(state: dict, now: dt.datetime, dry_run: bool = False) -> int:
             save_state(state)
             phase = PHASE_PENDING_BOARD
 
-        if phase == PHASE_PENDING_BOARD:
+
+def _drain_board_outbox(state: dict, now: dt.datetime, dry_run: bool) -> int:
+    delivered = 0
+    for key in sorted(list(state["outbox"]), key=int):
+        event = state["outbox"][key]
+        # Preserve source handoff order, without blocking the All queue.
+        if event["phase"] not in {PHASE_PENDING_BOARD, PHASE_DELIVERED}:
+            break
+        if event["phase"] == PHASE_PENDING_BOARD:
+            if not board_retry_due(event, now):
+                break
+            call = deserialize_call(event["call"])
             chart = _cached_media_path(event) if call.has_source_chart else None
             if call.has_source_chart and chart is None:
                 schedule_board_retry(event, current_time(), "cached source chart is missing")
@@ -1492,6 +1504,16 @@ def drain_outbox(state: dict, now: dt.datetime, dry_run: bool = False) -> int:
             clear_board_retry(event)
             event["phase"] = PHASE_DELIVERED
             save_state(state)
+        media_path = event.get("media_path")
+        del state["outbox"][key]
+        if event.get("board_submitted"):
+            state["last_delivery_success"] = now.isoformat()
+            state["stats"]["delivered"] = int(state["stats"].get("delivered", 0)) + 1
+            delivered += 1
+        save_state(state)
+        if media_path:
+            Path(media_path).unlink(missing_ok=True)
+    return delivered
 
 
 def heartbeat_hour_key(now: dt.datetime) -> str:
@@ -1641,11 +1663,10 @@ async def run(now: dt.datetime | None = None, dry_run: bool = False) -> dict:
                     if not await capture_oldest_media(client, entity, state, now):
                         degraded = True
                         break
-                before = len(state["outbox"])
+                before = (event["event_key"], event["phase"])
                 delivered += drain_outbox(state, now, dry_run=dry_run)
-                after = len(state["outbox"])
                 current = oldest_outbox_event(state)
-                if after == before and current is not None:
+                if current is not None and (current["event_key"], current["phase"]) == before:
                     degraded = True
                     break
             state["last_poll_success"] = current_time().isoformat()
@@ -1653,7 +1674,10 @@ async def run(now: dt.datetime | None = None, dry_run: bool = False) -> dict:
         finally:
             await client.disconnect()
 
-        degraded = degraded or not drain_board(dry_run)
+        # Service retained board handoffs even when no All work was due.
+        delivered += drain_outbox(state, now, dry_run=dry_run)
+        board_healthy = drain_board(dry_run)
+        degraded = degraded or not board_healthy
         pending = len(state.get("outbox") or {})
         degraded = degraded or pending > 0
         stats = RunStats(messages, calls, delivered, pending, degraded)

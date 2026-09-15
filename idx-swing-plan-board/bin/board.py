@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
+import tempfile
 from typing import Sequence
 
 from calendar import CalendarCoverageError
@@ -31,8 +32,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.command == "submit-source-event":
         return _submit_source_event(engine)
     if arguments.command == "drain":
-        print(json.dumps({"drained": engine.drain()}, separators=(",", ":")))
-        return 0
+        health = {"drained": engine.drain(), **engine.store.outbox_health()}
+        print(json.dumps(health, separators=(",", ":")))
+        return int(health["pending"] > 0 or health["failed"] > 0)
     try:
         result = engine.after_close(arguments.phase, datetime.now(WIB))
     except CalendarCoverageError:
@@ -43,6 +45,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         engine.client.post_heartbeat(HERMES_HEARTBEAT_CHANNEL_ID, heartbeat)
         print(heartbeat)
         return 0
+    except Exception:
+        engine.drain()
+        heartbeat = _fatal_heartbeat(arguments.phase, "reconciliation failed")
+        engine.client.post_heartbeat(HERMES_HEARTBEAT_CHANNEL_ID, heartbeat)
+        print(heartbeat)
+        return 1
     engine.drain()
     # ``pending`` describes retained owner work after this invocation, not the
     # number of operations just completed.
@@ -83,17 +91,26 @@ def _own_media(event: SourceEvent) -> SourceEvent:
     if not source.is_file():
         raise ValueError("source media is unavailable")
     root = _media_root()
-    root.mkdir(parents=True, exist_ok=True)
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
     suffix = source.suffix.lower() if source.suffix else ".bin"
     digest = hashlib.sha256(event.event_key.encode("utf-8")).hexdigest()
     destination = root / f"{digest}{suffix}"
-    temporary = destination.with_name(f".{destination.name}.tmp")
+    if destination.is_file():
+        return replace(event, media_path=str(destination))
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{digest}.", dir=root)
     try:
-        shutil.copyfile(source, temporary)
+        with os.fdopen(descriptor, "wb") as target, source.open("rb") as incoming:
+            shutil.copyfileobj(incoming, target)
+            target.flush()
+            os.fsync(target.fileno())
         os.replace(temporary, destination)
+        directory = os.open(root, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
     finally:
-        if temporary.exists():
-            temporary.unlink()
+        Path(temporary).unlink(missing_ok=True)
     return replace(event, media_path=str(destination))
 
 
@@ -111,11 +128,12 @@ def _media_root() -> Path:
 
 def _heartbeat(phase: str, result: dict[str, int]) -> str:
     clock = "16:30" if phase == "initial" else "17:00"
-    warning = " ⚠️" if result["unavailable"] else ""
+    warning = " ⚠️" if result["unavailable"] or result["pending"] or result.get("invalid", 0) else ""
+    invalid = f" invalid={result['invalid']}" if result.get("invalid", 0) else ""
     return (
         f"🫀 idx-swing-plan-board · {clock} WIB · active={result['active']} "
         f"checked={result['checked']} unavailable={result['unavailable']} "
-        f"pending={result['pending']}{warning}"
+        f"pending={result['pending']}{invalid}{warning}"
     )
 
 

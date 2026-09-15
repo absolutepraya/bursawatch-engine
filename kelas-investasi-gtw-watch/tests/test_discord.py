@@ -152,15 +152,39 @@ def test_failed_gtw_board_handoff_retries_without_replaying_all_delivery(tmp_pat
     state = state_with(event)
     monkeypatch.setattr(discord, "post_text", lambda *_: pytest.fail("All text must not replay"))
     monkeypatch.setattr(discord, "post_file", lambda *_: pytest.fail("All image must not replay"))
-    monkeypatch.setattr(discord, "submit_board_event", lambda *_: False)
+    handoffs = []
+    monkeypatch.setattr(discord, "submit_board_event", lambda payload, *_: handoffs.append(payload["event_key"]) or False)
 
     assert deliver_oldest_ready_event(state, now(), False, media_root=tmp_path) is False
     assert state["outbox"] == [event]
+    assert handoffs == [f"kelas-investasi:{event['event_key']}"]
     assert event["board_attempts"] == 1
 
     monkeypatch.setattr(discord, "submit_board_event", lambda *_: True)
     assert deliver_oldest_ready_event(state, now() + timedelta(seconds=60), False, media_root=tmp_path) is True
     assert state["outbox"] == []
+
+
+def test_board_backoff_does_not_block_later_all_text_or_image(tmp_path, monkeypatch):
+    first = ready_gtw_event("Good to watch - RAJA #GTW")
+    first["board_attempts"] = 1
+    first["board_next_attempt_at"] = (now() + timedelta(minutes=10)).isoformat()
+    second = ready_event(media=[image(tmp_path, "second.jpg")])
+    value = {"outbox": [first, second]}
+    sent = []
+    monkeypatch.setattr(discord, "post_text", lambda *_: sent.append("second-text"))
+    monkeypatch.setattr(discord, "post_file", lambda *_: sent.append("second-image"))
+    handoffs = []
+    monkeypatch.setattr(discord, "submit_board_event", lambda payload, *_: handoffs.append(payload["event_key"]) or False)
+    for _ in range(4):
+        deliver_oldest_ready_event(value, now(), False, media_root=tmp_path)
+    assert sent == ["second-text", "second-image"]
+    assert second["text_index"] == 1 and second["next_media_index"] == 1
+    assert len(value["outbox"]) == 2
+    assert second["board_attempts"] == 0
+    assert handoffs == []
+    deliver_oldest_ready_event(value, now() + timedelta(minutes=10), False, media_root=tmp_path)
+    assert handoffs == [f"kelas-investasi:{first['event_key']}"]
 
 
 def test_delivery_sends_text_then_images_in_source_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

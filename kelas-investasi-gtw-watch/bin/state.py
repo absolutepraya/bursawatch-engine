@@ -199,7 +199,7 @@ def _close_pending(value: dict[str, object]) -> None:
             "attempts": 0,
             "next_attempt_at": None,
             "last_error": None,
-            "board_phase": BOARD_PENDING,
+            "board_phase": BOARD_PENDING if candidate["source_published_at"] is not None else BOARD_UNAVAILABLE,
             "board_attempts": 0,
             "board_next_attempt_at": None,
             "board_last_error": None,

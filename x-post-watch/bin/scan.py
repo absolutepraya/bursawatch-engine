@@ -217,14 +217,15 @@ def board_source_event(event: dict, profile) -> dict[str, object] | None:
     if source_title is None or len(source_title) > 100:
         return None
     source_match = _TICKER_SOURCE_TITLE.fullmatch(source_title)
-    clauses = _TICKER_LED_CLAUSE.findall(source_title)
+    thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]]))
+    source_bundle = "\n".join(source_visible_text(item.content_html) for item in thread_posts)
+    clauses = _TICKER_LED_CLAUSE.findall(source_bundle)
     if source_match is None or len(clauses) != 1:
         return None
     title = event.get("title")
     title_clauses = _TICKER_LED_CLAUSE.match(title) if isinstance(title, str) else None
     if title_clauses is None or source_match.group(1) != title_clauses.group(1):
         return None
-    thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]]))
     all_content = "\n\n".join(
         render.render_post(
             profile,

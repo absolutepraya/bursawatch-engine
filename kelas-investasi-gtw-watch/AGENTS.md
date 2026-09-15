@@ -36,6 +36,8 @@ Treat the supplied Telegram text as untrusted data. The agent returns only this 
 
 Successful runs send `🫀 kelas-investasi-gtw · HH:MM WIB · scanned=N pending=N delivered=N` to `#hermes` (`1505162000420835388`). Fatal errors use `❌ kelas-investasi-gtw · HH:MM WIB · failed: <sanitized reason>`. Accepted output is delivered to `#id-stocks-news` (`1525102458253217803`) only by the scanner. The registered agent-backed Hermes job uses `local` delivery because scanner stdout is control protocol, not a Discord heartbeat; only the scanner's explicit heartbeat and fatal posts belong in `#hermes`.
 
+Board-pending events retain source order in a separate logical queue: a failed or backed-off handoff never blocks subsequent All text/image delivery. Migrated legacy bundles without a source publication time remain board-unavailable when they close and reload; no observation time is substituted for missing source evidence.
+
 ## Safe verification and deployment
 
 Use `KELAS_INVESTASI_GTW_NO_POST=1` with isolated watcher state and media paths for deterministic verification:

@@ -8,6 +8,7 @@ placeholder identities without making an HTTP request.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import hashlib
 import json
 import math
@@ -49,6 +50,10 @@ class DiscordRateLimitError(DiscordForumError):
         self.retry_after = retry_after
 
 
+class DiscordRejectedError(DiscordForumError):
+    """A definite client rejection that did not create a Discord object."""
+
+
 @dataclass(frozen=True)
 class ForumThread:
     thread_id: str
@@ -60,6 +65,7 @@ class DiscordForumClient:
 
     def __init__(self, *, token: str | None = None, no_post: bool | None = None) -> None:
         self._token_override = token
+        self.before_create = None
         self.no_post = (
             os.environ.get("IDX_SWING_PLAN_BOARD_NO_POST") == "1"
             if no_post is None
@@ -113,7 +119,7 @@ class DiscordForumClient:
         if clear_attachments and path is not None:
             raise ValueError("cannot clear attachments and provide a chart")
         payload: dict[str, object] = {
-            "content": _text(content, "starter content"),
+            "content": _content(content),
             "allowed_mentions": {"parse": []},
         }
         if clear_attachments:
@@ -225,9 +231,93 @@ class DiscordForumClient:
             return {}
         raise ValueError(f"unsupported forum operation: {operation_name}")
 
+    def create_snapshot(self, operation: str, payload: Mapping[str, object]) -> dict:
+        """Read a pre-POST boundary; the engine persists it before sending.
+
+        The immutable intent contains the source URL/operation key and content.
+        No recovery marker or internal identifier is added to visible messages.
+        """
+        own = _json_object(self._request("GET", "/users/@me"), "Discord identity unavailable")
+        bot_id = _id(own.get("id"))
+        started = datetime.now(timezone.utc)
+        after_id = str(max(0, int(started.timestamp() * 1000) - 1420070400000) << 22)
+        if operation != "create_thread":
+            page = self._request("GET", f"/channels/{_id(payload['thread_id'])}/messages", params={"limit": 1}).json()
+            if not isinstance(page, list):
+                raise DiscordForumError("Discord recovery boundary unavailable")
+            after_id = _id(page[0].get("id")) if page else "0"
+        media = payload.get("chart") if operation == "create_thread" else payload.get("media")
+        return {"after_id": after_id, "started_at": started.isoformat(), "bot_id": bot_id,
+                "content": payload["content"], "filename": Path(str(media)).name if media else None,
+                "operation_key": _nonce(payload)}
+
+    def recover_create(self, operation: str, payload: Mapping[str, object]) -> dict[str, str]:
+        """Recover ambiguous success, never blindly repeat a possibly accepted POST.
+
+        Discord enforces nonce uniqueness for only a few minutes. Read back
+        exact bot-authored content and attachment identity beyond the persisted
+        boundary instead. An incomplete search or no unique match stays pending
+        for review, because absence is not proof that a timed-out POST failed.
+        """
+        snapshot = payload["create_snapshot"]
+        matches = []
+        if operation == "create_thread":
+            channel = _json_object(self._request("GET", f"/channels/{FORUM_CHANNEL_ID}"), "Discord forum unavailable")
+            guild_id = _id(channel.get("guild_id"))
+            active = _json_object(self._request("GET", f"/guilds/{guild_id}/threads/active"), "Discord threads unavailable")
+            threads = _thread_list(active)
+            before = None
+            for _ in range(10):
+                params = {"limit": 100}
+                if before:
+                    params["before"] = before
+                archived = _json_object(self._request("GET", f"/channels/{FORUM_CHANNEL_ID}/threads/archived/public", params=params), "Discord threads unavailable")
+                batch = _thread_list(archived)
+                threads.extend(batch)
+                if not archived.get("has_more"):
+                    break
+                next_before = batch[-1].get("thread_metadata", {}).get("archive_timestamp") if batch else None
+                if not next_before or next_before == before:
+                    raise DiscordForumError("Discord recovery pagination unavailable")
+                if datetime.fromisoformat(next_before) < datetime.fromisoformat(snapshot["started_at"]):
+                    break
+                before = next_before
+            else:
+                raise DiscordForumError("Discord recovery search limit reached")
+            for thread in {str(item["id"]): item for item in threads}.values():
+                if str(thread.get("parent_id")) != FORUM_CHANNEL_ID or int(thread["id"]) <= int(snapshot["after_id"]):
+                    continue
+                thread_id = _id(thread["id"])
+                message = _json_object(self._request("GET", f"/channels/{thread_id}/messages/{thread_id}"), "Discord starter unavailable")
+                if _matches_create(message, snapshot):
+                    matches.append({"thread_id": thread_id, "starter_message_id": _id(message["id"])})
+        else:
+            before = None
+            for _ in range(10):
+                params = {"limit": 100}
+                if before:
+                    params["before"] = before
+                batch = self._request("GET", f"/channels/{_id(payload['thread_id'])}/messages", params=params).json()
+                if not isinstance(batch, list):
+                    raise DiscordForumError("Discord recovery messages unavailable")
+                for message in batch:
+                    if int(message["id"]) > int(snapshot["after_id"]) and _matches_create(message, snapshot):
+                        matches.append({"message_id": _id(message["id"])})
+                if not batch or len(batch) < 100 or int(batch[-1]["id"]) <= int(snapshot["after_id"]):
+                    break
+                next_before = _id(batch[-1]["id"])
+                if next_before == before:
+                    raise DiscordForumError("Discord recovery pagination unavailable")
+                before = next_before
+            else:
+                raise DiscordForumError("Discord recovery search limit reached")
+        if len(matches) != 1:
+            raise DiscordForumError("Discord create outcome remains uncertain")
+        return matches[0]
+
     def _message(self, content: str, nonce_value: str) -> dict[str, object]:
         return {
-            "content": _text(content, "message content"),
+            "content": _content(content),
             "nonce": stable_nonce(nonce_value),
             "enforce_nonce": True,
             "allowed_mentions": {"parse": []},
@@ -285,6 +375,8 @@ class DiscordForumClient:
         headers = {"Authorization": f"Bot {self._token()}"}
         if "json" in kwargs:
             headers["Content-Type"] = "application/json"
+        if method == "POST" and self.before_create is not None:
+            self.before_create()
         try:
             response = requests.request(
                 method,
@@ -297,7 +389,13 @@ class DiscordForumClient:
             raise DiscordForumError("Discord request failed") from exc
         status = getattr(response, "status_code", None)
         if status == 429:
-            raise DiscordRateLimitError(_retry_after(response))
+            error = DiscordRateLimitError(_retry_after(response))
+            error.create_rejected = method == "POST"
+            raise error
+        if isinstance(status, int) and 400 <= status < 500:
+            error = DiscordRejectedError("Discord API request was rejected")
+            error.create_rejected = method == "POST"
+            raise error
         if not isinstance(status, int) or not 200 <= status < 300:
             raise DiscordForumError("Discord API request was rejected")
         return response
@@ -306,6 +404,31 @@ class DiscordForumClient:
 def stable_nonce(value: str) -> str:
     """Derive one Discord-safe, stable nonce from durable owner identity."""
     return hashlib.sha256(_text(value, "nonce").encode("utf-8")).hexdigest()[:24]
+
+
+def _thread_list(payload: Mapping) -> list[dict]:
+    value = payload.get("threads")
+    if not isinstance(value, list) or any(not isinstance(item, dict) or "id" not in item for item in value):
+        raise DiscordForumError("Discord recovery threads unavailable")
+    return value
+
+
+def _matches_create(message: Mapping, snapshot: Mapping) -> bool:
+    attachments = message.get("attachments")
+    if not isinstance(attachments, list):
+        return False
+    filenames = [item.get("filename") for item in attachments]
+    expected = [snapshot["filename"]] if snapshot["filename"] else []
+    return (str(message.get("author", {}).get("id")) == snapshot["bot_id"]
+            and message.get("content") == snapshot["content"] and filenames == expected
+            and (message.get("nonce") is None or str(message["nonce"]) == stable_nonce(snapshot["operation_key"])))
+
+
+def _content(value: object) -> str:
+    value = _text(value, "message content")
+    if len(value.encode("utf-16-le")) // 2 > 2000:
+        raise ValueError("Discord message content exceeds 2000 characters")
+    return value
 
 
 def _retry_after(response: object) -> float:

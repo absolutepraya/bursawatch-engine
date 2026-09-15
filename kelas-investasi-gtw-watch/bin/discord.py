@@ -259,10 +259,11 @@ def _oldest_deliverable_event(state: Mapping[str, object]) -> dict[str, object] 
     outbox = state.get("outbox")
     if not isinstance(outbox, list):
         return None
-    for item in outbox:
-        if isinstance(item, dict) and item.get("agent_phase") in ("ready", "delivering") and isinstance(item.get("title"), str) and isinstance(item.get("summary"), str):
-            return item
-    return None
+    ready = [item for item in outbox if isinstance(item, dict)
+             and item.get("agent_phase") in ("ready", "delivering")
+             and isinstance(item.get("title"), str) and isinstance(item.get("summary"), str)]
+    # Board backoff never occupies the head of the All text/image queue.
+    return next((item for item in ready if not _complete_for_board(item)), ready[0] if ready else None)
 
 
 def _retry_is_not_due(event: Mapping[str, object], now: datetime) -> bool:
@@ -327,6 +328,12 @@ def _submit_board_context(
     persist: Callable[[], None] | None,
     media_root: Path,
 ) -> bool:
+    # Keep board handoffs in source order while the All queue is independent.
+    for earlier in state.get("outbox", []):
+        if earlier is event:
+            break
+        if isinstance(earlier, dict) and _complete_for_board(earlier):
+            return True
     try:
         payload = board_payload(event)
         if payload is None:
@@ -343,7 +350,10 @@ def _submit_board_context(
     if not accepted:
         _record_board_failure(event, now)
         _persist(persist)
-        return False
+        # A completed All event may fail its handoff while other All events
+        # still have immediately useful delivery work.
+        next_event = _oldest_deliverable_event(state)
+        return next_event is not None and not _complete_for_board(next_event)
     _clear_board_failure(event)
     _remove_event(state, event)
     _persist(persist)

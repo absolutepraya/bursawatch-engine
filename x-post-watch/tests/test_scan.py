@@ -184,6 +184,17 @@ def test_multiticker_or_non_ticker_led_x_source_stays_all_only() -> None:
     assert scan.board_source_event(swing_event(source_text="KPIG: Technical setup; RAJA: setup lain"), profile_fixture()) is None
 
 
+@pytest.mark.parametrize("text", ["KPIG: Technical setup\nRAJA: setup lain", "<p>KPIG: Technical setup</p><p>RAJA: setup lain</p>"])
+def test_multiline_multi_ticker_source_is_all_only(text):
+    assert scan.board_source_event(swing_event(text), profile_fixture()) is None
+
+
+def test_second_ticker_in_another_thread_post_is_all_only():
+    event = swing_event("KPIG: Technical setup")
+    event["thread_posts"].append(swing_event("RAJA: setup lain")["post"])
+    assert scan.board_source_event(event, profile_fixture()) is None
+
+
 def test_board_failure_does_not_repost_existing_all_messages(tmp_path, monkeypatch) -> None:
     value = ready_swing_state(tmp_path)
     monkeypatch.setattr(scan.discord, "post_text", lambda *_: "all-message")

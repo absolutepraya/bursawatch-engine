@@ -45,15 +45,15 @@ def operations(engine):
 
 
 def test_social_event_creates_source_episode_and_normal_reply(engine):
-    event = social(media_urls=("https://example.org/chart.png",))
+    event = social(media_urls=("https://pbs.twimg.com/media/chart.png",))
     assert engine.submit(event, at()) == "board_submitted"
     episode = engine.store.active_episode("KPIG")
     assert (episode.lifecycle, episode.title) == ("source", event.source_title)
     assert (episode.lifecycle_tag, episode.market_tag) == ("Source plan", None)
-    assert [op.operation for op in operations(engine)] == ["create_thread", "post_source_reply"]
+    assert [op.operation for op in operations(engine)] == ["create_thread", "post_source_reply", "post_source_reply"]
     assert operations(engine)[0].payload["tag_names"] == ["Source plan"]
     assert event.all_content in operations(engine)[1].payload["content"]
-    assert event.media_urls[0] in operations(engine)[1].payload["content"]
+    assert operations(engine)[2].payload["media_url"] == event.media_urls[0]
 
 
 def test_kelas_source_reply_chunks_are_durable_ordered_and_preserve_media(engine):

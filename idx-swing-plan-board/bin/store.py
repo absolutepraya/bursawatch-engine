@@ -157,6 +157,39 @@ class BoardStore:
                 "SELECT COUNT(*) FROM outbox WHERE status != 'complete'"
             ).fetchone()[0])
 
+    def outbox_health(self) -> dict[str, int]:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*), COALESCE(SUM(last_error IS NOT NULL), 0) "
+                "FROM outbox WHERE status != 'complete'"
+            ).fetchone()
+            return {"pending": int(row[0]), "failed": int(row[1])}
+
+    @contextmanager
+    def delivery_lock(self) -> Iterator[bool]:
+        """Fence live HTTP workers as well as durable claims, across processes."""
+        with Path(f"{self.path}.delivery.lock").open("a+") as lock:
+            try:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                yield False
+                return
+            try:
+                yield True
+            finally:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+    def set_create_snapshot(self, operation_id: int, claim_token: str, snapshot: dict | None) -> None:
+        with self._transaction() as connection:
+            row = self._require_claim(connection, operation_id, claim_token)
+            payload = json.loads(row["payload_json"])
+            if snapshot is None:
+                payload.pop("create_snapshot", None)
+            else:
+                payload["create_snapshot"] = snapshot
+            connection.execute("UPDATE outbox SET payload_json = ? WHERE id = ?",
+                               (json.dumps(payload, sort_keys=True), operation_id))
+
     def operations_for_ticker(self, ticker: str) -> list[OutboxOperation]:
         with self._connection() as connection:
             rows = connection.execute(
@@ -331,7 +364,8 @@ class BoardStore:
             )
 
     def fail_outbox(
-        self, operation_id: int, claim_token: str, error: str, failed_at: datetime
+        self, operation_id: int, claim_token: str, error: str, failed_at: datetime,
+        *, minimum_delay_seconds: float = 0,
     ) -> None:
         if not error.strip():
             raise ValueError("outbox error must be non-empty")
@@ -340,6 +374,7 @@ class BoardStore:
             row = self._require_claim(connection, operation_id, claim_token)
             attempts = int(row["attempts"]) + 1
             delay = _BACKOFF_MINUTES[min(attempts - 1, len(_BACKOFF_MINUTES) - 1)]
+            delay_seconds = max(delay * 60, minimum_delay_seconds)
             connection.execute(
                 """
                 UPDATE outbox
@@ -347,7 +382,7 @@ class BoardStore:
                     claimed_at = NULL, claim_token = NULL, last_error = ?
                 WHERE id = ?
                 """,
-                (attempts, _timestamp(failed_at + timedelta(minutes=delay)), error, operation_id),
+                (attempts, _timestamp(failed_at + timedelta(seconds=delay_seconds)), error, operation_id),
             )
 
     def due_at(self, operation_id: int) -> datetime:

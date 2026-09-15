@@ -84,7 +84,8 @@ def test_retry_only_runs_after_an_unavailable_initial_for_the_same_plan(owner, m
     assert result["checked"] == 1
     assert owner.store.count_rows("close_attempts") == 2
     assert owner.store.count_rows("checkpoints") == 1
-    assert owner.store.active_episode("SCMA").market_tag == "TP1 reached"
+    assert owner.store.active_episode("SCMA") is None
+    assert owner.store.episode(1).market_tag == "TP1 reached"
 
 
 @pytest.mark.parametrize("phase,instant", [("initial", "2026-09-21T16:29:00+07:00"), ("retry", "2026-09-21T17:00:00+07:00"), ("initial", "2026-09-19T16:30:00+07:00"), ("initial", "2026-12-25T16:30:00+07:00")])
@@ -115,6 +116,8 @@ def test_cli_durable_acceptance_owns_media_even_when_delivery_fails(tmp_path, mo
     plan = store.active_plan(store.active_episode("SCMA").id)
     assert Path(plan.media_path).parent == media
     assert Path(plan.media_path).read_bytes() == b"image bytes"
+    assert Path(plan.media_path).stat().st_mode & 0o777 == 0o600
+    assert media.stat().st_mode & 0o777 == 0o700
     assert store.operations_for_ticker("SCMA")[0].status == "pending"
 
 

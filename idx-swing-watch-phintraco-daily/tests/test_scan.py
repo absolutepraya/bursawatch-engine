@@ -1147,6 +1147,7 @@ def test_reminder_board_payload_preserves_explicit_outcomes(tmp_state):
     ("stdout", "expected"),
     [
         ('{"accepted":true}', True),
+        ('{"accepted":1}', False),
         ('{"accepted":true,"extra":false}', False),
         ('{"accepted":false}', False),
         ("not-json", False),
@@ -1192,6 +1193,59 @@ def test_board_retry_preserves_all_ids_and_cached_chart_until_acknowledged(
     assert scan.drain_outbox(state, now() + dt.timedelta(minutes=1)) == 1
     assert all_posts == ["text", "chart"]
     assert state["outbox"] == {}
+
+
+def test_pending_board_never_blocks_later_all_text_and_chart(tmp_state, tmp_path, monkeypatch):
+    state = scan.empty_state()
+    first = sample_call()
+    for offset in range(2):
+        call = scan.SwingCall(**{**first.__dict__, "source_message_id": 33655 + offset})
+        enqueue_ready(state, call, tmp_path)
+    posts = []
+    monkeypatch.setattr(scan, "post_discord_text", lambda *args: posts.append(("text", args[-1])) or "text-id")
+    monkeypatch.setattr(scan, "post_discord_file", lambda *args: posts.append(("chart", args[-1])) or "chart-id")
+    monkeypatch.setattr(scan, "submit_board_event", lambda *_: False)
+    monkeypatch.setattr(scan, "current_time", now)
+    scan.drain_outbox(state, now())
+    assert posts == [("text", "33655"), ("chart", "33655"), ("text", "33656"), ("chart", "33656")]
+    third = scan.SwingCall(**{**first.__dict__, "source_message_id": 33657})
+    enqueue_ready(state, third, tmp_path)
+    scan.drain_outbox(state, now() + dt.timedelta(seconds=10))
+    assert posts[-2:] == [("text", "33657"), ("chart", "33657")]
+    assert all(event["phase"] == scan.PHASE_PENDING_BOARD for event in state["outbox"].values())
+    assert all(Path(event["media_path"]).is_file() for event in state["outbox"].values())
+
+
+@pytest.mark.parametrize("health,healthy", [
+    ('{"drained":0,"pending":0,"failed":0}', True),
+    ('{"drained":0,"pending":2,"failed":1}', False),
+    ('{"drained":0}', False),
+    ('{"drained":0,"pending":false,"failed":0}', False),
+])
+def test_owner_drain_requires_explicit_healthy_queue(monkeypatch, health, healthy):
+    completed = type("Completed", (), {"returncode": 0, "stdout": health})()
+    monkeypatch.setattr(scan.subprocess, "run", lambda *args, **kwargs: completed)
+    assert scan.drain_board(False) is healthy
+
+
+def test_degraded_poll_still_drains_board_and_later_all(tmp_state, monkeypatch):
+    state = scan.empty_state()
+    state["observed_message_id"] = 33654
+    scan.save_state(state)
+    client = ConnectedFakeTelegramClient([
+        FakeMessage(33655, fixture("trading_buy.txt"), photo=True),
+        FakeMessage(33656, fixture("trading_buy.txt"), photo=True),
+    ])
+    monkeypatch.setattr(scan, "make_client", lambda: client)
+    monkeypatch.setattr(scan, "post_heartbeat_if_due", lambda *args: True)
+    posts, drains = [], []
+    monkeypatch.setattr(scan, "post_discord_text", lambda *args: posts.append(("text", args[-1])) or "text-id")
+    monkeypatch.setattr(scan, "post_discord_file", lambda *args: posts.append(("chart", args[-1])) or "chart-id")
+    monkeypatch.setattr(scan, "submit_board_event", lambda *_: False)
+    monkeypatch.setattr(scan, "drain_board", lambda *_: drains.append(True) or False)
+    asyncio.run(scan.run(now=now()))
+    assert posts == [("text", "33655"), ("chart", "33655"), ("text", "33656"), ("chart", "33656")]
+    assert drains == [True]
 
 
 def test_text_failure_does_not_attempt_chart(tmp_state, tmp_path, monkeypatch):

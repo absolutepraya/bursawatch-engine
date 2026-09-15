@@ -199,6 +199,24 @@ def test_version_one_state_migrates_without_resetting_cursor(tmp_path: Path) -> 
     assert event["board_last_error"] is None
 
 
+@pytest.mark.parametrize("close_by_header", [False, True])
+def test_migrated_pending_bundle_stays_valid_when_closed(tmp_path, close_by_header):
+    value = initialized_state()
+    observe_messages(value, [header(101, "CTRA")], at("2026-08-11T09:00:00+07:00"))
+    value["version"] = 1
+    del value["pending"][0]["source_published_at"]
+    path = tmp_path / "state.json"
+    save_state(path, value)
+    migrated = load_state(path)
+    observe_messages(migrated, [header(102, "BREN")] if close_by_header else [], at("2026-08-11T09:21:00+07:00"))
+    ready_events(migrated, at("2026-08-11T09:21:00+07:00"))
+    save_state(path, migrated)
+    event = load_state(path)["outbox"][0]
+    assert event["source_published_at"] is None
+    assert event["board_phase"] == "unavailable"
+    assert event["board_attempts"] == 0
+
+
 def test_corrupt_state_is_quarantined_and_never_reinitialized(tmp_path: Path) -> None:
     path = tmp_path / "state.json"
     path.write_text("not json", encoding="utf-8")

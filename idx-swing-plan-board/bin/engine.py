@@ -10,10 +10,11 @@ from datetime import datetime, timezone
 import re
 
 from calendar import is_idx_trading_day, sessions_ago
-from discord_forum import DiscordForumClient, DiscordForumError
+from discord_forum import DiscordForumClient, DiscordForumError, DiscordRateLimitError, DiscordRejectedError
 from models import Checkpoint, Episode, MarketState, SourceEvent
+from media_store import acquire_media
 from prices import classify_close, fetch_session_close, parse_plan_levels
-from render import WIB, escape, format_wib, render_history, render_primary_card, render_source_only_card, render_source_replies
+from render import WIB, escape, format_wib, render_history, render_primary_card, render_source_only_card, render_source_replies, primary_card_requires_source_reply
 from store import BoardStore, BoardStoreTransaction, StoreBlockedError
 
 
@@ -25,22 +26,34 @@ _TARGET = re.compile(
 )
 
 
+def _source_confirmations(event: SourceEvent, active_plan: SourceEvent) -> tuple[bool, set[int]]:
+    if event.kind not in {"status", "reminder"} or active_plan.plan is None:
+        return False, set()
+    reached: set[int] = set()
+    stopped = False
+    for fragment in re.split(r"[;\n]+", event.source_status or ""):
+        status = " ".join(fragment.strip().rstrip(".").split()).casefold()
+        if re.fullmatch(r"stop[- ]?loss(?: [0-9][0-9.,]*)? (?:hit|breached)", status):
+            stopped = True
+        elif re.fullmatch(r"all targets (?:achieved|hit|reached)", status):
+            reached.add(len(active_plan.plan.targets))
+        elif match := _TARGET.fullmatch(status):
+            reached.add(_ORDINALS[match.group(1).casefold()])
+        elif match := re.fullmatch(r"(?:target|tp) ([0-9][0-9.,]*) (?:achieved|hit|reached)", status):
+            token = match.group(1).replace(".", "").replace(",", "")
+            # An unnumbered source target confirms its exact written level.
+            exact = {index for index, target in enumerate(active_plan.plan.targets, 1)
+                     if target.strip().replace(".", "").replace(",", "") == token}
+            reached.update(exact or {int(token)})
+    return stopped, {number for number in reached if 1 <= number <= len(active_plan.plan.targets)}
+
+
 def source_outcome_state(event: SourceEvent, active_plan: SourceEvent) -> MarketState | None:
     """Map explicit source confirmations, never suggestions or inferred prices."""
-    if event.kind not in {"status", "reminder"} or active_plan.plan is None:
-        return None
-    status = (event.source_status or "").strip()
-    if status.casefold() == "stop-loss hit":
+    stopped, reached = _source_confirmations(event, active_plan)
+    if stopped:
         return MarketState.STOP_LOSS_BREACHED
-    if status.casefold() == "all targets achieved":
-        count = len(active_plan.plan.targets)
-        return MarketState.from_target_number(min(count, 5))
-    match = _TARGET.fullmatch(status)
-    if match:
-        number = _ORDINALS[match.group(1).casefold()]
-        if number <= len(active_plan.plan.targets):
-            return MarketState.from_target_number(number)
-    return None
+    return MarketState.from_target_number(min(max(reached), 5)) if reached else None
 
 
 class BoardEngine:
@@ -107,6 +120,17 @@ class BoardEngine:
                 if phase == "retry" and not tx.initial_close_unavailable(current.plan_id, session_date):
                     continue
             close = fetch_session_close(candidate.event.ticker, instant.date())
+            try:
+                levels = parse_plan_levels(
+                    candidate.event.plan.entry, candidate.event.plan.stop_loss, candidate.event.plan.targets
+                )
+                state = classify_close(close, levels) if close is not None else None
+            except ValueError:
+                # Unsupported source notation is not a failed market fetch.
+                # Leave this plan's prior facts and attempts intact, and keep
+                # reconciling the other tickers.
+                result["invalid"] += 1
+                continue
             with self.store.transaction() as tx:
                 current = next(
                     (item for item in tx.active_primary_plans() if item.plan_id == candidate.plan_id),
@@ -130,10 +154,6 @@ class BoardEngine:
                         )
                     continue
 
-                levels = parse_plan_levels(
-                    current.event.plan.entry, current.event.plan.stop_loss, current.event.plan.targets
-                )
-                state = classify_close(close, levels)
                 checkpoint = Checkpoint.market(
                     session_date=session_date,
                     checked_at=instant.isoformat(),
@@ -143,14 +163,23 @@ class BoardEngine:
                 previous, last_valid = tx.latest_checkpoints(current.episode.id)
                 previous_state = last_valid.state if last_valid is not None else None
                 tx.record_checkpoint(current.episode.id, checkpoint)
-                updated = replace(current.episode, market_tag=state.value)
+                terminal = (state == MarketState.STOP_LOSS_BREACHED
+                            or levels.targets[-1].is_reached_by(close))
+                updated = replace(current.episode, market_tag=state.value,
+                                  lifecycle="resolved" if terminal else "primary",
+                                  lifecycle_tag="Resolved" if terminal else "Primary plan",
+                                  closed_at=instant if terminal else None)
                 tx.update_episode(updated)
                 self._enqueue_close_edit(tx, current, checkpoint, checkpoint, instant, f"{phase}-close")
-                if updated.market_tag != current.episode.market_tag:
-                    self._enqueue_close_patch(tx, current.event, updated, instant, f"{phase}-tag")
-                if previous_state != state:
+                if updated.market_tag != current.episode.market_tag or terminal:
+                    self._enqueue_close_patch(tx, current.plan_id, updated, instant, f"{phase}-tag")
+                if previous_state != state or terminal:
                     detail = f"Market checkpoint: {state.value} at Rp{_price_text(close)}"
-                    self._close_history(tx, current.episode, detail, instant, f"{phase}-history")
+                    if terminal:
+                        detail += f"; Resolved: {state.value}"
+                    self._close_history(tx, current.plan_id, current.episode, detail, instant, f"{phase}-history")
+                if terminal:
+                    tx.finish_plan(updated.id, instant)
                 result["checked"] += 1
         result["pending"] = self.store.pending_outbox_count()
         return result
@@ -161,7 +190,7 @@ class BoardEngine:
             active = replace(active, lifecycle_tag="Source plan")
             tx.update_episode(active)
             self._enqueue(tx, event, active, "create_thread", {
-                "name": active.title, "content": render_source_only_card(active.title),
+                "name": active.title, "content": render_source_only_card(active.title, event.source_url),
                 "tag_names": ["Source plan"], "chart": None,
             }, now)
         else:
@@ -186,6 +215,8 @@ class BoardEngine:
                 "name": title, "content": render_primary_card(event),
                 "tag_names": ["Primary plan"], "chart": event.media_path,
             }, now)
+            if primary_card_requires_source_reply(event):
+                self._source_reply(tx, event, active, now)
             return
         prior = tx.active_plan(active.id)
         promoted = active.lifecycle == "source"
@@ -201,6 +232,8 @@ class BoardEngine:
         detail = ("Promoted to Primary plan" if promoted else
                   f"Replacement: prior source {prior.source_url}" if prior else "Replacement: Primary plan")
         self._history(tx, event, event_id, active, f"{detail}; new source {event.source_url}", now)
+        if primary_card_requires_source_reply(event):
+            self._source_reply(tx, event, active, now)
 
     def _status(self, tx, event, event_id, active, now):
         plan = tx.active_plan(active.id)
@@ -209,10 +242,8 @@ class BoardEngine:
         previous = plan.source_status or "New setup"
         current = event.source_status or previous
         state = source_outcome_state(event, plan)
-        terminal = (current.strip().casefold() == "all targets achieved") or state == MarketState.STOP_LOSS_BREACHED or (
-            state is not None and plan.plan is not None and
-            state.value == f"TP{len(plan.plan.targets)} reached"
-        )
+        stopped, reached = _source_confirmations(event, plan)
+        terminal = stopped or len(plan.plan.targets) in reached
         # Source confirmations may set the factual tag; generic status leaves it.
         active = replace(active, market_tag=state.value if state else active.market_tag,
                          latest_material_at=max(active.latest_material_at, event.published_at),
@@ -241,6 +272,11 @@ class BoardEngine:
             self._enqueue(tx, event, active, "post_source_reply", {
                 "content": content, "media": event.media_path if index == 0 else None,
             }, now, suffix=f":{index}" if len(contents) > 1 else "")
+        for index, url in enumerate(event.media_urls):
+            self._enqueue(tx, event, active, "post_source_reply", {
+                "content": f"[Source media {index + 1}](<{event.source_url}>)",
+                "media": None, "media_url": url,
+            }, now, suffix=f":media:{index}")
 
     def _patch(self, tx, event, active, now):
         tags = [active.lifecycle_tag]
@@ -268,21 +304,21 @@ class BoardEngine:
             payload["nonce_value"], now,
         )
 
-    def _enqueue_close_patch(self, tx, event, active, now, suffix):
+    def _enqueue_close_patch(self, tx, plan_id, active, now, suffix):
         tags = [active.lifecycle_tag]
         if active.market_tag:
             tags.append(active.market_tag)
-        nonce_value = f"close:{active.id}:{suffix}:patch"
+        nonce_value = f"close:{plan_id}:{_wib(now).date().isoformat()}:{suffix}:patch"
         tx.enqueue_outbox(
             "patch_thread", active.id,
             {"name": active.title, "tag_names": tags, "archived": False, "nonce_value": nonce_value},
             nonce_value, now,
         )
 
-    def _close_history(self, tx, episode, detail, now, suffix):
+    def _close_history(self, tx, plan_id, episode, detail, now, suffix):
         content = render_history(format_wib(now), detail)
         history_id = tx.add_history(episode.id, None, content, now)
-        nonce_value = f"close:{episode.id}:{suffix}:history"
+        nonce_value = f"close:{plan_id}:{_wib(now).date().isoformat()}:{suffix}:history"
         tx.enqueue_outbox(
             "post_history_reply", episode.id,
             {"content": content, "media": None, "history_id": history_id, "nonce_value": nonce_value},
@@ -299,6 +335,10 @@ class BoardEngine:
         """Execute due intents in episode order, retaining failures for retry."""
         if limit < 1:
             raise ValueError("drain limit must be positive")
+        with self.store.delivery_lock() as acquired:
+            return self._drain_owned(now, limit) if acquired else 0
+
+    def _drain_owned(self, now: datetime | None, limit: int) -> int:
         completed = 0
         for _ in range(limit):
             instant = now or datetime.now(timezone.utc)
@@ -307,12 +347,22 @@ class BoardEngine:
                 break
             try:
                 payload = dict(operation.payload)
+                if payload.get("media_url") and not getattr(self.client, "no_post", False):
+                    payload["media"] = str(acquire_media(payload["media_url"], operation.dedupe_key))
                 if operation.operation != "create_thread":
                     episode = self.store.episode(operation.episode_id)
                     if not episode.thread_id or not episode.starter_message_id:
                         raise StoreBlockedError("Discord thread identity is unavailable")
                     payload.update(thread_id=episode.thread_id, message_id=episode.starter_message_id)
-                completion = self.client.execute(operation.operation, payload)
+                creating = operation.operation in {"create_thread", "post_source_reply", "post_history_reply"}
+                if creating and payload.get("create_snapshot"):
+                    completion = self.client.recover_create(operation.operation, payload)
+                else:
+                    def before_create():
+                        snapshot = self.client.create_snapshot(operation.operation, payload)
+                        self.store.set_create_snapshot(operation.id, operation.claim_token, snapshot)
+                    self.client.before_create = before_create if creating else None
+                    completion = self.client.execute(operation.operation, payload)
                 if operation.operation == "create_thread" and not all(
                     completion.get(key) for key in ("thread_id", "starter_message_id")
                 ):
@@ -320,8 +370,15 @@ class BoardEngine:
                 self.store.complete_outbox(operation.id, operation.claim_token, completion, instant)
                 completed += 1
             except Exception as exc:
+                if isinstance(exc, (DiscordRateLimitError, DiscordRejectedError)) and getattr(exc, "create_rejected", False):
+                    self.store.set_create_snapshot(operation.id, operation.claim_token, None)
                 # Store only a safe category, never provider bodies or credentials.
-                self.store.fail_outbox(operation.id, operation.claim_token, type(exc).__name__, instant)
+                self.store.fail_outbox(
+                    operation.id, operation.claim_token, type(exc).__name__, instant,
+                    minimum_delay_seconds=exc.retry_after if isinstance(exc, DiscordRateLimitError) else 0,
+                )
+            finally:
+                self.client.before_create = None
         return completed
 
 
@@ -336,4 +393,4 @@ def _price_text(value) -> str:
 
 
 def _close_result(*, active: int = 0) -> dict[str, int]:
-    return {"active": active, "checked": 0, "unavailable": 0, "pending": 0}
+    return {"active": active, "checked": 0, "unavailable": 0, "pending": 0, "invalid": 0}
