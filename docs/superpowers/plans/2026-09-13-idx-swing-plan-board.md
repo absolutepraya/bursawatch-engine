@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Work in the main Hermes worktree. Do not create a worktree.
+- Work in the dedicated `wt` worktree for this branch. Do not modify the main worktree during implementation.
 - Keep `#id-stocks-swing` (`1525102458253217803`) as the All Swing source feed. A board failure must not suppress or duplicate an All message.
 - Target only `#id-stocks-swing-board` (`1548273399069933720`). Do not create a live test post, reply, reaction, or bootstrap item.
 - The board owner is the only writer of `~/.hermes/state/idx-swing-board.sqlite3`, its media directory, forum posts, top cards, titles, tags, history replies, and archival state.
