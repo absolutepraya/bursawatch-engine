@@ -120,6 +120,26 @@ def test_edit_starter_replaces_attachment_with_chart_file(tmp_path: Path, monkey
     assert calls[0]["files"]["files[0]"][0] == "source-chart.jpg"
 
 
+def test_edit_starter_explicitly_clears_attachments_without_fetching_old_chart(monkeypatch):
+    calls = []
+
+    def request(method, url, **kwargs):
+        calls.append({"method": method, "url": url, **kwargs})
+        return Response(200, {})
+
+    monkeypatch.setattr(discord_forum.requests, "request", request)
+    client = DiscordForumClient(token="token")
+    client.execute("edit_starter", {
+        "thread_id": "thread-1", "message_id": "starter-1", "content": "chartless replacement",
+        "chart": None, "clear_attachments": True,
+    })
+
+    assert len(calls) == 1
+    assert calls[0]["method"] == "PATCH"
+    assert calls[0]["json"]["attachments"] == []
+    assert "files" not in calls[0]
+
+
 def test_reply_patch_and_execute_use_complete_desired_state(monkeypatch) -> None:
     calls: list[dict] = []
 

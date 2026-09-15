@@ -277,3 +277,40 @@ def test_engine_intents_execute_through_real_client_in_no_post_mode(engine, monk
     assert engine.drain(now=at()) == 9
     assert all(op.status == "complete" for op in operations(engine))
     request.assert_not_called()
+
+
+def test_illustrated_buy_replaced_by_chartless_buy_clears_old_attachment(engine, monkeypatch):
+    engine.submit(buy(media_path="/tmp/old-chart.png"), at())
+    engine.drain(now=at())
+    engine.submit(buy(event_key="chartless-replacement", media_path=None), at())
+    response = Mock(status_code=200, ok=True)
+    response.json.return_value = {"attachments": [{"id": "42", "filename": "old-chart.png"}]}
+    request = Mock(return_value=response)
+    monkeypatch.setattr("discord_forum.requests.request", request)
+    engine.client = DiscordForumClient(token="test-token", no_post=False)
+
+    assert engine.drain(now=at(), limit=1) == 1
+
+    request.assert_called_once()
+    assert request.call_args.args[0] == "PATCH"
+    assert request.call_args.kwargs["json"]["attachments"] == []
+
+
+def test_six_target_all_targets_confirmation_resolves_with_tp5_tag(engine):
+    event = buy(plan=PlanLevels("208 to 212", "<200", ("230", "240", "250", "260", "270", "280")))
+    engine.submit(event, at())
+    prior = engine.store.active_episode("KPIG")
+    engine.submit(status("Fifth target achieved"), at())
+    assert engine.store.active_episode("KPIG").lifecycle == "primary"
+
+    engine.submit(status("All targets achieved", event_key="all-targets", kind="reminder"), at())
+
+    assert engine.store.active_episode("KPIG") is None
+    resolved = engine.store.episode(prior.id)
+    assert (resolved.lifecycle, resolved.lifecycle_tag, resolved.market_tag) == ("resolved", "Resolved", "TP5 reached")
+    patch = next(op for op in reversed(operations(engine)) if op.operation == "patch_thread")
+    assert patch.payload["tag_names"] == ["Resolved", "TP5 reached"]
+    edit = next(op for op in reversed(operations(engine)) if op.operation == "edit_starter")
+    assert "**Target 6:** 280" in edit.payload["content"]
+    assert "**Source status:** All targets achieved" in edit.payload["content"]
+    assert engine.store.active_plan(prior.id) is None

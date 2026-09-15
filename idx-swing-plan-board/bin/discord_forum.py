@@ -102,16 +102,23 @@ class DiscordForumClient:
         message_id: str,
         content: str,
         chart: Path | str | None,
+        *,
+        clear_attachments: bool = False,
     ) -> None:
-        """Reapply the full managed card and preserve or replace its source chart."""
+        """Edit a card, retaining charts unless replaced or explicitly cleared."""
         if self.no_post:
             return
+        _bool(clear_attachments, "clear_attachments")
         path = _media_path(chart)
+        if clear_attachments and path is not None:
+            raise ValueError("cannot clear attachments and provide a chart")
         payload: dict[str, object] = {
             "content": _text(content, "starter content"),
             "allowed_mentions": {"parse": []},
         }
-        if path is None:
+        if clear_attachments:
+            payload["attachments"] = []
+        elif path is None:
             existing = self._request("GET", f"/channels/{_id(thread_id)}/messages/{_id(message_id)}")
             payload["attachments"] = _retained_attachments(existing)
         else:
@@ -186,6 +193,7 @@ class DiscordForumClient:
                 _required(operation_payload, "message_id"),
                 _required(operation_payload, "content"),
                 operation_payload.get("chart"),
+                clear_attachments=_bool(operation_payload.get("clear_attachments", False), "clear_attachments"),
             )
             return {}
         if operation_name in {"post_source_reply", "post_history_reply"}:

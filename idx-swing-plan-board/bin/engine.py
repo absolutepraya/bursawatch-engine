@@ -33,7 +33,7 @@ def source_outcome_state(event: SourceEvent, active_plan: SourceEvent) -> Market
         return MarketState.STOP_LOSS_BREACHED
     if status.casefold() == "all targets achieved":
         count = len(active_plan.plan.targets)
-        return MarketState.from_target_number(count) if count <= 5 else None
+        return MarketState.from_target_number(min(count, 5))
     match = _TARGET.fullmatch(status)
     if match:
         number = _ORDINALS[match.group(1).casefold()]
@@ -114,6 +114,7 @@ class BoardEngine:
         tx.replace_plan(active.id, event_id, event, now)
         self._enqueue(tx, event, active, "edit_starter", {
             "content": render_primary_card(event), "chart": event.media_path,
+            "clear_attachments": event.media_path is None,
         }, now)
         self._patch(tx, event, active, now)
         detail = ("Promoted to Primary plan" if promoted else
@@ -127,7 +128,7 @@ class BoardEngine:
         previous = plan.source_status or "New setup"
         current = event.source_status or previous
         state = source_outcome_state(event, plan)
-        terminal = state == MarketState.STOP_LOSS_BREACHED or (
+        terminal = (current.strip().casefold() == "all targets achieved") or state == MarketState.STOP_LOSS_BREACHED or (
             state is not None and plan.plan is not None and
             state.value == f"TP{len(plan.plan.targets)} reached"
         )
