@@ -49,7 +49,8 @@ broad market, sector, infrastructure, or economy theses even when a top pick
 is named. Never route a post to `id_stocks_swing` merely because it mentions a
 chart, support, resistance, or a technical indicator.
 
-The watcher renders an explicit source stance in a compact footer. Preserve
+The watcher renders the title and summary, followed by an explicit source
+stance in a compact footer. Preserve
 labels such as Bullish, Bearish, Overweight, Underweight, Buy, Sell, Hold,
 Neutral, and On track, adding the configured matching emoji when available. Do
 not infer a stance from generic positive or negative language. A leading

@@ -32,6 +32,7 @@ def test_render_contains_title_summary_and_channel_source():
     assert len(messages) == 1
     assert "BBCA: Laba Naik" in messages[0]
     assert "<:bridanareksa:1547932957598285844>" in messages[0]
+    assert "-# BRI Danareksa Sekuritas" not in messages[0]
     assert "*(Ringkasan)*" in messages[0]
     assert "https://whatsapp.com/channel/example" in messages[0]
     assert len(messages[0]) <= 2000

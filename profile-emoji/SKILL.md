@@ -1,7 +1,8 @@
 # Profile emoji helper
 
 Use this reusable skill when onboarding an X or Instagram account that needs a
-profile-picture emoji for a watcher configuration.
+profile-picture emoji, or when an approved watcher configuration supplies a
+custom static image asset.
 
 ## Workflow
 
@@ -37,6 +38,19 @@ profile-picture emoji for a watcher configuration.
 6. Continue with the watcher's own configuration approval, future-only state
    initialization, tests, published commit, deployment, and live verification.
 
+For an approved custom image, use the separate local-image command. Copy the
+exact image to a temporary VPS path only after comparing its checksum, review
+the no-mutation result, then add `--apply` for creation:
+
+```bash
+ssh vps '~/.agents/skills/profile-emoji/bin/profile-emoji ensure-image --image-path /tmp/approved-image.png --emoji-name example --json'
+ssh vps '~/.agents/skills/profile-emoji/bin/profile-emoji ensure-image --image-path /tmp/approved-image.png --emoji-name example --apply --json'
+```
+
+The helper bounds and canonicalizes the local image in memory, does not retain
+the source file, and returns the same full Discord markup used by watcher
+configuration.
+
 The helper is idempotent by emoji name. `:name:` is only a shorthand label;
 Discord watcher fields require `<:name:id>`. A successful `ensure` result
 contains both forms and the numeric ID. `prepare` returns no Discord ID.
@@ -46,7 +60,9 @@ contains both forms and the numeric ID. `prepare` returns no Discord ID.
 - `prepare` never contacts Discord. `ensure` is read-only unless `--apply` is
   present.
 - The wrapper reads only `DISCORD_BOT_TOKEN` from the VPS-local Hermes env.
-- Source URLs are limited to trusted profile pages and fixed local watcher
-  routes. Do not pass arbitrary CDN URLs or credentials to the helper.
+- Profile source URLs are limited to trusted profile pages and fixed local
+  watcher routes. The local-image command accepts only an explicitly supplied
+  filesystem path. Do not pass arbitrary CDN URLs or credentials to the
+  helper.
 - If the profile image cannot be tied to the requested account, stop and
   report the blocked account. Do not guess an avatar.

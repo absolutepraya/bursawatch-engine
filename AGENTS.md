@@ -51,7 +51,7 @@ Current child instruction files:
 - **No-agent cron contract**: `CRON.md` in a deterministic cron directory. It documents the scheduler, executable, boundaries, checks, and deployment contract; Hermes does not load it as an agent skill.
 - **Agent-backed cron skill**: `SKILL.md` in a cron directory whose Hermes job attaches that skill. Hermes loads it through `skills.external_dirs`, so it must retain that filename.
 - **Reusable agent skill**: any non-cron `SKILL.md`, such as `cobalt/skills/media/SKILL.md` or `mm/SKILL.md`.
-- **Profile emoji snapshot**: the static circular PNG and Discord custom emoji created by `profile-emoji` for a watched X or Instagram account. It is an onboarding snapshot, not an avatar synchronization record.
+- **Profile emoji snapshot**: the static circular PNG and Discord custom emoji created by `profile-emoji` for a watched X or Instagram account or an explicitly approved custom image. It is an onboarding snapshot, not an avatar synchronization record.
 - **Discord emoji markup**: the full watcher-config value `<:emoji_name:emoji_id>`. The shorthand `:emoji_name:` is human-facing only.
 - **Runtime cron directory**: the deployed VPS directory at `~/.agents/skills/<cron>/`. The `skills` path is a Hermes runtime convention and is not a requirement that every cron have a `SKILL.md`.
 - **Live state**: the runtime `state/` files that own cursors, deduplication, alert suppression, retries, and checkpoints.
@@ -104,15 +104,17 @@ recreates, or refreshes it. The default guild is the reviewed target guild
 guild list.
 
 The helper returns the human shorthand, full Discord markup, numeric ID, image
-hash, and canonical profile URL. It does not return the transient image CDN
-URL. X and Instagram onboarding remains responsible for the complete profile
-proposal, approval, watcher config edit, future-only initialization, and
-deployment.
+hash, and canonical profile URL for profile-sourced images. Its
+`ensure-image` command accepts an explicitly supplied local image and returns
+the same emoji fields without retaining the source path. X, Instagram, and
+custom-image onboarding remains responsible for the complete profile proposal,
+approval, watcher config edit, future-only initialization, and deployment.
 
 The fetched profile page, source image, and circular PNG exist only in VPS
-process memory. The helper has no image-file output option, so it does not
-write them to `/tmp`, watcher state, a cache, or the Mac. Discord's stored
-custom emoji is the only durable image asset created by the workflow.
+process memory. For `ensure-image`, the explicitly supplied source file is
+read only for that invocation and is not copied to watcher state, a cache, or
+the Mac. The helper has no image-file output option. Discord's stored custom
+emoji is the only durable image asset created by the workflow.
 
 When an X or Instagram watch request names one or more accounts, the matching
 watcher onboarding workflow runs the helper independently for each account:

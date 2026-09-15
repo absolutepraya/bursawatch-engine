@@ -9,9 +9,10 @@ reusable agent skill, not a scheduled Hermes cron.
   `DISCORD_BOT_TOKEN` from `~/.hermes/.env`. The token and the Instagram
   cookie never move to the Mac, enter source control, or appear in output.
 - The helper accepts an X or Instagram profile URL, or a handle together with
-  an explicit platform. It resolves a trusted profile image, center-crops it
-  to a square, applies a circular transparent mask, and emits a static PNG
-  suitable for a Discord custom emoji.
+  an explicit platform. Its `ensure-image` command also accepts an explicitly
+  supplied local image for approved custom-asset onboarding. It center-crops
+  the image to a square, applies a circular transparent mask, and emits a
+  static PNG suitable for a Discord custom emoji.
 - `prepare` resolves and transforms the image without contacting Discord.
   `ensure` performs a read-only guild lookup by default and creates the emoji
   only when `--apply` is supplied. An existing name is returned unchanged.
@@ -36,10 +37,10 @@ never included in the result. `source_url` means the canonical profile page;
 `image_source_host` is the redacted image host.
 
 The normal path keeps the fetched page, source image, and generated circular
-PNG in VPS process memory only. The helper has no image-file output option, so
-it does not use `/tmp`, watcher state, or a cache, and it does not copy an
-asset to the Mac. The Discord custom emoji is the only durable image asset
-produced by this helper.
+PNG in VPS process memory only. The `ensure-image` path reads the supplied
+local file only for that invocation and does not copy it to the Mac, watcher
+state, or a cache. The helper has no image-file output option. The Discord
+custom emoji is the only durable image asset produced by this helper.
 
 Instagram's authenticated RSSHub cookie remains owned by the VPS-local
 universal `rsshub` service. The helper must not read, print, or receive

@@ -12,6 +12,7 @@ import hashlib
 import ipaddress
 import json
 import os
+from pathlib import Path
 import re
 import socket
 import sys
@@ -71,7 +72,7 @@ class Account:
 
 @dataclass(frozen=True)
 class ResolvedImage:
-    account: Account
+    account: Account | None
     png_bytes: bytes
     image_sha256: str
     image_source_host: str
@@ -486,6 +487,27 @@ def resolve_profile_image(account: Account) -> ResolvedImage:
     )
 
 
+def resolve_local_image(path: str) -> ResolvedImage:
+    image_path = Path(path)
+    try:
+        if not image_path.is_file():
+            raise ProfileEmojiError("local image path is not a file")
+        with image_path.open("rb") as source:
+            image_data = source.read(MAX_IMAGE_INPUT_BYTES + 1)
+    except ProfileEmojiError:
+        raise
+    except OSError as exc:
+        raise ProfileEmojiError("local image could not be read") from exc
+
+    png_bytes = _canonicalize_image(image_data)
+    return ResolvedImage(
+        account=None,
+        png_bytes=png_bytes,
+        image_sha256=hashlib.sha256(png_bytes).hexdigest(),
+        image_source_host="local-file",
+    )
+
+
 def _validate_guild_id(value: str) -> str:
     if not DISCORD_ID_RE.fullmatch(value):
         raise ProfileEmojiError("guild ID must be a 17 to 20 digit Discord ID")
@@ -551,16 +573,16 @@ class DiscordClient:
         return response
 
 
-def _result_base(account: Account, name: str) -> dict[str, Any]:
+def _result_base(account: Account | None, name: str) -> dict[str, Any]:
     return {
-        "platform": account.platform,
-        "account": account.handle,
-        "profile_url": account.profile_url,
+        "platform": account.platform if account else "local",
+        "account": account.handle if account else None,
+        "profile_url": account.profile_url if account else None,
         "emoji_name": name,
         "shortcode": f":{name}:",
         "discord_markup": None,
         "emoji_id": None,
-        "source_url": account.profile_url,
+        "source_url": account.profile_url if account else None,
         "image_source_host": None,
         "image_sha256": None,
         "image_size_bytes": None,
@@ -626,6 +648,38 @@ def ensure(
     return result
 
 
+def ensure_image(
+    image_path: str,
+    name: str,
+    guild_id: str,
+    *,
+    apply: bool,
+    token: str,
+) -> dict[str, Any]:
+    client = DiscordClient(token)
+    result = _result_base(None, name)
+    matching = [emoji for emoji in client.list_guild_emojis(guild_id) if emoji.get("name") == name]
+    if len(matching) > 1:
+        raise ProfileEmojiError("multiple Discord emojis use the requested name")
+    if matching:
+        return _result_for_existing(result, matching[0])
+
+    image = resolve_local_image(image_path)
+    _apply_image_fields(result, image)
+    if not apply:
+        result["action"] = "would_create"
+        return result
+
+    created = client.create_guild_emoji(guild_id, name, image.png_bytes)
+    if created.get("name") not in {None, name}:
+        raise ProfileEmojiError("Discord returned an emoji with an unexpected name")
+    emoji_id = _validate_emoji_id(created.get("id"))
+    result["emoji_id"] = emoji_id
+    result["discord_markup"] = f"<:{name}:{emoji_id}>"
+    result["action"] = "created"
+    return result
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -648,6 +702,19 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="create the emoji when absent; existing emojis are always returned unchanged",
     )
+
+    image_parser = subparsers.add_parser(
+        "ensure-image", help="return or create an emoji from an explicitly supplied local image"
+    )
+    image_parser.add_argument("--image-path", required=True)
+    image_parser.add_argument("--emoji-name", required=True)
+    image_parser.add_argument("--guild-id", default=DEFAULT_GUILD_ID)
+    image_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="create the emoji when absent; existing emojis are always returned unchanged",
+    )
+    image_parser.add_argument("--json", action="store_true", help="emit one JSON result")
     return parser
 
 
@@ -664,14 +731,20 @@ def _print_result(result: dict[str, Any], as_json: bool) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
-        account = normalize_account(args.platform, args.account)
-        name = resolve_emoji_name(account, args.emoji_name, args.profile_id)
-        if args.command == "prepare":
-            result = prepare(account, name)
-        else:
+        if args.command == "ensure-image":
             guild_id = _validate_guild_id(args.guild_id)
+            name = validate_emoji_name(args.emoji_name)
             token = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
-            result = ensure(account, name, guild_id, apply=args.apply, token=token)
+            result = ensure_image(args.image_path, name, guild_id, apply=args.apply, token=token)
+        else:
+            account = normalize_account(args.platform, args.account)
+            name = resolve_emoji_name(account, args.emoji_name, args.profile_id)
+            if args.command == "prepare":
+                result = prepare(account, name)
+            else:
+                guild_id = _validate_guild_id(args.guild_id)
+                token = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
+                result = ensure(account, name, guild_id, apply=args.apply, token=token)
         _print_result(result, args.json)
         return 0
     except ProfileEmojiError as exc:

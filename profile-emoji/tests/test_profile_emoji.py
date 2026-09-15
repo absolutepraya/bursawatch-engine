@@ -227,6 +227,58 @@ def test_ensure_dry_run_reports_absent_without_posting(monkeypatch: pytest.Monke
     assert result["image_sha256"] == resolved.image_sha256
 
 
+def test_resolve_local_image_reads_and_redacts_the_supplied_path(tmp_path: Path) -> None:
+    image_path = tmp_path / "bri.png"
+    image_path.write_bytes(_png_bytes())
+
+    resolved = helper.resolve_local_image(str(image_path))
+
+    assert resolved.account is None
+    assert resolved.image_source_host == "local-file"
+    assert resolved.image_sha256
+    assert str(image_path) not in repr(resolved)
+
+
+def test_ensure_image_apply_creates_absent_emoji(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    image_path = tmp_path / "bri.png"
+    image_path.write_bytes(_png_bytes())
+
+    class FakeClient:
+        def __init__(self, _: str) -> None:
+            self.created_payload: tuple[str, str, bytes] | None = None
+
+        def list_guild_emojis(self, _: str) -> list[dict[str, object]]:
+            return []
+
+        def create_guild_emoji(self, guild_id: str, name: str, png_bytes: bytes) -> dict[str, object]:
+            self.created_payload = (guild_id, name, png_bytes)
+            return {"id": "1531673483459821729", "name": name, "animated": False}
+
+    fake_client: FakeClient | None = None
+
+    def make_client(token: str) -> FakeClient:
+        nonlocal fake_client
+        assert token == "token-for-test"
+        fake_client = FakeClient(token)
+        return fake_client
+
+    monkeypatch.setattr(helper, "DiscordClient", make_client)
+    result = helper.ensure_image(
+        str(image_path),
+        "bridanareksa",
+        helper.DEFAULT_GUILD_ID,
+        apply=True,
+        token="token-for-test",
+    )
+
+    assert fake_client is not None
+    assert fake_client.created_payload is not None
+    assert fake_client.created_payload[:2] == (helper.DEFAULT_GUILD_ID, "bridanareksa")
+    assert result["platform"] == "local"
+    assert result["action"] == "created"
+    assert result["discord_markup"] == "<:bridanareksa:1531673483459821729>"
+
+
 def test_ensure_apply_creates_absent_emoji_and_returns_both_forms(monkeypatch: pytest.MonkeyPatch) -> None:
     account = helper.normalize_account("instagram", "example.id")
     resolved = _resolved_image(account)
