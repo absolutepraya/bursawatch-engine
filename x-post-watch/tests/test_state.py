@@ -62,9 +62,25 @@ def test_load_state_migrates_legacy_profile_cooldown_to_global_three_hours(tmp_p
 def test_new_state_contains_delivery_ledger_and_cleanup_queue():
     value = state.new_state()
 
-    assert value["version"] == 2
+    assert value["version"] == state.STATE_VERSION
     assert value["deliveries"] == []
     assert value["cleanup"] == []
+
+
+def test_load_state_adds_pending_board_handoff_to_existing_outbox_event(tmp_path):
+    path = tmp_path / "state.json"
+    path.write_text(json.dumps({
+        "version": 2,
+        "profiles": {},
+        "outbox": [{"profile_id": "marketwriter", "post_id": "101"}],
+    }), encoding="utf-8")
+
+    event = state.load_state(path)["outbox"][0]
+
+    assert event["board_phase"] == "pending"
+    assert event["board_attempts"] == 0
+    assert event["board_next_attempt_at"] is None
+    assert event["board_last_error"] is None
 
 
 def test_source_retry_cooldown_expires_without_touching_cursor():

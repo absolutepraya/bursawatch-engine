@@ -4,6 +4,8 @@ import fcntl
 import argparse
 import json
 import os
+import re
+import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -28,6 +30,12 @@ from agent_protocol import (
 WIB = ZoneInfo("Asia/Jakarta")
 HEARTBEAT_CHANNEL_ID = "1505162000420835388"
 WATCHER_HEARTBEAT_NAME = "x-post"
+BOARD_PENDING = "pending"
+BOARD_UNAVAILABLE = "unavailable"
+BOARD_RETRY_INITIAL_SECONDS = 60
+BOARD_RETRY_CAP_SECONDS = 15 * 60
+_TICKER_LED_CLAUSE = re.compile(r"(?<![A-Z0-9])([A-Z][A-Z0-9]{1,9}):\s+")
+_TICKER_SOURCE_TITLE = re.compile(r"^([A-Z][A-Z0-9]{1,9}):\s+(.+)$")
 
 
 @dataclass
@@ -84,7 +92,11 @@ def _next_deliverable_index(value: dict, profiles: dict, now: datetime) -> int |
         profile = profiles.get(event["profile_id"])
         if profile is None:
             continue
-        if state.is_ready(event, now) and (not profile.uses_llm or event.get("agent_phase") == "ready"):
+        if (
+            state.is_ready(event, now)
+            and _board_retry_due(event, now)
+            and (not profile.uses_llm or event.get("agent_phase") == "ready")
+        ):
             return index
     return None
 
@@ -139,6 +151,129 @@ def _delivery_media(profile, thread_posts):
     if profile.media_policy == "omit_last":
         return all_media[:-1]
     return all_media
+
+
+def _board_retry_due(event: dict, now: datetime) -> bool:
+    if event.get("board_phase") != BOARD_PENDING:
+        return True
+    value = event.get("board_next_attempt_at")
+    if value is None:
+        return True
+    if not isinstance(value, str):
+        return True
+    try:
+        retry_at = datetime.fromisoformat(value)
+    except ValueError:
+        return True
+    return (retry_at.tzinfo is None) == (now.tzinfo is None) and retry_at <= now
+
+
+def _direct_media_urls(thread_posts) -> list[str]:
+    urls: list[str] = []
+    seen: set[str] = set()
+    for thread_post in thread_posts:
+        for media in thread_post.media:
+            if media.url not in seen:
+                seen.add(media.url)
+                urls.append(media.url)
+    return urls
+
+
+def board_source_event(event: dict, profile) -> dict[str, object] | None:
+    """Return the narrow source-only board context for an accepted X Swing event."""
+    if event.get("route") != "id_stocks_swing":
+        return None
+    post = state.deserialize_post(event["post"])
+    source_title = next(
+        (line.strip() for line in render.markdown(post.content_html).splitlines() if line.strip()),
+        None,
+    )
+    if source_title is None or len(source_title) > 100:
+        return None
+    source_match = _TICKER_SOURCE_TITLE.fullmatch(source_title)
+    clauses = _TICKER_LED_CLAUSE.findall(source_title)
+    if source_match is None or len(clauses) != 1:
+        return None
+    title = event.get("title")
+    title_clauses = _TICKER_LED_CLAUSE.match(title) if isinstance(title, str) else None
+    if title_clauses is None or source_match.group(1) != title_clauses.group(1):
+        return None
+    thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]]))
+    all_content = "\n\n".join(
+        render.render_post(
+            profile,
+            post,
+            event.get("summary") if profile.enable_llm_summary else None,
+            event.get("title"),
+            thread_posts,
+            bool(event.get("updated_tweet")),
+        )
+    )
+    return {
+        "event_key": f"x:{profile.id}:{post.post_id}",
+        "source": "x",
+        "kind": "social",
+        "ticker": source_match.group(1),
+        "published_at": post.published_at.isoformat(),
+        "source_url": post.url,
+        "all_content": all_content,
+        "source_title": source_title,
+        "source_status": None,
+        "plan": None,
+        "media_path": None,
+        "media_urls": _direct_media_urls(thread_posts),
+    }
+
+
+def _board_wrapper() -> str:
+    return os.environ.get(
+        "IDX_SWING_PLAN_BOARD_WRAPPER",
+        str(Path.home() / ".hermes" / "scripts" / "idx-swing-plan-board.sh"),
+    )
+
+
+def submit_board_event(payload: dict[str, object], dry_run: bool) -> bool:
+    if dry_run:
+        print(f"[dry-run] board source event {payload['event_key']}")
+        return True
+    try:
+        completed = subprocess.run(
+            [_board_wrapper(), "submit-source-event", "--stdin"],
+            input=json.dumps(payload, ensure_ascii=False),
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if completed.returncode != 0:
+        return False
+    try:
+        acknowledgement = json.loads(completed.stdout.strip())
+    except (TypeError, ValueError):
+        return False
+    return (
+        isinstance(acknowledgement, dict)
+        and set(acknowledgement) == {"accepted"}
+        and type(acknowledgement["accepted"]) is bool
+        and acknowledgement["accepted"] is True
+    )
+
+
+def _record_board_failure(event: dict, now: datetime) -> None:
+    attempts = int(event.get("board_attempts", 0)) + 1
+    delay = min(BOARD_RETRY_INITIAL_SECONDS * (2 ** (attempts - 1)), BOARD_RETRY_CAP_SECONDS)
+    event["board_phase"] = BOARD_PENDING
+    event["board_attempts"] = attempts
+    event["board_next_attempt_at"] = (now + timedelta(seconds=delay)).isoformat()
+    event["board_last_error"] = "board source event was not accepted"
+
+
+def _clear_board_failure(event: dict) -> None:
+    event["board_attempts"] = 0
+    event["board_next_attempt_at"] = None
+    event["board_last_error"] = None
 
 
 def _thread_extension(profile, old: dict, event: dict) -> bool:
@@ -233,6 +368,10 @@ def _retry_cleanup(value: dict, dry_run: bool, storage: Path, stats: RunStats) -
 
 def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, storage: Path, stats: RunStats, now: datetime | None = None) -> bool:
     event = value["outbox"][event_index]
+    event.setdefault("board_phase", BOARD_PENDING)
+    event.setdefault("board_attempts", 0)
+    event.setdefault("board_next_attempt_at", None)
+    event.setdefault("board_last_error", None)
     profile = profiles[event["profile_id"]]
     post = state.deserialize_post(event["post"])
     thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]]))
@@ -274,6 +413,27 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
     record = state.record_delivery(value, event, channel_id, delivered_at, dry_run)
     if record is not None:
         state.queue_replacement_cleanup(value, record)
+    # The All delivery is durable before the owner sees a source event. A
+    # retry below must therefore never revisit text, media, routing, or agent
+    # work.
+    state.save_state(storage, value)
+    payload = board_source_event(event, profile)
+    if payload is None:
+        event["board_phase"] = BOARD_UNAVAILABLE
+        value["outbox"].pop(event_index)
+        state.save_state(storage, value)
+        stats.delivered += 1
+        return True
+    if not _board_retry_due(event, delivered_at):
+        return False
+    if not submit_board_event(payload, dry_run):
+        _record_board_failure(event, delivered_at)
+        stats.degraded = True
+        stats.needs_attention = True
+        stats.reasons.append(event["board_last_error"])
+        state.save_state(storage, value)
+        return False
+    _clear_board_failure(event)
     value["outbox"].pop(event_index)
     state.save_state(storage, value)
     stats.delivered += 1

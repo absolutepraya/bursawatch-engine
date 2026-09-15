@@ -9,11 +9,13 @@ from pathlib import Path
 from models import PostKind, Profile, SourceMedia, SourcePost
 
 SOURCE_RATE_LIMIT_COOLDOWN_SECONDS = 3 * 60 * 60
+STATE_VERSION = 3
+BOARD_PENDING = "pending"
 
 
 def new_state() -> dict:
     return {
-        "version": 2,
+        "version": STATE_VERSION,
         "profiles": {},
         "outbox": [],
         "deliveries": [],
@@ -25,10 +27,10 @@ def new_state() -> dict:
 def load_state(path: Path) -> dict:
     if not path.exists(): return new_state()
     value = json.loads(path.read_text(encoding="utf-8"))
-    if type(value) is not dict or value.get("version") not in {1, 2} or type(value.get("profiles")) is not dict or type(value.get("outbox")) is not list:
+    if type(value) is not dict or value.get("version") not in {1, 2, STATE_VERSION} or type(value.get("profiles")) is not dict or type(value.get("outbox")) is not list:
         raise ValueError("x-post-watch state is invalid")
-    if value.get("version") == 1:
-        value["version"] = 2
+    if value.get("version") in {1, 2}:
+        value["version"] = STATE_VERSION
     if "deliveries" not in value:
         value["deliveries"] = []
     if "cleanup" not in value:
@@ -54,6 +56,10 @@ def load_state(path: Path) -> dict:
         event.setdefault("text_message_ids", [])
         event.setdefault("media_message_ids", [])
         event.setdefault("replacement_of", [])
+        event.setdefault("board_phase", BOARD_PENDING)
+        event.setdefault("board_attempts", 0)
+        event.setdefault("board_next_attempt_at", None)
+        event.setdefault("board_last_error", None)
         if "summary_phase" in event:
             event.pop("summary_phase", None)
             event.pop("summary_lease_until", None)
@@ -293,6 +299,10 @@ def _event_for_thread(state: dict, profile: Profile, thread: tuple[SourcePost, .
         "text_index": 0,
         "media_index": 0,
         "post": serialize_post(latest),
+        "board_phase": BOARD_PENDING,
+        "board_attempts": 0,
+        "board_next_attempt_at": None,
+        "board_last_error": None,
     }
     if profile.uses_llm:
         event.update({"title": None, "summary": None, "route": None, "agent_phase": "pending", "agent_lease_until": None})

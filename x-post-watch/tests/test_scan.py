@@ -1,9 +1,92 @@
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 import scan
 import state
 import supersession
-from models import PostKind, SourceMedia, SourcePost
+from models import DiscordChannel, PostKind, Profile, SourceMedia, SourcePost, ThreadHandling
+
+
+def now() -> datetime:
+    return datetime(2026, 9, 15, 10, 0, tzinfo=scan.WIB)
+
+
+def profile_fixture() -> Profile:
+    return Profile(
+        id="marketwriter",
+        enabled=True,
+        profile_url="https://x.com/marketwriter",
+        handle="marketwriter",
+        display_name="Market Writer",
+        twitter_emoji="<:twitter:1531672630602498129>",
+        emoji="<:marketwriter:1531673483459821729>",
+        discord_channels=(
+            DiscordChannel("macro_news", "1531655369884045382", "Macro"),
+            DiscordChannel("id_stocks_swing", "1525102458253217803", "IDX swing"),
+        ),
+        forward_normal_post=True,
+        forward_quote_post=True,
+        forward_reply=False,
+        forward_repost=False,
+        forward_media=True,
+        enable_llm_title=True,
+        enable_llm_summary=True,
+        enable_llm_routing=True,
+        enable_llm_relevance_filter=True,
+        relevance_scope="stock_market",
+        additional_prompt_instruction="",
+        max_items_per_poll=50,
+        thread_handling=ThreadHandling("disabled", 1, 60, 1),
+    )
+
+
+def profiles() -> dict[str, Profile]:
+    profile = profile_fixture()
+    return {profile.id: profile}
+
+
+def stats() -> scan.RunStats:
+    return scan.RunStats()
+
+
+def swing_event(source_text: str) -> dict:
+    profile = profile_fixture()
+    post = SourcePost(
+        profile.id,
+        "101",
+        "https://x.com/marketwriter/status/101",
+        now(),
+        source_text,
+        PostKind.NORMAL,
+        None,
+        None,
+        (SourceMedia("https://img.example/chart.png", 0),),
+        (SourceMedia("https://img.example/quoted.png", 0),),
+    )
+    return {
+        "profile_id": profile.id,
+        "post_id": post.post_id,
+        "thread_root_id": post.post_id,
+        "post": state.serialize_post(post),
+        "thread_posts": [state.serialize_post(post)],
+        "title": "KPIG: Analisis gelombang yang sudah diterima",
+        "summary": "*(Ringkasan)* Ringkasan yang sudah diterima.",
+        "route": "id_stocks_swing",
+        "agent_phase": "ready",
+        "agent_lease_until": None,
+        "text_index": 1,
+        "media_index": 2,
+        "text_message_ids": ["all-message"],
+        "media_message_ids": ["all-media", "all-quoted-media"],
+    }
+
+
+def ready_swing_state(tmp_path) -> dict:
+    value = state.new_state()
+    value["outbox"].append(swing_event("KPIG: Wave IV diproyeksikan menuju area 97 sampai 108"))
+    state.save_state(tmp_path / "state.json", value)
+    return value
 
 
 def test_run_skips_a_profile_during_source_retry_cooldown(tmp_path, monkeypatch, config_path):
@@ -76,6 +159,63 @@ def test_queue_only_run_skips_source_fetch_and_claims_oldest_agent(tmp_path, mon
 def test_heartbeat_format_is_canonical():
     value = scan.format_heartbeat(datetime(2026, 7, 28, 6, 0, tzinfo=scan.WIB), scan.RunStats())
     assert value == "🫀 x-post · 06:00 WIB · 0 fetched · 0 filtered · 0 queued · 0 delivered · 0 errors · 0 pending · oldest 0m"
+
+
+def test_x_board_event_requires_one_exact_ticker_led_source_title() -> None:
+    event = swing_event(source_text="KPIG: Wave IV diproyeksikan menuju area 97 sampai 108")
+
+    board_event = scan.board_source_event(event, profile_fixture())
+
+    assert board_event["source_title"] == "KPIG: Wave IV diproyeksikan menuju area 97 sampai 108"
+    assert board_event["media_urls"] == ["https://img.example/chart.png"]
+
+
+def test_multiticker_or_non_ticker_led_x_source_stays_all_only() -> None:
+    assert scan.board_source_event(swing_event(source_text="KPIG dan RAJA menarik"), profile_fixture()) is None
+    assert scan.board_source_event(swing_event(source_text="Update teknikal hari ini"), profile_fixture()) is None
+    assert scan.board_source_event(swing_event(source_text="KPIG: Technical setup; RAJA: setup lain"), profile_fixture()) is None
+
+
+def test_board_failure_does_not_repost_existing_all_messages(tmp_path, monkeypatch) -> None:
+    value = ready_swing_state(tmp_path)
+    monkeypatch.setattr(scan.discord, "post_text", lambda *_: "all-message")
+    monkeypatch.setattr(scan, "submit_board_event", lambda *_: False)
+
+    assert scan._deliver(value, profiles(), 0, False, tmp_path / "state.json", stats(), now()) is False
+    assert value["outbox"][0]["text_message_ids"] == ["all-message"]
+    assert value["outbox"][0]["board_phase"] == "pending"
+
+
+def test_board_retry_accepts_without_reposting_all_messages(tmp_path, monkeypatch) -> None:
+    value = ready_swing_state(tmp_path)
+    all_messages = []
+    monkeypatch.setattr(scan.discord, "post_text", lambda *_: all_messages.append("all-message") or "all-message")
+    monkeypatch.setattr(scan.discord, "post_media", lambda *_: all_messages.append("all-media") or "all-media")
+    monkeypatch.setattr(scan, "submit_board_event", lambda *_: False)
+
+    assert scan._deliver(value, profiles(), 0, False, tmp_path / "state.json", stats(), now()) is False
+
+    monkeypatch.setattr(scan, "submit_board_event", lambda *_: True)
+    assert scan._deliver(value, profiles(), 0, False, tmp_path / "state.json", stats(), now() + timedelta(minutes=1)) is True
+    assert value["outbox"] == []
+    assert all_messages == []
+
+
+@pytest.mark.parametrize(
+    ("stdout", "expected"),
+    [
+        ('{"accepted":true}', True),
+        ('{"accepted":1}', False),
+        ('{"accepted":true,"extra":false}', False),
+        ('{"accepted":false}', False),
+        ("not-json", False),
+    ],
+)
+def test_board_submission_accepts_only_the_owner_acknowledgement(monkeypatch, stdout, expected) -> None:
+    completed = type("Completed", (), {"returncode": 0, "stdout": stdout})()
+    monkeypatch.setattr(scan.subprocess, "run", lambda *args, **kwargs: completed)
+
+    assert scan.submit_board_event({"event_key": "x:marketwriter:101"}, False) is expected
 
 
 def test_run_stats_marks_an_empty_profile_feed_as_degraded():
