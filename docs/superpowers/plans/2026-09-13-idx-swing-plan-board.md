@@ -211,8 +211,9 @@ def test_duplicate_source_event_is_recorded_once(tmp_path) -> None:
 def test_failed_operation_retries_without_second_operation(tmp_path) -> None:
     store = BoardStore(tmp_path / "board.sqlite3")
     episode = store.create_episode("SCMA", "source", "SCMA: source context", datetime(2026, 9, 19, 9, 5, tzinfo=WIB))
-    operation = store.enqueue_test_operation("create_thread", episode.id)
-    store.fail_outbox(operation.id, "Discord request failed", datetime(2026, 9, 19, 9, 5, tzinfo=WIB))
+    operation = store.enqueue_test_operation("create_thread", episode.id, datetime(2026, 9, 19, 9, 5, tzinfo=WIB))
+    claim = store.claim_due_outbox(datetime(2026, 9, 19, 9, 5, tzinfo=WIB))
+    store.fail_outbox(operation.id, claim.claim_token, "Discord request failed", datetime(2026, 9, 19, 9, 5, tzinfo=WIB))
     retry = store.claim_due_outbox(datetime(2026, 9, 19, 9, 6, tzinfo=WIB))
     assert retry.id == operation.id
     assert retry.attempts == 1
@@ -232,7 +233,7 @@ Expected: FAIL because `store.py` does not exist.
 
 Use `sqlite3.connect(path, isolation_level=None)`, `PRAGMA journal_mode=WAL`, `PRAGMA foreign_keys=ON`, a lock file at `<database>.lock`, and `BEGIN IMMEDIATE`. Create `source_events`, `episodes`, `plans`, `checkpoints`, `history_events`, and `outbox` tables. Enforce unique `source_events.event_key`, one open episode per ticker, one plan source event, one material history payload, and one outbox `dedupe_key`.
 
-Only these outbox operations are legal: `create_thread`, `edit_starter`, `post_source_reply`, `post_history_reply`, and `patch_thread`. `submit_event()` atomically records only a source event. The Task 4 engine opens its own transaction to write the resulting episode transition and every required outbox intent. Neither method makes an HTTP request.
+Only these outbox operations are legal: `create_thread`, `edit_starter`, `post_source_reply`, `post_history_reply`, and `patch_thread`. `submit_event()` atomically records only a source event. The Task 4 engine opens its own transaction to write the resulting episode transition and every required outbox intent. Neither method makes an HTTP request. `claim_due_outbox()` returns a fresh claim token, and `complete_outbox()` and `fail_outbox()` require that token so a stale worker cannot mutate reclaimed work.
 
 Backoff is 1, 2, 4, 8, 15, 30, then 60 minutes. An unknown schema version raises `StoreBlockedError` before a write. A migration must preserve all rows and never reset a database.
 
