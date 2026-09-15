@@ -226,6 +226,24 @@ def test_delivery_warning_is_added_only_for_incomplete_delivery() -> None:
     assert scan.format_heartbeat(at("2026-08-21T12:01:00+07:00"), scanned=1, pending=1, delivered=0, warning=True).endswith("delivered=0 ⚠️")
 
 
+def test_pending_board_retry_marks_the_heartbeat_degraded() -> None:
+    import scan
+
+    state = {
+        "outbox": [
+            {
+                "agent_phase": "delivering",
+                "attempts": 0,
+                "last_error": None,
+                "board_attempts": 1,
+                "board_last_error": "board source event was not accepted",
+            }
+        ]
+    }
+
+    assert scan._has_delivery_warning(state) is True
+
+
 def test_delivery_failure_marks_the_normal_heartbeat_degraded(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     import scan
 
@@ -379,12 +397,58 @@ def test_submission_drains_text_then_two_images_without_reclaim(monkeypatch: pyt
     import discord
     monkeypatch.setattr(discord, "post_text", lambda *_args: sent.append("text"))
     monkeypatch.setattr(discord, "post_file", lambda path, *_args: sent.append(Path(path).name))
+    monkeypatch.setattr(discord, "submit_board_event", lambda *_: True)
 
     result = scan.submit_analysis_payload(json.dumps({"event_key": "101:CTRA", "title": "CTRA: Buy area", "summary": "*(Ringkasan)* Buy area 605 sampai 630."}), dry_run=False, now=at("2026-08-11T09:01:00+07:00"))
 
     assert result == {"wakeAgent": False, "delivered": 3}
     assert sent == ["text", "one.jpg", "two.jpg"]
     assert load_state(tmp_path / "state.json")["outbox"] == []
+
+
+def test_board_retry_never_reclaims_agent_or_replays_all(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import scan
+    import discord
+
+    _configure(monkeypatch, tmp_path, [])
+    event = {
+        "event_key": "101:RAJA",
+        "ticker": "RAJA",
+        "header_message_id": 101,
+        "source_message_ids": [101],
+        "source_text": "Good to watch - RAJA #GTW",
+        "source_published_at": "2026-08-11T09:00:00+07:00",
+        "plan": {"buy_area": "-", "targets": "-", "stoploss": "-"},
+        "media": [],
+        "title": "RAJA: Akumulasi kuat",
+        "summary": "*(Ringkasan)* Ringkasan tervalidasi.",
+        "agent_phase": "delivering",
+        "agent_lease_until": None,
+        "text_index": 1,
+        "next_media_index": 0,
+        "attempts": 0,
+        "next_attempt_at": None,
+        "last_error": None,
+        "board_phase": "pending",
+        "board_attempts": 0,
+        "board_next_attempt_at": None,
+        "board_last_error": None,
+    }
+    state = new_state()
+    state["outbox"].append(event)
+    save_state(tmp_path / "state.json", state)
+    monkeypatch.setattr(discord, "post_text", lambda *_: pytest.fail("All text must not replay"))
+    monkeypatch.setattr(discord, "post_file", lambda *_: pytest.fail("All image must not replay"))
+    monkeypatch.setattr(discord, "submit_board_event", lambda *_: False)
+
+    assert scan._drain_due_delivery(state, tmp_path / "state.json", at("2026-08-11T09:00:00+07:00"), False) == 0
+    assert state["outbox"] == [event]
+    assert event["board_attempts"] == 1
+    assert scan.claim_oldest_agent(state, at("2026-08-11T09:00:00+07:00")) is None
+
+    monkeypatch.setattr(discord, "submit_board_event", lambda *_: True)
+    assert scan._drain_due_delivery(state, tmp_path / "state.json", at("2026-08-11T09:01:00+07:00"), False) == 1
+    assert state["outbox"] == []
 
 
 def test_restart_reuses_verified_captured_media_without_redownload(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

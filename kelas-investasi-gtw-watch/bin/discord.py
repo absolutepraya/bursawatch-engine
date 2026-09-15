@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import math
+import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -119,9 +120,7 @@ def deliver_oldest_ready_event(
             post_file(path, DISCORD_CHANNEL_ID, False, nonce(str(event["event_key"]), f"media:{index}"))
             event["next_media_index"] = index + 1
         else:
-            _remove_event(state, event)
-            _persist(persist)
-            return True
+            return _submit_board_context(state, event, now, dry_run, persist, media_root)
     except DiscordRateLimitError as error:
         _record_failure(event, now, error, error.retry_after)
         _persist(persist)
@@ -132,10 +131,71 @@ def deliver_oldest_ready_event(
         return False
 
     _clear_failure(event)
-    if _complete(event, chunks):
-        _remove_event(state, event)
     _persist(persist)
+    if _complete(event, chunks):
+        return _submit_board_context(state, event, now, dry_run, persist, media_root)
     return True
+
+
+def board_payload(event: Mapping[str, object], media: Path | None = None) -> dict[str, object]:
+    """Project a completed GTW bundle as source-only board context."""
+    source_text = event.get("source_text")
+    if not isinstance(source_text, str) or not source_text.splitlines():
+        raise ValueError("board source text is invalid")
+    source_title = source_text.splitlines()[0]
+    if not source_title.strip():
+        raise ValueError("board source title is invalid")
+    published_at = event.get("source_published_at")
+    if not isinstance(published_at, str) or not published_at:
+        raise ValueError("board source time is invalid")
+    header_message_id = event.get("header_message_id")
+    ticker = event.get("ticker")
+    if not isinstance(header_message_id, int) or isinstance(header_message_id, bool) or header_message_id < 1:
+        raise ValueError("board source message is invalid")
+    if not isinstance(ticker, str) or not ticker:
+        raise ValueError("board source ticker is invalid")
+    return {
+        "event_key": f"kelas-investasi:{event['event_key']}",
+        "source": "kelas-investasi",
+        "kind": "social",
+        "ticker": ticker,
+        "published_at": published_at,
+        "source_url": f"https://t.me/kelasinvestasiid/{header_message_id}",
+        "all_content": "\n\n".join(render_event(event)),
+        "source_title": source_title,
+        "source_status": None,
+        "plan": None,
+        "media_path": str(media) if media is not None else None,
+        "media_urls": [],
+    }
+
+
+def submit_board_event(payload: Mapping[str, object], media: Path | None, dry_run: bool) -> bool:
+    if dry_run:
+        print(f"would submit board source event event={payload['event_key']}")
+        return True
+    submission = {**payload, "media_path": str(media) if media is not None else None}
+    wrapper = os.environ.get(
+        "IDX_SWING_PLAN_BOARD_WRAPPER",
+        str(Path.home() / ".hermes" / "scripts" / "idx-swing-plan-board.sh"),
+    )
+    try:
+        completed = subprocess.run(
+            [wrapper, "submit-source-event", "--stdin"],
+            input=json.dumps(submission, ensure_ascii=False),
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if completed.returncode != 0:
+        return False
+    try:
+        return json.loads(completed.stdout.strip()) == {"accepted": True}
+    except (TypeError, ValueError):
+        return False
 
 
 def _post(channel_id: str, **kwargs: Any) -> requests.Response:
@@ -198,6 +258,9 @@ def _oldest_deliverable_event(state: Mapping[str, object]) -> dict[str, object] 
 
 
 def _retry_is_not_due(event: Mapping[str, object], now: datetime) -> bool:
+    if _complete_for_board(event):
+        value = event.get("board_next_attempt_at")
+        return isinstance(value, str) and datetime.fromisoformat(value) > now
     value = event.get("next_attempt_at")
     return isinstance(value, str) and datetime.fromisoformat(value) > now
 
@@ -246,6 +309,57 @@ def _clear_failure(event: dict[str, object]) -> None:
     event["attempts"] = 0
     event["next_attempt_at"] = None
     event["last_error"] = None
+
+
+def _submit_board_context(
+    state: dict[str, object],
+    event: dict[str, object],
+    now: datetime,
+    dry_run: bool,
+    persist: Callable[[], None] | None,
+    media_root: Path,
+) -> bool:
+    try:
+        media = _board_media(event, media_root)
+        accepted = submit_board_event(board_payload(event, media), media, dry_run)
+    except Exception:
+        accepted = False
+    if not accepted:
+        _record_board_failure(event, now)
+        _persist(persist)
+        return False
+    _clear_board_failure(event)
+    _remove_event(state, event)
+    _persist(persist)
+    return True
+
+
+def _board_media(event: Mapping[str, object], media_root: Path) -> Path | None:
+    media = _media(event)
+    if not media:
+        return None
+    return _media_path(media[0], media_root)
+
+
+def _record_board_failure(event: dict[str, object], now: datetime) -> None:
+    attempts = int(event["board_attempts"]) + 1
+    delay = min(RETRY_INITIAL_SECONDS * (2 ** (attempts - 1)), RETRY_CAP_SECONDS)
+    event["board_attempts"] = attempts
+    event["board_next_attempt_at"] = (now + timedelta(seconds=delay)).isoformat()
+    event["board_last_error"] = "board source event was not accepted"
+
+
+def _clear_board_failure(event: dict[str, object]) -> None:
+    event["board_attempts"] = 0
+    event["board_next_attempt_at"] = None
+    event["board_last_error"] = None
+
+
+def _complete_for_board(event: Mapping[str, object]) -> bool:
+    try:
+        return _complete(event, render_event(event))
+    except Exception:
+        return False
 
 
 def _complete(event: Mapping[str, object], chunks: list[str]) -> bool:

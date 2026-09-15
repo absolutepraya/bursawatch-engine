@@ -4,6 +4,7 @@ set -uo pipefail
 env_file="$HOME/.hermes/.env"
 log_file="$HOME/.logs/kelas-investasi-gtw-watch.log"
 python_bin="$HOME/.local/share/uv/tools/yahoo-finance-mcp/bin/python"
+export IDX_SWING_PLAN_BOARD_WRAPPER="${IDX_SWING_PLAN_BOARD_WRAPPER:-$HOME/.hermes/scripts/idx-swing-plan-board.sh}"
 mkdir -p "$(dirname "$log_file")"
 
 while IFS= read -r line || [ -n "$line" ]; do

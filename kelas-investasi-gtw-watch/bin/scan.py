@@ -228,7 +228,12 @@ def _has_delivery_warning(state: Mapping[str, object]) -> bool:
     return any(
         isinstance(event, Mapping)
         and event.get("agent_phase") in ("ready", "delivering")
-        and (event.get("last_error") is not None or int(event.get("attempts", 0) or 0) > 0)
+        and (
+            event.get("last_error") is not None
+            or int(event.get("attempts", 0) or 0) > 0
+            or event.get("board_last_error") is not None
+            or int(event.get("board_attempts", 0) or 0) > 0
+        )
         for event in outbox
     )
 

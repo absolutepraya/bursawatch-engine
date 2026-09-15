@@ -17,6 +17,8 @@ from parsing import extract_plan, parse_gtw_header
 QUIET_WINDOW = timedelta(minutes=20)
 AGENT_LEASE = timedelta(minutes=15)
 DELIVERY_PHASE = "delivering"
+BOARD_PENDING = "pending"
+STATE_VERSION = 2
 
 
 class CorruptStateError(RuntimeError):
@@ -28,7 +30,7 @@ class RunLockBusyError(RuntimeError):
 
 
 def new_state() -> dict[str, object]:
-    return {"version": 1, "cursor": None, "pending": [], "outbox": [], "stats": {"observed": 0}}
+    return {"version": STATE_VERSION, "cursor": None, "pending": [], "outbox": [], "stats": {"observed": 0}}
 
 
 def load_state(path: Path) -> dict[str, object]:
@@ -39,6 +41,7 @@ def load_state(path: Path) -> dict[str, object]:
         return new_state()
     except (OSError, TypeError, json.JSONDecodeError) as error:
         _quarantine(path, error)
+    value = _migrate_state(value)
     if not _is_state(value, _configured_media_root(path)):
         _quarantine(path, ValueError("invalid state shape"))
     return value
@@ -148,6 +151,7 @@ def _append_message(value: dict[str, object], message: SourceMessage) -> None:
                 "source_message_ids": [message.message_id],
                 "source_text": message.text,
                 "media": _media(message),
+                "source_published_at": message.posted_at.isoformat(),
                 "last_message_at": message.posted_at.isoformat(),
                 "closed_by_header": False,
             }
@@ -182,6 +186,7 @@ def _close_pending(value: dict[str, object]) -> None:
             "header_message_id": candidate["header_message_id"],
             "source_message_ids": list(candidate["source_message_ids"]),
             "source_text": candidate["source_text"],
+            "source_published_at": candidate["source_published_at"],
             "plan": {"buy_area": plan.buy_area, "targets": plan.targets, "stoploss": plan.stoploss},
             "media": list(candidate["media"]),
             "title": None,
@@ -193,6 +198,10 @@ def _close_pending(value: dict[str, object]) -> None:
             "attempts": 0,
             "next_attempt_at": None,
             "last_error": None,
+            "board_phase": BOARD_PENDING,
+            "board_attempts": 0,
+            "board_next_attempt_at": None,
+            "board_last_error": None,
         }
     )
 
@@ -253,7 +262,7 @@ def _fsync_directory(path: Path) -> None:
 def _is_state(value: object, media_root: Path | None = None) -> bool:
     if not isinstance(value, dict) or set(value) != {"version", "cursor", "pending", "outbox", "stats"}:
         return False
-    if value["version"] != 1 or not _optional_id(value["cursor"]):
+    if value["version"] != STATE_VERSION or not _optional_id(value["cursor"]):
         return False
     stats = value["stats"]
     if not isinstance(stats, dict) or set(stats) != {"observed"} or not _nonnegative_int(stats["observed"]):
@@ -272,7 +281,7 @@ def _is_state(value: object, media_root: Path | None = None) -> bool:
 
 def _is_pending(value: object, media_root: Path | None = None) -> bool:
     if not isinstance(value, dict) or set(value) != {
-        "header_message_id", "ticker", "source_message_ids", "source_text", "media", "last_message_at", "closed_by_header"
+        "header_message_id", "ticker", "source_message_ids", "source_text", "media", "source_published_at", "last_message_at", "closed_by_header"
     }:
         return False
     return (
@@ -281,6 +290,7 @@ def _is_pending(value: object, media_root: Path | None = None) -> bool:
         and _message_ids(value["source_message_ids"], value["header_message_id"])
         and isinstance(value["source_text"], str)
         and _media_items(value["media"], value["source_message_ids"], media_root)
+        and _timestamp(value["source_published_at"])
         and _timestamp(value["last_message_at"])
         and value["closed_by_header"] is False
     )
@@ -288,8 +298,9 @@ def _is_pending(value: object, media_root: Path | None = None) -> bool:
 
 def _is_outbox(value: object, media_root: Path | None = None) -> bool:
     if not isinstance(value, dict) or set(value) != {
-        "event_key", "ticker", "header_message_id", "source_message_ids", "source_text", "plan", "media", "title", "summary",
-        "agent_phase", "agent_lease_until", "text_index", "next_media_index", "attempts", "next_attempt_at", "last_error"
+        "event_key", "ticker", "header_message_id", "source_message_ids", "source_text", "source_published_at", "plan", "media", "title", "summary",
+        "agent_phase", "agent_lease_until", "text_index", "next_media_index", "attempts", "next_attempt_at", "last_error",
+        "board_phase", "board_attempts", "board_next_attempt_at", "board_last_error"
     }:
         return False
     plan = value["plan"]
@@ -299,6 +310,7 @@ def _is_outbox(value: object, media_root: Path | None = None) -> bool:
         and _positive_int(value["header_message_id"])
         and _message_ids(value["source_message_ids"], value["header_message_id"])
         and isinstance(value["source_text"], str)
+        and _timestamp(value["source_published_at"])
         and isinstance(plan, dict)
         and set(plan) == {"buy_area", "targets", "stoploss"}
         and all(isinstance(item, str) for item in plan.values())
@@ -312,7 +324,37 @@ def _is_outbox(value: object, media_root: Path | None = None) -> bool:
         and _nonnegative_int(value["attempts"])
         and _optional_timestamp(value["next_attempt_at"])
         and _optional_string(value["last_error"])
+        and value["board_phase"] == BOARD_PENDING
+        and _nonnegative_int(value["board_attempts"])
+        and _optional_timestamp(value["board_next_attempt_at"])
+        and _optional_string(value["board_last_error"])
     )
+
+
+def _migrate_state(value: object) -> dict[str, object]:
+    if not isinstance(value, dict) or value.get("version") != 1:
+        return value  # type: ignore[return-value]
+    pending = value.get("pending")
+    outbox = value.get("outbox")
+    if not isinstance(pending, list) or not isinstance(outbox, list):
+        return value
+    for candidate in pending:
+        if isinstance(candidate, dict):
+            candidate.setdefault("source_published_at", candidate.get("last_message_at"))
+    migrated_at = datetime.now(timezone.utc).isoformat()
+    for event in outbox:
+        if not isinstance(event, dict):
+            continue
+        # Version one did not retain closed bundles' source-post timestamp.
+        # Preserve their cursor and queued delivery while marking that legacy
+        # board context at migration time instead of resetting the watcher.
+        event.setdefault("source_published_at", migrated_at)
+        event.setdefault("board_phase", BOARD_PENDING)
+        event.setdefault("board_attempts", 0)
+        event.setdefault("board_next_attempt_at", None)
+        event.setdefault("board_last_error", None)
+    value["version"] = STATE_VERSION
+    return value
 
 
 def _is_bundle_continuation(message: SourceMessage, ticker: str) -> bool:

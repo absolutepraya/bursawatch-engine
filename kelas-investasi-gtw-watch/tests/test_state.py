@@ -178,6 +178,26 @@ def test_state_round_trip_is_private_and_json_serializable(tmp_path: Path) -> No
     assert os.stat(path).st_mode & 0o777 == 0o600
 
 
+def test_version_one_state_migrates_without_resetting_cursor(tmp_path: Path) -> None:
+    value = initialized_state()
+    observe_messages(value, [header(101, "CTRA"), header(102, "BREN")], at("2026-08-11T09:00:00+07:00"))
+    value["version"] = 1
+    for field in ("source_published_at", "board_phase", "board_attempts", "board_next_attempt_at", "board_last_error"):
+        del value["outbox"][0][field]
+    path = tmp_path / "state.json"
+    path.write_text(json.dumps(value), encoding="utf-8")
+
+    migrated = load_state(path)
+
+    assert migrated["version"] == 2
+    assert migrated["cursor"] == 102
+    event = migrated["outbox"][0]
+    assert event["board_phase"] == "pending"
+    assert event["board_attempts"] == 0
+    assert event["board_next_attempt_at"] is None
+    assert event["board_last_error"] is None
+
+
 def test_corrupt_state_is_quarantined_and_never_reinitialized(tmp_path: Path) -> None:
     path = tmp_path / "state.json"
     path.write_text("not json", encoding="utf-8")

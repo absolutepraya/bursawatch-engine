@@ -7,7 +7,9 @@ import pytest
 
 import discord
 from discord import DiscordDeliveryError, DiscordRateLimitError, deliver_oldest_ready_event, nonce, post_text
-from state import load_state, new_state, save_state
+from fixtures.messages import at, header
+from render import render_event
+from state import load_state, new_state, observe_messages, ready_events, save_state
 
 
 def now() -> datetime:
@@ -27,6 +29,7 @@ def ready_event(*, media: list[dict[str, object]] | None = None) -> dict[str, ob
         "header_message_id": 101,
         "source_message_ids": [101],
         "source_text": "Good to watch - CTRA #GTW",
+        "source_published_at": "2026-08-11T09:00:00+07:00",
         "plan": {"buy_area": "-", "targets": "-", "stoploss": "-"},
         "media": media or [],
         "title": "CTRA: Akumulasi kuat",
@@ -38,11 +41,94 @@ def ready_event(*, media: list[dict[str, object]] | None = None) -> dict[str, ob
         "attempts": 0,
         "next_attempt_at": None,
         "last_error": None,
+        "board_phase": "pending",
+        "board_attempts": 0,
+        "board_next_attempt_at": None,
+        "board_last_error": None,
     }
+
+
+def ready_gtw_event(header_text: str) -> dict[str, object]:
+    """Create one accepted, All-delivered GTW bundle from the real state flow."""
+    ticker = header_text.split(" - ", 1)[1].split(" ", 1)[0]
+    value = new_state()
+    value["cursor"] = 100
+    observe_messages(value, [header(101, ticker), header(102, "BREN")], at("2026-08-11T09:00:00+07:00"))
+    event = ready_events(value, now())[0]
+    event.update(
+        {
+            "title": f"{ticker}: Akumulasi kuat",
+            "summary": "*(Ringkasan)* Ringkasan tervalidasi.",
+            "agent_phase": "delivering",
+            "text_index": 1,
+            "next_media_index": 0,
+            "board_phase": "pending",
+            "board_attempts": 0,
+            "board_next_attempt_at": None,
+            "board_last_error": None,
+        }
+    )
+    assert len(render_event(event)) == 1
+    return event
 
 
 def state_with(event: dict[str, object]) -> dict[str, object]:
     return {"outbox": [event]}
+
+
+def test_ready_gtw_event_keeps_media_until_board_accepts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    event = ready_gtw_event("Good to watch - RAJA #GTW")
+    state = {"version": 2, "cursor": None, "pending": [], "outbox": [event], "stats": {"observed": 0}}
+    submitted: list[tuple[dict[str, object], Path | None, bool]] = []
+    monkeypatch.setattr(discord, "post_text", lambda *_: "all-text")
+    monkeypatch.setattr(discord, "post_file", lambda *_: "all-image")
+    monkeypatch.setattr(discord, "submit_board_event", lambda payload, media, dry_run: submitted.append((payload, media, dry_run)) or True)
+
+    assert deliver_oldest_ready_event(state, now(), False, media_root=tmp_path) is True
+
+    assert state["outbox"] == []
+    assert submitted[0][0]["event_key"] == "kelas-investasi:101:RAJA"
+
+
+def test_gtw_payload_uses_exact_header_and_social_kind() -> None:
+    event = ready_gtw_event("Good to watch - RAJA #GTW")
+    payload = discord.board_payload(event)
+
+    assert payload["kind"] == "social"
+    assert payload["source_title"] == "Good to watch - RAJA #GTW"
+    assert payload["ticker"] == "RAJA"
+    assert payload["published_at"] == "2026-08-11T09:00:00+07:00"
+    assert payload["source_url"] == "https://t.me/kelasinvestasiid/101"
+    assert payload["all_content"] == render_event(event)[0]
+
+
+def test_gtw_board_handoff_uses_the_captured_header_image(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    event = ready_gtw_event("Good to watch - RAJA #GTW")
+    event["media"] = [image(tmp_path, "header.jpg")]
+    event["next_media_index"] = 1
+    submitted: list[tuple[dict[str, object], Path | None]] = []
+    monkeypatch.setattr(discord, "submit_board_event", lambda payload, media, _dry_run: submitted.append((payload, media)) or True)
+
+    assert deliver_oldest_ready_event(state_with(event), now(), False, media_root=tmp_path) is True
+
+    assert submitted[0][0]["media_path"] == str(tmp_path / "header.jpg")
+    assert submitted[0][1] == tmp_path / "header.jpg"
+
+
+def test_failed_gtw_board_handoff_retries_without_replaying_all_delivery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    event = ready_gtw_event("Good to watch - RAJA #GTW")
+    state = state_with(event)
+    monkeypatch.setattr(discord, "post_text", lambda *_: pytest.fail("All text must not replay"))
+    monkeypatch.setattr(discord, "post_file", lambda *_: pytest.fail("All image must not replay"))
+    monkeypatch.setattr(discord, "submit_board_event", lambda *_: False)
+
+    assert deliver_oldest_ready_event(state, now(), False, media_root=tmp_path) is False
+    assert state["outbox"] == [event]
+    assert event["board_attempts"] == 1
+
+    monkeypatch.setattr(discord, "submit_board_event", lambda *_: True)
+    assert deliver_oldest_ready_event(state, now() + timedelta(seconds=60), False, media_root=tmp_path) is True
+    assert state["outbox"] == []
 
 
 def test_delivery_sends_text_then_images_in_source_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -50,6 +136,7 @@ def test_delivery_sends_text_then_images_in_source_order(tmp_path: Path, monkeyp
     sent: list[str] = []
     monkeypatch.setattr(discord, "post_text", lambda *args: sent.append("text"))
     monkeypatch.setattr(discord, "post_file", lambda path, *args: sent.append(Path(path).name))
+    monkeypatch.setattr(discord, "submit_board_event", lambda *_: True)
     state = state_with(event)
 
     for _ in range(4):
@@ -63,6 +150,7 @@ def test_delivery_targets_id_stocks_news(monkeypatch: pytest.MonkeyPatch) -> Non
     event = ready_event()
     channels: list[str] = []
     monkeypatch.setattr(discord, "post_text", lambda _content, channel_id, *_args: channels.append(channel_id))
+    monkeypatch.setattr(discord, "submit_board_event", lambda *_: True)
 
     assert deliver_oldest_ready_event(state_with(event), now(), False) is True
 
@@ -81,6 +169,7 @@ def test_second_image_failure_retries_only_second_image(tmp_path: Path, monkeypa
             raise RuntimeError("temporary")
 
     monkeypatch.setattr(discord, "post_file", post)
+    monkeypatch.setattr(discord, "submit_board_event", lambda *_: True)
     state = state_with(event)
     assert deliver_oldest_ready_event(state, now(), False, media_root=tmp_path) is False
     assert event["text_index"] == 1
@@ -147,6 +236,7 @@ def test_successful_leg_is_persisted_before_a_fresh_execution(tmp_path: Path, mo
     state_path = tmp_path / "state.json"
     save_state(state_path, state)
     monkeypatch.setattr(discord, "post_text", lambda *args: None)
+    monkeypatch.setattr(discord, "submit_board_event", lambda *_: True)
 
     assert deliver_oldest_ready_event(state, now(), False, state_path=state_path)
     # A new process sees the completed leg even though no scanner save follows.
@@ -163,6 +253,7 @@ def test_retry_reuses_the_same_nonce(tmp_path: Path, monkeypatch: pytest.MonkeyP
             raise RuntimeError("temporary server body /secret/token")
 
     monkeypatch.setattr(discord, "post_text", post)
+    monkeypatch.setattr(discord, "submit_board_event", lambda *_: True)
     state = state_with(event)
     assert not deliver_oldest_ready_event(state, now(), False, media_root=tmp_path)
     assert deliver_oldest_ready_event(state, now() + timedelta(seconds=60), False, media_root=tmp_path)
