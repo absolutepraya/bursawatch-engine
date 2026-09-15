@@ -12,6 +12,7 @@ from unittest.mock import Mock
 import pytest
 
 import board
+from calendar import CalendarCoverageError
 from conftest import example_buy_event
 from discord_forum import DiscordForumClient
 from engine import BoardEngine
@@ -126,6 +127,34 @@ def test_no_post_cli_prints_one_heartbeat_without_http(tmp_path, monkeypatch, ca
     output = capsys.readouterr().out
     assert output.count("🫀 idx-swing-plan-board") == 1
     assert "active=0 checked=0 unavailable=0 pending=0" in output
+
+
+def test_missing_calendar_coverage_emits_one_fatal_heartbeat_without_mutation(
+    tmp_path, monkeypatch, capsys
+):
+    state = tmp_path / "isolated.sqlite3"
+    monkeypatch.setenv("IDX_SWING_PLAN_BOARD_NO_POST", "1")
+    monkeypatch.setenv("IDX_SWING_PLAN_BOARD_STATE_PATH", str(state))
+    monkeypatch.setenv("IDX_SWING_PLAN_BOARD_MEDIA_ROOT", str(tmp_path / "media"))
+    class MissingCoverageClock:
+        @staticmethod
+        def now(_timezone):
+            return datetime.fromisoformat("2099-09-21T16:30:00+07:00")
+
+    monkeypatch.setattr(board, "datetime", MissingCoverageClock)
+    monkeypatch.setattr(
+        "engine.is_idx_trading_day",
+        Mock(side_effect=CalendarCoverageError("IDX holiday calendar is missing 2099")),
+    )
+    request = Mock(side_effect=AssertionError("HTTP forbidden"))
+    monkeypatch.setattr("discord_forum.requests.request", request)
+
+    assert board.main(["after-close", "--phase", "initial"]) == 0
+
+    output = capsys.readouterr().out
+    assert output == "❌ idx-swing-plan-board · 16:30 WIB · failed: calendar coverage unavailable\n"
+    assert BoardStore(state).count_rows("checkpoints") == 0
+    request.assert_not_called()
 
 
 def test_cli_rejects_watcher_supplied_database_path():

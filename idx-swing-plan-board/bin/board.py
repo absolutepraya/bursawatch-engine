@@ -13,6 +13,7 @@ import shutil
 import sys
 from typing import Sequence
 
+from calendar import CalendarCoverageError
 from discord_forum import DiscordForumClient
 from engine import BoardEngine
 from models import SourceEvent
@@ -32,7 +33,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.command == "drain":
         print(json.dumps({"drained": engine.drain()}, separators=(",", ":")))
         return 0
-    result = engine.after_close(arguments.phase, datetime.now(WIB))
+    try:
+        result = engine.after_close(arguments.phase, datetime.now(WIB))
+    except CalendarCoverageError:
+        # Calendar coverage is a fatal fail-closed condition, not a reason to
+        # lose the required operational signal or replay any market mutation.
+        engine.drain()
+        heartbeat = _fatal_heartbeat(arguments.phase, "calendar coverage unavailable")
+        engine.client.post_heartbeat(HERMES_HEARTBEAT_CHANNEL_ID, heartbeat)
+        print(heartbeat)
+        return 0
     engine.drain()
     # ``pending`` describes retained owner work after this invocation, not the
     # number of operations just completed.
@@ -107,6 +117,11 @@ def _heartbeat(phase: str, result: dict[str, int]) -> str:
         f"checked={result['checked']} unavailable={result['unavailable']} "
         f"pending={result['pending']}{warning}"
     )
+
+
+def _fatal_heartbeat(phase: str, reason: str) -> str:
+    clock = "16:30" if phase == "initial" else "17:00"
+    return f"❌ idx-swing-plan-board · {clock} WIB · failed: {reason}"
 
 
 if __name__ == "__main__":
