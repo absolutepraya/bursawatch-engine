@@ -50,6 +50,7 @@ WIB = ZoneInfo("Asia/Jakarta")
 WATCHER_NAME = "idx-market-news"
 ALERT_CHANNEL_ID = "1525102508714889257"
 MACRO_CHANNEL_ID = "1531655369884045382"
+INDUSTRY_CHANNEL_ID = "1549418098807930880"
 HEARTBEAT_CHANNEL_ID = "1505162000420835388"
 PHINTRACO_ENTITY = "phintasprofits"
 TUNTUN_ENTITY = "tuntunsekuritas"
@@ -390,6 +391,7 @@ def _is_tuntun_update(item: SelectionCandidate) -> bool:
     return item.provider is Provider.TUNTUN and item.candidate.source_kind in {
         SourceKind.TUNTUN_UPDATE_LEAD,
         SourceKind.TUNTUN_UPDATE_SECTION,
+        SourceKind.TUNTUN_UPDATE_INDUSTRY,
     }
 
 
@@ -410,7 +412,11 @@ def _update_is_ready(state: Mapping[str, object], source_message_id: int) -> boo
             source_kind = SourceKind(payload.get("source_kind"))
         except (TypeError, ValueError) as error:
             raise StateBlockedError("malformed state: Tuntun update source kind is invalid") from error
-        if source_kind not in {SourceKind.TUNTUN_UPDATE_LEAD, SourceKind.TUNTUN_UPDATE_SECTION}:
+        if source_kind not in {
+            SourceKind.TUNTUN_UPDATE_LEAD,
+            SourceKind.TUNTUN_UPDATE_SECTION,
+            SourceKind.TUNTUN_UPDATE_INDUSTRY,
+        }:
             continue
         found = True
         if record.get("phase") in {"pending_analysis", "awaiting_agent"}:
@@ -430,6 +436,31 @@ def _route_one(state: dict[str, object], item: SelectionCandidate, classified: S
         _suppress_duplicate(state, item, min(earlier, key=lambda existing: (existing.published_at, existing.key)))
         return
     assign_tier(state, item)
+
+
+def _route_update_sections(
+    state: dict[str, object],
+    sections: Sequence[SelectionCandidate],
+    classified: Sequence[SelectionCandidate],
+) -> int:
+    eligible_sections = [
+        item
+        for item in sections
+        if item.route is not Destination.EXCLUDE and item.event_class is not EventClass.NOT_ELIGIBLE
+    ]
+    selected = rank_update_sections(eligible_sections)[:2]
+    selected_keys = {item.key for item in selected}
+    for item in selected:
+        _route_one(state, item, classified)
+    for item in sections:
+        if item.key in selected_keys:
+            continue
+        mark_terminal(
+            state,
+            item.key,
+            "suppressed_ineligible" if item.route is Destination.EXCLUDE else "suppressed_rank",
+        )
+    return len(sections)
 
 
 def _route_pending(state: dict[str, object]) -> int:
@@ -453,29 +484,17 @@ def _route_pending(state: dict[str, object]) -> int:
             if _is_tuntun_update(item) and item.candidate.source_message_id == source_message_id
         ]
         leads = [item for item in update_items if item.candidate.source_kind is SourceKind.TUNTUN_UPDATE_LEAD]
-        sections = [item for item in update_items if item.candidate.source_kind is SourceKind.TUNTUN_UPDATE_SECTION]
+        macro_sections = [
+            item for item in update_items if item.candidate.source_kind is SourceKind.TUNTUN_UPDATE_SECTION
+        ]
+        industry_sections = [
+            item for item in update_items if item.candidate.source_kind is SourceKind.TUNTUN_UPDATE_INDUSTRY
+        ]
         for lead in leads:
             _route_one(state, lead, classified)
             routed += 1
-        eligible_sections = [
-            item
-            for item in sections
-            if item.route is not Destination.EXCLUDE and item.event_class is not EventClass.NOT_ELIGIBLE
-        ]
-        selected = rank_update_sections(eligible_sections)[:2]
-        selected_keys = {item.key for item in selected}
-        for item in selected:
-            _route_one(state, item, classified)
-            routed += 1
-        for item in sections:
-            if item.key in selected_keys:
-                continue
-            mark_terminal(
-                state,
-                item.key,
-                "suppressed_ineligible" if item.route is Destination.EXCLUDE else "suppressed_rank",
-            )
-            routed += 1
+        routed += _route_update_sections(state, macro_sections, classified)
+        routed += _route_update_sections(state, industry_sections, classified)
     return routed
 
 
@@ -502,6 +521,12 @@ def _pending_delivery(state: dict[str, object], now: datetime) -> list[Selection
     return sorted(pending, key=lambda item: (item.published_at, item.key))
 
 
+def _delivery_channel(item: SelectionCandidate) -> str:
+    if item.candidate.source_kind is SourceKind.TUNTUN_UPDATE_INDUSTRY:
+        return INDUSTRY_CHANNEL_ID
+    if item.route is Destination.MACRO_NEWS:
+        return MACRO_CHANNEL_ID
+    return ALERT_CHANNEL_ID
 
 
 async def _drain_delivery(
@@ -513,7 +538,7 @@ async def _drain_delivery(
         Provider.TUNTUN: runtime.tuntun_entity,
     }
     for item in _pending_delivery(state, now):
-        channel_id = MACRO_CHANNEL_ID if item.route is Destination.MACRO_NEWS else ALERT_CHANNEL_ID
+        channel_id = _delivery_channel(item)
         did_deliver = await deliver_event(
             state,
             item,

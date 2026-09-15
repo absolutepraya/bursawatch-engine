@@ -4,7 +4,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 import re
 
-from domain import Classification, CompanyCandidate, Destination, EventClass, Provider, source_message_url
+from domain import Classification, CompanyCandidate, Destination, EventClass, Provider, SourceKind, source_message_url
 from state import submit_classification as persist_classification
 
 
@@ -17,7 +17,8 @@ TUNTUN_INSTRUCTION = _BASE_INSTRUCTION + (
     "For id_stocks_news, include a source-grounded Indonesian sentence-case title beginning with the exact supplied "
     "ticker and colon. For macro_news or exclude, use a source-grounded Indonesian sentence-case title without a ticker "
     "prefix. Do not end a title with punctuation. Return route as id_stocks_news, macro_news, or exclude. Use id_stocks_news "
-    "only when the supplied issuer is central to the source, macro_news for material macro or industry news, and exclude "
+    "only when the supplied issuer is central to the source, macro_news for material macro news. A candidate whose source_kind "
+    "is tuntun_update_industry must use macro_news when material because the scanner delivers it to the Industry channel. Use exclude "
     "for anything ineligible. Keep summary as plain factual sentences without a Ringkasan marker."
 )
 PHINTRACO_INSTRUCTION = _BASE_INSTRUCTION + "For a Phintraco candidate, do not include a title field."
@@ -162,6 +163,11 @@ def _route_from_submission(candidate: CompanyCandidate, payload: Mapping[str, ob
         raise ValueError("route is unknown") from error
     if candidate.ticker is None and route is Destination.ID_STOCKS_NEWS:
         raise ValueError("a macro candidate cannot route to id_stocks_news")
+    if candidate.source_kind is SourceKind.TUNTUN_UPDATE_INDUSTRY and route not in {
+        Destination.MACRO_NEWS,
+        Destination.EXCLUDE,
+    }:
+        raise ValueError("an Industry update candidate must route to macro_news or exclude")
     return route
 
 

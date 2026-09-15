@@ -130,8 +130,8 @@ def test_tuntun_midday_update_extracts_its_lead_and_each_macro_or_industry_parag
         ("lead", "tuntun_update_lead", "BUMI"),
         ("macro-1", "tuntun_update_section", None),
         ("macro-2", "tuntun_update_section", None),
-        ("industry-1", "tuntun_update_section", None),
-        ("industry-2", "tuntun_update_section", None),
+        ("industry-1", "tuntun_update_industry", None),
+        ("industry-2", "tuntun_update_industry", None),
     ]
 
 

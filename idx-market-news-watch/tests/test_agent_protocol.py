@@ -179,6 +179,33 @@ def test_macro_candidate_can_only_route_to_macro_news_or_exclude(load_fixture):
         _validate(payload, candidate)
 
 
+def test_industry_update_candidate_can_only_route_to_macro_news_or_exclude(load_fixture):
+    candidate = CompanyCandidate(
+        Provider.TUNTUN,
+        14786,
+        None,
+        SourceKind.TUNTUN_UPDATE_INDUSTRY,
+        datetime.now(timezone.utc),
+        "Harga minyak meningkat.",
+        False,
+        candidate_id="industry-1",
+    )
+    payload = json.loads(load_fixture("classification-valid.json"))
+    payload.update(
+        {
+            "candidate_key": candidate.key,
+            "ticker": "",
+            "title": "Harga minyak meningkat",
+            "route": "macro_news",
+        }
+    )
+
+    assert _validate(payload, candidate) is EventClass.MATERIAL_CONTRACT
+    payload["route"] = "id_stocks_news"
+    with pytest.raises(ValueError, match="macro candidate|Industry update candidate"):
+        _validate(payload, candidate)
+
+
 def test_tickered_tuntun_candidate_uses_an_unprefixed_title_when_routed_to_macro(load_fixture):
     payload = json.loads(load_fixture("classification-valid.json"))
     payload.update(

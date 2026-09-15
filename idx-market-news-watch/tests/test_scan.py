@@ -149,7 +149,7 @@ def test_route_pending_suppresses_same_provider_repost(tmp_state, monkeypatch):
     assert state["dedupe"] == {repost.key: original.key}
 
 
-def test_completed_tuntun_update_keeps_its_lead_and_two_best_sections_in_their_routes(tmp_state, monkeypatch):
+def test_completed_tuntun_update_keeps_its_lead_and_two_best_sections_per_channel(tmp_state, monkeypatch):
     monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_state))
     now = datetime.fromisoformat("2026-09-11T12:35:30+07:00")
     state = empty_state()
@@ -157,8 +157,11 @@ def test_completed_tuntun_update_keeps_its_lead_and_two_best_sections_in_their_r
         ("lead", "BUMI", SourceKind.TUNTUN_UPDATE_LEAD, 1, "id_stocks_news"),
         ("macro-1", None, SourceKind.TUNTUN_UPDATE_SECTION, 2, "macro_news"),
         ("macro-2", None, SourceKind.TUNTUN_UPDATE_SECTION, 3, "macro_news"),
-        ("industry-1", None, SourceKind.TUNTUN_UPDATE_SECTION, 1, "macro_news"),
-        ("industry-2", None, SourceKind.TUNTUN_UPDATE_SECTION, 4, "exclude"),
+        ("macro-3", None, SourceKind.TUNTUN_UPDATE_SECTION, 1, "macro_news"),
+        ("macro-4", None, SourceKind.TUNTUN_UPDATE_SECTION, 4, "exclude"),
+        ("industry-1", None, SourceKind.TUNTUN_UPDATE_INDUSTRY, 2, "macro_news"),
+        ("industry-2", None, SourceKind.TUNTUN_UPDATE_INDUSTRY, 1, "macro_news"),
+        ("industry-3", None, SourceKind.TUNTUN_UPDATE_INDUSTRY, 3, "macro_news"),
     )
     candidates = []
     for candidate_id, ticker, source_kind, ranking_band, route in definitions:
@@ -174,7 +177,7 @@ def test_completed_tuntun_update_keeps_its_lead_and_two_best_sections_in_their_r
         )
         candidates.append(candidate)
         enqueue_candidate(state, candidate, now)
-        if candidate_id == "industry-2":
+        if candidate_id == "macro-4":
             continue
         record = state["candidates"][candidate.key]
         record["phase"] = "pending_selection"
@@ -191,27 +194,30 @@ def test_completed_tuntun_update_keeps_its_lead_and_two_best_sections_in_their_r
     assert scan._route_pending(state) == 0
     assert state["candidates"][candidates[0].key]["phase"] == "pending_selection"
 
-    final = candidates[-1]
+    final = next(candidate for candidate in candidates if candidate.candidate_id == "macro-4")
     record = state["candidates"][final.key]
     record["phase"] = "pending_selection"
     record["classification"] = EventClass.NOT_ELIGIBLE.value
     record["selection"] = {
         "summary": "The item is not eligible.",
         "ranking_band": 4,
-        "material_facts": ["industry-2 fact"],
-        "dedupe_facts": ["industry-2 fact"],
-        "title": "Industry item",
+        "material_facts": ["macro-4 fact"],
+        "dedupe_facts": ["macro-4 fact"],
+        "title": "Macro item",
         "route": "exclude",
     }
 
-    assert scan._route_pending(state) == 5
+    assert scan._route_pending(state) == 8
     phases = {candidate.candidate_id: state["candidates"][candidate.key]["phase"] for candidate in candidates}
     assert phases == {
         "lead": "pending_delivery",
         "macro-1": "pending_delivery",
         "macro-2": "suppressed_rank",
+        "macro-3": "pending_delivery",
+        "macro-4": "suppressed_ineligible",
         "industry-1": "pending_delivery",
-        "industry-2": "suppressed_ineligible",
+        "industry-2": "pending_delivery",
+        "industry-3": "suppressed_rank",
     }
 
     posted = []
@@ -221,11 +227,13 @@ def test_completed_tuntun_update_keeps_its_lead_and_two_best_sections_in_their_r
         return True
 
     monkeypatch.setattr(scan, "deliver_event", deliver)
-    assert asyncio.run(scan._drain_delivery(state, None, now, dry_run=True)) == 3
+    assert asyncio.run(scan._drain_delivery(state, None, now, dry_run=True)) == 5
     assert posted == [
-        ("industry-1", scan.MACRO_CHANNEL_ID),
+        ("industry-1", scan.INDUSTRY_CHANNEL_ID),
+        ("industry-2", scan.INDUSTRY_CHANNEL_ID),
         ("lead", scan.ALERT_CHANNEL_ID),
         ("macro-1", scan.MACRO_CHANNEL_ID),
+        ("macro-3", scan.MACRO_CHANNEL_ID),
     ]
 
 

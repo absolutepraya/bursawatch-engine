@@ -275,7 +275,7 @@ def assign_tier(state: dict[str, object], item: SelectionCandidate) -> Tier | No
 
 
 def rank_update_sections(candidates: Sequence[SelectionCandidate]) -> list[SelectionCandidate]:
-    """Rank already-classified Macro & Global and Industry items for an update's two-card budget."""
+    """Rank already-classified Macro & Global or Industry items for one update-channel budget."""
     if isinstance(candidates, (str, bytes)) or any(not isinstance(item, SelectionCandidate) for item in candidates):
         raise ValueError("candidates must contain only SelectionCandidate values")
     return sorted(

@@ -282,16 +282,15 @@ class TuntunNewsAdapter:
                 )
             )
 
-        for section_name, prefix in (("Macro & Global", "macro"), ("Industry", "industry")):
-            start = _section_index(lines, section_name)
-            if start is None:
-                continue
-            end = len(lines)
-            if section_name == "Macro & Global":
-                industry_start = _section_index(lines, "Industry")
-                if industry_start is not None and industry_start > start:
-                    end = industry_start
-            for index, block in enumerate(_paragraph_blocks(lines[start + 1 : end]), start=1):
+        macro_start = _section_index(lines, "Macro & Global")
+        industry_start = _section_index(lines, "Industry")
+        if macro_start is not None:
+            macro_end = (
+                industry_start
+                if industry_start is not None and industry_start > macro_start
+                else len(lines)
+            )
+            for index, block in enumerate(_paragraph_blocks(lines[macro_start + 1 : macro_end]), start=1):
                 headline = block.splitlines()[0]
                 candidates.append(
                     _candidate(
@@ -302,7 +301,22 @@ class TuntunNewsAdapter:
                         published_at,
                         block,
                         direct_image,
-                        candidate_id=f"{prefix}-{index}",
+                        candidate_id=f"macro-{index}",
+                    )
+                )
+        if industry_start is not None:
+            for index, block in enumerate(_paragraph_blocks(lines[industry_start + 1 :]), start=1):
+                headline = block.splitlines()[0]
+                candidates.append(
+                    _candidate(
+                        self.provider,
+                        message_id,
+                        _headline_ticker(headline),
+                        SourceKind.TUNTUN_UPDATE_INDUSTRY,
+                        published_at,
+                        block,
+                        direct_image,
+                        candidate_id=f"industry-{index}",
                     )
                 )
         return candidates

@@ -216,7 +216,7 @@ def test_tickered_tuntun_macro_card_has_no_issuer_price_block():
             provider=Provider.TUNTUN,
             source_message_id=14793,
             ticker="BUMI",
-            candidate_id="industry-1",
+            candidate_id="macro-1",
             source_kind=SourceKind.TUNTUN_UPDATE_SECTION,
             published_at=datetime(2026, 9, 11, 10, 49, 20, tzinfo=timezone.utc),
             source_text="Harga minyak meningkat.",
