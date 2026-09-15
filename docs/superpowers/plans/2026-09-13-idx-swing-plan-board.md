@@ -326,7 +326,7 @@ def render_source_only_card(title: str) -> str:
 
 - [ ] **Step 4: Implement mocked forum REST operations before real use**
 
-Set `FORUM_CHANNEL_ID = "1548273399069933720"` and implement `create_forum_thread(name, content, tag_ids, chart, nonce_value) -> ForumThread`, `edit_starter(thread_id, message_id, content, chart) -> None`, `post_reply(thread_id, content, media, nonce_value) -> str`, and `patch_thread(thread_id, name, tag_ids, archived) -> None`.
+Set `FORUM_CHANNEL_ID = "1548273399069933720"` and implement `create_forum_thread(name, content, tag_names, chart, nonce_value) -> ForumThread`, `edit_starter(thread_id, message_id, content, chart) -> None`, `post_reply(thread_id, content, media, nonce_value) -> str`, and `patch_thread(thread_id, name, tag_names, archived) -> None`. Resolve each canonical `tag_names` value against the forum channel's `available_tags` by exact name before sending the resulting IDs; fail closed if a required name is missing or duplicated.
 
 Create uses `POST /channels/<forum-id>/threads` with the starter message payload. Edit uses `PATCH /channels/<thread-id>/messages/<message-id>` and includes retained attachment metadata or a replacement file so source charts cannot disappear. Replies use `POST /channels/<thread-id>/messages`; title, tags, and archive use `PATCH /channels/<thread-id>`. All create operations use a stable SHA-256 nonce. Reapplying an edit or patch writes the complete desired state.
 
