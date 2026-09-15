@@ -37,6 +37,13 @@ def render_source_only_card(title: str) -> str:
     return f"### {escape(title)}\n\n**Primary plan:** No Phintraco plan yet"
 
 
+def render_source_reply(event: SourceEvent) -> str:
+    """Keep the watcher's All text, source link, and direct media URLs."""
+    urls = dict.fromkeys((event.source_url, *event.media_urls))
+    missing = [url for url in urls if url not in event.all_content]
+    return event.all_content + ("\n\n" + "\n".join(missing) if missing else "")
+
+
 def render_primary_card(
     event: SourceEvent,
     checkpoint: Checkpoint | None = None,

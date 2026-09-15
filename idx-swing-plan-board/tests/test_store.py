@@ -143,7 +143,7 @@ def test_version_one_database_migrates_without_losing_source_rows(tmp_path) -> N
     store = BoardStore(path)
 
     assert store.count_rows("source_events") == 1
-    assert store.schema_version == 3
+    assert store.schema_version == 4
 
     connection = sqlite3.connect(path)
     assert connection.execute("SELECT event_key, ticker FROM source_events").fetchone() == (
@@ -184,7 +184,7 @@ def test_version_two_outbox_migrates_to_claim_tokens_without_reset(tmp_path) -> 
 
     store = BoardStore(path)
 
-    assert store.schema_version == 3
+    assert store.schema_version == 4
     connection = sqlite3.connect(path)
     assert connection.execute("SELECT dedupe_key, claim_token FROM outbox").fetchone() == (
         "existing",
@@ -212,6 +212,53 @@ def test_unknown_schema_version_is_blocked_without_table_mutation(tmp_path) -> N
     assert connection.execute("SELECT value FROM sentinel").fetchone() == ("unchanged",)
     assert connection.execute("PRAGMA user_version").fetchone() == (99,)
     connection.close()
+
+
+def test_version_three_migration_preserves_event_plan_and_outbox(tmp_path) -> None:
+    path = tmp_path / "board.sqlite3"
+    original = BoardStore(path)
+    event = example_buy_event()
+    submitted = original.submit_event(event, at())
+    with original.transaction() as tx:
+        episode = tx.create_episode("SCMA", "primary", "SCMA: Buy", at())
+        tx.replace_plan(episode.id, submitted.id, event, at())
+        tx.enqueue_outbox("create_thread", episode.id, {"content": "preserved"}, "original", at())
+    with sqlite3.connect(path) as connection:
+        connection.execute("ALTER TABLE source_events DROP COLUMN board_processed_at")
+        connection.execute("PRAGMA user_version = 3")
+
+    upgraded = BoardStore(path)
+
+    assert upgraded.schema_version == 4
+    assert upgraded.count_rows("source_events") == 1
+    assert upgraded.active_plan(episode.id) == event
+    assert upgraded.operations_for_ticker("SCMA")[0].payload == {"content": "preserved"}
+    with upgraded.transaction() as tx:
+        assert tx.event_processed(submitted.id) is False
+
+
+def test_failed_predecessor_blocks_its_episode_but_not_other_tickers(tmp_path) -> None:
+    store = BoardStore(tmp_path / "board.sqlite3")
+    first = store.create_episode("SCMA", "primary", "SCMA: Buy", at())
+    second = store.create_episode("KPIG", "source", "KPIG source", at())
+    create = store.enqueue_outbox("create_thread", first.id, {}, "first-create", at())
+    store.enqueue_outbox("edit_starter", first.id, {}, "first-edit", at())
+    independent = store.enqueue_outbox("create_thread", second.id, {}, "second-create", at())
+    claim = store.claim_due_outbox(at())
+    assert claim.id == create.id
+    store.fail_outbox(claim.id, claim.claim_token, "retry", at())
+    assert store.claim_due_outbox(at()).id == independent.id
+    assert store.claim_due_outbox(at()) is None
+
+
+def test_claim_order_compares_absolute_times_for_existing_timezone_offsets(tmp_path) -> None:
+    store = BoardStore(tmp_path / "board.sqlite3")
+    episode = store.create_episode("SCMA", "source", "SCMA source", at())
+    operation = store.enqueue_outbox("create_thread", episode.id, {}, "offset", at())
+    with sqlite3.connect(store.path) as connection:
+        connection.execute("UPDATE outbox SET next_attempt_at = ? WHERE id = ?", (at().isoformat(), operation.id))
+    utc_now = datetime.fromisoformat("2026-09-19T02:05:00+00:00")
+    assert store.claim_due_outbox(utc_now).id == operation.id
 
 
 def test_backoff_caps_at_sixty_minutes_and_completed_work_is_not_claimed(tmp_path) -> None:

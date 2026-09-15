@@ -7,7 +7,8 @@ owner's outbox drainer, never from these transaction methods.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 import fcntl
 import json
 from pathlib import Path
@@ -15,10 +16,10 @@ import sqlite3
 from typing import Any, Iterator, Mapping
 from uuid import uuid4
 
-from models import Checkpoint, Episode, OutboxOperation, SourceEvent, SubmittedEvent
+from models import Checkpoint, Episode, MarketState, OutboxOperation, PlanLevels, SourceEvent, SubmittedEvent
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 _LEGAL_OPERATIONS = frozenset(
     {"create_thread", "edit_starter", "post_source_reply", "post_history_reply", "patch_thread"}
 )
@@ -121,6 +122,22 @@ class BoardStore:
                 "SELECT * FROM episodes WHERE ticker = ? AND closed_at IS NULL", (ticker,)
             ).fetchone()
             return _episode_from_row(row) if row else None
+
+    def episode(self, episode_id: int) -> Episode:
+        with self._connection() as connection:
+            return self._episode(connection, episode_id)
+
+    def active_plan(self, episode_id: int) -> SourceEvent | None:
+        with self._connection() as connection:
+            return BoardStoreTransaction(self, connection).active_plan(episode_id)
+
+    def operations_for_ticker(self, ticker: str) -> list[OutboxOperation]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT o.* FROM outbox o JOIN episodes e ON e.id = o.episode_id "
+                "WHERE e.ticker = ? ORDER BY o.id", (ticker,)
+            ).fetchall()
+            return [_outbox_from_row(row) for row in rows]
 
     def record_checkpoint(
         self,
@@ -227,10 +244,15 @@ class BoardStore:
         with self._transaction() as connection:
             row = connection.execute(
                 """
-                SELECT id FROM outbox
-                WHERE (status = 'pending' AND next_attempt_at <= ?)
-                   OR (status = 'claimed' AND claimed_at <= ?)
-                ORDER BY id
+                SELECT o.id FROM outbox o
+                WHERE ((o.status = 'pending' AND julianday(o.next_attempt_at) <= julianday(?))
+                   OR (o.status = 'claimed' AND julianday(o.claimed_at) <= julianday(?)))
+                  AND NOT EXISTS (
+                    SELECT 1 FROM outbox prior
+                    WHERE prior.episode_id = o.episode_id AND prior.id < o.id
+                      AND prior.status != 'complete'
+                  )
+                ORDER BY o.id
                 LIMIT 1
                 """,
                 (_timestamp(now), _timestamp(stale_before)),
@@ -257,7 +279,21 @@ class BoardStore:
     ) -> None:
         completed_at = _aware(completed_at, "completed_at")
         with self._transaction() as connection:
-            self._require_claim(connection, operation_id, claim_token)
+            operation = self._require_claim(connection, operation_id, claim_token)
+            if operation["operation"] == "create_thread":
+                # Minimal store-only callers may record partial completions; the
+                # engine validates both identifiers before completing creates.
+                connection.execute(
+                    "UPDATE episodes SET thread_id = COALESCE(?, thread_id), "
+                    "starter_message_id = COALESCE(?, starter_message_id) WHERE id = ?",
+                    (completion.get("thread_id"), completion.get("starter_message_id"), operation["episode_id"]),
+                )
+            elif operation["operation"] == "post_history_reply":
+                payload = json.loads(operation["payload_json"])
+                connection.execute(
+                    "UPDATE history_events SET discord_message_id = ? WHERE id = ?",
+                    (completion.get("message_id"), payload.get("history_id")),
+                )
             connection.execute(
                 """
                 UPDATE outbox
@@ -321,6 +357,8 @@ class BoardStore:
                         _migrate_v2_to_v3(connection)
                     elif version == 2:
                         _migrate_v2_to_v3(connection)
+                    if version in {1, 2, 3}:
+                        _migrate_v3_to_v4(connection)
                     connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
                     connection.execute("COMMIT")
                 except BaseException:
@@ -412,6 +450,104 @@ class BoardStoreTransaction:
             self._connection, ticker, lifecycle, title, opened_at
         )
 
+    def event_processed(self, event_id: int) -> bool:
+        row = self._connection.execute(
+            "SELECT board_processed_at FROM source_events WHERE id = ?", (event_id,)
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"unknown source event: {event_id}")
+        return row[0] is not None
+
+    def source_event(self, event_id: int) -> SourceEvent:
+        row = self._connection.execute(
+            "SELECT * FROM source_events WHERE id = ?", (event_id,)
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"unknown source event: {event_id}")
+        return _source_event_from_row(row)
+
+    def mark_event_processed(self, event_id: int, now: datetime) -> None:
+        self._connection.execute(
+            "UPDATE source_events SET board_processed_at = ? WHERE id = ?",
+            (_timestamp(now), event_id),
+        )
+
+    def active_episode(self, ticker: str) -> Episode | None:
+        row = self._connection.execute(
+            "SELECT * FROM episodes WHERE ticker = ? AND closed_at IS NULL", (ticker,)
+        ).fetchone()
+        return _episode_from_row(row) if row else None
+
+    def update_episode(self, episode: Episode) -> None:
+        self._connection.execute(
+            """UPDATE episodes SET lifecycle = ?, title = ?, latest_material_at = ?,
+            closed_at = ?, lifecycle_tag = ?, market_tag = ? WHERE id = ?""",
+            (episode.lifecycle, episode.title, _timestamp(episode.latest_material_at),
+             _timestamp(episode.closed_at) if episode.closed_at else None,
+             episode.lifecycle_tag, episode.market_tag, episode.id),
+        )
+
+    def active_plan(self, episode_id: int) -> SourceEvent | None:
+        row = self._connection.execute(
+            """SELECT s.*, p.source_status AS current_status FROM plans p
+            JOIN source_events s ON s.id = p.source_event_id
+            WHERE p.episode_id = ? AND p.terminal_at IS NULL ORDER BY p.id DESC LIMIT 1""",
+            (episode_id,),
+        ).fetchone()
+        return replace(_source_event_from_row(row), source_status=row["current_status"]) if row else None
+
+    def replace_plan(self, episode_id: int, event_id: int, event: SourceEvent, now: datetime) -> None:
+        if event.plan is None:
+            raise ValueError("replacement requires plan levels")
+        self.finish_plan(episode_id, now)
+        self._connection.execute(
+            """INSERT INTO plans (episode_id, source_event_id, entry, stop_loss,
+            targets_json, source_status) VALUES (?, ?, ?, ?, ?, ?)""",
+            (episode_id, event_id, event.plan.entry, event.plan.stop_loss,
+             json.dumps(event.plan.targets), event.source_status or "New setup"),
+        )
+
+    def finish_plan(self, episode_id: int, now: datetime) -> None:
+        self._connection.execute(
+            "UPDATE plans SET terminal_at = ? WHERE episode_id = ? AND terminal_at IS NULL",
+            (_timestamp(now), episode_id),
+        )
+
+    def set_source_status(self, episode_id: int, source_status: str) -> None:
+        self._connection.execute(
+            "UPDATE plans SET source_status = ? WHERE episode_id = ? AND terminal_at IS NULL",
+            (source_status, episode_id),
+        )
+
+    def latest_checkpoints(self, episode_id: int) -> tuple[Checkpoint | None, Checkpoint | None]:
+        rows = self._connection.execute(
+            """SELECT c.* FROM checkpoints c WHERE c.episode_id = ?
+            AND julianday(c.checked_at) >= (
+                SELECT julianday(s.received_at) FROM plans p
+                JOIN source_events s ON s.id = p.source_event_id
+                WHERE p.episode_id = ? ORDER BY p.id DESC LIMIT 1
+            ) ORDER BY julianday(c.checked_at) DESC, c.id DESC""",
+            (episode_id, episode_id),
+        ).fetchall()
+        def checkpoint(row):
+            return Checkpoint(row["session_date"], row["checked_at"], row["close_price"],
+                              MarketState(row["market_state"]) if row["market_state"] else None,
+                              bool(row["unavailable"]))
+        latest = checkpoint(rows[0]) if rows else None
+        valid = next((checkpoint(row) for row in rows if not row["unavailable"]), None)
+        return latest, valid
+
+    def add_history(self, episode_id: int, event_id: int, content: str, now: datetime) -> int:
+        self._connection.execute(
+            """INSERT INTO history_events (episode_id, source_event_id, material_payload, created_at)
+            VALUES (?, ?, ?, ?) ON CONFLICT(episode_id, material_payload) DO NOTHING""",
+            (episode_id, event_id, content, _timestamp(now)),
+        )
+        return int(self._connection.execute(
+            "SELECT id FROM history_events WHERE episode_id = ? AND material_payload = ?",
+            (episode_id, content),
+        ).fetchone()[0])
+
     def enqueue_outbox(
         self,
         operation: str,
@@ -445,7 +581,8 @@ def _create_schema(connection: sqlite3.Connection) -> None:
             plan_targets_json TEXT,
             media_path TEXT,
             media_urls_json TEXT NOT NULL,
-            received_at TEXT NOT NULL
+            received_at TEXT NOT NULL,
+            board_processed_at TEXT
         );
         """
     )
@@ -553,6 +690,13 @@ def _migrate_v2_to_v3(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE outbox ADD COLUMN claim_token TEXT")
 
 
+def _migrate_v3_to_v4(connection: sqlite3.Connection) -> None:
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(source_events)")}
+    # The v2 outbox-only compatibility fixture has no source table to migrate.
+    if columns and "board_processed_at" not in columns:
+        connection.execute("ALTER TABLE source_events ADD COLUMN board_processed_at TEXT")
+
+
 def _create_missing_tables(connection: sqlite3.Connection) -> None:
     existing = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     if "episodes" not in existing:
@@ -560,7 +704,7 @@ def _create_missing_tables(connection: sqlite3.Connection) -> None:
 
 
 def _timestamp(value: datetime) -> str:
-    return _aware(value, "timestamp").isoformat()
+    return _aware(value, "timestamp").astimezone(timezone.utc).isoformat()
 
 
 def _aware(value: datetime, name: str) -> datetime:
@@ -586,6 +730,18 @@ def _episode_from_row(row: sqlite3.Row) -> Episode:
         starter_message_id=row["starter_message_id"],
         lifecycle_tag=row["lifecycle_tag"],
         market_tag=row["market_tag"],
+    )
+
+
+def _source_event_from_row(row: sqlite3.Row) -> SourceEvent:
+    return SourceEvent(
+        event_key=row["event_key"], source=row["source"], kind=row["kind"], ticker=row["ticker"],
+        published_at=_parse_timestamp(row["published_at"]), source_url=row["source_url"],
+        all_content=row["all_content"], source_title=row["source_title"],
+        source_status=row["source_status"],
+        plan=PlanLevels(row["plan_entry"], row["plan_stop_loss"], tuple(json.loads(row["plan_targets_json"])))
+        if row["plan_entry"] else None,
+        media_path=row["media_path"], media_urls=tuple(json.loads(row["media_urls_json"])),
     )
 
 
