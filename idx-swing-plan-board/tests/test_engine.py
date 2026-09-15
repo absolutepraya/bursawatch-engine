@@ -9,7 +9,8 @@ from calendar import sessions_ago
 from conftest import example_buy_event, social_event
 from discord_forum import DiscordForumClient, DiscordForumError
 from engine import BoardEngine, source_outcome_state
-from models import Checkpoint, MarketState, PlanLevels
+from models import Checkpoint, MarketState, PlanLevels, SourceEvent
+from render import render_source_reply
 from store import BoardStore, StoreBlockedError
 
 
@@ -53,6 +54,35 @@ def test_social_event_creates_source_episode_and_normal_reply(engine):
     assert operations(engine)[0].payload["tag_names"] == ["Source plan"]
     assert event.all_content in operations(engine)[1].payload["content"]
     assert event.media_urls[0] in operations(engine)[1].payload["content"]
+
+
+def test_kelas_source_reply_chunks_are_durable_ordered_and_preserve_media(engine):
+    content = "source analysis " * 350
+    event = SourceEvent.from_json(
+        {
+            "event_key": "kelas-investasi:101:RAJA",
+            "source": "kelas-investasi",
+            "kind": "social",
+            "ticker": "RAJA",
+            "published_at": "2026-09-19T09:05:00+07:00",
+            "source_url": "https://t.me/kelasinvestasiid/101",
+            "all_content": content,
+            "source_title": "Good to watch - RAJA #GTW",
+            "source_status": None,
+            "plan": None,
+            "media_path": "/tmp/raja-header.jpg",
+            "media_urls": [],
+        }
+    )
+
+    assert engine.submit(event, at()) == "board_submitted"
+
+    replies = [item for item in engine.store.operations_for_ticker("RAJA") if item.operation == "post_source_reply"]
+    assert len(replies) > 1
+    assert all(len(item.payload["content"]) <= 2000 for item in replies)
+    assert "".join(item.payload["content"] for item in replies) == render_source_reply(event)
+    assert [item.payload["media"] for item in replies] == ["/tmp/raja-header.jpg", *([None] * (len(replies) - 1))]
+    assert len({item.payload["nonce_value"] for item in replies}) == len(replies)
 
 
 def test_buy_promotes_without_reposting_social_reply(engine):

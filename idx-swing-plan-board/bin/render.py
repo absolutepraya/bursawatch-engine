@@ -14,6 +14,7 @@ PHINTRACO_EMOJI = "<:phintraco:1531272488645038091>"
 _MARKDOWN = re.compile(r"([\\*_~`|\[\]()>])")
 _BYLINE = re.compile(r"^-#\s+(.+?)\s*$", re.MULTILINE)
 _REASONS = re.compile(r"^\*\*Reasons:\*\*\s*(.+?)\s*$", re.MULTILINE)
+MAX_DISCORD_CHARACTERS = 2_000
 
 
 def escape(value: str) -> str:
@@ -42,6 +43,25 @@ def render_source_reply(event: SourceEvent) -> str:
     urls = dict.fromkeys((event.source_url, *event.media_urls))
     missing = [url for url in urls if url not in event.all_content]
     return event.all_content + ("\n\n" + "\n".join(missing) if missing else "")
+
+
+def render_source_replies(event: SourceEvent) -> tuple[str, ...]:
+    """Split only Kelas source context into ordered Discord-sized replies."""
+    content = render_source_reply(event)
+    if event.source != "kelas-investasi" or len(content) <= MAX_DISCORD_CHARACTERS:
+        return (content,)
+    chunks: list[str] = []
+    remaining = content
+    while len(remaining) > MAX_DISCORD_CHARACTERS:
+        boundary = remaining.rfind(" ", 0, MAX_DISCORD_CHARACTERS)
+        if boundary <= 0:
+            boundary = MAX_DISCORD_CHARACTERS
+        else:
+            boundary += 1
+        chunks.append(remaining[:boundary])
+        remaining = remaining[boundary:]
+    chunks.append(remaining)
+    return tuple(chunks)
 
 
 def render_primary_card(

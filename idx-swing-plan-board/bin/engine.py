@@ -13,7 +13,7 @@ from calendar import is_idx_trading_day, sessions_ago
 from discord_forum import DiscordForumClient, DiscordForumError
 from models import Checkpoint, Episode, MarketState, SourceEvent
 from prices import classify_close, fetch_session_close, parse_plan_levels
-from render import WIB, escape, format_wib, render_history, render_primary_card, render_source_only_card, render_source_reply
+from render import WIB, escape, format_wib, render_history, render_primary_card, render_source_only_card, render_source_replies
 from store import BoardStore, BoardStoreTransaction, StoreBlockedError
 
 
@@ -236,9 +236,11 @@ class BoardEngine:
             self._history(tx, event, event_id, active, detail, now)
 
     def _source_reply(self, tx, event, active, now):
-        self._enqueue(tx, event, active, "post_source_reply", {
-            "content": render_source_reply(event), "media": event.media_path,
-        }, now)
+        contents = render_source_replies(event)
+        for index, content in enumerate(contents):
+            self._enqueue(tx, event, active, "post_source_reply", {
+                "content": content, "media": event.media_path if index == 0 else None,
+            }, now, suffix=f":{index}" if len(contents) > 1 else "")
 
     def _patch(self, tx, event, active, now):
         tags = [active.lifecycle_tag]
@@ -289,8 +291,8 @@ class BoardEngine:
 
     @staticmethod
     def _enqueue(tx: BoardStoreTransaction, event: SourceEvent, active: Episode,
-                 operation: str, payload: dict, now: datetime) -> None:
-        dedupe_key = f"event:{event.event_key}:{operation}"
+                 operation: str, payload: dict, now: datetime, suffix: str = "") -> None:
+        dedupe_key = f"event:{event.event_key}:{operation}{suffix}"
         tx.enqueue_outbox(operation, active.id, {**payload, "nonce_value": dedupe_key}, dedupe_key, now)
 
     def drain(self, now: datetime | None = None, *, limit: int = 100) -> int:

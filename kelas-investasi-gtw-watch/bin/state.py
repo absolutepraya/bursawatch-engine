@@ -18,6 +18,7 @@ QUIET_WINDOW = timedelta(minutes=20)
 AGENT_LEASE = timedelta(minutes=15)
 DELIVERY_PHASE = "delivering"
 BOARD_PENDING = "pending"
+BOARD_UNAVAILABLE = "unavailable"
 STATE_VERSION = 2
 
 
@@ -290,7 +291,7 @@ def _is_pending(value: object, media_root: Path | None = None) -> bool:
         and _message_ids(value["source_message_ids"], value["header_message_id"])
         and isinstance(value["source_text"], str)
         and _media_items(value["media"], value["source_message_ids"], media_root)
-        and _timestamp(value["source_published_at"])
+        and _optional_timestamp(value["source_published_at"])
         and _timestamp(value["last_message_at"])
         and value["closed_by_header"] is False
     )
@@ -310,7 +311,7 @@ def _is_outbox(value: object, media_root: Path | None = None) -> bool:
         and _positive_int(value["header_message_id"])
         and _message_ids(value["source_message_ids"], value["header_message_id"])
         and isinstance(value["source_text"], str)
-        and _timestamp(value["source_published_at"])
+        and _optional_timestamp(value["source_published_at"])
         and isinstance(plan, dict)
         and set(plan) == {"buy_area", "targets", "stoploss"}
         and all(isinstance(item, str) for item in plan.values())
@@ -324,10 +325,7 @@ def _is_outbox(value: object, media_root: Path | None = None) -> bool:
         and _nonnegative_int(value["attempts"])
         and _optional_timestamp(value["next_attempt_at"])
         and _optional_string(value["last_error"])
-        and value["board_phase"] == BOARD_PENDING
-        and _nonnegative_int(value["board_attempts"])
-        and _optional_timestamp(value["board_next_attempt_at"])
-        and _optional_string(value["board_last_error"])
+        and _valid_board_context(value)
     )
 
 
@@ -340,21 +338,39 @@ def _migrate_state(value: object) -> dict[str, object]:
         return value
     for candidate in pending:
         if isinstance(candidate, dict):
-            candidate.setdefault("source_published_at", candidate.get("last_message_at"))
-    migrated_at = datetime.now(timezone.utc).isoformat()
+            candidate.setdefault("source_published_at", None)
     for event in outbox:
         if not isinstance(event, dict):
             continue
         # Version one did not retain closed bundles' source-post timestamp.
-        # Preserve their cursor and queued delivery while marking that legacy
-        # board context at migration time instead of resetting the watcher.
-        event.setdefault("source_published_at", migrated_at)
-        event.setdefault("board_phase", BOARD_PENDING)
+        # Preserve the cursor and All delivery but do not invent a source fact
+        # for board submission.
+        event.setdefault("source_published_at", None)
+        event.setdefault("board_phase", BOARD_UNAVAILABLE)
         event.setdefault("board_attempts", 0)
         event.setdefault("board_next_attempt_at", None)
         event.setdefault("board_last_error", None)
     value["version"] = STATE_VERSION
     return value
+
+
+def _valid_board_context(value: dict[object, object]) -> bool:
+    phase = value["board_phase"]
+    timestamp = value["source_published_at"]
+    if timestamp is None:
+        return (
+            phase == BOARD_UNAVAILABLE
+            and _nonnegative_int(value["board_attempts"])
+            and value["board_attempts"] == 0
+            and value["board_next_attempt_at"] is None
+            and value["board_last_error"] is None
+        )
+    return (
+        phase == BOARD_PENDING
+        and _nonnegative_int(value["board_attempts"])
+        and _optional_timestamp(value["board_next_attempt_at"])
+        and _optional_string(value["board_last_error"])
+    )
 
 
 def _is_bundle_continuation(message: SourceMessage, ticker: str) -> bool:

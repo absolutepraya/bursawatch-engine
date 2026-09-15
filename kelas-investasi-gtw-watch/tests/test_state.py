@@ -192,7 +192,8 @@ def test_version_one_state_migrates_without_resetting_cursor(tmp_path: Path) -> 
     assert migrated["version"] == 2
     assert migrated["cursor"] == 102
     event = migrated["outbox"][0]
-    assert event["board_phase"] == "pending"
+    assert event["source_published_at"] is None
+    assert event["board_phase"] == "unavailable"
     assert event["board_attempts"] == 0
     assert event["board_next_attempt_at"] is None
     assert event["board_last_error"] is None

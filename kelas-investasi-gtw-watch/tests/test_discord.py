@@ -102,6 +102,13 @@ def test_gtw_payload_uses_exact_header_and_social_kind() -> None:
     assert payload["all_content"] == render_event(event)[0]
 
 
+def test_gtw_payload_skips_board_context_when_a_legacy_event_has_no_source_time() -> None:
+    event = ready_gtw_event("Good to watch - RAJA #GTW")
+    event["source_published_at"] = None
+
+    assert discord.board_payload(event) is None
+
+
 def test_gtw_board_handoff_uses_the_captured_header_image(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     event = ready_gtw_event("Good to watch - RAJA #GTW")
     event["media"] = [image(tmp_path, "header.jpg")]
@@ -113,6 +120,31 @@ def test_gtw_board_handoff_uses_the_captured_header_image(tmp_path: Path, monkey
 
     assert submitted[0][0]["media_path"] == str(tmp_path / "header.jpg")
     assert submitted[0][1] == tmp_path / "header.jpg"
+
+
+@pytest.mark.parametrize(
+    "stdout",
+    [
+        '{"accepted":1}',
+        '{"accepted":"true"}',
+        '{"accepted":true,"extra":false}',
+        '{"accepted":false}',
+        '[]',
+        'not-json',
+    ],
+)
+def test_board_submission_requires_the_exact_boolean_owner_acknowledgement(monkeypatch: pytest.MonkeyPatch, stdout: str) -> None:
+    completed = type("Completed", (), {"returncode": 0, "stdout": stdout})()
+    monkeypatch.setattr(discord.subprocess, "run", lambda *_args, **_kwargs: completed)
+
+    assert discord.submit_board_event({"event_key": "kelas-investasi:101:RAJA"}, None, False) is False
+
+
+def test_board_submission_accepts_only_the_exact_true_owner_acknowledgement(monkeypatch: pytest.MonkeyPatch) -> None:
+    completed = type("Completed", (), {"returncode": 0, "stdout": '{"accepted":true}'})()
+    monkeypatch.setattr(discord.subprocess, "run", lambda *_args, **_kwargs: completed)
+
+    assert discord.submit_board_event({"event_key": "kelas-investasi:101:RAJA"}, None, False) is True
 
 
 def test_failed_gtw_board_handoff_retries_without_replaying_all_delivery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -137,7 +137,7 @@ def deliver_oldest_ready_event(
     return True
 
 
-def board_payload(event: Mapping[str, object], media: Path | None = None) -> dict[str, object]:
+def board_payload(event: Mapping[str, object], media: Path | None = None) -> dict[str, object] | None:
     """Project a completed GTW bundle as source-only board context."""
     source_text = event.get("source_text")
     if not isinstance(source_text, str) or not source_text.splitlines():
@@ -146,6 +146,8 @@ def board_payload(event: Mapping[str, object], media: Path | None = None) -> dic
     if not source_title.strip():
         raise ValueError("board source title is invalid")
     published_at = event.get("source_published_at")
+    if published_at is None:
+        return None
     if not isinstance(published_at, str) or not published_at:
         raise ValueError("board source time is invalid")
     header_message_id = event.get("header_message_id")
@@ -193,9 +195,15 @@ def submit_board_event(payload: Mapping[str, object], media: Path | None, dry_ru
     if completed.returncode != 0:
         return False
     try:
-        return json.loads(completed.stdout.strip()) == {"accepted": True}
+        acknowledgement = json.loads(completed.stdout.strip())
     except (TypeError, ValueError):
         return False
+    return (
+        isinstance(acknowledgement, dict)
+        and set(acknowledgement) == {"accepted"}
+        and type(acknowledgement["accepted"]) is bool
+        and acknowledgement["accepted"] is True
+    )
 
 
 def _post(channel_id: str, **kwargs: Any) -> requests.Response:
@@ -320,8 +328,16 @@ def _submit_board_context(
     media_root: Path,
 ) -> bool:
     try:
+        payload = board_payload(event)
+        if payload is None:
+            _remove_event(state, event)
+            _persist(persist)
+            return True
         media = _board_media(event, media_root)
-        accepted = submit_board_event(board_payload(event, media), media, dry_run)
+        payload = board_payload(event, media)
+        if payload is None:
+            raise ValueError("board source time is invalid")
+        accepted = submit_board_event(payload, media, dry_run)
     except Exception:
         accepted = False
     if not accepted:
