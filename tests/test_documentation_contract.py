@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 NO_AGENT_CRONS = {
     "dotfiles-sync", "idx-swing-watch-phintraco-daily", "job-watcher", "marka-backup",
     "polymarket-signal-watch", "security-audit", "sharing-cleanup",
-    "skills-update", "us-etf-dca-watch",
+    "skills-update", "us-etf-dca-watch", "idx-swing-plan-board",
 }
 AGENT_BACKED_CRONS = {
     "idx-market-news-watch", "kelas-investasi-gtw-watch",
@@ -131,7 +131,8 @@ def readme_cron_inventory() -> set[str]:
 
 def test_cron_classification_is_complete_and_disjoint() -> None:
     assert NO_AGENT_CRONS.isdisjoint(AGENT_BACKED_CRONS), "cron classes overlap"
-    assert len(ALL_CRONS) == 16, "update the reviewed cron classification"
+    assert "idx-swing-plan-board" in NO_AGENT_CRONS
+    assert len(ALL_CRONS) == 17, "update the reviewed cron classification"
     assert all((ROOT / cron).is_dir() for cron in ALL_CRONS), "missing cron source directory"
     assert readme_cron_inventory() == ALL_CRONS, (
         "README.md cron inventory must match the reviewed cron classification"

@@ -16,6 +16,7 @@ retain their own `SKILL.md` files.
 | `idx-market-news-watch` | Deterministic issuer-specific IDX market-news watcher with an agent-backed scoring and delivery step | tests yes; live source and Telegram verification run on the VPS |
 | `us-etf-dca-watch` | US ETF DCA timing monitor for SPY, QQQ, and SMH | yes |
 | `idx-swing-watch-phintraco-daily` | Phintraco Daily Swing Call forwarder (Telegram text then source chart) | tests yes; a live run needs the VPS Telethon session |
+| `idx-swing-plan-board` | Deterministic owner of Swing board state and after-close reconciliation | tests yes; live no-post verification runs on the VPS |
 | `kelas-investasi-gtw-watch` | Future-only Kelas Investasi `#GTW` bundle watcher, source-grounded summary then source images to Discord | tests yes; a live run needs the VPS Telethon session |
 | `scele-digest` | University SCELE daily digest (LLM agent job; `bin/send-digest` is the deterministic renderer) | renderer yes |
 | `x-post-watch` | Configuration-driven RSSHub X post forwarder with a separate minute-level queue worker and optional Hermes titles and summaries | tests yes; live source and Discord no-post smoke run on the VPS |

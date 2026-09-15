@@ -17,6 +17,7 @@ Current child instruction files:
 - `cobalt/AGENTS.md`: Cobalt media service, cookies, compose, and deployment boundaries.
 - `dotfiles-sync/AGENTS.md`: VPS-owned configuration backup and capture safety.
 - `idx-market-news-watch/AGENTS.md`: deterministic company-news intake and shared Telegram resilience.
+- `idx-swing-plan-board/AGENTS.md`: deterministic owner of Swing board state and close reconciliation.
 - `idx-swing-watch-phintraco-daily/AGENTS.md`: source-only daily swing-call forwarding.
 - `instagram-post-watch/AGENTS.md`: public Instagram publication intake, OCR, selective vision, relevance boundaries, and watcher deployment.
 - `job-watcher/AGENTS.md`: Indonesia-only job discovery, scoring, and no-post verification.
@@ -62,7 +63,7 @@ Current child instruction files:
 
 Every scheduled cron source directory contains one `AGENTS.md` and exactly one contract file. `AGENTS.md` is the canonical development and domain source. A deterministic no-agent cron has `CRON.md`, its concise operational contract. An agent-backed cron has `SKILL.md`, the concise model-facing runtime prompt that Hermes loads. A cron must never have both contract files.
 
-The no-agent crons are `dotfiles-sync`, `idx-swing-watch-phintraco-daily`, `job-watcher`, `marka-backup`, `polymarket-signal-watch`, `security-audit`, `sharing-cleanup`, `skills-update`, and `us-etf-dca-watch`. The agent-backed crons are `idx-market-news-watch`, `instagram-post-watch`, `kelas-investasi-gtw-watch`, `mm-weekly-log-normalizer`, `scele-digest`, `whatsapp-channel-watch`, and `x-post-watch`.
+The no-agent crons are `dotfiles-sync`, `idx-swing-plan-board`, `idx-swing-watch-phintraco-daily`, `job-watcher`, `marka-backup`, `polymarket-signal-watch`, `security-audit`, `sharing-cleanup`, `skills-update`, and `us-etf-dca-watch`. The agent-backed crons are `idx-market-news-watch`, `instagram-post-watch`, `kelas-investasi-gtw-watch`, `mm-weekly-log-normalizer`, `scele-digest`, `whatsapp-channel-watch`, and `x-post-watch`.
 
 This policy applies only to scheduled cron documentation at a cron directory root. Reusable non-cron skills, including `mm/SKILL.md` and `cobalt/skills/media/SKILL.md`, retain their own skill contracts.
 
