@@ -9,9 +9,10 @@ from dataclasses import replace
 from datetime import datetime, timezone
 import re
 
-from calendar import sessions_ago
+from calendar import is_idx_trading_day, sessions_ago
 from discord_forum import DiscordForumClient, DiscordForumError
-from models import Episode, MarketState, SourceEvent
+from models import Checkpoint, Episode, MarketState, SourceEvent
+from prices import classify_close, fetch_session_close, parse_plan_levels
 from render import WIB, escape, format_wib, render_history, render_primary_card, render_source_only_card, render_source_reply
 from store import BoardStore, BoardStoreTransaction, StoreBlockedError
 
@@ -53,8 +54,8 @@ class BoardEngine:
         A replay resumes an intake interrupted before its decision committed.
         Completed identities return board_duplicate, including ignored events.
         """
-        submitted = self.store.submit_event(event, now)
         with self.store.transaction() as tx:
+            submitted = tx.submit_event(event, now)
             if tx.event_processed(submitted.id):
                 return "board_duplicate"
             # An identity replay always uses the first immutable intake payload.
@@ -73,6 +74,86 @@ class BoardEngine:
                 result = "board_ignored"
             tx.mark_event_processed(submitted.id, now)
             return result
+
+    def after_close(self, phase: str, now: datetime) -> dict[str, int]:
+        """Reconcile active primary plans at the one reviewed close-phase instant.
+
+        Yahoo is read before the short owner transaction.  The attempt marker,
+        factual checkpoint, card intent, tag intent, and transition history then
+        commit together, so a restart cannot repeat a phase or split its facts.
+        """
+        if phase not in {"initial", "retry"}:
+            raise ValueError("close phase must be initial or retry")
+        instant = _wib(now)
+        expected_hour, expected_minute = (16, 30) if phase == "initial" else (17, 0)
+        if (instant.hour, instant.minute) != (expected_hour, expected_minute):
+            return _close_result()
+        if not is_idx_trading_day(instant.date()):
+            return _close_result()
+
+        candidates = self.store.active_primary_plans()
+        result = _close_result(active=len(candidates))
+        session_date = instant.date().isoformat()
+        for candidate in candidates:
+            # Retried phases are eligible only after this exact plan's initial
+            # source failed. A plan replacement receives a fresh plan identity.
+            with self.store.transaction() as tx:
+                current = next(
+                    (item for item in tx.active_primary_plans() if item.plan_id == candidate.plan_id),
+                    None,
+                )
+                if current is None or tx.close_attempted(current.plan_id, session_date, phase):
+                    continue
+                if phase == "retry" and not tx.initial_close_unavailable(current.plan_id, session_date):
+                    continue
+            close = fetch_session_close(candidate.event.ticker, instant.date())
+            with self.store.transaction() as tx:
+                current = next(
+                    (item for item in tx.active_primary_plans() if item.plan_id == candidate.plan_id),
+                    None,
+                )
+                if current is None or tx.close_attempted(current.plan_id, session_date, phase):
+                    continue
+                if phase == "retry" and not tx.initial_close_unavailable(current.plan_id, session_date):
+                    continue
+                tx.record_close_attempt(current.plan_id, session_date, phase, instant, close is not None)
+                if close is None:
+                    result["unavailable"] += 1
+                    if phase == "retry":
+                        checkpoint, last_valid = tx.latest_checkpoints(current.episode.id)
+                        unavailable = Checkpoint.unavailable_at(
+                            session_date=session_date, checked_at=instant.isoformat()
+                        )
+                        tx.record_checkpoint(current.episode.id, unavailable)
+                        self._enqueue_close_edit(
+                            tx, current, unavailable, last_valid, instant, "retry-unavailable"
+                        )
+                    continue
+
+                levels = parse_plan_levels(
+                    current.event.plan.entry, current.event.plan.stop_loss, current.event.plan.targets
+                )
+                state = classify_close(close, levels)
+                checkpoint = Checkpoint.market(
+                    session_date=session_date,
+                    checked_at=instant.isoformat(),
+                    close_price=_price_text(close),
+                    state=state,
+                )
+                previous, last_valid = tx.latest_checkpoints(current.episode.id)
+                previous_state = last_valid.state if last_valid is not None else None
+                tx.record_checkpoint(current.episode.id, checkpoint)
+                updated = replace(current.episode, market_tag=state.value)
+                tx.update_episode(updated)
+                self._enqueue_close_edit(tx, current, checkpoint, checkpoint, instant, f"{phase}-close")
+                if updated.market_tag != current.episode.market_tag:
+                    self._enqueue_close_patch(tx, current.event, updated, instant, f"{phase}-tag")
+                if previous_state != state:
+                    detail = f"Market checkpoint: {state.value} at Rp{_price_text(close)}"
+                    self._close_history(tx, current.episode, detail, instant, f"{phase}-history")
+                result["checked"] += 1
+        result["pending"] = self.store.pending_outbox_count()
+        return result
 
     def _social(self, tx, event, event_id, active, now):
         if active is None:
@@ -174,6 +255,38 @@ class BoardEngine:
             "content": content, "media": None, "history_id": history_id,
         }, now)
 
+    def _enqueue_close_edit(self, tx, current, checkpoint, last_valid, now, suffix):
+        payload = {
+            "content": render_primary_card(current.event, checkpoint, last_valid),
+            "chart": None,
+            "nonce_value": f"close:{current.plan_id}:{checkpoint.session_date}:{suffix}:edit",
+        }
+        tx.enqueue_outbox(
+            "edit_starter", current.episode.id, payload,
+            payload["nonce_value"], now,
+        )
+
+    def _enqueue_close_patch(self, tx, event, active, now, suffix):
+        tags = [active.lifecycle_tag]
+        if active.market_tag:
+            tags.append(active.market_tag)
+        nonce_value = f"close:{active.id}:{suffix}:patch"
+        tx.enqueue_outbox(
+            "patch_thread", active.id,
+            {"name": active.title, "tag_names": tags, "archived": False, "nonce_value": nonce_value},
+            nonce_value, now,
+        )
+
+    def _close_history(self, tx, episode, detail, now, suffix):
+        content = render_history(format_wib(now), detail)
+        history_id = tx.add_history(episode.id, None, content, now)
+        nonce_value = f"close:{episode.id}:{suffix}:history"
+        tx.enqueue_outbox(
+            "post_history_reply", episode.id,
+            {"content": content, "media": None, "history_id": history_id, "nonce_value": nonce_value},
+            nonce_value, now,
+        )
+
     @staticmethod
     def _enqueue(tx: BoardStoreTransaction, event: SourceEvent, active: Episode,
                  operation: str, payload: dict, now: datetime) -> None:
@@ -208,3 +321,17 @@ class BoardEngine:
                 # Store only a safe category, never provider bodies or credentials.
                 self.store.fail_outbox(operation.id, operation.claim_token, type(exc).__name__, instant)
         return completed
+
+
+def _wib(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("now must include a timezone")
+    return value.astimezone(WIB)
+
+
+def _price_text(value) -> str:
+    return format(value, "f").rstrip("0").rstrip(".") if "." in format(value, "f") else format(value, "f")
+
+
+def _close_result(*, active: int = 0) -> dict[str, int]:
+    return {"active": active, "checked": 0, "unavailable": 0, "pending": 0}

@@ -7,7 +7,7 @@ owner's outbox drainer, never from these transaction methods.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 import fcntl
 import json
@@ -19,17 +19,26 @@ from uuid import uuid4
 from models import Checkpoint, Episode, MarketState, OutboxOperation, PlanLevels, SourceEvent, SubmittedEvent
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 _LEGAL_OPERATIONS = frozenset(
     {"create_thread", "edit_starter", "post_source_reply", "post_history_reply", "patch_thread"}
 )
 _BACKOFF_MINUTES = (1, 2, 4, 8, 15, 30, 60)
 _LEASE = timedelta(minutes=5)
-_TABLES = frozenset({"source_events", "episodes", "plans", "checkpoints", "history_events", "outbox"})
+_TABLES = frozenset({"source_events", "episodes", "plans", "checkpoints", "history_events", "outbox", "close_attempts"})
 
 
 class StoreBlockedError(RuntimeError):
     """The database cannot be safely opened without operator intervention."""
+
+
+@dataclass(frozen=True)
+class ActivePrimaryPlan:
+    """The sole mutable plan selected for a close-phase transaction."""
+
+    episode: Episode
+    plan_id: int
+    event: SourceEvent
 
 
 class BoardStore:
@@ -50,7 +59,13 @@ class BoardStore:
         """Atomically store immutable source identity, without creating outbox work."""
         received_at = _aware(received_at, "received_at")
         with self._transaction() as connection:
-            cursor = connection.execute(
+            return self._submit_event(connection, event, received_at)
+
+    @staticmethod
+    def _submit_event(
+        connection: sqlite3.Connection, event: SourceEvent, received_at: datetime
+    ) -> SubmittedEvent:
+        cursor = connection.execute(
                 """
                 INSERT INTO source_events (
                     event_key, source, kind, ticker, published_at, source_url,
@@ -77,13 +92,13 @@ class BoardStore:
                     json.dumps(event.media_urls),
                     _timestamp(received_at),
                 ),
-            )
-            if cursor.rowcount:
-                return SubmittedEvent(int(cursor.lastrowid), True)
-            row = connection.execute(
-                "SELECT id FROM source_events WHERE event_key = ?", (event.event_key,)
-            ).fetchone()
-            return SubmittedEvent(int(row[0]), False)
+        )
+        if cursor.rowcount:
+            return SubmittedEvent(int(cursor.lastrowid), True)
+        row = connection.execute(
+            "SELECT id FROM source_events WHERE event_key = ?", (event.event_key,)
+        ).fetchone()
+        return SubmittedEvent(int(row[0]), False)
 
     def create_episode(
         self, ticker: str, lifecycle: str, title: str, opened_at: datetime
@@ -130,6 +145,17 @@ class BoardStore:
     def active_plan(self, episode_id: int) -> SourceEvent | None:
         with self._connection() as connection:
             return BoardStoreTransaction(self, connection).active_plan(episode_id)
+
+    def active_primary_plans(self) -> list[ActivePrimaryPlan]:
+        """Enumerate only plans that a close phase may factually update."""
+        with self._connection() as connection:
+            return BoardStoreTransaction(self, connection).active_primary_plans()
+
+    def pending_outbox_count(self) -> int:
+        with self._connection() as connection:
+            return int(connection.execute(
+                "SELECT COUNT(*) FROM outbox WHERE status != 'complete'"
+            ).fetchone()[0])
 
     def operations_for_ticker(self, ticker: str) -> list[OutboxOperation]:
         with self._connection() as connection:
@@ -359,6 +385,8 @@ class BoardStore:
                         _migrate_v2_to_v3(connection)
                     if version in {1, 2, 3}:
                         _migrate_v3_to_v4(connection)
+                    if version in {1, 2, 3, 4}:
+                        _migrate_v4_to_v5(connection)
                     connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
                     connection.execute("COMMIT")
                 except BaseException:
@@ -450,6 +478,9 @@ class BoardStoreTransaction:
             self._connection, ticker, lifecycle, title, opened_at
         )
 
+    def submit_event(self, event: SourceEvent, received_at: datetime) -> SubmittedEvent:
+        return self._store._submit_event(self._connection, event, _aware(received_at, "received_at"))
+
     def event_processed(self, event_id: int) -> bool:
         row = self._connection.execute(
             "SELECT board_processed_at FROM source_events WHERE id = ?", (event_id,)
@@ -495,6 +526,73 @@ class BoardStoreTransaction:
             (episode_id,),
         ).fetchone()
         return replace(_source_event_from_row(row), source_status=row["current_status"]) if row else None
+
+    def active_primary_plans(self) -> list[ActivePrimaryPlan]:
+        rows = self._connection.execute(
+            """SELECT e.*, p.id AS plan_id, s.*, p.source_status AS current_status
+            FROM episodes e JOIN plans p ON p.episode_id = e.id
+            JOIN source_events s ON s.id = p.source_event_id
+            WHERE e.lifecycle = 'primary' AND e.closed_at IS NULL AND p.terminal_at IS NULL
+            ORDER BY e.id"""
+        ).fetchall()
+        return [
+            ActivePrimaryPlan(
+                episode=_episode_from_row(row),
+                plan_id=int(row["plan_id"]),
+                event=replace(_source_event_from_row(row), source_status=row["current_status"]),
+            )
+            for row in rows
+        ]
+
+    def close_attempted(self, plan_id: int, session_date: str, phase: str) -> bool:
+        _close_phase(phase)
+        row = self._connection.execute(
+            "SELECT 1 FROM close_attempts WHERE plan_id = ? AND session_date = ? AND phase = ?",
+            (plan_id, session_date, phase),
+        ).fetchone()
+        return row is not None
+
+    def initial_close_unavailable(self, plan_id: int, session_date: str) -> bool:
+        row = self._connection.execute(
+            """SELECT available FROM close_attempts
+            WHERE plan_id = ? AND session_date = ? AND phase = 'initial'""",
+            (plan_id, session_date),
+        ).fetchone()
+        return row is not None and not bool(row[0])
+
+    def record_close_attempt(
+        self, plan_id: int, session_date: str, phase: str, attempted_at: datetime, available: bool
+    ) -> bool:
+        _close_phase(phase)
+        if not isinstance(available, bool):
+            raise ValueError("available must be a boolean")
+        cursor = self._connection.execute(
+            """INSERT INTO close_attempts (plan_id, session_date, phase, attempted_at, available)
+            VALUES (?, ?, ?, ?, ?) ON CONFLICT(plan_id, session_date, phase) DO NOTHING""",
+            (plan_id, session_date, phase, _timestamp(attempted_at), int(available)),
+        )
+        return bool(cursor.rowcount)
+
+    def record_checkpoint(
+        self, episode_id: int, checkpoint: Checkpoint, source_freshness: str | None = None
+    ) -> None:
+        row = self._connection.execute(
+            "SELECT lifecycle, closed_at FROM episodes WHERE id = ?", (episode_id,)
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"unknown episode: {episode_id}")
+        if row["lifecycle"] != "primary" or row["closed_at"] is not None:
+            raise StoreBlockedError("only active primary episodes may record checkpoints")
+        self._connection.execute(
+            """INSERT INTO checkpoints (
+                episode_id, session_date, checked_at, source_freshness,
+                close_price, market_state, unavailable
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(episode_id, session_date, checked_at) DO NOTHING""",
+            (episode_id, checkpoint.session_date, checkpoint.checked_at, source_freshness,
+             checkpoint.close_price, checkpoint.state.value if checkpoint.state else None,
+             int(checkpoint.unavailable)),
+        )
 
     def replace_plan(self, episode_id: int, event_id: int, event: SourceEvent, now: datetime) -> None:
         if event.plan is None:
@@ -656,6 +754,15 @@ def _create_non_event_tables(connection: sqlite3.Connection) -> None:
             completion_json TEXT,
             completed_at TEXT
         );
+        CREATE TABLE close_attempts (
+            id INTEGER PRIMARY KEY,
+            plan_id INTEGER NOT NULL REFERENCES plans(id),
+            session_date TEXT NOT NULL,
+            phase TEXT NOT NULL CHECK (phase IN ('initial', 'retry')),
+            attempted_at TEXT NOT NULL,
+            available INTEGER NOT NULL CHECK (available IN (0, 1)),
+            UNIQUE(plan_id, session_date, phase)
+        );
         """
     )
 
@@ -697,6 +804,21 @@ def _migrate_v3_to_v4(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE source_events ADD COLUMN board_processed_at TEXT")
 
 
+def _migrate_v4_to_v5(connection: sqlite3.Connection) -> None:
+    """Retain every prior fact while adding idempotent per-plan close attempts."""
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS close_attempts (
+            id INTEGER PRIMARY KEY,
+            plan_id INTEGER NOT NULL REFERENCES plans(id),
+            session_date TEXT NOT NULL,
+            phase TEXT NOT NULL CHECK (phase IN ('initial', 'retry')),
+            attempted_at TEXT NOT NULL,
+            available INTEGER NOT NULL CHECK (available IN (0, 1)),
+            UNIQUE(plan_id, session_date, phase)
+        )"""
+    )
+
+
 def _create_missing_tables(connection: sqlite3.Connection) -> None:
     existing = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     if "episodes" not in existing:
@@ -715,6 +837,11 @@ def _aware(value: datetime, name: str) -> datetime:
 
 def _parse_timestamp(value: str) -> datetime:
     return datetime.fromisoformat(value)
+
+
+def _close_phase(value: str) -> None:
+    if value not in {"initial", "retry"}:
+        raise ValueError("close phase must be initial or retry")
 
 
 def _episode_from_row(row: sqlite3.Row) -> Episode:

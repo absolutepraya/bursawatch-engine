@@ -3,8 +3,26 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+import importlib.util
 import json
 from pathlib import Path
+import sysconfig
+
+
+# This deterministic owner intentionally has a local ``calendar`` module.
+# Third-party Yahoo/pandas imports also require stdlib calendar helpers while
+# this module is on ``sys.path``. Re-export those helpers under their canonical
+# names before adding the IDX-only API below.
+_stdlib_calendar_spec = importlib.util.spec_from_file_location(
+    "_idx_swing_stdlib_calendar", Path(sysconfig.get_path("stdlib")) / "calendar.py"
+)
+if _stdlib_calendar_spec is None or _stdlib_calendar_spec.loader is None:
+    raise RuntimeError("stdlib calendar module is unavailable")
+_stdlib_calendar = importlib.util.module_from_spec(_stdlib_calendar_spec)
+_stdlib_calendar_spec.loader.exec_module(_stdlib_calendar)
+for _name in dir(_stdlib_calendar):
+    if not _name.startswith("_"):
+        globals().setdefault(_name, getattr(_stdlib_calendar, _name))
 
 
 class CalendarCoverageError(RuntimeError):

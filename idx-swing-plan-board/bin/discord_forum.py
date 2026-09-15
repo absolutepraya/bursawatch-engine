@@ -173,6 +173,16 @@ class DiscordForumClient:
             },
         )
 
+    def post_heartbeat(self, channel_id: str, content: str) -> None:
+        """Direct-post one scheduler heartbeat outside the board's forum outbox."""
+        if self.no_post:
+            return
+        self._request(
+            "POST",
+            f"/channels/{_id(channel_id)}/messages",
+            json={"content": _text(content, "heartbeat content"), "allowed_mentions": {"parse": []}},
+        )
+
     def execute(
         self, operation: object, payload: Mapping[str, object] | None = None
     ) -> dict[str, str]:
