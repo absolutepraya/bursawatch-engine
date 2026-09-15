@@ -222,6 +222,7 @@ class OutboxOperation:
     next_attempt_at: datetime
     status: str
     last_error: str | None = None
+    claim_token: str | None = None
 
     @property
     def kind(self) -> str:

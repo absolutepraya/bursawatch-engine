@@ -13,11 +13,12 @@ import json
 from pathlib import Path
 import sqlite3
 from typing import Any, Iterator, Mapping
+from uuid import uuid4
 
 from models import Checkpoint, Episode, OutboxOperation, SourceEvent, SubmittedEvent
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 _LEGAL_OPERATIONS = frozenset(
     {"create_thread", "edit_starter", "post_source_reply", "post_history_reply", "patch_thread"}
 )
@@ -129,6 +130,15 @@ class BoardStore:
     ) -> None:
         """Persist a factual or unavailable checkpoint, without Discord work."""
         with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT lifecycle, closed_at FROM episodes WHERE id = ?", (episode_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"unknown episode: {episode_id}")
+            if row["lifecycle"] != "primary" or row["closed_at"] is not None:
+                raise StoreBlockedError(
+                    "only active primary episodes may record checkpoints"
+                )
             connection.execute(
                 """
                 INSERT INTO checkpoints (
@@ -199,14 +209,16 @@ class BoardStore:
         with self._transaction() as connection:
             yield BoardStoreTransaction(self, connection)
 
-    def enqueue_test_operation(self, operation: str, episode_id: int) -> OutboxOperation:
+    def enqueue_test_operation(
+        self, operation: str, episode_id: int, now: datetime
+    ) -> OutboxOperation:
         """Test-only convenience that still uses the production outbox constraints."""
         return self.enqueue_outbox(
             operation,
             episode_id,
             {"test": True},
             f"test:{operation}:{episode_id}",
-            datetime.now().astimezone(),
+            now,
         )
 
     def claim_due_outbox(self, now: datetime) -> OutboxOperation | None:
@@ -225,49 +237,52 @@ class BoardStore:
             ).fetchone()
             if row is None:
                 return None
+            claim_token = uuid4().hex
             connection.execute(
-                "UPDATE outbox SET status = 'claimed', claimed_at = ? WHERE id = ?",
-                (_timestamp(now), int(row[0])),
+                """
+                UPDATE outbox
+                SET status = 'claimed', claimed_at = ?, claim_token = ?
+                WHERE id = ?
+                """,
+                (_timestamp(now), claim_token, int(row[0])),
             )
             return self._outbox(connection, int(row[0]))
 
     def complete_outbox(
-        self, operation_id: int, completion: Mapping[str, Any], completed_at: datetime
+        self,
+        operation_id: int,
+        claim_token: str,
+        completion: Mapping[str, Any],
+        completed_at: datetime,
     ) -> None:
         completed_at = _aware(completed_at, "completed_at")
         with self._transaction() as connection:
-            cursor = connection.execute(
+            self._require_claim(connection, operation_id, claim_token)
+            connection.execute(
                 """
                 UPDATE outbox
-                SET status = 'complete', completion_json = ?, completed_at = ?, claimed_at = NULL
-                WHERE id = ? AND status != 'complete'
+                SET status = 'complete', completion_json = ?, completed_at = ?,
+                    claimed_at = NULL, claim_token = NULL
+                WHERE id = ?
                 """,
                 (json.dumps(dict(completion), sort_keys=True), _timestamp(completed_at), operation_id),
             )
-            if cursor.rowcount == 0 and not connection.execute(
-                "SELECT 1 FROM outbox WHERE id = ?", (operation_id,)
-            ).fetchone():
-                raise KeyError(f"unknown outbox operation: {operation_id}")
 
-    def fail_outbox(self, operation_id: int, error: str, failed_at: datetime) -> None:
+    def fail_outbox(
+        self, operation_id: int, claim_token: str, error: str, failed_at: datetime
+    ) -> None:
         if not error.strip():
             raise ValueError("outbox error must be non-empty")
         failed_at = _aware(failed_at, "failed_at")
         with self._transaction() as connection:
-            row = connection.execute(
-                "SELECT attempts, status FROM outbox WHERE id = ?", (operation_id,)
-            ).fetchone()
-            if row is None:
-                raise KeyError(f"unknown outbox operation: {operation_id}")
-            if row[1] == "complete":
-                raise StoreBlockedError("cannot fail completed outbox operation")
-            attempts = int(row[0]) + 1
+            row = self._require_claim(connection, operation_id, claim_token)
+            attempts = int(row["attempts"]) + 1
             delay = _BACKOFF_MINUTES[min(attempts - 1, len(_BACKOFF_MINUTES) - 1)]
             connection.execute(
                 """
                 UPDATE outbox
                 SET attempts = ?, next_attempt_at = ?, status = 'pending',
-                    claimed_at = NULL, last_error = ?
+                    claimed_at = NULL, claim_token = NULL, last_error = ?
                 WHERE id = ?
                 """,
                 (attempts, _timestamp(failed_at + timedelta(minutes=delay)), error, operation_id),
@@ -303,6 +318,9 @@ class BoardStore:
                         _create_schema(connection)
                     elif version == 1:
                         _migrate_v1_to_v2(connection)
+                        _migrate_v2_to_v3(connection)
+                    elif version == 2:
+                        _migrate_v2_to_v3(connection)
                     connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
                     connection.execute("COMMIT")
                 except BaseException:
@@ -363,6 +381,21 @@ class BoardStore:
         if row is None:
             raise KeyError(f"unknown outbox operation: {operation_id}")
         return _outbox_from_row(row)
+
+    @staticmethod
+    def _require_claim(
+        connection: sqlite3.Connection, operation_id: int, claim_token: str
+    ) -> sqlite3.Row:
+        if not claim_token:
+            raise StoreBlockedError("outbox claim token is required")
+        row = connection.execute(
+            "SELECT * FROM outbox WHERE id = ?", (operation_id,)
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"unknown outbox operation: {operation_id}")
+        if row["status"] != "claimed" or row["claim_token"] != claim_token:
+            raise StoreBlockedError("outbox claim token no longer owns operation")
+        return row
 
 
 class BoardStoreTransaction:
@@ -481,6 +514,7 @@ def _create_non_event_tables(connection: sqlite3.Connection) -> None:
             next_attempt_at TEXT NOT NULL,
             status TEXT NOT NULL CHECK (status IN ('pending', 'claimed', 'complete')),
             claimed_at TEXT,
+            claim_token TEXT,
             last_error TEXT,
             completion_json TEXT,
             completed_at TEXT
@@ -511,6 +545,12 @@ def _migrate_v1_to_v2(connection: sqlite3.Connection) -> None:
         if name not in columns:
             connection.execute(f"ALTER TABLE source_events ADD COLUMN {name} {definition}")
     _create_missing_tables(connection)
+
+
+def _migrate_v2_to_v3(connection: sqlite3.Connection) -> None:
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(outbox)")}
+    if "claim_token" not in columns:
+        connection.execute("ALTER TABLE outbox ADD COLUMN claim_token TEXT")
 
 
 def _create_missing_tables(connection: sqlite3.Connection) -> None:
@@ -560,6 +600,7 @@ def _outbox_from_row(row: sqlite3.Row) -> OutboxOperation:
         next_attempt_at=_parse_timestamp(row["next_attempt_at"]),
         status=row["status"],
         last_error=row["last_error"],
+        claim_token=row["claim_token"],
     )
 
 
