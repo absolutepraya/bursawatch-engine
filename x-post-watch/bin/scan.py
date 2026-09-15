@@ -8,6 +8,7 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from html.parser import HTMLParser
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -36,6 +37,34 @@ BOARD_RETRY_INITIAL_SECONDS = 60
 BOARD_RETRY_CAP_SECONDS = 15 * 60
 _TICKER_LED_CLAUSE = re.compile(r"(?<![A-Z0-9])([A-Z][A-Z0-9]{1,9}):\s+")
 _TICKER_SOURCE_TITLE = re.compile(r"^([A-Z][A-Z0-9]{1,9}):\s+(.+)$")
+_SOURCE_BLOCK_TAGS = frozenset({"p", "div", "li"})
+
+
+class _SourceTextParser(HTMLParser):
+    """Extract source-visible text without applying Discord Markdown rules."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        del attrs
+        if tag == "br" or tag in _SOURCE_BLOCK_TAGS:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in _SOURCE_BLOCK_TAGS:
+            self.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(data)
+
+
+def source_visible_text(content_html: str) -> str:
+    parser = _SourceTextParser()
+    parser.feed(content_html)
+    parser.close()
+    return "".join(parser.parts)
 
 
 @dataclass
@@ -184,10 +213,7 @@ def board_source_event(event: dict, profile) -> dict[str, object] | None:
     if event.get("route") != "id_stocks_swing":
         return None
     post = state.deserialize_post(event["post"])
-    source_title = next(
-        (line.strip() for line in render.markdown(post.content_html).splitlines() if line.strip()),
-        None,
-    )
+    source_title = next((line.strip() for line in source_visible_text(post.content_html).splitlines() if line.strip()), None)
     if source_title is None or len(source_title) > 100:
         return None
     source_match = _TICKER_SOURCE_TITLE.fullmatch(source_title)

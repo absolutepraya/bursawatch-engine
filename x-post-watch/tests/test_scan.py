@@ -170,6 +170,14 @@ def test_x_board_event_requires_one_exact_ticker_led_source_title() -> None:
     assert board_event["media_urls"] == ["https://img.example/chart.png"]
 
 
+def test_x_board_title_preserves_source_visible_markdown_and_link_text() -> None:
+    event = swing_event(
+        '<p>KPIG: Wave | <a href="https://example.test/chart">support* &amp; resistance</a></p><p>Second source line</p>'
+    )
+
+    assert scan.board_source_event(event, profile_fixture())["source_title"] == "KPIG: Wave | support* & resistance"
+
+
 def test_multiticker_or_non_ticker_led_x_source_stays_all_only() -> None:
     assert scan.board_source_event(swing_event(source_text="KPIG dan RAJA menarik"), profile_fixture()) is None
     assert scan.board_source_event(swing_event(source_text="Update teknikal hari ini"), profile_fixture()) is None
