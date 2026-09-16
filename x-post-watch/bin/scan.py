@@ -249,7 +249,7 @@ def _source_title_is_single_ticker(source_title: str, ticker: str) -> bool:
     return True
 
 
-def board_source_event(event: dict, profile) -> dict[str, object] | None:
+def board_source_event(event: dict, profile, *, status_date: datetime | None = None) -> dict[str, object] | None:
     """Return the narrow source-only board context for an accepted X Swing event."""
     if event.get("route") != "id_stocks_swing":
         return None
@@ -272,11 +272,13 @@ def board_source_event(event: dict, profile) -> dict[str, object] | None:
         render.render_post(
             profile,
             post,
-            None,
+            event.get("summary") if profile.enable_llm_summary else None,
             event.get("title"),
             thread_posts,
             bool(event.get("updated_tweet")),
             include_board=False,
+            include_status_date=True,
+            status_date=status_date,
         )
     )
     normalized_source_title = f"{ticker}: {source_match.group(2).strip()}"
@@ -438,6 +440,22 @@ def _retry_cleanup(value: dict, dry_run: bool, storage: Path, stats: RunStats) -
     state.save_state(storage, value)
 
 
+def _delivery_at(event: dict, now: datetime | None) -> datetime:
+    """Return the durable first-delivery instant used by Swing status dates."""
+    value = event.get("delivery_at")
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value)
+            if parsed.tzinfo is not None and parsed.utcoffset() is not None:
+                return parsed
+        except ValueError:
+            pass
+    current = now or datetime.now(WIB)
+    if current.tzinfo is None or current.utcoffset() is None:
+        raise ValueError("delivery time must include a timezone")
+    return current
+
+
 def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, storage: Path, stats: RunStats, now: datetime | None = None) -> bool:
     event = value["outbox"][event_index]
     event.setdefault("board_phase", BOARD_PENDING)
@@ -450,6 +468,8 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
     post = state.deserialize_post(event["post"])
     thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]]))
     channel_id = _target_channel(profile, event)
+    attempt_at = now or datetime.now(WIB)
+    delivery_at = _delivery_at(event, attempt_at)
     messages = render.render_post(
         profile,
         post,
@@ -458,6 +478,8 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
         thread_posts,
         bool(event.get("updated_tweet")),
         include_board=event.get("route") == "id_stocks_swing",
+        include_status_date=event.get("route") == "id_stocks_swing",
+        status_date=delivery_at if event.get("route") == "id_stocks_swing" else None,
     )
     media_url: str | None = None
     try:
@@ -467,6 +489,8 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
             if message_id is not None:
                 event.setdefault("text_message_ids", []).append(message_id)
             event["text_index"] += 1
+            if event.get("route") == "id_stocks_swing" and event.get("delivery_at") is None:
+                event["delivery_at"] = delivery_at.isoformat()
             state.save_state(storage, value)
             return True
         all_media = _delivery_media(profile, thread_posts)
@@ -497,7 +521,9 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
         stats.reasons.append(event["last_error"])
         state.save_state(storage, value)
         return False
-    delivered_at = now or datetime.now(WIB)
+    delivered_at = attempt_at
+    if event.get("route") == "id_stocks_swing" and event.get("delivery_at") is None:
+        event["delivery_at"] = delivery_at.isoformat()
     record = state.record_delivery(value, event, channel_id, delivered_at, dry_run)
     if record is not None:
         state.queue_replacement_cleanup(value, record)
@@ -505,7 +531,7 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
     # retry below must therefore never revisit text, media, routing, or agent
     # work.
     state.save_state(storage, value)
-    payload = board_source_event(event, profile)
+    payload = board_source_event(event, profile, status_date=delivery_at if event.get("route") == "id_stocks_swing" else None)
     if payload is None:
         event["board_phase"] = BOARD_UNAVAILABLE
         value["outbox"].pop(event_index)

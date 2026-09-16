@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timezone
+from pathlib import Path
 import re
 
 from calendar import is_idx_trading_day, sessions_ago
@@ -14,7 +15,7 @@ from discord_forum import DiscordForumClient, DiscordForumError, DiscordRateLimi
 from models import Checkpoint, Episode, MarketState, SourceEvent
 from media_store import acquire_media
 from prices import classify_close, fetch_session_close, parse_plan_levels
-from render import WIB, render_primary_card, render_source_only_card, render_source_replies, primary_card_requires_source_reply
+from render import WIB, render_primary_card, render_source_reply, render_source_replies, primary_card_requires_source_reply
 from store import BoardStore, BoardStoreTransaction, StoreBlockedError
 from tags import (
     PRIMARY_PLAN,
@@ -22,6 +23,7 @@ from tags import (
     desired_lifecycle_tag,
     merge_source_tier,
     source_tier,
+    source_tier_rank,
 )
 
 
@@ -234,26 +236,85 @@ class BoardEngine:
     def _social(self, tx, event, event_id, active, now):
         if active is None:
             active = tx.create_episode(event.ticker, "source", event.source_title, event.published_at)
-            active = replace(active, lifecycle_tag=source_tier(event.source))
+            active = replace(
+                active,
+                lifecycle_tag=source_tier(event.source),
+                starter_source_event_id=event_id,
+            )
             tx.update_episode(active)
-            self._enqueue(tx, event, active, "create_thread", {
-                "name": active.title, "content": render_source_only_card(active.title, event.source_url),
-                "tag_names": [active.lifecycle_tag], "chart": None,
-            }, now)
+            starter, content_start, media_start = _starter_payload(event)
+            self._enqueue(
+                tx,
+                event,
+                active,
+                "create_thread",
+                {
+                    "name": active.title,
+                    "content": starter["content"],
+                    "tag_names": [active.lifecycle_tag],
+                    "chart": starter.get("chart"),
+                    **({"media_url": starter["media_url"]} if starter.get("media_url") else {}),
+                    "source_event_id": event_id,
+                },
+                now,
+            )
+            self._source_reply(
+                tx, event, active, now, content_start=content_start, media_start=media_start
+            )
         else:
+            current_starter = _current_source_starter(tx, active)
+            incoming_tier = source_tier(event.source)
+            replace_starter = (
+                active.lifecycle == "source"
+                and (
+                    current_starter is None
+                    or source_tier_rank(incoming_tier) > source_tier_rank(source_tier(current_starter.source))
+                    or (
+                        source_tier_rank(incoming_tier)
+                        == source_tier_rank(source_tier(current_starter.source))
+                        and event.published_at > current_starter.published_at
+                    )
+                )
+            )
             updated = replace(
                 active,
+                title=event.source_title if replace_starter else active.title,
                 lifecycle_tag=(
                     merge_source_tier(active.lifecycle_tag, source_tier(event.source))
                     if active.lifecycle == "source" else active.lifecycle_tag
                 ),
                 latest_material_at=max(active.latest_material_at, event.published_at),
+                starter_source_event_id=event_id if replace_starter else active.starter_source_event_id,
             )
             tx.update_episode(updated)
-            if updated.lifecycle_tag != active.lifecycle_tag:
+            if replace_starter:
+                starter, content_start, media_start = _starter_payload(event)
+                edit_payload = {
+                    "content": starter["content"],
+                    "chart": starter.get("chart"),
+                    "clear_attachments": not _starter_has_media(starter),
+                    "source_event_id": event_id,
+                }
+                if starter.get("media_url"):
+                    edit_payload["media_url"] = starter["media_url"]
+                self._enqueue(
+                    tx,
+                    event,
+                    updated,
+                    "edit_starter",
+                    edit_payload,
+                    now,
+                )
+                if current_starter is not None:
+                    self._source_history(tx, current_starter, updated, event, now)
+                self._source_reply(
+                    tx, event, updated, now, content_start=content_start, media_start=media_start
+                )
+            else:
+                self._source_reply(tx, event, updated, now)
+            if replace_starter or updated.lifecycle_tag != active.lifecycle_tag:
                 self._patch(tx, event, updated, now)
             active = updated
-        self._source_reply(tx, event, active, now)
 
     def _buy(self, tx, event, event_id, active, now):
         event_date = event.published_at.astimezone(WIB).date()
@@ -263,31 +324,40 @@ class BoardEngine:
             tx.finish_plan(active.id, now)
             tx.update_episode(replace(active, closed_at=now))
             active = None
-        promoting_source = active is not None and active.lifecycle == "source"
         title = f"{event.ticker}: Buy"
         if active is None:
             active = tx.create_episode(event.ticker, "primary", title, event.published_at)
-            active = replace(active, lifecycle_tag=PRIMARY_PLAN)
+            active = replace(active, lifecycle_tag=PRIMARY_PLAN, starter_source_event_id=event_id)
             tx.update_episode(active)
             tx.replace_plan(active.id, event_id, event, now)
             self._enqueue(tx, event, active, "create_thread", {
                 "name": title, "content": render_primary_card(event),
-                "tag_names": [PRIMARY_PLAN], "chart": event.media_path,
+                "tag_names": [PRIMARY_PLAN], "chart": _local_media(event.media_path),
+                "source_event_id": event_id,
             }, now)
             if primary_card_requires_source_reply(event):
                 self._source_reply(tx, event, active, now)
             return
-        active = replace(active, lifecycle="primary", title=title, lifecycle_tag=PRIMARY_PLAN,
-                         market_tag=None, latest_material_at=max(active.latest_material_at, event.published_at))
+        prior_starter = _current_source_starter(tx, active) or tx.active_plan(active.id)
+        active = replace(
+            active,
+            lifecycle="primary",
+            title=title,
+            lifecycle_tag=PRIMARY_PLAN,
+            market_tag=None,
+            latest_material_at=max(active.latest_material_at, event.published_at),
+            starter_source_event_id=event_id,
+        )
         tx.update_episode(active)
         tx.replace_plan(active.id, event_id, event, now)
         self._enqueue(tx, event, active, "edit_starter", {
-            "content": render_primary_card(event), "chart": event.media_path,
-            "clear_attachments": event.media_path is None,
+            "content": render_primary_card(event), "chart": _local_media(event.media_path),
+            "clear_attachments": _local_media(event.media_path) is None,
+            "source_event_id": event_id,
         }, now)
+        if prior_starter is not None and prior_starter.event_key != event.event_key:
+            self._source_history(tx, prior_starter, active, event, now)
         self._patch(tx, event, active, now)
-        if promoting_source:
-            self._resend_latest_gtw(tx, active, event, now)
         if primary_card_requires_source_reply(event):
             self._source_reply(tx, event, active, now)
 
@@ -319,24 +389,12 @@ class BoardEngine:
         if terminal:
             tx.finish_plan(active.id, now)
 
-    def _resend_latest_gtw(self, tx, active, promotion_event, now):
-        """Place one fresh GTW context reply below a promoted primary card."""
-        latest_gtw = tx.latest_source_event(active.id, "kelas-investasi")
-        if latest_gtw is None:
-            return
-        self._source_reply(
-            tx,
-            latest_gtw,
-            active,
-            now,
-            dedupe_scope=f"promotion:{promotion_event.event_key}:gtw",
-        )
-
-    def _source_reply(self, tx, event, active, now, *, dedupe_scope=None):
+    def _source_reply(self, tx, event, active, now, *, content_start=0, media_start=0, dedupe_scope=None):
         contents = render_source_replies(event)
-        for index, content in enumerate(contents):
+        for index, content in enumerate(contents[content_start:], start=content_start):
             payload = {
-                "content": content, "media": event.media_path if index == 0 else None,
+                "content": content,
+                "media": _local_media(event.media_path) if index == content_start and content_start == 0 else None,
             }
             suffix = f":{index}" if len(contents) > 1 else ""
             if dedupe_scope is None:
@@ -347,9 +405,9 @@ class BoardEngine:
                     "post_source_reply", active.id,
                     {**payload, "nonce_value": dedupe_key}, dedupe_key, now,
                 )
-        for index, url in enumerate(event.media_urls):
+        for index, url in enumerate(event.media_urls[media_start:], start=media_start):
             payload = {
-                "content": f"[Source media {index + 1}](<{event.source_url}>)",
+                "content": "",
                 "media": None, "media_url": url,
             }
             suffix = f":media:{index}"
@@ -361,6 +419,24 @@ class BoardEngine:
                     "post_source_reply", active.id,
                     {**payload, "nonce_value": dedupe_key}, dedupe_key, now,
                 )
+
+    def _source_history(self, tx, previous, active, replacement, now):
+        """Preserve the previous starter card and first chart exactly once."""
+        contents = render_source_replies(previous)
+        if not contents:
+            return
+        dedupe_prefix = f"event:{previous.event_key}:post_source_reply:history:{replacement.event_key}"
+        media = _local_media(previous.media_path)
+        first_url = previous.media_urls[0] if previous.media_urls else None
+        dedupe_key = f"{dedupe_prefix}:0"
+        payload = {
+            "content": contents[0],
+            "media": media,
+            "nonce_value": dedupe_key,
+        }
+        if media is None and first_url:
+            payload["media_url"] = first_url
+        tx.enqueue_outbox("post_source_reply", active.id, payload, dedupe_key, now)
 
     def _patch(self, tx, event, active, now):
         tags = [active.lifecycle_tag]
@@ -400,13 +476,22 @@ class BoardEngine:
             return tx.schedule_history_deletes(now)
 
     def schedule_format_migration(self, now: datetime) -> int:
-        """Queue canonical rewrites for existing cards and source replies."""
+        """Queue canonical rewrites for existing starters and source replies.
+
+        Older board rows do not know which immutable source event was shown in
+        the starter.  Open source episodes recover that projection from their
+        durable source-reply intents, move the first source card and chart into
+        the starter, and remove only the now-duplicated legacy reply messages.
+        """
         count = 0
         for card in self.store.latest_plan_cards():
             if not card.episode.thread_id or not card.episode.starter_message_id:
                 continue
             checkpoint, last_valid = self._latest_checkpoints(card.episode.id)
             with self.store.transaction() as tx:
+                current = tx.episode(card.episode.id)
+                if current.starter_source_event_id != card.event_id:
+                    tx.update_episode(replace(current, starter_source_event_id=card.event_id))
                 tx.enqueue_outbox(
                     "edit_starter",
                     card.episode.id,
@@ -421,8 +506,74 @@ class BoardEngine:
                     now,
                 )
             count += 1
-        for reply in self.store.completed_source_replies():
-            if not reply.current_content or reply.current_content.startswith("[Source media"):
+
+        completed_replies = self.store.completed_source_replies()
+        replies_by_episode: dict[int, list] = {}
+        deleted_reply_ids: set[int] = set()
+        for reply in completed_replies:
+            replies_by_episode.setdefault(reply.episode.id, []).append(reply)
+
+        for episode in self.store.episodes():
+            if episode.lifecycle != "source" or episode.closed_at is not None:
+                continue
+            if not episode.thread_id or not episode.starter_message_id:
+                continue
+            with self.store.transaction() as tx:
+                current = tx.episode(episode.id)
+                source_events = tx.episode_source_events(episode.id)
+                if not source_events:
+                    continue
+                starter_id, starter_event = max(
+                    source_events,
+                    key=lambda item: (
+                        source_tier_rank(source_tier(item[1].source)),
+                        item[1].published_at,
+                        item[0],
+                    ),
+                )
+                starter, _, _ = _starter_payload(starter_event)
+                payload = {
+                    "content": starter["content"],
+                    "chart": starter.get("chart"),
+                    "clear_attachments": not _starter_has_media(starter),
+                    "source_event_id": starter_id,
+                    "nonce_value": f"format-migration:v6:source:{episode.id}:{starter_event.event_key}",
+                }
+                if starter.get("media_url"):
+                    payload["media_url"] = starter["media_url"]
+                updated = replace(
+                    current,
+                    title=starter_event.source_title,
+                    starter_source_event_id=starter_id,
+                )
+                tx.update_episode(updated)
+                tx.enqueue_outbox(
+                    "edit_starter", episode.id, payload, payload["nonce_value"], now
+                )
+                count += 1
+                for reply in replies_by_episode.get(episode.id, []):
+                    if reply.is_history or reply.event.event_key != starter_event.event_key:
+                        continue
+                    if reply.chunk_index != 0:
+                        continue
+                    nonce = f"format-migration:v6:delete:{reply.outbox_id}"
+                    tx.enqueue_outbox(
+                        "delete_message",
+                        episode.id,
+                        {
+                            "message_id": reply.message_id,
+                            "nonce_value": nonce,
+                        },
+                        nonce,
+                        now,
+                    )
+                    deleted_reply_ids.add(reply.outbox_id)
+                    count += 1
+
+        for reply in completed_replies:
+            if reply.outbox_id in deleted_reply_ids:
+                continue
+            if reply.is_history or not reply.current_content or reply.current_content.startswith("[Source media"):
                 continue
             chunks = render_source_replies(reply.event)
             if reply.chunk_index >= len(chunks):
@@ -475,6 +626,8 @@ class BoardEngine:
                 payload = dict(operation.payload)
                 if payload.get("media_url") and not getattr(self.client, "no_post", False):
                     payload["media"] = str(acquire_media(payload["media_url"], operation.dedupe_key))
+                    if operation.operation in {"create_thread", "edit_starter"}:
+                        payload["chart"] = payload["media"]
                 if operation.operation != "create_thread":
                     episode = self.store.episode(operation.episode_id)
                     if not episode.thread_id or not episode.starter_message_id:
@@ -512,6 +665,48 @@ class BoardEngine:
             finally:
                 self.client.before_create = None
         return completed
+
+
+def _local_media(value: str | None) -> str | None:
+    if not value:
+        return None
+    path = Path(value)
+    return str(path) if path.is_file() else None
+
+
+def _current_source_starter(tx: BoardStoreTransaction, episode: Episode) -> SourceEvent | None:
+    """Resolve a legacy source starter before its migration has run."""
+    current = tx.starter_source_event(episode.id)
+    if current is not None or episode.lifecycle != "source":
+        return current
+    events = tx.episode_source_events(episode.id)
+    if not events:
+        return None
+    return max(
+        events,
+        key=lambda item: (
+            source_tier_rank(source_tier(item[1].source)),
+            item[1].published_at,
+            item[0],
+        ),
+    )[1]
+
+
+def _starter_has_media(payload: dict) -> bool:
+    return bool(payload.get("chart") or payload.get("media_url"))
+
+
+def _starter_payload(event: SourceEvent) -> tuple[dict, int, int]:
+    contents = render_source_replies(event)
+    payload: dict = {"content": contents[0]}
+    chart = _local_media(event.media_path)
+    if chart:
+        payload["chart"] = chart
+        return payload, 1, 0
+    if event.media_urls:
+        payload["media_url"] = event.media_urls[0]
+        return payload, 1, 1
+    return payload, 1, 0
 
 
 def _wib(value: datetime) -> datetime:

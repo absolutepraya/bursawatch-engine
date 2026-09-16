@@ -37,7 +37,7 @@ bootstrap if the bootstrap is run.
 The configured forum tags are:
 
 ```text
-Source plan, Primary plan, Resolved,
+Chart context, Supporting setup, Primary plan, Resolved,
 Below entry, Entry zone, Above entry,
 TP1 reached, TP2 reached, TP3 reached, TP4 reached, TP5 reached, TP6 reached,
 Stop-loss breached
@@ -74,13 +74,15 @@ into a single "status".
 | Concept | Meaning | Authority | Timing |
 | --- | --- | --- | --- |
 | Primary Plan | The current full Phintraco Daily cash-equity setup: entry, stop loss, targets, chart, and source link | Phintraco | New complete setup, then later immediate updates |
+| Source tier | The strongest non-primary context in the episode: `Supporting setup` for GTW or `Chart context` for X and other social/chart sources | The source adapter and board owner | Source arrival and replacement |
 | Source Status | What the latest matching Phintraco source explicitly says, for example `Hold` or `Target 1 achieved` | Phintraco | Immediately on source arrival |
 | Market Checkpoint | Latest factual closing-price position against the stored plan | Deterministic status owner using valid Yahoo session data | 16:30 WIB, with one 17:00 retry |
 
 Only a complete Phintraco BUY setup can create or replace a Primary Plan.
 Phintraco HOLD and REMINDER items update the matching plan's Source Status.
 They do not overwrite plan levels, manufacture a new plan, or change an
-episode title.
+episode title. A source-only event never changes the primary plan or its
+market-state tag.
 
 The board's deterministic status owner is the only process allowed to write
 the board's SQLite database and mutate board Discord state. Existing watchers
@@ -121,8 +123,7 @@ in All Swing.
 A subsequent complete Phintraco BUY setup supersedes the currently active
 Primary Plan only when the existing episode is not terminal and is within the
 connected-material window. The owner replaces the bot-managed top card and
-chart in that same forum post, records a quoted material-transition entry, and
-retains normal source replies as immutable history.
+chart in that same forum post, while retaining existing normal source replies.
 
 ### Social source-only plan and promotion
 
@@ -134,8 +135,9 @@ source-only post titled with the source's exact title, for example:
 KPIG: Wave IV diproyeksikan menuju area 97 sampai 108
 ```
 
-The top card is a neutral Yanto-owned card that says there is no Phintraco
-Primary Plan yet. The actual social source stays as a normal thread reply.
+The source event itself owns the Yanto-managed top card, including its accepted
+summary and first chart. Additional source chunks and later media remain normal
+thread replies.
 
 If a complete Phintraco BUY setup for that ticker arrives within 20 IDX
 exchange trading sessions, while that source-only episode remains open and
@@ -145,15 +147,14 @@ nonterminal, the owner promotes it in place:
    chart;
 2. change the forum title to `<TICKER>: Buy`;
 3. replace the lifecycle tag with `Primary plan`; and
-4. retain every original social source reply; when the episode is GTW-only,
-   enqueue exactly one fresh copy of the latest GTW message below the new
-   Phintraco starter using a durable promotion dedupe key.
+4. preserve the superseded social starter card and first chart once as a
+   normal source-context history reply below the new Phintraco starter.
 
-The fresh GTW handoff is board-only and does not replay the All Swing feed. No
+The source-context history is board-only and does not replay the All Swing feed. No
 source message is rewritten, copied to quoted history, or deleted. If the
 matching setup arrives after 20 exchange sessions, or after the old episode
-resolved, it begins a fresh Phintraco episode and does not perform the GTW
-promotion handoff. It does not backfill unrelated or stale social context.
+resolved, it begins a fresh Phintraco episode and does not preserve stale social
+context. It does not backfill unrelated or stale social context.
 
 ### Status and checkpoint updates
 
@@ -260,11 +261,12 @@ bot must not treat source messages from other authors as editable records.
 ### Normal source replies and managed board history
 
 The complete Phintraco setup represented by the top card is not duplicated as
-a reply, except for the explicitly controlled latest-GTW handoff during
-promotion. Later distinct Phintraco source-status messages, and actual social
-source material, are delivered as normal thread replies that preserve their
-source content and link. Board-owned lifecycle history is represented by the
-updated managed card and tags; the owner does not emit quoted history replies.
+a reply. A source-only starter contains the accepted source summary and first
+chart, while later source chunks and media are delivered as normal thread
+replies that preserve their source content and link. When a stronger or newer
+source replaces a source-only starter, the superseded starter card and first
+chart are preserved once as one normal source-context history reply. Board-owned
+lifecycle history is never rendered as a quoted reply.
 
 The owner updates the managed card for material transitions such as:
 
@@ -287,7 +289,8 @@ Each active post has exactly one lifecycle tag:
 
 | Episode state | Tag |
 | --- | --- |
-| Social-only context | `Source plan` |
+| GTW source-only context | `Supporting setup` |
+| X or other chart-only context | `Chart context` |
 | Active Phintraco Primary Plan | `Primary plan` |
 | Terminal plan | `Resolved` |
 

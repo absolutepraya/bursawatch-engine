@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 WIB = ZoneInfo("Asia/Jakarta")
 BOARD_URL = "https://discord.com/channels/940285152335110204/1548273399069933720"
+BOARD_MENTION = "<#1548273399069933720>"
 UP_EMOJI = "<:up:1531285100346740766>"
 DOWN_EMOJI = "<:down:1531285063986053200>"
 GREEN_EMOJI = "<:green:1531274822221434911>"
@@ -68,7 +69,7 @@ class SwingMessage:
     updated_at: datetime | None
     source_url: str | None
     footer_label: str
-    board_url: str | None = BOARD_URL
+    board_url: str | None = BOARD_MENTION
     fields: tuple[SwingField, ...] = ()
     chart_unavailable: bool = False
 
@@ -133,11 +134,11 @@ def render_message(message: SwingMessage, *, include_board: bool = False) -> str
         lines.append(f"**Source status:** {escape(status)} {source_status_emoji(status)}")
         lines.append(f"**Last updated:** {format_wib(message.updated_at)}")
         if include_board and message.board_url:
-            lines.append(f"**Board:** <{message.board_url}>")
+            lines.append(f"**Board:** {message.board_url}")
     elif include_board and message.board_url:
         if lines[-1] != "":
             lines.append("")
-        lines.append(f"**Board:** <{message.board_url}>")
+        lines.append(f"**Board:** {message.board_url}")
 
     if message.source_url:
         label = _required_text(message.footer_label, "footer label")
@@ -178,11 +179,11 @@ def render_message_unbounded(message: SwingMessage, *, include_board: bool = Fal
         lines.append(f"**Source status:** {escape(status)} {source_status_emoji(status)}")
         lines.append(f"**Last updated:** {format_wib(message.updated_at)}")
         if include_board and message.board_url:
-            lines.append(f"**Board:** <{message.board_url}>")
+            lines.append(f"**Board:** {message.board_url}")
     elif include_board and message.board_url:
         if lines[-1] != "":
             lines.append("")
-        lines.append(f"**Board:** <{message.board_url}>")
+        lines.append(f"**Board:** {message.board_url}")
     if message.source_url:
         label = _required_text(message.footer_label, "footer label")
         if lines[-1] != "":
@@ -324,7 +325,7 @@ def canonicalize_phintraco_message(
         source_url=url,
         footer_label="View in Telegram",
         chart_unavailable=kind == "buy" and not has_chart,
-        board_url=BOARD_URL if include_board else None,
+        board_url=BOARD_MENTION if include_board else None,
     )
     return render_message_unbounded(message, include_board=include_board)
 

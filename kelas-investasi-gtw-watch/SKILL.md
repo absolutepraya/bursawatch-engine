@@ -33,17 +33,16 @@ After the scanner completes All delivery, it may submit the accepted GTW bundle 
 The scanner's rendered cash-Swing message uses the shared `swing-format`
 contract. Keep the source title, summary, and plan values intact; the renderer
 adds the institution byline, the factual `Good to watch` source status with a
-grey marker, source timestamp, and source footer. All includes the Board link
+grey marker, source timestamp, and source footer. All includes the Board channel mention
 directly below `Last updated`, while board context omits that line. Do not
 create a separate quoted status message.
 
 GTW is source-only Swing context. The board may create or append a `Supporting
 setup` episode, but GTW never becomes the Primary Plan or changes Phintraco's
 status and market tags. When an open GTW-only episode is promoted by a complete
-Phintraco BUY, the board owner keeps the original GTW replies and posts exactly
-one fresh copy of the latest GTW message below the new Phintraco starter. The
-fresh handoff is board-only and durably deduplicated, so it does not replay the
-All Swing feed. Archived episodes do not accept later GTW events.
+Phintraco BUY, the board owner preserves the superseded GTW starter once as a
+normal source-context history reply. It does not create a separate GTW resend or
+replay the All Swing feed. Archived episodes do not accept later GTW events.
 
 ## No-post control
 

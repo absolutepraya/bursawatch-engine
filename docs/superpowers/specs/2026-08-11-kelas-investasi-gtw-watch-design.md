@@ -16,7 +16,7 @@ The cron starts at deployment without backfilling historical signals.
 - Telegram authentication: the existing shared `POLYCOP_SESSION_STRING` through `telegram-resilience`.
 - Output: one text message, then every image or chart from the source bundle in source order.
 
-The cron does not backfill, execute trades, evaluate whether the source thesis is correct, post as Abhip's personal Telegram account, or forward promotions and unrelated messages. After All delivery, it submits the accepted event to the Swing board owner as source-only context. The board may later promote an open GTW-only episode when Phintraco publishes a complete setup; that promotion retains the original replies and re-sends the latest GTW message once below the new Phintraco card.
+The cron does not backfill, execute trades, evaluate whether the source thesis is correct, post as Abhip's personal Telegram account, or forward promotions and unrelated messages. After All delivery, it submits the accepted event to the Swing board owner as source-only context. The board may later promote an open GTW-only episode when Phintraco publishes a complete setup; that promotion preserves the superseded GTW starter and first chart once as normal source-context history below the new Phintraco card.
 
 ## Architecture
 
@@ -99,7 +99,7 @@ The text delivery uses the shared cash-Swing renderer:
 
 **Source status:** Good to watch <:grey:1531279158913536182>
 **Last updated:** 19 Sep 2026 06:50 WIB
-**Board:** <https://discord.com/channels/940285152335110204/1548273399069933720>
+**Board:** <#1548273399069933720>
 
 [View on Telegram](<https://t.me/kelasinvestasiid/<header-message-id>>)
 ```

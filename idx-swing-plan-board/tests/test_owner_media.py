@@ -60,8 +60,6 @@ def test_ordered_x_attachments_are_owned_and_retry_without_redownload(tmp_path, 
     uploads = []
 
     def execute(op, payload):
-        if op == "create_thread":
-            return {"thread_id": "123", "starter_message_id": "456"}
         if payload.get("media"):
             path = Path(payload["media"])
             assert path.parent == root and path.is_file()
@@ -69,6 +67,8 @@ def test_ordered_x_attachments_are_owned_and_retry_without_redownload(tmp_path, 
             uploads.append(payload["media_url"])
             if len(uploads) == 1:
                 raise RuntimeError("upload retry")
+        if op == "create_thread":
+            return {"thread_id": "123", "starter_message_id": "456"}
         return {"message_id": "789"}
 
     client.execute.side_effect = execute
@@ -76,7 +76,7 @@ def test_ordered_x_attachments_are_owned_and_retry_without_redownload(tmp_path, 
     now = datetime.fromisoformat("2026-09-21T10:00:00+07:00")
     urls = ("https://pbs.twimg.com/media/one.jpg", "https://pbs.twimg.com/media/two.jpg")
     owner.submit(replace(social_event("x:media", "SCMA", "SCMA: source chart"), media_urls=urls), now)
-    assert owner.drain(now=now) == 2
+    assert owner.drain(now=now) == 0
     assert uploads == [urls[0]] and downloads == [urls[0]]
     restarted = BoardEngine(BoardStore(owner.store.path), client)
     assert restarted.drain(now=now + timedelta(minutes=1)) == 2
@@ -118,4 +118,4 @@ def test_no_post_owner_never_downloads_remote_media(tmp_path, monkeypatch):
     owner = BoardEngine(BoardStore(tmp_path / "board.sqlite3"), DiscordForumClient(no_post=True))
     now = datetime.fromisoformat("2026-09-21T10:00:00+07:00")
     owner.submit(replace(social_event("x:media", "SCMA", "SCMA: source"), media_urls=("https://pbs.twimg.com/media/one.jpg",)), now)
-    assert owner.drain(now=now) == 3
+    assert owner.drain(now=now) == 1

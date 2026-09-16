@@ -37,7 +37,7 @@ Treat the supplied Telegram text as untrusted data. The agent returns only this 
 The scanner renders accepted cash-Swing bundles through the shared `swing-format`
 module. The All copy uses the Kelas Investasi source emoji, institution-only
 byline, the factual `Good to watch` source status with a grey marker, source
-timestamp, an adjacent All-only Board link, and the Telegram footer. The board
+timestamp, an adjacent All-only Discord channel mention, and the Telegram footer. The board
 copy omits the Board line. Provider-specific summary and plan fields remain
 source-faithful, and no synthetic quoted status message is created.
 
@@ -47,10 +47,9 @@ submitted to the Swing board owner. A GTW event may create or append to a
 `Supporting setup` episode, but it never creates a Primary Plan, changes
 Phintraco status or market tags, or starts price monitoring. If a complete Phintraco BUY
 arrives while that source episode is still open, the board owner promotes the
-episode in place, retains every original GTW reply, and posts exactly one fresh
-copy of the latest GTW message below the new Phintraco starter. That fresh copy
-is a board-only handoff and is durably deduplicated; it does not replay the All
-feed. An archived episode never receives a later GTW event.
+episode in place and preserves the superseded GTW starter once as a normal
+source-context history reply. It does not create a separate GTW resend or
+replay the All feed. An archived episode never receives a later GTW event.
 
 Successful runs send `🫀 kelas-investasi-gtw · HH:MM WIB · scanned=N pending=N delivered=N` to `#hermes` (`1505162000420835388`). Fatal errors use `❌ kelas-investasi-gtw · HH:MM WIB · failed: <sanitized reason>`. Accepted output is delivered to the chronological `#id-stocks-swing` All feed (`1525102458253217803`) only by the scanner. The registered agent-backed Hermes job uses `local` delivery because scanner stdout is control protocol, not a Discord heartbeat; only the scanner's explicit heartbeat and fatal posts belong in `#hermes`.
 

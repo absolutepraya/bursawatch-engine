@@ -57,6 +57,7 @@ def load_state(path: Path) -> dict:
         event.setdefault("media_message_ids", [])
         event.setdefault("media_skipped_urls", [])
         event.setdefault("media_errors", [])
+        event.setdefault("delivery_at", None)
         event.setdefault("replacement_of", [])
         event.setdefault("board_phase", BOARD_PENDING)
         event.setdefault("board_attempts", 0)
@@ -304,6 +305,7 @@ def _event_for_thread(state: dict, profile: Profile, thread: tuple[SourcePost, .
         "media_index": 0,
         "media_skipped_urls": [],
         "media_errors": [],
+        "delivery_at": None,
         "post": serialize_post(latest),
         "board_phase": BOARD_PENDING,
         "board_attempts": 0,

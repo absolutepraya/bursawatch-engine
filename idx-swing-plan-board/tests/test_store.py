@@ -174,7 +174,7 @@ def test_version_one_database_migrates_without_losing_source_rows(tmp_path) -> N
     store = BoardStore(path)
 
     assert store.count_rows("source_events") == 1
-    assert store.schema_version == 7
+    assert store.schema_version == 8
 
     connection = sqlite3.connect(path)
     assert connection.execute("SELECT event_key, ticker FROM source_events").fetchone() == (
@@ -215,7 +215,7 @@ def test_version_two_outbox_migrates_to_claim_tokens_without_reset(tmp_path) -> 
 
     store = BoardStore(path)
 
-    assert store.schema_version == 7
+    assert store.schema_version == 8
     connection = sqlite3.connect(path)
     assert connection.execute("SELECT dedupe_key, claim_token FROM outbox").fetchone() == (
         "existing",
@@ -260,7 +260,7 @@ def test_version_three_migration_preserves_event_plan_and_outbox(tmp_path) -> No
 
     upgraded = BoardStore(path)
 
-    assert upgraded.schema_version == 7
+    assert upgraded.schema_version == 8
     assert upgraded.count_rows("source_events") == 1
     assert upgraded.active_plan(episode.id) == event
     assert upgraded.operations_for_ticker("SCMA")[0].payload == {"content": "preserved"}
@@ -297,7 +297,7 @@ def test_version_five_history_migration_preserves_rows_and_adds_chunk_identity(t
 
     store = BoardStore(path)
 
-    assert store.schema_version == 7
+    assert store.schema_version == 8
     with sqlite3.connect(path) as connection:
         assert connection.execute(
             "SELECT material_payload, discord_message_id, history_key FROM history_events"

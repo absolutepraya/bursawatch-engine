@@ -208,6 +208,7 @@ class Episode:
     closed_at: datetime | None = None
     thread_id: str | None = None
     starter_message_id: str | None = None
+    starter_source_event_id: int | None = None
     lifecycle_tag: str | None = None
     market_tag: str | None = None
 

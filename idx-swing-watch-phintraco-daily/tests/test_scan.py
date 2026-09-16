@@ -139,7 +139,7 @@ def test_format_chart_backed_alert_exact():
         "MACD yang konsisten membentuk histogram positif sejalan dengan peluang tersebut.\n\n"
         "**Source status:** New setup <:grey:1531279158913536182>\n"
         "**Last updated:** 10 Jul 2026 07:00 WIB\n"
-        "**Board:** <https://discord.com/channels/940285152335110204/1548273399069933720>\n\n"
+        "**Board:** <#1548273399069933720>\n\n"
         "[View in Telegram](<https://t.me/phintraprofits/33655>)"
     )
 
@@ -234,7 +234,7 @@ def test_canonical_fixture_output_is_unchanged_when_no_escape_is_needed():
         "**Reasons:** Konsolidasi bertahan di atas support area 200 menjaga peluang rebound hingga minor uptrend lanjutan. MACD yang konsisten membentuk histogram positif sejalan dengan peluang tersebut.\n\n"
         "**Source status:** New setup <:grey:1531279158913536182>\n"
         "**Last updated:** 10 Jul 2026 07:00 WIB\n"
-        "**Board:** <https://discord.com/channels/940285152335110204/1548273399069933720>\n\n"
+        "**Board:** <#1548273399069933720>\n\n"
         "[View in Telegram](<https://t.me/phintraprofits/33655>)"
     )
 
@@ -383,7 +383,7 @@ def test_on_support_update_uses_common_status_format_and_source_timestamp():
         "**Target 2:** 640\n"
         "\n**Source status:** On support <:hold:1531284248235868333>\n"
         "**Last updated:** 17 Jul 2026 10:11 WIB\n"
-        "**Board:** <https://discord.com/channels/940285152335110204/1548273399069933720>\n\n"
+        "**Board:** <#1548273399069933720>\n\n"
         "[View in Telegram](<https://t.me/phintraprofits/33801>)"
     )
 
@@ -415,7 +415,7 @@ def test_reply_status_requires_matching_parent_swing_plan():
         "-# Phintraco Sekuritas\n\n"
         "**Source status:** On track <:hold:1531284248235868333>\n"
         "**Last updated:** 15 Jul 2026 10:55 WIB\n"
-        "**Board:** <https://discord.com/channels/940285152335110204/1548273399069933720>\n\n"
+        "**Board:** <#1548273399069933720>\n\n"
         "[View in Telegram](<https://t.me/phintraprofits/33735>)"
     )
     assert (

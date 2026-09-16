@@ -11,7 +11,7 @@ from conftest import example_buy_event, social_event
 from discord_forum import DiscordForumClient, DiscordForumError
 from engine import BoardEngine, source_outcome_state
 from models import Checkpoint, MarketState, PlanLevels, SourceEvent
-from render import discord_length, render_source_reply
+from render import discord_length, render_source_replies, render_source_reply
 from store import BoardStore, StoreBlockedError
 from tags import CHART_CONTEXT, LEGACY_SOURCE_PLAN, SUPPORTING_SETUP
 
@@ -67,10 +67,10 @@ def test_social_event_creates_source_episode_and_normal_reply(engine):
     episode = engine.store.active_episode("KPIG")
     assert (episode.lifecycle, episode.title) == ("source", event.source_title)
     assert (episode.lifecycle_tag, episode.market_tag) == (CHART_CONTEXT, None)
-    assert [op.operation for op in operations(engine)] == ["create_thread", "post_source_reply", "post_source_reply"]
+    assert [op.operation for op in operations(engine)] == ["create_thread"]
     assert operations(engine)[0].payload["tag_names"] == [CHART_CONTEXT]
-    assert event.all_content in operations(engine)[1].payload["content"]
-    assert operations(engine)[2].payload["media_url"] == event.media_urls[0]
+    assert operations(engine)[0].payload["media_url"] == event.media_urls[0]
+    assert operations(engine)[0].payload["content"] == render_source_reply(event)
 
 
 def test_kelas_source_reply_chunks_are_durable_ordered_and_preserve_media(engine):
@@ -97,8 +97,8 @@ def test_kelas_source_reply_chunks_are_durable_ordered_and_preserve_media(engine
     replies = [item for item in engine.store.operations_for_ticker("RAJA") if item.operation == "post_source_reply"]
     assert len(replies) > 1
     assert all(len(item.payload["content"]) <= 2000 for item in replies)
-    assert "".join(item.payload["content"] for item in replies) == render_source_reply(event)
-    assert [item.payload["media"] for item in replies] == ["/tmp/raja-header.jpg", *([None] * (len(replies) - 1))]
+    assert "".join(item.payload["content"] for item in replies) == "".join(render_source_replies(event)[1:])
+    assert all(item.payload["media"] is None for item in replies)
     assert len({item.payload["nonce_value"] for item in replies}) == len(replies)
 
 
@@ -116,6 +116,53 @@ def test_gtw_is_stronger_than_existing_x_context(engine):
     assert episode.lifecycle_tag == SUPPORTING_SETUP
     patches = [op for op in operations(engine) if op.operation == "patch_thread"]
     assert patches[-1].payload["tag_names"] == [SUPPORTING_SETUP]
+
+
+def test_higher_tier_replaces_chart_starter_and_preserves_one_normal_history_reply(engine):
+    chart = social(
+        all_content=(
+            "### <:twitter:1> KPIG: Chart view\n"
+            "-# <:marketwriter:2> Market Writer\n\n"
+            "*(Ringkasan)* Chart context.\n\n"
+            "**Status date:** 19 Sep 2026 09:05 WIB\n\n"
+            "[View on X](<https://x.com/marketwriter/status/101>)"
+        ),
+        media_urls=("https://pbs.twimg.com/media/chart.png",),
+    )
+    stronger = gtw(media_path=None)
+    engine.submit(chart, at())
+    engine.submit(stronger, at("2026-09-20T09:05:00+07:00"))
+
+    episode = engine.store.active_episode("KPIG")
+    with engine.store.transaction() as tx:
+        assert tx.starter_source_event(episode.id).event_key == stronger.event_key
+    ops = operations(engine)
+    assert [op.operation for op in ops] == [
+        "create_thread", "edit_starter", "post_source_reply", "patch_thread"
+    ]
+    assert ops[0].payload["content"] == render_source_reply(chart)
+    assert ops[0].payload["media_url"] == chart.media_urls[0]
+    assert ops[1].payload["content"] == render_source_reply(stronger)
+    assert ops[2].payload["content"] == render_source_reply(chart)
+    assert not ops[2].payload["content"].startswith("> ")
+    assert ":history:" in ops[2].payload["nonce_value"]
+    assert ops[3].payload["name"] == stronger.source_title
+
+
+def test_newer_same_tier_source_updates_thread_title_and_starter(engine):
+    first = social(source_title="KPIG: First chart view")
+    newer = social(
+        event_key="x:marketwriter:102",
+        source_title="KPIG: Newer chart view",
+        published_at=at("2026-09-20T09:05:00+07:00"),
+    )
+    engine.submit(first, at())
+    engine.submit(newer, at("2026-09-20T09:05:00+07:00"))
+
+    episode = engine.store.active_episode("KPIG")
+    assert episode.title == newer.source_title
+    patch = [op for op in operations(engine) if op.operation == "patch_thread"][-1]
+    assert patch.payload["name"] == newer.source_title
 
 
 def test_tag_migration_rewrites_legacy_source_tag_and_queues_patch(engine):
@@ -177,19 +224,46 @@ def test_format_migration_rewrites_existing_starter_and_source_reply(engine):
     assert "On track <:hold:1531284248235868333>" in reply_migration.payload["content"]
 
 
+def test_format_migration_moves_legacy_source_card_into_starter(engine):
+    event = social()
+    engine.submit(event, at())
+    engine.drain(now=at())
+    episode = engine.store.active_episode("KPIG")
+    with engine.store.transaction() as tx:
+        tx.update_episode(replace(episode, starter_source_event_id=None))
+        tx.enqueue_outbox(
+            "post_source_reply",
+            episode.id,
+            {"content": "legacy source reply", "nonce_value": f"event:{event.event_key}:post_source_reply"},
+            f"event:{event.event_key}:post_source_reply",
+            at(),
+        )
+    engine.drain(now=at())
+
+    scheduled = engine.schedule_format_migration(at("2026-09-20T09:00:00+07:00"))
+    assert scheduled == 2
+    migration = next(
+        op for op in operations(engine)
+        if op.operation == "edit_starter" and op.payload["nonce_value"].startswith("format-migration:v6:source:")
+    )
+    assert migration.payload["content"] == render_source_reply(event)
+    deletion = next(op for op in operations(engine) if op.operation == "delete_message")
+    assert deletion.payload["message_id"] == "789"
+
+
 def test_buy_promotes_without_reposting_non_gtw_social_reply(engine):
     engine.submit(social(), at())
     engine.drain(now=at())
     engine.submit(buy(media_path="/tmp/original.png"), at("2026-09-22T09:05:00+07:00"))
     assert [op.operation for op in operations(engine)] == [
-        "create_thread", "post_source_reply", "edit_starter", "patch_thread"
+        "create_thread", "edit_starter", "post_source_reply", "patch_thread"
     ]
-    assert operations(engine)[2].payload["chart"] == "/tmp/original.png"
+    assert operations(engine)[1].payload["chart"] is None
     assert operations(engine)[3].payload["tag_names"] == ["Primary plan"]
     assert engine.store.active_episode("KPIG").title == "KPIG: Buy"
 
 
-def test_buy_promotes_and_resends_latest_gtw_reply_once(engine):
+def test_buy_promotes_and_preserves_latest_source_starter_once(engine):
     source = gtw()
     engine.submit(source, at())
     newer_source = gtw(
@@ -206,13 +280,13 @@ def test_buy_promotes_and_resends_latest_gtw_reply_once(engine):
     assert engine.submit(promotion, at("2026-09-22T09:05:00+07:00")) == "board_submitted"
 
     replies = [op for op in operations(engine) if op.operation == "post_source_reply"]
-    assert len(replies) == 3
-    resend = replies[-1]
-    assert resend.payload["content"] == render_source_reply(newer_source)
-    assert resend.payload["media"] == "/tmp/gtw-chart-new.png"
-    assert resend.payload["nonce_value"].startswith("promotion:")
+    assert len(replies) == 2
+    history = replies[-1]
+    assert history.payload["content"] == render_source_reply(newer_source)
+    assert history.payload["media"] is None
+    assert ":history:" in history.payload["nonce_value"]
     assert engine.submit(promotion, at("2026-09-22T09:05:00+07:00")) == "board_duplicate"
-    assert len([op for op in operations(engine) if op.operation == "post_source_reply"]) == 3
+    assert len([op for op in operations(engine) if op.operation == "post_source_reply"]) == 2
 
 
 @pytest.mark.parametrize("lifecycle", ["source", "primary"])
@@ -238,9 +312,9 @@ def test_replacement_retains_replies_and_records_prior_url(engine):
     engine.submit(social(), at())
     engine.submit(buy(event_key="new-buy", source_url="https://t.me/phintraprofits/777", media_path="/tmp/new.png"), at())
     ops = operations(engine)
-    assert [op.operation for op in ops] == ["create_thread", "post_source_reply", "edit_starter", "patch_thread"]
+    assert [op.operation for op in ops] == ["create_thread", "post_source_reply", "edit_starter", "post_source_reply", "patch_thread"]
     edit = next(op for op in ops if op.operation == "edit_starter")
-    assert edit.payload["chart"] == "/tmp/new.png"
+    assert edit.payload["chart"] is None
     assert not any("Replacement" in op.payload.get("content", "") for op in ops)
     assert engine.store.count_rows("plans") == 2
 
@@ -342,10 +416,10 @@ def test_drain_persists_ids_and_does_not_overtake_failed_work(engine):
     assert engine.drain(now=at()) == 0
     assert engine.client.execute.call_count == 1
     engine.client.execute.side_effect = lambda op, payload: {"thread_id": "123", "starter_message_id": "456"} if op == "create_thread" else {"message_id": "789"}
-    assert engine.drain(now=at() + timedelta(minutes=1)) == 2
+    assert engine.drain(now=at() + timedelta(minutes=1)) == 1
     episode = engine.store.active_episode("KPIG")
     assert (episode.thread_id, episode.starter_message_id) == ("123", "456")
-    assert engine.client.execute.call_args.args[1]["thread_id"] == "123"
+    assert engine.client.execute.call_args.args[1]["content"] == render_source_reply(social())
     assert all(op.status == "complete" for op in operations(engine))
 
 

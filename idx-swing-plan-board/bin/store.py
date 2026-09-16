@@ -19,7 +19,7 @@ from uuid import uuid4
 from models import Checkpoint, Episode, MarketState, OutboxOperation, PlanLevels, SourceEvent, SubmittedEvent
 
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 _LEGAL_OPERATIONS = frozenset(
     {"create_thread", "edit_starter", "post_source_reply", "post_history_reply", "delete_message", "patch_thread"}
 )
@@ -48,6 +48,7 @@ class PlanCard:
 
     episode: Episode
     plan_id: int
+    event_id: int
     event: SourceEvent
     source_updated_at: datetime
 
@@ -62,6 +63,8 @@ class SourceReply:
     message_id: str
     chunk_index: int
     current_content: str
+    has_media: bool
+    is_history: bool
 
 
 class BoardStore:
@@ -189,12 +192,17 @@ class BoardStore:
         with self._connection() as connection:
             return BoardStoreTransaction(self, connection).latest_plan_cards()
 
+    def episode_source_events(self, episode_id: int) -> list[tuple[int, SourceEvent]]:
+        with self._connection() as connection:
+            return BoardStoreTransaction(self, connection).episode_source_events(episode_id)
+
     def completed_source_replies(self) -> list[SourceReply]:
         with self._connection() as connection:
             rows = connection.execute(
                 "SELECT o.id AS outbox_id, o.payload_json, o.completion_json, o.dedupe_key, "
                 "e.id AS episode_id, e.ticker, e.lifecycle, e.title, e.opened_at, "
                 "e.latest_material_at, e.closed_at, e.thread_id, e.starter_message_id, "
+                "e.starter_source_event_id, "
                 "e.lifecycle_tag, e.market_tag FROM outbox o "
                 "JOIN episodes e ON e.id = o.episode_id "
                 "WHERE o.operation = 'post_source_reply' AND o.status = 'complete' "
@@ -223,12 +231,15 @@ class BoardStore:
                         latest_material_at=_parse_timestamp(row["latest_material_at"]),
                         closed_at=_parse_timestamp(row["closed_at"]) if row["closed_at"] else None,
                         thread_id=row["thread_id"], starter_message_id=row["starter_message_id"],
+                        starter_source_event_id=row["starter_source_event_id"],
                         lifecycle_tag=row["lifecycle_tag"], market_tag=row["market_tag"],
                     ),
                     event=_source_event_from_row(event_row),
                     message_id=message_id,
                     chunk_index=chunk_index,
                     current_content=str(payload.get("content") or ""),
+                    has_media=bool(payload.get("media") or payload.get("media_url")),
+                    is_history=":history:" in str(row["dedupe_key"]),
                 ))
             return replies
 
@@ -523,6 +534,8 @@ class BoardStore:
                         _migrate_v5_to_v6(connection)
                     if version in {1, 2, 3, 4, 5, 6}:
                         _migrate_v6_to_v7(connection)
+                    if version in {1, 2, 3, 4, 5, 6, 7}:
+                        _migrate_v7_to_v8(connection)
                     connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
                     connection.execute("COMMIT")
                 except BaseException:
@@ -674,6 +687,30 @@ class BoardStoreTransaction:
             return None
         return max(candidates, key=lambda item: (item[0], item[1]))[2]
 
+    def episode_source_events(self, episode_id: int) -> list[tuple[int, SourceEvent]]:
+        """Return unique immutable source events represented by an episode."""
+        rows = self._connection.execute(
+            "SELECT dedupe_key FROM outbox "
+            "WHERE episode_id = ? AND operation = 'post_source_reply' ORDER BY id",
+            (episode_id,),
+        ).fetchall()
+        seen: set[str] = set()
+        events: list[tuple[int, SourceEvent]] = []
+        for row in rows:
+            try:
+                event_key, _ = _source_event_key_from_dedupe(row["dedupe_key"])
+            except StoreBlockedError:
+                continue
+            if event_key in seen:
+                continue
+            seen.add(event_key)
+            event_row = self._connection.execute(
+                "SELECT * FROM source_events WHERE event_key = ?", (event_key,)
+            ).fetchone()
+            if event_row is not None:
+                events.append((int(event_row["id"]), _source_event_from_row(event_row)))
+        return events
+
     def mark_event_processed(self, event_id: int, now: datetime) -> None:
         self._connection.execute(
             "UPDATE source_events SET board_processed_at = ? WHERE id = ?",
@@ -688,12 +725,17 @@ class BoardStoreTransaction:
 
     def episode_sources(self, episode_id: int) -> set[str]:
         """Resolve immutable source names through the board-owned reply intents."""
+        starter = self._connection.execute(
+            """SELECT s.source FROM episodes e JOIN source_events s
+            ON s.id = e.starter_source_event_id WHERE e.id = ?""",
+            (episode_id,),
+        ).fetchone()
+        sources: set[str] = {str(starter["source"])} if starter is not None else set()
         rows = self._connection.execute(
             "SELECT dedupe_key FROM outbox "
             "WHERE episode_id = ? AND operation = 'post_source_reply'",
             (episode_id,),
         ).fetchall()
-        sources: set[str] = set()
         seen: set[str] = set()
         for row in rows:
             try:
@@ -713,11 +755,21 @@ class BoardStoreTransaction:
     def update_episode(self, episode: Episode) -> None:
         self._connection.execute(
             """UPDATE episodes SET lifecycle = ?, title = ?, latest_material_at = ?,
-            closed_at = ?, lifecycle_tag = ?, market_tag = ? WHERE id = ?""",
+            closed_at = ?, starter_source_event_id = ?, lifecycle_tag = ?, market_tag = ?
+            WHERE id = ?""",
             (episode.lifecycle, episode.title, _timestamp(episode.latest_material_at),
              _timestamp(episode.closed_at) if episode.closed_at else None,
-             episode.lifecycle_tag, episode.market_tag, episode.id),
+             episode.starter_source_event_id, episode.lifecycle_tag, episode.market_tag, episode.id),
         )
+
+    def starter_source_event(self, episode_id: int) -> SourceEvent | None:
+        """Return the immutable source event currently projected by the starter."""
+        row = self._connection.execute(
+            """SELECT s.* FROM episodes e JOIN source_events s
+            ON s.id = e.starter_source_event_id WHERE e.id = ?""",
+            (episode_id,),
+        ).fetchone()
+        return _source_event_from_row(row) if row else None
 
     def active_plan(self, episode_id: int) -> SourceEvent | None:
         row = self._connection.execute(
@@ -749,7 +801,7 @@ class BoardStoreTransaction:
 
     def latest_plan_cards(self) -> list[PlanCard]:
         rows = self._connection.execute(
-            """SELECT e.*, p.id AS plan_id, s.*, p.source_status AS current_status,
+            """SELECT e.*, p.id AS plan_id, s.id AS source_event_id, s.*, p.source_status AS current_status,
             p.source_status_at
             FROM episodes e JOIN plans p ON p.episode_id = e.id
             JOIN source_events s ON s.id = p.source_event_id
@@ -760,6 +812,7 @@ class BoardStoreTransaction:
             PlanCard(
                 episode=_episode_from_row(row),
                 plan_id=int(row["plan_id"]),
+                event_id=int(row["source_event_id"]),
                 event=replace(_source_event_from_row(row), source_status=row["current_status"]),
                 source_updated_at=_parse_timestamp(row["source_status_at"]),
             )
@@ -965,6 +1018,7 @@ def _create_non_event_tables(connection: sqlite3.Connection) -> None:
             closed_at TEXT,
             thread_id TEXT,
             starter_message_id TEXT,
+            starter_source_event_id INTEGER REFERENCES source_events(id),
             lifecycle_tag TEXT,
             market_tag TEXT
         );
@@ -1196,6 +1250,18 @@ def _migrate_v6_to_v7(connection: sqlite3.Connection) -> None:
         )
 
 
+def _migrate_v7_to_v8(connection: sqlite3.Connection) -> None:
+    """Track the immutable source event currently rendered by each starter."""
+    existing = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "episodes" not in existing:
+        return
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(episodes)")}
+    if "starter_source_event_id" not in columns:
+        connection.execute(
+            "ALTER TABLE episodes ADD COLUMN starter_source_event_id INTEGER REFERENCES source_events(id)"
+        )
+
+
 def _create_missing_tables(connection: sqlite3.Connection) -> None:
     existing = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     if "episodes" not in existing:
@@ -1230,8 +1296,10 @@ def _source_event_key_from_dedupe(value: str) -> tuple[str, int]:
     if not event_key:
         raise StoreBlockedError("source reply event identity is missing")
     chunk_index = 0
-    if suffix.startswith(":") and suffix[1:].isdigit():
-        chunk_index = int(suffix[1:])
+    if suffix.startswith(":"):
+        trailing = suffix.rsplit(":", 1)[-1]
+        if trailing.isdigit():
+            chunk_index = int(trailing)
     return event_key, chunk_index
 
 
@@ -1246,6 +1314,7 @@ def _episode_from_row(row: sqlite3.Row) -> Episode:
         closed_at=_parse_timestamp(row["closed_at"]) if row["closed_at"] else None,
         thread_id=row["thread_id"],
         starter_message_id=row["starter_message_id"],
+        starter_source_event_id=row["starter_source_event_id"],
         lifecycle_tag=row["lifecycle_tag"],
         market_tag=row["market_tag"],
     )

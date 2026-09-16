@@ -149,7 +149,7 @@ class DiscordForumClient:
         response = self._request_with_media(
             "POST",
             f"/channels/{_id(thread_id)}/messages",
-            self._message(content, nonce_value),
+            self._message(content, nonce_value, allow_empty=media is not None),
             media,
         )
         message_id = _identifier(_json_object(response, "Discord returned an invalid message").get("id"))
@@ -330,9 +330,9 @@ class DiscordForumClient:
             raise DiscordForumError("Discord create outcome remains uncertain")
         return matches[0]
 
-    def _message(self, content: str, nonce_value: str) -> dict[str, object]:
+    def _message(self, content: str, nonce_value: str, *, allow_empty: bool = False) -> dict[str, object]:
         return {
-            "content": _content(content),
+            "content": _content(content, allow_empty=allow_empty),
             "nonce": stable_nonce(nonce_value),
             "enforce_nonce": True,
             "allowed_mentions": {"parse": []},
@@ -439,7 +439,9 @@ def _matches_create(message: Mapping, snapshot: Mapping) -> bool:
             and (message.get("nonce") is None or str(message["nonce"]) == stable_nonce(snapshot["operation_key"])))
 
 
-def _content(value: object) -> str:
+def _content(value: object, *, allow_empty: bool = False) -> str:
+    if allow_empty and value == "":
+        return ""
     value = _text(value, "message content")
     if len(value.encode("utf-16-le")) // 2 > 2000:
         raise ValueError("Discord message content exceeds 2000 characters")

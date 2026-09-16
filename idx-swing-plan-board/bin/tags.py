@@ -29,6 +29,11 @@ def source_tier(source: str) -> str:
     return SUPPORTING_SETUP if normalized in _GTW_SOURCES else CHART_CONTEXT
 
 
+def source_tier_rank(tag: str | None) -> int:
+    """Return the ordering used when a source-only starter is replaced."""
+    return _SOURCE_TIER_RANK.get(tag or "", 0)
+
+
 def merge_source_tier(current: str | None, incoming: str) -> str:
     """Keep the strongest source-only tier present in one ticker episode."""
     if incoming not in _SOURCE_TIER_RANK:
@@ -61,4 +66,3 @@ def desired_lifecycle_tag(lifecycle: str, current: str | None, sources: Iterable
     if current in {SUPPORTING_SETUP, CHART_CONTEXT}:
         return current
     return source_tier_for_sources(sources)
-

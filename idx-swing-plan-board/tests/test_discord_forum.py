@@ -199,6 +199,33 @@ def test_reply_patch_and_execute_use_complete_desired_state(monkeypatch) -> None
     assert calls[3]["json"]["nonce"] == hashlib.sha256(b"history:2").hexdigest()[:24]
 
 
+def test_attachment_only_reply_sends_empty_content_with_media(tmp_path: Path, monkeypatch) -> None:
+    chart = tmp_path / "chart.jpg"
+    chart.write_bytes(b"chart")
+    calls: list[dict] = []
+
+    def request(method: str, url: str, **kwargs):
+        calls.append({"method": method, "url": url, **kwargs})
+        return Response(200, {"id": "reply-1"})
+
+    monkeypatch.setattr(discord_forum.requests, "request", request)
+
+    result = DiscordForumClient(token="token").post_reply(
+        "thread-1", "", chart, "media-only:1"
+    )
+
+    assert result == "reply-1"
+    assert len(calls) == 1
+    assert calls[0]["method"] == "POST"
+    assert json.loads(calls[0]["data"]["payload_json"]) == {
+        "content": "",
+        "nonce": hashlib.sha256(b"media-only:1").hexdigest()[:24],
+        "enforce_nonce": True,
+        "allowed_mentions": {"parse": []},
+    }
+    assert calls[0]["files"]["files[0]"][0] == "chart.jpg"
+
+
 @pytest.mark.parametrize(
     "available_tags",
     [

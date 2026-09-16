@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from html.parser import HTMLParser
 from pathlib import Path
 import sys
@@ -14,7 +15,7 @@ if not _SHARED_FORMAT_BIN.exists():
 if str(_SHARED_FORMAT_BIN) not in sys.path:
     sys.path.insert(0, str(_SHARED_FORMAT_BIN))
 
-from swing_format import BOARD_URL  # noqa: E402
+from swing_format import BOARD_MENTION, format_wib  # noqa: E402
 
 
 DISCORD_LIMIT = 2000
@@ -157,15 +158,20 @@ def render_post(
     updated_tweet: bool = False,
     *,
     include_board: bool = False,
+    include_status_date: bool = False,
+    status_date: datetime | None = None,
 ) -> list[str]:
     writer_name = strip_emojis(profile.display_name)
     byline = f"{writer_name} (Updated Tweet)" if updated_tweet else writer_name
     heading = f"### {profile.twitter_emoji} {title}\n-# {profile.emoji} {byline}" if title else f"### {profile.twitter_emoji}{profile.emoji} {byline}"
     prefix = f"{heading}\n\n"
+    rendered_status_date = status_date if status_date is not None else post.published_at
     if summary is not None:
         messages = _append_text(prefix, summary.strip())
+        if include_status_date:
+            _append_atomic(messages, f"**Status date:** {format_wib(rendered_status_date)}", "\n\n")
         if include_board:
-            _append_atomic(messages, f"**Board:** <{BOARD_URL}>", "\n\n")
+            _append_atomic(messages, f"**Board:** {BOARD_MENTION}", "\n")
         _append_atomic(messages, f"[View on X](<{post.url}>)", "\n\n")
         if post.quoted_content_html:
             _append_atomic(messages, _quoted_block(post.quoted_content_html, post.quoted_url or post.url), "\n")
@@ -173,8 +179,10 @@ def render_post(
             _append_atomic(messages, _article_block(post.quoted_article_label, post.quoted_article_url), "\n")
         return messages
     messages = _append_text(prefix, _thread_text(thread_posts or (post,)))
+    if include_status_date:
+        _append_atomic(messages, f"**Status date:** {format_wib(rendered_status_date)}", "\n\n")
     if include_board:
-        _append_atomic(messages, f"**Board:** <{BOARD_URL}>", "\n\n")
+        _append_atomic(messages, f"**Board:** {BOARD_MENTION}", "\n")
     _append_atomic(messages, f"[View on X](<{post.url}>)", "\n\n" if include_board else " ")
     if post.quoted_content_html:
         _append_atomic(messages, _quoted_block(post.quoted_content_html, post.quoted_url or post.url), "\n")

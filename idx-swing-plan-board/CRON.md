@@ -7,11 +7,13 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
 - **Source-only events:** Kelas Investasi GTW events use the `Supporting setup`
   lifecycle tier. X and other social/chart events use `Chart context`. A single
   source-only episode keeps the strongest tier present, with `Supporting setup`
-  above `Chart context`. Neither tier alters a Phintraco Primary Plan or its
-  market tags. A Phintraco BUY may promote an open source-only episode in
-  place; the owner keeps original replies and queues exactly one fresh latest-
-  GTW reply below the new starter with a durable promotion dedupe key. This
-  handoff is board only and does not replay the All Swing feed.
+  above `Chart context`. The highest-tier source event owns the starter card
+  and its first chart. A newer higher-tier or same-tier source replaces that
+  starter, and the superseded starter card and first chart become one normal
+  source-context history reply. Neither tier alters a Phintraco Primary Plan
+  or its market tags. A Phintraco BUY may promote an open source-only episode
+  in place; it preserves the previous source starter once as history, without
+  a separate GTW resend or All Swing replay.
 - **Source submission:** `submit-source-event --stdin` first copies supplied local media into the owner directory, then atomically persists the validated event and owner intents and runs one best-effort drain. It may not calculate a close or post a heartbeat.
 - **Scheduled reconciliation:** `after-close --phase initial` is valid only at 16:30 WIB and `--phase retry` only at 17:00 WIB. The retry runs only for a current-session unavailable initial attempt on the same active plan. Both phases use the reviewed IDX calendar. Missing coverage makes no board mutation, drains safely, and direct-posts one fatal `#hermes` heartbeat; covered phases direct-post exactly one normal or degraded heartbeat. A second unavailable result changes only the card to `Market check unavailable`; it preserves prior valid price/time and tags and adds no history reply.
 - **Runtime wrapper:** `bin/idx-swing-plan-board.sh` reads only `DISCORD_BOT_TOKEN`, uses the shared Yahoo Finance MCP Python, defaults state to `$HOME/.hermes/state/idx-swing-board.sqlite3`, and passes board arguments unchanged. The owner CLI has no database-path option.
@@ -25,7 +27,8 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
 - **One-time maintenance:** `migrate-tags --apply` converts legacy `Source plan`
   episodes and rewrites their forum tag applications. `migrate-format --apply`
   rewrites existing starter cards and completed source replies through the
-  shared cash-Swing renderer. `cleanup-history --apply` deletes the retired
+  shared cash-Swing renderer, moving recoverable legacy source starters and
+  first charts into the starter card. `cleanup-history --apply` deletes the retired
   quoted history replies recorded by the owner.
 - **Check:** set `IDX_SWING_PLAN_BOARD_NO_POST=1` and isolated state and media paths. Never reset state or create a live forum item.
 - **Bootstrap:** no bootstrap command is implicit or automatic. A separately approved command is required before any externally visible backfill.

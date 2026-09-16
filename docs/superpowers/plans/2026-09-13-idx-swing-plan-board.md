@@ -20,7 +20,7 @@
 - Preserve source facts. Do not infer a plan, analyst, chart, historical price state, or a member action.
 - Market states are only `Below entry`, `Entry zone`, `Above entry`, `TP1 reached` through `TP6 reached`, and `Stop-loss breached`.
 - Use `19 Sep 2026 16:30 WIB` formatting. Never expose internal versions.
-- The lifecycle tags are exactly `Source plan`, `Primary plan`, and `Resolved`. Resolve all tag IDs by exact name and fail closed on missing or duplicated names.
+- The lifecycle tags are exactly `Chart context`, `Supporting setup`, `Primary plan`, and `Resolved`. Resolve all tag IDs by exact name and fail closed on missing or duplicated names.
 - The factual market tags are exactly `Below entry`, `Entry zone`, `Above entry`, `TP1 reached`, `TP2 reached`, `TP3 reached`, `TP4 reached`, `TP5 reached`, `TP6 reached`, and `Stop-loss breached`. Resolve these by exact name too.
 - A source-only episode has no price checkpoint. A resolved episode receives no retention activity and auto-archives after Discord's seven-day inactivity interval.
 - Use `IDX_SWING_PLAN_BOARD_NO_POST=1` with isolated state and media paths for every board smoke test. Never reset, hand-edit, initialize, or replay production state.
@@ -378,7 +378,7 @@ def test_buy_inside_twenty_sessions_promotes_without_reposting_social_reply(engi
     engine.drain()
     engine.submit(example_buy_event(key="phintraco:1444713822:33700", ticker="KPIG"), at("2026-09-22T09:05:00+07:00"))
     assert [item.operation for item in engine.store.operations_for_ticker("KPIG")] == [
-        "create_thread", "post_source_reply", "edit_starter", "patch_thread", "post_history_reply"
+        "create_thread", "edit_starter", "post_source_reply", "patch_thread"
     ]
 
 
@@ -405,8 +405,8 @@ Expected: FAIL because `BoardEngine` does not exist.
 In `test_engine.py`, define the local `engine` fixture using a temporary `BoardStore` and a fake `DiscordForumClient`, `at(value: str) -> datetime` for deterministic WIB times, and import `example_buy_event` and `social_event` from `conftest.py`. Implement `BoardEngine.submit(event, now)` in this order:
 
 1. Let `BoardStore.submit_event()` deduplicate event identity before any operation.
-2. A `social` event creates a `source` episode only when no active episode exists. Enqueue `create_thread` with `Source plan`, followed by a normal `post_source_reply` with source-rendered All content and direct media.
-3. A `buy` event promotes an open `source` episode only when its latest material date is not before `sessions_ago(event_date, 20)`. Enqueue a managed starter edit with the original chart, patch title to `<TICKER>: Buy`, replace lifecycle tag with `Primary plan`, and retain every normal source reply. For a GTW-only episode, enqueue exactly one fresh copy of the latest GTW reply below the new starter with a durable promotion dedupe key.
+2. A `social` event creates a `source` episode only when no active episode exists. Enqueue `create_thread` with the source-rendered content and first direct media on the starter; later chunks and media use normal `post_source_reply` intents.
+3. A `buy` event promotes an open `source` episode only when its latest material date is not before `sessions_ago(event_date, 20)`. Enqueue a managed starter edit with the original chart, patch title to `<TICKER>: Buy`, replace lifecycle tag with `Primary plan`, and preserve the superseded starter card and first chart once as a normal source-context history reply.
 4. A `buy` event within the same 20-session window for an active primary replaces the managed card and chart, retaining old normal replies and without creating quoted history.
 5. A `buy` without an eligible active episode creates a fresh primary episode named `<TICKER>: Buy`, tagged `Primary plan`, with no price-state tag until a factual state exists.
 6. A `status` or `reminder` requires an active primary. It updates only Source Status, posts the new distinct source item as a normal reply, and edits the starter. With no matching primary it returns `board_ignored` and leaves the All message as the sole delivery.
@@ -417,9 +417,18 @@ In `test_engine.py`, define the local `engine` fixture using a temporary `BoardS
 
 Implement `source_outcome_state(event, active_plan)`. Map `Stop-loss hit` to `Stop-loss breached`; map `All targets achieved` to the final available target; map first through sixth, and higher numeric ordinal, target confirmations to `TP1 reached` through `TP6 reached`, clamping higher ladders at TP6. A HOLD or generic status preserves the last factual market-state tag.
 
-Every forum post carries exactly one lifecycle tag. A `source` episode has `Source plan` and no market tag. An active primary has `Primary plan` plus at most one current factual market tag. A terminal primary replaces `Primary plan` with `Resolved` and retains its final factual market tag, if one exists. The calculated patch always writes the complete desired tag list, so a stale prior price tag cannot remain.
+Every forum post carries exactly one lifecycle tag. A source episode has
+`Supporting setup` or `Chart context` and no market tag. An active primary has
+`Primary plan` plus at most one current factual market tag. A terminal primary
+replaces `Primary plan` with `Resolved` and retains its final factual market
+tag, if one exists. The calculated patch always writes the complete desired
+tag list, so a stale prior price tag cannot remain.
 
-An explicit stop or final-target source outcome marks the plan terminal, sets lifecycle to `Resolved`, preserves the final market tag and chart, emits one quoted resolution event, and blocks later status or price changes for that episode. Do not send an archive operation or any synthetic retention message. The configured Discord auto-archive handles retention.
+An explicit stop or final-target source outcome marks the plan terminal, sets
+lifecycle to `Resolved`, preserves the final market tag and chart, and blocks
+later status or price changes for that episode. Do not send an archive
+operation or any synthetic retention message. The configured Discord
+auto-archive handles retention.
 
 - [ ] **Step 5: Run the lifecycle suite and commit**
 

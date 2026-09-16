@@ -13,11 +13,13 @@ or append to a `Supporting setup` episode, but it never becomes the Primary Plan
 and never changes Phintraco status or market tags. X and other social/chart
 sources use the weaker `Chart context` tier. A single source-only episode uses
 the strongest tier present, with `Supporting setup` above `Chart context`.
-When a complete Phintraco BUY promotes an open source-only episode, the owner
-edits the top card, changes the lifecycle tag to `Primary plan`, retains all
-original source replies, and enqueues exactly one fresh copy of the latest GTW
-reply below the new primary card. The promotion copy is board-only, uses a
-durable dedupe key, and never replays the All Swing feed. An archived episode
+The highest-tier source event owns the starter card and its first chart. A
+newer higher-tier or same-tier source replaces that starter and preserves the
+superseded starter card and first chart as one normal source-context history
+reply. When a complete Phintraco BUY promotes an open source-only episode, the
+owner edits the top card, changes the lifecycle tag to `Primary plan`, and
+preserves the previous source starter once as history. The board never creates
+a separate GTW resend and never replays the All Swing feed. An archived episode
 receives no later source event.
 
 ## Commands and safety
@@ -36,9 +38,11 @@ Set `IDX_SWING_PLAN_BOARD_NO_POST=1` with isolated `IDX_SWING_PLAN_BOARD_STATE_P
 
 The one-time tag migration is `migrate-tags --apply`; it converts legacy
 `Source plan` episodes to their source-specific tier and rewrites existing
-forum tag applications. The one-time presentation migration is `migrate-format --apply`; it rewrites
-existing starter cards and completed source replies through the shared
-cash-Swing renderer while retaining current attachments. The Phintraco legacy
+forum tag applications. The one-time presentation migration is
+`migrate-format --apply`; it rewrites existing starter cards and completed
+source replies through the shared cash-Swing renderer, moves recoverable legacy
+source starters and first charts into the starter card, and removes only the
+duplicated legacy source replies. The Phintraco legacy
 rewriter also promotes source-footer analyst names, normalizes ticker-first
 titles, dates, field spacing, source status, and footer links. The approved retirement of legacy quoted history is
 `cleanup-history --apply`; it deletes only message IDs recorded in

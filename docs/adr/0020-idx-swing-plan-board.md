@@ -28,11 +28,10 @@ delayed Yahoo data, and not mix cash-equity plans with SSF derivatives calls.
   social plan can create source-only context and is promoted in place if a
   complete Phintraco setup arrives within 20 exchange trading sessions.
 - The top card is always bot-managed. Social content is a normal source reply.
-  Promotion retains every original source reply. When the promoted episode was
-  GTW-only, the owner also posts exactly one fresh copy of the latest GTW
-  message below the new Phintraco starter, using a durable promotion dedupe
-  key. That handoff is board-only and does not replay the All feed. A
-  source-only episode receives no market checkpoint.
+  Promotion preserves the superseded starter card and first chart once as a
+  normal source-context history reply. It does not create a separate GTW
+  resend or replay the All feed. A source-only episode receives no market
+  checkpoint.
 - A Primary Plan tracks Source Status separately from a factual after-close
   Market Checkpoint. Phintraco changes Source Status immediately. The
   deterministic status owner checks valid same-day price data at 16:30 WIB on
@@ -43,8 +42,8 @@ delayed Yahoo data, and not mix cash-equity plans with SSF derivatives calls.
   imply user action such as buying, holding, cutting loss, or taking profit.
   A direct Phintraco status update changes the price-state tag immediately only
   when it explicitly confirms a mapped target or stop outcome.
-- Every episode has one lifecycle tag: `Source plan`, `Primary plan`, or
-  `Resolved`. A primary or resolved episode receives a market-state tag only
+- Every episode has one lifecycle tag: `Chart context`, `Supporting setup`,
+  `Primary plan`, or `Resolved`. A primary or resolved episode receives a market-state tag only
   after a reliable price checkpoint or explicit Phintraco outcome is known.
 - A resolved episode gets no artificial retention update. Discord archives it
   after seven inactive days, where it remains retrievable history. A later

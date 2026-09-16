@@ -178,7 +178,8 @@ def test_x_board_event_accepts_whitespace_ticker_title_and_normalizes_only_board
     board_event = scan.board_source_event(event, profile_fixture())
 
     assert board_event["source_title"] == "PGAS: Berpeluang Memulai Uptrendnya"
-    assert "PGAS Berpeluang Memulai Uptrendnya" in board_event["all_content"]
+    assert "*(Ringkasan)*" in board_event["all_content"]
+    assert "PGAS Berpeluang Memulai Uptrendnya" not in board_event["all_content"]
     assert board_event["plan"] is None
 
 
@@ -224,23 +225,27 @@ def test_swing_all_delivery_includes_board_link_before_view_on_x(tmp_path, monke
     monkeypatch.setattr(scan.discord, "post_text", lambda content, *_: sent.append(content) or "all-message")
 
     assert scan._deliver(value, profiles(), 0, False, tmp_path / "state.json", stats(), now()) is True
-    assert f"**Board:** <{render.BOARD_URL}>" in sent[0]
+    assert "**Board:** <#1548273399069933720>" in sent[0]
+    assert "**Status date:** 15 Sep 2026 10:00 WIB" in sent[0]
     assert sent[0].index("**Board:**") < sent[0].index("[View on X]")
+    assert value["outbox"][0]["delivery_at"] == now().isoformat()
 
 
 def test_board_retry_accepts_without_reposting_all_messages(tmp_path, monkeypatch) -> None:
     value = ready_swing_state(tmp_path)
     all_messages = []
+    board_payloads = []
     monkeypatch.setattr(scan.discord, "post_text", lambda *_: all_messages.append("all-message") or "all-message")
     monkeypatch.setattr(scan.discord, "post_media", lambda *_: all_messages.append("all-media") or "all-media")
     monkeypatch.setattr(scan, "submit_board_event", lambda *_: False)
 
     assert scan._deliver(value, profiles(), 0, False, tmp_path / "state.json", stats(), now()) is False
 
-    monkeypatch.setattr(scan, "submit_board_event", lambda *_: True)
+    monkeypatch.setattr(scan, "submit_board_event", lambda payload, *_: board_payloads.append(payload) or True)
     assert scan._deliver(value, profiles(), 0, False, tmp_path / "state.json", stats(), now() + timedelta(minutes=1)) is True
     assert value["outbox"] == []
     assert all_messages == []
+    assert "**Status date:** 15 Sep 2026 10:00 WIB" in board_payloads[0]["all_content"]
 
 
 def test_permanent_missing_media_is_skipped_and_board_handoff_continues(tmp_path, monkeypatch) -> None:

@@ -3,7 +3,7 @@ from datetime import datetime
 import pytest
 
 from swing_format import (
-    BOARD_URL,
+    BOARD_MENTION,
     canonicalize_phintraco_message,
     GREEN_EMOJI,
     HOLD_EMOJI,
@@ -39,7 +39,7 @@ def test_all_message_places_board_directly_after_last_updated() -> None:
     rendered = render_message(message(), include_board=True)
 
     assert "**Source status:** New setup " + GREY_EMOJI in rendered
-    assert "**Last updated:** 19 Sep 2026 06:50 WIB\n**Board:** <" + BOARD_URL + ">" in rendered
+    assert "**Last updated:** 19 Sep 2026 06:50 WIB\n**Board:** " + BOARD_MENTION in rendered
     assert "\n\n**Board:**" not in rendered
     assert rendered.endswith("[View in Telegram](<https://t.me/phintraprofits/35168>)")
 
@@ -71,7 +71,7 @@ def test_legacy_phintraco_buy_is_rewritten_with_analyst_and_canonical_dates() ->
         "**Type:** Buy on Support <:up:1531285100346740766>\n"
     )
     assert "**Signal date:** 11 Sep 2026 06:50 WIB" in rendered
-    assert "**Board:** <" + BOARD_URL + ">" in rendered
+    assert "**Board:** " + BOARD_MENTION in rendered
     assert "**Chart:**" not in rendered
 
 

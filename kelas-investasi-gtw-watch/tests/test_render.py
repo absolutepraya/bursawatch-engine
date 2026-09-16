@@ -48,7 +48,7 @@ def test_render_includes_neutral_gtw_status_and_board_link_for_all_copy() -> Non
 
     assert "**Source status:** Good to watch <:grey:1531279158913536182>" in text
     assert "**Last updated:** 19 Sep 2026 06:50 WIB" in text
-    assert "**Board:** <https://discord.com/channels/940285152335110204/1548273399069933720>" in text
+    assert "**Board:** <#1548273399069933720>" in text
 
 
 def test_render_omits_board_link_for_board_copy() -> None:

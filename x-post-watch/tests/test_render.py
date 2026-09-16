@@ -72,9 +72,14 @@ def test_render_swing_adds_board_link_only_when_requested(config_path):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Swing setup", PostKind.NORMAL, None, None, (), ())
 
-    rendered = render.render_post(profile, post, "*(Ringkasan)* Setup teknikal.", "PGAS: Swing", include_board=True)[0]
+    rendered = render.render_post(
+        profile, post, "*(Ringkasan)* Setup teknikal.", "PGAS: Swing",
+        include_board=True, include_status_date=True,
+        status_date=datetime(2026, 9, 15, 10, 0, tzinfo=UTC),
+    )[0]
 
-    assert f"**Board:** <{render.BOARD_URL}>" in rendered
+    assert f"**Board:** <#1548273399069933720>" in rendered
+    assert "**Status date:** 15 Sep 2026 17:00 WIB" in rendered
     assert rendered.index("**Board:**") < rendered.index("[View on X]")
 
 

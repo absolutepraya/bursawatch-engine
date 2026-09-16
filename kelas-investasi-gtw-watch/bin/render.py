@@ -12,7 +12,7 @@ if not _SHARED_FORMAT_BIN.exists():
 if str(_SHARED_FORMAT_BIN) not in sys.path:
     sys.path.insert(0, str(_SHARED_FORMAT_BIN))
 
-from swing_format import BOARD_URL, MAX_DISCORD_CHARACTERS, SwingMessage, escape, render_chunks
+from swing_format import BOARD_MENTION, MAX_DISCORD_CHARACTERS, SwingMessage, escape, render_chunks
 
 
 TELEGRAM_EMOJI = "<:telegram:1531657996432576618>"
@@ -45,7 +45,7 @@ def render_event(event: Mapping[str, object], *, include_board: bool = True) -> 
         updated_at=source_time,
         source_url=f"https://t.me/kelasinvestasiid/{message_id}",
         footer_label="View on Telegram",
-        board_url=BOARD_URL if source_time is not None else None,
+        board_url=BOARD_MENTION if source_time is not None else None,
         chart_unavailable=not _has_media(event),
     )
     return list(render_chunks(message, include_board=include_board))
