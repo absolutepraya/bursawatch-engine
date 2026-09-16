@@ -55,6 +55,8 @@ def load_state(path: Path) -> dict:
     for event in value["outbox"]:
         event.setdefault("text_message_ids", [])
         event.setdefault("media_message_ids", [])
+        event.setdefault("media_skipped_urls", [])
+        event.setdefault("media_errors", [])
         event.setdefault("replacement_of", [])
         event.setdefault("board_phase", BOARD_PENDING)
         event.setdefault("board_attempts", 0)
@@ -155,6 +157,8 @@ def record_delivery(value: dict, event: dict, channel_id: str, delivered_at: dat
         "channel_id": channel_id,
         "text_message_ids": list(event.get("text_message_ids", [])),
         "media_message_ids": list(event.get("media_message_ids", [])),
+        "media_skipped_urls": list(event.get("media_skipped_urls", [])),
+        "media_errors": list(event.get("media_errors", [])),
         "delivered_at": delivered_at.isoformat(),
         "superseded_by": None,
         "replacement_of": list(event.get("replacement_of", [])),
@@ -298,6 +302,8 @@ def _event_for_thread(state: dict, profile: Profile, thread: tuple[SourcePost, .
         "ready_after": immediate if is_multi_post_chain else deadline,
         "text_index": 0,
         "media_index": 0,
+        "media_skipped_urls": [],
+        "media_errors": [],
         "post": serialize_post(latest),
         "board_phase": BOARD_PENDING,
         "board_attempts": 0,

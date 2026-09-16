@@ -35,8 +35,18 @@ BOARD_PENDING = "pending"
 BOARD_UNAVAILABLE = "unavailable"
 BOARD_RETRY_INITIAL_SECONDS = 60
 BOARD_RETRY_CAP_SECONDS = 15 * 60
-_TICKER_LED_CLAUSE = re.compile(r"(?<![A-Z0-9])([A-Z][A-Z0-9]{1,9}):\s+")
-_TICKER_SOURCE_TITLE = re.compile(r"^([A-Z][A-Z0-9]{1,9}):\s+(.+)$")
+_TICKER_TOKEN = r"[A-Z][A-Z0-9]{1,9}"
+_TICKER_COLON_CLAUSE = re.compile(rf"(?<![A-Z0-9])({_TICKER_TOKEN})\s*:\s+\S")
+_TICKER_SPACE_CLAUSE = re.compile(rf"^\s*({_TICKER_TOKEN})\s+\S")
+_TICKER_SOURCE_TITLE = re.compile(rf"^({_TICKER_TOKEN})(?:\s*:\s*|\s+)(\S.*)$")
+_UPPERCASE_TOKEN = re.compile(rf"\b({_TICKER_TOKEN})\b")
+_NON_TICKER_UPPERCASE = frozenset(
+    {
+        "ADX", "ATR", "BB", "DCA", "EMA", "IDR", "IDX", "IHSG", "MACD", "MA",
+        "MFI", "OBV", "RSI", "SMA", "SL", "TP", "USD", "VWAP",
+        "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X",
+    }
+)
 _SOURCE_BLOCK_TAGS = frozenset({"p", "div", "li"})
 
 
@@ -208,6 +218,37 @@ def _direct_media_urls(thread_posts) -> list[str]:
     return urls
 
 
+def _ticker_led_clauses(value: str) -> list[str]:
+    """Find ticker-led clauses while accepting source titles without colons."""
+    clauses = [match.group(1) for match in _TICKER_COLON_CLAUSE.finditer(value)]
+    for line in value.splitlines():
+        match = _TICKER_SPACE_CLAUSE.match(line)
+        if match and not re.match(rf"^\s*{match.group(1)}\s*:", line):
+            clauses.append(match.group(1))
+    return clauses
+
+
+def _leading_ticker(value: str) -> str | None:
+    match = _TICKER_SOURCE_TITLE.match(value.strip())
+    return match.group(1) if match else None
+
+
+def _source_title_is_single_ticker(source_title: str, ticker: str) -> bool:
+    """Reject a first line that visibly names another ticker as a peer."""
+    match = _TICKER_SOURCE_TITLE.fullmatch(source_title)
+    if match is None or match.group(1) != ticker:
+        return False
+    body = match.group(2)
+    for token_match in _UPPERCASE_TOKEN.finditer(body):
+        token = token_match.group(1)
+        if token == ticker or token in _NON_TICKER_UPPERCASE:
+            continue
+        before = body[:token_match.start()]
+        if re.search(r"(?:\b(?:and|atau|dan|dengan|serta|versus|vs)\b|[,&/])\s*$", before, re.IGNORECASE):
+            return False
+    return True
+
+
 def board_source_event(event: dict, profile) -> dict[str, object] | None:
     """Return the narrow source-only board context for an accepted X Swing event."""
     if event.get("route") != "id_stocks_swing":
@@ -219,36 +260,40 @@ def board_source_event(event: dict, profile) -> dict[str, object] | None:
     source_match = _TICKER_SOURCE_TITLE.fullmatch(source_title)
     thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]]))
     source_bundle = "\n".join(source_visible_text(item.content_html) for item in thread_posts)
-    clauses = _TICKER_LED_CLAUSE.findall(source_bundle)
+    clauses = _ticker_led_clauses(source_bundle)
     if source_match is None or len(clauses) != 1:
         return None
     title = event.get("title")
-    title_clauses = _TICKER_LED_CLAUSE.match(title) if isinstance(title, str) else None
-    if title_clauses is None or source_match.group(1) != title_clauses.group(1):
+    title_ticker = _leading_ticker(title) if isinstance(title, str) else None
+    ticker = source_match.group(1)
+    if title_ticker is None or ticker != title_ticker or not _source_title_is_single_ticker(source_title, ticker):
         return None
     all_content = "\n\n".join(
         render.render_post(
             profile,
             post,
-            event.get("summary") if profile.enable_llm_summary else None,
+            None,
             event.get("title"),
             thread_posts,
             bool(event.get("updated_tweet")),
+            include_board=False,
         )
     )
+    normalized_source_title = f"{ticker}: {source_match.group(2).strip()}"
+    skipped_media = set(event.get("media_skipped_urls", []))
     return {
         "event_key": f"x:{profile.id}:{post.post_id}",
         "source": "x",
         "kind": "social",
-        "ticker": source_match.group(1),
+        "ticker": ticker,
         "published_at": post.published_at.isoformat(),
         "source_url": post.url,
         "all_content": all_content,
-        "source_title": source_title,
+        "source_title": normalized_source_title,
         "source_status": None,
         "plan": None,
         "media_path": None,
-        "media_urls": _direct_media_urls(thread_posts),
+        "media_urls": [url for url in _direct_media_urls(thread_posts) if url not in skipped_media],
     }
 
 
@@ -399,6 +444,8 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
     event.setdefault("board_attempts", 0)
     event.setdefault("board_next_attempt_at", None)
     event.setdefault("board_last_error", None)
+    event.setdefault("media_skipped_urls", [])
+    event.setdefault("media_errors", [])
     profile = profiles[event["profile_id"]]
     post = state.deserialize_post(event["post"])
     thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]]))
@@ -410,7 +457,9 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
         event.get("title"),
         thread_posts,
         bool(event.get("updated_tweet")),
+        include_board=event.get("route") == "id_stocks_swing",
     )
+    media_url: str | None = None
     try:
         if event["text_index"] < len(messages):
             index = event["text_index"]
@@ -423,13 +472,25 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
         all_media = _delivery_media(profile, thread_posts)
         if profile.forward_media and event["media_index"] < len(all_media):
             index = event["media_index"]
-            message_id = discord.post_media(all_media[index].url, channel_id, dry_run, discord.nonce(f"{profile.id}:{post.post_id}", f"media:{index}"), storage.parent / "media")
+            media_url = all_media[index].url
+            message_id = discord.post_media(media_url, channel_id, dry_run, discord.nonce(f"{profile.id}:{post.post_id}", f"media:{index}"), storage.parent / "media")
             if message_id is not None:
                 event.setdefault("media_message_ids", []).append(message_id)
             event["media_index"] += 1
             state.save_state(storage, value)
             return True
     except Exception as exc:
+        if media_url is not None and isinstance(exc, discord.MediaUnavailable):
+            if media_url not in event["media_skipped_urls"]:
+                event["media_skipped_urls"].append(media_url)
+            event["media_errors"].append({"url": media_url, "status": exc.status_code})
+            event["media_index"] += 1
+            event["last_error"] = str(exc)
+            stats.degraded = True
+            stats.needs_attention = True
+            stats.reasons.append(event["last_error"])
+            state.save_state(storage, value)
+            return True
         event["last_error"] = " ".join(str(exc).split())[:180]
         stats.degraded = True
         stats.needs_attention = True

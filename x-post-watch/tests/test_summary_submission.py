@@ -120,6 +120,7 @@ def test_submit_summary_overrides_clear_txth_route_with_deterministic_route(tmp_
     monkeypatch.setenv("X_POST_WATCH_CONFIG_PATH", str(config_path))
     sent = []
     monkeypatch.setattr(scan.discord, "post_text", lambda content, channel, dry_run, nonce: sent.append((content, channel)) or "test")
+    monkeypatch.setattr(scan, "submit_board_event", lambda *_: True)
 
     result = scan.submit_analysis_payload({
         "event_key": f"{profile.id}:{post.post_id}",

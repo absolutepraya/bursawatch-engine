@@ -54,3 +54,11 @@ Use the wrapper below exactly. It selects the managed VPS interpreter. Never inv
 ```
 
 The scanner validates the exact event key, requested field shapes, and active 15-minute agent lease. It then persists the result, handles Discord text and ordered media, and owns heartbeat and failure reporting. Do not compensate for a rejected, expired, or invalid submission.
+
+## Swing board handoff
+
+An accepted `id_stocks_swing` post is delivered to All Swing first. The scanner then may submit one source-only context event to the Swing Plan Board. The board event is `kind: social` with `plan: null`, and it never turns X wording about targets or stop-losses into structured plan levels or market status. The gate requires one ticker-led first source line, with either a colon or whitespace after the ticker, matching the accepted title ticker and no second ticker-led clause in the complete assembled thread. The board starter title is normalized to `TICKER: ...`; its source reply keeps the raw ordered X text. All Swing alone receives the generic `**Board:**` forum link. The board copy does not include that line.
+
+The board handoff is not a second X resend. If the board later receives a complete Phintraco plan and promotes the episode, the board engine's existing promotion behavior remains in force, including its one-time GTW promotion resend where applicable. Do not change that behavior from the X watcher.
+
+When one source media URL returns a confirmed HTTP 404 or 410, treat only that media item as permanently unavailable. Record the skipped URL and degraded error, preserve the successful text delivery, and advance the media cursor so the queue can continue. Retry transient HTTP and transport failures. Do not replay already accepted All text or media, reset live state, or backfill historical X deliveries.

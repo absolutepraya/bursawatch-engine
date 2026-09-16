@@ -2,8 +2,19 @@ from __future__ import annotations
 
 import re
 from html.parser import HTMLParser
+from pathlib import Path
+import sys
 
 from models import Profile, SourcePost
+
+
+_SHARED_FORMAT_BIN = Path(__file__).resolve().parents[2] / "swing-format" / "bin"
+if not _SHARED_FORMAT_BIN.exists():
+    _SHARED_FORMAT_BIN = Path.home() / ".agents" / "skills" / "swing-format" / "bin"
+if str(_SHARED_FORMAT_BIN) not in sys.path:
+    sys.path.insert(0, str(_SHARED_FORMAT_BIN))
+
+from swing_format import BOARD_URL  # noqa: E402
 
 
 DISCORD_LIMIT = 2000
@@ -144,6 +155,8 @@ def render_post(
     title: str | None = None,
     thread_posts: tuple[SourcePost, ...] | None = None,
     updated_tweet: bool = False,
+    *,
+    include_board: bool = False,
 ) -> list[str]:
     writer_name = strip_emojis(profile.display_name)
     byline = f"{writer_name} (Updated Tweet)" if updated_tweet else writer_name
@@ -151,6 +164,8 @@ def render_post(
     prefix = f"{heading}\n\n"
     if summary is not None:
         messages = _append_text(prefix, summary.strip())
+        if include_board:
+            _append_atomic(messages, f"**Board:** <{BOARD_URL}>", "\n\n")
         _append_atomic(messages, f"[View on X](<{post.url}>)", "\n\n")
         if post.quoted_content_html:
             _append_atomic(messages, _quoted_block(post.quoted_content_html, post.quoted_url or post.url), "\n")
@@ -158,7 +173,9 @@ def render_post(
             _append_atomic(messages, _article_block(post.quoted_article_label, post.quoted_article_url), "\n")
         return messages
     messages = _append_text(prefix, _thread_text(thread_posts or (post,)))
-    _append_atomic(messages, f"[View on X](<{post.url}>)", " ")
+    if include_board:
+        _append_atomic(messages, f"**Board:** <{BOARD_URL}>", "\n\n")
+    _append_atomic(messages, f"[View on X](<{post.url}>)", "\n\n" if include_board else " ")
     if post.quoted_content_html:
         _append_atomic(messages, _quoted_block(post.quoted_content_html, post.quoted_url or post.url), "\n")
     if post.quoted_article_url:

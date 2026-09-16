@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 import scan
+import render
 import state
 import supersession
 from models import DiscordChannel, PostKind, Profile, SourceMedia, SourcePost, ThreadHandling
@@ -170,6 +171,17 @@ def test_x_board_event_requires_one_exact_ticker_led_source_title() -> None:
     assert board_event["media_urls"] == ["https://img.example/chart.png"]
 
 
+def test_x_board_event_accepts_whitespace_ticker_title_and_normalizes_only_board_title() -> None:
+    event = swing_event(source_text="PGAS Berpeluang Memulai Uptrendnya")
+    event["title"] = "PGAS: Berpeluang Memulai Uptrend"
+
+    board_event = scan.board_source_event(event, profile_fixture())
+
+    assert board_event["source_title"] == "PGAS: Berpeluang Memulai Uptrendnya"
+    assert "PGAS Berpeluang Memulai Uptrendnya" in board_event["all_content"]
+    assert board_event["plan"] is None
+
+
 def test_x_board_title_preserves_source_visible_markdown_and_link_text() -> None:
     event = swing_event(
         '<p>KPIG: Wave | <a href="https://example.test/chart">support* &amp; resistance</a></p><p>Second source line</p>'
@@ -205,6 +217,17 @@ def test_board_failure_does_not_repost_existing_all_messages(tmp_path, monkeypat
     assert value["outbox"][0]["board_phase"] == "pending"
 
 
+def test_swing_all_delivery_includes_board_link_before_view_on_x(tmp_path, monkeypatch) -> None:
+    value = ready_swing_state(tmp_path)
+    value["outbox"][0]["text_index"] = 0
+    sent = []
+    monkeypatch.setattr(scan.discord, "post_text", lambda content, *_: sent.append(content) or "all-message")
+
+    assert scan._deliver(value, profiles(), 0, False, tmp_path / "state.json", stats(), now()) is True
+    assert f"**Board:** <{render.BOARD_URL}>" in sent[0]
+    assert sent[0].index("**Board:**") < sent[0].index("[View on X]")
+
+
 def test_board_retry_accepts_without_reposting_all_messages(tmp_path, monkeypatch) -> None:
     value = ready_swing_state(tmp_path)
     all_messages = []
@@ -218,6 +241,29 @@ def test_board_retry_accepts_without_reposting_all_messages(tmp_path, monkeypatc
     assert scan._deliver(value, profiles(), 0, False, tmp_path / "state.json", stats(), now() + timedelta(minutes=1)) is True
     assert value["outbox"] == []
     assert all_messages == []
+
+
+def test_permanent_missing_media_is_skipped_and_board_handoff_continues(tmp_path, monkeypatch) -> None:
+    value = ready_swing_state(tmp_path)
+    event = value["outbox"][0]
+    event["media_index"] = 0
+    event["post"]["quoted_media"] = []
+    event["thread_posts"][0]["quoted_media"] = []
+    board_payloads = []
+    monkeypatch.setattr(scan.discord, "post_media", lambda *_: (_ for _ in ()).throw(scan.discord.MediaUnavailable(404)))
+    monkeypatch.setattr(scan, "submit_board_event", lambda payload, *_: board_payloads.append(payload) or True)
+    stats = scan.RunStats()
+    storage = tmp_path / "state.json"
+
+    assert scan._deliver(value, profiles(), 0, False, storage, stats, now()) is True
+    assert value["outbox"][0]["media_index"] == 1
+    assert value["outbox"][0]["media_skipped_urls"] == ["https://img.example/chart.png"]
+    assert stats.degraded is True
+
+    assert scan._deliver(value, profiles(), 0, False, storage, stats, now()) is True
+    assert value["outbox"] == []
+    assert board_payloads[0]["media_urls"] == []
+    assert value["deliveries"][0]["media_skipped_urls"] == ["https://img.example/chart.png"]
 
 
 @pytest.mark.parametrize(

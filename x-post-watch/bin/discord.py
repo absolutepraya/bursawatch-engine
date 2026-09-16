@@ -17,6 +17,14 @@ class DiscordRetryAfter(RuntimeError):
         super().__init__(f"Discord rate limited for {retry_after:g} seconds")
 
 
+class MediaUnavailable(RuntimeError):
+    """A source media URL returned a confirmed permanent absence."""
+
+    def __init__(self, status_code: int) -> None:
+        self.status_code = status_code
+        super().__init__(f"media unavailable HTTP {status_code}")
+
+
 def nonce(event_key: str, leg: str) -> str:
     return hashlib.sha256(f"x-post-watch:{event_key}:{leg}".encode()).hexdigest()[:24]
 
@@ -48,7 +56,12 @@ def post_media(url: str, channel_id: str, dry_run: bool, nonce_value: str, direc
         print(f"[dry-run] Discord media {channel_id}: {url}")
         return "dry-run"
     response = requests.get(url, timeout=30)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as error:
+        if response.status_code in {404, 410}:
+            raise MediaUnavailable(response.status_code) from error
+        raise
     content_type = response.headers.get("Content-Type", "application/octet-stream").split(";", 1)[0]
     extension = mimetypes.guess_extension(content_type) or ".bin"
     directory.mkdir(parents=True, exist_ok=True)

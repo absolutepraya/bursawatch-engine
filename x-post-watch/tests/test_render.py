@@ -68,6 +68,16 @@ def test_render_summary_retains_quoted_post_text(config_path, profile_payload):
     assert render.render_post(profile, post, summary, "Pasar: Ringkasan Inti") == ["### <:twitter:1531672630602498129> Pasar: Ringkasan Inti\n-# <:kutekians:1531673483459821729> Almer Sad, CFA\n\n*(Ringkasan)* Ini ringkasan inti.\n\n[View on X](<https://x.com/Kutekians/status/102>)\n> **Quoted post**\n> Quoted raw\n> [View quoted on X](<https://x.com/original/status/101>)"]
 
 
+def test_render_swing_adds_board_link_only_when_requested(config_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Swing setup", PostKind.NORMAL, None, None, (), ())
+
+    rendered = render.render_post(profile, post, "*(Ringkasan)* Setup teknikal.", "PGAS: Swing", include_board=True)[0]
+
+    assert f"**Board:** <{render.BOARD_URL}>" in rendered
+    assert rendered.index("**Board:**") < rendered.index("[View on X]")
+
+
 def test_render_article_quote_block_is_visible_without_article_body(config_path, profile_payload):
     profile_payload["enable_llm_title"] = True
     profile_payload["enable_llm_summary"] = True
