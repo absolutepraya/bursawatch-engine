@@ -52,6 +52,18 @@ class PlanCard:
     source_updated_at: datetime
 
 
+@dataclass(frozen=True)
+class SourceReply:
+    """A completed board source reply that can be safely rewritten in place."""
+
+    outbox_id: int
+    episode: Episode
+    event: SourceEvent
+    message_id: str
+    chunk_index: int
+    current_content: str
+
+
 class BoardStore:
     """Owns the board SQLite file and its retry-safe outbound intents."""
 
@@ -165,6 +177,49 @@ class BoardStore:
     def latest_plan_cards(self) -> list[PlanCard]:
         with self._connection() as connection:
             return BoardStoreTransaction(self, connection).latest_plan_cards()
+
+    def completed_source_replies(self) -> list[SourceReply]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT o.id AS outbox_id, o.payload_json, o.completion_json, o.dedupe_key, "
+                "e.id AS episode_id, e.ticker, e.lifecycle, e.title, e.opened_at, "
+                "e.latest_material_at, e.closed_at, e.thread_id, e.starter_message_id, "
+                "e.lifecycle_tag, e.market_tag FROM outbox o "
+                "JOIN episodes e ON e.id = o.episode_id "
+                "WHERE o.operation = 'post_source_reply' AND o.status = 'complete' "
+                "AND o.completion_json IS NOT NULL AND e.thread_id IS NOT NULL "
+                "ORDER BY o.id"
+            ).fetchall()
+            replies: list[SourceReply] = []
+            for row in rows:
+                payload = json.loads(row["payload_json"])
+                completion = json.loads(row["completion_json"])
+                message_id = completion.get("message_id")
+                if not isinstance(message_id, str) or not message_id:
+                    continue
+                event_key, chunk_index = _source_event_key_from_dedupe(row["dedupe_key"])
+                event_row = connection.execute(
+                    "SELECT * FROM source_events WHERE event_key = ?", (event_key,)
+                ).fetchone()
+                if event_row is None:
+                    continue
+                replies.append(SourceReply(
+                    outbox_id=int(row["outbox_id"]),
+                    episode=Episode(
+                        id=int(row["episode_id"]), ticker=row["ticker"],
+                        lifecycle=row["lifecycle"], title=row["title"],
+                        opened_at=_parse_timestamp(row["opened_at"]),
+                        latest_material_at=_parse_timestamp(row["latest_material_at"]),
+                        closed_at=_parse_timestamp(row["closed_at"]) if row["closed_at"] else None,
+                        thread_id=row["thread_id"], starter_message_id=row["starter_message_id"],
+                        lifecycle_tag=row["lifecycle_tag"], market_tag=row["market_tag"],
+                    ),
+                    event=_source_event_from_row(event_row),
+                    message_id=message_id,
+                    chunk_index=chunk_index,
+                    current_content=str(payload.get("content") or ""),
+                ))
+            return replies
 
     def pending_outbox_count(self) -> int:
         with self._connection() as connection:
@@ -1088,6 +1143,20 @@ def _parse_timestamp(value: str) -> datetime:
 def _close_phase(value: str) -> None:
     if value not in {"initial", "retry"}:
         raise ValueError("close phase must be initial or retry")
+
+
+def _source_event_key_from_dedupe(value: str) -> tuple[str, int]:
+    prefix = "event:"
+    marker = ":post_source_reply"
+    if not value.startswith(prefix) or marker not in value:
+        raise StoreBlockedError("source reply dedupe key is invalid")
+    event_key, _, suffix = value[len(prefix):].rpartition(marker)
+    if not event_key:
+        raise StoreBlockedError("source reply event identity is missing")
+    chunk_index = 0
+    if suffix.startswith(":") and suffix[1:].isdigit():
+        chunk_index = int(suffix[1:])
+    return event_key, chunk_index
 
 
 def _episode_from_row(row: sqlite3.Row) -> Episode:

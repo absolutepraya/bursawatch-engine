@@ -16,12 +16,16 @@ if not _SHARED_FORMAT_BIN.exists():
 if str(_SHARED_FORMAT_BIN) not in sys.path:
     sys.path.insert(0, str(_SHARED_FORMAT_BIN))
 
-from swing_format import source_status_emoji  # noqa: E402
+from swing_format import (  # noqa: E402
+    canonicalize_phintraco_message,
+    source_status_emoji,
+    space_inline_custom_emojis,
+)
 
 
 WIB = ZoneInfo("Asia/Jakarta")
 PHINTRACO_EMOJI = "<:phintraco:1531272488645038091>"
-_MARKDOWN = re.compile(r"([\\*_~`|\[\]()>])")
+_MARKDOWN = re.compile(r"([\\*_~`|\[\]()])")
 _BYLINE = re.compile(r"^-#\s+(.+?)\s*$", re.MULTILINE)
 _REASONS = re.compile(r"^\*\*Reasons:\*\*\s*(.+?)\s*$", re.MULTILINE)
 _TYPE = re.compile(r"^\*\*Type:\*\*\s*(.+?)\s*$", re.MULTILINE)
@@ -53,6 +57,21 @@ def render_source_only_card(title: str, source_url: str | None = None) -> str:
 
 def render_source_reply(event: SourceEvent) -> str:
     """Keep the watcher's All text and source link; media has its own intents."""
+    if event.source.casefold() == "phintraco":
+        try:
+            return canonicalize_phintraco_message(
+                event.all_content,
+                source_url=event.source_url,
+                published_at=event.published_at,
+                source_status=event.source_status,
+                include_board=False,
+                has_chart=bool(event.media_path),
+            )
+        except ValueError:
+            # Source text that is not the known Phintraco Swing shell, or that
+            # cannot fit after adding the canonical fields, remains lossless
+            # and is split by render_source_replies below.
+            pass
     urls = (event.source_url,)
     missing = [url for url in urls if url not in event.all_content]
     return event.all_content + ("\n\n" + "\n".join(missing) if missing else "")
@@ -132,7 +151,7 @@ def _primary_static(event: SourceEvent) -> tuple[str, bool]:
         "",
     ]
     if source_type := _TYPE.search(event.all_content):
-        lines.append(f"**Type:** {source_type.group(1)}")
+        lines.append(f"**Type:** {escape(space_inline_custom_emojis(source_type.group(1)))}")
     lines.extend([f"**Entry:** {escape(event.plan.entry)}", f"**Stop-loss:** {escape(event.plan.stop_loss)}"])
     targets_start = len(lines)
     for number, target in enumerate(event.plan.targets, start=1):
@@ -206,6 +225,14 @@ def _source_analyst(event: SourceEvent) -> tuple[str | None, str | None]:
                 return name, role
         if byline == "Phintraco Sekuritas":
             return None, None
+    for line in event.all_content.splitlines():
+        source_match = re.search(
+            r"\|\s*([^,\n|]+),\s*(?:Investment Advisor|Phintraco Sekuritas)\s*$",
+            line,
+            re.IGNORECASE,
+        )
+        if source_match:
+            return source_match.group(1).strip(), "Investment Advisor"
     return None, None
 
 

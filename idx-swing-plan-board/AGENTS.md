@@ -23,8 +23,10 @@ Only scheduled `after-close --phase initial` at 16:30 WIB and `after-close --pha
 Set `IDX_SWING_PLAN_BOARD_NO_POST=1` with isolated `IDX_SWING_PLAN_BOARD_STATE_PATH` and `IDX_SWING_PLAN_BOARD_MEDIA_ROOT` paths for every smoke test. Never reset, hand-edit, initialize, replay, or bootstrap production state. Bootstrap is an externally visible backfill and requires a separately approved command.
 
 The one-time presentation migration is `migrate-format --apply`; it rewrites
-existing starter cards through the shared cash-Swing renderer while retaining
-their current attachments. The approved retirement of legacy quoted history is
+existing starter cards and completed source replies through the shared
+cash-Swing renderer while retaining current attachments. The Phintraco legacy
+rewriter also promotes source-footer analyst names, normalizes ticker-first
+titles, dates, field spacing, source status, and footer links. The approved retirement of legacy quoted history is
 `cleanup-history --apply`; it deletes only message IDs recorded in
 `history_events` and must run against live Discord, never with the no-post
 control.

@@ -303,7 +303,7 @@ class BoardEngine:
             return tx.schedule_history_deletes(now)
 
     def schedule_format_migration(self, now: datetime) -> int:
-        """Queue one canonical card rewrite for every existing plan episode."""
+        """Queue canonical rewrites for existing cards and source replies."""
         count = 0
         for card in self.store.latest_plan_cards():
             if not card.episode.thread_id or not card.episode.starter_message_id:
@@ -318,9 +318,33 @@ class BoardEngine:
                             card.event, checkpoint, last_valid, card.source_updated_at
                         ),
                         "chart": None,
-                        "nonce_value": f"format-migration:v3:{card.episode.id}:{card.plan_id}",
+                        "nonce_value": f"format-migration:v4:card:{card.episode.id}:{card.plan_id}",
                     },
-                    f"format-migration:v3:{card.episode.id}:{card.plan_id}",
+                    f"format-migration:v4:card:{card.episode.id}:{card.plan_id}",
+                    now,
+                )
+            count += 1
+        for reply in self.store.completed_source_replies():
+            if not reply.current_content or reply.current_content.startswith("[Source media"):
+                continue
+            chunks = render_source_replies(reply.event)
+            if reply.chunk_index >= len(chunks):
+                continue
+            content = chunks[reply.chunk_index]
+            if content == reply.current_content:
+                continue
+            nonce = f"format-migration:v4:reply:{reply.outbox_id}"
+            with self.store.transaction() as tx:
+                tx.enqueue_outbox(
+                    "edit_starter",
+                    reply.episode.id,
+                    {
+                        "content": content,
+                        "chart": None,
+                        "target_message_id": reply.message_id,
+                        "nonce_value": nonce,
+                    },
+                    nonce,
                     now,
                 )
             count += 1
@@ -361,7 +385,10 @@ class BoardEngine:
                     if operation.operation == "delete_message":
                         payload.setdefault("thread_id", episode.thread_id)
                     else:
-                        payload.update(thread_id=episode.thread_id, message_id=episode.starter_message_id)
+                        payload.update(
+                            thread_id=episode.thread_id,
+                            message_id=payload.pop("target_message_id", episode.starter_message_id),
+                        )
                 creating = operation.operation in {"create_thread", "post_source_reply", "post_history_reply"}
                 if creating and payload.get("create_snapshot"):
                     completion = self.client.recover_create(operation.operation, payload)

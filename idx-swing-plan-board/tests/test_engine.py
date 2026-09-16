@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import datetime, timedelta
+import json
 import sqlite3
 from unittest.mock import Mock
 
@@ -83,6 +84,46 @@ def test_kelas_source_reply_chunks_are_durable_ordered_and_preserve_media(engine
     assert "".join(item.payload["content"] for item in replies) == render_source_reply(event)
     assert [item.payload["media"] for item in replies] == ["/tmp/raja-header.jpg", *([None] * (len(replies) - 1))]
     assert len({item.payload["nonce_value"] for item in replies}) == len(replies)
+
+
+def test_format_migration_rewrites_existing_starter_and_source_reply(engine):
+    legacy = (
+        "### <:phintraco:1531272488645038091> HOLD: **KPIG**\n\n"
+        "**Status:** On track<:hold:1531284248235868333>\n"
+        "**Status date:** Fri, Sep 11 2026, 10:13 WIB\n"
+        "**Source:** [Phintraco Sekuritas](<https://t.me/phintraprofits/33656>) | "
+        "Alrich Paskalis T, Investment Advisor"
+    )
+    engine.submit(buy(media_path="/tmp/chart.jpg"), at())
+    event = replace(
+        status("On track", event_key="phintraco:status:legacy", source_url="https://t.me/phintraprofits/33656"),
+        all_content=legacy,
+    )
+    engine.submit(event, at())
+    engine.drain(now=at())
+    source_reply = next(op for op in operations(engine) if op.operation == "post_source_reply")
+    with sqlite3.connect(engine.store.path) as connection:
+        # The public operation object exposes the parsed payload, so update the
+        # durable row directly to model the old message already on Discord.
+        connection.execute(
+            "UPDATE source_events SET all_content = ? WHERE event_key = ?",
+            (legacy, event.event_key),
+        )
+        connection.execute(
+            "UPDATE outbox SET payload_json = ? WHERE id = ?",
+            (json.dumps({**source_reply.payload, "content": legacy}), source_reply.id),
+        )
+
+    scheduled = engine.schedule_format_migration(at())
+    assert scheduled == 2
+    migrations = [
+        op for op in operations(engine)
+        if op.operation == "edit_starter" and op.payload.get("nonce_value", "").startswith("format-migration:v4:")
+    ]
+    assert len(migrations) == 2
+    reply_migration = next(op for op in migrations if op.payload.get("target_message_id") == "789")
+    assert "KPIG: Hold" in reply_migration.payload["content"]
+    assert "On track <:hold:1531284248235868333>" in reply_migration.payload["content"]
 
 
 def test_buy_promotes_without_reposting_social_reply(engine):

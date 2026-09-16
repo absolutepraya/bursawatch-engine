@@ -151,11 +151,34 @@ def test_near_limit_primary_keeps_source_type_escaping_and_reserves_close_fields
                        Checkpoint.unavailable_at(session_date="2026-09-21", checked_at=at().isoformat())):
         card = render_primary_card(replace(event, source_status="Long source confirmation " * 30), checkpoint)
         assert discord_length(card) <= 2000
-        assert "**Type:** Trading Buy<:up:1531285100346740766>" in card
+        assert "**Type:** Trading Buy <:up:1531285100346740766>" in card
         assert r"support \*held\*" in card and r"support \\\*held" not in card
-        assert "**Entry:** 208 to 212" in card and "**Target 1:** 230" in card
+    assert "**Entry:** 208 to 212" in card and "**Target 1:** 230" in card
     replies = [op.payload["content"] for op in owner.store.operations_for_ticker("SCMA") if op.operation == "post_source_reply"]
     assert "".join(replies) == render_source_reply(event)
+
+
+def test_phintraco_source_reply_migration_uses_shared_shell_and_source_footer_analyst():
+    event = replace(
+        example_buy_event(),
+        media_path="/tmp/source-chart.jpg",
+        all_content=(
+            "### <:phintraco:1531272488645038091> BUY: **SCMA**\n\n"
+            "**Type:** Trading Buy<:up:1531285100346740766>\n"
+            "**Entry:** 208 to 212\n**Stop-loss:** <200\n**Target:** 230\n"
+            "**Signal date:** Fri, Sep 11 2026, 06:50 WIB\n\n"
+            "**Reasons:** Support held.\n\n"
+            "**Source:** [Phintraco Sekuritas](<https://t.me/phintraprofits/33655>) | "
+            "Alrich Paskalis T, Investment Advisor"
+        ),
+    )
+    rendered = render_source_reply(event)
+
+    assert "### <:phintraco:1531272488645038091> SCMA: Buy" in rendered
+    assert "-# Alrich Paskalis T, Phintraco Sekuritas" in rendered
+    assert "**Type:** Trading Buy <:up:1531285100346740766>" in rendered
+    assert "**Board:**" not in rendered
+    assert rendered.endswith("[View in Telegram](<https://t.me/phintraprofits/33655>)")
 
 
 def _phintraco_adapter():

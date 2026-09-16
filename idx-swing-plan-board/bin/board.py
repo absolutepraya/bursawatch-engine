@@ -37,7 +37,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         return int(health["pending"] > 0 or health["failed"] > 0)
     if arguments.command == "migrate-format":
         if not arguments.apply:
-            print(json.dumps({"apply_required": True, "planned": len(engine.store.latest_plan_cards())}, separators=(",", ":")))
+            print(json.dumps({
+                "apply_required": True,
+                "planned_cards": len(engine.store.latest_plan_cards()),
+                "planned_source_replies": len(engine.store.completed_source_replies()),
+            }, separators=(",", ":")))
             return 0
         scheduled = engine.schedule_format_migration(datetime.now(WIB))
         health = {"scheduled": scheduled, "drained": engine.drain(), **engine.store.outbox_health()}
