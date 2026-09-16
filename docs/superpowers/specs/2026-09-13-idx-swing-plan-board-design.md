@@ -18,21 +18,21 @@ asserts that a member bought, holds, sold, took profit, or cut loss.
 
 ## Delivered Discord configuration
 
-The forum already exists, is intentionally empty, and is not a test surface:
+The forum already exists, is live, and is not a test surface:
 
 | Item | Value |
 | --- | --- |
 | Forum | `#id-stocks-swing-board` (`1548273399069933720`) |
 | Category | Invest & Trade (`1508875753473966150`) |
+| Default layout | List View |
 | Ordering | Latest activity |
-| Inactivity archive | Seven days, Discord's maximum forum setting |
+| Inactivity archive | Three days |
 | Member access | View-only: no posts, replies, or reactions |
 | Bot access | Yanto can create, edit, reply, tag, and archive |
 
 The pre-existing `#id-stocks-swing` (`1525102458253217803`) is unchanged.
-The board must not receive a test post. It starts receiving content only when
-the approved implementation is deployed, and only after a separately approved
-bootstrap if the bootstrap is run.
+The board receives only validated owner events and approved bootstrap data. It
+must not receive test posts.
 
 The configured forum tags are:
 
@@ -206,7 +206,7 @@ breaches its stop loss or reaches its final source-supplied target. The owner:
 - stops all future source-status and price updates for that episode.
 
 No artificial reply, card edit, or tag churn is used to keep it visible.
-Discord automatically archives the inactive resolved post after seven days.
+Discord automatically archives the inactive resolved post after three days.
 It remains Discord history, and any later complete Phintraco plan for that
 ticker opens a fresh episode.
 
@@ -410,7 +410,7 @@ Tests and live no-post checks must prove observable behavior:
    prior state and produce no false transition.
 5. Material transitions edit the managed card and tags without quoted history.
    Unchanged checks only edit the top card.
-6. Tag resolution, lifecycle replacement, terminal resolution, and 7-day
+6. Tag resolution, lifecycle replacement, terminal resolution, and 3-day
    auto-archive behavior use only the reviewed forum configuration.
 7. Bootstrap dry-run identifies every candidate, skipped ambiguous item, and
    planned external effect without making a Discord or Telegram write.

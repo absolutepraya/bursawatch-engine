@@ -13,9 +13,9 @@ delayed Yahoo data, and not mix cash-equity plans with SSF derivatives calls.
 ## Decisions
 
 - The live forum is `#id-stocks-swing-board` (`1548273399069933720`) under the
-  Invest & Trade category. It is empty until the approved implementation and
-  bootstrap are ready. It uses latest-activity ordering and Discord's maximum
-  seven-day auto-archive duration.
+  Invest & Trade category. It uses List View, latest-activity ordering, and a
+  three-day auto-archive duration. Discord tags are filters and do not provide
+  a tag-first or nested tag/date post ordering.
 - The forum is view-only for regular members. Yanto and server administrators
   retain the permissions required to create, edit, reply to, tag, and archive
   episodes. Members cannot create posts, reply, or react.
@@ -46,7 +46,7 @@ delayed Yahoo data, and not mix cash-equity plans with SSF derivatives calls.
   `Primary plan`, or `Resolved`. A primary or resolved episode receives a market-state tag only
   after a reliable price checkpoint or explicit Phintraco outcome is known.
 - A resolved episode gets no artificial retention update. Discord archives it
-  after seven inactive days, where it remains retrievable history. A later
+  after three inactive days, where it remains retrievable history. A later
   complete Phintraco plan opens a fresh episode.
 - Bootstrap once from retained Telegram Phintraco history. Reconstruct only
   unambiguous current plans and their original charts and relevant source

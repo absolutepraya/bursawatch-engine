@@ -21,6 +21,9 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
 - **Live Hermes jobs:** `idx-swing-plan-board-close` is `5c0b79e08fae`, and
   `idx-swing-plan-board-retry` is `71c4f9a32acd`. Both are active no-agent
   jobs with `local` delivery and `/home/praya` as their working directory.
+- **Forum defaults:** `#id-stocks-swing-board` uses List View, Latest Activity
+  ordering, and Discord's three-day inactivity archive. Discord has no
+  tag-first or nested tag/date sort; tags remain filters.
 - **Delivery health:** `drain` returns JSON counts `drained`, `pending`, and `failed`, with a nonzero exit while work remains, including backoff. Ambiguous Discord creates use durable pre-POST read-back identity; inconclusive recovery stays pending without another POST. Nonce reuse alone is not durable idempotency.
 - **Media and size:** the owner downloads ordered public direct X media into private storage and retries each attachment independently. Source text is split losslessly into ordered replies within 2,000 UTF-16 units; managed cards stay within the same limit with complete source replies when compacted. Retired quoted history is deletion-only maintenance, never new delivery. Unsupported or oversized media stays pending, never silently dropped.
 - **Close outcomes:** stop-loss or the actual final target resolves the plan, including target ladders beyond TP6 whose factual tag clamps at TP6. The owner updates the card and tags without generating quoted history replies. Unclassifiable plans preserve prior facts, increment `invalid`, and do not block other tickers. Invalid, unavailable, and pending work degrade the heartbeat; unexpected failures emit a sanitized fatal heartbeat.

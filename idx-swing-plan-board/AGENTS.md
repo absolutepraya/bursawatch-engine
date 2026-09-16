@@ -57,6 +57,10 @@ control.
 The one-time `migrate-titles --apply` command renames existing forum topics to
 their ticker-only names without changing starter content or tags.
 
+The live forum defaults to List View, Latest Activity ordering, and a
+three-day inactivity archive. Discord does not support tag-first or nested
+tag-then-date ordering; tags remain user-selectable filters.
+
 ## Development and deployment
 
 Run the focused suite from the repository root with the shared virtual environment:

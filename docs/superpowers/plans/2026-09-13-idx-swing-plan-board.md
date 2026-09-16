@@ -22,7 +22,7 @@
 - Use `19 Sep 2026 16:30 WIB` formatting. Never expose internal versions.
 - The lifecycle tags are exactly `Chart context`, `Supporting setup`, `Primary plan`, and `Resolved`. Resolve all tag IDs by exact name and fail closed on missing or duplicated names.
 - The factual market tags are exactly `Below entry`, `Entry zone`, `Above entry`, `TP1 reached`, `TP2 reached`, `TP3 reached`, `TP4 reached`, `TP5 reached`, `TP6 reached`, and `Stop-loss breached`. Resolve these by exact name too.
-- A source-only episode has no price checkpoint. A resolved episode receives no retention activity and auto-archives after Discord's seven-day inactivity interval.
+- A source-only episode has no price checkpoint. A resolved episode receives no retention activity and auto-archives after Discord's three-day inactivity interval.
 - Use `IDX_SWING_PLAN_BOARD_NO_POST=1` with isolated state and media paths for every board smoke test. Never reset, hand-edit, initialize, or replay production state.
 - Scheduled owner commands post their own `#hermes` heartbeat and use Hermes `--deliver local` to avoid an additional raw cron response.
 - Use the installed `yfinance`, `requests`, and `pandas` packages. Do not alter the shared Yahoo Finance tool environment.
@@ -428,7 +428,7 @@ An explicit stop or final-target source outcome marks the plan terminal, sets
 lifecycle to `Resolved`, preserves the final market tag and chart, and blocks
 later status or price changes for that episode. Do not send an archive
 operation or any synthetic retention message. The configured Discord
-auto-archive handles retention.
+three-day auto-archive handles retention.
 
 - [ ] **Step 5: Run the lifecycle suite and commit**
 
