@@ -179,6 +179,44 @@ def test_tuntun_entry_uses_generated_title_and_four_horizons(monkeypatch):
     assert "*Harga terakhir" not in alert
 
 
+def test_phintraco_entry_uses_shared_issuer_layout_and_four_horizons(monkeypatch):
+    item = _item(
+        Provider.PHINTRACO,
+        35235,
+        "FORU",
+        EventClass.CORPORATE_ACTION,
+        datetime(2026, 9, 15, 6, 41, tzinfo=timezone.utc),
+        facts=(
+            "FORU akan melakukan rights issue hingga Rp27,1 triliun.",
+            "Pemegang saham yang tidak mengeksekusi HMETD berpotensi terdilusi.",
+        ),
+        source_text="FORU (PT Fortune Indonesia Tbk): rights issue hingga Rp27,1 triliun.",
+    )
+    monkeypatch.setattr(
+        delivery,
+        "get_market_snapshot",
+        lambda ticker, source_text: MarketSnapshot(
+            "PT Fortune Indonesia Tbk", 4310, -340, -7.31, 610, 16.49, 2500, 116.28, 1580, 51.47
+        ),
+    )
+
+    alert = delivery.format_news_item(item)
+
+    assert alert == (
+        "### <:phintraco:1531272488645038091> FORU (PT Fortune Indonesia Tbk)\n\n"
+        "*(Ringkasan)* FORU akan melakukan rights issue hingga Rp27,1 triliun. "
+        "Pemegang saham yang tidak mengeksekusi HMETD berpotensi terdilusi.\n\n"
+        "Harga terakhir (IDR): **4.310**\n"
+        "<:red:1531274756853202974> 1D: **-340 (-7.31%)**, "
+        "<:green:1531274822221434911> 1W: **+610 (+16.49%)**,\n"
+        "<:green:1531274822221434911> 1M: **+2.500 (+116.28%)**, "
+        "<:green:1531274822221434911> 3M: **+1.580 (+51.47%)**\n\n"
+        "[View on Telegram](<https://t.me/phintasprofits/35235>)"
+    )
+    assert "┈" * 13 not in alert
+    assert "*Harga terakhir" not in alert
+
+
 def test_tuntun_macro_card_uses_the_telegram_link_without_market_data():
     item = SelectionCandidate(
         candidate=CompanyCandidate(

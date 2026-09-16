@@ -128,13 +128,20 @@ def _tuntun_change(value: float | None, percent: float | None, label: str) -> st
     return f"{_direction_emoji(value)} {label}: **{_change(value, percent, decimal_separator='.')}**"
 
 
-def _tuntun_entry(item: SelectionCandidate) -> str:
+def _issuer_entry(
+    item: SelectionCandidate,
+    heading: str,
+    *,
+    snapshot=None,
+    load_market_data: bool = True,
+) -> str:
     summary = _render_tuntun_summary(item)
     if _contains_investment_language(summary):
         raise ValueError("delivery facts must not contain investment language")
-    sections = [f"### {_PROVIDER_EMOJIS['Tuntun']} {item.title}", summary]
+    sections = [heading, summary]
     if item.route is Destination.ID_STOCKS_NEWS and item.ticker is not None:
-        snapshot = get_market_snapshot(item.ticker, item.candidate.source_text)
+        if load_market_data:
+            snapshot = get_market_snapshot(item.ticker, item.candidate.source_text)
         changes = (
             (
                 _tuntun_change(snapshot.one_day_change, snapshot.one_day_percent, "1D"),
@@ -160,9 +167,32 @@ def _tuntun_entry(item: SelectionCandidate) -> str:
     return "\n\n".join(sections)
 
 
+def _tuntun_entry(item: SelectionCandidate) -> str:
+    return _issuer_entry(item, f"### {_PROVIDER_EMOJIS['Tuntun']} {item.title}")
+
+
+def _phintraco_entry(item: SelectionCandidate) -> str:
+    if item.ticker is None:
+        raise ValueError("Phintraco issuer entries require a ticker")
+    snapshot = get_market_snapshot(item.ticker, item.candidate.source_text)
+    company_name = (
+        snapshot.company_name
+        if snapshot is not None
+        else fallback_company_name(item.ticker, item.candidate.source_text)
+    )
+    return _issuer_entry(
+        item,
+        f"### {_PROVIDER_EMOJIS['Phintraco']} {item.ticker} ({company_name})",
+        snapshot=snapshot,
+        load_market_data=False,
+    )
+
+
 def _entry(item: SelectionCandidate) -> str:
     if item.provider is Provider.TUNTUN and item.title:
         return _tuntun_entry(item)
+    if item.provider is Provider.PHINTRACO and item.ticker is not None:
+        return _phintraco_entry(item)
     return _legacy_entry(item)
 
 

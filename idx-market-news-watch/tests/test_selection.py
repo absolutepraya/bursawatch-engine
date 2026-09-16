@@ -202,6 +202,76 @@ def test_same_provider_duplicate_can_use_strong_source_overlap_without_shared_fa
     assert is_confident_duplicate(original, repost)
 
 
+def test_same_provider_materially_changed_follow_up_is_not_duplicate():
+    published_at = datetime.fromisoformat("2026-09-10T17:27:55+07:00")
+    original = _selection_candidate(
+        Provider.TUNTUN,
+        14773,
+        "MGLV",
+        published_at,
+        event_class=EventClass.FINANCING_OR_OWNERSHIP,
+        dedupe_facts=(
+            "pengendali MGLV menjual 35 juta saham senilai Rp245 miliar pada harga Rp7.000 per saham",
+            "kepemilikan pengendali MGLV turun dari 66,93% menjadi 65,10%",
+        ),
+        source_text=(
+            "MGLV (PT NexAI Digital Infrastruktur Tbk): PT Nextier Datamate Center selaku "
+            "pengendali menjual 35 juta saham pada harga Rp7.000 per saham atau senilai Rp245 miliar. "
+            "Kepemilikannya turun dari 66,93% menjadi 65,10%, tetapi Nextier tetap berstatus pengendali."
+        ),
+    )
+    follow_up = _selection_candidate(
+        Provider.TUNTUN,
+        14884,
+        "MGLV",
+        published_at + timedelta(days=5, hours=22, minutes=32),
+        event_class=EventClass.FINANCING_OR_OWNERSHIP,
+        dedupe_facts=(
+            "pengendali MGLV menjual 229,51 juta saham senilai sekitar Rp1,61 triliun dan kepemilikan turun menjadi 63,07%",
+            "MGLV menyiapkan rights issue 285,73 juta saham untuk menghimpun sekitar Rp2,54 triliun",
+        ),
+        source_text=(
+            "📰 MGLV: Pengendali Raup Rp1,61 Triliun dari Divestasi Saham\n\n"
+            "Pengendali PT NexAI Digital Infrastruktur Tbk (MGLV), PT Nextier Datama Center (NDC), "
+            "telah menjual total 229,51 juta saham MGLV dengan nilai sekitar Rp1,61 triliun. "
+            "Setelah serangkaian divestasi tersebut, kepemilikan NDC turun menjadi sekitar 1,2 miliar saham atau 63,07%. "
+            "MGLV akan melakukan rights issue 285,73 juta saham dengan harga pelaksanaan Rp8.880 per saham."
+        ),
+    )
+
+    assert not is_confident_duplicate(original, follow_up)
+
+
+def test_cross_provider_equivalent_event_matches_structured_facts_with_different_wording():
+    published_at = datetime.fromisoformat("2026-09-14T17:58:44+07:00")
+    tuntun = _selection_candidate(
+        Provider.TUNTUN,
+        14823,
+        "FORU",
+        published_at,
+        event_class=EventClass.CORPORATE_ACTION,
+        dedupe_facts=(
+            "FORU rights issue hingga sekitar 215,10 miliar saham baru pada harga Rp126 per saham dengan potensi nilai sekitar Rp27,1 triliun",
+            "saham baru dapat mencapai sekitar 99,79% dari modal setelah transaksi dan sebagian besar aksi berkaitan dengan inbreng 49% saham PT Borneo Prima",
+        ),
+        source_text="FORU memperoleh pernyataan efektif untuk rights issue sekitar Rp27,1 triliun.",
+    )
+    phintraco = _selection_candidate(
+        Provider.PHINTRACO,
+        35235,
+        "FORU",
+        published_at + timedelta(hours=19, minutes=42),
+        event_class=EventClass.CORPORATE_ACTION,
+        dedupe_facts=(
+            "FORU rights issue maksimal Rp27,1 triliun untuk penerbitan maksimal 215,1 miliar saham baru",
+            "FORU menggunakan sekitar Rp20,8 triliun untuk memperoleh 49% saham PT Borneo Prima",
+        ),
+        source_text="FORU akan melakukan rights issue hingga Rp27,1 triliun untuk memperoleh 49% saham PT Borneo Prima.",
+    )
+
+    assert is_confident_duplicate(tuntun, phintraco)
+
+
 def test_same_provider_different_event_is_not_duplicate():
     published_at = datetime.fromisoformat("2026-08-14T08:00:00+07:00")
     first = _selection_candidate(

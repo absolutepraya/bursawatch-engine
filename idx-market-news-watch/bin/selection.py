@@ -4,6 +4,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 from domain import Classification, CompanyCandidate, Destination, EventClass, Provider, SourceKind, Tier, tier_for_event_class
@@ -16,7 +17,9 @@ _AFTER_CLOSE_TIME = time(16, 30)
 _MAX_DIGEST_CANDIDATES = 10
 _DUPLICATE_INTERVAL = timedelta(hours=24)
 _SAME_PROVIDER_DUPLICATE_INTERVAL = timedelta(days=7)
+_SAME_PROVIDER_NEAR_REPOST_INTERVAL = timedelta(hours=24)
 _SOURCE_TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
+_FACT_TOKEN_PATTERN = re.compile(r"(?:rp)?\d+(?:[.,]\d+)*%?|[a-z]+", re.IGNORECASE)
 _SOURCE_STOP_WORDS = frozenset(
     "akan anak atau bagi bahwa dalam dari dan dengan ini itu kepada karena "
     "masih melalui menjadi pada para perseroan perusahaan sebagai serta "
@@ -58,6 +61,67 @@ def _strong_source_overlap(left: SelectionCandidate, right: SelectionCandidate) 
         return False
     overlap = len(left_tokens & right_tokens)
     return overlap >= 5 and overlap / min(len(left_tokens), len(right_tokens)) >= 0.4
+
+
+def _normalize_numeric_token(token: str) -> str | None:
+    raw = token.casefold().removeprefix("rp").removesuffix("%")
+    if not raw or not raw[0].isdigit():
+        return None
+    if "," in raw:
+        raw = raw.replace(".", "").replace(",", ".")
+    elif "." in raw:
+        parts = raw.split(".")
+        if all(len(part) == 3 for part in parts[1:]):
+            raw = "".join(parts)
+    try:
+        normalized = format(Decimal(raw).normalize(), "f")
+    except (InvalidOperation, ValueError):
+        return None
+    return normalized.rstrip("0").rstrip(".") if "." in normalized else normalized
+
+
+def _fact_components(fact: str) -> tuple[frozenset[str], frozenset[str]]:
+    numeric_tokens: set[str] = set()
+    content_tokens: set[str] = set()
+    for token in _FACT_TOKEN_PATTERN.findall(fact.casefold()):
+        numeric = _normalize_numeric_token(token)
+        if numeric is not None:
+            numeric_tokens.add(numeric)
+        elif len(token) >= 3 and token not in _SOURCE_STOP_WORDS:
+            content_tokens.add(token)
+    return frozenset(numeric_tokens), frozenset(content_tokens)
+
+
+def _structured_fact_pair_matches(left: str, right: str) -> bool:
+    left_numbers, left_content = _fact_components(left)
+    right_numbers, right_content = _fact_components(right)
+    return bool(left_numbers & right_numbers) and len(left_content & right_content) >= 2
+
+
+def _structured_fact_match_count(left: SelectionCandidate, right: SelectionCandidate) -> int:
+    """Count one-to-one fact matches supported by shared numbers and content."""
+    graph = {
+        index: {
+            other_index
+            for other_index, other_fact in enumerate(right.dedupe_facts)
+            if _structured_fact_pair_matches(fact, other_fact)
+        }
+        for index, fact in enumerate(left.dedupe_facts)
+    }
+    matched_right: dict[int, int] = {}
+
+    def augment(left_index: int, visited: set[int]) -> bool:
+        for right_index in graph[left_index]:
+            if right_index in visited:
+                continue
+            visited.add(right_index)
+            previous = matched_right.get(right_index)
+            if previous is None or augment(previous, visited):
+                matched_right[right_index] = left_index
+                return True
+        return False
+
+    return sum(augment(left_index, set()) for left_index in graph)
 
 
 def _normalize_fact_sequence(
@@ -179,7 +243,13 @@ def is_confident_duplicate(left: SelectionCandidate, right: SelectionCandidate) 
         return False
     if len(left.normalized_dedupe_facts & right.normalized_dedupe_facts) >= 2:
         return True
-    return left.provider is right.provider and _strong_source_overlap(left, right)
+    if _structured_fact_match_count(left, right) >= 2:
+        return True
+    return (
+        left.provider is right.provider
+        and abs(left.published_at - right.published_at) <= _SAME_PROVIDER_NEAR_REPOST_INTERVAL
+        and _strong_source_overlap(left, right)
+    )
 
 
 def _record_for(state: dict[str, object], item: SelectionCandidate) -> dict[str, object]:
