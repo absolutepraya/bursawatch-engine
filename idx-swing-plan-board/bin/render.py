@@ -147,10 +147,33 @@ def _excerpt(content: str, limit: int) -> str:
 
 
 def render_history(when: str, detail: str) -> str:
-    """Render one board-owned material-transition record as a fixed two-line quote."""
+    """Render one board-owned material-transition record as a quoted reply."""
+    return render_history_replies(when, detail)[0]
+
+
+def render_history_replies(when: str, detail: str) -> tuple[str, ...]:
+    """Render a history record as ordered, Discord-sized quoted replies.
+
+    The timestamp stays on the first reply, while every continuation remains a
+    quote.  Splitting the detail instead of truncating it keeps source status
+    transitions and close facts lossless while allowing each outbox operation
+    to retry independently.
+    """
     if not when or not detail:
         raise ValueError("history requires a timestamp and detail")
-    return f"> {when.replace(chr(10), ' ')}\n> {detail.replace(chr(10), ' ')}"
+    normalized_when = when.replace(chr(10), " ")
+    normalized_detail = detail.replace(chr(10), " ")
+    first_prefix = f"> {normalized_when}\n> "
+    continuation_prefix = "> "
+    first_budget = MAX_DISCORD_CHARACTERS - discord_length(first_prefix)
+    if first_budget < 1:
+        raise ValueError("history timestamp exceeds Discord message limit")
+    chunks = split_content(normalized_detail, first_budget)
+    replies = [first_prefix + chunks[0]]
+    replies.extend(continuation_prefix + chunk for chunk in chunks[1:])
+    if any(discord_length(reply) > MAX_DISCORD_CHARACTERS for reply in replies):
+        raise ValueError("history reply exceeds Discord message limit")
+    return tuple(replies)
 
 
 def _source_analyst(event: SourceEvent) -> tuple[str | None, str | None]:

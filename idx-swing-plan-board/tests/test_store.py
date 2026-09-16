@@ -143,7 +143,7 @@ def test_version_one_database_migrates_without_losing_source_rows(tmp_path) -> N
     store = BoardStore(path)
 
     assert store.count_rows("source_events") == 1
-    assert store.schema_version == 5
+    assert store.schema_version == 6
 
     connection = sqlite3.connect(path)
     assert connection.execute("SELECT event_key, ticker FROM source_events").fetchone() == (
@@ -184,7 +184,7 @@ def test_version_two_outbox_migrates_to_claim_tokens_without_reset(tmp_path) -> 
 
     store = BoardStore(path)
 
-    assert store.schema_version == 5
+    assert store.schema_version == 6
     connection = sqlite3.connect(path)
     assert connection.execute("SELECT dedupe_key, claim_token FROM outbox").fetchone() == (
         "existing",
@@ -229,12 +229,48 @@ def test_version_three_migration_preserves_event_plan_and_outbox(tmp_path) -> No
 
     upgraded = BoardStore(path)
 
-    assert upgraded.schema_version == 5
+    assert upgraded.schema_version == 6
     assert upgraded.count_rows("source_events") == 1
     assert upgraded.active_plan(episode.id) == event
     assert upgraded.operations_for_ticker("SCMA")[0].payload == {"content": "preserved"}
     with upgraded.transaction() as tx:
         assert tx.event_processed(submitted.id) is False
+
+
+def test_version_five_history_migration_preserves_rows_and_adds_chunk_identity(tmp_path) -> None:
+    path = tmp_path / "board.sqlite3"
+    connection = sqlite3.connect(path)
+    connection.executescript(
+        """
+        PRAGMA foreign_keys = ON;
+        PRAGMA user_version = 5;
+        CREATE TABLE episodes (id INTEGER PRIMARY KEY);
+        CREATE TABLE source_events (id INTEGER PRIMARY KEY);
+        INSERT INTO episodes (id) VALUES (1);
+        INSERT INTO source_events (id) VALUES (1);
+        CREATE TABLE history_events (
+            id INTEGER PRIMARY KEY,
+            episode_id INTEGER NOT NULL REFERENCES episodes(id),
+            source_event_id INTEGER REFERENCES source_events(id),
+            material_payload TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            discord_message_id TEXT,
+            UNIQUE(episode_id, material_payload)
+        );
+        INSERT INTO history_events
+            (id, episode_id, source_event_id, material_payload, created_at, discord_message_id)
+        VALUES (7, 1, 1, '> old history', '2026-09-19T02:05:00+00:00', 'message-7');
+        """
+    )
+    connection.close()
+
+    store = BoardStore(path)
+
+    assert store.schema_version == 6
+    with sqlite3.connect(path) as connection:
+        assert connection.execute(
+            "SELECT material_payload, discord_message_id, history_key FROM history_events"
+        ).fetchone() == ("> old history", "message-7", "legacy:7")
 
 
 def test_failed_predecessor_blocks_its_episode_but_not_other_tickers(tmp_path) -> None:

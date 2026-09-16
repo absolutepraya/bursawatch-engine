@@ -85,8 +85,11 @@ def test_value_objects_are_closed_and_target_mapping_is_bounded() -> None:
         event.ticker = "BBRI"
     assert MarketState.from_target_number(1) is MarketState.TP1_REACHED
     assert MarketState.from_target_number(5) is MarketState.TP5_REACHED
+    assert MarketState.from_target_number(6) is MarketState.TP6_REACHED
     with pytest.raises(ValueError):
         MarketState.from_target_number(0)
+    with pytest.raises(ValueError):
+        MarketState.from_target_number(7)
 
 
 def test_source_outcome_and_checkpoint_accept_only_market_states() -> None:

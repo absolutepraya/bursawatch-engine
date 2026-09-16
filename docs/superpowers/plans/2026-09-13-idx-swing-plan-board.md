@@ -18,10 +18,10 @@
 - The board owner is the only writer of `~/.hermes/state/idx-swing-board.sqlite3`, its media directory, forum posts, top cards, titles, tags, history replies, and archival state.
 - Primary Plan means only a complete Phintraco Daily cash-equity BUY setup. SSF never sends a board event.
 - Preserve source facts. Do not infer a plan, analyst, chart, historical price state, or a member action.
-- Market states are only `Below entry`, `Entry zone`, `Above entry`, `TP1 reached` through `TP5 reached`, and `Stop-loss breached`.
+- Market states are only `Below entry`, `Entry zone`, `Above entry`, `TP1 reached` through `TP6 reached`, and `Stop-loss breached`.
 - Use `19 Sep 2026 16:30 WIB` formatting. Never expose internal versions.
 - The lifecycle tags are exactly `Source plan`, `Primary plan`, and `Resolved`. Resolve all tag IDs by exact name and fail closed on missing or duplicated names.
-- The factual market tags are exactly `Below entry`, `Entry zone`, `Above entry`, `TP1 reached`, `TP2 reached`, `TP3 reached`, `TP4 reached`, `TP5 reached`, and `Stop-loss breached`. Resolve these by exact name too.
+- The factual market tags are exactly `Below entry`, `Entry zone`, `Above entry`, `TP1 reached`, `TP2 reached`, `TP3 reached`, `TP4 reached`, `TP5 reached`, `TP6 reached`, and `Stop-loss breached`. Resolve these by exact name too.
 - A source-only episode has no price checkpoint. A resolved episode receives no retention activity and auto-archives after Discord's seven-day inactivity interval.
 - Use `IDX_SWING_PLAN_BOARD_NO_POST=1` with isolated state and media paths for every board smoke test. Never reset, hand-edit, initialize, or replay production state.
 - Scheduled owner commands post their own `#hermes` heartbeat and use Hermes `--deliver local` to avoid an additional raw cron response.
@@ -231,7 +231,7 @@ Expected: FAIL because `store.py` does not exist.
 
 - [ ] **Step 3: Implement SQLite schema, migration, and transaction boundaries**
 
-Use `sqlite3.connect(path, isolation_level=None)`, `PRAGMA journal_mode=WAL`, `PRAGMA foreign_keys=ON`, a lock file at `<database>.lock`, and `BEGIN IMMEDIATE`. Create `source_events`, `episodes`, `plans`, `checkpoints`, `history_events`, and `outbox` tables. Enforce unique `source_events.event_key`, one open episode per ticker, one plan source event, one material history payload, and one outbox `dedupe_key`.
+Use `sqlite3.connect(path, isolation_level=None)`, `PRAGMA journal_mode=WAL`, `PRAGMA foreign_keys=ON`, a lock file at `<database>.lock`, and `BEGIN IMMEDIATE`. Create `source_events`, `episodes`, `plans`, `checkpoints`, `history_events`, and `outbox` tables. Enforce unique `source_events.event_key`, one open episode per ticker, one plan source event, one durable history chunk identity, and one outbox `dedupe_key`.
 
 Only these outbox operations are legal: `create_thread`, `edit_starter`, `post_source_reply`, `post_history_reply`, and `patch_thread`. `submit_event()` atomically records only a source event. The Task 4 engine opens its own transaction to write the resulting episode transition and every required outbox intent. Neither method makes an HTTP request. `claim_due_outbox()` returns a fresh claim token, and `complete_outbox()` and `fail_outbox()` require that token so a stale worker cannot mutate reclaimed work.
 
@@ -415,7 +415,7 @@ In `test_engine.py`, define the local `engine` fixture using a temporary `BoardS
 
 - [ ] **Step 4: Map direct outcomes and resolution without action claims**
 
-Implement `source_outcome_state(event, active_plan)`. Map `Stop-loss hit` to `Stop-loss breached`; map `All targets achieved` to the final available target; map first through fifth ordinal target confirmations to `TP1 reached` through `TP5 reached`. A HOLD or generic status preserves the last factual market-state tag.
+Implement `source_outcome_state(event, active_plan)`. Map `Stop-loss hit` to `Stop-loss breached`; map `All targets achieved` to the final available target; map first through sixth, and higher numeric ordinal, target confirmations to `TP1 reached` through `TP6 reached`, clamping higher ladders at TP6. A HOLD or generic status preserves the last factual market-state tag.
 
 Every forum post carries exactly one lifecycle tag. A `source` episode has `Source plan` and no market tag. An active primary has `Primary plan` plus at most one current factual market tag. A terminal primary replaces `Primary plan` with `Resolved` and retains its final factual market tag, if one exists. The calculated patch always writes the complete desired tag list, so a stale prior price tag cannot remain.
 
@@ -504,7 +504,7 @@ def classify_close(close: Decimal, levels: ParsedPlanLevels) -> MarketState:
     return MarketState.ABOVE_ENTRY
 ```
 
-For target ranges use the lower boundary as its reached threshold. For a `>=N` entry, every price at or above N and below the first target is `Entry zone`; never invent an upper entry boundary. Preserve every target in card content, but clamp the tag at `TP5 reached` for target six or later.
+For target ranges use the lower boundary as its reached threshold. For a `>=N` entry, every price at or above N and below the first target is `Entry zone`; never invent an upper entry boundary. Preserve every target in card content, but clamp the tag at `TP6 reached` for target seven or later.
 
 `fetch_session_close(ticker, session_date)` calls `yf.Ticker(f"{ticker}.JK").history(period="5d", interval="1d", auto_adjust=False)` and returns a value only when the final nonempty bar is positive, finite, and dated exactly `session_date` in Jakarta time. Empty data, invalid values, exceptions, and an earlier session return `None`.
 
@@ -525,7 +525,7 @@ after-close --phase retry
 
 `after-close --phase initial` runs only at 16:30 WIB on a configured IDX trading day. It saves a valid close and writes history only on market-state transition. An absent close records an initial unavailable attempt without altering prior facts.
 
-Stop-loss or the actual final source target resolves and finishes the plan, with a lifecycle history transition even if a higher target still uses the TP5 tag. Close operation identities include plan, session, and phase. An unclassifiable source plan preserves prior facts, increments `invalid`, and does not block the remaining tickers; that count degrades the heartbeat. Unexpected reconciliation failures produce a sanitized fatal heartbeat.
+Stop-loss or the actual final source target resolves and finishes the plan, with a lifecycle history transition even if a higher target still uses the TP6 tag. Close operation identities include plan, session, and phase. An unclassifiable source plan preserves prior facts, increments `invalid`, and does not block the remaining tickers; that count degrades the heartbeat. Unexpected reconciliation failures produce a sanitized fatal heartbeat.
 
 `after-close --phase retry` runs only at 17:00 WIB for initial failures from the current session. On a second failure it renders `Market check unavailable`, keeps the latest valid price and time, emits no history reply, and does not alter tags. A holiday makes no board mutation.
 

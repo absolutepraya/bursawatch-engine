@@ -44,12 +44,13 @@ class MarketState(StrEnum):
     TP3_REACHED = "TP3 reached"
     TP4_REACHED = "TP4 reached"
     TP5_REACHED = "TP5 reached"
+    TP6_REACHED = "TP6 reached"
     STOP_LOSS_BREACHED = "Stop-loss breached"
 
     @classmethod
     def from_target_number(cls, number: int) -> MarketState:
-        if not 1 <= number <= 5:
-            raise ValueError("target number must be between 1 and 5")
+        if not 1 <= number <= 6:
+            raise ValueError("target number must be between 1 and 6")
         return getattr(cls, f"TP{number}_REACHED")
 
 

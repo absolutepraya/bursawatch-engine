@@ -30,7 +30,7 @@ def test_thousands_unbounded_entry_and_target_clamping():
     plan = parse_plan_levels(">=1.000", "<900", ("1.200 to 1.250", "1.300", "1.400", "1.500", "1.600", "1.700"))
     assert classify_close(Decimal("1199"), plan).value == "Entry zone"
     assert classify_close(Decimal("1200"), plan).value == "TP1 reached"
-    assert classify_close(Decimal("1700"), plan).value == "TP5 reached"
+    assert classify_close(Decimal("1700"), plan).value == "TP6 reached"
     assert len(plan.targets) == 6
 
 

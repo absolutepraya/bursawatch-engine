@@ -36,7 +36,7 @@ delayed Yahoo data, and not mix cash-equity plans with SSF derivatives calls.
   IDX trading days, retries once at 17:00 WIB, and otherwise preserves the
   prior state while rendering `Market check unavailable`.
 - Market states are factual: `Below entry`, `Entry zone`, `Above entry`,
-  `TP1 reached` through `TP5 reached`, and `Stop-loss breached`. They never
+  `TP1 reached` through `TP6 reached`, and `Stop-loss breached`. They never
   imply user action such as buying, holding, cutting loss, or taking profit.
   A direct Phintraco status update changes the price-state tag immediately only
   when it explicitly confirms a mapped target or stop outcome.

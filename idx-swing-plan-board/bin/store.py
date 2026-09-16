@@ -19,7 +19,7 @@ from uuid import uuid4
 from models import Checkpoint, Episode, MarketState, OutboxOperation, PlanLevels, SourceEvent, SubmittedEvent
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 _LEGAL_OPERATIONS = frozenset(
     {"create_thread", "edit_starter", "post_source_reply", "post_history_reply", "patch_thread"}
 )
@@ -422,6 +422,8 @@ class BoardStore:
                         _migrate_v3_to_v4(connection)
                     if version in {1, 2, 3, 4}:
                         _migrate_v4_to_v5(connection)
+                    if version == 5:
+                        _migrate_v5_to_v6(connection)
                     connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
                     connection.execute("COMMIT")
                 except BaseException:
@@ -670,15 +672,25 @@ class BoardStoreTransaction:
         valid = next((checkpoint(row) for row in rows if not row["unavailable"]), None)
         return latest, valid
 
-    def add_history(self, episode_id: int, event_id: int, content: str, now: datetime) -> int:
+    def add_history(
+        self,
+        episode_id: int,
+        event_id: int | None,
+        content: str,
+        now: datetime,
+        history_key: str | None = None,
+    ) -> int:
+        history_key = history_key or f"content:{content}"
         self._connection.execute(
-            """INSERT INTO history_events (episode_id, source_event_id, material_payload, created_at)
-            VALUES (?, ?, ?, ?) ON CONFLICT(episode_id, material_payload) DO NOTHING""",
-            (episode_id, event_id, content, _timestamp(now)),
+            """INSERT INTO history_events (
+                episode_id, source_event_id, material_payload, created_at, history_key
+            )
+            VALUES (?, ?, ?, ?, ?) ON CONFLICT(episode_id, history_key) DO NOTHING""",
+            (episode_id, event_id, content, _timestamp(now), history_key),
         )
         return int(self._connection.execute(
-            "SELECT id FROM history_events WHERE episode_id = ? AND material_payload = ?",
-            (episode_id, content),
+            "SELECT id FROM history_events WHERE episode_id = ? AND history_key = ?",
+            (episode_id, history_key),
         ).fetchone()[0])
 
     def enqueue_outbox(
@@ -769,7 +781,8 @@ def _create_non_event_tables(connection: sqlite3.Connection) -> None:
             material_payload TEXT NOT NULL,
             created_at TEXT NOT NULL,
             discord_message_id TEXT,
-            UNIQUE(episode_id, material_payload)
+            history_key TEXT NOT NULL,
+            UNIQUE(episode_id, history_key)
         );
         CREATE TABLE outbox (
             id INTEGER PRIMARY KEY,
@@ -852,6 +865,33 @@ def _migrate_v4_to_v5(connection: sqlite3.Connection) -> None:
             UNIQUE(plan_id, session_date, phase)
         )"""
     )
+
+
+def _migrate_v5_to_v6(connection: sqlite3.Connection) -> None:
+    """Allow repeated quoted chunks to retain distinct Discord message IDs."""
+    connection.execute(
+        """CREATE TABLE history_events_v6 (
+            id INTEGER PRIMARY KEY,
+            episode_id INTEGER NOT NULL REFERENCES episodes(id),
+            source_event_id INTEGER REFERENCES source_events(id),
+            material_payload TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            discord_message_id TEXT,
+            history_key TEXT NOT NULL,
+            UNIQUE(episode_id, history_key)
+        )"""
+    )
+    connection.execute(
+        """INSERT INTO history_events_v6 (
+            id, episode_id, source_event_id, material_payload, created_at,
+            discord_message_id, history_key
+        )
+        SELECT id, episode_id, source_event_id, material_payload, created_at,
+               discord_message_id, 'legacy:' || id
+        FROM history_events"""
+    )
+    connection.execute("DROP TABLE history_events")
+    connection.execute("ALTER TABLE history_events_v6 RENAME TO history_events")
 
 
 def _create_missing_tables(connection: sqlite3.Connection) -> None:

@@ -70,7 +70,7 @@ def test_terminal_close_finishes_plan_and_delivers_resolution_once(owner, monkey
     assert owner.store.active_episode("SCMA").id != original.id
 
 
-def test_final_target_beyond_tp5_resolves_even_when_market_tag_does_not_change(owner, monkeypatch):
+def test_final_target_beyond_tp5_resolves_with_the_tp6_market_tag(owner, monkeypatch):
     owner.submit(replace(example_buy_event(), plan=PlanLevels("208 to 212", "<200", ("230", "240", "250", "260", "270", "280"))), at(hour=9, minute=0))
     monkeypatch.setattr("engine.fetch_session_close", lambda *_: Decimal("270"))
     owner.after_close("initial", at())
@@ -82,7 +82,7 @@ def test_final_target_beyond_tp5_resolves_even_when_market_tag_does_not_change(o
     ops = owner.store.operations_for_ticker("SCMA")
     history = [op.payload["content"] for op in ops if op.operation == "post_history_reply"]
     assert len(history) == 2 and "Resolved:" in history[-1]
-    assert [op.payload["tag_names"] for op in ops if op.operation == "patch_thread"][-1] == ["Resolved", "TP5 reached"]
+    assert [op.payload["tag_names"] for op in ops if op.operation == "patch_thread"][-1] == ["Resolved", "TP6 reached"]
     assert "**Target 6:** 280" in [op.payload["content"] for op in ops if op.operation == "edit_starter"][-1]
 
 

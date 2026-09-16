@@ -39,7 +39,7 @@ The configured forum tags are:
 ```text
 Source plan, Primary plan, Resolved,
 Below entry, Entry zone, Above entry,
-TP1 reached, TP2 reached, TP3 reached, TP4 reached, TP5 reached,
+TP1 reached, TP2 reached, TP3 reached, TP4 reached, TP5 reached, TP6 reached,
 Stop-loss breached
 ```
 
@@ -174,7 +174,7 @@ price and the plan's stated values:
 | Condition, evaluated in order | Market state |
 | --- | --- |
 | At or below the stop-loss threshold | `Stop-loss breached` |
-| At or above one or more targets | Highest reached `TP1` through `TP5` |
+| At or above one or more targets | Highest reached `TP1` through `TP6` |
 | Within the stated entry range | `Entry zone` |
 | Between stop loss and the lower entry boundary | `Below entry` |
 | Above the entry range but below the first unreached target | `Above entry` |
@@ -185,9 +185,9 @@ has only its lifecycle tag. It receives a market-state tag once a factual state
 is known.
 
 The card always preserves every source-supplied target, even when there are
-more than five. Tags represent the highest reached target only through TP5.
-For a plan with a sixth target or higher, the card can state that higher target
-in text, while the tag remains `TP5 reached` as the highest available tag.
+more than six. Tags represent the highest reached target only through TP6.
+For a plan with a seventh target or higher, the card can state that higher target
+in text, while the tag remains `TP6 reached` as the highest available tag.
 
 ### Resolution and retention
 
@@ -274,6 +274,10 @@ The owner writes a quoted history reply only for a material transition:
 - a changed factual Market Checkpoint; or
 - resolution.
 
+Each quoted history transition is split losslessly into ordered replies when
+needed to stay within Discord's 2,000 UTF-16-unit limit. Every chunk remains
+quoted and has its own durable outbox and Discord message identity.
+
 An unchanged daily check updates the top card's displayed `Last checked` time
 only. It creates no reply and therefore does not create artificial forum
 activity.
@@ -290,7 +294,7 @@ Each active post has exactly one lifecycle tag:
 
 Once known, one additional factual market-state tag is applied. It is one of
 `Below entry`, `Entry zone`, `Above entry`, `TP1 reached`, `TP2 reached`,
-`TP3 reached`, `TP4 reached`, `TP5 reached`, or `Stop-loss breached`. The
+`TP3 reached`, `TP4 reached`, `TP5 reached`, `TP6 reached`, or `Stop-loss breached`. The
 owner resolves configured tag IDs by their exact reviewed names and fails
 closed if a required tag is missing or ambiguous. It never creates tags during
 normal processing.
@@ -398,7 +402,7 @@ Tests and live no-post checks must prove observable behavior:
    Discord failure, and All-success plus board-failure preserve exactly-once
    board intent without duplicating All Swing.
 4. A valid same-day Yahoo close produces each threshold state, including target
-   ladders beyond TP5. Missing, stale, holiday, and retry-failure data preserve
+   ladders beyond TP6. Missing, stale, holiday, and retry-failure data preserve
    prior state and produce no false transition.
 5. Only material transitions create quoted history. Unchanged checks only edit
    the top card.

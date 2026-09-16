@@ -100,7 +100,7 @@ def classify_close(close: Decimal, levels: ParsedPlanLevels) -> MarketState:
         if target.is_reached_by(close)
     ]
     if reached:
-        return MarketState.from_target_number(min(max(reached), 5))
+        return MarketState.from_target_number(min(max(reached), 6))
     if levels.entry.contains(close):
         return MarketState.ENTRY_ZONE
     if close < levels.entry.lower_bound:

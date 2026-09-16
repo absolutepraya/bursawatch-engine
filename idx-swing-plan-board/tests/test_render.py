@@ -4,7 +4,14 @@ from zoneinfo import ZoneInfo
 
 from conftest import example_buy_event
 from models import Checkpoint, MarketState
-from render import format_wib, render_history, render_primary_card, render_source_only_card
+from render import (
+    discord_length,
+    format_wib,
+    render_history,
+    render_history_replies,
+    render_primary_card,
+    render_source_only_card,
+)
 
 
 WIB = ZoneInfo("Asia/Jakarta")
@@ -96,6 +103,27 @@ def test_system_history_is_a_two_line_quote() -> None:
         "> 19 Sep 2026 16:30 WIB\n"
         "> Market checkpoint: TP1 reached at Rp230"
     )
+
+
+def test_long_history_is_losslessly_chunked_with_quote_prefixes() -> None:
+    detail = "Source Status: " + ("📈 status detail " * 500)
+    replies = render_history_replies("19 Sep 2026 16:30 WIB", detail)
+
+    assert len(replies) > 1
+    assert all(discord_length(reply) <= 2_000 for reply in replies)
+    assert replies[0].startswith("> 19 Sep 2026 16:30 WIB\n> ")
+    assert all(reply.startswith("> ") for reply in replies)
+    first_detail = replies[0].split("\n> ", 1)[1]
+    assert first_detail + "".join(reply[2:] for reply in replies[1:]) == detail
+
+
+def test_history_splits_without_whitespace_and_preserves_utf16_units() -> None:
+    detail = "Source Status: " + ("📈" * 2_500)
+    replies = render_history_replies("19 Sep 2026 16:30 WIB", detail)
+
+    assert all(discord_length(reply) <= 2_000 for reply in replies)
+    first_detail = replies[0].split("\n> ", 1)[1]
+    assert first_detail + "".join(reply[2:] for reply in replies[1:]) == detail
 
 
 def test_format_wib_converts_an_aware_timestamp() -> None:

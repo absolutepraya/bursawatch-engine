@@ -10,7 +10,7 @@ from conftest import example_buy_event, social_event
 from discord_forum import DiscordForumClient, DiscordForumError
 from engine import BoardEngine, source_outcome_state
 from models import Checkpoint, MarketState, PlanLevels, SourceEvent
-from render import render_source_reply
+from render import discord_length, render_source_reply
 from store import BoardStore, StoreBlockedError
 
 
@@ -176,17 +176,20 @@ def test_hold_preserves_plan_chart_and_factual_tag(engine):
 
 @pytest.mark.parametrize("text,state", [
     ("Stop-loss hit", MarketState.STOP_LOSS_BREACHED),
-    ("All targets achieved", MarketState.TP5_REACHED),
+    ("All targets achieved", MarketState.TP6_REACHED),
     ("First target achieved", MarketState.TP1_REACHED),
     ("Second target achieved", MarketState.TP2_REACHED),
     ("Third target achieved", MarketState.TP3_REACHED),
     ("Fourth target achieved", MarketState.TP4_REACHED),
     ("Fifth target achieved", MarketState.TP5_REACHED),
+    ("Sixth target achieved", MarketState.TP6_REACHED),
+    ("6th target achieved", MarketState.TP6_REACHED),
+    ("7th target achieved", MarketState.TP6_REACHED),
     ("First target 230 achieved", MarketState.TP1_REACHED),
     ("HOLD", None), ("Target 1 might be achieved", None),
 ])
 def test_direct_outcome_mapping(text, state):
-    plan = buy(plan=PlanLevels("1", "0", ("2", "3", "4", "5", "6")))
+    plan = buy(plan=PlanLevels("1", "0", ("2", "3", "4", "5", "6", "7", "8")))
     assert source_outcome_state(status(text), plan) == state
 
 
@@ -275,6 +278,25 @@ def test_distinct_unchanged_status_posts_source_without_quoted_transition(engine
     assert "https://t.me/phintraprofits/999" in replies[-1].payload["content"]
 
 
+def test_long_source_status_history_is_chunked_without_blocking_followup(engine):
+    engine.submit(buy(), at())
+    long_status = "Source status " + ("📈 status detail " * 500)
+    engine.submit(status(long_status, event_key="long-status"), at())
+
+    histories = [op for op in operations(engine) if op.operation == "post_history_reply"]
+    assert len(histories) > 1
+    assert all(discord_length(op.payload["content"]) <= 2000 for op in histories)
+    assert histories[0].payload["content"].startswith("> 19 Sep 2026 09:05 WIB\n> ")
+    assert all(op.payload["content"].startswith("> ") for op in histories)
+    assert len({op.dedupe_key for op in histories}) == len(histories)
+    assert len({op.payload["history_id"] for op in histories}) == len(histories)
+    assert engine.store.pending_outbox_count() == len(operations(engine))
+    engine.drain(now=at())
+    engine.submit(status("HOLD", event_key="after-long-status"), at())
+    engine.drain(now=at())
+    assert engine.store.pending_outbox_count() == 0
+
+
 def test_replacement_clears_factual_tag(engine):
     engine.submit(buy(plan=PlanLevels("208 to 212", "<200", ("230", "240"))), at())
     engine.submit(status("First target achieved"), at())
@@ -326,7 +348,7 @@ def test_illustrated_buy_replaced_by_chartless_buy_clears_old_attachment(engine,
     assert request.call_args.kwargs["json"]["attachments"] == []
 
 
-def test_six_target_all_targets_confirmation_resolves_with_tp5_tag(engine):
+def test_six_target_all_targets_confirmation_resolves_with_tp6_tag(engine):
     event = buy(plan=PlanLevels("208 to 212", "<200", ("230", "240", "250", "260", "270", "280")))
     engine.submit(event, at())
     prior = engine.store.active_episode("KPIG")
@@ -337,9 +359,9 @@ def test_six_target_all_targets_confirmation_resolves_with_tp5_tag(engine):
 
     assert engine.store.active_episode("KPIG") is None
     resolved = engine.store.episode(prior.id)
-    assert (resolved.lifecycle, resolved.lifecycle_tag, resolved.market_tag) == ("resolved", "Resolved", "TP5 reached")
+    assert (resolved.lifecycle, resolved.lifecycle_tag, resolved.market_tag) == ("resolved", "Resolved", "TP6 reached")
     patch = next(op for op in reversed(operations(engine)) if op.operation == "patch_thread")
-    assert patch.payload["tag_names"] == ["Resolved", "TP5 reached"]
+    assert patch.payload["tag_names"] == ["Resolved", "TP6 reached"]
     edit = next(op for op in reversed(operations(engine)) if op.operation == "edit_starter")
     assert "**Target 6:** 280" in edit.payload["content"]
     assert "**Source status:** All targets achieved" in edit.payload["content"]

@@ -14,14 +14,14 @@ from discord_forum import DiscordForumClient, DiscordForumError, DiscordRateLimi
 from models import Checkpoint, Episode, MarketState, SourceEvent
 from media_store import acquire_media
 from prices import classify_close, fetch_session_close, parse_plan_levels
-from render import WIB, escape, format_wib, render_history, render_primary_card, render_source_only_card, render_source_replies, primary_card_requires_source_reply
+from render import WIB, escape, format_wib, render_history_replies, render_primary_card, render_source_only_card, render_source_replies, primary_card_requires_source_reply
 from store import BoardStore, BoardStoreTransaction, StoreBlockedError
 
 
-_ORDINALS = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5,
-             "1st": 1, "2nd": 2, "3rd": 3, "4th": 4, "5th": 5}
+_ORDINALS = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6,
+             "1st": 1, "2nd": 2, "3rd": 3, "4th": 4, "5th": 5, "6th": 6}
 _TARGET = re.compile(
-    r"(first|second|third|fourth|fifth|1st|2nd|3rd|4th|5th) target"
+    r"(first|second|third|fourth|fifth|sixth|[0-9]+(?:st|nd|rd|th)) target"
     r"(?: [0-9][0-9.,]*)? (?:achieved|hit|reached)", re.IGNORECASE
 )
 
@@ -38,7 +38,8 @@ def _source_confirmations(event: SourceEvent, active_plan: SourceEvent) -> tuple
         elif re.fullmatch(r"all targets (?:achieved|hit|reached)", status):
             reached.add(len(active_plan.plan.targets))
         elif match := _TARGET.fullmatch(status):
-            reached.add(_ORDINALS[match.group(1).casefold()])
+            ordinal = match.group(1).casefold()
+            reached.add(_ORDINALS[ordinal] if ordinal in _ORDINALS else int(ordinal[:-2]))
         elif match := re.fullmatch(r"(?:target|tp) ([0-9][0-9.,]*) (?:achieved|hit|reached)", status):
             token = match.group(1).replace(".", "").replace(",", "")
             # An unnumbered source target confirms its exact written level.
@@ -53,7 +54,7 @@ def source_outcome_state(event: SourceEvent, active_plan: SourceEvent) -> Market
     stopped, reached = _source_confirmations(event, active_plan)
     if stopped:
         return MarketState.STOP_LOSS_BREACHED
-    return MarketState.from_target_number(min(max(reached), 5)) if reached else None
+    return MarketState.from_target_number(min(max(reached), 6)) if reached else None
 
 
 class BoardEngine:
@@ -287,11 +288,14 @@ class BoardEngine:
         }, now)
 
     def _history(self, tx, event, event_id, active, detail, now):
-        content = render_history(format_wib(event.published_at), detail)
-        history_id = tx.add_history(active.id, event_id, content, now)
-        self._enqueue(tx, event, active, "post_history_reply", {
-            "content": content, "media": None, "history_id": history_id,
-        }, now)
+        contents = render_history_replies(format_wib(event.published_at), detail)
+        for index, content in enumerate(contents):
+            history_key = f"event:{event_id}:history:{index}"
+            history_id = tx.add_history(active.id, event_id, content, now, history_key)
+            suffix = f":history:{index}" if len(contents) > 1 else ""
+            self._enqueue(tx, event, active, "post_history_reply", {
+                "content": content, "media": None, "history_id": history_id,
+            }, now, suffix=suffix)
 
     def _enqueue_close_edit(self, tx, current, checkpoint, last_valid, now, suffix):
         payload = {
@@ -316,14 +320,17 @@ class BoardEngine:
         )
 
     def _close_history(self, tx, plan_id, episode, detail, now, suffix):
-        content = render_history(format_wib(now), detail)
-        history_id = tx.add_history(episode.id, None, content, now)
-        nonce_value = f"close:{plan_id}:{_wib(now).date().isoformat()}:{suffix}:history"
-        tx.enqueue_outbox(
-            "post_history_reply", episode.id,
-            {"content": content, "media": None, "history_id": history_id, "nonce_value": nonce_value},
-            nonce_value, now,
-        )
+        contents = render_history_replies(format_wib(now), detail)
+        for index, content in enumerate(contents):
+            history_key = f"close:{plan_id}:{_wib(now).date().isoformat()}:{suffix}:history:{index}"
+            history_id = tx.add_history(episode.id, None, content, now, history_key)
+            chunk_suffix = f":{index}" if len(contents) > 1 else ""
+            nonce_value = f"close:{plan_id}:{_wib(now).date().isoformat()}:{suffix}:history{chunk_suffix}"
+            tx.enqueue_outbox(
+                "post_history_reply", episode.id,
+                {"content": content, "media": None, "history_id": history_id, "nonce_value": nonce_value},
+                nonce_value, now,
+            )
 
     @staticmethod
     def _enqueue(tx: BoardStoreTransaction, event: SourceEvent, active: Episode,
