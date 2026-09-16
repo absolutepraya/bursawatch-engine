@@ -1,9 +1,15 @@
 from datetime import date
+import sys
 
 import pytest
 
 from calendar import CalendarCoverageError, is_idx_trading_day, sessions_ago
 from models import MarketState
+
+
+def test_stdlib_calendar_loader_registers_its_module_name() -> None:
+    assert "_idx_swing_stdlib_calendar" in sys.modules
+    assert sys.modules["_idx_swing_stdlib_calendar"].month_name[1] == "January"
 
 
 def test_calendar_skips_official_closures_and_counts_sessions() -> None:
