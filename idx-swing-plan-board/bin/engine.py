@@ -333,7 +333,7 @@ class BoardEngine:
             content = chunks[reply.chunk_index]
             if content == reply.current_content:
                 continue
-            nonce = f"format-migration:v4:reply:{reply.outbox_id}"
+            nonce = f"format-migration:v5:reply:{reply.outbox_id}"
             with self.store.transaction() as tx:
                 tx.enqueue_outbox(
                     "edit_starter",

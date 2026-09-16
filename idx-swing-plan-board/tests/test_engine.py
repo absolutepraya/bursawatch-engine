@@ -118,11 +118,16 @@ def test_format_migration_rewrites_existing_starter_and_source_reply(engine):
     assert scheduled == 2
     migrations = [
         op for op in operations(engine)
-        if op.operation == "edit_starter" and op.payload.get("nonce_value", "").startswith("format-migration:v4:")
+        if op.operation == "edit_starter"
+        and op.payload.get("nonce_value", "").startswith("format-migration:v")
     ]
     assert len(migrations) == 2
-    reply_migration = next(op for op in migrations if op.payload.get("target_message_id") == "789")
-    assert "KPIG: Hold" in reply_migration.payload["content"]
+    reply_migration = next(
+        op for op in migrations
+        if op.payload.get("target_message_id") == "789"
+        and op.payload.get("nonce_value", "").startswith("format-migration:v5:")
+    )
+    assert "KPIG: On track" in reply_migration.payload["content"]
     assert "On track <:hold:1531284248235868333>" in reply_migration.payload["content"]
 
 

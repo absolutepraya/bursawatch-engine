@@ -85,7 +85,7 @@ def test_legacy_phintraco_hold_uses_institution_fallback_and_drops_chart_line() 
     )
     rendered = canonicalize_phintraco_message(legacy)
 
-    assert "### <:phintraco:1531272488645038091> UVCR: Hold" in rendered
+    assert "### <:phintraco:1531272488645038091> UVCR: On track" in rendered
     assert "-# Phintraco Sekuritas" in rendered
     assert "**Source status:** On track <:hold:1531284248235868333>" in rendered
     assert "**Last updated:** 10 Sep 2026 10:13 WIB" in rendered
@@ -102,7 +102,7 @@ def test_legacy_phintraco_reminder_promotes_outcome_to_source_status() -> None:
     )
     rendered = canonicalize_phintraco_message(legacy)
 
-    assert "### <:phintraco:1531272488645038091> UVCR: Reminder" in rendered
+    assert "### <:phintraco:1531272488645038091> UVCR: First target 167 achieved" in rendered
     assert "-# Alrich Paskalis T, Phintraco Sekuritas" in rendered
     assert "**Target 2:** 180" in rendered
     assert "**Source status:** First target 167 achieved <:green:1531274822221434911>" in rendered

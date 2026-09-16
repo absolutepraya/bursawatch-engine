@@ -866,7 +866,7 @@ def format_swing_alert(call: SwingCall, *, include_board: bool = True) -> str:
             label = "Target" if target.number is None else f"Target {target.number}"
             message_fields.append((label, target.value))
         status = "; ".join(call.outcomes) or "Reminder"
-        title = f"{call.ticker}: Reminder"
+        title = f"{call.ticker}: {status}"
     elif call.event_kind == "STATUS":
         if call.entry:
             message_fields.append(("Entry", call.entry))
@@ -876,7 +876,7 @@ def format_swing_alert(call: SwingCall, *, include_board: bool = True) -> str:
             label = "Target" if target.number is None else f"Target {target.number}"
             message_fields.append((label, target.value))
         status = call.status or "Hold"
-        title = f"{call.ticker}: Hold"
+        title = f"{call.ticker}: {status}"
     else:
         is_sell = call.event_kind == "SELL"
         action = "Sell" if is_sell else "Buy"
@@ -1286,13 +1286,13 @@ def board_event_payload(event: dict, call: SwingCall) -> tuple[dict, Path | None
         }
     elif call.event_kind == "STATUS":
         kind = "status"
-        source_title = f"{call.ticker}: Hold"
         source_status = call.status or "Source status update"
+        source_title = f"{call.ticker}: {source_status}"
         plan = None
     elif call.event_kind == "REMINDER":
         kind = "reminder"
-        source_title = f"{call.ticker}: Reminder"
         source_status = "; ".join(call.outcomes)
+        source_title = f"{call.ticker}: {source_status or 'Reminder'}"
         plan = None
     else:
         raise ValueError(f"unsupported board source event kind: {call.event_kind}")

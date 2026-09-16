@@ -23,8 +23,9 @@ adapters retain their own source fields and summaries.
 
 `canonicalize_phintraco_message()` is the bounded legacy migration path for
 already-published Phintraco BUY, HOLD, and REMINDER text. It preserves source
-values while normalizing ticker-first titles, analyst/institution bylines,
-dates, inline emoji spacing, factual source status, and provider footers.
+values while normalizing ticker-first titles, outcome-first follow-up titles,
+analyst/institution bylines, dates, inline emoji spacing, factual source
+status, and provider footers.
 
 `bin/bri_adapter.py` defines the future BRI Danareksa normalized adapter. The
 live WhatsApp watcher does not import it yet, so BRI routing and delivery stay

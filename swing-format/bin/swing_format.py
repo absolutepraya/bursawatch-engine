@@ -311,9 +311,10 @@ def canonicalize_phintraco_message(
     if reason := parsed.get("reasons"):
         body = ("", f"**Reasons:** {escape(reason)}")
     emoji = header.group("emoji")
+    headline = "Buy" if kind == "buy" else status
     message = SwingMessage(
         source_emoji=emoji,
-        title=f"{ticker}: {'Buy' if kind == 'buy' else 'Hold' if kind == 'status' else 'Reminder'}",
+        title=f"{ticker}: {headline}",
         analyst_name=analyst_name,
         institution="Phintraco Sekuritas",
         fields=fields(*message_fields),

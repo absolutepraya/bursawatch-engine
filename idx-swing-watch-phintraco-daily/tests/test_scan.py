@@ -255,7 +255,7 @@ def test_parse_target_reminder_and_format_source_link():
     assert event.event_kind == "REMINDER"
     assert event.outcomes == ("First target 5000 achieved",)
     assert scan.format_swing_alert(event).startswith(
-        "### <:phintraco:1531272488645038091> INCO: Reminder\n"
+        "### <:phintraco:1531272488645038091> INCO: First target 5000 achieved\n"
         "-# Nauval Maulana, Phintraco Sekuritas\n\n"
     )
     assert scan.format_swing_alert(event).endswith(
@@ -375,7 +375,7 @@ def test_on_support_update_uses_common_status_format_and_source_timestamp():
         (2, "640"),
     ]
     assert scan.format_swing_alert(event) == (
-        "### <:phintraco:1531272488645038091> BRMS: Hold\n"
+        "### <:phintraco:1531272488645038091> BRMS: On support\n"
         "-# Alrich Paskalis T, Phintraco Sekuritas\n\n"
         "**Entry:** >=540\n"
         "**Stop-loss:** <520\n"
@@ -411,7 +411,7 @@ def test_reply_status_requires_matching_parent_swing_plan():
     assert event.status == "On track"
     assert event.signal_datetime == dt.datetime(2026, 7, 15, 10, 55, 48, tzinfo=scan.WIB)
     assert scan.format_swing_alert(event) == (
-        "### <:phintraco:1531272488645038091> ESSA: Hold\n"
+        "### <:phintraco:1531272488645038091> ESSA: On track\n"
         "-# Phintraco Sekuritas\n\n"
         "**Source status:** On track <:hold:1531284248235868333>\n"
         "**Last updated:** 15 Jul 2026 10:55 WIB\n"
@@ -1125,6 +1125,7 @@ def test_status_handoff_is_accepted_without_a_primary_plan(tmp_state, monkeypatc
     assert scan.drain_outbox(state, now()) == 1
     assert submitted[0]["kind"] == "status"
     assert submitted[0]["source_status"] == "On track"
+    assert submitted[0]["source_title"] == "SCMA: On track"
     assert submitted[0]["plan"] is None
     assert state["outbox"] == {}
 
@@ -1145,6 +1146,7 @@ def test_reminder_board_payload_preserves_explicit_outcomes(tmp_state):
 
     assert payload["kind"] == "reminder"
     assert payload["source_status"] == "First target 230 achieved; Second target 250 achieved"
+    assert payload["source_title"] == "SCMA: First target 230 achieved; Second target 250 achieved"
     assert payload["plan"] is None
     assert chart is None
 
