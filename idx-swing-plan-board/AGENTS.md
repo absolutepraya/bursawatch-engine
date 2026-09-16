@@ -22,6 +22,11 @@ preserves the previous source starter once as history. The board never creates
 a separate GTW resend and never replays the All Swing feed. An archived episode
 receives no later source event.
 
+Every forum topic title is the ticker only, for example `CPIN`. Descriptive
+source and plan titles remain in the starter card. Source promotion, status
+updates, and same-tier replacements never rename the topic. The one-time
+`migrate-titles --apply` command renames existing topics to this stable form.
+
 ## Commands and safety
 
 `submit-source-event --stdin` validates one event, copies supplied local media into the owner media root, atomically commits the immutable event plus its owner intents, then performs one best-effort drain. It may not calculate a close and does not post a heartbeat. A durable accepted event remains accepted when Discord work is retryable.
@@ -48,6 +53,9 @@ titles, dates, field spacing, source status, and footer links. The approved reti
 `cleanup-history --apply`; it deletes only message IDs recorded in
 `history_events` and must run against live Discord, never with the no-post
 control.
+
+The one-time `migrate-titles --apply` command renames existing forum topics to
+their ticker-only names without changing starter content or tags.
 
 ## Development and deployment
 

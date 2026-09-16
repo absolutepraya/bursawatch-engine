@@ -165,6 +165,22 @@ def test_cli_rejects_watcher_supplied_database_path():
         board.main(["submit-source-event", "--stdin", "--database", "/tmp/not-owned.sqlite3"])
 
 
+def test_title_migration_cli_requires_apply(monkeypatch, owner, capsys):
+    owner.drain(now=at())
+    with owner.store.transaction() as tx:
+        episode = tx.episode(1)
+        tx.update_episode(replace(episode, title="SCMA: Buy"))
+    monkeypatch.setattr(board, "BoardStore", lambda _: owner.store)
+    monkeypatch.setenv("IDX_SWING_PLAN_BOARD_STATE_PATH", str(owner.store.path))
+
+    assert board.main(["migrate-titles"]) == 0
+
+    assert json.loads(capsys.readouterr().out) == {
+        "apply_required": True,
+        "planned_episodes": 1,
+    }
+
+
 def test_no_post_wrapper_preserves_arguments_and_uses_isolated_owner_paths(tmp_path):
     root = Path(__file__).resolve().parent.parent
     env = {

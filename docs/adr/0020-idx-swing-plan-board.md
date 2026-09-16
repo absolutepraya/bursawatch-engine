@@ -21,9 +21,9 @@ delayed Yahoo data, and not mix cash-equity plans with SSF derivatives calls.
   episodes. Members cannot create posts, reply, or react.
 - `#id-stocks-swing` remains the All channel. Its current source alerts stay
   chronological. The new board is an additional per-ticker view.
-- Each forum post is a ticker episode. Source-only episodes retain their
-  source-exact title. Promoted and Phintraco-created episodes use ticker-first
-  titles such as `DSSA: Buy`.
+- Each forum post is a ticker episode. Every forum topic title is the ticker
+  only, such as `DSSA`. Source and plan descriptions remain in the starter
+  card, so source promotion never renames the topic.
 - Phintraco Daily is the only Primary Plan source. A qualifying cash-equity
   social plan can create source-only context and is promoted in place if a
   complete Phintraco setup arrives within 20 exchange trading sessions.

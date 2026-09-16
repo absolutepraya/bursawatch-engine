@@ -110,13 +110,14 @@ alert.
 ## Forum episode lifecycle
 
 One forum post is one ticker episode, not one news item and not one permanent
-company record. Its managed starter message is the top card.
+company record. Its forum topic title is always the ticker only, while its
+managed starter message is the top card and carries the descriptive heading.
 
 ### New Phintraco plan
 
 A complete eligible Phintraco BUY setup opens a Primary Plan episode unless an
 open, nonterminal episode for that ticker is eligible for replacement. Its
-forum title is `<TICKER>: Buy`, for example `DSSA: Buy`. The top card contains
+forum title is `<TICKER>`, for example `DSSA`. The top card contains
 the full source setup and original chart. The same source alert also appears
 in All Swing.
 
@@ -129,7 +130,8 @@ chart in that same forum post, while retaining existing normal source replies.
 
 A qualifying social item must be a cash-equity Swing plan with exactly one
 clear ticker and a source-supported actionable thesis. It creates a
-source-only post titled with the source's exact title, for example:
+source-only post whose forum title is the ticker, while the starter message
+retains the source's exact title, for example:
 
 ```text
 KPIG: Wave IV diproyeksikan menuju area 97 sampai 108
@@ -145,7 +147,7 @@ nonterminal, the owner promotes it in place:
 
 1. edit the Yanto-owned top card to the full Phintraco plan and its original
    chart;
-2. change the forum title to `<TICKER>: Buy`;
+2. keep the forum title as `<TICKER>`;
 3. replace the lifecycle tag with `Primary plan`; and
 4. preserve the superseded social starter card and first chart once as a
    normal source-context history reply below the new Phintraco starter.

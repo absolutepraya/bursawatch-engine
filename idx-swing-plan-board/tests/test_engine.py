@@ -65,7 +65,7 @@ def test_social_event_creates_source_episode_and_normal_reply(engine):
     event = social(media_urls=("https://pbs.twimg.com/media/chart.png",))
     assert engine.submit(event, at()) == "board_submitted"
     episode = engine.store.active_episode("KPIG")
-    assert (episode.lifecycle, episode.title) == ("source", event.source_title)
+    assert (episode.lifecycle, episode.title) == ("source", event.ticker)
     assert (episode.lifecycle_tag, episode.market_tag) == (CHART_CONTEXT, None)
     assert [op.operation for op in operations(engine)] == ["create_thread"]
     assert operations(engine)[0].payload["tag_names"] == [CHART_CONTEXT]
@@ -146,10 +146,10 @@ def test_higher_tier_replaces_chart_starter_and_preserves_one_normal_history_rep
     assert ops[2].payload["content"] == render_source_reply(chart)
     assert not ops[2].payload["content"].startswith("> ")
     assert ":history:" in ops[2].payload["nonce_value"]
-    assert ops[3].payload["name"] == stronger.source_title
+    assert ops[3].payload["name"] == "KPIG"
 
 
-def test_newer_same_tier_source_updates_thread_title_and_starter(engine):
+def test_newer_same_tier_source_keeps_stable_thread_title_and_updates_starter(engine):
     first = social(source_title="KPIG: First chart view")
     newer = social(
         event_key="x:marketwriter:102",
@@ -160,9 +160,25 @@ def test_newer_same_tier_source_updates_thread_title_and_starter(engine):
     engine.submit(newer, at("2026-09-20T09:05:00+07:00"))
 
     episode = engine.store.active_episode("KPIG")
-    assert episode.title == newer.source_title
+    assert episode.title == "KPIG"
     patch = [op for op in operations(engine) if op.operation == "patch_thread"][-1]
-    assert patch.payload["name"] == newer.source_title
+    assert patch.payload["name"] == "KPIG"
+
+
+def test_title_migration_renames_existing_topics_without_changing_tags(engine):
+    engine.submit(social(), at())
+    engine.drain(now=at())
+    with engine.store.transaction() as tx:
+        episode = tx.episode(1)
+        tx.update_episode(replace(episode, title="KPIG: Old chart title"))
+
+    result = engine.schedule_title_migration(at("2026-09-20T09:00:00+07:00"))
+
+    assert result == {"scheduled": 1, "unchanged": 0}
+    assert engine.store.active_episode("KPIG").title == "KPIG"
+    patch = [op for op in operations(engine) if op.operation == "patch_thread"][-1]
+    assert patch.payload["name"] == "KPIG"
+    assert patch.payload["tag_names"] == ["Chart context"]
 
 
 def test_tag_migration_rewrites_legacy_source_tag_and_queues_patch(engine):
@@ -260,7 +276,7 @@ def test_buy_promotes_without_reposting_non_gtw_social_reply(engine):
     ]
     assert operations(engine)[1].payload["chart"] is None
     assert operations(engine)[3].payload["tag_names"] == ["Primary plan"]
-    assert engine.store.active_episode("KPIG").title == "KPIG: Buy"
+    assert engine.store.active_episode("KPIG").title == "KPIG"
 
 
 def test_buy_promotes_and_preserves_latest_source_starter_once(engine):

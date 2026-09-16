@@ -370,7 +370,7 @@ def test_social_event_creates_a_source_only_episode(engine) -> None:
     ), at("2026-09-19T09:05:00+07:00"))
     episode = engine.store.active_episode("KPIG")
     assert episode.lifecycle == "source"
-    assert episode.title == "KPIG: Wave IV diproyeksikan menuju area 97 sampai 108"
+    assert episode.title == "KPIG"
 
 
 def test_buy_inside_twenty_sessions_promotes_without_reposting_social_reply(engine) -> None:
@@ -406,9 +406,9 @@ In `test_engine.py`, define the local `engine` fixture using a temporary `BoardS
 
 1. Let `BoardStore.submit_event()` deduplicate event identity before any operation.
 2. A `social` event creates a `source` episode only when no active episode exists. Enqueue `create_thread` with the source-rendered content and first direct media on the starter; later chunks and media use normal `post_source_reply` intents.
-3. A `buy` event promotes an open `source` episode only when its latest material date is not before `sessions_ago(event_date, 20)`. Enqueue a managed starter edit with the original chart, patch title to `<TICKER>: Buy`, replace lifecycle tag with `Primary plan`, and preserve the superseded starter card and first chart once as a normal source-context history reply.
+3. A `buy` event promotes an open `source` episode only when its latest material date is not before `sessions_ago(event_date, 20)`. Enqueue a managed starter edit with the original chart, keep the forum topic title as `<TICKER>`, replace lifecycle tag with `Primary plan`, and preserve the superseded starter card and first chart once as a normal source-context history reply.
 4. A `buy` event within the same 20-session window for an active primary replaces the managed card and chart, retaining old normal replies and without creating quoted history.
-5. A `buy` without an eligible active episode creates a fresh primary episode named `<TICKER>: Buy`, tagged `Primary plan`, with no price-state tag until a factual state exists.
+5. A `buy` without an eligible active episode creates a fresh primary episode named `<TICKER>`, tagged `Primary plan`, with no price-state tag until a factual state exists.
 6. A `status` or `reminder` requires an active primary. It updates only Source Status, posts the new distinct source item as a normal reply, and edits the starter. With no matching primary it returns `board_ignored` and leaves the All message as the sole delivery.
 
 `BoardEngine.drain()` claims one operation, executes it, persists returned Discord IDs, and applies the Task 2 backoff. A Discord failure is retained in the owner outbox; it never causes a callback that reposts All Swing.
@@ -701,7 +701,7 @@ Migrate state version 1 to version 2 without cursor reset. Add `board_phase`, `b
 
 Legacy pending bundles without a source publication time retain `board_phase="unavailable"` when closed and reloaded. Board handoffs keep source order but never block later All text/image pairs; the All and board queues are logically independent.
 
-`board_payload()` must submit `kind="social"`, the parsed ticker, exact first header line as `source_title`, source publication time, rendered existing Kelas content as `all_content`, exact Telegram URL, and the captured first-header image path. It must not use the agent-generated title as a forum title. A failed board handoff retries only the board phase and never calls the agent or replays All text and image legs.
+`board_payload()` must submit `kind="social"`, the parsed ticker, exact first header line as `source_title`, source publication time, rendered existing Kelas content as `all_content`, exact Telegram URL, and the captured first-header image path. The board owner uses the ticker as the forum topic title and keeps the agent-generated title in the starter content. A failed board handoff retries only the board phase and never calls the agent or replays All text and image legs.
 
 - [ ] **Step 4: Keep the Hermes agent boundary unchanged**
 
@@ -776,7 +776,7 @@ Implement `board_source_event(event, profile) -> dict[str, object] | None`. It r
 3. that exact source title is at most 100 characters and the entire source bundle, including later lines and thread posts, has no second ticker-led clause; and
 4. its ticker equals the ticker prefix in the already accepted route title.
 
-The forum title is the raw exact source line, not the LLM title. `all_content` is the existing rendered X output. Include direct ordered X media URLs only, which the board owner downloads into its own directory. When any condition fails, return `None`; the finished X delivery remains All-only.
+The forum topic title is the ticker only. `all_content` is the existing rendered X output, including the accepted title and summary. Include direct ordered X media URLs only, which the board owner downloads into its own directory. When any condition fails, return `None`; the finished X delivery remains All-only.
 
 - [ ] **Step 4: Add the durable post-All handoff without changing agent work**
 

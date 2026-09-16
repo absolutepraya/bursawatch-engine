@@ -235,7 +235,7 @@ class BoardEngine:
 
     def _social(self, tx, event, event_id, active, now):
         if active is None:
-            active = tx.create_episode(event.ticker, "source", event.source_title, event.published_at)
+            active = tx.create_episode(event.ticker, "source", event.ticker, event.published_at)
             active = replace(
                 active,
                 lifecycle_tag=source_tier(event.source),
@@ -278,7 +278,9 @@ class BoardEngine:
             )
             updated = replace(
                 active,
-                title=event.source_title if replace_starter else active.title,
+                # The forum topic is a stable ticker index.  Source-specific
+                # descriptions remain in the starter card and replies.
+                title=active.title,
                 lifecycle_tag=(
                     merge_source_tier(active.lifecycle_tag, source_tier(event.source))
                     if active.lifecycle == "source" else active.lifecycle_tag
@@ -324,7 +326,9 @@ class BoardEngine:
             tx.finish_plan(active.id, now)
             tx.update_episode(replace(active, closed_at=now))
             active = None
-        title = f"{event.ticker}: Buy"
+        # Keep the forum topic stable across source promotion.  The managed
+        # starter card carries the descriptive ``TICKER: Buy`` heading.
+        title = event.ticker
         if active is None:
             active = tx.create_episode(event.ticker, "primary", title, event.published_at)
             active = replace(active, lifecycle_tag=PRIMARY_PLAN, starter_source_event_id=event_id)
@@ -475,6 +479,43 @@ class BoardEngine:
         with self.store.transaction() as tx:
             return tx.schedule_history_deletes(now)
 
+    def schedule_title_migration(self, now: datetime) -> dict[str, int]:
+        """Queue the stable ticker-only forum topic for every existing episode."""
+        scheduled = 0
+        unchanged = 0
+        for episode in self.store.episodes():
+            if not episode.thread_id or not episode.starter_message_id:
+                continue
+            desired = episode.ticker
+            if episode.title == desired:
+                unchanged += 1
+                continue
+            with self.store.transaction() as tx:
+                current = tx.episode(episode.id)
+                if current.title == desired:
+                    unchanged += 1
+                    continue
+                updated = replace(current, title=desired)
+                tx.update_episode(updated)
+                tag_names = [current.lifecycle_tag] if current.lifecycle_tag else []
+                if current.market_tag and current.lifecycle in {"primary", "resolved"}:
+                    tag_names.append(current.market_tag)
+                nonce = f"title-migration:v1:{current.id}:{desired}"
+                tx.enqueue_outbox(
+                    "patch_thread",
+                    current.id,
+                    {
+                        "name": desired,
+                        "tag_names": tag_names,
+                        "archived": False,
+                        "nonce_value": nonce,
+                    },
+                    nonce,
+                    now,
+                )
+            scheduled += 1
+        return {"scheduled": scheduled, "unchanged": unchanged}
+
     def schedule_format_migration(self, now: datetime) -> int:
         """Queue canonical rewrites for existing starters and source replies.
 
@@ -543,7 +584,7 @@ class BoardEngine:
                     payload["media_url"] = starter["media_url"]
                 updated = replace(
                     current,
-                    title=starter_event.source_title,
+                    title=starter_event.ticker,
                     starter_source_event_id=starter_id,
                 )
                 tx.update_episode(updated)

@@ -20,8 +20,9 @@ starve unrelated events behind it.
 - Add the generic Swing forum `Board` link to the All Swing X rendering only.
   The board copy omits that line. Both copies include the durable Yanto delivery
   time, and the board uses the same accepted rendered summary as All. Normalize only
-  the board starter title to `TICKER: ...`; attach the first chart to that
-  starter and keep later charts ordered.
+  the board starter heading to `TICKER: ...`, while the forum topic remains
+  the ticker only; attach the first chart to that starter and keep later charts
+  ordered.
 - Accept a board handoff only when the first source-visible line is led by one
   ticker followed by a colon or whitespace, the accepted title begins with the
   same ticker, and the complete assembled thread has no second ticker-led

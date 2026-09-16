@@ -29,6 +29,8 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
   rewrites existing starter cards and completed source replies through the
   shared cash-Swing renderer, moving recoverable legacy source starters and
   first charts into the starter card. `cleanup-history --apply` deletes the retired
-  quoted history replies recorded by the owner.
+  quoted history replies recorded by the owner. `migrate-titles --apply` makes
+  every existing forum topic title ticker-only. Future source replacements keep
+  that topic title stable; descriptive titles remain in starter cards.
 - **Check:** set `IDX_SWING_PLAN_BOARD_NO_POST=1` and isolated state and media paths. Never reset state or create a live forum item.
 - **Bootstrap:** no bootstrap command is implicit or automatic. A separately approved command is required before any externally visible backfill.

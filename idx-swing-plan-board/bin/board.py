@@ -61,6 +61,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         health = {"scheduled": scheduled, "drained": engine.drain(), **engine.store.outbox_health()}
         print(json.dumps(health, separators=(",", ":")))
         return int(health["pending"] > 0 or health["failed"] > 0)
+    if arguments.command == "migrate-titles":
+        if not arguments.apply:
+            print(json.dumps({
+                "apply_required": True,
+                "planned_episodes": sum(
+                    1 for episode in engine.store.episodes()
+                    if episode.thread_id and episode.starter_message_id and episode.title != episode.ticker
+                ),
+            }, separators=(",", ":")))
+            return 0
+        result = engine.schedule_title_migration(datetime.now(WIB))
+        health = {"drained": engine.drain(), **engine.store.outbox_health()}
+        result.update({"pending": health["pending"], "failed": health["failed"]})
+        print(json.dumps(result, separators=(",", ":")))
+        return int(result["pending"] > 0 or result["failed"] > 0)
     if arguments.command == "migrate-tags":
         if not arguments.apply:
             print(json.dumps({
@@ -110,6 +125,8 @@ def _parser() -> argparse.ArgumentParser:
     migrate.add_argument("--apply", action="store_true")
     cleanup = subcommands.add_parser("cleanup-history")
     cleanup.add_argument("--apply", action="store_true")
+    migrate_titles = subcommands.add_parser("migrate-titles")
+    migrate_titles.add_argument("--apply", action="store_true")
     migrate_tags = subcommands.add_parser("migrate-tags")
     migrate_tags.add_argument("--apply", action="store_true")
     after_close = subcommands.add_parser("after-close")
