@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime, timezone
 
+import pytest
 
 from domain import Provider
 from sources import (
@@ -100,6 +101,81 @@ def test_tuntun_decorated_macro_news_is_a_routeable_tickerless_candidate():
 
     assert [(candidate.candidate_id, candidate.ticker) for candidate in candidates] == [("news", None)]
     assert "Sumber:" not in candidates[0].source_text
+
+
+@pytest.mark.parametrize(
+    "abbreviation",
+    (
+        "APBD",
+        "APBN",
+        "APEC",
+        "BKPM",
+        "BMKG",
+        "BPJS",
+        "BRIN",
+        "BUMD",
+        "BUMN",
+        "CAGR",
+        "CCUS",
+        "EBIT",
+        "ESDM",
+        "FCFE",
+        "FCFF",
+        "FLNG",
+        "FOMC",
+        "HGBT",
+        "ISPO",
+        "IUPK",
+        "KPEI",
+        "KPPU",
+        "KSEI",
+        "LCGC",
+        "OECD",
+        "OPEC",
+        "PLTA",
+        "PLTU",
+        "POJK",
+        "PUPR",
+        "REER",
+        "RKAB",
+        "ROIC",
+        "RSPO",
+        "RUPS",
+        "SOFR",
+        "SPBU",
+        "TKDN",
+        "WACC",
+        "WIPO",
+    ),
+)
+def test_tuntun_decorated_reserved_abbreviation_is_a_routeable_tickerless_candidate(abbreviation):
+    candidates = TuntunNewsAdapter().extract_candidates(
+        message_id=14878,
+        text=(
+            f"📰 {abbreviation}: Kebijakan terkini berdampak pada perekonomian nasional\n\n"
+            "Rincian kebijakan akan diumumkan oleh otoritas terkait."
+        ),
+        published_at=datetime(2026, 9, 16, 4, 26, 40, tzinfo=timezone.utc),
+        topic_id=3743,
+        direct_image=False,
+    )
+
+    assert [(candidate.candidate_id, candidate.ticker) for candidate in candidates] == [("news", None)]
+
+
+def test_tuntun_decorated_headline_skips_reserved_abbreviation_before_real_issuer():
+    candidates = TuntunNewsAdapter().extract_candidates(
+        message_id=14880,
+        text=(
+            "📰 APBN Dorong BMRI Perluas Penyaluran Kredit\n\n"
+            "PT Bank Mandiri (Persero) Tbk (BMRI) memperluas penyaluran kredit."
+        ),
+        published_at=datetime(2026, 9, 16, 4, 30, tzinfo=timezone.utc),
+        topic_id=3743,
+        direct_image=False,
+    )
+
+    assert [(candidate.candidate_id, candidate.ticker) for candidate in candidates] == [("BMRI", "BMRI")]
 
 
 def test_tuntun_midday_update_extracts_its_lead_and_each_macro_or_industry_paragraph():

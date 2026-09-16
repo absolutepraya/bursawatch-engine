@@ -44,7 +44,62 @@ _PHINTRACO_HEADLINE_TICKER = re.compile(rf"^(?P<ticker>{_IDX_TICKER})(?=\s|:|-|\
 _PHINTRACO_STOCK_LINE = re.compile(
     rf"^(?P<ticker>{_IDX_TICKER})\s*(?:\([^\r\n)]+\))?\s*(?::|-)\s*\S.*$"
 )
-_NON_ISSUER_TICKERS = frozenset({"BEI", "BI", "CPO", "FED", "IDX", "IHSG", "JCI", "LQ45", "OIL", "USD"})
+# Reserved four-character acronyms are checked against the current IDX Stock
+# List before being added. Do not add ambiguous names that are live issuers.
+_NON_ISSUER_TICKERS = frozenset(
+    {
+        "APBD",
+        "APBN",
+        "APEC",
+        "BEI",
+        "BI",
+        "BKPM",
+        "BMKG",
+        "BPJS",
+        "BRIN",
+        "BUMD",
+        "BUMN",
+        "CAGR",
+        "CCUS",
+        "CPO",
+        "EBIT",
+        "ESDM",
+        "FCFE",
+        "FCFF",
+        "FED",
+        "FLNG",
+        "FOMC",
+        "HGBT",
+        "IDX",
+        "IHSG",
+        "ISPO",
+        "IUPK",
+        "JCI",
+        "KPEI",
+        "KPPU",
+        "KSEI",
+        "LCGC",
+        "LQ45",
+        "OECD",
+        "OIL",
+        "OPEC",
+        "PLTA",
+        "PLTU",
+        "POJK",
+        "PUPR",
+        "REER",
+        "RKAB",
+        "ROIC",
+        "RSPO",
+        "RUPS",
+        "SOFR",
+        "SPBU",
+        "TKDN",
+        "USD",
+        "WACC",
+        "WIPO",
+    }
+)
 
 
 def _candidate(
@@ -241,6 +296,20 @@ class TuntunNewsAdapter:
             return []
         ticker = _ticker_from_match(standalone)
         if ticker is None:
+            if headline.startswith("📰"):
+                ticker = _headline_ticker(headline)
+                return [
+                    _candidate(
+                        self.provider,
+                        message_id,
+                        ticker,
+                        SourceKind.TUNTUN_STANDALONE,
+                        published_at,
+                        content,
+                        direct_image,
+                        candidate_id=ticker or "news",
+                    )
+                ]
             return []
         return [
             _candidate(
