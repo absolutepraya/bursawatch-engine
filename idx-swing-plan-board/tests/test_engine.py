@@ -90,7 +90,7 @@ def test_buy_promotes_without_reposting_social_reply(engine):
     engine.drain(now=at())
     engine.submit(buy(media_path="/tmp/original.png"), at("2026-09-22T09:05:00+07:00"))
     assert [op.operation for op in operations(engine)] == [
-        "create_thread", "post_source_reply", "edit_starter", "patch_thread", "post_history_reply"
+        "create_thread", "post_source_reply", "edit_starter", "patch_thread"
     ]
     assert operations(engine)[2].payload["chart"] == "/tmp/original.png"
     assert operations(engine)[3].payload["tag_names"] == ["Primary plan"]
@@ -120,10 +120,10 @@ def test_replacement_retains_replies_and_records_prior_url(engine):
     engine.submit(social(), at())
     engine.submit(buy(event_key="new-buy", source_url="https://t.me/phintraprofits/777", media_path="/tmp/new.png"), at())
     ops = operations(engine)
-    assert [op.operation for op in ops] == ["create_thread", "post_source_reply", "edit_starter", "patch_thread", "post_history_reply"]
-    assert ops[-3].payload["chart"] == "/tmp/new.png"
-    assert buy().source_url in ops[-1].payload["content"]
-    assert "Replacement" in ops[-1].payload["content"]
+    assert [op.operation for op in ops] == ["create_thread", "post_source_reply", "edit_starter", "patch_thread"]
+    edit = next(op for op in ops if op.operation == "edit_starter")
+    assert edit.payload["chart"] == "/tmp/new.png"
+    assert not any("Replacement" in op.payload.get("content", "") for op in ops)
     assert engine.store.count_rows("plans") == 2
 
 
@@ -206,7 +206,8 @@ def test_terminal_outcome_resolves_once_and_later_buy_starts_fresh(engine, text)
     before = operations(engine)
     assert engine.submit(status("HOLD", event_key="late-hold"), at()) == "board_ignored"
     assert operations(engine) == before
-    assert sum("Resolved:" in op.payload.get("content", "") for op in before) == 1
+    assert not any("Resolved:" in op.payload.get("content", "") for op in before)
+    assert not any(op.operation == "post_history_reply" for op in before)
     assert [op for op in before if op.operation == "patch_thread"][-1].payload["tag_names"] == ["Resolved", resolved.market_tag]
     assert not any(op.payload.get("archived") for op in before)
     with pytest.raises(StoreBlockedError, match="active primary"):
@@ -234,12 +235,10 @@ def test_drain_uses_persisted_work_after_restart(engine):
     engine.submit(buy(), at())
     engine.submit(status("HOLD"), at())
     restarted = BoardEngine(BoardStore(engine.store.path), engine.client)
-    assert restarted.drain(now=at()) == 5
+    assert restarted.drain(now=at()) == 4
     edits = [call.args[1] for call in engine.client.execute.call_args_list if call.args[0] == "edit_starter"]
     assert edits[-1]["message_id"] == "456"
-    assert engine.store.count_rows("history_events") == 1
-    with sqlite3.connect(engine.store.path) as connection:
-        assert connection.execute("SELECT discord_message_id FROM history_events").fetchone()[0] == "789"
+    assert engine.store.count_rows("history_events") == 0
 
 
 def test_interrupted_replay_uses_original_payload_after_restart(engine):
@@ -278,18 +277,19 @@ def test_distinct_unchanged_status_posts_source_without_quoted_transition(engine
     assert "https://t.me/phintraprofits/999" in replies[-1].payload["content"]
 
 
-def test_long_source_status_history_is_chunked_without_blocking_followup(engine):
+def test_long_source_status_is_chunked_without_synthetic_history(engine):
     engine.submit(buy(), at())
     long_status = "Source status " + ("📈 status detail " * 500)
-    engine.submit(status(long_status, event_key="long-status"), at())
+    update = status(long_status, event_key="long-status")
+    engine.submit(replace(update, all_content=long_status), at())
 
     histories = [op for op in operations(engine) if op.operation == "post_history_reply"]
-    assert len(histories) > 1
-    assert all(discord_length(op.payload["content"]) <= 2000 for op in histories)
-    assert histories[0].payload["content"].startswith("> 19 Sep 2026 09:05 WIB\n> ")
-    assert all(op.payload["content"].startswith("> ") for op in histories)
-    assert len({op.dedupe_key for op in histories}) == len(histories)
-    assert len({op.payload["history_id"] for op in histories}) == len(histories)
+    replies = [op for op in operations(engine) if op.operation == "post_source_reply"]
+    assert histories == []
+    assert len(replies) > 1
+    assert all(discord_length(op.payload["content"]) <= 2000 for op in replies)
+    assert all(not op.payload["content"].startswith("> ") for op in replies)
+    assert any("Source status" in op.payload["content"] for op in replies)
     assert engine.store.pending_outbox_count() == len(operations(engine))
     engine.drain(now=at())
     engine.submit(status("HOLD", event_key="after-long-status"), at())
@@ -326,7 +326,7 @@ def test_engine_intents_execute_through_real_client_in_no_post_mode(engine, monk
     engine.submit(social(), at())
     engine.submit(buy(), at())
     engine.submit(status("Stop-loss hit"), at())
-    assert engine.drain(now=at()) == 9
+    assert engine.drain(now=at()) == 7
     assert all(op.status == "complete" for op in operations(engine))
     request.assert_not_called()
 

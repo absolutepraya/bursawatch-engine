@@ -28,10 +28,13 @@ def test_render_matches_approved_stock_news_layout() -> None:
     text = render_event(event())[0]
 
     assert text == (
-        "### <:telegram:1531657996432576618> CTRA: Akumulasi kuat di area breakout\n"
-        "-# <:kelasinvestasi:1536570114772574218> Kelas Investasi\n\n"
+        "### <:kelasinvestasi:1536570114772574218> CTRA: Akumulasi kuat di area breakout\n"
+        "-# Kelas Investasi GTW\n\n"
         "*(Ringkasan)* Ringkasan tervalidasi.\n\n"
-        "*Plan sumber*\n- **Buy area:** 605 sampai 630\n- **Target:** 655, 675, 700\n- **Stoploss:** <573\n\n"
+        "**Buy area:** 605 sampai 630\n"
+        "**Target:** 655, 675, 700\n"
+        "**Stoploss:** <573\n"
+        "**Chart:** Unavailable from source\n\n"
         "[View on Telegram](<https://t.me/kelasinvestasiid/101>)"
     )
 
@@ -39,7 +42,7 @@ def test_render_matches_approved_stock_news_layout() -> None:
 def test_render_uses_dash_for_missing_plan_fields_and_header_deep_link() -> None:
     text = render_event(event(buy_area="-", targets="-", stoploss="-", header_message_id=777))[0]
 
-    assert "- **Buy area:** -\n- **Target:** -\n- **Stoploss:** -" in text
+    assert "**Buy area:** -\n**Target:** -\n**Stoploss:** -" in text
     assert text.endswith("[View on Telegram](<https://t.me/kelasinvestasiid/777>)")
 
 
@@ -59,8 +62,9 @@ def test_long_summary_splits_before_plan_block_and_keeps_link_with_plan() -> Non
 
     assert len(messages) == 2
     assert len(messages[0]) <= 2_000
-    assert "*Plan sumber*" not in messages[0]
-    assert "*Plan sumber*" in messages[1]
+    assert "**Buy area:**" not in messages[0]
+    assert any("**Buy area:**" in message for message in messages)
+    assert any("**Target:**" in message for message in messages)
     assert messages[1].endswith("[View on Telegram](<https://t.me/kelasinvestasiid/101>)")
 
 
@@ -86,7 +90,8 @@ def test_summary_that_fills_first_chunk_keeps_plan_in_following_chunk() -> None:
     assert len(messages[0]) <= 2_000
     assert "*(Ringkasan)*" in messages[0]
     assert "*(Ringkasan)*" not in messages[1]
-    assert "*Plan sumber*" in messages[1]
+    assert any("**Buy area:**" in message for message in messages)
+    assert any("**Target:**" in message for message in messages)
     assert messages[1].endswith("[View on Telegram](<https://t.me/kelasinvestasiid/101>)")
     assert "*(Ringkasan)*" not in "\n".join(messages[1:])
 
@@ -117,4 +122,4 @@ def test_render_summary_with_boundary_delimiter_never_exceeds_discord_limit() ->
 
     assert all(len(message) <= 2_000 for message in messages)
     assert "".join(messages).count("*(Ringkasan)*") == 1
-    assert "".join(messages).count("*Plan sumber*") == 1
+    assert "".join(messages).count("**Buy area:**") == 1

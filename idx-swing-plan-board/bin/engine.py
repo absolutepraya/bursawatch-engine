@@ -14,7 +14,7 @@ from discord_forum import DiscordForumClient, DiscordForumError, DiscordRateLimi
 from models import Checkpoint, Episode, MarketState, SourceEvent
 from media_store import acquire_media
 from prices import classify_close, fetch_session_close, parse_plan_levels
-from render import WIB, escape, format_wib, render_history_replies, render_primary_card, render_source_only_card, render_source_replies, primary_card_requires_source_reply
+from render import WIB, render_primary_card, render_source_only_card, render_source_replies, primary_card_requires_source_reply
 from store import BoardStore, BoardStoreTransaction, StoreBlockedError
 
 
@@ -93,8 +93,8 @@ class BoardEngine:
         """Reconcile active primary plans at the one reviewed close-phase instant.
 
         Yahoo is read before the short owner transaction.  The attempt marker,
-        factual checkpoint, card intent, tag intent, and transition history then
-        commit together, so a restart cannot repeat a phase or split its facts.
+        factual checkpoint, card intent, and tag intent then commit together, so
+        a restart cannot repeat a phase or split its facts.
         """
         if phase not in {"initial", "retry"}:
             raise ValueError("close phase must be initial or retry")
@@ -161,8 +161,7 @@ class BoardEngine:
                     close_price=_price_text(close),
                     state=state,
                 )
-                previous, last_valid = tx.latest_checkpoints(current.episode.id)
-                previous_state = last_valid.state if last_valid is not None else None
+                _, last_valid = tx.latest_checkpoints(current.episode.id)
                 tx.record_checkpoint(current.episode.id, checkpoint)
                 terminal = (state == MarketState.STOP_LOSS_BREACHED
                             or levels.targets[-1].is_reached_by(close))
@@ -174,11 +173,6 @@ class BoardEngine:
                 self._enqueue_close_edit(tx, current, checkpoint, checkpoint, instant, f"{phase}-close")
                 if updated.market_tag != current.episode.market_tag or terminal:
                     self._enqueue_close_patch(tx, current.plan_id, updated, instant, f"{phase}-tag")
-                if previous_state != state or terminal:
-                    detail = f"Market checkpoint: {state.value} at Rp{_price_text(close)}"
-                    if terminal:
-                        detail += f"; Resolved: {state.value}"
-                    self._close_history(tx, current.plan_id, current.episode, detail, instant, f"{phase}-history")
                 if terminal:
                     tx.finish_plan(updated.id, instant)
                 result["checked"] += 1
@@ -219,8 +213,6 @@ class BoardEngine:
             if primary_card_requires_source_reply(event):
                 self._source_reply(tx, event, active, now)
             return
-        prior = tx.active_plan(active.id)
-        promoted = active.lifecycle == "source"
         active = replace(active, lifecycle="primary", title=title, lifecycle_tag="Primary plan",
                          market_tag=None, latest_material_at=max(active.latest_material_at, event.published_at))
         tx.update_episode(active)
@@ -230,9 +222,6 @@ class BoardEngine:
             "clear_attachments": event.media_path is None,
         }, now)
         self._patch(tx, event, active, now)
-        detail = ("Promoted to Primary plan" if promoted else
-                  f"Replacement: prior source {prior.source_url}" if prior else "Replacement: Primary plan")
-        self._history(tx, event, event_id, active, f"{detail}; new source {event.source_url}", now)
         if primary_card_requires_source_reply(event):
             self._source_reply(tx, event, active, now)
 
@@ -240,8 +229,7 @@ class BoardEngine:
         plan = tx.active_plan(active.id)
         if plan is None:
             raise StoreBlockedError("active primary episode is missing its plan")
-        previous = plan.source_status or "New setup"
-        current = event.source_status or previous
+        current = event.source_status or plan.source_status or "New setup"
         state = source_outcome_state(event, plan)
         stopped, reached = _source_confirmations(event, plan)
         terminal = stopped or len(plan.plan.targets) in reached
@@ -251,21 +239,19 @@ class BoardEngine:
                          lifecycle="resolved" if terminal else "primary",
                          lifecycle_tag="Resolved" if terminal else "Primary plan",
                          closed_at=now if terminal else None)
-        tx.set_source_status(active.id, current)
+        tx.set_source_status(active.id, current, event.published_at)
         tx.update_episode(active)
         self._source_reply(tx, event, active, now)
         checkpoint, last_valid = tx.latest_checkpoints(active.id)
         self._enqueue(tx, event, active, "edit_starter", {
-            "content": render_primary_card(replace(plan, source_status=current), checkpoint, last_valid),
+            "content": render_primary_card(
+                replace(plan, source_status=current), checkpoint, last_valid, event.published_at
+            ),
             "chart": None,
         }, now)
         self._patch(tx, event, active, now)
-        detail = f"Source Status: {escape(previous)} to {escape(current)}; {event.source_url}"
         if terminal:
             tx.finish_plan(active.id, now)
-            detail += f"; Resolved: {state.value}"
-        if current != previous or terminal:
-            self._history(tx, event, event_id, active, detail, now)
 
     def _source_reply(self, tx, event, active, now):
         contents = render_source_replies(event)
@@ -287,19 +273,11 @@ class BoardEngine:
             "name": active.title, "tag_names": tags, "archived": False,
         }, now)
 
-    def _history(self, tx, event, event_id, active, detail, now):
-        contents = render_history_replies(format_wib(event.published_at), detail)
-        for index, content in enumerate(contents):
-            history_key = f"event:{event_id}:history:{index}"
-            history_id = tx.add_history(active.id, event_id, content, now, history_key)
-            suffix = f":history:{index}" if len(contents) > 1 else ""
-            self._enqueue(tx, event, active, "post_history_reply", {
-                "content": content, "media": None, "history_id": history_id,
-            }, now, suffix=suffix)
-
     def _enqueue_close_edit(self, tx, current, checkpoint, last_valid, now, suffix):
         payload = {
-            "content": render_primary_card(current.event, checkpoint, last_valid),
+            "content": render_primary_card(
+                current.event, checkpoint, last_valid, current.source_updated_at
+            ),
             "chart": None,
             "nonce_value": f"close:{current.plan_id}:{checkpoint.session_date}:{suffix}:edit",
         }
@@ -319,18 +297,38 @@ class BoardEngine:
             nonce_value, now,
         )
 
-    def _close_history(self, tx, plan_id, episode, detail, now, suffix):
-        contents = render_history_replies(format_wib(now), detail)
-        for index, content in enumerate(contents):
-            history_key = f"close:{plan_id}:{_wib(now).date().isoformat()}:{suffix}:history:{index}"
-            history_id = tx.add_history(episode.id, None, content, now, history_key)
-            chunk_suffix = f":{index}" if len(contents) > 1 else ""
-            nonce_value = f"close:{plan_id}:{_wib(now).date().isoformat()}:{suffix}:history{chunk_suffix}"
-            tx.enqueue_outbox(
-                "post_history_reply", episode.id,
-                {"content": content, "media": None, "history_id": history_id, "nonce_value": nonce_value},
-                nonce_value, now,
-            )
+    def schedule_history_cleanup(self, now: datetime) -> int:
+        """Durably queue deletion of the legacy quoted history replies."""
+        with self.store.transaction() as tx:
+            return tx.schedule_history_deletes(now)
+
+    def schedule_format_migration(self, now: datetime) -> int:
+        """Queue one canonical card rewrite for every existing plan episode."""
+        count = 0
+        for card in self.store.latest_plan_cards():
+            if not card.episode.thread_id or not card.episode.starter_message_id:
+                continue
+            checkpoint, last_valid = self._latest_checkpoints(card.episode.id)
+            with self.store.transaction() as tx:
+                tx.enqueue_outbox(
+                    "edit_starter",
+                    card.episode.id,
+                    {
+                        "content": render_primary_card(
+                            card.event, checkpoint, last_valid, card.source_updated_at
+                        ),
+                        "chart": None,
+                        "nonce_value": f"format-migration:v3:{card.episode.id}:{card.plan_id}",
+                    },
+                    f"format-migration:v3:{card.episode.id}:{card.plan_id}",
+                    now,
+                )
+            count += 1
+        return count
+
+    def _latest_checkpoints(self, episode_id: int):
+        with self.store.transaction() as tx:
+            return tx.latest_checkpoints(episode_id)
 
     @staticmethod
     def _enqueue(tx: BoardStoreTransaction, event: SourceEvent, active: Episode,
@@ -360,7 +358,10 @@ class BoardEngine:
                     episode = self.store.episode(operation.episode_id)
                     if not episode.thread_id or not episode.starter_message_id:
                         raise StoreBlockedError("Discord thread identity is unavailable")
-                    payload.update(thread_id=episode.thread_id, message_id=episode.starter_message_id)
+                    if operation.operation == "delete_message":
+                        payload.setdefault("thread_id", episode.thread_id)
+                    else:
+                        payload.update(thread_id=episode.thread_id, message_id=episode.starter_message_id)
                 creating = operation.operation in {"create_thread", "post_source_reply", "post_history_reply"}
                 if creating and payload.get("create_snapshot"):
                     completion = self.client.recover_create(operation.operation, payload)

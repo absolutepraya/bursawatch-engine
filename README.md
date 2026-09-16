@@ -36,6 +36,10 @@ retain their own `SKILL.md` files.
 
 `profile-emoji` is the reusable VPS-local skill for turning a trusted X or Instagram profile picture, or an explicitly supplied custom image, into a static circular Discord emoji. It uses Yanto's VPS-local token, creates an absent emoji only with an explicit apply flag, and returns an existing emoji unchanged. It is not a scheduled cron and is deployed with `profile-emoji/deploy.sh`.
 
+`swing-format` is the reusable cash-equity Swing renderer shared by Phintraco
+Daily and Kelas Investasi GTW, with a future-ready BRI Danareksa adapter. It is
+not a scheduled cron and deploys with `./deploy.sh swing-format`.
+
 The VPS-local `~/rsshub` instance is the universal RSSHub source for Instagram,
 X, and other RSSHub watchers. Its `.env` remains outside source control and
 owns the route-specific Instagram cookie and proxy settings. There is no

@@ -163,7 +163,7 @@ def board_payload(event: Mapping[str, object], media: Path | None = None) -> dic
         "ticker": ticker,
         "published_at": published_at,
         "source_url": f"https://t.me/kelasinvestasiid/{header_message_id}",
-        "all_content": "\n\n".join(render_event(event)),
+        "all_content": "\n\n".join(render_event(event, include_board=False)),
         "source_title": source_title,
         "source_status": None,
         "plan": None,

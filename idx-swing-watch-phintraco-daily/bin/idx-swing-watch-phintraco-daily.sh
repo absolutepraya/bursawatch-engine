@@ -5,11 +5,19 @@ export LC_ALL="${LC_ALL:-C.UTF-8}"
 export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
 export IDX_SWING_PLAN_BOARD_WRAPPER="${IDX_SWING_PLAN_BOARD_WRAPPER:-$HOME/.hermes/scripts/idx-swing-plan-board.sh}"
 RESILIENCE_BIN="$HOME/.agents/skills/telegram-resilience/bin"
+SWING_FORMAT_BIN="$HOME/.agents/skills/swing-format/bin"
 if [[ ! -r "$RESILIENCE_BIN/telegram_resilience.py" ]]; then
   printf '%s FATAL: telegram resilience module missing at %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$RESILIENCE_BIN" >&2
   exit 127
 fi
-export PYTHONPATH="$RESILIENCE_BIN:${PYTHONPATH-}"
+if [[ ! -r "$SWING_FORMAT_BIN/swing_format.py" ]]; then
+  SWING_FORMAT_BIN="$(cd "$(dirname "$0")/../.." && pwd)/swing-format/bin"
+fi
+if [[ ! -r "$SWING_FORMAT_BIN/swing_format.py" ]]; then
+  printf '%s FATAL: shared Swing formatter missing at %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$SWING_FORMAT_BIN" >&2
+  exit 127
+fi
+export PYTHONPATH="$SWING_FORMAT_BIN:$RESILIENCE_BIN:${PYTHONPATH-}"
 
 if [[ -r "$HOME/.hermes/.env" ]]; then
   for k in DISCORD_BOT_TOKEN TELEGRAM_API_ID TELEGRAM_API_HASH POLYCOP_SESSION_STRING; do

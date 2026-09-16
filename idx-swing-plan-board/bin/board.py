@@ -35,6 +35,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         health = {"drained": engine.drain(), **engine.store.outbox_health()}
         print(json.dumps(health, separators=(",", ":")))
         return int(health["pending"] > 0 or health["failed"] > 0)
+    if arguments.command == "migrate-format":
+        if not arguments.apply:
+            print(json.dumps({"apply_required": True, "planned": len(engine.store.latest_plan_cards())}, separators=(",", ":")))
+            return 0
+        scheduled = engine.schedule_format_migration(datetime.now(WIB))
+        health = {"scheduled": scheduled, "drained": engine.drain(), **engine.store.outbox_health()}
+        print(json.dumps(health, separators=(",", ":")))
+        return int(health["pending"] > 0 or health["failed"] > 0)
+    if arguments.command == "cleanup-history":
+        if not arguments.apply:
+            print(json.dumps({
+                "apply_required": True,
+                "planned": engine.store.history_cleanup_count(),
+            }, separators=(",", ":")))
+            return 0
+        if engine.client.no_post:
+            print(json.dumps({"error": "cleanup-history requires live Discord", "apply_required": True}, separators=(",", ":")))
+            return 2
+        scheduled = engine.schedule_history_cleanup(datetime.now(WIB))
+        health = {"scheduled": scheduled, "drained": engine.drain(), **engine.store.outbox_health()}
+        print(json.dumps(health, separators=(",", ":")))
+        return int(health["pending"] > 0 or health["failed"] > 0)
     try:
         result = engine.after_close(arguments.phase, datetime.now(WIB))
     except CalendarCoverageError:
@@ -67,6 +89,10 @@ def _parser() -> argparse.ArgumentParser:
     submit = subcommands.add_parser("submit-source-event")
     submit.add_argument("--stdin", action="store_true", required=True)
     subcommands.add_parser("drain")
+    migrate = subcommands.add_parser("migrate-format")
+    migrate.add_argument("--apply", action="store_true")
+    cleanup = subcommands.add_parser("cleanup-history")
+    cleanup.add_argument("--apply", action="store_true")
     after_close = subcommands.add_parser("after-close")
     after_close.add_argument("--phase", choices=("initial", "retry"), required=True)
     return parser

@@ -99,7 +99,8 @@ def test_gtw_payload_uses_exact_header_and_social_kind() -> None:
     assert payload["ticker"] == "RAJA"
     assert payload["published_at"] == "2026-08-11T09:00:00+07:00"
     assert payload["source_url"] == "https://t.me/kelasinvestasiid/101"
-    assert payload["all_content"] == render_event(event)[0]
+    assert payload["all_content"] == render_event(event, include_board=False)[0]
+    assert "**Board:**" not in payload["all_content"]
 
 
 def test_gtw_payload_skips_board_context_when_a_legacy_event_has_no_source_time() -> None:

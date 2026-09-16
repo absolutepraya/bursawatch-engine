@@ -3,10 +3,20 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 import re
+import sys
 from zoneinfo import ZoneInfo
 
 from models import Checkpoint, SourceEvent
+
+_SHARED_FORMAT_BIN = Path(__file__).resolve().parents[2] / "swing-format" / "bin"
+if not _SHARED_FORMAT_BIN.exists():
+    _SHARED_FORMAT_BIN = Path.home() / ".agents" / "skills" / "swing-format" / "bin"
+if str(_SHARED_FORMAT_BIN) not in sys.path:
+    sys.path.insert(0, str(_SHARED_FORMAT_BIN))
+
+from swing_format import source_status_emoji  # noqa: E402
 
 
 WIB = ZoneInfo("Asia/Jakarta")
@@ -81,14 +91,23 @@ def render_primary_card(
     event: SourceEvent,
     checkpoint: Checkpoint | None = None,
     last_valid_checkpoint: Checkpoint | None = None,
+    source_updated_at: datetime | None = None,
 ) -> str:
     """Render the managed card without adding advice or a redundant source footer."""
     if event.kind != "buy" or event.plan is None:
         raise ValueError("primary cards require a complete buy event")
 
     static, _ = _primary_static(event)
-    lines = [static, f"**Source status:** {_excerpt(escape(event.source_status or 'New setup'), 220)}"]
+    source_status = event.source_status or "New setup"
+    updated_at = source_updated_at or event.published_at
+    lines = [
+        static,
+        "",
+        f"**Source status:** {_excerpt(escape(source_status), 220)} {source_status_emoji(source_status)}",
+        f"**Last updated:** {format_wib(updated_at)}",
+    ]
     if checkpoint is not None:
+        lines.append("")
         if checkpoint.unavailable:
             lines.append("**Market checkpoint:** Market check unavailable")
             if last_valid_checkpoint is not None and not last_valid_checkpoint.unavailable:
@@ -106,10 +125,10 @@ def primary_card_requires_source_reply(event: SourceEvent) -> bool:
 
 def _primary_static(event: SourceEvent) -> tuple[str, bool]:
     # These segments already carry the watcher's transport escaping.
-    byline = _BYLINE.search(event.all_content)
+    analyst_name, _ = _source_analyst(event)
     lines = [
         f"### {PHINTRACO_EMOJI} {escape(event.ticker)}: Buy",
-        f"-# {byline.group(1)}" if byline else "-# Phintraco Sekuritas",
+        analyst_byline(analyst_name, "Phintraco Sekuritas"),
         "",
     ]
     if source_type := _TYPE.search(event.all_content):

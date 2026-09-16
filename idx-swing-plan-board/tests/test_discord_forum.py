@@ -140,6 +140,24 @@ def test_edit_starter_explicitly_clears_attachments_without_fetching_old_chart(m
     assert "files" not in calls[0]
 
 
+def test_delete_message_uses_the_forum_message_delete_endpoint(monkeypatch) -> None:
+    calls: list[dict] = []
+
+    def request(method: str, url: str, **kwargs):
+        calls.append({"method": method, "url": url, **kwargs})
+        return Response(204, {})
+
+    monkeypatch.setattr(discord_forum.requests, "request", request)
+    DiscordForumClient(token="token").delete_message("thread-1", "history-7")
+
+    assert calls == [{
+        "method": "DELETE",
+        "url": "https://discord.com/api/v10/channels/thread-1/messages/history-7",
+        "headers": {"Authorization": "Bot token"},
+        "timeout": 30,
+    }]
+
+
 def test_reply_patch_and_execute_use_complete_desired_state(monkeypatch) -> None:
     calls: list[dict] = []
 

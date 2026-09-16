@@ -32,18 +32,18 @@ def owner(tmp_path):
     return engine
 
 
-def test_initial_close_is_durable_and_only_transitions_write_history(owner, monkeypatch):
+def test_initial_close_is_durable_without_synthetic_history(owner, monkeypatch):
     fetch = Mock(return_value=Decimal("210"))
     monkeypatch.setattr("engine.fetch_session_close", fetch)
     result = owner.after_close("initial", at())
     assert result["checked"] == 1
     assert owner.store.count_rows("checkpoints") == 1
-    assert owner.store.count_rows("history_events") == 1
+    assert owner.store.count_rows("history_events") == 0
     owner.after_close("initial", at())
     assert fetch.call_count == 1
     owner.after_close("initial", at("2026-09-22T16:30:00+07:00"))
     assert owner.store.count_rows("checkpoints") == 2
-    assert owner.store.count_rows("history_events") == 1
+    assert owner.store.count_rows("history_events") == 0
     edit = [op for op in owner.store.operations_for_ticker("SCMA") if op.operation == "edit_starter"][-1]
     assert edit.payload["chart"] is None
     assert not edit.payload.get("clear_attachments", False)

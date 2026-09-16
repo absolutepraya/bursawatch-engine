@@ -30,6 +30,12 @@ The wrapper persists the accepted fields only while the matching 15-minute lease
 
 After the scanner completes All delivery, it may submit the accepted GTW bundle as source-only context to the board owner. This is deterministic scanner work, not part of this JSON schema or agent task. The board owner alone makes every forum, title, tag, price, and lifecycle decision.
 
+The scanner's rendered cash-Swing message uses the shared `swing-format`
+contract. Keep the source title, summary, and plan values intact; the renderer
+adds the institution byline, source status, source timestamp, and source footer.
+All includes the Board link directly below `Last updated`, while board context
+omits that line. Do not create a separate quoted status message.
+
 ## No-post control
 
 Set `KELAS_INVESTASI_GTW_NO_POST=1` for deterministic verification. It prints intended Discord operations and the heartbeat without Discord writes or delivery-cursor changes. It does not authorize state resets, Telegram writes, or a manual Hermes cron trigger.

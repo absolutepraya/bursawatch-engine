@@ -31,7 +31,7 @@ def owner(tmp_path):
     return BoardEngine(BoardStore(tmp_path / "board.sqlite3"), client)
 
 
-def test_each_session_delivers_its_own_tag_and_history_transition(owner, monkeypatch):
+def test_each_session_delivers_its_own_tag_without_synthetic_history(owner, monkeypatch):
     event = replace(example_buy_event(), plan=PlanLevels("208 to 212", "<200", ("230", "240", "250")))
     owner.submit(event, at(hour=9, minute=0))
     for day, close in [(21, "210"), (22, "230"), (23, "240")]:
@@ -43,8 +43,8 @@ def test_each_session_delivers_its_own_tag_and_history_transition(owner, monkeyp
     history = [op for op in ops if op.operation == "post_history_reply"]
     assert [op.payload["tag_names"] for op in patches] == [
         ["Primary plan", "Entry zone"], ["Primary plan", "TP1 reached"], ["Primary plan", "TP2 reached"]]
-    assert len(history) == len({op.dedupe_key for op in history}) == 3
-    assert all(op.status == "complete" for op in patches + history)
+    assert history == []
+    assert all(op.status == "complete" for op in patches)
 
 
 @pytest.mark.parametrize("close,market", [("199", "Stop-loss breached"), ("230", "TP1 reached")])
@@ -63,7 +63,8 @@ def test_terminal_close_finishes_plan_and_delivers_resolution_once(owner, monkey
     assert fetch.call_count == 1
     owner.drain(now=at(22))
     ops = owner.store.operations_for_ticker("SCMA")
-    assert sum("Resolved:" in op.payload.get("content", "") for op in ops) == 1
+    assert not any("Resolved:" in op.payload.get("content", "") for op in ops)
+    assert not any(op.operation == "post_history_reply" for op in ops)
     assert [op.payload["tag_names"] for op in ops if op.operation == "patch_thread"] == [["Resolved", market]]
     assert not any(op.payload.get("archived") for op in ops)
     owner.submit(replace(example_buy_event(), event_key="later-buy"), at(22, 9, 0))
@@ -80,8 +81,7 @@ def test_final_target_beyond_tp5_resolves_with_the_tp6_market_tag(owner, monkeyp
     owner.after_close("initial", at(22))
     assert owner.store.active_episode("SCMA") is None
     ops = owner.store.operations_for_ticker("SCMA")
-    history = [op.payload["content"] for op in ops if op.operation == "post_history_reply"]
-    assert len(history) == 2 and "Resolved:" in history[-1]
+    assert not any(op.operation == "post_history_reply" for op in ops)
     assert [op.payload["tag_names"] for op in ops if op.operation == "patch_thread"][-1] == ["Resolved", "TP6 reached"]
     assert "**Target 6:** 280" in [op.payload["content"] for op in ops if op.operation == "edit_starter"][-1]
 

@@ -70,6 +70,37 @@ def test_duplicate_outbox_intent_reuses_the_existing_operation(tmp_path) -> None
     assert store.count_rows("outbox") == 1
 
 
+def test_history_cleanup_queues_and_completes_legacy_message_deletion(tmp_path) -> None:
+    store = BoardStore(tmp_path / "board.sqlite3")
+    episode = store.create_episode("SCMA", "primary", "SCMA: Buy", at())
+    with sqlite3.connect(store.path) as connection:
+        connection.execute(
+            "UPDATE episodes SET thread_id = ?, starter_message_id = ? WHERE id = ?",
+            ("thread-1", "starter-1", episode.id),
+        )
+    with store.transaction() as tx:
+        history_id = tx.add_history(episode.id, None, "> old history", at(), "legacy:1")
+    with sqlite3.connect(store.path) as connection:
+        connection.execute(
+            "UPDATE history_events SET discord_message_id = ? WHERE id = ?",
+            ("history-7", history_id),
+        )
+    assert store.history_cleanup_count() == 1
+
+    with store.transaction() as tx:
+        assert tx.schedule_history_deletes(at()) == 1
+
+    operation = next(item for item in store.operations_for_ticker("SCMA") if item.operation == "delete_message")
+    assert operation.payload["thread_id"] == "thread-1"
+    assert operation.payload["message_id"] == "history-7"
+    claim = store.claim_due_outbox(at())
+    assert claim is not None
+    store.complete_outbox(operation.id, claim.claim_token, {}, at())
+    with sqlite3.connect(store.path) as connection:
+        assert connection.execute("SELECT deleted_at FROM history_events WHERE id = ?", (history_id,)).fetchone()[0]
+    assert store.history_cleanup_count() == 0
+
+
 def test_source_only_episode_rejects_factual_checkpoint(tmp_path) -> None:
     store = BoardStore(tmp_path / "board.sqlite3")
     episode = store.create_episode("SCMA", "source", "SCMA: source context", at())
@@ -143,7 +174,7 @@ def test_version_one_database_migrates_without_losing_source_rows(tmp_path) -> N
     store = BoardStore(path)
 
     assert store.count_rows("source_events") == 1
-    assert store.schema_version == 6
+    assert store.schema_version == 7
 
     connection = sqlite3.connect(path)
     assert connection.execute("SELECT event_key, ticker FROM source_events").fetchone() == (
@@ -184,7 +215,7 @@ def test_version_two_outbox_migrates_to_claim_tokens_without_reset(tmp_path) -> 
 
     store = BoardStore(path)
 
-    assert store.schema_version == 6
+    assert store.schema_version == 7
     connection = sqlite3.connect(path)
     assert connection.execute("SELECT dedupe_key, claim_token FROM outbox").fetchone() == (
         "existing",
@@ -229,7 +260,7 @@ def test_version_three_migration_preserves_event_plan_and_outbox(tmp_path) -> No
 
     upgraded = BoardStore(path)
 
-    assert upgraded.schema_version == 6
+    assert upgraded.schema_version == 7
     assert upgraded.count_rows("source_events") == 1
     assert upgraded.active_plan(episode.id) == event
     assert upgraded.operations_for_ticker("SCMA")[0].payload == {"content": "preserved"}
@@ -266,7 +297,7 @@ def test_version_five_history_migration_preserves_rows_and_adds_chunk_identity(t
 
     store = BoardStore(path)
 
-    assert store.schema_version == 6
+    assert store.schema_version == 7
     with sqlite3.connect(path) as connection:
         assert connection.execute(
             "SELECT material_payload, discord_message_id, history_key FROM history_events"

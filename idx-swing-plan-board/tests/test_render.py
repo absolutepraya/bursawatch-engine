@@ -36,7 +36,7 @@ def test_primary_card_uses_ticker_first_and_live_fields() -> None:
 
     assert card.startswith(
         "### <:phintraco:1531272488645038091> SCMA: Buy\n"
-        "-# Alrich Paskalis T, Investment Advisor\n\n"
+        "-# Alrich Paskalis T, Phintraco Sekuritas\n\n"
     )
     assert "**Entry:** 208 to 212" in card
     assert "**Stop-loss:** <200" in card

@@ -157,6 +157,15 @@ class DiscordForumClient:
             raise DiscordForumError("Discord returned an invalid message")
         return message_id
 
+    def delete_message(self, thread_id: str, message_id: str) -> None:
+        """Delete one approved legacy history reply from a forum thread."""
+        if self.no_post:
+            return
+        self._request(
+            "DELETE",
+            f"/channels/{_id(thread_id)}/messages/{_id(message_id)}",
+        )
+
     def patch_thread(
         self,
         thread_id: str,
@@ -221,6 +230,12 @@ class DiscordForumClient:
                     _nonce(operation_payload),
                 )
             }
+        if operation_name == "delete_message":
+            self.delete_message(
+                _required(operation_payload, "thread_id"),
+                _required(operation_payload, "message_id"),
+            )
+            return {}
         if operation_name == "patch_thread":
             self.patch_thread(
                 _required(operation_payload, "thread_id"),

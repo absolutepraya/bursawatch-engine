@@ -19,9 +19,9 @@ from uuid import uuid4
 from models import Checkpoint, Episode, MarketState, OutboxOperation, PlanLevels, SourceEvent, SubmittedEvent
 
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 _LEGAL_OPERATIONS = frozenset(
-    {"create_thread", "edit_starter", "post_source_reply", "post_history_reply", "patch_thread"}
+    {"create_thread", "edit_starter", "post_source_reply", "post_history_reply", "delete_message", "patch_thread"}
 )
 _BACKOFF_MINUTES = (1, 2, 4, 8, 15, 30, 60)
 _LEASE = timedelta(minutes=5)
@@ -39,6 +39,17 @@ class ActivePrimaryPlan:
     episode: Episode
     plan_id: int
     event: SourceEvent
+    source_updated_at: datetime
+
+
+@dataclass(frozen=True)
+class PlanCard:
+    """Latest plan projection used when rewriting an existing starter card."""
+
+    episode: Episode
+    plan_id: int
+    event: SourceEvent
+    source_updated_at: datetime
 
 
 class BoardStore:
@@ -151,10 +162,24 @@ class BoardStore:
         with self._connection() as connection:
             return BoardStoreTransaction(self, connection).active_primary_plans()
 
+    def latest_plan_cards(self) -> list[PlanCard]:
+        with self._connection() as connection:
+            return BoardStoreTransaction(self, connection).latest_plan_cards()
+
     def pending_outbox_count(self) -> int:
         with self._connection() as connection:
             return int(connection.execute(
                 "SELECT COUNT(*) FROM outbox WHERE status != 'complete'"
+            ).fetchone()[0])
+
+    def history_cleanup_count(self) -> int:
+        with self._connection() as connection:
+            return int(connection.execute(
+                """SELECT COUNT(*) FROM history_events h
+                JOIN episodes e ON e.id = h.episode_id
+                WHERE h.discord_message_id IS NOT NULL
+                  AND h.deleted_at IS NULL
+                  AND e.thread_id IS NOT NULL"""
             ).fetchone()[0])
 
     def outbox_health(self) -> dict[str, int]:
@@ -353,6 +378,12 @@ class BoardStore:
                     "UPDATE history_events SET discord_message_id = ? WHERE id = ?",
                     (completion.get("message_id"), payload.get("history_id")),
                 )
+            elif operation["operation"] == "delete_message":
+                payload = json.loads(operation["payload_json"])
+                connection.execute(
+                    "UPDATE history_events SET deleted_at = ? WHERE id = ?",
+                    (_timestamp(completed_at), payload.get("history_id")),
+                )
             connection.execute(
                 """
                 UPDATE outbox
@@ -422,8 +453,10 @@ class BoardStore:
                         _migrate_v3_to_v4(connection)
                     if version in {1, 2, 3, 4}:
                         _migrate_v4_to_v5(connection)
-                    if version == 5:
+                    if version in {1, 2, 3, 4, 5}:
                         _migrate_v5_to_v6(connection)
+                    if version in {1, 2, 3, 4, 5, 6}:
+                        _migrate_v6_to_v7(connection)
                     connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
                     connection.execute("COMMIT")
                 except BaseException:
@@ -566,7 +599,8 @@ class BoardStoreTransaction:
 
     def active_primary_plans(self) -> list[ActivePrimaryPlan]:
         rows = self._connection.execute(
-            """SELECT e.*, p.id AS plan_id, s.*, p.source_status AS current_status
+            """SELECT e.*, p.id AS plan_id, s.*, p.source_status AS current_status,
+            p.source_status_at
             FROM episodes e JOIN plans p ON p.episode_id = e.id
             JOIN source_events s ON s.id = p.source_event_id
             WHERE e.lifecycle = 'primary' AND e.closed_at IS NULL AND p.terminal_at IS NULL
@@ -577,6 +611,26 @@ class BoardStoreTransaction:
                 episode=_episode_from_row(row),
                 plan_id=int(row["plan_id"]),
                 event=replace(_source_event_from_row(row), source_status=row["current_status"]),
+                source_updated_at=_parse_timestamp(row["source_status_at"]),
+            )
+            for row in rows
+        ]
+
+    def latest_plan_cards(self) -> list[PlanCard]:
+        rows = self._connection.execute(
+            """SELECT e.*, p.id AS plan_id, s.*, p.source_status AS current_status,
+            p.source_status_at
+            FROM episodes e JOIN plans p ON p.episode_id = e.id
+            JOIN source_events s ON s.id = p.source_event_id
+            WHERE p.id = (SELECT MAX(latest.id) FROM plans latest WHERE latest.episode_id = e.id)
+            ORDER BY e.id"""
+        ).fetchall()
+        return [
+            PlanCard(
+                episode=_episode_from_row(row),
+                plan_id=int(row["plan_id"]),
+                event=replace(_source_event_from_row(row), source_status=row["current_status"]),
+                source_updated_at=_parse_timestamp(row["source_status_at"]),
             )
             for row in rows
         ]
@@ -637,9 +691,10 @@ class BoardStoreTransaction:
         self.finish_plan(episode_id, now)
         self._connection.execute(
             """INSERT INTO plans (episode_id, source_event_id, entry, stop_loss,
-            targets_json, source_status) VALUES (?, ?, ?, ?, ?, ?)""",
+            targets_json, source_status, source_status_at) VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (episode_id, event_id, event.plan.entry, event.plan.stop_loss,
-             json.dumps(event.plan.targets), event.source_status or "New setup"),
+             json.dumps(event.plan.targets), event.source_status or "New setup",
+             _timestamp(event.published_at)),
         )
 
     def finish_plan(self, episode_id: int, now: datetime) -> None:
@@ -648,10 +703,11 @@ class BoardStoreTransaction:
             (_timestamp(now), episode_id),
         )
 
-    def set_source_status(self, episode_id: int, source_status: str) -> None:
+    def set_source_status(self, episode_id: int, source_status: str, updated_at: datetime) -> None:
         self._connection.execute(
-            "UPDATE plans SET source_status = ? WHERE episode_id = ? AND terminal_at IS NULL",
-            (source_status, episode_id),
+            "UPDATE plans SET source_status = ?, source_status_at = ? "
+            "WHERE episode_id = ? AND terminal_at IS NULL",
+            (source_status, _timestamp(updated_at), episode_id),
         )
 
     def latest_checkpoints(self, episode_id: int) -> tuple[Checkpoint | None, Checkpoint | None]:
@@ -660,7 +716,9 @@ class BoardStoreTransaction:
             AND julianday(c.checked_at) >= (
                 SELECT julianday(s.received_at) FROM plans p
                 JOIN source_events s ON s.id = p.source_event_id
-                WHERE p.episode_id = ? ORDER BY p.id DESC LIMIT 1
+                WHERE p.episode_id = ? AND p.id = (
+                    SELECT MAX(latest.id) FROM plans latest WHERE latest.episode_id = p.episode_id
+                )
             ) ORDER BY julianday(c.checked_at) DESC, c.id DESC""",
             (episode_id, episode_id),
         ).fetchall()
@@ -692,6 +750,34 @@ class BoardStoreTransaction:
             "SELECT id FROM history_events WHERE episode_id = ? AND history_key = ?",
             (episode_id, history_key),
         ).fetchone()[0])
+
+    def schedule_history_deletes(self, now: datetime) -> int:
+        """Queue every still-visible quoted history reply for deletion."""
+        rows = self._connection.execute(
+            """SELECT h.id AS history_id, h.episode_id, h.discord_message_id, e.thread_id
+            FROM history_events h JOIN episodes e ON e.id = h.episode_id
+            WHERE h.discord_message_id IS NOT NULL AND h.deleted_at IS NULL
+            ORDER BY h.id"""
+        ).fetchall()
+        scheduled = 0
+        for row in rows:
+            if not row["thread_id"]:
+                continue
+            history_id = int(row["history_id"])
+            self.enqueue_outbox(
+                "delete_message",
+                int(row["episode_id"]),
+                {
+                    "thread_id": str(row["thread_id"]),
+                    "message_id": str(row["discord_message_id"]),
+                    "history_id": history_id,
+                    "nonce_value": f"cleanup-history:{history_id}",
+                },
+                f"cleanup-history:{history_id}",
+                now,
+            )
+            scheduled += 1
+        return scheduled
 
     def enqueue_outbox(
         self,
@@ -761,6 +847,7 @@ def _create_non_event_tables(connection: sqlite3.Connection) -> None:
             stop_loss TEXT NOT NULL,
             targets_json TEXT NOT NULL,
             source_status TEXT NOT NULL,
+            source_status_at TEXT NOT NULL,
             terminal_at TEXT
         );
         CREATE TABLE checkpoints (
@@ -781,6 +868,7 @@ def _create_non_event_tables(connection: sqlite3.Connection) -> None:
             material_payload TEXT NOT NULL,
             created_at TEXT NOT NULL,
             discord_message_id TEXT,
+            deleted_at TEXT,
             history_key TEXT NOT NULL,
             UNIQUE(episode_id, history_key)
         );
@@ -788,7 +876,7 @@ def _create_non_event_tables(connection: sqlite3.Connection) -> None:
             id INTEGER PRIMARY KEY,
             operation TEXT NOT NULL CHECK (operation IN (
                 'create_thread', 'edit_starter', 'post_source_reply',
-                'post_history_reply', 'patch_thread'
+                'post_history_reply', 'delete_message', 'patch_thread'
             )),
             episode_id INTEGER NOT NULL REFERENCES episodes(id),
             payload_json TEXT NOT NULL,
@@ -869,6 +957,9 @@ def _migrate_v4_to_v5(connection: sqlite3.Connection) -> None:
 
 def _migrate_v5_to_v6(connection: sqlite3.Connection) -> None:
     """Allow repeated quoted chunks to retain distinct Discord message IDs."""
+    existing = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "history_events" not in existing:
+        return
     connection.execute(
         """CREATE TABLE history_events_v6 (
             id INTEGER PRIMARY KEY,
@@ -892,6 +983,86 @@ def _migrate_v5_to_v6(connection: sqlite3.Connection) -> None:
     )
     connection.execute("DROP TABLE history_events")
     connection.execute("ALTER TABLE history_events_v6 RENAME TO history_events")
+
+
+def _migrate_v6_to_v7(connection: sqlite3.Connection) -> None:
+    """Add source-status timestamps and durable history-message deletion."""
+    existing = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    plan_columns = {row[1] for row in connection.execute("PRAGMA table_info(plans)")} if "plans" in existing else set()
+    if "plans" in existing and "source_status_at" not in plan_columns:
+        connection.execute("ALTER TABLE plans ADD COLUMN source_status_at TEXT")
+        connection.execute(
+            """UPDATE plans SET source_status_at = COALESCE(
+                (
+                    SELECT MAX(status_event.published_at)
+                    FROM source_events status_event
+                    JOIN episodes status_episode ON status_episode.id = plans.episode_id
+                    JOIN source_events opened_event ON opened_event.id = plans.source_event_id
+                    WHERE status_event.ticker = status_episode.ticker
+                      AND status_event.source_status IS NOT NULL
+                      AND julianday(status_event.published_at) >= julianday(opened_event.published_at)
+                      AND (
+                          status_episode.closed_at IS NULL
+                          OR julianday(status_event.published_at) <= julianday(status_episode.closed_at)
+                      )
+                ),
+                (SELECT published_at FROM source_events WHERE source_events.id = plans.source_event_id),
+                terminal_at,
+                ''
+            )
+            WHERE source_status_at IS NULL"""
+        )
+
+    history_columns = {row[1] for row in connection.execute("PRAGMA table_info(history_events)")} if "history_events" in existing else set()
+    if "history_events" in existing and "deleted_at" not in history_columns:
+        connection.execute("ALTER TABLE history_events ADD COLUMN deleted_at TEXT")
+
+    # SQLite CHECK constraints are part of the table definition, so recreate
+    # the outbox table once to admit the approved cleanup operation while
+    # retaining every pending and completed intent.
+    outbox_sql = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'outbox'"
+    ).fetchone()
+    if outbox_sql and "'delete_message'" not in str(outbox_sql[0]) and "episodes" in existing:
+        connection.execute(
+            """CREATE TABLE outbox_v7 (
+                id INTEGER PRIMARY KEY,
+                operation TEXT NOT NULL CHECK (operation IN (
+                    'create_thread', 'edit_starter', 'post_source_reply',
+                    'post_history_reply', 'delete_message', 'patch_thread'
+                )),
+                episode_id INTEGER NOT NULL REFERENCES episodes(id),
+                payload_json TEXT NOT NULL,
+                dedupe_key TEXT NOT NULL UNIQUE,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                next_attempt_at TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('pending', 'claimed', 'complete')),
+                claimed_at TEXT,
+                claim_token TEXT,
+                last_error TEXT,
+                completion_json TEXT,
+                completed_at TEXT
+            )"""
+        )
+        connection.execute(
+            """INSERT INTO outbox_v7 (
+                id, operation, episode_id, payload_json, dedupe_key, attempts,
+                next_attempt_at, status, claimed_at, claim_token, last_error,
+                completion_json, completed_at
+            ) SELECT id, operation, episode_id, payload_json, dedupe_key, attempts,
+                next_attempt_at, status, claimed_at, claim_token, last_error,
+                completion_json, completed_at FROM outbox"""
+        )
+        connection.execute("DROP TABLE outbox")
+        connection.execute("ALTER TABLE outbox_v7 RENAME TO outbox")
+    if "outbox" in existing or outbox_sql:
+        connection.execute(
+            """UPDATE outbox SET status = 'complete', completion_json = ?,
+            completed_at = COALESCE(completed_at, CURRENT_TIMESTAMP),
+            claimed_at = NULL, claim_token = NULL
+            WHERE operation = 'post_history_reply' AND status != 'complete'""",
+            (json.dumps({"cancelled": "quoted history retired"}, sort_keys=True),),
+        )
 
 
 def _create_missing_tables(connection: sqlite3.Connection) -> None:

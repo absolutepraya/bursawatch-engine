@@ -129,14 +129,17 @@ def test_format_chart_backed_alert_exact():
     call = scan.parse_swing_call(33655, fixture("trading_buy.txt"), has_photo=True)
     assert scan.format_swing_alert(call) == (
         "### <:phintraco:1531272488645038091> SCMA: Buy\n"
-        "-# Alrich Paskalis T, Investment Advisor\n\n"
-        "**Type:** Trading Buy<:up:1531285100346740766>\n"
+        "-# Alrich Paskalis T, Phintraco Sekuritas\n\n"
+        "**Type:** Trading Buy <:up:1531285100346740766>\n"
         "**Entry:** 208 to 212\n"
         "**Stop-loss:** <200\n"
         "**Target:** 230\n"
         "**Signal date:** 10 Jul 2026 07:00 WIB\n\n"
         "**Reasons:** Konsolidasi bertahan di atas support area 200 menjaga peluang rebound hingga minor uptrend lanjutan. "
         "MACD yang konsisten membentuk histogram positif sejalan dengan peluang tersebut.\n\n"
+        "**Source status:** New setup <:grey:1531279158913536182>\n"
+        "**Last updated:** 10 Jul 2026 07:00 WIB\n"
+        "**Board:** <https://discord.com/channels/940285152335110204/1548273399069933720>\n\n"
         "[View in Telegram](<https://t.me/phintraprofits/33655>)"
     )
 
@@ -145,7 +148,7 @@ def test_buy_alert_is_ticker_first_with_byline_and_telegram_footer() -> None:
     output = scan.format_swing_alert(sample_call())
     assert output.startswith(
         "### <:phintraco:1531272488645038091> SCMA: Buy\n"
-        "-# Alrich Paskalis T, Investment Advisor\n\n"
+        "-# Alrich Paskalis T, Phintraco Sekuritas\n\n"
     )
     assert "**Signal date:** 10 Jul 2026 07:00 WIB" in output
     assert output.endswith("[View in Telegram](<https://t.me/phintraprofits/33655>)")
@@ -163,17 +166,16 @@ def test_future_sell_alert_uses_down_marker():
     sell_call = scan.SwingCall(**{**buy_call.__dict__, "event_kind": "SELL"})
     assert scan.format_swing_alert(sell_call).startswith(
         "### <:phintraco:1531272488645038091> SCMA: Sell\n"
-        "-# Alrich Paskalis T, Investment Advisor\n\n"
-        "**Type:** Trading Buy<:down:1531285063986053200>"
+        "-# Alrich Paskalis T, Phintraco Sekuritas\n\n"
+        "**Type:** Trading Buy <:down:1531285063986053200>"
     )
 
 
 def test_format_chartless_alert_exact_suffix():
     call = scan.parse_swing_call(33655, fixture("trading_buy.txt"), has_photo=False)
-    assert scan.format_swing_alert(call).endswith(
-        "**Chart:** Unavailable from source\n\n"
-        "[View in Telegram](<https://t.me/phintraprofits/33655>)"
-    )
+    output = scan.format_swing_alert(call)
+    assert "**Chart:** Unavailable from source" in output
+    assert output.endswith("[View in Telegram](<https://t.me/phintraprofits/33655>)")
 
 
 def test_missing_advisor_falls_back_to_source_only():
@@ -198,7 +200,7 @@ def test_dynamic_source_markdown_is_escaped_without_changing_labels():
         r"**Reasons:** back\\slash \*star\* \_under\_ \~tilde\~ \`tick\`"
         in output
     )
-    assert r"-# Al\\rich\*\_\*\~\*\`\*, Investment Advisor" in output
+    assert r"-# Al\\rich\*\_\*\~\*\`\*, Phintraco Sekuritas" in output
     assert "**Reasons:**" in output
     assert "[View in Telegram](<https://t.me/phintraprofits/33655>)" in output
 
@@ -223,13 +225,16 @@ def test_canonical_fixture_output_is_unchanged_when_no_escape_is_needed():
     call = scan.parse_swing_call(33655, fixture("trading_buy.txt"), has_photo=True)
     assert scan.format_swing_alert(call) == (
         "### <:phintraco:1531272488645038091> SCMA: Buy\n"
-        "-# Alrich Paskalis T, Investment Advisor\n\n"
-        "**Type:** Trading Buy<:up:1531285100346740766>\n"
+        "-# Alrich Paskalis T, Phintraco Sekuritas\n\n"
+        "**Type:** Trading Buy <:up:1531285100346740766>\n"
         "**Entry:** 208 to 212\n"
         "**Stop-loss:** <200\n"
         "**Target:** 230\n"
         "**Signal date:** 10 Jul 2026 07:00 WIB\n\n"
         "**Reasons:** Konsolidasi bertahan di atas support area 200 menjaga peluang rebound hingga minor uptrend lanjutan. MACD yang konsisten membentuk histogram positif sejalan dengan peluang tersebut.\n\n"
+        "**Source status:** New setup <:grey:1531279158913536182>\n"
+        "**Last updated:** 10 Jul 2026 07:00 WIB\n"
+        "**Board:** <https://discord.com/channels/940285152335110204/1548273399069933720>\n\n"
         "[View in Telegram](<https://t.me/phintraprofits/33655>)"
     )
 
@@ -251,7 +256,7 @@ def test_parse_target_reminder_and_format_source_link():
     assert event.outcomes == ("First target 5000 achieved",)
     assert scan.format_swing_alert(event).startswith(
         "### <:phintraco:1531272488645038091> INCO: Reminder\n"
-        "-# Nauval Maulana, Investment Advisor\n\n"
+        "-# Nauval Maulana, Phintraco Sekuritas\n\n"
     )
     assert scan.format_swing_alert(event).endswith(
         "[View in Telegram](<https://t.me/phintraprofits/33711>)"
@@ -320,7 +325,7 @@ def test_parse_chartless_status_reminder_with_typo():
     assert event.event_kind == "STATUS"
     output = scan.format_swing_alert(event)
     assert "Still inline with trading plan before" in output
-    assert "**Chart:** Unavailable from source" in output
+    assert "**Chart:** Unavailable from source" not in output
 
 
 def test_source_timestamp_overrides_embedded_phintraco_date():
@@ -371,13 +376,14 @@ def test_on_support_update_uses_common_status_format_and_source_timestamp():
     ]
     assert scan.format_swing_alert(event) == (
         "### <:phintraco:1531272488645038091> BRMS: Hold\n"
-        "-# Alrich Paskalis T, Investment Advisor\n\n"
-        "**Status:** On support<:hold:1531284248235868333>\n"
+        "-# Alrich Paskalis T, Phintraco Sekuritas\n\n"
         "**Entry:** >=540\n"
         "**Stop-loss:** <520\n"
         "**Target 1:** 590 to 600\n"
         "**Target 2:** 640\n"
-        "**Status date:** 17 Jul 2026 10:11 WIB\n\n"
+        "\n**Source status:** On support <:hold:1531284248235868333>\n"
+        "**Last updated:** 17 Jul 2026 10:11 WIB\n"
+        "**Board:** <https://discord.com/channels/940285152335110204/1548273399069933720>\n\n"
         "[View in Telegram](<https://t.me/phintraprofits/33801>)"
     )
 
@@ -407,9 +413,9 @@ def test_reply_status_requires_matching_parent_swing_plan():
     assert scan.format_swing_alert(event) == (
         "### <:phintraco:1531272488645038091> ESSA: Hold\n"
         "-# Phintraco Sekuritas\n\n"
-        "**Status:** On track<:hold:1531284248235868333>\n"
-        "**Status date:** 15 Jul 2026 10:55 WIB\n"
-        "**Chart:** Unavailable from source\n\n"
+        "**Source status:** On track <:hold:1531284248235868333>\n"
+        "**Last updated:** 15 Jul 2026 10:55 WIB\n"
+        "**Board:** <https://discord.com/channels/940285152335110204/1548273399069933720>\n\n"
         "[View in Telegram](<https://t.me/phintraprofits/33735>)"
     )
     assert (

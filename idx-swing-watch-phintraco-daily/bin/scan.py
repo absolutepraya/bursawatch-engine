@@ -13,10 +13,19 @@ import math
 import os
 import re
 import subprocess
+import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+_SHARED_FORMAT_BIN = Path(__file__).resolve().parents[2] / "swing-format" / "bin"
+if not _SHARED_FORMAT_BIN.exists():
+    _SHARED_FORMAT_BIN = Path.home() / ".agents" / "skills" / "swing-format" / "bin"
+if str(_SHARED_FORMAT_BIN) not in sys.path:
+    sys.path.insert(0, str(_SHARED_FORMAT_BIN))
+
+from swing_format import SwingMessage, fields as shared_fields, render_message
 
 from telegram_resilience import (
     PolyCopResilience,
@@ -34,7 +43,6 @@ PROVIDER = "Phintraco"
 PHINTRACO_EMOJI = "<:phintraco:1531272488645038091>"
 UP_EMOJI = "<:up:1531285100346740766>"
 DOWN_EMOJI = "<:down:1531285063986053200>"
-HOLD_EMOJI = "<:hold:1531284248235868333>"
 ALLOWED_SUBTYPES = ("Trading Buy", "Buy on Support", "Speculative Buy")
 WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
@@ -829,7 +837,8 @@ def deserialize_call(payload: dict) -> SwingCall:
 
 
 def format_signal_datetime(value: dt.datetime) -> str:
-    return value.astimezone(WIB).strftime("%-d %b %Y %H:%M WIB")
+    local = value.astimezone(WIB)
+    return f"{local.day} {local:%b %Y %H:%M} WIB"
 
 
 def escape_discord_markdown(value: str) -> str:
@@ -841,67 +850,66 @@ def source_message_url(source_message_id: int) -> str:
 
 
 def format_analyst_byline(call: SwingCall) -> str:
-    if call.advisor_name and call.advisor_role:
-        return (
-            f"-# {escape_discord_markdown(call.advisor_name)}, "
-            f"{escape_discord_markdown(call.advisor_role)}"
-        )
+    if call.advisor_name:
+        return f"-# {escape_discord_markdown(call.advisor_name)}, Phintraco Sekuritas"
     return "-# Phintraco Sekuritas"
 
 
-def format_swing_alert(call: SwingCall) -> str:
+def format_swing_alert(call: SwingCall, *, include_board: bool = True) -> str:
+    """Render a Phintraco source event through the shared cash-Swing shell."""
+    body: tuple[str, ...] = ()
+    message_fields: list[tuple[str, str]] = []
+    status: str
+    chart_unavailable = False
     if call.event_kind == "REMINDER":
-        lines = [
-            f"### {PHINTRACO_EMOJI} {call.ticker}: Reminder",
-            format_analyst_byline(call),
-            "",
-        ]
-        lines.extend(f"**Outcome:** {escape_discord_markdown(outcome)}" for outcome in call.outcomes)
         for target in call.targets:
             label = "Target" if target.number is None else f"Target {target.number}"
-            lines.append(f"**{label}:** {escape_discord_markdown(target.value)}")
-        lines.append(f"**Reminder date:** {format_signal_datetime(call.signal_datetime)}")
+            message_fields.append((label, target.value))
+        status = "; ".join(call.outcomes) or "Reminder"
+        title = f"{call.ticker}: Reminder"
     elif call.event_kind == "STATUS":
-        lines = [
-            f"### {PHINTRACO_EMOJI} {call.ticker}: Hold",
-            format_analyst_byline(call),
-            "",
-            f"**Status:** {escape_discord_markdown(call.status or '')}{HOLD_EMOJI}",
-        ]
         if call.entry:
-            lines.append(f"**Entry:** {escape_discord_markdown(call.entry)}")
+            message_fields.append(("Entry", call.entry))
         if call.stop_loss:
-            lines.append(f"**Stop-loss:** {escape_discord_markdown(call.stop_loss)}")
+            message_fields.append(("Stop-loss", call.stop_loss))
         for target in call.targets:
             label = "Target" if target.number is None else f"Target {target.number}"
-            lines.append(f"**{label}:** {escape_discord_markdown(target.value)}")
-        lines.append(f"**Status date:** {format_signal_datetime(call.signal_datetime)}")
+            message_fields.append((label, target.value))
+        status = call.status or "Hold"
+        title = f"{call.ticker}: Hold"
     else:
         is_sell = call.event_kind == "SELL"
         action = "Sell" if is_sell else "Buy"
         type_marker = DOWN_EMOJI if is_sell else UP_EMOJI
-        lines = [
-            f"### {PHINTRACO_EMOJI} {call.ticker}: {action}",
-            format_analyst_byline(call),
-            "",
-            f"**Type:** {escape_discord_markdown(call.call_subtype)}{type_marker}",
-            f"**Entry:** {escape_discord_markdown(call.entry)}",
-            f"**Stop-loss:** {escape_discord_markdown(call.stop_loss)}",
-        ]
+        message_fields.extend([
+            ("Type", f"{call.call_subtype} {type_marker}"),
+            ("Entry", call.entry),
+            ("Stop-loss", call.stop_loss),
+        ])
         for target in call.targets:
             label = "Target" if target.number is None else f"Target {target.number}"
-            lines.append(f"**{label}:** {escape_discord_markdown(target.value)}")
-        lines.extend(
-            [
-                f"**Signal date:** {format_signal_datetime(call.signal_datetime)}",
-                "",
-                f"**Reasons:** {escape_discord_markdown(call.rationale)}",
-            ]
-        )
-    if not call.has_source_chart:
-        lines.append("**Chart:** Unavailable from source")
-    lines.extend(["", f"[View in Telegram](<{source_message_url(call.source_message_id)}>)"])
-    return "\n".join(lines)
+            message_fields.append((label, target.value))
+        message_fields.append(("Signal date", format_signal_datetime(call.signal_datetime)))
+        body = ("", f"**Reasons:** {escape_discord_markdown(call.rationale)}")
+        status = "New setup"
+        title = f"{call.ticker}: {action}"
+        chart_unavailable = not call.has_source_chart
+    return render_message(
+        SwingMessage(
+            source_emoji=PHINTRACO_EMOJI,
+            title=title,
+            analyst_name=call.advisor_name,
+            institution="Phintraco Sekuritas",
+            fields=shared_fields(*message_fields),
+            body=body,
+            source_status=status,
+            updated_at=call.signal_datetime,
+            source_url=source_message_url(call.source_message_id),
+            footer_label="View in Telegram",
+            chart_unavailable=chart_unavailable,
+        ),
+        include_board=include_board,
+    )
 
 
 def _env(key: str) -> str | None:
@@ -1298,7 +1306,7 @@ def board_event_payload(event: dict, call: SwingCall) -> tuple[dict, Path | None
             "ticker": call.ticker,
             "published_at": call.signal_datetime.isoformat(),
             "source_url": source_message_url(call.source_message_id),
-            "all_content": format_swing_alert(call),
+            "all_content": format_swing_alert(call, include_board=False),
             "source_title": source_title,
             "source_status": source_status,
             "plan": plan,
@@ -1402,7 +1410,7 @@ def _drain_all_outbox(state: dict, now: dt.datetime, dry_run: bool) -> int:
         if phase == PHASE_PENDING_TEXT:
             try:
                 text_id = post_discord_text(
-                    format_swing_alert(call), ALERT_CHANNEL_ID, dry_run, event["event_key"]
+                    format_swing_alert(call, include_board=True), ALERT_CHANNEL_ID, dry_run, event["event_key"]
                 )
             except DiscordRetryAfter as exc:
                 schedule_retry(

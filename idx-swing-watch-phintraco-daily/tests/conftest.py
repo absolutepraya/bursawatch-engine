@@ -5,6 +5,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "bin"))
+sys.path.insert(0, str(ROOT.parent / "swing-format" / "bin"))
 sys.path.insert(0, str(ROOT.parent / "telegram-resilience" / "bin"))
 
 

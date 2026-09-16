@@ -6,3 +6,4 @@ from pathlib import Path
 
 BIN = Path(__file__).resolve().parents[1] / "bin"
 sys.path.insert(0, str(BIN))
+sys.path.insert(0, str(BIN.parent.parent / "swing-format" / "bin"))

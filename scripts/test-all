@@ -18,6 +18,7 @@ run_suite() {
 run_suite dotfiles-sync dotfiles-sync tests
 run_suite idx-market-news-watch idx-market-news-watch tests
 run_suite idx-swing-watch-phintraco-daily idx-swing-watch-phintraco-daily tests
+run_suite swing-format swing-format tests
 run_suite idx-swing-plan-board idx-swing-plan-board tests
 run_suite instagram-post-watch instagram-post-watch tests
 run_suite job-watcher job-watcher bin
