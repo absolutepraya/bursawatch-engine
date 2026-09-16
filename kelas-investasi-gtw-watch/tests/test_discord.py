@@ -99,6 +99,7 @@ def test_gtw_payload_uses_exact_header_and_social_kind() -> None:
     assert payload["ticker"] == "RAJA"
     assert payload["published_at"] == "2026-08-11T09:00:00+07:00"
     assert payload["source_url"] == "https://t.me/kelasinvestasiid/101"
+    assert payload["source_status"] == "Good to watch"
     assert payload["all_content"] == render_event(event, include_board=False)[0]
     assert "**Board:**" not in payload["all_content"]
 
@@ -203,7 +204,7 @@ def test_delivery_sends_text_then_images_in_source_order(tmp_path: Path, monkeyp
     assert state["outbox"] == []
 
 
-def test_delivery_targets_id_stocks_news(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_delivery_targets_id_stocks_swing(monkeypatch: pytest.MonkeyPatch) -> None:
     event = ready_event()
     channels: list[str] = []
     monkeypatch.setattr(discord, "post_text", lambda _content, channel_id, *_args: channels.append(channel_id))

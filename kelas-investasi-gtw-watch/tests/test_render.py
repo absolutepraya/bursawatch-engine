@@ -12,8 +12,9 @@ def event(
     title: str = "CTRA: Akumulasi kuat di area breakout",
     summary: str = "*(Ringkasan)* Ringkasan tervalidasi.",
     header_message_id: int = 101,
+    source_published_at: str | None = None,
 ) -> dict[str, object]:
-    return {
+    value = {
         "event_key": f"{header_message_id}:{ticker}",
         "ticker": ticker,
         "header_message_id": header_message_id,
@@ -22,9 +23,12 @@ def event(
         "title": title,
         "summary": summary,
     }
+    if source_published_at is not None:
+        value["source_published_at"] = source_published_at
+    return value
 
 
-def test_render_matches_approved_stock_news_layout() -> None:
+def test_render_matches_approved_all_swing_layout() -> None:
     text = render_event(event())[0]
 
     assert text == (
@@ -37,6 +41,21 @@ def test_render_matches_approved_stock_news_layout() -> None:
         "**Chart:** Unavailable from source\n\n"
         "[View on Telegram](<https://t.me/kelasinvestasiid/101>)"
     )
+
+
+def test_render_includes_neutral_gtw_status_and_board_link_for_all_copy() -> None:
+    text = render_event(event(source_published_at="2026-09-19T06:50:00+07:00"))[0]
+
+    assert "**Source status:** Good to watch <:grey:1531279158913536182>" in text
+    assert "**Last updated:** 19 Sep 2026 06:50 WIB" in text
+    assert "**Board:** <https://discord.com/channels/940285152335110204/1548273399069933720>" in text
+
+
+def test_render_omits_board_link_for_board_copy() -> None:
+    text = render_event(event(source_published_at="2026-09-19T06:50:00+07:00"), include_board=False)[0]
+
+    assert "**Source status:** Good to watch <:grey:1531279158913536182>" in text
+    assert "**Board:**" not in text
 
 
 def test_render_uses_dash_for_missing_plan_fields_and_header_deep_link() -> None:

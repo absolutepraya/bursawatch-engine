@@ -2,7 +2,7 @@
 
 ## Goal
 
-Create `kelas-investasi-gtw-watch`, a deterministic Hermes cron that observes future `#GTW` bundles from the public Telegram channel Kelas Investasi, produces a source-grounded Indonesian summary, and delivers the summary followed by source images to Discord `#stock-news`.
+Create `kelas-investasi-gtw-watch`, a deterministic Hermes cron that observes future `#GTW` bundles from the public Telegram channel Kelas Investasi, produces a source-grounded Indonesian summary, and delivers the shared cash-Swing message followed by its source image to Discord `#id-stocks-swing`.
 
 The cron starts at deployment without backfilling historical signals.
 
@@ -11,12 +11,12 @@ The cron starts at deployment without backfilling historical signals.
 - Source channel: `@kelasinvestasiid`, Telegram source ID `2142109618`.
 - Eligible header: `Good to watch - <TICKER> #GTW`.
 - Polling cadence: hourly at minute `00`, WIB.
-- Destination: Discord `#stock-news`, channel ID `1525102508714889257`.
+- Destination: Discord `#id-stocks-swing`, channel ID `1525102458253217803`.
 - Delivery identity: Yanto Discord bot.
 - Telegram authentication: the existing shared `POLYCOP_SESSION_STRING` through `telegram-resilience`.
 - Output: one text message, then every image or chart from the source bundle in source order.
 
-The cron does not backfill, execute trades, evaluate whether the source thesis is correct, post as Abhip's personal Telegram account, or forward promotions and unrelated messages.
+The cron does not backfill, execute trades, evaluate whether the source thesis is correct, post as Abhip's personal Telegram account, or forward promotions and unrelated messages. After All delivery, it submits the accepted event to the Swing board owner as source-only context. The board may later promote an open GTW-only episode when Phintraco publishes a complete setup; that promotion retains the original replies and re-sends the latest GTW message once below the new Phintraco card.
 
 ## Architecture
 
@@ -85,27 +85,34 @@ The scanner extracts any source-provided buy area, targets, and stoploss. Missin
 
 ## Discord rendering
 
-The text delivery follows the visual structure of `x-post-watch`:
+The text delivery uses the shared cash-Swing renderer:
 
 ```md
-### <:telegram:1531657996432576618> CTRA: Akumulasi kuat di area breakout
--# <:kelasinvestasi:1536570114772574218> Kelas Investasi
+### <:kelasinvestasi:1536570114772574218> CTRA: Akumulasi kuat di area breakout
+-# Kelas Investasi GTW
 
 *(Ringkasan)* CTRA berada di area breakout 605 sampai 630, dengan akumulasi broker yang masih kuat dan katalis proyek baru. Break 630 dengan volume menjadi konfirmasi lanjutan.
 
-*Plan sumber*
-- Buy area: 605 sampai 630
-- Target: 655, 675, 700
-- Stoploss: <573
+**Buy area:** 605 sampai 630
+**Target:** 655, 675, 700
+**Stoploss:** <573
 
-[View on Telegram](https://t.me/kelasinvestasiid/<header-message-id>)
+**Source status:** Good to watch <:grey:1531279158913536182>
+**Last updated:** 19 Sep 2026 06:50 WIB
+**Board:** <https://discord.com/channels/940285152335110204/1548273399069933720>
+
+[View on Telegram](<https://t.me/kelasinvestasiid/<header-message-id>>)
 ```
 
-The renderer uses the provided custom Telegram and Kelas Investasi Discord emoji markup. It does not use a generic emoji, the phrase "Good to Watch", or a middle-dot separator. Commas or new lines are used instead.
+The renderer uses the provided Kelas Investasi and status emoji markup, the
+factual neutral `Good to watch` source status, and the All-only Board link. The
+board copy omits the Board line. It does not use a generic alert emoji or a
+middle-dot separator.
 
 The plan block always has all three rows. Any unavailable source field renders as `-`, for example `- Target: -`.
 
-After the text, the scanner sends every source image or chart in original message order. It does not copy source prose verbatim to Discord.
+After the text, the scanner sends the first source image attached to the header.
+It does not copy source prose verbatim to Discord.
 
 ## Operations
 

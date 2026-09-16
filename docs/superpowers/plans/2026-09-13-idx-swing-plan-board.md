@@ -37,7 +37,7 @@
 | `idx-swing-plan-board/bin/calendar.py` | IDX session calendar and 20-session arithmetic. |
 | `idx-swing-plan-board/bin/idx_trading_holidays.json` | Reviewed 2026 IDX exchange closures. |
 | `idx-swing-plan-board/bin/store.py` | SQLite migration, idempotent intake, episode state, and outbox persistence. |
-| `idx-swing-plan-board/bin/render.py` | Exact top-card, neutral card, source-reply, and quoted-history content. |
+| `idx-swing-plan-board/bin/render.py` | Exact top-card, neutral card, source-reply, and managed-card content. |
 | `idx-swing-plan-board/bin/discord_forum.py` | Forum thread, message, attachment, title, and tag REST operations. |
 | `idx-swing-plan-board/bin/prices.py` | Yahoo current-session close fetch and threshold classification. |
 | `idx-swing-plan-board/bin/engine.py` | Promotion, source-status, resolution, and checkpoint state machine. |
@@ -406,10 +406,10 @@ In `test_engine.py`, define the local `engine` fixture using a temporary `BoardS
 
 1. Let `BoardStore.submit_event()` deduplicate event identity before any operation.
 2. A `social` event creates a `source` episode only when no active episode exists. Enqueue `create_thread` with `Source plan`, followed by a normal `post_source_reply` with source-rendered All content and direct media.
-3. A `buy` event promotes an open `source` episode only when its latest material date is not before `sessions_ago(event_date, 20)`. Enqueue a managed starter edit with the original chart, patch title to `<TICKER>: Buy`, replace lifecycle tag with `Primary plan`, and add one quoted history reply. Do not copy, delete, or repeat the existing social reply.
-4. A `buy` event within the same 20-session window for an active primary replaces the managed card and chart, retains old normal replies, and adds a quoted replacement record naming the prior source URL.
+3. A `buy` event promotes an open `source` episode only when its latest material date is not before `sessions_ago(event_date, 20)`. Enqueue a managed starter edit with the original chart, patch title to `<TICKER>: Buy`, replace lifecycle tag with `Primary plan`, and retain every normal source reply. For a GTW-only episode, enqueue exactly one fresh copy of the latest GTW reply below the new starter with a durable promotion dedupe key.
+4. A `buy` event within the same 20-session window for an active primary replaces the managed card and chart, retaining old normal replies and without creating quoted history.
 5. A `buy` without an eligible active episode creates a fresh primary episode named `<TICKER>: Buy`, tagged `Primary plan`, with no price-state tag until a factual state exists.
-6. A `status` or `reminder` requires an active primary. It updates only Source Status, posts the new distinct source item as a normal reply, edits the starter, and adds a quoted Source Status transition. With no matching primary it returns `board_ignored` and leaves the All message as the sole delivery.
+6. A `status` or `reminder` requires an active primary. It updates only Source Status, posts the new distinct source item as a normal reply, and edits the starter. With no matching primary it returns `board_ignored` and leaves the All message as the sole delivery.
 
 `BoardEngine.drain()` claims one operation, executes it, persists returned Discord IDs, and applies the Task 2 backoff. A Discord failure is retained in the owner outbox; it never causes a callback that reposts All Swing.
 

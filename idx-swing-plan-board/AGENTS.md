@@ -8,6 +8,15 @@ The board owner alone mutates its SQLite database, private media directory, foru
 
 The board is read-only and factual. It has no LLM, does not infer a plan or a price state, does not give trading advice, and does not place orders. Only a complete Phintraco Daily cash-equity BUY creates or replaces a Primary Plan. Only active cash-equity source events may reach the board.
 
+Kelas Investasi GTW is a qualifying source-only cash-Swing input. It may open
+or append to a `Source plan` episode, but it never becomes the Primary Plan and
+never changes Phintraco status or market tags. When a complete Phintraco BUY
+promotes an open GTW-only episode, the owner edits the top card, changes the
+lifecycle tag, retains all original GTW replies, and enqueues exactly one fresh
+copy of the latest GTW reply below the new primary card. The promotion copy is
+board-only, uses a durable dedupe key, and never replays the All Swing feed.
+An archived episode receives no later GTW event.
+
 ## Commands and safety
 
 `submit-source-event --stdin` validates one event, copies supplied local media into the owner media root, atomically commits the immutable event plus its owner intents, then performs one best-effort drain. It may not calculate a close and does not post a heartbeat. A durable accepted event remains accepted when Discord work is retryable.

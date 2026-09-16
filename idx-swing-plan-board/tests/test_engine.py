@@ -33,6 +33,21 @@ def social(**changes):
     return replace(social_event("x:marketwriter:101", "KPIG", "KPIG: Wave IV menuju 97 sampai 108"), **changes)
 
 
+def gtw(**changes):
+    defaults = {
+        "source": "kelas-investasi",
+        "source_title": "Good to watch - KPIG #GTW",
+        "source_url": "https://t.me/kelasinvestasiid/101",
+        "all_content": "### <:kelasinvestasi:1> KPIG: Akumulasi kuat\n\n**Source status:** Good to watch",
+        "media_path": "/tmp/gtw-chart.png",
+    }
+    defaults.update(changes)
+    return replace(
+        social_event("kelas-investasi:101:KPIG", "KPIG", "Good to watch - KPIG #GTW"),
+        **defaults,
+    )
+
+
 def buy(**changes):
     return replace(example_buy_event(ticker="KPIG"), **changes)
 
@@ -131,7 +146,7 @@ def test_format_migration_rewrites_existing_starter_and_source_reply(engine):
     assert "On track <:hold:1531284248235868333>" in reply_migration.payload["content"]
 
 
-def test_buy_promotes_without_reposting_social_reply(engine):
+def test_buy_promotes_without_reposting_non_gtw_social_reply(engine):
     engine.submit(social(), at())
     engine.drain(now=at())
     engine.submit(buy(media_path="/tmp/original.png"), at("2026-09-22T09:05:00+07:00"))
@@ -141,6 +156,32 @@ def test_buy_promotes_without_reposting_social_reply(engine):
     assert operations(engine)[2].payload["chart"] == "/tmp/original.png"
     assert operations(engine)[3].payload["tag_names"] == ["Primary plan"]
     assert engine.store.active_episode("KPIG").title == "KPIG: Buy"
+
+
+def test_buy_promotes_and_resends_latest_gtw_reply_once(engine):
+    source = gtw()
+    engine.submit(source, at())
+    newer_source = gtw(
+        event_key="kelas-investasi:102:KPIG",
+        published_at=at("2026-09-20T09:05:00+07:00"),
+        source_url="https://t.me/kelasinvestasiid/102",
+        all_content="### <:kelasinvestasi:1> KPIG: Breakout watch\n\n**Source status:** Good to watch",
+        media_path="/tmp/gtw-chart-new.png",
+    )
+    engine.submit(newer_source, at("2026-09-20T09:06:00+07:00"))
+    engine.drain(now=at())
+
+    promotion = buy(media_path="/tmp/phintraco-chart.png")
+    assert engine.submit(promotion, at("2026-09-22T09:05:00+07:00")) == "board_submitted"
+
+    replies = [op for op in operations(engine) if op.operation == "post_source_reply"]
+    assert len(replies) == 3
+    resend = replies[-1]
+    assert resend.payload["content"] == render_source_reply(newer_source)
+    assert resend.payload["media"] == "/tmp/gtw-chart-new.png"
+    assert resend.payload["nonce_value"].startswith("promotion:")
+    assert engine.submit(promotion, at("2026-09-22T09:05:00+07:00")) == "board_duplicate"
+    assert len([op for op in operations(engine) if op.operation == "post_source_reply"]) == 3
 
 
 @pytest.mark.parametrize("lifecycle", ["source", "primary"])

@@ -17,6 +17,7 @@ from swing_format import BOARD_URL, MAX_DISCORD_CHARACTERS, SwingMessage, escape
 
 TELEGRAM_EMOJI = "<:telegram:1531657996432576618>"
 KELAS_INVESTASI_EMOJI = "<:kelasinvestasi:1536570114772574218>"
+GTW_SOURCE_STATUS = "Good to watch"
 
 
 def render_event(event: Mapping[str, object], *, include_board: bool = True) -> list[str]:
@@ -40,7 +41,7 @@ def render_event(event: Mapping[str, object], *, include_board: bool = True) -> 
         analyst_name=None,
         institution="Kelas Investasi GTW",
         body=body,
-        source_status="New setup" if source_time is not None else None,
+        source_status=GTW_SOURCE_STATUS if source_time is not None else None,
         updated_at=source_time,
         source_url=f"https://t.me/kelasinvestasiid/{message_id}",
         footer_label="View on Telegram",

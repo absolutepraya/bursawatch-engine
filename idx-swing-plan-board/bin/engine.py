@@ -200,6 +200,7 @@ class BoardEngine:
             tx.finish_plan(active.id, now)
             tx.update_episode(replace(active, closed_at=now))
             active = None
+        promoting_source = active is not None and active.lifecycle == "source"
         title = f"{event.ticker}: Buy"
         if active is None:
             active = tx.create_episode(event.ticker, "primary", title, event.published_at)
@@ -222,6 +223,8 @@ class BoardEngine:
             "clear_attachments": event.media_path is None,
         }, now)
         self._patch(tx, event, active, now)
+        if promoting_source:
+            self._resend_latest_gtw(tx, active, event, now)
         if primary_card_requires_source_reply(event):
             self._source_reply(tx, event, active, now)
 
@@ -253,17 +256,48 @@ class BoardEngine:
         if terminal:
             tx.finish_plan(active.id, now)
 
-    def _source_reply(self, tx, event, active, now):
+    def _resend_latest_gtw(self, tx, active, promotion_event, now):
+        """Place one fresh GTW context reply below a promoted primary card."""
+        latest_gtw = tx.latest_source_event(active.id, "kelas-investasi")
+        if latest_gtw is None:
+            return
+        self._source_reply(
+            tx,
+            latest_gtw,
+            active,
+            now,
+            dedupe_scope=f"promotion:{promotion_event.event_key}:gtw",
+        )
+
+    def _source_reply(self, tx, event, active, now, *, dedupe_scope=None):
         contents = render_source_replies(event)
         for index, content in enumerate(contents):
-            self._enqueue(tx, event, active, "post_source_reply", {
+            payload = {
                 "content": content, "media": event.media_path if index == 0 else None,
-            }, now, suffix=f":{index}" if len(contents) > 1 else "")
+            }
+            suffix = f":{index}" if len(contents) > 1 else ""
+            if dedupe_scope is None:
+                self._enqueue(tx, event, active, "post_source_reply", payload, now, suffix=suffix)
+            else:
+                dedupe_key = f"{dedupe_scope}:{event.event_key}:post_source_reply{suffix}"
+                tx.enqueue_outbox(
+                    "post_source_reply", active.id,
+                    {**payload, "nonce_value": dedupe_key}, dedupe_key, now,
+                )
         for index, url in enumerate(event.media_urls):
-            self._enqueue(tx, event, active, "post_source_reply", {
+            payload = {
                 "content": f"[Source media {index + 1}](<{event.source_url}>)",
                 "media": None, "media_url": url,
-            }, now, suffix=f":media:{index}")
+            }
+            suffix = f":media:{index}"
+            if dedupe_scope is None:
+                self._enqueue(tx, event, active, "post_source_reply", payload, now, suffix=suffix)
+            else:
+                dedupe_key = f"{dedupe_scope}:{event.event_key}:post_source_reply{suffix}"
+                tx.enqueue_outbox(
+                    "post_source_reply", active.id,
+                    {**payload, "nonce_value": dedupe_key}, dedupe_key, now,
+                )
 
     def _patch(self, tx, event, active, now):
         tags = [active.lifecycle_tag]

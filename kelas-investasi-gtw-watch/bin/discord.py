@@ -11,12 +11,14 @@ from typing import Any, Callable, Mapping
 
 import requests
 
-from render import MAX_DISCORD_CHARACTERS, render_event
+from render import GTW_SOURCE_STATUS, MAX_DISCORD_CHARACTERS, render_event
 
 
 DISCORD_API = "https://discord.com/api/v10"
 DISCORD_TIMEOUT_SECONDS = 30
-DISCORD_CHANNEL_ID = "1525102458253217803"
+# The GTW All feed is part of the chronological Swing feed.  Board delivery
+# is a separate owner handoff after this channel delivery succeeds.
+DISCORD_CHANNEL_ID = "1525102458253217803"  # #id-stocks-swing
 RETRY_INITIAL_SECONDS = 60
 RETRY_CAP_SECONDS = 15 * 60
 
@@ -165,7 +167,7 @@ def board_payload(event: Mapping[str, object], media: Path | None = None) -> dic
         "source_url": f"https://t.me/kelasinvestasiid/{header_message_id}",
         "all_content": "\n\n".join(render_event(event, include_board=False)),
         "source_title": source_title,
-        "source_status": None,
+        "source_status": GTW_SOURCE_STATUS,
         "plan": None,
         "media_path": str(media) if media is not None else None,
         "media_urls": [],

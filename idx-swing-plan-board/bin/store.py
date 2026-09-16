@@ -622,6 +622,44 @@ class BoardStoreTransaction:
             raise KeyError(f"unknown source event: {event_id}")
         return _source_event_from_row(row)
 
+    def latest_source_event(self, episode_id: int, source: str) -> SourceEvent | None:
+        """Return the newest source reply event attached to one episode.
+
+        Source events intentionally remain immutable and are not linked to an
+        episode by a watcher-owned foreign key.  The board's durable source
+        reply intents carry that relationship, so inspect those intents and
+        resolve their event keys back to the immutable source rows.  This also
+        keeps promotion retries independent from watcher state.
+        """
+        if not isinstance(source, str) or not source.strip():
+            raise ValueError("source must be non-empty")
+        rows = self._connection.execute(
+            """SELECT id, dedupe_key FROM outbox
+            WHERE episode_id = ? AND operation = 'post_source_reply'
+            ORDER BY id DESC""",
+            (episode_id,),
+        ).fetchall()
+        seen: set[str] = set()
+        candidates: list[tuple[datetime, int, SourceEvent]] = []
+        for row in rows:
+            try:
+                event_key, _ = _source_event_key_from_dedupe(row["dedupe_key"])
+            except StoreBlockedError:
+                continue
+            if event_key in seen:
+                continue
+            seen.add(event_key)
+            event_row = self._connection.execute(
+                "SELECT * FROM source_events WHERE event_key = ?", (event_key,)
+            ).fetchone()
+            if event_row is None or event_row["source"].casefold() != source.casefold():
+                continue
+            event = _source_event_from_row(event_row)
+            candidates.append((event.published_at, int(event_row["id"]), event))
+        if not candidates:
+            return None
+        return max(candidates, key=lambda item: (item[0], item[1]))[2]
+
     def mark_event_processed(self, event_id: int, now: datetime) -> None:
         self._connection.execute(
             "UPDATE source_events SET board_processed_at = ? WHERE id = ?",

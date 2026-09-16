@@ -4,6 +4,13 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
 
 - **Owner:** the board process is the sole mutator of its SQLite database, media, and Discord forum state. It accepts only validated internal watcher events after All Swing delivery.
 - **Boundary:** deterministic and read-only. No LLM, inferred plan, trading advice, market order, or watcher-state write is allowed. Only active cash-equity source events are eligible.
+- **GTW source events:** Kelas Investasi GTW events are source-only context. They
+  use the `Source plan` lifecycle tag, never alter a Phintraco Primary Plan or
+  its market tags, and create a new episode when no open episode exists. A
+  Phintraco BUY may promote an open GTW-only episode in place; the owner keeps
+  the original GTW replies and queues exactly one fresh latest-GTW reply below
+  the new starter with a durable promotion dedupe key. This handoff is board
+  only and does not replay the All Swing feed.
 - **Source submission:** `submit-source-event --stdin` first copies supplied local media into the owner directory, then atomically persists the validated event and owner intents and runs one best-effort drain. It may not calculate a close or post a heartbeat.
 - **Scheduled reconciliation:** `after-close --phase initial` is valid only at 16:30 WIB and `--phase retry` only at 17:00 WIB. The retry runs only for a current-session unavailable initial attempt on the same active plan. Both phases use the reviewed IDX calendar. Missing coverage makes no board mutation, drains safely, and direct-posts one fatal `#hermes` heartbeat; covered phases direct-post exactly one normal or degraded heartbeat. A second unavailable result changes only the card to `Market check unavailable`; it preserves prior valid price/time and tags and adds no history reply.
 - **Runtime wrapper:** `bin/idx-swing-plan-board.sh` reads only `DISCORD_BOT_TOKEN`, uses the shared Yahoo Finance MCP Python, defaults state to `$HOME/.hermes/state/idx-swing-board.sqlite3`, and passes board arguments unchanged. The owner CLI has no database-path option.

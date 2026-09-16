@@ -145,12 +145,15 @@ nonterminal, the owner promotes it in place:
    chart;
 2. change the forum title to `<TICKER>: Buy`;
 3. replace the lifecycle tag with `Primary plan`; and
-4. leave the social source reply exactly where it is.
+4. retain every original social source reply; when the episode is GTW-only,
+   enqueue exactly one fresh copy of the latest GTW message below the new
+   Phintraco starter using a durable promotion dedupe key.
 
-No source message is rewritten, copied to quoted history, deleted, or emitted
-again. If the matching setup arrives after 20 exchange sessions, or after the
-old episode resolved, it begins a fresh Phintraco episode. It does not
-backfill unrelated or stale social context.
+The fresh GTW handoff is board-only and does not replay the All Swing feed. No
+source message is rewritten, copied to quoted history, or deleted. If the
+matching setup arrives after 20 exchange sessions, or after the old episode
+resolved, it begins a fresh Phintraco episode and does not perform the GTW
+promotion handoff. It does not backfill unrelated or stale social context.
 
 ### Status and checkpoint updates
 
@@ -196,7 +199,7 @@ breaches its stop loss or reaches its final source-supplied target. The owner:
 
 - preserves the final Primary Plan card and chart;
 - changes lifecycle to `Resolved` while retaining the final factual market tag;
-- writes a quoted history entry only for that material transition; and
+- updates the managed card and tags without emitting a quoted history reply; and
 - stops all future source-status and price updates for that episode.
 
 No artificial reply, card edit, or tag churn is used to keep it visible.
@@ -254,29 +257,25 @@ The top card is always Yanto-authored. This is required because Discord allows
 a bot to edit its own message and manage its own uploaded attachment, but the
 bot must not treat source messages from other authors as editable records.
 
-### Normal source replies and quoted system history
+### Normal source replies and managed board history
 
 The complete Phintraco setup represented by the top card is not duplicated as
-a reply. Later distinct Phintraco source-status messages, and actual social
+a reply, except for the explicitly controlled latest-GTW handoff during
+promotion. Later distinct Phintraco source-status messages, and actual social
 source material, are delivered as normal thread replies that preserve their
-source content and link. Board-owned lifecycle history is visually distinct and
-uses blockquotes, for example:
+source content and link. Board-owned lifecycle history is represented by the
+updated managed card and tags; the owner does not emit quoted history replies.
 
-```md
-> 19 Sep 2026 16:30 WIB
-> Market checkpoint: TP1 reached at Rp...
-```
-
-The owner writes a quoted history reply only for a material transition:
+The owner updates the managed card for material transitions such as:
 
 - a new or replacement Primary Plan;
 - a changed Phintraco Source Status;
 - a changed factual Market Checkpoint; or
 - resolution.
 
-Each quoted history transition is split losslessly into ordered replies when
-needed to stay within Discord's 2,000 UTF-16-unit limit. Every chunk remains
-quoted and has its own durable outbox and Discord message identity.
+Source replies are split losslessly into ordered normal replies when needed to
+stay within Discord's 2,000 UTF-16-unit limit. Every chunk has its own durable
+outbox and Discord message identity.
 
 An unchanged daily check updates the top card's displayed `Last checked` time
 only. It creates no reply and therefore does not create artificial forum
@@ -404,8 +403,8 @@ Tests and live no-post checks must prove observable behavior:
 4. A valid same-day Yahoo close produces each threshold state, including target
    ladders beyond TP6. Missing, stale, holiday, and retry-failure data preserve
    prior state and produce no false transition.
-5. Only material transitions create quoted history. Unchanged checks only edit
-   the top card.
+5. Material transitions edit the managed card and tags without quoted history.
+   Unchanged checks only edit the top card.
 6. Tag resolution, lifecycle replacement, terminal resolution, and 7-day
    auto-archive behavior use only the reviewed forum configuration.
 7. Bootstrap dry-run identifies every candidate, skipped ambiguous item, and

@@ -27,8 +27,11 @@ delayed Yahoo data, and not mix cash-equity plans with SSF derivatives calls.
 - Phintraco Daily is the only Primary Plan source. A qualifying cash-equity
   social plan can create source-only context and is promoted in place if a
   complete Phintraco setup arrives within 20 exchange trading sessions.
-- The top card is always bot-managed. Social content is a normal source reply,
-  so promotion never rewrites, deletes, or duplicates the source item. A
+- The top card is always bot-managed. Social content is a normal source reply.
+  Promotion retains every original source reply. When the promoted episode was
+  GTW-only, the owner also posts exactly one fresh copy of the latest GTW
+  message below the new Phintraco starter, using a durable promotion dedupe
+  key. That handoff is board-only and does not replay the All feed. A
   source-only episode receives no market checkpoint.
 - A Primary Plan tracks Source Status separately from a factual after-close
   Market Checkpoint. Phintraco changes Source Status immediately. The
