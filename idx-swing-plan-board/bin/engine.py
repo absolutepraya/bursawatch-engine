@@ -16,6 +16,13 @@ from media_store import acquire_media
 from prices import classify_close, fetch_session_close, parse_plan_levels
 from render import WIB, render_primary_card, render_source_only_card, render_source_replies, primary_card_requires_source_reply
 from store import BoardStore, BoardStoreTransaction, StoreBlockedError
+from tags import (
+    PRIMARY_PLAN,
+    RESOLVED,
+    desired_lifecycle_tag,
+    merge_source_tier,
+    source_tier,
+)
 
 
 _ORDINALS = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6,
@@ -167,7 +174,7 @@ class BoardEngine:
                             or levels.targets[-1].is_reached_by(close))
                 updated = replace(current.episode, market_tag=state.value,
                                   lifecycle="resolved" if terminal else "primary",
-                                  lifecycle_tag="Resolved" if terminal else "Primary plan",
+                                  lifecycle_tag=RESOLVED if terminal else PRIMARY_PLAN,
                                   closed_at=instant if terminal else None)
                 tx.update_episode(updated)
                 self._enqueue_close_edit(tx, current, checkpoint, checkpoint, instant, f"{phase}-close")
@@ -179,17 +186,73 @@ class BoardEngine:
         result["pending"] = self.store.pending_outbox_count()
         return result
 
+    def schedule_tag_migration(self, now: datetime) -> dict[str, int]:
+        """Queue canonical lifecycle-tag patches for every existing episode."""
+        scheduled = 0
+        unchanged = 0
+        blocked = 0
+        for episode in self.store.episodes():
+            try:
+                desired = desired_lifecycle_tag(
+                    episode.lifecycle,
+                    episode.lifecycle_tag,
+                    self.store.episode_sources(episode.id),
+                )
+            except ValueError:
+                blocked += 1
+                continue
+            if desired == episode.lifecycle_tag:
+                unchanged += 1
+                continue
+            with self.store.transaction() as tx:
+                current = tx.episode(episode.id)
+                if current.lifecycle_tag == desired:
+                    unchanged += 1
+                    continue
+                updated = replace(current, lifecycle_tag=desired)
+                tx.update_episode(updated)
+                if current.thread_id and current.starter_message_id:
+                    tag_names = [desired]
+                    if current.market_tag and current.lifecycle in {"primary", "resolved"}:
+                        tag_names.append(current.market_tag)
+                    nonce = f"tag-migration:v1:{current.id}:{desired}"
+                    tx.enqueue_outbox(
+                        "patch_thread",
+                        current.id,
+                        {
+                            "name": current.title,
+                            "tag_names": tag_names,
+                            "archived": False,
+                            "nonce_value": nonce,
+                        },
+                        nonce,
+                        now,
+                    )
+            scheduled += 1
+        return {"scheduled": scheduled, "unchanged": unchanged, "blocked": blocked}
+
     def _social(self, tx, event, event_id, active, now):
         if active is None:
             active = tx.create_episode(event.ticker, "source", event.source_title, event.published_at)
-            active = replace(active, lifecycle_tag="Source plan")
+            active = replace(active, lifecycle_tag=source_tier(event.source))
             tx.update_episode(active)
             self._enqueue(tx, event, active, "create_thread", {
                 "name": active.title, "content": render_source_only_card(active.title, event.source_url),
-                "tag_names": ["Source plan"], "chart": None,
+                "tag_names": [active.lifecycle_tag], "chart": None,
             }, now)
         else:
-            tx.update_episode(replace(active, latest_material_at=max(active.latest_material_at, event.published_at)))
+            updated = replace(
+                active,
+                lifecycle_tag=(
+                    merge_source_tier(active.lifecycle_tag, source_tier(event.source))
+                    if active.lifecycle == "source" else active.lifecycle_tag
+                ),
+                latest_material_at=max(active.latest_material_at, event.published_at),
+            )
+            tx.update_episode(updated)
+            if updated.lifecycle_tag != active.lifecycle_tag:
+                self._patch(tx, event, updated, now)
+            active = updated
         self._source_reply(tx, event, active, now)
 
     def _buy(self, tx, event, event_id, active, now):
@@ -204,17 +267,17 @@ class BoardEngine:
         title = f"{event.ticker}: Buy"
         if active is None:
             active = tx.create_episode(event.ticker, "primary", title, event.published_at)
-            active = replace(active, lifecycle_tag="Primary plan")
+            active = replace(active, lifecycle_tag=PRIMARY_PLAN)
             tx.update_episode(active)
             tx.replace_plan(active.id, event_id, event, now)
             self._enqueue(tx, event, active, "create_thread", {
                 "name": title, "content": render_primary_card(event),
-                "tag_names": ["Primary plan"], "chart": event.media_path,
+                "tag_names": [PRIMARY_PLAN], "chart": event.media_path,
             }, now)
             if primary_card_requires_source_reply(event):
                 self._source_reply(tx, event, active, now)
             return
-        active = replace(active, lifecycle="primary", title=title, lifecycle_tag="Primary plan",
+        active = replace(active, lifecycle="primary", title=title, lifecycle_tag=PRIMARY_PLAN,
                          market_tag=None, latest_material_at=max(active.latest_material_at, event.published_at))
         tx.update_episode(active)
         tx.replace_plan(active.id, event_id, event, now)
@@ -240,7 +303,7 @@ class BoardEngine:
         active = replace(active, market_tag=state.value if state else active.market_tag,
                          latest_material_at=max(active.latest_material_at, event.published_at),
                          lifecycle="resolved" if terminal else "primary",
-                         lifecycle_tag="Resolved" if terminal else "Primary plan",
+                         lifecycle_tag=RESOLVED if terminal else PRIMARY_PLAN,
                          closed_at=now if terminal else None)
         tx.set_source_status(active.id, current, event.published_at)
         tx.update_episode(active)

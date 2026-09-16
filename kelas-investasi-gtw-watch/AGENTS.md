@@ -44,8 +44,8 @@ source-faithful, and no synthetic quoted status message is created.
 GTW is a qualifying non-Phintraco source-only event. It is delivered to the
 chronological `#id-stocks-swing` All feed (`1525102458253217803`) and then
 submitted to the Swing board owner. A GTW event may create or append to a
-`Source plan` episode, but it never creates a Primary Plan, changes Phintraco
-status or market tags, or starts price monitoring. If a complete Phintraco BUY
+`Supporting setup` episode, but it never creates a Primary Plan, changes
+Phintraco status or market tags, or starts price monitoring. If a complete Phintraco BUY
 arrives while that source episode is still open, the board owner promotes the
 episode in place, retains every original GTW reply, and posts exactly one fresh
 copy of the latest GTW message below the new Phintraco starter. That fresh copy

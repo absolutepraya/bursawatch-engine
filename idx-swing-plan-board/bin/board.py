@@ -61,6 +61,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         health = {"scheduled": scheduled, "drained": engine.drain(), **engine.store.outbox_health()}
         print(json.dumps(health, separators=(",", ":")))
         return int(health["pending"] > 0 or health["failed"] > 0)
+    if arguments.command == "migrate-tags":
+        if not arguments.apply:
+            print(json.dumps({
+                "apply_required": True,
+                "planned_episodes": len(engine.store.episodes()),
+            }, separators=(",", ":")))
+            return 0
+        result = engine.schedule_tag_migration(datetime.now(WIB))
+        engine.drain()
+        result["pending"] = engine.store.pending_outbox_count()
+        result["failed"] = engine.store.outbox_health()["failed"]
+        print(json.dumps(result, separators=(",", ":")))
+        return int(result["pending"] > 0 or result["failed"] > 0 or result["blocked"] > 0)
     try:
         result = engine.after_close(arguments.phase, datetime.now(WIB))
     except CalendarCoverageError:
@@ -97,6 +110,8 @@ def _parser() -> argparse.ArgumentParser:
     migrate.add_argument("--apply", action="store_true")
     cleanup = subcommands.add_parser("cleanup-history")
     cleanup.add_argument("--apply", action="store_true")
+    migrate_tags = subcommands.add_parser("migrate-tags")
+    migrate_tags.add_argument("--apply", action="store_true")
     after_close = subcommands.add_parser("after-close")
     after_close.add_argument("--phase", choices=("initial", "retry"), required=True)
     return parser

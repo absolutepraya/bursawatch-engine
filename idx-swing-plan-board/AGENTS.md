@@ -9,13 +9,16 @@ The board owner alone mutates its SQLite database, private media directory, foru
 The board is read-only and factual. It has no LLM, does not infer a plan or a price state, does not give trading advice, and does not place orders. Only a complete Phintraco Daily cash-equity BUY creates or replaces a Primary Plan. Only active cash-equity source events may reach the board.
 
 Kelas Investasi GTW is a qualifying source-only cash-Swing input. It may open
-or append to a `Source plan` episode, but it never becomes the Primary Plan and
-never changes Phintraco status or market tags. When a complete Phintraco BUY
-promotes an open GTW-only episode, the owner edits the top card, changes the
-lifecycle tag, retains all original GTW replies, and enqueues exactly one fresh
-copy of the latest GTW reply below the new primary card. The promotion copy is
-board-only, uses a durable dedupe key, and never replays the All Swing feed.
-An archived episode receives no later GTW event.
+or append to a `Supporting setup` episode, but it never becomes the Primary Plan
+and never changes Phintraco status or market tags. X and other social/chart
+sources use the weaker `Chart context` tier. A single source-only episode uses
+the strongest tier present, with `Supporting setup` above `Chart context`.
+When a complete Phintraco BUY promotes an open source-only episode, the owner
+edits the top card, changes the lifecycle tag to `Primary plan`, retains all
+original source replies, and enqueues exactly one fresh copy of the latest GTW
+reply below the new primary card. The promotion copy is board-only, uses a
+durable dedupe key, and never replays the All Swing feed. An archived episode
+receives no later source event.
 
 ## Commands and safety
 
@@ -31,7 +34,9 @@ Only scheduled `after-close --phase initial` at 16:30 WIB and `after-close --pha
 
 Set `IDX_SWING_PLAN_BOARD_NO_POST=1` with isolated `IDX_SWING_PLAN_BOARD_STATE_PATH` and `IDX_SWING_PLAN_BOARD_MEDIA_ROOT` paths for every smoke test. Never reset, hand-edit, initialize, replay, or bootstrap production state. Bootstrap is an externally visible backfill and requires a separately approved command.
 
-The one-time presentation migration is `migrate-format --apply`; it rewrites
+The one-time tag migration is `migrate-tags --apply`; it converts legacy
+`Source plan` episodes to their source-specific tier and rewrites existing
+forum tag applications. The one-time presentation migration is `migrate-format --apply`; it rewrites
 existing starter cards and completed source replies through the shared
 cash-Swing renderer while retaining current attachments. The Phintraco legacy
 rewriter also promotes source-footer analyst names, normalizes ticker-first
@@ -48,4 +53,4 @@ Run the focused suite from the repository root with the shared virtual environme
 ../../.venv/bin/python -m pytest -q idx-swing-plan-board/tests
 ```
 
-Deploy only a clean published commit after an approved VPS write, then compare changed checksums and use isolated no-post verification. Copy the generic wrapper plus both phase wrappers to the same Hermes scripts directory after approval. Neither scheduler registration is authorized by this source change. This task creates source only and does not deploy, schedule, bootstrap, or change production state.
+Deploy only a clean published commit after an approved VPS write, then compare changed checksums and use isolated no-post verification. Copy the generic wrapper plus both phase wrappers to the same Hermes scripts directory after approval. The two approved Hermes jobs are `idx-swing-plan-board-close` at 16:30 WIB and `idx-swing-plan-board-retry` at 17:00 WIB on weekdays. Never hand-edit the Hermes registry; use the supported CLI and verify the returned job records.

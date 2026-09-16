@@ -13,6 +13,7 @@ from engine import BoardEngine, source_outcome_state
 from models import Checkpoint, MarketState, PlanLevels, SourceEvent
 from render import discord_length, render_source_reply
 from store import BoardStore, StoreBlockedError
+from tags import CHART_CONTEXT, LEGACY_SOURCE_PLAN, SUPPORTING_SETUP
 
 
 def at(value="2026-09-19T09:05:00+07:00") -> datetime:
@@ -65,9 +66,9 @@ def test_social_event_creates_source_episode_and_normal_reply(engine):
     assert engine.submit(event, at()) == "board_submitted"
     episode = engine.store.active_episode("KPIG")
     assert (episode.lifecycle, episode.title) == ("source", event.source_title)
-    assert (episode.lifecycle_tag, episode.market_tag) == ("Source plan", None)
+    assert (episode.lifecycle_tag, episode.market_tag) == (CHART_CONTEXT, None)
     assert [op.operation for op in operations(engine)] == ["create_thread", "post_source_reply", "post_source_reply"]
-    assert operations(engine)[0].payload["tag_names"] == ["Source plan"]
+    assert operations(engine)[0].payload["tag_names"] == [CHART_CONTEXT]
     assert event.all_content in operations(engine)[1].payload["content"]
     assert operations(engine)[2].payload["media_url"] == event.media_urls[0]
 
@@ -99,6 +100,36 @@ def test_kelas_source_reply_chunks_are_durable_ordered_and_preserve_media(engine
     assert "".join(item.payload["content"] for item in replies) == render_source_reply(event)
     assert [item.payload["media"] for item in replies] == ["/tmp/raja-header.jpg", *([None] * (len(replies) - 1))]
     assert len({item.payload["nonce_value"] for item in replies}) == len(replies)
+
+
+def test_gtw_source_event_uses_supporting_setup_tag(engine):
+    engine.submit(gtw(), at())
+    episode = engine.store.active_episode("KPIG")
+    assert episode.lifecycle_tag == SUPPORTING_SETUP
+    assert operations(engine)[0].payload["tag_names"] == [SUPPORTING_SETUP]
+
+
+def test_gtw_is_stronger_than_existing_x_context(engine):
+    engine.submit(social(), at())
+    engine.submit(gtw(), at("2026-09-20T09:05:00+07:00"))
+    episode = engine.store.active_episode("KPIG")
+    assert episode.lifecycle_tag == SUPPORTING_SETUP
+    patches = [op for op in operations(engine) if op.operation == "patch_thread"]
+    assert patches[-1].payload["tag_names"] == [SUPPORTING_SETUP]
+
+
+def test_tag_migration_rewrites_legacy_source_tag_and_queues_patch(engine):
+    engine.submit(social(), at())
+    engine.drain(now=at())
+    legacy = replace(engine.store.active_episode("KPIG"), lifecycle_tag=LEGACY_SOURCE_PLAN)
+    with engine.store.transaction() as tx:
+        tx.update_episode(legacy)
+
+    result = engine.schedule_tag_migration(at("2026-09-20T09:00:00+07:00"))
+    assert result == {"scheduled": 1, "unchanged": 0, "blocked": 0}
+    assert engine.store.active_episode("KPIG").lifecycle_tag == CHART_CONTEXT
+    patch = [op for op in operations(engine) if op.operation == "patch_thread"][-1]
+    assert patch.payload["tag_names"] == [CHART_CONTEXT]
 
 
 def test_format_migration_rewrites_existing_starter_and_source_reply(engine):

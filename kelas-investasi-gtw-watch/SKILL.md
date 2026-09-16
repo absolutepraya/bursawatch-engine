@@ -37,8 +37,8 @@ grey marker, source timestamp, and source footer. All includes the Board link
 directly below `Last updated`, while board context omits that line. Do not
 create a separate quoted status message.
 
-GTW is source-only Swing context. The board may create or append a `Source
-plan` episode, but GTW never becomes the Primary Plan or changes Phintraco's
+GTW is source-only Swing context. The board may create or append a `Supporting
+setup` episode, but GTW never becomes the Primary Plan or changes Phintraco's
 status and market tags. When an open GTW-only episode is promoted by a complete
 Phintraco BUY, the board owner keeps the original GTW replies and posts exactly
 one fresh copy of the latest GTW message below the new Phintraco starter. The

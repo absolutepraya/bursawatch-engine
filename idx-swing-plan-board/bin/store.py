@@ -161,6 +161,12 @@ class BoardStore:
             ).fetchone()
             return _episode_from_row(row) if row else None
 
+    def episodes(self) -> list[Episode]:
+        """Return every board episode for an explicit presentation migration."""
+        with self._connection() as connection:
+            rows = connection.execute("SELECT * FROM episodes ORDER BY id").fetchall()
+            return [_episode_from_row(row) for row in rows]
+
     def episode(self, episode_id: int) -> Episode:
         with self._connection() as connection:
             return self._episode(connection, episode_id)
@@ -168,6 +174,11 @@ class BoardStore:
     def active_plan(self, episode_id: int) -> SourceEvent | None:
         with self._connection() as connection:
             return BoardStoreTransaction(self, connection).active_plan(episode_id)
+
+    def episode_sources(self, episode_id: int) -> set[str]:
+        """Return source names attached to an episode's durable source replies."""
+        with self._connection() as connection:
+            return BoardStoreTransaction(self, connection).episode_sources(episode_id)
 
     def active_primary_plans(self) -> list[ActivePrimaryPlan]:
         """Enumerate only plans that a close phase may factually update."""
@@ -603,6 +614,9 @@ class BoardStoreTransaction:
             self._connection, ticker, lifecycle, title, opened_at
         )
 
+    def episode(self, episode_id: int) -> Episode:
+        return self._store._episode(self._connection, episode_id)
+
     def submit_event(self, event: SourceEvent, received_at: datetime) -> SubmittedEvent:
         return self._store._submit_event(self._connection, event, _aware(received_at, "received_at"))
 
@@ -671,6 +685,30 @@ class BoardStoreTransaction:
             "SELECT * FROM episodes WHERE ticker = ? AND closed_at IS NULL", (ticker,)
         ).fetchone()
         return _episode_from_row(row) if row else None
+
+    def episode_sources(self, episode_id: int) -> set[str]:
+        """Resolve immutable source names through the board-owned reply intents."""
+        rows = self._connection.execute(
+            "SELECT dedupe_key FROM outbox "
+            "WHERE episode_id = ? AND operation = 'post_source_reply'",
+            (episode_id,),
+        ).fetchall()
+        sources: set[str] = set()
+        seen: set[str] = set()
+        for row in rows:
+            try:
+                event_key, _ = _source_event_key_from_dedupe(row["dedupe_key"])
+            except StoreBlockedError:
+                continue
+            if event_key in seen:
+                continue
+            seen.add(event_key)
+            event = self._connection.execute(
+                "SELECT source FROM source_events WHERE event_key = ?", (event_key,)
+            ).fetchone()
+            if event is not None:
+                sources.add(str(event["source"]))
+        return sources
 
     def update_episode(self, episode: Episode) -> None:
         self._connection.execute(
