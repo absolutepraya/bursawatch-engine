@@ -19,7 +19,7 @@ AGENT_LEASE = timedelta(minutes=15)
 DELIVERY_PHASE = "delivering"
 BOARD_PENDING = "pending"
 BOARD_UNAVAILABLE = "unavailable"
-STATE_VERSION = 2
+STATE_VERSION = 3
 
 
 class CorruptStateError(RuntimeError):
@@ -192,6 +192,7 @@ def _close_pending(value: dict[str, object]) -> None:
             "media": list(candidate["media"]),
             "title": None,
             "summary": None,
+            "text_message_ids": [],
             "agent_phase": "ready",
             "agent_lease_until": None,
             "text_index": 0,
@@ -299,7 +300,7 @@ def _is_pending(value: object, media_root: Path | None = None) -> bool:
 
 def _is_outbox(value: object, media_root: Path | None = None) -> bool:
     if not isinstance(value, dict) or set(value) != {
-        "event_key", "ticker", "header_message_id", "source_message_ids", "source_text", "source_published_at", "plan", "media", "title", "summary",
+        "event_key", "ticker", "header_message_id", "source_message_ids", "source_text", "source_published_at", "plan", "media", "title", "summary", "text_message_ids",
         "agent_phase", "agent_lease_until", "text_index", "next_media_index", "attempts", "next_attempt_at", "last_error",
         "board_phase", "board_attempts", "board_next_attempt_at", "board_last_error"
     }:
@@ -318,6 +319,7 @@ def _is_outbox(value: object, media_root: Path | None = None) -> bool:
         and _media_items(value["media"], value["source_message_ids"], media_root)
         and _optional_string(value["title"])
         and _optional_string(value["summary"])
+        and _discord_message_ids(value["text_message_ids"])
         and _valid_agent_lease(value["agent_phase"], value["agent_lease_until"])
         and _nonnegative_int(value["text_index"])
         and _nonnegative_int(value["next_media_index"])
@@ -330,7 +332,7 @@ def _is_outbox(value: object, media_root: Path | None = None) -> bool:
 
 
 def _migrate_state(value: object) -> dict[str, object]:
-    if not isinstance(value, dict) or value.get("version") != 1:
+    if not isinstance(value, dict) or value.get("version") not in {1, 2}:
         return value  # type: ignore[return-value]
     pending = value.get("pending")
     outbox = value.get("outbox")
@@ -346,6 +348,7 @@ def _migrate_state(value: object) -> dict[str, object]:
         # Preserve the cursor and All delivery but do not invent a source fact
         # for board submission.
         event.setdefault("source_published_at", None)
+        event.setdefault("text_message_ids", [])
         event.setdefault("board_phase", BOARD_UNAVAILABLE)
         event.setdefault("board_attempts", 0)
         event.setdefault("board_next_attempt_at", None)
@@ -422,6 +425,12 @@ def _message_ids(value: object, header_id: object) -> bool:
         and all(_positive_int(item) for item in value)
         and value[0] == header_id
         and value == sorted(set(value))
+    )
+
+
+def _discord_message_ids(value: object) -> bool:
+    return isinstance(value, list) and all(
+        isinstance(item, str) and item.isdigit() and int(item) > 0 for item in value
     )
 
 

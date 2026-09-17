@@ -164,6 +164,28 @@ class BoardStore:
             ).fetchone()
             return _episode_from_row(row) if row else None
 
+    def episode_for_event(self, event_key: str) -> Episode | None:
+        """Resolve one immutable source event to its board-owned episode."""
+        if not isinstance(event_key, str) or not event_key:
+            raise ValueError("event_key must be non-empty")
+        prefix = f"event:{event_key}:"
+        with self._connection() as connection:
+            row = connection.execute(
+                """SELECT e.* FROM episodes e
+                LEFT JOIN source_events starter
+                  ON starter.id = e.starter_source_event_id
+                 AND starter.event_key = ?
+                WHERE starter.id IS NOT NULL
+                   OR EXISTS (
+                       SELECT 1 FROM outbox o
+                       WHERE o.episode_id = e.id
+                         AND (o.dedupe_key = ? OR o.dedupe_key LIKE ?)
+                   )
+                ORDER BY e.id DESC LIMIT 1""",
+                (event_key, prefix.rstrip(":"), f"{prefix}%"),
+            ).fetchone()
+            return _episode_from_row(row) if row else None
+
     def episodes(self) -> list[Episode]:
         """Return every board episode for an explicit presentation migration."""
         with self._connection() as connection:

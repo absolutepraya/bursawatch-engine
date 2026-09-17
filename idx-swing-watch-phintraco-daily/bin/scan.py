@@ -25,7 +25,12 @@ if not _SHARED_FORMAT_BIN.exists():
 if str(_SHARED_FORMAT_BIN) not in sys.path:
     sys.path.insert(0, str(_SHARED_FORMAT_BIN))
 
-from swing_format import SwingMessage, fields as shared_fields, render_message
+from swing_format import (
+    SwingMessage,
+    fields as shared_fields,
+    render_message,
+    replace_board_topic_link,
+)
 
 from telegram_resilience import (
     PolyCopResilience,
@@ -1241,6 +1246,40 @@ def post_discord_text(content: str, channel_id: str, dry_run: bool, event_key: s
     return str(response.json()["id"])
 
 
+def edit_discord_board_link(message_id: str | None, board_url: str | None, dry_run: bool, event_key: str) -> bool:
+    """Replace the generic forum-channel marker in one delivered All message."""
+    if not message_id or not board_url:
+        return True
+    if dry_run or os.environ.get("IDX_SWING_WATCH_PHINTRACO_DAILY_NO_POST") == "1":
+        print(f"[dry-run] Discord board link {ALERT_CHANNEL_ID}/{message_id} -> {board_url} event {event_key}")
+        return True
+    token = _discord_token()
+    if not token:
+        return False
+    headers = {"Authorization": f"Bot {token}", "Content-Type": "application/json"}
+    response = _discord_request(
+        "GET", f"{DISCORD_API}/channels/{ALERT_CHANNEL_ID}/messages/{message_id}", headers=headers
+    )
+    if response is None or response.status_code != 200:
+        return False
+    try:
+        current = response.json().get("content")
+    except (AttributeError, TypeError, ValueError):
+        return False
+    if not isinstance(current, str):
+        return False
+    updated = replace_board_topic_link(current, board_url)
+    if updated == current:
+        return True
+    response = _discord_request(
+        "PATCH",
+        f"{DISCORD_API}/channels/{ALERT_CHANNEL_ID}/messages/{message_id}",
+        headers=headers,
+        json={"content": updated, "allowed_mentions": {"parse": []}},
+    )
+    return response is not None and response.status_code == 200
+
+
 def post_discord_file(path: str, channel_id: str, dry_run: bool, event_key: str) -> str | None:
     file_path = Path(path)
     try:
@@ -1346,8 +1385,23 @@ def submit_board_event(payload: dict, chart: Path | None, dry_run: bool) -> bool
         return False
     try:
         acknowledgement = json.loads(completed.stdout.strip())
-        return (type(acknowledgement) is dict and set(acknowledgement) == {"accepted"}
-                and acknowledgement["accepted"] is True)
+        if (type(acknowledgement) is not dict
+                or set(acknowledgement) not in ({"accepted"}, {"accepted", "board_url"}, {"accepted", "board_url", "board_pending"})
+                or type(acknowledgement.get("accepted")) is not bool
+                or acknowledgement["accepted"] is not True):
+            return False
+        board_url = acknowledgement.get("board_url")
+        if board_url is not None and (type(board_url) is not str or not board_url):
+            return False
+        board_pending = acknowledgement.get("board_pending", False)
+        if type(board_pending) is not bool:
+            return False
+        # Keep the public helper's boolean contract for existing adapters and
+        # tests, while handing the deep link to the caller without adding it
+        # to the event sent to the owner.
+        payload["_board_url"] = board_url
+        payload["_board_pending"] = board_pending
+        return True
     except (TypeError, ValueError):
         return False
 
@@ -1506,6 +1560,16 @@ def _drain_board_outbox(state: dict, now: dt.datetime, dry_run: bool) -> int:
                 return delivered
             if not accepted:
                 schedule_board_retry(event, current_time(), "board source event was not accepted")
+                save_state(state)
+                return delivered
+            if payload.get("_board_pending"):
+                schedule_board_retry(event, current_time(), "board topic is not materialized yet")
+                save_state(state)
+                return delivered
+            if not edit_discord_board_link(
+                event.get("text_discord_id"), payload.get("_board_url"), dry_run, event["event_key"]
+            ):
+                schedule_board_retry(event, current_time(), "All Swing board link update failed")
                 save_state(state)
                 return delivered
             event["board_submitted"] = True

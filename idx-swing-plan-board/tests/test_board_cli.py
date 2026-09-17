@@ -121,6 +121,30 @@ def test_cli_durable_acceptance_owns_media_even_when_delivery_fails(tmp_path, mo
     assert store.operations_for_ticker("SCMA")[0].status == "pending"
 
 
+def test_cli_acknowledgement_includes_the_materialized_topic_url(tmp_path, monkeypatch, capsys):
+    state = tmp_path / "owner.sqlite3"
+    monkeypatch.setenv("IDX_SWING_PLAN_BOARD_STATE_PATH", str(state))
+    monkeypatch.setenv("IDX_SWING_PLAN_BOARD_MEDIA_ROOT", str(tmp_path / "media"))
+    monkeypatch.setattr(
+        DiscordForumClient,
+        "execute",
+        lambda _self, operation, _payload: (
+            {"thread_id": "1549000000000000000", "starter_message_id": "1549000000000000001"}
+            if operation == "create_thread" else {"message_id": "1549000000000000002"}
+        ),
+    )
+    event = asdict(example_buy_event())
+    event["published_at"] = event["published_at"].isoformat()
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(event)))
+
+    assert board.main(["submit-source-event", "--stdin"]) == 0
+
+    assert json.loads(capsys.readouterr().out) == {
+        "accepted": True,
+        "board_url": "https://discord.com/channels/940285152335110204/1549000000000000000",
+    }
+
+
 def test_no_post_cli_prints_one_heartbeat_without_http(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("IDX_SWING_PLAN_BOARD_NO_POST", "1")
     monkeypatch.setenv("IDX_SWING_PLAN_BOARD_STATE_PATH", str(tmp_path / "isolated.sqlite3"))

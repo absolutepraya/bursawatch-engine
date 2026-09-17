@@ -19,6 +19,35 @@ RED_EMOJI = "<:red:1531274756853202974>"
 HOLD_EMOJI = "<:hold:1531284248235868333>"
 MAX_DISCORD_CHARACTERS = 2_000
 
+
+def board_topic_link(board_url: str) -> str:
+    """Render a board topic URL as a clickable Discord link."""
+    value = str(board_url).strip()
+    if not value.startswith("https://discord.com/channels/"):
+        raise ValueError("board_url must be a Discord channel or topic URL")
+    return value
+
+
+def replace_board_topic_link(content: str, board_url: str) -> str:
+    """Replace only the legacy generic board link in an All Swing message.
+
+    This is intentionally idempotent and narrow: an already-deep-linked
+    message, or unrelated source text containing a Discord URL, is untouched.
+    """
+    replacement = f"**Board:** {board_topic_link(board_url)}"
+    legacy_lines = {
+        f"**Board:** {BOARD_MENTION}",
+        f"**Board:** {BOARD_URL}",
+        f"**Board:** <{BOARD_URL}>",
+    }
+    lines = str(content).split("\n")
+    changed = False
+    for index, line in enumerate(lines):
+        if line.strip() in legacy_lines:
+            lines[index] = replacement
+            changed = True
+    return "\n".join(lines) if changed else str(content)
+
 _MARKDOWN = re.compile(r"([\\*_~`|\[\]])")
 _CUSTOM_EMOJI = re.compile(r"<:[A-Za-z0-9_]+:\d+>")
 _FIELD = re.compile(r"^\*\*(?P<label>[^*]+):\*\*\s*(?P<value>.*)$")

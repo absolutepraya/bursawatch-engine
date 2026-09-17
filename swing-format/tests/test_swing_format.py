@@ -12,6 +12,7 @@ from swing_format import (
     SwingMessage,
     fields,
     render_message,
+    replace_board_topic_link,
     source_status_emoji,
 )
 from bri_adapter import build_message
@@ -50,6 +51,17 @@ def test_board_copy_omits_board_link_and_preserves_spacing() -> None:
     assert "**Board:**" not in rendered
     assert "\n\n**Source status:**" in rendered
     assert "Support <:up:2>" in rendered
+
+
+def test_board_topic_link_replaces_only_the_legacy_channel_marker() -> None:
+    content = "Header\n\n**Board:** " + BOARD_MENTION + "\n\n[View on X](<https://x.com/example>)"
+    topic = "https://discord.com/channels/940285152335110204/1549000000000000000"
+
+    updated = replace_board_topic_link(content, topic)
+
+    assert f"**Board:** {topic}" in updated
+    assert BOARD_MENTION not in updated
+    assert replace_board_topic_link(updated, topic) == updated
 
 
 def test_legacy_phintraco_buy_is_rewritten_with_analyst_and_canonical_dates() -> None:

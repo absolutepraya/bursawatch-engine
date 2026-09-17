@@ -15,7 +15,7 @@ import tempfile
 from typing import Sequence
 
 from calendar import CalendarCoverageError
-from discord_forum import DiscordForumClient
+from discord_forum import DiscordForumClient, forum_thread_url
 from engine import BoardEngine
 from models import SourceEvent
 from render import WIB
@@ -142,7 +142,14 @@ def _submit_source_event(engine: BoardEngine) -> int:
     # outbox intent together before the acknowledgement is written.
     engine.submit(event, datetime.now(WIB))
     engine.drain()
-    print(json.dumps({"accepted": True}, separators=(",", ":")))
+    episode = engine.store.episode_for_event(event.event_key)
+    board_url = None
+    if episode is not None and episode.thread_id and not engine.client.no_post:
+        board_url = forum_thread_url(episode.thread_id)
+    acknowledgement = {"accepted": True, "board_url": board_url}
+    if episode is not None and not episode.thread_id:
+        acknowledgement["board_pending"] = True
+    print(json.dumps(acknowledgement, separators=(",", ":")))
     return 0
 
 

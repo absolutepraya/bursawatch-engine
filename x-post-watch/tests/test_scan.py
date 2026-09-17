@@ -276,6 +276,7 @@ def test_permanent_missing_media_is_skipped_and_board_handoff_continues(tmp_path
     [
         ('{"accepted":true}', True),
         ('{"accepted":1}', False),
+        ('{"accepted":true,"board_url":"https://discord.com/channels/940285152335110204/123"}', True),
         ('{"accepted":true,"extra":false}', False),
         ('{"accepted":false}', False),
         ("not-json", False),

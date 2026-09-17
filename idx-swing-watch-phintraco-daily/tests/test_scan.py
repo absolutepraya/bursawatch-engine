@@ -1156,6 +1156,7 @@ def test_reminder_board_payload_preserves_explicit_outcomes(tmp_state):
     [
         ('{"accepted":true}', True),
         ('{"accepted":1}', False),
+        ('{"accepted":true,"board_url":"https://discord.com/channels/940285152335110204/123"}', True),
         ('{"accepted":true,"extra":false}', False),
         ('{"accepted":false}', False),
         ("not-json", False),

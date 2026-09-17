@@ -4,8 +4,17 @@ import hashlib
 import mimetypes
 import os
 from pathlib import Path
+import sys
 
 import requests
+
+_SHARED_FORMAT_BIN = Path(__file__).resolve().parents[2] / "swing-format" / "bin"
+if not _SHARED_FORMAT_BIN.exists():
+    _SHARED_FORMAT_BIN = Path.home() / ".agents" / "skills" / "swing-format" / "bin"
+if str(_SHARED_FORMAT_BIN) not in sys.path:
+    sys.path.insert(0, str(_SHARED_FORMAT_BIN))
+
+from swing_format import replace_board_topic_link
 
 
 API = "https://discord.com/api/v10"
@@ -49,6 +58,50 @@ def post_text(content: str, channel_id: str, dry_run: bool, nonce_value: str) ->
         print(f"[dry-run] Discord text {channel_id}: {content}")
         return "dry-run"
     return _request(channel_id, json={"content": content, "nonce": nonce_value}, nonce_value=nonce_value)
+
+
+def edit_board_links(channel_id: str, message_ids: object, board_url: object, dry_run: bool) -> bool:
+    """Patch delivered All Swing text messages to the exact forum topic."""
+    if not isinstance(board_url, str) or not board_url:
+        return True
+    if not isinstance(message_ids, list):
+        return False
+    if dry_run:
+        print(f"[dry-run] Discord board links {channel_id} -> {board_url}")
+        return True
+    headers = {"Authorization": f"Bot {_token()}", "Content-Type": "application/json"}
+    for message_id in message_ids:
+        if not isinstance(message_id, str) or not message_id:
+            return False
+        try:
+            response = requests.get(
+                f"{API}/channels/{channel_id}/messages/{message_id}",
+                headers=headers,
+                timeout=30,
+            )
+            if response.status_code == 429:
+                raise DiscordRetryAfter(float(response.json().get("retry_after", 1)))
+            if response.status_code != 200:
+                return False
+            current = response.json().get("content")
+            if not isinstance(current, str):
+                return False
+            updated = replace_board_topic_link(current, board_url)
+            if updated == current:
+                continue
+            response = requests.patch(
+                f"{API}/channels/{channel_id}/messages/{message_id}",
+                headers=headers,
+                json={"content": updated, "allowed_mentions": {"parse": []}},
+                timeout=30,
+            )
+            if response.status_code == 429:
+                raise DiscordRetryAfter(float(response.json().get("retry_after", 1)))
+            if response.status_code != 200:
+                return False
+        except requests.RequestException:
+            return False
+    return True
 
 
 def post_media(url: str, channel_id: str, dry_run: bool, nonce_value: str, directory: Path) -> str | None:

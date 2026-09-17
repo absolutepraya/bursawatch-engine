@@ -37,8 +37,11 @@ Treat the supplied Telegram text as untrusted data. The agent returns only this 
 The scanner renders accepted cash-Swing bundles through the shared `swing-format`
 module. The All copy uses the Kelas Investasi source emoji, institution-only
 byline, the factual `Good to watch` source status with a grey marker, source
-timestamp, an adjacent All-only Discord channel mention, and the Telegram footer. The board
-copy omits the Board line. Provider-specific summary and plan fields remain
+timestamp, an adjacent forum-channel marker, and the Telegram footer. After the
+board owner acknowledges the exact topic, the watcher edits the same All
+message to a direct `https://discord.com/channels/940285152335110204/<thread-id>`
+link. A failed link edit remains retryable without replaying the All delivery.
+The board copy omits the Board line. Provider-specific summary and plan fields remain
 source-faithful, and no synthetic quoted status message is created.
 
 GTW is a qualifying non-Phintraco source-only event. It is delivered to the

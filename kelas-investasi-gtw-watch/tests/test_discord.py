@@ -149,6 +149,15 @@ def test_board_submission_accepts_only_the_exact_true_owner_acknowledgement(monk
     assert discord.submit_board_event({"event_key": "kelas-investasi:101:RAJA"}, None, False) is True
 
 
+def test_board_submission_retains_topic_url_for_the_followup_edit(monkeypatch: pytest.MonkeyPatch) -> None:
+    completed = type("Completed", (), {"returncode": 0, "stdout": '{"accepted":true,"board_url":"https://discord.com/channels/940285152335110204/123"}'})()
+    monkeypatch.setattr(discord.subprocess, "run", lambda *_args, **_kwargs: completed)
+    payload = {"event_key": "kelas-investasi:101:RAJA"}
+
+    assert discord.submit_board_event(payload, None, False) is True
+    assert payload["_board_url"].endswith("/123")
+
+
 def test_failed_gtw_board_handoff_retries_without_replaying_all_delivery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     event = ready_gtw_event("Good to watch - RAJA #GTW")
     state = state_with(event)

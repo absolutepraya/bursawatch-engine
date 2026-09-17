@@ -189,7 +189,7 @@ def test_version_one_state_migrates_without_resetting_cursor(tmp_path: Path) -> 
 
     migrated = load_state(path)
 
-    assert migrated["version"] == 2
+    assert migrated["version"] == 3
     assert migrated["cursor"] == 102
     event = migrated["outbox"][0]
     assert event["source_published_at"] is None
@@ -197,6 +197,7 @@ def test_version_one_state_migrates_without_resetting_cursor(tmp_path: Path) -> 
     assert event["board_attempts"] == 0
     assert event["board_next_attempt_at"] is None
     assert event["board_last_error"] is None
+    assert event["text_message_ids"] == []
 
 
 @pytest.mark.parametrize("close_by_header", [False, True])

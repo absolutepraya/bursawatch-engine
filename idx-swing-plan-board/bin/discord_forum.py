@@ -34,10 +34,19 @@ import requests
 
 
 DISCORD_API = "https://discord.com/api/v10"
+DISCORD_GUILD_ID = "940285152335110204"
 FORUM_CHANNEL_ID = "1548273399069933720"
 DISCORD_TIMEOUT_SECONDS = 30
 _RETRY_FALLBACK_SECONDS = 60.0
 _RETRY_CAP_SECONDS = 15 * 60.0
+
+
+def forum_thread_url(thread_id: str) -> str:
+    """Return the stable deep link for one forum topic."""
+    value = _identifier(thread_id)
+    if value is None:
+        raise ValueError("thread_id must be a Discord identifier")
+    return f"https://discord.com/channels/{DISCORD_GUILD_ID}/{value}"
 
 
 class DiscordForumError(RuntimeError):

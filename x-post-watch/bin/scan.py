@@ -327,12 +327,22 @@ def submit_board_event(payload: dict[str, object], dry_run: bool) -> bool:
         acknowledgement = json.loads(completed.stdout.strip())
     except (TypeError, ValueError):
         return False
-    return (
-        isinstance(acknowledgement, dict)
-        and set(acknowledgement) == {"accepted"}
-        and type(acknowledgement["accepted"]) is bool
-        and acknowledgement["accepted"] is True
-    )
+    if (
+        not isinstance(acknowledgement, dict)
+        or set(acknowledgement) not in ({"accepted"}, {"accepted", "board_url"}, {"accepted", "board_url", "board_pending"})
+        or type(acknowledgement.get("accepted")) is not bool
+        or acknowledgement["accepted"] is not True
+    ):
+        return False
+    board_url = acknowledgement.get("board_url")
+    if board_url is not None and (type(board_url) is not str or not board_url):
+        return False
+    board_pending = acknowledgement.get("board_pending", False)
+    if type(board_pending) is not bool:
+        return False
+    payload["_board_url"] = board_url
+    payload["_board_pending"] = board_pending
+    return True
 
 
 def _record_board_failure(event: dict, now: datetime) -> None:
@@ -545,6 +555,22 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
         stats.degraded = True
         stats.needs_attention = True
         stats.reasons.append(event["board_last_error"])
+        state.save_state(storage, value)
+        return False
+    if payload.get("_board_pending"):
+        _record_board_failure(event, delivered_at)
+        stats.degraded = True
+        stats.needs_attention = True
+        stats.reasons.append("board topic is not materialized yet")
+        state.save_state(storage, value)
+        return False
+    if not discord.edit_board_links(
+        channel_id, event.get("text_message_ids", []), payload.get("_board_url"), dry_run
+    ):
+        _record_board_failure(event, delivered_at)
+        stats.degraded = True
+        stats.needs_attention = True
+        stats.reasons.append("All Swing board link update failed")
         state.save_state(storage, value)
         return False
     _clear_board_failure(event)

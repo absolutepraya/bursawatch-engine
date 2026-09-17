@@ -99,15 +99,16 @@ The text delivery uses the shared cash-Swing renderer:
 
 **Source status:** Good to watch <:grey:1531279158913536182>
 **Last updated:** 19 Sep 2026 06:50 WIB
-**Board:** <#1548273399069933720>
+**Board:** https://discord.com/channels/940285152335110204/<thread-id>
 
 [View on Telegram](<https://t.me/kelasinvestasiid/<header-message-id>>)
 ```
 
 The renderer uses the provided Kelas Investasi and status emoji markup, the
 factual neutral `Good to watch` source status, and the All-only Board link. The
-board copy omits the Board line. It does not use a generic alert emoji or a
-middle-dot separator.
+All message starts with the forum marker and is edited to the direct topic URL
+after the board owner materializes the topic. The board copy omits the Board
+line. It does not use a generic alert emoji or a middle-dot separator.
 
 The plan block always has all three rows. Any unavailable source field renders as `-`, for example `- Target: -`.
 

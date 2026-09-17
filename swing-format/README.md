@@ -18,8 +18,9 @@ Deploy it before the watcher files that import it:
 ```
 
 The renderer owns heading, byline fallback, spacing, source-status emoji,
-source timestamp, the All-only Discord channel mention, and source footer grammar. Provider
-adapters retain their own source fields and summaries.
+source timestamp, the temporary All-only Discord forum marker, direct-topic
+link replacement, and source footer grammar. Provider adapters retain their own
+source fields and summaries.
 
 `canonicalize_phintraco_message()` is the bounded legacy migration path for
 already-published Phintraco BUY, HOLD, and REMINDER text. It preserves source

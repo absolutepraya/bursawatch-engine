@@ -7,11 +7,19 @@ import math
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
+import sys
 from typing import Any, Callable, Mapping
 
 import requests
 
+_SHARED_FORMAT_BIN = Path(__file__).resolve().parents[2] / "swing-format" / "bin"
+if not _SHARED_FORMAT_BIN.exists():
+    _SHARED_FORMAT_BIN = Path.home() / ".agents" / "skills" / "swing-format" / "bin"
+if str(_SHARED_FORMAT_BIN) not in sys.path:
+    sys.path.insert(0, str(_SHARED_FORMAT_BIN))
+
 from render import GTW_SOURCE_STATUS, MAX_DISCORD_CHARACTERS, render_event
+from swing_format import replace_board_topic_link
 
 
 DISCORD_API = "https://discord.com/api/v10"
@@ -114,7 +122,9 @@ def deliver_oldest_ready_event(
     try:
         if int(event["text_index"]) < len(chunks):
             index = int(event["text_index"])
-            post_text(chunks[index], DISCORD_CHANNEL_ID, False, nonce(str(event["event_key"]), f"text:{index}"))
+            message_id = post_text(chunks[index], DISCORD_CHANNEL_ID, False, nonce(str(event["event_key"]), f"text:{index}"))
+            if message_id:
+                event.setdefault("text_message_ids", []).append(message_id)
             event["text_index"] = index + 1
         elif int(event["next_media_index"]) < len(_media(event)):
             index = int(event["next_media_index"])
@@ -200,12 +210,70 @@ def submit_board_event(payload: Mapping[str, object], media: Path | None, dry_ru
         acknowledgement = json.loads(completed.stdout.strip())
     except (TypeError, ValueError):
         return False
-    return (
-        isinstance(acknowledgement, dict)
-        and set(acknowledgement) == {"accepted"}
-        and type(acknowledgement["accepted"]) is bool
-        and acknowledgement["accepted"] is True
-    )
+    if (
+        not isinstance(acknowledgement, dict)
+        or set(acknowledgement) not in ({"accepted"}, {"accepted", "board_url"}, {"accepted", "board_url", "board_pending"})
+        or type(acknowledgement.get("accepted")) is not bool
+        or acknowledgement["accepted"] is not True
+    ):
+        return False
+    board_url = acknowledgement.get("board_url")
+    if board_url is not None and (type(board_url) is not str or not board_url):
+        return False
+    board_pending = acknowledgement.get("board_pending", False)
+    if type(board_pending) is not bool:
+        return False
+    if isinstance(payload, dict):
+        payload["_board_url"] = board_url
+        payload["_board_pending"] = board_pending
+    return True
+
+
+def edit_board_links(message_ids: object, board_url: object, dry_run: bool, event_key: str) -> bool:
+    """Patch every delivered GTW text chunk that still has the legacy link."""
+    if not isinstance(board_url, str) or not board_url:
+        return True
+    if not isinstance(message_ids, list):
+        return False
+    if dry_run:
+        print(f"would patch board links event={event_key} url={board_url}")
+        return True
+    token = os.environ.get("DISCORD_BOT_TOKEN")
+    if not token:
+        return False
+    headers = {"Authorization": f"Bot {token}", "Content-Type": "application/json"}
+    for message_id in message_ids:
+        if not isinstance(message_id, str) or not message_id:
+            return False
+        try:
+            response = requests.get(
+                f"{DISCORD_API}/channels/{DISCORD_CHANNEL_ID}/messages/{message_id}",
+                headers=headers,
+                timeout=DISCORD_TIMEOUT_SECONDS,
+            )
+            if response.status_code == 429:
+                raise DiscordRateLimitError(_retry_after(response))
+            if response.status_code != 200:
+                return False
+            current = response.json().get("content")
+            if not isinstance(current, str):
+                return False
+            updated = replace_board_topic_link(current, board_url)
+            if updated == current:
+                continue
+            response = requests.patch(
+                f"{DISCORD_API}/channels/{DISCORD_CHANNEL_ID}/messages/{message_id}",
+                headers=headers,
+                json={"content": updated, "allowed_mentions": {"parse": []}},
+                timeout=DISCORD_TIMEOUT_SECONDS,
+            )
+            if response.status_code == 429:
+                raise DiscordRateLimitError(_retry_after(response))
+            if response.status_code != 200:
+                return False
+        except requests.RequestException:
+            return False
+    return True
 
 
 def _post(channel_id: str, **kwargs: Any) -> requests.Response:
@@ -347,6 +415,12 @@ def _submit_board_context(
         if payload is None:
             raise ValueError("board source time is invalid")
         accepted = submit_board_event(payload, media, dry_run)
+        if accepted and payload.get("_board_pending"):
+            accepted = False
+        if accepted and not edit_board_links(
+            event.get("text_message_ids", []), payload.get("_board_url"), dry_run, str(event["event_key"])
+        ):
+            accepted = False
     except Exception:
         accepted = False
     if not accepted:

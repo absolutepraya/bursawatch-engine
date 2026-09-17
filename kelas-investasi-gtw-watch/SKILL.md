@@ -33,8 +33,11 @@ After the scanner completes All delivery, it may submit the accepted GTW bundle 
 The scanner's rendered cash-Swing message uses the shared `swing-format`
 contract. Keep the source title, summary, and plan values intact; the renderer
 adds the institution byline, the factual `Good to watch` source status with a
-grey marker, source timestamp, and source footer. All includes the Board channel mention
-directly below `Last updated`, while board context omits that line. Do not
+grey marker, source timestamp, and source footer. All includes a temporary
+forum-channel marker directly below `Last updated`; after the board owner
+acknowledges the topic, the scanner edits it to a direct topic URL. Board
+context omits that line. A failed link edit is retried without replaying All.
+Do not
 create a separate quoted status message.
 
 GTW is source-only Swing context. The board may create or append a `Supporting
