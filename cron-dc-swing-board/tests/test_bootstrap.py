@@ -414,7 +414,21 @@ def test_reviewed_generic_link_manifest_preserves_all_target_messages() -> None:
 
     entries = bootstrap.load_manifest(path)
 
-    assert len(entries) == 14
+    assert [entry.source_message_id for entry in entries] == [
+        34460,
+        35095,
+        35101,
+        34499,
+        35105,
+        35134,
+        35138,
+        34800,
+        35140,
+        35149,
+        35172,
+        35197,
+    ]
+    assert entries[-1].board_kind == "social"
     assert [entry.target_all_message_id for entry in entries if entry.target_all_message_id] == [
         "1547070401920761879",
         "1547105477492482079",

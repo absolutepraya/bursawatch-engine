@@ -1,7 +1,7 @@
 # Swing Board generic-link backfill manifest
 
-Status: prepared for review. No bootstrap, Board write, or Discord message edit
-has occurred from this manifest.
+Status: read-only validation revised on 17 September 2026. No Board write or
+Discord message edit has occurred from this manifest.
 
 ## Scope and invariant
 
@@ -22,17 +22,24 @@ source events even though they land in the same ticker topic.
 | `1547105477492482079` COIN | Phintraco `35101` status | None. A complete original BUY is not present in the reviewed source chain. | `COIN`, Chart context | Replace only the generic Board URL with COIN's direct topic URL. |
 | `1547136473281597450` NCKL | Phintraco `35105` final reminder | `34499` complete BUY | `NCKL`, Resolved | Replace only the generic Board URL with NCKL's direct topic URL. |
 | `1547429179119640580` CUAN | Phintraco `35134` final reminder | None. Its individual original BUY is unavailable, and the prior multi-ticker idea is not a valid single-ticker plan. | `CUAN`, Chart context | Replace only the generic Board URL with CUAN's direct topic URL. |
-| `1547432971814830130` PTRO | Phintraco `35138` reminder | `34928` status that refers to a prior multi-ticker idea, retained as source-only context | `PTRO`, Chart context | Replace only the generic Board URL with PTRO's direct topic URL. |
+| `1547432971814830130` PTRO | Phintraco `35138` reminder | None. Precursor `34928` refers to a multi-ticker weekly idea and cannot be parsed safely as a PTRO-only event. | `PTRO`, Chart context | Replace only the generic Board URL with PTRO's direct topic URL. |
 | `1547445575270531232` UNTR | Phintraco `35140` final reminder | `34800` complete BUY | `UNTR`, Resolved | Replace only the generic Board URL with UNTR's direct topic URL. |
 | `1547508884439306340` DSSA | Phintraco `35149` status | None | `DSSA`, Chart context | Replace only the generic Board URL with DSSA's direct topic URL. |
 | `1547804915806511197` DSSA | Phintraco `35172` reply-status | `35149` is also submitted as a distinct source-only event | Existing `DSSA` topic, Chart context | Replace only the generic Board URL with that same DSSA direct topic URL. |
-| `1548881848602460171` AMMN | Phintraco `35197` final reminder | `34908` complete BUY | `AMMN`, Resolved | Replace only the generic Board URL with AMMN's direct topic URL. |
+| `1548881848602460171` AMMN | Phintraco `35197` final reminder | None. Precursor `34908` is `Hold/Trading Buy`, a source shape outside the live BUY parser. | `AMMN`, Chart context | Replace only the generic Board URL with AMMN's direct topic URL. |
 | `1549133440140451891` FUTR | Kelas Investasi `10632` GTW | None | `FUTR`, Supporting setup | Replace only the generic Board URL with FUTR's direct topic URL. |
 
-The six complete Phintraco BUY seeds are Board prerequisites rather than All
+The three complete Phintraco BUY seeds are Board prerequisites rather than All
 message edits. They must not emit an All Swing resend. A source-only status or
 reminder is intentionally submitted as `social`, so it remains Chart context
 and never fabricates a Primary Plan or price checkpoints.
+
+The first read-only validation found `34928` present but unparseable because
+its parent is a multi-ticker weekly idea, and `34908` present but unparseable
+because its `Hold/Trading Buy` header is outside the live BUY grammar. Neither
+is an All Swing message to edit. The resulting PTRO and AMMN source events are
+therefore bounded as source-only context, rather than extending the live
+parser or inventing a historical Primary Plan.
 
 ## Ordered execution, after separate production approval
 
@@ -42,7 +49,7 @@ and never fabricates a Primary Plan or price checkpoints.
    and stop if an existing topic conflicts with the reviewed source identity.
 3. Copy the reviewed Phintraco JSON manifest to a protected temporary VPS
    path, then run its manifest dry-run with a 30-session window. Its report
-   must contain all fourteen listed source events and preserve both DSSA IDs.
+   must contain all twelve listed source events and preserve both DSSA IDs.
 4. Apply the Phintraco manifest only when that report matches this document.
    The owner creates only missing topics and normal Board replies. It does not
    post to All Swing.
