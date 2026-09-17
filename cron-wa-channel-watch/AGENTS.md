@@ -111,8 +111,8 @@ report the failure instead of treating the Channel JID alone as subscribed.
 - Every scheduled watcher run must emit the standard `whatsapp-channel`
   heartbeat to Discord `#hermes`, including no-hit runs and degraded runs.
 - `deploy.sh` copies the runtime `bin/` tree but not the Hermes wrappers. When
-  `bin/whatsapp-channel-watch.sh` or
-  `bin/whatsapp-channel-subscriptions.sh` changes or is first installed,
+  `bin/bursawatch-wa-channel-watch.sh` or
+  `bin/bursawatch-wa-channel-subscriptions.sh` changes or is first installed,
   synchronize each separately to its matching file under
   `vps:.hermes/scripts/`, set mode 755, and compare its checksum before live
   verification.

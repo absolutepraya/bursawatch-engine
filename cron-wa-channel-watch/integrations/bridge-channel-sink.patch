@@ -19,7 +19,7 @@ index 234cbef..0000000 100644
 +// watcher runtime so the bridge can keep its existing ownership boundary and
 +// remain usable when the watcher is absent.
 +const CHANNEL_SINK_PATH = process.env.WHATSAPP_CHANNEL_SINK_PATH
-+  || path.join(process.env.HOME || '~', '.agents', 'skills', 'whatsapp-channel-watch', 'bin', 'channel_sink.mjs');
++  || path.join(process.env.HOME || '~', '.agents', 'skills', 'bursawatch-wa-channel-watch', 'bin', 'channel_sink.mjs');
 +const CHANNEL_QUEUE_DIR = process.env.WHATSAPP_CHANNEL_QUEUE_DIR
 +  || path.join(process.env.HOME || '~', '.hermes', 'state', 'whatsapp-channel-watch', 'queue');
 +const CHANNEL_CONFIG_PATH = process.env.WHATSAPP_CHANNEL_CONFIG_PATH
