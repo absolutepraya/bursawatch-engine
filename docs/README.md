@@ -8,6 +8,10 @@ Current operating guidance is deliberately kept close to the source it governs:
 - A reusable service or skill: its local `AGENTS.md`, `README.md`, or
   `SKILL.md` as applicable.
 
+For collaboration, `.wt/config.toml` defines managed feature worktrees and the
+repository-local `finish-workflow` skill ends with a pull request. It does not
+deploy, merge, or remove the review workspace.
+
 `adr/` contains accepted architectural decision records. `plans/`, `specs/`,
 and `superpowers/` preserve implementation and design history. They may name
 pre-split directories, commands, or runtime identities, so they are evidence

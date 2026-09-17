@@ -3,35 +3,35 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "Inside the Hermes repository, I am in a named feature worktree with a reviewed diff in x-post-watch/bin/scan.py and x-post-watch/tests/test_scan.py. Focused and full tests are green, main is clean, and the branch can be published. The VPS comparison and safe no-post control are available through the documented deploy helper. ok go ahead commit, deploy, merge to main, push, and then delete the worktree. Use the normal Hermes workflow and leave the remote feature branch unless I ask to delete it.",
-      "expected_output": "Execute the approved lifecycle in order, verify each gate, remove only the local worktree after main is pushed, and report evidence for every stage while leaving the remote feature branch.",
+      "prompt": "Inside the Bursawatch repository, I am in a named feature worktree with a reviewed diff in cron-x-account-watch/bin/scan.py and cron-x-account-watch/tests/test_scan.py. Focused and full tests are green, the branch can be published, and the intended base is main. Go ahead, commit, push, and open the PR. Leave production alone so collaborators can review it first.",
+      "expected_output": "Validate and commit the reviewed paths, publish the feature branch, create a factual non-draft PR against main, and retain the branch and worktree without deploying or changing main.",
       "files": [],
       "expectations": [
-        "The response preserves the order test, commit, feature push, deploy, runtime verification, merge, main push, and worktree removal.",
-        "The response requires a clean main worktree and uses the supported deployment helper with checksum and no-post verification.",
-        "The response leaves remote feature-branch deletion opt-in and reports concrete evidence rather than only saying done."
+        "The response preserves the order test, commit, feature push, and PR creation.",
+        "The response states that deployment, main integration, and worktree removal are outside this PR handoff.",
+        "The response reports the PR URL and concrete evidence for every completed stage."
       ]
     },
     {
       "id": 2,
-      "prompt": "Inside the Hermes repository, I am in a named feature worktree with a reviewed change and all tests passing. I explicitly approve commit, deploy, merge to main, push, and worktree removal. During preflight, main has unrelated modified files that are not part of this change. Finish everything anyway, but do not lose my unrelated work.",
-      "expected_output": "Preserve the unrelated main changes with a narrowly scoped, named reversible stash only after proving there is no path overlap, complete the approved lifecycle, restore and verify the unrelated changes after pushing main, and remove only the feature worktree.",
+      "prompt": "Inside Hermes Personal, I am in a named feature worktree with a reviewed and tested change. I approve committing, pushing, and opening a PR. While preparing it, origin/main advances and my local main worktree has unrelated dirty files. Finish the PR handoff without losing anything.",
+      "expected_output": "Update the feature branch with origin/main using the documented safe strategy, rerun affected validation, push normally, and open or update the PR. Leave the unrelated main worktree changes untouched because the handoff does not integrate into main.",
       "files": [],
       "expectations": [
-        "The response compares dirty-main paths with incoming feature paths and refuses to proceed if ownership overlaps or preservation cannot be proven.",
-        "The response uses a named include-untracked stash only for clearly unrelated changes, verifies main clean, and restores the exact staged, unstaged, and untracked state after pushing main.",
-        "The response stops on any stash or restoration mismatch and does not use reset, clean, force-delete, or force-push."
+        "The response keeps main unchanged and does not stash, reset, clean, merge, or push it.",
+        "The response stops if the feature update conflicts or makes the reviewed scope ambiguous.",
+        "The response retains the feature worktree and branch for collaboration."
       ]
     },
     {
       "id": 3,
-      "prompt": "Inside the Hermes repository, the focused and full tests pass, the feature commit is published, and I explicitly approve commit, deploy, merge to main, push, and worktree removal. The supported deploy helper completed, but the post-deploy SHA-256 comparison shows that the VPS runtime file differs from the reviewed local file. Continue if you can, and do not leave clutter behind.",
-      "expected_output": "Treat the checksum mismatch as a hard stop, do not merge or remove the worktree, and report the exact failed verification while preserving the feature branch and worktree.",
+      "prompt": "Inside the Bursawatch repository, the feature commit is tested and published. I approve opening its PR. The GitHub CLI reports that PR creation failed. Continue if you can, but do not leave clutter behind.",
+      "expected_output": "Report the PR creation failure and preserve the published feature branch and worktree. Do not create a duplicate PR, deploy, merge main, or remove the worktree.",
       "files": [],
       "expectations": [
-        "The response treats a VPS checksum mismatch as a deployment failure and stops before merge and cleanup.",
-        "The response preserves the feature worktree and branch and does not use force cleanup or claim deployment success.",
-        "The response requests or identifies the next safe repair and verification step."
+        "The response treats failed PR creation as a stop condition after reporting exact evidence.",
+        "The response preserves the feature branch and worktree without force cleanup.",
+        "The response identifies the next safe recovery step."
       ]
     }
   ]

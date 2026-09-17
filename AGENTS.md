@@ -61,6 +61,19 @@ package contract.
 delete it in ordinary work. `.worktrees/` is local-only and must not be moved,
 cleaned, committed, or included in dotfiles capture.
 
+## Collaboration workflow
+
+Both Hermes repositories use the identical `.wt/config.toml` configuration.
+Create isolated feature worktrees through `wt`; never use a raw Git worktree
+when the repository is WT-configured.
+
+The repository-local `.agents/skills/finish-workflow/` skill is the standard
+review handoff. With explicit approval, it validates the reviewed scope,
+commits it, pushes the feature branch, and opens or updates a pull request.
+It retains the branch and worktree for collaboration. It never deploys, merges
+to `main`, pushes `main`, or removes a worktree. Production work remains a
+separate explicitly approved action after review.
+
 ## Source, runtime, and deployment
 
 1. Develop in this repository, never in the VPS runtime or dotfiles mirror.

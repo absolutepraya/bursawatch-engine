@@ -36,6 +36,12 @@ reserved directories for future Bursawatch web applications.
 4. Verify with the watcher's isolated no-post controls. Live source and Telegram verification run on the VPS.
 5. The VPS uses `~/.local/share/uv/tools/yahoo-finance-mcp/bin/python` for market watchers.
 
+For collaboration, create feature worktrees through the tracked `.wt/config.toml`.
+The repository-local `finish-workflow` skill validates, commits, pushes, and
+opens or updates a pull request. It leaves the branch and worktree intact and
+does not deploy or merge changes. Deployment and post-merge cleanup need
+separate explicit approval.
+
 ## Don't
 - Don't edit `~/.dotfiles/vps/agents/skills/<runtime>/`. It is an `rsync --delete` backup mirror pulled **from** the VPS.
 - Don't replace or initialize `state/` during deployment. Live state owns cursors, suppression, retries, and deduplication.
