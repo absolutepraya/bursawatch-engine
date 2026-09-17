@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "source_channel_id": 1444713822,
+  "events": [
+    {
+      "source_message_id": 34460,
+      "source_event_kind": "BUY",
+      "board_kind": "buy",
+      "target_all_message_id": null
+    },
+    {
+      "source_message_id": 35095,
+      "source_event_kind": "REMINDER",
+      "board_kind": "reminder",
+      "target_all_message_id": "1547070401920761879"
+    },
+    {
+      "source_message_id": 35101,
+      "source_event_kind": "STATUS",
+      "board_kind": "social",
+      "target_all_message_id": "1547105477492482079"
+    },
+    {
+      "source_message_id": 34499,
+      "source_event_kind": "BUY",
+      "board_kind": "buy",
+      "target_all_message_id": null
+    },
+    {
+      "source_message_id": 35105,
+      "source_event_kind": "REMINDER",
+      "board_kind": "reminder",
+      "target_all_message_id": "1547136473281597450"
+    },
+    {
+      "source_message_id": 35134,
+      "source_event_kind": "REMINDER",
+      "board_kind": "social",
+      "target_all_message_id": "1547429179119640580"
+    },
+    {
+      "source_message_id": 34928,
+      "source_event_kind": "STATUS",
+      "board_kind": "social",
+      "target_all_message_id": null
+    },
+    {
+      "source_message_id": 35138,
+      "source_event_kind": "REMINDER",
+      "board_kind": "social",
+      "target_all_message_id": "1547432971814830130"
+    },
+    {
+      "source_message_id": 34800,
+      "source_event_kind": "BUY",
+      "board_kind": "buy",
+      "target_all_message_id": null
+    },
+    {
+      "source_message_id": 35140,
+      "source_event_kind": "REMINDER",
+      "board_kind": "reminder",
+      "target_all_message_id": "1547445575270531232"
+    },
+    {
+      "source_message_id": 35149,
+      "source_event_kind": "STATUS",
+      "board_kind": "social",
+      "target_all_message_id": "1547508884439306340"
+    },
+    {
+      "source_message_id": 35172,
+      "source_event_kind": "STATUS",
+      "board_kind": "social",
+      "target_all_message_id": "1547804915806511197"
+    },
+    {
+      "source_message_id": 34908,
+      "source_event_kind": "BUY",
+      "board_kind": "buy",
+      "target_all_message_id": null
+    },
+    {
+      "source_message_id": 35197,
+      "source_event_kind": "REMINDER",
+      "board_kind": "reminder",
+      "target_all_message_id": "1548881848602460171"
+    }
+  ]
+}

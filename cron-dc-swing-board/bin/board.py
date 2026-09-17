@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 from dataclasses import replace
 from datetime import datetime
 import hashlib
@@ -28,6 +29,10 @@ HERMES_HEARTBEAT_CHANNEL_ID = "1505162000420835388"
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     arguments = parser.parse_args(argv)
+    if arguments.command == "bootstrap":
+        if arguments.dry_run:
+            return _bootstrap_dry_run(arguments.lookback_sessions, arguments.manifest)
+        return _bootstrap_apply(arguments.lookback_sessions, arguments.manifest)
     engine = BoardEngine(BoardStore(_state_path()), DiscordForumClient())
     if arguments.command == "submit-source-event":
         return _submit_source_event(engine)
@@ -131,7 +136,69 @@ def _parser() -> argparse.ArgumentParser:
     migrate_tags.add_argument("--apply", action="store_true")
     after_close = subcommands.add_parser("after-close")
     after_close.add_argument("--phase", choices=("initial", "retry"), required=True)
+    bootstrap = subcommands.add_parser("bootstrap")
+    mode = bootstrap.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--dry-run", action="store_true")
+    mode.add_argument("--apply", action="store_true")
+    bootstrap.add_argument("--lookback-sessions", type=int, default=20)
+    bootstrap.add_argument("--manifest", type=Path)
     return parser
+
+
+def _bootstrap_dry_run(lookback_sessions: int, manifest: Path | None) -> int:
+    """Report candidates without opening Board state or Discord."""
+    from bootstrap import BootstrapError, collect_manifest_report, collect_report, format_report
+
+    try:
+        if manifest is not None:
+            report = asyncio.run(
+                collect_manifest_report(
+                    now=datetime.now(WIB),
+                    lookback_sessions=lookback_sessions,
+                    manifest_path=manifest,
+                )
+            )
+            print(json.dumps(report, ensure_ascii=False, separators=(",", ":")))
+            return 0
+        report = asyncio.run(
+            collect_report(now=datetime.now(WIB), lookback_sessions=lookback_sessions)
+        )
+    except (BootstrapError, ValueError) as exc:
+        print(f"bootstrap dry-run failed: {exc}", file=sys.stderr)
+        return 1
+    print(format_report(report))
+    return 0
+
+
+def _bootstrap_apply(lookback_sessions: int, manifest: Path | None) -> int:
+    """Apply only reviewed unresolved complete Primary-plan candidates."""
+    from bootstrap import BootstrapError, apply_manifest, apply_primary_candidates, format_apply_report
+
+    engine = BoardEngine(BoardStore(_state_path()), DiscordForumClient())
+    try:
+        if manifest is not None:
+            report = asyncio.run(
+                apply_manifest(
+                    now=datetime.now(WIB),
+                    lookback_sessions=lookback_sessions,
+                    manifest_path=manifest,
+                    engine=engine,
+                )
+            )
+            print(json.dumps(report, ensure_ascii=False, separators=(",", ":")))
+            return int(engine.store.pending_outbox_count() > 0)
+        report = asyncio.run(
+            apply_primary_candidates(
+                now=datetime.now(WIB),
+                lookback_sessions=lookback_sessions,
+                engine=engine,
+            )
+        )
+    except (BootstrapError, ValueError) as exc:
+        print(f"bootstrap apply failed: {exc}", file=sys.stderr)
+        return 1
+    print(format_apply_report(report))
+    return int(engine.store.pending_outbox_count() > 0)
 
 
 def _submit_source_event(engine: BoardEngine) -> int:

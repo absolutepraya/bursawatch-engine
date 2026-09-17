@@ -16,7 +16,13 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
   a separate GTW resend or All Swing replay.
 - **Source submission:** `submit-source-event --stdin` first copies supplied local media into the owner directory, then atomically persists the validated event and owner intents and runs one best-effort drain. Its acknowledgement includes `accepted:true` plus the direct forum-topic `board_url` when the topic is materialized, or `board_url:null,"board_pending":true` while that topic is retryable. An accepted board-unavailable event omits `board_pending`. It may not calculate a close or post a heartbeat.
 - **Scheduled reconciliation:** `after-close --phase initial` is valid only at 16:30 WIB and `--phase retry` only at 17:00 WIB. The retry runs only for a current-session unavailable initial attempt on the same active plan. Both phases use the reviewed IDX calendar. Missing coverage makes no board mutation, drains safely, and direct-posts one fatal `#hermes` heartbeat; covered phases direct-post exactly one normal or degraded heartbeat. A second unavailable result changes only the card to `Market check unavailable`; it preserves prior valid price/time and tags and adds no history reply.
-- **Runtime wrapper:** `bin/bursawatch-dc-swing-board.sh` reads only `DISCORD_BOT_TOKEN`, uses the shared Yahoo Finance MCP Python, defaults state to `$HOME/.hermes/state/idx-swing-board.sqlite3`, and passes board arguments unchanged. The owner CLI has no database-path option.
+- **Runtime wrapper:** `bin/bursawatch-dc-swing-board.sh` reads only
+  `DISCORD_BOT_TOKEN` for ordinary owner commands, uses the shared Yahoo
+  Finance MCP Python, defaults state to
+  `$HOME/.hermes/state/idx-swing-board.sqlite3`, and passes board arguments
+  unchanged. The explicit `bootstrap` command additionally reads the
+  Telegram credentials and imports only the shared resilience library and
+  Phintraco parser it needs. The owner CLI has no database-path option.
 - **Scheduler executables:** the no-argument `bursawatch-dc-swing-board-close.sh` invokes `after-close --phase initial`; `bursawatch-dc-swing-board-retry.sh` invokes `after-close --phase retry`. Both require the generic wrapper beside them. The approved weekday schedules are `30 16 * * 1-5` and `0 17 * * 1-5` in WIB, respectively. Register them with the supported Hermes CLI and record the live job IDs after deployment.
 - **Live Hermes jobs:** `bursawatch-dc-swing-board-close` is `5c0b79e08fae`, and
   `bursawatch-dc-swing-board-retry` is `71c4f9a32acd` after cutover. Both are active no-agent
@@ -36,4 +42,17 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
   every existing forum topic title ticker-only. Future source replacements keep
   that topic title stable; descriptive titles remain in starter cards.
 - **Check:** set `IDX_SWING_PLAN_BOARD_NO_POST=1` and isolated state and media paths. Never reset state or create a live forum item.
-- **Bootstrap:** no bootstrap command is implicit or automatic. A separately approved command is required before any externally visible backfill.
+- **Bootstrap:** `bootstrap --dry-run --lookback-sessions 20` reads
+  Phintraco Telegram history through its resilience lease and reports candidate
+  BUY/status chains without opening Board state or Discord. `bootstrap --apply
+  --lookback-sessions 20` accepts only reviewed complete unresolved
+  Primary-plan candidates and routes each through the ordinary immutable
+  source-event and outbox path. It is never implicit, automatic, or scheduled.
+  A separate explicit approval of the dry-run report is required before any
+  externally visible backfill. A reviewed JSON manifest may instead select
+  exact source message IDs with `--manifest <path>`; this preserves individual
+  same-ticker events and can represent a status/reminder without its complete
+  original BUY as source-only context. Manifest dry-run remains read-only.
+  Manifest apply creates only Board owner work. Capturing each direct topic URL
+  and editing the separately reviewed Yanto-owned All Swing messages are
+  distinct, explicitly approved operations.
