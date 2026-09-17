@@ -1,4 +1,4 @@
-# BursaWatch WhatsApp Channel Watch development contract
+# Bursawatch WhatsApp Channel Watch development contract
 
 ## Scope
 

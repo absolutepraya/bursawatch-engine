@@ -1,4 +1,4 @@
-# BursaWatch Discord Swing Board cron contract
+# Bursawatch Discord Swing Board cron contract
 
 See `AGENTS.md` for ownership and detailed safety boundaries.
 

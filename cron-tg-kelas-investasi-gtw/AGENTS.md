@@ -1,4 +1,4 @@
-# BursaWatch Telegram Kelas Investasi GTW instructions
+# Bursawatch Telegram Kelas Investasi GTW instructions
 
 This file supplements the repository root `AGENTS.md`. It is the development and domain source of truth for the agent-backed `cron-tg-kelas-investasi-gtw` package. `SKILL.md` remains the concise Hermes runtime prompt.
 

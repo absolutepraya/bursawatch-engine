@@ -1,5 +1,5 @@
 name: Provision Telegram Resilience
-description: Copies BursaWatch's shared PolyCop resilience module into a caller-provided test dependency root.
+description: Copies Bursawatch's shared PolyCop resilience module into a caller-provided test dependency root.
 
 inputs:
   destination:

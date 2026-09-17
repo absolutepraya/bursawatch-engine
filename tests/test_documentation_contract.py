@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -145,3 +146,22 @@ def test_agent_backed_skills_exclude_deployment_only_scheduler_instructions() ->
             assert not pattern.search(text), (
                 f"{cron}: SKILL.md contains deployment-only scheduler instruction {pattern.pattern!r}"
             )
+
+
+def test_bursawatch_presentation_spelling_is_canonical() -> None:
+    stale_brand = "Bursa" + "Watch"
+    tracked_paths = subprocess.run(
+        ["git", "ls-files", "-z"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    ).stdout.decode().split("\0")
+    stale_paths = [
+        relative_path
+        for relative_path in tracked_paths
+        if relative_path
+        and stale_brand in (ROOT / relative_path).read_text(
+            encoding="utf-8", errors="ignore"
+        )
+    ]
+    assert not stale_paths, f"use Bursawatch spelling: {stale_paths}"

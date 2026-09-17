@@ -1,4 +1,4 @@
-# BursaWatch X Account Watch instructions
+# Bursawatch X Account Watch instructions
 
 This file supplements the repository root `AGENTS.md`. It is the development and domain source of truth for the agent-backed `cron-x-account-watch` package. `SKILL.md` remains the concise Hermes runtime prompt.
 

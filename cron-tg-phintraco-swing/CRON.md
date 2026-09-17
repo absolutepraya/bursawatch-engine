@@ -1,4 +1,4 @@
-# BursaWatch Telegram Phintraco Swing cron contract
+# Bursawatch Telegram Phintraco Swing cron contract
 
 See `AGENTS.md` for the source policy, state transitions, and shared-resilience details.
 

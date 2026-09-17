@@ -1,9 +1,9 @@
-# BursaWatch development repository
+# Bursawatch development repository
 
 ## Scope and split boundary
 
 This private repository is the canonical Mac development source for
-BursaWatch market automation. It retains full pre-split Git history, while
+Bursawatch market automation. It retains full pre-split Git history, while
 Hermes Personal is a separate repository at
 `~/Documents/Projects/Hermes-Personal`.
 
@@ -52,6 +52,11 @@ agent-backed package. Reusable skills retain their own `SKILL.md`. Keep
 documentation aligned with the code, runtime identity, wrapper, scheduler,
 tests, and deployment instructions in the same change.
 
+[`docs/README.md`](docs/README.md) distinguishes active operating guidance
+from retained design and implementation history. A historical record may name
+a pre-split directory or runtime identity and must never override a current
+package contract.
+
 `CONTEXT.md` is ignored local scratch. Do not read, stage, commit, deploy, or
 delete it in ordinary work. `.worktrees/` is local-only and must not be moved,
 cleaned, committed, or included in dotfiles capture.
@@ -60,7 +65,7 @@ cleaned, committed, or included in dotfiles capture.
 
 1. Develop in this repository, never in the VPS runtime or dotfiles mirror.
 2. Run focused tests, then the package suite and `bash scripts/test-all`.
-3. Commit the intended scope and push it to the BursaWatch `origin` remote.
+3. Commit the intended scope and push it to the Bursawatch `origin` remote.
 4. `./deploy.sh cron-<slug>` copies only `bin/` to
    `~/.agents/skills/bursawatch-<slug>/bin/`. It supports a deliberate single
    file deployment as `./deploy.sh cron-<slug> <file>`.
@@ -82,14 +87,14 @@ successful scheduler label alone is not capture proof: verify saved output and
 ## Shared dependencies
 
 `lib-telegram-resilience` owns the shared `POLYCOP_SESSION_STRING` control
-plane at `~/.hermes/state/telegram-resilience-polyclop.json`. BursaWatch
+plane at `~/.hermes/state/telegram-resilience-polyclop.json`. Bursawatch
 Market News, Phintraco Swing, and Kelas Investasi GTW use it, and Hermes
-Personal Polymarket uses the same BursaWatch-owned runtime library. Do not
+Personal Polymarket uses the same Bursawatch-owned runtime library. Do not
 create a second session or resilience state.
 
 `lib-swing-format` is shared by Phintraco Swing, Kelas Investasi GTW, the
 Swing board, and X Swing context. `service-rsshub` documents the one VPS-hosted
-RSSHub instance that serves BursaWatch social watchers and Hermes Personal US
+RSSHub instance that serves Bursawatch social watchers and Hermes Personal US
 ETF DCA. Its credentials, cookies, proxy configuration, compose files, and
 runtime data remain VPS-owned until a separate reviewed import is approved.
 
@@ -109,7 +114,7 @@ runtime data remain VPS-owned until a separate reviewed import is approved.
 ## Repository boundaries
 
 `web-config/` and `web-landing/` are intentionally empty placeholders for
-future BursaWatch applications. They have no deployment or configuration
+future Bursawatch applications. They have no deployment or configuration
 authority yet. `hermes-agent-starter/` is an ignored independent repository.
 
 Use English for this interactive engineering work unless the user asks for

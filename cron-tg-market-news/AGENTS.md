@@ -1,4 +1,4 @@
-# BursaWatch Telegram Market News instructions
+# Bursawatch Telegram Market News instructions
 
 This file supplements the repository root `AGENTS.md`. It is the development and domain source of truth for the agent-backed `cron-tg-market-news` package. `SKILL.md` remains the concise Hermes runtime prompt.
 

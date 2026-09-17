@@ -1,4 +1,4 @@
-# BursaWatch Instagram Account Watch instructions
+# Bursawatch Instagram Account Watch instructions
 
 This file supplements the repository root `AGENTS.md`. It is the development
 and domain source of truth for the agent-backed `cron-ig-account-watch` package.

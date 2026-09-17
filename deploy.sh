@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy a BursaWatch cron or library bin/ tree to the VPS runtime.
+# Deploy a Bursawatch cron or library bin/ tree to the VPS runtime.
 #
 # Usage:
 #   ./deploy.sh cron-<slug>            # rsync a whole cron bin/ tree

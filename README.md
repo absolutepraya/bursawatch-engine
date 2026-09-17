@@ -1,6 +1,6 @@
-# BursaWatch
+# Bursawatch
 
-BursaWatch is the Mac development source for market-focused Hermes automation.
+Bursawatch is the Mac development source for market-focused Hermes automation.
 Its scheduled packages deploy to the VPS as `bursawatch-<slug>`. Hermes
 Personal is a separate repository at `~/Documents/Projects/Hermes-Personal`,
 where personal crons deploy as `personal-<slug>`.
@@ -27,7 +27,7 @@ market skills. `service-cobalt` is the tracked media-download service.
 `service-rsshub` records the VPS-owned shared RSSHub boundary without copying
 its compose files, credentials, cookies, proxy configuration, or runtime data
 into source control. `web-config/` and `web-landing/` are intentionally empty
-reserved directories for future BursaWatch web applications.
+reserved directories for future Bursawatch web applications.
 
 ## Workflow
 1. Read the package `AGENTS.md` and its `CRON.md` or `SKILL.md`, then edit source under `cron-<slug>/bin/`.
@@ -54,7 +54,7 @@ bash scripts/test-all
 
 ## Repository boundaries
 
-- This private repository is the canonical development source for BursaWatch market automation, shared libraries, reusable skills, and Cobalt.
+- This private repository is the canonical development source for Bursawatch market automation, shared libraries, reusable skills, and Cobalt.
 - `hermes-agent-starter/` remains an independent repository and is intentionally ignored here.
 - Runtime state, credentials, caches, worktrees, generated previews, and MM backfill outputs are never tracked.
 - Cobalt cookies remain machine-local at `service-cobalt/compose/cookies.json`; the reviewed compose definition stays tracked.
@@ -72,4 +72,4 @@ stopped-writer and integrity-checked operation.
 
 ## Docs
 
-Current cron guidance lives in each cron's `AGENTS.md` plus its single contract file. Historical decisions and implementation records remain under [`docs/adr/`](docs/adr/), [`docs/specs/`](docs/specs/), and [`docs/superpowers/`](docs/superpowers/), including the [documentation-governance design](docs/superpowers/specs/2026-08-22-hermes-documentation-governance-and-dotfiles-boundary-design.md) and [implementation plan](docs/superpowers/plans/2026-08-22-hermes-documentation-governance-and-dotfiles-boundary.md).
+Read the [documentation guide](docs/README.md) first. Current cron guidance lives in each cron's `AGENTS.md` plus its single contract file. Historical decisions and implementation records remain under [`docs/adr/`](docs/adr/), [`docs/specs/`](docs/specs/), and [`docs/superpowers/`](docs/superpowers/), including the [documentation-governance design](docs/superpowers/specs/2026-08-22-hermes-documentation-governance-and-dotfiles-boundary-design.md) and [implementation plan](docs/superpowers/plans/2026-08-22-hermes-documentation-governance-and-dotfiles-boundary.md).

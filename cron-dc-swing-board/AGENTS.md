@@ -1,4 +1,4 @@
-# BursaWatch Discord Swing Board
+# Bursawatch Discord Swing Board
 
 This file supplements the repository root `AGENTS.md`. It is the canonical development and operations guide for this deterministic no-agent board owner.
 
