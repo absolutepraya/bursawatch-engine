@@ -1,10 +1,9 @@
-"""Reviewed IDX trading-session calendar."""
+"""Weekday arithmetic used by the deterministic Swing Board owner."""
 
 from __future__ import annotations
 
 from datetime import date, timedelta
 import importlib.util
-import json
 from pathlib import Path
 import sys
 import sysconfig
@@ -32,24 +31,15 @@ for _name in dir(_stdlib_calendar):
         globals().setdefault(_name, getattr(_stdlib_calendar, _name))
 
 
-class CalendarCoverageError(RuntimeError):
-    """Raised instead of treating an unreviewed weekday as an open session."""
-
-
-_HOLIDAYS_PATH = Path(__file__).with_name("idx_trading_holidays.json")
-HOLIDAYS_BY_YEAR: dict[str, set[str]] = {
-    year: set(days) for year, days in json.loads(_HOLIDAYS_PATH.read_text()).items()
-}
-
-
 def is_idx_trading_day(day: date) -> bool:
-    if day.weekday() >= 5:
-        return False
-    try:
-        holidays = HOLIDAYS_BY_YEAR[str(day.year)]
-    except KeyError as exc:
-        raise CalendarCoverageError(f"IDX holiday calendar is missing {day.year}") from exc
-    return day.isoformat() not in holidays
+    """Return whether the Board's weekday schedule is eligible to run.
+
+    Yahoo intake still requires a bar dated exactly for the requested day, so a
+    non-trading weekday cannot accidentally reuse an older closing price.
+    Keeping this intentionally weekday-only eliminates the yearly local holiday
+    data dependency from both close reconciliation and lookback arithmetic.
+    """
+    return day.weekday() < 5
 
 
 def sessions_ago(anchor: date, count: int) -> date:
