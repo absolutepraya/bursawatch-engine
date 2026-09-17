@@ -15,32 +15,18 @@ run_suite() {
   (cd "$repo_root/$directory" && "$python_bin" -m pytest -q "$target")
 }
 
-run_suite dotfiles-sync dotfiles-sync tests
-run_suite idx-market-news-watch idx-market-news-watch tests
-run_suite idx-swing-watch-phintraco-daily idx-swing-watch-phintraco-daily tests
-run_suite swing-format swing-format tests
-run_suite idx-swing-plan-board idx-swing-plan-board tests
-run_suite instagram-post-watch instagram-post-watch tests
-run_suite job-watcher job-watcher bin
-run_suite marka-backup marka-backup tests
-run_suite kelas-investasi-gtw-watch kelas-investasi-gtw-watch tests
-run_suite mac-job-executors mac-job-executors tests
-run_suite mm-weekly-log-normalizer mm-weekly-log-normalizer tests
-run_suite mm mm tests
-run_suite guess-stock guess-stock tests
-run_suite polymarket-signal-watch polymarket-signal-watch tests
-run_suite scele-digest scele-digest tests
-run_suite skills-update skills-update tests
-run_suite telegram-resilience telegram-resilience tests
-run_suite us-etf-dca-watch us-etf-dca-watch tests
-run_suite x-post-watch x-post-watch tests
-run_suite whatsapp-channel-watch whatsapp-channel-watch tests
-printf '\n== whatsapp-channel-watch JavaScript sink ==\n'
-node --test "$repo_root/whatsapp-channel-watch/tests/channel_sink.test.mjs"
-run_suite yanto-gateway-voice yanto-gateway-voice tests
-run_suite profile-emoji profile-emoji tests
-
-printf '\n== security-audit ==\n'
-(cd "$repo_root" && PYTHONPATH=security-audit/bin "$python_bin" -m pytest -q security-audit/bin)
+run_suite cron-tg-market-news cron-tg-market-news tests
+run_suite cron-tg-phintraco-swing cron-tg-phintraco-swing tests
+run_suite lib-swing-format lib-swing-format tests
+run_suite cron-dc-swing-board cron-dc-swing-board tests
+run_suite cron-ig-account-watch cron-ig-account-watch tests
+run_suite cron-tg-kelas-investasi-gtw cron-tg-kelas-investasi-gtw tests
+run_suite skill-guess-stock skill-guess-stock tests
+run_suite lib-telegram-resilience lib-telegram-resilience tests
+run_suite cron-x-account-watch cron-x-account-watch tests
+run_suite cron-wa-channel-watch cron-wa-channel-watch tests
+printf '\n== cron-wa-channel-watch JavaScript sink ==\n'
+node --test "$repo_root/cron-wa-channel-watch/tests/channel_sink.test.mjs"
+run_suite skill-profile-emoji skill-profile-emoji tests
 
 run_suite repository-policy . tests

@@ -35,14 +35,10 @@ FORBIDDEN_SUFFIXES = (
     ".sqlite3",
     ".tmp",
 )
-FORBIDDEN_PREFIXES = (
-    "hermes-agent-starter/",
-    "mm-weekly-log-normalizer/local-backfill/",
-    "mm-weekly-log-normalizer/preview/",
-)
+FORBIDDEN_PREFIXES = ("hermes-agent-starter/",)
 FORBIDDEN_EXACT = {
     ".env",
-    "cobalt/compose/cookies.json",
+    "service-cobalt/compose/cookies.json",
 }
 
 

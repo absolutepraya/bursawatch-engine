@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Deploy a Hermes cron skill's bin/ to the VPS runtime (~/.agents/skills/<cron>/bin/).
+# Deploy a BursaWatch cron or library bin/ tree to the VPS runtime.
 #
 # Usage:
-#   ./deploy.sh <cron>            # rsync the whole bin/ for that cron
-#   ./deploy.sh <cron> scan.py    # rsync a single file
+#   ./deploy.sh cron-<slug>            # rsync a whole cron bin/ tree
+#   ./deploy.sh cron-<slug> scan.py    # rsync a single cron bin/ file
 #
 # After deploy, verify with the cron's dry-run (see README). The dotfiles
 # vps/agents/skills/<cron>/ copies are a separate FROM-VPS backup mirror — this
@@ -13,16 +13,21 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")" && pwd)"
 "$repo_root/scripts/require-published-commit"
 
-cron="${1:?usage: deploy.sh <cron> [file]}"
+package="${1:?usage: deploy.sh cron-<slug>|lib-<slug> [file]}"
 file="${2:-}"
-src="$repo_root/$cron/bin"
-dst="vps:.agents/skills/$cron/bin"
+case "$package" in
+  cron-*) runtime="bursawatch-${package#cron-}" ;;
+  lib-*) runtime="$package" ;;
+  *) echo "package must start cron- or lib-: $package" >&2; exit 2 ;;
+esac
+src="$repo_root/$package/bin"
+dst="vps:.agents/skills/$runtime/bin"
 
-[[ "$cron" =~ ^[a-z0-9][a-z0-9-]*$ ]] || {
-  echo "invalid cron name: $cron" >&2
+[[ "$package" =~ ^[a-z0-9][a-z0-9-]*$ ]] || {
+  echo "invalid package name: $package" >&2
   exit 2
 }
-[ -d "$src" ] || { echo "no such cron dev dir: $src" >&2; exit 1; }
+[ -d "$src" ] || { echo "no such package dev dir: $src" >&2; exit 1; }
 
 if [ -n "$file" ]; then
   [[ "$file" != */* && "$file" != "." && "$file" != ".." ]] || {
@@ -32,12 +37,12 @@ if [ -n "$file" ]; then
   [ -f "$src/$file" ] || { echo "no such source file: $src/$file" >&2; exit 1; }
 fi
 
-ssh vps "install -d -m 700 -- \"\$HOME/.agents/skills/$cron/bin\""
+ssh vps "install -d -m 700 -- \"\$HOME/.agents/skills/$runtime/bin\""
 
 if [ -n "$file" ]; then
   rsync -a "$src/$file" "$dst/$file"
-  echo "deployed $cron/bin/$file → VPS"
+  echo "deployed $package/bin/$file → $runtime on VPS"
 else
   rsync -a --exclude='__pycache__/' --exclude='*.pyc' "$src/" "$dst/"
-  echo "deployed $cron/bin/ → VPS"
+  echo "deployed $package/bin/ → $runtime on VPS"
 fi

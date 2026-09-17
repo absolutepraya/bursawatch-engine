@@ -1,64 +1,48 @@
-# Hermes crons (Mac dev home)
+# BursaWatch
 
-Source-of-truth development directories for Hermes scheduled crons that deploy to
-the VPS at `~/.agents/skills/<cron>/`. **One workflow for all:** edit here →
-`./deploy.sh <cron>` → verify.
+BursaWatch is the Mac development source for market-focused Hermes automation.
+Its scheduled packages deploy to the VPS as `bursawatch-<slug>`. Hermes
+Personal is a separate repository at `~/Documents/Projects/Hermes-Personal`,
+where personal crons deploy as `personal-<slug>`.
 
-Every scheduled cron has `AGENTS.md` plus exactly one contract file. `AGENTS.md`
-is the development and domain source of truth. `CRON.md` is the concise
-operational contract for a deterministic no-agent cron, while `SKILL.md` is the
-runtime prompt Hermes loads for an agent-backed cron. Reusable non-cron skills
-retain their own `SKILL.md` files.
+Every scheduled package has `AGENTS.md` and exactly one contract file:
+`CRON.md` for deterministic packages or `SKILL.md` for agent-backed packages.
 
-| Cron | What it is | Mac-runnable? |
+| Development package | Runtime identity | What it is |
 |---|---|---|
-| `polymarket-signal-watch` | Polymarket PolyCop signal screener (Telegram) | tests yes; a live run needs the VPS Telethon session |
-| `idx-market-news-watch` | Deterministic issuer-specific IDX market-news watcher with an agent-backed scoring and delivery step | tests yes; live source and Telegram verification run on the VPS |
-| `us-etf-dca-watch` | US ETF DCA timing monitor for SPY, QQQ, and SMH | yes |
-| `idx-swing-watch-phintraco-daily` | Phintraco Daily Swing Call forwarder (Telegram text then source chart) | tests yes; a live run needs the VPS Telethon session |
-| `idx-swing-plan-board` | Deterministic owner of Swing board state and after-close reconciliation | tests yes; live no-post verification runs on the VPS |
-| `kelas-investasi-gtw-watch` | Future-only Kelas Investasi `#GTW` bundle watcher, shared cash-Swing rendering to All Swing plus source-only board context | tests yes; a live run needs the VPS Telethon session |
-| `scele-digest` | University SCELE daily digest (LLM agent job; `bin/send-digest` is the deterministic renderer) | renderer yes |
-| `x-post-watch` | Configuration-driven RSSHub X post forwarder with a separate minute-level queue worker and optional Hermes titles and summaries | tests yes; live source and Discord no-post smoke run on the VPS |
-| `instagram-post-watch` | Authenticated RSSHub Instagram post and reel watcher with OCR, selective vision, and Discord delivery | tests yes; live source, OCR, and Discord no-post verification run on the VPS |
-| `whatsapp-channel-watch` | Future-only WhatsApp Channel watcher using the existing QR bridge, durable Channel queue, and X-parity finance/news prompt | tests yes; live pairing and bridge verification run on the VPS |
-| `dotfiles-sync` | VPS-owned staged backup of Mac and VPS configuration | VPS only; Mac is read over SSH |
-| `job-watcher` | Indonesia-only job discovery, scoring, and Discord notification watcher | tests yes; live no-post verification runs on the VPS |
-| `marka-backup` | VPS-scheduled, direct Marka Netscape HTML export to Nextcloud | VPS Python cron; Mac is a read-only synced mirror |
-| `skills-update` | VPS-scheduled, Mac-local global skills update | Mac command only, triggered by VPS SSH |
-| `sharing-cleanup` | No-agent weekly cleanup of Nextcloud `Sharing/` contents, retaining the folder | VPS only; WebDAV DELETE moves items to Nextcloud Trash |
-| `security-audit` | VPS RKHunter, SSH, UFW, listener, Fail2ban, patch, and reboot-state audit | local parser/config tests yes; live dry run and scheduled verification on the VPS |
-| `mm-weekly-log-normalizer` | MM weekly-log DRAFT normalizer and Review Bundle renderer | local tests yes; VPS runtime code deployed, active `every 14d` Hermes interval currently anchored around Sunday 16:05 WIB, with a Sunday 15:45 WIB Evidence Week boundary |
+| `cron-tg-market-news` | `bursawatch-tg-market-news` | Telegram IDX company and macro-news watcher |
+| `cron-tg-phintraco-swing` | `bursawatch-tg-phintraco-swing` | Phintraco Daily cash-Swing forwarder |
+| `cron-tg-kelas-investasi-gtw` | `bursawatch-tg-kelas-investasi-gtw` | Kelas Investasi GTW bundle watcher |
+| `cron-dc-swing-board` | `bursawatch-dc-swing-board` | Discord Swing board owner and close reconciler |
+| `cron-x-account-watch` | `bursawatch-x-account-watch` | X-account watcher and queue worker |
+| `cron-ig-account-watch` | `bursawatch-ig-account-watch` | Instagram account and reel watcher |
+| `cron-wa-channel-watch` | `bursawatch-wa-channel-watch` | WhatsApp Channel watcher and queue |
 
-`mm` is the paired owner-only Hermes skill for saving explicitly supplied Manual Activity Records. It is not a scheduled cron.
+`lib-swing-format` is the shared cash-Swing renderer. `lib-telegram-resilience`
+owns the shared PolyCop Telegram control plane. Hermes Personal's Polymarket
+cron consumes that library at runtime, so its control state remains single-owner.
 
-`guess-stock` is the paired read-only skill for evidence-bound IDX ticker identification. Its tracked source, deterministic fingerprint matcher, and TradingView Indonesia scanner adapter live under `guess-stock/`; its runtime copy is VPS-local under `~/.hermes/skills/research/guess-stock/`.
-
-`profile-emoji` is the reusable VPS-local skill for turning a trusted X or Instagram profile picture, or an explicitly supplied custom image, into a static circular Discord emoji. It uses Yanto's VPS-local token, creates an absent emoji only with an explicit apply flag, and returns an existing emoji unchanged. It is not a scheduled cron and is deployed with `profile-emoji/deploy.sh`.
-
-`swing-format` is the reusable cash-equity Swing renderer shared by Phintraco
-Daily and Kelas Investasi GTW, with a future-ready BRI Danareksa adapter. It is
-not a scheduled cron and deploys with `./deploy.sh swing-format`.
-
-The VPS-local `~/rsshub` instance is the universal RSSHub source for Instagram,
-X, and other RSSHub watchers. Its `.env` remains outside source control and
-owns the route-specific Instagram cookie and proxy settings. There is no
-separate Instagram RSSHub container.
+`skill-guess-stock` and `skill-profile-emoji` are reusable, non-scheduled
+market skills. `service-cobalt` is the tracked media-download service.
+`service-rsshub` records the VPS-owned shared RSSHub boundary without copying
+its compose files, credentials, cookies, proxy configuration, or runtime data
+into source control. `web-config/` and `web-landing/` are intentionally empty
+reserved directories for future BursaWatch web applications.
 
 ## Workflow
-1. Read the cron's `AGENTS.md` and its `CRON.md` or `SKILL.md`, then edit source under `<cron>/bin/`.
-2. `./deploy.sh <cron>` copies `bin/` to the VPS. Single file: `./deploy.sh <cron> scan.py`.
+1. Read the package `AGENTS.md` and its `CRON.md` or `SKILL.md`, then edit source under `cron-<slug>/bin/`.
+2. `./deploy.sh cron-<slug>` copies `bin/` to `~/.agents/skills/bursawatch-<slug>/bin/`. Single file: `./deploy.sh cron-<slug> scan.py`.
 3. For a changed contract file, commit and push first, compare it with the VPS copy, obtain approval for the first VPS write, then sync only that file and compare checksums.
-4. Verify with the watcher's dry-run controls. Run network verification on the VPS for `polymarket-signal-watch` and `idx-swing-watch-phintraco-daily`.
+4. Verify with the watcher's isolated no-post controls. Live source and Telegram verification run on the VPS.
 5. The VPS uses `~/.local/share/uv/tools/yahoo-finance-mcp/bin/python` for market watchers.
 
 ## Don't
-- Don't edit `~/.dotfiles/vps/agents/skills/<cron>/`. It is an `rsync --delete` backup mirror pulled **from** the VPS.
+- Don't edit `~/.dotfiles/vps/agents/skills/<runtime>/`. It is an `rsync --delete` backup mirror pulled **from** the VPS.
 - Don't replace or initialize `state/` during deployment. Live state owns cursors, suppression, retries, and deduplication.
 - Don't create watcher-owned Mac virtual environments. Shared local verification uses `~/Documents/Projects/Hermes/.venv`.
 
 ## Tests
-From any watcher directory: `../.venv/bin/python -m pytest -q`.
+From a package directory: `../.venv/bin/python -m pytest -q`.
 
 From the repository root, `./.venv/bin/python -m pytest -q` runs the repository policy tests only. Cron projects intentionally use isolated script-local imports, so `bash scripts/test-all` is the canonical command for the complete suite.
 
@@ -70,10 +54,10 @@ bash scripts/test-all
 
 ## Repository boundaries
 
-- This private repository is the canonical development source for Hermes cron skills, Cobalt, and Yanto's lifecycle-voice plugin.
+- This private repository is the canonical development source for BursaWatch market automation, shared libraries, reusable skills, and Cobalt.
 - `hermes-agent-starter/` remains an independent repository and is intentionally ignored here.
 - Runtime state, credentials, caches, worktrees, generated previews, and MM backfill outputs are never tracked.
-- Cobalt cookies remain machine-local at `cobalt/compose/cookies.json`; the reviewed compose definition stays tracked.
+- Cobalt cookies remain machine-local at `service-cobalt/compose/cookies.json`; the reviewed compose definition stays tracked.
 - Dotfiles owns machine configuration and scrubbed VPS runtime snapshots, not duplicate Hermes development source.
 
 ## Validation and deployment
@@ -81,6 +65,10 @@ bash scripts/test-all
 GitHub Actions runs read-only tests, shell syntax checks, and tracked-file policy checks. It has no secrets, VPS access, or deployment authority. A GitHub push never deploys anything.
 
 All deployments remain explicit local commands. The deploy scripts refuse a dirty worktree or a commit that is not published to `origin`, then copy only their documented source paths to the VPS. Continue to verify deployed checksums and the cron-specific no-post path after every manual deployment.
+
+The first split cutover changes source and runtime identities while retaining
+established production state locations. Physical state migration is a separate,
+stopped-writer and integrity-checked operation.
 
 ## Docs
 

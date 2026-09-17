@@ -4,14 +4,11 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 NO_AGENT_CRONS = {
-    "dotfiles-sync", "idx-swing-watch-phintraco-daily", "job-watcher", "marka-backup",
-    "polymarket-signal-watch", "security-audit", "sharing-cleanup",
-    "skills-update", "us-etf-dca-watch", "idx-swing-plan-board",
+    "cron-dc-swing-board", "cron-tg-phintraco-swing",
 }
 AGENT_BACKED_CRONS = {
-    "idx-market-news-watch", "kelas-investasi-gtw-watch",
-    "instagram-post-watch", "mm-weekly-log-normalizer", "scele-digest",
-    "whatsapp-channel-watch", "x-post-watch",
+    "cron-tg-market-news", "cron-tg-kelas-investasi-gtw",
+    "cron-ig-account-watch", "cron-wa-channel-watch", "cron-x-account-watch",
 }
 ALL_CRONS = NO_AGENT_CRONS | AGENT_BACKED_CRONS
 REDUNDANT_ROOT_DOCS = {
@@ -20,79 +17,18 @@ REDUNDANT_ROOT_DOCS = {
 }
 GENERATED_CACHE_DIRECTORIES = {".pytest_cache", ".superpowers", "local-backfill"}
 AGENT_GOVERNANCE_ANCHORS = {
-    "idx-market-news-watch": (
-        "issuer-specific ticker-led standalone news",
-        "Anak Usaha <TICKER>",
-        "individual company entries in Corporate posts",
-        "issuer-specific Special Topics",
-    ),
-    "kelas-investasi-gtw-watch": (
-        "DISCORD_BOT_TOKEN",
-        "POLYCOP_SESSION_STRING",
-        "matching 15-minute agent lease",
-    ),
-    "mm-weekly-log-normalizer": (
-        "registers the recurring `every 14d` interval",
-        "actual successful trigger time",
-    ),
-    "scele-digest": (
-        "todos_added",
-        "Include every new deadline key",
-        "records candidate keys as consumed",
-    ),
-    "x-post-watch": (
-        "unknown root, profile, channel, or thread fields are rejected",
-        "17 to 20 digit ID",
-        "age is one to 1,440 minutes",
-        "settling is one to 240 minutes",
-        "The five forwarding booleans",
-        "Surveys, greetings, personal updates",
-        "relevance_guard_required",
-        "outside the Indonesia or US-listed universe",
-        "When the user says `watch this X account <url>`",
-        "Propose a complete JSON profile",
-        "Do not ask the user to supply facts that the account or source inspection can establish",
-    ),
-    "instagram-post-watch": (
-        "public posts and reels",
-        "IG_COOKIE",
-        "IG_PROXY",
-        "IG_USERNAME",
-        "IG_PASSWORD",
-        "127.0.0.1:1200/instagram/2/user/<handle>?format=json",
-        "config/watches.json` is the exact JSON configuration boundary",
-        "strict validator rejects unknown fields at every object boundary",
-        "Credentials, cookies, signed CDN URLs, raw provider response bodies, and local secret paths",
-        "vision_partial",
-        "vision_full",
-        "15-minute agent leases",
-        "INSTAGRAM_POST_WATCH_NO_POST=1` suppresses Discord heartbeat delivery and agent claiming",
-        "isolated `INSTAGRAM_POST_WATCH_STATE_PATH` and `INSTAGRAM_POST_WATCH_MEDIA_ROOT` paths",
-        "must not mutate live state",
-        "must not create external messages",
-        "deploy.sh instagram-post-watch` copies `bin/` only",
-        "exact file comparison",
-        "first VPS write",
-        "vps:~/.agents/skills/instagram-post-watch/config/watches.json",
-        "vps:~/.agents/skills/instagram-post-watch/SKILL.md",
-        "SHA-256 checksums",
-        "universal RSSHub instance",
-        "first successful observation records the newest source publication",
-    ),
-    "whatsapp-channel-watch": (
-        "existing single Baileys bridge",
-        "@newsletter",
-        "future-only",
-        "Channel sink",
-        "no second Baileys session",
-    ),
+    "cron-tg-market-news": ("issuer-specific ticker-led standalone news", "POLYCOP_SESSION_STRING"),
+    "cron-tg-kelas-investasi-gtw": ("DISCORD_BOT_TOKEN", "matching 15-minute agent lease"),
+    "cron-x-account-watch": ("relevance_guard_required", "Propose a complete JSON profile"),
+    "cron-ig-account-watch": ("IG_COOKIE", "vision_partial", "universal RSSHub instance"),
+    "cron-wa-channel-watch": ("existing single Baileys bridge", "future-only"),
 }
 DEPLOYMENT_ONLY_SCHEDULER_PATTERNS = (
     re.compile(r"\bregister\b[^.\n]{0,120}\b(?:cron|schedule|interval)\b", re.I),
     re.compile(r"\b(?:create|add|enable|reschedule|retarget)\s+(?:an?\s+)?(?:Hermes\s+)?(?:cron|schedule)\b", re.I),
     re.compile(r"\bHermes starts an interval\b", re.I),
 )
-README_CRON_TABLE_HEADER = "| Cron | What it is | Mac-runnable? |"
+README_CRON_TABLE_HEADER = "| Development package | Runtime identity | What it is |"
 
 
 def root_markdown_names(cron: str) -> set[str]:
@@ -131,8 +67,8 @@ def readme_cron_inventory() -> set[str]:
 
 def test_cron_classification_is_complete_and_disjoint() -> None:
     assert NO_AGENT_CRONS.isdisjoint(AGENT_BACKED_CRONS), "cron classes overlap"
-    assert "idx-swing-plan-board" in NO_AGENT_CRONS
-    assert len(ALL_CRONS) == 17, "update the reviewed cron classification"
+    assert "cron-dc-swing-board" in NO_AGENT_CRONS
+    assert len(ALL_CRONS) == 7, "update the reviewed cron classification"
     assert all((ROOT / cron).is_dir() for cron in ALL_CRONS), "missing cron source directory"
     assert readme_cron_inventory() == ALL_CRONS, (
         "README.md cron inventory must match the reviewed cron classification"

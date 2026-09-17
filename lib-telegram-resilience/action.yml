@@ -1,0 +1,22 @@
+name: Provision Telegram Resilience
+description: Copies BursaWatch's shared PolyCop resilience module into a caller-provided test dependency root.
+
+inputs:
+  destination:
+    description: Directory that will receive lib-telegram-resilience/bin.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        DESTINATION: ${{ inputs.destination }}
+      run: |
+        set -euo pipefail
+        source_dir="$GITHUB_ACTION_PATH/bin"
+        destination_dir="$DESTINATION/lib-telegram-resilience/bin"
+        test -f "$source_dir/telegram_resilience.py"
+        mkdir -p "$destination_dir"
+        cp "$source_dir/telegram_resilience.py" "$destination_dir/telegram_resilience.py"
+        cp "$source_dir/telegram-resilience-probe.py" "$destination_dir/telegram-resilience-probe.py"
