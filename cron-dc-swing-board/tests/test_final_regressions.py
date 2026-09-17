@@ -181,6 +181,29 @@ def test_phintraco_source_reply_migration_uses_shared_shell_and_source_footer_an
     assert rendered.endswith("[View in Telegram](<https://t.me/phintraprofits/33655>)")
 
 
+def test_source_reply_removes_the_all_swing_board_marker_when_status_cannot_be_canonicalized():
+    event = replace(
+        example_buy_event(),
+        kind="status",
+        plan=None,
+        source_url="https://t.me/phintraprofits/35101",
+        all_content=(
+            "### <:phintraco:1531272488645038091> COIN: On support\n"
+            "-# Alrich Paskalis T, Phintraco Sekuritas\n\n"
+            "**Entry:** 800 to 815\n"
+            "**Source status:** On support <:hold:1531284248235868333>\n"
+            "**Last updated:** 9 Sep 2026 11:44 WIB\n"
+            "**Board:** <#1548273399069933720>\n\n"
+            "[View in Telegram](<https://t.me/phintraprofits/35101>)"
+        ),
+    )
+
+    rendered = render_source_reply(event)
+
+    assert "**Board:**" not in rendered
+    assert rendered.endswith("[View in Telegram](<https://t.me/phintraprofits/35101>)")
+
+
 def _phintraco_adapter():
     root = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(root / "lib-telegram-resilience/bin"))

@@ -222,7 +222,11 @@ def _source_event_from_history(
         "ticker": ticker,
         "published_at": signal_datetime.isoformat(),
         "source_url": source_url,
-        "all_content": str(formatter(call)),
+        # Match the live Phintraco Board handoff.  The forum starter/source
+        # reply is self-contained and must never retain All Swing's Board
+        # marker, which would point back to the parent forum rather than this
+        # exact topic.
+        "all_content": str(formatter(call, include_board=False)),
         "source_title": source_title,
         "source_status": source_status,
         "plan": plan,

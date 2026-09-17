@@ -177,8 +177,8 @@ class _FakeWatcher:
 
 class _ApplyWatcher(_FakeWatcher):
     @staticmethod
-    def format_swing_alert(call):
-        return f"formatted {call.ticker}"
+    def format_swing_alert(call, *, include_board=True):
+        return f"formatted {call.ticker}; include_board={include_board}"
 
     @staticmethod
     def source_message_url(message_id):
@@ -240,6 +240,7 @@ def test_apply_primary_candidates_reuses_board_event_contract_without_source_onl
     assert report["selected_event_count"] == 2
     assert [event.kind for event in engine.events] == ["buy", "status"]
     assert [event.ticker for event in engine.events] == ["SCMA", "SCMA"]
+    assert all(event.all_content.endswith("include_board=False") for event in engine.events)
 
 
 def test_collect_report_reads_only_window_and_does_not_need_board_state() -> None:

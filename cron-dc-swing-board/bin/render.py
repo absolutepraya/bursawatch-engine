@@ -29,6 +29,10 @@ _MARKDOWN = re.compile(r"([\\*_~`|\[\]()])")
 _BYLINE = re.compile(r"^-#\s+(.+?)\s*$", re.MULTILINE)
 _REASONS = re.compile(r"^\*\*Reasons:\*\*\s*(.+?)\s*$", re.MULTILINE)
 _TYPE = re.compile(r"^\*\*Type:\*\*\s*(.+?)\s*$", re.MULTILINE)
+_BOARD_FIELD = re.compile(
+    r"^\*\*Board:\*\*\s+(?:<#[0-9]+>|<?https://discord\.com/channels/[0-9]+/[0-9]+(?:/[0-9]+)?>?)\s*$\n?",
+    re.MULTILINE,
+)
 MAX_DISCORD_CHARACTERS = 2_000
 STATIC_CARD_BUDGET = 1_400
 
@@ -57,10 +61,11 @@ def render_source_only_card(title: str, source_url: str | None = None) -> str:
 
 def render_source_reply(event: SourceEvent) -> str:
     """Keep the watcher's All text and source link; media has its own intents."""
+    all_content = _BOARD_FIELD.sub("", event.all_content)
     if event.source.casefold() == "phintraco":
         try:
             return canonicalize_phintraco_message(
-                event.all_content,
+                all_content,
                 source_url=event.source_url,
                 published_at=event.published_at,
                 source_status=event.source_status,
@@ -73,8 +78,8 @@ def render_source_reply(event: SourceEvent) -> str:
             # and is split by render_source_replies below.
             pass
     urls = (event.source_url,)
-    missing = [url for url in urls if url not in event.all_content]
-    return event.all_content + ("\n\n" + "\n".join(missing) if missing else "")
+    missing = [url for url in urls if url not in all_content]
+    return all_content + ("\n\n" + "\n".join(missing) if missing else "")
 
 
 def render_source_replies(event: SourceEvent) -> tuple[str, ...]:
