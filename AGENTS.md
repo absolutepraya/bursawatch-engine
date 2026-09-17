@@ -72,6 +72,8 @@ cleaned, committed, or included in dotfiles capture.
 5. Contract files, scheduler wrappers, services, and skill runtime prompts are
    separate deploy inputs. Compare every changed file against the VPS before
    the first write, receive current-session approval, then compare checksums.
+   A scheduler wrapper under `~/.hermes/scripts/` must retain mode `0755` and
+   pass a direct executability check before a cron is retargeted to it.
 6. GitHub Actions validates only. A push never deploys.
 
 `service-cobalt/deploy.sh` owns Cobalt deployment. `skill-profile-emoji/deploy.sh`
