@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from pathlib import Path
+import sys
 
 import pytest
 
@@ -102,6 +103,59 @@ def test_gtw_payload_uses_exact_header_and_social_kind() -> None:
     assert payload["source_status"] == "Good to watch"
     assert payload["all_content"] == render_event(event, include_board=False)[0]
     assert "**Board:**" not in payload["all_content"]
+
+
+def test_gtw_board_adapter_creates_a_no_post_supporting_episode_with_current_format(
+    tmp_path: Path,
+) -> None:
+    """Exercise the real GTW adapter through the Board's durable no-post owner."""
+    event = ready_gtw_event("Good to watch - RAJA #GTW")
+    payload = discord.board_payload(event)
+    assert payload is not None
+
+    board_bin = Path(__file__).resolve().parents[2] / "cron-dc-swing-board" / "bin"
+    module_names = ("calendar", "models", "store", "discord_forum", "engine", "render")
+    saved_modules = {name: sys.modules.get(name) for name in module_names}
+    sys.path.insert(0, str(board_bin))
+    for name in module_names:
+        sys.modules.pop(name, None)
+    try:
+        from discord_forum import DiscordForumClient
+        from engine import BoardEngine
+        from models import SourceEvent
+        from store import BoardStore
+
+        owner = BoardEngine(
+            BoardStore(tmp_path / "board.sqlite3"),
+            DiscordForumClient(no_post=True),
+        )
+        incoming = SourceEvent.from_json(payload)
+        assert owner.submit(incoming, now()) == "board_submitted"
+        assert owner.drain(now=now()) == 1
+
+        episode = owner.store.active_episode("RAJA")
+        assert episode is not None
+        assert (episode.lifecycle, episode.lifecycle_tag, episode.title) == (
+            "source",
+            "Supporting setup",
+            "RAJA",
+        )
+        operations = owner.store.operations_for_ticker("RAJA")
+        create = next(operation for operation in operations if operation.operation == "create_thread")
+        assert create.status == "complete"
+        assert create.payload["tag_names"] == ["Supporting setup"]
+        assert create.payload["content"] == payload["all_content"]
+        assert "**Source status:** Good to watch <:grey:1531279158913536182>" in create.payload["content"]
+        assert "**Last updated:** 11 Aug 2026 09:00 WIB" in create.payload["content"]
+        assert "**Board:**" not in create.payload["content"]
+        assert all(operation.status == "complete" for operation in operations)
+    finally:
+        for name in module_names:
+            sys.modules.pop(name, None)
+        for name, module in saved_modules.items():
+            if module is not None:
+                sys.modules[name] = module
+        sys.path.remove(str(board_bin))
 
 
 def test_gtw_payload_skips_board_context_when_a_legacy_event_has_no_source_time() -> None:

@@ -39,7 +39,28 @@ Before a Discord create, the owner persists its operation identity, exact messag
 
 Only scheduled `after-close --phase initial` at 16:30 WIB and `after-close --phase retry` at 17:00 WIB evaluate a valid current IDX session close. The zero-argument scheduler executables are `bursawatch-dc-swing-board-close.sh` and `bursawatch-dc-swing-board-retry.sh`, respectively. The retry is eligible only when that exact active plan recorded an unavailable initial attempt for the current reviewed IDX session. A second unavailable result edits only the card to `Market check unavailable`, retaining the latest valid price/time and tags, without a history reply. A valid close updates the card and factual tags on an exact market-state or terminal-lifecycle transition, with operation identity scoped to plan and session. Stop-loss or the actual final target resolves and finishes the plan; target tags clamp at TP6 without shortening the target ladder. The owner does not generate quoted history replies. An unclassifiable plan preserves its facts, increments `invalid`, and does not block other tickers. Missing calendar coverage fails closed without a board mutation, drains safely, and emits one fatal `#hermes` heartbeat. Other unexpected reconciliation failures emit a sanitized fatal heartbeat. Every covered scheduled phase drains and direct-posts one normal or degraded `#hermes` heartbeat, warning on unavailable, invalid, or pending work.
 
-Set `IDX_SWING_PLAN_BOARD_NO_POST=1` with isolated `IDX_SWING_PLAN_BOARD_STATE_PATH` and `IDX_SWING_PLAN_BOARD_MEDIA_ROOT` paths for every smoke test. Never reset, hand-edit, initialize, replay, or bootstrap production state. Bootstrap is an externally visible backfill and requires a separately approved command.
+Set `IDX_SWING_PLAN_BOARD_NO_POST=1` with isolated `IDX_SWING_PLAN_BOARD_STATE_PATH` and `IDX_SWING_PLAN_BOARD_MEDIA_ROOT` paths for every smoke test. Never reset, hand-edit, initialize, or replay production state.
+
+`bootstrap --dry-run --lookback-sessions 20` is a Telegram-history
+reconstruction report only. It reads the Phintraco source through the shared
+resilience lease and deliberately does not open Board state or Discord.
+`bootstrap --dry-run --lookback-sessions 30 --manifest <path>` validates a
+reviewed JSON list of exact source message IDs, preserves every listed event
+even when tickers match, and reports the parsed event identity without opening
+Board state or Discord. A manifest may label an orphan Phintraco
+status/reminder as `social` context, which explicitly avoids inventing a
+Primary Plan.
+`bootstrap --apply --lookback-sessions 20` is an externally visible
+backfill. It accepts only reviewed, unresolved, complete Primary-plan
+candidates, reuses the normal immutable source-event and outbox contracts, and
+may run only after separate explicit approval of the dry-run report. It is
+never scheduled or automatic. The generic wrapper obtains Telegram credentials
+and imports the Phintraco parser only for this explicit command.
+`bootstrap --apply --lookback-sessions 30 --manifest <path>` applies only
+the listed message-level events through that same owner contract. It does not
+send an All Swing alert or edit an existing All message. Capture each resulting
+forum-topic URL, then separately patch only the reviewed Yanto-owned All
+message IDs to the raw direct Discord URL.
 
 The one-time tag migration is `migrate-tags --apply`; it converts legacy
 `Source plan` episodes to their source-specific tier and rewrites existing
@@ -69,4 +90,4 @@ Run the focused suite from the repository root with the shared virtual environme
 ../../.venv/bin/python -m pytest -q cron-dc-swing-board/tests
 ```
 
-Deploy only a clean published commit after an approved VPS write, then compare changed checksums and use isolated no-post verification. Copy the generic wrapper plus both phase wrappers to the same Hermes scripts directory after approval. The two cutover target Hermes jobs are `bursawatch-dc-swing-board-close` at 16:30 WIB and `bursawatch-dc-swing-board-retry` at 17:00 WIB on weekdays. Never hand-edit the Hermes registry; use the supported CLI and verify the returned job records.
+Deploy only a clean published commit after an approved VPS write, then compare changed checksums and use isolated no-post verification. Copy the generic wrapper plus both phase wrappers to the same Hermes scripts directory after approval. The two cutover target Hermes jobs are `bursawatch-dc-swing-board-close` at 16:30 WIB and `bursawatch-dc-swing-board-retry` at 17:00 WIB on weekdays. Never hand-edit the Hermes registry; use the supported CLI and verify the returned job records. Bootstrap has no scheduler entry.
