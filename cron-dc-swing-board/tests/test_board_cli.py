@@ -12,6 +12,7 @@ from unittest.mock import Mock
 import pytest
 
 import board
+from calendar import CalendarCoverageError
 from conftest import example_buy_event
 from discord_forum import DiscordForumClient
 from engine import BoardEngine
@@ -48,20 +49,23 @@ def test_initial_close_is_durable_without_synthetic_history(owner, monkeypatch):
     assert not edit.payload.get("clear_attachments", False)
 
 
-def test_retry_unavailable_keeps_the_board_unchanged_and_no_history(owner, monkeypatch):
+def test_retry_unavailable_keeps_last_facts_tags_and_no_history(owner, monkeypatch):
     monkeypatch.setattr("engine.fetch_session_close", lambda *args: Decimal("210"))
     owner.after_close("initial", at())
     before = owner.store.count_rows("history_events")
-    before_operations = owner.store.operations_for_ticker("SCMA")
     monkeypatch.setattr("engine.fetch_session_close", lambda *args: None)
     owner.after_close("initial", at("2026-09-22T16:30:00+07:00"))
     assert owner.store.count_rows("checkpoints") == 1
     restarted = BoardEngine(BoardStore(owner.store.path), owner.client)
     restarted.after_close("retry", at("2026-09-22T17:00:00+07:00"))
-    assert owner.store.count_rows("checkpoints") == 1
+    assert owner.store.count_rows("checkpoints") == 2
     assert owner.store.count_rows("history_events") == before
     assert owner.store.active_episode("SCMA").market_tag == "Entry zone"
-    assert owner.store.operations_for_ticker("SCMA") == before_operations
+    ops = owner.store.operations_for_ticker("SCMA")
+    content = [op.payload["content"] for op in ops if op.operation == "edit_starter"][-1]
+    assert "Market check unavailable" in content
+    assert "210" in content and "21 Sep 2026 16:30 WIB" in content
+    assert ops[-1].operation == "edit_starter"
     assert owner.store.count_rows("close_attempts") == 3
 
 
@@ -84,7 +88,7 @@ def test_retry_only_runs_after_an_unavailable_initial_for_the_same_plan(owner, m
     assert owner.store.episode(1).market_tag == "TP1 reached"
 
 
-@pytest.mark.parametrize("phase,instant", [("initial", "2026-09-21T16:29:00+07:00"), ("retry", "2026-09-21T17:00:00+07:00"), ("initial", "2026-09-19T16:30:00+07:00")])
+@pytest.mark.parametrize("phase,instant", [("initial", "2026-09-21T16:29:00+07:00"), ("retry", "2026-09-21T17:00:00+07:00"), ("initial", "2026-09-19T16:30:00+07:00"), ("initial", "2026-12-25T16:30:00+07:00")])
 def test_phase_gates_do_not_fetch_or_mutate(owner, monkeypatch, phase, instant):
     fetch = Mock()
     monkeypatch.setattr("engine.fetch_session_close", fetch)
@@ -93,16 +97,6 @@ def test_phase_gates_do_not_fetch_or_mutate(owner, monkeypatch, phase, instant):
     fetch.assert_not_called()
     assert owner.store.operations_for_ticker("SCMA") == before
     assert owner.store.count_rows("checkpoints") == 0
-
-
-def test_weekday_holiday_is_reconciled_without_local_calendar_data(owner, monkeypatch):
-    fetch = Mock(return_value=Decimal("210"))
-    monkeypatch.setattr("engine.fetch_session_close", fetch)
-
-    result = owner.after_close("initial", at("2026-12-25T16:30:00+07:00"))
-
-    assert result["checked"] == 1
-    fetch.assert_called_once_with("SCMA", datetime.fromisoformat("2026-12-25T16:30:00+07:00").date())
 
 
 def test_cli_durable_acceptance_owns_media_even_when_delivery_fails(tmp_path, monkeypatch, capsys):
@@ -162,7 +156,9 @@ def test_no_post_cli_prints_one_heartbeat_without_http(tmp_path, monkeypatch, ca
     assert "active=0 checked=0 unavailable=0 pending=0" in output
 
 
-def test_uncovered_future_weekday_does_not_require_calendar_coverage(tmp_path, monkeypatch, capsys):
+def test_missing_calendar_coverage_emits_one_fatal_heartbeat_without_mutation(
+    tmp_path, monkeypatch, capsys
+):
     state = tmp_path / "isolated.sqlite3"
     monkeypatch.setenv("IDX_SWING_PLAN_BOARD_NO_POST", "1")
     monkeypatch.setenv("IDX_SWING_PLAN_BOARD_STATE_PATH", str(state))
@@ -173,13 +169,17 @@ def test_uncovered_future_weekday_does_not_require_calendar_coverage(tmp_path, m
             return datetime.fromisoformat("2099-09-21T16:30:00+07:00")
 
     monkeypatch.setattr(board, "datetime", MissingCoverageClock)
+    monkeypatch.setattr(
+        "engine.is_idx_trading_day",
+        Mock(side_effect=CalendarCoverageError("IDX holiday calendar is missing 2099")),
+    )
     request = Mock(side_effect=AssertionError("HTTP forbidden"))
     monkeypatch.setattr("discord_forum.requests.request", request)
 
     assert board.main(["after-close", "--phase", "initial"]) == 0
 
     output = capsys.readouterr().out
-    assert output == "🫀 bursawatch-dc-swing-board · 16:30 WIB · active=0 checked=0 unavailable=0 pending=0\n"
+    assert output == "❌ bursawatch-dc-swing-board · 16:30 WIB · failed: calendar coverage unavailable\n"
     assert BoardStore(state).count_rows("checkpoints") == 0
     request.assert_not_called()
 

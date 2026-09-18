@@ -9,7 +9,6 @@ PRIMARY_PLAN = "Primary plan"
 SUPPORTING_SETUP = "Supporting setup"
 CHART_CONTEXT = "Chart context"
 RESOLVED = "Resolved"
-ARCHIVED = "Archived"
 LEGACY_SOURCE_PLAN = "Source plan"
 
 BELOW_ENTRY = "Below entry"

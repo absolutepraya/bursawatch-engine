@@ -71,38 +71,6 @@ def test_terminal_close_finishes_plan_and_delivers_resolution_once(owner, monkey
     assert owner.store.active_episode("SCMA").id != original.id
 
 
-def test_resolved_topic_archives_on_the_second_calendar_date_at_initial_close(owner, monkeypatch):
-    owner.submit(example_buy_event(), at(14, 9, 0))
-    monkeypatch.setattr("engine.fetch_session_close", lambda *_: Decimal("199"))
-    owner.after_close("initial", at(14))
-    owner.drain(now=at(14))
-
-    owner.after_close("initial", at(15))
-    assert not any(
-        operation.operation == "patch_thread" and operation.payload.get("archived")
-        for operation in owner.store.operations_for_ticker("SCMA")
-    )
-
-    owner.after_close("initial", at(16))
-    archives = [
-        operation for operation in owner.store.operations_for_ticker("SCMA")
-        if operation.operation == "patch_thread" and operation.payload.get("archived")
-    ]
-    assert len(archives) == 1
-    assert archives[0].payload["tag_names"] == ["Resolved", "Archived", "Stop-loss breached"]
-    owner.drain(now=at(16))
-    assert next(
-        operation for operation in owner.store.operations_for_ticker("SCMA")
-        if operation.dedupe_key == archives[0].dedupe_key
-    ).status == "complete"
-
-    owner.after_close("initial", at(17))
-    assert len([
-        operation for operation in owner.store.operations_for_ticker("SCMA")
-        if operation.operation == "patch_thread" and operation.payload.get("archived")
-    ]) == 1
-
-
 def test_final_target_beyond_tp5_resolves_with_the_tp6_market_tag(owner, monkeypatch):
     owner.submit(replace(example_buy_event(), plan=PlanLevels("208 to 212", "<200", ("230", "240", "250", "260", "270", "280"))), at(hour=9, minute=0))
     monkeypatch.setattr("engine.fetch_session_close", lambda *_: Decimal("270"))

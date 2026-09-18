@@ -6,11 +6,11 @@ Source intake never fetches prices or calls back into an All Swing watcher.
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 import re
 
-from calendar import sessions_ago
+from calendar import is_idx_trading_day, sessions_ago
 from discord_forum import DiscordForumClient, DiscordForumError, DiscordRateLimitError, DiscordRejectedError
 from models import Checkpoint, Episode, MarketState, SourceEvent
 from media_store import acquire_media
@@ -18,7 +18,6 @@ from prices import classify_close, fetch_session_close, parse_plan_levels
 from render import WIB, render_primary_card, render_source_reply, render_source_replies, primary_card_requires_source_reply
 from store import BoardStore, BoardStoreTransaction, StoreBlockedError
 from tags import (
-    ARCHIVED,
     PRIMARY_PLAN,
     RESOLVED,
     desired_lifecycle_tag,
@@ -34,7 +33,6 @@ _TARGET = re.compile(
     r"(first|second|third|fourth|fifth|sixth|[0-9]+(?:st|nd|rd|th)) target"
     r"(?: [0-9][0-9.,]*)? (?:achieved|hit|reached)", re.IGNORECASE
 )
-_RESOLVED_ARCHIVE_DAYS = 2
 
 
 def _source_confirmations(event: SourceEvent, active_plan: SourceEvent) -> tuple[bool, set[int]]:
@@ -101,7 +99,7 @@ class BoardEngine:
             return result
 
     def after_close(self, phase: str, now: datetime) -> dict[str, int]:
-        """Reconcile active primary plans at the weekday close-phase instant.
+        """Reconcile active primary plans at the one reviewed close-phase instant.
 
         Yahoo is read before the short owner transaction.  The attempt marker,
         factual checkpoint, card intent, and tag intent then commit together, so
@@ -113,7 +111,7 @@ class BoardEngine:
         expected_hour, expected_minute = (16, 30) if phase == "initial" else (17, 0)
         if (instant.hour, instant.minute) != (expected_hour, expected_minute):
             return _close_result()
-        if instant.weekday() >= 5:
+        if not is_idx_trading_day(instant.date()):
             return _close_result()
 
         candidates = self.store.active_primary_plans()
@@ -155,9 +153,15 @@ class BoardEngine:
                 tx.record_close_attempt(current.plan_id, session_date, phase, instant, close is not None)
                 if close is None:
                     result["unavailable"] += 1
-                    # A missing exact-day Yahoo bar can be a weekday exchange
-                    # closure or a provider delay. It remains visible only in
-                    # the operational heartbeat, never as Board card noise.
+                    if phase == "retry":
+                        checkpoint, last_valid = tx.latest_checkpoints(current.episode.id)
+                        unavailable = Checkpoint.unavailable_at(
+                            session_date=session_date, checked_at=instant.isoformat()
+                        )
+                        tx.record_checkpoint(current.episode.id, unavailable)
+                        self._enqueue_close_edit(
+                            tx, current, unavailable, last_valid, instant, "retry-unavailable"
+                        )
                     continue
 
                 checkpoint = Checkpoint.market(
@@ -181,56 +185,8 @@ class BoardEngine:
                 if terminal:
                     tx.finish_plan(updated.id, instant)
                 result["checked"] += 1
-        if phase == "initial":
-            self._schedule_resolved_archives(instant)
         result["pending"] = self.store.pending_outbox_count()
         return result
-
-    def _schedule_resolved_archives(self, now: datetime) -> None:
-        """Queue each resolved topic's one exact two-calendar-day archive intent.
-
-        Discord only offers 1, 3, and 7-day automatic archive durations. The
-        Board therefore explicitly archives a resolved topic on the 16:30
-        weekday run whose calendar date is two days after its resolved date.
-        The durable dedupe key means a failed PATCH is retried, while a
-        successful archive is never recreated.
-        """
-        cutoff = _wib(now).date() - timedelta(days=_RESOLVED_ARCHIVE_DAYS)
-        for episode in self.store.episodes():
-            if (
-                episode.lifecycle != "resolved"
-                or episode.closed_at is None
-                or episode.closed_at.astimezone(WIB).date() > cutoff
-                or not episode.thread_id
-                or not episode.starter_message_id
-            ):
-                continue
-            with self.store.transaction() as tx:
-                current = tx.episode(episode.id)
-                if (
-                    current.lifecycle != "resolved"
-                    or current.closed_at is None
-                    or current.closed_at.astimezone(WIB).date() > cutoff
-                    or not current.thread_id
-                    or not current.starter_message_id
-                ):
-                    continue
-                tags = [current.lifecycle_tag or RESOLVED, ARCHIVED]
-                if current.market_tag:
-                    tags.append(current.market_tag)
-                nonce = f"archive:v1:{current.id}"
-                tx.enqueue_outbox(
-                    "patch_thread",
-                    current.id,
-                    {
-                        "name": current.title,
-                        "tag_names": tags,
-                        "archived": True,
-                        "nonce_value": nonce,
-                    },
-                    nonce,
-                    now,
-                )
 
     def schedule_tag_migration(self, now: datetime) -> dict[str, int]:
         """Queue canonical lifecycle-tag patches for every existing episode."""
