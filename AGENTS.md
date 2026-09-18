@@ -31,9 +31,11 @@ reset, replay, or copy live state as source.
 VPS-only retained runtime material has one canonical backup tree:
 `~/backup/hermes/`. Store state-cutover rollback archives at
 `runtime-cutovers/<YYYY-MM-DD>/<runtime-identity>/` and release snapshots at
-`runtime-releases/<runtime-identity>/`. Preserve rollback archives for at least
-30 days, exclude them from Git and dotfiles, and require separate approval
-before deletion.
+`runtime-releases/<runtime-identity>/`. Archive inactive legacy logs only after
+proving that no active wrapper or process references them, at
+`legacy-logs/<YYYY-MM-DD>/`; current runtime logs remain in `~/.logs/`.
+Preserve every archive type for at least 30 days, exclude it from Git and
+dotfiles, and require separate approval before deletion.
 
 ## Child instructions
 
