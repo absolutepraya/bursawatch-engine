@@ -63,9 +63,9 @@ newest source item as the cursor. Do not deliver existing history.
 
 ## Channel subscription helper
 
-`bin/whatsapp-channel-subscriptions.sh` is the supported operator helper for
+`bin/bursawatch-wa-channel-subscriptions.sh` is the supported operator helper for
 activating approved Channel follows. The deployed command is
-`~/.hermes/scripts/whatsapp-channel-subscriptions.sh`. It reads enabled
+`~/.hermes/scripts/bursawatch-wa-channel-subscriptions.sh`. It reads enabled
 profiles from the live watcher configuration, checks the loopback bridge, and
 uses the existing Baileys socket. It never creates a second session, changes
 watcher config or state, fetches history, or posts to Discord.
@@ -73,14 +73,14 @@ watcher config or state, fetches history, or posts to Discord.
 Review the targets without changing WhatsApp:
 
 ```bash
-ssh vps '~/.hermes/scripts/whatsapp-channel-subscriptions.sh ensure --json'
+ssh vps '~/.hermes/scripts/bursawatch-wa-channel-subscriptions.sh ensure --json'
 ```
 
 After the complete profile and watcher configuration are approved and
 deployed, perform the follow and live-update subscription:
 
 ```bash
-ssh vps '~/.hermes/scripts/whatsapp-channel-subscriptions.sh ensure --apply --json'
+ssh vps '~/.hermes/scripts/bursawatch-wa-channel-subscriptions.sh ensure --apply --json'
 ```
 
 `--apply` is required for the WhatsApp mutation. The bridge also repeats this
@@ -119,11 +119,14 @@ report the failure instead of treating the Channel JID alone as subscribed.
 
 ## Baileys bridge integration
 
-`integrations/bridge-channel-sink.patch` is the reviewed patch for the
+`integrations/bridge-channel-sink.patch` is the rebased reviewed patch for the
 VPS-owned Hermes Agent Baileys bridge. It loads the deployed `channel_sink.mjs`
 optionally, bypasses the normal DM and broadcast filters for `@newsletter`
-messages, and writes supported events to this watcher's queue. Apply it only to
-the exact bridge source after comparing the live file and checking the patch.
+messages, and writes supported events to this watcher's queue. The current live
+bridge already contains this behavior. The patch is retained only to apply to a
+matching current bridge base with the channel-sink changes absent. Never apply
+it to the live bridge or an unknown preimage. Recreate it from the reviewed
+live preimage before any future bridge change, and obtain explicit approval.
 It also provides local-only newsletter metadata and historical message lookup,
 plus an explicit follow and live-update subscription operation, using the
 already-connected bridge socket. Historical lookup is

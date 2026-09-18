@@ -1,8 +1,7 @@
 diff --git a/scripts/whatsapp-bridge/bridge.js b/scripts/whatsapp-bridge/bridge.js
-index 234cbef..0000000 100644
 --- a/scripts/whatsapp-bridge/bridge.js
 +++ b/scripts/whatsapp-bridge/bridge.js
-@@ -25,7 +25,7 @@ import { Boom } from '@hapi/boom';
+@@ -25,7 +25,7 @@
  import pino from 'pino';
  import path from 'path';
  import { mkdirSync, readFileSync, existsSync, readdirSync, unlinkSync } from 'fs';
@@ -11,7 +10,7 @@ index 234cbef..0000000 100644
  import { randomBytes, createHash } from 'crypto';
  import { execFileSync } from 'child_process';
  import { tmpdir } from 'os';
-@@ -96,6 +96,23 @@ const DOCUMENT_CACHE_DIR = process.env.HERMES_DOCUMENT_CACHE_DIR
+@@ -96,6 +96,23 @@
  const AUDIO_CACHE_DIR = process.env.HERMES_AUDIO_CACHE_DIR
    || path.join(process.env.HOME || '~', '.hermes', 'audio_cache');
  
@@ -22,9 +21,9 @@ index 234cbef..0000000 100644
 +  || path.join(process.env.HOME || '~', '.agents', 'skills', 'bursawatch-wa-channel-watch', 'bin', 'channel_sink.mjs');
 +const CHANNEL_QUEUE_DIR = process.env.WHATSAPP_CHANNEL_QUEUE_DIR
 +  || path.join(process.env.HOME || '~', '.hermes', 'state', 'whatsapp-channel-watch', 'queue');
++let channelSink = null;
 +const CHANNEL_CONFIG_PATH = process.env.WHATSAPP_CHANNEL_CONFIG_PATH
 +  || path.join(path.dirname(CHANNEL_SINK_PATH), '..', 'config', 'watches.json');
-+let channelSink = null;
 +try {
 +  if (existsSync(CHANNEL_SINK_PATH)) {
 +    channelSink = await import(pathToFileURL(CHANNEL_SINK_PATH).href);
@@ -35,7 +34,7 @@ index 234cbef..0000000 100644
  // Self-hash of this script file.  Reported in /health so the Python gateway
  // can detect a running bridge that predates the current bridge.js and
  // restart it instead of silently reusing stale code (stale-bridge trap:
-@@ -246,6 +261,84 @@ function getContextInfo(messageContent) {
+@@ -246,7 +263,85 @@
    }
    return {};
  }
@@ -120,7 +119,8 @@ index 234cbef..0000000 100644
  
  mkdirSync(SESSION_DIR, { recursive: true });
  
-@@ -468,4 +531,8 @@ async function startSocket() {
+ // Build LID → phone reverse map from session files (lid-mapping-{phone}.json)
+@@ -468,6 +563,10 @@
        if (!PAIR_JSON) {
          console.log('✅ WhatsApp connected!');
        }
@@ -129,7 +129,9 @@ index 234cbef..0000000 100644
 +      // enqueue historical posts.
 +      void ensureChannelSubscriptions();
        if (PAIR_ONLY) {
-@@ -554,6 +621,13 @@ async function startSocket() {
+         if (!PAIR_JSON) {
+           console.log('✅ Pairing complete. Credentials saved.');
+@@ -554,6 +653,13 @@
          senderId: redactWhatsAppId(senderId),
          messageKeys: Object.keys(msg.message || {}),
        });
@@ -143,13 +145,10 @@ index 234cbef..0000000 100644
  
        // Handle fromMe messages based on mode
        let fromOwner = false;
-@@ -1099,9 +1169,107 @@
-   res.json({
-     name: chatId.replace(/@.*/, ''),
-     isGroup,
-     participants: [],
+@@ -1103,6 +1209,105 @@
    });
  });
+ 
 +// Read-only local resolver for public WhatsApp Channel invite links. This
 +// reuses the already-connected bridge socket and never creates another session.
 +app.get('/newsletter/metadata/:invite', async (req, res) => {
@@ -248,10 +247,11 @@ index 234cbef..0000000 100644
 +    clearTimeout(timeoutId);
 +  }
 +});
- 
++
  // Health check
  app.get('/health', (req, res) => {
-@@ -1111,5 +1251,6 @@ app.get('/health', (req, res) => {
+   res.json({
+@@ -1112,5 +1316,6 @@
      uptime: process.uptime(),
      scriptHash: SCRIPT_HASH,
      sendReadReceipts: SEND_READ_RECEIPTS,

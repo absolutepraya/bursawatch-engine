@@ -1,0 +1,2 @@
+# A unified patch needs a one-space context marker for blank source lines.
+cron-wa-channel-watch/integrations/bridge-channel-sink.patch whitespace=-trailing-space
