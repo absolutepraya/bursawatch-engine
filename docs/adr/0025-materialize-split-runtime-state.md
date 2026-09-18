@@ -12,7 +12,7 @@ The first Bursawatch and Hermes Personal cutover deliberately retained establish
 
 Where code derives package-local state from its current runtime directory, replace the legacy `state` symlink with physical state at that current path through an atomic same-filesystem move. Keep intentionally centralized state under `~/.hermes/state/`, including Bursawatch Market News, Kelas Investasi GTW, Swing Board, WhatsApp Channel Watch, and the Bursawatch-owned shared Telegram resilience control plane. Do not duplicate the shared control plane, rename centralized paths merely for cosmetic consistency, or import RSSHub runtime configuration, credentials, cookies, proxy settings, volumes, or data into Git.
 
-Every cutover uses a chosen published Git commit, source-to-VPS checksum proof, writer quiescence, state-specific integrity evidence, atomic move, rollback archive, isolated no-post verification, and natural-run delivery proof. The relevant legacy runtime directory remains a protected VPS-only rollback archive for 30 days and stays excluded from Git and dotfiles. Its later deletion requires separate approval.
+Every cutover uses a chosen published Git commit, source-to-VPS checksum proof, writer quiescence, state-specific integrity evidence, atomic move, rollback archive, isolated no-post verification, and natural-run delivery proof. The relevant legacy runtime directory remains a protected VPS-only rollback archive at `~/backup/hermes/runtime-cutovers/<YYYY-MM-DD>/<runtime-identity>/` for 30 days and stays excluded from Git and dotfiles. Its later deletion requires separate approval.
 
 ## Consequences
 

@@ -28,6 +28,13 @@ separately approved state migration must stop each writer and watchdog, prove
 integrity, move atomically, and verify the resumed runtime. Never hand-edit,
 reset, replay, or copy live state as source.
 
+VPS-only retained runtime material has one canonical backup tree:
+`~/backup/hermes/`. Store state-cutover rollback archives at
+`runtime-cutovers/<YYYY-MM-DD>/<runtime-identity>/` and release snapshots at
+`runtime-releases/<runtime-identity>/`. Preserve rollback archives for at least
+30 days, exclude them from Git and dotfiles, and require separate approval
+before deletion.
+
 ## Child instructions
 
 Read a package `AGENTS.md` before modifying it. These child files supplement
