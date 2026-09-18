@@ -20,3 +20,5 @@ historical record with the active package contract and source before acting.
 
 The split decision and the current Bursawatch to Hermes Personal boundary are
 recorded in [`adr/0024-separate-bursawatch-and-hermes-personal.md`](adr/0024-separate-bursawatch-and-hermes-personal.md).
+The physical state-cutover decision is recorded in
+[`adr/0025-materialize-split-runtime-state.md`](adr/0025-materialize-split-runtime-state.md).
