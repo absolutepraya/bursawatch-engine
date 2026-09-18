@@ -160,6 +160,7 @@ def test_bursawatch_presentation_spelling_is_canonical() -> None:
         relative_path
         for relative_path in tracked_paths
         if relative_path
+        and (ROOT / relative_path).is_file()
         and stale_brand in (ROOT / relative_path).read_text(
             encoding="utf-8", errors="ignore"
         )

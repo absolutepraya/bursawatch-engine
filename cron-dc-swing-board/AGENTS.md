@@ -37,7 +37,7 @@ Before a Discord create, the owner persists its operation identity, exact messag
 
 `drain` reports `drained`, `pending`, and `failed` counts and exits nonzero while any work remains. Pending includes retained backoff work; failed counts pending operations with a recorded delivery failure.
 
-Only scheduled `after-close --phase initial` at 16:30 WIB and `after-close --phase retry` at 17:00 WIB evaluate a valid current IDX session close. The zero-argument scheduler executables are `bursawatch-dc-swing-board-close.sh` and `bursawatch-dc-swing-board-retry.sh`, respectively. The retry is eligible only when that exact active plan recorded an unavailable initial attempt for the current reviewed IDX session. A second unavailable result edits only the card to `Market check unavailable`, retaining the latest valid price/time and tags, without a history reply. A valid close updates the card and factual tags on an exact market-state or terminal-lifecycle transition, with operation identity scoped to plan and session. Stop-loss or the actual final target resolves and finishes the plan; target tags clamp at TP6 without shortening the target ladder. The owner does not generate quoted history replies. An unclassifiable plan preserves its facts, increments `invalid`, and does not block other tickers. Missing calendar coverage fails closed without a board mutation, drains safely, and emits one fatal `#hermes` heartbeat. Other unexpected reconciliation failures emit a sanitized fatal heartbeat. Every covered scheduled phase drains and direct-posts one normal or degraded `#hermes` heartbeat, warning on unavailable, invalid, or pending work.
+Only scheduled `after-close --phase initial` at 16:30 WIB and `after-close --phase retry` at 17:00 WIB evaluate a weekday close. The zero-argument scheduler executables are `bursawatch-dc-swing-board-close.sh` and `bursawatch-dc-swing-board-retry.sh`, respectively. The retry is eligible only when that exact active plan recorded an unavailable initial attempt for the same weekday. Yahoo must return a bar dated exactly for that day, so a non-trading weekday cannot reuse an older close. An unavailable initial or retry result records only its owner attempt and a degraded `#hermes` heartbeat. It never edits a Board card, tag, checkpoint, or history reply. A valid close updates the card and factual tags on an exact market-state or terminal-lifecycle transition, with operation identity scoped to plan and weekday. Stop-loss or the actual final target resolves and finishes the plan; target tags clamp at TP6 without shortening the target ladder. On each initial phase, a resolved topic whose resolved calendar date is two days old is durably queued for an explicit Discord archive, retaining its `Resolved` and terminal-outcome tags and adding the visible `Archived` tag. Discord offers no native two-day duration, so this is a retry-safe `PATCH archived:true`, not an inferred market fact. The owner does not generate quoted history replies. An unclassifiable plan preserves its facts, increments `invalid`, and does not block other tickers. Other unexpected reconciliation failures emit a sanitized fatal heartbeat. Every scheduled phase drains and direct-posts one normal or degraded `#hermes` heartbeat, warning on unavailable, invalid, or pending work.
 
 Set `IDX_SWING_PLAN_BOARD_NO_POST=1` with isolated `IDX_SWING_PLAN_BOARD_STATE_PATH` and `IDX_SWING_PLAN_BOARD_MEDIA_ROOT` paths for every smoke test. Never reset, hand-edit, initialize, or replay production state.
 
@@ -78,8 +78,10 @@ control.
 The one-time `migrate-titles --apply` command renames existing forum topics to
 their ticker-only names without changing starter content or tags.
 
-The live forum defaults to List View, Latest Activity ordering, and a
-three-day inactivity archive. Discord does not support tag-first or nested
+The live forum defaults to List View, Latest Activity ordering, and Discord's
+three-day inactivity archive for ordinary inactive threads. Resolved plan
+topics are instead explicitly archived on the 16:30 weekday run dated two
+calendar days after resolution. Discord does not support tag-first or nested
 tag-then-date ordering; tags remain user-selectable filters.
 
 ## Development and deployment
@@ -90,4 +92,4 @@ Run the focused suite from the repository root with the shared virtual environme
 ../../.venv/bin/python -m pytest -q cron-dc-swing-board/tests
 ```
 
-Deploy only a clean published commit after an approved VPS write, then compare changed checksums and use isolated no-post verification. Copy the generic wrapper plus both phase wrappers to the same Hermes scripts directory after approval. The two cutover target Hermes jobs are `bursawatch-dc-swing-board-close` at 16:30 WIB and `bursawatch-dc-swing-board-retry` at 17:00 WIB on weekdays. Never hand-edit the Hermes registry; use the supported CLI and verify the returned job records. Bootstrap has no scheduler entry.
+Deploy only a clean published commit after an approved VPS write, then compare changed checksums and use isolated no-post verification. Copy the generic wrapper plus both phase wrappers to the same Hermes scripts directory after approval. The two cutover target Hermes jobs are `bursawatch-dc-swing-board-close` at 16:30 WIB and `bursawatch-dc-swing-board-retry` at 17:00 WIB on weekdays. They intentionally use weekday arithmetic only, with no annual IDX-holiday file. Never hand-edit the Hermes registry; use the supported CLI and verify the returned job records. Bootstrap has no scheduler entry.

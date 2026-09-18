@@ -15,7 +15,6 @@ import sys
 import tempfile
 from typing import Sequence
 
-from calendar import CalendarCoverageError
 from discord_forum import DiscordForumClient, forum_thread_url
 from engine import BoardEngine
 from models import SourceEvent
@@ -96,14 +95,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         return int(result["pending"] > 0 or result["failed"] > 0 or result["blocked"] > 0)
     try:
         result = engine.after_close(arguments.phase, datetime.now(WIB))
-    except CalendarCoverageError:
-        # Calendar coverage is a fatal fail-closed condition, not a reason to
-        # lose the required operational signal or replay any market mutation.
-        engine.drain()
-        heartbeat = _fatal_heartbeat(arguments.phase, "calendar coverage unavailable")
-        engine.client.post_heartbeat(HERMES_HEARTBEAT_CHANNEL_ID, heartbeat)
-        print(heartbeat)
-        return 0
     except Exception:
         engine.drain()
         heartbeat = _fatal_heartbeat(arguments.phase, "reconciliation failed")

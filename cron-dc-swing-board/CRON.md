@@ -15,7 +15,7 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
   in place; it preserves the previous source starter once as history, without
   a separate GTW resend or All Swing replay.
 - **Source submission:** `submit-source-event --stdin` first copies supplied local media into the owner directory, then atomically persists the validated event and owner intents and runs one best-effort drain. Its acknowledgement includes `accepted:true` plus the direct forum-topic `board_url` when the topic is materialized, or `board_url:null,"board_pending":true` while that topic is retryable. An accepted board-unavailable event omits `board_pending`. It may not calculate a close or post a heartbeat.
-- **Scheduled reconciliation:** `after-close --phase initial` is valid only at 16:30 WIB and `--phase retry` only at 17:00 WIB. The retry runs only for a current-session unavailable initial attempt on the same active plan. Both phases use the reviewed IDX calendar. Missing coverage makes no board mutation, drains safely, and direct-posts one fatal `#hermes` heartbeat; covered phases direct-post exactly one normal or degraded heartbeat. A second unavailable result changes only the card to `Market check unavailable`; it preserves prior valid price/time and tags and adds no history reply.
+- **Scheduled reconciliation:** `after-close --phase initial` is valid only at 16:30 WIB and `--phase retry` only at 17:00 WIB on weekdays. The retry runs only for an unavailable initial attempt on the same active plan and weekday. There is deliberately no annual IDX-holiday file: Yahoo must return a bar dated exactly for that weekday, so a non-trading weekday cannot reuse an older close. An unavailable initial or retry result records only its owner attempt and a degraded `#hermes` heartbeat. It never edits the Board card, tags, checkpoints, or history. During each initial phase, a resolved topic whose resolved calendar date is two days old is durably queued for an explicit `archived:true` Discord patch. The patch preserves `Resolved` and the terminal outcome tag while adding `Archived` for a visible Board-list state. This gives the Board its two-calendar-day resolved lifecycle even though Discord natively offers no two-day auto-archive duration.
 - **Runtime wrapper:** `bin/bursawatch-dc-swing-board.sh` reads only
   `DISCORD_BOT_TOKEN` for ordinary owner commands, uses the shared Yahoo
   Finance MCP Python, defaults state to
@@ -28,8 +28,10 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
   `bursawatch-dc-swing-board-retry` is `71c4f9a32acd` after cutover. Both are active no-agent
   jobs with `local` delivery and `/home/praya` as their working directory.
 - **Forum defaults:** `#id-stocks-swing-board` uses List View, Latest Activity
-  ordering, and Discord's three-day inactivity archive. Discord has no
-  tag-first or nested tag/date sort; tags remain filters.
+  ordering, and Discord's three-day inactivity archive for ordinary inactive
+  threads. The deterministic 16:30 initial phase explicitly archives Resolved
+  topics after two calendar dates. Discord has no tag-first or nested tag/date
+  sort; tags remain filters.
 - **Delivery health:** `drain` returns JSON counts `drained`, `pending`, and `failed`, with a nonzero exit while work remains, including backoff. Ambiguous Discord creates use durable pre-POST read-back identity; inconclusive recovery stays pending without another POST. Nonce reuse alone is not durable idempotency.
 - **Media and size:** the owner downloads ordered public direct X media into private storage and retries each attachment independently. Source text is split losslessly into ordered replies within 2,000 UTF-16 units; managed cards stay within the same limit with complete source replies when compacted. Retired quoted history is deletion-only maintenance, never new delivery. Unsupported or oversized media stays pending, never silently dropped.
 - **Close outcomes:** stop-loss or the actual final target resolves the plan, including target ladders beyond TP6 whose factual tag clamps at TP6. The owner updates the card and tags without generating quoted history replies. Unclassifiable plans preserve prior facts, increment `invalid`, and do not block other tickers. Invalid, unavailable, and pending work degrade the heartbeat; unexpected failures emit a sanitized fatal heartbeat.
