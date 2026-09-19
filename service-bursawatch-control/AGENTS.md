@@ -49,6 +49,22 @@ DATABASE_URL=<private-dsn> ./venv/bin/python bin/seed_baseline_configs.py
 Do not deploy this service, change a live Hermes scheduler entry, or point a
 production watcher at it without an explicit reviewed deployment step.
 
+## VPS repeat releases
+
+After the approved initial VPS bootstrap exists, use `./deploy.sh` from this
+package for a repeat API release. An agent should run `./deploy.sh plan`,
+`status`, or `verify` before requesting deployment approval. With a clean,
+published commit, focused tests, `bash scripts/test-all`, and explicit
+current-chat approval, run `./deploy.sh release --apply`.
+
+The helper synchronizes only `baseline-configs/`, `bin/`, `migrations/`,
+`validator-sources/`, and `requirements.txt`; it updates the dedicated virtual
+environment, applies immutable migrations, seeds missing baseline revisions,
+restarts `bursawatch-control-plane.service`, and checks health. It never copies
+a local `.env`, changes `~/.hermes/bursawatch-control-plane.env`, edits the
+systemd unit, Nginx, DNS, TLS, the Hermes cron registry, or the schedule
+reconciler. Those are separate, explicitly approved deployment changes.
+
 ## Security boundary
 
 The web application never receives database credentials or a Supabase service

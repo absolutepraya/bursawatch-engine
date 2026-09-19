@@ -103,6 +103,16 @@ separate explicitly approved action after review.
 owns its skill deployment. The generic deploy helper supports cron and library
 packages only.
 
+`service-bursawatch-control/deploy.sh` owns repeat releases of the already
+bootstrapped Bursawatch control-plane API. Before deployment approval, use its
+read-only `plan`, `status`, or `verify` commands to inspect the target. After
+focused tests, `bash scripts/test-all`, a clean published commit, and explicit
+current-chat approval, use `release --apply` for its bounded source sync,
+dependency update, migration and baseline seed, restart, and health checks.
+It never copies `.env`, changes the dedicated service environment, systemd
+unit, Nginx, DNS, TLS, Hermes schedules, or the schedule reconciler. Those
+remain separate reviewed deployment work.
+
 The dotfiles mirror is a scrubbed VPS backup, not an authoring or deployment
 target. Do not edit `~/.dotfiles/vps/agents/skills/`. After an approved runtime
 deployment, use `sync-mac --check` before an explicitly approved capture. A

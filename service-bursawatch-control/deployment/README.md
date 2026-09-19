@@ -23,6 +23,24 @@ The API listens only on `127.0.0.1:9120`. Nginx is the sole public entrypoint
 for `https://api.bursawatch.abhipraya.dev`. Do not bind the API to a public
 address or open port 9120 in UFW.
 
+## Repeat releases
+
+Once this target has been created through the reviewed sequence below, run the
+package helper from the repository root for repeat API releases:
+
+```bash
+./service-bursawatch-control/deploy.sh plan
+./service-bursawatch-control/deploy.sh verify
+# After explicit deployment approval:
+./service-bursawatch-control/deploy.sh release --apply
+```
+
+The helper syncs only the API payload, updates the existing virtual environment,
+applies migrations, seeds only absent baseline revisions, restarts the existing
+service, and verifies health. It does not bootstrap or reconfigure the host:
+it never copies `.env`, edits the dedicated environment, systemd unit, Nginx,
+DNS, TLS, Hermes scheduler, or reconciler.
+
 ## Planned reviewed sequence
 
 1. Compare this source branch and each template with the VPS target.
