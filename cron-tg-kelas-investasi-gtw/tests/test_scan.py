@@ -106,6 +106,78 @@ def test_shared_clean_skip_does_not_change_state(monkeypatch: pytest.MonkeyPatch
     assert (tmp_path / "state.json").read_bytes() == before
 
 
+def test_live_config_snapshot_controls_source_destinations_prompt_and_run_events(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import scan
+
+    _configure(monkeypatch, tmp_path, [header(101, "CTRA"), analysis(102)])
+    _initialized(tmp_path / "state.json")
+    loaded = scan.config.LoadedWatchConfig(
+        scan.config.WatchConfig(
+            telegram_channel_id=2142109999,
+            telegram_username="kelasinvestasibar",
+            alert_discord_channel_id="1525102458253217804",
+            heartbeat_discord_channel_id="1505162000420835389",
+            additional_prompt_instruction="Utamakan ringkasan tesis yang sangat ringkas.",
+        ),
+        revision=9,
+    )
+    monkeypatch.setattr(scan.config, "load_watch_config_for_run", lambda: loaded)
+    resolve_args: list[object] = []
+    monkeypatch.setattr(scan, "resolve_source", lambda *args: resolve_args.extend(args) or _async(object()))
+    posted: list[tuple[str, str]] = []
+    monkeypatch.setattr(scan, "post_text", lambda content, channel_id, *_args: posted.append((content, channel_id)))
+    lifecycle: list[str] = []
+    finishes: list[tuple[str, str | None]] = []
+
+    class Run:
+        def event(self, event_id, **_kwargs):
+            lifecycle.append(event_id)
+
+        def finish(self, status, error=None):
+            finishes.append((status, error))
+
+    monkeypatch.setattr(scan.ControlPlaneRun, "begin", classmethod(lambda cls, *args, **kwargs: Run()))
+
+    result = scan.run(now=at("2026-08-11T09:20:01+07:00"), dry_run=False)
+
+    assert resolve_args[1:] == [2142109999, "kelasinvestasibar"]
+    assert result["wakeAgent"] is True
+    assert result["item"]["source_url"] == "https://t.me/kelasinvestasibar/101"
+    assert "Utamakan ringkasan tesis yang sangat ringkas." in result["item"]["instruction"]
+    assert posted[-1][1] == "1505162000420835389"
+    assert lifecycle == [
+        "run-started",
+        "source-poll-completed",
+        "delivery-drain-completed",
+        "agent-wake-requested",
+        "run-completed",
+    ]
+    assert finishes == [("ok", None)]
+
+
+def test_live_config_failure_stops_before_opening_the_telegram_client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import scan
+
+    monkeypatch.setenv("KELAS_INVESTASI_GTW_STATE_PATH", str(tmp_path / "state.json"))
+    opened = False
+
+    def fail_config():
+        raise ValueError("control-plane snapshot is unavailable")
+
+    def unexpected_client():
+        nonlocal opened
+        opened = True
+        raise AssertionError("Telegram client must not open")
+
+    monkeypatch.setattr(scan.config, "load_watch_config_for_run", fail_config)
+    monkeypatch.setattr(scan, "make_client", unexpected_client)
+
+    with pytest.raises(ValueError, match="snapshot is unavailable"):
+        scan.run(now=at("2026-08-11T09:00:00+07:00"), dry_run=True)
+
+    assert opened is False
+
+
 def test_invalid_summary_keeps_exact_claimed_event_pending(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     import scan
 
@@ -163,6 +235,67 @@ def test_submission_reparses_stale_persisted_plan_before_validation(monkeypatch:
 
     saved = load_state(tmp_path / "state.json")
     assert saved["outbox"][0]["plan"] == {"buy_area": "660 sampai 765", "targets": "875, 995", "stoploss": "<620"}
+
+
+def test_live_config_submission_uses_its_frozen_all_destination_and_logs_lifecycle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import scan
+
+    _configure(monkeypatch, tmp_path, [])
+    value = new_state()
+    value["cursor"] = 100
+    observe_messages(value, [header(101, "CTRA"), analysis(102), header(103, "BREN")], at("2026-08-11T09:00:00+07:00"))
+    event = value["outbox"][0]
+    event["agent_phase"] = "claimed"
+    event["agent_lease_until"] = "2026-08-11T09:15:00+07:00"
+    save_state(tmp_path / "state.json", value)
+    loaded = scan.config.LoadedWatchConfig(
+        scan.config.WatchConfig(
+            telegram_channel_id=2142109999,
+            telegram_username="kelasinvestasibar",
+            alert_discord_channel_id="1525102458253217804",
+            heartbeat_discord_channel_id="1505162000420835389",
+            additional_prompt_instruction="",
+        ),
+        revision=9,
+    )
+    monkeypatch.setattr(scan.config, "load_watch_config_for_run", lambda: loaded)
+    channels: list[str] = []
+    monkeypatch.setattr(
+        scan,
+        "deliver_oldest_ready_event",
+        lambda *_args, channel_id, **_kwargs: channels.append(channel_id) or False,
+    )
+    lifecycle: list[str] = []
+    finishes: list[tuple[str, str | None]] = []
+
+    class Run:
+        def event(self, event_id, **_kwargs):
+            lifecycle.append(event_id)
+
+        def finish(self, status, error=None):
+            finishes.append((status, error))
+
+    monkeypatch.setattr(scan.ControlPlaneRun, "begin", classmethod(lambda cls, *args, **kwargs: Run()))
+
+    result = scan.submit_analysis_payload(
+        {
+            "event_key": "101:CTRA",
+            "title": "CTRA: Buy area",
+            "summary": "*(Ringkasan)* Buy area 605 sampai 630 dan TP 1: 655.",
+        },
+        dry_run=False,
+        now=at("2026-08-11T09:01:00+07:00"),
+    )
+
+    assert result == {"wakeAgent": False, "delivered": 0}
+    assert channels == ["1525102458253217804"]
+    assert lifecycle == [
+        "agent-submission-started",
+        "agent-submission-accepted",
+        "agent-delivery-drain-completed",
+        "agent-submission-completed",
+    ]
+    assert finishes == [("ok", None)]
 
 
 def test_unavailable_source_attempts_fatal_heartbeat_and_main_returns_nonzero(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

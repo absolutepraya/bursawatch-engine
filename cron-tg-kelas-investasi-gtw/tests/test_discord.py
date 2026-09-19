@@ -105,6 +105,26 @@ def test_gtw_payload_uses_exact_header_and_social_kind() -> None:
     assert "**Board:**" not in payload["all_content"]
 
 
+def test_gtw_payload_uses_the_active_configured_source_username() -> None:
+    import config
+
+    event = ready_gtw_event("Good to watch - RAJA #GTW")
+    configured = config.WatchConfig(
+        telegram_channel_id=2142109999,
+        telegram_username="kelasinvestasibar",
+        alert_discord_channel_id="1525102458253217804",
+        heartbeat_discord_channel_id="1505162000420835389",
+        additional_prompt_instruction="",
+    )
+
+    with config.activate_watch_config(configured):
+        payload = discord.board_payload(event)
+
+    assert payload is not None
+    assert payload["source_url"] == "https://t.me/kelasinvestasibar/101"
+    assert "https://t.me/kelasinvestasibar/101" in payload["all_content"]
+
+
 def test_gtw_board_adapter_creates_a_no_post_supporting_episode_with_current_format(
     tmp_path: Path,
 ) -> None:
@@ -176,6 +196,22 @@ def test_gtw_board_handoff_uses_the_captured_header_image(tmp_path: Path, monkey
 
     assert submitted[0][0]["media_path"] == str(tmp_path / "header.jpg")
     assert submitted[0][1] == tmp_path / "header.jpg"
+
+
+def test_delivery_uses_the_frozen_configured_all_destination(monkeypatch: pytest.MonkeyPatch) -> None:
+    event = ready_event()
+    channels: list[str] = []
+    monkeypatch.setattr(discord, "post_text", lambda _content, channel_id, *_args: channels.append(channel_id) or "all-text")
+    monkeypatch.setattr(discord, "submit_board_event", lambda *_args: True)
+
+    assert deliver_oldest_ready_event(
+        state_with(event),
+        now(),
+        False,
+        channel_id="1525102458253217804",
+    ) is True
+
+    assert channels == ["1525102458253217804"]
 
 
 @pytest.mark.parametrize(

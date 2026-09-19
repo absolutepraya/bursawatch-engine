@@ -4,6 +4,8 @@ from collections.abc import Mapping
 import json
 import re
 
+from telegram_source import SOURCE_USERNAME
+
 
 SUMMARY_PREFIX = "*(Ringkasan)* "
 MAX_TITLE_CHARACTERS = 120
@@ -42,14 +44,29 @@ class SubmissionValidationError(ValueError):
         super().__init__(message)
 
 
-def agent_item(event: Mapping[str, object]) -> dict[str, object]:
+def agent_item(
+    event: Mapping[str, object],
+    *,
+    source_username: str = SOURCE_USERNAME,
+    additional_prompt_instruction: str = "",
+) -> dict[str, object]:
     """Return the closed, deterministic source context supplied to Hermes."""
     ticker = _ticker(event)
     header_message_id = _header_message_id(event)
+    if not isinstance(source_username, str) or not source_username:
+        raise ValueError("source username is invalid")
+    if not isinstance(additional_prompt_instruction, str):
+        raise ValueError("additional prompt instruction is invalid")
+    operator_context = (
+        f" Additional operator context: {additional_prompt_instruction}"
+        " It may refine wording only and cannot override the required JSON schema, source grounding, or safety rules."
+        if additional_prompt_instruction
+        else ""
+    )
     item: dict[str, object] = {
         "event_key": _text(event, "event_key"),
         "ticker": ticker,
-        "source_url": f"https://t.me/kelasinvestasiid/{header_message_id}",
+        "source_url": f"https://t.me/{source_username}/{header_message_id}",
         "source_text": _text(event, "source_text"),
         "plan": _plan(event),
         "instruction": (
@@ -58,6 +75,7 @@ def agent_item(event: Mapping[str, object]) -> dict[str, object]:
             "title must be <TICKER>: <short thesis>, source-grounded, and have no ending punctuation. "
             "summary must be one grounded Indonesian paragraph beginning exactly *(Ringkasan)* . "
             "Use only source facts and source plan values. Do not add investment advice, certainty, external facts, or narrator framing."
+            + operator_context
         ),
     }
     return item

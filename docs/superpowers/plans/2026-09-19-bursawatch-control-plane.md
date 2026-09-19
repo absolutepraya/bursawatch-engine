@@ -43,6 +43,10 @@ the Hermes CLI.
 9. Add Phintraco's small typed source and destination snapshot, frozen
    revision lifecycle events, and isolated validator. Keep parser policy,
    board handoff, retries, media, and state outside web configuration.
+10. Add Kelas Investasi's small typed source, destination, and bounded prompt
+    snapshot, frozen lifecycle events for both scan and agent submission, and
+    isolated validator. Keep the output schema, parser policy, board handoff,
+    retries, media, and state outside web configuration.
 
 ## Non-goals for this slice
 

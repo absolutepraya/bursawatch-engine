@@ -12,6 +12,8 @@ from typing import Any, Callable, Mapping
 
 import requests
 
+import config
+
 _SHARED_FORMAT_BIN = Path(__file__).resolve().parents[2] / "lib-swing-format" / "bin"
 if not _SHARED_FORMAT_BIN.exists():
     _SHARED_FORMAT_BIN = Path.home() / ".agents" / "skills" / "lib-swing-format" / "bin"
@@ -81,6 +83,7 @@ def deliver_oldest_ready_event(
     persist: Callable[[], None] | None = None,
     state_path: Path | None = None,
     media_root: Path | None = None,
+    channel_id: str = DISCORD_CHANNEL_ID,
 ) -> bool:
     """Deliver at most one durable leg, or print all pending legs in no-post mode.
 
@@ -116,23 +119,23 @@ def deliver_oldest_ready_event(
         _persist(persist)
         return False
     if dry_run:
-        _print_intended(event, chunks, media_root)
+        _print_intended(event, chunks, media_root, channel_id)
         return False
 
     try:
         if int(event["text_index"]) < len(chunks):
             index = int(event["text_index"])
-            message_id = post_text(chunks[index], DISCORD_CHANNEL_ID, False, nonce(str(event["event_key"]), f"text:{index}"))
+            message_id = post_text(chunks[index], channel_id, False, nonce(str(event["event_key"]), f"text:{index}"))
             if message_id:
                 event.setdefault("text_message_ids", []).append(message_id)
             event["text_index"] = index + 1
         elif int(event["next_media_index"]) < len(_media(event)):
             index = int(event["next_media_index"])
             path = _media_path(_media(event)[index], media_root)
-            post_file(path, DISCORD_CHANNEL_ID, False, nonce(str(event["event_key"]), f"media:{index}"))
+            post_file(path, channel_id, False, nonce(str(event["event_key"]), f"media:{index}"))
             event["next_media_index"] = index + 1
         else:
-            return _submit_board_context(state, event, now, dry_run, persist, media_root)
+            return _submit_board_context(state, event, now, dry_run, persist, media_root, channel_id)
     except DiscordRateLimitError as error:
         _record_failure(event, now, error, error.retry_after)
         _persist(persist)
@@ -145,7 +148,7 @@ def deliver_oldest_ready_event(
     _clear_failure(event)
     _persist(persist)
     if _complete(event, chunks):
-        return _submit_board_context(state, event, now, dry_run, persist, media_root)
+        return _submit_board_context(state, event, now, dry_run, persist, media_root, channel_id)
     return True
 
 
@@ -174,7 +177,7 @@ def board_payload(event: Mapping[str, object], media: Path | None = None) -> dic
         "kind": "social",
         "ticker": ticker,
         "published_at": published_at,
-        "source_url": f"https://t.me/kelasinvestasiid/{header_message_id}",
+        "source_url": f"https://t.me/{config.active_watch_config().telegram_username}/{header_message_id}",
         "all_content": "\n\n".join(render_event(event, include_board=False)),
         "source_title": source_title,
         "source_status": GTW_SOURCE_STATUS,
@@ -229,7 +232,14 @@ def submit_board_event(payload: Mapping[str, object], media: Path | None, dry_ru
     return True
 
 
-def edit_board_links(message_ids: object, board_url: object, dry_run: bool, event_key: str) -> bool:
+def edit_board_links(
+    message_ids: object,
+    board_url: object,
+    dry_run: bool,
+    event_key: str,
+    *,
+    channel_id: str = DISCORD_CHANNEL_ID,
+) -> bool:
     """Patch every delivered GTW text chunk that still has the legacy link."""
     if not isinstance(board_url, str) or not board_url:
         return True
@@ -247,7 +257,7 @@ def edit_board_links(message_ids: object, board_url: object, dry_run: bool, even
             return False
         try:
             response = requests.get(
-                f"{DISCORD_API}/channels/{DISCORD_CHANNEL_ID}/messages/{message_id}",
+                f"{DISCORD_API}/channels/{channel_id}/messages/{message_id}",
                 headers=headers,
                 timeout=DISCORD_TIMEOUT_SECONDS,
             )
@@ -262,7 +272,7 @@ def edit_board_links(message_ids: object, board_url: object, dry_run: bool, even
             if updated == current:
                 continue
             response = requests.patch(
-                f"{DISCORD_API}/channels/{DISCORD_CHANNEL_ID}/messages/{message_id}",
+                f"{DISCORD_API}/channels/{channel_id}/messages/{message_id}",
                 headers=headers,
                 json={"content": updated, "allowed_mentions": {"parse": []}},
                 timeout=DISCORD_TIMEOUT_SECONDS,
@@ -363,17 +373,22 @@ def _media_path(item: object, media_root: Path) -> Path:
     raise FileNotFoundError("captured source media is unavailable")
 
 
-def _print_intended(event: Mapping[str, object], chunks: list[str], media_root: Path) -> None:
+def _print_intended(
+    event: Mapping[str, object],
+    chunks: list[str],
+    media_root: Path,
+    channel_id: str,
+) -> None:
     event_key = str(event["event_key"])
     for index in range(int(event["text_index"]), len(chunks)):
-        post_text(chunks[index], DISCORD_CHANNEL_ID, True, nonce(event_key, f"text:{index}"))
+        post_text(chunks[index], channel_id, True, nonce(event_key, f"text:{index}"))
     for index in range(int(event["next_media_index"]), len(_media(event))):
         item = _media(event)[index]
         try:
             path = _media_path(item, media_root)
         except FileNotFoundError:
             path = Path("<missing-source-image>")
-        print(f"would post file channel={DISCORD_CHANNEL_ID} path={path} nonce={nonce(event_key, f'media:{index}')}")
+        print(f"would post file channel={channel_id} path={path} nonce={nonce(event_key, f'media:{index}')}")
 
 
 def _record_failure(event: dict[str, object], now: datetime, error: BaseException, retry_after: float | None) -> None:
@@ -397,6 +412,7 @@ def _submit_board_context(
     dry_run: bool,
     persist: Callable[[], None] | None,
     media_root: Path,
+    channel_id: str,
 ) -> bool:
     # Keep board handoffs in source order while the All queue is independent.
     for earlier in state.get("outbox", []):
@@ -418,7 +434,11 @@ def _submit_board_context(
         if accepted and payload.get("_board_pending"):
             accepted = False
         if accepted and not edit_board_links(
-            event.get("text_message_ids", []), payload.get("_board_url"), dry_run, str(event["event_key"])
+            event.get("text_message_ids", []),
+            payload.get("_board_url"),
+            dry_run,
+            str(event["event_key"]),
+            channel_id=channel_id,
         ):
             accepted = False
     except Exception:

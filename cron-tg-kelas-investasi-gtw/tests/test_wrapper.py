@@ -6,7 +6,9 @@ from pathlib import Path
 def test_wrapper_uses_restricted_environment_shared_runtime_and_sanitized_log() -> None:
     wrapper = (Path(__file__).resolve().parents[1] / "bin" / "bursawatch-tg-kelas-investasi-gtw.sh").read_text(encoding="utf-8")
 
-    assert 'PYTHONPATH="$SWING_FORMAT_BIN:$HOME/.agents/skills/lib-telegram-resilience/bin"' in wrapper
+    assert 'CONTROL_PLANE_BIN="$HOME/.agents/skills/lib-bursawatch-control/bin"' in wrapper
+    assert 'if [[ -d "$CONTROL_PLANE_BIN" ]]; then' in wrapper
+    assert 'PYTHONPATH="$CONTROL_PLANE_BIN:$SWING_FORMAT_BIN:$HOME/.agents/skills/lib-telegram-resilience/bin:${PYTHONPATH-}"' in wrapper
     assert 'KELAS_INVESTASI_GTW_NO_POST' not in wrapper
     for key in ("DISCORD_BOT_TOKEN", "TELEGRAM_API_ID", "TELEGRAM_API_HASH", "POLYCOP_SESSION_STRING"):
         assert key in wrapper
@@ -15,3 +17,11 @@ def test_wrapper_uses_restricted_environment_shared_runtime_and_sanitized_log() 
     assert '| tee -a "$log_file"' in wrapper
     assert 'exit "$status"' in wrapper
     assert 'IDX_SWING_PLAN_BOARD_WRAPPER="${IDX_SWING_PLAN_BOARD_WRAPPER:-$HOME/.hermes/scripts/bursawatch-dc-swing-board.sh}"' in wrapper
+    for key in (
+        "KELAS_INVESTASI_GTW_CONTROL_PLANE_URL",
+        "KELAS_INVESTASI_GTW_CONTROL_PLANE_WATCHER_ID",
+        "KELAS_INVESTASI_GTW_CONTROL_PLANE_TOKEN",
+        "KELAS_INVESTASI_GTW_CONTROL_PLANE_TIMEOUT_SECONDS",
+        "KELAS_INVESTASI_GTW_CONTROL_PLANE_SPOOL_PATH",
+    ):
+        assert key in wrapper

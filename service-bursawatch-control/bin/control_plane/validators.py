@@ -43,6 +43,11 @@ VALIDATOR_SPECS = {
         loader_name="load_watch_config_data",
         directory_environment_key="CONTROL_PLANE_PHINTRACO_CONFIG_VALIDATOR_DIR",
     ),
+    "bursawatch-tg-kelas-investasi-gtw": ValidatorSpec(
+        watcher_id="bursawatch-tg-kelas-investasi-gtw",
+        loader_name="load_watch_config_data",
+        directory_environment_key="CONTROL_PLANE_KELAS_INVESTASI_GTW_CONFIG_VALIDATOR_DIR",
+    ),
 }
 
 

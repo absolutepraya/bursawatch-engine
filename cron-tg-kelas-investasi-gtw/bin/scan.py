@@ -19,16 +19,34 @@ if str(_RESILIENCE_BIN) not in sys.path:
 
 from telegram_resilience import PolyCopResilience, acquire_probe_after_active_lease, is_transport_error
 
+import config
 from agent_protocol import RetryableSubmissionError, agent_item, build_wake_payload, validate_submission
 from discord import DISCORD_CHANNEL_ID, DiscordDeliveryError, deliver_oldest_ready_event, nonce, post_text
 from parsing import extract_plan
 from state import CorruptStateError, RunLockBusyError, claim_oldest_agent, load_state, observe_messages, ready_events, restore_expired_claim, run_lock, save_state
 from telegram_source import TelegramMediaError, TelegramSourceError, capture_image, fetch_unseen_messages, make_client, resolve_source
 
+try:
+    from control_plane_runtime import ControlPlaneRun
+except ModuleNotFoundError:
+    class ControlPlaneRun:
+        @classmethod
+        def begin(cls, *_args, **_kwargs):
+            return cls()
+
+        def event(self, *_args, **_kwargs):
+            pass
+
+        def finish(self, *_args, **_kwargs):
+            pass
+
 
 WIB = ZoneInfo("Asia/Jakarta")
 WATCHER_NAME = "kelas-investasi-gtw"
-HEARTBEAT_CHANNEL_ID = "1505162000420835388"
+_DEFAULT_WATCH_CONFIG = config.default_watch_config()
+# Compatibility defaults for isolated scanner tests. Runtime resolves each
+# source and destination from its frozen configuration snapshot.
+HEARTBEAT_CHANNEL_ID = _DEFAULT_WATCH_CONFIG.heartbeat_discord_channel_id
 
 
 def _require_aware(now: datetime) -> datetime:
@@ -74,13 +92,20 @@ def format_fatal(now: datetime, reason: object) -> str:
     return f"❌ {WATCHER_NAME} · {now.astimezone(WIB):%H:%M} WIB · failed: {_fatal_reason(reason)}"
 
 
-def post_heartbeat(content: str, now: datetime, dry_run: bool, *, nonce_seed: str | None = None) -> None:
+def post_heartbeat(
+    content: str,
+    now: datetime,
+    dry_run: bool,
+    *,
+    channel_id: str = HEARTBEAT_CHANNEL_ID,
+    nonce_seed: str | None = None,
+) -> None:
     if dry_run:
         print(content)
         return
     hour = now.astimezone(WIB).strftime("%Y%m%d%H")
     seed = nonce_seed or f"heartbeat:{hour}"
-    post_text(content, HEARTBEAT_CHANNEL_ID, False, nonce(seed, "status"))
+    post_text(content, channel_id, False, nonce(seed, "status"))
 
 
 async def _disconnect(client: object | None) -> None:
@@ -97,14 +122,27 @@ async def _disconnect(client: object | None) -> None:
         pass
 
 
-async def _run(now: datetime, dry_run: bool) -> dict[str, object]:
+async def _run(
+    now: datetime,
+    dry_run: bool,
+    loaded_config: config.LoadedWatchConfig,
+    control_run: ControlPlaneRun,
+) -> tuple[dict[str, object], str]:
     path = _state_path()
     try:
         with run_lock(path.with_name(path.name + ".lock")):
             control = resilience()
             decision = await acquire_probe_after_active_lease(control, WATCHER_NAME, now)
             if decision.kind != "probe":
-                return {"wakeAgent": False}
+                control_run.event(
+                    "resilience-probe-withheld",
+                    level="warning",
+                    phase="source",
+                    event_type="source.probe.withheld",
+                    message="Kelas Investasi source probe was withheld by shared Telegram resilience",
+                    attributes={"reason": decision.kind},
+                )
+                return {"wakeAgent": False}, "blocked"
 
             client: object | None = None
             probe_outcome: str | None = None
@@ -114,12 +152,23 @@ async def _run(now: datetime, dry_run: bool) -> dict[str, object]:
                 if not await client.is_user_authorized():  # type: ignore[union-attr]
                     control.record_auth_required(decision.lease_id, WATCHER_NAME, now)
                     probe_outcome = "auth"
-                    return {"wakeAgent": False}
+                    control_run.event(
+                        "telegram-auth-required",
+                        level="warning",
+                        phase="source",
+                        event_type="source.auth.required",
+                        message="Kelas Investasi Telegram session requires authorization",
+                    )
+                    return {"wakeAgent": False}, "blocked"
                 control.record_authenticated_success(decision.lease_id, WATCHER_NAME, now, None, None)
                 probe_outcome = "success"
 
                 state = load_state(path)
-                entity = await resolve_source(client)
+                entity = await resolve_source(
+                    client,
+                    loaded_config.config.telegram_channel_id,
+                    loaded_config.config.telegram_username,
+                )
                 cursor = state["cursor"]
                 messages = await fetch_unseen_messages(client, entity, int(cursor or 0))
                 observe_messages(state, messages, now)
@@ -127,23 +176,80 @@ async def _run(now: datetime, dry_run: bool) -> dict[str, object]:
                 for event in events:
                     await _capture_event_media(client, entity, event, path.parent / "media")
                 save_state(path, state)
+                control_run.event(
+                    "source-poll-completed",
+                    level="info",
+                    phase="source",
+                    event_type="source.poll.completed",
+                    message="Kelas Investasi source poll completed",
+                    attributes={"messages": len(messages), "ready_bundles": len(events)},
+                )
 
-                delivered = _drain_due_delivery(state, path, now, dry_run)
+                delivered = _drain_due_delivery(
+                    state,
+                    path,
+                    now,
+                    dry_run,
+                    channel_id=loaded_config.config.alert_discord_channel_id,
+                )
                 warning = _has_delivery_warning(state)
+                control_run.event(
+                    "delivery-drain-completed",
+                    level="warning" if warning else "info",
+                    phase="delivery",
+                    event_type="delivery.drain.completed",
+                    message="Kelas Investasi delivery and board drain completed",
+                    attributes={
+                        "delivered": delivered,
+                        "pending": len(state["outbox"]),
+                        "warning": warning,
+                    },
+                )
 
                 claim = claim_oldest_agent(state, now)
                 if claim is not None:
                     save_state(path, state)
-                    payload = build_wake_payload(agent_item(claim))
-                    post_heartbeat(format_heartbeat(now, scanned=len(messages), pending=len(state["outbox"]), delivered=delivered, warning=warning), now, dry_run)
-                    return payload
-                post_heartbeat(format_heartbeat(now, scanned=len(messages), pending=len(state["outbox"]), delivered=delivered, warning=warning), now, dry_run)
-                return {"wakeAgent": False}
+                    payload = build_wake_payload(
+                        agent_item(
+                            claim,
+                            source_username=loaded_config.config.telegram_username,
+                            additional_prompt_instruction=loaded_config.config.additional_prompt_instruction,
+                        )
+                    )
+                    control_run.event(
+                        "agent-wake-requested",
+                        level="info",
+                        phase="agent",
+                        event_type="agent.wake.requested",
+                        message="Kelas Investasi bundle was claimed for agent analysis",
+                        attributes={"event_key": claim["event_key"]},
+                    )
+                    post_heartbeat(
+                        format_heartbeat(now, scanned=len(messages), pending=len(state["outbox"]), delivered=delivered, warning=warning),
+                        now,
+                        dry_run,
+                        channel_id=loaded_config.config.heartbeat_discord_channel_id,
+                    )
+                    return payload, "degraded" if warning else "ok"
+                post_heartbeat(
+                    format_heartbeat(now, scanned=len(messages), pending=len(state["outbox"]), delivered=delivered, warning=warning),
+                    now,
+                    dry_run,
+                    channel_id=loaded_config.config.heartbeat_discord_channel_id,
+                )
+                return {"wakeAgent": False}, "degraded" if warning else "ok"
             except Exception as error:
                 if probe_outcome is None and is_transport_error(error):
                     control.record_transport_failure(decision.lease_id, WATCHER_NAME, error, now)
                     probe_outcome = "transport"
-                    return {"wakeAgent": False}
+                    control_run.event(
+                        "telegram-transport-blocked",
+                        level="warning",
+                        phase="source",
+                        event_type="source.transport.blocked",
+                        message="Kelas Investasi source poll was blocked by Telegram transport resilience",
+                    )
+                    return {"wakeAgent": False}, "blocked"
                 if probe_outcome is None:
                     # A local pre-auth failure has no Telegram failure category,
                     # but must not strand the shared probe lease until timeout.
@@ -152,7 +258,12 @@ async def _run(now: datetime, dry_run: bool) -> dict[str, object]:
                         release(decision.lease_id, WATCHER_NAME, now)
                     probe_outcome = "released"
                 try:
-                    post_heartbeat(format_fatal(now, error), now, dry_run)
+                    post_heartbeat(
+                        format_fatal(now, error),
+                        now,
+                        dry_run,
+                        channel_id=loaded_config.config.heartbeat_discord_channel_id,
+                    )
                 except Exception:
                     # A fatal Discord attempt is best effort; the scanner must
                     # still fail so Hermes observes the operational error.
@@ -161,8 +272,14 @@ async def _run(now: datetime, dry_run: bool) -> dict[str, object]:
             finally:
                 await _disconnect(client)
     except RunLockBusyError:
-        return {"wakeAgent": False}
-        return {"wakeAgent": False}
+        control_run.event(
+            "run-lock-busy",
+            level="warning",
+            phase="lifecycle",
+            event_type="run.lock.busy",
+            message="Kelas Investasi watcher run was skipped because another run holds the lock",
+        )
+        return {"wakeAgent": False}, "blocked"
 
 
 async def _capture_event_media(client: object, entity: object, event: dict[str, object], destination: Path) -> None:
@@ -213,10 +330,23 @@ def _verified_captured_path(value: object, destination: Path) -> bool:
         return False
 
 
-def _drain_due_delivery(state: dict[str, object], path: Path, now: datetime, dry_run: bool) -> int:
+def _drain_due_delivery(
+    state: dict[str, object],
+    path: Path,
+    now: datetime,
+    dry_run: bool,
+    *,
+    channel_id: str = DISCORD_CHANNEL_ID,
+) -> int:
     """Drain each immediately due text/media leg while the watcher lock is held."""
     delivered = 0
-    while deliver_oldest_ready_event(state, now, dry_run, state_path=path):
+    while deliver_oldest_ready_event(
+        state,
+        now,
+        dry_run,
+        state_path=path,
+        channel_id=channel_id,
+    ):
         delivered += 1
     return delivered
 
@@ -239,12 +369,126 @@ def _has_delivery_warning(state: Mapping[str, object]) -> bool:
 
 
 def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, object]:
-    return asyncio.run(_run(_require_aware(now or datetime.now(WIB)), _dry_run(dry_run)))
+    """Run once against one frozen operator configuration snapshot."""
+    run_now = _require_aware(now or datetime.now(WIB))
+    is_dry_run = _dry_run(dry_run)
+    loaded_config = config.load_watch_config_for_run()
+    with config.activate_watch_config(loaded_config.config):
+        control_run = ControlPlaneRun.begin(
+            "KELAS_INVESTASI_GTW",
+            loaded_config.revision,
+            scheduler_job_id="bursawatch-tg-kelas-investasi-gtw",
+        )
+        control_run.event(
+            "run-started",
+            level="info",
+            phase="lifecycle",
+            event_type="run.started",
+            message="Kelas Investasi watcher run started",
+            attributes={"config_revision": loaded_config.revision, "no_post": is_dry_run},
+        )
+        outcome = "failed"
+        failure: str | None = None
+        try:
+            payload, outcome = asyncio.run(_run(run_now, is_dry_run, loaded_config, control_run))
+            return payload
+        except Exception as error:
+            failure = _fatal_reason(error)
+            control_run.event(
+                "run-failed",
+                level="fatal",
+                phase="lifecycle",
+                event_type="run.failed",
+                message="Kelas Investasi watcher run failed",
+                attributes={"error": failure},
+            )
+            raise
+        finally:
+            control_run.event(
+                "run-completed",
+                level="warning" if outcome in {"blocked", "degraded"} else "info",
+                phase="lifecycle",
+                event_type="run.completed",
+                message=f"Kelas Investasi watcher run {outcome}",
+                attributes={"config_revision": loaded_config.revision},
+            )
+            control_run.finish(outcome, failure)
 
 
 def submit_analysis_payload(payload: object, dry_run: bool | None = None, now: datetime | None = None) -> dict[str, object]:
-    path = _state_path()
+    """Accept one agent result using the current frozen delivery snapshot."""
     submission_now = _require_aware(now or datetime.now(WIB))
+    is_dry_run = _dry_run(dry_run)
+    loaded_config = config.load_watch_config_for_run()
+    with config.activate_watch_config(loaded_config.config):
+        control_run = ControlPlaneRun.begin(
+            "KELAS_INVESTASI_GTW",
+            loaded_config.revision,
+            scheduler_job_id="bursawatch-tg-kelas-investasi-gtw",
+            trigger="agent_submission",
+        )
+        control_run.event(
+            "agent-submission-started",
+            level="info",
+            phase="agent",
+            event_type="agent.submission.started",
+            message="Kelas Investasi agent submission started",
+            attributes={"config_revision": loaded_config.revision, "no_post": is_dry_run},
+        )
+        outcome = "failed"
+        failure: str | None = None
+        try:
+            result, outcome = _submit_analysis_payload_loaded(
+                payload,
+                is_dry_run,
+                submission_now,
+                loaded_config,
+                control_run,
+            )
+            return result
+        except RetryableSubmissionError as error:
+            failure = f"submission rejected: {error.reason_code}"
+            outcome = "degraded"
+            control_run.event(
+                "agent-submission-rejected",
+                level="warning",
+                phase="agent",
+                event_type="agent.submission.rejected",
+                message="Kelas Investasi agent submission was rejected",
+                attributes={"reason": error.reason_code},
+            )
+            raise
+        except Exception as error:
+            failure = _fatal_reason(error)
+            control_run.event(
+                "agent-submission-failed",
+                level="fatal",
+                phase="agent",
+                event_type="agent.submission.failed",
+                message="Kelas Investasi agent submission failed",
+                attributes={"error": failure},
+            )
+            raise
+        finally:
+            control_run.event(
+                "agent-submission-completed",
+                level="warning" if outcome in {"degraded", "blocked"} else "info",
+                phase="lifecycle",
+                event_type="agent.submission.completed",
+                message=f"Kelas Investasi agent submission {outcome}",
+                attributes={"config_revision": loaded_config.revision},
+            )
+            control_run.finish(outcome, failure)
+
+
+def _submit_analysis_payload_loaded(
+    payload: object,
+    dry_run: bool,
+    submission_now: datetime,
+    loaded_config: config.LoadedWatchConfig,
+    control_run: ControlPlaneRun,
+) -> tuple[dict[str, object], str]:
+    path = _state_path()
     with run_lock(path.with_name(path.name + ".lock")):
         state = load_state(path)
         if isinstance(payload, str):
@@ -267,7 +511,14 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None, now: d
         try:
             validated = validate_submission(event, payload)
         except RetryableSubmissionError as error:
-            _post_submission_warning(state, event, error, submission_now, _dry_run(dry_run))
+            _post_submission_warning(
+                state,
+                event,
+                error,
+                submission_now,
+                dry_run,
+                heartbeat_channel_id=loaded_config.config.heartbeat_discord_channel_id,
+            )
             raise
         event["title"] = validated["title"]
         event["summary"] = validated["summary"]
@@ -276,8 +527,36 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None, now: d
         event["agent_phase"] = "delivering"
         event["agent_lease_until"] = None
         save_state(path, state)
-        delivered = _drain_due_delivery(state, path, submission_now, _dry_run(dry_run))
-        return {"wakeAgent": False, "delivered": delivered}
+        control_run.event(
+            "agent-submission-accepted",
+            level="info",
+            phase="agent",
+            event_type="agent.submission.accepted",
+            message="Kelas Investasi agent submission was accepted",
+            attributes={"event_key": event["event_key"]},
+        )
+        delivered = _drain_due_delivery(
+            state,
+            path,
+            submission_now,
+            dry_run,
+            channel_id=loaded_config.config.alert_discord_channel_id,
+        )
+        warning = _has_delivery_warning(state)
+        control_run.event(
+            "agent-delivery-drain-completed",
+            level="warning" if warning else "info",
+            phase="delivery",
+            event_type="delivery.drain.completed",
+            message="Kelas Investasi agent delivery and board drain completed",
+            attributes={
+                "event_key": event["event_key"],
+                "delivered": delivered,
+                "pending": len(state["outbox"]),
+                "warning": warning,
+            },
+        )
+        return {"wakeAgent": False, "delivered": delivered}, "degraded" if warning else "ok"
 
 
 def _post_submission_warning(
@@ -286,6 +565,8 @@ def _post_submission_warning(
     error: RetryableSubmissionError,
     now: datetime,
     dry_run: bool,
+    *,
+    heartbeat_channel_id: str = HEARTBEAT_CHANNEL_ID,
 ) -> None:
     event_key = str(event.get("event_key", "unknown"))
     pending = len(state.get("outbox", [])) if isinstance(state.get("outbox"), list) else 0
@@ -295,7 +576,13 @@ def _post_submission_warning(
     )
     hour = now.astimezone(WIB).strftime("%Y%m%d%H")
     try:
-        post_heartbeat(content, now, dry_run, nonce_seed=f"submission:{hour}:{event_key}:{error.reason_code}")
+        post_heartbeat(
+            content,
+            now,
+            dry_run,
+            channel_id=heartbeat_channel_id,
+            nonce_seed=f"submission:{hour}:{event_key}:{error.reason_code}",
+        )
     except Exception:
         pass
 

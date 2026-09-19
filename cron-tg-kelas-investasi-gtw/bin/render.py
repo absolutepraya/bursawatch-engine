@@ -14,6 +14,8 @@ if str(_SHARED_FORMAT_BIN) not in sys.path:
 
 from swing_format import BOARD_MENTION, MAX_DISCORD_CHARACTERS, SwingMessage, escape, render_chunks
 
+import config
+
 
 TELEGRAM_EMOJI = "<:telegram:1531657996432576618>"
 KELAS_INVESTASI_EMOJI = "<:kelasinvestasi:1536570114772574218>"
@@ -43,7 +45,7 @@ def render_event(event: Mapping[str, object], *, include_board: bool = True) -> 
         body=body,
         source_status=GTW_SOURCE_STATUS if source_time is not None else None,
         updated_at=source_time,
-        source_url=f"https://t.me/kelasinvestasiid/{message_id}",
+        source_url=f"https://t.me/{config.active_watch_config().telegram_username}/{message_id}",
         footer_label="View on Telegram",
         board_url=BOARD_MENTION if source_time is not None else None,
         chart_unavailable=not _has_media(event),

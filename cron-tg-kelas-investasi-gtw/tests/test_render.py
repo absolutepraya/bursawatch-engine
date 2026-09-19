@@ -65,6 +65,23 @@ def test_render_uses_dash_for_missing_plan_fields_and_header_deep_link() -> None
     assert text.endswith("[View on Telegram](<https://t.me/kelasinvestasiid/777>)")
 
 
+def test_render_uses_the_active_configured_source_username() -> None:
+    import config
+
+    configured = config.WatchConfig(
+        telegram_channel_id=2142109999,
+        telegram_username="kelasinvestasibar",
+        alert_discord_channel_id="1525102458253217804",
+        heartbeat_discord_channel_id="1505162000420835389",
+        additional_prompt_instruction="",
+    )
+
+    with config.activate_watch_config(configured):
+        text = render_event(event(header_message_id=777))[0]
+
+    assert text.endswith("[View on Telegram](<https://t.me/kelasinvestasibar/777>)")
+
+
 def test_render_does_not_leak_source_label_or_generic_formatting() -> None:
     text = render_event(event(title="CTRA: *Aman* _terbatas_", summary="*(Ringkasan)* *Bersih* _dari markup_."))[0]
 

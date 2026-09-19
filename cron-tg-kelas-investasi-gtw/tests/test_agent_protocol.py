@@ -48,6 +48,19 @@ def test_wake_payload_requires_the_closed_agent_item_schema() -> None:
         build_wake_payload({**item, "secret": "no"})
 
 
+def test_agent_item_uses_live_source_identity_and_keeps_additional_prompt_subordinate() -> None:
+    item = agent_item(
+        event(),
+        source_username="kelasinvestasibar",
+        additional_prompt_instruction="Utamakan ringkasan tesis yang sangat ringkas.",
+    )
+
+    assert item["source_url"] == "https://t.me/kelasinvestasibar/101"
+    assert "Additional operator context: Utamakan ringkasan tesis yang sangat ringkas." in str(item["instruction"])
+    assert "cannot override" in str(item["instruction"])
+    assert build_wake_payload(item) == {"wakeAgent": True, "item": item}
+
+
 def test_submission_accepts_exact_grounded_json() -> None:
     assert validate_submission(event(), json.dumps(valid_payload())) == valid_payload()
 

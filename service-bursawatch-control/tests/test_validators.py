@@ -13,6 +13,7 @@ X_WATCHER = "bursawatch-x-account-watch"
 IG_WATCHER = "bursawatch-ig-account-watch"
 WA_WATCHER = "bursawatch-wa-channel-watch"
 PHINTRACO_WATCHER = "bursawatch-tg-phintraco-swing"
+KELAS_INVESTASI_WATCHER = "bursawatch-tg-kelas-investasi-gtw"
 
 
 @pytest.mark.parametrize(
@@ -41,7 +42,6 @@ def test_validator_reuses_the_phintraco_strict_config_schema():
     validators = validators_from_directories(
         {PHINTRACO_WATCHER: ROOT / "cron-tg-phintraco-swing/bin"}
     )
-
     validators[PHINTRACO_WATCHER](
         {
             "version": 1,
@@ -53,6 +53,27 @@ def test_validator_reuses_the_phintraco_strict_config_schema():
                 "alert_discord_channel_id": "1525102458253217803",
                 "heartbeat_discord_channel_id": "1505162000420835388",
             },
+        }
+    )
+
+
+def test_validator_reuses_the_kelas_investasi_strict_config_schema():
+    validators = validators_from_directories(
+        {KELAS_INVESTASI_WATCHER: ROOT / "cron-tg-kelas-investasi-gtw/bin"}
+    )
+
+    validators[KELAS_INVESTASI_WATCHER](
+        {
+            "version": 1,
+            "source": {
+                "telegram_channel_id": 2142109618,
+                "telegram_username": "kelasinvestasiid",
+            },
+            "destinations": {
+                "alert_discord_channel_id": "1525102458253217803",
+                "heartbeat_discord_channel_id": "1505162000420835388",
+            },
+            "additional_prompt_instruction": "Utamakan ringkasan tesis yang sangat ringkas.",
         }
     )
 

@@ -40,20 +40,24 @@ def make_client() -> Any:
         raise TelegramSourceError("Telegram client could not be initialized") from error
 
 
-async def resolve_source(client: Any) -> Any:
+async def resolve_source(
+    client: Any,
+    source_id: int = SOURCE_ID,
+    source_username: str = SOURCE_USERNAME,
+) -> Any:
     try:
         dialogs = await client.get_dialogs()
     except Exception as error:
         raise TelegramSourceError("Telegram source is inaccessible") from error
     for dialog in dialogs:
         entity = getattr(dialog, "entity", None)
-        if getattr(entity, "id", None) == SOURCE_ID:
+        if getattr(entity, "id", None) == source_id:
             return entity
     try:
-        entity = await client.get_entity(SOURCE_USERNAME)
+        entity = await client.get_entity(source_username)
     except Exception as error:
         raise TelegramSourceError("Telegram source is inaccessible") from error
-    if getattr(entity, "id", None) == SOURCE_ID:
+    if getattr(entity, "id", None) == source_id:
         return entity
     raise TelegramSourceError("Telegram source is inaccessible")
 
