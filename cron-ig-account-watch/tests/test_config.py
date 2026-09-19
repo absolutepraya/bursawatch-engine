@@ -2,6 +2,7 @@ import json
 from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -36,6 +37,34 @@ def test_load_config_builds_instagram_feed_url(config_path):
         "http://127.0.0.1:1200/instagram/2/user/"
         "beyondthefundamental?format=json"
     )
+
+
+def test_live_config_snapshot_is_validated_once(config_path, profile_payload, monkeypatch):
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_CONTROL_PLANE_URL", "https://control.example.test")
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_CONTROL_PLANE_WATCHER_ID", "bursawatch-ig-account-watch")
+    monkeypatch.setattr(
+        config_module,
+        "_fetch_live_config",
+        lambda: SimpleNamespace(
+            watcher_id="bursawatch-ig-account-watch",
+            revision=12,
+            config={"version": 1, "profiles": [profile_payload]},
+        ),
+    )
+
+    loaded = config_module.load_watch_config_for_run()
+
+    assert loaded.revision == 12
+    assert loaded.config.profiles[0].id == "beyondthefundamental"
+
+
+def test_live_config_does_not_fall_back_to_json(config_path, monkeypatch):
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_CONTROL_PLANE_URL", "https://control.example.test")
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_CONTROL_PLANE_WATCHER_ID", "bursawatch-ig-account-watch")
+    monkeypatch.setattr(config_module, "_fetch_live_config", lambda: (_ for _ in ()).throw(RuntimeError("offline")))
+
+    with pytest.raises(RuntimeError, match="offline"):
+        config_module.load_watch_config_for_run(config_path)
 
 
 def test_load_config_contains_the_approved_public_profile_rollout():

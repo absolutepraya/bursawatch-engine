@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 
@@ -129,6 +130,52 @@ def test_run_persists_source_retry_after(tmp_path, monkeypatch, config_path):
 
     saved = state.load_state(storage)
     assert saved["source_retry_until"] == (now + timedelta(seconds=60)).isoformat()
+
+
+def test_live_run_reports_structured_events_without_changing_heartbeat(tmp_path, monkeypatch, config_path):
+    profile_config = __import__("config").load_watch_config(config_path)
+    now = datetime(2026, 8, 24, 10, 0, tzinfo=scan.WIB)
+    storage = tmp_path / "state.json"
+    heartbeats = []
+
+    class Reporter:
+        def __init__(self):
+            self.started = []
+            self.events = []
+            self.finished = []
+
+        def start_run(self, revision, scheduler_job_id, trigger):
+            self.started.append((revision, scheduler_job_id, trigger))
+            return "run-1"
+
+        def event(self, run_id, event_id, **kwargs):
+            self.events.append((run_id, event_id, kwargs))
+
+        def finish(self, run_id, status, error=None):
+            self.finished.append((run_id, status, error))
+
+    reporter = Reporter()
+    monkeypatch.setattr(scan, "state_path", lambda: storage)
+    monkeypatch.setattr(scan, "config_path", lambda: config_path)
+    monkeypatch.setattr(
+        scan.config,
+        "load_watch_config_for_run",
+        lambda _path: SimpleNamespace(config=profile_config, revision=17),
+    )
+    monkeypatch.setattr(scan, "_control_plane_reporter", lambda: reporter)
+    monkeypatch.setattr(scan.rsshub, "fetch_profile_items", lambda *args, **kwargs: [])
+    monkeypatch.setattr(scan.discord, "post_text", lambda message, *args: heartbeats.append(message))
+
+    scan.run(now=now, dry_run=True)
+
+    assert reporter.started == [(17, "x-post-source", "scheduled")]
+    assert [event[2]["event_type"] for event in reporter.events] == [
+        "run.started",
+        "source.fetch.completed",
+        "run.completed",
+    ]
+    assert reporter.finished == [("run-1", "degraded", None)]
+    assert heartbeats[0].startswith("🫀 x-post · 10:00 WIB ·")
 
 
 def test_queue_only_run_skips_source_fetch_and_claims_oldest_agent(tmp_path, monkeypatch, config_path):

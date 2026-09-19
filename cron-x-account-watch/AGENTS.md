@@ -4,7 +4,10 @@ This file supplements the repository root `AGENTS.md`. It is the development and
 
 ## Runtime and authoritative source
 
-- `config/watches.json` is the canonical watched-account configuration.
+- `config/watches.json` is the migration fallback for watched-account configuration.
+  When `X_POST_WATCH_CONTROL_PLANE_URL` is set, the control-plane snapshot is
+  authoritative for the whole invocation and this package validator remains
+  the final runtime safety check.
 - `bin/` owns source adapters, structural source eligibility, cursor and outbox state transitions, rendering, media delivery, heartbeats, and the wrappers. Negative content relevance is decided by the LLM.
 - Development source is this directory. The deployed runtime is `~/.agents/skills/bursawatch-x-account-watch/`; its source-polling wrapper is `~/.hermes/scripts/bursawatch-x-account-watch.sh` and its queue-worker wrapper is `~/.hermes/scripts/bursawatch-x-account-watch-queue.sh`.
 - The live state directory, cursors, outbox, media, and `~/.dotfiles/vps/agents/skills/bursawatch-x-account-watch/` are not authoring targets. Never reset, edit, replay, or backfill them without explicit approval.

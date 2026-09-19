@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -134,11 +136,8 @@ def _profile(value: object) -> ChannelProfile:
     )
 
 
-def load(path: Path) -> WatchConfig:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"could not read watcher config: {exc}") from exc
+def load_data(payload: object) -> WatchConfig:
+    """Validate one complete WhatsApp Channel watcher configuration object."""
     if type(payload) is not dict or set(payload) != {"version", "profiles"}:
         raise ValueError("watcher config has unexpected or missing fields")
     if payload["version"] != 1:
@@ -149,3 +148,45 @@ def load(path: Path) -> WatchConfig:
     if len({profile.channel_jid for profile in profiles}) != len(profiles):
         raise ValueError("channel JIDs must be unique")
     return WatchConfig(version=1, profiles=profiles)
+
+
+def load(path: Path) -> WatchConfig:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"could not read watcher config: {exc}") from exc
+    return load_data(payload)
+
+
+@dataclass(frozen=True)
+class LoadedWatchConfig:
+    config: WatchConfig
+    revision: int | None
+
+
+def _fetch_live_config():
+    try:
+        from control_plane_client import fetch_config, live_config_settings
+    except ModuleNotFoundError as exc:
+        raise ValueError("live config mode requires lib-bursawatch-control") from exc
+    settings = live_config_settings("WHATSAPP_CHANNEL_WATCH")
+    if settings is None:
+        raise ValueError("live config mode was requested without a control-plane URL")
+    base_url, watcher_id, token, timeout = settings
+    return fetch_config(base_url, watcher_id, token, timeout=timeout)
+
+
+def load_for_run(static_path: Path | None = None) -> LoadedWatchConfig:
+    """Load one frozen config snapshot, using JSON only when live mode is off."""
+    if os.environ.get("WHATSAPP_CHANNEL_WATCH_CONTROL_PLANE_URL", "").strip():
+        snapshot = _fetch_live_config()
+        if snapshot.watcher_id != os.environ.get(
+            "WHATSAPP_CHANNEL_WATCH_CONTROL_PLANE_WATCHER_ID", "bursawatch-wa-channel-watch"
+        ):
+            raise ValueError("control-plane returned the wrong watcher ID")
+        return LoadedWatchConfig(load_data(snapshot.config), snapshot.revision)
+    if static_path is None:
+        static_path = Path(
+            os.environ.get("WHATSAPP_CHANNEL_WATCH_CONFIG_PATH", "config/watches.json")
+        )
+    return LoadedWatchConfig(load(static_path), None)

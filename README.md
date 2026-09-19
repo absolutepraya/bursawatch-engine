@@ -22,12 +22,18 @@ Every scheduled package has `AGENTS.md` and exactly one contract file:
 owns the shared PolyCop Telegram control plane. Hermes Personal's Polymarket
 cron consumes that library at runtime, so its control state remains single-owner.
 
+`service-bursawatch-control` owns the Bursawatch configuration and
+observability API. `lib-bursawatch-control` is the standard-library runtime
+client used by migrated crons. The Bursawatch web application is maintained in
+a separate repository and integrates through the service's versioned OpenAPI
+contract.
+
 `skill-guess-stock` and `skill-profile-emoji` are reusable, non-scheduled
 market skills. `service-cobalt` is the tracked media-download service.
 `service-rsshub` records the VPS-owned shared RSSHub boundary without copying
 its compose files, credentials, cookies, proxy configuration, or runtime data
-into source control. `web-config/` and `web-landing/` are intentionally empty
-reserved directories for future Bursawatch web applications.
+into source control. The Bursawatch web application is maintained in a
+separate repository and integrates through `service-bursawatch-control`.
 
 ## Workflow
 1. Read the package `AGENTS.md` and its `CRON.md` or `SKILL.md`, then edit source under `cron-<slug>/bin/`.

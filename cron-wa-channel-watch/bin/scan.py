@@ -17,6 +17,21 @@ import render
 import state
 
 
+try:
+    from control_plane_runtime import ControlPlaneRun
+except ModuleNotFoundError:
+    class ControlPlaneRun:
+        @classmethod
+        def begin(cls, *_args, **_kwargs):
+            return cls()
+
+        def event(self, *_args, **_kwargs):
+            pass
+
+        def finish(self, *_args, **_kwargs):
+            pass
+
+
 WATCHER_HEARTBEAT_NAME = "whatsapp-channel"
 WIB = ZoneInfo("Asia/Jakarta")
 
@@ -112,8 +127,74 @@ def _deliver_ready(
 
 
 def run(*, config_path: Path, state_path: Path, queue_dir: Path, now: datetime | None = None, no_post: bool = False) -> dict[str, object]:
+    run_now = now or datetime.now(timezone.utc)
+    loaded_config = config.load_for_run(config_path)
+    control_run = ControlPlaneRun.begin(
+        "WHATSAPP_CHANNEL_WATCH",
+        loaded_config.revision,
+        scheduler_job_id="whatsapp-channel",
+    )
+    control_run.event(
+        "run-started",
+        level="info",
+        phase="lifecycle",
+        event_type="run.started",
+        message="WhatsApp Channel watcher run started",
+        attributes={"config_revision": loaded_config.revision, "no_post": no_post},
+    )
+    try:
+        result = _run(
+            config_path=config_path,
+            state_path=state_path,
+            queue_dir=queue_dir,
+            now=run_now,
+            no_post=no_post,
+            watch_config=loaded_config.config,
+        )
+    except Exception as exc:
+        reason = " ".join(str(exc).split())[:500]
+        control_run.event(
+            "run-failed",
+            level="fatal",
+            phase="lifecycle",
+            event_type="run.failed",
+            message="WhatsApp Channel watcher run failed",
+            attributes={"error": reason},
+        )
+        control_run.finish("failed", reason)
+        raise
+    errors = result.get("errors")
+    degraded = isinstance(errors, list) and bool(errors)
+    control_run.event(
+        "run-completed",
+        level="warning" if degraded else "info",
+        phase="lifecycle",
+        event_type="run.completed",
+        message="WhatsApp Channel watcher run completed",
+        attributes={
+            "fetched": result.get("fetched", 0),
+            "queued": result.get("queued", 0),
+            "claimed": result.get("claimed", 0),
+            "expired": result.get("expired", 0),
+            "delivered": result.get("delivered", 0),
+            "errors": errors[:10] if isinstance(errors, list) else [],
+        },
+    )
+    control_run.finish("degraded" if degraded else "ok")
+    return result
+
+
+def _run(
+    *,
+    config_path: Path,
+    state_path: Path,
+    queue_dir: Path,
+    now: datetime | None = None,
+    no_post: bool = False,
+    watch_config: config.WatchConfig | None = None,
+) -> dict[str, object]:
     now = now or datetime.now(timezone.utc)
-    watch_config = config.load(config_path)
+    watch_config = watch_config or config.load_for_run(config_path).config
     value = state.load(state_path)
     expired = state.expire_leases(value, now)
     queued = 0
@@ -200,7 +281,7 @@ def run(*, config_path: Path, state_path: Path, queue_dir: Path, now: datetime |
 
 def submit_analysis(*, config_path: Path, state_path: Path, payload: object, now: datetime | None = None, no_post: bool = False) -> dict[str, object]:
     now = now or datetime.now(timezone.utc)
-    watch_config = config.load(config_path)
+    watch_config = config.load_for_run(config_path).config
     value = state.load(state_path)
     event_key = payload.get("event_key") if isinstance(payload, dict) else None
     record = next((item for item in value["outbox"] if isinstance(item, dict) and item.get("event_key") == event_key), None)  # type: ignore[union-attr]

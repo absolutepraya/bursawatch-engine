@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -202,11 +204,8 @@ def _parse_profile(index: int, value: object) -> Profile:
     )
 
 
-def load_watch_config(path: Path) -> WatchConfig:
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"watch configuration is invalid JSON: {exc.msg}") from exc
+def load_watch_config_data(raw: object) -> WatchConfig:
+    """Validate one complete X watcher configuration object."""
     root = _expect_object(raw, "watch configuration")
     if set(root) != {"version", "profiles"}:
         raise ValueError("watch configuration must contain only version and profiles")
@@ -223,3 +222,48 @@ def load_watch_config(path: Path) -> WatchConfig:
     if len(handles) != len(set(handles)):
         raise ValueError("watch configuration handles must be unique ignoring case")
     return WatchConfig(version=CONFIG_VERSION, profiles=profiles)
+
+
+def load_watch_config(path: Path) -> WatchConfig:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"watch configuration is invalid JSON: {exc.msg}") from exc
+    return load_watch_config_data(raw)
+
+
+@dataclass(frozen=True)
+class LoadedWatchConfig:
+    config: WatchConfig
+    revision: int | None
+
+
+def _fetch_live_config():
+    try:
+        from control_plane_client import fetch_config, live_config_settings
+    except ModuleNotFoundError as exc:
+        raise ValueError("live config mode requires lib-bursawatch-control") from exc
+    settings = live_config_settings("X_POST_WATCH")
+    if settings is None:
+        raise ValueError("live config mode was requested without a control-plane URL")
+    base_url, watcher_id, token, timeout = settings
+    return fetch_config(base_url, watcher_id, token, timeout=timeout)
+
+
+def load_watch_config_for_run(static_path: Path | None = None) -> LoadedWatchConfig:
+    """Load a frozen config snapshot, using the static file only when live mode is off."""
+    if os.environ.get("X_POST_WATCH_CONTROL_PLANE_URL", "").strip():
+        snapshot = _fetch_live_config()
+        if snapshot.watcher_id != os.environ.get(
+            "X_POST_WATCH_CONTROL_PLANE_WATCHER_ID", "bursawatch-x-account-watch"
+        ):
+            raise ValueError("control-plane returned the wrong watcher ID")
+        return LoadedWatchConfig(load_watch_config_data(snapshot.config), snapshot.revision)
+    if static_path is None:
+        static_path = Path(
+            os.environ.get(
+                "X_POST_WATCH_CONFIG_PATH",
+                str(Path(__file__).resolve().parent.parent / "config" / "watches.json"),
+            )
+        )
+    return LoadedWatchConfig(load_watch_config(static_path), None)

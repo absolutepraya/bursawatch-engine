@@ -115,6 +115,52 @@ def config_path() -> Path:
     return Path(os.environ.get("X_POST_WATCH_CONFIG_PATH", str(Path(__file__).resolve().parent.parent / "config" / "watches.json")))
 
 
+def _control_plane_reporter():
+    try:
+        from control_plane_client import ControlPlaneReporter
+
+        return ControlPlaneReporter.from_environment("X_POST_WATCH")
+    except Exception:
+        return None
+
+
+def _report_control_event(
+    reporter,
+    run_id: str | None,
+    event_id: str,
+    *,
+    level: str,
+    phase: str,
+    event_type: str,
+    message: str,
+    attributes: dict[str, object] | None = None,
+) -> None:
+    if reporter is None or run_id is None:
+        return
+    try:
+        reporter.event(
+            run_id,
+            event_id,
+            level=level,
+            phase=phase,
+            event_type=event_type,
+            message=message,
+            attributes=attributes,
+            flush=False,
+        )
+    except Exception:
+        pass
+
+
+def _finish_control_run(reporter, run_id: str | None, status: str, error: str | None = None) -> None:
+    if reporter is None or run_id is None:
+        return
+    try:
+        reporter.finish(run_id, status, error)
+    except Exception:
+        pass
+
+
 def format_heartbeat(now: datetime, stats: RunStats) -> str:
     suffix = f" · {stats.reasons[0]}" if stats.reasons else ""
     warning = " ⚠️" if stats.degraded else ""
@@ -598,8 +644,36 @@ def run(
         try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError: return build_wake_payload(None)
         stats = RunStats()
+        reporter = None
+        run_id = None
         try:
-            watches = config.load_watch_config(config_path())
+            loaded_config = config.load_watch_config_for_run(config_path())
+            watches = loaded_config.config
+            if loaded_config.revision is not None:
+                reporter = _control_plane_reporter()
+                if reporter is not None:
+                    run_id = reporter.start_run(
+                        loaded_config.revision,
+                        scheduler_job_id=os.environ.get(
+                            "X_POST_WATCH_SCHEDULER_JOB_ID",
+                            "x-post-queue-worker" if queue_only else "x-post-source",
+                        ),
+                        trigger="queue" if queue_only else "scheduled",
+                    )
+                    _report_control_event(
+                        reporter,
+                        run_id,
+                        "run-started",
+                        level="info",
+                        phase="lifecycle",
+                        event_type="run.started",
+                        message="X watcher run started",
+                        attributes={
+                            "config_revision": loaded_config.revision,
+                            "queue_only": queue_only,
+                            "dry_run": dry_run,
+                        },
+                    )
             value = state.load_state(storage)
             state.prune_deliveries(value, now)
             stats.filtered = state.take_filtered_since_last_heartbeat(value)
@@ -630,11 +704,36 @@ def run(
                             stats.reasons.append(f"{profile.id}: {reason}")
                         _annotate_replacements(value, profile, fresh_ids, verifier, now, stats)
                         state.save_state(storage, value)
+                        _report_control_event(
+                            reporter,
+                            run_id,
+                            f"source-fetch-{profile.id}",
+                            level="warning" if reason else "info",
+                            phase="source",
+                            event_type="source.fetch.completed",
+                            message=f"{profile.id}: fetched {len(posts)} source items",
+                            attributes={
+                                "profile_id": profile.id,
+                                "items": len(posts),
+                                "queued": queued,
+                                "reason": reason,
+                            },
+                        )
                     except rsshub.SourceFetchError as exc:
                         if exc.retry_after_seconds is not None:
                             state.set_source_retry(value, now, exc.retry_after_seconds)
                             state.save_state(storage, value)
                         stats.note_source_error(f"{profile.id}: {exc}")
+                        _report_control_event(
+                            reporter,
+                            run_id,
+                            f"source-fetch-{profile.id}",
+                            level="warning",
+                            phase="source",
+                            event_type="source.fetch.failed",
+                            message=f"{profile.id}: source fetch failed",
+                            attributes={"profile_id": profile.id, "error": str(exc)},
+                        )
             while (event_index := _next_deliverable_index(value, profiles, now)) is not None:
                 if not _deliver(value, profiles, event_index, dry_run, storage, stats, now): break
             _retry_cleanup(value, dry_run, storage, stats)
@@ -645,8 +744,41 @@ def run(
             state.save_state(storage, value)
             post = state.deserialize_post(event["post"]) if event else None
             thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]])) if event else None
-            return build_wake_payload(agent_item(profiles[event["profile_id"]], post, thread_posts) if event and post else None)
+            wake_payload = build_wake_payload(agent_item(profiles[event["profile_id"]], post, thread_posts) if event and post else None)
+            _report_control_event(
+                reporter,
+                run_id,
+                "run-completed",
+                level="warning" if stats.degraded else "info",
+                phase="lifecycle",
+                event_type="run.completed",
+                message="X watcher run completed",
+                attributes={
+                    "fetched": stats.fetched,
+                    "filtered": stats.filtered,
+                    "queued": stats.queued,
+                    "delivered": stats.delivered,
+                    "pending": stats.pending,
+                    "oldest_pending_minutes": stats.oldest_pending_minutes,
+                    "degraded": stats.degraded,
+                    "reasons": stats.reasons[:10],
+                },
+            )
+            _finish_control_run(reporter, run_id, "degraded" if stats.degraded else "ok")
+            return wake_payload
         except Exception as exc:
+            reason = " ".join(str(exc).split())[:500]
+            _report_control_event(
+                reporter,
+                run_id,
+                "run-failed",
+                level="fatal",
+                phase="lifecycle",
+                event_type="run.failed",
+                message="X watcher run failed",
+                attributes={"error": reason},
+            )
+            _finish_control_run(reporter, run_id, "failed", reason)
             try: discord.post_text(format_fatal(now, str(exc)), HEARTBEAT_CHANNEL_ID, dry_run, discord.nonce("fatal", now.astimezone(WIB).strftime("%Y%m%d%H%M")))
             except Exception: pass
             raise
@@ -661,7 +793,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
     with (storage.parent / "run.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         value = state.load_state(storage)
-        watches = config.load_watch_config(config_path())
+        watches = config.load_watch_config_for_run(config_path()).config
         profiles = {profile.id: profile for profile in watches.profiles}
         profile_id = payload["event_key"].partition(":")[0]
         profile = profiles.get(profile_id)

@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -43,6 +44,34 @@ def test_loads_strict_profile(tmp_path):
     assert result.profiles[0].channel_jid.endswith("@newsletter")
     assert result.profiles[0].uses_llm is True
     assert result.profiles[0].status_emojis.hold == "<:hold:1531284248235868333>"
+
+
+def test_live_config_snapshot_is_validated_once(tmp_path, monkeypatch):
+    payload = profile()
+    monkeypatch.setenv("WHATSAPP_CHANNEL_WATCH_CONTROL_PLANE_URL", "https://control.example.test")
+    monkeypatch.setenv("WHATSAPP_CHANNEL_WATCH_CONTROL_PLANE_WATCHER_ID", "bursawatch-wa-channel-watch")
+    monkeypatch.setattr(
+        "config._fetch_live_config",
+        lambda: SimpleNamespace(
+            watcher_id="bursawatch-wa-channel-watch",
+            revision=8,
+            config={"version": 1, "profiles": [payload]},
+        ),
+    )
+
+    loaded = __import__("config").load_for_run()
+
+    assert loaded.revision == 8
+    assert loaded.config.profiles[0].channel_jid == "12345@newsletter"
+
+
+def test_live_config_does_not_fall_back_to_json(tmp_path, monkeypatch):
+    monkeypatch.setenv("WHATSAPP_CHANNEL_WATCH_CONTROL_PLANE_URL", "https://control.example.test")
+    monkeypatch.setenv("WHATSAPP_CHANNEL_WATCH_CONTROL_PLANE_WATCHER_ID", "bursawatch-wa-channel-watch")
+    monkeypatch.setattr("config._fetch_live_config", lambda: (_ for _ in ()).throw(RuntimeError("offline")))
+
+    with pytest.raises(RuntimeError, match="offline"):
+        __import__("config").load_for_run(write_config(tmp_path, [profile()]))
 
 
 @pytest.mark.parametrize("change", [

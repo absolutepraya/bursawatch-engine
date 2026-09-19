@@ -1,0 +1,229 @@
+from __future__ import annotations
+
+from fastapi.testclient import TestClient
+
+from control_plane.api import create_app
+from control_plane.auth import StaticTokenAuth
+from control_plane.store import InMemoryStore
+
+
+WATCHER = "bursawatch-x-account-watch"
+TOKEN = "machine-token"
+ADMIN = "admin-token"
+
+
+def build_client():
+    store = InMemoryStore()
+    store.seed_config(WATCHER, 1, {"version": 1, "profiles": []})
+    app = create_app(
+        store=store,
+        auth=StaticTokenAuth(machine_token=TOKEN, admin_token=ADMIN),
+        validators={WATCHER: lambda config: None},
+    )
+    return TestClient(app), store
+
+
+def test_health_is_public_and_config_requires_authentication():
+    client, _store = build_client()
+
+    assert client.get("/healthz").json() == {"status": "ok"}
+    assert client.get(f"/v1/watchers/{WATCHER}/config").status_code == 401
+
+
+def test_cors_allowlist_supports_the_separate_web_origin():
+    store = InMemoryStore()
+    store.seed_config(WATCHER, 1, {"version": 1, "profiles": []})
+    from control_plane.api import create_app
+
+    client = TestClient(
+        create_app(
+            store=store,
+            auth=StaticTokenAuth(machine_token=TOKEN, admin_token=ADMIN),
+            validators={WATCHER: lambda config: None},
+            allowed_origins=["https://watch.example.test"],
+        )
+    )
+
+    response = client.options(
+        f"/v1/watchers/{WATCHER}/config",
+        headers={
+            "Origin": "https://watch.example.test",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "authorization",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "https://watch.example.test"
+
+
+def test_web_read_routes_expose_watchers_runs_and_events():
+    client, _store = build_client()
+    headers = {"Authorization": f"Bearer {ADMIN}"}
+    run = client.post(
+        "/v1/runs",
+        headers=headers,
+        json={"watcher_id": WATCHER, "config_revision": 1, "run_id": "read-route-run"},
+    )
+    event = client.post(
+        "/v1/runs/read-route-run/events",
+        headers=headers,
+        json={
+            "event_id": "read-route-event",
+            "occurred_at": "2026-09-19T10:00:00+00:00",
+            "level": "info",
+            "phase": "lifecycle",
+            "event_type": "run.started",
+            "message": "started",
+        },
+    )
+
+    assert run.status_code == 201
+    assert event.status_code == 201
+    assert client.get("/v1/watchers", headers=headers).json()[0]["watcher_id"] == WATCHER
+    assert client.get(f"/v1/watchers/{WATCHER}/runs", headers=headers).json()[0]["run_id"] == "read-route-run"
+    assert client.get("/v1/runs/read-route-run/events", headers=headers).json()[0]["event_id"] == "read-route-event"
+
+
+def test_machine_can_read_config_but_cannot_write():
+    client, _store = build_client()
+    headers = {"Authorization": f"Bearer {TOKEN}"}
+
+    response = client.get(f"/v1/watchers/{WATCHER}/config", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["revision"] == 1
+
+    response = client.put(
+        f"/v1/watchers/{WATCHER}/config",
+        headers=headers,
+        json={"config_version": 1, "config": {"version": 1}},
+    )
+    assert response.status_code == 403
+
+
+def test_admin_write_creates_a_new_revision():
+    client, _store = build_client()
+    headers = {"Authorization": f"Bearer {ADMIN}"}
+
+    response = client.put(
+        f"/v1/watchers/{WATCHER}/config",
+        headers=headers,
+        json={"config_version": 1, "config": {"version": 1, "profiles": [{"id": "next"}]}},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["revision"] == 2
+
+
+def test_run_events_are_idempotent_by_event_id():
+    client, _store = build_client()
+    headers = {"Authorization": f"Bearer {TOKEN}"}
+    run = client.post(
+        "/v1/runs",
+        headers=headers,
+        json={"watcher_id": WATCHER, "config_revision": 1},
+    )
+    assert run.status_code == 201
+    run_id = run.json()["run_id"]
+    event = {
+        "event_id": "source-fetch-1",
+        "occurred_at": "2026-09-19T10:00:00+00:00",
+        "level": "info",
+        "phase": "source",
+        "event_type": "fetch.completed",
+        "message": "source fetch completed",
+        "attributes": {"items": 0},
+    }
+
+    first = client.post(f"/v1/runs/{run_id}/events", headers=headers, json=event)
+    second = client.post(f"/v1/runs/{run_id}/events", headers=headers, json=event)
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.json() == second.json()
+
+
+def test_event_id_cannot_be_reused_for_different_event_data():
+    client, _store = build_client()
+    headers = {"Authorization": f"Bearer {TOKEN}"}
+    run = client.post(
+        "/v1/runs",
+        headers=headers,
+        json={"watcher_id": WATCHER, "config_revision": 1},
+    )
+    run_id = run.json()["run_id"]
+    event = {
+        "event_id": "same-id",
+        "occurred_at": "2026-09-19T10:00:00+00:00",
+        "level": "info",
+        "phase": "source",
+        "event_type": "fetch.completed",
+        "message": "first",
+    }
+
+    assert client.post(f"/v1/runs/{run_id}/events", headers=headers, json=event).status_code == 201
+    response = client.post(
+        f"/v1/runs/{run_id}/events",
+        headers=headers,
+        json={**event, "message": "different"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_run_finish_is_idempotent():
+    client, store = build_client()
+    headers = {"Authorization": f"Bearer {TOKEN}"}
+    run = client.post(
+        "/v1/runs",
+        headers=headers,
+        json={"watcher_id": WATCHER, "config_revision": 1},
+    )
+    run_id = run.json()["run_id"]
+
+    first = client.post(f"/v1/runs/{run_id}/finish", headers=headers, json={"status": "ok"})
+    second = client.post(f"/v1/runs/{run_id}/finish", headers=headers, json={"status": "ok"})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json() == second.json()
+    assert store.runs[run_id].status == "ok"
+
+
+def test_run_start_is_idempotent_by_client_supplied_run_id():
+    client, store = build_client()
+    headers = {"Authorization": f"Bearer {TOKEN}"}
+    payload = {
+        "run_id": "run-from-spool-1",
+        "watcher_id": WATCHER,
+        "config_revision": 1,
+        "scheduler_job_id": "x-post-source",
+        "trigger": "scheduled",
+    }
+
+    first = client.post("/v1/runs", headers=headers, json=payload)
+    second = client.post("/v1/runs", headers=headers, json=payload)
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.json() == second.json()
+    assert len(store.runs) == 1
+
+
+def test_run_start_rejects_reusing_run_id_for_different_run():
+    client, _store = build_client()
+    headers = {"Authorization": f"Bearer {TOKEN}"}
+    payload = {
+        "run_id": "run-from-spool-2",
+        "watcher_id": WATCHER,
+        "config_revision": 1,
+    }
+
+    assert client.post("/v1/runs", headers=headers, json=payload).status_code == 201
+    response = client.post(
+        "/v1/runs",
+        headers=headers,
+        json={**payload, "trigger": "manual"},
+    )
+
+    assert response.status_code == 422

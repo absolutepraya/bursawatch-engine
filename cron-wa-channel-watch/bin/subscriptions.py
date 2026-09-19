@@ -9,7 +9,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-from config import load
+from config import load_for_run
 
 
 DEFAULT_CONFIG = Path("~/.agents/skills/bursawatch-wa-channel-watch/config/watches.json").expanduser()
@@ -57,7 +57,7 @@ def _request_json(method: str, url: str, payload: dict[str, object] | None = Non
 
 
 def _targets(config_path: Path) -> list[dict[str, str]]:
-    config = load(config_path)
+    config = load_for_run(config_path).config
     return [
         {
             "profile_id": profile.id,

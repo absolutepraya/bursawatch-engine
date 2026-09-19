@@ -1,0 +1,303 @@
+openapi: 3.1.0
+info:
+  title: Bursawatch Control Plane API
+  version: 1.0.0
+  description: Configuration and structured run observability for Bursawatch.
+servers:
+  - url: https://api.example.invalid
+security:
+  - bearerAuth: []
+paths:
+  /healthz:
+    get:
+      security: []
+      responses:
+        '200':
+          description: Service is reachable.
+  /v1/watchers/{watcher_id}/config:
+    parameters:
+      - $ref: '#/components/parameters/WatcherId'
+    get:
+      summary: Read the active configuration snapshot.
+      responses:
+        '200':
+          description: Active snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigSnapshot'
+        '404':
+          description: Watcher has no active configuration.
+    put:
+      summary: Write a validated configuration revision.
+      description: Human admin operation. The server validates the watcher payload before storing it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigWrite'
+      responses:
+        '200':
+          description: New active snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigSnapshot'
+        '422':
+          description: Watcher-specific validation failed.
+  /v1/watchers:
+    get:
+      summary: List registered watchers and active revisions.
+      responses:
+        '200':
+          description: Registered watchers.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WatcherSummary'
+  /v1/watchers/{watcher_id}/runs:
+    parameters:
+      - $ref: '#/components/parameters/WatcherId'
+    get:
+      summary: List recent watcher runs.
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Recent runs.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Run'
+  /v1/runs/{run_id}/events:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+    get:
+      summary: Read the structured event timeline for a run.
+      parameters:
+        - $ref: '#/components/parameters/EventLimit'
+      responses:
+        '200':
+          description: Run events in occurrence order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RunEvent'
+  /v1/runs:
+    post:
+      summary: Start a cron run record.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunStart'
+      responses:
+        '201':
+          description: Created run.
+  /v1/runs/{run_id}/events:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+    post:
+      summary: Append an idempotent structured event.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunEvent'
+      responses:
+        '201':
+          description: Stored event.
+  /v1/runs/{run_id}/finish:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+    post:
+      summary: Finish a cron run.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunFinish'
+      responses:
+        '200':
+          description: Updated run.
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    WatcherId:
+      name: watcher_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[a-z0-9][a-z0-9-]*$'
+    RunId:
+      name: run_id
+      in: path
+      required: true
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    EventLimit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000
+        default: 500
+  schemas:
+    WatcherSummary:
+      type: object
+      additionalProperties: false
+      required: [watcher_id, display_name, current_revision, updated_at]
+      properties:
+        watcher_id:
+          type: string
+        display_name:
+          type: string
+        current_revision:
+          type: [integer, 'null']
+        updated_at:
+          type: string
+          format: date-time
+    ConfigWrite:
+      type: object
+      additionalProperties: false
+      required: [config_version, config]
+      properties:
+        config_version:
+          type: integer
+          minimum: 1
+        config:
+          type: object
+    ConfigSnapshot:
+      type: object
+      additionalProperties: false
+      required: [api_version, watcher_id, revision, config_version, config, config_sha256, updated_at]
+      properties:
+        api_version:
+          type: integer
+          const: 1
+        watcher_id:
+          type: string
+        revision:
+          type: integer
+          minimum: 1
+        config_version:
+          type: integer
+          minimum: 1
+        config:
+          type: object
+        config_sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        updated_at:
+          type: string
+          format: date-time
+    Run:
+      type: object
+      additionalProperties: false
+      required: [run_id, watcher_id, scheduler_job_id, trigger, config_revision, started_at, finished_at, status, error]
+      properties:
+        run_id:
+          type: string
+        watcher_id:
+          type: string
+        scheduler_job_id:
+          type: [string, 'null']
+        trigger:
+          type: string
+        config_revision:
+          type: integer
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: [string, 'null']
+          format: date-time
+        status:
+          type: string
+          enum: [running, ok, degraded, failed, blocked]
+        error:
+          type: [string, 'null']
+    RunStart:
+      type: object
+      additionalProperties: false
+      required: [watcher_id, config_revision]
+      properties:
+        run_id:
+          type: [string, 'null']
+          minLength: 1
+          maxLength: 128
+        watcher_id:
+          type: string
+        config_revision:
+          type: integer
+          minimum: 1
+        scheduler_job_id:
+          type: [string, 'null']
+        trigger:
+          type: string
+          default: scheduled
+    RunEvent:
+      type: object
+      additionalProperties: false
+      required: [event_id, occurred_at, level, phase, event_type, message]
+      properties:
+        event_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        occurred_at:
+          type: string
+          format: date-time
+        level:
+          type: string
+          enum: [debug, info, warning, error, fatal]
+        phase:
+          type: string
+          minLength: 1
+          maxLength: 64
+        event_type:
+          type: string
+          minLength: 1
+          maxLength: 128
+        message:
+          type: string
+          maxLength: 500
+        attributes:
+          type: object
+          description: JSON-safe structured fields, capped at 64 KiB by the service.
+    RunFinish:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, failed, blocked]
+        error:
+          type: [string, 'null']
+          maxLength: 500

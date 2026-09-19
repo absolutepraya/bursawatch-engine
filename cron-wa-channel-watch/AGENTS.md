@@ -46,7 +46,10 @@ watcher's scope.
 
 ## Configuration and onboarding
 
-`config/watches.json` is the exact reviewed configuration boundary. A profile
+`config/watches.json` is the migration fallback for the exact reviewed
+configuration boundary. When `WHATSAPP_CHANNEL_WATCH_CONTROL_PLANE_URL` is
+set, one control-plane snapshot is authoritative for the whole invocation and
+the package validator remains mandatory. A profile
 uses the stable Channel JID as its source identity and has a human-readable
 display name, public Channel URL, reviewed Discord custom emoji, and explicit
 `up`, `down`, and `hold` status-emoji fallbacks. BRI Danareksa uses the three

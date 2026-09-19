@@ -23,8 +23,10 @@ run_suite cron-ig-account-watch cron-ig-account-watch tests
 run_suite cron-tg-kelas-investasi-gtw cron-tg-kelas-investasi-gtw tests
 run_suite skill-guess-stock skill-guess-stock tests
 run_suite lib-telegram-resilience lib-telegram-resilience tests
+run_suite lib-bursawatch-control lib-bursawatch-control tests
 run_suite cron-x-account-watch cron-x-account-watch tests
 run_suite cron-wa-channel-watch cron-wa-channel-watch tests
+run_suite service-bursawatch-control service-bursawatch-control tests
 printf '\n== cron-wa-channel-watch JavaScript sink ==\n'
 node --test "$repo_root/cron-wa-channel-watch/tests/channel_sink.test.mjs"
 run_suite skill-profile-emoji skill-profile-emoji tests

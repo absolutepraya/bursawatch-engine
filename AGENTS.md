@@ -43,6 +43,7 @@ Read a package `AGENTS.md` before modifying it. These child files supplement
 this contract:
 
 - `service-cobalt/AGENTS.md`
+- `service-bursawatch-control/AGENTS.md`
 - `cron-tg-market-news/AGENTS.md`
 - `cron-dc-swing-board/AGENTS.md`
 - `cron-tg-phintraco-swing/AGENTS.md`
@@ -137,9 +138,10 @@ runtime data remain VPS-owned until a separate reviewed import is approved.
 
 ## Repository boundaries
 
-`web-config/` and `web-landing/` are intentionally empty placeholders for
-future Bursawatch applications. They have no deployment or configuration
-authority yet. `hermes-agent-starter/` is an ignored independent repository.
+The Bursawatch web application is maintained in a separate repository and
+integrates with `service-bursawatch-control` through its versioned API
+contract. This repository has no web application or web deployment authority.
+`hermes-agent-starter/` is an ignored independent repository.
 
 Use English for this interactive engineering work unless the user asks for
 Indonesian. Preserve each watcher's output-language contract.

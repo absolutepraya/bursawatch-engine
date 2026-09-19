@@ -37,6 +37,21 @@ from models import (
 from ocr import OCRResult, OCRStatus
 
 
+try:
+    from control_plane_runtime import ControlPlaneRun
+except ModuleNotFoundError:
+    class ControlPlaneRun:
+        @classmethod
+        def begin(cls, *_args, **_kwargs):
+            return cls()
+
+        def event(self, *_args, **_kwargs):
+            pass
+
+        def finish(self, *_args, **_kwargs):
+            pass
+
+
 WIB = ZoneInfo("Asia/Jakarta")
 HEARTBEAT_CHANNEL_ID = "1505162000420835388"
 WATCHER_HEARTBEAT_NAME = "instagram-post"
@@ -760,13 +775,28 @@ def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, o
         _require_no_post_isolation()
     storage = state_path()
     stats = RunStats()
+    control_run: ControlPlaneRun | None = None
     try:
         with _process_lock(storage, blocking=False) as acquired:
             if not acquired:
                 return agent_protocol.build_wake_payload(None)
             root = _ensure_media_root()
             cache_root = ocr_cache_path()
-            watches = config.load_watch_config(config_path())
+            loaded_config = config.load_watch_config_for_run(config_path())
+            watches = loaded_config.config
+            control_run = ControlPlaneRun.begin(
+                "INSTAGRAM_POST_WATCH",
+                loaded_config.revision,
+                scheduler_job_id="instagram-post",
+            )
+            control_run.event(
+                "run-started",
+                level="info",
+                phase="lifecycle",
+                event_type="run.started",
+                message="Instagram watcher run started",
+                attributes={"config_revision": loaded_config.revision, "no_post": no_post},
+            )
             value = state.load_state(storage)
             state.prune_deliveries(value, now)
             stats.filtered = state.take_filtered_since_last_heartbeat(value)
@@ -834,11 +864,44 @@ def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, o
                 _retry_media_cleanup(value, storage, stats, no_post=False)
                 _note_reclaimed_agent_leases(value, now, stats)
                 _post_heartbeat(now, stats)
-                return _claim_agent(value, profiles, storage, now, stats)
+                result = _claim_agent(value, profiles, storage, now, stats)
+            else:
+                state.save_state(storage, value)
+                result = agent_protocol.build_wake_payload(None)
 
-            state.save_state(storage, value)
-            return agent_protocol.build_wake_payload(None)
+            control_run.event(
+                "run-completed",
+                level="warning" if stats.degraded else "info",
+                phase="lifecycle",
+                event_type="run.completed",
+                message="Instagram watcher run completed",
+                attributes={
+                    "fetched": stats.fetched,
+                    "filtered": stats.filtered,
+                    "queued": stats.queued,
+                    "ocr": stats.ocr,
+                    "vision_fallback": stats.vision_fallback,
+                    "delivered": stats.delivered,
+                    "delivery_legs": stats.delivery_legs,
+                    "errors": stats.errors,
+                    "degraded": stats.degraded,
+                    "reasons": stats.reasons[:10],
+                },
+            )
+            control_run.finish("degraded" if stats.degraded else "ok")
+            return result
     except Exception as exc:
+        if control_run is not None:
+            reason = _sanitize_reason(exc)
+            control_run.event(
+                "run-failed",
+                level="fatal",
+                phase="lifecycle",
+                event_type="run.failed",
+                message="Instagram watcher run failed",
+                attributes={"error": reason},
+            )
+            control_run.finish("failed", reason)
         if not no_post:
             _post_fatal(now, exc)
         raise RuntimeError(_sanitize_reason(exc)) from exc
@@ -890,7 +953,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 raise RuntimeError("watcher lock is unavailable")
             root = _ensure_media_root()
             del root
-            watches = config.load_watch_config(config_path())
+            watches = config.load_watch_config_for_run(config_path()).config
             value = state.load_state(storage)
             profiles = {profile.id: profile for profile in watches.profiles}
             event_key = payload["event_key"]
