@@ -24,3 +24,10 @@ def test_nginx_bootstrap_vhost_is_the_only_planned_public_route():
     assert "proxy_pass http://127.0.0.1:9120;" in vhost
     assert "listen 80;" in vhost
     assert "listen 443" not in vhost
+
+
+def test_deployment_uses_the_self_contained_validator_bundle():
+    deployment = (ROOT / "deployment/README.md").read_text(encoding="utf-8")
+
+    assert "validator-sources/" in deployment
+    assert "not point the API at a live watcher runtime directory" in deployment

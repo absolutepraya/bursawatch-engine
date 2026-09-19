@@ -67,4 +67,6 @@ The optional watcher config-validator directories are trusted deployed source,
 not web input. The service invokes each configured parser in a fresh process
 with a minimal environment and no service credentials, so the X, Instagram,
 WhatsApp, Market News, Swing Board, Phintraco, and Kelas Investasi modules
-cannot collide by Python module name.
+cannot collide by Python module name. VPS deployment uses the self-contained
+`validator-sources/` bundle, not a live watcher runtime directory. Its parity
+test requires exact byte-for-byte agreement with each cron source file.

@@ -15,6 +15,7 @@ explicit deployment approval in the current chat.
     bin/
     migrations/
     requirements.txt
+    validator-sources/
     venv/
 ```
 
@@ -25,12 +26,15 @@ address or open port 9120 in UFW.
 ## Planned reviewed sequence
 
 1. Compare this source branch and each template with the VPS target.
-2. Copy only `baseline-configs/`, `bin/`, `migrations/`, and `requirements.txt`
-   into the dedicated runtime directory. Do not copy a local `.env` file.
+2. Copy only `baseline-configs/`, `bin/`, `migrations/`, `requirements.txt`,
+   and `validator-sources/` into the dedicated runtime directory. Do not copy
+   a local `.env` file.
 3. Create the dedicated Python virtual environment and install
    `requirements.txt`.
 4. Copy the already-approved server-only values from the shared local `.env`
-   into `~/.hermes/.env`, plus trusted deployed validator directory paths.
+   into `~/.hermes/.env`. Set each `CONTROL_PLANE_*_CONFIG_VALIDATOR_DIR` to
+   its matching `/home/praya/.hermes/bursawatch-control-plane/validator-sources/<watcher-id>`
+   directory. Do not point the API at a live watcher runtime directory.
 5. Run `venv/bin/python bin/migrate.py`, then
    `venv/bin/python bin/seed_baseline_configs.py`. The migration runner records
    immutable file checksums and aborts on a changed applied migration. The

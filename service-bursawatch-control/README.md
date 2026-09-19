@@ -69,6 +69,13 @@ watch JSON. The seeder creates revision 1 only for a watcher with no config
 history. It never replaces an active dashboard revision and refuses partial
 history, so it is safe to rerun during recovery.
 
+The VPS API validates dashboard configuration with the self-contained
+`validator-sources/` bundle. It contains the exact parser source required by
+each watcher, including the small model dependencies for X, Instagram, and
+WhatsApp. Parity tests require it to match the canonical cron source byte for
+byte. This avoids importing from or changing a live cron runtime just to serve
+the web application.
+
 Migration `004_supabase_data_api_hardening.sql` enables RLS and revokes Data
 API privileges for `anon` and `authenticated` on every control-plane table.
 The browser never queries these tables directly, even after Supabase Auth is
