@@ -62,6 +62,13 @@ human principal configuration. `bin/migrate.py` uses an advisory lock and a
 private `bursawatch_schema_migrations` ledger. It applies each SQL file exactly
 once and refuses an applied file whose checksum changed.
 
+After migrations and before a watcher enables live mode, the explicitly
+approved deployment runs `bin/seed_baseline_configs.py`. Its seven reviewed
+JSON snapshots are exact copies of the current source defaults and tracked
+watch JSON. The seeder creates revision 1 only for a watcher with no config
+history. It never replaces an active dashboard revision and refuses partial
+history, so it is safe to rerun during recovery.
+
 Migration `004_supabase_data_api_hardening.sql` enables RLS and revokes Data
 API privileges for `anon` and `authenticated` on every control-plane table.
 The browser never queries these tables directly, even after Supabase Auth is

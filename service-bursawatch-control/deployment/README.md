@@ -11,6 +11,7 @@ explicit deployment approval in the current chat.
 /home/praya/.hermes/
   .env                                  scoped values, mode 0600
   bursawatch-control-plane/
+    baseline-configs/
     bin/
     migrations/
     requirements.txt
@@ -24,14 +25,17 @@ address or open port 9120 in UFW.
 ## Planned reviewed sequence
 
 1. Compare this source branch and each template with the VPS target.
-2. Copy only `bin/`, `migrations/`, and `requirements.txt` into the dedicated
-   runtime directory. Do not copy a local `.env` file.
+2. Copy only `baseline-configs/`, `bin/`, `migrations/`, and `requirements.txt`
+   into the dedicated runtime directory. Do not copy a local `.env` file.
 3. Create the dedicated Python virtual environment and install
    `requirements.txt`.
 4. Copy the already-approved server-only values from the shared local `.env`
    into `~/.hermes/.env`, plus trusted deployed validator directory paths.
-5. Run `venv/bin/python bin/migrate.py` once. It records immutable file
-   checksums and aborts on a changed applied migration.
+5. Run `venv/bin/python bin/migrate.py`, then
+   `venv/bin/python bin/seed_baseline_configs.py`. The migration runner records
+   immutable file checksums and aborts on a changed applied migration. The
+   baseline seeder creates config revision 1 only when that watcher has no
+   configuration history, so it cannot overwrite dashboard changes.
 6. Install the systemd unit, reload systemd, and start the API. Verify only
    `http://127.0.0.1:9120/healthz` first.
 7. Create the matching DNS record, install the HTTP Nginx bootstrap vhost, and

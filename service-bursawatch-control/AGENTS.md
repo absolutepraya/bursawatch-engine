@@ -41,6 +41,7 @@ Apply migrations only in an explicitly approved deployment step:
 
 ```bash
 DATABASE_URL=<private-dsn> ./venv/bin/python bin/migrate.py
+DATABASE_URL=<private-dsn> ./venv/bin/python bin/seed_baseline_configs.py
 ```
 
 Do not deploy this service, change a live Hermes scheduler entry, or point a
@@ -58,6 +59,9 @@ migration `004_supabase_data_api_hardening.sql`: it enables RLS and revokes
 browser roles. The private backend `DATABASE_URL` is the only database path.
 `bin/migrate.py` records each immutable migration checksum in the private
 database before serving traffic and refuses a changed applied migration.
+`bin/seed_baseline_configs.py` seeds only an absent watcher config revision
+from `baseline-configs/`; it refuses inconsistent history and never replaces
+an active dashboard revision.
 
 The optional watcher config-validator directories are trusted deployed source,
 not web input. The service invokes each configured parser in a fresh process

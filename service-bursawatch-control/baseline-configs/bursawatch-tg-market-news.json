@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "providers": {
+    "phintraco": {
+      "telegram_username": "phintasprofits"
+    },
+    "tuntun": {
+      "telegram_username": "tuntunsekuritas"
+    }
+  },
+  "destinations": {
+    "id_stocks_news_discord_channel_id": "1525102508714889257",
+    "macro_news_discord_channel_id": "1531655369884045382",
+    "industry_news_discord_channel_id": "1549418098807930880",
+    "heartbeat_discord_channel_id": "1505162000420835388"
+  },
+  "additional_prompt_instruction": ""
+}

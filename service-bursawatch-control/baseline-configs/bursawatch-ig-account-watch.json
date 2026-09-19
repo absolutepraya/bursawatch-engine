@@ -1,0 +1,264 @@
+{
+  "version": 1,
+  "profiles": [
+    {
+      "id": "beyondthefundamental",
+      "enabled": true,
+      "source": "rsshub",
+      "profile_url": "https://www.instagram.com/beyondthefundamental",
+      "handle": "beyondthefundamental",
+      "display_name": "Beyond thy Fundamental",
+      "platform_emoji": "<:instagram:1543621405436805231>",
+      "emoji": "<:beyondthefundamental:1543622560069976085>",
+      "discord_channels": [
+        {
+          "key": "macro_news",
+          "channel_id": "1531655369884045382",
+          "description": "Broad economic, business, market, sector, and cross-asset analysis."
+        },
+        {
+          "key": "id_stocks_news",
+          "channel_id": "1525102508714889257",
+          "description": "Direct IDX-listed company, earnings, corporate action, fundamental, and valuation analysis."
+        }
+      ],
+      "forward_post": true,
+      "forward_reel": true,
+      "forward_media": true,
+      "enable_llm_title": true,
+      "enable_llm_summary": true,
+      "enable_llm_routing": true,
+      "enable_llm_relevance_filter": true,
+      "additional_prompt_instruction": "Always use the caption and all carousel OCR together. Preserve the account's own thesis. The shared Instagram relevance boundary excludes generic trading or investing education, mindset advice, and actionable trade setups; keep concrete market, issuer, earnings, valuation, corporate-action, or macro theses.",
+      "max_items_per_poll": 20,
+      "ocr_languages": [
+        "ind",
+        "eng"
+      ],
+      "ocr_min_confidence": 0.7,
+      "max_reel_frames": 5
+    },
+    {
+      "id": "investart_id",
+      "enabled": true,
+      "source": "rsshub",
+      "profile_url": "https://www.instagram.com/investart_id",
+      "handle": "investart_id",
+      "display_name": "Investart",
+      "platform_emoji": "<:instagram:1543621405436805231>",
+      "emoji": "<:investart:1543622543745749062>",
+      "discord_channels": [
+        {
+          "key": "macro_news",
+          "channel_id": "1531655369884045382",
+          "description": "Broad economic, business, market, sector, and cross-asset analysis."
+        },
+        {
+          "key": "id_stocks_news",
+          "channel_id": "1525102508714889257",
+          "description": "Direct IDX-listed company, earnings, corporate action, fundamental, and valuation analysis."
+        }
+      ],
+      "forward_post": true,
+      "forward_reel": true,
+      "forward_media": true,
+      "enable_llm_title": true,
+      "enable_llm_summary": true,
+      "enable_llm_routing": true,
+      "enable_llm_relevance_filter": true,
+      "additional_prompt_instruction": "Prioritize concrete market and issuer content, including IDX/company news, IPOs, index or MSCI changes, earnings, valuation, and corporate actions. Exclude Investart product or service promotions, generic investing education, trading tips, mindset content, and actionable trade setups even when they mention a ticker.",
+      "max_items_per_poll": 20,
+      "ocr_languages": [
+        "ind",
+        "eng"
+      ],
+      "ocr_min_confidence": 0.7,
+      "max_reel_frames": 5
+    },
+    {
+      "id": "avenirresearch_id",
+      "enabled": true,
+      "source": "rsshub",
+      "profile_url": "https://www.instagram.com/avenirresearch.id",
+      "handle": "avenirresearch.id",
+      "display_name": "Avenir Research",
+      "platform_emoji": "<:instagram:1543621405436805231>",
+      "emoji": "<:avenir:1543622527815786629>",
+      "discord_channels": [
+        {
+          "key": "macro_news",
+          "channel_id": "1531655369884045382",
+          "description": "Broad economic, business, market, sector, and cross-asset analysis."
+        },
+        {
+          "key": "id_stocks_news",
+          "channel_id": "1525102508714889257",
+          "description": "Direct IDX-listed company, earnings, corporate action, fundamental, and valuation analysis."
+        }
+      ],
+      "forward_post": true,
+      "forward_reel": true,
+      "forward_media": true,
+      "enable_llm_title": true,
+      "enable_llm_summary": true,
+      "enable_llm_routing": true,
+      "enable_llm_relevance_filter": true,
+      "additional_prompt_instruction": "Prioritize substantive equity research and market intelligence about IDX or global listed issuers, earnings, dividends, suspensions, rights issues, corporate actions, valuation, and macro developments with stock-market implications. Exclude research-service promotions, generic education, trading tips, mindset content, and actionable trade setups.",
+      "max_items_per_poll": 20,
+      "ocr_languages": [
+        "ind",
+        "eng"
+      ],
+      "ocr_min_confidence": 0.7,
+      "max_reel_frames": 5
+    },
+    {
+      "id": "acresresearch",
+      "enabled": true,
+      "source": "rsshub",
+      "profile_url": "https://www.instagram.com/acresresearch",
+      "handle": "acresresearch",
+      "display_name": "Acres Research",
+      "platform_emoji": "<:instagram:1543621405436805231>",
+      "emoji": "<:acres:1543622510304821328>",
+      "discord_channels": [
+        {
+          "key": "macro_news",
+          "channel_id": "1531655369884045382",
+          "description": "Broad economic, business, market, sector, and cross-asset analysis."
+        },
+        {
+          "key": "id_stocks_news",
+          "channel_id": "1525102508714889257",
+          "description": "Direct IDX-listed company, earnings, corporate action, fundamental, and valuation analysis."
+        }
+      ],
+      "forward_post": true,
+      "forward_reel": true,
+      "forward_media": true,
+      "enable_llm_title": true,
+      "enable_llm_summary": true,
+      "enable_llm_routing": true,
+      "enable_llm_relevance_filter": true,
+      "additional_prompt_instruction": "Prioritize substantive alternative-finance, economic, business, market, issuer, and industry research with a clear stock-market implication, including IPO, financing, valuation, and strategic-industry analysis. Exclude generic education, investing or trading tips, mindset content, promotions, and posts without a concrete market or issuer thesis.",
+      "max_items_per_poll": 20,
+      "ocr_languages": [
+        "ind",
+        "eng"
+      ],
+      "ocr_min_confidence": 0.7,
+      "max_reel_frames": 5
+    },
+    {
+      "id": "sectorsapp",
+      "enabled": true,
+      "source": "rsshub",
+      "profile_url": "https://www.instagram.com/sectorsapp",
+      "handle": "sectorsapp",
+      "display_name": "Sectors",
+      "platform_emoji": "<:instagram:1543621405436805231>",
+      "emoji": "<:sectors:1543622490914422794>",
+      "discord_channels": [
+        {
+          "key": "macro_news",
+          "channel_id": "1531655369884045382",
+          "description": "Broad economic, business, market, sector, and cross-asset analysis."
+        },
+        {
+          "key": "id_stocks_news",
+          "channel_id": "1525102508714889257",
+          "description": "Direct IDX-listed company, earnings, corporate action, fundamental, and valuation analysis."
+        }
+      ],
+      "forward_post": true,
+      "forward_reel": true,
+      "forward_media": true,
+      "enable_llm_title": true,
+      "enable_llm_summary": true,
+      "enable_llm_routing": true,
+      "enable_llm_relevance_filter": true,
+      "additional_prompt_instruction": "Prioritize substantive data-driven IDX company and sector analysis, earnings, valuation, corporate actions, ownership or insider activity, price or volume context, and market structure when the post explains a market thesis. Exclude product, platform, data or API, subscription, signal, or event promotions; generic trading education; mindset content; and actionable buy or sell, entry, target, stop-loss, breakout, or support or resistance setups.",
+      "max_items_per_poll": 20,
+      "ocr_languages": [
+        "ind",
+        "eng"
+      ],
+      "ocr_min_confidence": 0.7,
+      "max_reel_frames": 5
+    },
+    {
+      "id": "cukhurukuque",
+      "enabled": true,
+      "source": "rsshub",
+      "profile_url": "https://www.instagram.com/cukhurukuque",
+      "handle": "cukhurukuque",
+      "display_name": "Cukhurukuque",
+      "platform_emoji": "<:instagram:1543621405436805231>",
+      "emoji": "<:cukhurukuque:1544607707263275058>",
+      "discord_channels": [
+        {
+          "key": "macro_news",
+          "channel_id": "1531655369884045382",
+          "description": "Broad economic, business, market, sector, and cross-asset analysis."
+        },
+        {
+          "key": "id_stocks_news",
+          "channel_id": "1525102508714889257",
+          "description": "Direct IDX-listed company, earnings, corporate action, fundamental, and valuation analysis."
+        }
+      ],
+      "forward_post": true,
+      "forward_reel": true,
+      "forward_media": true,
+      "enable_llm_title": true,
+      "enable_llm_summary": true,
+      "enable_llm_routing": true,
+      "enable_llm_relevance_filter": true,
+      "additional_prompt_instruction": "Prioritize substantive economic, fiscal, business, market, sector, issuer, and cross-asset research with explicit stock-market implications. Exclude generic finance education, trading tips, mindset content, promotions, and actionable trade setups.",
+      "max_items_per_poll": 20,
+      "ocr_languages": [
+        "ind",
+        "eng"
+      ],
+      "ocr_min_confidence": 0.7,
+      "max_reel_frames": 5
+    },
+    {
+      "id": "notintofinance",
+      "enabled": true,
+      "source": "rsshub",
+      "profile_url": "https://www.instagram.com/notintofinance",
+      "handle": "notintofinance",
+      "display_name": "NIFI",
+      "platform_emoji": "<:instagram:1543621405436805231>",
+      "emoji": "<:notintofinance:1544607705094815876>",
+      "discord_channels": [
+        {
+          "key": "macro_news",
+          "channel_id": "1531655369884045382",
+          "description": "Broad economic, business, market, sector, and cross-asset analysis."
+        },
+        {
+          "key": "id_stocks_news",
+          "channel_id": "1525102508714889257",
+          "description": "Direct IDX-listed company, earnings, corporate action, fundamental, and valuation analysis."
+        }
+      ],
+      "forward_post": true,
+      "forward_reel": true,
+      "forward_media": true,
+      "enable_llm_title": true,
+      "enable_llm_summary": true,
+      "enable_llm_routing": true,
+      "enable_llm_relevance_filter": true,
+      "additional_prompt_instruction": "Prioritize substantive macroeconomic and financial-system analysis, including fiscal conditions, crisis dynamics, institutions, and market implications. Exclude generic finance explainers, investing education, trading tips, mindset content, promotions, and actionable trade setups.",
+      "max_items_per_poll": 20,
+      "ocr_languages": [
+        "ind",
+        "eng"
+      ],
+      "ocr_min_confidence": 0.7,
+      "max_reel_frames": 5
+    }
+  ]
+}
