@@ -45,12 +45,12 @@ require_published_commit() {
 sync_plan() {
   local source_dir
   for source_dir in baseline-configs bin migrations validator-sources; do
-    rsync -ain --no-perms --omit-dir-times --delete --itemize-changes \
+    rsync -ain --checksum --no-perms --no-times --omit-dir-times --delete --itemize-changes \
       --exclude='__pycache__/' --exclude='*.pyc' \
       "$package_dir/$source_dir/" "$remote_host:$runtime_dir/$source_dir/"
   done
 
-  rsync -ain --no-perms --omit-dir-times --itemize-changes \
+  rsync -ain --checksum --no-perms --no-times --omit-dir-times --itemize-changes \
     "$package_dir/requirements.txt" "$remote_host:$runtime_dir/requirements.txt"
 }
 
@@ -70,12 +70,12 @@ sync_payload() {
 
   local source_dir
   for source_dir in baseline-configs bin migrations validator-sources; do
-    rsync -a --no-perms --omit-dir-times --delete \
+    rsync -a --checksum --no-perms --no-times --omit-dir-times --delete \
       --exclude='__pycache__/' --exclude='*.pyc' \
       "$package_dir/$source_dir/" "$remote_host:$runtime_dir/$source_dir/"
   done
 
-  rsync -a --no-perms --omit-dir-times "$package_dir/requirements.txt" "$remote_host:$runtime_dir/requirements.txt"
+  rsync -a --checksum --no-perms --no-times --omit-dir-times "$package_dir/requirements.txt" "$remote_host:$runtime_dir/requirements.txt"
 
   ssh "$remote_host" 'sh -s' -- "$runtime_dir" <<'REMOTE'
 set -eu

@@ -45,7 +45,9 @@ def test_repeat_release_helper_is_syntax_checked_and_keeps_its_boundary():
     assert "require_apply" in script
     assert "require_published_commit" in script
     assert "--delete" in script
+    assert "--checksum" in script
     assert "--no-perms" in script
+    assert "--no-times" in script
     assert "--omit-dir-times" in script
     assert '"$package_dir/$source_dir/"' in script
     assert '"$remote_host:$runtime_dir/$source_dir/"' in script
