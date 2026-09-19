@@ -22,6 +22,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 API_VERSION = 1
 MAX_RESPONSE_BYTES = 1_000_000
 MAX_ERROR_LENGTH = 500
+LEGACY_INTERVAL_CRON_EXPRESSIONS = {
+    1: "* * * * *",
+    10: "*/10 * * * *",
+    60: "0 * * * *",
+}
 JOB_ID_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
 SECRET_RE = re.compile(
     r"(?i)\b(authorization|bearer|token|secret|password|cookie|session)(?:\s*[:=]\s*|\s+)([^\s,;]+)"
@@ -362,11 +367,17 @@ def load_hermes_job(jobs_path: Path, runtime_job_key: str) -> HermesJob:
 
 
 def schedule_matches(job: HermesJob, desired: DesiredSchedule) -> bool:
-    return (
+    interval_matches = (
         job.schedule.get("kind") == "interval"
         and type(job.schedule.get("minutes")) is int
         and job.schedule["minutes"] == desired.interval_minutes
     )
+    legacy_cron_matches = (
+        job.schedule.get("kind") == "cron"
+        and job.schedule.get("expr")
+        == LEGACY_INTERVAL_CRON_EXPRESSIONS.get(desired.interval_minutes)
+    )
+    return interval_matches or legacy_cron_matches
 
 
 def planned_actions(job: HermesJob, desired: DesiredSchedule) -> list[str]:

@@ -103,6 +103,24 @@ def write_registry(path: Path, *, enabled: bool = True, minutes: int = 1) -> Non
     )
 
 
+def write_legacy_cron_registry(path: Path, *, enabled: bool, expression: str) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "jobs": [
+                    {
+                        "id": "6a0b4f895b07",
+                        "name": "bursawatch-tg-market-news",
+                        "enabled": enabled,
+                        "schedule": {"kind": "cron", "expr": expression},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def settings(registry: Path, *, dry_run: bool = False) -> reconcile.Settings:
     return reconcile.Settings(
         control_plane_url="https://control.example.test",
@@ -178,6 +196,41 @@ def test_reconciler_edits_then_pauses_reloads_registry_and_reports_applied(tmp_p
         "enabled": False,
         "schedule": {"kind": "interval", "minutes": 2},
     }
+
+
+@pytest.mark.parametrize(
+    ("interval_seconds", "expression"),
+    [
+        (60, "* * * * *"),
+        (600, "*/10 * * * *"),
+        (3600, "0 * * * *"),
+    ],
+)
+def test_reconciler_preserves_exact_legacy_cron_baselines(
+    tmp_path: Path,
+    interval_seconds: int,
+    expression: str,
+):
+    registry = tmp_path / "jobs.json"
+    write_legacy_cron_registry(registry, enabled=False, expression=expression)
+    api = FakeControlPlane([desired_job(enabled=False, interval_seconds=interval_seconds)])
+    client = reconcile.ControlPlaneClient("https://control.example.test", "reconciler-token", 15, opener=api)
+
+    outcomes = reconcile.reconcile_all(
+        settings(registry),
+        client,
+        command_runner=lambda *_args, **_kwargs: pytest.fail("legacy baseline invoked Hermes CLI"),
+    )
+
+    assert outcomes == [
+        reconcile.Outcome(
+            job_id="bursawatch-tg-market-news",
+            revision=1,
+            status="applied",
+            actions=[],
+        )
+    ]
+    assert api.reports == [{"revision": 1, "status": "applied"}]
 
 
 def test_reconciler_reports_sanitized_cli_failures_without_leaking_credentials_or_paths(tmp_path: Path):

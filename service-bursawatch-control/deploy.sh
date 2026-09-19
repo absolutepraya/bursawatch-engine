@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Repeat-release helper for the already-bootstrapped BursaWatch control-plane API.
+# Repeat-release helper for the already-bootstrapped Bursawatch control-plane API.
 set -euo pipefail
 
 package_dir="$(cd "$(dirname "$0")" && pwd)"

@@ -20,6 +20,11 @@ Control-plane desired revision
 
 The reconciler sees only interval jobs. It converts an API-approved whole
 minute interval to `every <minutes>m`; it never accepts arbitrary cron text.
+For the first preserved baseline only, it also recognizes the exact existing
+Hermes cron forms `* * * * *`, `*/10 * * * *`, and `0 * * * *` as equivalent
+to one, 10, and 60 minute intervals. This prevents the initial reconciliation
+from shifting a normal cron's schedule anchor. A later dashboard cadence change
+uses `every <minutes>m` through the supported Hermes CLI.
 The desired timezone is fixed to the Bursawatch host timezone, `Asia/Jakarta`.
 An outcome only becomes effective after the control plane records `applied` for
 the same current revision. If an administrator writes a newer revision mid-run,

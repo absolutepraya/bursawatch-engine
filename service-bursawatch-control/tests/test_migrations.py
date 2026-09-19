@@ -84,3 +84,17 @@ def test_scheduler_reconciliation_migration_records_safe_errors_and_corrects_x_r
     assert "length(reconciliation_error) between 1 and 500" in migration
     assert "runtime_job_key = 'bursawatch-x-account-watch'" in migration
     assert "runtime_job_key = 'x-post-source'" in migration
+
+
+def test_paused_instagram_baseline_correction_is_additive_and_does_not_touch_hermes():
+    migration = (
+        Path(__file__).resolve().parents[1]
+        / "migrations/007_preserve_paused_instagram_baseline.sql"
+    ).read_text(encoding="utf-8")
+    checksum = schedule_checksum(False, 3_600, "Asia/Jakarta")
+
+    assert "bursawatch-ig-account-watch-source" in migration
+    assert f"'bursawatch-ig-account-watch-source', 2, false, 3600, 'Asia/Jakarta', '{checksum}'" in migration
+    assert "source-baseline-correction" in migration
+    assert "and current_schedule_revision = 1;" in migration
+    assert "hermes cron" not in migration.lower()

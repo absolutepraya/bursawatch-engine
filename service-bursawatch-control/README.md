@@ -157,11 +157,11 @@ working, its report for the old revision is rejected rather than falsely
 marking the new intent effective.
 
 The initial catalog seeds the verified current intent for every supported
-interval job: X source poller (10 minutes), Instagram source poller (one hour),
-Telegram Phintraco Swing (one minute), Telegram Market News (one minute),
-Telegram Kelas Investasi GTW (one hour), and WhatsApp Channel Watch (paused at
-one minute). The permitted intervals are 10 minutes to 24 hours for X, one hour
-to 24 hours for Instagram, one minute to one hour for Phintraco and Market
-News, and five minutes to six hours for Kelas Investasi. WhatsApp is one minute
+interval job: X source poller (10 minutes), Instagram source poller (paused at
+one hour), Telegram Phintraco Swing (one minute), Telegram Market News (one
+minute), Telegram Kelas Investasi GTW (one hour), and WhatsApp Channel Watch
+(paused at one minute). The permitted intervals are 10 minutes to 24 hours for
+X, one hour to 24 hours for Instagram, one minute to one hour for Phintraco and
+Market News, and five minutes to six hours for Kelas Investasi. WhatsApp is one minute
 to six hours. The two Swing Board calendar jobs and the X queue worker remain
 fixed and read-only.
