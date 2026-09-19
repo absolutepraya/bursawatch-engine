@@ -40,12 +40,14 @@ class FakeConnection:
         self.executed: list[tuple[str, tuple[str, ...] | None]] = []
         self.commits = 0
         self.closed = False
+        self.transaction_count = 0
 
     def cursor(self) -> FakeCursor:
         return FakeCursor(self)
 
     @contextmanager
     def transaction(self):
+        self.transaction_count += 1
         yield
 
     def commit(self) -> None:
@@ -81,12 +83,14 @@ def test_apply_migrations_records_each_immutable_file_and_is_idempotent(tmp_path
 
     assert first == ["applied: 001_first.sql", "applied: 002_second.sql"]
     assert sorted(connection.ledger) == ["001_first.sql", "002_second.sql"]
+    assert connection.transaction_count == 2
     assert connection.closed is True
 
     connection.closed = False
     second = apply_migrations("postgresql://example", tmp_path, connect=lambda _dsn: connection)
 
     assert second == ["already applied: 001_first.sql", "already applied: 002_second.sql"]
+    assert connection.transaction_count == 4
     assert connection.closed is True
 
 

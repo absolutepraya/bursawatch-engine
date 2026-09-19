@@ -111,19 +111,18 @@ def apply_migrations(
         _acquire_lock(connection)
         locked = True
         for migration in migrations:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "select checksum from bursawatch_schema_migrations where migration_name = %s",
-                    (migration.name,),
-                )
-                row = cursor.fetchone()
-            if row is not None:
-                if row[0] != migration.checksum:
-                    raise MigrationError(f"applied migration has changed: {migration.name}")
-                outcomes.append(f"already applied: {migration.name}")
-                continue
             with connection.transaction():
                 with connection.cursor() as cursor:
+                    cursor.execute(
+                        "select checksum from bursawatch_schema_migrations where migration_name = %s",
+                        (migration.name,),
+                    )
+                    row = cursor.fetchone()
+                    if row is not None:
+                        if row[0] != migration.checksum:
+                            raise MigrationError(f"applied migration has changed: {migration.name}")
+                        outcomes.append(f"already applied: {migration.name}")
+                        continue
                     cursor.execute(migration.sql)
                     cursor.execute(
                         """
@@ -132,7 +131,7 @@ def apply_migrations(
                         """,
                         (migration.name, migration.checksum),
                     )
-            outcomes.append(f"applied: {migration.name}")
+                outcomes.append(f"applied: {migration.name}")
     finally:
         if locked:
             _release_lock(connection)
