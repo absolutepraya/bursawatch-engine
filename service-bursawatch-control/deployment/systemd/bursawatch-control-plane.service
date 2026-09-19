@@ -1,0 +1,22 @@
+[Unit]
+Description=Bursawatch Control Plane API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=praya
+Group=praya
+WorkingDirectory=/home/praya/.hermes/bursawatch-control-plane
+Environment=HOME=/home/praya
+EnvironmentFile=/home/praya/.hermes/.env
+ExecStart=/home/praya/.hermes/bursawatch-control-plane/venv/bin/uvicorn control_plane.api:create_app_from_environment --factory --app-dir bin --host 127.0.0.1 --port 9120 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=always
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

@@ -23,7 +23,9 @@ CONTROL_PLANE_STORE=memory uv run --with 'fastapi>=0.115,<1' --with 'uvicorn>=0.
 
 Production must use a configured Postgres connection and authenticated
 principals. The in-memory store is for tests and local contract exploration;
-it must never be used as a production fallback.
+it must never be used as a production fallback. The local Bursawatch-specific
+environment is the ignored `service-bursawatch-control/.env` in the main
+worktree. WT links it into eligible feature worktrees. It is never committed.
 
 The separate web origin must be supplied through the exact
 `CONTROL_PLANE_ALLOWED_ORIGINS` allowlist. Never use a wildcard origin with
@@ -33,6 +35,12 @@ Run the focused suite with:
 
 ```bash
 uv run --with 'fastapi>=0.115,<1' --with 'httpx>=0.27,<1' pytest -q tests
+```
+
+Apply migrations only in an explicitly approved deployment step:
+
+```bash
+DATABASE_URL=<private-dsn> ./venv/bin/python bin/migrate.py
 ```
 
 Do not deploy this service, change a live Hermes scheduler entry, or point a
@@ -48,6 +56,8 @@ application principal and an audit record.
 Supabase Data API access to control-plane tables is deliberately disabled by
 migration `004_supabase_data_api_hardening.sql`: it enables RLS and revokes
 browser roles. The private backend `DATABASE_URL` is the only database path.
+`bin/migrate.py` records each immutable migration checksum in the private
+database before serving traffic and refuses a changed applied migration.
 
 The optional watcher config-validator directories are trusted deployed source,
 not web input. The service invokes each configured parser in a fresh process

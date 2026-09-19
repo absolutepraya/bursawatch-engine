@@ -8,6 +8,7 @@ alter table bursawatch_runs enable row level security;
 alter table bursawatch_events enable row level security;
 alter table bursawatch_scheduler_jobs enable row level security;
 alter table bursawatch_schedule_revisions enable row level security;
+alter table bursawatch_schema_migrations enable row level security;
 
 do $$
 declare
@@ -19,7 +20,8 @@ begin
         'bursawatch_runs',
         'bursawatch_events',
         'bursawatch_scheduler_jobs',
-        'bursawatch_schedule_revisions'
+        'bursawatch_schedule_revisions',
+        'bursawatch_schema_migrations'
     ]
     loop
         execute format('revoke all privileges on table public.%I from public', table_name);

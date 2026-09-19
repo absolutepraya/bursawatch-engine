@@ -1,0 +1,17 @@
+[Unit]
+Description=Bursawatch Hermes schedule reconciler
+After=network-online.target bursawatch-control-plane.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=praya
+Group=praya
+WorkingDirectory=/home/praya/.hermes/bursawatch-schedule-reconciler
+Environment=HOME=/home/praya
+EnvironmentFile=/home/praya/.hermes/.env
+ExecStart=/home/praya/.hermes/bursawatch-schedule-reconciler/bin/bursawatch-hermes-schedule-reconciler.sh
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full

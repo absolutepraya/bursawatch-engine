@@ -245,3 +245,14 @@ def test_wrapper_has_valid_bash_syntax():
     completed = subprocess.run(["bash", "-n", str(wrapper)], capture_output=True, text=True)
 
     assert completed.returncode == 0, completed.stderr
+
+
+def test_systemd_timer_runs_the_reconciler_separately_from_hermes_cron():
+    root = Path(__file__).resolve().parents[1]
+    unit = (root / "deployment/systemd/bursawatch-schedule-reconciler.service").read_text(encoding="utf-8")
+    timer = (root / "deployment/systemd/bursawatch-schedule-reconciler.timer").read_text(encoding="utf-8")
+
+    assert "EnvironmentFile=/home/praya/.hermes/.env" in unit
+    assert "bursawatch-hermes-schedule-reconciler.sh" in unit
+    assert "OnUnitActiveSec=1m" in timer
+    assert "Unit=bursawatch-schedule-reconciler.service" in timer

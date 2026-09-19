@@ -46,6 +46,16 @@ or this repository. The service-side environment name is
 `CONTROL_PLANE_RECONCILER_TOKEN`; it is intentionally distinct from the cron
 machine credential.
 
+## Planned timer
+
+The reviewed future systemd templates are under `deployment/systemd/`. The
+timer runs at most once per minute with a small randomized delay. It must not
+be installed until the control-plane API has passed local and public health
+checks, and its first invocation must set
+`BURSAWATCH_SCHEDULE_RECONCILER_DRY_RUN=1`. The systemd timer removes no state
+when disabled or removed; removing its worktree only removes the deployment
+source, not a live unit.
+
 ## Safe operation
 
 Run the package tests before any deployment review:

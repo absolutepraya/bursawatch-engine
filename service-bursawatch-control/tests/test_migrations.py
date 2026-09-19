@@ -17,6 +17,7 @@ def test_supabase_hardening_enables_rls_and_revokes_browser_roles():
         "bursawatch_events",
         "bursawatch_scheduler_jobs",
         "bursawatch_schedule_revisions",
+        "bursawatch_schema_migrations",
     )
 
     for table in tables:

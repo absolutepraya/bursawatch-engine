@@ -17,7 +17,8 @@ This branch adds:
 - an isolated validator bridge for the migrated X, Instagram, WhatsApp,
   Market News, Swing Board, Phintraco, and Kelas Investasi schemas, including bounded
   `additional_prompt_instruction` fields where the watcher has an LLM path.
-- the initial Postgres schema migration;
+- immutable Postgres schema migrations with a checksum ledger and advisory
+  lock, so a changed applied migration is refused;
 - a versioned OpenAPI document for the web repository.
 - opt-in live configuration support for X Account Watch, Instagram Account
   Watch, WhatsApp Channel Watch, Telegram Market News, Discord Swing Board,
@@ -34,9 +35,11 @@ VPS scheduler reconciler before it changes a live Hermes job.
 ## Runtime environment
 
 [`env.example`](env.example) lists every backend setting without values. It is
-a field-name template only: real local values belong in `~/.secrets`, while a
-reviewed VPS deployment uses its scoped `~/.hermes/.env`. Do not add a backend
-secret to GitHub Actions, this repository, or the separate web application.
+a field-name template only. Real local values belong in the ignored
+`service-bursawatch-control/.env` in the main worktree, which WT links into
+eligible feature worktrees. A reviewed VPS deployment uses its scoped
+`~/.hermes/.env`. Do not add a backend secret to GitHub Actions, this
+repository, or the separate web application.
 
 When `CONTROL_PLANE_SUPABASE_URL` is set, browser requests must carry a
 Supabase Auth access token. The service verifies only `RS256` or `ES256`
@@ -55,7 +58,9 @@ JWT signing key with a non-empty JWKS endpoint. Do not provide the backend a
 shared JWT secret as a fallback.
 The Postgres adapter is present, but a production deployment still requires a
 reviewed `DATABASE_URL`, migration run, machine credential, and authenticated
-human principal configuration.
+human principal configuration. `bin/migrate.py` uses an advisory lock and a
+private `bursawatch_schema_migrations` ledger. It applies each SQL file exactly
+once and refuses an applied file whose checksum changed.
 
 Migration `004_supabase_data_api_hardening.sql` enables RLS and revokes Data
 API privileges for `anon` and `authenticated` on every control-plane table.
