@@ -4,3 +4,9 @@ max_slots = 9
 name_strategy = "cities"
 branch_template = "{user}/{name}"
 default_base = "origin/main"
+
+# A control-plane checkout shares the one ignored local deployment environment
+# kept in the main worktree. Branches without this package skip the link.
+setup = [
+  "if [ -d service-bursawatch-control ] && [ -f \"$WT_ROOT_PATH/service-bursawatch-control/.env\" ]; then if [ -e service-bursawatch-control/.env ] || [ -L service-bursawatch-control/.env ]; then echo 'refusing to replace existing service-bursawatch-control/.env' >&2; exit 1; fi; ln -s \"$WT_ROOT_PATH/service-bursawatch-control/.env\" service-bursawatch-control/.env; fi",
+]
