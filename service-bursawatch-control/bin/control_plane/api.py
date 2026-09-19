@@ -149,12 +149,17 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="admin role required")
         return current
 
+    def human_reader(current: Principal = Depends(principal)) -> Principal:
+        if current.kind not in {"admin", "viewer"}:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="signed-in user required")
+        return current
+
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
     @app.get("/v1/watchers")
-    def list_watchers(_current: Principal = Depends(machine_or_admin)) -> list[dict[str, Any]]:
+    def list_watchers(_current: Principal = Depends(human_reader)) -> list[dict[str, Any]]:
         return [
             {
                 "watcher_id": watcher.watcher_id,
@@ -177,7 +182,7 @@ def create_app(
     def list_runs(
         watcher_id: str,
         limit: int = Query(default=50, ge=1, le=200),
-        _current: Principal = Depends(machine_or_admin),
+        _current: Principal = Depends(human_reader),
     ) -> list[dict[str, Any]]:
         try:
             validate_watcher_id(watcher_id)
@@ -188,7 +193,7 @@ def create_app(
     @app.get("/v1/watchers/{watcher_id}/jobs")
     def list_jobs(
         watcher_id: str,
-        _current: Principal = Depends(machine_or_admin),
+        _current: Principal = Depends(human_reader),
     ) -> list[dict[str, Any]]:
         try:
             validate_watcher_id(watcher_id)
@@ -197,17 +202,29 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
     @app.get("/v1/jobs/{job_id}/schedule")
-    def get_schedule(job_id: str, _current: Principal = Depends(machine_or_admin)) -> dict[str, Any]:
+    def get_schedule(job_id: str, _current: Principal = Depends(human_reader)) -> dict[str, Any]:
         try:
             return _job_response(store.get_job(job_id))
         except (ContractError, KeyError) as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="scheduler job not found") from exc
 
+    @app.get("/v1/watchers/{watcher_id}/events")
+    def list_watcher_events(
+        watcher_id: str,
+        limit: int = Query(default=500, ge=1, le=1000),
+        _current: Principal = Depends(human_reader),
+    ) -> list[dict[str, Any]]:
+        try:
+            validate_watcher_id(watcher_id)
+            return [_event_response(event) for event in store.list_watcher_events(watcher_id, limit)]
+        except ContractError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
     @app.get("/v1/runs/{run_id}/events")
     def list_events(
         run_id: str,
         limit: int = Query(default=500, ge=1, le=1000),
-        _current: Principal = Depends(machine_or_admin),
+        _current: Principal = Depends(human_reader),
     ) -> list[dict[str, Any]]:
         return [_event_response(event) for event in store.list_events(run_id, limit)]
 

@@ -74,6 +74,22 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Run'
+  /v1/watchers/{watcher_id}/events:
+    parameters:
+      - $ref: '#/components/parameters/WatcherId'
+    get:
+      summary: Read a watcher's newest structured events across runs.
+      parameters:
+        - $ref: '#/components/parameters/EventLimit'
+      responses:
+        '200':
+          description: Structured events in reverse chronological order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RunEvent'
   /v1/watchers/{watcher_id}/jobs:
     parameters:
       - $ref: '#/components/parameters/WatcherId'
@@ -139,6 +155,17 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/RunEvent'
+    post:
+      summary: Append an idempotent structured event.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunEventWrite'
+      responses:
+        '201':
+          description: Stored event.
   /v1/runs:
     post:
       summary: Start a cron run record.
@@ -151,20 +178,6 @@ paths:
       responses:
         '201':
           description: Created run.
-  /v1/runs/{run_id}/events:
-    parameters:
-      - $ref: '#/components/parameters/RunId'
-    post:
-      summary: Append an idempotent structured event.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RunEvent'
-      responses:
-        '201':
-          description: Stored event.
   /v1/runs/{run_id}/finish:
     parameters:
       - $ref: '#/components/parameters/RunId'
@@ -400,6 +413,37 @@ components:
           type: string
           default: scheduled
     RunEvent:
+      type: object
+      additionalProperties: false
+      required: [run_id, event_id, occurred_at, level, phase, event_type, message, attributes]
+      properties:
+        run_id:
+          type: string
+        event_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        occurred_at:
+          type: string
+          format: date-time
+        level:
+          type: string
+          enum: [debug, info, warning, error, fatal]
+        phase:
+          type: string
+          minLength: 1
+          maxLength: 64
+        event_type:
+          type: string
+          minLength: 1
+          maxLength: 128
+        message:
+          type: string
+          maxLength: 500
+        attributes:
+          type: object
+          description: JSON-safe structured fields, capped at 64 KiB by the service.
+    RunEventWrite:
       type: object
       additionalProperties: false
       required: [event_id, occurred_at, level, phase, event_type, message]

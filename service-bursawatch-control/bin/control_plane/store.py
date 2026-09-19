@@ -109,6 +109,8 @@ class Store(Protocol):
 
     def list_events(self, run_id: str, limit: int) -> list[EventRecord]: ...
 
+    def list_watcher_events(self, watcher_id: str, limit: int) -> list[EventRecord]: ...
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -406,6 +408,18 @@ class InMemoryStore:
         return sorted(
             (event for event in self._events.values() if event.run_id == run_id),
             key=lambda event: event.occurred_at,
+        )[:limit]
+
+    def list_watcher_events(self, watcher_id: str, limit: int) -> list[EventRecord]:
+        validate_watcher_id(watcher_id)
+        return sorted(
+            (
+                event
+                for event in self._events.values()
+                if (run := self._runs.get(event.run_id)) is not None and run.watcher_id == watcher_id
+            ),
+            key=lambda event: (event.occurred_at, event.run_id, event.event_id),
+            reverse=True,
         )[:limit]
 
     @property
@@ -845,6 +859,36 @@ class PostgresStore:
                  limit %s
                 """,
                 (run_id, limit),
+            )
+            rows = cursor.fetchall()
+        return [
+            EventRecord(
+                run_id=row["run_id"],
+                event_id=row["event_id"],
+                occurred_at=self._timestamp(row["occurred_at"]),
+                level=row["level"],
+                phase=row["phase"],
+                event_type=row["event_type"],
+                message=row["message"],
+                attributes=row["attributes"],
+            )
+            for row in rows
+        ]
+
+    def list_watcher_events(self, watcher_id: str, limit: int) -> list[EventRecord]:
+        validate_watcher_id(watcher_id)
+        with self._connect() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """
+                select e.run_id, e.event_id, e.occurred_at, e.level,
+                       e.phase, e.event_type, e.message, e.attributes
+                  from bursawatch_events e
+                  join bursawatch_runs r on r.run_id = e.run_id
+                 where r.watcher_id = %s
+                 order by e.occurred_at desc, e.run_id desc, e.event_id desc
+                 limit %s
+                """,
+                (watcher_id, limit),
             )
             rows = cursor.fetchall()
         return [

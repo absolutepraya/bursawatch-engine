@@ -6,13 +6,20 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from control_plane.api import create_app, create_app_from_environment
-from control_plane.auth import StaticTokenAuth
+from control_plane.auth import AuthenticationError, Principal, StaticTokenAuth
 from control_plane.store import InMemoryStore
 
 
 WATCHER = "bursawatch-x-account-watch"
 TOKEN = "machine-token"
 ADMIN = "admin-token"
+
+
+class ViewerAuth:
+    def authenticate(self, authorization: str | None) -> Principal:
+        if authorization == "Bearer viewer-token":
+            return Principal(subject="viewer-user", kind="viewer")
+        raise AuthenticationError("invalid bearer credential")
 
 
 def build_client():
@@ -107,6 +114,51 @@ def test_web_read_routes_expose_watchers_runs_and_events():
     assert client.get("/v1/runs/read-route-run/events", headers=headers).json()[0]["event_id"] == "read-route-event"
 
 
+def test_signed_in_viewer_can_read_chronological_logs_but_not_config():
+    client, store = build_client()
+    headers = {"Authorization": f"Bearer {ADMIN}"}
+    for run_id, event_id, occurred_at in (
+        ("older-run", "older-event", "2026-09-19T10:00:00+00:00"),
+        ("newer-run", "newer-event", "2026-09-19T11:00:00+00:00"),
+    ):
+        assert client.post(
+            "/v1/runs",
+            headers=headers,
+            json={"watcher_id": WATCHER, "config_revision": 1, "run_id": run_id},
+        ).status_code == 201
+        assert client.post(
+            f"/v1/runs/{run_id}/events",
+            headers=headers,
+            json={
+                "event_id": event_id,
+                "occurred_at": occurred_at,
+                "level": "info",
+                "phase": "delivery",
+                "event_type": "delivery.completed",
+                "message": event_id,
+            },
+        ).status_code == 201
+
+    viewer = TestClient(
+        create_app(
+            store=store,
+            auth=ViewerAuth(),
+            validators={WATCHER: lambda config: None},
+        )
+    )
+    headers = {"Authorization": "Bearer viewer-token"}
+
+    assert viewer.get("/v1/watchers", headers=headers).status_code == 200
+    assert viewer.get(f"/v1/watchers/{WATCHER}/runs", headers=headers).status_code == 200
+    assert viewer.get(f"/v1/watchers/{WATCHER}/jobs", headers=headers).status_code == 200
+    assert viewer.get("/v1/jobs/bursawatch-x-account-watch-source/schedule", headers=headers).status_code == 200
+    events = viewer.get(f"/v1/watchers/{WATCHER}/events", headers=headers)
+    assert events.status_code == 200
+    assert [event["event_id"] for event in events.json()] == ["newer-event", "older-event"]
+    assert viewer.get("/v1/runs/newer-run/events", headers=headers).status_code == 200
+    assert viewer.get(f"/v1/watchers/{WATCHER}/config", headers=headers).status_code == 403
+
+
 def test_machine_can_read_config_but_cannot_write():
     client, _store = build_client()
     headers = {"Authorization": f"Bearer {TOKEN}"}
@@ -114,6 +166,7 @@ def test_machine_can_read_config_but_cannot_write():
     response = client.get(f"/v1/watchers/{WATCHER}/config", headers=headers)
     assert response.status_code == 200
     assert response.json()["revision"] == 1
+    assert client.get("/v1/watchers", headers=headers).status_code == 403
 
     response = client.put(
         f"/v1/watchers/{WATCHER}/config",

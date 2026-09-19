@@ -56,6 +56,12 @@ API privileges for `anon` and `authenticated` on every control-plane table.
 The browser never queries these tables directly, even after Supabase Auth is
 enabled; it calls this API with its user token instead.
 
+Signed-in viewers can read the watcher catalog, desired schedule state, recent
+runs, a single run's event timeline, and the newest events across a watcher.
+They cannot read configuration snapshots or change configuration or schedules.
+Cron machine credentials can read their active configuration and append run
+records, but cannot use the dashboard read routes.
+
 ## Watcher config validation
 
 The API rejects a configuration write unless the watcher parser accepts it.

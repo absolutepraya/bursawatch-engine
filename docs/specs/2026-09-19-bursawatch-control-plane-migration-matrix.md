@@ -42,3 +42,28 @@ revision, checksum, and reconciliation state. A write is `pending`, not live:
 the web app must show it as ineffective until a separately deployed VPS
 reconciler applies it through the Hermes CLI. Calendar schedules and queue
 workers that have source-defined cadence remain fixed and read-only.
+
+## Proposed next watcher tranche
+
+The remaining packages should move in the following order. Each source change
+must first add a typed snapshot loader and its isolated write validator, then
+use that frozen revision for one invocation's lifecycle events. This keeps a
+run record attributable to the configuration that actually governed it.
+
+| Order | Package | Candidate web-managed values | Structured run evidence | Deliberately excluded |
+| --- | --- | --- | --- | --- |
+| 1 | `cron-tg-phintraco-swing` | Source identity, All destination, heartbeat destination, and the existing supported interval job | Shared-Telegram hold or probe, fetched messages, accepted source calls, per-leg Discord delivery, board acknowledgement, retained pending work, heartbeat outcome | Cursor, media, outbox phases, retry/backoff, board wrapper path, parser grammar, and shared Telegram resilience state |
+| 2 | `cron-tg-kelas-investasi-gtw` | Source identity, All destination, heartbeat destination, bounded additional LLM instruction, and its supported interval job | Shared-Telegram hold or probe, bundle detection, agent lease and validation outcome, text/header delivery, board acknowledgement, retained pending work, heartbeat outcome | Cursor, leases, media, outbox, retry/backoff, board wrapper path, agent output schema, and shared Telegram resilience state |
+| 3 | `cron-tg-market-news` | Provider identities, route destinations, heartbeat destination, bounded additional LLM instruction, and its supported interval job | Per-provider fetch outcome, candidate and agent-claim counts, classification validation, per-item delivery outcome, retained pending work, heartbeat outcome | Provider cursors, candidate queue, delivery payloads, deduplication and ranking rules, retry/backoff, quote implementation, agent output schema, and shared Telegram resilience state |
+| 4 | `cron-dc-swing-board` | Its already-catalogued fixed calendar schedules and run observability only | Scheduler phase, calendar coverage, reconciliation result, outbox health, and heartbeat outcome | SQLite episodes, source events, forum intent/outbox state, media, tags, market facts, Discord recovery identities, and all maintenance commands |
+
+`additional_prompt_instruction` is additive and bounded. It can provide
+operator context or wording preferences but cannot replace a source-controlled
+agent contract, relax deterministic validators, modify tool authority, or
+change the closed output schema.
+
+The dashboard needs a watcher-wide chronological event feed in addition to a
+single-run detail view. The next backend API slice should provide that read
+model and permit signed-in viewers to read operational history, while keeping
+config values and schedule writes restricted to machine and administrator
+principals.
