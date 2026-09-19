@@ -126,3 +126,13 @@ write is `pending` and `effective: false`: it is durable operator intent, not
 an instruction that this service has applied to Hermes. The later VPS
 reconciler is the only component allowed to change or pause a live job, using
 the supported Hermes CLI and reporting the applied revision back.
+
+The initial catalog seeds the verified current intent for every supported
+interval job: X source poller (10 minutes), Instagram source poller (one hour),
+Telegram Phintraco Swing (one minute), Telegram Market News (one minute),
+Telegram Kelas Investasi GTW (one hour), and WhatsApp Channel Watch (paused at
+one minute). The permitted intervals are 10 minutes to 24 hours for X, one hour
+to 24 hours for Instagram, one minute to one hour for Phintraco and Market
+News, and five minutes to six hours for Kelas Investasi. WhatsApp is one minute
+to six hours. The two Swing Board calendar jobs and the X queue worker remain
+fixed and read-only.

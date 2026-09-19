@@ -9,6 +9,12 @@ This file supplements the repository root `AGENTS.md`. It is the development and
 - Tuntun (`tuntunsekuritas`) accepts only thread `3743`: standalone `📰` news, issuer-specific ticker-led standalone news, explicit foreign-partner `<name> China-<IDX ticker>` headlines, explicitly issuer-named `Anak Usaha <TICKER>` headlines with one or two named issuers, individual company entries in Corporate posts, issuer-specific Special Topics, and bounded Midday or Evening Updates. A decorated headline selects its first non-market, non-abbreviation ticker when present, otherwise it is a tickerless macro candidate. The deterministic reserved-acronym set covers market symbols plus verified government, regulatory, market-infrastructure, macro, and industry labels such as `APBN`, `BUMN`, `POJK`, `RKAB`, `SPBU`, and `TKDN`, so they cannot create an issuer price card. Each addition must first be checked against the current IDX Stock List because ambiguous acronyms may be live issuers. An update creates one lead plus one candidate per `Macro & Global` or `Industry` news paragraph. `Overview`, sector, movers, breadth, and foreign-flow tables are excluded. Daily, promotional, and customer-service material is excluded.
 - Phintraco (`phintasprofits`) accepts only Notes, Company Flash, and Stock Information with an identified IDX issuer. Market Review, including a mixed review with appended top-pick material, is excluded.
 - A fresh provider cursor is initialized at the current highest message. It creates no historical candidate or backfill.
+- The separate desired-schedule catalog identifies the registered Hermes job as
+  `bursawatch-tg-market-news`. Its verified one-minute baseline may be changed
+  by an administrator to any one-minute to one-hour interval, or paused, as
+  durable intent only. It remains pending until the future trusted VPS
+  reconciler uses the Hermes CLI and reports the applied revision. It never
+  changes the watchdog schedule, provider state, credentials, or alert routes.
 
 ## Agent classification contract
 

@@ -132,7 +132,7 @@ def run(*, config_path: Path, state_path: Path, queue_dir: Path, now: datetime |
     control_run = ControlPlaneRun.begin(
         "WHATSAPP_CHANNEL_WATCH",
         loaded_config.revision,
-        scheduler_job_id="whatsapp-channel",
+        scheduler_job_id="bursawatch-wa-channel-watch",
     )
     control_run.event(
         "run-started",

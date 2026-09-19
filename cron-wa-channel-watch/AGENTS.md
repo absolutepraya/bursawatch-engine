@@ -57,6 +57,13 @@ routes `macro_news`, `id_stocks_news`, and `id_stocks_swing`. Adding a profile i
 a proposal, not permission to enable it, pair an account, backfill history, or
 deploy.
 
+The control-plane catalog records a separate desired cadence for the registered
+Hermes job `bursawatch-wa-channel-watch`. Its verified baseline is paused at a
+one-minute interval, and an administrator may request a one-minute to six-hour
+interval or paused state. That request remains pending until the future trusted
+VPS reconciler applies it through the Hermes CLI. It cannot pair WhatsApp,
+change a Channel subscription, or alter queue retention.
+
 When the user says `watch this wa channel <name, URL, or JID>`, inspect and
 normalize the requested Channel, propose a complete profile, and ask only for
 unresolved routing or destination decisions. After the complete profile is

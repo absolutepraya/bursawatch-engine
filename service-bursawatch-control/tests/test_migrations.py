@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from control_plane.contract import schedule_checksum
+
 
 def test_supabase_hardening_enables_rls_and_revokes_browser_roles():
     migration = (
@@ -23,3 +25,49 @@ def test_supabase_hardening_enables_rls_and_revokes_browser_roles():
     assert "revoke all privileges on table public.%I from public" in migration
     assert "from anon" in migration
     assert "from authenticated" in migration
+
+
+def test_remaining_schedule_controls_seed_safe_baselines():
+    migration = (
+        Path(__file__).resolve().parents[1]
+        / "migrations/005_add_remaining_schedule_controls.sql"
+    ).read_text(encoding="utf-8")
+    expected = {
+        "bursawatch-tg-market-news": {
+            "watcher_id": "bursawatch-tg-market-news",
+            "display_name": "Telegram Market News",
+            "minimum": 60,
+            "maximum": 3_600,
+            "enabled": True,
+            "interval": 60,
+        },
+        "bursawatch-tg-kelas-investasi-gtw": {
+            "watcher_id": "bursawatch-tg-kelas-investasi-gtw",
+            "display_name": "Telegram Kelas Investasi GTW",
+            "minimum": 300,
+            "maximum": 21_600,
+            "enabled": True,
+            "interval": 3_600,
+        },
+        "bursawatch-wa-channel-watch": {
+            "watcher_id": "bursawatch-wa-channel-watch",
+            "display_name": "WhatsApp Channel Watch",
+            "minimum": 60,
+            "maximum": 21_600,
+            "enabled": False,
+            "interval": 60,
+        },
+    }
+
+    for job_id, job in expected.items():
+        assert (
+            f"('{job_id}', '{job['watcher_id']}', '{job['display_name']}', "
+            f"'{job_id}', 'interval', {job['minimum']}, {job['maximum']})"
+        ) in migration
+        checksum = schedule_checksum(job["enabled"], job["interval"], "Asia/Jakarta")
+        assert (
+            f"('{job_id}', 1, {str(job['enabled']).lower()}, {job['interval']}, "
+            f"'Asia/Jakarta', '{checksum}', 'source-baseline')"
+        ) in migration
+
+    assert "and current_schedule_revision is null;" in migration

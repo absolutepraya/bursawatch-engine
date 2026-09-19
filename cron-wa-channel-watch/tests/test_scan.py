@@ -53,6 +53,39 @@ def event(message_id, timestamp, text="BBCA mencatat laba bersih naik", media=No
     })
 
 
+def test_run_reports_the_registered_hermes_job_to_the_control_plane(tmp_path, monkeypatch):
+    calls = []
+
+    class RecordingControlRun:
+        @classmethod
+        def begin(cls, *args, **kwargs):
+            calls.append((args, kwargs))
+            return cls()
+
+        def event(self, *_args, **_kwargs):
+            return None
+
+        def finish(self, *_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr(scan, "ControlPlaneRun", RecordingControlRun)
+
+    scan.run(
+        config_path=write_config(tmp_path),
+        state_path=tmp_path / "state.json",
+        queue_dir=tmp_path / "queue",
+        now=datetime(2026, 9, 10, tzinfo=timezone.utc),
+        no_post=True,
+    )
+
+    assert calls == [
+        (
+            ("WHATSAPP_CHANNEL_WATCH", None),
+            {"scheduler_job_id": "bursawatch-wa-channel-watch"},
+        )
+    ]
+
+
 def test_first_run_is_future_only_and_later_run_claims_one(tmp_path):
     queue_dir = tmp_path / "queue"
     now = datetime(2026, 9, 10, tzinfo=timezone.utc)
