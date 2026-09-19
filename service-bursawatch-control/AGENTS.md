@@ -1,12 +1,16 @@
 # Bursawatch control-plane service instructions
 
 This package owns the Bursawatch control-plane API, Postgres migrations,
-configuration revisions, audit records, run summaries, structured events, and
-the versioned API contract consumed by the separate web repository.
+configuration revisions, desired schedule revisions, audit records, run
+summaries, structured events, and the versioned API contract consumed by the
+separate web repository.
 
 It does not own watcher cursors, deduplication, media, outboxes, retry state,
 Telegram resilience, Swing Board state, secrets, or scheduler definitions.
 Those remain under their existing package or VPS ownership boundaries.
+It records a scheduler job's desired enabled state and interval, but never
+edits the live Hermes registry itself. A separate trusted VPS reconciler must
+report an applied revision before a desired schedule is effective.
 
 ## Development
 

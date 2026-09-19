@@ -7,11 +7,11 @@ from typing import Any, Callable, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from .auth import AuthenticationError, Principal, StaticTokenAuth
 from .contract import ConfigSnapshot, ContractError, validate_watcher_id
-from .store import EventRecord, InMemoryStore, PostgresStore, RunRecord, Store
+from .store import EventRecord, InMemoryStore, PostgresStore, RunRecord, SchedulerJobRecord, Store
 
 
 class ConfigWrite(BaseModel):
@@ -50,6 +50,14 @@ class RunFinish(BaseModel):
     error: str | None = Field(default=None, max_length=500)
 
 
+class ScheduleWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: StrictBool
+    interval_seconds: int = Field(ge=60, le=86_400)
+    timezone: str = Field(min_length=1, max_length=64)
+
+
 def _snapshot_response(snapshot: ConfigSnapshot) -> dict[str, Any]:
     return snapshot.to_dict()
 
@@ -78,6 +86,30 @@ def _event_response(event: EventRecord) -> dict[str, Any]:
         "event_type": event.event_type,
         "message": event.message,
         "attributes": event.attributes,
+    }
+
+
+def _job_response(job: SchedulerJobRecord) -> dict[str, Any]:
+    schedule = job.schedule.to_dict() if job.schedule else None
+    effective = bool(
+        job.schedule
+        and job.reconciliation_status == "applied"
+        and job.applied_revision == job.schedule.revision
+    )
+    return {
+        "job_id": job.job_id,
+        "watcher_id": job.watcher_id,
+        "display_name": job.display_name,
+        "runtime_job_key": job.runtime_job_key,
+        "schedule_kind": job.schedule_kind,
+        "min_interval_seconds": job.min_interval_seconds,
+        "max_interval_seconds": job.max_interval_seconds,
+        "schedule": schedule,
+        "reconciliation": {
+            "status": job.reconciliation_status,
+            "applied_revision": job.applied_revision,
+            "effective": effective,
+        },
     }
 
 
@@ -152,6 +184,24 @@ def create_app(
         except ContractError as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
+    @app.get("/v1/watchers/{watcher_id}/jobs")
+    def list_jobs(
+        watcher_id: str,
+        _current: Principal = Depends(machine_or_admin),
+    ) -> list[dict[str, Any]]:
+        try:
+            validate_watcher_id(watcher_id)
+            return [_job_response(job) for job in store.list_jobs(watcher_id)]
+        except ContractError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    @app.get("/v1/jobs/{job_id}/schedule")
+    def get_schedule(job_id: str, _current: Principal = Depends(machine_or_admin)) -> dict[str, Any]:
+        try:
+            return _job_response(store.get_job(job_id))
+        except (ContractError, KeyError) as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="scheduler job not found") from exc
+
     @app.get("/v1/runs/{run_id}/events")
     def list_events(
         run_id: str,
@@ -176,6 +226,29 @@ def create_app(
             return _snapshot_response(
                 store.put_config(watcher_id, payload.config_version, payload.config, current.subject)
             )
+        except (ContractError, ValueError) as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    @app.put("/v1/jobs/{job_id}/schedule")
+    def put_schedule(
+        job_id: str,
+        payload: ScheduleWrite,
+        current: Principal = Depends(admin_only),
+    ) -> dict[str, Any]:
+        try:
+            return _job_response(
+                store.put_schedule(
+                    job_id,
+                    payload.enabled,
+                    payload.interval_seconds,
+                    payload.timezone,
+                    current.subject,
+                )
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="scheduler job not found") from exc
+        except PermissionError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         except (ContractError, ValueError) as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 

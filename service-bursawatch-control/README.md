@@ -11,13 +11,18 @@ This branch adds:
 - an in-memory store for isolated API tests;
 - authenticated API routes for config reads, config writes, run records, and
   structured events;
+- immutable desired interval schedules for supported scheduler jobs, with an
+  explicit reconciliation status so a dashboard never mistakes stored intent
+  for a changed live Hermes job;
 - the initial Postgres schema migration;
 - a versioned OpenAPI document for the web repository.
 - opt-in live configuration support for X Account Watch, Instagram Account
   Watch, and WhatsApp Channel Watch, with one frozen revision per invocation.
 
 The Supabase Auth verifier, watcher-specific validator registry, and VPS
-service unit are separate deployment work.
+service unit are separate deployment work. A desired schedule revision also
+needs a separate trusted VPS scheduler reconciler before it changes a live
+Hermes job.
 The Postgres adapter is present, but a production deployment still requires a
 reviewed `DATABASE_URL`, migration run, machine credential, and authenticated
 human principal configuration.
@@ -50,3 +55,16 @@ migrated watcher enables this mode with a prefix-specific
 `<PREFIX>_CONTROL_PLANE_URL`, `<PREFIX>_CONTROL_PLANE_WATCHER_ID`, and
 `<PREFIX>_CONTROL_PLANE_TOKEN`; without the URL, its reviewed static JSON
 fallback remains active during migration.
+
+## Schedule boundary
+
+`GET /v1/watchers/{watcher_id}/jobs` lists the scheduler jobs that the web app
+may display. Interval jobs expose their approved minimum and maximum cadence;
+fixed calendar jobs are intentionally read-only. An admin can write a desired
+interval schedule through `PUT /v1/jobs/{job_id}/schedule`.
+
+The response has `reconciliation.status` and `reconciliation.effective`. A new
+write is `pending` and `effective: false`: it is durable operator intent, not
+an instruction that this service has applied to Hermes. The later VPS
+reconciler is the only component allowed to change or pause a live job, using
+the supported Hermes CLI and reporting the applied revision back.

@@ -26,7 +26,8 @@ cron consumes that library at runtime, so its control state remains single-owner
 observability API. `lib-bursawatch-control` is the standard-library runtime
 client used by migrated crons. The Bursawatch web application is maintained in
 a separate repository and integrates through the service's versioned OpenAPI
-contract.
+contract. The service can store a catalogued job's desired interval schedule,
+but only a separately approved VPS reconciler may apply that intent to Hermes.
 
 `skill-guess-stock` and `skill-profile-emoji` are reusable, non-scheduled
 market skills. `service-cobalt` is the tracked media-download service.

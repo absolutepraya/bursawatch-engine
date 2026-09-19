@@ -23,9 +23,12 @@ does not poll or deliver and preserves its runtime state. Routine and fatal
 heartbeat output moves to the web control plane; cron stdout control protocols
 remain unchanged where Hermes consumes them.
 
-The control plane stores operator configuration, revisions, audit records, run
-summaries, and structured events. Secrets, source-controlled safety invariants,
-and watcher-owned runtime state remain outside the control-plane database.
+The control plane stores operator configuration, revisions, desired schedule
+revisions, audit records, run summaries, and structured events. Secrets,
+source-controlled safety invariants, and watcher-owned runtime state remain
+outside the control-plane database. A desired schedule is not effective until a
+separate trusted VPS reconciler applies it through the supported Hermes CLI and
+reports the applied revision.
 
 ## Consequences
 
@@ -39,3 +42,9 @@ The existing `web-config/` and `web-landing/` directories are obsolete
 placeholders once the separate web repository is confirmed as the UI owner and
 may be removed in a separate cleanup change. A separate `db-*` package is not
 introduced because migrations have one owner, the control-plane service.
+
+The web app never sends shell commands, raw cron expressions, or arbitrary
+code to the VPS. It may manage only the source-defined job catalog: enabled
+state and validated interval bounds for explicitly schedulable jobs. Fixed
+calendar jobs, credentials, runtime state, and new cron implementation remain
+source and deployment work.

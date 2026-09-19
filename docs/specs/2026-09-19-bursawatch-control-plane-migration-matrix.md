@@ -33,3 +33,12 @@ Discord heartbeat writes remain in place until the corresponding structured
 events are visible in the web application through the read API and the natural
 production run has been observed. Removing them is a separately reviewed
 cutover, not a side effect of enabling database reads.
+
+## Desired schedule controls
+
+The control plane now has an immutable desired-schedule model for explicitly
+catalogued interval jobs. It stores enabled state, cadence, timezone, actor,
+revision, checksum, and reconciliation state. A write is `pending`, not live:
+the web app must show it as ineffective until a separately deployed VPS
+reconciler applies it through the Hermes CLI. Calendar schedules and queue
+workers that have source-defined cadence remain fixed and read-only.

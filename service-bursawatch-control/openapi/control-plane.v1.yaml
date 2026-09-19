@@ -74,6 +74,55 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Run'
+  /v1/watchers/{watcher_id}/jobs:
+    parameters:
+      - $ref: '#/components/parameters/WatcherId'
+    get:
+      summary: List a watcher's scheduler jobs and desired schedule state.
+      description: A desired schedule is not effective until a VPS reconciler reports it applied.
+      responses:
+        '200':
+          description: Scheduler jobs in stable job-ID order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SchedulerJob'
+  /v1/jobs/{job_id}/schedule:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    get:
+      summary: Read a scheduler job and its desired schedule state.
+      responses:
+        '200':
+          description: Scheduler job state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchedulerJob'
+        '404':
+          description: Scheduler job does not exist.
+    put:
+      summary: Store a new desired schedule revision for an interval job.
+      description: Human admin operation. This persists intent only and never directly mutates Hermes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleWrite'
+      responses:
+        '200':
+          description: New desired schedule revision, pending VPS reconciliation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchedulerJob'
+        '409':
+          description: The job has a fixed source-defined schedule.
+        '422':
+          description: The cadence is outside the job's approved policy.
   /v1/runs/{run_id}/events:
     parameters:
       - $ref: '#/components/parameters/RunId'
@@ -149,6 +198,13 @@ components:
       required: true
       schema:
         type: string
+    JobId:
+      name: job_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[a-z0-9][a-z0-9-]*$'
     Limit:
       name: limit
       in: query
@@ -216,6 +272,88 @@ components:
         updated_at:
           type: string
           format: date-time
+    ScheduleWrite:
+      type: object
+      additionalProperties: false
+      required: [enabled, interval_seconds, timezone]
+      properties:
+        enabled:
+          type: boolean
+        interval_seconds:
+          type: integer
+          minimum: 60
+          maximum: 86400
+          multipleOf: 60
+        timezone:
+          type: string
+          description: IANA timezone name.
+    ScheduleSnapshot:
+      type: object
+      additionalProperties: false
+      required: [api_version, job_id, revision, enabled, interval_seconds, timezone, schedule_sha256, updated_at]
+      properties:
+        api_version:
+          type: integer
+          const: 1
+        job_id:
+          type: string
+        revision:
+          type: integer
+          minimum: 1
+        enabled:
+          type: boolean
+        interval_seconds:
+          type: integer
+          minimum: 60
+          maximum: 86400
+          multipleOf: 60
+        timezone:
+          type: string
+        schedule_sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        updated_at:
+          type: string
+          format: date-time
+    SchedulerReconciliation:
+      type: object
+      additionalProperties: false
+      required: [status, applied_revision, effective]
+      properties:
+        status:
+          type: string
+          enum: [not_connected, pending, applied, error]
+        applied_revision:
+          type: [integer, 'null']
+        effective:
+          type: boolean
+          description: True only after the VPS reconciler confirms the current revision.
+    SchedulerJob:
+      type: object
+      additionalProperties: false
+      required: [job_id, watcher_id, display_name, runtime_job_key, schedule_kind, min_interval_seconds, max_interval_seconds, schedule, reconciliation]
+      properties:
+        job_id:
+          type: string
+        watcher_id:
+          type: string
+        display_name:
+          type: string
+        runtime_job_key:
+          type: string
+        schedule_kind:
+          type: string
+          enum: [interval, fixed]
+        min_interval_seconds:
+          type: [integer, 'null']
+        max_interval_seconds:
+          type: [integer, 'null']
+        schedule:
+          oneOf:
+            - $ref: '#/components/schemas/ScheduleSnapshot'
+            - type: 'null'
+        reconciliation:
+          $ref: '#/components/schemas/SchedulerReconciliation'
     Run:
       type: object
       additionalProperties: false

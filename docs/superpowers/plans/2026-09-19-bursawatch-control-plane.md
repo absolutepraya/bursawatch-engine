@@ -8,12 +8,14 @@ web repository.
 
 ## Architecture
 
-`service-bursawatch-control` owns the API, Postgres migrations, config
-revisions, audit records, run summaries, structured events, and the OpenAPI
-contract. `lib-bursawatch-control` owns the cron-side client and local-first
-event spool. The web application calls the service API and never receives
-database credentials. Existing cron packages keep their source and state
-contracts until each one is migrated deliberately.
+`service-bursawatch-control` owns the API, Postgres migrations, config and
+desired-schedule revisions, audit records, run summaries, structured events,
+and the OpenAPI contract. `lib-bursawatch-control` owns the cron-side client
+and local-first event spool. The web application calls the service API and
+never receives database credentials. Existing cron packages keep their source
+and state contracts until each one is migrated deliberately. Desired schedules
+remain ineffective until a separate trusted VPS reconciler applies them through
+the Hermes CLI.
 
 ## Delivery order
 
@@ -31,6 +33,9 @@ contracts until each one is migrated deliberately.
 6. Validate the local slice and document the VPS deployment boundary. Do not
    deploy, retarget a scheduler, remove Discord writes, or move production
    state in this change.
+7. Add catalogued desired schedule revisions for supported interval jobs. Keep
+   fixed calendar and queue schedules read-only, and expose reconciliation
+   state before building or deploying a scheduler reconciler.
 
 ## Non-goals for this slice
 

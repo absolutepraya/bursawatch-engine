@@ -15,6 +15,25 @@ ADMIN = "admin-token"
 def build_client():
     store = InMemoryStore()
     store.seed_config(WATCHER, 1, {"version": 1, "profiles": []})
+    store.seed_job(
+        job_id="bursawatch-x-account-watch-source",
+        watcher_id=WATCHER,
+        display_name="X Account Watch source poller",
+        runtime_job_key="x-post-source",
+        schedule_kind="interval",
+        min_interval_seconds=600,
+        max_interval_seconds=86_400,
+        enabled=True,
+        interval_seconds=600,
+        timezone="Asia/Jakarta",
+    )
+    store.seed_job(
+        job_id="bursawatch-x-account-watch-queue-worker",
+        watcher_id=WATCHER,
+        display_name="X Account Watch queue worker",
+        runtime_job_key="x-post-queue-worker",
+        schedule_kind="fixed",
+    )
     app = create_app(
         store=store,
         auth=StaticTokenAuth(machine_token=TOKEN, admin_token=ADMIN),
@@ -113,6 +132,80 @@ def test_admin_write_creates_a_new_revision():
 
     assert response.status_code == 200
     assert response.json()["revision"] == 2
+
+
+def test_jobs_show_schedule_capabilities_and_current_reconciliation_state():
+    client, _store = build_client()
+    headers = {"Authorization": f"Bearer {ADMIN}"}
+
+    jobs = client.get(f"/v1/watchers/{WATCHER}/jobs", headers=headers)
+
+    assert jobs.status_code == 200
+    by_id = {job["job_id"]: job for job in jobs.json()}
+    source = by_id["bursawatch-x-account-watch-source"]
+    worker = by_id["bursawatch-x-account-watch-queue-worker"]
+    assert source["schedule_kind"] == "interval"
+    assert source["schedule"]["interval_seconds"] == 600
+    assert source["reconciliation"] == {
+        "status": "not_connected",
+        "applied_revision": None,
+        "effective": False,
+    }
+    assert worker["schedule_kind"] == "fixed"
+    assert worker["schedule"] is None
+
+
+def test_admin_can_store_an_interval_schedule_without_claiming_it_is_live():
+    client, _store = build_client()
+    headers = {"Authorization": f"Bearer {ADMIN}"}
+
+    response = client.put(
+        "/v1/jobs/bursawatch-x-account-watch-source/schedule",
+        headers=headers,
+        json={"enabled": False, "interval_seconds": 7_200, "timezone": "Asia/Jakarta"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["schedule"]["revision"] == 2
+    assert body["schedule"]["enabled"] is False
+    assert body["schedule"]["interval_seconds"] == 7_200
+    assert body["reconciliation"] == {
+        "status": "pending",
+        "applied_revision": None,
+        "effective": False,
+    }
+
+
+def test_machine_cannot_change_schedule_and_fixed_jobs_reject_changes():
+    client, _store = build_client()
+    payload = {"enabled": True, "interval_seconds": 600, "timezone": "Asia/Jakarta"}
+
+    machine = client.put(
+        "/v1/jobs/bursawatch-x-account-watch-source/schedule",
+        headers={"Authorization": f"Bearer {TOKEN}"},
+        json=payload,
+    )
+    fixed = client.put(
+        "/v1/jobs/bursawatch-x-account-watch-queue-worker/schedule",
+        headers={"Authorization": f"Bearer {ADMIN}"},
+        json=payload,
+    )
+
+    assert machine.status_code == 403
+    assert fixed.status_code == 409
+
+
+def test_schedule_rejects_values_outside_the_job_policy():
+    client, _store = build_client()
+    response = client.put(
+        "/v1/jobs/bursawatch-x-account-watch-source/schedule",
+        headers={"Authorization": f"Bearer {ADMIN}"},
+        json={"enabled": True, "interval_seconds": 60, "timezone": "Asia/Jakarta"},
+    )
+
+    assert response.status_code == 422
+    assert "between 600 and 86400" in response.json()["detail"]
 
 
 def test_run_events_are_idempotent_by_event_id():
