@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 X_WATCHER = "bursawatch-x-account-watch"
 IG_WATCHER = "bursawatch-ig-account-watch"
 WA_WATCHER = "bursawatch-wa-channel-watch"
+MARKET_NEWS_WATCHER = "bursawatch-tg-market-news"
 PHINTRACO_WATCHER = "bursawatch-tg-phintraco-swing"
 KELAS_INVESTASI_WATCHER = "bursawatch-tg-kelas-investasi-gtw"
 
@@ -61,7 +62,6 @@ def test_validator_reuses_the_kelas_investasi_strict_config_schema():
     validators = validators_from_directories(
         {KELAS_INVESTASI_WATCHER: ROOT / "cron-tg-kelas-investasi-gtw/bin"}
     )
-
     validators[KELAS_INVESTASI_WATCHER](
         {
             "version": 1,
@@ -77,6 +77,28 @@ def test_validator_reuses_the_kelas_investasi_strict_config_schema():
         }
     )
 
+
+def test_validator_reuses_the_market_news_strict_config_schema():
+    validators = validators_from_directories(
+        {MARKET_NEWS_WATCHER: ROOT / "cron-tg-market-news/bin"}
+    )
+
+    validators[MARKET_NEWS_WATCHER](
+        {
+            "version": 1,
+            "providers": {
+                "phintraco": {"telegram_username": "phintasprofits"},
+                "tuntun": {"telegram_username": "tuntunsekuritas"},
+            },
+            "destinations": {
+                "id_stocks_news_discord_channel_id": "1525102508714889257",
+                "macro_news_discord_channel_id": "1531655369884045382",
+                "industry_news_discord_channel_id": "1549418098807930880",
+                "heartbeat_discord_channel_id": "1505162000420835388",
+            },
+            "additional_prompt_instruction": "Utamakan ringkasan yang padat.",
+        }
+    )
 
 def test_validator_rejects_an_unregistered_watcher():
     with pytest.raises(ValueError, match="no config validator is defined"):

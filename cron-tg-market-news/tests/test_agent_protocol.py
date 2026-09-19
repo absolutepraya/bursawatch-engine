@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+import config
 from agent_protocol import TUNTUN_INSTRUCTION, agent_item, build_wake_payload, submit_classification, validate_agent_submission
 from domain import CompanyCandidate, EventClass, Provider, SourceKind
 from state import claim_oldest_pending_analysis, empty_state, enqueue_candidate
@@ -64,6 +65,35 @@ def test_wake_payload_rejects_anything_but_one_item(candidate):
         build_wake_payload([])
     with pytest.raises(ValueError, match="exactly one"):
         build_wake_payload([item, item])
+
+
+def test_wake_payload_uses_the_frozen_operator_prompt_and_source_username():
+    candidate = _tuntun_candidate()
+    watch_config = config.load_watch_config_data(
+        {
+            "version": 1,
+            "providers": {
+                "phintraco": {"telegram_username": "phintracocp"},
+                "tuntun": {"telegram_username": "tuntuncontrol"},
+            },
+            "destinations": {
+                "id_stocks_news_discord_channel_id": "1525102508714889258",
+                "macro_news_discord_channel_id": "1531655369884045383",
+                "industry_news_discord_channel_id": "1549418098807930881",
+                "heartbeat_discord_channel_id": "1505162000420835389",
+            },
+            "additional_prompt_instruction": "Utamakan ringkasan yang padat.",
+        }
+    )
+
+    with config.activate_watch_config(watch_config):
+        item = agent_item(candidate)
+        payload = build_wake_payload([item])
+
+    assert item["source_url"] == "https://t.me/tuntuncontrol/13597"
+    assert "Additional operator context follows." in item["instruction"]
+    assert item["instruction"].endswith("Utamakan ringkasan yang padat.\n")
+    assert payload["items"] == [item]
 
 
 def test_agent_submission_requires_exact_candidate_ticker(load_fixture):

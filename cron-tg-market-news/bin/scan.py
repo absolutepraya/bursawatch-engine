@@ -20,6 +20,7 @@ from telegram_resilience import (
     is_transport_error,
 )
 
+import config
 from agent_protocol import agent_item, build_wake_payload, submit_classification as submit_agent_classification
 from delivery import deliver_event, post_discord_text
 from domain import CompanyCandidate, Destination, EventClass, Provider, SourceKind
@@ -46,14 +47,31 @@ from state import (
     save_state,
 )
 
+try:
+    from control_plane_runtime import ControlPlaneRun
+except ModuleNotFoundError:
+    class ControlPlaneRun:
+        @classmethod
+        def begin(cls, *_args, **_kwargs):
+            return cls()
+
+        def event(self, *_args, **_kwargs):
+            pass
+
+        def finish(self, *_args, **_kwargs):
+            pass
+
 WIB = ZoneInfo("Asia/Jakarta")
 WATCHER_NAME = "idx-market-news"
-ALERT_CHANNEL_ID = "1525102508714889257"
-MACRO_CHANNEL_ID = "1531655369884045382"
-INDUSTRY_CHANNEL_ID = "1549418098807930880"
-HEARTBEAT_CHANNEL_ID = "1505162000420835388"
-PHINTRACO_ENTITY = "phintasprofits"
-TUNTUN_ENTITY = "tuntunsekuritas"
+_DEFAULT_WATCH_CONFIG = config.default_watch_config()
+# Compatibility defaults for isolated tests. Runtime values come from the one
+# active frozen configuration snapshot for the complete invocation.
+ALERT_CHANNEL_ID = _DEFAULT_WATCH_CONFIG.id_stocks_news_channel_id
+MACRO_CHANNEL_ID = _DEFAULT_WATCH_CONFIG.macro_news_channel_id
+INDUSTRY_CHANNEL_ID = _DEFAULT_WATCH_CONFIG.industry_news_channel_id
+HEARTBEAT_CHANNEL_ID = _DEFAULT_WATCH_CONFIG.heartbeat_channel_id
+PHINTRACO_ENTITY = _DEFAULT_WATCH_CONFIG.phintraco_username
+TUNTUN_ENTITY = _DEFAULT_WATCH_CONFIG.tuntun_username
 _DELIVERY_CONTRACT_MIGRATION_KEY = "immediate_delivery_contract_v1"
 _ACTIVE_PHASES = frozenset(
     {
@@ -126,7 +144,12 @@ def format_heartbeat(
 
 def post_hermes_text(content: str, event_key: str, dry_run: bool) -> str | None:
     """Post watcher operations only to the Hermes heartbeat channel."""
-    return post_discord_text(content, HEARTBEAT_CHANNEL_ID, event_key, dry_run=dry_run)
+    return post_discord_text(
+        content,
+        config.active_watch_config().heartbeat_channel_id,
+        event_key,
+        dry_run=dry_run,
+    )
 
 
 def _make_client() -> Any:
@@ -199,9 +222,10 @@ def _report_resilience_state_blocked(now: datetime, dry_run: bool) -> None:
 
 async def _resolve_runtime_clients(client: Any) -> RuntimeClients:
     """Resolve each allowed entity independently so one inaccessible lane cannot stop the other."""
+    watch_config = config.active_watch_config()
     resolved = await asyncio.gather(
-        client.get_entity(PHINTRACO_ENTITY),
-        client.get_entity(TUNTUN_ENTITY),
+        client.get_entity(watch_config.phintraco_username),
+        client.get_entity(watch_config.tuntun_username),
         return_exceptions=True,
     )
     return RuntimeClients(client, resolved[0], resolved[1])
@@ -522,11 +546,12 @@ def _pending_delivery(state: dict[str, object], now: datetime) -> list[Selection
 
 
 def _delivery_channel(item: SelectionCandidate) -> str:
+    watch_config = config.active_watch_config()
     if item.candidate.source_kind is SourceKind.TUNTUN_UPDATE_INDUSTRY:
-        return INDUSTRY_CHANNEL_ID
+        return watch_config.industry_news_channel_id
     if item.route is Destination.MACRO_NEWS:
-        return MACRO_CHANNEL_ID
-    return ALERT_CHANNEL_ID
+        return watch_config.macro_news_channel_id
+    return watch_config.id_stocks_news_channel_id
 
 
 async def _drain_delivery(
@@ -629,53 +654,94 @@ async def _route_and_deliver(
 
 
 async def run(now: datetime | None = None, clients: object | None = None) -> dict[str, object]:
-    """Perform one locked poll, delivery drain, heartbeat, and single agent claim."""
+    """Perform one invocation against one frozen operator configuration snapshot."""
     now = _require_aware(now or datetime.now(WIB))
+    loaded_config = config.load_watch_config_for_run()
+    with config.activate_watch_config(loaded_config.config):
+        return await _run_loaded_config(now, clients, loaded_config)
+
+
+async def _run_loaded_config(
+    now: datetime,
+    clients: object | None,
+    loaded_config: config.LoadedWatchConfig,
+) -> dict[str, object]:
     dry_run = _dry_run()
     with run_lock():
+        control_run = ControlPlaneRun.begin(
+            "IDX_MARKET_NEWS",
+            loaded_config.revision,
+            scheduler_job_id="bursawatch-tg-market-news",
+        )
+        control_run.event(
+            "run-started",
+            level="info",
+            phase="lifecycle",
+            event_type="run.started",
+            message="Telegram Market News watcher run started",
+            attributes={"config_revision": loaded_config.revision, "no_post": dry_run},
+        )
         owned_client: Any | None = None
-        if clients is None:
-            control = resilience()
-            decision = await acquire_probe_after_active_lease(
-                control, WATCHER_NAME, now
-            )
-            if decision.kind == "state_blocked":
-                _report_resilience_state_blocked(now, dry_run)
-                return {"wakeAgent": False, "_telegram_resilience_handled": True}
-            if decision.kind != "probe":
-                deliver_resilience_notification(control, now, dry_run)
-                return {"wakeAgent": False, "_telegram_resilience_handled": True}
-
-            owned_client = _make_client()
-            try:
-                await owned_client.connect()
-                if not await owned_client.is_user_authorized():
-                    control.record_auth_required(decision.lease_id, WATCHER_NAME, now)
-                    deliver_resilience_notification(control, now, dry_run)
-                    await _disconnect_quietly(owned_client)
-                    return {"wakeAgent": False, "_telegram_resilience_handled": True}
-                await owned_client.get_me()
-                dc_id, endpoint = _connection_metadata(owned_client)
-                control.record_authenticated_success(
-                    decision.lease_id, WATCHER_NAME, now, dc_id, endpoint
-                )
-                deliver_resilience_notification(control, now, dry_run)
-            except Exception as error:
-                if is_transport_error(error):
-                    control.record_transport_failure(
-                        decision.lease_id, WATCHER_NAME, error, now
-                    )
-                    deliver_resilience_notification(control, now, dry_run)
-                    await _disconnect_quietly(owned_client)
-                    return {"wakeAgent": False, "_telegram_resilience_handled": True}
-                await _disconnect_quietly(owned_client)
-                raise
-
-        state = load_state()
-        _migrate_scheduled_delivery_backlog(state, now)
-        runtime: RuntimeClients | None = None
-        source_messages = source_candidates = 0
+        source_messages = source_candidates = classified = news_delivered = 0
+        outcome = "failed"
+        failure: str | None = None
         try:
+            if clients is None:
+                resilience_control = resilience()
+                decision = await acquire_probe_after_active_lease(
+                    resilience_control, WATCHER_NAME, now
+                )
+                if decision.kind == "state_blocked":
+                    _report_resilience_state_blocked(now, dry_run)
+                    outcome = "blocked"
+                    control_run.event(
+                        "resilience-state-blocked",
+                        level="warning",
+                        phase="source",
+                        event_type="resilience.state_blocked",
+                        message="Telegram resilience state is unavailable",
+                    )
+                    return {"wakeAgent": False, "_telegram_resilience_handled": True}
+                if decision.kind != "probe":
+                    deliver_resilience_notification(resilience_control, now, dry_run)
+                    outcome = "blocked"
+                    control_run.event(
+                        "resilience-probe-deferred",
+                        level="warning",
+                        phase="source",
+                        event_type="resilience.probe.deferred",
+                        message="Telegram resilience deferred the source probe",
+                        attributes={"decision": decision.kind},
+                    )
+                    return {"wakeAgent": False, "_telegram_resilience_handled": True}
+
+                owned_client = _make_client()
+                try:
+                    await owned_client.connect()
+                    if not await owned_client.is_user_authorized():
+                        resilience_control.record_auth_required(decision.lease_id, WATCHER_NAME, now)
+                        deliver_resilience_notification(resilience_control, now, dry_run)
+                        outcome = "blocked"
+                        return {"wakeAgent": False, "_telegram_resilience_handled": True}
+                    await owned_client.get_me()
+                    dc_id, endpoint = _connection_metadata(owned_client)
+                    resilience_control.record_authenticated_success(
+                        decision.lease_id, WATCHER_NAME, now, dc_id, endpoint
+                    )
+                    deliver_resilience_notification(resilience_control, now, dry_run)
+                except Exception as error:
+                    if is_transport_error(error):
+                        resilience_control.record_transport_failure(
+                            decision.lease_id, WATCHER_NAME, error, now
+                        )
+                        deliver_resilience_notification(resilience_control, now, dry_run)
+                        outcome = "blocked"
+                        return {"wakeAgent": False, "_telegram_resilience_handled": True}
+                    raise
+
+            state = load_state()
+            _migrate_scheduled_delivery_backlog(state, now)
+            runtime: RuntimeClients | None = None
             if clients is None:
                 assert owned_client is not None
                 runtime = await _resolve_runtime_clients(owned_client)
@@ -694,32 +760,99 @@ async def run(now: datetime | None = None, clients: object | None = None) -> dic
                 source_messages += messages
                 source_candidates += candidates
             classified, news_delivered = await _route_and_deliver(state, runtime, now, dry_run)
+            provider_errored, retrying, delivery_pending = _health_and_warning(state)
+            control_run.event(
+                "source-poll-completed",
+                level="warning" if provider_errored else "info",
+                phase="source",
+                event_type="source.poll.completed",
+                message="Telegram Market News source poll completed",
+                attributes={
+                    "source_messages": source_messages,
+                    "source_candidates": source_candidates,
+                    "providers": {
+                        Provider.PHINTRACO.value: _provider_result(state, Provider.PHINTRACO),
+                        Provider.TUNTUN.value: _provider_result(state, Provider.TUNTUN),
+                    },
+                },
+            )
+            heartbeat_posted = _post_heartbeat_if_due(
+                state, now, source_messages, classified, news_delivered, dry_run
+            )
+            control_run.event(
+                "delivery-drain-completed",
+                level="warning" if retrying or delivery_pending else "info",
+                phase="delivery",
+                event_type="delivery.drain.completed",
+                message="Telegram Market News delivery drain completed",
+                attributes={
+                    "classified_candidates": classified,
+                    "news_delivered": news_delivered,
+                    "pending": _pending_count(state),
+                    "heartbeat_posted": heartbeat_posted,
+                },
+            )
+            # Lease expiry must happen immediately before this sole claim, so an
+            # expired lease cannot incorrectly hide the deterministic oldest candidate.
+            expire_agent_leases(state, now)
+            candidate = claim_oldest_pending_analysis(state, now)
+            result: dict[str, object] = {
+                "providers": {
+                    Provider.PHINTRACO.value: _provider_result(state, Provider.PHINTRACO),
+                    Provider.TUNTUN.value: _provider_result(state, Provider.TUNTUN),
+                },
+                "source_messages": source_messages,
+                "source_candidates": source_candidates,
+                "classified_candidates": classified,
+                "news_delivered": news_delivered,
+            }
+            if candidate is None:
+                result.update({"wakeAgent": False, "items": []})
+            else:
+                result.update(
+                    build_wake_payload(
+                        [agent_item(candidate)]
+                    )
+                )
+                control_run.event(
+                    "agent-wake-requested",
+                    level="info",
+                    phase="agent",
+                    event_type="agent.wake.requested",
+                    message="Telegram Market News requested one bounded agent classification",
+                    attributes={"candidate_key": candidate.key},
+                )
+            outcome = "degraded" if provider_errored or retrying or delivery_pending else "ok"
+            return result
+        except Exception as error:
+            failure = _clean_reason(error)
+            control_run.event(
+                "run-failed",
+                level="fatal",
+                phase="lifecycle",
+                event_type="run.failed",
+                message="Telegram Market News watcher run failed",
+                attributes={"error": failure},
+            )
+            raise
         finally:
             if owned_client is not None:
-                await owned_client.disconnect()
-
-        _post_heartbeat_if_due(
-            state, now, source_messages, classified, news_delivered, dry_run
-        )
-        # Task 4 lease expiry must happen immediately before this sole claim, so an
-        # expired lease cannot incorrectly hide the deterministic oldest candidate.
-        expire_agent_leases(state, now)
-        candidate = claim_oldest_pending_analysis(state, now)
-        result: dict[str, object] = {
-            "providers": {
-                Provider.PHINTRACO.value: _provider_result(state, Provider.PHINTRACO),
-                Provider.TUNTUN.value: _provider_result(state, Provider.TUNTUN),
-            },
-            "source_messages": source_messages,
-            "source_candidates": source_candidates,
-            "classified_candidates": classified,
-            "news_delivered": news_delivered,
-        }
-        if candidate is None:
-            result.update({"wakeAgent": False, "items": []})
-        else:
-            result.update(build_wake_payload([agent_item(candidate)]))
-        return result
+                await _disconnect_quietly(owned_client)
+            control_run.event(
+                "run-completed",
+                level="warning" if outcome in {"blocked", "degraded"} else "info",
+                phase="lifecycle",
+                event_type="run.completed",
+                message=f"Telegram Market News watcher run {outcome}",
+                attributes={
+                    "source_messages": source_messages,
+                    "source_candidates": source_candidates,
+                    "classified_candidates": classified,
+                    "news_delivered": news_delivered,
+                    "config_revision": loaded_config.revision,
+                },
+            )
+            control_run.finish(outcome, failure)
 
 
 def _candidate_for_submission(state: Mapping[str, object], candidate_key: object) -> CompanyCandidate:
@@ -758,28 +891,104 @@ def _candidate_for_submission(state: Mapping[str, object], candidate_key: object
 async def submit_classification_payload(
     payload: Mapping[str, object], now: datetime | None = None, clients: object | None = None
 ) -> dict[str, object]:
-    """Validate, persist, route, and immediately drain one active agent lease."""
+    """Accept one agent payload using the current frozen delivery configuration."""
     now = _require_aware(now or datetime.now(WIB))
     if not isinstance(payload, Mapping):
         raise ValueError("submission must be a JSON object")
+    loaded_config = config.load_watch_config_for_run()
+    with config.activate_watch_config(loaded_config.config):
+        return await _submit_classification_payload_loaded(payload, now, clients, loaded_config)
+
+
+async def _submit_classification_payload_loaded(
+    payload: Mapping[str, object],
+    now: datetime,
+    clients: object | None,
+    loaded_config: config.LoadedWatchConfig,
+) -> dict[str, object]:
     with run_lock():
-        state = load_state()
-        _migrate_scheduled_delivery_backlog(state, now)
-        candidate = _candidate_for_submission(state, payload.get("candidate_key"))
-        classification = submit_agent_classification(state, candidate, payload, now)
-        runtime: RuntimeClients | None = None
-        owned_client: Any | None = None
+        control_run = ControlPlaneRun.begin(
+            "IDX_MARKET_NEWS",
+            loaded_config.revision,
+            scheduler_job_id="bursawatch-tg-market-news",
+            trigger="agent_submission",
+        )
+        control_run.event(
+            "agent-submission-started",
+            level="info",
+            phase="agent",
+            event_type="agent.submission.started",
+            message="Telegram Market News agent submission started",
+            attributes={"config_revision": loaded_config.revision, "no_post": _dry_run()},
+        )
+        outcome = "failed"
+        failure: str | None = None
         try:
-            if clients is not None:
-                runtime = _provided_runtime_clients(clients)
+            state = load_state()
+            _migrate_scheduled_delivery_backlog(state, now)
+            candidate = _candidate_for_submission(state, payload.get("candidate_key"))
+            classification = submit_agent_classification(state, candidate, payload, now)
+            control_run.event(
+                "agent-submission-accepted",
+                level="info",
+                phase="agent",
+                event_type="agent.submission.accepted",
+                message="Telegram Market News agent submission was accepted",
+                attributes={"candidate_key": candidate.key, "event_class": classification.event_class.value},
+            )
+            runtime = _provided_runtime_clients(clients) if clients is not None else None
             classified, news_delivered = await _route_and_deliver(state, runtime, now, _dry_run())
+            provider_errored, retrying, delivery_pending = _health_and_warning(state)
+            outcome = "degraded" if provider_errored or retrying or delivery_pending else "ok"
+            control_run.event(
+                "agent-delivery-drain-completed",
+                level="warning" if outcome == "degraded" else "info",
+                phase="delivery",
+                event_type="delivery.drain.completed",
+                message="Telegram Market News agent delivery drain completed",
+                attributes={
+                    "classified_candidates": classified,
+                    "news_delivered": news_delivered,
+                    "pending": _pending_count(state),
+                },
+            )
+            return {
+                "classified_candidates": classified,
+                "news_delivered": news_delivered,
+            }
+        except ValueError as error:
+            failure = _clean_reason(error)
+            outcome = "degraded"
+            control_run.event(
+                "agent-submission-rejected",
+                level="warning",
+                phase="agent",
+                event_type="agent.submission.rejected",
+                message="Telegram Market News agent submission was rejected",
+                attributes={"reason": failure},
+            )
+            raise
+        except Exception as error:
+            failure = _clean_reason(error)
+            control_run.event(
+                "agent-submission-failed",
+                level="fatal",
+                phase="agent",
+                event_type="agent.submission.failed",
+                message="Telegram Market News agent submission failed",
+                attributes={"error": failure},
+            )
+            raise
         finally:
-            if owned_client is not None:
-                await owned_client.disconnect()
-        return {
-            "classified_candidates": classified,
-            "news_delivered": news_delivered,
-        }
+            control_run.event(
+                "agent-submission-completed",
+                level="warning" if outcome in {"blocked", "degraded"} else "info",
+                phase="lifecycle",
+                event_type="agent.submission.completed",
+                message=f"Telegram Market News agent submission {outcome}",
+                attributes={"config_revision": loaded_config.revision},
+            )
+            control_run.finish(outcome, failure)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

@@ -66,6 +66,20 @@ def test_wrapper_exports_only_the_shared_polycop_resilience_path():
     assert "TELEGRAM_SESSION_STRING" not in wrapper
 
 
+def test_wrapper_optionally_loads_only_the_market_news_control_plane_settings():
+    wrapper = (ROOT / "bin/bursawatch-tg-market-news.sh").read_text()
+
+    assert 'CONTROL_PLANE_BIN="$HOME/.agents/skills/lib-bursawatch-control/bin"' in wrapper
+    for key in (
+        "IDX_MARKET_NEWS_CONTROL_PLANE_URL",
+        "IDX_MARKET_NEWS_CONTROL_PLANE_WATCHER_ID",
+        "IDX_MARKET_NEWS_CONTROL_PLANE_TOKEN",
+        "IDX_MARKET_NEWS_CONTROL_PLANE_TIMEOUT_SECONDS",
+        "IDX_MARKET_NEWS_CONTROL_PLANE_SPOOL_PATH",
+    ):
+        assert key in wrapper
+
+
 def test_skill_records_no_backfill_and_all_dry_run_controls():
     skill = (ROOT / "SKILL.md").read_text()
     assert "historical backfill" in skill

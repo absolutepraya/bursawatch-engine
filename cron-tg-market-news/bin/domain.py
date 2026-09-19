@@ -51,10 +51,6 @@ class Tier(StrEnum):
 # four-letter IDX symbols. New source candidates are constrained in sources.py.
 _TICKER_PATTERN = re.compile(r"[A-Z]{2,5}")
 _CANDIDATE_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
-_PROVIDER_URL_ROOTS = {
-    Provider.PHINTRACO: "https://t.me/phintasprofits",
-    Provider.TUNTUN: "https://t.me/tuntunsekuritas",
-}
 _TIER_ONE_EVENT_CLASSES = frozenset(
     {
         EventClass.FINANCIAL_RESULTS_OR_GUIDANCE,
@@ -149,7 +145,17 @@ class RetryState:
 
 
 def source_message_url(message: SourceMessage | CompanyCandidate) -> str:
-    return f"{_PROVIDER_URL_ROOTS[message.provider]}/{message.source_message_id}"
+    # The scanner activates exactly one validated configuration snapshot before
+    # creating candidates or rendering any new delivery payloads.
+    from config import active_watch_config
+
+    watch_config = active_watch_config()
+    username = (
+        watch_config.phintraco_username
+        if message.provider is Provider.PHINTRACO
+        else watch_config.tuntun_username
+    )
+    return f"https://t.me/{username}/{message.source_message_id}"
 
 
 def tier_for_event_class(event_class: EventClass) -> Tier | None:

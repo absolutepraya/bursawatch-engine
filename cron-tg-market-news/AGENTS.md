@@ -65,7 +65,35 @@ Before each new post, the scanner persists that item's rendered text and determi
 
 This watcher uses the shared `POLYCOP_SESSION_STRING` profile and `telegram-resilience` control plane at `~/.hermes/state/telegram-resilience-polyclop.json`. Before creating a Telegram client, it acquires `acquire_probe_after_active_lease`. A cooldown, peer probe lease, transport backoff, or authorization hold exits cleanly without advancing a provider cursor, candidate queue, delivery outbox, or other production state. Do not add a watcher-specific session, reset the shared state, replay candidates, or manually post an item.
 
-The scanner's durable state is `~/.hermes/state/idx-market-news.json`. It and the shared resilience control state are production data, not deploy inputs.
+The scanner's durable state is `~/.hermes/state/idx-market-news.json`. It and the shared resilience control state are production data, not deploy inputs. The optional live control-plane configuration is one frozen invocation snapshot: its two provider usernames, the three Discord news routes, heartbeat route, and bounded additive agent context may change through the web application after deployment. It never changes durable candidates, cursors, retry state, state paths, model protocol, or the watchdog schedule. The independent watchdog remains outside this config surface because it reads only existing durable state and its Discord-only secret.
+
+### Live configuration schema
+
+The control plane accepts only this versioned shape. `additional_prompt_instruction`
+is normalized to one line and limited to 800 characters. It is appended below the
+fixed agent rules, never replaces them.
+
+```json
+{
+  "version": 1,
+  "providers": {
+    "phintraco": {"telegram_username": "phintasprofits"},
+    "tuntun": {"telegram_username": "tuntunsekuritas"}
+  },
+  "destinations": {
+    "id_stocks_news_discord_channel_id": "1525102508714889257",
+    "macro_news_discord_channel_id": "1531655369884045382",
+    "industry_news_discord_channel_id": "1549418098807930880",
+    "heartbeat_discord_channel_id": "1505162000420835388"
+  },
+  "additional_prompt_instruction": ""
+}
+```
+
+All four Discord channels must differ. With no
+`IDX_MARKET_NEWS_CONTROL_PLANE_URL`, the scanner uses these reviewed defaults.
+With the URL set, any fetch or schema failure stops the invocation before it
+opens durable state or a Telegram client.
 
 ## Safe verification
 

@@ -6,7 +6,10 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
+import pytest
+
 import delivery
+import config
 import scan
 from domain import CompanyCandidate, EventClass, Provider, SourceKind
 from selection import SelectionCandidate
@@ -86,6 +89,93 @@ def test_pending_count_ignores_terminal_abandoned_candidates():
     }
 
     assert scan._pending_count(state) == 2
+
+
+def test_delivery_route_uses_the_active_config_snapshot(candidate):
+    item = SelectionCandidate(
+        candidate=candidate,
+        event_class=EventClass.CORPORATE_ACTION,
+        ranking_band=1,
+        material_facts=("DEWA mengungkapkan kontrak material.",),
+        dedupe_facts=("DEWA kontrak material",),
+        route=scan.Destination.ID_STOCKS_NEWS,
+    )
+    watch_config = config.load_watch_config_data(
+        {
+            "version": 1,
+            "providers": {
+                "phintraco": {"telegram_username": "phintracocp"},
+                "tuntun": {"telegram_username": "tuntuncontrol"},
+            },
+            "destinations": {
+                "id_stocks_news_discord_channel_id": "1525102508714889258",
+                "macro_news_discord_channel_id": "1531655369884045383",
+                "industry_news_discord_channel_id": "1549418098807930881",
+                "heartbeat_discord_channel_id": "1505162000420835389",
+            },
+            "additional_prompt_instruction": "",
+        }
+    )
+
+    with config.activate_watch_config(watch_config):
+        assert scan._delivery_channel(item) == "1525102508714889258"
+
+
+def test_live_config_failure_stops_before_any_durable_state_mutation(tmp_state, monkeypatch):
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_state))
+
+    def unavailable():
+        raise ValueError("control-plane is unavailable")
+
+    monkeypatch.setattr(config, "load_watch_config_for_run", unavailable)
+
+    with pytest.raises(ValueError, match="control-plane"):
+        asyncio.run(scan.run(datetime.fromisoformat("2026-09-19T10:00:00+07:00"), FakeClients()))
+
+    assert not tmp_state.exists()
+
+
+def test_live_run_reports_lifecycle_events_against_its_frozen_revision(tmp_state, monkeypatch):
+    _bootstrapped_state(tmp_state)
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_state))
+    monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
+    loaded = config.LoadedWatchConfig(config.default_watch_config(), 12)
+    monkeypatch.setattr(config, "load_watch_config_for_run", lambda: loaded)
+
+    class CapturedRun:
+        started: list[tuple[object, ...]] = []
+        events: list[str] = []
+        finished: list[tuple[str, str | None]] = []
+
+        @classmethod
+        def begin(cls, *args, **kwargs):
+            cls.started.append((*args, kwargs))
+            return cls()
+
+        def event(self, event_id, **_kwargs):
+            type(self).events.append(event_id)
+
+        def finish(self, status, error=None):
+            type(self).finished.append((status, error))
+
+    monkeypatch.setattr(scan, "ControlPlaneRun", CapturedRun)
+
+    result = asyncio.run(
+        scan.run(datetime.fromisoformat("2026-07-14T16:30:00+07:00"), FakeClients())
+    )
+
+    assert result["wakeAgent"] is True
+    assert CapturedRun.started == [
+        ("IDX_MARKET_NEWS", 12, {"scheduler_job_id": "bursawatch-tg-market-news"})
+    ]
+    assert CapturedRun.events == [
+        "run-started",
+        "source-poll-completed",
+        "delivery-drain-completed",
+        "agent-wake-requested",
+        "run-completed",
+    ]
+    assert CapturedRun.finished == [("ok", None)]
 
 
 def test_health_warning_ignores_retry_history_on_terminal_candidates():

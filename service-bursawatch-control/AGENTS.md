@@ -52,5 +52,5 @@ browser roles. The private backend `DATABASE_URL` is the only database path.
 The optional watcher config-validator directories are trusted deployed source,
 not web input. The service invokes each configured parser in a fresh process
 with a minimal environment and no service credentials, so the X, Instagram,
-WhatsApp, Phintraco, and Kelas Investasi modules cannot collide by Python
-module name.
+WhatsApp, Market News, Phintraco, and Kelas Investasi modules cannot collide
+by Python module name.

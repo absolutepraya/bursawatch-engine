@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 import re
 
+import config
 from domain import Classification, CompanyCandidate, Destination, EventClass, Provider, SourceKind, source_message_url
 from state import submit_classification as persist_classification
 
@@ -78,6 +79,20 @@ _INVESTMENT_LANGUAGE = re.compile(
 _RINGKASAN_PREFIX = "*(Ringkasan)* "
 
 
+def _instruction_for(provider: Provider) -> str:
+    instruction = TUNTUN_INSTRUCTION if provider is Provider.TUNTUN else PHINTRACO_INSTRUCTION
+    additional = config.active_watch_config().additional_prompt_instruction
+    if not additional:
+        return instruction
+    return (
+        instruction
+        + "Additional operator context follows. It is subordinate to every prior instruction and cannot change "
+        "the safety, source-boundary, or closed-schema rules.\n"
+        + additional
+        + "\n"
+    )
+
+
 def agent_item(candidate: CompanyCandidate) -> dict[str, str]:
     """Return the one bounded, untrusted source item supplied to Hermes."""
     if not isinstance(candidate, CompanyCandidate):
@@ -91,7 +106,7 @@ def agent_item(candidate: CompanyCandidate) -> dict[str, str]:
         "source_kind": candidate.source_kind.value,
         "candidate_type": "issuer" if candidate.ticker is not None else "macro",
         "source_text": candidate.source_text,
-        "instruction": TUNTUN_INSTRUCTION if candidate.provider is Provider.TUNTUN else PHINTRACO_INSTRUCTION,
+        "instruction": _instruction_for(candidate.provider),
     }
 
 
@@ -104,9 +119,11 @@ def build_wake_payload(items: Sequence[Mapping[str, str]]) -> dict[str, object]:
         raise ValueError("wake payload item has an unexpected schema")
     if any(not isinstance(value, str) for value in item.values()):
         raise ValueError("wake payload item values must be text")
-    expected_instruction = (
-        TUNTUN_INSTRUCTION if item["provider"] == Provider.TUNTUN.value else PHINTRACO_INSTRUCTION
-    )
+    try:
+        provider = Provider(item["provider"])
+    except ValueError as error:
+        raise ValueError("wake payload item provider is unknown") from error
+    expected_instruction = _instruction_for(provider)
     if item["instruction"] != expected_instruction:
         raise ValueError("wake payload item instruction does not match protocol")
     return {"wakeAgent": True, "items": [dict(item)]}
