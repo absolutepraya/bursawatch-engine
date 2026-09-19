@@ -1689,6 +1689,79 @@ def test_run_ingests_and_delivers_text_then_chart(tmp_state, tmp_path, monkeypat
     assert scan.load_state()["outbox"] == {}
 
 
+def test_live_run_uses_one_config_revision_and_reports_structured_lifecycle(tmp_state, monkeypatch):
+    state = scan.empty_state()
+    state["observed_message_id"] = 33654
+    scan.save_state(state)
+    loaded = scan.config.LoadedWatchConfig(
+        config=scan.config.load_watch_config_data(
+            {
+                "version": 1,
+                "source": {"telegram_channel_id": scan.SOURCE_CHANNEL_ID, "telegram_username": "phintraprofits"},
+                "destinations": {
+                    "alert_discord_channel_id": "1525102458253217804",
+                    "heartbeat_discord_channel_id": "1505162000420835388",
+                },
+            }
+        ),
+        revision=7,
+    )
+    reporter_events = []
+    finished = []
+
+    class FakeControlRun:
+        @classmethod
+        def begin(cls, prefix, revision, **kwargs):
+            assert prefix == "IDX_SWING_WATCH_PHINTRACO_DAILY"
+            assert revision == 7
+            assert kwargs == {"scheduler_job_id": "bursawatch-tg-phintraco-swing"}
+            return cls()
+
+        def event(self, event_id, **kwargs):
+            reporter_events.append((event_id, kwargs))
+
+        def finish(self, status, error=None):
+            finished.append((status, error))
+
+    client = ConnectedFakeTelegramClient([FakeMessage(33655, fixture("trading_buy.txt"), photo=True)])
+    destinations = []
+    monkeypatch.setattr(scan.config, "load_watch_config_for_run", lambda: loaded)
+    monkeypatch.setattr(scan, "ControlPlaneRun", FakeControlRun)
+    monkeypatch.setattr(scan, "make_client", lambda: client)
+    monkeypatch.setattr(scan, "post_heartbeat_if_due", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        scan,
+        "post_discord_text",
+        lambda _content, channel_id, _dry_run, _event_key: destinations.append(channel_id) or "text-id",
+    )
+    monkeypatch.setattr(scan, "post_discord_file", lambda *_args: "chart-id")
+    monkeypatch.setattr(scan, "drain_board", lambda *_args: True)
+    monkeypatch.setattr(scan, "submit_board_event", lambda *_args: True)
+
+    assert asyncio.run(scan.run(now=dt.datetime(2026, 7, 10, 8, 0, tzinfo=scan.WIB))) == {"wakeAgent": False}
+    assert destinations == ["1525102458253217804"]
+    assert [event_id for event_id, _event in reporter_events] == [
+        "run-started",
+        "source-poll-completed",
+        "delivery-drain-completed",
+        "run-completed",
+    ]
+    assert reporter_events[-1][1]["attributes"]["config_revision"] == 7
+    assert finished == [("ok", None)]
+
+
+def test_live_config_failure_stops_before_opening_telegram(monkeypatch):
+    monkeypatch.setattr(
+        scan.config,
+        "load_watch_config_for_run",
+        lambda: (_ for _ in ()).throw(ValueError("live config unavailable")),
+    )
+    monkeypatch.setattr(scan, "make_client", lambda: pytest.fail("Telegram client must not be created"))
+
+    with pytest.raises(ValueError, match="live config unavailable"):
+        asyncio.run(scan.run(now=now()))
+
+
 def test_board_drain_failure_degrades_heartbeat_without_blocking_poll(
     tmp_state, monkeypatch
 ):

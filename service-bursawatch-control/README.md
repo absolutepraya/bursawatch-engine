@@ -14,12 +14,14 @@ This branch adds:
 - immutable desired interval schedules for supported scheduler jobs, with an
   explicit reconciliation status so a dashboard never mistakes stored intent
   for a changed live Hermes job;
-- an isolated validator bridge for the migrated X, Instagram, and WhatsApp
-  schemas, including their bounded `additional_prompt_instruction` fields.
+- an isolated validator bridge for the migrated X, Instagram, WhatsApp, and
+  Phintraco schemas, including bounded `additional_prompt_instruction` fields
+  where the watcher has an LLM path.
 - the initial Postgres schema migration;
 - a versioned OpenAPI document for the web repository.
 - opt-in live configuration support for X Account Watch, Instagram Account
-  Watch, and WhatsApp Channel Watch, with one frozen revision per invocation.
+  Watch, WhatsApp Channel Watch, and Telegram Phintraco Swing, with one frozen
+  revision per invocation.
 
 The Supabase Auth verifier is implemented and covered by local tests. A VPS
 service unit, real environment values, and an authenticated web client remain
@@ -71,6 +73,7 @@ Configure only paths to deployed, reviewed watcher `bin/` directories:
 CONTROL_PLANE_X_CONFIG_VALIDATOR_DIR=/home/praya/.agents/skills/bursawatch-x-account-watch/bin
 CONTROL_PLANE_IG_CONFIG_VALIDATOR_DIR=/home/praya/.agents/skills/bursawatch-ig-account-watch/bin
 CONTROL_PLANE_WA_CONFIG_VALIDATOR_DIR=/home/praya/.agents/skills/bursawatch-wa-channel-watch/bin
+CONTROL_PLANE_PHINTRACO_CONFIG_VALIDATOR_DIR=/home/praya/.agents/skills/bursawatch-tg-phintraco-swing/bin
 ```
 
 Each validator executes in a fresh, credential-free subprocess. This prevents

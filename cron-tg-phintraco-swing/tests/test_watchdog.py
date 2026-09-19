@@ -76,3 +76,22 @@ def test_watchdog_leaves_corrupt_scanner_state_untouched(
     assert tmp_state.read_text() == corrupt
     assert list(tmp_state.parent.glob("state.corrupt-*.json")) == []
     assert (tmp_state.parent / "watchdog-notices.json").exists()
+
+
+def test_watchdog_uses_the_live_heartbeat_destination_when_available(monkeypatch):
+    loaded = watchdog.scan.config.LoadedWatchConfig(
+        config=watchdog.scan.config.load_watch_config_data(
+            {
+                "version": 1,
+                "source": {"telegram_channel_id": 1444713822, "telegram_username": "phintraprofits"},
+                "destinations": {
+                    "alert_discord_channel_id": "1525102458253217803",
+                    "heartbeat_discord_channel_id": "1505162000420835389",
+                },
+            }
+        ),
+        revision=3,
+    )
+    monkeypatch.setattr(watchdog.scan.config, "load_watch_config_for_run", lambda: loaded)
+
+    assert watchdog.heartbeat_channel_id() == "1505162000420835389"

@@ -36,9 +36,13 @@ the Hermes CLI.
 7. Add catalogued desired schedule revisions for supported interval jobs. Keep
    fixed calendar and queue schedules read-only, and expose reconciliation
    state before building or deploying a scheduler reconciler.
-8. Reuse the strict source-controlled config parsers for the three migrated
-   JSON watchers through isolated subprocess validators. Do not enable a web
-   write for a watcher until its validator directory is configured.
+8. Reuse the strict source-controlled config parsers for the initial X,
+   Instagram, and WhatsApp JSON watchers through isolated subprocess
+   validators. Do not enable a web write for a watcher until its validator
+   directory is configured.
+9. Add Phintraco's small typed source and destination snapshot, frozen
+   revision lifecycle events, and isolated validator. Keep parser policy,
+   board handoff, retries, media, and state outside web configuration.
 
 ## Non-goals for this slice
 

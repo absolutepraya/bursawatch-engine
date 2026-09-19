@@ -83,6 +83,14 @@ def save_watchdog_metadata(metadata: dict) -> None:
         raise
 
 
+def heartbeat_channel_id() -> str:
+    """Use live operator routing when available without silencing watchdog failures."""
+    try:
+        return scan.config.load_watch_config_for_run().config.heartbeat_discord_channel_id
+    except Exception:
+        return scan.HEARTBEAT_CHANNEL_ID
+
+
 def report_watchdog_fatal(now: dt.datetime, reason: str, dry_run: bool) -> bool:
     metadata = load_watchdog_metadata()
     fingerprint = scan.error_fingerprint(reason)
@@ -95,7 +103,7 @@ def report_watchdog_fatal(now: dt.datetime, reason: str, dry_run: bool) -> bool:
         return False
     message_id = scan.post_discord_text(
         scan.format_fatal(now, reason),
-        scan.HEARTBEAT_CHANNEL_ID,
+        heartbeat_channel_id(),
         dry_run,
         f"watchdog-fatal-{fingerprint}-{hour}",
     )

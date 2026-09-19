@@ -12,6 +12,14 @@ The cutover renames active no-agent job `2b5c0a128652` to `bursawatch-tg-phintra
 
 The source is Phintraco Sekuritas Official Telegram channel `1444713822`. Alerts go directly to `#id-stocks-swing` (`1525102458253217803`); the channel is also a destination for `cron-x-account-watch`'s `id_stock_swing` route, which delivers source-grounded X technical analyses in its own format. Operational heartbeats and fatal notices go directly to `#hermes`. Production state, media, lock, and watchdog notices retain their established locations through the first cutover.
 
+When `IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_URL` is set, each
+invocation fetches one validated, frozen control-plane snapshot before it
+opens Telegram or watcher state. The snapshot may change the verified Telegram
+source identity and the All and heartbeat Discord destinations. A failed live
+read fails closed and never falls back to source defaults. Its revision drives
+best-effort structured lifecycle, source-poll, and delivery events. Without
+the URL, source defaults preserve the existing deployment behavior.
+
 ## Deterministic behavior and invariants
 
 Accept individual `Trading Buy`, `Buy on Support`, and `Speculative Buy` calls with the required source fields, qualifying source-marked outcomes and status updates, and validated same-ticker reply updates. Exclude sell calls, weekly bundles and PDFs, market reviews, media-only posts, and nearby inferred charts.
@@ -28,7 +36,7 @@ After the All text and, when present, its same-message chart succeed, the watche
 
 State owns the observation cursor, outbox, cached source media, retry metadata, liveness, and rate-limited fatal fingerprints. Atomic writes and a nonblocking run lock prevent overlap. Corrupt state fails closed and must not be cleared as a recovery shortcut.
 
-The wrapper loads only `DISCORD_BOT_TOKEN`, `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, and `POLYCOP_SESSION_STRING` from VPS `~/.hermes/.env`; it exports the board wrapper path without loading board credentials. Source charts, logs, and credentials stay private.
+The wrapper loads only `DISCORD_BOT_TOKEN`, `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `POLYCOP_SESSION_STRING`, and the narrowly named Phintraco control-plane values from VPS `~/.hermes/.env`; it exports the board wrapper path without loading board credentials. The shared control-plane library remains optional until live mode is deliberately enabled. Source charts, logs, and credentials stay private.
 
 ## Delivery contract and failure semantics
 
@@ -52,7 +60,7 @@ The suite covers parsing and rejections, timestamp and source-chart rules, durab
 
 ## Deployment and live verification
 
-Deploy only a clean published commit with `./deploy.sh cron-tg-phintraco-swing`, synchronize the wrapper and `CRON.md` separately after approval, and compare changed VPS checksums. Use isolated no-post verification through the actual wrapper, then inspect the natural scheduler record and target delivery path. State, media, logs, and the dotfiles mirror are not source to change.
+Deploy only a clean published commit with `./deploy.sh cron-tg-phintraco-swing`, synchronize the wrapper and `CRON.md` separately after approval, and compare changed VPS checksums. Deploy `lib-bursawatch-control` before enabling live mode. Use isolated no-post verification through the actual wrapper, then inspect the natural scheduler record and target delivery path. State, media, logs, and the dotfiles mirror are not source to change.
 
 ## Historical references and related projects
 

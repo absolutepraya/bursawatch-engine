@@ -5,6 +5,7 @@ import asyncio
 import contextlib
 import fcntl
 import hashlib
+import importlib.util
 import shutil
 import datetime as dt
 import html
@@ -18,6 +19,19 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+_CONFIG_MODULE_NAME = "bursawatch_tg_phintraco_swing_config"
+config = sys.modules.get(_CONFIG_MODULE_NAME)
+if config is None:
+    _CONFIG_SPEC = importlib.util.spec_from_file_location(
+        _CONFIG_MODULE_NAME,
+        Path(__file__).with_name("config.py"),
+    )
+    if _CONFIG_SPEC is None or _CONFIG_SPEC.loader is None:
+        raise RuntimeError("Phintraco config module is unavailable")
+    config = importlib.util.module_from_spec(_CONFIG_SPEC)
+    sys.modules[_CONFIG_MODULE_NAME] = config
+    _CONFIG_SPEC.loader.exec_module(config)
 
 _SHARED_FORMAT_BIN = Path(__file__).resolve().parents[2] / "lib-swing-format" / "bin"
 if not _SHARED_FORMAT_BIN.exists():
@@ -39,11 +53,28 @@ from telegram_resilience import (
     is_transport_error,
 )
 
-SOURCE_CHANNEL_ID = 1444713822
-ALERT_CHANNEL_ID = "1525102458253217803"
-HEARTBEAT_CHANNEL_ID = "1505162000420835388"
+try:
+    from control_plane_runtime import ControlPlaneRun
+except ModuleNotFoundError:
+    class ControlPlaneRun:
+        @classmethod
+        def begin(cls, *_args, **_kwargs):
+            return cls()
+
+        def event(self, *_args, **_kwargs):
+            pass
+
+        def finish(self, *_args, **_kwargs):
+            pass
+
 DISCORD_API = "https://discord.com/api/v10"
 WIB = ZoneInfo("Asia/Jakarta")
+_DEFAULT_WATCH_CONFIG = config.default_watch_config()
+# Compatibility defaults for isolated parser and watchdog tests. Runtime calls
+# resolve destinations and source identity from one activated config snapshot.
+SOURCE_CHANNEL_ID = _DEFAULT_WATCH_CONFIG.telegram_channel_id
+ALERT_CHANNEL_ID = _DEFAULT_WATCH_CONFIG.alert_discord_channel_id
+HEARTBEAT_CHANNEL_ID = _DEFAULT_WATCH_CONFIG.heartbeat_discord_channel_id
 PROVIDER = "Phintraco"
 PHINTRACO_EMOJI = "<:phintraco:1531272488645038091>"
 UP_EMOJI = "<:up:1531285100346740766>"
@@ -51,8 +82,6 @@ DOWN_EMOJI = "<:down:1531285063986053200>"
 ALLOWED_SUBTYPES = ("Trading Buy", "Buy on Support", "Speculative Buy")
 WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
-
-TELEGRAM_MESSAGE_BASE_URL = "https://t.me/phintraprofits"
 
 STATE_VERSION = 2
 PHASE_PENDING_MEDIA_CAPTURE = "pending_media_capture"
@@ -851,7 +880,7 @@ def escape_discord_markdown(value: str) -> str:
 
 
 def source_message_url(source_message_id: int) -> str:
-    return f"{TELEGRAM_MESSAGE_BASE_URL}/{source_message_id}"
+    return f"https://t.me/{config.active_watch_config().telegram_username}/{source_message_id}"
 
 
 def format_analyst_byline(call: SwingCall) -> str:
@@ -990,7 +1019,7 @@ def deliver_resilience_notification(
     try:
         message_id = post_discord_text(
             notification.content,
-            HEARTBEAT_CHANNEL_ID,
+            config.active_watch_config().heartbeat_discord_channel_id,
             dry_run,
             notification.event_key,
         )
@@ -1008,7 +1037,7 @@ def _report_resilience_state_blocked(now: dt.datetime, dry_run: bool) -> None:
     try:
         post_discord_text(
             f"❌ telegram-polycop · {now.astimezone(WIB):%H:%M} WIB · control state unavailable",
-            HEARTBEAT_CHANNEL_ID,
+            config.active_watch_config().heartbeat_discord_channel_id,
             dry_run,
             f"telegram-resilience-state-blocked-{now.astimezone(WIB):%Y%m%d%H}",
         )
@@ -1019,7 +1048,7 @@ def _report_resilience_state_blocked(now: dt.datetime, dry_run: bool) -> None:
 async def resolve_source(client):
     dialogs = await client.get_dialogs()
     for dialog in dialogs:
-        if getattr(dialog.entity, "id", None) == SOURCE_CHANNEL_ID:
+        if getattr(dialog.entity, "id", None) == config.active_watch_config().telegram_channel_id:
             return dialog.entity
     raise RuntimeError("Phintraco source channel is not accessible")
 
@@ -1251,14 +1280,19 @@ def edit_discord_board_link(message_id: str | None, board_url: str | None, dry_r
     if not message_id or not board_url:
         return True
     if dry_run or os.environ.get("IDX_SWING_WATCH_PHINTRACO_DAILY_NO_POST") == "1":
-        print(f"[dry-run] Discord board link {ALERT_CHANNEL_ID}/{message_id} -> {board_url} event {event_key}")
+        print(
+            f"[dry-run] Discord board link {config.active_watch_config().alert_discord_channel_id}/{message_id} "
+            f"-> {board_url} event {event_key}"
+        )
         return True
     token = _discord_token()
     if not token:
         return False
     headers = {"Authorization": f"Bot {token}", "Content-Type": "application/json"}
     response = _discord_request(
-        "GET", f"{DISCORD_API}/channels/{ALERT_CHANNEL_ID}/messages/{message_id}", headers=headers
+        "GET",
+        f"{DISCORD_API}/channels/{config.active_watch_config().alert_discord_channel_id}/messages/{message_id}",
+        headers=headers,
     )
     if response is None or response.status_code != 200:
         return False
@@ -1273,7 +1307,7 @@ def edit_discord_board_link(message_id: str | None, board_url: str | None, dry_r
         return True
     response = _discord_request(
         "PATCH",
-        f"{DISCORD_API}/channels/{ALERT_CHANNEL_ID}/messages/{message_id}",
+        f"{DISCORD_API}/channels/{config.active_watch_config().alert_discord_channel_id}/messages/{message_id}",
         headers=headers,
         json={"content": updated, "allowed_mentions": {"parse": []}},
     )
@@ -1339,7 +1373,7 @@ def board_event_payload(event: dict, call: SwingCall) -> tuple[dict, Path | None
     chart = _cached_media_path(event) if call.has_source_chart else None
     return (
         {
-            "event_key": f"phintraco:{SOURCE_CHANNEL_ID}:{call.source_message_id}",
+            "event_key": f"phintraco:{config.active_watch_config().telegram_channel_id}:{call.source_message_id}",
             "source": "phintraco",
             "kind": kind,
             "ticker": call.ticker,
@@ -1464,7 +1498,10 @@ def _drain_all_outbox(state: dict, now: dt.datetime, dry_run: bool) -> int:
         if phase == PHASE_PENDING_TEXT:
             try:
                 text_id = post_discord_text(
-                    format_swing_alert(call, include_board=True), ALERT_CHANNEL_ID, dry_run, event["event_key"]
+                    format_swing_alert(call, include_board=True),
+                    config.active_watch_config().alert_discord_channel_id,
+                    dry_run,
+                    event["event_key"],
                 )
             except DiscordRetryAfter as exc:
                 schedule_retry(
@@ -1508,7 +1545,10 @@ def _drain_all_outbox(state: dict, now: dt.datetime, dry_run: bool) -> int:
                 return delivered
             try:
                 chart_id = post_discord_file(
-                    str(media_path), ALERT_CHANNEL_ID, dry_run, event["event_key"]
+                    str(media_path),
+                    config.active_watch_config().alert_discord_channel_id,
+                    dry_run,
+                    event["event_key"],
                 )
             except DiscordRetryAfter as exc:
                 schedule_retry(
@@ -1612,7 +1652,10 @@ def post_heartbeat_if_due(state: dict, now: dt.datetime, stats: RunStats, dry_ru
     if not os.environ.get("IDX_SWING_WATCH_PHINTRACO_DAILY_FORCE_HEARTBEAT") and state.get("last_heartbeat_hour") == hour:
         return False
     message_id = post_discord_text(
-        format_heartbeat(now, stats), HEARTBEAT_CHANNEL_ID, dry_run, f"heartbeat-{hour}"
+        format_heartbeat(now, stats),
+        config.active_watch_config().heartbeat_discord_channel_id,
+        dry_run,
+        f"heartbeat-{hour}",
     )
     if message_id is None:
         return False
@@ -1637,7 +1680,7 @@ def report_fatal(state: dict, now: dt.datetime, reason: str, dry_run: bool) -> b
         return False
     message_id = post_discord_text(
         format_fatal(now, reason),
-        HEARTBEAT_CHANNEL_ID,
+        config.active_watch_config().heartbeat_discord_channel_id,
         dry_run,
         f"fatal-{fingerprint}-{hour}",
     )
@@ -1669,92 +1712,171 @@ def _report_fatal_best_effort(
 
 
 async def run(now: dt.datetime | None = None, dry_run: bool = False) -> dict:
+    """Run once against one frozen operator configuration snapshot."""
     now = now or dt.datetime.now(WIB)
+    loaded_config = config.load_watch_config_for_run()
+    with config.activate_watch_config(loaded_config.config):
+        return await _run_loaded_config(now, dry_run, loaded_config)
+
+
+async def _run_loaded_config(
+    now: dt.datetime,
+    dry_run: bool,
+    loaded_config: config.LoadedWatchConfig,
+) -> dict:
     with run_lock() as acquired:
         if not acquired:
             return {"wakeAgent": False}
-        control = resilience()
-        decision = await acquire_probe_after_active_lease(control, WATCHER_NAME, now)
-        if decision.kind == "state_blocked":
-            _report_resilience_state_blocked(now, dry_run)
-            return {"wakeAgent": False}
-        if decision.kind != "probe":
-            deliver_resilience_notification(control, now, dry_run)
-            return {"wakeAgent": False}
-
-        client = make_client()
+        control_run = ControlPlaneRun.begin(
+            "IDX_SWING_WATCH_PHINTRACO_DAILY",
+            loaded_config.revision,
+            scheduler_job_id="bursawatch-tg-phintraco-swing",
+        )
+        control_run.event(
+            "run-started",
+            level="info",
+            phase="lifecycle",
+            event_type="run.started",
+            message="Phintraco Swing watcher run started",
+            attributes={"config_revision": loaded_config.revision, "no_post": dry_run},
+        )
+        messages = calls = malformed = delivered = pending = 0
+        degraded = False
+        outcome = "failed"
+        failure: str | None = None
         try:
-            await client.connect()
-            if not await _is_client_authorized(client):
-                control.record_auth_required(decision.lease_id, WATCHER_NAME, now)
-                deliver_resilience_notification(control, now, dry_run)
-                await _disconnect_quietly(client)
+            control = resilience()
+            decision = await acquire_probe_after_active_lease(control, WATCHER_NAME, now)
+            if decision.kind == "state_blocked":
+                _report_resilience_state_blocked(now, dry_run)
+                outcome = "blocked"
                 return {"wakeAgent": False}
-            await _get_client_identity(client)
-            dc_id, endpoint = _connection_metadata(client)
-            control.record_authenticated_success(
-                decision.lease_id, WATCHER_NAME, now, dc_id, endpoint
-            )
-            deliver_resilience_notification(control, now, dry_run)
-        except Exception as error:
-            if is_transport_error(error):
-                control.record_transport_failure(
-                    decision.lease_id, WATCHER_NAME, error, now
+            if decision.kind != "probe":
+                deliver_resilience_notification(control, now, dry_run)
+                outcome = "blocked"
+                return {"wakeAgent": False}
+            client = make_client()
+            try:
+                await client.connect()
+                if not await _is_client_authorized(client):
+                    control.record_auth_required(decision.lease_id, WATCHER_NAME, now)
+                    deliver_resilience_notification(control, now, dry_run)
+                    await _disconnect_quietly(client)
+                    outcome = "blocked"
+                    return {"wakeAgent": False}
+                await _get_client_identity(client)
+                dc_id, endpoint = _connection_metadata(client)
+                control.record_authenticated_success(
+                    decision.lease_id, WATCHER_NAME, now, dc_id, endpoint
                 )
                 deliver_resilience_notification(control, now, dry_run)
+            except Exception as error:
+                if is_transport_error(error):
+                    control.record_transport_failure(
+                        decision.lease_id, WATCHER_NAME, error, now
+                    )
+                    deliver_resilience_notification(control, now, dry_run)
+                    await _disconnect_quietly(client)
+                    outcome = "blocked"
+                    return {"wakeAgent": False}
                 await _disconnect_quietly(client)
-                return {"wakeAgent": False}
-            await _disconnect_quietly(client)
-            raise
+                raise
 
-        state = load_state()
-        state["stats"]["runs"] = int(state["stats"].get("runs", 0)) + 1
-        messages = calls = malformed = delivered = 0
-        degraded = False
-        try:
-            entity = await resolve_source(client)
-            if await bootstrap_source(client, entity, state, now):
-                degraded = not drain_board(dry_run)
-                stats = RunStats(0, 0, 0, 0, degraded)
-                post_heartbeat_if_due(state, now, stats, dry_run)
-                return {"wakeAgent": False}
+            try:
+                state = load_state()
+                state["stats"]["runs"] = int(state["stats"].get("runs", 0)) + 1
+                entity = await resolve_source(client)
+                if await bootstrap_source(client, entity, state, now):
+                    degraded = not drain_board(dry_run)
+                    pending = len(state.get("outbox") or {})
+                    outcome = "degraded" if degraded else "ok"
+                    return {"wakeAgent": False}
 
-            messages, calls, malformed = await ingest_unseen_messages(client, entity, state, now)
-            degraded = degraded or malformed > 0
-            while True:
-                event = oldest_outbox_event(state)
-                if event is None:
-                    break
-                if event["phase"] == PHASE_PENDING_BOARD:
-                    due = board_retry_due(event, now)
-                else:
-                    due = event["phase"] == PHASE_DELIVERED or retry_due(event, now)
-                if not due:
-                    break
-                if event["phase"] == PHASE_PENDING_MEDIA_CAPTURE:
-                    if not await capture_oldest_media(client, entity, state, now):
+                messages, calls, malformed = await ingest_unseen_messages(client, entity, state, now)
+                degraded = degraded or malformed > 0
+                control_run.event(
+                    "source-poll-completed",
+                    level="warning" if malformed else "info",
+                    phase="source",
+                    event_type="source.poll.completed",
+                    message="Phintraco source poll completed",
+                    attributes={"messages": messages, "calls": calls, "malformed": malformed},
+                )
+                while True:
+                    event = oldest_outbox_event(state)
+                    if event is None:
+                        break
+                    if event["phase"] == PHASE_PENDING_BOARD:
+                        due = board_retry_due(event, now)
+                    else:
+                        due = event["phase"] == PHASE_DELIVERED or retry_due(event, now)
+                    if not due:
+                        break
+                    if event["phase"] == PHASE_PENDING_MEDIA_CAPTURE:
+                        if not await capture_oldest_media(client, entity, state, now):
+                            degraded = True
+                            break
+                    before = (event["event_key"], event["phase"])
+                    delivered += drain_outbox(state, now, dry_run=dry_run)
+                    current = oldest_outbox_event(state)
+                    if current is not None and (current["event_key"], current["phase"]) == before:
                         degraded = True
                         break
-                before = (event["event_key"], event["phase"])
-                delivered += drain_outbox(state, now, dry_run=dry_run)
-                current = oldest_outbox_event(state)
-                if current is not None and (current["event_key"], current["phase"]) == before:
-                    degraded = True
-                    break
-            state["last_poll_success"] = current_time().isoformat()
-            save_state(state)
-        finally:
-            await client.disconnect()
+                state["last_poll_success"] = current_time().isoformat()
+                save_state(state)
+            finally:
+                await _disconnect_quietly(client)
 
-        # Service retained board handoffs even when no All work was due.
-        delivered += drain_outbox(state, now, dry_run=dry_run)
-        board_healthy = drain_board(dry_run)
-        degraded = degraded or not board_healthy
-        pending = len(state.get("outbox") or {})
-        degraded = degraded or pending > 0
-        stats = RunStats(messages, calls, delivered, pending, degraded)
-        post_heartbeat_if_due(state, now, stats, dry_run)
-        return {"wakeAgent": False}
+            # Service retained board handoffs even when no All work was due.
+            delivered += drain_outbox(state, now, dry_run=dry_run)
+            board_healthy = drain_board(dry_run)
+            degraded = degraded or not board_healthy
+            pending = len(state.get("outbox") or {})
+            degraded = degraded or pending > 0
+            stats = RunStats(messages, calls, delivered, pending, degraded)
+            post_heartbeat_if_due(state, now, stats, dry_run)
+            control_run.event(
+                "delivery-drain-completed",
+                level="warning" if degraded else "info",
+                phase="delivery",
+                event_type="delivery.drain.completed",
+                message="Phintraco delivery and board drain completed",
+                attributes={
+                    "delivered": delivered,
+                    "pending": pending,
+                    "board_healthy": board_healthy,
+                },
+            )
+            outcome = "degraded" if degraded else "ok"
+            return {"wakeAgent": False}
+        except Exception as exc:
+            failure = re.sub(r"\s+", " ", str(exc)).strip()[:500]
+            control_run.event(
+                "run-failed",
+                level="fatal",
+                phase="lifecycle",
+                event_type="run.failed",
+                message="Phintraco Swing watcher run failed",
+                attributes={"error": failure},
+            )
+            raise
+        finally:
+            control_run.event(
+                "run-completed",
+                level="warning" if outcome in {"blocked", "degraded"} else "info",
+                phase="lifecycle",
+                event_type="run.completed",
+                message=f"Phintraco Swing watcher run {outcome}",
+                attributes={
+                    "messages": messages,
+                    "calls": calls,
+                    "malformed": malformed,
+                    "delivered": delivered,
+                    "pending": pending,
+                    "config_revision": loaded_config.revision,
+                },
+            )
+            control_run.finish(outcome, failure)
 
 
 def main() -> int:

@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 X_WATCHER = "bursawatch-x-account-watch"
 IG_WATCHER = "bursawatch-ig-account-watch"
 WA_WATCHER = "bursawatch-wa-channel-watch"
+PHINTRACO_WATCHER = "bursawatch-tg-phintraco-swing"
 
 
 @pytest.mark.parametrize(
@@ -34,6 +35,26 @@ def test_validator_rejects_invalid_config_without_exposing_process_details():
 
     with pytest.raises(ConfigValidationError, match="watch configuration"):
         validators[X_WATCHER]({"version": 1, "profiles": []})
+
+
+def test_validator_reuses_the_phintraco_strict_config_schema():
+    validators = validators_from_directories(
+        {PHINTRACO_WATCHER: ROOT / "cron-tg-phintraco-swing/bin"}
+    )
+
+    validators[PHINTRACO_WATCHER](
+        {
+            "version": 1,
+            "source": {
+                "telegram_channel_id": 1444713822,
+                "telegram_username": "phintraprofits",
+            },
+            "destinations": {
+                "alert_discord_channel_id": "1525102458253217803",
+                "heartbeat_discord_channel_id": "1505162000420835388",
+            },
+        }
+    )
 
 
 def test_validator_rejects_an_unregistered_watcher():
