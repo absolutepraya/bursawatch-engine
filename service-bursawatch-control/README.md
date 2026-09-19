@@ -24,9 +24,9 @@ This branch adds:
   Telegram Phintraco Swing, and Telegram Kelas Investasi GTW, with one frozen
   revision per invocation.
 
-The Supabase Auth verifier is implemented and covered by local tests. A VPS
-service unit, real environment values, and an authenticated web client remain
-separate deployment work.
+The Supabase Auth verifier and the reconciler-only control API are implemented
+and covered by local tests. A VPS reconciler service unit, real environment
+values, and an authenticated web client remain separate deployment work.
 The watcher validator bridge is implemented, but requires its deployed-source
 directory settings. A desired schedule revision also needs a separate trusted
 VPS scheduler reconciler before it changes a live Hermes job.
@@ -44,7 +44,10 @@ tokens against that project's public JWKS endpoint, requires the
 `authenticated` audience and role, and maps only configured UUIDs in
 `CONTROL_PLANE_ADMIN_USER_IDS` to admins. Other signed-in users are viewers.
 `CONTROL_PLANE_ADMIN_TOKEN` is development-only and must be unset in Supabase
-mode. Cron clients retain their distinct `CONTROL_PLANE_MACHINE_TOKEN`.
+mode. Cron clients retain their distinct `CONTROL_PLANE_MACHINE_TOKEN`. The
+VPS scheduler bridge has its own `CONTROL_PLANE_RECONCILER_TOKEN`: it can read
+desired interval schedules and report outcomes, but cannot read cron
+configuration or access dashboard routes.
 
 This verifier intentionally accepts only Supabase asymmetric signing keys. At
 deployment, confirm the Supabase project has an active RSA or elliptic-curve
@@ -119,13 +122,19 @@ fallback remains active during migration.
 `GET /v1/watchers/{watcher_id}/jobs` lists the scheduler jobs that the web app
 may display. Interval jobs expose their approved minimum and maximum cadence;
 fixed calendar jobs are intentionally read-only. An admin can write a desired
-interval schedule through `PUT /v1/jobs/{job_id}/schedule`.
+interval schedule through `PUT /v1/jobs/{job_id}/schedule`. The interval
+timezone remains the Bursawatch host timezone, `Asia/Jakarta`, because Hermes
+has no per-job timezone setting for an interval schedule.
 
-The response has `reconciliation.status` and `reconciliation.effective`. A new
-write is `pending` and `effective: false`: it is durable operator intent, not
-an instruction that this service has applied to Hermes. The later VPS
-reconciler is the only component allowed to change or pause a live job, using
-the supported Hermes CLI and reporting the applied revision back.
+The response has `reconciliation.status`, `reconciliation.last_error`, and
+`reconciliation.effective`. A new write is `pending` and `effective: false`:
+it is durable operator intent, not an instruction that this service has applied
+to Hermes. The later VPS reconciler is the only component allowed to change or
+pause a live job, using the supported Hermes CLI and reporting the applied
+revision back. Its private endpoints reject browser, admin, and ordinary cron
+credentials. If an admin writes a new revision while the reconciler is
+working, its report for the old revision is rejected rather than falsely
+marking the new intent effective.
 
 The initial catalog seeds the verified current intent for every supported
 interval job: X source poller (10 minutes), Instagram source poller (one hour),

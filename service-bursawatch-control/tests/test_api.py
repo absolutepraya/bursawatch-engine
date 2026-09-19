@@ -13,6 +13,7 @@ from control_plane.store import InMemoryStore
 WATCHER = "bursawatch-x-account-watch"
 TOKEN = "machine-token"
 ADMIN = "admin-token"
+RECONCILER = "reconciler-token"
 
 
 class ViewerAuth:
@@ -29,7 +30,7 @@ def build_client():
         job_id="bursawatch-x-account-watch-source",
         watcher_id=WATCHER,
         display_name="X Account Watch source poller",
-        runtime_job_key="x-post-source",
+        runtime_job_key="bursawatch-x-account-watch",
         schedule_kind="interval",
         min_interval_seconds=600,
         max_interval_seconds=86_400,
@@ -46,7 +47,7 @@ def build_client():
     )
     app = create_app(
         store=store,
-        auth=StaticTokenAuth(machine_token=TOKEN, admin_token=ADMIN),
+        auth=StaticTokenAuth(machine_token=TOKEN, admin_token=ADMIN, reconciler_token=RECONCILER),
         validators={WATCHER: lambda config: None},
     )
     return TestClient(app), store
@@ -67,7 +68,7 @@ def test_cors_allowlist_supports_the_separate_web_origin():
     client = TestClient(
         create_app(
             store=store,
-            auth=StaticTokenAuth(machine_token=TOKEN, admin_token=ADMIN),
+            auth=StaticTokenAuth(machine_token=TOKEN, admin_token=ADMIN, reconciler_token=RECONCILER),
             validators={WATCHER: lambda config: None},
             allowed_origins=["https://watch.example.test"],
         )
@@ -241,6 +242,7 @@ def test_jobs_show_schedule_capabilities_and_current_reconciliation_state():
     assert source["reconciliation"] == {
         "status": "not_connected",
         "applied_revision": None,
+        "last_error": None,
         "effective": False,
     }
     assert worker["schedule_kind"] == "fixed"
@@ -265,8 +267,87 @@ def test_admin_can_store_an_interval_schedule_without_claiming_it_is_live():
     assert body["reconciliation"] == {
         "status": "pending",
         "applied_revision": None,
+        "last_error": None,
         "effective": False,
     }
+
+
+def test_reconciler_only_endpoints_expose_interval_jobs_and_record_verified_outcomes():
+    client, _store = build_client()
+    headers = {"Authorization": f"Bearer {RECONCILER}"}
+
+    schedules = client.get("/v1/internal/schedules", headers=headers)
+
+    assert schedules.status_code == 200
+    assert [job["job_id"] for job in schedules.json()] == ["bursawatch-x-account-watch-source"]
+    applied = client.post(
+        "/v1/internal/jobs/bursawatch-x-account-watch-source/reconciliation",
+        headers=headers,
+        json={"revision": 1, "status": "applied"},
+    )
+
+    assert applied.status_code == 200
+    assert applied.json()["reconciliation"] == {
+        "status": "applied",
+        "applied_revision": 1,
+        "last_error": None,
+        "effective": True,
+    }
+
+
+def test_reconciler_cannot_mark_a_stale_revision_effective_or_retain_old_error():
+    client, _store = build_client()
+    reconciler_headers = {"Authorization": f"Bearer {RECONCILER}"}
+    admin_headers = {"Authorization": f"Bearer {ADMIN}"}
+
+    failed = client.post(
+        "/v1/internal/jobs/bursawatch-x-account-watch-source/reconciliation",
+        headers=reconciler_headers,
+        json={"revision": 1, "status": "error", "error": "hermes cli rejected edit"},
+    )
+    rewritten = client.put(
+        "/v1/jobs/bursawatch-x-account-watch-source/schedule",
+        headers=admin_headers,
+        json={"enabled": False, "interval_seconds": 7_200, "timezone": "Asia/Jakarta"},
+    )
+    stale = client.post(
+        "/v1/internal/jobs/bursawatch-x-account-watch-source/reconciliation",
+        headers=reconciler_headers,
+        json={"revision": 1, "status": "applied"},
+    )
+
+    assert failed.status_code == 200
+    assert failed.json()["reconciliation"]["last_error"] == "hermes cli rejected edit"
+    assert rewritten.status_code == 200
+    assert rewritten.json()["reconciliation"]["last_error"] is None
+    assert stale.status_code == 409
+    assert client.get(
+        "/v1/jobs/bursawatch-x-account-watch-source/schedule",
+        headers=admin_headers,
+    ).json()["reconciliation"] == {
+        "status": "pending",
+        "applied_revision": None,
+        "last_error": None,
+        "effective": False,
+    }
+
+
+def test_only_the_reconciler_credential_can_use_internal_schedule_routes():
+    client, store = build_client()
+
+    for token in (TOKEN, ADMIN):
+        assert client.get("/v1/internal/schedules", headers={"Authorization": f"Bearer {token}"}).status_code == 403
+    assert client.get("/v1/internal/schedules", headers={"Authorization": "Bearer unknown-token"}).status_code == 401
+    viewer = TestClient(create_app(store=store, auth=ViewerAuth(), validators={WATCHER: lambda config: None}))
+    assert viewer.get(
+        "/v1/internal/schedules",
+        headers={"Authorization": "Bearer viewer-token"},
+    ).status_code == 403
+    assert client.post(
+        "/v1/internal/jobs/bursawatch-x-account-watch-source/reconciliation",
+        headers={"Authorization": f"Bearer {TOKEN}"},
+        json={"revision": 1, "status": "applied"},
+    ).status_code == 403
 
 
 def test_machine_cannot_change_schedule_and_fixed_jobs_reject_changes():
@@ -298,6 +379,19 @@ def test_schedule_rejects_values_outside_the_job_policy():
 
     assert response.status_code == 422
     assert "between 600 and 86400" in response.json()["detail"]
+
+
+def test_schedule_timezone_cannot_claim_a_hermes_setting_that_does_not_exist():
+    client, _store = build_client()
+
+    response = client.put(
+        "/v1/jobs/bursawatch-x-account-watch-source/schedule",
+        headers={"Authorization": f"Bearer {ADMIN}"},
+        json={"enabled": True, "interval_seconds": 600, "timezone": "UTC"},
+    )
+
+    assert response.status_code == 422
+    assert "scheduler timezone must remain Asia/Jakarta" in response.json()["detail"]
 
 
 def test_run_events_are_idempotent_by_event_id():

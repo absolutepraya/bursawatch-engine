@@ -12,9 +12,9 @@ from .contract import (
     ScheduleSnapshot,
     config_checksum,
     schedule_checksum,
+    validate_bursawatch_scheduler_timezone,
     validate_interval_seconds,
     validate_job_id,
-    validate_timezone,
     validate_watcher_id,
 )
 
@@ -64,6 +64,11 @@ class SchedulerJobRecord:
     schedule: ScheduleSnapshot | None
     reconciliation_status: str
     applied_revision: int | None
+    reconciliation_error: str | None
+
+
+class ScheduleRevisionConflictError(ValueError):
+    """A reconciler attempted to report a stale desired schedule revision."""
 
 
 class Store(Protocol):
@@ -83,6 +88,8 @@ class Store(Protocol):
 
     def get_job(self, job_id: str) -> SchedulerJobRecord: ...
 
+    def list_reconcilable_jobs(self) -> list[SchedulerJobRecord]: ...
+
     def put_schedule(
         self,
         job_id: str,
@@ -90,6 +97,14 @@ class Store(Protocol):
         interval_seconds: int,
         timezone: str,
         actor_id: str,
+    ) -> SchedulerJobRecord: ...
+
+    def record_schedule_reconciliation(
+        self,
+        job_id: str,
+        revision: int,
+        reconciliation_status: str,
+        reconciliation_error: str | None,
     ) -> SchedulerJobRecord: ...
 
     def start_run(
@@ -238,6 +253,7 @@ class InMemoryStore:
             schedule=snapshot,
             reconciliation_status="not_connected",
             applied_revision=None,
+            reconciliation_error=None,
         )
         self._jobs[job_id] = record
         return record
@@ -256,6 +272,12 @@ class InMemoryStore:
         except KeyError as exc:
             raise KeyError(job_id) from exc
 
+    def list_reconcilable_jobs(self) -> list[SchedulerJobRecord]:
+        return sorted(
+            (job for job in self._jobs.values() if job.schedule_kind == "interval"),
+            key=lambda job: job.job_id,
+        )
+
     def put_schedule(
         self,
         job_id: str,
@@ -272,7 +294,7 @@ class InMemoryStore:
         if type(enabled) is not bool:
             raise ValueError("enabled must be a boolean")
         validate_interval_seconds(interval_seconds)
-        validate_timezone(timezone)
+        validate_bursawatch_scheduler_timezone(timezone)
         assert job.min_interval_seconds is not None and job.max_interval_seconds is not None
         if not job.min_interval_seconds <= interval_seconds <= job.max_interval_seconds:
             raise ValueError(
@@ -302,6 +324,46 @@ class InMemoryStore:
             schedule=snapshot,
             reconciliation_status="pending",
             applied_revision=None,
+            reconciliation_error=None,
+        )
+        self._jobs[job_id] = updated
+        return updated
+
+    def record_schedule_reconciliation(
+        self,
+        job_id: str,
+        revision: int,
+        reconciliation_status: str,
+        reconciliation_error: str | None,
+    ) -> SchedulerJobRecord:
+        if reconciliation_status not in {"applied", "error"}:
+            raise ValueError("reconciliation_status must be applied or error")
+        if type(revision) is not int or revision < 1:
+            raise ValueError("revision must be a positive integer")
+        if reconciliation_status == "applied" and reconciliation_error is not None:
+            raise ValueError("applied reconciliation cannot include an error")
+        if reconciliation_status == "error":
+            if type(reconciliation_error) is not str or not reconciliation_error.strip():
+                raise ValueError("failed reconciliation requires an error")
+            if len(reconciliation_error) > 500:
+                raise ValueError("reconciliation error exceeds 500 characters")
+        job = self.get_job(job_id)
+        if job.schedule_kind != "interval" or job.schedule is None:
+            raise PermissionError("this job has no reconcilable interval schedule")
+        if job.schedule.revision != revision:
+            raise ScheduleRevisionConflictError("desired schedule revision has changed")
+        updated = SchedulerJobRecord(
+            job_id=job.job_id,
+            watcher_id=job.watcher_id,
+            display_name=job.display_name,
+            runtime_job_key=job.runtime_job_key,
+            schedule_kind=job.schedule_kind,
+            min_interval_seconds=job.min_interval_seconds,
+            max_interval_seconds=job.max_interval_seconds,
+            schedule=job.schedule,
+            reconciliation_status=reconciliation_status,
+            applied_revision=revision if reconciliation_status == "applied" else None,
+            reconciliation_error=reconciliation_error,
         )
         self._jobs[job_id] = updated
         return updated
@@ -490,6 +552,7 @@ class PostgresStore:
             schedule=schedule,
             reconciliation_status=row["reconciliation_status"],
             applied_revision=row["applied_schedule_revision"],
+            reconciliation_error=row["reconciliation_error"],
         )
 
     @staticmethod
@@ -498,6 +561,7 @@ class PostgresStore:
             select j.job_id, j.watcher_id, j.display_name, j.runtime_job_key,
                    j.schedule_kind, j.min_interval_seconds, j.max_interval_seconds,
                    j.reconciliation_status, j.applied_schedule_revision,
+                   j.reconciliation_error,
                    r.revision as schedule_revision,
                    r.enabled as schedule_enabled,
                    r.interval_seconds as schedule_interval_seconds,
@@ -567,6 +631,12 @@ class PostgresStore:
             raise KeyError(job_id)
         return self._job(row)
 
+    def list_reconcilable_jobs(self) -> list[SchedulerJobRecord]:
+        with self._connect() as connection, connection.cursor() as cursor:
+            cursor.execute(self._job_select() + " where j.schedule_kind = 'interval' order by j.job_id")
+            rows = cursor.fetchall()
+        return [self._job(row) for row in rows]
+
     def put_schedule(
         self,
         job_id: str,
@@ -581,7 +651,7 @@ class PostgresStore:
         if type(enabled) is not bool:
             raise ValueError("enabled must be a boolean")
         validate_interval_seconds(interval_seconds)
-        validate_timezone(timezone)
+        validate_bursawatch_scheduler_timezone(timezone)
         checksum = schedule_checksum(enabled, interval_seconds, timezone)
         with self._connect() as connection, connection.cursor() as cursor:
             cursor.execute(
@@ -625,10 +695,65 @@ class PostgresStore:
                    set current_schedule_revision = %s,
                        applied_schedule_revision = null,
                        reconciliation_status = 'pending',
+                       reconciliation_error = null,
                        updated_at = now()
                  where job_id = %s
                 """,
                 (revision, job_id),
+            )
+        return self.get_job(job_id)
+
+    def record_schedule_reconciliation(
+        self,
+        job_id: str,
+        revision: int,
+        reconciliation_status: str,
+        reconciliation_error: str | None,
+    ) -> SchedulerJobRecord:
+        validate_job_id(job_id)
+        if type(revision) is not int or revision < 1:
+            raise ValueError("revision must be a positive integer")
+        if reconciliation_status not in {"applied", "error"}:
+            raise ValueError("reconciliation_status must be applied or error")
+        if reconciliation_status == "applied" and reconciliation_error is not None:
+            raise ValueError("applied reconciliation cannot include an error")
+        if reconciliation_status == "error":
+            if type(reconciliation_error) is not str or not reconciliation_error.strip():
+                raise ValueError("failed reconciliation requires an error")
+            if len(reconciliation_error) > 500:
+                raise ValueError("reconciliation error exceeds 500 characters")
+        with self._connect() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """
+                select schedule_kind, current_schedule_revision
+                  from bursawatch_scheduler_jobs
+                 where job_id = %s
+                 for update
+                """,
+                (job_id,),
+            )
+            job = cursor.fetchone()
+            if job is None:
+                raise KeyError(job_id)
+            if job["schedule_kind"] != "interval" or job["current_schedule_revision"] is None:
+                raise PermissionError("this job has no reconcilable interval schedule")
+            if job["current_schedule_revision"] != revision:
+                raise ScheduleRevisionConflictError("desired schedule revision has changed")
+            cursor.execute(
+                """
+                update bursawatch_scheduler_jobs
+                   set reconciliation_status = %s,
+                       applied_schedule_revision = %s,
+                       reconciliation_error = %s,
+                       updated_at = now()
+                 where job_id = %s
+                """,
+                (
+                    reconciliation_status,
+                    revision if reconciliation_status == "applied" else None,
+                    reconciliation_error,
+                    job_id,
+                ),
             )
         return self.get_job(job_id)
 

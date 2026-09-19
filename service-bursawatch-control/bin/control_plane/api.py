@@ -7,11 +7,19 @@ from typing import Any, Callable, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 from .auth import Authenticator, AuthenticationError, Principal, StaticTokenAuth, auth_from_environment
 from .contract import ConfigSnapshot, ContractError, canonical_json_bytes, validate_watcher_id
-from .store import EventRecord, InMemoryStore, PostgresStore, RunRecord, SchedulerJobRecord, Store
+from .store import (
+    EventRecord,
+    InMemoryStore,
+    PostgresStore,
+    RunRecord,
+    ScheduleRevisionConflictError,
+    SchedulerJobRecord,
+    Store,
+)
 from .validators import validators_from_environment
 
 
@@ -57,6 +65,22 @@ class ScheduleWrite(BaseModel):
     enabled: StrictBool
     interval_seconds: int = Field(ge=60, le=86_400)
     timezone: str = Field(min_length=1, max_length=64)
+
+
+class ScheduleReconciliationWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    revision: int = Field(ge=1)
+    status: Literal["applied", "error"]
+    error: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_status_error(self) -> "ScheduleReconciliationWrite":
+        if self.status == "applied" and self.error is not None:
+            raise ValueError("applied reconciliation cannot include an error")
+        if self.status == "error" and (self.error is None or not self.error.strip()):
+            raise ValueError("failed reconciliation requires a non-empty error")
+        return self
 
 
 def _snapshot_response(snapshot: ConfigSnapshot) -> dict[str, Any]:
@@ -109,6 +133,7 @@ def _job_response(job: SchedulerJobRecord) -> dict[str, Any]:
         "reconciliation": {
             "status": job.reconciliation_status,
             "applied_revision": job.applied_revision,
+            "last_error": job.reconciliation_error,
             "effective": effective,
         },
     }
@@ -152,6 +177,11 @@ def create_app(
     def human_reader(current: Principal = Depends(principal)) -> Principal:
         if current.kind not in {"admin", "viewer"}:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="signed-in user required")
+        return current
+
+    def reconciler_only(current: Principal = Depends(principal)) -> Principal:
+        if current.kind != "reconciler":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="schedule reconciler role required")
         return current
 
     @app.get("/healthz")
@@ -207,6 +237,10 @@ def create_app(
             return _job_response(store.get_job(job_id))
         except (ContractError, KeyError) as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="scheduler job not found") from exc
+
+    @app.get("/v1/internal/schedules")
+    def list_reconcilable_schedules(_current: Principal = Depends(reconciler_only)) -> list[dict[str, Any]]:
+        return [_job_response(job) for job in store.list_reconcilable_jobs()]
 
     @app.get("/v1/watchers/{watcher_id}/events")
     def list_watcher_events(
@@ -267,6 +301,28 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="scheduler job not found") from exc
         except PermissionError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        except (ContractError, ValueError) as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    @app.post("/v1/internal/jobs/{job_id}/reconciliation")
+    def record_schedule_reconciliation(
+        job_id: str,
+        payload: ScheduleReconciliationWrite,
+        _current: Principal = Depends(reconciler_only),
+    ) -> dict[str, Any]:
+        try:
+            return _job_response(
+                store.record_schedule_reconciliation(
+                    job_id,
+                    payload.revision,
+                    payload.status,
+                    payload.error,
+                )
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="scheduler job not found") from exc
+        except (PermissionError, ScheduleRevisionConflictError) as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         except (ContractError, ValueError) as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc

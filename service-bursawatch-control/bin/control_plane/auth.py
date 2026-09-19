@@ -22,17 +22,31 @@ class Authenticator(Protocol):
 
 
 class StaticTokenAuth:
-    """Machine authenticator and development-only human fallback."""
+    """Trusted machine, reconciler, and development-only human credentials."""
 
-    def __init__(self, machine_token: str | None, admin_token: str | None) -> None:
+    def __init__(
+        self,
+        machine_token: str | None,
+        admin_token: str | None,
+        reconciler_token: str | None = None,
+    ) -> None:
+        configured_tokens = [
+            token
+            for token in (machine_token, admin_token, reconciler_token)
+            if token is not None and token.strip()
+        ]
+        if len(configured_tokens) != len(set(configured_tokens)):
+            raise ValueError("control-plane static credentials must use distinct token values")
         self.machine_token = machine_token
         self.admin_token = admin_token
+        self.reconciler_token = reconciler_token
 
     @classmethod
     def from_environment(cls) -> "StaticTokenAuth":
         return cls(
             machine_token=os.environ.get("CONTROL_PLANE_MACHINE_TOKEN"),
             admin_token=os.environ.get("CONTROL_PLANE_ADMIN_TOKEN"),
+            reconciler_token=os.environ.get("CONTROL_PLANE_RECONCILER_TOKEN"),
         )
 
     def authenticate(self, authorization: str | None) -> Principal:
@@ -43,6 +57,8 @@ class StaticTokenAuth:
             raise AuthenticationError("bearer authentication is required")
         if self.machine_token and secrets_equal(token, self.machine_token):
             return Principal(subject="machine", kind="machine")
+        if self.reconciler_token and secrets_equal(token, self.reconciler_token):
+            return Principal(subject="schedule-reconciler", kind="reconciler")
         if self.admin_token and secrets_equal(token, self.admin_token):
             return Principal(subject="static-admin", kind="admin")
         raise AuthenticationError("invalid bearer credential")
@@ -140,16 +156,28 @@ class CompositeAuth:
 def auth_from_environment() -> Authenticator:
     machine_token = os.environ.get("CONTROL_PLANE_MACHINE_TOKEN")
     static_admin_token = os.environ.get("CONTROL_PLANE_ADMIN_TOKEN")
+    reconciler_token = os.environ.get("CONTROL_PLANE_RECONCILER_TOKEN")
     supabase_url = os.environ.get("CONTROL_PLANE_SUPABASE_URL", "").strip()
     if not supabase_url:
-        return StaticTokenAuth(machine_token=machine_token, admin_token=static_admin_token)
+        return StaticTokenAuth(
+            machine_token=machine_token,
+            admin_token=static_admin_token,
+            reconciler_token=reconciler_token,
+        )
     if static_admin_token:
         raise RuntimeError("CONTROL_PLANE_ADMIN_TOKEN must be unset when Supabase Auth is enabled")
     authenticators: list[Authenticator] = [
         SupabaseJwtAuth(supabase_url, parse_admin_user_ids(os.environ.get("CONTROL_PLANE_ADMIN_USER_IDS")))
     ]
-    if machine_token:
-        authenticators.insert(0, StaticTokenAuth(machine_token=machine_token, admin_token=None))
+    if machine_token or reconciler_token:
+        authenticators.insert(
+            0,
+            StaticTokenAuth(
+                machine_token=machine_token,
+                admin_token=None,
+                reconciler_token=reconciler_token,
+            ),
+        )
     return CompositeAuth(authenticators)
 
 

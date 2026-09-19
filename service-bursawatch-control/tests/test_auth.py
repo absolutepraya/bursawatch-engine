@@ -116,6 +116,39 @@ def test_composite_auth_keeps_machine_tokens_separate_from_web_users():
     assert auth.authenticate("Bearer user-access-token").kind == "viewer"
 
 
+def test_reconciler_token_is_a_distinct_trusted_principal():
+    auth = StaticTokenAuth(
+        machine_token="machine-token",
+        admin_token="admin-token",
+        reconciler_token="reconciler-token",
+    )
+
+    assert auth.authenticate("Bearer machine-token").kind == "machine"
+    assert auth.authenticate("Bearer admin-token").kind == "admin"
+    assert auth.authenticate("Bearer reconciler-token").kind == "reconciler"
+
+
+def test_static_credentials_reject_accidental_role_sharing():
+    with pytest.raises(ValueError, match="distinct"):
+        StaticTokenAuth(
+            machine_token="shared-token",
+            admin_token=None,
+            reconciler_token="shared-token",
+        )
+
+
+def test_environment_auth_preserves_the_reconciler_boundary(monkeypatch):
+    monkeypatch.setenv("CONTROL_PLANE_MACHINE_TOKEN", "machine-token")
+    monkeypatch.setenv("CONTROL_PLANE_RECONCILER_TOKEN", "reconciler-token")
+    monkeypatch.delenv("CONTROL_PLANE_ADMIN_TOKEN", raising=False)
+    monkeypatch.delenv("CONTROL_PLANE_SUPABASE_URL", raising=False)
+
+    auth = auth_from_environment()
+
+    assert auth.authenticate("Bearer machine-token").kind == "machine"
+    assert auth.authenticate("Bearer reconciler-token").kind == "reconciler"
+
+
 def test_admin_user_ids_must_be_unique_uuid_values():
     assert parse_admin_user_ids("0d14f8cb-5f72-4a79-94a0-0d682179b6ca") == {
         "0d14f8cb-5f72-4a79-94a0-0d682179b6ca"

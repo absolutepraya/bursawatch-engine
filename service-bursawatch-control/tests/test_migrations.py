@@ -71,3 +71,15 @@ def test_remaining_schedule_controls_seed_safe_baselines():
         ) in migration
 
     assert "and current_schedule_revision is null;" in migration
+
+
+def test_scheduler_reconciliation_migration_records_safe_errors_and_corrects_x_runtime_key():
+    migration = (
+        Path(__file__).resolve().parents[1]
+        / "migrations/006_scheduler_reconciliation_runtime.sql"
+    ).read_text(encoding="utf-8")
+
+    assert "add column if not exists reconciliation_error text;" in migration
+    assert "length(reconciliation_error) between 1 and 500" in migration
+    assert "runtime_job_key = 'bursawatch-x-account-watch'" in migration
+    assert "runtime_job_key = 'x-post-source'" in migration

@@ -15,6 +15,7 @@ JOB_ID_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
 MAX_CONFIG_BYTES = 2_000_000
 MIN_INTERVAL_SECONDS = 60
 MAX_INTERVAL_SECONDS = 86_400
+BURSAWATCH_SCHEDULER_TIMEZONE = "Asia/Jakarta"
 
 
 class ContractError(ValueError):
@@ -71,6 +72,13 @@ def validate_timezone(value: object) -> str:
     except ZoneInfoNotFoundError as exc:
         raise ContractError("timezone must be a valid IANA timezone") from exc
     return value
+
+
+def validate_bursawatch_scheduler_timezone(value: object) -> str:
+    timezone = validate_timezone(value)
+    if timezone != BURSAWATCH_SCHEDULER_TIMEZONE:
+        raise ContractError(f"scheduler timezone must remain {BURSAWATCH_SCHEDULER_TIMEZONE}")
+    return timezone
 
 
 def schedule_checksum(enabled: bool, interval_seconds: int, timezone: str) -> str:

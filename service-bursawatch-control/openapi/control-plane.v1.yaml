@@ -139,6 +139,40 @@ paths:
           description: The job has a fixed source-defined schedule.
         '422':
           description: The cadence is outside the job's approved policy.
+  /v1/internal/schedules:
+    get:
+      summary: Read every desired interval schedule for the trusted VPS reconciler.
+      description: Reconciler credential only. This route is not available to browser, admin, or cron machine credentials.
+      responses:
+        '200':
+          description: Reconcilable scheduler jobs in stable job-ID order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SchedulerJob'
+  /v1/internal/jobs/{job_id}/reconciliation:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    post:
+      summary: Record a verified VPS reconciliation outcome for the current desired revision.
+      description: Reconciler credential only. A stale revision is rejected and cannot become effective.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleReconciliationWrite'
+      responses:
+        '200':
+          description: Current desired schedule with its reconciled outcome.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchedulerJob'
+        '409':
+          description: The job is fixed or the desired schedule revision changed before reporting.
   /v1/runs/{run_id}/events:
     parameters:
       - $ref: '#/components/parameters/RunId'
@@ -299,7 +333,8 @@ components:
           multipleOf: 60
         timezone:
           type: string
-          description: IANA timezone name.
+          const: Asia/Jakarta
+          description: Bursawatch Hermes host timezone. It is fixed for interval jobs.
     ScheduleSnapshot:
       type: object
       additionalProperties: false
@@ -331,16 +366,35 @@ components:
     SchedulerReconciliation:
       type: object
       additionalProperties: false
-      required: [status, applied_revision, effective]
+      required: [status, applied_revision, last_error, effective]
       properties:
         status:
           type: string
           enum: [not_connected, pending, applied, error]
         applied_revision:
           type: [integer, 'null']
+        last_error:
+          type: [string, 'null']
+          maxLength: 500
+          description: Sanitized error from the latest guarded VPS reconciliation attempt.
         effective:
           type: boolean
           description: True only after the VPS reconciler confirms the current revision.
+    ScheduleReconciliationWrite:
+      type: object
+      additionalProperties: false
+      required: [revision, status]
+      properties:
+        revision:
+          type: integer
+          minimum: 1
+        status:
+          type: string
+          enum: [applied, error]
+        error:
+          type: [string, 'null']
+          maxLength: 500
+          description: Required only when status is error, and omitted or null when status is applied.
     SchedulerJob:
       type: object
       additionalProperties: false
