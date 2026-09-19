@@ -43,6 +43,11 @@ VALIDATOR_SPECS = {
         loader_name="load_watch_config_data",
         directory_environment_key="CONTROL_PLANE_MARKET_NEWS_CONFIG_VALIDATOR_DIR",
     ),
+    "bursawatch-dc-swing-board": ValidatorSpec(
+        watcher_id="bursawatch-dc-swing-board",
+        loader_name="load_board_config_data",
+        directory_environment_key="CONTROL_PLANE_SWING_BOARD_CONFIG_VALIDATOR_DIR",
+    ),
     "bursawatch-tg-phintraco-swing": ValidatorSpec(
         watcher_id="bursawatch-tg-phintraco-swing",
         loader_name="load_watch_config_data",

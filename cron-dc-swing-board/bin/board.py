@@ -16,6 +16,7 @@ import tempfile
 from typing import Sequence
 
 from calendar import CalendarCoverageError
+import config
 from discord_forum import DiscordForumClient, forum_thread_url
 from engine import BoardEngine
 from models import SourceEvent
@@ -23,7 +24,19 @@ from render import WIB
 from store import BoardStore
 
 
-HERMES_HEARTBEAT_CHANNEL_ID = "1505162000420835388"
+try:
+    from control_plane_runtime import ControlPlaneRun
+except ModuleNotFoundError:
+    class ControlPlaneRun:
+        @classmethod
+        def begin(cls, *_args, **_kwargs):
+            return cls()
+
+        def event(self, *_args, **_kwargs):
+            pass
+
+        def finish(self, *_args, **_kwargs):
+            pass
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -33,9 +46,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         if arguments.dry_run:
             return _bootstrap_dry_run(arguments.lookback_sessions, arguments.manifest)
         return _bootstrap_apply(arguments.lookback_sessions, arguments.manifest)
+    loaded_config = config.load_board_config_for_run()
     engine = BoardEngine(BoardStore(_state_path()), DiscordForumClient())
     if arguments.command == "submit-source-event":
-        return _submit_source_event(engine)
+        return _submit_source_event(engine, loaded_config)
     if arguments.command == "drain":
         health = {"drained": engine.drain(), **engine.store.outbox_health()}
         print(json.dumps(health, separators=(",", ":")))
@@ -94,30 +108,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         result["failed"] = engine.store.outbox_health()["failed"]
         print(json.dumps(result, separators=(",", ":")))
         return int(result["pending"] > 0 or result["failed"] > 0 or result["blocked"] > 0)
-    try:
-        result = engine.after_close(arguments.phase, datetime.now(WIB))
-    except CalendarCoverageError:
-        # Calendar coverage is a fatal fail-closed condition, not a reason to
-        # lose the required operational signal or replay any market mutation.
-        engine.drain()
-        heartbeat = _fatal_heartbeat(arguments.phase, "calendar coverage unavailable")
-        engine.client.post_heartbeat(HERMES_HEARTBEAT_CHANNEL_ID, heartbeat)
-        print(heartbeat)
-        return 0
-    except Exception:
-        engine.drain()
-        heartbeat = _fatal_heartbeat(arguments.phase, "reconciliation failed")
-        engine.client.post_heartbeat(HERMES_HEARTBEAT_CHANNEL_ID, heartbeat)
-        print(heartbeat)
-        return 1
-    engine.drain()
-    # ``pending`` describes retained owner work after this invocation, not the
-    # number of operations just completed.
-    result["pending"] = engine.store.pending_outbox_count()
-    heartbeat = _heartbeat(arguments.phase, result)
-    engine.client.post_heartbeat(HERMES_HEARTBEAT_CHANNEL_ID, heartbeat)
-    print(heartbeat)
-    return 0
+    return _after_close(engine, arguments.phase, loaded_config)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -201,23 +192,187 @@ def _bootstrap_apply(lookback_sessions: int, manifest: Path | None) -> int:
     return int(engine.store.pending_outbox_count() > 0)
 
 
-def _submit_source_event(engine: BoardEngine) -> int:
-    payload = json.load(sys.stdin)
-    event = SourceEvent.from_json(payload)
-    event = _own_media(event)
-    # The engine's one transition commits immutable intake and every resulting
-    # outbox intent together before the acknowledgement is written.
-    engine.submit(event, datetime.now(WIB))
-    engine.drain()
-    episode = engine.store.episode_for_event(event.event_key)
-    board_url = None
-    if episode is not None and episode.thread_id and not engine.client.no_post:
-        board_url = forum_thread_url(episode.thread_id)
-    acknowledgement = {"accepted": True, "board_url": board_url}
-    if episode is not None and not episode.thread_id:
-        acknowledgement["board_pending"] = True
-    print(json.dumps(acknowledgement, separators=(",", ":")))
-    return 0
+def _submit_source_event(
+    engine: BoardEngine, loaded_config: config.LoadedBoardConfig
+) -> int:
+    control_run = ControlPlaneRun.begin(
+        "IDX_SWING_PLAN_BOARD",
+        loaded_config.revision,
+        scheduler_job_id="bursawatch-dc-swing-board",
+        trigger="source_event",
+    )
+    control_run.event(
+        "source-event-started",
+        level="info",
+        phase="source",
+        event_type="source.event.started",
+        message="Discord Swing Board source event started",
+        attributes={"config_revision": loaded_config.revision},
+    )
+    outcome = "failed"
+    failure: str | None = None
+    try:
+        payload = json.load(sys.stdin)
+        event = SourceEvent.from_json(payload)
+        event = _own_media(event)
+        # The engine's one transition commits immutable intake and every resulting
+        # outbox intent together before the acknowledgement is written.
+        disposition = engine.submit(event, datetime.now(WIB))
+        control_run.event(
+            "source-event-accepted",
+            level="info",
+            phase="source",
+            event_type="source.event.accepted",
+            message="Discord Swing Board source event was accepted",
+            attributes={"event_key": event.event_key, "disposition": disposition},
+        )
+        drained = engine.drain()
+        health = engine.store.outbox_health()
+        pending = int(health["pending"])
+        failed = int(health["failed"])
+        outcome = "degraded" if pending or failed else "ok"
+        control_run.event(
+            "source-event-delivery-drain-completed",
+            level="warning" if outcome == "degraded" else "info",
+            phase="delivery",
+            event_type="delivery.drain.completed",
+            message="Discord Swing Board source-event delivery drain completed",
+            attributes={"drained": drained, "pending": pending, "failed": failed},
+        )
+        episode = engine.store.episode_for_event(event.event_key)
+        board_url = None
+        if episode is not None and episode.thread_id and not engine.client.no_post:
+            board_url = forum_thread_url(episode.thread_id)
+        acknowledgement = {"accepted": True, "board_url": board_url}
+        if episode is not None and not episode.thread_id:
+            acknowledgement["board_pending"] = True
+        print(json.dumps(acknowledgement, separators=(",", ":")))
+        return 0
+    except Exception as error:
+        failure = _failure_reason(error)
+        control_run.event(
+            "source-event-failed",
+            level="fatal",
+            phase="source",
+            event_type="source.event.failed",
+            message="Discord Swing Board source event failed",
+            attributes={"error": failure},
+        )
+        raise
+    finally:
+        control_run.event(
+            "source-event-completed",
+            level="warning" if outcome == "degraded" else "info",
+            phase="lifecycle",
+            event_type="source.event.completed",
+            message=f"Discord Swing Board source event {outcome}",
+            attributes={"config_revision": loaded_config.revision},
+        )
+        control_run.finish(outcome, failure)
+
+
+def _after_close(
+    engine: BoardEngine,
+    phase: str,
+    loaded_config: config.LoadedBoardConfig,
+) -> int:
+    scheduler_job_id = (
+        "bursawatch-dc-swing-board-close"
+        if phase == "initial"
+        else "bursawatch-dc-swing-board-retry"
+    )
+    control_run = ControlPlaneRun.begin(
+        "IDX_SWING_PLAN_BOARD",
+        loaded_config.revision,
+        scheduler_job_id=scheduler_job_id,
+    )
+    control_run.event(
+        "run-started",
+        level="info",
+        phase="lifecycle",
+        event_type="run.started",
+        message="Discord Swing Board after-close run started",
+        attributes={"config_revision": loaded_config.revision, "phase": phase},
+    )
+    outcome = "failed"
+    failure: str | None = None
+    result: dict[str, int] = {}
+    try:
+        result = engine.after_close(phase, datetime.now(WIB))
+    except CalendarCoverageError:
+        # Calendar coverage is a fatal fail-closed condition, not a reason to
+        # lose the required operational signal or replay any market mutation.
+        engine.drain()
+        failure = "calendar coverage unavailable"
+        heartbeat = _fatal_heartbeat(phase, failure)
+        engine.client.post_heartbeat(loaded_config.config.heartbeat_discord_channel_id, heartbeat)
+        control_run.event(
+            "run-failed",
+            level="fatal",
+            phase="market",
+            event_type="run.failed",
+            message="Discord Swing Board calendar coverage is unavailable",
+            attributes={"error": failure},
+        )
+        print(heartbeat)
+        return 0
+    except Exception as error:
+        engine.drain()
+        failure = _failure_reason(error)
+        heartbeat = _fatal_heartbeat(phase, "reconciliation failed")
+        engine.client.post_heartbeat(loaded_config.config.heartbeat_discord_channel_id, heartbeat)
+        control_run.event(
+            "run-failed",
+            level="fatal",
+            phase="market",
+            event_type="run.failed",
+            message="Discord Swing Board reconciliation failed",
+            attributes={"error": failure},
+        )
+        print(heartbeat)
+        return 1
+    else:
+        engine.drain()
+        # ``pending`` describes retained owner work after this invocation, not
+        # the number of operations just completed.
+        result["pending"] = engine.store.pending_outbox_count()
+        heartbeat = _heartbeat(phase, result)
+        engine.client.post_heartbeat(loaded_config.config.heartbeat_discord_channel_id, heartbeat)
+        outcome = "degraded" if (
+            result["unavailable"] or result["pending"] or result.get("invalid", 0)
+        ) else "ok"
+        control_run.event(
+            "after-close-evaluated",
+            level="warning" if outcome == "degraded" else "info",
+            phase="market",
+            event_type="market.close.evaluated",
+            message="Discord Swing Board after-close evaluation completed",
+            attributes={**result, "phase": phase},
+        )
+        control_run.event(
+            "delivery-drain-completed",
+            level="warning" if result["pending"] else "info",
+            phase="delivery",
+            event_type="delivery.drain.completed",
+            message="Discord Swing Board delivery drain completed",
+            attributes={"pending": result["pending"]},
+        )
+        print(heartbeat)
+        return 0
+    finally:
+        control_run.event(
+            "run-completed",
+            level="warning" if outcome == "degraded" else "info",
+            phase="lifecycle",
+            event_type="run.completed",
+            message=f"Discord Swing Board after-close run {outcome}",
+            attributes={"config_revision": loaded_config.revision, "phase": phase, **result},
+        )
+        control_run.finish(outcome, failure)
+
+
+def _failure_reason(error: object) -> str:
+    return " ".join(str(error).split())[:500] or "board operation failed"
 
 
 def _own_media(event: SourceEvent) -> SourceEvent:

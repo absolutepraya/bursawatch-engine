@@ -12,6 +12,7 @@ from unittest.mock import Mock
 import pytest
 
 import board
+import config
 from calendar import CalendarCoverageError
 from conftest import example_buy_event
 from discord_forum import DiscordForumClient
@@ -156,6 +157,62 @@ def test_no_post_cli_prints_one_heartbeat_without_http(tmp_path, monkeypatch, ca
     assert "active=0 checked=0 unavailable=0 pending=0" in output
 
 
+def test_live_after_close_uses_its_frozen_heartbeat_route_and_reports_events(owner, monkeypatch, capsys):
+    loaded = config.LoadedBoardConfig(
+        config.BoardConfig(heartbeat_discord_channel_id="1505162000420835389"),
+        13,
+    )
+
+    class CapturedRun:
+        started: list[tuple[object, ...]] = []
+        events: list[str] = []
+        finished: list[tuple[str, str | None]] = []
+
+        @classmethod
+        def begin(cls, *args, **kwargs):
+            cls.started.append((*args, kwargs))
+            return cls()
+
+        def event(self, event_id, **_kwargs):
+            type(self).events.append(event_id)
+
+        def finish(self, status, error=None):
+            type(self).finished.append((status, error))
+
+    monkeypatch.setattr(board, "ControlPlaneRun", CapturedRun)
+
+    assert board._after_close(owner, "initial", loaded) == 0
+
+    owner.client.post_heartbeat.assert_called_once()
+    assert owner.client.post_heartbeat.call_args.args[0] == "1505162000420835389"
+    assert CapturedRun.started == [
+        ("IDX_SWING_PLAN_BOARD", 13, {"scheduler_job_id": "bursawatch-dc-swing-board-close"})
+    ]
+    assert CapturedRun.events == [
+        "run-started",
+        "after-close-evaluated",
+        "delivery-drain-completed",
+        "run-completed",
+    ]
+    assert CapturedRun.finished == [("degraded", None)]
+    assert "🫀 bursawatch-dc-swing-board" in capsys.readouterr().out
+
+
+def test_live_config_failure_stops_before_the_board_store_opens(tmp_path, monkeypatch):
+    state_path = tmp_path / "board.sqlite3"
+    monkeypatch.setenv("IDX_SWING_PLAN_BOARD_STATE_PATH", str(state_path))
+
+    def unavailable():
+        raise ValueError("control-plane is unavailable")
+
+    monkeypatch.setattr(config, "load_board_config_for_run", unavailable)
+
+    with pytest.raises(ValueError, match="control-plane"):
+        board.main(["after-close", "--phase", "initial"])
+
+    assert not state_path.exists()
+
+
 def test_missing_calendar_coverage_emits_one_fatal_heartbeat_without_mutation(
     tmp_path, monkeypatch, capsys
 ):
@@ -223,3 +280,17 @@ def test_no_post_wrapper_preserves_arguments_and_uses_isolated_owner_paths(tmp_p
 
     assert completed.stdout.count("🫀 bursawatch-dc-swing-board") == 1
     assert "active=0 checked=0 unavailable=0 pending=0" in completed.stdout
+
+
+def test_wrapper_optionally_loads_only_the_board_control_plane_settings():
+    wrapper = (Path(__file__).resolve().parent.parent / "bin/bursawatch-dc-swing-board.sh").read_text()
+
+    assert 'CONTROL_PLANE_BIN="$HOME/.agents/skills/lib-bursawatch-control/bin"' in wrapper
+    for key in (
+        "IDX_SWING_PLAN_BOARD_CONTROL_PLANE_URL",
+        "IDX_SWING_PLAN_BOARD_CONTROL_PLANE_WATCHER_ID",
+        "IDX_SWING_PLAN_BOARD_CONTROL_PLANE_TOKEN",
+        "IDX_SWING_PLAN_BOARD_CONTROL_PLANE_TIMEOUT_SECONDS",
+        "IDX_SWING_PLAN_BOARD_CONTROL_PLANE_SPOOL_PATH",
+    ):
+        assert key in wrapper

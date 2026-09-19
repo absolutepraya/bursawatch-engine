@@ -39,6 +39,33 @@ Before a Discord create, the owner persists its operation identity, exact messag
 
 Only scheduled `after-close --phase initial` at 16:30 WIB and `after-close --phase retry` at 17:00 WIB evaluate a valid current IDX session close. The zero-argument scheduler executables are `bursawatch-dc-swing-board-close.sh` and `bursawatch-dc-swing-board-retry.sh`, respectively. The retry is eligible only when that exact active plan recorded an unavailable initial attempt for the current reviewed IDX session. A second unavailable result edits only the card to `Market check unavailable`, retaining the latest valid price/time and tags, without a history reply. A valid close updates the card and factual tags on an exact market-state or terminal-lifecycle transition, with operation identity scoped to plan and session. Stop-loss or the actual final target resolves and finishes the plan; target tags clamp at TP6 without shortening the target ladder. The owner does not generate quoted history replies. An unclassifiable plan preserves its facts, increments `invalid`, and does not block other tickers. Missing calendar coverage fails closed without a board mutation, drains safely, and emits one fatal `#hermes` heartbeat. Other unexpected reconciliation failures emit a sanitized fatal heartbeat. Every covered scheduled phase drains and direct-posts one normal or degraded `#hermes` heartbeat, warning on unavailable, invalid, or pending work.
 
+## Control-plane boundary
+
+The optional live control-plane snapshot is limited to the operational
+heartbeat destination:
+
+```json
+{
+  "version": 1,
+  "destinations": {
+    "heartbeat_discord_channel_id": "1505162000420835388"
+  }
+}
+```
+
+With no `IDX_SWING_PLAN_BOARD_CONTROL_PLANE_URL`, the reviewed value above is
+used. With that URL configured, a missing or invalid snapshot stops the
+command before the SQLite store opens. Scheduled close runs and accepted source
+events record structured control-plane lifecycle and delivery events when a
+live revision is active.
+
+The forum and guild identities, calendar, SQLite/media paths, lifecycle/tag
+rules, and thread topology deliberately remain code or durable-state owned.
+Existing outbox and episode records reference their current Discord topics, so
+changing the forum through the web would need a separately reviewed state and
+forum migration. The close and retry schedules are fixed market-calendar jobs,
+not web-editable interval schedules.
+
 Set `IDX_SWING_PLAN_BOARD_NO_POST=1` with isolated `IDX_SWING_PLAN_BOARD_STATE_PATH` and `IDX_SWING_PLAN_BOARD_MEDIA_ROOT` paths for every smoke test. Never reset, hand-edit, initialize, or replay production state.
 
 `bootstrap --dry-run --lookback-sessions 20` is a Telegram-history

@@ -13,6 +13,7 @@ X_WATCHER = "bursawatch-x-account-watch"
 IG_WATCHER = "bursawatch-ig-account-watch"
 WA_WATCHER = "bursawatch-wa-channel-watch"
 MARKET_NEWS_WATCHER = "bursawatch-tg-market-news"
+SWING_BOARD_WATCHER = "bursawatch-dc-swing-board"
 PHINTRACO_WATCHER = "bursawatch-tg-phintraco-swing"
 KELAS_INVESTASI_WATCHER = "bursawatch-tg-kelas-investasi-gtw"
 
@@ -82,7 +83,6 @@ def test_validator_reuses_the_market_news_strict_config_schema():
     validators = validators_from_directories(
         {MARKET_NEWS_WATCHER: ROOT / "cron-tg-market-news/bin"}
     )
-
     validators[MARKET_NEWS_WATCHER](
         {
             "version": 1,
@@ -97,6 +97,21 @@ def test_validator_reuses_the_market_news_strict_config_schema():
                 "heartbeat_discord_channel_id": "1505162000420835388",
             },
             "additional_prompt_instruction": "Utamakan ringkasan yang padat.",
+        }
+    )
+
+
+def test_validator_reuses_the_swing_board_strict_config_schema():
+    validators = validators_from_directories(
+        {SWING_BOARD_WATCHER: ROOT / "cron-dc-swing-board/bin"}
+    )
+
+    validators[SWING_BOARD_WATCHER](
+        {
+            "version": 1,
+            "destinations": {
+                "heartbeat_discord_channel_id": "1505162000420835388",
+            },
         }
     )
 

@@ -17,10 +17,13 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
 - **Source submission:** `submit-source-event --stdin` first copies supplied local media into the owner directory, then atomically persists the validated event and owner intents and runs one best-effort drain. Its acknowledgement includes `accepted:true` plus the direct forum-topic `board_url` when the topic is materialized, or `board_url:null,"board_pending":true` while that topic is retryable. An accepted board-unavailable event omits `board_pending`. It may not calculate a close or post a heartbeat.
 - **Scheduled reconciliation:** `after-close --phase initial` is valid only at 16:30 WIB and `--phase retry` only at 17:00 WIB. The retry runs only for a current-session unavailable initial attempt on the same active plan. Both phases use the reviewed IDX calendar. Missing coverage makes no board mutation, drains safely, and direct-posts one fatal `#hermes` heartbeat; covered phases direct-post exactly one normal or degraded heartbeat. A second unavailable result changes only the card to `Market check unavailable`; it preserves prior valid price/time and tags and adds no history reply.
 - **Runtime wrapper:** `bin/bursawatch-dc-swing-board.sh` reads only
-  `DISCORD_BOT_TOKEN` for ordinary owner commands, uses the shared Yahoo
-  Finance MCP Python, defaults state to
+  `DISCORD_BOT_TOKEN` plus its optional `IDX_SWING_PLAN_BOARD_CONTROL_PLANE_*`
+  settings for ordinary owner commands, uses the shared Yahoo Finance MCP
+  Python, defaults state to
   `$HOME/.hermes/state/idx-swing-board.sqlite3`, and passes board arguments
-  unchanged. The explicit `bootstrap` command additionally reads the
+  unchanged. The live control-plane config can change only the heartbeat
+  Discord destination and records structured run events. The forum/guild
+  topology is durable-state owned and not web-editable. The explicit `bootstrap` command additionally reads the
   Telegram credentials and imports only the shared resilience library and
   Phintraco parser it needs. The owner CLI has no database-path option.
 - **Scheduler executables:** the no-argument `bursawatch-dc-swing-board-close.sh` invokes `after-close --phase initial`; `bursawatch-dc-swing-board-retry.sh` invokes `after-close --phase retry`. Both require the generic wrapper beside them. The approved weekday schedules are `30 16 * * 1-5` and `0 17 * * 1-5` in WIB, respectively. Register them with the supported Hermes CLI and record the live job IDs after deployment.
