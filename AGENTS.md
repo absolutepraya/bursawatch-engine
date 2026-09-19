@@ -74,15 +74,16 @@ cleaned, committed, or included in dotfiles capture.
 ## Collaboration workflow
 
 Both Hermes repositories use the identical `.wt/config.toml` configuration.
-Create isolated feature worktrees through `wt`; never use a raw Git worktree
-when the repository is WT-configured.
+Use isolated managed feature worktrees through `wt` by default; never use a
+raw Git worktree when the repository is WT-configured. An explicit current-chat
+request from the human user to work on `main` overrides that default: work
+directly on `main` until the user asks to use a worktree again.
 
-The repository-local `.agents/skills/finish-workflow/` skill is the standard
-review handoff. With explicit approval, it validates the reviewed scope,
-commits it, pushes the feature branch, and opens or updates a pull request.
-It retains the branch and worktree for collaboration. It never deploys, merges
-to `main`, pushes `main`, or removes a worktree. Production work remains a
-separate explicitly approved action after review.
+The repository-local `.agents/skills/finish-workflow/` skill is an optional
+review and pull-request handoff. Do not create a pull request automatically;
+use that skill only when the user asks for a review or pull request. It retains
+its branch and worktree for collaboration. Production work remains a separate
+explicitly approved action after review.
 
 ## Source, runtime, and deployment
 
