@@ -44,3 +44,12 @@ The web application never receives database credentials or a Supabase service
 role key. Cron clients use a dedicated machine credential for read and event
 write operations. Human configuration writes require an authenticated
 application principal and an audit record.
+
+Supabase Data API access to control-plane tables is deliberately disabled by
+migration `004_supabase_data_api_hardening.sql`: it enables RLS and revokes
+browser roles. The private backend `DATABASE_URL` is the only database path.
+
+The optional watcher config-validator directories are trusted deployed source,
+not web input. The service invokes each configured parser in a fresh process
+with a minimal environment and no service credentials, so the X, Instagram,
+and WhatsApp modules cannot collide by Python module name.

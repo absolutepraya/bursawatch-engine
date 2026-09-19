@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
-from control_plane.api import create_app
+from control_plane.api import create_app, create_app_from_environment
 from control_plane.auth import StaticTokenAuth
 from control_plane.store import InMemoryStore
 
@@ -132,6 +135,42 @@ def test_admin_write_creates_a_new_revision():
 
     assert response.status_code == 200
     assert response.json()["revision"] == 2
+
+
+def test_config_write_rejects_payload_larger_than_the_control_plane_contract_limit():
+    client, _store = build_client()
+    response = client.put(
+        f"/v1/watchers/{WATCHER}/config",
+        headers={"Authorization": f"Bearer {ADMIN}"},
+        json={"config_version": 1, "config": {"value": "x" * 2_000_001}},
+    )
+
+    assert response.status_code == 422
+    assert "exceeds" in response.json()["detail"]
+
+
+def test_environment_factory_registers_config_validator(monkeypatch):
+    root = Path(__file__).resolve().parents[2]
+    config = json.loads(
+        (root / "cron-x-account-watch/config/watches.json").read_text(encoding="utf-8")
+    )
+    monkeypatch.setenv("CONTROL_PLANE_STORE", "memory")
+    monkeypatch.setenv("CONTROL_PLANE_MACHINE_TOKEN", TOKEN)
+    monkeypatch.setenv("CONTROL_PLANE_ADMIN_TOKEN", ADMIN)
+    monkeypatch.setenv(
+        "CONTROL_PLANE_X_CONFIG_VALIDATOR_DIR",
+        str(root / "cron-x-account-watch/bin"),
+    )
+
+    client = TestClient(create_app_from_environment())
+    response = client.put(
+        f"/v1/watchers/{WATCHER}/config",
+        headers={"Authorization": f"Bearer {ADMIN}"},
+        json={"config_version": 1, "config": config},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["config"] == config
 
 
 def test_jobs_show_schedule_capabilities_and_current_reconciliation_state():

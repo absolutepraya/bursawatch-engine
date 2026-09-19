@@ -9,9 +9,10 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
-from .auth import AuthenticationError, Principal, StaticTokenAuth
-from .contract import ConfigSnapshot, ContractError, validate_watcher_id
+from .auth import Authenticator, AuthenticationError, Principal, StaticTokenAuth, auth_from_environment
+from .contract import ConfigSnapshot, ContractError, canonical_json_bytes, validate_watcher_id
 from .store import EventRecord, InMemoryStore, PostgresStore, RunRecord, SchedulerJobRecord, Store
+from .validators import validators_from_environment
 
 
 class ConfigWrite(BaseModel):
@@ -115,7 +116,7 @@ def _job_response(job: SchedulerJobRecord) -> dict[str, Any]:
 
 def create_app(
     store: Store | None = None,
-    auth: StaticTokenAuth | None = None,
+    auth: Authenticator | None = None,
     validators: dict[str, Callable[[dict[str, Any]], None]] | None = None,
     allowed_origins: list[str] | None = None,
 ) -> FastAPI:
@@ -222,6 +223,7 @@ def create_app(
         except (ContractError, KeyError) as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="no validator registered for watcher") from exc
         try:
+            canonical_json_bytes(payload.config)
             validator(payload.config)
             return _snapshot_response(
                 store.put_config(watcher_id, payload.config_version, payload.config, current.subject)
@@ -342,7 +344,12 @@ def create_app_from_environment() -> FastAPI:
     ]
     if "*" in origins:
         raise RuntimeError("CONTROL_PLANE_ALLOWED_ORIGINS cannot contain * when credentials are enabled")
-    return create_app(store=store, auth=StaticTokenAuth.from_environment(), allowed_origins=origins)
+    return create_app(
+        store=store,
+        auth=auth_from_environment(),
+        validators=validators_from_environment(),
+        allowed_origins=origins,
+    )
 
 
 if os.environ.get("CONTROL_PLANE_STORE"):

@@ -14,18 +14,63 @@ This branch adds:
 - immutable desired interval schedules for supported scheduler jobs, with an
   explicit reconciliation status so a dashboard never mistakes stored intent
   for a changed live Hermes job;
+- an isolated validator bridge for the migrated X, Instagram, and WhatsApp
+  schemas, including their bounded `additional_prompt_instruction` fields.
 - the initial Postgres schema migration;
 - a versioned OpenAPI document for the web repository.
 - opt-in live configuration support for X Account Watch, Instagram Account
   Watch, and WhatsApp Channel Watch, with one frozen revision per invocation.
 
-The Supabase Auth verifier, watcher-specific validator registry, and VPS
-service unit are separate deployment work. A desired schedule revision also
-needs a separate trusted VPS scheduler reconciler before it changes a live
-Hermes job.
+The Supabase Auth verifier is implemented and covered by local tests. A VPS
+service unit, real environment values, and an authenticated web client remain
+separate deployment work.
+The watcher validator bridge is implemented, but requires its deployed-source
+directory settings. A desired schedule revision also needs a separate trusted
+VPS scheduler reconciler before it changes a live Hermes job.
+
+## Runtime environment
+
+[`env.example`](env.example) lists every backend setting without values. It is
+a field-name template only: real local values belong in `~/.secrets`, while a
+reviewed VPS deployment uses its scoped `~/.hermes/.env`. Do not add a backend
+secret to GitHub Actions, this repository, or the separate web application.
+
+When `CONTROL_PLANE_SUPABASE_URL` is set, browser requests must carry a
+Supabase Auth access token. The service verifies only `RS256` or `ES256`
+tokens against that project's public JWKS endpoint, requires the
+`authenticated` audience and role, and maps only configured UUIDs in
+`CONTROL_PLANE_ADMIN_USER_IDS` to admins. Other signed-in users are viewers.
+`CONTROL_PLANE_ADMIN_TOKEN` is development-only and must be unset in Supabase
+mode. Cron clients retain their distinct `CONTROL_PLANE_MACHINE_TOKEN`.
+
+This verifier intentionally accepts only Supabase asymmetric signing keys. At
+deployment, confirm the Supabase project has an active RSA or elliptic-curve
+JWT signing key with a non-empty JWKS endpoint. Do not provide the backend a
+shared JWT secret as a fallback.
 The Postgres adapter is present, but a production deployment still requires a
 reviewed `DATABASE_URL`, migration run, machine credential, and authenticated
 human principal configuration.
+
+Migration `004_supabase_data_api_hardening.sql` enables RLS and revokes Data
+API privileges for `anon` and `authenticated` on every control-plane table.
+The browser never queries these tables directly, even after Supabase Auth is
+enabled; it calls this API with its user token instead.
+
+## Watcher config validation
+
+The API rejects a configuration write unless the watcher parser accepts it.
+Configure only paths to deployed, reviewed watcher `bin/` directories:
+
+```text
+CONTROL_PLANE_X_CONFIG_VALIDATOR_DIR=/home/praya/.agents/skills/bursawatch-x-account-watch/bin
+CONTROL_PLANE_IG_CONFIG_VALIDATOR_DIR=/home/praya/.agents/skills/bursawatch-ig-account-watch/bin
+CONTROL_PLANE_WA_CONFIG_VALIDATOR_DIR=/home/praya/.agents/skills/bursawatch-wa-channel-watch/bin
+```
+
+Each validator executes in a fresh, credential-free subprocess. This prevents
+Python module collisions between watcher packages and means the same strict
+schema used at cron startup guards web writes. Unconfigured watchers remain
+read-only through the API until their typed validator is added.
 
 ## Local development
 

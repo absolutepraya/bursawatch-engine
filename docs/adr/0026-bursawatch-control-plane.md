@@ -30,6 +30,12 @@ outside the control-plane database. A desired schedule is not effective until a
 separate trusted VPS reconciler applies it through the supported Hermes CLI and
 reports the applied revision.
 
+For migrated JSON-backed watchers, a web configuration write is validated by
+the same source-controlled parser used at cron startup. The service executes
+that parser in an isolated, credential-free subprocess, preventing module-name
+collisions between watcher packages while keeping web input out of the runtime
+code and shell boundary.
+
 ## Consequences
 
 The web repository needs only the versioned API contract and does not need
@@ -48,3 +54,13 @@ code to the VPS. It may manage only the source-defined job catalog: enabled
 state and validated interval bounds for explicitly schedulable jobs. Fixed
 calendar jobs, credentials, runtime state, and new cron implementation remain
 source and deployment work.
+
+The browser also has no direct Supabase Data API path to control-plane tables.
+RLS is enabled with no browser policies and Data API roles have their table
+privileges revoked. The backend uses a private Postgres connection and applies
+its own authenticated API authorization.
+
+Human API access uses Supabase Auth user JWTs verified against the project's
+public asymmetric JWKS endpoint. The backend does not receive a Supabase secret
+key or shared JWT secret. App admins are an explicit backend allowlist of
+Supabase user UUIDs; cron machine credentials remain separate.
