@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_api_systemd_unit_keeps_the_service_on_loopback_with_a_scoped_environment():
     unit = (ROOT / "deployment/systemd/bursawatch-control-plane.service").read_text(encoding="utf-8")
 
-    assert "EnvironmentFile=/home/praya/.hermes/.env" in unit
+    assert "EnvironmentFile=/home/praya/.hermes/bursawatch-control-plane.env" in unit
     assert "--host 127.0.0.1 --port 9120" in unit
     assert "User=praya" in unit
     assert "NoNewPrivileges=true" in unit

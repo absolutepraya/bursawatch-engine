@@ -38,8 +38,9 @@ VPS scheduler reconciler before it changes a live Hermes job.
 a field-name template only. Real local values belong in the ignored
 `service-bursawatch-control/.env` in the main worktree, which WT links into
 eligible feature worktrees. A reviewed VPS deployment uses its scoped
-`~/.hermes/.env`. Do not add a backend secret to GitHub Actions, this
-repository, or the separate web application.
+`~/.hermes/bursawatch-control-plane.env`. Do not add a backend secret to
+GitHub Actions, this repository, Hermes's shared `.env`, or the separate web
+application.
 
 When `CONTROL_PLANE_SUPABASE_URL` is set, browser requests must carry a
 Supabase Auth access token. The service verifies only `RS256` or `ES256`

@@ -9,7 +9,7 @@ User=praya
 Group=praya
 WorkingDirectory=/home/praya/.hermes/bursawatch-control-plane
 Environment=HOME=/home/praya
-EnvironmentFile=/home/praya/.hermes/.env
+EnvironmentFile=/home/praya/.hermes/bursawatch-control-plane.env
 ExecStart=/home/praya/.hermes/bursawatch-control-plane/venv/bin/uvicorn control_plane.api:create_app_from_environment --factory --app-dir bin --host 127.0.0.1 --port 9120 --proxy-headers --forwarded-allow-ips=127.0.0.1
 Restart=always
 RestartSec=5

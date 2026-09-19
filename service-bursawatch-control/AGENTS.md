@@ -26,6 +26,8 @@ principals. The in-memory store is for tests and local contract exploration;
 it must never be used as a production fallback. The local Bursawatch-specific
 environment is the ignored `service-bursawatch-control/.env` in the main
 worktree. WT links it into eligible feature worktrees. It is never committed.
+The reviewed VPS service uses its separate mode-`0600`
+`~/.hermes/bursawatch-control-plane.env`, never Hermes's shared `.env`.
 
 The separate web origin must be supplied through the exact
 `CONTROL_PLANE_ALLOWED_ORIGINS` allowlist. Never use a wildcard origin with

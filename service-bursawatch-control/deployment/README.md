@@ -9,7 +9,7 @@ explicit deployment approval in the current chat.
 
 ```text
 /home/praya/.hermes/
-  .env                                  scoped values, mode 0600
+  bursawatch-control-plane.env           API-only values, mode 0600
   bursawatch-control-plane/
     baseline-configs/
     bin/
@@ -31,14 +31,16 @@ address or open port 9120 in UFW.
    a local `.env` file.
 3. Create the dedicated Python virtual environment and install
    `requirements.txt`.
-4. Copy the already-approved server-only values from the shared local `.env`
-   into `~/.hermes/.env`. Set each `CONTROL_PLANE_*_CONFIG_VALIDATOR_DIR` to
-   its matching `/home/praya/.hermes/bursawatch-control-plane/validator-sources/<watcher-id>`
-   directory. Do not point the API at a live watcher runtime directory.
-5. Run `venv/bin/python bin/migrate.py`, then
-   `venv/bin/python bin/seed_baseline_configs.py`. The migration runner records
-   immutable file checksums and aborts on a changed applied migration. The
-   baseline seeder creates config revision 1 only when that watcher has no
+4. Copy the already-approved server-only values into the dedicated
+   `~/.hermes/bursawatch-control-plane.env`, with mode `0600`. Set each
+   `CONTROL_PLANE_*_CONFIG_VALIDATOR_DIR` to its matching
+   `/home/praya/.hermes/bursawatch-control-plane/validator-sources/<watcher-id>`
+   directory. Do not point the API at a live watcher runtime directory or add
+   these API-only keys to Hermes's shared `.env`.
+5. Source the dedicated environment, then run `venv/bin/python bin/migrate.py`
+   and `venv/bin/python bin/seed_baseline_configs.py`. The migration runner
+   records immutable file checksums and aborts on a changed applied migration.
+   The baseline seeder creates config revision 1 only when that watcher has no
    configuration history, so it cannot overwrite dashboard changes.
 6. Install the systemd unit, reload systemd, and start the API. Verify only
    `http://127.0.0.1:9120/healthz` first.
