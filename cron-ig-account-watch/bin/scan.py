@@ -824,12 +824,57 @@ def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, o
                         )
                         _advance_filtered_cursor(value, profile, complete_source_posts)
                         state.save_state(storage, value)
+                        control_run.event(
+                            f"source-poll-{profile.id}",
+                            level="info",
+                            phase="source",
+                            event_type="source.poll.completed",
+                            message=f"{profile.id}: source poll initialized future-only cursor",
+                            attributes={
+                                "profile_id": profile.id,
+                                "source_items": len(complete_source_posts),
+                                "fresh_items": len(limited_source_posts),
+                                "eligible_items": 0,
+                                "queued": 0,
+                                "initialized": True,
+                            },
+                        )
                         continue
                     if not limited_source_posts:
+                        control_run.event(
+                            f"source-poll-{profile.id}",
+                            level="info",
+                            phase="source",
+                            event_type="source.poll.completed",
+                            message=f"{profile.id}: source poll completed",
+                            attributes={
+                                "profile_id": profile.id,
+                                "source_items": len(complete_source_posts),
+                                "fresh_items": 0,
+                                "eligible_items": 0,
+                                "queued": 0,
+                                "initialized": False,
+                            },
+                        )
                         continue
                     if not posts:
                         _advance_filtered_cursor(value, profile, limited_source_posts)
                         state.save_state(storage, value)
+                        control_run.event(
+                            f"source-poll-{profile.id}",
+                            level="info",
+                            phase="source",
+                            event_type="source.poll.completed",
+                            message=f"{profile.id}: source poll completed",
+                            attributes={
+                                "profile_id": profile.id,
+                                "source_items": len(complete_source_posts),
+                                "fresh_items": len(limited_source_posts),
+                                "eligible_items": 0,
+                                "queued": 0,
+                                "initialized": False,
+                            },
+                        )
                         continue
                     if backend is None:
                         backend = _ocr_backend_for_run()
@@ -851,13 +896,44 @@ def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, o
                     stats.queued += queued
                     _advance_filtered_cursor(value, profile, limited_source_posts)
                     state.save_state(storage, value)
+                    control_run.event(
+                        f"source-poll-{profile.id}",
+                        level="info",
+                        phase="source",
+                        event_type="source.poll.completed",
+                        message=f"{profile.id}: source poll completed",
+                        attributes={
+                            "profile_id": profile.id,
+                            "source_items": len(complete_source_posts),
+                            "fresh_items": len(limited_source_posts),
+                            "eligible_items": len(posts),
+                            "queued": queued,
+                            "initialized": False,
+                        },
+                    )
                 except rsshub.SourceFetchError:
                     stats.note_error(f"{profile.handle}: RSSHub source unavailable")
                     state.save_state(storage, value)
+                    control_run.event(
+                        f"source-poll-{profile.id}",
+                        level="warning",
+                        phase="source",
+                        event_type="source.poll.failed",
+                        message=f"{profile.id}: RSSHub source unavailable",
+                        attributes={"profile_id": profile.id},
+                    )
                 except Exception:
                     _queue_prepared_cleanup(value, profile, prepared_roots, storage, stats)
                     stats.note_error(f"{profile.handle}: media/OCR preparation failed")
                     state.save_state(storage, value)
+                    control_run.event(
+                        f"source-poll-{profile.id}",
+                        level="warning",
+                        phase="source",
+                        event_type="source.preparation.failed",
+                        message=f"{profile.id}: media or OCR preparation failed",
+                        attributes={"profile_id": profile.id},
+                    )
 
             if not no_post:
                 _drain_deliveries(value, profiles, storage, stats, now)
@@ -868,6 +944,28 @@ def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, o
             else:
                 state.save_state(storage, value)
                 result = agent_protocol.build_wake_payload(None)
+
+            control_run.event(
+                "delivery-drain-completed",
+                level="warning" if stats.degraded else "info",
+                phase="delivery",
+                event_type="delivery.drain.completed",
+                message="Instagram delivery drain completed",
+                attributes={
+                    "delivered": stats.delivered,
+                    "delivery_legs": stats.delivery_legs,
+                    "no_post": no_post,
+                    "errors": stats.errors,
+                },
+            )
+            if result.get("wakeAgent"):
+                control_run.event(
+                    "agent-wake-requested",
+                    level="info",
+                    phase="agent",
+                    event_type="agent.wake.requested",
+                    message="Instagram publication claimed for agent analysis",
+                )
 
             control_run.event(
                 "run-completed",
@@ -947,13 +1045,29 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
     storage = state_path()
     value: dict | None = None
     event: dict | None = None
+    control_run: ControlPlaneRun | None = None
     try:
         with _process_lock(storage, blocking=True) as acquired:
             if not acquired:
                 raise RuntimeError("watcher lock is unavailable")
             root = _ensure_media_root()
             del root
-            watches = config.load_watch_config_for_run(config_path()).config
+            loaded_config = config.load_watch_config_for_run(config_path())
+            watches = loaded_config.config
+            control_run = ControlPlaneRun.begin(
+                "INSTAGRAM_POST_WATCH",
+                loaded_config.revision,
+                scheduler_job_id="instagram-post",
+                trigger="agent_submission",
+            )
+            control_run.event(
+                "agent-submission-started",
+                level="info",
+                phase="agent",
+                event_type="agent.submission.started",
+                message="Instagram agent submission started",
+                attributes={"no_post": no_post},
+            )
             value = state.load_state(storage)
             profiles = {profile.id: profile for profile in watches.profiles}
             event_key = payload["event_key"]
@@ -975,6 +1089,15 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 _retry_media_cleanup(value, storage, stats, no_post=no_post)
                 if stats.degraded and not no_post:
                     _post_heartbeat(now, stats)
+                control_run.event(
+                    "agent-submission-accepted",
+                    level="info",
+                    phase="agent",
+                    event_type="agent.submission.accepted",
+                    message="Instagram agent submission accepted as irrelevant",
+                    attributes={"is_relevant": False, "delivered": 0},
+                )
+                control_run.finish("degraded" if stats.degraded else "ok")
                 return {"submitted": True, "ignored": True, "delivered": 0}
 
             state.submit_analysis(
@@ -992,9 +1115,42 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                     _post_heartbeat(now, stats)
             else:
                 state.save_state(storage, value)
+            control_run.event(
+                "agent-submission-accepted",
+                level="info",
+                phase="agent",
+                event_type="agent.submission.accepted",
+                message="Instagram agent submission accepted",
+                attributes={"is_relevant": True, "delivered": stats.delivered},
+            )
+            control_run.event(
+                "agent-delivery-drain-completed",
+                level="warning" if stats.degraded else "info",
+                phase="delivery",
+                event_type="delivery.drain.completed",
+                message="Instagram agent delivery drain completed",
+                attributes={
+                    "delivered": stats.delivered,
+                    "delivery_legs": stats.delivery_legs,
+                    "errors": stats.errors,
+                },
+            )
+            control_run.finish("degraded" if stats.degraded else "ok")
             return {"submitted": True, "ignored": False, "delivered": stats.delivered}
     except Exception as exc:
         _preserve_analysis_failure(value, event, storage)
+        if control_run is not None:
+            reason = _sanitize_reason(exc)
+            rejected = isinstance(exc, ValueError)
+            control_run.event(
+                "agent-submission-rejected" if rejected else "agent-submission-failed",
+                level="warning" if rejected else "fatal",
+                phase="agent",
+                event_type="agent.submission.rejected" if rejected else "agent.submission.failed",
+                message="Instagram agent submission rejected" if rejected else "Instagram agent submission failed",
+                attributes={"reason" if rejected else "error": reason},
+            )
+            control_run.finish("degraded" if rejected else "failed", reason)
         if not no_post:
             _post_degraded_heartbeat(now, f"analysis submission failed: {_sanitize_reason(exc)}")
         raise

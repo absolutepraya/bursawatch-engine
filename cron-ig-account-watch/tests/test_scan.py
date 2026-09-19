@@ -154,6 +154,54 @@ def test_first_observation_initializes_cursor_without_backfill(tmp_path, monkeyp
     assert saved["outbox"] == []
 
 
+def test_run_reports_safe_staged_control_plane_events(tmp_path, monkeypatch, config_path):
+    profile = config.load_watch_config(config_path).profiles[0]
+    _install_paths(monkeypatch, tmp_path, config_path)
+    posts = [_post(profile.id, "newest", 1)]
+    monkeypatch.setattr(scan.rsshub, "fetch_profile_items", lambda *_args, **_kwargs: posts)
+    events = []
+    finishes = []
+    calls = []
+
+    class RecordingControlRun:
+        @classmethod
+        def begin(cls, *args, **kwargs):
+            calls.append((args, kwargs))
+            return cls()
+
+        def event(self, event_id, **kwargs):
+            events.append((event_id, kwargs))
+
+        def finish(self, status, error=None):
+            finishes.append((status, error))
+
+    monkeypatch.setattr(scan, "ControlPlaneRun", RecordingControlRun)
+
+    scan.run(now=NOW, dry_run=True)
+
+    assert calls == [
+        (
+            ("INSTAGRAM_POST_WATCH", None),
+            {"scheduler_job_id": "instagram-post"},
+        )
+    ]
+    assert [event_id for event_id, _kwargs in events] == [
+        "run-started",
+        f"source-poll-{profile.id}",
+        "delivery-drain-completed",
+        "run-completed",
+    ]
+    assert events[1][1]["attributes"] == {
+        "profile_id": profile.id,
+        "source_items": 1,
+        "fresh_items": 1,
+        "eligible_items": 0,
+        "queued": 0,
+        "initialized": True,
+    }
+    assert finishes == [("ok", None)]
+
+
 def test_first_observation_uses_complete_feed_before_poll_cap(tmp_path, monkeypatch, config_path):
     profile = config.load_watch_config(config_path).profiles[0]
     storage, _media_root = _install_paths(monkeypatch, tmp_path, config_path)
@@ -666,6 +714,57 @@ def test_filtered_submission_cleans_owned_media(tmp_path, monkeypatch, config_pa
     assert saved["outbox"] == []
     assert saved["filtered_since_last_heartbeat"] == 1
     assert cleaned == [(media_root, post.publication_id)]
+
+
+def test_submission_reports_safe_control_plane_outcome(tmp_path, monkeypatch, config_path):
+    profile = config.load_watch_config(config_path).profiles[0]
+    storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
+    _initialize_cursor(storage, profile, _post(profile.id, "baseline", 0))
+    post = _post(profile.id, "filtered", 1)
+    event = _queued_event(storage, profile, post, _prepared(post, media_root), NOW + timedelta(minutes=1))
+    value = state.load_state(storage)
+    state.claim_oldest_agent(value, {profile.id: profile}, datetime.now(scan.WIB))
+    state.save_state(storage, value)
+    calls = []
+    events = []
+    finishes = []
+
+    class RecordingControlRun:
+        @classmethod
+        def begin(cls, *args, **kwargs):
+            calls.append((args, kwargs))
+            return cls()
+
+        def event(self, event_id, **kwargs):
+            events.append((event_id, kwargs))
+
+        def finish(self, status, error=None):
+            finishes.append((status, error))
+
+    monkeypatch.setattr(scan, "ControlPlaneRun", RecordingControlRun)
+    monkeypatch.setattr(scan.media, "cleanup_event_media", lambda *_args: None)
+
+    result = scan.submit_analysis_payload(
+        {"event_key": event["event_key"], "is_relevant": False},
+        dry_run=True,
+    )
+
+    assert result == {"submitted": True, "ignored": True, "delivered": 0}
+    assert calls == [
+        (
+            ("INSTAGRAM_POST_WATCH", None),
+            {
+                "scheduler_job_id": "instagram-post",
+                "trigger": "agent_submission",
+            },
+        )
+    ]
+    assert [event_id for event_id, _kwargs in events] == [
+        "agent-submission-started",
+        "agent-submission-accepted",
+    ]
+    assert events[1][1]["attributes"] == {"is_relevant": False, "delivered": 0}
+    assert finishes == [("ok", None)]
 
 
 def test_valid_submission_sends_text_before_first_carousel_image_without_promotion_guard(tmp_path, monkeypatch, config_path):

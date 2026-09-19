@@ -172,10 +172,88 @@ def test_live_run_reports_structured_events_without_changing_heartbeat(tmp_path,
     assert [event[2]["event_type"] for event in reporter.events] == [
         "run.started",
         "source.fetch.completed",
+        "delivery.drain.completed",
         "run.completed",
     ]
     assert reporter.finished == [("run-1", "degraded", None)]
     assert heartbeats[0].startswith("🫀 x-post · 10:00 WIB ·")
+
+
+def test_control_plane_reason_sanitizes_source_secrets_urls_and_paths():
+    reason = scan._sanitize_reason(
+        "token=secret-value https://rss.example/feed?cookie=private /tmp/watcher-state.json"
+    )
+
+    assert reason == "token=<redacted> <external source> <local path>"
+
+
+def test_live_agent_submission_reports_structured_events(tmp_path, monkeypatch, config_path):
+    profile_config = __import__("config").load_watch_config(config_path)
+    profile = profile_config.profiles[0]
+    storage = tmp_path / "state.json"
+    observed_at = now() - timedelta(hours=2)
+    post = SourcePost(
+        profile.id,
+        "101",
+        "https://x.com/Kutekians/status/101",
+        observed_at,
+        "A substantive market post",
+        PostKind.NORMAL,
+        None,
+        None,
+        (),
+        (),
+    )
+    value = state.new_state()
+    value["profiles"][profile.id] = {"cursor": "100"}
+    state.observe_posts(
+        value,
+        profile,
+        [post],
+        lambda candidate: candidate.kind is PostKind.NORMAL,
+        now=observed_at,
+    )
+    state.claim_oldest_agent(value, {profile.id: profile}, now())
+    state.save_state(storage, value)
+
+    class Reporter:
+        def __init__(self):
+            self.started = []
+            self.events = []
+            self.finished = []
+
+        def start_run(self, revision, scheduler_job_id, trigger):
+            self.started.append((revision, scheduler_job_id, trigger))
+            return "agent-run-1"
+
+        def event(self, run_id, event_id, **kwargs):
+            self.events.append((run_id, event_id, kwargs))
+
+        def finish(self, run_id, status, error=None):
+            self.finished.append((run_id, status, error))
+
+    reporter = Reporter()
+    monkeypatch.setattr(scan, "state_path", lambda: storage)
+    monkeypatch.setattr(scan, "config_path", lambda: config_path)
+    monkeypatch.setattr(
+        scan.config,
+        "load_watch_config_for_run",
+        lambda _path: SimpleNamespace(config=profile_config, revision=17),
+    )
+    monkeypatch.setattr(scan, "_control_plane_reporter", lambda: reporter)
+
+    result = scan.submit_analysis_payload(
+        {"event_key": f"{profile.id}:101", "is_relevant": False},
+        dry_run=True,
+    )
+
+    assert result == {"submitted": True, "ignored": True, "delivered": 0}
+    assert reporter.started == [(17, "x-post-source", "agent_submission")]
+    assert [event[2]["event_type"] for event in reporter.events] == [
+        "agent.submission.started",
+        "agent.submission.accepted",
+    ]
+    assert reporter.finished == [("agent-run-1", "ok", None)]
 
 
 def test_queue_only_run_skips_source_fetch_and_claims_oldest_agent(tmp_path, monkeypatch, config_path):

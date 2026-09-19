@@ -64,6 +64,13 @@ interval or paused state. That request remains pending until the future trusted
 VPS reconciler applies it through the Hermes CLI. It cannot pair WhatsApp,
 change a Channel subscription, or alter queue retention.
 
+When live configuration is enabled, the control plane records one frozen
+revision per scheduled or agent-submission invocation. The dashboard receives
+safe lifecycle, bridge-queue intake, delivery-drain, agent-wake, and
+agent-submission events with counts, status, and sanitized reasons. It never
+receives Channel text, captions, media paths, session data, bridge credentials,
+or durable queue payloads.
+
 When the user says `watch this wa channel <name, URL, or JID>`, inspect and
 normalize the requested Channel, propose a complete profile, and ask only for
 unresolved routing or destination decisions. After the complete profile is

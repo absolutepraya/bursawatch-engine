@@ -166,6 +166,41 @@ def run(*, config_path: Path, state_path: Path, queue_dir: Path, now: datetime |
     errors = result.get("errors")
     degraded = isinstance(errors, list) and bool(errors)
     control_run.event(
+        "source-queue-inspected",
+        level="warning" if degraded else "info",
+        phase="source",
+        event_type="source.queue.inspected",
+        message="WhatsApp Channel bridge queue inspected",
+        attributes={
+            "queue_items": result.get("queue_items", 0),
+            "enabled_profiles": result.get("enabled_profiles", 0),
+            "initialized_profiles": result.get("initialized_profiles", 0),
+            "source_items": result.get("fetched", 0),
+            "queued": result.get("queued", 0),
+            "expired_agent_leases": result.get("expired", 0),
+        },
+    )
+    control_run.event(
+        "delivery-drain-completed",
+        level="warning" if degraded else "info",
+        phase="delivery",
+        event_type="delivery.drain.completed",
+        message="WhatsApp Channel delivery drain completed",
+        attributes={
+            "delivered": result.get("delivered", 0),
+            "errors": errors[:10] if isinstance(errors, list) else [],
+        },
+    )
+    if result.get("claimed"):
+        control_run.event(
+            "agent-wake-requested",
+            level="info",
+            phase="agent",
+            event_type="agent.wake.requested",
+            message="WhatsApp Channel event claimed for agent analysis",
+            attributes={"claimed": result.get("claimed", 0)},
+        )
+    control_run.event(
         "run-completed",
         level="warning" if degraded else "info",
         phase="lifecycle",
@@ -199,6 +234,7 @@ def _run(
     expired = state.expire_leases(value, now)
     queued = 0
     fetched = 0
+    initialized_profiles = 0
     errors: list[str] = []
     queue_items = event_queue.list_events(queue_dir)
     by_channel: dict[str, list[dict[str, object]]] = {}
@@ -206,6 +242,7 @@ def _run(
         by_channel.setdefault(str(item["channel_jid"]), []).append(item)
     known = {str(record.get("event_key")) for record in value["outbox"] if isinstance(record, dict)}
     profiles = {profile.id: profile for profile in watch_config.profiles}
+    enabled_profiles = sum(profile.enabled for profile in watch_config.profiles)
 
     for profile in watch_config.profiles:
         if not profile.enabled:
@@ -221,6 +258,7 @@ def _run(
             if newest is not None:
                 profile_value["cursor"] = {"published_at": newest["published_at"], "event_key": newest["event_key"]}
                 profile_value["initialized"] = True
+                initialized_profiles += 1
             continue
         if type(cursor) is not dict or not {"published_at", "event_key"}.issubset(cursor):
             errors.append(f"{profile.id}: invalid cursor")
@@ -275,42 +313,113 @@ def _run(
         "queued": queued,
         "claimed": int(claimed_item is not None),
         "expired": expired,
+        "queue_items": len(queue_items),
+        "enabled_profiles": enabled_profiles,
+        "initialized_profiles": initialized_profiles,
         "errors": errors,
     }
 
 
 def submit_analysis(*, config_path: Path, state_path: Path, payload: object, now: datetime | None = None, no_post: bool = False) -> dict[str, object]:
     now = now or datetime.now(timezone.utc)
-    watch_config = config.load_for_run(config_path).config
-    value = state.load(state_path)
-    event_key = payload.get("event_key") if isinstance(payload, dict) else None
-    record = next((item for item in value["outbox"] if isinstance(item, dict) and item.get("event_key") == event_key), None)  # type: ignore[union-attr]
-    if record is None:
-        raise ValueError("analysis event_key is not pending")
-    profile = next((item for item in watch_config.profiles if item.id == record.get("profile_id")), None)
-    if profile is None:
-        raise ValueError("analysis profile is not configured")
-    if record.get("agent_phase") != "awaiting_agent":
-        raise ValueError("analysis event is not leased to the agent")
-    until = datetime.fromisoformat(str(record["agent_lease_until"]))
-    if until <= now:
-        raise ValueError("analysis lease expired")
-    event = deserialize_queue_event(record["event"])
-    route_override = agent_protocol.deterministic_route(profile, event)
-    result = agent_protocol.validate_submission(profile, payload)
-    if result.get("is_relevant") is False and route_override is not None:
-        raise ValueError("TechnicalReview posts must be submitted as relevant")
-    if profile.enable_llm_routing:
-        route = result.get("route")
-        if route == "id_stocks_swing" and route_override != "id_stocks_swing":
-            raise ValueError("id_stocks_swing requires a leading #TechnicalReview tag")
-        if route_override is not None:
-            result["route"] = route_override
-    record["analysis"] = result
-    record["agent_lease_until"] = None
-    record["agent_phase"] = "filtered" if result.get("is_relevant") is False else "ready"
-    delivered = _deliver_ready(value, {item.id: item for item in watch_config.profiles}, dry_run=no_post, state_path=state_path, errors=[])
-    state.save(state_path, value)
+    loaded_config = config.load_for_run(config_path)
+    watch_config = loaded_config.config
+    control_run = ControlPlaneRun.begin(
+        "WHATSAPP_CHANNEL_WATCH",
+        loaded_config.revision,
+        scheduler_job_id="bursawatch-wa-channel-watch",
+        trigger="agent_submission",
+    )
+    control_run.event(
+        "agent-submission-started",
+        level="info",
+        phase="agent",
+        event_type="agent.submission.started",
+        message="WhatsApp Channel agent submission started",
+        attributes={"no_post": no_post},
+    )
+    try:
+        value = state.load(state_path)
+        event_key = payload.get("event_key") if isinstance(payload, dict) else None
+        record = next((item for item in value["outbox"] if isinstance(item, dict) and item.get("event_key") == event_key), None)  # type: ignore[union-attr]
+        if record is None:
+            raise ValueError("analysis event_key is not pending")
+        profile = next((item for item in watch_config.profiles if item.id == record.get("profile_id")), None)
+        if profile is None:
+            raise ValueError("analysis profile is not configured")
+        if record.get("agent_phase") != "awaiting_agent":
+            raise ValueError("analysis event is not leased to the agent")
+        until = datetime.fromisoformat(str(record["agent_lease_until"]))
+        if until <= now:
+            raise ValueError("analysis lease expired")
+        event = deserialize_queue_event(record["event"])
+        route_override = agent_protocol.deterministic_route(profile, event)
+        result = agent_protocol.validate_submission(profile, payload)
+        if result.get("is_relevant") is False and route_override is not None:
+            raise ValueError("TechnicalReview posts must be submitted as relevant")
+        if profile.enable_llm_routing:
+            route = result.get("route")
+            if route == "id_stocks_swing" and route_override != "id_stocks_swing":
+                raise ValueError("id_stocks_swing requires a leading #TechnicalReview tag")
+            if route_override is not None:
+                result["route"] = route_override
+        record["analysis"] = result
+        record["agent_lease_until"] = None
+        record["agent_phase"] = "filtered" if result.get("is_relevant") is False else "ready"
+        errors: list[str] = []
+        delivered = _deliver_ready(
+            value,
+            {item.id: item for item in watch_config.profiles},
+            dry_run=no_post,
+            state_path=state_path,
+            errors=errors,
+        )
+        state.save(state_path, value)
+    except ValueError as exc:
+        reason = " ".join(str(exc).split())[:500]
+        control_run.event(
+            "agent-submission-rejected",
+            level="warning",
+            phase="agent",
+            event_type="agent.submission.rejected",
+            message="WhatsApp Channel agent submission rejected",
+            attributes={"reason": reason},
+        )
+        control_run.finish("degraded", reason)
+        raise
+    except Exception as exc:
+        reason = " ".join(str(exc).split())[:500]
+        control_run.event(
+            "agent-submission-failed",
+            level="fatal",
+            phase="agent",
+            event_type="agent.submission.failed",
+            message="WhatsApp Channel agent submission failed",
+            attributes={"error": reason},
+        )
+        control_run.finish("failed", reason)
+        raise
+
+    control_run.event(
+        "agent-submission-accepted",
+        level="info",
+        phase="agent",
+        event_type="agent.submission.accepted",
+        message="WhatsApp Channel agent submission accepted",
+        attributes={
+            "is_relevant": result.get("is_relevant"),
+            "agent_phase": record["agent_phase"],
+        },
+    )
+    control_run.event(
+        "agent-delivery-drain-completed",
+        level="warning" if errors else "info",
+        phase="delivery",
+        event_type="delivery.drain.completed",
+        message="WhatsApp Channel agent delivery drain completed",
+        attributes={"delivered": delivered, "errors": errors[:10]},
+    )
+    control_run.finish("degraded" if errors else "ok")
     return {"accepted": True, "event_key": event_key, "agent_phase": record["agent_phase"], "delivered": delivered}
 
 

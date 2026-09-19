@@ -55,6 +55,8 @@ def event(message_id, timestamp, text="BBCA mencatat laba bersih naik", media=No
 
 def test_run_reports_the_registered_hermes_job_to_the_control_plane(tmp_path, monkeypatch):
     calls = []
+    events = []
+    finishes = []
 
     class RecordingControlRun:
         @classmethod
@@ -62,10 +64,12 @@ def test_run_reports_the_registered_hermes_job_to_the_control_plane(tmp_path, mo
             calls.append((args, kwargs))
             return cls()
 
-        def event(self, *_args, **_kwargs):
+        def event(self, event_id, **kwargs):
+            events.append((event_id, kwargs))
             return None
 
-        def finish(self, *_args, **_kwargs):
+        def finish(self, status, error=None):
+            finishes.append((status, error))
             return None
 
     monkeypatch.setattr(scan, "ControlPlaneRun", RecordingControlRun)
@@ -84,6 +88,21 @@ def test_run_reports_the_registered_hermes_job_to_the_control_plane(tmp_path, mo
             {"scheduler_job_id": "bursawatch-wa-channel-watch"},
         )
     ]
+    assert [event_id for event_id, _kwargs in events] == [
+        "run-started",
+        "source-queue-inspected",
+        "delivery-drain-completed",
+        "run-completed",
+    ]
+    assert events[1][1]["attributes"] == {
+        "queue_items": 0,
+        "enabled_profiles": 1,
+        "initialized_profiles": 0,
+        "source_items": 0,
+        "queued": 0,
+        "expired_agent_leases": 0,
+    }
+    assert finishes == [("ok", None)]
 
 
 def test_first_run_is_future_only_and_later_run_claims_one(tmp_path):
@@ -138,6 +157,69 @@ def test_submission_moves_event_to_ready_or_filtered(tmp_path):
 
     with pytest.raises(ValueError):
         scan.submit_analysis(config_path=config_path, state_path=state_path, now=now + timedelta(minutes=2), no_post=True, payload={"event_key": key, "is_relevant": False})
+
+
+def test_submission_reports_safe_control_plane_outcome(tmp_path, monkeypatch):
+    queue_dir = tmp_path / "queue"
+    config_path = write_config(tmp_path)
+    state_path = tmp_path / "state.json"
+    now = datetime(2026, 9, 10, tzinfo=timezone.utc)
+    enqueue(queue_dir, event("baseline", "2026-09-09T00:00:00Z"))
+    scan.run(config_path=config_path, state_path=state_path, queue_dir=queue_dir, now=now, no_post=True)
+    enqueue(queue_dir, event("new", "2026-09-10T00:01:00Z"))
+    claimed = scan.run(
+        config_path=config_path,
+        state_path=state_path,
+        queue_dir=queue_dir,
+        now=now + timedelta(minutes=1),
+        no_post=True,
+    )
+    calls = []
+    events = []
+    finishes = []
+
+    class RecordingControlRun:
+        @classmethod
+        def begin(cls, *args, **kwargs):
+            calls.append((args, kwargs))
+            return cls()
+
+        def event(self, event_id, **kwargs):
+            events.append((event_id, kwargs))
+
+        def finish(self, status, error=None):
+            finishes.append((status, error))
+
+    monkeypatch.setattr(scan, "ControlPlaneRun", RecordingControlRun)
+
+    submitted = scan.submit_analysis(
+        config_path=config_path,
+        state_path=state_path,
+        now=now + timedelta(minutes=2),
+        no_post=True,
+        payload={"event_key": claimed["item"]["event_key"], "is_relevant": False},
+    )
+
+    assert submitted["agent_phase"] == "filtered"
+    assert calls == [
+        (
+            ("WHATSAPP_CHANNEL_WATCH", None),
+            {
+                "scheduler_job_id": "bursawatch-wa-channel-watch",
+                "trigger": "agent_submission",
+            },
+        )
+    ]
+    assert [event_id for event_id, _kwargs in events] == [
+        "agent-submission-started",
+        "agent-submission-accepted",
+        "agent-delivery-drain-completed",
+    ]
+    assert events[1][1]["attributes"] == {
+        "is_relevant": False,
+        "agent_phase": "filtered",
+    }
+    assert finishes == [("ok", None)]
 
 
 def test_no_post_delivery_handles_source_media_without_network(tmp_path, capsys):

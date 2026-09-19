@@ -48,6 +48,10 @@ _NON_TICKER_UPPERCASE = frozenset(
     }
 )
 _SOURCE_BLOCK_TAGS = frozenset({"p", "div", "li"})
+_SENSITIVE_VALUE_RE = re.compile(r"(?i)\b(?:token|secret|password|cookie|authorization|api[_-]?key)\s*[:=]\s*[^\s,;]+")
+_URL_RE = re.compile(r"https?://[^\s]+", re.IGNORECASE)
+_ABSOLUTE_PATH_RE = re.compile(r"(?<![A-Za-z0-9])(?:~|/(?:Users|home|tmp|var|private|opt|srv|etc))[^\s,;]*")
+MAX_REASON_CHARACTERS = 500
 
 
 class _SourceTextParser(HTMLParser):
@@ -92,12 +96,12 @@ class RunStats:
     def note_empty_profile(self, handle: str) -> None:
         self.degraded = True
         self.needs_attention = True
-        self.reasons.append(f"{handle}: empty source feed")
+        self.reasons.append(_sanitize_reason(f"{handle}: empty source feed"))
 
     def note_source_error(self, reason: str) -> None:
         self.degraded = True
         self.needs_attention = True
-        self.reasons.append(reason)
+        self.reasons.append(_sanitize_reason(reason))
 
     def tokens(self) -> str:
         return (
@@ -109,6 +113,17 @@ class RunStats:
 
 def state_path() -> Path:
     return Path(os.environ.get("X_POST_WATCH_STATE_PATH", str(Path(__file__).resolve().parent.parent / "state" / "state.json")))
+
+
+def _sanitize_reason(reason: object) -> str:
+    value = " ".join(str(reason).split())
+    value = _SENSITIVE_VALUE_RE.sub(
+        lambda match: match.group(0).split("=", 1)[0].split(":", 1)[0] + "=<redacted>",
+        value,
+    )
+    value = _URL_RE.sub("<external source>", value)
+    value = _ABSOLUTE_PATH_RE.sub("<local path>", value)
+    return re.sub(r"[\x00-\x1f\x7f]", " ", value)[:MAX_REASON_CHARACTERS].strip()
 
 
 def config_path() -> Path:
@@ -168,7 +183,7 @@ def format_heartbeat(now: datetime, stats: RunStats) -> str:
 
 
 def format_fatal(now: datetime, reason: str) -> str:
-    failure = " ".join(reason.split())[:180]
+    failure = _sanitize_reason(reason)[:180]
     return f"❌ {WATCHER_HEARTBEAT_NAME} · {now.astimezone(WIB):%H:%M} WIB · failed: {failure}"
 
 
@@ -568,13 +583,13 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
             event["last_error"] = str(exc)
             stats.degraded = True
             stats.needs_attention = True
-            stats.reasons.append(event["last_error"])
+            stats.reasons.append(_sanitize_reason(event["last_error"]))
             state.save_state(storage, value)
             return True
         event["last_error"] = " ".join(str(exc).split())[:180]
         stats.degraded = True
         stats.needs_attention = True
-        stats.reasons.append(event["last_error"])
+        stats.reasons.append(_sanitize_reason(event["last_error"]))
         state.save_state(storage, value)
         return False
     delivered_at = attempt_at
@@ -600,7 +615,7 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
         _record_board_failure(event, delivered_at)
         stats.degraded = True
         stats.needs_attention = True
-        stats.reasons.append(event["board_last_error"])
+        stats.reasons.append(_sanitize_reason(event["board_last_error"]))
         state.save_state(storage, value)
         return False
     if payload.get("_board_pending"):
@@ -701,7 +716,7 @@ def run(
                         if reason:
                             stats.degraded = True
                             stats.needs_attention = True
-                            stats.reasons.append(f"{profile.id}: {reason}")
+                            stats.reasons.append(_sanitize_reason(f"{profile.id}: {reason}"))
                         _annotate_replacements(value, profile, fresh_ids, verifier, now, stats)
                         state.save_state(storage, value)
                         _report_control_event(
@@ -716,7 +731,7 @@ def run(
                                 "profile_id": profile.id,
                                 "items": len(posts),
                                 "queued": queued,
-                                "reason": reason,
+                                "reason": _sanitize_reason(reason) if reason else None,
                             },
                         )
                     except rsshub.SourceFetchError as exc:
@@ -732,12 +747,28 @@ def run(
                             phase="source",
                             event_type="source.fetch.failed",
                             message=f"{profile.id}: source fetch failed",
-                            attributes={"profile_id": profile.id, "error": str(exc)},
+                            attributes={"profile_id": profile.id, "error": _sanitize_reason(exc)},
                         )
             while (event_index := _next_deliverable_index(value, profiles, now)) is not None:
                 if not _deliver(value, profiles, event_index, dry_run, storage, stats, now): break
             _retry_cleanup(value, dry_run, storage, stats)
             stats.pending, stats.oldest_pending_minutes = _queue_metrics(value, profiles, now)
+            _report_control_event(
+                reporter,
+                run_id,
+                "delivery-drain-completed",
+                level="warning" if stats.degraded else "info",
+                phase="delivery",
+                event_type="delivery.drain.completed",
+                message="X watcher delivery drain completed",
+                attributes={
+                    "queue_only": queue_only,
+                    "delivered": stats.delivered,
+                    "pending": stats.pending,
+                    "oldest_pending_minutes": stats.oldest_pending_minutes,
+                    "reasons": stats.reasons[:10],
+                },
+            )
             heartbeat_leg = now.astimezone(WIB).strftime("%Y%m%d%H%M")
             discord.post_text(format_heartbeat(now, stats), HEARTBEAT_CHANNEL_ID, dry_run, discord.nonce("heartbeat", heartbeat_leg))
             event = state.claim_oldest_agent(value, profiles, now)
@@ -745,6 +776,17 @@ def run(
             post = state.deserialize_post(event["post"]) if event else None
             thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]])) if event else None
             wake_payload = build_wake_payload(agent_item(profiles[event["profile_id"]], post, thread_posts) if event and post else None)
+            if event is not None:
+                _report_control_event(
+                    reporter,
+                    run_id,
+                    "agent-wake-requested",
+                    level="info",
+                    phase="agent",
+                    event_type="agent.wake.requested",
+                    message="X event claimed for agent analysis",
+                    attributes={"profile_id": event["profile_id"]},
+                )
             _report_control_event(
                 reporter,
                 run_id,
@@ -767,7 +809,7 @@ def run(
             _finish_control_run(reporter, run_id, "degraded" if stats.degraded else "ok")
             return wake_payload
         except Exception as exc:
-            reason = " ".join(str(exc).split())[:500]
+            reason = _sanitize_reason(exc)
             _report_control_event(
                 reporter,
                 run_id,
@@ -790,37 +832,109 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
     storage = state_path()
     storage.parent.mkdir(parents=True, exist_ok=True)
     dry_run = bool(dry_run) or os.environ.get("X_POST_WATCH_NO_POST") == "1"
-    with (storage.parent / "run.lock").open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        value = state.load_state(storage)
-        watches = config.load_watch_config_for_run(config_path()).config
-        profiles = {profile.id: profile for profile in watches.profiles}
-        profile_id = payload["event_key"].partition(":")[0]
-        profile = profiles.get(profile_id)
-        if profile is None or not profile.uses_llm:
-            raise ValueError("analysis profile is not enabled")
-        analysis = validate_submission(profile, payload)
-        event = state.awaiting_analysis_event(value, analysis["event_key"])
-        post = state.deserialize_post(event["post"])
-        thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]]))
-        if analysis.get("is_relevant") is False:
-            if requires_relevance(post, thread_posts, profile):
-                raise ValueError("direct market disclosure must be relevant")
-            state.discard_analysis(value, analysis["event_key"])
+    reporter = None
+    run_id = None
+    try:
+        with (storage.parent / "run.lock").open("w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            loaded_config = config.load_watch_config_for_run(config_path())
+            watches = loaded_config.config
+            if loaded_config.revision is not None:
+                reporter = _control_plane_reporter()
+                if reporter is not None:
+                    run_id = reporter.start_run(
+                        loaded_config.revision,
+                        scheduler_job_id="x-post-source",
+                        trigger="agent_submission",
+                    )
+                    _report_control_event(
+                        reporter,
+                        run_id,
+                        "agent-submission-started",
+                        level="info",
+                        phase="agent",
+                        event_type="agent.submission.started",
+                        message="X agent submission started",
+                        attributes={"dry_run": dry_run},
+                    )
+            value = state.load_state(storage)
+            profiles = {profile.id: profile for profile in watches.profiles}
+            profile_id = payload["event_key"].partition(":")[0]
+            profile = profiles.get(profile_id)
+            if profile is None or not profile.uses_llm:
+                raise ValueError("analysis profile is not enabled")
+            analysis = validate_submission(profile, payload)
+            event = state.awaiting_analysis_event(value, analysis["event_key"])
+            post = state.deserialize_post(event["post"])
+            thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]]))
+            if analysis.get("is_relevant") is False:
+                if requires_relevance(post, thread_posts, profile):
+                    raise ValueError("direct market disclosure must be relevant")
+                state.discard_analysis(value, analysis["event_key"])
+                state.save_state(storage, value)
+                _report_control_event(
+                    reporter,
+                    run_id,
+                    "agent-submission-accepted",
+                    level="info",
+                    phase="agent",
+                    event_type="agent.submission.accepted",
+                    message="X agent submission accepted as irrelevant",
+                    attributes={"is_relevant": False, "delivered": 0},
+                )
+                _finish_control_run(reporter, run_id, "ok")
+                return {"submitted": True, "ignored": True, "delivered": 0}
+            route_override = deterministic_route(profile, post, thread_posts)
+            if route_override is not None:
+                analysis["route"] = route_override
+            state.submit_analysis(value, analysis["event_key"], {key: item for key, item in analysis.items() if key not in {"event_key", "is_relevant"}})
             state.save_state(storage, value)
-            return {"submitted": True, "ignored": True, "delivered": 0}
-        route_override = deterministic_route(profile, post, thread_posts)
-        if route_override is not None:
-            analysis["route"] = route_override
-        state.submit_analysis(value, analysis["event_key"], {key: item for key, item in analysis.items() if key not in {"event_key", "is_relevant"}})
-        state.save_state(storage, value)
-        stats = RunStats()
-        now = datetime.now(WIB)
-        while (event_index := _next_deliverable_index(value, profiles, now)) is not None:
-            if not _deliver(value, profiles, event_index, dry_run, storage, stats, now):
-                break
-        _retry_cleanup(value, dry_run, storage, stats)
-    return {"submitted": True, "delivered": stats.delivered}
+            stats = RunStats()
+            now = datetime.now(WIB)
+            while (event_index := _next_deliverable_index(value, profiles, now)) is not None:
+                if not _deliver(value, profiles, event_index, dry_run, storage, stats, now):
+                    break
+            _retry_cleanup(value, dry_run, storage, stats)
+            _report_control_event(
+                reporter,
+                run_id,
+                "agent-submission-accepted",
+                level="info",
+                phase="agent",
+                event_type="agent.submission.accepted",
+                message="X agent submission accepted",
+                attributes={"is_relevant": True, "delivered": stats.delivered},
+            )
+            _report_control_event(
+                reporter,
+                run_id,
+                "agent-delivery-drain-completed",
+                level="warning" if stats.degraded else "info",
+                phase="delivery",
+                event_type="delivery.drain.completed",
+                message="X agent delivery drain completed",
+                attributes={
+                    "delivered": stats.delivered,
+                    "reasons": stats.reasons[:10],
+                },
+            )
+            _finish_control_run(reporter, run_id, "degraded" if stats.degraded else "ok")
+            return {"submitted": True, "delivered": stats.delivered}
+    except Exception as exc:
+        reason = _sanitize_reason(exc)
+        rejected = isinstance(exc, ValueError)
+        _report_control_event(
+            reporter,
+            run_id,
+            "agent-submission-rejected" if rejected else "agent-submission-failed",
+            level="warning" if rejected else "fatal",
+            phase="agent",
+            event_type="agent.submission.rejected" if rejected else "agent.submission.failed",
+            message="X agent submission rejected" if rejected else "X agent submission failed",
+            attributes={"reason" if rejected else "error": reason},
+        )
+        _finish_control_run(reporter, run_id, "degraded" if rejected else "failed", reason)
+        raise
 
 
 if __name__ == "__main__":

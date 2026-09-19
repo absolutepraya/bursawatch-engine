@@ -12,6 +12,12 @@ This file supplements the repository root `AGENTS.md`. It is the development and
 - Development source is this directory. The deployed runtime is `~/.agents/skills/bursawatch-x-account-watch/`; its source-polling wrapper is `~/.hermes/scripts/bursawatch-x-account-watch.sh` and its queue-worker wrapper is `~/.hermes/scripts/bursawatch-x-account-watch-queue.sh`.
 - The live state directory, cursors, outbox, media, and `~/.dotfiles/vps/agents/skills/bursawatch-x-account-watch/` are not authoring targets. Never reset, edit, replay, or backfill them without explicit approval.
 
+With live configuration, the dashboard records one frozen revision per source,
+queue-worker, or agent-submission invocation. It receives lifecycle, per-profile
+source, delivery-drain, agent-wake, and submission events containing only
+profile IDs, counts, modes, and sanitized reasons. It never receives X text,
+quoted text, source URLs, media paths, state payloads, or credentials.
+
 The source-polling job currently runs every 10 minutes, while the registered `x-post-queue-worker` runs every minute. Keep source polling cadence independent from queue servicing: `bin/x-post-watch-queue.sh` sets `X_POST_WATCH_QUEUE_ONLY=1`, skips RSSHub and direct-X polling, and still delivers ready events, claims one LLM event, and sends the standard heartbeat. Do not increase source polling to reduce queue latency. RSSHub is the default source. A `direct_x` profile reads a public X profile, expands same-author threads through public X status pages, and uses VxTwitter for details. Once its cursor is initialized, it requests VxTwitter details only for newer status IDs; the first HTTP 429 starts an automatic three-hour cooldown for all profile fetching. RSSHub handles X authentication on the VPS, while direct X profiles use public endpoints only.
 
 ## Profile schema and safe configuration
