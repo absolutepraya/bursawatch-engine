@@ -280,6 +280,17 @@ def _vision_payload(bundle: VisionBundle | None) -> tuple[str | None, list[str],
     return str(root), paths, context
 
 
+def _fence_safe(value: str) -> str:
+    for marker in (
+        "[UNTRUSTED LINKED ARTICLE CONTEXT]",
+        "[/UNTRUSTED LINKED ARTICLE CONTEXT]",
+        "[UNTRUSTED LOCAL VISION PATHS]",
+        "[/UNTRUSTED LOCAL VISION PATHS]",
+    ):
+        value = value.replace(marker, marker.replace("[", r"\[").replace("]", r"\]"))
+    return value
+
+
 def _article_payload(bundle: ArticleBundle | None) -> str:
     if bundle is None:
         return ""
@@ -306,13 +317,13 @@ def _article_payload(bundle: ArticleBundle | None) -> str:
             or len(source.text) > MAX_ARTICLE_CHARACTERS
         ):
             raise ValueError("linked article source is invalid")
-        title = source.title or "(No title)"
+        title = _fence_safe(source.title) or "(No title)"
         truncation = " [truncated]" if source.truncated else ""
         lines.extend(
             (
-                f"Article {index} URL: {source.final_url}",
+                f"Article {index} URL: {_fence_safe(source.final_url)}",
                 f"Article {index} title: {title}",
-                f"Article {index} text{truncation}: {source.text}",
+                f"Article {index} text{truncation}: {_fence_safe(source.text)}",
             )
         )
     lines.append("[/UNTRUSTED LINKED ARTICLE CONTEXT]")

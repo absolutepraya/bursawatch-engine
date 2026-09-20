@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import codecs
 import concurrent.futures
 from dataclasses import dataclass
 from html import unescape
 from html.parser import HTMLParser
 import ipaddress
+import queue
 import re
 import socket
+import threading
 import time
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
@@ -24,6 +27,7 @@ MAX_DOWNLOAD_BYTES = 1_000_000
 MAX_ARTICLE_CHARACTERS = 4_000
 REQUEST_TIMEOUT_SECONDS = 8
 PREPARATION_TIMEOUT_SECONDS = 20
+_RESOLVER_SLOTS = threading.BoundedSemaphore(MAX_PARALLEL_FETCHES)
 _URL_RE = re.compile(r"https?://[^\s<>()\[\]{}\"']+", re.IGNORECASE)
 _TRAILING_URL_PUNCTUATION = ".,;:!?)]}"
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
@@ -75,17 +79,31 @@ class _PinnedResponse:
     def iter_content(self, chunk_size: int):
         yield from self._response.stream(chunk_size, decode_content=True)
 
+    def _socket(self):
+        response_file = getattr(self._response, "_fp", None)
+        raw_file = getattr(response_file, "fp", None)
+        raw_socket = getattr(raw_file, "raw", None)
+        socket_handle = getattr(raw_socket, "_sock", None)
+        if socket_handle is None or getattr(socket_handle, "_closed", False):
+            return None
+        try:
+            return socket_handle if socket_handle.fileno() >= 0 else None
+        except (AttributeError, OSError):
+            return None
+
     def iter_content_with_deadline(self, chunk_size: int, deadline: float):
         chunks = self._response.stream(chunk_size, decode_content=True)
         while True:
             try:
-                socket_handle = self._response._fp.fp.raw._sock
-                socket_handle.settimeout(_remaining_timeout(deadline))
-                yield next(chunks)
+                socket_handle = self._socket()
+                if socket_handle is not None:
+                    socket_handle.settimeout(_remaining_timeout(deadline))
+                chunk = next(chunks)
             except StopIteration:
                 return
-            except (AttributeError, OSError) as exc:
+            except (AttributeError, OSError, urllib3.exceptions.HTTPError) as exc:
                 raise ArticleFetchError("linked article response is invalid") from exc
+            yield chunk
 
     def close(self) -> None:
         self._response.release_conn()
@@ -186,7 +204,45 @@ def _normalise_url(value: str) -> str:
     return urlunsplit((parsed.scheme, host, parsed.path or "/", parsed.query, ""))
 
 
-def _resolve_public_url(value: str) -> _ResolvedUrl:
+def _resolve_hostname(hostname: str, port: int, deadline: float) -> set[str]:
+    """Resolve one host without allowing a stalled system resolver to hold a worker."""
+
+    if not _RESOLVER_SLOTS.acquire(blocking=False):
+        raise ArticleFetchError("linked article DNS resolution is unavailable")
+
+    result: queue.Queue[tuple[bool, object]] = queue.Queue(maxsize=1)
+
+    def lookup() -> None:
+        try:
+            addresses = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+        except OSError as exc:
+            result.put((False, exc))
+        else:
+            result.put((True, addresses))
+        finally:
+            _RESOLVER_SLOTS.release()
+
+    resolver = threading.Thread(target=lookup, daemon=True, name="x-article-dns")
+    try:
+        resolver.start()
+    except RuntimeError as exc:
+        _RESOLVER_SLOTS.release()
+        raise ArticleFetchError("linked article DNS resolution is unavailable") from exc
+    try:
+        succeeded, value = result.get(timeout=_remaining_timeout(deadline))
+    except queue.Empty:
+        raise ArticleFetchError("linked article DNS resolution timed out") from None
+    if not succeeded:
+        raise ArticleFetchError("linked article URL is not publicly reachable") from value
+
+    resolved = {entry[4][0] for entry in value}
+    if not resolved:
+        raise ArticleFetchError("linked article URL is not publicly reachable")
+    return resolved
+
+
+def _resolve_public_url(value: str, deadline: float | None = None) -> _ResolvedUrl:
+    deadline = deadline if deadline is not None else time.monotonic() + PREPARATION_TIMEOUT_SECONDS
     normalized = _normalise_url(value)
     parsed = urlsplit(normalized)
     hostname = parsed.hostname or ""
@@ -194,13 +250,7 @@ def _resolve_public_url(value: str) -> _ResolvedUrl:
     try:
         address = ipaddress.ip_address(hostname)
     except ValueError:
-        try:
-            addresses = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
-        except socket.gaierror:
-            raise ArticleFetchError("linked article URL is not publicly reachable") from None
-        resolved = {entry[4][0] for entry in addresses}
-        if not resolved:
-            raise ArticleFetchError("linked article URL is not publicly reachable")
+        resolved = _resolve_hostname(hostname, port, deadline)
         try:
             if not all(ipaddress.ip_address(candidate).is_global for candidate in resolved):
                 raise ArticleFetchError("linked article URL is not publicly reachable")
@@ -242,7 +292,7 @@ def _request(endpoint: _ResolvedUrl, timeout: float) -> _PinnedResponse:
         response = pool.urlopen(
             "GET",
             endpoint.request_target,
-            headers={"Host": endpoint.host_header, "User-Agent": "BursaWatch-Article-Context/1.0"},
+            headers={"Host": endpoint.host_header, "User-Agent": "Bursawatch-Article-Context/1.0"},
             preload_content=False,
             redirect=False,
             retries=False,
@@ -261,13 +311,27 @@ def _remaining_timeout(deadline: float) -> float:
     return min(REQUEST_TIMEOUT_SECONDS, remaining)
 
 
+def _header_charset(content_type: str) -> str:
+    for parameter in content_type.split(";")[1:]:
+        name, separator, candidate = parameter.partition("=")
+        if name.strip().lower() != "charset" or not separator:
+            continue
+        candidate = candidate.strip().strip('"').strip("'")
+        try:
+            codecs.lookup(candidate)
+        except LookupError:
+            return "utf-8"
+        return candidate
+    return "utf-8"
+
+
 def _fetch_article(requested_url: str, requester=_request, deadline: float | None = None) -> ArticleSource:
     deadline = deadline if deadline is not None else time.monotonic() + PREPARATION_TIMEOUT_SECONDS
     current_url = _normalise_url(requested_url)
     for _ in range(MAX_REDIRECTS + 1):
         response = None
         try:
-            endpoint = _resolve_public_url(current_url)
+            endpoint = _resolve_public_url(current_url, deadline)
             response = requester(endpoint, _remaining_timeout(deadline))
             if response.status_code in _REDIRECT_STATUSES:
                 location = response.headers.get("location")
@@ -277,10 +341,13 @@ def _fetch_article(requested_url: str, requester=_request, deadline: float | Non
                 continue
             if not 200 <= response.status_code < 300:
                 raise ArticleFetchError("linked article request failed")
-            content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
+            content_type_header = response.headers.get("content-type", "")
+            if not isinstance(content_type_header, str):
+                raise ArticleFetchError("linked article response is invalid")
+            content_type = content_type_header.split(";", 1)[0].strip().lower()
             if content_type not in _CONTENT_TYPES:
                 raise ArticleFetchError("linked article is not HTML")
-            encoding = getattr(response, "encoding", None) or "utf-8"
+            encoding = _header_charset(content_type_header)
             parser = _VisibleTextParser()
             parser.feed(_read_response(response, deadline).decode(encoding, errors="replace"))
             parser.close()
