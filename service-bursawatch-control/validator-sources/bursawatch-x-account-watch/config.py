@@ -34,7 +34,7 @@ PROFILE_FIELDS = {
     "max_items_per_poll",
     "thread_handling",
 }
-OPTIONAL_PROFILE_FIELDS = {"source", "media_policy", "relevance_scope"}
+OPTIONAL_PROFILE_FIELDS = {"source", "media_policy", "relevance_scope", "show_quoted_post"}
 MEDIA_POLICIES = {"all", "omit_last"}
 RELEVANCE_SCOPES = {"stock_market", "financial_market", "indonesia_economy"}
 ID_RE = re.compile(r"[a-z0-9][a-z0-9_-]*")
@@ -176,6 +176,7 @@ def _parse_profile(index: int, value: object) -> Profile:
         raise ValueError("profiles[].source must be rsshub or direct_x")
     media_policy = _parse_media_policy(profile.get("media_policy", "all"), f"profiles[{index}].media_policy")
     relevance_scope = _parse_relevance_scope(profile.get("relevance_scope", "stock_market"), f"profiles[{index}].relevance_scope")
+    show_quoted_post = _expect_bool(profile.get("show_quoted_post", False), f"profiles[{index}].show_quoted_post")
 
     return Profile(
         id=profile_id,
@@ -201,6 +202,7 @@ def _parse_profile(index: int, value: object) -> Profile:
         thread_handling=_parse_thread_handling(profile["thread_handling"], f"profiles[{index}].thread_handling"),
         source=source,
         media_policy=media_policy,
+        show_quoted_post=show_quoted_post,
     )
 
 

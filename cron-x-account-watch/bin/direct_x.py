@@ -157,7 +157,9 @@ def _source_post(profile: Profile, payload: dict[str, object]) -> SourcePost:
     quoted_url = payload.get("qrtURL")
     if type(quoted_url) is not str or not quoted_url.startswith("https://x.com/"):
         quoted_url = None
-    quoted_text = payload.get("qrt")
+    quoted_payload = payload.get("qrt")
+    quoted_text = quoted_payload
+    quoted_media = _media(quoted_payload) if type(quoted_payload) is dict else ()
     if type(quoted_text) is dict:
         quoted_text = quoted_text.get("text")
     if type(quoted_text) is not str:
@@ -173,7 +175,7 @@ def _source_post(profile: Profile, payload: dict[str, object]) -> SourcePost:
         quoted_url=quoted_url,
         quoted_content_html=_content_html(quoted_text) if quoted_text else None,
         media=_media(payload),
-        quoted_media=(),
+        quoted_media=quoted_media,
         related_url=_post_url(parent_handle, str(parent_id)) if parent_id else None,
     )
 

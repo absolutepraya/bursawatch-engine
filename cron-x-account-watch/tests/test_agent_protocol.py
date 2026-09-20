@@ -1,10 +1,12 @@
 from datetime import UTC, datetime
-
+from pathlib import Path
 import pytest
 
 import agent_protocol
 import config as config_module
+from article_context import ArticleBundle, ArticleSource
 from models import PostKind, SourcePost
+from vision_media import VisionAsset, VisionBundle
 
 
 def test_agent_item_supplies_only_bounded_post_context(config_path, profile_payload):
@@ -41,6 +43,92 @@ def test_agent_item_passes_compact_article_quote_context(config_path):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Author text", PostKind.NORMAL, None, None, (), (), quoted_article_url="https://x.com/i/article/123", quoted_article_label="Ricky Ho")
     assert agent_protocol.agent_item(profile, post)["quoted_post_text"] == "Ricky Ho: https://x.com/i/article/123"
+
+
+def test_agent_item_includes_labeled_local_tweet_and_quote_images(config_path, tmp_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Author text", PostKind.QUOTE, "https://x.com/a/status/101", "Quoted text", (), ())
+    root = tmp_path / "vision"
+    root.mkdir()
+    tweet_image = root / "tweet.jpg"
+    quote_image = root / "quoted.jpg"
+    tweet_image.write_bytes(b"tweet")
+    quote_image.write_bytes(b"quoted")
+    bundle = VisionBundle(
+        root,
+        (
+            VisionAsset("tweet", post.post_id, 0, tweet_image),
+            VisionAsset("quoted_tweet", post.post_id, 0, quote_image),
+        ),
+        0,
+    )
+
+    payload = agent_protocol.build_wake_payload(agent_protocol.agent_item(profile, post, vision_bundle=bundle))
+    item = payload["item"]
+
+    assert item["vision_asset_paths"] == [str(tweet_image.resolve()), str(quote_image.resolve())]
+    assert item["vision_asset_root"] == str(root.resolve())
+    assert "Authored X post image 1" in item["post_text"]
+    assert "Quoted X post image 1" in item["post_text"]
+    assert "[UNTRUSTED LOCAL VISION PATHS]" in item["post_text"]
+    assert "read every listed local image with vision" in item["instruction"]
+
+
+def test_agent_item_includes_retrieved_article_context_without_allowing_model_browsing(config_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Read https://example.com/article", PostKind.NORMAL, None, None, (), ())
+    articles = ArticleBundle(
+        (
+            ArticleSource(
+                "https://example.com/article",
+                "https://example.com/article",
+                "Example article",
+                "The article's source-grounded market details.",
+                False,
+            ),
+        ),
+        1,
+        0,
+    )
+
+    item = agent_protocol.agent_item(profile, post, article_bundle=articles)
+
+    assert "[UNTRUSTED LINKED ARTICLE CONTEXT]" in item["post_text"]
+    assert "Article 1 title: Example article" in item["post_text"]
+    assert "The article's source-grounded market details." in item["post_text"]
+    assert "read every supplied linked article context" in item["instruction"].lower()
+    assert "do not inspect any other local path or fetch, open, or browse links yourself" in item["instruction"].lower()
+
+
+def test_agent_item_rejects_vision_path_outside_the_event_root(config_path, tmp_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Author text", PostKind.NORMAL, None, None, (), ())
+    root = tmp_path / "vision"
+    root.mkdir()
+    outside = tmp_path / "outside.jpg"
+    outside.write_bytes(b"outside")
+    bundle = VisionBundle(root, (VisionAsset("tweet", post.post_id, 0, outside),), 0)
+
+    with pytest.raises(ValueError, match="outside"):
+        agent_protocol.agent_item(profile, post, vision_bundle=bundle)
+
+
+def test_agent_item_rejects_relative_or_symlinked_vision_roots(config_path, tmp_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Author text", PostKind.NORMAL, None, None, (), ())
+    root = tmp_path / "vision"
+    root.mkdir()
+    image = root / "tweet.jpg"
+    image.write_bytes(b"tweet")
+    relative_bundle = VisionBundle(Path("vision"), (VisionAsset("tweet", post.post_id, 0, image),), 0)
+    symlink_root = tmp_path / "vision-link"
+    symlink_root.symlink_to(root, target_is_directory=True)
+    symlink_bundle = VisionBundle(symlink_root, (VisionAsset("tweet", post.post_id, 0, image),), 0)
+
+    with pytest.raises(ValueError, match="root"):
+        agent_protocol.agent_item(profile, post, vision_bundle=relative_bundle)
+    with pytest.raises(ValueError, match="root"):
+        agent_protocol.agent_item(profile, post, vision_bundle=symlink_bundle)
 
 
 @pytest.mark.parametrize(

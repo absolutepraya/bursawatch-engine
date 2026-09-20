@@ -3,7 +3,7 @@
   "profiles": [
     {
       "id": "kutekians",
-      "enabled": true,
+      "enabled": false,
       "profile_url": "https://x.com/Kutekians",
       "handle": "Kutekians",
       "display_name": "Almer Sad, CFA",
@@ -33,11 +33,12 @@
         "max_posts": 10,
         "max_age_minutes": 240,
         "settle_minutes": 60
-      }
+      },
+      "show_quoted_post": false
     },
     {
       "id": "rickyho1989",
-      "enabled": true,
+      "enabled": false,
       "profile_url": "https://x.com/rickyho_1989",
       "handle": "rickyho_1989",
       "display_name": "Ricky Ho",
@@ -77,11 +78,12 @@
         "max_posts": 10,
         "max_age_minutes": 240,
         "settle_minutes": 60
-      }
+      },
+      "show_quoted_post": false
     },
     {
       "id": "writingtorch",
-      "enabled": true,
+      "enabled": false,
       "profile_url": "https://x.com/writingtorch",
       "handle": "writingtorch",
       "display_name": "Torch",
@@ -116,11 +118,12 @@
         "max_posts": 20,
         "max_age_minutes": 240,
         "settle_minutes": 15
-      }
+      },
+      "show_quoted_post": false
     },
     {
       "id": "arvinhonami",
-      "enabled": true,
+      "enabled": false,
       "profile_url": "https://x.com/ArvinHonami",
       "handle": "ArvinHonami",
       "display_name": "Arvin Honami",
@@ -160,11 +163,12 @@
         "max_posts": 10,
         "max_age_minutes": 240,
         "settle_minutes": 60
-      }
+      },
+      "show_quoted_post": false
     },
     {
       "id": "insidertracker",
-      "enabled": true,
+      "enabled": false,
       "source": "direct_x",
       "profile_url": "https://x.com/InsiderTrackX",
       "handle": "InsiderTrackX",
@@ -205,11 +209,12 @@
         "max_posts": 20,
         "max_age_minutes": 240,
         "settle_minutes": 15
-      }
+      },
+      "show_quoted_post": false
     },
     {
       "id": "doktermarket",
-      "enabled": true,
+      "enabled": false,
       "profile_url": "https://x.com/doktermarket",
       "handle": "doktermarket",
       "display_name": "DokterMarket",
@@ -249,11 +254,12 @@
         "max_posts": 10,
         "max_age_minutes": 240,
         "settle_minutes": 60
-      }
+      },
+      "show_quoted_post": false
     },
     {
       "id": "txthariansaham",
-      "enabled": true,
+      "enabled": false,
       "profile_url": "https://x.com/txthariansaham",
       "handle": "txthariansaham",
       "display_name": "Ga Cuan Ga tidur",
@@ -293,11 +299,12 @@
         "max_posts": 10,
         "max_age_minutes": 240,
         "settle_minutes": 60
-      }
+      },
+      "show_quoted_post": false
     },
     {
       "id": "wavetiga",
-      "enabled": true,
+      "enabled": false,
       "source": "direct_x",
       "profile_url": "https://x.com/wavetiga",
       "handle": "wavetiga",
@@ -343,11 +350,12 @@
         "max_posts": 10,
         "max_age_minutes": 240,
         "settle_minutes": 60
-      }
+      },
+      "show_quoted_post": false
     },
     {
       "id": "aldotjahjadi8",
-      "enabled": true,
+      "enabled": false,
       "source": "rsshub",
       "profile_url": "https://x.com/aldotjahjadi8",
       "handle": "aldotjahjadi8",
@@ -383,11 +391,12 @@
         "max_posts": 20,
         "max_age_minutes": 240,
         "settle_minutes": 15
-      }
+      },
+      "show_quoted_post": false
     },
     {
       "id": "kobeissiletter",
-      "enabled": true,
+      "enabled": false,
       "source": "rsshub",
       "profile_url": "https://x.com/KobeissiLetter",
       "handle": "KobeissiLetter",
@@ -424,7 +433,8 @@
         "max_posts": 20,
         "max_age_minutes": 240,
         "settle_minutes": 15
-      }
+      },
+      "show_quoted_post": false
     }
   ]
 }

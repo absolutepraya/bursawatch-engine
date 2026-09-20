@@ -45,6 +45,7 @@ class Profile:
     thread_handling: ThreadHandling
     source: str = "rsshub"
     media_policy: str = "all"
+    show_quoted_post: bool = False
 
     @property
     def feed_url(self) -> str:

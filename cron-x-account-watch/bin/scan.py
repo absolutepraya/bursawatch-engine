@@ -18,6 +18,8 @@ import render
 import rsshub
 import state
 import supersession
+import article_context
+import vision_media
 from agent_protocol import (
     normalize_route,
     agent_item,
@@ -26,6 +28,7 @@ from agent_protocol import (
     requires_relevance,
     validate_submission,
 )
+from models import SourcePost
 
 
 WIB = ZoneInfo("Asia/Jakarta")
@@ -128,6 +131,29 @@ def _sanitize_reason(reason: object) -> str:
 
 def config_path() -> Path:
     return Path(os.environ.get("X_POST_WATCH_CONFIG_PATH", str(Path(__file__).resolve().parent.parent / "config" / "watches.json")))
+
+
+def _prepare_agent_vision(post: SourcePost, storage: Path, dry_run: bool):
+    if dry_run:
+        return None
+    return vision_media.prepare(post, vision_media.default_root(storage))
+
+
+def _prepare_article_context(thread_posts: tuple[SourcePost, ...] | None, dry_run: bool):
+    if dry_run or not thread_posts:
+        return None
+    return article_context.prepare(thread_posts)
+
+
+def _cleanup_agent_vision(storage: Path, event: dict) -> None:
+    try:
+        vision_media.cleanup_event(
+            vision_media.default_root(storage),
+            str(event["profile_id"]),
+            str(event["post_id"]),
+        )
+    except (vision_media.VisionMediaError, OSError):
+        pass
 
 
 def _control_plane_reporter():
@@ -238,16 +264,18 @@ def _event_source_ids(event: dict) -> set[str]:
 def _delivery_media(profile, thread_posts):
     all_media = []
     seen_media: set[str] = set()
-    for thread_post in thread_posts:
-        for media in thread_post.media:
+
+    def append_unique(media_items):
+        for media in media_items:
             if media.url not in seen_media:
                 seen_media.add(media.url)
                 all_media.append(media)
+
     for thread_post in thread_posts:
-        for media in thread_post.quoted_media:
-            if media.url not in seen_media:
-                seen_media.add(media.url)
-                all_media.append(media)
+        append_unique(thread_post.media)
+    for thread_post in thread_posts:
+        if not thread_post.media:
+            append_unique(thread_post.quoted_media)
     if profile.media_policy == "omit_last":
         return all_media[:-1]
     return all_media
@@ -770,12 +798,53 @@ def run(
                 },
             )
             heartbeat_leg = now.astimezone(WIB).strftime("%Y%m%d%H%M")
-            discord.post_text(format_heartbeat(now, stats), HEARTBEAT_CHANNEL_ID, dry_run, discord.nonce("heartbeat", heartbeat_leg))
             event = state.claim_oldest_agent(value, profiles, now)
             state.save_state(storage, value)
             post = state.deserialize_post(event["post"]) if event else None
             thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]])) if event else None
-            wake_payload = build_wake_payload(agent_item(profiles[event["profile_id"]], post, thread_posts) if event and post else None)
+            vision_bundle = None
+            article_bundle = None
+            if event is not None and post is not None:
+                try:
+                    claimed_event_key = f"{event['profile_id']}:{event['post_id']}"
+                    claimed_lease = event.get("agent_lease_until")
+                    # Remote enrichment must not block delivery or the next
+                    # minute-level worker. The persisted lease is rechecked
+                    # before its contexts are handed to Hermes.
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+                    try:
+                        try:
+                            vision_bundle = _prepare_agent_vision(post, storage, dry_run)
+                            if vision_bundle is not None and vision_bundle.unavailable_count:
+                                stats.note_source_error("vision image preparation incomplete")
+                        except vision_media.VisionMediaError:
+                            stats.note_source_error("vision image preparation failed")
+                        try:
+                            article_bundle = _prepare_article_context(thread_posts, dry_run)
+                            if article_bundle is not None and article_bundle.unavailable_count:
+                                stats.note_source_error("linked article retrieval incomplete")
+                        except article_context.ArticleFetchError:
+                            stats.note_source_error("linked article retrieval failed")
+                    finally:
+                        fcntl.flock(lock, fcntl.LOCK_EX)
+                    value = state.load_state(storage)
+                    current_event = state.awaiting_analysis_event(value, claimed_event_key)
+                    if current_event.get("agent_lease_until") != claimed_lease:
+                        raise ValueError("claimed event lease changed during enrichment")
+                    event = current_event
+                    post = state.deserialize_post(event["post"])
+                    thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]]))
+                except ValueError:
+                    event = None
+                    post = None
+                    thread_posts = None
+                    vision_bundle = None
+                    article_bundle = None
+            wake_payload = build_wake_payload(
+                agent_item(profiles[event["profile_id"]], post, thread_posts, vision_bundle, article_bundle)
+                if event and post else None
+            )
+            discord.post_text(format_heartbeat(now, stats), HEARTBEAT_CHANNEL_ID, dry_run, discord.nonce("heartbeat", heartbeat_leg))
             if event is not None:
                 _report_control_event(
                     reporter,
@@ -872,6 +941,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                     raise ValueError("direct market disclosure must be relevant")
                 state.discard_analysis(value, analysis["event_key"])
                 state.save_state(storage, value)
+                _cleanup_agent_vision(storage, event)
                 _report_control_event(
                     reporter,
                     run_id,
@@ -889,6 +959,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 analysis["route"] = route_override
             state.submit_analysis(value, analysis["event_key"], {key: item for key, item in analysis.items() if key not in {"event_key", "is_relevant"}})
             state.save_state(storage, value)
+            _cleanup_agent_vision(storage, event)
             stats = RunStats()
             now = datetime.now(WIB)
             while (event_index := _next_deliverable_index(value, profiles, now)) is not None:

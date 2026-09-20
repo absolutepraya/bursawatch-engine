@@ -173,10 +173,11 @@ def render_post(
         if include_board:
             _append_atomic(messages, f"**Board:** {BOARD_MENTION}", "\n")
         _append_atomic(messages, f"[View on X](<{post.url}>)", "\n\n")
-        if post.quoted_content_html:
-            _append_atomic(messages, _quoted_block(post.quoted_content_html, post.quoted_url or post.url), "\n")
-        if post.quoted_article_url:
-            _append_atomic(messages, _article_block(post.quoted_article_label, post.quoted_article_url), "\n")
+        if profile.show_quoted_post:
+            if post.quoted_content_html:
+                _append_atomic(messages, _quoted_block(post.quoted_content_html, post.quoted_url or post.url), "\n")
+            if post.quoted_article_url:
+                _append_atomic(messages, _article_block(post.quoted_article_label, post.quoted_article_url), "\n")
         return messages
     messages = _append_text(prefix, _thread_text(thread_posts or (post,)))
     if include_status_date:
@@ -184,8 +185,9 @@ def render_post(
     if include_board:
         _append_atomic(messages, f"**Board:** {BOARD_MENTION}", "\n")
     _append_atomic(messages, f"[View on X](<{post.url}>)", "\n\n" if include_board else " ")
-    if post.quoted_content_html:
-        _append_atomic(messages, _quoted_block(post.quoted_content_html, post.quoted_url or post.url), "\n")
-    if post.quoted_article_url:
-        _append_atomic(messages, _article_block(post.quoted_article_label, post.quoted_article_url), "\n")
+    if profile.show_quoted_post:
+        if post.quoted_content_html:
+            _append_atomic(messages, _quoted_block(post.quoted_content_html, post.quoted_url or post.url), "\n")
+        if post.quoted_article_url:
+            _append_atomic(messages, _article_block(post.quoted_article_label, post.quoted_article_url), "\n")
     return messages

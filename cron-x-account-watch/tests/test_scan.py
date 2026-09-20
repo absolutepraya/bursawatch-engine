@@ -7,7 +7,9 @@ import scan
 import render
 import state
 import supersession
+from article_context import ArticleBundle, ArticleSource
 from models import DiscordChannel, PostKind, Profile, SourceMedia, SourcePost, ThreadHandling
+from vision_media import VisionAsset, VisionBundle
 
 
 def now() -> datetime:
@@ -282,6 +284,134 @@ def test_queue_only_run_skips_source_fetch_and_claims_oldest_agent(tmp_path, mon
     assert saved["outbox"][0]["agent_phase"] == "awaiting_agent"
 
 
+def test_queue_worker_passes_authored_and_quoted_vision_images_to_the_agent(tmp_path, monkeypatch, config_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    current = datetime(2026, 8, 24, 10, 0, tzinfo=scan.WIB)
+    storage = tmp_path / "state.json"
+    post = SourcePost(
+        profile.id,
+        "101",
+        "https://x.com/Kutekians/status/101",
+        current - timedelta(hours=2),
+        "A substantive market post",
+        PostKind.QUOTE,
+        "https://x.com/other/status/100",
+        "Quoted market context",
+        (SourceMedia("https://pbs.twimg.com/media/authored.jpg", 0),),
+        (SourceMedia("https://pbs.twimg.com/media/quoted.jpg", 0),),
+    )
+    value = state.new_state()
+    value["profiles"][profile.id] = {"cursor": "100"}
+    state.observe_posts(value, profile, [post], lambda candidate: candidate.kind is PostKind.QUOTE, now=post.published_at)
+    state.save_state(storage, value)
+    root = tmp_path / "vision" / profile.id / post.post_id
+    root.mkdir(parents=True)
+    authored = root / "0.jpg"
+    quoted = root / "1.jpg"
+    authored.write_bytes(b"authored")
+    quoted.write_bytes(b"quoted")
+    bundle = VisionBundle(
+        root,
+        (
+            VisionAsset("tweet", post.post_id, 0, authored),
+            VisionAsset("quoted_tweet", post.post_id, 0, quoted),
+        ),
+        0,
+    )
+    articles = ArticleBundle(
+        (
+            ArticleSource(
+                "https://example.com/article",
+                "https://example.com/article",
+                "Article context",
+                "Article market detail.",
+                False,
+            ),
+        ),
+        1,
+        0,
+    )
+    prepared = []
+    prepared_articles = []
+    monkeypatch.setattr(scan, "state_path", lambda: storage)
+    monkeypatch.setattr(scan, "config_path", lambda: config_path)
+    monkeypatch.setattr(
+        scan.rsshub,
+        "fetch_profile_items",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("queue-only mode fetched a source")),
+    )
+    monkeypatch.setattr(scan, "_prepare_agent_vision", lambda *args: prepared.append(args) or bundle)
+    monkeypatch.setattr(scan, "_prepare_article_context", lambda *args: prepared_articles.append(args) or articles)
+    monkeypatch.setattr(scan.discord, "post_text", lambda *args: None)
+    flock_operations = []
+    monkeypatch.setattr(scan.fcntl, "flock", lambda _lock, operation: flock_operations.append(operation))
+    monkeypatch.setenv("X_POST_WATCH_QUEUE_ONLY", "1")
+
+    result = scan.run(now=current, dry_run=False)
+
+    assert prepared == [(post, storage, False)]
+    assert prepared_articles == [((post,), False)]
+    assert result["item"]["vision_asset_paths"] == [str(authored), str(quoted)]
+    assert "Authored X post image 1" in result["item"]["post_text"]
+    assert "Quoted X post image 1" in result["item"]["post_text"]
+    assert "Article 1 title: Article context" in result["item"]["post_text"]
+    assert flock_operations == [
+        scan.fcntl.LOCK_EX | scan.fcntl.LOCK_NB,
+        scan.fcntl.LOCK_UN,
+        scan.fcntl.LOCK_EX,
+    ]
+
+
+def test_queue_worker_discards_context_when_the_claimed_lease_changes(tmp_path, monkeypatch, config_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    current = datetime(2026, 8, 24, 10, 0, tzinfo=scan.WIB)
+    storage = tmp_path / "state.json"
+    post = SourcePost(
+        profile.id,
+        "101",
+        "https://x.com/Kutekians/status/101",
+        current - timedelta(hours=2),
+        "A substantive market post",
+        PostKind.NORMAL,
+        None,
+        None,
+        (),
+        (),
+    )
+    value = state.new_state()
+    value["profiles"][profile.id] = {"cursor": "100"}
+    state.observe_posts(value, profile, [post], lambda _candidate: True, now=post.published_at)
+    state.save_state(storage, value)
+
+    def change_lease(*_args):
+        current_value = state.load_state(storage)
+        current_value["outbox"][0]["agent_lease_until"] = "2026-08-24T10:30:00+07:00"
+        state.save_state(storage, current_value)
+        return None
+
+    monkeypatch.setattr(scan, "state_path", lambda: storage)
+    monkeypatch.setattr(scan, "config_path", lambda: config_path)
+    monkeypatch.setattr(scan, "_prepare_agent_vision", change_lease)
+    monkeypatch.setattr(scan, "_prepare_article_context", lambda *_args: None)
+    monkeypatch.setattr(scan.discord, "post_text", lambda *args: None)
+    monkeypatch.setenv("X_POST_WATCH_QUEUE_ONLY", "1")
+
+    result = scan.run(now=current, dry_run=False)
+
+    assert result == {"wakeAgent": False, "item": None}
+    assert state.load_state(storage)["outbox"][0]["agent_phase"] == "awaiting_agent"
+
+
+def test_cleanup_agent_vision_ignores_os_errors(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        scan.vision_media,
+        "cleanup_event",
+        lambda *_args: (_ for _ in ()).throw(OSError("filesystem unavailable")),
+    )
+
+    scan._cleanup_agent_vision(tmp_path / "state.json", {"profile_id": "kutekians", "post_id": "101"})
+
+
 def test_heartbeat_format_is_canonical():
     value = scan.format_heartbeat(datetime(2026, 7, 28, 6, 0, tzinfo=scan.WIB), scan.RunStats())
     assert value == "🫀 x-post · 06:00 WIB · 0 fetched · 0 filtered · 0 queued · 0 delivered · 0 errors · 0 pending · oldest 0m"
@@ -466,7 +596,7 @@ def test_fatal_heartbeat_does_not_mention_owner():
     assert "<@" not in value
 
 
-def test_delivery_sends_thread_media_then_external_quote_media(tmp_path, monkeypatch, config_path):
+def test_delivery_omits_quoted_media_when_each_quoting_post_has_media(tmp_path, monkeypatch, config_path):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     root = SourcePost(profile.id, "101", "https://x.com/Kutekians/status/101", datetime.now(UTC), "Root", PostKind.QUOTE, "https://x.com/external/status/0", "Earlier external quote", (SourceMedia("https://img.example/root.jpg", 0),), (SourceMedia("https://img.example/root-quote.jpg", 0),))
     latest = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Latest", PostKind.QUOTE, "https://x.com/external/status/1", "External: Quote", (SourceMedia("https://img.example/latest.jpg", 0),), (SourceMedia("https://img.example/quote.jpg", 0),))
@@ -480,7 +610,28 @@ def test_delivery_sends_thread_media_then_external_quote_media(tmp_path, monkeyp
     storage = tmp_path / "state.json"
     while value["outbox"]:
         assert scan._deliver(value, {profile.id: profile}, 0, True, storage, scan.RunStats()) is True
-    assert delivered == ["https://img.example/root.jpg", "https://img.example/latest.jpg", "https://img.example/root-quote.jpg", "https://img.example/quote.jpg"]
+    assert delivered == ["https://img.example/root.jpg", "https://img.example/latest.jpg"]
+
+
+def test_delivery_uses_quoted_media_when_quoting_post_has_no_media(tmp_path, monkeypatch, config_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    post = SourcePost(
+        profile.id, "101", "https://x.com/Kutekians/status/101", datetime.now(UTC),
+        "Quote", PostKind.QUOTE, "https://x.com/external/status/0", "External quote",
+        (), (SourceMedia("https://img.example/quoted.jpg", 0),),
+    )
+    value = state.new_state()
+    value["outbox"].append({
+        "profile_id": profile.id, "post_id": post.post_id, "text_index": 1, "media_index": 0,
+        "post": state.serialize_post(post), "thread_posts": [state.serialize_post(post)],
+    })
+    delivered = []
+    monkeypatch.setattr(scan.discord, "post_media", lambda url, *_args: delivered.append(url) or "test")
+
+    while value["outbox"]:
+        assert scan._deliver(value, {profile.id: profile}, 0, True, tmp_path / "state.json", scan.RunStats()) is True
+
+    assert delivered == ["https://img.example/quoted.jpg"]
 
 
 def test_delivery_omit_last_removes_only_final_unique_bundle_media(tmp_path, monkeypatch, config_path, profile_payload):
@@ -499,7 +650,7 @@ def test_delivery_omit_last_removes_only_final_unique_bundle_media(tmp_path, mon
     storage = tmp_path / "state.json"
     while value["outbox"]:
         assert scan._deliver(value, {profile.id: profile}, 0, True, storage, scan.RunStats()) is True
-    assert delivered == ["https://img.example/root.jpg", "https://img.example/latest.jpg", "https://img.example/root-quote.jpg"]
+    assert delivered == ["https://img.example/root.jpg"]
 
 
 def test_delivery_omit_last_drops_the_only_media_item(tmp_path, monkeypatch, config_path, profile_payload):

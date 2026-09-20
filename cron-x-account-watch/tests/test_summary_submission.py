@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 
 def test_submit_title_only_preserves_raw_post_and_quote(tmp_path, monkeypatch, config_path, profile_payload):
     profile_payload["enable_llm_title"] = True
+    profile_payload["show_quoted_post"] = True
     config_path.write_text(json.dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     storage = tmp_path / "state.json"
@@ -28,6 +29,27 @@ def test_submit_title_only_preserves_raw_post_and_quote(tmp_path, monkeypatch, c
 
     assert result == {"submitted": True, "delivered": 1}
     assert sent == [("### <:twitter:1531672630602498129> BI: Tiga Indikator untuk Pasar\n-# <:kutekians:1531673483459821729> Almer Sad, CFA\n\nRaw original [View on X](<https://x.com/Kutekians/status/102>)\n> **Quoted author**\n> Quoted raw\n> [View quoted on X](<https://x.com/a/status/101>)", "1531655369884045382")]
+
+
+def test_submit_irrelevant_analysis_removes_its_private_vision_cache(tmp_path, monkeypatch, config_path, profile_payload):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    storage = tmp_path / "state.json"
+    post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Non-market post", PostKind.NORMAL, None, None, (), ())
+    value = state.new_state()
+    value["profiles"][profile.id] = {"cursor": "101"}
+    state.observe_posts(value, profile, [post], lambda candidate: True)
+    assert state.claim_oldest_agent(value, {profile.id: profile}, datetime.now(UTC)) is not None
+    state.save_state(storage, value)
+    cache = storage.parent / "x-post-watch-vision" / profile.id / post.post_id
+    cache.mkdir(parents=True)
+    (cache / "0.jpg").write_bytes(b"image")
+    monkeypatch.setenv("X_POST_WATCH_STATE_PATH", str(storage))
+    monkeypatch.setenv("X_POST_WATCH_CONFIG_PATH", str(config_path))
+
+    result = scan.submit_analysis_payload({"event_key": "kutekians:102", "is_relevant": False})
+
+    assert result == {"submitted": True, "ignored": True, "delivered": 0}
+    assert not cache.exists()
 
 
 def test_submit_summary_validates_then_drains_only_summary_event(tmp_path, monkeypatch, config_path, profile_payload):

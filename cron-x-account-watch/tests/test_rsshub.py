@@ -13,11 +13,12 @@ def item(url="https://x.com/Kutekians/status/102", links=None, html="Market <str
 
 def test_quote_item_keeps_quoted_url_and_is_forwardable(profile_payload, config_path):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
-    post = rsshub.parse_feed({"items": [item(links=[{"type": "quote", "url": "https://x.com/original/status/101", "content_html": "Original quote"}])]}, profile)[0]
+    post = rsshub.parse_feed({"items": [item(links=[{"type": "quote", "url": "https://x.com/original/status/101", "content_html": "Original quote<img src='https://img.example/quoted.jpg'>"}])]}, profile)[0]
     assert post.kind is PostKind.QUOTE
     assert post.quoted_url == "https://x.com/original/status/101"
     assert rsshub.is_forwardable(profile, post) is True
     assert [media.url for media in post.media] == ["https://img.example/1.jpg"]
+    assert [media.url for media in post.quoted_media] == ["https://img.example/quoted.jpg"]
 
 
 @pytest.mark.parametrize(("relation", "expected"), [({"type": "reply", "url": "https://x.com/a/status/1"}, PostKind.REPLY), ({"type": "repost", "url": "https://x.com/a/status/1"}, PostKind.REPOST)])

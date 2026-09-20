@@ -16,6 +16,7 @@ def test_load_config_builds_profile_and_feed_url(config_path):
     assert profile.id == "kutekians"
     assert profile.feed_url == "http://127.0.0.1:1200/twitter/user/Kutekians?format=json"
     assert profile.media_policy == "all"
+    assert profile.show_quoted_post is False
     assert profile.relevance_scope == "stock_market"
     assert profile.thread_handling.max_posts == 10
     assert profile.thread_handling.max_age_minutes == 240
@@ -57,6 +58,20 @@ def test_load_config_defaults_media_policy_for_older_profiles(config_path, profi
     assert config_module.load_watch_config(config_path).profiles[0].media_policy == "all"
 
 
+def test_load_config_defaults_quoted_post_display_to_false(config_path, profile_payload):
+    profile_payload.pop("show_quoted_post", None)
+    write_config(config_path, {"version": 1, "profiles": [profile_payload]})
+
+    assert config_module.load_watch_config(config_path).profiles[0].show_quoted_post is False
+
+
+def test_load_config_accepts_explicit_quoted_post_display(config_path, profile_payload):
+    profile_payload["show_quoted_post"] = True
+    write_config(config_path, {"version": 1, "profiles": [profile_payload]})
+
+    assert config_module.load_watch_config(config_path).profiles[0].show_quoted_post is True
+
+
 def test_canonical_almer_profile_uses_llm_summary():
     canonical_config = Path(__file__).resolve().parents[1] / "config" / "watches.json"
     profiles = {profile.id: profile for profile in config_module.load_watch_config(canonical_config).profiles}
@@ -64,6 +79,15 @@ def test_canonical_almer_profile_uses_llm_summary():
     assert profiles["kutekians"].enable_llm_title is True
     assert profiles["kutekians"].enable_llm_summary is True
     assert profiles["kutekians"].enable_llm_routing is False
+
+
+def test_canonical_profiles_start_disabled_and_hide_quoted_posts():
+    canonical_config = Path(__file__).resolve().parents[1] / "config" / "watches.json"
+    profiles = config_module.load_watch_config(canonical_config).profiles
+
+    assert profiles
+    assert all(profile.enabled is False for profile in profiles)
+    assert all(profile.show_quoted_post is False for profile in profiles)
 
 
 def test_canonical_thread_handling_matches_writer_patterns():
@@ -80,7 +104,7 @@ def test_canonical_insider_tracker_profile_is_threaded_and_routed():
     canonical_config = Path(__file__).resolve().parents[1] / "config" / "watches.json"
     profile = {item.id: item for item in config_module.load_watch_config(canonical_config).profiles}["insidertracker"]
 
-    assert profile.enabled is True
+    assert profile.enabled is False
     assert profile.source == "direct_x"
     assert profile.profile_url == "https://x.com/InsiderTrackX"
     assert profile.handle == "InsiderTrackX"
@@ -108,7 +132,7 @@ def test_canonical_doktermarket_profile_is_routed_and_media_enabled():
     canonical_config = Path(__file__).resolve().parents[1] / "config" / "watches.json"
     profile = {item.id: item for item in config_module.load_watch_config(canonical_config).profiles}["doktermarket"]
 
-    assert profile.enabled is True
+    assert profile.enabled is False
     assert profile.source == "rsshub"
     assert profile.profile_url == "https://x.com/doktermarket"
     assert profile.handle == "doktermarket"
@@ -134,7 +158,7 @@ def test_canonical_txthariansaham_profile_is_routed_and_uses_rsshub():
     canonical_config = Path(__file__).resolve().parents[1] / "config" / "watches.json"
     profile = {item.id: item for item in config_module.load_watch_config(canonical_config).profiles}["txthariansaham"]
 
-    assert profile.enabled is True
+    assert profile.enabled is False
     assert profile.source == "rsshub"
     assert profile.profile_url == "https://x.com/txthariansaham"
     assert profile.handle == "txthariansaham"
@@ -156,7 +180,7 @@ def test_canonical_aldotjahjadi8_profile_is_routed_and_threaded():
     canonical_config = Path(__file__).resolve().parents[1] / "config" / "watches.json"
     profile = {item.id: item for item in config_module.load_watch_config(canonical_config).profiles}["aldotjahjadi8"]
 
-    assert profile.enabled is True
+    assert profile.enabled is False
     assert profile.source == "rsshub"
     assert profile.profile_url == "https://x.com/aldotjahjadi8"
     assert profile.handle == "aldotjahjadi8"
@@ -178,7 +202,7 @@ def test_canonical_kobeissi_profile_is_financial_market_scoped():
     canonical_config = Path(__file__).resolve().parents[1] / "config" / "watches.json"
     profile = {item.id: item for item in config_module.load_watch_config(canonical_config).profiles}["kobeissiletter"]
 
-    assert profile.enabled is True
+    assert profile.enabled is False
     assert profile.source == "rsshub"
     assert profile.profile_url == "https://x.com/KobeissiLetter"
     assert profile.handle == "KobeissiLetter"
@@ -211,7 +235,7 @@ def test_canonical_wavetiga_profile_is_direct_x_and_fully_routed():
     canonical_config = Path(__file__).resolve().parents[1] / "config" / "watches.json"
     profile = {item.id: item for item in config_module.load_watch_config(canonical_config).profiles}["wavetiga"]
 
-    assert profile.enabled is True
+    assert profile.enabled is False
     assert profile.source == "direct_x"
     assert profile.profile_url == "https://x.com/wavetiga"
     assert profile.handle == "wavetiga"
@@ -242,6 +266,7 @@ def test_canonical_wavetiga_profile_is_direct_x_and_fully_routed():
         ("emoji", "kutekians", "emoji"),
         ("discord_channels", [], "non-empty array"),
         ("forward_quote_post", 1, "boolean"),
+        ("show_quoted_post", 1, "boolean"),
         ("enable_llm_title", "yes", "boolean"),
         ("enable_llm_summary", "yes", "boolean"),
         ("enable_llm_routing", "yes", "boolean"),

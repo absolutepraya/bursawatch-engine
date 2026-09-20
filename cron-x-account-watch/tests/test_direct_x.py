@@ -93,6 +93,25 @@ def test_fetches_and_expands_a_same_author_thread(config_path):
     assert [media.url for media in posts[0].media] == ["https://pbs.twimg.com/media/root.jpg"]
 
 
+def test_direct_x_keeps_quoted_tweet_media_for_vision_context(config_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    post = direct_x._source_post(profile, {
+        "tweetID": "103",
+        "date_epoch": 1787137420,
+        "text": "My view",
+        "mediaURLs": ["https://pbs.twimg.com/media/authored.jpg"],
+        "qrtURL": "https://x.com/other/status/99",
+        "qrt": {
+            "text": "Quoted context",
+            "mediaURLs": ["https://pbs.twimg.com/media/quoted.jpg"],
+        },
+    })
+
+    assert post.kind is PostKind.QUOTE
+    assert [media.url for media in post.media] == ["https://pbs.twimg.com/media/authored.jpg"]
+    assert [media.url for media in post.quoted_media] == ["https://pbs.twimg.com/media/quoted.jpg"]
+
+
 def test_discovers_posts_from_current_profile_status_links(config_path):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
 
