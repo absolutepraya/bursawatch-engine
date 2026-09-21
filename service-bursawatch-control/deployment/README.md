@@ -64,6 +64,9 @@ DNS, TLS, Hermes scheduler, or reconciler.
    records immutable file checksums and aborts on a changed applied migration.
    The baseline seeder creates config revision 1 only when that watcher has no
    configuration history, so it cannot overwrite dashboard changes.
+   Source-owned baseline promotions are separate reviewed `manual` migrations
+   with revision and checksum guards. They are not a replacement for an
+   authenticated dashboard configuration write.
 6. Install the systemd unit, reload systemd, and start the API. Verify only
    `http://127.0.0.1:9120/healthz` first.
 7. Create the matching DNS record, install the HTTP Nginx bootstrap vhost, and

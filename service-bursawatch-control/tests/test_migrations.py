@@ -113,3 +113,18 @@ def test_profile_avatar_metadata_is_private_and_keeps_url_state_out_of_watcher_c
     assert "alter table bursawatch_profile_avatars enable row level security;" in migration
     assert "revoke all privileges on table public.bursawatch_profile_avatars from public" in migration
     assert "bursawatch_config_revisions" not in migration
+
+
+def test_whatsapp_baseline_promotion_is_manual_and_source_owned_only():
+    migration = (
+        Path(__file__).resolve().parents[1]
+        / "migrations/009_promote_whatsapp_v2_baseline.sql"
+    ).read_text(encoding="utf-8")
+
+    assert migration.startswith("-- bursawatch-release: manual\n")
+    assert "bursawatch-wa-channel-watch" in migration
+    assert "current_revision = 1" in migration
+    assert "config_version = 1" in migration
+    assert "source-baseline-correction" in migration
+    assert "12c37e0c385f6b2431f2d318559d49406b9cb847fc5da8007459d06486602de9" in migration
+    assert "11f80d21ef137ec2c3f92b5bc69e8e7146a331ceec0a2d46549e21bb17bbd829" in migration

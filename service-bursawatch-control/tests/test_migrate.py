@@ -107,8 +107,9 @@ def test_discover_migrations_uses_the_checked_legacy_eligibility_registry():
         "006_scheduler_reconciliation_runtime.sql",
         "007_preserve_paused_instagram_baseline.sql",
         "008_profile_avatar_metadata.sql",
+        "009_promote_whatsapp_v2_baseline.sql",
     }
-    assert {migration.release_eligibility for migration in migrations} == {"automatic"}
+    assert {migration.release_eligibility for migration in migrations} == {"automatic", "manual"}
 
 
 def test_apply_migrations_records_each_immutable_file_and_is_idempotent(tmp_path: Path):

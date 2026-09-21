@@ -101,6 +101,12 @@ database before serving traffic and refuses a changed applied migration.
 from `baseline-configs/`; it refuses inconsistent history and never replaces
 an active dashboard revision.
 
+If a source-owned baseline must advance after a schema-compatible watcher
+change, use a reviewed `manual` migration guarded by the prior revision,
+checksum, and `actor_id`. Such a correction may promote only the untouched
+`source-baseline` row and must leave any dashboard-authored revision alone.
+Human configuration writes still go through the authenticated API.
+
 The optional watcher config-validator directories are trusted deployed source,
 not web input. The service invokes each configured parser in a fresh process
 with a minimal environment and no service credentials, so the X, Instagram,
