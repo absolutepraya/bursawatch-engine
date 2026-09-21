@@ -9,6 +9,7 @@ fi
 
 package_dir="$(cd "$(dirname "$0")/.." && pwd)"
 agent_dir="$HOME/.local/lib/bursawatch-release"
+state_root="$HOME/.local/share/bursawatch-release"
 environment_file="$HOME/.hermes/bursawatch-release-agent.env"
 
 [[ -r "$environment_file" ]] || {
@@ -27,7 +28,7 @@ command -v git >/dev/null
 command -v rsync >/dev/null
 command -v sudo >/dev/null
 
-install -d -m 0700 "$agent_dir"
+install -d -m 0700 "$agent_dir" "$state_root"
 install -m 0700 "$package_dir/bin/bursawatch-release-agent.sh" "$agent_dir/bursawatch-release-agent.sh"
 install -m 0600 "$package_dir/bin/release_agent.py" "$agent_dir/release_agent.py"
 

@@ -177,4 +177,6 @@ def test_bootstrap_script_requires_apply_and_has_valid_shell_syntax():
     subprocess.run(["bash", "-n", str(script)], check=True)
     assert '"${1:-}" != "--apply"' in source
     assert "bursawatch-release-agent.env" in source
+    assert 'state_root="$HOME/.local/share/bursawatch-release"' in source
+    assert 'install -d -m 0700 "$agent_dir" "$state_root"' in source
     assert "systemctl enable --now bursawatch-release-agent.timer" in source
