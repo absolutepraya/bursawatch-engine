@@ -20,6 +20,7 @@ _SCOPES = {"stock_market", "financial_market", "indonesia_economy"}
 _PROFILE_KEYS = {
     "id",
     "enabled",
+    "mode",
     "channel_jid",
     "channel_url",
     "display_name",
@@ -86,6 +87,9 @@ def _profile(value: object) -> ChannelProfile:
     if not _ID_RE.fullmatch(profile_id):
         raise ValueError("profile ID is invalid")
     enabled = _require_type(value["enabled"], bool, "enabled")
+    mode = _require_type(value["mode"], str, "mode")
+    if mode not in {"observe", "forward"}:
+        raise ValueError("mode must be observe or forward")
     channel_jid = _require_type(value["channel_jid"], str, "channel JID")
     if not _JID_RE.fullmatch(channel_jid):
         raise ValueError("channel JID must end with @newsletter")
@@ -93,14 +97,12 @@ def _profile(value: object) -> ChannelProfile:
     display_name = _require_type(value["display_name"], str, "display name")
     if not display_name.strip():
         raise ValueError("display name must not be empty")
-    emoji = _require_type(value["emoji"], str, "emoji")
-    if not _EMOJI_RE.fullmatch(emoji):
+    emoji = value["emoji"]
+    if emoji is not None and (type(emoji) is not str or not _EMOJI_RE.fullmatch(emoji)):
         raise ValueError("emoji must use Discord custom emoji syntax")
     status_emojis = _status_emojis(value["status_emojis"])
     raw_channels = _require_type(value["discord_channels"], list, "discord channels")
     channels = tuple(_discord_channel(item) for item in raw_channels)
-    if not channels:
-        raise ValueError("at least one Discord channel is required")
     if len({item.key for item in channels}) != len(channels):
         raise ValueError("Discord route keys must be unique")
     booleans = {
@@ -120,9 +122,17 @@ def _profile(value: object) -> ChannelProfile:
     max_items = _require_type(value["max_items_per_poll"], int, "max items per poll")
     if not 1 <= max_items <= 50:
         raise ValueError("max items per poll must be from 1 to 50")
+    if mode == "forward" and (emoji is None or not channels):
+        raise ValueError("forward profile requires at least one Discord route and a Discord custom emoji")
+    if mode == "observe":
+        if emoji is not None or channels:
+            raise ValueError("observe profile requires null presentation and no Discord routes")
+        if any(booleans.values()):
+            raise ValueError("observe profile cannot enable forwarding or LLM analysis")
     return ChannelProfile(
         id=profile_id,
         enabled=enabled,
+        mode=mode,
         channel_jid=channel_jid,
         channel_url=channel_url,
         display_name=display_name.strip(),
@@ -140,14 +150,14 @@ def load_data(payload: object) -> WatchConfig:
     """Validate one complete WhatsApp Channel watcher configuration object."""
     if type(payload) is not dict or set(payload) != {"version", "profiles"}:
         raise ValueError("watcher config has unexpected or missing fields")
-    if payload["version"] != 1:
-        raise ValueError("watcher config version must be 1")
+    if payload["version"] != 2:
+        raise ValueError("watcher config version must be 2")
     profiles = tuple(_profile(item) for item in _require_type(payload["profiles"], list, "profiles"))
     if len({profile.id for profile in profiles}) != len(profiles):
         raise ValueError("profile IDs must be unique")
     if len({profile.channel_jid for profile in profiles}) != len(profiles):
         raise ValueError("channel JIDs must be unique")
-    return WatchConfig(version=1, profiles=profiles)
+    return WatchConfig(version=2, profiles=profiles)
 
 
 def load(path: Path) -> WatchConfig:

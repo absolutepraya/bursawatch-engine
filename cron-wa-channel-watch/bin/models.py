@@ -29,10 +29,11 @@ class StatusEmojis:
 class ChannelProfile:
     id: str
     enabled: bool
+    mode: str
     channel_jid: str
     channel_url: str
     display_name: str
-    emoji: str
+    emoji: str | None
     status_emojis: StatusEmojis
     discord_channels: tuple[DiscordChannel, ...]
     forward_media: bool
@@ -54,6 +55,14 @@ class ChannelProfile:
                 self.enable_llm_relevance_filter,
             )
         )
+
+    @property
+    def is_observing(self) -> bool:
+        return self.enabled and self.mode == "observe"
+
+    @property
+    def is_forwarding(self) -> bool:
+        return self.enabled and self.mode == "forward"
 
     def channel_for(self, key: str) -> DiscordChannel:
         for channel in self.discord_channels:

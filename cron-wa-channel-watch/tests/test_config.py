@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import config
 from config import load
 
 
@@ -10,6 +11,7 @@ def profile(**overrides):
     value = {
         "id": "bri-danareksa-sekuritas",
         "enabled": True,
+        "mode": "forward",
         "channel_jid": "12345@newsletter",
         "channel_url": "https://whatsapp.com/channel/0029Example",
         "display_name": "BRI Danareksa Sekuritas",
@@ -35,7 +37,7 @@ def profile(**overrides):
 
 def write_config(tmp_path, profiles):
     path = tmp_path / "watches.json"
-    path.write_text(json.dumps({"version": 1, "profiles": profiles}), encoding="utf-8")
+    path.write_text(json.dumps({"version": 2, "profiles": profiles}), encoding="utf-8")
     return path
 
 
@@ -55,7 +57,7 @@ def test_live_config_snapshot_is_validated_once(tmp_path, monkeypatch):
         lambda: SimpleNamespace(
             watcher_id="bursawatch-wa-channel-watch",
             revision=8,
-            config={"version": 1, "profiles": [payload]},
+            config={"version": 2, "profiles": [payload]},
         ),
     )
 
@@ -92,3 +94,28 @@ def test_rejects_invalid_profile(tmp_path, change):
 def test_rejects_duplicate_channel_ids(tmp_path):
     with pytest.raises(ValueError, match="channel JIDs"):
         load(write_config(tmp_path, [profile(), profile(id="other")]))
+
+
+def test_observe_profile_needs_no_discord_presentation(tmp_path):
+    observed = profile(
+        id="ins",
+        channel_jid="120363405187024421@newsletter",
+        mode="observe",
+        emoji=None,
+        discord_channels=[],
+        enable_llm_title=False,
+        enable_llm_summary=False,
+        enable_llm_routing=False,
+        enable_llm_relevance_filter=False,
+        forward_media=False,
+    )
+
+    loaded = config.load_data({"version": 2, "profiles": [observed]})
+
+    assert loaded.profiles[0].is_observing is True
+    assert loaded.profiles[0].is_forwarding is False
+
+
+def test_forward_profile_requires_routes_and_presentation():
+    with pytest.raises(ValueError, match="forward profile requires"):
+        config.load_data({"version": 2, "profiles": [profile(mode="forward", emoji=None)]})

@@ -1,9 +1,10 @@
 {
-  "version": 1,
+  "version": 2,
   "profiles": [
     {
       "id": "bri-danareksa-sekuritas",
       "enabled": true,
+      "mode": "forward",
       "channel_jid": "120363419226413141@newsletter",
       "channel_url": "https://www.whatsapp.com/channel/0029VbAjdnb60eBhwVdJxj1c",
       "display_name": "BRI Danareksa Sekuritas",
@@ -36,7 +37,53 @@
       "enable_llm_routing": true,
       "enable_llm_relevance_filter": true,
       "relevance_scope": "stock_market",
-      "additional_prompt_instruction": "Route an exact leading #TechnicalReview post to id_stocks_swing. Use id_stocks_news for one clear lead issuer in a multi-stock post, and macro_news for broad sector or market theses even when a top pick is named. Preserve explicit source statuses without inventing them.",
+      "additional_prompt_instruction": "Forward only material issuer events or disclosures, factual market or macro developments, coherent macro roundups, and exact leading #TechnicalReview posts. Reject promotions, product activation, calls to action, analyst research, stock picks, watchlists, outlooks, valuations, targets, and untagged technical or price-level material. Route an exact leading #TechnicalReview post to id_stocks_swing. Use id_stocks_news for one clear lead issuer in a multi-stock post, and macro_news for broad sector or market theses even when a top pick is named. Preserve explicit source statuses without inventing them.",
+      "max_items_per_poll": 20
+    },
+    {
+      "id": "ins",
+      "enabled": true,
+      "mode": "observe",
+      "channel_jid": "120363405187024421@newsletter",
+      "channel_url": "https://whatsapp.com/channel/0029Vb6qi96ISTkJcDn4op2z",
+      "display_name": "INS",
+      "emoji": null,
+      "status_emojis": {
+        "up": null,
+        "down": null,
+        "hold": null
+      },
+      "discord_channels": [],
+      "forward_media": false,
+      "enable_llm_title": false,
+      "enable_llm_summary": false,
+      "enable_llm_routing": false,
+      "enable_llm_relevance_filter": false,
+      "relevance_scope": "financial_market",
+      "additional_prompt_instruction": "",
+      "max_items_per_poll": 20
+    },
+    {
+      "id": "samuel-sekuritas-indonesia",
+      "enabled": true,
+      "mode": "observe",
+      "channel_jid": "120363319274271353@newsletter",
+      "channel_url": "https://whatsapp.com/channel/0029VagNdGpFMqrXKEcdBb2U",
+      "display_name": "Samuel Sekuritas Indonesia",
+      "emoji": null,
+      "status_emojis": {
+        "up": null,
+        "down": null,
+        "hold": null
+      },
+      "discord_channels": [],
+      "forward_media": false,
+      "enable_llm_title": false,
+      "enable_llm_summary": false,
+      "enable_llm_routing": false,
+      "enable_llm_relevance_filter": false,
+      "relevance_scope": "financial_market",
+      "additional_prompt_instruction": "",
       "max_items_per_poll": 20
     }
   ]

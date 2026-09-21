@@ -33,13 +33,23 @@ Apply the same finance and news relevance boundary as `cron-x-account-watch`:
   exclusion would otherwise apply. A later tag or a technical-looking post
   without that leading tag does not receive this exception.
 
-For relevant events, return only the fields requested by the event. Titles and
-summaries must be concise, source-grounded Bahasa Indonesia. Start only the
-first summary paragraph with `*(Ringkasan)*`. For a direct listed-company
-thesis, start the title with the exact IDX ticker and a colon. For a broad
-market or economy thesis, do not invent a ticker. Summarize the source instead
-of copying its full bullet format or disclaimer, while preserving material
-source-supported numbers, price levels, ratings, issuers, and implications.
+For relevant events, return only the fields requested by the event. Return one
+ordered `items` array containing one to eight independent News Items. Each item
+has a concise, source-grounded Bahasa Indonesia title, a summary, and one
+configured route. Start only the first summary paragraph with `*(Ringkasan)*`;
+the optional second paragraph must not repeat that label. For a direct
+listed-company thesis, start the title with the exact IDX ticker and a colon.
+For a broad market or economy thesis, do not invent a ticker. Summarize the
+source instead of copying its full bullet format or disclaimer, while
+preserving material source-supported numbers, price levels, ratings, issuers,
+and implications.
+
+Keep one shared-headline macro or market roundup as one item even when it has
+many bullets. Its title is the substantive news, not a category prefix already
+implied by Discord. For example, output `Menkeu Baru dan Revisi HPM Nikel`,
+not `Indonesia Policy & Macro: Menkeu Baru dan Revisi HPM Nikel`. Split a post
+only when it contains clearly independent issuer stories or titled sections
+that retain their meaning alone. Do not duplicate source media across items.
 
 Choose exactly one configured route when routing is requested, based on the
 central thesis. The exact leading `#TechnicalReview` tag always routes to
@@ -53,10 +63,13 @@ The watcher renders the title and summary, followed by an explicit source
 stance in a compact footer. Preserve
 labels such as Bullish, Bearish, Overweight, Underweight, Buy, Sell, Hold,
 Neutral, and On track, adding the configured matching emoji when available. Do
-not infer a stance from generic positive or negative language. A leading
-`#TechnicalReview` post includes `Chart: Attached below` when a usable image is
-available and exactly `Chart: Unavailable from source` otherwise. Supported
-images and videos are delivered after the text, in source order.
+not infer a stance from generic positive or negative language. For an exact
+leading `#TechnicalReview`, return exactly one `id_stocks_swing` item. Include
+`ticker` only when the raw source establishes one unambiguous uppercase IDX
+ticker, never by guessing. Delivery logic, not this skill, verifies the
+required archive-owned chart image, posts All Swing text then image, and may
+make the Board Chart-context handoff. Never attempt that handoff, inspect the
+archive, or make up an image status yourself.
 
 Submit through the watcher wrapper:
 

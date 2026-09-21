@@ -56,3 +56,14 @@ def test_repeat_release_helper_is_syntax_checked_and_keeps_its_boundary():
     assert "cloudflare" not in script
     assert "bursawatch-schedule-reconciler" not in script
     assert "~/.hermes/.env" not in script
+
+
+def test_archive_wrapper_is_a_deployed_runtime_asset():
+    wrapper = ROOT.parent / "cron-wa-channel-watch/bin/bursawatch-wa-channel-archive.sh"
+    script = wrapper.read_text(encoding="utf-8")
+
+    assert wrapper.exists()
+    assert wrapper.stat().st_mode & 0o111
+    assert "WHATSAPP_CHANNEL_WATCH_ARCHIVE_ROOT" in script
+    assert "archive.py" in script
+    subprocess.run(["bash", "-n", str(wrapper)], check=True)

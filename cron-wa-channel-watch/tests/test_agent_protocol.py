@@ -1,6 +1,6 @@
 import pytest
 
-from agent_protocol import agent_item, build_wake_payload, deterministic_route, instruction_for, validate_submission
+from agent_protocol import agent_item, build_wake_payload, deterministic_route, instruction_for, media_delivery_indexes, validate_submission
 from classification import is_technical_review
 from config import ChannelProfile, DiscordChannel, StatusEmojis
 from normalize import normalize_bridge_event
@@ -10,6 +10,7 @@ def profile():
     return ChannelProfile(
         id="bri-danareksa-sekuritas",
         enabled=True,
+        mode="forward",
         channel_jid="12345@newsletter",
         channel_url="https://whatsapp.com/channel/0029Example",
         display_name="BRI Danareksa Sekuritas",
@@ -30,7 +31,10 @@ def profile():
         enable_llm_routing=True,
         enable_llm_relevance_filter=True,
         relevance_scope="financial_market",
-        additional_prompt_instruction="",
+        additional_prompt_instruction=(
+            "Forward only material issuer events or disclosures, factual market or macro developments, coherent macro roundups, and exact leading #TechnicalReview posts. "
+            "Reject promotions, product activation, calls to action, analyst research, stock picks, watchlists, outlooks, valuations, targets, and untagged technical material."
+        ),
         max_items_per_poll=20,
     )
 
@@ -65,11 +69,40 @@ def test_relevant_submission_validates_shared_contract():
     result = validate_submission(profile(), {
         "event_key": event().event_key,
         "is_relevant": True,
-        "title": "BBCA: Laba Bersih Meningkat",
-        "summary": "*(Ringkasan)* Laba bersih meningkat.\n\nDampaknya dibahas dalam sumber.",
-        "route": "macro_news",
+        "items": [{
+            "title": "BBCA: Laba Bersih Meningkat",
+            "summary": "*(Ringkasan)* Laba bersih meningkat.\n\nDampaknya dibahas dalam sumber.",
+            "route": "macro_news",
+        }],
     })
-    assert result["route"] == "macro_news"
+    assert result["items"][0]["route"] == "macro_news"
+
+
+def test_macro_roundup_is_one_item_without_category_prefix():
+    result = validate_submission(profile(), {
+        "event_key": "12345@newsletter:macro",
+        "is_relevant": True,
+        "items": [{
+            "title": "Menkeu Baru dan Revisi HPM Nikel",
+            "summary": "*(Ringkasan)* Ringkasan kebijakan.",
+            "route": "macro_news",
+        }],
+    })
+
+    assert result["items"][0]["route"] == "macro_news"
+    assert result["items"][0]["title"] == "Menkeu Baru dan Revisi HPM Nikel"
+
+
+def test_many_items_cannot_reuse_one_source_image():
+    assert media_delivery_indexes(item_count=2, media_count=1) == ()
+    assert media_delivery_indexes(item_count=1, media_count=1) == (0,)
+
+
+def test_bri_prompt_excludes_recommendation_and_promotional_material():
+    instruction = instruction_for(profile())
+
+    assert "stock picks" in instruction
+    assert "product activation" in instruction
 
 
 def test_technical_review_prefix_is_exact_and_case_sensitive():

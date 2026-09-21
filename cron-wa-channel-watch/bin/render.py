@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 import re
 from zoneinfo import ZoneInfo
 
@@ -31,10 +30,9 @@ def _safe_name(value: str) -> str:
 
 
 def _has_source_chart(event: ChannelEvent) -> bool:
-    return any(
-        media.kind == "image" and media.path and Path(media.path).is_file()
-        for media in event.media
-    )
+    # Media paths are transient, untrusted bridge metadata. Delivery validates
+    # an archive-owned copy before it ever posts a technical chart.
+    return any(media.kind == "image" for media in event.media)
 
 
 def _source_footer(profile: ChannelProfile, event: ChannelEvent) -> str:

@@ -3,9 +3,9 @@
 ## Scope
 
 `cron-wa-channel-watch/` is the agent-backed Hermes watcher for public WhatsApp
-Channels. It forwards finance and news-relevant Channel posts to configured
-Discord destinations using the same bounded relevance, title, summary, and
-routing contract as `cron-x-account-watch`.
+Channels. It archives every event from an enabled profile and forwards only
+profiles explicitly configured for forwarding, using the same bounded
+relevance, title, summary, and routing contract as `cron-x-account-watch`.
 
 The watcher reuses the existing single Baileys bridge in Hermes. The bridge is
 the only WhatsApp Web connection. Its Channel sink is additive: it copies
@@ -31,6 +31,12 @@ watcher's scope.
 - Text is rendered and delivered before supported media, in source order. Each
   text and media leg has its own retry checkpoint, so a failed attachment does
   not repeat already-delivered text.
+- BRI `#TechnicalReview` posts are stricter: they require exactly one verified,
+  archive-owned image before any All Swing text or media is posted. On success,
+  deliver text, then that image, then submit the eligible single-ticker chart
+  context to the Swing Board. A missing or multiple image leaves the item
+  pending with no partial Discord delivery. A multiple or ambiguous ticker is
+  All Swing only and must never create Board context.
 - A leading, case-sensitive `#TechnicalReview` token after optional whitespace
   and Markdown wrapper characters is a deterministic `id_stocks_swing` route
   override. A later tag, typo, chart, or technical vocabulary alone never
@@ -71,6 +77,23 @@ agent-submission events with counts, status, and sanitized reasons. It never
 receives Channel text, captions, media paths, session data, bridge credentials,
 or durable queue payloads.
 
+### Shipped profile lifecycle
+
+The version-2 static fallback and validated control-plane payload use these
+source identities:
+
+| Profile | JID | Mode | Current source behavior |
+| --- | --- | --- | --- |
+| `bri-danareksa-sekuritas` | `120363419226413141@newsletter` | `forward` | Archive, then eligible future-only BRI forwarding after approved deployment and cutover. |
+| `ins` | `120363405187024421@newsletter` | `observe` | Archive only. Never create state, wake analysis, or post. |
+| `samuel-sekuritas-indonesia` | `120363319274271353@newsletter` | `observe` | Archive only. Never create state, wake analysis, or post. |
+
+`enabled: true` makes both observe and forward profiles subscription targets.
+`observe` requires no Discord routes or presentation and every forwarding or
+LLM flag off. `forward` requires reviewed routes and a presentation emoji. Do
+not turn an observation profile into forwarding, alter BRI routes, or follow a
+new Channel without a separate reviewed live change.
+
 When the user says `watch this wa channel <name, URL, or JID>`, inspect and
 normalize the requested Channel, propose a complete profile, and ask only for
 unresolved routing or destination decisions. After the complete profile is
@@ -105,6 +128,51 @@ idempotent operation whenever its socket reconnects. A successful helper
 result proves subscription setup only. It does not prove that a future post
 has reached Discord.
 
+## Archive and cutover helper
+
+The immutable VPS-only archive root is
+`~/.hermes/state/whatsapp-channel-watch/archive/`. Archive directories are
+mode `0700`, records and exports are mode `0600`, and raw source records plus
+captured media are retained for at least 365 days. Do not commit, dotfiles-sync,
+copy to the control plane, or paste raw archive content into Discord. The
+watcher-owned operator entry point is
+`~/.hermes/scripts/bursawatch-wa-channel-archive.sh`, deployed from
+`bin/bursawatch-wa-channel-archive.sh` as a separate reviewed wrapper asset.
+
+`verify`, bounded `query`, bounded `export`, and `cutover-plan` never contact
+WhatsApp, Discord, or the scheduler:
+
+```bash
+ssh vps '~/.hermes/scripts/bursawatch-wa-channel-archive.sh verify'
+ssh vps '~/.hermes/scripts/bursawatch-wa-channel-archive.sh query --profile ins --start 2026-09-01 --end 2026-09-30'
+ssh vps '~/.hermes/scripts/bursawatch-wa-channel-archive.sh query --profile ins --layout-signature <sha256> --limit 100'
+ssh vps '~/.hermes/scripts/bursawatch-wa-channel-archive.sh export --profile samuel-sekuritas-indonesia --format markdown --output /home/praya/archive-review.md'
+ssh vps '~/.hermes/scripts/bursawatch-wa-channel-archive.sh prune --before 2025-09-21'
+```
+
+`query` and `export` support the same profile, UTC start/end, event-key,
+layout-signature, and `--limit` filters. Their limit is required to be 1 to
+500. A layout signature is computed from structural line shapes, not copied
+raw text, so it groups source formats for review. `export` always requires a
+new explicit path with an existing private parent. `prune` is a dry run without
+`--apply`; it is never scheduled, enforces the 365-day minimum retention, and
+reports archive media that would become unreferenced. A destructive prune
+requires separate explicit approval, an absolute archive root, and an operator
+review of its dry-run count.
+
+BRI's historical queue must never be replayed. Before an explicitly approved
+live BRI cutover, inspect its bounded plan:
+
+```bash
+ssh vps '~/.hermes/scripts/bursawatch-wa-channel-archive.sh cutover-plan --queue-dir /home/praya/.hermes/state/whatsapp-channel-watch/queue --state /home/praya/.hermes/state/whatsapp-channel-watch/state.json --profile bri-danareksa-sekuritas --config /home/praya/.agents/skills/bursawatch-wa-channel-watch/config/watches.json'
+```
+
+`cutover-apply` is a separate state mutation. It needs both its CLI `--apply`
+flag and `WHATSAPP_CHANNEL_WATCH_ALLOW_CUTOVER_APPLY=1`, writes a private
+pre-cutover state backup and manifest, archives the reviewed historical source,
+and advances only the future cursor. It preserves the queue and old outbox and
+is never authorized by a source-only change.
+
 ## Mandatory subscription gate
 
 Always run the helper for every new or changed enabled profile. A watcher is
@@ -129,21 +197,22 @@ report the failure instead of treating the Channel JID alone as subscribed.
   heartbeat to Discord `#hermes`, including no-hit runs and degraded runs.
 - `deploy.sh` copies the runtime `bin/` tree but not the Hermes wrappers. When
   `bin/bursawatch-wa-channel-watch.sh` or
-  `bin/bursawatch-wa-channel-subscriptions.sh` changes or is first installed,
+  `bin/bursawatch-wa-channel-subscriptions.sh` or
+  `bin/bursawatch-wa-channel-archive.sh` changes or is first installed,
   synchronize each separately to its matching file under
   `vps:.hermes/scripts/`, set mode 755, and compare its checksum before live
   verification.
 
 ## Baileys bridge integration
 
-`integrations/bridge-channel-sink.patch` is the rebased reviewed patch for the
+`integrations/bridge-channel-sink.patch` is the reviewed source patch for the
 VPS-owned Hermes Agent Baileys bridge. It loads the deployed `channel_sink.mjs`
 optionally, bypasses the normal DM and broadcast filters for `@newsletter`
-messages, and writes supported events to this watcher's queue. The current live
-bridge already contains this behavior. The patch is retained only to apply to a
-matching current bridge base with the channel-sink changes absent. Never apply
-it to the live bridge or an unknown preimage. Recreate it from the reviewed
-live preimage before any future bridge change, and obtain explicit approval.
+messages, and writes supported events to this watcher's queue and archive. The
+patch is retained only to apply to a matching current bridge base with the
+channel-sink changes absent. Never infer the live bridge revision from this
+source artifact. Compare the exact deployed bridge file before any future
+change, then obtain explicit approval before a VPS write.
 It also provides local-only newsletter metadata and historical message lookup,
 plus an explicit follow and live-update subscription operation, using the
 already-connected bridge socket. Historical lookup is

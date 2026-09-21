@@ -34,8 +34,34 @@ def save(path: Path, value: dict[str, object]) -> None:
     os.replace(temporary, path)
 
 
-def cursor_key(value: dict[str, object]) -> tuple[str, str]:
-    return (str(value["published_at"]), str(value["event_key"]))
+def _cursor_timestamp(value: object) -> datetime:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        seconds = float(value)
+        if seconds > 10_000_000_000:
+            seconds /= 1_000
+        if seconds <= 0:
+            raise ValueError("cursor published_at must be a positive timestamp")
+        return datetime.fromtimestamp(seconds, tz=timezone.utc)
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("cursor published_at must be an ISO timestamp") from exc
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    raise ValueError("cursor published_at must be a timestamp")
+
+
+def cursor_key(value: dict[str, object]) -> tuple[datetime, str]:
+    return (_cursor_timestamp(value["published_at"]), str(value["event_key"]))
+
+
+def cursor(value: dict[str, object]) -> dict[str, str]:
+    return {
+        "published_at": _cursor_timestamp(value["published_at"]).isoformat(),
+        "event_key": str(value["event_key"]),
+    }
 
 
 def lease_until(now: datetime) -> str:

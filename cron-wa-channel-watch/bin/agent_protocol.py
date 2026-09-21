@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import asdict, dataclass
 import re
 
 from classification import is_technical_review
@@ -11,6 +12,8 @@ SUMMARY_PREFIX = "*(Ringkasan)* "
 SUMMARY_LABEL = SUMMARY_PREFIX.rstrip()
 MAX_SUMMARY_CHARACTERS = 1_600
 MAX_TITLE_CHARACTERS = 120
+MAX_NEWS_ITEMS = 8
+_TICKER_RE = re.compile(r"^[A-Z]{2,5}$")
 ROUTE_ALIASES = {
     "macro": "macro_news",
     "id_stock": "id_stocks_news",
@@ -24,6 +27,14 @@ SUBMISSION_INSTRUCTION = (
     "Submit only by executing \"$HOME/.hermes/scripts/bursawatch-wa-channel-watch.sh\" submit-analysis --json '<payload>'. "
     "Never invoke python, python3, uv, or scan.py directly, and do not run helper commands to construct or validate the payload. "
 )
+
+
+@dataclass(frozen=True)
+class NewsItem:
+    title: str
+    summary: str
+    route: str
+    ticker: str | None = None
 
 
 def _channels(profile: ChannelProfile) -> str:
@@ -61,7 +72,7 @@ def instruction_for(profile: ChannelProfile, relevance_guard_required: bool = Fa
         )
     title_summary = (
         "Write concise, source-grounded Bahasa Indonesia. For id_stocks_news and id_stocks_swing, start the first word of the title with the exact IDX ticker followed by a colon. For macro_news, write a natural headline and do not invent a ticker. "
-        "Start only the first summary paragraph with *(Ringkasan)* and never repeat that label in the second paragraph. Summarize the source instead of copying its full bullet format or disclaimer. Preserve material source-supported numbers, price levels, named issuers, ratings, and implications without adding facts or advice. Do not describe the Channel or writer as a narrator. "
+        "Return one ordered items array with one to eight independently relevant News Items. Keep one shared-headline macro or market roundup as one item even when it has many bullets; split only clearly independent issuer stories or titled sections. Do not add a category prefix to a substantive macro title. Start only the first summary paragraph with *(Ringkasan)* and never repeat that label in the second paragraph. Summarize the source instead of copying its full bullet format or disclaimer. Preserve material source-supported numbers, price levels, named issuers, ratings, and implications without adding facts or advice. Do not describe the Channel or writer as a narrator. "
     )
     profile_instruction = (
         f"Profile-specific instruction: {profile.additional_prompt_instruction.strip()} "
@@ -129,7 +140,7 @@ def validate_summary(value: object) -> str:
     if not 1 <= len(paragraphs) <= 2 or any("\n" in part for part in paragraphs):
         raise ValueError("summary must contain one or two single-line paragraphs")
     if len(paragraphs) == 2 and paragraphs[1].startswith(SUMMARY_PREFIX):
-        paragraphs[1] = paragraphs[1][len(SUMMARY_PREFIX):].lstrip()
+        raise ValueError("summary label may appear only in the first paragraph")
     summary = "\n\n".join(paragraphs)
     if summary.count(SUMMARY_LABEL) != 1 or len(summary) > MAX_SUMMARY_CHARACTERS:
         raise ValueError("summary must contain one label and fit the character limit")
@@ -145,7 +156,41 @@ def validate_title(value: object) -> str:
     return title
 
 
-def validate_submission(profile: ChannelProfile, payload: object) -> dict[str, str | bool]:
+def _validate_item(profile: ChannelProfile, value: object, event: ChannelEvent | None) -> NewsItem:
+    if type(value) is not dict or set(value) - {"title", "summary", "route", "ticker"} or not {"title", "summary", "route"}.issubset(value):
+        raise ValueError("news item has unexpected or missing fields")
+    route = value["route"]
+    if not isinstance(route, str):
+        raise ValueError("route must be a configured channel key")
+    canonical = ROUTE_ALIASES.get(route, route)
+    if canonical not in {channel.key for channel in profile.discord_channels}:
+        raise ValueError("route must be a configured channel key")
+    ticker = value.get("ticker")
+    if ticker is not None:
+        if not isinstance(ticker, str) or not _TICKER_RE.fullmatch(ticker):
+            raise ValueError("ticker must be an uppercase IDX token or null")
+        if event is None or re.search(rf"(?<![A-Z0-9]){re.escape(ticker)}(?![A-Z0-9])", event.text) is None:
+            raise ValueError("ticker must occur in the raw Source Post")
+    return NewsItem(
+        title=validate_title(value["title"]),
+        summary=validate_summary(value["summary"]),
+        route=canonical,
+        ticker=ticker,
+    )
+
+
+def media_delivery_indexes(*, item_count: int, media_count: int) -> tuple[int, ...]:
+    if item_count < 0 or media_count < 0:
+        raise ValueError("item and media counts must not be negative")
+    return tuple(range(media_count)) if item_count == 1 else ()
+
+
+def validate_submission(
+    profile: ChannelProfile,
+    payload: object,
+    *,
+    event: ChannelEvent | None = None,
+) -> dict[str, object]:
     if type(payload) is not dict:
         raise ValueError("analysis submission must be an object")
     expected = {"event_key"}
@@ -157,27 +202,20 @@ def validate_submission(profile: ChannelProfile, payload: object) -> dict[str, s
             return {"event_key": payload["event_key"], "is_relevant": False}
         if type(payload.get("is_relevant")) is not bool:
             raise ValueError("is_relevant must be a boolean")
-    if profile.enable_llm_title:
-        expected.add("title")
-    if profile.enable_llm_summary:
-        expected.add("summary")
-    if profile.enable_llm_routing:
-        expected.add("route")
+    if profile.enable_llm_title or profile.enable_llm_summary or profile.enable_llm_routing:
+        expected.add("items")
     if set(payload) != expected or not isinstance(payload.get("event_key"), str) or not payload["event_key"]:
         raise ValueError("analysis submission has unexpected or missing fields")
-    result: dict[str, str | bool] = {"event_key": payload["event_key"]}
+    result: dict[str, object] = {"event_key": payload["event_key"]}
     if profile.enable_llm_relevance_filter:
         result["is_relevant"] = True
-    if profile.enable_llm_title:
-        result["title"] = validate_title(payload["title"])
-    if profile.enable_llm_summary:
-        result["summary"] = validate_summary(payload["summary"])
-    if profile.enable_llm_routing:
-        route = payload["route"]
-        if not isinstance(route, str):
-            raise ValueError("route must be a configured channel key")
-        canonical = ROUTE_ALIASES.get(route, route)
-        if canonical not in {channel.key for channel in profile.discord_channels}:
-            raise ValueError("route must be a configured channel key")
-        result["route"] = canonical
+    if "items" in expected:
+        raw_items = payload["items"]
+        if type(raw_items) is not list or not 1 <= len(raw_items) <= MAX_NEWS_ITEMS:
+            raise ValueError("relevant submission must contain one to eight news items")
+        items = [_validate_item(profile, item, event) for item in raw_items]
+        if event is not None and is_technical_review(event.text):
+            if len(items) != 1 or items[0].route != "id_stocks_swing":
+                raise ValueError("TechnicalReview requires exactly one id_stocks_swing item")
+        result["items"] = [asdict(item) for item in items]
     return result

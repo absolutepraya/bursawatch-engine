@@ -8,7 +8,7 @@ from render import render_post
 
 def profile():
     return ChannelProfile(
-        id="channel", enabled=True, channel_jid="1@newsletter",
+        id="channel", enabled=True, mode="forward", channel_jid="1@newsletter",
         channel_url="https://whatsapp.com/channel/example", display_name="BRI Danareksa Sekuritas",
         emoji="<:bridanareksa:1549256273109848124>",
         status_emojis=StatusEmojis(

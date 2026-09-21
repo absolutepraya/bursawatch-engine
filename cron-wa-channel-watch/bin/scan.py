@@ -9,12 +9,15 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import agent_protocol
+import archive
+from classification import is_technical_review
 import config
 import discord
 import event_queue
 from normalize import deserialize_queue_event
 import render
 import state
+import swing_board
 
 
 try:
@@ -34,6 +37,7 @@ except ModuleNotFoundError:
 
 WATCHER_HEARTBEAT_NAME = "whatsapp-channel"
 WIB = ZoneInfo("Asia/Jakarta")
+BRI_PROFILE_ID = "bri-danareksa-sekuritas"
 
 
 def _default_path(name: str, fallback: str) -> Path:
@@ -48,27 +52,87 @@ def _profile_state(value: dict[str, object], profile_id: str) -> dict[str, objec
     return record
 
 
-def _active_records(value: dict[str, object]) -> list[dict[str, object]]:
-    return [record for record in value["outbox"] if isinstance(record, dict) and record.get("agent_phase") not in {"filtered", "delivered"}]  # type: ignore[union-attr]
+def _record_is_routable(
+    value: dict[str, object],
+    profile: config.ChannelProfile,
+    record: dict[str, object],
+) -> bool:
+    if not profile.is_forwarding:
+        return False
+    profile_value = value["profiles"].get(profile.id)  # type: ignore[union-attr]
+    return not (
+        isinstance(profile_value, dict)
+        and profile_value.get("cutover_complete") is True
+        and record.get("routable") is not True
+    )
+
+
+def _active_records(
+    value: dict[str, object],
+    profiles: dict[str, config.ChannelProfile],
+) -> list[dict[str, object]]:
+    return [
+        record
+        for record in value["outbox"]  # type: ignore[union-attr]
+        if isinstance(record, dict)
+        and record.get("agent_phase") not in {"filtered", "delivered"}
+        and (profile := profiles.get(str(record.get("profile_id")))) is not None
+        and _record_is_routable(value, profile, record)
+    ]
 
 
 def _newest(items: list[dict[str, object]]) -> dict[str, object] | None:
     return max(items, key=state.cursor_key, default=None)
 
 
-def _heartbeat(now: datetime, fetched: int, queued: int, claimed: int, expired: int, errors: list[str]) -> str:
+def _heartbeat(now: datetime, fetched: int, archived: int, queued: int, claimed: int, expired: int, errors: list[str]) -> str:
     warning = " ⚠️" if errors else ""
     suffix = f" · {errors[0]}" if errors else ""
-    return f"🫀 {WATCHER_HEARTBEAT_NAME} · {now.astimezone(WIB):%H:%M} WIB · {fetched} fetched · {queued} queued · {claimed} claimed · {expired} expired · {len(errors)} errors" + suffix + warning
+    return f"🫀 {WATCHER_HEARTBEAT_NAME} · {now.astimezone(WIB):%H:%M} WIB · {fetched} fetched · {archived} archived · {queued} queued · {claimed} claimed · {expired} expired · {len(errors)} errors" + suffix + warning
 
 
-def _delivery_channel(profile: config.ChannelProfile, analysis: dict[str, object]) -> str:
-    route = analysis.get("route")
+def _delivery_channel(profile: config.ChannelProfile, item: dict[str, object]) -> str:
+    route = item.get("route")
     if profile.enable_llm_routing:
         if not isinstance(route, str):
             raise ValueError("ready analysis has no route")
         return profile.channel_for(route).channel_id
     return profile.discord_channels[0].channel_id
+
+
+def _deterministic_items(profile: config.ChannelProfile) -> list[dict[str, object]]:
+    if not profile.discord_channels:
+        raise ValueError("forward profile has no Discord route")
+    return [{"title": None, "summary": None, "route": profile.discord_channels[0].key, "ticker": None}]
+
+
+def _archived_media(archive_root: Path, event) -> dict[int, tuple[str, Path]]:
+    """Return only validated, archive-owned media files for one event."""
+    records = archive.query(archive_root, event_key=event.event_key)
+    if len(records) != 1:
+        return {}
+    captured: dict[int, tuple[str, Path]] = {}
+    media = records[0].data.get("media")
+    if type(media) is not list:
+        return {}
+    for item in media:
+        if type(item) is not dict or item.get("capture_status") != "captured":
+            continue
+        index, kind, relative_path = item.get("index"), item.get("kind"), item.get("archive_path")
+        if type(index) is not int or not isinstance(kind, str) or not isinstance(relative_path, str):
+            continue
+        path = archive_root / relative_path
+        if path.is_file() and not path.is_symlink():
+            captured[index] = (kind, path)
+    return captured
+
+
+def _archived_images(archive_root: Path, event) -> tuple[Path, ...]:
+    return tuple(
+        path
+        for _index, (kind, path) in sorted(_archived_media(archive_root, event).items())
+        if kind == "image"
+    )
 
 
 def _deliver_ready(
@@ -77,6 +141,7 @@ def _deliver_ready(
     *,
     dry_run: bool,
     state_path: Path,
+    archive_dir: Path,
     errors: list[str],
 ) -> int:
     delivered = 0
@@ -87,34 +152,103 @@ def _deliver_ready(
         if profile is None:
             errors.append(f"unknown profile for {record.get('event_key')}")
             continue
+        if not _record_is_routable(value, profile, record):
+            continue
         try:
             event = deserialize_queue_event(record["event"])
-            analysis = record.get("analysis") or {}
-            if type(analysis) is not dict:
-                raise ValueError("ready analysis is invalid")
-            target = _delivery_channel(profile, analysis)
-            messages = render.render_post(
-                profile,
-                event,
-                title=analysis.get("title") if profile.enable_llm_title else None,
-                summary=analysis.get("summary") if profile.enable_llm_summary else None,
-            )
-            text_index = int(record.get("text_index", 0))
-            while text_index < len(messages):
-                discord.post_text(messages[text_index], target, dry_run, discord.nonce(str(record["event_key"]), f"text:{text_index}"))
-                text_index += 1
-                record["text_index"] = text_index
+            items = record.get("items")
+            if type(items) is not list or not items:
+                raise ValueError("ready record has no news items")
+            technical_review = profile.id == BRI_PROFILE_ID and is_technical_review(event.text)
+            archived_images = _archived_images(archive_dir, event) if technical_review else ()
+            if technical_review and len(archived_images) != 1:
+                raise FileNotFoundError("technical review requires exactly one archived image")
+            item_index = int(record.get("item_index", 0))
+            while item_index < len(items):
+                item = items[item_index]
+                if type(item) is not dict:
+                    raise ValueError("ready news item is invalid")
+                target = _delivery_channel(profile, item)
+                messages = render.render_post(
+                    profile,
+                    event,
+                    title=item.get("title") if profile.enable_llm_title else None,
+                    summary=item.get("summary") if profile.enable_llm_summary else None,
+                )
+                text_index = int(record.get("text_index", 0))
+                while text_index < len(messages):
+                    discord.post_text(
+                        messages[text_index],
+                        target,
+                        dry_run,
+                        discord.nonce(str(record["event_key"]), f"item:{item_index}:text:{text_index}"),
+                    )
+                    text_index += 1
+                    record["text_index"] = text_index
+                    state.save(state_path, value)
+                item_index += 1
+                record["item_index"] = item_index
+                record["text_index"] = 0
+                if technical_review and item_index == 1:
+                    record["all_content"] = "\n\n".join(messages)
                 state.save(state_path, value)
+            media_paths: tuple[Path, ...]
+            if technical_review:
+                media_paths = archived_images
+            else:
+                media_indexes = agent_protocol.media_delivery_indexes(item_count=len(items), media_count=len(event.media))
+                archived_media = _archived_media(archive_dir, event)
+                paths: list[Path] = []
+                for source_index in media_indexes:
+                    media = event.media[source_index]
+                    archived = archived_media.get(source_index)
+                    if archived is None or archived[0] != media.kind:
+                        raise FileNotFoundError(f"archived {media.kind} is unavailable")
+                    paths.append(archived[1])
+                media_paths = tuple(paths)
             media_index = int(record.get("media_index", 0))
-            if profile.forward_media:
-                while media_index < len(event.media):
-                    media = event.media[media_index]
-                    if not media.path:
-                        raise FileNotFoundError(f"source {media.kind} is unavailable")
-                    discord.post_media(Path(media.path), target, dry_run, discord.nonce(str(record["event_key"]), f"media:{media_index}"))
+            if profile.forward_media or technical_review:
+                target = _delivery_channel(profile, items[0])
+                while media_index < len(media_paths):
+                    source_index = media_index
+                    discord.post_media(
+                        media_paths[media_index],
+                        target,
+                        dry_run,
+                        discord.nonce(str(record["event_key"]), f"media:{source_index}"),
+                    )
                     media_index += 1
                     record["media_index"] = media_index
                     state.save(state_path, value)
+            if technical_review:
+                item = items[0]
+                if type(item) is not dict:
+                    raise ValueError("ready news item is invalid")
+                if not swing_board.is_eligible(event, item, archived_images[0]):
+                    record["board_phase"] = "not_eligible"
+                    state.save(state_path, value)
+                elif record.get("board_phase") != "accepted":
+                    acknowledgement = (
+                        swing_board.BoardSubmission(True, None, True)
+                        if dry_run
+                        else swing_board.submit_chart_context(
+                            event,
+                            item,
+                            str(record.get("all_content") or ""),
+                            archived_images[0],
+                        )
+                    )
+                    if not acknowledgement.accepted:
+                        raise RuntimeError("Swing Board source-event submission was not accepted")
+                    record["board_phase"] = "accepted"
+                    record["board_acknowledgement"] = {
+                        "board_url": acknowledgement.board_url,
+                        "board_pending": acknowledgement.board_pending,
+                    }
+                    state.save(state_path, value)
+            elif record.get("board_phase") == "pending":
+                record["board_phase"] = "not_eligible"
+                state.save(state_path, value)
             record["agent_phase"] = "delivered"
             record["delivered_at"] = datetime.now(timezone.utc).isoformat()
             state.save(state_path, value)
@@ -126,8 +260,31 @@ def _deliver_ready(
     return delivered
 
 
-def run(*, config_path: Path, state_path: Path, queue_dir: Path, now: datetime | None = None, no_post: bool = False) -> dict[str, object]:
+def run(
+    *,
+    config_path: Path,
+    state_path: Path,
+    queue_dir: Path,
+    archive_dir: Path | None = None,
+    media_staging_dir: Path | None = None,
+    now: datetime | None = None,
+    no_post: bool = False,
+) -> dict[str, object]:
     run_now = now or datetime.now(timezone.utc)
+    if archive_dir is None:
+        configured_archive = os.environ.get("WHATSAPP_CHANNEL_WATCH_ARCHIVE_ROOT")
+        archive_dir = Path(configured_archive) if configured_archive else (
+            state_path.parent / "archive" if no_post else Path.home() / ".hermes/state/whatsapp-channel-watch/archive"
+        )
+    if not archive_dir.is_absolute():
+        raise ValueError("WhatsApp Channel archive path must be absolute")
+    if media_staging_dir is None:
+        configured_staging = os.environ.get("WHATSAPP_CHANNEL_WATCH_MEDIA_STAGING_DIR")
+        media_staging_dir = Path(configured_staging) if configured_staging else (
+            Path.home() / ".hermes/state/whatsapp-channel-watch/media-staging"
+        )
+    if not media_staging_dir.is_absolute():
+        raise ValueError("WhatsApp Channel media staging path must be absolute")
     loaded_config = config.load_for_run(config_path)
     control_run = ControlPlaneRun.begin(
         "WHATSAPP_CHANNEL_WATCH",
@@ -147,9 +304,12 @@ def run(*, config_path: Path, state_path: Path, queue_dir: Path, now: datetime |
             config_path=config_path,
             state_path=state_path,
             queue_dir=queue_dir,
+            archive_dir=archive_dir,
+            media_staging_dir=media_staging_dir,
             now=run_now,
             no_post=no_post,
             watch_config=loaded_config.config,
+            config_revision=loaded_config.revision,
         )
     except Exception as exc:
         reason = " ".join(str(exc).split())[:500]
@@ -176,6 +336,7 @@ def run(*, config_path: Path, state_path: Path, queue_dir: Path, now: datetime |
             "enabled_profiles": result.get("enabled_profiles", 0),
             "initialized_profiles": result.get("initialized_profiles", 0),
             "source_items": result.get("fetched", 0),
+            "archived": result.get("archived", 0),
             "queued": result.get("queued", 0),
             "expired_agent_leases": result.get("expired", 0),
         },
@@ -224,9 +385,12 @@ def _run(
     config_path: Path,
     state_path: Path,
     queue_dir: Path,
+    archive_dir: Path,
+    media_staging_dir: Path,
     now: datetime | None = None,
     no_post: bool = False,
     watch_config: config.WatchConfig | None = None,
+    config_revision: int | None = None,
 ) -> dict[str, object]:
     now = now or datetime.now(timezone.utc)
     watch_config = watch_config or config.load_for_run(config_path).config
@@ -234,6 +398,7 @@ def _run(
     expired = state.expire_leases(value, now)
     queued = 0
     fetched = 0
+    archived = 0
     initialized_profiles = 0
     errors: list[str] = []
     queue_items = event_queue.list_events(queue_dir)
@@ -251,19 +416,52 @@ def _run(
         fetched += len(items)
         if not items:
             continue
+        archive_ready: list[dict[str, object]] = []
+        archive_blocked = False
+        for item in items:
+            try:
+                event = deserialize_queue_event(item)
+                archive.ensure(
+                    archive_dir,
+                    profile.id,
+                    event,
+                    config_revision,
+                    staging_root=media_staging_dir,
+                )
+            except Exception as exc:
+                errors.append(f"{profile.id}: archive failed: {' '.join(str(exc).split())[:160]}")
+                archive_blocked = True
+                continue
+            archived += 1
+            if not archive_blocked:
+                archive_ready.append(item)
+        if profile.is_observing:
+            continue
+        if not profile.is_forwarding:
+            continue
+        if not archive_ready:
+            continue
         profile_value = _profile_state(value, profile.id)
         cursor = profile_value.get("cursor")
         if cursor is None:
-            newest = _newest(items)
+            newest = _newest(archive_ready)
             if newest is not None:
-                profile_value["cursor"] = {"published_at": newest["published_at"], "event_key": newest["event_key"]}
+                profile_value["cursor"] = state.cursor(newest)
                 profile_value["initialized"] = True
                 initialized_profiles += 1
             continue
         if type(cursor) is not dict or not {"published_at", "event_key"}.issubset(cursor):
             errors.append(f"{profile.id}: invalid cursor")
             continue
-        candidates = [item for item in items if state.cursor_key(item) > (str(cursor["published_at"]), str(cursor["event_key"])) and str(item["event_key"]) not in known]
+        candidates = sorted(
+            (
+                item
+                for item in archive_ready
+                if state.cursor_key(item) > state.cursor_key(cursor)
+                and str(item["event_key"]) not in known
+            ),
+            key=state.cursor_key,
+        )
         for item in candidates[: profile.max_items_per_poll]:
             event = deserialize_queue_event(item)
             value["outbox"].append({
@@ -272,17 +470,30 @@ def _run(
                 "event": event_queue.serialize_event(event),
                 "agent_phase": "pending" if profile.uses_llm else "ready",
                 "agent_lease_until": None,
-                "analysis": None,
+                "items": None if profile.uses_llm else _deterministic_items(profile),
+                "item_index": 0,
+                "text_index": 0,
+                "media_index": 0,
+                "board_phase": "pending",
+                "archive_complete": True,
+                "routable": True,
             })
             known.add(event.event_key)
             queued += 1
-        newest = _newest(items)
+        newest = _newest(archive_ready)
         if newest is not None and state.cursor_key(newest) > state.cursor_key(cursor):
-            profile_value["cursor"] = {"published_at": newest["published_at"], "event_key": newest["event_key"]}
+            profile_value["cursor"] = state.cursor(newest)
 
-    delivered = _deliver_ready(value, profiles, dry_run=no_post, state_path=state_path, errors=errors)
+    delivered = _deliver_ready(
+        value,
+        profiles,
+        dry_run=no_post,
+        state_path=state_path,
+        archive_dir=archive_dir,
+        errors=errors,
+    )
     claimed_item: dict[str, object] | None = None
-    for record in _active_records(value):
+    for record in _active_records(value, profiles):
         if record.get("agent_phase") != "pending":
             continue
         profile = profiles.get(str(record.get("profile_id")))
@@ -301,7 +512,7 @@ def _run(
         break
 
     state.save(state_path, value)
-    heartbeat = _heartbeat(now, fetched, queued, int(claimed_item is not None), expired, errors)
+    heartbeat = _heartbeat(now, fetched, archived, queued, int(claimed_item is not None), expired, errors)
     if not no_post:
         discord.post_text(heartbeat, "1505162000420835388", False, discord.nonce("heartbeat", now.astimezone(WIB).strftime("%Y%m%d%H%M")))
     return {
@@ -310,6 +521,7 @@ def _run(
         "heartbeat": heartbeat,
         "delivered": delivered,
         "fetched": fetched,
+        "archived": archived,
         "queued": queued,
         "claimed": int(claimed_item is not None),
         "expired": expired,
@@ -320,8 +532,23 @@ def _run(
     }
 
 
-def submit_analysis(*, config_path: Path, state_path: Path, payload: object, now: datetime | None = None, no_post: bool = False) -> dict[str, object]:
+def submit_analysis(
+    *,
+    config_path: Path,
+    state_path: Path,
+    payload: object,
+    archive_dir: Path | None = None,
+    now: datetime | None = None,
+    no_post: bool = False,
+) -> dict[str, object]:
     now = now or datetime.now(timezone.utc)
+    if archive_dir is None:
+        configured_archive = os.environ.get("WHATSAPP_CHANNEL_WATCH_ARCHIVE_ROOT")
+        archive_dir = Path(configured_archive) if configured_archive else (
+            state_path.parent / "archive" if no_post else Path.home() / ".hermes/state/whatsapp-channel-watch/archive"
+        )
+    if not archive_dir.is_absolute():
+        raise ValueError("WhatsApp Channel archive path must be absolute")
     loaded_config = config.load_for_run(config_path)
     watch_config = loaded_config.config
     control_run = ControlPlaneRun.begin(
@@ -347,6 +574,8 @@ def submit_analysis(*, config_path: Path, state_path: Path, payload: object, now
         profile = next((item for item in watch_config.profiles if item.id == record.get("profile_id")), None)
         if profile is None:
             raise ValueError("analysis profile is not configured")
+        if not _record_is_routable(value, profile, record):
+            raise ValueError("analysis event is not routable")
         if record.get("agent_phase") != "awaiting_agent":
             raise ValueError("analysis event is not leased to the agent")
         until = datetime.fromisoformat(str(record["agent_lease_until"]))
@@ -354,16 +583,24 @@ def submit_analysis(*, config_path: Path, state_path: Path, payload: object, now
             raise ValueError("analysis lease expired")
         event = deserialize_queue_event(record["event"])
         route_override = agent_protocol.deterministic_route(profile, event)
-        result = agent_protocol.validate_submission(profile, payload)
+        result = agent_protocol.validate_submission(profile, payload, event=event)
         if result.get("is_relevant") is False and route_override is not None:
             raise ValueError("TechnicalReview posts must be submitted as relevant")
-        if profile.enable_llm_routing:
-            route = result.get("route")
-            if route == "id_stocks_swing" and route_override != "id_stocks_swing":
+        if profile.enable_llm_routing and result.get("is_relevant") is not False:
+            items = result.get("items")
+            if type(items) is not list or not items:
+                raise ValueError("relevant submission has no news items")
+            routes = [item.get("route") for item in items if type(item) is dict]
+            if "id_stocks_swing" in routes and route_override != "id_stocks_swing":
                 raise ValueError("id_stocks_swing requires a leading #TechnicalReview tag")
-            if route_override is not None:
-                result["route"] = route_override
-        record["analysis"] = result
+        record["items"] = (
+            None
+            if result.get("is_relevant") is False
+            else result.get("items") or _deterministic_items(profile)
+        )
+        record["item_index"] = 0
+        record["text_index"] = 0
+        record["media_index"] = 0
         record["agent_lease_until"] = None
         record["agent_phase"] = "filtered" if result.get("is_relevant") is False else "ready"
         errors: list[str] = []
@@ -372,6 +609,7 @@ def submit_analysis(*, config_path: Path, state_path: Path, payload: object, now
             {item.id: item for item in watch_config.profiles},
             dry_run=no_post,
             state_path=state_path,
+            archive_dir=archive_dir,
             errors=errors,
         )
         state.save(state_path, value)
@@ -431,14 +669,29 @@ def main() -> int:
     parser.add_argument("--config", type=Path, default=_default_path("WHATSAPP_CHANNEL_WATCH_CONFIG_PATH", "config/watches.json"))
     parser.add_argument("--state", type=Path, default=_default_path("WHATSAPP_CHANNEL_WATCH_STATE_PATH", "state/state.json"))
     parser.add_argument("--queue-dir", type=Path, default=_default_path("WHATSAPP_CHANNEL_WATCH_QUEUE_DIR", "queue"))
+    parser.add_argument("--archive-dir", type=Path, default=_default_path("WHATSAPP_CHANNEL_WATCH_ARCHIVE_ROOT", str(Path.home() / ".hermes/state/whatsapp-channel-watch/archive")))
+    parser.add_argument("--media-staging-dir", type=Path, default=_default_path("WHATSAPP_CHANNEL_WATCH_MEDIA_STAGING_DIR", str(Path.home() / ".hermes/state/whatsapp-channel-watch/media-staging")))
     args = parser.parse_args()
     no_post = args.no_post or os.environ.get("WHATSAPP_CHANNEL_WATCH_NO_POST") == "1"
     if args.command == "submit-analysis":
         if not args.payload:
             parser.error("submit-analysis requires --json")
-        result = submit_analysis(config_path=args.config, state_path=args.state, payload=json.loads(args.payload), no_post=no_post)
+        result = submit_analysis(
+            config_path=args.config,
+            state_path=args.state,
+            payload=json.loads(args.payload),
+            archive_dir=args.archive_dir,
+            no_post=no_post,
+        )
     else:
-        result = run(config_path=args.config, state_path=args.state, queue_dir=args.queue_dir, no_post=no_post)
+        result = run(
+            config_path=args.config,
+            state_path=args.state,
+            queue_dir=args.queue_dir,
+            archive_dir=args.archive_dir,
+            media_staging_dir=args.media_staging_dir,
+            no_post=no_post,
+        )
     print(json.dumps(result, ensure_ascii=False))
     return 0
 

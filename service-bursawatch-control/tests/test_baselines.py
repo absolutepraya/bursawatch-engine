@@ -175,6 +175,19 @@ def test_static_json_baselines_match_their_source(
     _validate_with_source(ROOT.parent / package / "bin", BASELINES / file_name, validator)
 
 
+def test_whatsapp_channel_baseline_lists_the_reviewed_profile_lifecycle():
+    payload = json.loads(
+        (BASELINES / "bursawatch-wa-channel-watch.json").read_text(encoding="utf-8")
+    )
+
+    assert payload["version"] == 2
+    assert [(profile["id"], profile["mode"]) for profile in payload["profiles"]] == [
+        ("bri-danareksa-sekuritas", "forward"),
+        ("ins", "observe"),
+        ("samuel-sekuritas-indonesia", "observe"),
+    ]
+
+
 def _validate_with_source(config_source: Path, baseline_path: Path, validator: str) -> None:
     subprocess.run(
         [

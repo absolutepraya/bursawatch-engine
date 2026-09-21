@@ -10,7 +10,7 @@ diff --git a/scripts/whatsapp-bridge/bridge.js b/scripts/whatsapp-bridge/bridge.
  import { randomBytes, createHash } from 'crypto';
  import { execFileSync } from 'child_process';
  import { tmpdir } from 'os';
-@@ -96,6 +96,23 @@
+@@ -96,6 +96,27 @@
  const AUDIO_CACHE_DIR = process.env.HERMES_AUDIO_CACHE_DIR
    || path.join(process.env.HOME || '~', '.hermes', 'audio_cache');
  
@@ -21,6 +21,10 @@ diff --git a/scripts/whatsapp-bridge/bridge.js b/scripts/whatsapp-bridge/bridge.
 +  || path.join(process.env.HOME || '~', '.agents', 'skills', 'bursawatch-wa-channel-watch', 'bin', 'channel_sink.mjs');
 +const CHANNEL_QUEUE_DIR = process.env.WHATSAPP_CHANNEL_QUEUE_DIR
 +  || path.join(process.env.HOME || '~', '.hermes', 'state', 'whatsapp-channel-watch', 'queue');
++const CHANNEL_ARCHIVE_DIR = process.env.WHATSAPP_CHANNEL_WATCH_ARCHIVE_ROOT
++  || path.join(process.env.HOME || '~', '.hermes', 'state', 'whatsapp-channel-watch', 'archive');
++const CHANNEL_MEDIA_STAGING_DIR = process.env.WHATSAPP_CHANNEL_MEDIA_STAGING_DIR
++  || path.join(process.env.HOME || '~', '.hermes', 'state', 'whatsapp-channel-watch', 'media-staging');
 +let channelSink = null;
 +const CHANNEL_CONFIG_PATH = process.env.WHATSAPP_CHANNEL_CONFIG_PATH
 +  || path.join(path.dirname(CHANNEL_SINK_PATH), '..', 'config', 'watches.json');
@@ -34,14 +38,27 @@ diff --git a/scripts/whatsapp-bridge/bridge.js b/scripts/whatsapp-bridge/bridge.
  // Self-hash of this script file.  Reported in /health so the Python gateway
  // can detect a running bridge that predates the current bridge.js and
  // restart it instead of silently reusing stale code (stale-bridge trap:
-@@ -246,7 +263,85 @@
+@@ -246,7 +267,102 @@
    }
    return {};
  }
++function loadChannelWatchConfig() {
++  try {
++    return JSON.parse(readFileSync(CHANNEL_CONFIG_PATH, 'utf8'));
++  } catch (err) {
++    if (existsSync(CHANNEL_CONFIG_PATH)) {
++      console.warn('[bridge] WhatsApp Channel config unavailable');
++    }
++    return null;
++  }
++}
 +async function enqueueChannelMessage(msg) {
-+  if (!channelSink) return false;
++  if (!channelSink?.enabledNewsletterProfile) return false;
 +  const preliminary = channelSink.normalizeChannelMessage({ msg });
 +  if (!preliminary) return false;
++  const watchConfig = loadChannelWatchConfig();
++  const profile = watchConfig && channelSink.enabledNewsletterProfile(watchConfig, preliminary.channel_jid);
++  if (!profile) return false;
 +
 +  let mediaPath = null;
 +  if (preliminary.media.length > 0) {
@@ -63,7 +80,7 @@ diff --git a/scripts/whatsapp-bridge/bridge.js b/scripts/whatsapp-bridge/bridge.
 +          { logger, reuploadRequest: sock.updateMediaMessage },
 +        ),
 +        cacheDirs: {
-+          image: IMAGE_CACHE_DIR,
++          image: CHANNEL_MEDIA_STAGING_DIR,
 +          document: DOCUMENT_CACHE_DIR,
 +          audio: AUDIO_CACHE_DIR,
 +        },
@@ -76,6 +93,16 @@ diff --git a/scripts/whatsapp-bridge/bridge.js b/scripts/whatsapp-bridge/bridge.
 +
 +  const payload = channelSink.normalizeChannelMessage({ msg, mediaPath });
 +  if (!payload) return false;
++  let archived = false;
++  try {
++    archived = channelSink.archiveChannelEvent(payload, {
++      archiveDir: CHANNEL_ARCHIVE_DIR,
++      profileId: profile.id,
++      stagingRoot: CHANNEL_MEDIA_STAGING_DIR,
++    });
++  } catch {
++    console.warn('[bridge] WhatsApp Channel archive unavailable');
++  }
 +  const inserted = channelSink.enqueueChannelEvent(payload, CHANNEL_QUEUE_DIR);
 +  emitDebugEvent({
 +    stage: inserted ? 'channel_queued' : 'channel_duplicate',
@@ -83,21 +110,15 @@ diff --git a/scripts/whatsapp-bridge/bridge.js b/scripts/whatsapp-bridge/bridge.
 +    messageId: payload.message_id,
 +    hasText: Boolean(payload.text),
 +    mediaCount: payload.media.length,
++    archive: archived ? 'complete' : 'pending',
 +  });
 +  return inserted;
 +}
 +async function ensureChannelSubscriptions() {
 +  if (!channelSink?.configuredNewsletterJids || !sock) return;
 +
-+  let watchConfig;
-+  try {
-+    watchConfig = JSON.parse(readFileSync(CHANNEL_CONFIG_PATH, 'utf8'));
-+  } catch (err) {
-+    if (existsSync(CHANNEL_CONFIG_PATH)) {
-+      console.warn('[bridge] WhatsApp Channel config unavailable:', err?.message || err);
-+    }
-+    return;
-+  }
++  const watchConfig = loadChannelWatchConfig();
++  if (!watchConfig) return;
 +
 +  for (const channelJid of channelSink.configuredNewsletterJids(watchConfig)) {
 +    try {
@@ -120,7 +141,7 @@ diff --git a/scripts/whatsapp-bridge/bridge.js b/scripts/whatsapp-bridge/bridge.
  mkdirSync(SESSION_DIR, { recursive: true });
  
  // Build LID → phone reverse map from session files (lid-mapping-{phone}.json)
-@@ -468,6 +563,10 @@
+@@ -468,6 +584,10 @@
        if (!PAIR_JSON) {
          console.log('✅ WhatsApp connected!');
        }
@@ -131,7 +152,7 @@ diff --git a/scripts/whatsapp-bridge/bridge.js b/scripts/whatsapp-bridge/bridge.
        if (PAIR_ONLY) {
          if (!PAIR_JSON) {
            console.log('✅ Pairing complete. Credentials saved.');
-@@ -554,6 +653,13 @@
+@@ -554,6 +674,13 @@
          senderId: redactWhatsAppId(senderId),
          messageKeys: Object.keys(msg.message || {}),
        });
@@ -145,7 +166,7 @@ diff --git a/scripts/whatsapp-bridge/bridge.js b/scripts/whatsapp-bridge/bridge.
  
        // Handle fromMe messages based on mode
        let fromOwner = false;
-@@ -1103,6 +1209,105 @@
+@@ -1103,6 +1230,105 @@
    });
  });
  

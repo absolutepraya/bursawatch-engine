@@ -2,12 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   enqueueChannelEvent,
+  archiveChannelEvent,
   configuredNewsletterJids,
+  enabledNewsletterProfile,
   followNewsletter,
   normalizeChannelMessage,
   normalizeNewsletterJid,
 } from '../bin/channel_sink.mjs';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -83,6 +85,22 @@ test('selects unique enabled Channel profiles from watcher configuration', () =>
   }), ['12345@newsletter']);
 });
 
+test('resolves only an enabled Channel profile for archive ownership', () => {
+  const config = {
+    profiles: [
+      {id: 'ins', enabled: true, channel_jid: '12345@newsletter'},
+      {id: 'disabled', enabled: false, channel_jid: '67890@newsletter'},
+    ],
+  };
+
+  assert.equal(enabledNewsletterProfile(config, '12345@newsletter')?.id, 'ins');
+  assert.equal(enabledNewsletterProfile(config, '67890@newsletter'), null);
+  assert.equal(
+    enabledNewsletterProfile({profiles: [{id: 123, enabled: true, channel_jid: '12345@newsletter'}]}, '12345@newsletter'),
+    null,
+  );
+});
+
 test('writes one durable event and deduplicates it', async () => {
   const queueDir = await mkdtemp(path.join(tmpdir(), 'wa-channel-'));
   const payload = normalizeChannelMessage({msg: base({conversation: 'BBCA mencatat laba bersih naik'})});
@@ -104,4 +122,99 @@ test('deduplicates a redelivered source event even when receipt time changes', a
   const second = {...first, received_at: '2026-09-10T10:11:12.000Z'};
   assert.equal(enqueueChannelEvent(first, queueDir), true);
   assert.equal(enqueueChannelEvent(second, queueDir), false);
+});
+
+test('writes one private archived source record for a configured profile', async () => {
+  const archiveDir = await mkdtemp(path.join(tmpdir(), 'wa-archive-'));
+  const stagingRoot = path.join(archiveDir, 'staging');
+  await mkdir(stagingRoot);
+  const payload = {
+    channel_jid: '12345@newsletter',
+    message_id: 'ABC-001',
+    published_at: 1756000000,
+    text: 'BBCA mencatat laba bersih naik',
+    links: [],
+    media: [],
+    received_at: '2026-09-21T09:31:00Z',
+  };
+
+  assert.equal(archiveChannelEvent(payload, {archiveDir, profileId: 'ins', stagingRoot}), true);
+  assert.equal(archiveChannelEvent(payload, {archiveDir, profileId: 'ins', stagingRoot}), false);
+  const profileRecords = await (await import('node:fs/promises')).readdir(path.join(archiveDir, 'ins'), {recursive: true});
+  assert.equal(profileRecords.filter(name => name.endsWith('.json')).length, 1);
+});
+
+test('deduplicates an archived source event after its transient staged media is gone', async () => {
+  const archiveDir = await mkdtemp(path.join(tmpdir(), 'wa-archive-'));
+  const stagingRoot = path.join(archiveDir, 'staging');
+  const imagePath = path.join(stagingRoot, 'chart.jpg');
+  await mkdir(stagingRoot);
+  await writeFile(imagePath, 'source bytes');
+  const payload = {
+    channel_jid: '12345@newsletter',
+    message_id: 'ABC-REDRIVE',
+    published_at: 1756000000,
+    text: 'Technical review',
+    links: [],
+    media: [{kind: 'image', mime: 'image/jpeg', path: imagePath}],
+    received_at: '2026-09-21T09:31:00Z',
+  };
+
+  assert.equal(archiveChannelEvent(payload, {archiveDir, profileId: 'bri', stagingRoot}), true);
+  await unlink(imagePath);
+  assert.equal(archiveChannelEvent(payload, {archiveDir, profileId: 'bri', stagingRoot}), false);
+});
+
+test('upgrades an unavailable archived media descriptor when a safe staged retry arrives', async () => {
+  const archiveDir = await mkdtemp(path.join(tmpdir(), 'wa-archive-'));
+  const stagingRoot = path.join(archiveDir, 'staging');
+  const imagePath = path.join(stagingRoot, 'chart.jpg');
+  await mkdir(stagingRoot);
+  const payload = {
+    channel_jid: '12345@newsletter',
+    message_id: 'ABC-UPGRADE',
+    published_at: 1756000000,
+    text: 'Technical review',
+    links: [],
+    media: [{kind: 'image', mime: 'image/jpeg', path: imagePath}],
+    received_at: '2026-09-21T09:31:00Z',
+  };
+
+  assert.equal(archiveChannelEvent(payload, {archiveDir, profileId: 'bri', stagingRoot}), true);
+  await writeFile(imagePath, 'source bytes');
+  assert.equal(archiveChannelEvent(payload, {archiveDir, profileId: 'bri', stagingRoot}), false);
+  const files = await (await import('node:fs/promises')).readdir(path.join(archiveDir, 'bri'), {recursive: true});
+  const recordPath = path.join(archiveDir, 'bri', files.find(name => name.endsWith('.json')));
+  const record = JSON.parse(await readFile(recordPath, 'utf8'));
+  assert.equal(record.media[0].capture_status, 'captured');
+  assert.equal(record.media[0].archive_path.startsWith('media/'), true);
+  assert.equal(record.media[0].archive_path.includes(stagingRoot), false);
+});
+
+test('never copies a symlink or a path outside media staging', async () => {
+  const archiveDir = await mkdtemp(path.join(tmpdir(), 'wa-archive-'));
+  const stagingRoot = path.join(archiveDir, 'staging');
+  const outsideRoot = await mkdtemp(path.join(tmpdir(), 'wa-outside-'));
+  const outsideMedia = path.join(outsideRoot, 'chart.jpg');
+  await mkdir(stagingRoot);
+  await writeFile(outsideMedia, 'source bytes');
+  const payload = {
+    channel_jid: '12345@newsletter',
+    message_id: 'ABC-002',
+    published_at: 1756000000,
+    text: 'Technical review',
+    links: [],
+    media: [{kind: 'image', mime: 'image/jpeg', path: outsideMedia}],
+    received_at: '2026-09-21T09:31:00Z',
+  };
+
+  assert.throws(() => archiveChannelEvent(payload, {archiveDir, profileId: 'bri', stagingRoot}), /staging root/);
+  await symlink(outsideMedia, path.join(stagingRoot, 'linked-chart.jpg'));
+  assert.throws(
+    () => archiveChannelEvent(
+      {...payload, message_id: 'ABC-003', media: [{kind: 'image', mime: 'image/jpeg', path: path.join(stagingRoot, 'linked-chart.jpg')}],},
+      {archiveDir, profileId: 'bri', stagingRoot},
+    ),
+    /symlink/,
+  );
 });

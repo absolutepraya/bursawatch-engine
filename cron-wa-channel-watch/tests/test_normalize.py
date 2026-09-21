@@ -25,6 +25,14 @@ def test_normalizes_text_and_deduplicates_links():
     assert result.published_at.tzinfo is not None
 
 
+def test_preserves_raw_source_whitespace_for_archive_identity():
+    source = "  BBCA mencatat laba bersih naik.  \n"
+
+    result = normalize_bridge_event(event(text=source))
+
+    assert result.text == source
+
+
 def test_accepts_image_and_video_metadata():
     result = normalize_bridge_event(event(media=[
         {"kind": "image", "mime": "image/jpeg", "path": "/private/image.jpg"},

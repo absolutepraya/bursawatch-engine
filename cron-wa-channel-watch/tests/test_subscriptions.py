@@ -26,6 +26,18 @@ def test_dry_run_checks_bridge_without_following() -> None:
             "display_name": "BRI Danareksa Sekuritas",
             "channel_jid": "120363419226413141@newsletter",
             "status": "would_subscribe",
+        },
+        {
+            "profile_id": "ins",
+            "display_name": "INS",
+            "channel_jid": "120363405187024421@newsletter",
+            "status": "would_subscribe",
+        },
+        {
+            "profile_id": "samuel-sekuritas-indonesia",
+            "display_name": "Samuel Sekuritas Indonesia",
+            "channel_jid": "120363319274271353@newsletter",
+            "status": "would_subscribe",
         }
     ]
     assert calls == [("GET", "http://127.0.0.1:3055/health", None)]
@@ -52,6 +64,20 @@ def test_apply_follows_each_enabled_channel() -> None:
             "channel_jid": "120363419226413141@newsletter",
             "status": "subscribed",
             "duration": "86400",
+        },
+        {
+            "profile_id": "ins",
+            "display_name": "INS",
+            "channel_jid": "120363405187024421@newsletter",
+            "status": "subscribed",
+            "duration": "86400",
+        },
+        {
+            "profile_id": "samuel-sekuritas-indonesia",
+            "display_name": "Samuel Sekuritas Indonesia",
+            "channel_jid": "120363319274271353@newsletter",
+            "status": "subscribed",
+            "duration": "86400",
         }
     ]
     assert calls == [
@@ -60,6 +86,16 @@ def test_apply_follows_each_enabled_channel() -> None:
             "POST",
             "http://127.0.0.1:3055/newsletter/follow",
             {"jid": "120363419226413141@newsletter"},
+        ),
+        (
+            "POST",
+            "http://127.0.0.1:3055/newsletter/follow",
+            {"jid": "120363405187024421@newsletter"},
+        ),
+        (
+            "POST",
+            "http://127.0.0.1:3055/newsletter/follow",
+            {"jid": "120363319274271353@newsletter"},
         ),
     ]
 

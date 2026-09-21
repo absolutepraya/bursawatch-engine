@@ -62,7 +62,6 @@ def normalize_bridge_event(payload: object, *, received_at: datetime | None = No
         raise ValueError("bridge event message ID is invalid")
     if type(text) is not str:
         raise ValueError("bridge event text must be text")
-    text = text.strip()
     if len(text) > _MAX_TEXT:
         raise ValueError("bridge event text is too long")
     if type(media_value) is not list or len(media_value) > _MAX_MEDIA:
@@ -81,7 +80,7 @@ def normalize_bridge_event(payload: object, *, received_at: datetime | None = No
         if path is not None and type(path) is not str:
             raise ValueError("media path must be text")
         media.append(ChannelMedia(kind=kind, index=index, mime=mime, path=path))
-    if not text and not media:
+    if not text.strip() and not media:
         raise ValueError("bridge event has no supported content")
     published_at = _timestamp(payload["published_at"], "published_at")
     return ChannelEvent(
