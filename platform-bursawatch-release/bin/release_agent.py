@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Release eligible BursaWatch main commits from a VPS-local pull agent."""
+"""Release eligible Bursawatch main commits from a VPS-local pull agent."""
 
 from __future__ import annotations
 

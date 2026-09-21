@@ -1,5 +1,5 @@
 [Unit]
-Description=Release eligible BursaWatch main commits
+Description=Release eligible Bursawatch main commits
 Wants=network-online.target
 After=network-online.target
 

@@ -1,5 +1,5 @@
 [Unit]
-Description=Poll GitHub for an eligible BursaWatch release
+Description=Poll GitHub for an eligible Bursawatch release
 
 [Timer]
 OnBootSec=2m
