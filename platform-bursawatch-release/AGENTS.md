@@ -22,4 +22,6 @@ host.
 `release-manifest.json` is fail-closed. Every changed tracked source path must
 map to exactly one declared unit. `manual` units are never processed by the
 timer. They require a reviewed host operation followed by an explicit
-`--release-manual` invocation by an operator.
+`--release-manual` invocation by an operator. Manual database migrations use
+the same gate: the timer blocks them, while the explicit invocation applies
+them and records the reviewed release.

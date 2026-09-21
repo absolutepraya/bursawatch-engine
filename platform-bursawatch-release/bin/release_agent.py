@@ -697,7 +697,7 @@ def release_once(settings: Settings, *, allow_manual: bool = False) -> str:
             worktree = mirror.materialize(sha)
             changed_paths = mirror.changed_paths(worktree, state.get("last_success_sha"), sha)
             manual_migrations = _changed_manual_migrations(worktree, changed_paths)
-            if manual_migrations:
+            if manual_migrations and not allow_manual:
                 reason = "manual migrations require an explicit operations release"
                 _block_release(
                     store,
@@ -732,6 +732,7 @@ def release_once(settings: Settings, *, allow_manual: bool = False) -> str:
                 sha,
                 "released",
                 units=deployer.completed_units,
+                manual_migrations=manual_migrations,
                 skipped_manual_units=manual_units,
                 changed_paths=changed_paths,
             )
@@ -1053,7 +1054,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--once", action="store_true", help="poll and process one automatic release candidate")
-    mode.add_argument("--release-manual", action="store_true", help="release automatic units alongside reviewed manual host work")
+    mode.add_argument(
+        "--release-manual",
+        action="store_true",
+        help="apply reviewed manual migrations and release eligible units alongside host work",
+    )
     mode.add_argument("--clear-block", action="store_true", help="clear the current failed release block")
     mode.add_argument("--status", action="store_true", help="print durable release state without contacting GitHub")
     args = parser.parse_args(argv)

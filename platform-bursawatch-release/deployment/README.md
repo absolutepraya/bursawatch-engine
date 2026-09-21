@@ -13,8 +13,9 @@ isolated worktree below `~/.local/share/bursawatch-release/worktrees/`, checks
 `release-manifest.json`, then deploys only the mapped Bursawatch runtime units.
 Each runtime copy receives a checksum comparison and its existing isolated
 no-post verification. Control-plane releases additionally install Python
-dependencies, apply eligible migrations, seed only absent baselines, restart
+dependencies, apply automatic migrations, seed only absent baselines, restart
 the scoped API service through one sudoers command, and check loopback health.
+An explicit operations release also applies reviewed manual migrations.
 
 The agent stores sanitized per-SHA records and durable state below
 `~/.local/share/bursawatch-release/records/`. It sends a concise success,
@@ -37,7 +38,8 @@ checkout of this repository:
 4. Inspect `systemctl status bursawatch-release-agent.timer`, then inspect
    `~/.local/share/bursawatch-release/state.json` and its per-SHA record. The
    first candidate intentionally reports a manual release requirement because
-   this platform bootstrap is a host-bound manifest unit.
+   this platform bootstrap is a host-bound manifest unit or a changed manual
+   migration.
 5. After the host bootstrap has been reviewed and applied, explicitly run the
    agent with its private environment in that one shell process:
 
@@ -48,8 +50,9 @@ checkout of this repository:
    /home/praya/.local/lib/bursawatch-release/bursawatch-release-agent.sh --release-manual
    ```
 
-   It skips the manual unit, deploys eligible workload units, and records that
-   SHA as released. The timer handles later eligible workload-only commits.
+   It applies reviewed manual migrations, skips host-bound manual units,
+   deploys eligible workload units, and records that SHA as released. The timer
+   handles later eligible workload-only commits.
 
 ## Failure handling
 

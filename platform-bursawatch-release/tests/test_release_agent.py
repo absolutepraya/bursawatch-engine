@@ -118,6 +118,88 @@ def test_changed_migrations_require_a_header_and_manual_migrations_block_automat
         )
 
 
+def test_explicit_manual_release_applies_reviewed_manual_migrations(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    sha = "b" * 40
+    checkout = tmp_path / "checkout"
+    manifest_path = checkout / "platform-bursawatch-release"
+    migration_path = checkout / "service-bursawatch-control/migrations"
+    manifest_path.mkdir(parents=True)
+    migration_path.mkdir(parents=True)
+    (manifest_path / "release-manifest.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "units": [
+                    {
+                        "id": "control-plane-metadata",
+                        "handler": "metadata",
+                        "paths": ["service-bursawatch-control/migrations/**"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (migration_path / "legacy-release-eligibility.json").write_text(
+        json.dumps({"version": 1, "migrations": {}}), encoding="utf-8"
+    )
+    (migration_path / "009_manual.sql").write_text(
+        "-- bursawatch-release: manual\nselect 1;\n", encoding="utf-8"
+    )
+
+    class FakeGitHub:
+        def __init__(self, settings: release_agent.Settings) -> None:
+            del settings
+
+        def current_main_sha(self) -> str:
+            return sha
+
+        def has_successful_ci(self, candidate: str) -> bool:
+            return candidate == sha
+
+    class FakeMirror:
+        def __init__(self, settings: release_agent.Settings) -> None:
+            del settings
+
+        def materialize(self, candidate: str) -> Path:
+            assert candidate == sha
+            return checkout
+
+        def changed_paths(self, worktree: Path, base_sha: str | None, candidate: str) -> list[str]:
+            assert worktree == checkout
+            assert base_sha is None
+            assert candidate == sha
+            return ["service-bursawatch-control/migrations/009_manual.sql"]
+
+    monkeypatch.setattr(release_agent, "GitHubClient", FakeGitHub)
+    monkeypatch.setattr(release_agent, "GitMirror", FakeMirror)
+    monkeypatch.setattr(release_agent, "_send_heartbeat", lambda settings, message: None)
+    settings = release_agent.Settings(
+        repository="owner/repository",
+        token="token",
+        state_root=tmp_path / "state",
+        branch="main",
+        runtime_home=tmp_path / "runtime",
+        control_plane_runtime=tmp_path / "control-plane",
+        control_plane_env=tmp_path / "control-plane.env",
+        heartbeat_env=tmp_path / "heartbeat.env",
+        heartbeat_channel_id="123",
+        github_api_url="https://api.github.com",
+        timeout_seconds=1,
+    )
+
+    assert release_agent.release_once(settings) == "manual-required"
+    assert release_agent.release_once(settings, allow_manual=True) == "released"
+    state = json.loads((settings.state_root / "state.json").read_text(encoding="utf-8"))
+    assert state["last_success_sha"] == sha
+    assert state["blocked"] is None
+    record = json.loads((settings.state_root / "records" / f"{sha}.json").read_text(encoding="utf-8"))
+    assert record["status"] == "released"
+    assert record["manual_migrations"] == ["009_manual.sql"]
+
+
 @pytest.mark.parametrize(
     "verification",
     [
