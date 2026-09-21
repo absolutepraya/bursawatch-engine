@@ -157,6 +157,30 @@ def test_release_store_writes_a_sanitized_atomic_state_and_record(tmp_path: Path
     assert (tmp_path / "records" / f"{'a' * 40}.json").stat().st_mode & 0o777 == 0o600
 
 
+def test_control_plane_health_waits_for_post_restart_readiness(monkeypatch):
+    results: list[object] = [
+        release_agent.DeploymentError("control-plane health request failed"),
+        {"status": "starting"},
+        {"status": "ok"},
+    ]
+    calls = []
+
+    def read_health(url: str, *, timeout: float) -> object:
+        calls.append((url, timeout))
+        result = results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(release_agent, "_read_json_url", read_health)
+    monkeypatch.setattr(release_agent.time, "sleep", lambda _: None)
+
+    release_agent._wait_for_control_plane_health(timeout=3)
+
+    assert len(calls) == 3
+    assert all(url == "http://127.0.0.1:9120/healthz" for url, _ in calls)
+
+
 def test_systemd_unit_keeps_static_agent_code_and_scoped_restart_boundary():
     service = (ROOT / "deployment/systemd/bursawatch-release-agent.service").read_text(encoding="utf-8")
     timer = (ROOT / "deployment/systemd/bursawatch-release-agent.timer").read_text(encoding="utf-8")

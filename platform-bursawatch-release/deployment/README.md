@@ -38,8 +38,16 @@ checkout of this repository:
    `~/.local/share/bursawatch-release/state.json` and its per-SHA record. The
    first candidate intentionally reports a manual release requirement because
    this platform bootstrap is a host-bound manifest unit.
-5. After the host bootstrap has been reviewed and applied, explicitly run
-   `/home/praya/.local/lib/bursawatch-release/bursawatch-release-agent.sh --release-manual`.
+5. After the host bootstrap has been reviewed and applied, explicitly run the
+   agent with its private environment in that one shell process:
+
+   ```bash
+   set -a
+   . /home/praya/.hermes/bursawatch-release-agent.env
+   set +a
+   /home/praya/.local/lib/bursawatch-release/bursawatch-release-agent.sh --release-manual
+   ```
+
    It skips the manual unit, deploys eligible workload units, and records that
    SHA as released. The timer handles later eligible workload-only commits.
 

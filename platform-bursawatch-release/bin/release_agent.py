@@ -569,9 +569,7 @@ class ReleaseDeployer:
         if verification == "checksum-only":
             return
         if verification == "control-plane-health":
-            payload = _read_json_url("http://127.0.0.1:9120/healthz", timeout=self.settings.timeout_seconds)
-            if payload != {"status": "ok"}:
-                raise DeploymentError("control-plane loopback health check failed")
+            _wait_for_control_plane_health(timeout=self.settings.timeout_seconds)
             return
         specification = _no_post_specification(verification, self.settings.state_root)
         try:
@@ -952,6 +950,26 @@ def _read_json_url(url: str, *, timeout: float) -> object:
             return json.loads(response.read().decode("utf-8"))
     except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
         raise DeploymentError("control-plane health request failed") from exc
+
+
+def _wait_for_control_plane_health(*, timeout: float) -> None:
+    deadline = time.monotonic() + timeout
+    last_error: DeploymentError | None = None
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise DeploymentError("control-plane did not become healthy before the release timeout") from last_error
+        try:
+            payload = _read_json_url(
+                "http://127.0.0.1:9120/healthz",
+                timeout=min(remaining, 5),
+            )
+            if payload == {"status": "ok"}:
+                return
+            last_error = DeploymentError("control-plane loopback health response was unexpected")
+        except DeploymentError as exc:
+            last_error = exc
+        time.sleep(min(0.5, max(0, deadline - time.monotonic())))
 
 
 def _run_command(
