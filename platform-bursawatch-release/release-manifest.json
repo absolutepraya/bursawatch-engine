@@ -186,7 +186,8 @@
       "paths": ["cron-wa-channel-watch/bin/**", "cron-wa-channel-watch/config/**", "cron-wa-channel-watch/SKILL.md"],
       "wrappers": [
         {"source": "bursawatch-wa-channel-watch.sh", "destination": "bursawatch-wa-channel-watch.sh"},
-        {"source": "bursawatch-wa-channel-subscriptions.sh", "destination": "bursawatch-wa-channel-subscriptions.sh"}
+        {"source": "bursawatch-wa-channel-subscriptions.sh", "destination": "bursawatch-wa-channel-subscriptions.sh"},
+        {"source": "bursawatch-wa-channel-archive.sh", "destination": "bursawatch-wa-channel-archive.sh"}
       ],
       "verification": "whatsapp-no-post"
     },
