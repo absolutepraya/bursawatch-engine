@@ -36,7 +36,7 @@ def test_static_mode_does_not_create_a_control_plane_run():
     assert run.run_id is None
 
 
-def test_live_mode_reports_events_best_effort(monkeypatch):
+def test_live_mode_flushes_each_event_to_the_durable_reporter(monkeypatch):
     fake = FakeReporter()
     monkeypatch.setattr(
         "control_plane_runtime.ControlPlaneReporter.from_environment",
@@ -61,5 +61,5 @@ def test_live_mode_reports_events_best_effort(monkeypatch):
 
     assert fake.started == [(9, "x-post-source", "scheduled")]
     assert fake.events[0][0:2] == ("run-1", "run-completed")
-    assert fake.events[0][2]["flush"] is False
+    assert fake.events[0][2]["flush"] is True
     assert fake.finished == [("run-1", "ok", None)]
