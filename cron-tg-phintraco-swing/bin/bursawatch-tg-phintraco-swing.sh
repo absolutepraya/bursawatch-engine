@@ -25,20 +25,28 @@ else
 fi
 
 if [[ -r "$HOME/.hermes/.env" ]]; then
-  for k in DISCORD_BOT_TOKEN TELEGRAM_API_ID TELEGRAM_API_HASH POLYCOP_SESSION_STRING \
-    IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_URL \
-    IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_WATCHER_ID \
-    IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_TOKEN \
-    IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_TIMEOUT_SECONDS \
-    IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_SPOOL_PATH; do
+  for k in DISCORD_BOT_TOKEN TELEGRAM_API_ID TELEGRAM_API_HASH POLYCOP_SESSION_STRING; do
     v="$(grep -E "^${k}=" "$HOME/.hermes/.env" | head -1 | cut -d= -f2- || true)"
     [[ -n "${v:-}" ]] && export "${k}=${v}"
   done
+  if [[ "${BURSAWATCH_RELEASE_NO_POST:-}" != "1" ]]; then
+    for k in IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_URL \
+      IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_WATCHER_ID \
+      IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_TOKEN \
+      IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_TIMEOUT_SECONDS \
+      IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_SPOOL_PATH; do
+      v="$(grep -E "^${k}=" "$HOME/.hermes/.env" | head -1 | cut -d= -f2- || true)"
+      [[ -n "${v:-}" ]] && export "${k}=${v}"
+    done
+  fi
 fi
 
 PYTHON_BIN="${IDX_SWING_WATCH_PHINTRACO_DAILY_PY:-$HOME/.local/share/uv/tools/yahoo-finance-mcp/bin/python}"
 SCRIPT="$HOME/.agents/skills/bursawatch-tg-phintraco-swing/bin/scan.py"
 LOG="$HOME/.logs/bursawatch-tg-phintraco-swing.log"
+if [[ "${BURSAWATCH_RELEASE_NO_POST:-}" == "1" ]]; then
+  LOG="${BURSAWATCH_RELEASE_NO_POST_TEMP:?release no-post temporary directory is required}/bursawatch-tg-phintraco-swing.log"
+fi
 mkdir -p "$HOME/.logs"
 ts() { date '+%Y-%m-%dT%H:%M:%S%z'; }
 

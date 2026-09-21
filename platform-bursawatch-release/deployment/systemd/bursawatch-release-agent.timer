@@ -1,0 +1,11 @@
+[Unit]
+Description=Poll GitHub for an eligible BursaWatch release
+
+[Timer]
+OnBootSec=2m
+OnUnitActiveSec=1m
+Persistent=true
+Unit=bursawatch-release-agent.service
+
+[Install]
+WantedBy=timers.target

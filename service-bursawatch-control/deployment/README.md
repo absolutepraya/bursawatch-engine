@@ -23,10 +23,12 @@ The API listens only on `127.0.0.1:9120`. Nginx is the sole public entrypoint
 for `https://api.bursawatch.abhipraya.dev`. Do not bind the API to a public
 address or open port 9120 in UFW.
 
-## Repeat releases
+## Manual recovery releases
 
-Once this target has been created through the reviewed sequence below, run the
-package helper from the repository root for repeat API releases:
+Once the separate Bursawatch release agent has been bootstrapped, it owns
+ordinary eligible control-plane releases from verified `main`. The package
+helper below is retained for an explicitly approved recovery operation only;
+never run it concurrently with the release agent:
 
 ```bash
 ./service-bursawatch-control/deploy.sh plan
@@ -37,7 +39,9 @@ package helper from the repository root for repeat API releases:
 
 The helper syncs only the API payload, updates the existing virtual environment,
 applies migrations, seeds only absent baseline revisions, restarts the existing
-service, and verifies health. It does not bootstrap or reconfigure the host:
+service, and verifies health. The automatic agent applies only migrations
+classified as automatic and already validated in ephemeral PostgreSQL CI. The
+helper does not bootstrap or reconfigure the host:
 it never copies `.env`, edits the dedicated environment, systemd unit, Nginx,
 DNS, TLS, Hermes scheduler, or reconciler.
 

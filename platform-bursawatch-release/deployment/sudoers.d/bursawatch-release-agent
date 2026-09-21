@@ -1,0 +1,2 @@
+Cmnd_Alias BURSAWATCH_CONTROL_PLANE_RESTART = /usr/bin/systemctl restart bursawatch-control-plane.service
+praya ALL=(root) NOPASSWD: BURSAWATCH_CONTROL_PLANE_RESTART

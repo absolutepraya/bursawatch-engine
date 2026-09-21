@@ -28,6 +28,7 @@ run_suite cron-x-account-watch cron-x-account-watch tests
 run_suite cron-wa-channel-watch cron-wa-channel-watch tests
 run_suite service-bursawatch-control service-bursawatch-control tests
 run_suite platform-hermes-schedule-reconciler platform-hermes-schedule-reconciler tests
+run_suite platform-bursawatch-release platform-bursawatch-release tests
 printf '\n== cron-wa-channel-watch JavaScript sink ==\n'
 node --test "$repo_root/cron-wa-channel-watch/tests/channel_sink.test.mjs"
 run_suite skill-profile-emoji skill-profile-emoji tests

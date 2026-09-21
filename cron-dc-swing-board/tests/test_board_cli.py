@@ -179,7 +179,14 @@ def test_live_after_close_uses_its_frozen_heartbeat_route_and_reports_events(own
         def finish(self, status, error=None):
             type(self).finished.append((status, error))
 
+    class CloseClock:
+        @staticmethod
+        def now(_timezone):
+            return at()
+
     monkeypatch.setattr(board, "ControlPlaneRun", CapturedRun)
+    monkeypatch.setattr(board, "datetime", CloseClock)
+    monkeypatch.setattr("engine.fetch_session_close", lambda *_args: None)
 
     assert board._after_close(owner, "initial", loaded) == 0
 

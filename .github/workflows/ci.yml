@@ -15,6 +15,20 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: bursawatch
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d bursawatch"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     steps:
       - name: Check out source
         uses: actions/checkout@v7
@@ -48,6 +62,14 @@ jobs:
               printf '%s\n' "$script_path"
             fi
           done)
+
+      - name: Validate migrations on ephemeral PostgreSQL
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/bursawatch
+        run: |
+          python service-bursawatch-control/bin/migrate.py
+          python service-bursawatch-control/bin/seed_baseline_configs.py
+          python service-bursawatch-control/bin/migrate.py
 
       - name: Run deterministic focused suites
         env:

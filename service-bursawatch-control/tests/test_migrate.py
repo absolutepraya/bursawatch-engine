@@ -57,7 +57,11 @@ class FakeConnection:
         self.closed = True
 
 
-def write_migration(directory: Path, name: str, sql: str = "select 1;") -> None:
+def write_migration(
+    directory: Path,
+    name: str,
+    sql: str = "-- bursawatch-release: automatic\nselect 1;",
+) -> None:
     (directory / name).write_text(sql, encoding="utf-8")
 
 
@@ -72,6 +76,38 @@ def test_discover_migrations_orders_files_and_rejects_duplicate_prefixes(tmp_pat
     write_migration(tmp_path, "001_duplicate.sql")
     with pytest.raises(MigrationError, match="duplicate"):
         discover_migrations(tmp_path)
+
+
+def test_discover_migrations_requires_an_explicit_release_header_for_new_files(tmp_path: Path):
+    write_migration(tmp_path, "001_first.sql", "select 1;")
+
+    with pytest.raises(MigrationError, match="must start"):
+        discover_migrations(tmp_path)
+
+
+def test_discover_migrations_accepts_a_manual_release_header(tmp_path: Path):
+    write_migration(tmp_path, "001_first.sql", "-- bursawatch-release: manual\nselect 1;")
+
+    migrations = discover_migrations(tmp_path)
+
+    assert migrations[0].release_eligibility == "manual"
+
+
+def test_discover_migrations_uses_the_checked_legacy_eligibility_registry():
+    directory = Path(__file__).resolve().parents[1] / "migrations"
+
+    migrations = discover_migrations(directory)
+
+    assert {migration.name for migration in migrations} == {
+        "001_initial.sql",
+        "002_seed_watchers.sql",
+        "003_desired_schedule_controls.sql",
+        "004_supabase_data_api_hardening.sql",
+        "005_add_remaining_schedule_controls.sql",
+        "006_scheduler_reconciliation_runtime.sql",
+        "007_preserve_paused_instagram_baseline.sql",
+    }
+    assert {migration.release_eligibility for migration in migrations} == {"automatic"}
 
 
 def test_apply_migrations_records_each_immutable_file_and_is_idempotent(tmp_path: Path):
@@ -95,10 +131,10 @@ def test_apply_migrations_records_each_immutable_file_and_is_idempotent(tmp_path
 
 
 def test_apply_migrations_refuses_a_changed_file_after_it_was_recorded(tmp_path: Path):
-    write_migration(tmp_path, "001_first.sql", "select 1;")
+    write_migration(tmp_path, "001_first.sql", "-- bursawatch-release: automatic\nselect 1;")
     connection = FakeConnection()
     apply_migrations("postgresql://example", tmp_path, connect=lambda _dsn: connection)
-    write_migration(tmp_path, "001_first.sql", "select 2;")
+    write_migration(tmp_path, "001_first.sql", "-- bursawatch-release: automatic\nselect 2;")
 
     with pytest.raises(MigrationError, match="has changed"):
         apply_migrations("postgresql://example", tmp_path, connect=lambda _dsn: connection)

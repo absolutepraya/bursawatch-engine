@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -14,6 +15,11 @@ from typing import Any, Callable
 
 
 MIGRATION_RE = re.compile(r"[0-9]{3}_[a-z0-9_]+\.sql")
+RELEASE_HEADER_RE = re.compile(
+    r"\A\s*--\s*bursawatch-release:\s*(automatic|manual)\s*(?:\r?\n|\Z)",
+    re.IGNORECASE,
+)
+LEGACY_RELEASE_POLICY_FILE = "legacy-release-eligibility.json"
 LOCK_NAME = "bursawatch-control-plane-migrations-v1"
 
 
@@ -26,6 +32,45 @@ class Migration:
     name: str
     checksum: str
     sql: str
+    release_eligibility: str
+
+
+def _legacy_release_eligibilities(directory: Path) -> dict[str, str]:
+    policy_path = directory / LEGACY_RELEASE_POLICY_FILE
+    if not policy_path.is_file():
+        return {}
+    try:
+        payload = json.loads(policy_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise MigrationError("legacy migration eligibility policy is invalid") from exc
+    if not isinstance(payload, dict) or payload.get("version") != 1:
+        raise MigrationError("legacy migration eligibility policy has an unsupported version")
+    entries = payload.get("migrations")
+    if not isinstance(entries, dict):
+        raise MigrationError("legacy migration eligibility policy must contain migrations")
+    normalized: dict[str, str] = {}
+    for name, eligibility in entries.items():
+        if not isinstance(name, str) or not MIGRATION_RE.fullmatch(name):
+            raise MigrationError("legacy migration eligibility policy has an invalid migration name")
+        if eligibility not in {"automatic", "manual"}:
+            raise MigrationError("legacy migration eligibility policy has an invalid eligibility")
+        normalized[name] = eligibility
+    return normalized
+
+
+def _release_eligibility(name: str, sql: str, legacy: dict[str, str]) -> str:
+    match = RELEASE_HEADER_RE.match(sql)
+    if match is not None:
+        if name in legacy:
+            raise MigrationError(f"legacy migration must remain headerless: {name}")
+        return match.group(1).lower()
+    try:
+        return legacy[name]
+    except KeyError as exc:
+        raise MigrationError(
+            f"migration must start with '-- bursawatch-release: automatic' or "
+            f"'-- bursawatch-release: manual': {name}"
+        ) from exc
 
 
 def discover_migrations(directory: Path) -> list[Migration]:
@@ -33,6 +78,7 @@ def discover_migrations(directory: Path) -> list[Migration]:
         paths = sorted(path for path in directory.iterdir() if path.is_file())
     except OSError as exc:
         raise MigrationError("migration directory could not be read") from exc
+    legacy = _legacy_release_eligibilities(directory)
     migrations: list[Migration] = []
     seen_prefixes: set[str] = set()
     for path in paths:
@@ -53,7 +99,14 @@ def discover_migrations(directory: Path) -> list[Migration]:
                 name=path.name,
                 checksum=hashlib.sha256(sql.encode("utf-8")).hexdigest(),
                 sql=sql,
+                release_eligibility=_release_eligibility(path.name, sql, legacy),
             )
+        )
+    unknown_legacy = sorted(set(legacy) - {migration.name for migration in migrations})
+    if unknown_legacy:
+        raise MigrationError(
+            "legacy migration eligibility policy refers to missing migrations: "
+            + ", ".join(unknown_legacy)
         )
     if not migrations:
         raise MigrationError("no migrations were found")

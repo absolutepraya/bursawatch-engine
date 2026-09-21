@@ -12,12 +12,14 @@ fi
 if [[ -r "$HOME/.hermes/.env" ]]; then
   value="$(grep -E '^DISCORD_BOT_TOKEN=' "$HOME/.hermes/.env" | head -1 | cut -d= -f2- || true)"
   [[ -n "$value" ]] && export "DISCORD_BOT_TOKEN=$value"
-  for name in WHATSAPP_CHANNEL_WATCH_CONTROL_PLANE_URL WHATSAPP_CHANNEL_WATCH_CONTROL_PLANE_WATCHER_ID \
-    WHATSAPP_CHANNEL_WATCH_CONTROL_PLANE_TOKEN WHATSAPP_CHANNEL_WATCH_CONTROL_PLANE_TIMEOUT_SECONDS \
-    WHATSAPP_CHANNEL_WATCH_CONTROL_PLANE_SPOOL_PATH; do
-    value="$(grep -E "^${name}=" "$HOME/.hermes/.env" | head -1 | cut -d= -f2- || true)"
-    [[ -n "$value" ]] && export "$name=$value"
-  done
+  if [[ "${BURSAWATCH_RELEASE_NO_POST:-}" != "1" ]]; then
+    for name in WHATSAPP_CHANNEL_WATCH_CONTROL_PLANE_URL WHATSAPP_CHANNEL_WATCH_CONTROL_PLANE_WATCHER_ID \
+      WHATSAPP_CHANNEL_WATCH_CONTROL_PLANE_TOKEN WHATSAPP_CHANNEL_WATCH_CONTROL_PLANE_TIMEOUT_SECONDS \
+      WHATSAPP_CHANNEL_WATCH_CONTROL_PLANE_SPOOL_PATH; do
+      value="$(grep -E "^${name}=" "$HOME/.hermes/.env" | head -1 | cut -d= -f2- || true)"
+      [[ -n "$value" ]] && export "$name=$value"
+    done
+  fi
 fi
 
 python_bin="${WHATSAPP_CHANNEL_WATCH_PY:-$HOME/.local/share/uv/tools/yahoo-finance-mcp/bin/python}"

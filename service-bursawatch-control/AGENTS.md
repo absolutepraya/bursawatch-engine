@@ -46,16 +46,34 @@ DATABASE_URL=<private-dsn> ./venv/bin/python bin/migrate.py
 DATABASE_URL=<private-dsn> ./venv/bin/python bin/seed_baseline_configs.py
 ```
 
-Do not deploy this service, change a live Hermes scheduler entry, or point a
-production watcher at it without an explicit reviewed deployment step.
+Do not manually deploy this service, change a live Hermes scheduler entry, or
+point a production watcher at it without an explicit reviewed deployment step.
+The separately bootstrapped VPS release agent is the sole exception for
+eligible verified `main` releases within its fixed manifest boundary.
+
+Every new SQL migration must begin with exactly one of these first-line
+headers:
+
+```sql
+-- bursawatch-release: automatic
+-- bursawatch-release: manual
+```
+
+Use `automatic` only for forward-compatible changes that are safe to apply in
+the release agent. Destructive changes, data rewrites, backfills, and schedule
+changes are `manual`. The pre-existing immutable migrations remain headerless
+because production has recorded their checksums. Their fixed eligibility is
+checked through `migrations/legacy-release-eligibility.json`; never add a
+header to them or change their SQL.
 
 ## VPS repeat releases
 
-After the approved initial VPS bootstrap exists, use `./deploy.sh` from this
-package for a repeat API release. An agent should run `./deploy.sh plan`,
-`status`, or `verify` before requesting deployment approval. With a clean,
-published commit, focused tests, `bash scripts/test-all`, and explicit
-current-chat approval, run `./deploy.sh release --apply`.
+After the approved release-agent bootstrap exists, the VPS-local release
+agent owns ordinary eligible control-plane releases from verified `main`.
+`./deploy.sh` remains a manually approved recovery helper only. An agent
+should run `./deploy.sh plan`, `status`, or `verify` before requesting that
+recovery approval, and must not run `release --apply` concurrently with the
+release agent.
 
 The helper synchronizes only `baseline-configs/`, `bin/`, `migrations/`,
 `validator-sources/`, and `requirements.txt`; it updates the dedicated virtual

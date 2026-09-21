@@ -1,0 +1,27 @@
+[Unit]
+Description=Release eligible BursaWatch main commits
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=praya
+Group=praya
+EnvironmentFile=/home/praya/.hermes/bursawatch-release-agent.env
+ExecStart=/home/praya/.local/lib/bursawatch-release/bursawatch-release-agent.sh --once
+UMask=0077
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/praya/.local/share/bursawatch-release
+ReadWritePaths=/home/praya/.agents/skills
+ReadWritePaths=/home/praya/.hermes/bursawatch-control-plane
+ReadWritePaths=/home/praya/.hermes/scripts
+ReadWritePaths=/home/praya/.logs
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+
+# This unit deliberately omits NoNewPrivileges. Its separately reviewed
+# sudoers rule permits only the exact control-plane restart command.

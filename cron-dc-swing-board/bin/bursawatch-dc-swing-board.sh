@@ -22,15 +22,20 @@ fi
 # The owner needs only the Discord bot identity. Do not source an environment
 # file wholesale because watcher credentials do not belong in this process.
 if [[ -r "$HOME/.hermes/.env" ]]; then
-  for key in DISCORD_BOT_TOKEN \
-    IDX_SWING_PLAN_BOARD_CONTROL_PLANE_URL \
-    IDX_SWING_PLAN_BOARD_CONTROL_PLANE_WATCHER_ID \
-    IDX_SWING_PLAN_BOARD_CONTROL_PLANE_TOKEN \
-    IDX_SWING_PLAN_BOARD_CONTROL_PLANE_TIMEOUT_SECONDS \
-    IDX_SWING_PLAN_BOARD_CONTROL_PLANE_SPOOL_PATH; do
+  for key in DISCORD_BOT_TOKEN; do
     value="$(grep -E "^${key}=" "$HOME/.hermes/.env" | head -1 | cut -d= -f2- || true)"
     [[ -n "$value" ]] && export "${key}=${value}"
   done
+  if [[ "${BURSAWATCH_RELEASE_NO_POST:-}" != "1" ]]; then
+    for key in IDX_SWING_PLAN_BOARD_CONTROL_PLANE_URL \
+      IDX_SWING_PLAN_BOARD_CONTROL_PLANE_WATCHER_ID \
+      IDX_SWING_PLAN_BOARD_CONTROL_PLANE_TOKEN \
+      IDX_SWING_PLAN_BOARD_CONTROL_PLANE_TIMEOUT_SECONDS \
+      IDX_SWING_PLAN_BOARD_CONTROL_PLANE_SPOOL_PATH; do
+      value="$(grep -E "^${key}=" "$HOME/.hermes/.env" | head -1 | cut -d= -f2- || true)"
+      [[ -n "$value" ]] && export "${key}=${value}"
+    done
+  fi
 fi
 
 # Bootstrap is an explicitly invoked historical read/backfill command. It

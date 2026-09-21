@@ -1,0 +1,228 @@
+{
+  "version": 1,
+  "units": [
+    {
+      "id": "repository-metadata",
+      "handler": "metadata",
+      "paths": [
+        ".agents/**",
+        ".gitattributes",
+        ".github/**",
+        ".gitignore",
+        ".wt/**",
+        "AGENTS.md",
+        "README.md",
+        "deploy.sh",
+        "docs/**",
+        "hermes.svg",
+        "hermes.webp",
+        "pytest.ini",
+        "requirements-dev.txt",
+        "scripts/**",
+        "tests/**"
+      ]
+    },
+    {
+      "id": "lib-bursawatch-control",
+      "handler": "runtime",
+      "runtime": "lib-bursawatch-control",
+      "paths": ["lib-bursawatch-control/bin/**"],
+      "verification": "checksum-only"
+    },
+    {
+      "id": "lib-bursawatch-control-metadata",
+      "handler": "metadata",
+      "paths": ["lib-bursawatch-control/README.md", "lib-bursawatch-control/tests/**"]
+    },
+    {
+      "id": "lib-swing-format",
+      "handler": "runtime",
+      "runtime": "lib-swing-format",
+      "paths": ["lib-swing-format/bin/**"],
+      "verification": "checksum-only"
+    },
+    {
+      "id": "lib-swing-format-metadata",
+      "handler": "metadata",
+      "paths": ["lib-swing-format/README.md", "lib-swing-format/tests/**"]
+    },
+    {
+      "id": "lib-telegram-resilience",
+      "handler": "runtime",
+      "runtime": "lib-telegram-resilience",
+      "paths": ["lib-telegram-resilience/bin/**"],
+      "verification": "checksum-only"
+    },
+    {
+      "id": "lib-telegram-resilience-metadata",
+      "handler": "metadata",
+      "paths": ["lib-telegram-resilience/README.md", "lib-telegram-resilience/action.yml", "lib-telegram-resilience/tests/**"]
+    },
+    {
+      "id": "service-bursawatch-control",
+      "handler": "control-plane",
+      "paths": [
+        "service-bursawatch-control/baseline-configs/**",
+        "service-bursawatch-control/bin/**",
+        "service-bursawatch-control/migrations/**",
+        "service-bursawatch-control/requirements.txt",
+        "service-bursawatch-control/validator-sources/**"
+      ],
+      "verification": "control-plane-health"
+    },
+    {
+      "id": "service-bursawatch-control-metadata",
+      "handler": "metadata",
+      "paths": [
+        "service-bursawatch-control/AGENTS.md",
+        "service-bursawatch-control/README.md",
+        "service-bursawatch-control/deploy.sh",
+        "service-bursawatch-control/deployment/**",
+        "service-bursawatch-control/env.example",
+        "service-bursawatch-control/openapi/**",
+        "service-bursawatch-control/tests/**"
+      ]
+    },
+    {
+      "id": "cron-tg-market-news",
+      "handler": "runtime",
+      "runtime": "bursawatch-tg-market-news",
+      "depends_on": ["lib-telegram-resilience", "lib-bursawatch-control"],
+      "paths": ["cron-tg-market-news/bin/**", "cron-tg-market-news/SKILL.md"],
+      "wrappers": [
+        {"source": "bursawatch-tg-market-news.sh", "destination": "bursawatch-tg-market-news.sh"},
+        {"source": "watchdog-wrapper.sh", "destination": "bursawatch-tg-market-news-watchdog.sh"}
+      ],
+      "verification": "market-news-no-post"
+    },
+    {
+      "id": "cron-tg-market-news-metadata",
+      "handler": "metadata",
+      "paths": ["cron-tg-market-news/AGENTS.md", "cron-tg-market-news/requirements-dev.txt", "cron-tg-market-news/tests/**"]
+    },
+    {
+      "id": "cron-tg-phintraco-swing",
+      "handler": "runtime",
+      "runtime": "bursawatch-tg-phintraco-swing",
+      "depends_on": ["lib-telegram-resilience", "lib-swing-format", "lib-bursawatch-control", "cron-dc-swing-board"],
+      "paths": ["cron-tg-phintraco-swing/bin/**", "cron-tg-phintraco-swing/CRON.md"],
+      "wrappers": [{"source": "bursawatch-tg-phintraco-swing.sh", "destination": "bursawatch-tg-phintraco-swing.sh"}],
+      "verification": "phintraco-no-post"
+    },
+    {
+      "id": "cron-tg-phintraco-swing-metadata",
+      "handler": "metadata",
+      "paths": ["cron-tg-phintraco-swing/AGENTS.md", "cron-tg-phintraco-swing/tests/**"]
+    },
+    {
+      "id": "cron-tg-kelas-investasi-gtw",
+      "handler": "runtime",
+      "runtime": "bursawatch-tg-kelas-investasi-gtw",
+      "depends_on": ["lib-telegram-resilience", "lib-swing-format", "lib-bursawatch-control", "cron-dc-swing-board"],
+      "paths": ["cron-tg-kelas-investasi-gtw/bin/**", "cron-tg-kelas-investasi-gtw/SKILL.md"],
+      "wrappers": [{"source": "bursawatch-tg-kelas-investasi-gtw.sh", "destination": "bursawatch-tg-kelas-investasi-gtw.sh"}],
+      "verification": "kelas-no-post"
+    },
+    {
+      "id": "cron-tg-kelas-investasi-gtw-metadata",
+      "handler": "metadata",
+      "paths": ["cron-tg-kelas-investasi-gtw/AGENTS.md", "cron-tg-kelas-investasi-gtw/tests/**"]
+    },
+    {
+      "id": "cron-dc-swing-board",
+      "handler": "runtime",
+      "runtime": "bursawatch-dc-swing-board",
+      "depends_on": ["lib-swing-format", "lib-bursawatch-control"],
+      "paths": ["cron-dc-swing-board/bin/**", "cron-dc-swing-board/CRON.md"],
+      "wrappers": [
+        {"source": "bursawatch-dc-swing-board.sh", "destination": "bursawatch-dc-swing-board.sh"},
+        {"source": "bursawatch-dc-swing-board-close.sh", "destination": "bursawatch-dc-swing-board-close.sh"},
+        {"source": "bursawatch-dc-swing-board-retry.sh", "destination": "bursawatch-dc-swing-board-retry.sh"}
+      ],
+      "verification": "swing-board-no-post"
+    },
+    {
+      "id": "cron-dc-swing-board-metadata",
+      "handler": "metadata",
+      "paths": ["cron-dc-swing-board/AGENTS.md", "cron-dc-swing-board/backfills/**", "cron-dc-swing-board/tests/**"]
+    },
+    {
+      "id": "cron-x-account-watch",
+      "handler": "runtime",
+      "runtime": "bursawatch-x-account-watch",
+      "depends_on": ["lib-bursawatch-control", "cron-dc-swing-board"],
+      "paths": ["cron-x-account-watch/bin/**", "cron-x-account-watch/config/**", "cron-x-account-watch/SKILL.md"],
+      "wrappers": [
+        {"source": "bursawatch-x-account-watch.sh", "destination": "bursawatch-x-account-watch.sh"},
+        {"source": "bursawatch-x-account-watch-queue.sh", "destination": "bursawatch-x-account-watch-queue.sh"}
+      ],
+      "verification": "x-no-post"
+    },
+    {
+      "id": "cron-x-account-watch-metadata",
+      "handler": "metadata",
+      "paths": ["cron-x-account-watch/AGENTS.md", "cron-x-account-watch/tests/**"]
+    },
+    {
+      "id": "cron-ig-account-watch",
+      "handler": "runtime",
+      "runtime": "bursawatch-ig-account-watch",
+      "depends_on": ["lib-bursawatch-control"],
+      "paths": ["cron-ig-account-watch/bin/**", "cron-ig-account-watch/config/**", "cron-ig-account-watch/SKILL.md"],
+      "wrappers": [{"source": "bursawatch-ig-account-watch.sh", "destination": "bursawatch-ig-account-watch.sh"}],
+      "verification": "instagram-no-post"
+    },
+    {
+      "id": "cron-ig-account-watch-metadata",
+      "handler": "metadata",
+      "paths": ["cron-ig-account-watch/AGENTS.md", "cron-ig-account-watch/tests/**", "cron-ig-account-watch/tools/**"]
+    },
+    {
+      "id": "cron-wa-channel-watch",
+      "handler": "runtime",
+      "runtime": "bursawatch-wa-channel-watch",
+      "depends_on": ["lib-bursawatch-control"],
+      "paths": ["cron-wa-channel-watch/bin/**", "cron-wa-channel-watch/config/**", "cron-wa-channel-watch/SKILL.md"],
+      "wrappers": [
+        {"source": "bursawatch-wa-channel-watch.sh", "destination": "bursawatch-wa-channel-watch.sh"},
+        {"source": "bursawatch-wa-channel-subscriptions.sh", "destination": "bursawatch-wa-channel-subscriptions.sh"}
+      ],
+      "verification": "whatsapp-no-post"
+    },
+    {
+      "id": "cron-wa-channel-watch-metadata",
+      "handler": "metadata",
+      "paths": ["cron-wa-channel-watch/AGENTS.md", "cron-wa-channel-watch/integrations/**", "cron-wa-channel-watch/tests/**"]
+    },
+    {
+      "id": "manual-schedule-reconciler",
+      "handler": "manual",
+      "paths": ["platform-hermes-schedule-reconciler/**"]
+    },
+    {
+      "id": "manual-release-agent-bootstrap",
+      "handler": "manual",
+      "paths": ["platform-bursawatch-release/**"]
+    },
+    {
+      "id": "manual-cobalt",
+      "handler": "manual",
+      "paths": ["service-cobalt/**"]
+    },
+    {
+      "id": "manual-rsshub",
+      "handler": "manual",
+      "paths": ["service-rsshub/**"]
+    },
+    {
+      "id": "manual-profile-emoji",
+      "handler": "manual",
+      "paths": ["skill-profile-emoji/**"]
+    },
+    {
+      "id": "manual-guess-stock",
+      "handler": "manual",
+      "paths": ["skill-guess-stock/**"]
+    }
+  ]
+}

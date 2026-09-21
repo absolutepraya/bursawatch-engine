@@ -53,6 +53,7 @@ this contract:
 - `skill-profile-emoji/AGENTS.md`
 - `cron-wa-channel-watch/AGENTS.md`
 - `cron-x-account-watch/AGENTS.md`
+- `platform-bursawatch-release/AGENTS.md`
 
 ## Documentation model
 
@@ -98,7 +99,12 @@ explicitly approved action after review.
    the first write, receive current-session approval, then compare checksums.
    A scheduler wrapper under `~/.hermes/scripts/` must retain mode `0755` and
    pass a direct executability check before a cron is retargeted to it.
-6. GitHub Actions validates only. A push never deploys.
+6. GitHub Actions validates only and has no production credential or VPS
+   access. After the exact current `main` SHA passes `CI / validate`, the
+   separately bootstrapped VPS-local release agent may deploy only the
+   allowlisted units in `platform-bursawatch-release/release-manifest.json`.
+   It is the sole automatic deployment authority. A normal push never gives
+   GitHub Actions deployment access.
 
 `service-cobalt/deploy.sh` owns Cobalt deployment. `skill-profile-emoji/deploy.sh`
 owns its skill deployment. The generic deploy helper supports cron and library
@@ -113,6 +119,13 @@ dependency update, migration and baseline seed, restart, and health checks.
 It never copies `.env`, changes the dedicated service environment, systemd
 unit, Nginx, DNS, TLS, Hermes schedules, or the schedule reconciler. Those
 remain separate reviewed deployment work.
+
+After the reviewed release agent is bootstrapped, it owns ordinary eligible
+control-plane releases instead. The helper remains a manually approved
+recovery path and must never run concurrently with the release agent. The
+release agent itself is host-bound platform infrastructure: its code, token
+file, systemd assets, and sudo boundary change only through the explicit VPS
+bootstrap process, never through an ordinary automated release.
 
 The dotfiles mirror is a scrubbed VPS backup, not an authoring or deployment
 target. Do not edit `~/.dotfiles/vps/agents/skills/`. After an approved runtime
@@ -139,8 +152,11 @@ runtime data remain VPS-owned until a separate reviewed import is approved.
 - Do not add, remove, rename, enable, disable, or reschedule a live Hermes job
   without explicit current-chat approval and the supported Hermes CLI.
 - Do not change delivery destinations or cadence without explicit approval.
-- Do not restart services, manually trigger production schedules, post test
-  messages, place orders, reset state, or replay alerts as a smoke test.
+- Outside the approved release agent, do not restart services, manually
+  trigger production schedules, post test messages, place orders, reset state,
+  or replay alerts as a smoke test. The release agent may restart only the
+  scoped control-plane service through its reviewed sudoers rule after a
+  verified eligible release.
 - Use a package's documented isolated no-post control for runtime verification.
 - Never commit credentials, runtime state, caches, logs, media, local virtual
   environments, generated artifacts, worktrees, or service cookies.

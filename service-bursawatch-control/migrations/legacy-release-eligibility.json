@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "migrations": {
+    "001_initial.sql": "automatic",
+    "002_seed_watchers.sql": "automatic",
+    "003_desired_schedule_controls.sql": "automatic",
+    "004_supabase_data_api_hardening.sql": "automatic",
+    "005_add_remaining_schedule_controls.sql": "automatic",
+    "006_scheduler_reconciliation_runtime.sql": "automatic",
+    "007_preserve_paused_instagram_baseline.sql": "automatic"
+  }
+}

@@ -3,6 +3,9 @@ set -uo pipefail
 
 env_file="$HOME/.hermes/.env"
 log_file="$HOME/.logs/bursawatch-tg-kelas-investasi-gtw.log"
+if [[ "${BURSAWATCH_RELEASE_NO_POST:-}" == "1" ]]; then
+  log_file="${BURSAWATCH_RELEASE_NO_POST_TEMP:?release no-post temporary directory is required}/bursawatch-tg-kelas-investasi-gtw.log"
+fi
 python_bin="$HOME/.local/share/uv/tools/yahoo-finance-mcp/bin/python"
 CONTROL_PLANE_BIN="$HOME/.agents/skills/lib-bursawatch-control/bin"
 export IDX_SWING_PLAN_BOARD_WRAPPER="${IDX_SWING_PLAN_BOARD_WRAPPER:-$HOME/.hermes/scripts/bursawatch-dc-swing-board.sh}"
@@ -10,7 +13,10 @@ mkdir -p "$(dirname "$log_file")"
 
 while IFS= read -r line || [ -n "$line" ]; do
   case "$line" in
-    DISCORD_BOT_TOKEN=*|TELEGRAM_API_ID=*|TELEGRAM_API_HASH=*|POLYCOP_SESSION_STRING=*|KELAS_INVESTASI_GTW_CONTROL_PLANE_URL=*|KELAS_INVESTASI_GTW_CONTROL_PLANE_WATCHER_ID=*|KELAS_INVESTASI_GTW_CONTROL_PLANE_TOKEN=*|KELAS_INVESTASI_GTW_CONTROL_PLANE_TIMEOUT_SECONDS=*|KELAS_INVESTASI_GTW_CONTROL_PLANE_SPOOL_PATH=*) export "$line" ;;
+    DISCORD_BOT_TOKEN=*|TELEGRAM_API_ID=*|TELEGRAM_API_HASH=*|POLYCOP_SESSION_STRING=*) export "$line" ;;
+    KELAS_INVESTASI_GTW_CONTROL_PLANE_URL=*|KELAS_INVESTASI_GTW_CONTROL_PLANE_WATCHER_ID=*|KELAS_INVESTASI_GTW_CONTROL_PLANE_TOKEN=*|KELAS_INVESTASI_GTW_CONTROL_PLANE_TIMEOUT_SECONDS=*|KELAS_INVESTASI_GTW_CONTROL_PLANE_SPOOL_PATH=*)
+      [[ "${BURSAWATCH_RELEASE_NO_POST:-}" != "1" ]] && export "$line"
+      ;;
   esac
 done < "$env_file"
 

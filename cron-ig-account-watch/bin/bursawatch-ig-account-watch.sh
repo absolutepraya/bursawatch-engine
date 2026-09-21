@@ -22,17 +22,22 @@ fi
 if [[ -r "$HOME/.hermes/.env" ]]; then
   value="$(grep -E '^DISCORD_BOT_TOKEN=' "$HOME/.hermes/.env" | head -1 | cut -d= -f2- || true)"
   [[ -n "$value" ]] && export "DISCORD_BOT_TOKEN=$value"
-  for name in INSTAGRAM_POST_WATCH_CONTROL_PLANE_URL INSTAGRAM_POST_WATCH_CONTROL_PLANE_WATCHER_ID \
-    INSTAGRAM_POST_WATCH_CONTROL_PLANE_TOKEN INSTAGRAM_POST_WATCH_CONTROL_PLANE_TIMEOUT_SECONDS \
-    INSTAGRAM_POST_WATCH_CONTROL_PLANE_SPOOL_PATH; do
-    value="$(grep -E "^${name}=" "$HOME/.hermes/.env" | head -1 | cut -d= -f2- || true)"
-    [[ -n "$value" ]] && export "$name=$value"
-  done
+  if [[ "${BURSAWATCH_RELEASE_NO_POST:-}" != "1" ]]; then
+    for name in INSTAGRAM_POST_WATCH_CONTROL_PLANE_URL INSTAGRAM_POST_WATCH_CONTROL_PLANE_WATCHER_ID \
+      INSTAGRAM_POST_WATCH_CONTROL_PLANE_TOKEN INSTAGRAM_POST_WATCH_CONTROL_PLANE_TIMEOUT_SECONDS \
+      INSTAGRAM_POST_WATCH_CONTROL_PLANE_SPOOL_PATH; do
+      value="$(grep -E "^${name}=" "$HOME/.hermes/.env" | head -1 | cut -d= -f2- || true)"
+      [[ -n "$value" ]] && export "$name=$value"
+    done
+  fi
 fi
 
 python_bin="${INSTAGRAM_POST_WATCH_PY:-$HOME/.local/share/instagram-post-watch/paddleocr-venv/bin/python}"
 script="$HOME/.agents/skills/bursawatch-ig-account-watch/bin/scan.py"
 log="$HOME/.logs/bursawatch-ig-account-watch.log"
+if [[ "${BURSAWATCH_RELEASE_NO_POST:-}" == "1" ]]; then
+  log="${BURSAWATCH_RELEASE_NO_POST_TEMP:?release no-post temporary directory is required}/bursawatch-ig-account-watch.log"
+fi
 mkdir -p "$HOME/.logs"
 
 set +e
