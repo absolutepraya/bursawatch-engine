@@ -46,6 +46,61 @@ paths:
                 $ref: '#/components/schemas/ConfigSnapshot'
         '422':
           description: Watcher-specific validation failed.
+  /v1/watchers/{watcher_id}/profiles:
+    parameters:
+      - $ref: '#/components/parameters/WatcherId'
+    get:
+      summary: Read current watched profiles and their avatar metadata.
+      description: Profile avatar metadata is stored separately from the strict watcher configuration snapshot.
+      responses:
+        '200':
+          description: Current profiles in stable profile-ID order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProfileAvatar'
+        '404':
+          description: Watcher has no active configuration.
+  /v1/watchers/{watcher_id}/profiles/{profile_id}/avatar:
+    parameters:
+      - $ref: '#/components/parameters/WatcherId'
+      - $ref: '#/components/parameters/ProfileId'
+    put:
+      summary: Set a profile avatar to automatic or manual mode.
+      description: Manual mode stores an administrator-supplied HTTPS URL. Automatic mode refreshes from RSSHub and safe profile metadata.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AvatarWrite'
+      responses:
+        '200':
+          description: Updated profile avatar metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileAvatar'
+        '404':
+          description: Profile does not exist in the current watcher configuration.
+  /v1/watchers/{watcher_id}/profiles/{profile_id}/avatar/refresh:
+    parameters:
+      - $ref: '#/components/parameters/WatcherId'
+      - $ref: '#/components/parameters/ProfileId'
+    post:
+      summary: Queue an immediate automatic avatar refresh.
+      description: The refresh is best effort and keeps the previous URL when the provider is unavailable.
+      responses:
+        '200':
+          description: Current profile avatar metadata. The queued result may be visible on a later read.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileAvatar'
+        '404':
+          description: Profile does not exist in the current watcher configuration.
   /v1/watchers:
     get:
       summary: List registered watchers and active revisions.
@@ -252,6 +307,13 @@ components:
       schema:
         type: string
         pattern: '^[a-z0-9][a-z0-9-]*$'
+    ProfileId:
+      name: profile_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[a-z0-9][a-z0-9_-]{0,63}$'
     Limit:
       name: limit
       in: query
@@ -319,6 +381,62 @@ components:
         updated_at:
           type: string
           format: date-time
+    AvatarWrite:
+      type: object
+      additionalProperties: false
+      required: [mode]
+      properties:
+        mode:
+          type: string
+          enum: [auto, manual]
+        url:
+          type: [string, 'null']
+          maxLength: 2048
+          format: uri
+          description: Required for manual mode and omitted for automatic mode.
+    ProfileAvatar:
+      type: object
+      additionalProperties: false
+      required: [watcher_id, profile_id, handle, display_name, profile_url, enabled, avatar]
+      properties:
+        watcher_id:
+          type: string
+        profile_id:
+          type: string
+        handle:
+          type: string
+        display_name:
+          type: string
+        profile_url:
+          type: string
+          format: uri
+        enabled:
+          type: boolean
+        avatar:
+          type: object
+          additionalProperties: false
+          required: [mode, url, source, fetched_at, last_success_at, last_error, updated_at]
+          properties:
+            mode:
+              type: string
+              enum: [auto, manual]
+            url:
+              type: [string, 'null']
+              format: uri
+            source:
+              type: [string, 'null']
+            fetched_at:
+              type: [string, 'null']
+              format: date-time
+            last_success_at:
+              type: [string, 'null']
+              format: date-time
+            last_error:
+              type: [string, 'null']
+              maxLength: 500
+            updated_at:
+              type: string
+              format: date-time
     ScheduleWrite:
       type: object
       additionalProperties: false

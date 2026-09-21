@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import secrets
 from typing import Any, Protocol
@@ -16,6 +16,11 @@ from .contract import (
     validate_interval_seconds,
     validate_job_id,
     validate_watcher_id,
+)
+from .profile_metadata import (
+    ProfileMetadataInput,
+    normalize_manual_avatar_url,
+    validate_profile_id,
 )
 
 
@@ -67,6 +72,23 @@ class SchedulerJobRecord:
     reconciliation_error: str | None
 
 
+@dataclass(frozen=True)
+class ProfileAvatarRecord:
+    watcher_id: str
+    profile_id: str
+    handle: str
+    display_name: str
+    profile_url: str
+    enabled: bool
+    avatar_mode: str
+    avatar_url: str | None
+    avatar_source: str | None
+    fetched_at: str | None
+    last_success_at: str | None
+    last_error: str | None
+    updated_at: str
+
+
 class ScheduleRevisionConflictError(ValueError):
     """A reconciler attempted to report a stale desired schedule revision."""
 
@@ -83,6 +105,41 @@ class Store(Protocol):
         config: dict[str, Any],
         actor_id: str,
     ) -> ConfigSnapshot: ...
+
+    def sync_profile_metadata(
+        self,
+        watcher_id: str,
+        profiles: list[ProfileMetadataInput],
+    ) -> list[ProfileAvatarRecord]: ...
+
+    def get_profile_metadata(self, watcher_id: str, profile_id: str) -> ProfileAvatarRecord: ...
+
+    def set_profile_avatar(
+        self,
+        watcher_id: str,
+        profile_id: str,
+        mode: str,
+        avatar_url: str | None,
+    ) -> ProfileAvatarRecord: ...
+
+    def record_profile_avatar_success(
+        self,
+        watcher_id: str,
+        profile_id: str,
+        avatar_url: str,
+        avatar_source: str,
+        expected_handle: str,
+        expected_profile_url: str,
+    ) -> ProfileAvatarRecord: ...
+
+    def record_profile_avatar_failure(
+        self,
+        watcher_id: str,
+        profile_id: str,
+        error: str,
+        expected_handle: str,
+        expected_profile_url: str,
+    ) -> ProfileAvatarRecord: ...
 
     def list_jobs(self, watcher_id: str) -> list[SchedulerJobRecord]: ...
 
@@ -155,11 +212,26 @@ def _event_matches(left: EventRecord, right: EventRecord) -> bool:
     )
 
 
+def _validate_avatar_mode(mode: object) -> str:
+    if mode not in {"auto", "manual"}:
+        raise ValueError("avatar mode must be auto or manual")
+    return mode
+
+
+def _validate_avatar_error(error: object) -> str:
+    if type(error) is not str or not error.strip():
+        raise ValueError("avatar refresh error must be non-empty text")
+    if len(error) > 500:
+        raise ValueError("avatar refresh error exceeds 500 characters")
+    return error
+
+
 class InMemoryStore:
     """Small deterministic store for API contract tests and local exploration."""
 
     def __init__(self) -> None:
         self._configs: dict[str, list[ConfigSnapshot]] = {}
+        self._profile_avatars: dict[tuple[str, str], ProfileAvatarRecord] = {}
         self._jobs: dict[str, SchedulerJobRecord] = {}
         self._schedules: dict[str, list[ScheduleSnapshot]] = {}
         self._runs: dict[str, RunRecord] = {}
@@ -196,6 +268,162 @@ class InMemoryStore:
     ) -> ConfigSnapshot:
         del actor_id
         return self._put(watcher_id, config_version, config)
+
+    def sync_profile_metadata(
+        self,
+        watcher_id: str,
+        profiles: list[ProfileMetadataInput],
+    ) -> list[ProfileAvatarRecord]:
+        validate_watcher_id(watcher_id)
+        records: list[ProfileAvatarRecord] = []
+        for profile in profiles:
+            validate_profile_id(profile.profile_id)
+            key = (watcher_id, profile.profile_id)
+            current = self._profile_avatars.get(key)
+            identity_changed = current is not None and (
+                current.handle != profile.handle or current.profile_url != profile.profile_url
+            )
+            if current is None:
+                record = ProfileAvatarRecord(
+                    watcher_id=watcher_id,
+                    profile_id=profile.profile_id,
+                    handle=profile.handle,
+                    display_name=profile.display_name,
+                    profile_url=profile.profile_url,
+                    enabled=profile.enabled,
+                    avatar_mode="auto",
+                    avatar_url=None,
+                    avatar_source=None,
+                    fetched_at=None,
+                    last_success_at=None,
+                    last_error=None,
+                    updated_at=_now(),
+                )
+            elif identity_changed:
+                record = ProfileAvatarRecord(
+                    watcher_id=watcher_id,
+                    profile_id=profile.profile_id,
+                    handle=profile.handle,
+                    display_name=profile.display_name,
+                    profile_url=profile.profile_url,
+                    enabled=profile.enabled,
+                    avatar_mode="auto",
+                    avatar_url=None,
+                    avatar_source=None,
+                    fetched_at=None,
+                    last_success_at=None,
+                    last_error=None,
+                    updated_at=_now(),
+                )
+            else:
+                metadata_changed = current.display_name != profile.display_name or current.enabled != profile.enabled
+                record = replace(
+                    current,
+                    display_name=profile.display_name,
+                    enabled=profile.enabled,
+                    updated_at=_now() if metadata_changed else current.updated_at,
+                )
+            self._profile_avatars[key] = record
+            records.append(record)
+        return records
+
+    def get_profile_metadata(self, watcher_id: str, profile_id: str) -> ProfileAvatarRecord:
+        validate_watcher_id(watcher_id)
+        validate_profile_id(profile_id)
+        try:
+            return self._profile_avatars[(watcher_id, profile_id)]
+        except KeyError as exc:
+            raise KeyError((watcher_id, profile_id)) from exc
+
+    def set_profile_avatar(
+        self,
+        watcher_id: str,
+        profile_id: str,
+        mode: str,
+        avatar_url: str | None,
+    ) -> ProfileAvatarRecord:
+        record = self.get_profile_metadata(watcher_id, profile_id)
+        mode = _validate_avatar_mode(mode)
+        if mode == "manual":
+            normalized_url = normalize_manual_avatar_url(avatar_url)
+            timestamp = _now()
+            updated = replace(
+                record,
+                avatar_mode=mode,
+                avatar_url=normalized_url,
+                avatar_source="manual",
+                fetched_at=timestamp,
+                last_success_at=timestamp,
+                last_error=None,
+                updated_at=timestamp,
+            )
+        else:
+            updated = replace(
+                record,
+                avatar_mode=mode,
+                last_success_at=None,
+                last_error=None,
+                updated_at=_now(),
+            )
+        self._profile_avatars[(watcher_id, profile_id)] = updated
+        return updated
+
+    def record_profile_avatar_success(
+        self,
+        watcher_id: str,
+        profile_id: str,
+        avatar_url: str,
+        avatar_source: str,
+        expected_handle: str,
+        expected_profile_url: str,
+    ) -> ProfileAvatarRecord:
+        record = self.get_profile_metadata(watcher_id, profile_id)
+        if (
+            record.avatar_mode != "auto"
+            or record.handle != expected_handle
+            or record.profile_url != expected_profile_url
+        ):
+            return record
+        normalized_url = normalize_manual_avatar_url(avatar_url)
+        if type(avatar_source) is not str or not avatar_source.strip() or len(avatar_source) > 64:
+            raise ValueError("avatar source must be non-empty text of at most 64 characters")
+        timestamp = _now()
+        updated = replace(
+            record,
+            avatar_url=normalized_url,
+            avatar_source=avatar_source,
+            fetched_at=timestamp,
+            last_success_at=timestamp,
+            last_error=None,
+            updated_at=timestamp,
+        )
+        self._profile_avatars[(watcher_id, profile_id)] = updated
+        return updated
+
+    def record_profile_avatar_failure(
+        self,
+        watcher_id: str,
+        profile_id: str,
+        error: str,
+        expected_handle: str,
+        expected_profile_url: str,
+    ) -> ProfileAvatarRecord:
+        record = self.get_profile_metadata(watcher_id, profile_id)
+        if (
+            record.avatar_mode != "auto"
+            or record.handle != expected_handle
+            or record.profile_url != expected_profile_url
+        ):
+            return record
+        timestamp = _now()
+        updated = replace(
+            record,
+            fetched_at=timestamp,
+            last_error=_validate_avatar_error(error),
+            updated_at=timestamp,
+        )
+        self._profile_avatars[(watcher_id, profile_id)] = updated
+        return updated
 
     def seed_job(
         self,
@@ -555,6 +783,24 @@ class PostgresStore:
             reconciliation_error=row["reconciliation_error"],
         )
 
+    @classmethod
+    def _profile_avatar(cls, row: dict[str, Any]) -> ProfileAvatarRecord:
+        return ProfileAvatarRecord(
+            watcher_id=row["watcher_id"],
+            profile_id=row["profile_id"],
+            handle=row["handle"],
+            display_name=row["display_name"],
+            profile_url=row["profile_url"],
+            enabled=row["enabled"],
+            avatar_mode=row["avatar_mode"],
+            avatar_url=row["avatar_url"],
+            avatar_source=row["avatar_source"],
+            fetched_at=cls._timestamp(row["fetched_at"]) if row["fetched_at"] else None,
+            last_success_at=cls._timestamp(row["last_success_at"]) if row["last_success_at"] else None,
+            last_error=row["last_error"],
+            updated_at=cls._timestamp(row["updated_at"]),
+        )
+
     @staticmethod
     def _job_select() -> str:
         return """
@@ -816,6 +1062,203 @@ class PostgresStore:
         if inserted is None:
             raise RuntimeError("database did not return the new config revision")
         return self._snapshot(inserted)
+
+    def sync_profile_metadata(
+        self,
+        watcher_id: str,
+        profiles: list[ProfileMetadataInput],
+    ) -> list[ProfileAvatarRecord]:
+        validate_watcher_id(watcher_id)
+        if not profiles:
+            return []
+        for profile in profiles:
+            validate_profile_id(profile.profile_id)
+        with self._connect() as connection, connection.cursor() as cursor:
+            for profile in profiles:
+                cursor.execute(
+                    """
+                    insert into bursawatch_profile_avatars
+                        (watcher_id, profile_id, handle, display_name, profile_url, enabled)
+                    values (%s, %s, %s, %s, %s, %s)
+                    on conflict (watcher_id, profile_id) do update set
+                        handle = excluded.handle,
+                        display_name = excluded.display_name,
+                        profile_url = excluded.profile_url,
+                        enabled = excluded.enabled,
+                        avatar_mode = case
+                            when bursawatch_profile_avatars.handle = excluded.handle
+                             and bursawatch_profile_avatars.profile_url = excluded.profile_url
+                            then bursawatch_profile_avatars.avatar_mode
+                            else 'auto'
+                        end,
+                        avatar_url = case
+                            when bursawatch_profile_avatars.handle = excluded.handle
+                             and bursawatch_profile_avatars.profile_url = excluded.profile_url
+                            then bursawatch_profile_avatars.avatar_url
+                            else null
+                        end,
+                        avatar_source = case
+                            when bursawatch_profile_avatars.handle = excluded.handle
+                             and bursawatch_profile_avatars.profile_url = excluded.profile_url
+                            then bursawatch_profile_avatars.avatar_source
+                            else null
+                        end,
+                        fetched_at = case
+                            when bursawatch_profile_avatars.handle = excluded.handle
+                             and bursawatch_profile_avatars.profile_url = excluded.profile_url
+                            then bursawatch_profile_avatars.fetched_at
+                            else null
+                        end,
+                        last_success_at = case
+                            when bursawatch_profile_avatars.handle = excluded.handle
+                             and bursawatch_profile_avatars.profile_url = excluded.profile_url
+                            then bursawatch_profile_avatars.last_success_at
+                            else null
+                        end,
+                        last_error = case
+                            when bursawatch_profile_avatars.handle = excluded.handle
+                             and bursawatch_profile_avatars.profile_url = excluded.profile_url
+                            then bursawatch_profile_avatars.last_error
+                            else null
+                        end,
+                        updated_at = case
+                            when bursawatch_profile_avatars.handle = excluded.handle
+                             and bursawatch_profile_avatars.display_name = excluded.display_name
+                             and bursawatch_profile_avatars.profile_url = excluded.profile_url
+                             and bursawatch_profile_avatars.enabled = excluded.enabled
+                            then bursawatch_profile_avatars.updated_at
+                            else now()
+                        end
+                    """,
+                    (
+                        watcher_id,
+                        profile.profile_id,
+                        profile.handle,
+                        profile.display_name,
+                        profile.profile_url,
+                        profile.enabled,
+                    ),
+                )
+            profile_ids = [profile.profile_id for profile in profiles]
+            cursor.execute(
+                """
+                select watcher_id, profile_id, handle, display_name, profile_url, enabled,
+                       avatar_mode, avatar_url, avatar_source, fetched_at,
+                       last_success_at, last_error, updated_at
+                  from bursawatch_profile_avatars
+                 where watcher_id = %s and profile_id = any(%s)
+                 order by profile_id
+                """,
+                (watcher_id, profile_ids),
+            )
+            rows = cursor.fetchall()
+        return [self._profile_avatar(row) for row in rows]
+
+    def get_profile_metadata(self, watcher_id: str, profile_id: str) -> ProfileAvatarRecord:
+        validate_watcher_id(watcher_id)
+        validate_profile_id(profile_id)
+        with self._connect() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """
+                select watcher_id, profile_id, handle, display_name, profile_url, enabled,
+                       avatar_mode, avatar_url, avatar_source, fetched_at,
+                       last_success_at, last_error, updated_at
+                  from bursawatch_profile_avatars
+                 where watcher_id = %s and profile_id = %s
+                """,
+                (watcher_id, profile_id),
+            )
+            row = cursor.fetchone()
+        if row is None:
+            raise KeyError((watcher_id, profile_id))
+        return self._profile_avatar(row)
+
+    def set_profile_avatar(
+        self,
+        watcher_id: str,
+        profile_id: str,
+        mode: str,
+        avatar_url: str | None,
+    ) -> ProfileAvatarRecord:
+        validate_watcher_id(watcher_id)
+        validate_profile_id(profile_id)
+        mode = _validate_avatar_mode(mode)
+        with self._connect() as connection, connection.cursor() as cursor:
+            if mode == "manual":
+                normalized_url = normalize_manual_avatar_url(avatar_url)
+                cursor.execute(
+                    """
+                    update bursawatch_profile_avatars
+                       set avatar_mode = 'manual', avatar_url = %s,
+                           avatar_source = 'manual', fetched_at = now(),
+                           last_success_at = now(), last_error = null, updated_at = now()
+                     where watcher_id = %s and profile_id = %s
+                    """,
+                    (normalized_url, watcher_id, profile_id),
+                )
+            else:
+                cursor.execute(
+                    """
+                    update bursawatch_profile_avatars
+                       set avatar_mode = 'auto', last_success_at = null,
+                           last_error = null, updated_at = now()
+                     where watcher_id = %s and profile_id = %s
+                    """,
+                    (watcher_id, profile_id),
+                )
+            if cursor.rowcount != 1:
+                raise KeyError((watcher_id, profile_id))
+        return self.get_profile_metadata(watcher_id, profile_id)
+
+    def record_profile_avatar_success(
+        self,
+        watcher_id: str,
+        profile_id: str,
+        avatar_url: str,
+        avatar_source: str,
+        expected_handle: str,
+        expected_profile_url: str,
+    ) -> ProfileAvatarRecord:
+        validate_watcher_id(watcher_id)
+        validate_profile_id(profile_id)
+        normalized_url = normalize_manual_avatar_url(avatar_url)
+        if type(avatar_source) is not str or not avatar_source.strip() or len(avatar_source) > 64:
+            raise ValueError("avatar source must be non-empty text of at most 64 characters")
+        with self._connect() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """
+                update bursawatch_profile_avatars
+                   set avatar_url = %s, avatar_source = %s, fetched_at = now(),
+                       last_success_at = now(), last_error = null, updated_at = now()
+                 where watcher_id = %s and profile_id = %s and avatar_mode = 'auto'
+                   and handle = %s and profile_url = %s
+                """,
+                (normalized_url, avatar_source, watcher_id, profile_id, expected_handle, expected_profile_url),
+            )
+        return self.get_profile_metadata(watcher_id, profile_id)
+
+    def record_profile_avatar_failure(
+        self,
+        watcher_id: str,
+        profile_id: str,
+        error: str,
+        expected_handle: str,
+        expected_profile_url: str,
+    ) -> ProfileAvatarRecord:
+        validate_watcher_id(watcher_id)
+        validate_profile_id(profile_id)
+        error = _validate_avatar_error(error)
+        with self._connect() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """
+                update bursawatch_profile_avatars
+                   set fetched_at = now(), last_error = %s, updated_at = now()
+                 where watcher_id = %s and profile_id = %s and avatar_mode = 'auto'
+                   and handle = %s and profile_url = %s
+                """,
+                (error, watcher_id, profile_id, expected_handle, expected_profile_url),
+            )
+        return self.get_profile_metadata(watcher_id, profile_id)
 
     def start_run(
         self,

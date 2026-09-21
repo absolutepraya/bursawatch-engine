@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from control_plane.api import create_app, create_app_from_environment
 from control_plane.auth import AuthenticationError, Principal, StaticTokenAuth
+from control_plane.profile_metadata import AvatarResolution
 from control_plane.store import InMemoryStore
 
 
@@ -21,6 +22,28 @@ class ViewerAuth:
         if authorization == "Bearer viewer-token":
             return Principal(subject="viewer-user", kind="viewer")
         raise AuthenticationError("invalid bearer credential")
+
+
+class AvatarResolver:
+    def resolve(self, profile):
+        return AvatarResolution(
+            url=f"https://pbs.twimg.com/profile_images/{profile.profile_id}.jpg",
+            source="rsshub_icon",
+        )
+
+
+PROFILE_CONFIG = {
+    "version": 1,
+    "profiles": [
+        {
+            "id": "kutekians",
+            "enabled": True,
+            "profile_url": "https://x.com/Kutekians",
+            "handle": "Kutekians",
+            "display_name": "Kutekians",
+        }
+    ],
+}
 
 
 def build_client():
@@ -506,3 +529,112 @@ def test_run_start_rejects_reusing_run_id_for_different_run():
     )
 
     assert response.status_code == 422
+
+
+def test_dashboard_profile_route_hydrates_metadata_without_exposing_config():
+    store = InMemoryStore()
+    store.seed_config(WATCHER, 1, PROFILE_CONFIG)
+    client = TestClient(
+        create_app(
+            store=store,
+            auth=StaticTokenAuth(machine_token=TOKEN, admin_token=ADMIN, reconciler_token=RECONCILER),
+            validators={WATCHER: lambda config: None},
+        )
+    )
+
+    response = client.get(f"/v1/watchers/{WATCHER}/profiles", headers={"Authorization": f"Bearer {ADMIN}"})
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "watcher_id": WATCHER,
+            "profile_id": "kutekians",
+            "handle": "Kutekians",
+            "display_name": "Kutekians",
+            "profile_url": "https://x.com/Kutekians",
+            "enabled": True,
+            "avatar": {
+                "mode": "auto",
+                "url": None,
+                "source": None,
+                "fetched_at": None,
+                "last_success_at": None,
+                "last_error": None,
+                "updated_at": response.json()[0]["avatar"]["updated_at"],
+            },
+        }
+    ]
+    assert client.get(f"/v1/watchers/{WATCHER}/config", headers={"Authorization": f"Bearer {TOKEN}"}).status_code == 200
+
+
+def test_config_write_fetches_new_profile_avatar_in_the_background_and_keeps_it_out_of_config():
+    store = InMemoryStore()
+    store.seed_config(WATCHER, 1, {"version": 1, "profiles": []})
+    client = TestClient(
+        create_app(
+            store=store,
+            auth=StaticTokenAuth(machine_token=TOKEN, admin_token=ADMIN, reconciler_token=RECONCILER),
+            validators={WATCHER: lambda config: None},
+            avatar_resolver=AvatarResolver(),
+        )
+    )
+
+    response = client.put(
+        f"/v1/watchers/{WATCHER}/config",
+        headers={"Authorization": f"Bearer {ADMIN}"},
+        json={"config_version": 1, "config": PROFILE_CONFIG},
+    )
+
+    assert response.status_code == 200
+    assert "avatar_url" not in response.json()["config"]["profiles"][0]
+    profile_response = client.get(
+        f"/v1/watchers/{WATCHER}/profiles",
+        headers={"Authorization": f"Bearer {ADMIN}"},
+    )
+    assert profile_response.json()[0]["avatar"] == {
+        "mode": "auto",
+        "url": "https://pbs.twimg.com/profile_images/kutekians.jpg",
+        "source": "rsshub_icon",
+        "fetched_at": profile_response.json()[0]["avatar"]["fetched_at"],
+        "last_success_at": profile_response.json()[0]["avatar"]["last_success_at"],
+        "last_error": None,
+        "updated_at": profile_response.json()[0]["avatar"]["updated_at"],
+    }
+
+
+def test_admin_can_use_manual_avatar_override_and_return_to_automatic_refresh():
+    store = InMemoryStore()
+    store.seed_config(WATCHER, 1, PROFILE_CONFIG)
+    client = TestClient(
+        create_app(
+            store=store,
+            auth=StaticTokenAuth(machine_token=TOKEN, admin_token=ADMIN, reconciler_token=RECONCILER),
+            validators={WATCHER: lambda config: None},
+            avatar_resolver=AvatarResolver(),
+        )
+    )
+    headers = {"Authorization": f"Bearer {ADMIN}"}
+
+    manual = client.put(
+        f"/v1/watchers/{WATCHER}/profiles/kutekians/avatar",
+        headers=headers,
+        json={"mode": "manual", "url": "https://cdn.example.test/kutekians.png"},
+    )
+    assert manual.status_code == 200
+    assert manual.json()["avatar"]["mode"] == "manual"
+    assert manual.json()["avatar"]["source"] == "manual"
+    assert manual.json()["avatar"]["url"] == "https://cdn.example.test/kutekians.png"
+
+    automatic = client.put(
+        f"/v1/watchers/{WATCHER}/profiles/kutekians/avatar",
+        headers=headers,
+        json={"mode": "auto"},
+    )
+    assert automatic.status_code == 200
+    refreshed = client.get(
+        f"/v1/watchers/{WATCHER}/profiles",
+        headers=headers,
+    ).json()[0]["avatar"]
+    assert refreshed["mode"] == "auto"
+    assert refreshed["source"] == "rsshub_icon"
+    assert refreshed["url"] == "https://pbs.twimg.com/profile_images/kutekians.jpg"

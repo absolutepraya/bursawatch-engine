@@ -106,6 +106,7 @@ def test_discover_migrations_uses_the_checked_legacy_eligibility_registry():
         "005_add_remaining_schedule_controls.sql",
         "006_scheduler_reconciliation_runtime.sql",
         "007_preserve_paused_instagram_baseline.sql",
+        "008_profile_avatar_metadata.sql",
     }
     assert {migration.release_eligibility for migration in migrations} == {"automatic"}
 

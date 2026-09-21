@@ -19,7 +19,8 @@
         "pytest.ini",
         "requirements-dev.txt",
         "scripts/**",
-        "tests/**"
+        "tests/**",
+        "t3.json"
       ]
     },
     {

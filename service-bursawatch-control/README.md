@@ -20,6 +20,9 @@ This branch adds:
 - immutable Postgres schema migrations with a checksum ledger and advisory
   lock, so a changed applied migration is refused;
 - a versioned OpenAPI document for the web repository.
+- separate profile metadata records with automatic RSSHub avatar URL discovery,
+  optional administrator overrides, and stale-avatar refresh tooling. Avatar
+  URLs are stored as metadata only, never as base64 in watcher configuration.
 - opt-in live configuration support for X Account Watch, Instagram Account
   Watch, WhatsApp Channel Watch, Telegram Market News, Discord Swing Board,
   Telegram Phintraco Swing, and Telegram Kelas Investasi GTW, with one frozen
@@ -107,6 +110,33 @@ Each validator executes in a fresh, credential-free subprocess. This prevents
 Python module collisions between watcher packages and means the same strict
 schema used at cron startup guards web writes. Unconfigured watchers remain
 read-only through the API until their typed validator is added.
+
+## Profile avatar metadata
+
+`GET /v1/watchers/{watcher_id}/profiles` exposes the current profile identity
+and its separate avatar metadata to signed-in dashboard users. An administrator
+can choose `auto` or `manual` mode through the profile avatar route. Automatic
+mode first checks the VPS-local RSSHub JSON feed's profile `icon`, then author
+avatar fields, and finally safe profile-page metadata. It stores only the
+provider URL and source label. The previous URL remains in place when a refresh
+fails.
+
+When a validated configuration adds a profile, the API hydrates its metadata
+row and queues a best-effort first refresh after returning the configuration
+response. `bin/refresh_profile_avatars.py` refreshes automatic records that
+have never succeeded or are older than the configured interval. The reviewed
+default is one day:
+
+```bash
+DATABASE_URL=<private-dsn> \
+  ./venv/bin/python bin/refresh_profile_avatars.py
+```
+
+`CONTROL_PLANE_RSSHUB_BASE_URL` defaults to `http://127.0.0.1:1200` and
+`CONTROL_PLANE_AVATAR_REFRESH_STALE_SECONDS` defaults to `86400`. A live timer
+or Hermes schedule for the refresh command remains a separate operations
+change. Manual URLs are HTTPS-only and do not allow credentials, fragments, or
+custom ports.
 
 ## Local development
 

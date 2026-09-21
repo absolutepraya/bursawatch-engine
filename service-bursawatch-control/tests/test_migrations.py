@@ -98,3 +98,18 @@ def test_paused_instagram_baseline_correction_is_additive_and_does_not_touch_her
     assert "source-baseline-correction" in migration
     assert "and current_schedule_revision = 1;" in migration
     assert "hermes cron" not in migration.lower()
+
+
+def test_profile_avatar_metadata_is_private_and_keeps_url_state_out_of_watcher_config():
+    migration = (
+        Path(__file__).resolve().parents[1]
+        / "migrations/008_profile_avatar_metadata.sql"
+    ).read_text(encoding="utf-8")
+
+    assert migration.startswith("-- bursawatch-release: automatic\n")
+    assert "create table if not exists bursawatch_profile_avatars" in migration
+    assert "primary key (watcher_id, profile_id)" in migration
+    assert "avatar_mode in ('auto', 'manual')" in migration
+    assert "alter table bursawatch_profile_avatars enable row level security;" in migration
+    assert "revoke all privileges on table public.bursawatch_profile_avatars from public" in migration
+    assert "bursawatch_config_revisions" not in migration

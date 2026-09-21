@@ -5,16 +5,26 @@ import json
 import os
 from typing import Any, Callable, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 from .auth import Authenticator, AuthenticationError, Principal, StaticTokenAuth, auth_from_environment
 from .contract import ConfigSnapshot, ContractError, canonical_json_bytes, validate_watcher_id
+from .profile_metadata import (
+    AvatarResolutionError,
+    AvatarResolver,
+    ProfileMetadataInput,
+    RssHubAvatarResolver,
+    normalize_manual_avatar_url,
+    profile_inputs_from_config,
+    validate_profile_id,
+)
 from .store import (
     EventRecord,
     InMemoryStore,
     PostgresStore,
+    ProfileAvatarRecord,
     RunRecord,
     ScheduleRevisionConflictError,
     SchedulerJobRecord,
@@ -28,6 +38,21 @@ class ConfigWrite(BaseModel):
 
     config_version: int = Field(ge=1)
     config: dict[str, Any]
+
+
+class AvatarWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["auto", "manual"]
+    url: str | None = Field(default=None, max_length=2_048)
+
+    @model_validator(mode="after")
+    def validate_url_for_mode(self) -> "AvatarWrite":
+        if self.mode == "manual":
+            normalize_manual_avatar_url(self.url)
+        elif self.url is not None:
+            raise ValueError("auto avatar mode must not include a URL")
+        return self
 
 
 class RunStart(BaseModel):
@@ -114,6 +139,26 @@ def _event_response(event: EventRecord) -> dict[str, Any]:
     }
 
 
+def _profile_avatar_response(record: ProfileAvatarRecord) -> dict[str, Any]:
+    return {
+        "watcher_id": record.watcher_id,
+        "profile_id": record.profile_id,
+        "handle": record.handle,
+        "display_name": record.display_name,
+        "profile_url": record.profile_url,
+        "enabled": record.enabled,
+        "avatar": {
+            "mode": record.avatar_mode,
+            "url": record.avatar_url,
+            "source": record.avatar_source,
+            "fetched_at": record.fetched_at,
+            "last_success_at": record.last_success_at,
+            "last_error": record.last_error,
+            "updated_at": record.updated_at,
+        },
+    }
+
+
 def _job_response(job: SchedulerJobRecord) -> dict[str, Any]:
     schedule = job.schedule.to_dict() if job.schedule else None
     effective = bool(
@@ -144,6 +189,7 @@ def create_app(
     auth: Authenticator | None = None,
     validators: dict[str, Callable[[dict[str, Any]], None]] | None = None,
     allowed_origins: list[str] | None = None,
+    avatar_resolver: AvatarResolver | None = None,
 ) -> FastAPI:
     store = store or InMemoryStore()
     auth = auth or StaticTokenAuth.from_environment()
@@ -184,6 +230,50 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="schedule reconciler role required")
         return current
 
+    def current_profile_metadata(watcher_id: str) -> list[ProfileAvatarRecord]:
+        snapshot = store.get_config(watcher_id)
+        profiles = profile_inputs_from_config(snapshot.config)
+        return store.sync_profile_metadata(watcher_id, profiles)
+
+    def refresh_avatar(record: ProfileAvatarRecord) -> None:
+        if avatar_resolver is None or record.avatar_mode != "auto":
+            return
+        profile = ProfileMetadataInput(
+            profile_id=record.profile_id,
+            handle=record.handle,
+            display_name=record.display_name,
+            profile_url=record.profile_url,
+            enabled=record.enabled,
+        )
+        try:
+            resolution = avatar_resolver.resolve(profile)
+            store.record_profile_avatar_success(
+                record.watcher_id,
+                record.profile_id,
+                resolution.url,
+                resolution.source,
+                record.handle,
+                record.profile_url,
+            )
+        except (AvatarResolutionError, KeyError, ValueError) as exc:
+            store.record_profile_avatar_failure(
+                record.watcher_id,
+                record.profile_id,
+                str(exc),
+                record.handle,
+                record.profile_url,
+            )
+
+    def queue_initial_avatar_refresh(
+        records: list[ProfileAvatarRecord],
+        background_tasks: BackgroundTasks,
+    ) -> None:
+        if avatar_resolver is None:
+            return
+        for record in records:
+            if record.avatar_mode == "auto" and record.last_success_at is None:
+                background_tasks.add_task(refresh_avatar, record)
+
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
@@ -207,6 +297,16 @@ def create_app(
             return _snapshot_response(store.get_config(watcher_id))
         except (ContractError, KeyError) as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="watcher config not found") from exc
+
+    @app.get("/v1/watchers/{watcher_id}/profiles")
+    def list_profiles(watcher_id: str, _current: Principal = Depends(human_reader)) -> list[dict[str, Any]]:
+        try:
+            validate_watcher_id(watcher_id)
+            return [_profile_avatar_response(record) for record in current_profile_metadata(watcher_id)]
+        except KeyError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="watcher profiles not found") from exc
+        except (ContractError, ValueError) as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
     @app.get("/v1/watchers/{watcher_id}/runs")
     def list_runs(
@@ -266,6 +366,7 @@ def create_app(
     def put_config(
         watcher_id: str,
         payload: ConfigWrite,
+        background_tasks: BackgroundTasks,
         current: Principal = Depends(admin_only),
     ) -> dict[str, Any]:
         try:
@@ -276,9 +377,56 @@ def create_app(
         try:
             canonical_json_bytes(payload.config)
             validator(payload.config)
-            return _snapshot_response(
-                store.put_config(watcher_id, payload.config_version, payload.config, current.subject)
-            )
+            profiles = profile_inputs_from_config(payload.config)
+            snapshot = store.put_config(watcher_id, payload.config_version, payload.config, current.subject)
+            records = store.sync_profile_metadata(watcher_id, profiles)
+            queue_initial_avatar_refresh(records, background_tasks)
+            return _snapshot_response(snapshot)
+        except (ContractError, ValueError) as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    @app.put("/v1/watchers/{watcher_id}/profiles/{profile_id}/avatar")
+    def put_profile_avatar(
+        watcher_id: str,
+        profile_id: str,
+        payload: AvatarWrite,
+        background_tasks: BackgroundTasks,
+        _current: Principal = Depends(admin_only),
+    ) -> dict[str, Any]:
+        try:
+            validate_watcher_id(watcher_id)
+            validate_profile_id(profile_id)
+            records = current_profile_metadata(watcher_id)
+            if not any(record.profile_id == profile_id for record in records):
+                raise KeyError((watcher_id, profile_id))
+            record = store.set_profile_avatar(watcher_id, profile_id, payload.mode, payload.url)
+            queue_initial_avatar_refresh([record], background_tasks)
+            return _profile_avatar_response(record)
+        except KeyError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="profile not found") from exc
+        except (ContractError, ValueError) as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    @app.post("/v1/watchers/{watcher_id}/profiles/{profile_id}/avatar/refresh")
+    def refresh_profile_avatar(
+        watcher_id: str,
+        profile_id: str,
+        background_tasks: BackgroundTasks,
+        _current: Principal = Depends(admin_only),
+    ) -> dict[str, Any]:
+        try:
+            validate_watcher_id(watcher_id)
+            validate_profile_id(profile_id)
+            records = current_profile_metadata(watcher_id)
+            try:
+                record = next(record for record in records if record.profile_id == profile_id)
+            except StopIteration as exc:
+                raise KeyError((watcher_id, profile_id)) from exc
+            if record.avatar_mode == "auto":
+                background_tasks.add_task(refresh_avatar, record)
+            return _profile_avatar_response(record)
+        except KeyError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="profile not found") from exc
         except (ContractError, ValueError) as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
@@ -422,6 +570,7 @@ def create_app_from_environment() -> FastAPI:
         auth=auth_from_environment(),
         validators=validators_from_environment(),
         allowed_origins=origins,
+        avatar_resolver=RssHubAvatarResolver.from_environment(),
     )
 
 

@@ -2,11 +2,13 @@
 
 This package owns the Bursawatch control-plane API, Postgres migrations,
 configuration revisions, desired schedule revisions, audit records, run
-summaries, structured events, and the versioned API contract consumed by the
-separate web repository.
+summaries, structured events, profile avatar URL metadata, and the versioned
+API contract consumed by the separate web repository.
 
-It does not own watcher cursors, deduplication, media, outboxes, retry state,
-Telegram resilience, Swing Board state, secrets, or scheduler definitions.
+It does not own watcher cursors, deduplication, image bytes, media, outboxes,
+retry state, Telegram resilience, Swing Board state, secrets, or scheduler
+definitions. It stores only profile avatar URLs and refresh status, never
+base64 image data.
 Those remain under their existing package or VPS ownership boundaries.
 It records a scheduler job's desired enabled state and interval, but never
 edits the live Hermes registry itself. A separate trusted VPS reconciler must
