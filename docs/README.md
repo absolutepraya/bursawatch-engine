@@ -27,3 +27,6 @@ The VPS-local, CI-gated Bursawatch release boundary is recorded in
 The BRI WhatsApp Swing presentation, media, Board, and guarded back-edit
 contract is recorded in
 [`adr/0028-bri-whatsapp-swing-presentation.md`](adr/0028-bri-whatsapp-swing-presentation.md).
+The distinction between terminal text-only news delivery and strict technical
+review media delivery is recorded in
+[`adr/0029-wa-nontechnical-text-fallback.md`](adr/0029-wa-nontechnical-text-fallback.md).

@@ -772,11 +772,153 @@ def test_delivery_never_uses_a_queue_media_path_outside_archive_staging(tmp_path
         },
     )
 
-    assert submitted["delivered"] == 0
+    assert submitted["delivered"] == 1
     output = capsys.readouterr().out
     assert "[dry-run] Discord text" in output
     assert "[dry-run] Discord media" not in output
-    assert state.load(state_path)["outbox"][0]["last_error"] == "archived image is unavailable"
+    record = state.load(state_path)["outbox"][0]
+    assert record["agent_phase"] == "delivered"
+    assert record["media_delivery_status"] == "unavailable"
+    assert record["media_skipped_indexes"] == [0]
+    assert record["media_error"] == "archived source media unavailable"
+    assert record["last_error"] is None
+    assert "source media unavailable" in submitted["errors"][0]
+
+
+def test_missing_nontechnical_media_is_terminal_and_does_not_retry(tmp_path, monkeypatch):
+    source = event(
+        "missing-macro-media",
+        "2026-09-10T00:01:00Z",
+        "BBCA mencatat laba bersih naik.",
+        media=[{"kind": "image", "mime": "image/jpeg"}],
+    )
+    profile_value = scan.config.load(write_config(tmp_path)).profiles[0]
+    value = {
+        "version": 1,
+        "profiles": {},
+        "outbox": [{
+            "event_key": source.event_key,
+            "profile_id": profile_value.id,
+            "event": serialize_event(source),
+            "agent_phase": "ready",
+            "items": [{
+                "title": "BBCA: Laba Bersih Naik",
+                "summary": "*(Ringkasan)* BBCA mencatat laba bersih naik.",
+                "route": "id_stocks_news",
+            }],
+            "item_index": 0,
+            "text_index": 0,
+            "media_index": 0,
+            "board_phase": "pending",
+        }],
+    }
+    posted: list[str] = []
+    monkeypatch.setattr(scan.discord, "post_text", lambda *_args, **_kwargs: posted.append("text") or "text-id")
+    monkeypatch.setattr(scan.discord, "post_media", lambda *_args, **_kwargs: posted.append("media"))
+
+    errors: list[str] = []
+    assert scan._deliver_ready(
+        value,
+        {profile_value.id: profile_value},
+        dry_run=False,
+        state_path=tmp_path / "state.json",
+        archive_dir=tmp_path / "archive",
+        errors=errors,
+    ) == 1
+    record = value["outbox"][0]
+    assert posted == ["text"]
+    assert record["agent_phase"] == "delivered"
+    assert record["media_delivery_status"] == "unavailable"
+    assert record["media_skipped_indexes"] == [0]
+    assert errors == [f"bri-danareksa-sekuritas: source media unavailable for {source.event_key}; text delivered without missing media"]
+
+    retry_errors: list[str] = []
+    assert scan._deliver_ready(
+        value,
+        {profile_value.id: profile_value},
+        dry_run=False,
+        state_path=tmp_path / "state.json",
+        archive_dir=tmp_path / "archive",
+        errors=retry_errors,
+    ) == 0
+    assert posted == ["text"]
+    assert retry_errors == []
+
+
+def test_partial_media_miss_is_preserved_across_a_transport_retry(tmp_path, monkeypatch):
+    source = event(
+        "partial-macro-media",
+        "2026-09-10T00:01:00Z",
+        "BBCA mencatat laba bersih naik.",
+        media=[
+            {"kind": "image", "mime": "image/jpeg"},
+            {"kind": "image", "mime": "image/jpeg"},
+        ],
+    )
+    profile_value = scan.config.load(write_config(tmp_path)).profiles[0]
+    available = tmp_path / "available.jpg"
+    available.write_bytes(b"available image")
+    value = {
+        "version": 1,
+        "profiles": {},
+        "outbox": [{
+            "event_key": source.event_key,
+            "profile_id": profile_value.id,
+            "event": serialize_event(source),
+            "agent_phase": "ready",
+            "items": [{
+                "title": "BBCA: Laba Bersih Naik",
+                "summary": "*(Ringkasan)* BBCA mencatat laba bersih naik.",
+                "route": "id_stocks_news",
+            }],
+            "item_index": 0,
+            "text_index": 0,
+            "media_index": 0,
+            "board_phase": "pending",
+        }],
+    }
+    posted_text: list[str] = []
+    media_attempts: list[int] = []
+    monkeypatch.setattr(scan, "_archived_media", lambda _root, _event: {1: ("image", available)})
+    monkeypatch.setattr(scan.discord, "post_text", lambda *_args, **_kwargs: posted_text.append("text") or "text-id")
+
+    def fail_once_then_succeed(*_args, **_kwargs):
+        media_attempts.append(1)
+        if len(media_attempts) == 1:
+            raise RuntimeError("discord upload unavailable")
+
+    monkeypatch.setattr(scan.discord, "post_media", fail_once_then_succeed)
+
+    first_errors: list[str] = []
+    assert scan._deliver_ready(
+        value,
+        {profile_value.id: profile_value},
+        dry_run=False,
+        state_path=tmp_path / "state.json",
+        archive_dir=tmp_path / "archive",
+        errors=first_errors,
+    ) == 0
+    record = value["outbox"][0]
+    assert record["agent_phase"] == "ready"
+    assert record["media_index"] == 1
+    assert record["media_skipped_indexes"] == [0]
+    assert first_errors == ["discord upload unavailable"]
+
+    second_errors: list[str] = []
+    assert scan._deliver_ready(
+        value,
+        {profile_value.id: profile_value},
+        dry_run=False,
+        state_path=tmp_path / "state.json",
+        archive_dir=tmp_path / "archive",
+        errors=second_errors,
+    ) == 1
+    assert posted_text == ["text"]
+    assert len(media_attempts) == 2
+    assert record["agent_phase"] == "delivered"
+    assert record["media_delivery_status"] == "partial"
+    assert record["media_error"] == "archived source media unavailable"
+    assert second_errors == [f"bri-danareksa-sekuritas: source media unavailable for {source.event_key}; text delivered without missing media"]
 
 
 def test_many_items_never_duplicate_one_source_image(tmp_path, capsys):

@@ -30,7 +30,13 @@ watcher's scope.
   or delivery targets.
 - Text is rendered and delivered before supported media, in source order. Each
   text and media leg has its own retry checkpoint, so a failed attachment does
-  not repeat already-delivered text.
+  not repeat already-delivered text. For ordinary nontechnical forwarding, an
+  archive record that says source media is unavailable becomes terminal
+  text-only delivery: the record records `media_delivery_status` as
+  `unavailable` (or `partial`), emits a degraded heartbeat, and does not retry
+  the unavailable source forever. A Discord transport or upload failure remains
+  retryable. Technical BRI Swing reviews stay strict and require exactly one
+  verified archived image before any text, media, or Board handoff.
 - Archived media remains content-addressed and extensionless for the 365-day
   research retention window. Discord delivery supplies a MIME-derived
   presentation name, such as `bri-chart-0.jpg`, and the bridge removes only

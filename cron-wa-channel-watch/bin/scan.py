@@ -241,30 +241,46 @@ def _deliver_ready(
                 if technical_review and item_index == 1:
                     record["all_content"] = "\n\n".join(messages)
                 state.save(state_path, value)
-            media_paths: tuple[Path, ...]
+            media_indexes: tuple[int, ...] = ()
+            archived_media: dict[int, tuple[str, Path]] = {}
             if technical_review:
-                media_paths = archived_images
-            else:
+                media_indexes = tuple(index for index, _media, _path in image_uploads)
+            elif profile.forward_media:
                 media_indexes = agent_protocol.media_delivery_indexes(item_count=len(items), media_count=len(event.media))
                 archived_media = _archived_media(archive_dir, event)
-                paths: list[Path] = []
-                for source_index in media_indexes:
-                    media = event.media[source_index]
-                    archived = archived_media.get(source_index)
-                    if archived is None or archived[0] != media.kind:
-                        raise FileNotFoundError(f"archived {media.kind} is unavailable")
-                    paths.append(archived[1])
-                media_paths = tuple(paths)
+            missing_media_indexes: list[int] = []
+            if not technical_review:
+                skipped = record.get("media_skipped_indexes")
+                if isinstance(skipped, list):
+                    missing_media_indexes.extend(
+                        index
+                        for index in skipped
+                        if type(index) is int and index in media_indexes
+                    )
             media_index = int(record.get("media_index", 0))
             if profile.forward_media or technical_review:
                 target = _delivery_channel(profile, items[0])
-                while media_index < len(media_paths):
+                while media_index < len(media_indexes):
                     if technical_review:
                         source_index, media, media_path = image_uploads[media_index]
                     else:
                         source_index = media_indexes[media_index]
                         media = event.media[source_index]
-                        media_path = media_paths[media_index]
+                        archived = archived_media.get(source_index)
+                        if archived is None or archived[0] != media.kind:
+                            if source_index not in missing_media_indexes:
+                                missing_media_indexes.append(source_index)
+                            skipped = record.setdefault("media_skipped_indexes", [])
+                            if not isinstance(skipped, list):
+                                skipped = []
+                                record["media_skipped_indexes"] = skipped
+                            if source_index not in skipped:
+                                skipped.append(source_index)
+                            media_index += 1
+                            record["media_index"] = media_index
+                            state.save(state_path, value)
+                            continue
+                        media_path = archived[1]
                     discord.post_media(
                         media_path,
                         target,
@@ -281,6 +297,28 @@ def _deliver_ready(
                     media_index += 1
                     record["media_index"] = media_index
                     state.save(state_path, value)
+            if technical_review:
+                record["media_delivery_status"] = "delivered"
+                record["media_error"] = None
+            elif not profile.forward_media:
+                record["media_delivery_status"] = "not_requested"
+                record["media_error"] = None
+            elif not media_indexes:
+                record["media_delivery_status"] = "not_applicable"
+                record["media_error"] = None
+            elif missing_media_indexes:
+                missing_count = len(set(missing_media_indexes))
+                record["media_delivery_status"] = (
+                    "partial" if missing_count < len(media_indexes) else "unavailable"
+                )
+                record["media_error"] = "archived source media unavailable"
+                errors.append(
+                    f"{profile.id}: source media unavailable for {event.event_key}; text delivered without missing media"
+                )
+            else:
+                record["media_delivery_status"] = "delivered"
+                record["media_error"] = None
+            record["last_error"] = None
             if technical_review:
                 item = items[0]
                 if type(item) is not dict:
@@ -567,6 +605,9 @@ def _run(
                 "text_message_ids": [],
                 "text_message_id": None,
                 "media_index": 0,
+                "media_skipped_indexes": [],
+                "media_delivery_status": "pending",
+                "media_error": None,
                 "board_phase": "pending",
                 "board_link_phase": "pending",
                 "archive_complete": True,
@@ -752,7 +793,13 @@ def submit_analysis(
         attributes={"delivered": delivered, "errors": errors[:10]},
     )
     control_run.finish("degraded" if errors else "ok")
-    return {"accepted": True, "event_key": event_key, "agent_phase": record["agent_phase"], "delivered": delivered}
+    return {
+        "accepted": True,
+        "event_key": event_key,
+        "agent_phase": record["agent_phase"],
+        "delivered": delivered,
+        "errors": errors,
+    }
 
 
 def main() -> int:

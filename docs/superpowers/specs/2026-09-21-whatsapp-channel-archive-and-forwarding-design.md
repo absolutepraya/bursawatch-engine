@@ -74,7 +74,12 @@ Media capture is explicit. A missing or failed source-media download is
 recorded as unavailable rather than fabricated. A BRI `#TechnicalReview`
 requires exactly one successfully archived image before it can complete the
 All Swing and Board handoff. Other supported events preserve their capture
-status and delivery retries independently.
+status and delivery retries independently. For ordinary macro and issuer-news
+forwarding, the text remains deliverable when an archive record reports
+unavailable source media. The watcher records a terminal degraded media status,
+skips only the unavailable source leg, and does not retry that known archive
+miss forever. A Discord transport or upload failure remains retryable. A
+technical review remains strict and cannot fall back to text-only delivery.
 
 Archive records and copied media are retained for 365 days. Redacted fixtures
 that describe a source layout or regression case are permanent, source-free,
@@ -196,9 +201,13 @@ does not authorize any of those production mutations.
 
 ## Failure behavior and observability
 
-Archive or media failures retain an immutable error status and stay retriable;
-they never cause a guessed source record, arbitrary filesystem access, or a
-post to Discord. Configuration snapshot failure remains fail-closed. The
+Known unavailable source media on an ordinary news item is a terminal
+text-only delivery with a sanitized media error and degraded heartbeat; the
+watcher never fabricates a source asset or retries that same archive miss
+forever. Discord transport and upload failures retain an error status and stay
+retriable. Technical review image failures remain pending with no partial
+delivery. None of these paths permit arbitrary filesystem access or a guessed
+source record. Configuration snapshot failure remains fail-closed. The
 existing standard heartbeat reports aggregate archival, observation, routing,
 delivery, and Board-handoff counts plus sanitized failures. It never contains
 raw source text, links, media paths, session information, or archive payloads.
