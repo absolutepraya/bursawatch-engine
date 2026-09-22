@@ -732,26 +732,28 @@ def run(
                         record = value["profiles"].get(profile.id) or {}
                         posts = rsshub.fetch_profile_items(profile, after_id=record.get("cursor"))
                         stats.fetched += len(posts)
-                        if not posts and (profile.source != "direct_x" or record.get("cursor") is None):
+                        empty_feed = not posts and (profile.source != "direct_x" or record.get("cursor") is None)
+                        if empty_feed:
                             stats.note_empty_profile(profile.handle)
                         fresh_ids = state.fresh_post_ids(value, profile, posts)
-                        queued, reason = state.observe_posts(
+                        queued, observation_reason = state.observe_posts(
                             value, profile, posts,
                             lambda post: rsshub.is_forwardable(profile, post),
                             lambda post: rsshub.is_self_thread_post(profile, post), now,
                         )
                         stats.queued += queued
-                        if reason:
+                        if observation_reason:
                             stats.degraded = True
                             stats.needs_attention = True
-                            stats.reasons.append(_sanitize_reason(f"{profile.id}: {reason}"))
+                            stats.reasons.append(_sanitize_reason(f"{profile.id}: {observation_reason}"))
                         _annotate_replacements(value, profile, fresh_ids, verifier, now, stats)
                         state.save_state(storage, value)
+                        source_reason = observation_reason or ("empty source feed" if empty_feed else None)
                         _report_control_event(
                             reporter,
                             run_id,
                             f"source-fetch-{profile.id}",
-                            level="warning" if reason else "info",
+                            level="warning" if source_reason else "info",
                             phase="source",
                             event_type="source.fetch.completed",
                             message=f"{profile.id}: fetched {len(posts)} source items",
@@ -759,7 +761,7 @@ def run(
                                 "profile_id": profile.id,
                                 "items": len(posts),
                                 "queued": queued,
-                                "reason": _sanitize_reason(reason) if reason else None,
+                                "reason": _sanitize_reason(source_reason) if source_reason else None,
                             },
                         )
                     except rsshub.SourceFetchError as exc:

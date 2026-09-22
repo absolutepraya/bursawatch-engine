@@ -177,6 +177,9 @@ def test_live_run_reports_structured_events_without_changing_heartbeat(tmp_path,
         "delivery.drain.completed",
         "run.completed",
     ]
+    source_event = next(event[2] for event in reporter.events if event[2]["event_type"] == "source.fetch.completed")
+    assert source_event["level"] == "warning"
+    assert source_event["attributes"]["reason"] == "empty source feed"
     assert reporter.finished == [("run-1", "degraded", None)]
     assert heartbeats[0].startswith("🫀 x-post · 10:00 WIB ·")
 
