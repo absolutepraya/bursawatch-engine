@@ -66,7 +66,7 @@
   <text class="heading" x="562" y="179">BRI Danareksa Sekuritas · public WhatsApp Channel</text>
   <text class="body" x="562" y="201">channel_jid: 120363419226413141@newsletter</text>
   <text class="body" x="562" y="221">channel_url: whatsapp.com/channel/0029VbAjdnb60eBhwVdJxj1c</text>
-  <text class="body" x="562" y="241">source emoji: &lt;:bridanareksa:1549256273109848124&gt; · status map: up / down / hold</text>
+  <text class="body" x="562" y="241">source emoji: &lt;:bridanareksa:1551797903927025797&gt; · status map: up / down / hold</text>
   <text class="small" x="562" y="259">Future-only profile: the first observed item becomes the cursor; old history is not backfilled.</text>
 
   <!-- Intake and data cards -->
@@ -116,8 +116,8 @@
   <!-- Delivery cards -->
   <rect class="card delivery" x="36" y="723" width="390" height="112"/>
   <text class="heading" x="56" y="749">Discord renderer</text>
-  <text class="body" x="56" y="771">Source emoji, source link, and WIB status date</text>
-  <text class="body" x="56" y="791">Explicit stance plus matching up / down / hold emoji</text>
+  <text class="body" x="56" y="771">Source emoji and source link for every forwarded route</text>
+  <text class="body" x="56" y="791">Swing-only stance, WIB date, and matching status emoji</text>
   <text class="body" x="56" y="811">TechnicalReview chart availability line</text>
   <text class="small" x="56" y="829">Missing usable image: Chart: Unavailable from source</text>
 
