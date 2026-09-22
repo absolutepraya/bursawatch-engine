@@ -428,8 +428,9 @@ def test_technical_review_is_guarded_and_deterministically_delivered_to_swing(tm
             "is_relevant": True,
             "items": [{
                 "title": "TINS: Breakout Resistance 4.600",
-                "summary": "*(Ringkasan)* TINS mempertahankan tren bullish setelah breakout resistance 4.600.",
+                "summary": "TINS mempertahankan tren bullish setelah breakout resistance 4.600.",
                 "route": "id_stocks_swing",
+                "sentiment": "Bullish",
             }],
         },
     )
@@ -463,9 +464,10 @@ def test_technical_review_without_a_verified_archive_image_stays_pending(tmp_pat
             "is_relevant": True,
             "items": [{
                 "title": "TINS: Breakout Resistance 4.600",
-                "summary": "*(Ringkasan)* TINS menembus resistance 4.600.",
+                "summary": "TINS menembus resistance 4.600.",
                 "route": "id_stocks_swing",
                 "ticker": "TINS",
+                "sentiment": "Bullish",
             }],
         },
     )
@@ -508,8 +510,9 @@ def test_technical_review_always_forwards_its_verified_chart(tmp_path, monkeypat
             "is_relevant": True,
             "items": [{
                 "title": "TINS: Breakout Resistance 4.600",
-                "summary": "*(Ringkasan)* TINS menembus resistance 4.600.",
+                "summary": "TINS menembus resistance 4.600.",
                 "route": "id_stocks_swing",
+                "sentiment": "Bullish",
             }],
         },
     )
@@ -539,8 +542,9 @@ def test_non_technical_posts_cannot_submit_the_swing_route(tmp_path):
                 "is_relevant": True,
                 "items": [{
                     "title": "TINS: Analisis Saham",
-                    "summary": "*(Ringkasan)* TINS mencatat kinerja yang kuat.",
+                    "summary": "TINS mencatat kinerja yang kuat.",
                     "route": "id_stocks_swing",
+                    "sentiment": "Bullish",
                 }],
             },
         )
@@ -871,17 +875,77 @@ def test_single_ticker_technical_review_hands_off_only_after_all_swing_text_and_
             "is_relevant": True,
             "items": [{
                 "title": "TINS: Breakout Resistance 4.600",
-                "summary": "*(Ringkasan)* TINS menembus resistance 4.600.",
+                "summary": "TINS menembus resistance 4.600.",
                 "route": "id_stocks_swing",
                 "ticker": "TINS",
+                "sentiment": "Bullish",
             }],
         },
     )
 
-    assert submitted["delivered"] == 1
+    assert submitted["delivered"] == 0
     assert order == ["text", "media", "board"]
     record = state.load(state_path)["outbox"][0]
-    assert record["board_phase"] == "accepted"
+    assert record["board_phase"] == "pending"
+    assert record["agent_phase"] == "ready"
+
+
+def test_swing_delivery_patches_direct_board_topic_after_media(tmp_path, monkeypatch):
+    image = tmp_path / "archived-chart.jpg"
+    image.write_bytes(b"chart")
+    source = event("technical-direct-board", "2026-09-10T00:01:00Z", "#TechnicalReview\nTINS breakout resistance 4.600.", media=[{"kind": "image", "path": str(image)}])
+    config_path = write_config(tmp_path)
+    profile_value = scan.config.load(config_path).profiles[0]
+    value = {
+        "version": 1,
+        "profiles": {},
+        "outbox": [{
+            "event_key": source.event_key,
+            "profile_id": profile_value.id,
+            "event": serialize_event(source),
+            "agent_phase": "ready",
+            "items": [{
+                "title": "TINS: Breakout Resistance 4.600",
+                "summary": "TINS menembus resistance 4.600.",
+                "route": "id_stocks_swing",
+                "ticker": "TINS",
+                "sentiment": "Bullish",
+            }],
+            "item_index": 0,
+            "text_index": 0,
+            "media_index": 0,
+            "board_phase": "pending",
+        }],
+    }
+    monkeypatch.setattr(scan, "_archived_images", lambda _root, _event: (image,))
+    monkeypatch.setattr(scan.discord, "post_text", lambda *_args, **_kwargs: "discord-message-1")
+    monkeypatch.setattr(scan.discord, "post_media", lambda *_args, **_kwargs: "discord-media-1")
+    monkeypatch.setattr(
+        scan.swing_board,
+        "submit_chart_context",
+        lambda *_args, **_kwargs: scan.swing_board.BoardSubmission(
+            True,
+            "https://discord.com/channels/940285152335110204/999",
+            False,
+        ),
+    )
+    edits = []
+    monkeypatch.setattr(scan.discord, "edit_board_link", lambda *args, **kwargs: edits.append((args, kwargs)) or True)
+
+    delivered = scan._deliver_ready(
+        value,
+        {profile_value.id: profile_value},
+        dry_run=False,
+        state_path=tmp_path / "state.json",
+        archive_dir=tmp_path / "archive",
+        errors=[],
+    )
+
+    assert delivered == 1
+    assert value["outbox"][0]["agent_phase"] == "delivered"
+    assert value["outbox"][0]["text_message_ids"] == ["discord-message-1"]
+    assert edits and edits[0][0][1] == ["discord-message-1"]
+    assert edits[0][0][2] == "https://discord.com/channels/940285152335110204/999"
 
 
 def test_no_post_technical_delivery_never_invokes_the_board_adapter(tmp_path, monkeypatch):
@@ -900,9 +964,10 @@ def test_no_post_technical_delivery_never_invokes_the_board_adapter(tmp_path, mo
             "agent_phase": "ready",
             "items": [{
                 "title": "TINS: Breakout Resistance 4.600",
-                "summary": "*(Ringkasan)* TINS menembus resistance 4.600.",
+                "summary": "TINS menembus resistance 4.600.",
                 "route": "id_stocks_swing",
                 "ticker": "TINS",
+                "sentiment": "Bullish",
             }],
             "item_index": 0,
             "text_index": 0,
@@ -965,9 +1030,10 @@ def test_missing_or_ambiguous_technical_chart_never_creates_board_context(tmp_pa
             "is_relevant": True,
             "items": [{
                 "title": "TINS: Breakout",
-                "summary": "*(Ringkasan)* TINS dan ANTM mencatat breakout.",
+                "summary": "TINS dan ANTM mencatat breakout.",
                 "route": "id_stocks_swing",
                 "ticker": "TINS",
+                "sentiment": "Sideways",
             }],
         },
     )

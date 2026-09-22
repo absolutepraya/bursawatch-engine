@@ -195,6 +195,7 @@ def test_ensure_captures_only_staged_media_and_can_complete_a_prior_record(tmp_p
     assert completed.created is False
     assert record["media"][0]["capture_status"] == "captured"
     assert record["media"][0]["archive_path"] != str(image)
+    assert not image.exists()
     assert archive.verify(tmp_path) == {"checked": 1, "valid": 1, "invalid": 0}
 
 

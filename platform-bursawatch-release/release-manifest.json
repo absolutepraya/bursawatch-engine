@@ -188,7 +188,8 @@
       "wrappers": [
         {"source": "bursawatch-wa-channel-watch.sh", "destination": "bursawatch-wa-channel-watch.sh"},
         {"source": "bursawatch-wa-channel-subscriptions.sh", "destination": "bursawatch-wa-channel-subscriptions.sh"},
-        {"source": "bursawatch-wa-channel-archive.sh", "destination": "bursawatch-wa-channel-archive.sh"}
+        {"source": "bursawatch-wa-channel-archive.sh", "destination": "bursawatch-wa-channel-archive.sh"},
+        {"source": "bursawatch-wa-channel-backfill.sh", "destination": "bursawatch-wa-channel-backfill.sh"}
       ],
       "verification": "whatsapp-no-post"
     },

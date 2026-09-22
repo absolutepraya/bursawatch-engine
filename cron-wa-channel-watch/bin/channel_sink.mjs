@@ -260,6 +260,12 @@ function copyStagedMedia(media, {archiveDir, stagingRoot}) {
       throw error;
     }
   }
+  // The bridge queue keeps only the immutable archive reference. Remove the
+  // downloaded staging copy after a verified archive write so media bytes do
+  // not accumulate in the transient intake directory.
+  if (source !== destination.absolute) {
+    try { unlinkSync(source); } catch {}
+  }
   return {capture_status: 'captured', archive_path: destination.relative, sha256: digest, bytes: sourceStats.size};
 }
 

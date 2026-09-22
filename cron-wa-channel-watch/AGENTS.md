@@ -31,6 +31,11 @@ watcher's scope.
 - Text is rendered and delivered before supported media, in source order. Each
   text and media leg has its own retry checkpoint, so a failed attachment does
   not repeat already-delivered text.
+- Archived media remains content-addressed and extensionless for the 365-day
+  research retention window. Discord delivery supplies a MIME-derived
+  presentation name, such as `bri-chart-0.jpg`, and the bridge removes only
+  its transient staging copy after a successful archive capture. Media bytes do
+  not enter logs or the control-plane database.
 - BRI `#TechnicalReview` posts are stricter: they require exactly one verified,
   archive-owned image before any All Swing text or media is posted. On success,
   deliver text, then that image, then submit the eligible single-ticker chart
@@ -45,12 +50,23 @@ watcher's scope.
   clearly dominant lead issuer. `macro_news` covers broad market, sector,
   infrastructure, and economy theses, including a broad thesis with a named
   top pick.
-- For a BRI `id_stocks_swing` technical review, when the source explicitly
-  states a stance such as Bullish, Bearish, Overweight, Underweight, Buy, Sell,
-  Hold, Neutral, or On track, the renderer preserves that label, appends its
-  configured emoji, and adds the WIB status date. Macro and issuer-news routes
-  never emit a status or status-date footer. The renderer does not infer status
-  from generic positive or negative language.
+- For a BRI `id_stocks_swing` technical review, the LLM returns exactly one
+  bounded sentiment, `Bullish`, `Bearish`, or `Sideways`, plus one concise
+  source-grounded Reasons paragraph. The renderer uses the Phintraco-shaped
+  shell with `Sentiment`, `Sentiment date`, `Reasons`, `Last updated`, `Board`,
+  and `View on WhatsApp`. Both dates use the source publication timestamp in
+  WIB. Macro and issuer-news routes never emit this swing status block.
+- The initial Board marker is the shared forum-channel mention. Once the Board
+  owner materializes the topic, the watcher patches the existing All Swing
+  message to the direct topic URL. A pending topic or failed patch keeps the
+  record retryable and cannot create a duplicate All message.
+- Already-delivered BRI Swing repairs use
+  `bin/bursawatch-wa-channel-backfill.py`. Its `discover` and `plan` commands
+  are read-only; `apply --apply` also requires
+  `WHATSAPP_CHANNEL_WATCH_ALLOW_BACKEDIT=1`, a reviewed manifest, a current
+  message-content hash, and an immutable archive event. It edits existing
+  Discord messages in place, reconciles Chart-context Board events with their
+  image, and never replays the historical WhatsApp queue.
 
 ## Configuration and onboarding
 
@@ -161,6 +177,34 @@ new explicit path with an existing private parent. `prune` is a dry run without
 reports archive media that would become unreferenced. A destructive prune
 requires separate explicit approval, an absolute archive root, and an operator
 review of its dry-run count.
+
+### BRI Swing back-edit helper
+
+The deployed runtime also contains the operator wrapper
+`~/.hermes/scripts/bursawatch-wa-channel-backfill.sh`, backed by
+`bursawatch-wa-channel-backfill.py`. Use `discover --output` to make a private,
+read-only inventory of existing All Swing message IDs, fill each reviewed item
+with its immutable `event_key`, title, Reasons paragraph, sentiment, and ticker,
+then inspect the plan:
+
+```bash
+ssh vps '~/.hermes/scripts/bursawatch-wa-channel-backfill.sh discover --limit 100 --output /home/praya/.hermes/state/whatsapp-channel-watch/backfill-manifest.json'
+ssh vps '~/.hermes/scripts/bursawatch-wa-channel-backfill.sh --archive-root /home/praya/.hermes/state/whatsapp-channel-watch/archive plan --manifest /home/praya/.hermes/state/whatsapp-channel-watch/backfill-manifest.json'
+```
+
+The manifest is private operator state and must not enter Git, logs, the
+control plane, or dotfiles. After the plan is reviewed and the content hashes
+still match, an explicitly approved repair uses both the CLI `--apply` flag and
+`WHATSAPP_CHANNEL_WATCH_ALLOW_BACKEDIT=1`:
+
+```bash
+ssh vps 'WHATSAPP_CHANNEL_WATCH_ALLOW_BACKEDIT=1 ~/.hermes/scripts/bursawatch-wa-channel-backfill.sh --archive-root /home/praya/.hermes/state/whatsapp-channel-watch/archive apply --manifest /home/praya/.hermes/state/whatsapp-channel-watch/backfill-manifest.json --apply'
+```
+
+The helper reconciles the Chart-context Board event and edits the existing
+Discord message in place. A pending Board topic stops before the message edit;
+rerun the same reviewed manifest after the topic materializes. It never
+replays the historical queue or reposts a replacement message.
 
 BRI's historical queue must never be replayed. Before an explicitly approved
 live BRI cutover, inspect its bounded plan:

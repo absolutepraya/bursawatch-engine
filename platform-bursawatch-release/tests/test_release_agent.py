@@ -69,6 +69,7 @@ def test_whatsapp_runtime_manifest_includes_archive_operator_wrapper():
 
     whatsapp = next(unit for unit in units if unit.identifier == "cron-wa-channel-watch")
     assert ("bursawatch-wa-channel-archive.sh", "bursawatch-wa-channel-archive.sh") in whatsapp.wrappers
+    assert ("bursawatch-wa-channel-backfill.sh", "bursawatch-wa-channel-backfill.sh") in whatsapp.wrappers
 
 
 def test_manifest_maps_market_news_watchdog_wrapper_to_its_vps_name():

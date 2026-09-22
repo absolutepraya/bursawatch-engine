@@ -78,6 +78,51 @@ def test_relevant_submission_validates_shared_contract():
     assert result["items"][0]["route"] == "macro_news"
 
 
+def test_swing_submission_requires_bounded_sentiment_and_reasons_shape():
+    technical = normalize_bridge_event({
+        "channel_jid": "12345@newsletter",
+        "message_id": "swing-contract",
+        "published_at": "2026-09-10T00:00:00Z",
+        "text": "#TechnicalReview\nTINS breakout resistance 4.600.",
+        "media": [],
+    })
+    result = validate_submission(profile(), {
+        "event_key": technical.event_key,
+        "is_relevant": True,
+        "items": [{
+            "title": "TINS: Breakout Resistance",
+            "summary": "Harga bertahan di atas support dan peluang rebound masih terbuka.",
+            "route": "id_stocks_swing",
+            "ticker": "TINS",
+            "sentiment": "Sideways",
+        }],
+    }, event=technical)
+    assert result["items"][0]["sentiment"] == "Sideways"
+    with pytest.raises(ValueError, match="sentiment"):
+        validate_submission(profile(), {
+            "event_key": technical.event_key,
+            "is_relevant": True,
+            "items": [{
+                "title": "TINS: Breakout Resistance",
+                "summary": "Harga bertahan di atas support.",
+                "route": "id_stocks_swing",
+                "ticker": "TINS",
+            }],
+        }, event=technical)
+    with pytest.raises(ValueError, match="Ringkasan"):
+        validate_submission(profile(), {
+            "event_key": technical.event_key,
+            "is_relevant": True,
+            "items": [{
+                "title": "TINS: Breakout Resistance",
+                "summary": "*(Ringkasan)* Harga bertahan di atas support.",
+                "route": "id_stocks_swing",
+                "ticker": "TINS",
+                "sentiment": "Sideways",
+            }],
+        }, event=technical)
+
+
 def test_macro_roundup_is_one_item_without_category_prefix():
     result = validate_submission(profile(), {
         "event_key": "12345@newsletter:macro",

@@ -13,6 +13,7 @@ SUMMARY_LABEL = SUMMARY_PREFIX.rstrip()
 MAX_SUMMARY_CHARACTERS = 1_600
 MAX_TITLE_CHARACTERS = 120
 MAX_NEWS_ITEMS = 8
+SENTIMENTS = {"Bullish": "up", "Bearish": "down", "Sideways": "hold"}
 _TICKER_RE = re.compile(r"^[A-Z]{2,5}$")
 ROUTE_ALIASES = {
     "macro": "macro_news",
@@ -35,6 +36,7 @@ class NewsItem:
     summary: str
     route: str
     ticker: str | None = None
+    sentiment: str | None = None
 
 
 def _channels(profile: ChannelProfile) -> str:
@@ -73,6 +75,7 @@ def instruction_for(profile: ChannelProfile, relevance_guard_required: bool = Fa
     title_summary = (
         "Write concise, source-grounded Bahasa Indonesia. For id_stocks_news and id_stocks_swing, start the first word of the title with the exact IDX ticker followed by a colon. For macro_news, write a natural headline and do not invent a ticker. "
         "Return one ordered items array with one to eight independently relevant News Items. Keep one shared-headline macro or market roundup as one item even when it has many bullets; split only clearly independent issuer stories or titled sections. Do not add a category prefix to a substantive macro title. Start only the first summary paragraph with *(Ringkasan)* and never repeat that label in the second paragraph. Summarize the source instead of copying its full bullet format or disclaimer. Preserve material source-supported numbers, price levels, named issuers, ratings, and implications without adding facts or advice. Do not describe the Channel or writer as a narrator. "
+        "For an id_stocks_swing item, the summary field is rendered as one concise **Reasons:** paragraph: do not add the *(Ringkasan)* label, do not use a second paragraph, and provide a sentiment field containing exactly one of Bullish, Bearish, or Sideways. Preserve an explicit source stance when present; otherwise classify the dominant direction of the supplied technical evidence, using Sideways only for a genuinely balanced or explicitly sideways setup. "
     )
     profile_instruction = (
         f"Profile-specific instruction: {profile.additional_prompt_instruction.strip()} "
@@ -147,6 +150,23 @@ def validate_summary(value: object) -> str:
     return summary
 
 
+def validate_swing_reasons(value: object) -> str:
+    if not isinstance(value, str):
+        raise ValueError("swing reasons must be text")
+    reasons = value.strip()
+    if not reasons or reasons.startswith(SUMMARY_PREFIX):
+        raise ValueError("swing reasons must be one paragraph without the Ringkasan label")
+    if "\n" in reasons or "\r" in reasons or len(reasons) > MAX_SUMMARY_CHARACTERS:
+        raise ValueError("swing reasons must be one single-line paragraph within the character limit")
+    return reasons
+
+
+def validate_sentiment(value: object) -> str:
+    if not isinstance(value, str) or value not in SENTIMENTS:
+        raise ValueError("sentiment must be Bullish, Bearish, or Sideways")
+    return value
+
+
 def validate_title(value: object) -> str:
     if not isinstance(value, str):
         raise ValueError("title must be text")
@@ -157,7 +177,7 @@ def validate_title(value: object) -> str:
 
 
 def _validate_item(profile: ChannelProfile, value: object, event: ChannelEvent | None) -> NewsItem:
-    if type(value) is not dict or set(value) - {"title", "summary", "route", "ticker"} or not {"title", "summary", "route"}.issubset(value):
+    if type(value) is not dict or set(value) - {"title", "summary", "route", "ticker", "sentiment"} or not {"title", "summary", "route"}.issubset(value):
         raise ValueError("news item has unexpected or missing fields")
     route = value["route"]
     if not isinstance(route, str):
@@ -171,11 +191,20 @@ def _validate_item(profile: ChannelProfile, value: object, event: ChannelEvent |
             raise ValueError("ticker must be an uppercase IDX token or null")
         if event is None or re.search(rf"(?<![A-Z0-9]){re.escape(ticker)}(?![A-Z0-9])", event.text) is None:
             raise ValueError("ticker must occur in the raw Source Post")
+    sentiment = value.get("sentiment")
+    if canonical == "id_stocks_swing":
+        sentiment = validate_sentiment(sentiment)
+        reasons = validate_swing_reasons(value["summary"])
+    else:
+        if sentiment is not None:
+            raise ValueError("sentiment is only valid for id_stocks_swing")
+        reasons = validate_summary(value["summary"])
     return NewsItem(
         title=validate_title(value["title"]),
-        summary=validate_summary(value["summary"]),
+        summary=reasons,
         route=canonical,
         ticker=ticker,
+        sentiment=sentiment,
     )
 
 
@@ -217,5 +246,11 @@ def validate_submission(
         if event is not None and is_technical_review(event.text):
             if len(items) != 1 or items[0].route != "id_stocks_swing":
                 raise ValueError("TechnicalReview requires exactly one id_stocks_swing item")
-        result["items"] = [asdict(item) for item in items]
+        serialized_items: list[dict[str, object]] = []
+        for item in items:
+            serialized = asdict(item)
+            if serialized.get("sentiment") is None:
+                serialized.pop("sentiment", None)
+            serialized_items.append(serialized)
+        result["items"] = serialized_items
     return result

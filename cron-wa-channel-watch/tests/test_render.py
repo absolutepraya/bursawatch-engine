@@ -46,7 +46,7 @@ def test_render_splits_long_source_without_exceeding_discord_limit():
     assert all(len(message) <= 2000 for message in render_post(profile(), event))
 
 
-def test_render_preserves_explicit_status_and_chart_footer(tmp_path):
+def test_render_uses_phintraco_shaped_bri_swing_shell(tmp_path):
     chart = tmp_path / "tins-chart.jpg"
     chart.write_bytes(b"chart")
     event = normalize_bridge_event({
@@ -54,20 +54,26 @@ def test_render_preserves_explicit_status_and_chart_footer(tmp_path):
         "text": "_*#TechnicalReview #ClientRequest*_\nTINS masih berada dalam bullish trend.",
         "media": [{"kind": "image", "mime": "image/jpeg", "path": str(chart)}],
     })
-    message = render_post(profile(), event, title="TINS: Tren Bullish", summary="*(Ringkasan)* TINS mempertahankan tren bullish.", route="id_stocks_swing")[0]
-    assert "Status: Bullish<:up:1531285100346740766>" in message
-    assert "Status date: Fri, Sep 11 2026, 10:03 WIB" in message
-    assert "Source: [BRI Danareksa Sekuritas](<https://whatsapp.com/channel/example>)" in message
-    assert "Chart: Attached below" in message
+    message = render_post(profile(), event, title="TINS: Tren Bullish", summary="Rebound bertahan di atas support.", route="id_stocks_swing", sentiment="Bullish")[0]
+    assert "-# BRI Danareksa Sekuritas" in message
+    assert "**Sentiment:** Bullish <:up:1531285100346740766>" in message
+    assert "**Sentiment date:** 11 Sep 2026 10:03 WIB" in message
+    assert "**Reasons:** Rebound bertahan di atas support." in message
+    assert "**Last updated:** 11 Sep 2026 10:03 WIB" in message
+    assert "**Board:** <#1548273399069933720>" in message
+    assert "[View on WhatsApp](<https://whatsapp.com/channel/example>)" in message
+    assert "Status:" not in message
+    assert "Chart:" not in message
 
 
-def test_render_marks_missing_technical_review_chart_exactly():
+def test_render_does_not_put_media_state_in_the_swing_text():
     event = normalize_bridge_event({
         "channel_jid": "1@newsletter", "message_id": "missing-chart", "published_at": "2026-09-11T03:03:00Z",
         "text": "#TechnicalReview\nTINS bullish.", "media": [],
     })
-    message = render_post(profile(), event, title="TINS: Tren Bullish", summary="*(Ringkasan)* TINS bullish.")[0]
-    assert "Chart: Unavailable from source" in message
+    message = render_post(profile(), event, title="TINS: Tren Bullish", summary="TINS bullish.", route="id_stocks_swing", sentiment="Bullish")[0]
+    assert "**Sentiment:** Bullish" in message
+    assert "Chart:" not in message
 
 
 def test_render_preserves_down_and_hold_status_emojis():
@@ -80,18 +86,19 @@ def test_render_preserves_down_and_hold_status_emojis():
             "channel_jid": "1@newsletter", "message_id": f"status-{index}",
             "published_at": "2026-09-11T03:03:00Z", "text": text, "media": [],
         })
-        message = render_post(profile(), event, title="BBCA: Status", summary="*(Ringkasan)* Status sumber.", route="id_stocks_swing")[0]
-        assert f"Status: {expected}" in message
+        sentiment = "Bearish" if index == 0 else "Sideways"
+        message = render_post(profile(), event, title="BBCA: Status", summary="Status sumber.", route="id_stocks_swing", sentiment=sentiment)[0]
+        assert f"**Sentiment:** {sentiment}" in message
 
 
-def test_render_falls_back_to_plain_explicit_status_without_emoji():
+def test_render_keeps_sentiment_without_emoji_configuration():
     event = normalize_bridge_event({
         "channel_jid": "1@newsletter", "message_id": "plain-status",
         "published_at": "2026-09-11T03:03:00Z", "text": "#TechnicalReview\nBBCA remains Overweight.", "media": [],
     })
     no_status_emojis = replace(profile(), status_emojis=StatusEmojis(up=None, down=None, hold=None))
-    message = render_post(no_status_emojis, event, title="BBCA: Outlook", summary="*(Ringkasan)* Outlook.", route="id_stocks_swing")[0]
-    assert "Status: Overweight" in message
+    message = render_post(no_status_emojis, event, title="BBCA: Outlook", summary="Outlook.", route="id_stocks_swing", sentiment="Bullish")[0]
+    assert "**Sentiment:** Bullish" in message
     assert "Status: Overweight<:" not in message
 
 

@@ -24,9 +24,10 @@ def technical_event(text: str = "#TechnicalReview\nTINS breakout resistance 4.60
 def technical_item(ticker: str | None) -> dict[str, object]:
     return {
         "title": "TINS: Breakout Resistance 4.600",
-        "summary": "*(Ringkasan)* TINS menembus resistance 4.600.",
+        "summary": "TINS menembus resistance 4.600.",
         "route": "id_stocks_swing",
         "ticker": ticker,
+        "sentiment": "Bearish",
     }
 
 
@@ -65,7 +66,7 @@ def test_single_ticker_technical_review_submits_social_chart_context(tmp_path):
         "source_url": "https://www.whatsapp.com/channel/0029VbAjdnb60eBhwVdJxj1c",
         "all_content": "All Swing text",
         "source_title": "TINS: Breakout Resistance 4.600",
-        "source_status": None,
+        "source_status": "Bearish",
         "plan": None,
         "media_path": str(archived_image(tmp_path)),
         "media_urls": [],

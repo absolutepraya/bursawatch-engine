@@ -24,3 +24,6 @@ The physical state-cutover decision is recorded in
 [`adr/0025-materialize-split-runtime-state.md`](adr/0025-materialize-split-runtime-state.md).
 The VPS-local, CI-gated Bursawatch release boundary is recorded in
 [`adr/0027-vps-pull-release-agent.md`](adr/0027-vps-pull-release-agent.md).
+The BRI WhatsApp Swing presentation, media, Board, and guarded back-edit
+contract is recorded in
+[`adr/0028-bri-whatsapp-swing-presentation.md`](adr/0028-bri-whatsapp-swing-presentation.md).

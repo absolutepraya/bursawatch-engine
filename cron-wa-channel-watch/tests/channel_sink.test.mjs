@@ -161,7 +161,7 @@ test('deduplicates an archived source event after its transient staged media is 
   };
 
   assert.equal(archiveChannelEvent(payload, {archiveDir, profileId: 'bri', stagingRoot}), true);
-  await unlink(imagePath);
+  await assert.rejects(readFile(imagePath));
   assert.equal(archiveChannelEvent(payload, {archiveDir, profileId: 'bri', stagingRoot}), false);
 });
 

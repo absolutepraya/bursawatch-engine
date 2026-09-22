@@ -8,7 +8,7 @@ import re
 import subprocess
 from typing import Callable, Protocol
 
-from classification import extract_source_status, is_technical_review
+from classification import is_technical_review
 from models import ChannelEvent
 
 
@@ -76,7 +76,9 @@ def submit_chart_context(
 ) -> BoardSubmission:
     if not is_eligible(event, item, archived_image):
         raise ValueError("technical review is not eligible for Board Chart context")
-    status = extract_source_status(event.text)
+    sentiment = item.get("sentiment")
+    if not isinstance(sentiment, str) or sentiment not in {"Bullish", "Bearish", "Sideways"}:
+        raise ValueError("technical review Board context requires a validated sentiment")
     payload = {
         "event_key": event.event_key,
         "source": "whatsapp",
@@ -86,7 +88,7 @@ def submit_chart_context(
         "source_url": BRI_CHANNEL_URL,
         "all_content": all_content,
         "source_title": item["title"],
-        "source_status": status.label if status is not None else None,
+        "source_status": sentiment,
         "plan": None,
         "media_path": str(archived_image),
         "media_urls": [],

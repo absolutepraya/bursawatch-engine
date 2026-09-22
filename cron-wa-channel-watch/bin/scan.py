@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 import agent_protocol
 import archive
-from classification import is_technical_review
+from classification import extract_source_status, is_technical_review
 import config
 import discord
 import event_queue
@@ -135,6 +135,28 @@ def _archived_images(archive_root: Path, event) -> tuple[Path, ...]:
     )
 
 
+def _archived_image_uploads(archive_root: Path, event) -> tuple[tuple[int, object, Path], ...]:
+    archived = _archived_media(archive_root, event)
+    return tuple(
+        (index, event.media[index], path)
+        for index, (kind, path) in sorted(archived.items())
+        if kind == "image" and 0 <= index < len(event.media)
+    )
+
+
+def _legacy_sentiment(event) -> str | None:
+    status = extract_source_status(event.text)
+    return {"up": "Bullish", "down": "Bearish", "hold": "Sideways"}.get(status.kind) if status else None
+
+
+def _message_ids(record: dict[str, object]) -> list[str]:
+    value = record.get("text_message_ids")
+    if isinstance(value, list):
+        return [str(item) for item in value if isinstance(item, str) and item]
+    value = record.get("text_message_id")
+    return [value] if isinstance(value, str) and value else []
+
+
 def _deliver_ready(
     value: dict[str, object],
     profiles: dict[str, config.ChannelProfile],
@@ -161,6 +183,12 @@ def _deliver_ready(
                 raise ValueError("ready record has no news items")
             technical_review = profile.id == BRI_PROFILE_ID and is_technical_review(event.text)
             archived_images = _archived_images(archive_dir, event) if technical_review else ()
+            image_uploads = _archived_image_uploads(archive_dir, event) if technical_review else ()
+            if technical_review and not image_uploads and len(archived_images) == 1:
+                image_indexes = [index for index, media in enumerate(event.media) if media.kind == "image"]
+                source_index = image_indexes[0] if image_indexes else 0
+                if source_index < len(event.media):
+                    image_uploads = ((source_index, event.media[source_index], archived_images[0]),)
             if technical_review and len(archived_images) != 1:
                 raise FileNotFoundError("technical review requires exactly one archived image")
             item_index = int(record.get("item_index", 0))
@@ -169,21 +197,41 @@ def _deliver_ready(
                 if type(item) is not dict:
                     raise ValueError("ready news item is invalid")
                 target = _delivery_channel(profile, item)
+                board_acknowledgement = record.get("board_acknowledgement")
+                board_url = (
+                    board_acknowledgement.get("board_url")
+                    if isinstance(board_acknowledgement, dict)
+                    else None
+                )
+                sentiment = item.get("sentiment") if isinstance(item.get("sentiment"), str) else None
+                if technical_review and sentiment is None:
+                    sentiment = _legacy_sentiment(event)
                 messages = render.render_post(
                     profile,
                     event,
                     title=item.get("title") if profile.enable_llm_title else None,
                     summary=item.get("summary") if profile.enable_llm_summary else None,
                     route=item.get("route") if isinstance(item.get("route"), str) else None,
+                    sentiment=sentiment,
+                    board_url=board_url if isinstance(board_url, str) else None,
                 )
                 text_index = int(record.get("text_index", 0))
                 while text_index < len(messages):
-                    discord.post_text(
+                    message_id = discord.post_text(
                         messages[text_index],
                         target,
                         dry_run,
                         discord.nonce(str(record["event_key"]), f"item:{item_index}:text:{text_index}"),
                     )
+                    if isinstance(message_id, str) and message_id:
+                        ids = record.setdefault("text_message_ids", [])
+                        if not isinstance(ids, list):
+                            ids = []
+                            record["text_message_ids"] = ids
+                        if message_id not in ids:
+                            ids.append(message_id)
+                        if item_index == 0 and text_index == 0:
+                            record["text_message_id"] = message_id
                     text_index += 1
                     record["text_index"] = text_index
                     state.save(state_path, value)
@@ -211,12 +259,24 @@ def _deliver_ready(
             if profile.forward_media or technical_review:
                 target = _delivery_channel(profile, items[0])
                 while media_index < len(media_paths):
-                    source_index = media_index
+                    if technical_review:
+                        source_index, media, media_path = image_uploads[media_index]
+                    else:
+                        source_index = media_indexes[media_index]
+                        media = event.media[source_index]
+                        media_path = media_paths[media_index]
                     discord.post_media(
-                        media_paths[media_index],
+                        media_path,
                         target,
                         dry_run,
                         discord.nonce(str(record["event_key"]), f"media:{source_index}"),
+                        filename=discord.media_filename(
+                            media.kind,
+                            media.mime,
+                            source_index,
+                            prefix="bri-chart" if technical_review else "whatsapp-channel",
+                        ),
+                        mime=media.mime,
                     )
                     media_index += 1
                     record["media_index"] = media_index
@@ -228,24 +288,54 @@ def _deliver_ready(
                 if not swing_board.is_eligible(event, item, archived_images[0]):
                     record["board_phase"] = "not_eligible"
                     state.save(state_path, value)
-                elif record.get("board_phase") != "accepted":
-                    acknowledgement = (
-                        swing_board.BoardSubmission(True, None, True)
-                        if dry_run
-                        else swing_board.submit_chart_context(
-                            event,
-                            item,
-                            str(record.get("all_content") or ""),
-                            archived_images[0],
+                else:
+                    acknowledgement = None
+                    if record.get("board_phase") != "accepted":
+                        acknowledgement = (
+                            swing_board.BoardSubmission(True, None, True)
+                            if dry_run
+                            else swing_board.submit_chart_context(
+                                event,
+                                item,
+                                str(record.get("all_content") or ""),
+                                archived_images[0],
+                            )
                         )
-                    )
-                    if not acknowledgement.accepted:
-                        raise RuntimeError("Swing Board source-event submission was not accepted")
+                        if not acknowledgement.accepted:
+                            raise RuntimeError("Swing Board source-event submission was not accepted")
+                        record["board_acknowledgement"] = {
+                            "board_url": acknowledgement.board_url,
+                            "board_pending": acknowledgement.board_pending,
+                        }
+                        board_url = acknowledgement.board_url
+                    else:
+                        saved = record.get("board_acknowledgement")
+                        if isinstance(saved, dict):
+                            board_url = saved.get("board_url")
+                    if not dry_run and (not isinstance(board_url, str) or not board_url):
+                        record["board_phase"] = "pending"
+                        state.save(state_path, value)
+                        continue
+                    if isinstance(board_url, str) and board_url:
+                        ids = _message_ids(record)
+                        if not dry_run and not ids:
+                            record["board_phase"] = "accepted"
+                            record["board_link_phase"] = "pending"
+                            state.save(state_path, value)
+                            continue
+                        if not discord.edit_board_link(
+                            target,
+                            ids,
+                            board_url,
+                            dry_run,
+                            discord.nonce(str(record["event_key"]), "board-link"),
+                        ):
+                            record["board_phase"] = "accepted"
+                            record["board_link_phase"] = "pending"
+                            state.save(state_path, value)
+                            continue
+                        record["board_link_phase"] = "patched"
                     record["board_phase"] = "accepted"
-                    record["board_acknowledgement"] = {
-                        "board_url": acknowledgement.board_url,
-                        "board_pending": acknowledgement.board_pending,
-                    }
                     state.save(state_path, value)
             elif record.get("board_phase") == "pending":
                 record["board_phase"] = "not_eligible"
@@ -474,8 +564,11 @@ def _run(
                 "items": None if profile.uses_llm else _deterministic_items(profile),
                 "item_index": 0,
                 "text_index": 0,
+                "text_message_ids": [],
+                "text_message_id": None,
                 "media_index": 0,
                 "board_phase": "pending",
+                "board_link_phase": "pending",
                 "archive_complete": True,
                 "routable": True,
             })

@@ -173,7 +173,14 @@ def _captured_media_item(root: Path, media, staging_root: Path | None) -> dict[s
         if len(content) > MAX_ARCHIVE_MEDIA_BYTES:
             raise ValueError("source media exceeds archive size limit")
         digest = hashlib.sha256(content).hexdigest()
-        _write_media(root, digest, content)
+        target = _write_media(root, digest, content)
+        # The staged bridge download is disposable once the archive owns a
+        # verified copy. Keep the content-addressed archive path intact.
+        if resolved != target.resolve():
+            try:
+                resolved.unlink()
+            except OSError:
+                pass
     except (OSError, ValueError):
         item["capture_status"] = "unavailable"
         return item

@@ -9,6 +9,9 @@ from models import ChannelEvent, ChannelProfile
 
 DISCORD_LIMIT = 2_000
 WIB = ZoneInfo("Asia/Jakarta")
+BOARD_URL = "https://discord.com/channels/940285152335110204/1548273399069933720"
+BOARD_MENTION = "<#1548273399069933720>"
+SENTIMENT_KINDS = {"Bullish": "up", "Bearish": "down", "Sideways": "hold"}
 
 
 def _split(value: str, limit: int) -> list[str]:
@@ -29,29 +32,53 @@ def _safe_name(value: str) -> str:
     return re.sub(r"[\r\n]+", " ", value).strip()
 
 
-def _has_source_chart(event: ChannelEvent) -> bool:
-    # Media paths are transient, untrusted bridge metadata. Delivery validates
-    # an archive-owned copy before it ever posts a technical chart.
-    return any(media.kind == "image" for media in event.media)
+def _format_wib(value) -> str:
+    local = value.astimezone(WIB)
+    return f"{local.day} {local:%b %Y %H:%M} WIB"
 
 
-def _source_footer(profile: ChannelProfile, event: ChannelEvent, *, route: str | None = None) -> str:
+def _fallback_sentiment(event: ChannelEvent) -> str | None:
+    """Support old leased records while new submissions carry sentiment."""
     status = extract_source_status(event.text)
-    technical = is_technical_review(event.text)
-    swing_technical = route == "id_stocks_swing" and technical
-    if (status is None or not swing_technical) and not technical:
-        return f"[View on WhatsApp Channel](<{profile.channel_url}>)"
+    if status is None:
+        return None
+    return {"up": "Bullish", "down": "Bearish", "hold": "Sideways"}.get(status.kind)
 
-    lines: list[str] = []
-    if status is not None and swing_technical:
-        emoji = profile.status_emojis.for_kind(status.kind) or ""
-        lines.append(f"Status: {status.label}{emoji}")
-        local = event.published_at.astimezone(WIB)
-        lines.append(f"Status date: {local:%a, %b} {local.day} {local.year}, {local:%H:%M} WIB")
-    lines.append(f"Source: [{_safe_name(profile.display_name)}](<{profile.channel_url}>)")
-    if technical:
-        chart = "Attached below" if _has_source_chart(event) else "Unavailable from source"
-        lines.append(f"Chart: {chart}")
+
+def _swing_post(
+    profile: ChannelProfile,
+    event: ChannelEvent,
+    *,
+    title: str | None,
+    reasons: str | None,
+    sentiment: str | None,
+    board_url: str | None,
+) -> str:
+    label = sentiment or _fallback_sentiment(event)
+    if label not in SENTIMENT_KINDS:
+        raise ValueError("BRI Swing rendering requires Bullish, Bearish, or Sideways sentiment")
+    if board_url is not None and not board_url.startswith("https://discord.com/channels/"):
+        raise ValueError("board_url must be a Discord channel or topic URL")
+    clean_reasons = (reasons or event.text or "*(Tidak ada alasan dari sumber)*").strip()
+    clean_reasons = re.sub(r"^\*\(Ringkasan\)\*\s*", "", clean_reasons).strip()
+    clean_reasons = " ".join(clean_reasons.split())
+    emoji = profile.status_emojis.for_kind(SENTIMENT_KINDS[label]) or ""
+    heading = f"### {profile.emoji} {_safe_name(title or profile.display_name)}"
+    board = board_url or BOARD_MENTION
+    lines = [
+        heading,
+        f"-# {_safe_name(profile.display_name)}",
+        "",
+        f"**Sentiment:** {label} {emoji}".rstrip(),
+        f"**Sentiment date:** {_format_wib(event.published_at)}",
+        "",
+        f"**Reasons:** {clean_reasons}",
+        "",
+        f"**Last updated:** {_format_wib(event.published_at)}",
+        f"**Board:** {board}",
+        "",
+        f"[View on WhatsApp](<{profile.channel_url}>)",
+    ]
     return "\n".join(lines)
 
 
@@ -62,8 +89,21 @@ def render_post(
     title: str | None = None,
     summary: str | None = None,
     route: str | None = None,
+    sentiment: str | None = None,
+    board_url: str | None = None,
 ) -> list[str]:
+    if route == "id_stocks_swing" and is_technical_review(event.text):
+        return _split(
+            _swing_post(
+                profile,
+                event,
+                title=title,
+                reasons=summary,
+                sentiment=sentiment,
+                board_url=board_url,
+            ),
+            DISCORD_LIMIT,
+        )
     heading = f"### {profile.emoji} {_safe_name(title or profile.display_name)}"
     body = (summary or event.text or "*(Media tanpa caption)*").strip()
-    source = _source_footer(profile, event, route=route)
-    return _split(f"{heading}\n\n{body}\n\n{source}", DISCORD_LIMIT)
+    return _split(f"{heading}\n\n{body}\n\n[View on WhatsApp Channel](<{profile.channel_url}>)", DISCORD_LIMIT)

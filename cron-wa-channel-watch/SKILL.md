@@ -36,9 +36,10 @@ Apply the same finance and news relevance boundary as `cron-x-account-watch`:
 For relevant events, return only the fields requested by the event. Return one
 ordered `items` array containing one to eight independent News Items. Each item
 has a concise, source-grounded Bahasa Indonesia title, a summary, and one
-configured route. Start only the first summary paragraph with `*(Ringkasan)*`;
-the optional second paragraph must not repeat that label. For a direct
-listed-company thesis, start the title with the exact IDX ticker and a colon.
+configured route. Start only the first non-swing summary paragraph with
+`*(Ringkasan)*`; the optional second paragraph must not repeat that label. For
+a direct listed-company thesis, start the title with the exact IDX ticker and a
+colon.
 For a broad market or economy thesis, do not invent a ticker. Summarize the
 source instead of copying its full bullet format or disclaimer, while
 preserving material source-supported numbers, price levels, ratings, issuers,
@@ -59,17 +60,20 @@ broad market, sector, infrastructure, or economy theses even when a top pick
 is named. Never route a post to `id_stocks_swing` merely because it mentions a
 chart, support, resistance, or a technical indicator.
 
-The watcher renders the title and summary, followed by an explicit source
-stance in a compact footer. Preserve
-labels such as Bullish, Bearish, Overweight, Underweight, Buy, Sell, Hold,
-Neutral, and On track, adding the configured matching emoji when available. Do
-not infer a stance from generic positive or negative language. For an exact
+The watcher renders ordinary news with its compact source footer. For an exact
 leading `#TechnicalReview`, return exactly one `id_stocks_swing` item. Include
-`ticker` only when the raw source establishes one unambiguous uppercase IDX
-ticker, never by guessing. Delivery logic, not this skill, verifies the
-required archive-owned chart image, posts All Swing text then image, and may
-make the Board Chart-context handoff. Never attempt that handoff, inspect the
-archive, or make up an image status yourself.
+an uppercase IDX `ticker` when the source establishes one unambiguous ticker,
+because only that single-ticker case can reach the Board. Use a
+one-paragraph summary rendered as
+`**Reasons:**` without the `*(Ringkasan)*` prefix, and exactly one `sentiment`
+value: `Bullish`, `Bearish`, or `Sideways`. Preserve an explicit source stance
+when present, otherwise classify the dominant direction of the supplied
+technical evidence and use `Sideways` only for a genuinely balanced setup.
+Delivery logic, not this skill, verifies the required archive-owned chart
+image, renders `Sentiment`, `Sentiment date`, `Reasons`, `Last updated`, and
+`Board`, posts All Swing text then the image, and makes the Board
+`Chart context` handoff. Never attempt that handoff, inspect the archive, or
+make up an image status yourself.
 
 Submit through the watcher wrapper:
 
