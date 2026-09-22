@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import shutil
 import stat
 import subprocess
@@ -52,6 +53,54 @@ class DeploymentError(ReleaseError):
     """A release began and must stay blocked until an operator resolves it."""
 
 
+class CommandFailure(DeploymentError):
+    """A child process failed with durable, sanitized diagnostic details."""
+
+    def __init__(
+        self,
+        command: Sequence[str],
+        returncode: int | None,
+        *,
+        stdout: object = "",
+        stderr: object = "",
+        timed_out: bool = False,
+    ) -> None:
+        self.command = tuple(command)
+        self.returncode = returncode
+        self.stdout = _safe_output(stdout)
+        self.stderr = _safe_output(stderr)
+        self.timed_out = timed_out
+        self.signal_number = -returncode if isinstance(returncode, int) and returncode < 0 else None
+        self.signal_name: str | None = None
+        if self.signal_number is not None:
+            try:
+                self.signal_name = signal.Signals(self.signal_number).name
+            except ValueError:
+                self.signal_name = None
+        self.details: dict[str, Any] = {
+            "command": [_safe_output(argument, limit=500) for argument in self.command],
+            "returncode": returncode,
+            "signal_number": self.signal_number,
+            "signal_name": self.signal_name,
+            "stdout": self.stdout,
+            "stderr": self.stderr,
+            "timed_out": timed_out,
+        }
+        if timed_out:
+            message = f"release command timed out: {self.command[0]}"
+        elif self.signal_name is not None:
+            message = (
+                f"release command failed: {self.command[0]} "
+                f"(exit {returncode}, signal {self.signal_number} {self.signal_name})"
+            )
+        else:
+            message = f"release command failed: {self.command[0]} (exit {returncode})"
+        super().__init__(message)
+
+    def add_details(self, **details: Any) -> None:
+        self.details.update(details)
+
+
 class ManualReleaseRequired(ReleaseError):
     """A host-bound release unit requires an explicit operator action."""
 
@@ -69,6 +118,8 @@ class Settings:
     heartbeat_channel_id: str
     github_api_url: str
     timeout_seconds: float
+    status_token: str | None = None
+    status_target_url: str | None = None
 
     @classmethod
     def from_environment(cls, *, require_token: bool = True) -> "Settings":
@@ -78,6 +129,8 @@ class Settings:
         token = os.environ.get("BURSAWATCH_RELEASE_GITHUB_TOKEN", "").strip()
         if require_token and not token:
             raise ReleaseError("BURSAWATCH_RELEASE_GITHUB_TOKEN is required")
+        status_token = os.environ.get("BURSAWATCH_RELEASE_STATUS_TOKEN", "").strip() or None
+        status_target_url = os.environ.get("BURSAWATCH_RELEASE_STATUS_TARGET_URL", "").strip() or None
         branch = os.environ.get("BURSAWATCH_RELEASE_BRANCH", "main").strip()
         if branch != "main":
             raise ReleaseError("BURSAWATCH_RELEASE_BRANCH must remain main")
@@ -121,6 +174,8 @@ class Settings:
             ).strip(),
             github_api_url=os.environ.get("BURSAWATCH_RELEASE_GITHUB_API_URL", "https://api.github.com").rstrip("/"),
             timeout_seconds=timeout_seconds,
+            status_token=status_token,
+            status_target_url=status_target_url,
         )
 
 
@@ -275,7 +330,13 @@ class ReleaseStore:
     def read_state(self) -> dict[str, Any]:
         self.initialize()
         if not self.state_path.exists():
-            return {"version": STATE_VERSION, "last_success_sha": None, "blocked": None, "transient": None}
+            return {
+                "version": STATE_VERSION,
+                "last_success_sha": None,
+                "blocked": None,
+                "transient": None,
+                "github_status": None,
+            }
         try:
             payload = json.loads(self.state_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
@@ -285,6 +346,7 @@ class ReleaseStore:
         payload.setdefault("last_success_sha", None)
         payload.setdefault("blocked", None)
         payload.setdefault("transient", None)
+        payload.setdefault("github_status", None)
         return payload
 
     def write_state(self, state: dict[str, Any]) -> None:
@@ -339,6 +401,9 @@ class ReleaseStore:
 
 
 class GitHubClient:
+    RELEASE_STATUS_CONTEXT = "bursawatch/release"
+    RELEASE_STATUS_STATES = frozenset({"error", "failure", "pending", "success"})
+
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
 
@@ -367,15 +432,61 @@ class GitHubClient:
                 return True
         return False
 
-    def _request_json(self, path: str) -> object:
+    def publish_release_status(
+        self,
+        sha: str,
+        *,
+        state: str,
+        description: str,
+        target_url: str | None = None,
+    ) -> bool:
+        """Best-effort commit status publication for the external release gate."""
+        if not self.settings.status_token:
+            return False
+        if not SHA_RE.fullmatch(sha) or state not in self.RELEASE_STATUS_STATES:
+            return False
+        target = target_url or self.settings.status_target_url or f"https://github.com/{self.settings.repository}/commit/{sha}"
+        payload = {
+            "state": state,
+            "target_url": target,
+            "description": _safe_reason(description)[:140],
+            "context": self.RELEASE_STATUS_CONTEXT,
+        }
+        try:
+            self._request_json(
+                f"/repos/{self.settings.repository}/statuses/{sha}",
+                method="POST",
+                token=self.settings.status_token,
+                payload=payload,
+            )
+        except ReleaseError:
+            # GitHub visibility must never turn a safe release outcome into a
+            # deployment failure. The durable release record remains canonical.
+            return False
+        return True
+
+    def _request_json(
+        self,
+        path: str,
+        *,
+        method: str = "GET",
+        token: str | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> object:
+        body = None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {self.settings.token if token is None else token}",
+            "User-Agent": "bursawatch-release-agent",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        if body is not None:
+            headers["Content-Type"] = "application/json"
         request = Request(
             self.settings.github_api_url + path,
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {self.settings.token}",
-                "User-Agent": "bursawatch-release-agent",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+            data=body,
+            method=method,
+            headers=headers,
         )
         try:
             with urlopen(request, timeout=self.settings.timeout_seconds) as response:
@@ -574,6 +685,12 @@ class ReleaseDeployer:
         specification = _no_post_specification(verification, self.settings.state_root)
         try:
             _run_command(specification.command, environment=specification.environment, timeout=300)
+        except CommandFailure as exc:
+            exc.add_details(
+                verification=verification,
+                temporary_path=str(specification.temporary_path),
+            )
+            raise
         finally:
             shutil.rmtree(specification.temporary_path, ignore_errors=True)
 
@@ -671,11 +788,46 @@ def _no_post_specification(verification: str, state_root: Path) -> NoPostSpecifi
     return NoPostSpecification(command=command, environment=environment, temporary_path=base)
 
 
+def _publish_release_status(
+    github: object | None,
+    store: ReleaseStore,
+    durable_state: dict[str, Any],
+    sha: str | None,
+    *,
+    github_state: str,
+    description: str,
+) -> None:
+    if github is None or not isinstance(sha, str) or not SHA_RE.fullmatch(sha):
+        return
+    safe_description = _safe_reason(description)[:140]
+    status_record = {
+        "sha": sha,
+        "state": github_state,
+        "description": safe_description,
+    }
+    if durable_state.get("github_status") == status_record:
+        return
+    publisher = getattr(github, "publish_release_status", None)
+    if not callable(publisher):
+        return
+    try:
+        published = publisher(sha, state=github_state, description=safe_description, target_url=None)
+    except Exception:
+        # GitHub status is observability only. The local release record and
+        # heartbeat remain authoritative when the status endpoint is down.
+        return
+    if published is False:
+        return
+    durable_state["github_status"] = status_record
+    store.write_state(durable_state)
+
+
 def release_once(settings: Settings, *, allow_manual: bool = False) -> str:
     store = ReleaseStore(settings.state_root)
     with _release_lock(settings.state_root):
         state = store.read_state()
         candidate_sha: str | None = None
+        github: object | None = None
         try:
             github = GitHubClient(settings)
             blocked = state.get("blocked")
@@ -684,14 +836,40 @@ def release_once(settings: Settings, *, allow_manual: bool = False) -> str:
             sha = github.current_main_sha()
             candidate_sha = sha
             if isinstance(blocked, dict) and blocked.get("sha") == sha and not allow_manual:
+                _publish_release_status(
+                    github,
+                    store,
+                    state,
+                    sha,
+                    github_state=blocked.get("github_state", "failure"),
+                    description=blocked.get("reason", "release blocked"),
+                )
                 return "blocked"
             if isinstance(blocked, dict) and blocked.get("sha") != sha:
                 state["blocked"] = None
                 store.write_state(state)
             transient = state.get("transient")
             if _transient_backoff_active(transient, sha):
+                attempts = transient.get("attempts", 1) if isinstance(transient, dict) else 1
+                reason = transient.get("reason", "retrying release") if isinstance(transient, dict) else "retrying release"
+                _publish_release_status(
+                    github,
+                    store,
+                    state,
+                    sha,
+                    github_state="pending",
+                    description=f"retry-{attempts}: {reason}",
+                )
                 return "backoff"
             if not github.has_successful_ci(sha):
+                _publish_release_status(
+                    github,
+                    store,
+                    state,
+                    sha,
+                    github_state="pending",
+                    description="waiting-for-ci",
+                )
                 return "waiting-for-ci"
             mirror = GitMirror(settings)
             worktree = mirror.materialize(sha)
@@ -704,8 +882,17 @@ def release_once(settings: Settings, *, allow_manual: bool = False) -> str:
                     state,
                     sha,
                     reason,
+                    github_state="pending",
                     changed_paths=changed_paths,
                     manual_migrations=manual_migrations,
+                )
+                _publish_release_status(
+                    github,
+                    store,
+                    state,
+                    sha,
+                    github_state="pending",
+                    description=reason,
                 )
                 _send_heartbeat(
                     settings,
@@ -717,7 +904,23 @@ def release_once(settings: Settings, *, allow_manual: bool = False) -> str:
             manual_units = [unit.identifier for unit in units if unit.handler == "manual"]
             if manual_units and not allow_manual:
                 reason = "manual release units require an explicit operator action"
-                _block_release(store, state, sha, reason, units=[unit.identifier for unit in units], manual_units=manual_units)
+                _block_release(
+                    store,
+                    state,
+                    sha,
+                    reason,
+                    github_state="pending",
+                    units=[unit.identifier for unit in units],
+                    manual_units=manual_units,
+                )
+                _publish_release_status(
+                    github,
+                    store,
+                    state,
+                    sha,
+                    github_state="pending",
+                    description=reason,
+                )
                 _send_heartbeat(settings, f"❌ bursawatch-release · {_wib_time()} WIB · blocked manual={','.join(manual_units)}")
                 return "manual-required"
             deployer = ReleaseDeployer(settings=settings, release_sha=sha, checkout=worktree)
@@ -736,6 +939,14 @@ def release_once(settings: Settings, *, allow_manual: bool = False) -> str:
                 skipped_manual_units=manual_units,
                 changed_paths=changed_paths,
             )
+            _publish_release_status(
+                github,
+                store,
+                state,
+                sha,
+                github_state="success",
+                description=f"released {len(deployer.completed_units)} units",
+            )
             _send_heartbeat(
                 settings,
                 f"🫀 bursawatch-release · {_wib_time()} WIB · sha={sha[:8]} units={len(deployer.completed_units)}",
@@ -744,6 +955,14 @@ def release_once(settings: Settings, *, allow_manual: bool = False) -> str:
         except TransientReleaseError as exc:
             sha = candidate_sha or _best_effort_sha(state)
             failure_count = _record_transient_failure(store, state, sha, str(exc))
+            _publish_release_status(
+                github,
+                store,
+                state,
+                sha,
+                github_state="pending",
+                description=f"retry-{failure_count}: {_safe_reason(exc)}",
+            )
             _send_heartbeat(
                 settings,
                 f"🫀 bursawatch-release · {_wib_time()} WIB · retry={failure_count} ⚠️",
@@ -751,7 +970,16 @@ def release_once(settings: Settings, *, allow_manual: bool = False) -> str:
             return "transient-failure"
         except (ReleaseError, OSError, subprocess.SubprocessError) as exc:
             sha = candidate_sha or _best_effort_sha(state)
-            _block_release(store, state, sha, _safe_reason(exc))
+            details = _failure_details(exc)
+            _block_release(store, state, sha, _safe_reason(exc), **details)
+            _publish_release_status(
+                github,
+                store,
+                state,
+                sha,
+                github_state="failure",
+                description=_safe_reason(exc),
+            )
             _send_heartbeat(settings, f"❌ bursawatch-release · {_wib_time()} WIB · blocked")
             return "blocked"
 
@@ -773,13 +1001,19 @@ def _block_release(
     state: dict[str, Any],
     sha: str | None,
     reason: str,
+    github_state: str = "failure",
     **details: Any,
 ) -> None:
-    state["blocked"] = {"sha": sha, "reason": _safe_reason(reason), "blocked_at": _now().isoformat()}
+    state["blocked"] = {
+        "sha": sha,
+        "reason": _safe_reason(reason),
+        "github_state": github_state,
+        "blocked_at": _now().isoformat(),
+    }
     state["transient"] = None
     store.write_state(state)
     if isinstance(sha, str) and SHA_RE.fullmatch(sha):
-        store.record(sha, "blocked", reason=_safe_reason(reason), **details)
+        store.record(sha, "blocked", reason=_safe_reason(reason), github_state=github_state, **details)
 
 
 def _record_transient_failure(
@@ -990,10 +1224,23 @@ def _run_command(
             text=True,
             timeout=timeout,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise DeploymentError(f"release command could not complete: {command[0]}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise CommandFailure(
+            command,
+            None,
+            stdout=exc.stdout or "",
+            stderr=exc.stderr or "",
+            timed_out=True,
+        ) from exc
+    except OSError as exc:
+        raise CommandFailure(command, None, stderr=str(exc)) from exc
     if completed.returncode != 0:
-        raise DeploymentError(f"release command failed: {command[0]} (exit {completed.returncode})")
+        raise CommandFailure(
+            command,
+            completed.returncode,
+            stdout=completed.stdout,
+            stderr=completed.stderr,
+        )
     return completed.stdout
 
 
@@ -1036,9 +1283,28 @@ def _best_effort_sha(state: dict[str, Any]) -> str | None:
     return None
 
 
+def _failure_details(error: BaseException) -> dict[str, Any]:
+    if isinstance(error, CommandFailure):
+        return dict(error.details)
+    return {}
+
+
+def _safe_output(value: object, *, limit: int = 4000) -> str:
+    if isinstance(value, bytes):
+        text = value.decode("utf-8", errors="replace")
+    else:
+        text = str(value)
+    text = re.sub(r"(?i)\bbearer\s+[^\s]+", "Bearer <redacted>", text)
+    text = re.sub(
+        r"(?i)\b(token|secret|password|authorization)(\s*[:=]\s*)[^\s]+",
+        r"\1\2<redacted>",
+        text,
+    )
+    return text[:limit]
+
+
 def _safe_reason(value: object) -> str:
-    text = " ".join(str(value).split())
-    text = re.sub(r"(?i)(token|secret|password|authorization)=[^\s]+", r"\1=<redacted>", text)
+    text = " ".join(_safe_output(value).split())
     return text[:300] or "release failure"
 
 
@@ -1074,7 +1340,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         status = release_once(settings, allow_manual=args.release_manual)
         print(json.dumps({"status": status}))
-        return 0
+        return {
+            "released": 0,
+            "waiting-for-ci": 0,
+            "backoff": 0,
+            "blocked": 1,
+            "manual-required": 1,
+            "transient-failure": 1,
+        }.get(status, 1)
     except ReleaseError as exc:
         print(f"release refused: {_safe_reason(exc)}", file=sys.stderr)
         return 1

@@ -19,6 +19,24 @@ def manifest() -> release_agent.ReleaseManifest:
     return release_agent.ReleaseManifest.load(ROOT / "release-manifest.json")
 
 
+def make_settings(tmp_path: Path, **overrides: object) -> release_agent.Settings:
+    values: dict[str, object] = {
+        "repository": "owner/repository",
+        "token": "read-token",
+        "state_root": tmp_path / "state",
+        "branch": "main",
+        "runtime_home": tmp_path / "runtime",
+        "control_plane_runtime": tmp_path / "control-plane",
+        "control_plane_env": tmp_path / "control-plane.env",
+        "heartbeat_env": tmp_path / "heartbeat.env",
+        "heartbeat_channel_id": "123",
+        "github_api_url": "https://api.github.com",
+        "timeout_seconds": 1,
+    }
+    values.update(overrides)
+    return release_agent.Settings(**values)
+
+
 def test_manifest_maps_every_current_tracked_path_exactly_once():
     tracked = subprocess.check_output(["git", "ls-files"], cwd=REPOSITORY_ROOT, text=True).splitlines()
     result = manifest()
@@ -177,19 +195,7 @@ def test_explicit_manual_release_applies_reviewed_manual_migrations(
     monkeypatch.setattr(release_agent, "GitHubClient", FakeGitHub)
     monkeypatch.setattr(release_agent, "GitMirror", FakeMirror)
     monkeypatch.setattr(release_agent, "_send_heartbeat", lambda settings, message: None)
-    settings = release_agent.Settings(
-        repository="owner/repository",
-        token="token",
-        state_root=tmp_path / "state",
-        branch="main",
-        runtime_home=tmp_path / "runtime",
-        control_plane_runtime=tmp_path / "control-plane",
-        control_plane_env=tmp_path / "control-plane.env",
-        heartbeat_env=tmp_path / "heartbeat.env",
-        heartbeat_channel_id="123",
-        github_api_url="https://api.github.com",
-        timeout_seconds=1,
-    )
+    settings = make_settings(tmp_path, token="token")
 
     assert release_agent.release_once(settings) == "manual-required"
     assert release_agent.release_once(settings, allow_manual=True) == "released"
@@ -269,6 +275,213 @@ def test_control_plane_health_waits_for_post_restart_readiness(monkeypatch):
 
     assert len(calls) == 3
     assert all(url == "http://127.0.0.1:9120/healthz" for url, _ in calls)
+
+
+def test_run_command_preserves_sanitized_failure_diagnostics():
+    with pytest.raises(release_agent.CommandFailure) as raised:
+        release_agent._run_command(
+            (
+                sys.executable,
+                "-c",
+                "import sys; print('token=secret-value'); print('password: secret-value', file=sys.stderr); sys.exit(2)",
+            )
+        )
+
+    failure = raised.value
+    assert failure.returncode == 2
+    assert failure.signal_number is None
+    assert failure.stdout == "token=<redacted>\n"
+    assert failure.stderr == "password: <redacted>\n"
+
+
+def test_run_command_records_signal_detail():
+    with pytest.raises(release_agent.CommandFailure) as raised:
+        release_agent._run_command(
+            (
+                sys.executable,
+                "-c",
+                "import os, signal; os.kill(os.getpid(), signal.SIGINT)",
+            )
+        )
+
+    failure = raised.value
+    assert failure.returncode == -2
+    assert failure.signal_number == 2
+    assert failure.signal_name == "SIGINT"
+
+
+def test_no_post_failure_keeps_verification_metadata(monkeypatch, tmp_path: Path):
+    def fail(command, **_kwargs):
+        raise release_agent.CommandFailure(
+            command,
+            -2,
+            stdout="drain started\n",
+            stderr="token=secret-value\n",
+        )
+
+    monkeypatch.setattr(release_agent, "_run_command", fail)
+    deployer = release_agent.ReleaseDeployer(
+        settings=make_settings(tmp_path),
+        release_sha="a" * 40,
+        checkout=tmp_path / "checkout",
+    )
+
+    with pytest.raises(release_agent.CommandFailure) as raised:
+        deployer._run_verification("swing-board-no-post")
+
+    failure = raised.value
+    assert failure.details["verification"] == "swing-board-no-post"
+    assert failure.details["temporary_path"]
+    assert failure.stderr == "token=<redacted>\n"
+    assert not Path(failure.details["temporary_path"]).exists()
+
+
+def test_blocked_record_keeps_sanitized_command_diagnostics(tmp_path: Path):
+    store = release_agent.ReleaseStore(tmp_path / "state")
+    state = store.read_state()
+    failure = release_agent.CommandFailure(
+        ("/home/praya/.hermes/scripts/bursawatch-dc-swing-board.sh", "drain"),
+        -2,
+        stdout="{\"pending\":0}\n",
+        stderr="authorization=secret-value\n",
+    )
+    sha = "d" * 40
+
+    release_agent._block_release(store, state, sha, str(failure), **failure.details)
+
+    record = json.loads((tmp_path / "state" / "records" / f"{sha}.json").read_text(encoding="utf-8"))
+    assert record["status"] == "blocked"
+    assert record["returncode"] == -2
+    assert record["signal_name"] == "SIGINT"
+    assert record["stderr"] == "authorization=<redacted>\n"
+
+
+def test_release_status_posts_with_the_scoped_status_token(monkeypatch, tmp_path: Path):
+    requests = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b"{}"
+
+    def fake_urlopen(request, *, timeout):
+        requests.append((request, timeout))
+        return Response()
+
+    monkeypatch.setattr(release_agent, "urlopen", fake_urlopen)
+    client = release_agent.GitHubClient(make_settings(tmp_path, status_token="status-token"))
+    sha = "b" * 40
+
+    assert client.publish_release_status(
+        sha,
+        state="failure",
+        description="blocked by verification",
+        target_url="https://github.example/release/b",
+    ) is True
+
+    request, timeout = requests[0]
+    assert request.full_url == "https://api.github.com/repos/owner/repository/statuses/" + sha
+    assert request.get_method() == "POST"
+    assert request.headers["Authorization"] == "Bearer status-token"
+    assert timeout == 1
+    assert json.loads(request.data) == {
+        "state": "failure",
+        "target_url": "https://github.example/release/b",
+        "description": "blocked by verification",
+        "context": "bursawatch/release",
+    }
+
+
+def test_waiting_for_ci_publishes_a_pending_release_status(monkeypatch, tmp_path: Path):
+    sha = "c" * 40
+    statuses = []
+
+    class FakeGitHub:
+        def __init__(self, _settings):
+            pass
+
+        def current_main_sha(self):
+            return sha
+
+        def has_successful_ci(self, candidate):
+            assert candidate == sha
+            return False
+
+        def publish_release_status(self, candidate, **details):
+            statuses.append((candidate, details))
+
+    monkeypatch.setattr(release_agent, "GitHubClient", FakeGitHub)
+    monkeypatch.setattr(release_agent, "_send_heartbeat", lambda settings, message: None)
+
+    assert release_agent.release_once(make_settings(tmp_path, status_token="status-token")) == "waiting-for-ci"
+    assert statuses == [
+        (
+            sha,
+            {
+                "state": "pending",
+                "description": "waiting-for-ci",
+                "target_url": None,
+            },
+        )
+    ]
+
+
+def test_existing_blocked_sha_publishes_its_status_once(monkeypatch, tmp_path: Path):
+    sha = "e" * 40
+    statuses = []
+
+    class FakeGitHub:
+        def __init__(self, _settings):
+            pass
+
+        def current_main_sha(self):
+            return sha
+
+        def publish_release_status(self, candidate, **details):
+            statuses.append((candidate, details))
+            return True
+
+    settings = make_settings(tmp_path, status_token="status-token")
+    store = release_agent.ReleaseStore(settings.state_root)
+    state = store.read_state()
+    state["blocked"] = {"sha": sha, "reason": "verification failed"}
+    store.write_state(state)
+    monkeypatch.setattr(release_agent, "GitHubClient", FakeGitHub)
+
+    assert release_agent.release_once(settings) == "blocked"
+    assert release_agent.release_once(settings) == "blocked"
+    assert statuses == [
+        (
+            sha,
+            {
+                "state": "failure",
+                "description": "verification failed",
+                "target_url": None,
+            },
+        )
+    ]
+    assert release_agent.ReleaseStore(settings.state_root).read_state()["github_status"] == {
+        "sha": sha,
+        "state": "failure",
+        "description": "verification failed",
+    }
+
+
+def test_main_returns_nonzero_for_a_blocked_release(monkeypatch, capsys):
+    monkeypatch.setenv("BURSAWATCH_RELEASE_GITHUB_TOKEN", "read-token")
+    monkeypatch.setattr(
+        release_agent,
+        "release_once",
+        lambda settings, *, allow_manual=False: "blocked",
+    )
+
+    assert release_agent.main(["--once"]) == 1
+    assert json.loads(capsys.readouterr().out) == {"status": "blocked"}
 
 
 def test_systemd_unit_keeps_static_agent_code_and_scoped_restart_boundary():

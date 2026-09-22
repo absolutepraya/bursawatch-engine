@@ -19,8 +19,14 @@ An explicit operations release also applies reviewed manual migrations.
 
 The agent stores sanitized per-SHA records and durable state below
 `~/.local/share/bursawatch-release/records/`. It sends a concise success,
-retry, or blocked heartbeat to `#hermes`. It never stores source content,
-credentials, or database values in those records.
+retry, or blocked heartbeat to `#hermes`. When the optional
+`BURSAWATCH_RELEASE_STATUS_TOKEN` is configured, it also publishes the
+`bursawatch/release` commit status for the exact candidate SHA. The polling
+token remains read-only; the status token is separate and only needs commit
+status write access. Status publication is best effort and never changes the
+release decision. Release records contain bounded, sanitized diagnostics and
+release metadata only; credentials are redacted and live state is not copied
+into them.
 
 ## Explicit bootstrap sequence
 
@@ -29,8 +35,10 @@ checkout of this repository:
 
 1. Create `/home/praya/.hermes/bursawatch-release-agent.env` from
    `env.example`, populate the dedicated fine-grained read-only GitHub token,
-   and set mode `0600`. The token needs this private repository's Contents and
-   Actions read access only. Do not reuse `gh` authentication.
+   and set mode `0600`. The polling token needs this private repository's
+   Contents and Actions read access only. If repository-visible release status
+   is approved, add a separate token with Commit statuses: write only. Do not
+   reuse `gh` authentication.
 2. Compare every source asset in this directory against its target. In
    particular, review the one-command sudoers rule before copying it.
 3. Run `./platform-bursawatch-release/deployment/bootstrap-release-agent.sh --apply`.
@@ -68,3 +76,7 @@ acting. After remediation, an operator may run:
 The next timer run reevaluates the current eligible SHA. Never edit the state
 JSON, migration ledger, live watcher state, or Hermes scheduler registry by
 hand. A newer verified `main` SHA supersedes an older blocked SHA naturally.
+Blocked release attempts exit nonzero for systemd visibility. Their per-SHA
+record includes the sanitized command, return code, signal details, bounded
+stdout and stderr, verification name, and isolated temporary-run path when a
+child verification command fails.

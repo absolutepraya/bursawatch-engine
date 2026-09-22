@@ -2,7 +2,21 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-python_bin="${PYTHON:-$repo_root/.venv/bin/python}"
+if [[ -n "${PYTHON:-}" ]]; then
+  python_bin="$PYTHON"
+elif [[ -x "$repo_root/.venv/bin/python" ]]; then
+  python_bin="$repo_root/.venv/bin/python"
+elif [[ -x "$repo_root/../../.venv/bin/python" ]]; then
+  python_bin="$repo_root/../../.venv/bin/python"
+else
+  python_bin="$repo_root/.venv/bin/python"
+fi
+
+# Resolve a caller-supplied relative interpreter before each suite changes
+# directory. CI supplies `python`; local worktrees may supply `../../.venv/bin/python`.
+if [[ "$python_bin" == */* && "$python_bin" != /* ]]; then
+  python_bin="$(cd "$(dirname "$python_bin")" && pwd)/$(basename "$python_bin")"
+fi
 
 if ! command -v "$python_bin" >/dev/null 2>&1 && [ ! -x "$python_bin" ]; then
   echo "test runner not found: $python_bin" >&2
@@ -25,12 +39,18 @@ run_suite skill-guess-stock skill-guess-stock tests
 run_suite lib-telegram-resilience lib-telegram-resilience tests
 run_suite lib-bursawatch-control lib-bursawatch-control tests
 run_suite cron-x-account-watch cron-x-account-watch tests
-run_suite cron-wa-channel-watch cron-wa-channel-watch tests
+if [[ "${SKIP_WHATSAPP_CHANNEL_WATCH:-0}" == "1" ]]; then
+  printf '\n== cron-wa-channel-watch == dedicated CI job\n'
+else
+  run_suite cron-wa-channel-watch cron-wa-channel-watch tests
+fi
 run_suite service-bursawatch-control service-bursawatch-control tests
 run_suite platform-hermes-schedule-reconciler platform-hermes-schedule-reconciler tests
 run_suite platform-bursawatch-release platform-bursawatch-release tests
-printf '\n== cron-wa-channel-watch JavaScript sink ==\n'
-node --test "$repo_root/cron-wa-channel-watch/tests/channel_sink.test.mjs"
+if [[ "${SKIP_WHATSAPP_CHANNEL_WATCH:-0}" != "1" ]]; then
+  printf '\n== cron-wa-channel-watch JavaScript sink ==\n'
+  node --test "$repo_root/cron-wa-channel-watch/tests/channel_sink.test.mjs"
+fi
 run_suite skill-profile-emoji skill-profile-emoji tests
 
 run_suite repository-policy . tests

@@ -6,11 +6,13 @@ eligible Bursawatch `main` commits. The running agent is installed once at
 systemd units, environment file, sudoers rule, or privileges.
 
 The agent polls GitHub using a dedicated read-only token, requires the exact
-current `main` SHA to have a successful `CI / validate` run, checks a tracked
-release manifest, and materializes that SHA from its local bare mirror. It
-deploys only known runtime handlers, verifies synchronized checksums, runs
-the package's isolated no-post control, and stores sanitized durable release
-records under `~/.local/share/bursawatch-release/`.
+current `main` SHA to have a successful `CI / validate` workflow, and may
+publish the external `bursawatch/release` commit status through a separate,
+optional status-write token. It checks a tracked release manifest and
+materializes that SHA from its local bare mirror. It deploys only known runtime
+handlers, verifies synchronized checksums, runs the package's isolated no-post
+control, and stores sanitized durable release records under
+`~/.local/share/bursawatch-release/`.
 
 No web application credential, Supabase database credential, watcher state,
 or scheduler registry belongs in this package. Do not install the timer, add

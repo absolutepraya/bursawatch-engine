@@ -1,5 +1,7 @@
 # Bursawatch
 
+[![CI](https://github.com/absolutepraya/bursawatch/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/absolutepraya/bursawatch/actions/workflows/ci.yml)
+
 Bursawatch is the Mac development source for market-focused Hermes automation.
 Its scheduled packages deploy to the VPS as `bursawatch-<slug>`. Hermes
 Personal is a separate repository at `~/Documents/Projects/Hermes-Personal`,
@@ -64,6 +66,13 @@ Run every deterministic focused suite from the repository root:
 ```bash
 bash scripts/test-all
 ```
+
+GitHub Actions exposes separate checks for `CI / validate`,
+`CI / Deterministic package suites`, and `CI / WhatsApp Channel Watch`. The
+last check runs the full WhatsApp Channel Python suite and JavaScript sink
+suite directly, while the complete local command still runs every suite in
+one pass. The VPS release agent can additionally publish the exact production
+state as the `bursawatch/release` commit status.
 
 ## Repository boundaries
 
