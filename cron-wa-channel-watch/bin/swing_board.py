@@ -29,8 +29,21 @@ class BoardSubmission:
     board_pending: bool
 
 
-def _source_tickers(event: ChannelEvent) -> set[str]:
-    return {token for token in _SOURCE_TICKER_RE.findall(event.text) if token not in _IGNORED_SOURCE_TOKENS}
+def _leading_source_tickers(text: str) -> set[str]:
+    """Read the explicit ticker line immediately after the review tag."""
+    lines = text.splitlines()
+    tag_seen = False
+    for line in lines:
+        if not tag_seen:
+            if is_technical_review(line):
+                tag_seen = True
+            continue
+        candidates = {
+            token for token in _SOURCE_TICKER_RE.findall(line) if token not in _IGNORED_SOURCE_TOKENS
+        }
+        if candidates:
+            return candidates
+    return set()
 
 
 def is_eligible(event: ChannelEvent, item: dict[str, object], archived_image: Path | None) -> bool:
@@ -40,7 +53,7 @@ def is_eligible(event: ChannelEvent, item: dict[str, object], archived_image: Pa
         and item.get("route") == "id_stocks_swing"
         and isinstance(ticker, str)
         and _TICKER_RE.fullmatch(ticker) is not None
-        and _source_tickers(event) == {ticker}
+        and _leading_source_tickers(event.text) == {ticker}
         and archived_image is not None
         and archived_image.is_absolute()
         and archived_image.is_file()

@@ -78,3 +78,12 @@ def test_multiple_tickers_or_missing_image_never_submits_board(tmp_path):
 
     assert swing_board.is_eligible(technical_event(), technical_item("TINS"), None) is False
     assert swing_board.is_eligible(technical_event("#TechnicalReview\nTINS dan ANTM breakout."), technical_item("TINS"), image) is False
+
+
+def test_indicator_acronyms_after_explicit_ticker_do_not_block_bri_review(tmp_path):
+    event = technical_event(
+        "*#TechnicalReview #ClientRequest*\n"
+        "*RMKE* > RMKE rebound setelah bertahan di support.\n\n"
+        "MACD masih bearish dan harga berada di bawah MA20."
+    )
+    assert swing_board.is_eligible(event, technical_item("RMKE"), archived_image(tmp_path)) is True
