@@ -377,6 +377,98 @@ def test_cutover_plan_is_read_only_and_apply_sets_only_the_future_cursor(tmp_pat
     assert (archive_root / "cutovers" / "ins" / "state-before.json").exists()
 
 
+def test_quarantine_outbox_is_guarded_reversible_and_cutover_bounded(tmp_path, monkeypatch):
+    state_path = tmp_path / "state.json"
+    archive_root = tmp_path / "archive"
+    channel_jid = "120363419226413141@newsletter"
+    cutoff = {"published_at": "2026-09-22T01:29:39Z", "event_key": f"{channel_jid}:cutover"}
+
+    def record(message_id, published_at, phase="pending", routable=True):
+        return {
+            "event_key": f"{channel_jid}:{message_id}",
+            "profile_id": "bri-danareksa-sekuritas",
+            "event": {
+                "channel_jid": channel_jid,
+                "message_id": message_id,
+                "event_key": f"{channel_jid}:{message_id}",
+                "published_at": published_at,
+            },
+            "agent_phase": phase,
+            "routable": routable,
+        }
+
+    original_state = {
+        "version": 1,
+        "profiles": {
+            "bri-danareksa-sekuritas": {
+                "cursor": cutoff,
+                "cutover_complete": True,
+            }
+        },
+        "outbox": [
+            record("old-ready", "2026-09-15T06:39:03Z", phase="ready"),
+            record("old-pending", "2026-09-16T06:00:00Z"),
+            record("future", "2026-09-22T01:30:00Z"),
+            record("old-delivered", "2026-09-15T05:00:00Z", phase="delivered"),
+            record("legacy-no-flag", "2026-09-15T04:00:00Z", routable=None),
+        ],
+    }
+    watcher_state.save(state_path, original_state)
+
+    plan = archive.quarantine_outbox(
+        archive_root,
+        state_path,
+        profile_id="bri-danareksa-sekuritas",
+        channel_jid=channel_jid,
+    )
+
+    assert plan["candidate_count"] == 2
+    assert plan["applied"] is False
+    assert watcher_state.load(state_path) == original_state
+    assert not archive_root.exists()
+    with pytest.raises(PermissionError, match="ALLOW_OUTBOX_QUARANTINE"):
+        archive.quarantine_outbox(
+            archive_root,
+            state_path,
+            profile_id="bri-danareksa-sekuritas",
+            channel_jid=channel_jid,
+            apply=True,
+        )
+
+    monkeypatch.setenv("WHATSAPP_CHANNEL_WATCH_ALLOW_OUTBOX_QUARANTINE", "1")
+    applied = archive.quarantine_outbox(
+        archive_root,
+        state_path,
+        profile_id="bri-danareksa-sekuritas",
+        channel_jid=channel_jid,
+        apply=True,
+        now=datetime(2026, 9, 22, 2, 0, tzinfo=timezone.utc),
+    )
+
+    assert applied["quarantined"] == 2
+    updated = watcher_state.load(state_path)
+    outbox = {record["event_key"]: record for record in updated["outbox"]}
+    assert outbox[f"{channel_jid}:old-ready"]["routable"] is False
+    assert outbox[f"{channel_jid}:old-pending"]["routable"] is False
+    assert outbox[f"{channel_jid}:future"]["routable"] is True
+    assert outbox[f"{channel_jid}:old-delivered"]["routable"] is True
+    assert outbox[f"{channel_jid}:legacy-no-flag"]["routable"] is None
+    backup_dir = Path(str(applied["backup_dir"]))
+    assert (backup_dir / "state-before.json").exists()
+    assert (backup_dir / "manifest.json").exists()
+    assert json.loads((backup_dir / "state-before.json").read_text()) == original_state
+
+    repeat = archive.quarantine_outbox(
+        archive_root,
+        state_path,
+        profile_id="bri-danareksa-sekuritas",
+        channel_jid=channel_jid,
+        apply=True,
+    )
+    assert repeat["candidate_count"] == 0
+    assert repeat["applied"] is True
+
+
 def test_ensure_accepts_a_verified_bridge_record_for_the_same_source(tmp_path):
     source = ChannelEvent(
         channel_jid="120363405187024421@newsletter",

@@ -173,6 +173,23 @@ pre-cutover state backup and manifest, archives the reviewed historical source,
 and advances only the future cursor. It preserves the queue and old outbox and
 is never authorized by a source-only change.
 
+If a reviewed cutover leaves stale, routable BRI work in that preserved
+outbox, inspect it with the read-only quarantine plan:
+
+```bash
+ssh vps '~/.hermes/scripts/bursawatch-wa-channel-archive.sh quarantine-plan --state /home/praya/.hermes/state/whatsapp-channel-watch/state.json --profile bri-danareksa-sekuritas --config /home/praya/.agents/skills/bursawatch-wa-channel-watch/config/watches.json --root /home/praya/.hermes/state/whatsapp-channel-watch/archive'
+```
+
+`quarantine-apply` is a separate, reversible state mutation. It requires both
+`--apply` and `WHATSAPP_CHANNEL_WATCH_ALLOW_OUTBOX_QUARANTINE=1`. It selects only
+active (`pending`, `awaiting_agent`, or `ready`) BRI records marked routable and
+at or before the completed cutover cursor, writes a private state backup and
+manifest under `archive/quarantines/`, then marks those records non-routable.
+It never deletes the outbox, queue, archive, or media, and it does not alter
+future records or terminal delivered/filtered records. Pause the scheduler
+through the control plane before applying it, then resume and verify a natural
+run afterward.
+
 ## Mandatory subscription gate
 
 Always run the helper for every new or changed enabled profile. A watcher is
