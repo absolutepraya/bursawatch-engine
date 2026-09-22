@@ -10,7 +10,7 @@ def profile():
     return ChannelProfile(
         id="channel", enabled=True, mode="forward", channel_jid="1@newsletter",
         channel_url="https://whatsapp.com/channel/example", display_name="BRI Danareksa Sekuritas",
-        emoji="<:bridanareksa:1549256273109848124>",
+        emoji="<:bridanareksa:1551797903927025797>",
         status_emojis=StatusEmojis(
             up="<:up:1531285100346740766>",
             down="<:down:1531285063986053200>",
@@ -31,7 +31,7 @@ def test_render_contains_title_summary_and_channel_source():
     messages = render_post(profile(), event, title="BBCA: Laba Naik", summary="*(Ringkasan)* Ringkasan sumber.")
     assert len(messages) == 1
     assert "BBCA: Laba Naik" in messages[0]
-    assert "<:bridanareksa:1549256273109848124>" in messages[0]
+    assert "<:bridanareksa:1551797903927025797>" in messages[0]
     assert "-# BRI Danareksa Sekuritas" not in messages[0]
     assert "*(Ringkasan)*" in messages[0]
     assert "https://whatsapp.com/channel/example" in messages[0]
@@ -54,7 +54,7 @@ def test_render_preserves_explicit_status_and_chart_footer(tmp_path):
         "text": "_*#TechnicalReview #ClientRequest*_\nTINS masih berada dalam bullish trend.",
         "media": [{"kind": "image", "mime": "image/jpeg", "path": str(chart)}],
     })
-    message = render_post(profile(), event, title="TINS: Tren Bullish", summary="*(Ringkasan)* TINS mempertahankan tren bullish.")[0]
+    message = render_post(profile(), event, title="TINS: Tren Bullish", summary="*(Ringkasan)* TINS mempertahankan tren bullish.", route="id_stocks_swing")[0]
     assert "Status: Bullish<:up:1531285100346740766>" in message
     assert "Status date: Fri, Sep 11 2026, 10:03 WIB" in message
     assert "Source: [BRI Danareksa Sekuritas](<https://whatsapp.com/channel/example>)" in message
@@ -72,25 +72,25 @@ def test_render_marks_missing_technical_review_chart_exactly():
 
 def test_render_preserves_down_and_hold_status_emojis():
     cases = (
-        ("Sektor ini bearish.", "Bearish<:down:1531285063986053200>"),
-        ("Rekomendasi saham: Hold.", "Hold<:hold:1531284248235868333>"),
+        ("#TechnicalReview\nSektor ini bearish.", "Bearish<:down:1531285063986053200>"),
+        ("#TechnicalReview\nRekomendasi saham: Hold.", "Hold<:hold:1531284248235868333>"),
     )
     for index, (text, expected) in enumerate(cases):
         event = normalize_bridge_event({
             "channel_jid": "1@newsletter", "message_id": f"status-{index}",
             "published_at": "2026-09-11T03:03:00Z", "text": text, "media": [],
         })
-        message = render_post(profile(), event, title="BBCA: Status", summary="*(Ringkasan)* Status sumber.")[0]
+        message = render_post(profile(), event, title="BBCA: Status", summary="*(Ringkasan)* Status sumber.", route="id_stocks_swing")[0]
         assert f"Status: {expected}" in message
 
 
 def test_render_falls_back_to_plain_explicit_status_without_emoji():
     event = normalize_bridge_event({
         "channel_jid": "1@newsletter", "message_id": "plain-status",
-        "published_at": "2026-09-11T03:03:00Z", "text": "BBCA remains Overweight.", "media": [],
+        "published_at": "2026-09-11T03:03:00Z", "text": "#TechnicalReview\nBBCA remains Overweight.", "media": [],
     })
     no_status_emojis = replace(profile(), status_emojis=StatusEmojis(up=None, down=None, hold=None))
-    message = render_post(no_status_emojis, event, title="BBCA: Outlook", summary="*(Ringkasan)* Outlook.")[0]
+    message = render_post(no_status_emojis, event, title="BBCA: Outlook", summary="*(Ringkasan)* Outlook.", route="id_stocks_swing")[0]
     assert "Status: Overweight" in message
     assert "Status: Overweight<:" not in message
 
@@ -102,4 +102,23 @@ def test_render_does_not_infer_status_from_generic_sentiment():
     })
     message = render_post(profile(), event, title="BBCA: Kinerja Membaik", summary="*(Ringkasan)* Kinerja membaik.")[0]
     assert "Status:" not in message
+    assert "[View on WhatsApp Channel]" in message
+
+
+def test_render_omits_status_and_date_for_macro_news():
+    event = normalize_bridge_event({
+        "channel_jid": "1@newsletter", "message_id": "macro-status",
+        "published_at": "2026-09-16T05:03:00Z",
+        "text": "Broad market outlook is Bearish after higher UST yields.", "media": [],
+    })
+    message = render_post(
+        profile(),
+        event,
+        title="Menkeu Baru dan Revisi HPM Nikel",
+        summary="*(Ringkasan)* IHSG turun setelah kenaikan yield UST dan harga minyak.",
+        route="macro_news",
+    )[0]
+    assert "Menkeu Baru dan Revisi HPM Nikel" in message
+    assert "Status:" not in message
+    assert "Status date:" not in message
     assert "[View on WhatsApp Channel]" in message

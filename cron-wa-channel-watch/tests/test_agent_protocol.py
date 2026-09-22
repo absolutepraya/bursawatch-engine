@@ -14,7 +14,7 @@ def profile():
         channel_jid="12345@newsletter",
         channel_url="https://whatsapp.com/channel/0029Example",
         display_name="BRI Danareksa Sekuritas",
-        emoji="<:bridanareksa:1549256273109848124>",
+        emoji="<:bridanareksa:1551797903927025797>",
         status_emojis=StatusEmojis(
             up="<:up:1531285100346740766>",
             down="<:down:1531285063986053200>",

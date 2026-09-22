@@ -45,10 +45,12 @@ watcher's scope.
   clearly dominant lead issuer. `macro_news` covers broad market, sector,
   infrastructure, and economy theses, including a broad thesis with a named
   top pick.
-- When a source explicitly states a stance such as Bullish, Bearish,
-  Overweight, Underweight, Buy, Sell, Hold, Neutral, or On track, the renderer
-  preserves that label and appends its configured emoji. It does not infer
-  status from generic positive or negative language.
+- For a BRI `id_stocks_swing` technical review, when the source explicitly
+  states a stance such as Bullish, Bearish, Overweight, Underweight, Buy, Sell,
+  Hold, Neutral, or On track, the renderer preserves that label, appends its
+  configured emoji, and adds the WIB status date. Macro and issuer-news routes
+  never emit a status or status-date footer. The renderer does not infer status
+  from generic positive or negative language.
 
 ## Configuration and onboarding
 

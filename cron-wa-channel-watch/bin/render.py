@@ -35,14 +35,15 @@ def _has_source_chart(event: ChannelEvent) -> bool:
     return any(media.kind == "image" for media in event.media)
 
 
-def _source_footer(profile: ChannelProfile, event: ChannelEvent) -> str:
+def _source_footer(profile: ChannelProfile, event: ChannelEvent, *, route: str | None = None) -> str:
     status = extract_source_status(event.text)
     technical = is_technical_review(event.text)
-    if status is None and not technical:
+    swing_technical = route == "id_stocks_swing" and technical
+    if (status is None or not swing_technical) and not technical:
         return f"[View on WhatsApp Channel](<{profile.channel_url}>)"
 
     lines: list[str] = []
-    if status is not None:
+    if status is not None and swing_technical:
         emoji = profile.status_emojis.for_kind(status.kind) or ""
         lines.append(f"Status: {status.label}{emoji}")
         local = event.published_at.astimezone(WIB)
@@ -54,8 +55,15 @@ def _source_footer(profile: ChannelProfile, event: ChannelEvent) -> str:
     return "\n".join(lines)
 
 
-def render_post(profile: ChannelProfile, event: ChannelEvent, *, title: str | None = None, summary: str | None = None) -> list[str]:
+def render_post(
+    profile: ChannelProfile,
+    event: ChannelEvent,
+    *,
+    title: str | None = None,
+    summary: str | None = None,
+    route: str | None = None,
+) -> list[str]:
     heading = f"### {profile.emoji} {_safe_name(title or profile.display_name)}"
     body = (summary or event.text or "*(Media tanpa caption)*").strip()
-    source = _source_footer(profile, event)
+    source = _source_footer(profile, event, route=route)
     return _split(f"{heading}\n\n{body}\n\n{source}", DISCORD_LIMIT)
