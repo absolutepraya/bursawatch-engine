@@ -6,7 +6,12 @@ from control_plane_client import ControlPlaneReporter
 
 
 class ControlPlaneRun:
-    """Best-effort lifecycle adapter for a single frozen watcher invocation."""
+    """Durable lifecycle adapter for a single frozen watcher invocation.
+
+    Each event is attempted immediately. The reporter keeps failed requests in
+    its durable local spool, so control-plane availability does not block the
+    watcher's domain work and a later invocation can retry the database write.
+    """
 
     def __init__(self, reporter: ControlPlaneReporter | None = None, run_id: str | None = None) -> None:
         self.reporter = reporter
@@ -59,7 +64,7 @@ class ControlPlaneRun:
                 event_type=event_type,
                 message=message,
                 attributes=attributes,
-                flush=False,
+                flush=True,
             )
         except Exception:
             pass

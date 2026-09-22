@@ -22,7 +22,12 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
   Python, defaults state to
   `$HOME/.hermes/state/idx-swing-board.sqlite3`, and passes board arguments
   unchanged. The live control-plane config can change only the heartbeat
-  Discord destination and records structured run events. The forum/guild
+  Discord destination and records structured run events. Each event is
+  attempted immediately; failed requests remain in the durable local request
+  spool for a later retry. A temporary control-plane outage does not block
+  board reconciliation or Discord delivery. Accepted records are stored by the
+  control plane in Postgres tables `bursawatch_runs` and `bursawatch_events`.
+  The forum/guild
   topology is durable-state owned and not web-editable. The explicit `bootstrap` command additionally reads the
   Telegram credentials and imports only the shared resilience library and
   Phintraco parser it needs. The owner CLI has no database-path option.

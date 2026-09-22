@@ -57,7 +57,13 @@ With no `IDX_SWING_PLAN_BOARD_CONTROL_PLANE_URL`, the reviewed value above is
 used. With that URL configured, a missing or invalid snapshot stops the
 command before the SQLite store opens. Scheduled close runs and accepted source
 events record structured control-plane lifecycle and delivery events when a
-live revision is active.
+live revision is active. Each event is attempted immediately; failed requests
+remain in the control-plane client's durable local spool for a later retry.
+Control-plane delivery is observability, so a temporary API failure does not
+block the board's own SQLite reconciliation and Discord delivery. The control
+plane stores the accepted records in Postgres tables `bursawatch_runs` and
+`bursawatch_events`; the board SQLite database remains domain and outbox state,
+not a duplicate run-log store.
 
 The forum and guild identities, calendar, SQLite/media paths, lifecycle/tag
 rules, and thread topology deliberately remain code or durable-state owned.
