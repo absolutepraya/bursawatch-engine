@@ -1,6 +1,6 @@
 # Bursawatch
 
-[![CI](https://github.com/absolutepraya/bursawatch/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/absolutepraya/bursawatch/actions/workflows/ci.yml)
+[![CI](https://github.com/absolutepraya/bursawatch-engine/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/absolutepraya/bursawatch-engine/actions/workflows/ci.yml)
 
 Bursawatch is the Mac development source for market-focused Hermes automation.
 Its scheduled packages deploy to the VPS as `bursawatch-<slug>`. Hermes
