@@ -234,7 +234,7 @@ class DiscordForumClient:
             return {
                 "message_id": self.post_reply(
                     _required(operation_payload, "thread_id"),
-                    _required(operation_payload, "content"),
+                    _reply_content(operation_payload),
                     operation_payload.get("media"),
                     _nonce(operation_payload),
                 )
@@ -525,6 +525,13 @@ def _operation(
 
 def _required(payload: Mapping[str, object], key: str) -> str:
     return _text(payload.get(key), key)
+
+
+def _reply_content(payload: Mapping[str, object]) -> str:
+    """Allow an attachment-only reply while retaining normal content validation."""
+    if payload.get("content") == "" and payload.get("media") is not None:
+        return ""
+    return _required(payload, "content")
 
 
 def _nonce(payload: Mapping[str, object]) -> str:

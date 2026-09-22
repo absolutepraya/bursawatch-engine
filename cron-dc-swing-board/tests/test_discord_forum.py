@@ -226,6 +226,34 @@ def test_attachment_only_reply_sends_empty_content_with_media(tmp_path: Path, mo
     assert calls[0]["files"]["files[0]"][0] == "chart.jpg"
 
 
+def test_execute_allows_attachment_only_reply_with_media(tmp_path: Path, monkeypatch) -> None:
+    chart = tmp_path / "chart.jpg"
+    chart.write_bytes(b"chart")
+    calls: list[dict] = []
+
+    def request(method: str, url: str, **kwargs):
+        calls.append({"method": method, "url": url, **kwargs})
+        return Response(200, {"id": "reply-1"})
+
+    monkeypatch.setattr(discord_forum.requests, "request", request)
+
+    result = DiscordForumClient(token="token").execute(
+        "post_source_reply",
+        {
+            "thread_id": "thread-1",
+            "content": "",
+            "media": str(chart),
+            "nonce": "media-only:execute",
+        },
+    )
+
+    assert result == {"message_id": "reply-1"}
+    assert len(calls) == 1
+    assert calls[0]["method"] == "POST"
+    assert json.loads(calls[0]["data"]["payload_json"])["content"] == ""
+    assert calls[0]["files"]["files[0]"][0] == "chart.jpg"
+
+
 @pytest.mark.parametrize(
     "available_tags",
     [
