@@ -457,6 +457,7 @@ def test_quarantine_outbox_is_guarded_reversible_and_cutover_bounded(tmp_path, m
     assert (backup_dir / "state-before.json").exists()
     assert (backup_dir / "manifest.json").exists()
     assert json.loads((backup_dir / "state-before.json").read_text()) == original_state
+    assert archive.verify(archive_root) == {"checked": 0, "valid": 0, "invalid": 0}
 
     repeat = archive.quarantine_outbox(
         archive_root,

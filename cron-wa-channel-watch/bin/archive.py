@@ -491,7 +491,7 @@ def _iter_paths(root: Path) -> Iterable[Path]:
         return ()
     records: list[Path] = []
     for profile_dir in root.iterdir():
-        if profile_dir.name in {"cutovers", "media"}:
+        if profile_dir.name in {"cutovers", "media", "quarantines"}:
             continue
         if not profile_dir.is_dir() or not _PROFILE_ID_RE.fullmatch(profile_dir.name):
             continue
