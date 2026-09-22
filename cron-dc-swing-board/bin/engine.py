@@ -6,7 +6,7 @@ Source intake never fetches prices or calls back into an All Swing watcher.
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import re
 
@@ -33,6 +33,10 @@ _TARGET = re.compile(
     r"(first|second|third|fourth|fifth|sixth|[0-9]+(?:st|nd|rd|th)) target"
     r"(?: [0-9][0-9.,]*)? (?:achieved|hit|reached)", re.IGNORECASE
 )
+# Hermes can claim a scheduled job while another built-in job is still running.
+# Keep the window bounded so a stale or manually delayed invocation is ignored.
+_PHASE_STARTS = {"initial": (16, 30), "retry": (17, 0)}
+_PHASE_LATE_GRACE = timedelta(minutes=5)
 
 
 def _source_confirmations(event: SourceEvent, active_plan: SourceEvent) -> tuple[bool, set[int]]:
@@ -108,8 +112,7 @@ class BoardEngine:
         if phase not in {"initial", "retry"}:
             raise ValueError("close phase must be initial or retry")
         instant = _wib(now)
-        expected_hour, expected_minute = (16, 30) if phase == "initial" else (17, 0)
-        if (instant.hour, instant.minute) != (expected_hour, expected_minute):
+        if not _within_phase_window(phase, instant):
             return _close_result()
         if not is_idx_trading_day(instant.date()):
             return _close_result()
@@ -754,6 +757,14 @@ def _wib(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("now must include a timezone")
     return value.astimezone(WIB)
+
+
+def _within_phase_window(phase: str, instant: datetime) -> bool:
+    expected_hour, expected_minute = _PHASE_STARTS[phase]
+    scheduled = instant.replace(
+        hour=expected_hour, minute=expected_minute, second=0, microsecond=0
+    )
+    return scheduled <= instant < scheduled + _PHASE_LATE_GRACE
 
 
 def _price_text(value) -> str:

@@ -89,6 +89,52 @@ def test_retry_only_runs_after_an_unavailable_initial_for_the_same_plan(owner, m
     assert owner.store.episode(1).market_tag == "TP1 reached"
 
 
+def test_initial_close_accepts_a_delayed_scheduler_start(owner, monkeypatch):
+    fetch = Mock(return_value=Decimal("210"))
+    monkeypatch.setattr("engine.fetch_session_close", fetch)
+
+    result = owner.after_close("initial", at("2026-09-21T16:32:00+07:00"))
+
+    assert result["checked"] == 1
+    assert fetch.call_count == 1
+    assert owner.store.count_rows("close_attempts") == 1
+
+
+def test_retry_accepts_a_delayed_scheduler_start_after_initial_unavailable(owner, monkeypatch):
+    fetch = Mock(side_effect=[None, Decimal("210")])
+    monkeypatch.setattr("engine.fetch_session_close", fetch)
+
+    owner.after_close("initial", at("2026-09-21T16:30:00+07:00"))
+    result = owner.after_close("retry", at("2026-09-21T17:02:00+07:00"))
+
+    assert result["checked"] == 1
+    assert fetch.call_count == 2
+    assert owner.store.count_rows("close_attempts") == 2
+
+
+def test_initial_close_after_lateness_grace_is_a_noop(owner, monkeypatch):
+    fetch = Mock(return_value=Decimal("210"))
+    monkeypatch.setattr("engine.fetch_session_close", fetch)
+
+    result = owner.after_close("initial", at("2026-09-21T16:35:00+07:00"))
+
+    assert result["active"] == 0
+    fetch.assert_not_called()
+    assert owner.store.count_rows("close_attempts") == 0
+
+
+def test_retry_after_lateness_grace_is_a_noop(owner, monkeypatch):
+    fetch = Mock(return_value=None)
+    monkeypatch.setattr("engine.fetch_session_close", fetch)
+
+    owner.after_close("initial", at("2026-09-21T16:30:00+07:00"))
+    result = owner.after_close("retry", at("2026-09-21T17:05:00+07:00"))
+
+    assert result["active"] == 0
+    assert fetch.call_count == 1
+    assert owner.store.count_rows("close_attempts") == 1
+
+
 @pytest.mark.parametrize("phase,instant", [("initial", "2026-09-21T16:29:00+07:00"), ("retry", "2026-09-21T17:00:00+07:00"), ("initial", "2026-09-19T16:30:00+07:00"), ("initial", "2026-12-25T16:30:00+07:00")])
 def test_phase_gates_do_not_fetch_or_mutate(owner, monkeypatch, phase, instant):
     fetch = Mock()
