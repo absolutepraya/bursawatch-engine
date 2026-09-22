@@ -61,6 +61,23 @@ def test_backfill_plan_is_archive_backed_and_read_only(tmp_path):
     assert (root / "media").is_dir()
 
 
+def test_discover_accepts_legacy_bri_emoji_alias():
+    candidate = wa_backfill._candidate(
+        {
+            "id": "123456789012345678",
+            "content": (
+                "### :bridanareksa: RMKE: Rebound\n"
+                "Status: Bearish\n"
+                "Source: [BRI](<https://www.whatsapp.com/channel/example>)"
+            ),
+        },
+        wa_backfill.BRI_SWING_CHANNEL_ID,
+    )
+    assert candidate is not None
+    assert candidate["suggested_ticker"] == "RMKE"
+    assert candidate["suggested_sentiment"] == "Bearish"
+
+
 def test_backfill_apply_requires_guard_and_edits_existing_message(tmp_path, monkeypatch):
     root, event = source(tmp_path)
     current = "old BRI message"

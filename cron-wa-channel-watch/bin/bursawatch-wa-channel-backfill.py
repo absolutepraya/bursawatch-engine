@@ -27,10 +27,16 @@ import render
 BRI_PROFILE_ID = "bri-danareksa-sekuritas"
 BRI_SWING_CHANNEL_ID = "1525102458253217803"
 BRI_EMOJI_IDS = {"1549256273109848124", "1551797903927025797"}
+BRI_LEGACY_EMOJI = ":bridanareksa:"
 MANIFEST_VERSION = 1
 _ID_RE = re.compile(r"^[0-9]{15,22}$")
 _TICKER_RE = re.compile(r"^[A-Z]{2,5}$")
-_HEADING_RE = re.compile(r"^###\s+<:[^:>]+:(?:" + "|".join(BRI_EMOJI_IDS) + r")>\s+(?P<title>.+)$", re.MULTILINE)
+_HEADING_RE = re.compile(
+    r"^###\s+(?:(?:<:[^:>]+:(?:"
+    + "|".join(BRI_EMOJI_IDS)
+    + r")>)|:bridanareksa:)\s+(?P<title>.+)$",
+    re.MULTILINE,
+)
 _SENTIMENT_RE = re.compile(r"^(?:\*\*)?(?:Sentiment|Status)(?:\*\*)?:\s*(Bullish|Bearish|Sideways|Overweight|Underweight|Buy|Sell|Hold|Neutral|On track)", re.MULTILINE | re.IGNORECASE)
 
 
@@ -72,7 +78,10 @@ def _candidate(message: dict[str, object], channel_id: str) -> dict[str, object]
     content = message.get("content")
     if not isinstance(message_id, str) or not _ID_RE.fullmatch(message_id) or not isinstance(content, str):
         return None
-    if not any(f":{emoji_id}>" in content for emoji_id in BRI_EMOJI_IDS):
+    if not (
+        any(f":{emoji_id}>" in content for emoji_id in BRI_EMOJI_IDS)
+        or BRI_LEGACY_EMOJI in content
+    ):
         return None
     if "whatsapp.com/channel/" not in content:
         return None
