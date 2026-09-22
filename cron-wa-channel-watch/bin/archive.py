@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 import hashlib
@@ -18,6 +19,7 @@ from models import ChannelEvent
 ARCHIVE_SCHEMA_VERSION = 1
 MAX_ARCHIVE_MEDIA_BYTES = 25 * 1024 * 1024
 MINIMUM_RETENTION_DAYS = 365
+QUARANTINE_ACTIVE_PHASES = {"pending", "awaiting_agent", "ready"}
 _PROFILE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
 _CHECKSUM_RE = re.compile(r"^[0-9a-f]{64}$")
 _RECORD_KEYS = {
@@ -489,7 +491,7 @@ def _iter_paths(root: Path) -> Iterable[Path]:
         return ()
     records: list[Path] = []
     for profile_dir in root.iterdir():
-        if profile_dir.name in {"cutovers", "media"}:
+        if profile_dir.name in {"cutovers", "media", "quarantines"}:
             continue
         if not profile_dir.is_dir() or not _PROFILE_ID_RE.fullmatch(profile_dir.name):
             continue
@@ -841,6 +843,141 @@ def cutover_apply(
     }
 
 
+def _quarantine_candidates(
+    current_state: dict[str, object],
+    *,
+    profile_id: str,
+    channel_jid: str,
+    cutoff: dict[str, object],
+) -> list[dict[str, object]]:
+    from state import cursor_key
+
+    cutoff_key = cursor_key(cutoff)
+    candidates: list[dict[str, object]] = []
+    for record in current_state["outbox"]:  # type: ignore[union-attr]
+        if type(record) is not dict:
+            continue
+        if record.get("profile_id") != profile_id or record.get("routable") is not True:
+            continue
+        if record.get("agent_phase") not in QUARANTINE_ACTIVE_PHASES:
+            continue
+        event = record.get("event")
+        if type(event) is not dict or event.get("channel_jid") != channel_jid:
+            continue
+        try:
+            event_key = cursor_key(event)
+        except (KeyError, TypeError, ValueError):
+            continue
+        if event_key <= cutoff_key:
+            candidates.append(record)
+    return candidates
+
+
+def quarantine_outbox(
+    root: Path,
+    state_path: Path,
+    *,
+    profile_id: str,
+    channel_jid: str,
+    apply: bool = False,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    """Preserve, then disable stale pre-cutover forwarding work.
+
+    The operation never deletes outbox records or source archives. It only
+    changes selected active records' routability after a private state backup.
+    """
+    from state import cursor_key, load as load_state, save as save_state
+
+    _validate_profile_id(profile_id)
+    root = Path(root)
+    state_path = Path(state_path)
+    current_state = load_state(state_path)
+    profile_state = current_state["profiles"].get(profile_id)  # type: ignore[union-attr]
+    if type(profile_state) is not dict or profile_state.get("cutover_complete") is not True:
+        raise ValueError("outbox quarantine requires a completed profile cutover")
+    cutoff = profile_state.get("cursor")
+    if type(cutoff) is not dict or not {"published_at", "event_key"}.issubset(cutoff):
+        raise ValueError("outbox quarantine requires a valid cutover cursor")
+    cursor_key(cutoff)
+    candidates = _quarantine_candidates(
+        current_state,
+        profile_id=profile_id,
+        channel_jid=channel_jid,
+        cutoff=cutoff,
+    )
+    event_keys = [str(record["event_key"]) for record in candidates]
+    result: dict[str, object] = {
+        "profile_id": profile_id,
+        "channel_jid": channel_jid,
+        "cutover_cursor": cutoff,
+        "candidate_count": len(candidates),
+        "event_keys": event_keys,
+        "applied": False,
+    }
+    if not apply:
+        return result
+    if not root.is_absolute() or not state_path.is_absolute():
+        raise ValueError("outbox quarantine requires absolute archive and state paths")
+    if os.environ.get("WHATSAPP_CHANNEL_WATCH_ALLOW_OUTBOX_QUARANTINE") != "1":
+        raise PermissionError("outbox quarantine requires WHATSAPP_CHANNEL_WATCH_ALLOW_OUTBOX_QUARANTINE=1")
+    if not candidates:
+        result["applied"] = True
+        result["quarantined"] = 0
+        return result
+
+    applied_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    stamp = applied_at.strftime("%Y%m%dT%H%M%SZ")
+    quarantine_dir = root / "quarantines" / profile_id / stamp
+    _private_directory(root)
+    if quarantine_dir.exists():
+        raise ValueError(f"outbox quarantine artifact already exists: {quarantine_dir}")
+    _private_directory(quarantine_dir)
+    original_state = copy.deepcopy(current_state)
+    _write_private_new(quarantine_dir / "state-before.json", _canonical_json(original_state))
+    updated_state = copy.deepcopy(current_state)
+    updated_candidates = _quarantine_candidates(
+        updated_state,
+        profile_id=profile_id,
+        channel_jid=channel_jid,
+        cutoff=cutoff,
+    )
+    for record in updated_candidates:
+        record["routable"] = False
+        record["quarantine"] = {
+            "reason": "pre-cutover-outbox",
+            "cutover_cursor": cutoff,
+            "quarantined_at": applied_at.isoformat().replace("+00:00", "Z"),
+        }
+    try:
+        save_state(state_path, updated_state)
+        manifest = {
+            "schema_version": 1,
+            "operation": "outbox-quarantine",
+            "profile_id": profile_id,
+            "channel_jid": channel_jid,
+            "cutover_cursor": cutoff,
+            "quarantined_count": len(updated_candidates),
+            "event_keys": [str(record["event_key"]) for record in updated_candidates],
+            "state_backup": "state-before.json",
+            "archive_preserved": True,
+            "queue_preserved": True,
+            "applied_at": applied_at.isoformat().replace("+00:00", "Z"),
+        }
+        _write_private_new(quarantine_dir / "manifest.json", _canonical_json(manifest))
+    except Exception:
+        save_state(state_path, original_state)
+        raise
+    result.update(
+        {
+            "applied": True,
+            "quarantined": len(updated_candidates),
+            "backup_dir": str(quarantine_dir),
+        }
+    )
+    return result
+
+
 def _default_root() -> Path:
     configured = os.environ.get("WHATSAPP_CHANNEL_WATCH_ARCHIVE_ROOT")
     if configured:
@@ -894,14 +1031,17 @@ def main(argv: list[str] | None = None) -> int:
             str(Path(__file__).parents[1] / "config" / "watches.json"),
         )
     )
-    for command_name in ("cutover-plan", "cutover-apply"):
+    for command_name in ("cutover-plan", "cutover-apply", "quarantine-plan", "quarantine-apply"):
         cutover_parser = commands.add_parser(command_name)
-        cutover_parser.add_argument("--queue-dir", required=True, type=Path)
         cutover_parser.add_argument("--state", required=True, type=Path)
         cutover_parser.add_argument("--profile", required=True)
         cutover_parser.add_argument("--config", type=Path, default=cutover_default_config)
-        if command_name == "cutover-apply":
+        if command_name in {"cutover-plan", "cutover-apply"}:
+            cutover_parser.add_argument("--queue-dir", required=True, type=Path)
+        if command_name in {"cutover-apply", "quarantine-apply"}:
             cutover_parser.add_argument("--apply", action="store_true")
+        if command_name in {"quarantine-plan", "quarantine-apply"}:
+            cutover_parser.add_argument("--root", type=Path, default=_default_root())
     arguments = parser.parse_args(argv)
     if arguments.command == "verify":
         result: object = verify(arguments.root)
@@ -956,6 +1096,16 @@ def main(argv: list[str] | None = None) -> int:
             arguments.state,
             profile_id=arguments.profile,
             channel_jid=_cutover_channel_jid(arguments.config, arguments.profile),
+        )
+    elif arguments.command in {"quarantine-plan", "quarantine-apply"}:
+        if arguments.command == "quarantine-apply" and not arguments.apply:
+            parser.error("quarantine-apply requires --apply")
+        result = quarantine_outbox(
+            arguments.root,
+            arguments.state,
+            profile_id=arguments.profile,
+            channel_jid=_cutover_channel_jid(arguments.config, arguments.profile),
+            apply=arguments.command == "quarantine-apply",
         )
     else:
         result = prune(arguments.root, before=arguments.before, apply=arguments.apply)

@@ -41,6 +41,40 @@ Run the focused suite with:
 uv run --with 'fastapi>=0.115,<1' --with 'httpx>=0.27,<1' pytest -q tests
 ```
 
+## Local admin access-token helper
+
+`tools/get_admin_access_token.py` obtains a Supabase Auth user session
+through the password grant and stores only its short-lived `access_token` in
+the ignored control-plane `.env`. Run it as a file so its prompts remain
+attached to the terminal. Do not pipe the source through `python3 -`, since
+that consumes standard input before `input()` can read the prompts:
+
+```bash
+cd ~/Documents/Projects/Hermes
+python3 service-bursawatch-control/tools/get_admin_access_token.py
+```
+
+From a managed worktree, point `--env` at the main checkout's ignored env
+file. The helper never prints the access token and rejects publishable,
+anonymous, and `service_role` keys:
+
+```bash
+python3 service-bursawatch-control/tools/get_admin_access_token.py \
+  --env ~/Documents/Projects/Hermes/service-bursawatch-control/.env
+```
+
+If the Supabase account is passwordless, use
+`tools/supabase_recovery_server.py` first. It binds only to
+`127.0.0.1:3000`, keeps the recovery token in the browser fragment, and
+updates the password through Supabase's authenticated user endpoint. Request a
+fresh recovery link after starting it, since a recovery URL must not be pasted
+into chat or logs:
+
+```bash
+python3 service-bursawatch-control/tools/supabase_recovery_server.py \
+  --env ~/Documents/Projects/Hermes/service-bursawatch-control/.env
+```
+
 Apply migrations only in an explicitly approved deployment step:
 
 ```bash

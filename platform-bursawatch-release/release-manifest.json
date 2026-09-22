@@ -81,7 +81,8 @@
         "service-bursawatch-control/deployment/**",
         "service-bursawatch-control/env.example",
         "service-bursawatch-control/openapi/**",
-        "service-bursawatch-control/tests/**"
+        "service-bursawatch-control/tests/**",
+        "service-bursawatch-control/tools/**"
       ]
     },
     {
