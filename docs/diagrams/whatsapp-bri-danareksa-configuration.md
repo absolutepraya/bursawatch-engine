@@ -36,7 +36,7 @@ flowchart LR
     lead -->|"Yes"| stock["id_stocks_news<br/>Discord channel 1525102508714889257"]
     lead -->|"No, broad thesis"| macro["macro_news<br/>Discord channel 1531655369884045382"]
 
-    swing --> render["Render Discord text<br/>source emoji, explicit status and matching emoji,<br/>WIB date, source link, chart availability"]
+    swing --> render["Render Discord text<br/>source emoji, swing-only status and matching emoji,<br/>swing-only WIB date, source link, chart availability"]
     stock --> render
     macro --> render
     status --> render
@@ -62,7 +62,7 @@ flowchart LR
 | --- | --- |
 | Source JID | `120363419226413141@newsletter` |
 | Public Channel | `https://www.whatsapp.com/channel/0029VbAjdnb60eBhwVdJxj1c` |
-| Source emoji | `<:bridanareksa:1549256273109848124>` |
+| Source emoji | `<:bridanareksa:1551797903927025797>` |
 | `macro_news` | Discord `1531655369884045382` |
 | `id_stocks_news` | Discord `1525102508714889257` |
 | `id_stocks_swing` | Discord `1525102458253217803` |
@@ -76,5 +76,8 @@ flowchart LR
   multi-stock screen with one dominant lead issuer.
 - A broad market, sector, infrastructure, or economy thesis goes to
   `macro_news`, even when it names a top pick.
+- Explicit status and status date are rendered only for `id_stocks_swing`
+  technical reviews. Macro and issuer-news posts keep the source link without
+  a status footer.
 - The profile is future-only. The first observation establishes the cursor,
   and existing Channel history is not backfilled.

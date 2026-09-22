@@ -128,3 +128,18 @@ def test_whatsapp_baseline_promotion_is_manual_and_source_owned_only():
     assert "source-baseline-correction" in migration
     assert "12c37e0c385f6b2431f2d318559d49406b9cb847fc5da8007459d06486602de9" in migration
     assert "11f80d21ef137ec2c3f92b5bc69e8e7146a331ceec0a2d46549e21bb17bbd829" in migration
+
+
+def test_whatsapp_source_emoji_refresh_is_manual_and_keeps_operator_revisions():
+    migration = (
+        Path(__file__).resolve().parents[1]
+        / "migrations/010_refresh_bri_source_emoji.sql"
+    ).read_text(encoding="utf-8")
+
+    assert migration.startswith("-- bursawatch-release: manual\n")
+    assert "jsonb_set(r.config, '{profiles,0,emoji}'" in migration
+    assert "current_revision = 2" in migration
+    assert "config_version = 2" in migration
+    assert "source-baseline-correction" in migration
+    assert "12c37e0c385f6b2431f2d318559d49406b9cb847fc5da8007459d06486602de9" in migration
+    assert "56363ca42605494908b52014174dfccb660ee881882c7602ab6b2aca46d1397b" in migration

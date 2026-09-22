@@ -108,6 +108,7 @@ def test_discover_migrations_uses_the_checked_legacy_eligibility_registry():
         "007_preserve_paused_instagram_baseline.sql",
         "008_profile_avatar_metadata.sql",
         "009_promote_whatsapp_v2_baseline.sql",
+        "010_refresh_bri_source_emoji.sql",
     }
     assert {migration.release_eligibility for migration in migrations} == {"automatic", "manual"}
 

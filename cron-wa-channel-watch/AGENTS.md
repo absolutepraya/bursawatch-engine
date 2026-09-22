@@ -45,10 +45,12 @@ watcher's scope.
   clearly dominant lead issuer. `macro_news` covers broad market, sector,
   infrastructure, and economy theses, including a broad thesis with a named
   top pick.
-- When a source explicitly states a stance such as Bullish, Bearish,
-  Overweight, Underweight, Buy, Sell, Hold, Neutral, or On track, the renderer
-  preserves that label and appends its configured emoji. It does not infer
-  status from generic positive or negative language.
+- For a BRI `id_stocks_swing` technical review, when the source explicitly
+  states a stance such as Bullish, Bearish, Overweight, Underweight, Buy, Sell,
+  Hold, Neutral, or On track, the renderer preserves that label, appends its
+  configured emoji, and adds the WIB status date. Macro and issuer-news routes
+  never emit a status or status-date footer. The renderer does not infer status
+  from generic positive or negative language.
 
 ## Configuration and onboarding
 
@@ -172,6 +174,23 @@ flag and `WHATSAPP_CHANNEL_WATCH_ALLOW_CUTOVER_APPLY=1`, writes a private
 pre-cutover state backup and manifest, archives the reviewed historical source,
 and advances only the future cursor. It preserves the queue and old outbox and
 is never authorized by a source-only change.
+
+If a reviewed cutover leaves stale, routable BRI work in that preserved
+outbox, inspect it with the read-only quarantine plan:
+
+```bash
+ssh vps '~/.hermes/scripts/bursawatch-wa-channel-archive.sh quarantine-plan --state /home/praya/.hermes/state/whatsapp-channel-watch/state.json --profile bri-danareksa-sekuritas --config /home/praya/.agents/skills/bursawatch-wa-channel-watch/config/watches.json --root /home/praya/.hermes/state/whatsapp-channel-watch/archive'
+```
+
+`quarantine-apply` is a separate, reversible state mutation. It requires both
+`--apply` and `WHATSAPP_CHANNEL_WATCH_ALLOW_OUTBOX_QUARANTINE=1`. It selects only
+active (`pending`, `awaiting_agent`, or `ready`) BRI records marked routable and
+at or before the completed cutover cursor, writes a private state backup and
+manifest under `archive/quarantines/`, then marks those records non-routable.
+It never deletes the outbox, queue, archive, or media, and it does not alter
+future records or terminal delivered/filtered records. Pause the scheduler
+through the control plane before applying it, then resume and verify a natural
+run afterward.
 
 ## Mandatory subscription gate
 

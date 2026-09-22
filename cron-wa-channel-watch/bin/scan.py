@@ -174,6 +174,7 @@ def _deliver_ready(
                     event,
                     title=item.get("title") if profile.enable_llm_title else None,
                     summary=item.get("summary") if profile.enable_llm_summary else None,
+                    route=item.get("route") if isinstance(item.get("route"), str) else None,
                 )
                 text_index = int(record.get("text_index", 0))
                 while text_index < len(messages):
