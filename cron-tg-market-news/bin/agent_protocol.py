@@ -22,7 +22,15 @@ TUNTUN_INSTRUCTION = _BASE_INSTRUCTION + (
     "is tuntun_update_industry must use macro_news when material because the scanner delivers it to the Industry channel. Use exclude "
     "for anything ineligible. Keep summary as plain factual sentences without a Ringkasan marker."
 )
-PHINTRACO_INSTRUCTION = _BASE_INSTRUCTION + "For a Phintraco candidate, do not include a title field."
+PHINTRACO_INSTRUCTION = _BASE_INSTRUCTION + (
+    "For a Phintraco candidate, omit the title field and return route as id_stocks_news, macro_news, or exclude. "
+    "Use id_stocks_news only when the supplied IDX issuer is clearly central to the report. Use macro_news for a "
+    "material policy, legal, regulatory, or economic topic affecting the broader market, including a note that names "
+    "several affected companies; summarize it once as macro news. Use exclude for immaterial, promotional, routine, or "
+    "advice-only trading material. Write one to five factual Indonesian sentences. Attribute research estimates to "
+    "Phintraco, distinguish estimates from reported results and company guidance, and preserve the stated period, units, "
+    "and forward-looking framing. Do not turn an estimate into a certainty or add investment advice."
+)
 INSTRUCTION = TUNTUN_INSTRUCTION
 
 SUBMISSION_SCHEMA = {
@@ -37,6 +45,7 @@ SUBMISSION_SCHEMA = {
         "ranking_band",
         "dedupe_facts",
         "eligible",
+        "route",
         "source_evidence",
     ],
     "properties": {
@@ -55,7 +64,7 @@ SUBMISSION_SCHEMA = {
 }
 
 _REQUIRED_SUBMISSION_FIELDS = frozenset(SUBMISSION_SCHEMA["required"])
-_OPTIONAL_SUBMISSION_FIELDS = frozenset({"title", "route"})
+_OPTIONAL_SUBMISSION_FIELDS = frozenset({"title"})
 _PROVIDER_NAMES = frozenset(provider.value for provider in Provider)
 _ITEM_FIELDS = frozenset(
     {
@@ -172,8 +181,6 @@ def _contains_investment_language(values: Sequence[str]) -> bool:
 
 
 def _route_from_submission(candidate: CompanyCandidate, payload: Mapping[str, object]) -> Destination:
-    if candidate.provider is not Provider.TUNTUN:
-        return Destination.ID_STOCKS_NEWS
     try:
         route = Destination(_require_text(payload.get("route"), "route"))
     except ValueError as error:
@@ -208,6 +215,8 @@ def validate_agent_submission(candidate: CompanyCandidate, payload: Mapping[str,
     is_tuntun = candidate.provider is Provider.TUNTUN
     if is_tuntun and "title" not in keys:
         raise ValueError("submission is missing required fields: ['title']")
+    if not is_tuntun and "title" in keys:
+        raise ValueError("Phintraco submissions must omit title")
     if not isinstance(payload["ticker"], str) or payload["ticker"] != (candidate.ticker or ""):
         raise ValueError("ticker does not match the active candidate")
 
@@ -228,10 +237,12 @@ def validate_agent_submission(candidate: CompanyCandidate, payload: Mapping[str,
     dedupe_facts = _validate_fact_array(payload["dedupe_facts"], "dedupe_facts")
     if not isinstance(payload["eligible"], bool):
         raise ValueError("eligible must be a boolean")
-    if is_tuntun and bool(payload["eligible"]) != (
+    if bool(payload["eligible"]) != (
         route is not Destination.EXCLUDE and event_class is not EventClass.NOT_ELIGIBLE
     ):
         raise ValueError("eligible must agree with route and event_class")
+    if event_class is EventClass.NOT_ELIGIBLE and route is not Destination.EXCLUDE:
+        raise ValueError("not_eligible event_class must use the exclude route")
     source_evidence = _require_text(payload["source_evidence"], "source_evidence")
     if _contains_investment_language([summary, *material_facts, *dedupe_facts, source_evidence]):
         raise ValueError("submission contains prohibited investment language")
@@ -270,11 +281,7 @@ def submit_classification(
                 if candidate.provider is Provider.TUNTUN
                 else {}
             ),
-            **(
-                {"route": _route_from_submission(candidate, payload).value}
-                if candidate.provider is Provider.TUNTUN
-                else {}
-            ),
+            "route": _route_from_submission(candidate, payload).value,
         },
     )
     return classification

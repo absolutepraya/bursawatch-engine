@@ -172,7 +172,7 @@ def _tuntun_entry(item: SelectionCandidate) -> str:
 
 
 def _phintraco_entry(item: SelectionCandidate) -> str:
-    if item.ticker is None:
+    if item.route is not Destination.ID_STOCKS_NEWS or item.ticker is None:
         raise ValueError("Phintraco issuer entries require a ticker")
     snapshot = get_market_snapshot(item.ticker, item.candidate.source_text)
     company_name = (
@@ -188,11 +188,25 @@ def _phintraco_entry(item: SelectionCandidate) -> str:
     )
 
 
+def _phintraco_macro_entry(item: SelectionCandidate) -> str:
+    if item.route is not Destination.MACRO_NEWS:
+        raise ValueError("Phintraco macro entries require the macro_news route")
+    return _issuer_entry(
+        item,
+        f"### {_PROVIDER_EMOJIS['Phintraco']} Phintraco Sekuritas",
+        load_market_data=False,
+    )
+
+
 def _entry(item: SelectionCandidate) -> str:
     if item.provider is Provider.TUNTUN and item.title:
         return _tuntun_entry(item)
-    if item.provider is Provider.PHINTRACO and item.ticker is not None:
-        return _phintraco_entry(item)
+    if item.provider is Provider.PHINTRACO:
+        if item.route is Destination.MACRO_NEWS:
+            return _phintraco_macro_entry(item)
+        if item.route is Destination.ID_STOCKS_NEWS:
+            return _phintraco_entry(item)
+        raise ValueError("excluded Phintraco item cannot be delivered")
     return _legacy_entry(item)
 
 

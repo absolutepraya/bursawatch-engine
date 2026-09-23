@@ -19,7 +19,9 @@ class SourceKind(StrEnum):
     TUNTUN_UPDATE_SECTION = "tuntun_update_section"
     TUNTUN_UPDATE_INDUSTRY = "tuntun_update_industry"
     PHINTRACO_NOTE = "phintraco_note"
+    PHINTRACO_QUICK_NOTE = "phintraco_quick_note"
     PHINTRACO_COMPANY_FLASH = "phintraco_company_flash"
+    PHINTRACO_COMPANY_UPDATE = "phintraco_company_update"
     PHINTRACO_STOCK_INFORMATION = "phintraco_stock_information"
 
 

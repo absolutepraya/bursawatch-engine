@@ -217,6 +217,36 @@ def test_phintraco_entry_uses_shared_issuer_layout_and_four_horizons(monkeypatch
     assert "*Harga terakhir" not in alert
 
 
+def test_phintraco_macro_entry_uses_brand_summary_and_link_without_issuer_data():
+    item = SelectionCandidate(
+        candidate=CompanyCandidate(
+            provider=Provider.PHINTRACO,
+            source_message_id=35378,
+            ticker="BSDE",
+            source_kind=SourceKind.PHINTRACO_NOTE,
+            published_at=datetime(2026, 9, 23, 2, 40, tzinfo=timezone.utc),
+            source_text="Landbank Implications from Agrarian Reform; impact across property developers.",
+            direct_image=False,
+        ),
+        event_class=EventClass.LISTING_LEGAL_REGULATORY_OR_CREDIT,
+        ranking_band=1,
+        material_facts=("The policy may affect several developers.",),
+        dedupe_facts=("agrarian reform policy",),
+        summary="Perubahan kebijakan agraria dapat memengaruhi sejumlah pengembang properti.",
+        route=Destination.MACRO_NEWS,
+    )
+
+    alert = delivery.format_news_item(item)
+
+    assert alert == (
+        "### <:phintraco:1531272488645038091> Phintraco Sekuritas\n\n"
+        "*(Ringkasan)* Perubahan kebijakan agraria dapat memengaruhi sejumlah pengembang properti.\n\n"
+        "[View on Telegram](<https://t.me/phintasprofits/35378>)"
+    )
+    assert "BSDE" not in alert
+    assert "Harga terakhir" not in alert
+
+
 def test_tuntun_macro_card_uses_the_telegram_link_without_market_data():
     item = SelectionCandidate(
         candidate=CompanyCandidate(

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -11,7 +11,7 @@ import pytest
 import delivery
 import config
 import scan
-from domain import CompanyCandidate, EventClass, Provider, SourceKind
+from domain import CompanyCandidate, Destination, EventClass, Provider, SourceKind
 from selection import SelectionCandidate
 from state import claim_oldest_pending_analysis, empty_state, enqueue_candidate, load_state, save_state
 
@@ -72,6 +72,25 @@ def _bootstrapped_state(tmp_state):
     save_state(state, tmp_state)
 
 
+class BackfillClient:
+    def __init__(self, message):
+        self.message = message
+        self.calls = []
+
+    async def get_messages(self, entity, ids):
+        self.calls.append((entity, ids))
+        return self.message
+
+
+def _backfill_clients(message):
+    client = BackfillClient(message)
+    return SimpleNamespace(
+        client=client,
+        phintraco_entity="phintraco",
+        tuntun_entity="tuntun",
+    )
+
+
 def test_message_topic_id_reads_the_forum_root_reply_message_id():
     message = SimpleNamespace(
         reply_to=SimpleNamespace(reply_to_msg_id=3743, reply_to_top_id=None, forum_topic=True)
@@ -119,6 +138,121 @@ def test_delivery_route_uses_the_active_config_snapshot(candidate):
 
     with config.activate_watch_config(watch_config):
         assert scan._delivery_channel(item) == "1525102508714889258"
+
+
+def test_phintraco_macro_route_uses_macro_channel():
+    candidate = CompanyCandidate(
+        provider=Provider.PHINTRACO,
+        source_message_id=35378,
+        ticker=None,
+        source_kind=SourceKind.PHINTRACO_NOTE,
+        published_at=datetime(2026, 9, 23, 2, 40, tzinfo=timezone.utc),
+        source_text="Landbank Implications from Agrarian Reform.",
+        direct_image=False,
+    )
+    item = SelectionCandidate(
+        candidate=candidate,
+        event_class=EventClass.LISTING_LEGAL_REGULATORY_OR_CREDIT,
+        ranking_band=1,
+        material_facts=("The policy affects several developers.",),
+        dedupe_facts=("agrarian reform policy",),
+        summary="Perubahan kebijakan dapat memengaruhi sejumlah pengembang.",
+        route=Destination.MACRO_NEWS,
+    )
+
+    assert scan._delivery_channel(item) == scan.MACRO_CHANNEL_ID
+
+
+def test_quick_note_backfill_queues_only_the_selected_message_without_advancing_cursor(
+    tmp_state, monkeypatch
+):
+    _bootstrapped_state(tmp_state)
+    state = load_state(tmp_state)
+    scan.advance_provider_cursor(state, Provider.PHINTRACO, 35388)
+    save_state(state, tmp_state)
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_state))
+    message = SimpleNamespace(
+        id=35376,
+        message=(
+            "PHINTAS Quick Notes | 23 September 2026\n"
+            "POWR Berpotensi Catat Pertumbuhan Kinerja pada 2026\n"
+            "Phintraco estimates FY26 revenue growth."
+        ),
+        date=datetime.fromisoformat("2026-09-23T03:00:00+00:00"),
+        photo=None,
+    )
+    clients = _backfill_clients(message)
+    now = datetime.fromisoformat("2026-09-23T12:00:00+07:00")
+    cursor_before = scan.provider_cursor(load_state(tmp_state), Provider.PHINTRACO)
+
+    result = asyncio.run(scan.backfill_phintraco_quick_note(35376, now, clients))
+
+    state = load_state(tmp_state)
+    assert result == {
+        "candidate_key": "phintraco:35376:POWR",
+        "message_id": 35376,
+        "queued": True,
+        "cursor_advanced": False,
+    }
+    assert clients.client.calls == [("phintraco", 35376)]
+    assert scan.provider_cursor(state, Provider.PHINTRACO) == cursor_before
+    assert state["candidates"]["phintraco:35376:POWR"]["phase"] == "pending_analysis"
+
+    repeated = asyncio.run(scan.backfill_phintraco_quick_note(35376, now, clients))
+    assert repeated["queued"] is False
+    assert len(load_state(tmp_state)["candidates"]) == 1
+
+
+def test_quick_note_backfill_rejects_other_formats_and_older_dates(tmp_state, monkeypatch):
+    _bootstrapped_state(tmp_state)
+    state = load_state(tmp_state)
+    scan.advance_provider_cursor(state, Provider.PHINTRACO, 35388)
+    save_state(state, tmp_state)
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_state))
+    now = datetime.fromisoformat("2026-09-23T12:00:00+07:00")
+    clients = _backfill_clients(
+        SimpleNamespace(
+            id=35381,
+            message="Phintraco Sekuritas Company Update\nMEDC: Company outlook",
+            date=datetime.fromisoformat("2026-09-23T03:00:00+00:00"),
+            photo=None,
+        )
+    )
+
+    with pytest.raises(ValueError, match="not exactly one supported"):
+        asyncio.run(scan.backfill_phintraco_quick_note(35381, now, clients))
+
+    clients.client.message.date = datetime.fromisoformat("2026-09-22T10:00:00+00:00")
+    clients.client.message.id = 35376
+    clients.client.message.message = "PHINTAS Quick Notes | 22 September 2026\nPOWR outlook"
+    with pytest.raises(ValueError, match="published today"):
+        asyncio.run(scan.backfill_phintraco_quick_note(35376, now, clients))
+
+    clients.client.message.date = datetime.fromisoformat("2026-09-23T03:00:00+00:00")
+    clients.client.message.id = 35389
+    clients.client.message.message = "PHINTAS Quick Notes | 23 September 2026\nPOWR outlook"
+    with pytest.raises(ValueError, match="at or behind the current Phintraco cursor"):
+        asyncio.run(scan.backfill_phintraco_quick_note(35389, now, clients))
+
+    assert load_state(tmp_state)["candidates"] == {}
+
+
+def test_backfill_cli_accepts_the_single_message_command(monkeypatch, capsys):
+    called = []
+
+    async def backfill(message_id):
+        called.append(message_id)
+        return {"message_id": message_id, "queued": True, "cursor_advanced": False}
+
+    monkeypatch.setattr(scan, "backfill_phintraco_quick_note", backfill)
+
+    assert scan.main(["backfill-phintraco-quick-note", "--message-id", "35376"]) == 0
+    assert called == [35376]
+    assert json.loads(capsys.readouterr().out) == {
+        "message_id": 35376,
+        "queued": True,
+        "cursor_advanced": False,
+    }
 
 
 def test_live_config_failure_stops_before_any_durable_state_mutation(tmp_state, monkeypatch):
@@ -340,7 +474,11 @@ def test_run_delivers_every_eligible_event_immediately_as_standalone_news(tmp_st
         "candidate_key": item["candidate_key"],
         "ticker": item["ticker"],
         "event_class": EventClass.MATERIAL_CONTRACT.value,
-        "title": f"{item['ticker']}: Material contract disclosed",
+        **(
+            {"title": f"{item['ticker']}: Material contract disclosed"}
+            if item["provider"] == Provider.TUNTUN.value
+            else {}
+        ),
             "summary": "The issuer disclosed a material contract. The disclosure identifies the agreement as material. The source names the disclosed contract value.",
         "material_facts": ["Contract value was disclosed."],
         "ranking_band": 1,
@@ -360,7 +498,11 @@ def test_run_delivers_every_eligible_event_immediately_as_standalone_news(tmp_st
         "candidate_key": second_item["candidate_key"],
         "ticker": second_item["ticker"],
         "event_class": EventClass.OTHER_COMPANY_OPERATION.value,
-        "title": f"{second_item['ticker']}: Operational update",
+        **(
+            {"title": f"{second_item['ticker']}: Operational update"}
+            if second_item["provider"] == Provider.TUNTUN.value
+            else {}
+        ),
     }
     second_result = asyncio.run(
         scan.submit_classification_payload(
@@ -494,7 +636,11 @@ def test_news_delivery_failure_stays_delivery_work_and_retries_once(tmp_state, m
         "candidate_key": item["candidate_key"],
         "ticker": item["ticker"],
         "event_class": EventClass.MATERIAL_CONTRACT.value,
-        "title": f"{item['ticker']}: Material contract disclosed",
+        **(
+            {"title": f"{item['ticker']}: Material contract disclosed"}
+            if item["provider"] == Provider.TUNTUN.value
+            else {}
+        ),
             "summary": "The issuer disclosed a material contract. The disclosure identifies the agreement as material. The source names the disclosed contract value.",
         "material_facts": ["Contract value was disclosed."],
         "ranking_band": 1,
@@ -538,7 +684,11 @@ def test_failed_tier_two_delivery_retries_without_waiting_for_a_scheduled_window
         "candidate_key": item["candidate_key"],
         "ticker": item["ticker"],
         "event_class": EventClass.OTHER_COMPANY_OPERATION.value,
-        "title": f"{item['ticker']}: Operational update",
+        **(
+            {"title": f"{item['ticker']}: Operational update"}
+            if item["provider"] == Provider.TUNTUN.value
+            else {}
+        ),
             "summary": "The issuer disclosed an operational update. The disclosure identifies the affected activity. The source provides the relevant operating detail.",
         "material_facts": ["Operational activity was disclosed."],
         "ranking_band": 1,
@@ -580,7 +730,11 @@ def test_tier_two_delivery_does_not_wait_for_a_market_window(tmp_state, monkeypa
                 "candidate_key": item["candidate_key"],
                 "ticker": item["ticker"],
                 "event_class": EventClass.OTHER_COMPANY_OPERATION.value,
-                "title": f"{item['ticker']}: Operational update",
+                **(
+                    {"title": f"{item['ticker']}: Operational update"}
+                    if item["provider"] == Provider.TUNTUN.value
+                    else {}
+                ),
                 "summary": "The issuer disclosed an operational update. The disclosure identifies the affected activity. The source provides the relevant operating detail.",
                 "material_facts": ["Operational activity was disclosed."],
                 "ranking_band": 1,
