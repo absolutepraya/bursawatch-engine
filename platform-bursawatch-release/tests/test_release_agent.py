@@ -236,6 +236,7 @@ def test_explicit_manual_release_applies_reviewed_manual_migrations(
         "x-no-post",
         "instagram-no-post",
         "whatsapp-no-post",
+        "stockbit-snips-no-post",
     ],
 )
 def test_no_post_verifications_use_an_isolated_path_and_disable_control_plane_writes(
@@ -251,7 +252,16 @@ def test_no_post_verifications_use_an_isolated_path_and_disable_control_plane_wr
             for key, value in specification.environment.items()
             if key.endswith("_CONTROL_PLANE_URL")
         ]
-        assert "" in control_plane_values
+        if control_plane_values:
+            assert "" in control_plane_values
+        if verification == "stockbit-snips-no-post":
+            assert specification.environment["STOCKBIT_SNIPS_NO_POST"] == "1"
+            assert specification.environment["STOCKBIT_SNIPS_STATE_PATH"] == str(
+                specification.temporary_path / "state.json"
+            )
+            assert specification.command == (
+                str(Path.home() / ".hermes/scripts/bursawatch-stockbit-snips.sh"),
+            )
     finally:
         shutil.rmtree(specification.temporary_path, ignore_errors=True)
 

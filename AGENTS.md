@@ -55,6 +55,7 @@ this contract:
 - `skill-profile-emoji/AGENTS.md`
 - `cron-wa-channel-watch/AGENTS.md`
 - `cron-x-account-watch/AGENTS.md`
+- `cron-stockbit-snips/AGENTS.md`
 - `platform-bursawatch-release/AGENTS.md`
 - `web-config/AGENTS.md`
 - `web-landing/AGENTS.md`
