@@ -1,0 +1,111 @@
+.workspace-progress {
+  padding: 28px 0;
+  color: var(--ink);
+}
+.workspace-progress-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.workspace-progress-heading strong {
+  font-size: 1rem;
+  font-weight: 550;
+}
+.workspace-progress p {
+  color: var(--muted);
+  margin: 8px 0 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+.workspace-progress-spinner {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--accent);
+  animation: workspace-progress-spin 1.2s linear infinite;
+}
+.workspace-skeleton {
+  display: grid;
+  gap: 22px;
+  margin-top: 28px;
+}
+.workspace-skeleton > span,
+.workspace-skeleton > div > span {
+  display: block;
+  min-height: 24px;
+  border-radius: var(--radius-control);
+  background: var(--surface-hover);
+}
+.workspace-skeleton > span:first-child {
+  width: 34%;
+}
+.workspace-skeleton > div {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.workspace-skeleton > div > span {
+  min-height: 84px;
+}
+.workspace-skeleton > span:last-child {
+  min-height: 160px;
+}
+.workspace-progress.is-compact {
+  padding: 16px 0 24px;
+}
+.workspace-progress-slow {
+  max-width: 760px;
+}
+.workspace-progress details {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.workspace-progress summary {
+  min-height: 44px;
+  cursor: pointer;
+  padding-block: 10px;
+  font-size: 0.875rem;
+}
+.workspace-progress ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.workspace-progress li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-block: 10px;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 0.8125rem;
+}
+.workspace-progress li span:last-child {
+  color: var(--muted);
+  text-align: right;
+}
+@keyframes workspace-progress-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (max-width: 540px) {
+  .workspace-skeleton > div {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .workspace-skeleton > div > span {
+    min-height: 44px;
+  }
+  .workspace-progress li {
+    flex-direction: column;
+    gap: 4px;
+  }
+  .workspace-progress li span:last-child {
+    text-align: left;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workspace-progress-spinner {
+    animation: none;
+  }
+}

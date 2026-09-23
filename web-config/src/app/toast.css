@@ -1,0 +1,39 @@
+.toast-region {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  z-index: 60;
+  max-width: min(420px, calc(100vw - 32px));
+  pointer-events: none;
+}
+.app-toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 12px 12px 18px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+  color: var(--ink);
+  box-shadow: 0 8px 24px #0005;
+  pointer-events: auto;
+}
+.app-toast > svg {
+  color: var(--positive);
+}
+.app-toast p {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.app-toast .icon-button {
+  flex-shrink: 0;
+}
+@media (max-width: 700px) {
+  .toast-region {
+    bottom: calc(84px + env(safe-area-inset-bottom));
+    right: 16px;
+    left: 16px;
+    max-width: none;
+  }
+}

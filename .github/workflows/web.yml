@@ -1,0 +1,91 @@
+name: Web CI
+
+on:
+  push:
+    paths:
+      - "web-config/**"
+      - "web-landing/**"
+      - ".github/workflows/web.yml"
+  pull_request:
+    paths:
+      - "web-config/**"
+      - "web-landing/**"
+      - ".github/workflows/web.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [web-config, web-landing]
+    env:
+      # Validation-only origin. CI does not connect to a hosted workspace.
+      BURSAWATCH_CONFIG_URL: https://config.example.test
+      NEXT_PUBLIC_SUPABASE_URL: https://workspace-smoke.example.test
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_workspace_smoke_fixture
+      CONTROL_PLANE_API_URL: https://control.example.test
+    defaults:
+      run:
+        working-directory: ${{ matrix.package }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: ${{ matrix.package }}/package-lock.json
+
+      - name: Install web dependencies
+        run: npm ci
+
+      - name: Validate web application
+        run: npm run check
+
+      - name: Install browser test runtime
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify application in Chromium
+        shell: bash
+        env:
+          WEB_PACKAGE: ${{ matrix.package }}
+        run: |
+          case "$WEB_PACKAGE" in
+            web-config) web_smoke_port=3100 ;;
+            web-landing) web_smoke_port=3200 ;;
+            *) exit 1 ;;
+          esac
+          export BURSAWATCH_TEST_URL="http://127.0.0.1:$web_smoke_port"
+          NEXT_DIST_DIR=.next-build node node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port "$web_smoke_port" &
+          web_smoke_pid=$!
+          trap 'kill "$web_smoke_pid" 2>/dev/null || true' EXIT
+          web_smoke_ready=0
+          for attempt in {1..30}; do
+            if curl --fail --silent "$BURSAWATCH_TEST_URL/" > /dev/null; then
+              web_smoke_ready=1
+              break
+            fi
+            if ! kill -0 "$web_smoke_pid" 2>/dev/null; then
+              echo "Web test server exited before becoming ready."
+              exit 1
+            fi
+            sleep 1
+          done
+          if [ "$web_smoke_ready" != 1 ]; then
+            echo "Web test server did not become ready within 30 seconds."
+            exit 1
+          fi
+          npm run test:browser

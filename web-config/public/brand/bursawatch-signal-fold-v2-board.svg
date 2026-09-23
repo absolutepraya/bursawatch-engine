@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="920" viewBox="0 0 1200 920">
+<title>Bursawatch Signal Fold — approved identity</title>
+<desc>The approved abstract B and folded-wing identity with application examples and a product-grounded philosophy.</desc>
+<defs><symbol id="mark" viewBox="0 0 96 96"><path fill="currentColor" d="M14 10H46C66 10 79 20 79 35C79 44 74 50 65 54L51 46C60 43 65 40 65 35C65 28 58 24 46 24H14V10Z"/><path fill="currentColor" d="M14 33H35L74 56C82 61 86 67 86 74C86 84 73 90 51 90H14V76H50C64 76 71 74 71 70C71 67 66 64 60 60L14 33Z"/><path fill="currentColor" d="M14 54H31L53 67H14V54Z"/></symbol></defs>
+<rect width="1200" height="920" fill="#141615"/>
+<g font-family="Hanken Grotesk, sans-serif" fill="#edf0eb">
+<text x="64" y="83" font-size="42" font-weight="500" letter-spacing="-1.3">Watch the sources. Keep the judgment.</text>
+<text x="64" y="123" font-size="17" fill="#a9b0a9">Bursawatch · Signal Fold / refinement 02</text>
+<rect x="64" y="164" width="474" height="420" rx="12" fill="#1c1f1d"/>
+<use href="#mark" x="150" y="205" width="280" height="280" color="#dea777"/>
+<text x="96" y="553" font-size="14" fill="#a9b0a9">Abstract B. A folded wing, without a literal bird.</text>
+<g transform="translate(598 193)">
+<text y="0" font-size="24">More meaning in the construction.</text>
+<text y="49" font-size="17" fill="#dea777">Separate inlets</text>
+<text y="76" font-size="16" fill="#a9b0a9">Multiple sources enter without losing their identity.</text>
+<text y="124" font-size="17" fill="#dea777">A deliberate gap</text>
+<text y="151" font-size="16" fill="#a9b0a9">Selection leaves irrelevant material out.</text>
+<text y="199" font-size="17" fill="#dea777">A diagonal fold</text>
+<text y="226" font-size="16" fill="#a9b0a9">The source becomes a brief, not a new opinion.</text>
+<text y="274" font-size="17" fill="#dea777">One continuous direction</text>
+<text y="301" font-size="16" fill="#a9b0a9">Watch, select, explain, deliver. The user decides.</text>
+<text y="366" font-size="13" fill="#a9b0a9">The story supports the mark; clarity must stand on its own.</text>
+</g>
+<rect x="64" y="612" width="474" height="139" rx="10" fill="#1c1f1d"/>
+<use href="#mark" x="91" y="649" width="54" height="54" color="#dea777"/>
+<text x="160" y="689" font-size="34" font-weight="600" letter-spacing="-1">Bursawatch</text>
+<rect x="562" y="612" width="252" height="139" rx="10" fill="#1c1f1d"/>
+<circle cx="688" cy="681" r="48" fill="#242825"/>
+<use href="#mark" x="659" y="652" width="58" height="58" color="#dea777"/>
+<rect x="838" y="612" width="298" height="139" rx="10" fill="#edf0eb"/>
+<use href="#mark" x="900" y="670" width="20" height="20" color="#141615"/>
+<use href="#mark" x="950" y="664" width="32" height="32" color="#141615"/>
+<use href="#mark" x="1012" y="656" width="48" height="48" color="#141615"/>
+<text x="64" y="804" font-size="20">Know what changed.</text>
+<text x="64" y="836" font-size="16" fill="#a9b0a9">Chosen sources. Preserved evidence. Clear briefs. Your judgment.</text>
+<text x="64" y="883" font-size="13" fill="#8b958d">Approved identity · 17 September 2026 · Original vector artwork</text>
+</g></svg>

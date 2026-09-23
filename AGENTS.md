@@ -3,7 +3,8 @@
 ## Scope and split boundary
 
 This private repository is the canonical Mac development source for
-Bursawatch market automation. It retains full pre-split Git history, while
+Bursawatch market automation and the two web applications. It retains full
+pre-split Git history, while
 Hermes Personal is a separate repository at
 `~/Documents/Projects/Hermes-Personal`.
 
@@ -54,6 +55,8 @@ this contract:
 - `cron-wa-channel-watch/AGENTS.md`
 - `cron-x-account-watch/AGENTS.md`
 - `platform-bursawatch-release/AGENTS.md`
+- `web-config/AGENTS.md`
+- `web-landing/AGENTS.md`
 
 ## Documentation model
 
@@ -116,6 +119,13 @@ explicitly approved action after review.
    It is the sole automatic deployment authority. A normal push never gives
    GitHub Actions deployment access.
 
+`web-config/` and `web-landing/` are independent Node 24 packages. Their
+source paths are release-manifest metadata, not VPS deployment units. Web CI
+validates both packages; Vercel projects deploy them separately from their
+package roots. Follow `DEPLOYMENT.md` for the web release sequence. Do not
+move web environment values into the backend service, copy backend credentials
+into either app, or infer that a successful web build proves live delivery.
+
 `service-cobalt/deploy.sh` owns Cobalt deployment. `skill-profile-emoji/deploy.sh`
 owns its skill deployment. The generic deploy helper supports cron and library
 packages only.
@@ -175,9 +185,11 @@ runtime data remain VPS-owned until a separate reviewed import is approved.
 
 ## Repository boundaries
 
-The Bursawatch web application is maintained in a separate repository and
-integrates with `service-bursawatch-control` through its versioned API
-contract. This repository has no web application or web deployment authority.
+The Bursawatch web applications live in `web-config/` and `web-landing/` and
+integrate with `service-bursawatch-control` through its versioned API
+contract. The backend release agent does not deploy either web package;
+their Vercel deployment remains a separate web-owned operation. Preserve
+the source migration provenance in `web-config/docs/MIGRATION.md`.
 `hermes-agent-starter/` is an ignored independent repository.
 
 Use English for this interactive engineering work unless the user asks for

@@ -1,0 +1,90 @@
+"use client";
+
+import { Activity, Clock3, LayoutDashboard, LogOut, Settings2, Workflow } from "lucide-react";
+import Link from "next/link";
+import { useEffect, useRef } from "react";
+import { BrandMark } from "@/components/brand";
+import "@/app/workspace-navigation.css";
+
+export type WorkspaceView = "overview" | "workflows" | "history" | "schedules" | "settings";
+
+const destinations = [
+  { id: "overview", label: "Overview", href: "/workspace", icon: LayoutDashboard },
+  { id: "workflows", label: "Workflows", href: "/workspace/workflows", icon: Workflow },
+  { id: "history", label: "History", href: "/workspace/history", icon: Activity },
+  { id: "schedules", label: "Schedules", href: "/workspace/schedules", icon: Clock3 },
+  { id: "settings", label: "Account", href: "/workspace/settings", icon: Settings2 },
+] as const;
+
+export function WorkspaceNavigation({
+  view,
+  onSignOut,
+  signingOut,
+}: {
+  view: WorkspaceView;
+  onSignOut: () => void;
+  signingOut: boolean;
+}) {
+  const navigation = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const element = navigation.current;
+    const workspace = element?.closest<HTMLElement>(".has-connected-navigation");
+    if (!element || !workspace) return;
+
+    // Text enlargement can wrap labels. Reserve the bar's actual height so
+    // the final content and footer remain reachable above mobile navigation.
+    const reserveNavigationSpace = () => {
+      workspace.style.setProperty(
+        "--connected-navigation-height",
+        `${Math.ceil(element.getBoundingClientRect().height)}px`,
+      );
+    };
+    reserveNavigationSpace();
+    const observer = new ResizeObserver(reserveNavigationSpace);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      workspace.style.removeProperty("--connected-navigation-height");
+    };
+  }, []);
+
+  return (
+    <aside className="connected-navigation">
+      <Link
+        href="/workspace"
+        className="connected-navigation-brand"
+        aria-label="Bursawatch workspace"
+      >
+        <BrandMark />
+        <span>Bursawatch</span>
+      </Link>
+
+      <nav
+        ref={navigation}
+        className="connected-navigation-links"
+        aria-label="Workspace navigation"
+      >
+        {destinations.map(({ id, label, href, icon: Icon }) => (
+          <Link key={id} href={href} aria-current={view === id ? "page" : undefined}>
+            <Icon size={19} strokeWidth={1.8} aria-hidden="true" />
+            <span>{label}</span>
+          </Link>
+        ))}
+      </nav>
+
+      <div className="connected-navigation-footer">
+        <button
+          type="button"
+          className="connected-navigation-signout"
+          onClick={onSignOut}
+          disabled={signingOut}
+          aria-busy={signingOut}
+        >
+          <LogOut size={19} strokeWidth={1.8} aria-hidden="true" />
+          <span>{signingOut ? "Signing out…" : "Sign out"}</span>
+        </button>
+      </div>
+    </aside>
+  );
+}

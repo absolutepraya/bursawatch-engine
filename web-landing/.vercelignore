@@ -1,0 +1,11 @@
+.env*
+.next
+.next-build
+node_modules
+coverage
+test-results
+playwright-report
+*.tsbuildinfo
+.lavish
+.impeccable
+**/CONTEXT.md

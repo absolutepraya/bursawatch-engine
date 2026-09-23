@@ -2,7 +2,8 @@
 
 [![CI](https://github.com/absolutepraya/bursawatch-engine/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/absolutepraya/bursawatch-engine/actions/workflows/ci.yml)
 
-Bursawatch is the Mac development source for market-focused Hermes automation.
+Bursawatch is the Mac development source for market-focused Hermes automation
+and its two web applications.
 Its scheduled packages deploy to the VPS as `bursawatch-<slug>`. Hermes
 Personal is a separate repository at `~/Documents/Projects/Hermes-Personal`,
 where personal crons deploy as `personal-<slug>`.
@@ -26,17 +27,37 @@ cron consumes that library at runtime, so its control state remains single-owner
 
 `service-bursawatch-control` owns the Bursawatch configuration and
 observability API. `lib-bursawatch-control` is the standard-library runtime
-client used by migrated crons. The Bursawatch web application is maintained in
-a separate repository and integrates through the service's versioned OpenAPI
-contract. The service can store a catalogued job's desired interval schedule,
-but only a separately approved VPS reconciler may apply that intent to Hermes.
+client used by migrated crons. The web workspace integrates through the
+service's versioned OpenAPI contract. The service can store a catalogued job's
+desired interval schedule, but only a separately approved VPS reconciler may
+apply that intent to Hermes.
 
 `skill-guess-stock` and `skill-profile-emoji` are reusable, non-scheduled
 market skills. `service-cobalt` is the tracked media-download service.
 `service-rsshub` records the VPS-owned shared RSSHub boundary without copying
 its compose files, credentials, cookies, proxy configuration, or runtime data
-into source control. The Bursawatch web application is maintained in a
-separate repository and integrates through `service-bursawatch-control`.
+into source control.
+
+## Web applications
+
+| Package | Purpose | Local guide |
+|---|---|---|
+| `web-landing` | Public product site and sample market walkthrough | [Landing setup](web-landing/README.md) |
+| `web-config` | Signed-in operator workspace for configuration, schedules and run evidence | [Workspace setup](web-config/README.md) |
+
+The current sites are [the landing page](https://bursawatch-web-landing.vercel.app/)
+and [the workspace](https://bursawatch-web-config.vercel.app/workspace).
+These URLs are existing Vercel deployments; this pull request only moves and
+reviews their source until a separate web release publishes the new revision.
+
+Each package installs and builds independently with Node 24. The workspace
+uses a signed-in user's Supabase token to call the control API through a
+same-origin proxy. The backend owns authorization, persistence, automation and
+delivery. The public `/app` concept uses local sample data; `/workspace` reads
+the control API. See the [web deployment guide](DEPLOYMENT.md) and
+[source migration record](web-config/docs/MIGRATION.md). The web source was
+previously developed in `dafandikri/bursawatch-web`; this import preserves
+that provenance and does not rewrite its history.
 
 ## Workflow
 1. Read the package `AGENTS.md` and its `CRON.md` or `SKILL.md`, then edit source under `cron-<slug>/bin/`.
@@ -50,6 +71,12 @@ The repository-local `finish-workflow` skill validates, commits, pushes, and
 opens or updates a pull request. It leaves the branch and worktree intact and
 does not deploy or merge changes. Deployment and post-merge cleanup need
 separate explicit approval.
+
+The two web applications stay in separate Vercel projects rooted at their
+package directories. Web CI validates them without credentials or deployment
+authority. The VPS release manifest treats web paths as metadata; it never
+copies web files to the VPS. A change to the release manifest itself remains
+subject to the release agent's manual review gate.
 
 ## Don't
 - Don't edit `~/.dotfiles/vps/agents/skills/<runtime>/`. It is an `rsync --delete` backup mirror pulled **from** the VPS.
@@ -74,9 +101,13 @@ suite directly, while the complete local command still runs every suite in
 one pass. The VPS release agent can additionally publish the exact production
 state as the `bursawatch/release` commit status.
 
+`Web CI` runs formatting, lint, type checks, unit tests, production builds and
+synthetic Chromium interaction tests for both web packages. It does not use
+production credentials or prove a live watcher run.
+
 ## Repository boundaries
 
-- This private repository is the canonical development source for Bursawatch market automation, shared libraries, reusable skills, and Cobalt.
+- This private repository is the canonical development source for Bursawatch market automation, its web applications, shared libraries, reusable skills, and Cobalt.
 - `hermes-agent-starter/` remains an independent repository and is intentionally ignored here.
 - Runtime state, credentials, caches, worktrees, generated previews, and MM backfill outputs are never tracked.
 - Cobalt cookies remain machine-local at `service-cobalt/compose/cookies.json`; the reviewed compose definition stays tracked.
