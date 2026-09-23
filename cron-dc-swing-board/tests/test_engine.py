@@ -267,6 +267,57 @@ def test_format_migration_moves_legacy_source_card_into_starter(engine):
     assert deletion.payload["message_id"] == "789"
 
 
+def test_format_migration_rewrites_completed_history_source_reply(engine):
+    source = social(
+        event_key="phintraco:1444713822:35197",
+        source="phintraco",
+        source_url="https://t.me/phintraprofits/35197",
+        all_content=(
+            "### <:phintraco:1> KPIG: Second target 5000 achieved\n"
+            "**Last updated:** 14 Sep 2026 09:23 WIB\n"
+            "[View in Telegram](<https://t.me/phintraprofits/35197>)"
+        ),
+        published_at=at("2026-09-20T09:05:00+07:00"),
+    )
+    engine.submit(source, at())
+    newer = social(
+        event_key="x:marketwriter:102",
+        published_at=at("2026-09-21T09:05:00+07:00"),
+        all_content="KPIG: New chart context",
+    )
+    engine.submit(newer, at("2026-09-21T09:06:00+07:00"))
+    engine.drain(now=at("2026-09-21T09:07:00+07:00"))
+
+    history_reply = next(
+        operation
+        for operation in operations(engine)
+        if operation.operation == "post_source_reply"
+        and ":history:" in operation.payload["nonce_value"]
+    )
+    legacy = source.all_content
+    with sqlite3.connect(engine.store.path) as connection:
+        connection.execute(
+            "UPDATE source_events SET all_content = ? WHERE event_key = ?",
+            (legacy, source.event_key),
+        )
+        connection.execute(
+            "UPDATE outbox SET payload_json = ? WHERE id = ?",
+            (json.dumps({**history_reply.payload, "content": legacy}), history_reply.id),
+        )
+
+    scheduled = engine.schedule_format_migration(at("2026-09-23T09:00:00+07:00"))
+
+    assert scheduled == 2
+    migration = next(
+        operation
+        for operation in operations(engine)
+        if operation.operation == "edit_starter"
+        and operation.payload.get("target_message_id") == "789"
+        and operation.payload.get("nonce_value", "").startswith("format-migration:v5:")
+    )
+    assert "**Last updated:** 14 Sep 2026 09:23 WIB\n\n[View in Telegram]" in migration.payload["content"]
+
+
 def test_buy_promotes_without_reposting_non_gtw_social_reply(engine):
     engine.submit(social(), at())
     engine.drain(now=at())
@@ -277,6 +328,45 @@ def test_buy_promotes_without_reposting_non_gtw_social_reply(engine):
     assert operations(engine)[1].payload["chart"] is None
     assert operations(engine)[3].payload["tag_names"] == ["Primary plan"]
     assert engine.store.active_episode("KPIG").title == "KPIG"
+
+
+def test_buy_promotion_reconciles_prior_phintraco_status_history(engine):
+    reminder = social(
+        event_key="phintraco:1444713822:35197",
+        source="phintraco",
+        source_url="https://t.me/phintraprofits/35197",
+        source_status="Second target 5000 achieved; All targets achieved",
+        source_title="KPIG: Second target 5000 achieved",
+        all_content=(
+            "### <:phintraco:1> KPIG: Second target 5000 achieved\n"
+            "**Last updated:** 14 Sep 2026 09:23 WIB\n"
+            "[View in Telegram](<https://t.me/phintraprofits/35197>)"
+        ),
+        published_at=at("2026-09-20T09:05:00+07:00"),
+    )
+    engine.submit(reminder, at("2026-09-20T09:06:00+07:00"))
+
+    setup = buy(
+        event_key="phintraco:1444713822:34908",
+        source_url="https://t.me/phintraprofits/34908",
+        published_at=at("2026-09-02T06:00:00+07:00"),
+        source_title="KPIG: Hold/Trading Buy",
+        all_content="### <:phintraco:1> KPIG: Buy",
+    )
+    engine.submit(setup, at("2026-09-23T09:00:00+07:00"))
+
+    episode = engine.store.episode(engine.store.episodes()[0].id)
+    assert (episode.lifecycle, episode.lifecycle_tag, episode.market_tag) == (
+        "resolved",
+        "Resolved",
+        "TP1 reached",
+    )
+    assert engine.store.active_plan(episode.id) is None
+    replies = [op for op in operations(engine) if op.operation == "post_source_reply"]
+    assert len(replies) == 1
+    edits = [op for op in operations(engine) if op.operation == "edit_starter"]
+    assert len(edits) == 2
+    assert "**Source status:** Second target 5000 achieved; All targets achieved" in edits[-1].payload["content"]
 
 
 def test_buy_promotes_and_preserves_latest_source_starter_once(engine):

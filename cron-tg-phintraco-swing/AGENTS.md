@@ -22,7 +22,7 @@ the URL, source defaults preserve the existing deployment behavior.
 
 ## Deterministic behavior and invariants
 
-Accept individual `Trading Buy`, `Buy on Support`, and `Speculative Buy` calls with the required source fields, qualifying source-marked outcomes and status updates, and validated same-ticker reply updates. Exclude sell calls, weekly bundles and PDFs, market reviews, media-only posts, and nearby inferred charts.
+Accept individual `Trading Buy`, `Hold/Trading Buy`, `Buy on Support`, and `Speculative Buy` calls with the required source fields, qualifying source-marked outcomes and status updates, and validated same-ticker reply updates. `Hold/Trading Buy` is a BUY subtype. Exclude sell calls, weekly bundles and PDFs, market reviews, media-only posts, and nearby inferred charts.
 
 On first successful activation, bootstrap from the newest Telegram message ID and forward no history. Only later calls are eligible. A message ID is a one-time event, so Telegram edits are ignored and changed captions, targets, advisor names, or charts are never revisited.
 

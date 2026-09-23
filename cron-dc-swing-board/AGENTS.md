@@ -6,7 +6,7 @@ This file supplements the repository root `AGENTS.md`. It is the canonical devel
 
 The board owner alone mutates its SQLite database, private media directory, forum threads, starter cards, replies, titles, tags, legacy history records, and archival state. It accepts only validated internal watcher events after their All Swing delivery. It never imports a watcher store or writes watcher state.
 
-The board is read-only and factual. It has no LLM, does not infer a plan or a price state, does not give trading advice, and does not place orders. Only a complete Phintraco Daily cash-equity BUY creates or replaces a Primary Plan. Only active cash-equity source events may reach the board.
+The board is read-only and factual. It has no LLM, does not infer a plan or a price state, does not give trading advice, and does not place orders. Only a complete Phintraco Daily cash-equity BUY creates or replaces a Primary Plan. Only active cash-equity source events may reach the board. When a complete BUY promotes an open source-only episode, already-recorded Phintraco status or reminder context after that BUY is reconciled against the new plan before the transition completes.
 
 Kelas Investasi GTW is a qualifying source-only cash-Swing input. It may open
 or append to a `Supporting setup` episode, but it never becomes the Primary Plan
@@ -99,7 +99,7 @@ The one-time tag migration is `migrate-tags --apply`; it converts legacy
 `Source plan` episodes to their source-specific tier and rewrites existing
 forum tag applications. The one-time presentation migration is
 `migrate-format --apply`; it rewrites existing starter cards and completed
-source replies through the shared cash-Swing renderer, moves recoverable legacy
+source replies, including completed history replies, through the shared cash-Swing renderer, moves recoverable legacy
 source starters and first charts into the starter card, and removes only the
 duplicated legacy source replies. The Phintraco legacy
 rewriter also promotes source-footer analyst names, normalizes ticker-first

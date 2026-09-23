@@ -204,6 +204,27 @@ def test_source_reply_removes_the_all_swing_board_marker_when_status_cannot_be_c
     assert rendered.endswith("[View in Telegram](<https://t.me/phintraprofits/35101>)")
 
 
+def test_phintraco_outcome_fallback_keeps_blank_line_before_telegram_footer():
+    event = replace(
+        example_buy_event(),
+        kind="social",
+        plan=None,
+        source_url="https://t.me/phintraprofits/35197",
+        source_status="Second target 5000 achieved; All targets achieved",
+        all_content=(
+            "### <:phintraco:1531272488645038091> AMMN: Second target 5000 achieved\n"
+            "-# Alrich Paskalis T, Phintraco Sekuritas\n\n"
+            "**Source status:** Second target 5000 achieved <:green:1531274822221434911>\n"
+            "**Last updated:** 14 Sep 2026 09:23 WIB\n"
+            "[View in Telegram](<https://t.me/phintraprofits/35197>)"
+        ),
+    )
+
+    rendered = render_source_reply(event)
+
+    assert "**Last updated:** 14 Sep 2026 09:23 WIB\n\n[View in Telegram]" in rendered
+
+
 def _phintraco_adapter():
     root = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(root / "lib-telegram-resilience/bin"))

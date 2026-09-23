@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "source_channel_id": 1444713822,
+  "events": [
+    {
+      "source_message_id": 34908,
+      "source_event_kind": "BUY",
+      "board_kind": "buy",
+      "target_all_message_id": null
+    }
+  ]
+}
