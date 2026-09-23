@@ -39,6 +39,7 @@ run_suite skill-guess-stock skill-guess-stock tests
 run_suite lib-telegram-resilience lib-telegram-resilience tests
 run_suite lib-bursawatch-control lib-bursawatch-control tests
 run_suite cron-x-account-watch cron-x-account-watch tests
+run_suite cron-stockbit-snips cron-stockbit-snips tests
 if [[ "${SKIP_WHATSAPP_CHANNEL_WATCH:-0}" == "1" ]]; then
   printf '\n== cron-wa-channel-watch == dedicated CI job\n'
 else

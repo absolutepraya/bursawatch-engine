@@ -783,6 +783,14 @@ def _no_post_specification(verification: str, state_root: Path) -> NoPostSpecifi
             }
         )
         command = (str(scripts / "bursawatch-wa-channel-watch.sh"),)
+    elif verification == "stockbit-snips-no-post":
+        environment.update(
+            {
+                "STOCKBIT_SNIPS_NO_POST": "1",
+                "STOCKBIT_SNIPS_STATE_PATH": str(base / "state.json"),
+            }
+        )
+        command = (str(scripts / "bursawatch-stockbit-snips.sh"),)
     else:
         raise DeploymentError(f"release manifest references an unknown verification: {verification}")
     return NoPostSpecification(command=command, environment=environment, temporary_path=base)

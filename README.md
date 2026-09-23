@@ -20,6 +20,7 @@ Every scheduled package has `AGENTS.md` and exactly one contract file:
 | `cron-x-account-watch` | `bursawatch-x-account-watch` | X-account watcher and queue worker |
 | `cron-ig-account-watch` | `bursawatch-ig-account-watch` | Instagram account and reel watcher |
 | `cron-wa-channel-watch` | `bursawatch-wa-channel-watch` | WhatsApp Channel watcher and queue |
+| `cron-stockbit-snips` | `bursawatch-stockbit-snips` | Stockbit Snips RSS news watcher |
 
 `lib-swing-format` is the shared cash-Swing renderer. `lib-telegram-resilience`
 owns the shared PolyCop Telegram control plane. Hermes Personal's Polymarket

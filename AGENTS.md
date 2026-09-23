@@ -19,8 +19,9 @@ Packages use these names:
 
 The current scheduled packages are `cron-tg-market-news`,
 `cron-tg-phintraco-swing`, `cron-tg-kelas-investasi-gtw`,
-`cron-dc-swing-board`, `cron-x-account-watch`, `cron-ig-account-watch`, and
-`cron-wa-channel-watch`. `idx-ca-watch` and `yanto-gateway-voice` are retired
+`cron-dc-swing-board`, `cron-x-account-watch`, `cron-ig-account-watch`,
+`cron-wa-channel-watch`, and `cron-stockbit-snips`. `idx-ca-watch` and
+`yanto-gateway-voice` are retired
 and must not be recreated.
 
 The first production cutover changes source, runtime, wrapper, and scheduler
@@ -54,6 +55,7 @@ this contract:
 - `skill-profile-emoji/AGENTS.md`
 - `cron-wa-channel-watch/AGENTS.md`
 - `cron-x-account-watch/AGENTS.md`
+- `cron-stockbit-snips/AGENTS.md`
 - `platform-bursawatch-release/AGENTS.md`
 - `web-config/AGENTS.md`
 - `web-landing/AGENTS.md`

@@ -205,6 +205,19 @@
       "paths": ["cron-wa-channel-watch/AGENTS.md", "cron-wa-channel-watch/integrations/**", "cron-wa-channel-watch/tests/**"]
     },
     {
+      "id": "cron-stockbit-snips",
+      "handler": "runtime",
+      "runtime": "bursawatch-stockbit-snips",
+      "paths": ["cron-stockbit-snips/bin/**", "cron-stockbit-snips/SKILL.md"],
+      "wrappers": [{"source": "bursawatch-stockbit-snips.sh", "destination": "bursawatch-stockbit-snips.sh"}],
+      "verification": "stockbit-snips-no-post"
+    },
+    {
+      "id": "cron-stockbit-snips-metadata",
+      "handler": "metadata",
+      "paths": ["cron-stockbit-snips/AGENTS.md", "cron-stockbit-snips/tests/**"]
+    },
+    {
       "id": "manual-schedule-reconciler",
       "handler": "manual",
       "paths": ["platform-hermes-schedule-reconciler/**"]

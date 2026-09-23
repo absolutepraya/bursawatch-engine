@@ -10,6 +10,7 @@ NO_AGENT_CRONS = {
 AGENT_BACKED_CRONS = {
     "cron-tg-market-news", "cron-tg-kelas-investasi-gtw",
     "cron-ig-account-watch", "cron-wa-channel-watch", "cron-x-account-watch",
+    "cron-stockbit-snips",
 }
 ALL_CRONS = NO_AGENT_CRONS | AGENT_BACKED_CRONS
 REDUNDANT_ROOT_DOCS = {
@@ -23,6 +24,7 @@ AGENT_GOVERNANCE_ANCHORS = {
     "cron-x-account-watch": ("relevance_guard_required", "Propose a complete JSON profile"),
     "cron-ig-account-watch": ("IG_COOKIE", "vision_partial", "universal RSSHub instance"),
     "cron-wa-channel-watch": ("existing single Baileys bridge", "future-only"),
+    "cron-stockbit-snips": ("Stockbit Commentary", "future-only"),
 }
 DEPLOYMENT_ONLY_SCHEDULER_PATTERNS = (
     re.compile(r"\bregister\b[^.\n]{0,120}\b(?:cron|schedule|interval)\b", re.I),
@@ -69,7 +71,7 @@ def readme_cron_inventory() -> set[str]:
 def test_cron_classification_is_complete_and_disjoint() -> None:
     assert NO_AGENT_CRONS.isdisjoint(AGENT_BACKED_CRONS), "cron classes overlap"
     assert "cron-dc-swing-board" in NO_AGENT_CRONS
-    assert len(ALL_CRONS) == 7, "update the reviewed cron classification"
+    assert len(ALL_CRONS) == 8, "update the reviewed cron classification"
     assert all((ROOT / cron).is_dir() for cron in ALL_CRONS), "missing cron source directory"
     assert readme_cron_inventory() == ALL_CRONS, (
         "README.md cron inventory must match the reviewed cron classification"
