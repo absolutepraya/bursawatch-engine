@@ -331,7 +331,7 @@ def assign_tier(state: dict[str, object], item: SelectionCandidate) -> Tier | No
     if record.get("phase") != "pending_selection":
         raise StateBlockedError(f"candidate {item.key!r} is not awaiting tier selection")
 
-    if item.route is Destination.EXCLUDE:
+    if item.route is Destination.EXCLUDE or item.event_class is EventClass.NOT_ELIGIBLE:
         _set_phase(record, "suppressed_ineligible")
         save_state(state)
         return None

@@ -338,6 +338,101 @@ async def _ingest_provider(
         return 0, 0, _clean_reason(error)
 
 
+async def backfill_phintraco_quick_note(
+    message_id: int,
+    now: datetime | None = None,
+    clients: object | None = None,
+) -> dict[str, object]:
+    """Queue one verified Phintraco Quick Note published today without moving its cursor."""
+    now = _require_aware(now or datetime.now(WIB))
+    if not isinstance(message_id, int) or isinstance(message_id, bool) or message_id < 1:
+        raise ValueError("message_id must be a positive integer")
+
+    loaded_config = config.load_watch_config_for_run()
+    owned_client: Any | None = None
+    try:
+        with config.activate_watch_config(loaded_config.config):
+            if clients is None:
+                resilience_control = resilience()
+                decision = await acquire_probe_after_active_lease(
+                    resilience_control, WATCHER_NAME, now
+                )
+                if decision.kind != "probe":
+                    raise StateBlockedError(
+                        f"shared Telegram resilience deferred Quick Note backfill ({decision.kind})"
+                    )
+                owned_client = _make_client()
+                try:
+                    await owned_client.connect()
+                    if not await owned_client.is_user_authorized():
+                        resilience_control.record_auth_required(decision.lease_id, WATCHER_NAME, now)
+                        raise StateBlockedError("Telegram authorization is required for Quick Note backfill")
+                    await owned_client.get_me()
+                    dc_id, endpoint = _connection_metadata(owned_client)
+                    resilience_control.record_authenticated_success(
+                        decision.lease_id, WATCHER_NAME, now, dc_id, endpoint
+                    )
+                except Exception as error:
+                    if is_transport_error(error):
+                        resilience_control.record_transport_failure(
+                            decision.lease_id, WATCHER_NAME, error, now
+                        )
+                    await _disconnect_quietly(owned_client)
+                    owned_client = None
+                    raise
+                entity = await owned_client.get_entity(loaded_config.config.phintraco_username)
+                telegram_client = owned_client
+            else:
+                runtime = _provided_runtime_clients(clients)
+                entity = runtime.phintraco_entity
+                telegram_client = runtime.client
+
+            fetched = await telegram_client.get_messages(entity, ids=message_id)
+            if isinstance(fetched, Sequence) and not isinstance(fetched, (str, bytes)):
+                if len(fetched) != 1:
+                    raise ValueError(f"Telegram did not return exactly message {message_id}")
+                message = fetched[0]
+            else:
+                message = fetched
+            if message is None or _message_id(message) != message_id:
+                raise ValueError(f"Telegram did not return exactly message {message_id}")
+
+            published_at = _message_published_at(message)
+            if published_at.astimezone(WIB).date() != now.astimezone(WIB).date():
+                raise ValueError("Quick Note backfill is limited to a Phintraco message published today")
+            candidates = PhintracoNewsAdapter().extract_candidates(
+                message_id,
+                _message_text(message),
+                published_at,
+                bool(getattr(message, "photo", None)),
+            )
+            quick_notes = [
+                candidate
+                for candidate in candidates
+                if candidate.source_kind is SourceKind.PHINTRACO_QUICK_NOTE
+            ]
+            if len(quick_notes) != 1:
+                raise ValueError("message is not exactly one supported Phintraco Quick Note")
+
+            with run_lock():
+                state = load_state()
+                if not provider_bootstrap_complete(state, Provider.PHINTRACO):
+                    raise StateBlockedError("Phintraco provider cursor must be bootstrapped before backfill")
+                if message_id > provider_cursor(state, Provider.PHINTRACO):
+                    raise ValueError("Quick Note backfill message must be at or behind the current Phintraco cursor")
+                candidate = quick_notes[0]
+                queued = enqueue_candidate(state, candidate, now)
+                return {
+                    "candidate_key": candidate.key,
+                    "message_id": message_id,
+                    "queued": queued,
+                    "cursor_advanced": False,
+                }
+    finally:
+        if owned_client is not None:
+            await _disconnect_quietly(owned_client)
+
+
 def _selection_item_from_record(key: str, record: Mapping[str, object]) -> SelectionCandidate | None:
     payload = record.get("candidate")
     selection_data = record.get("selection")
@@ -996,11 +1091,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command")
     submit = subparsers.add_parser("submit-classification")
     submit.add_argument("--json", required=True, dest="payload")
+    backfill = subparsers.add_parser(
+        "backfill-phintraco-quick-note",
+        help="queue one verified Phintraco Quick Note published today without moving the source cursor",
+    )
+    backfill.add_argument("--message-id", required=True, type=int)
     arguments = parser.parse_args(argv)
     try:
         if arguments.command == "submit-classification":
             payload = json.loads(arguments.payload)
             result = asyncio.run(submit_classification_payload(payload))
+        elif arguments.command == "backfill-phintraco-quick-note":
+            result = asyncio.run(backfill_phintraco_quick_note(arguments.message_id))
         else:
             result = asyncio.run(run())
     except Exception as error:

@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from domain import Provider
+from domain import Provider, SourceKind
 from sources import (
     PhintracoNewsAdapter,
     TuntunNewsAdapter,
@@ -313,6 +313,65 @@ def test_phintraco_branded_notes_extracts_ticker_from_the_headline_line():
 
     assert [candidate.ticker for candidate in candidates] == ["ELSA"]
     assert candidates[0].source_kind.value == "phintraco_note"
+
+
+def test_phintraco_quick_notes_extracts_issuer_from_the_headline():
+    content = (
+        "PHINTAS Quick Notes | 23 September 2026\n\n"
+        "POWR Berpotensi Catat Pertumbuhan Kinerja pada 2026\n"
+        "Phintraco estimates FY26 revenue growth, subject to execution."
+    )
+
+    candidates = PhintracoNewsAdapter().extract_candidates(
+        35376,
+        content,
+        datetime(2026, 9, 23, 3, 0, tzinfo=timezone.utc),
+        False,
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].ticker == "POWR"
+    assert candidates[0].source_kind is SourceKind.PHINTRACO_QUICK_NOTE
+    assert candidates[0].source_text == content
+
+
+def test_phintraco_branded_macro_notes_create_one_tickerless_candidate():
+    content = (
+        "Phintraco Sekuritas Notes | 23 September 2026\n\n"
+        "Landbank Implications from Agrarian Reform\n"
+        "The policy may affect several listed property developers."
+    )
+
+    candidates = PhintracoNewsAdapter().extract_candidates(
+        35378,
+        content,
+        datetime(2026, 9, 23, 2, 40, tzinfo=timezone.utc),
+        False,
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].ticker is None
+    assert candidates[0].source_kind is SourceKind.PHINTRACO_NOTE
+    assert candidates[0].candidate_id == "news"
+
+
+def test_phintraco_company_update_extracts_the_single_headline_issuer():
+    content = (
+        "Phintraco Sekuritas Company Update\n"
+        "MEDC: Positive Momentum with Strengthening Production and Strategic Assets\n"
+        "Phintraco estimates FY26 revenue at US$2.63 billion."
+    )
+
+    candidates = PhintracoNewsAdapter().extract_candidates(
+        35381,
+        content,
+        datetime(2026, 9, 23, 2, 39, 12, tzinfo=timezone.utc),
+        False,
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].ticker == "MEDC"
+    assert candidates[0].source_kind is SourceKind.PHINTRACO_COMPANY_UPDATE
 
 
 def test_tuntun_wrong_topic_and_market_update_are_excluded(load_fixture):

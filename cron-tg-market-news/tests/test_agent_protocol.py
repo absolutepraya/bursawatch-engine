@@ -96,6 +96,15 @@ def test_wake_payload_uses_the_frozen_operator_prompt_and_source_username():
     assert payload["items"] == [item]
 
 
+def test_phintraco_prompt_includes_route_classification_and_estimate_attribution(later_candidate):
+    instruction = agent_item(later_candidate)["instruction"]
+
+    assert "macro_news" in instruction
+    assert "broader market" in instruction
+    assert "Attribute research estimates to Phintraco" in instruction
+    assert "preserve the stated period, units" in instruction
+
+
 def test_agent_submission_requires_exact_candidate_ticker(load_fixture):
     payload = json.loads(load_fixture("classification-invalid-ticker.json"))
     payload["candidate_key"] = "tuntun:13597:DEWA"
@@ -144,9 +153,35 @@ def test_phintraco_submission_does_not_require_a_title(candidate, later_candidat
         }
     )
     payload.pop("title")
-    payload.pop("route")
 
     assert _validate(payload, later_candidate) is EventClass.MATERIAL_CONTRACT
+
+
+def test_phintraco_submission_requires_a_closed_route(load_fixture, later_candidate):
+    payload = json.loads(load_fixture("classification-valid.json"))
+    payload.update({"candidate_key": later_candidate.key, "ticker": later_candidate.ticker})
+    payload.pop("title")
+    payload.pop("route")
+
+    with pytest.raises(ValueError, match="route"):
+        _validate(payload, later_candidate)
+
+
+def test_phintraco_macro_route_can_suppress_an_issuer_card(load_fixture, later_candidate):
+    payload = json.loads(load_fixture("classification-valid.json"))
+    payload.update(
+        {
+            "candidate_key": later_candidate.key,
+            "ticker": later_candidate.ticker,
+            "route": "macro_news",
+        }
+    )
+    payload.pop("title")
+
+    assert _validate(payload, later_candidate) is EventClass.MATERIAL_CONTRACT
+    payload["eligible"] = False
+    with pytest.raises(ValueError, match="eligible"):
+        _validate(payload, later_candidate)
 
 
 @pytest.mark.parametrize(
@@ -318,3 +353,23 @@ def test_submit_classification_persists_validated_event_class(load_fixture, cand
     assert state["candidates"][candidate.key]["phase"] == "pending_selection"
     assert state["candidates"][candidate.key]["selection"]["title"] == "DEWA: Kontrak material terungkap"
     assert state["candidates"][candidate.key]["selection"]["route"] == "id_stocks_news"
+
+
+def test_submit_classification_persists_phintraco_macro_route(load_fixture, later_candidate):
+    now = datetime(2026, 7, 14, 1, 0, tzinfo=timezone.utc)
+    state = empty_state()
+    enqueue_candidate(state, later_candidate, now)
+    assert claim_oldest_pending_analysis(state, now) == later_candidate
+    payload = json.loads(load_fixture("classification-valid.json"))
+    payload.update(
+        {
+            "candidate_key": later_candidate.key,
+            "ticker": later_candidate.ticker,
+            "route": "macro_news",
+        }
+    )
+    payload.pop("title")
+
+    submit_classification(state, later_candidate, payload, now)
+
+    assert state["candidates"][later_candidate.key]["selection"]["route"] == "macro_news"

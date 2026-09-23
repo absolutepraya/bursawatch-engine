@@ -416,9 +416,9 @@ def test_validated_selection_data_survives_reload_for_duplicate_and_digest_ranki
             "eligible": True,
             "source_evidence": "The provider message directly states the update.",
         }
+        payload["route"] = "id_stocks_news"
         if provider is Provider.TUNTUN:
             payload["title"] = f"{ticker}: Operational update"
-            payload["route"] = "id_stocks_news"
         submit_classification(
             current_state,
             claimed,

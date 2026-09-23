@@ -40,6 +40,8 @@ _PHINTRACO_TICKER_TITLE = re.compile(
 )
 _PHINTRACO_COMPANY_NOTES_TICKER = re.compile(rf"[–-]\s*(?P<ticker>{_IDX_TICKER})\.IJ\b")
 _PHINTRACO_BRANDED_NOTES = re.compile(r"^Phintraco Sekuritas Notes\s*\|", re.IGNORECASE)
+_PHINTRACO_QUICK_NOTES = re.compile(r"^PHINTAS Quick Notes\s*\|", re.IGNORECASE)
+_PHINTRACO_COMPANY_UPDATE = re.compile(r"^Phintraco Sekuritas Company Update\s*:?[ \t]*$", re.IGNORECASE)
 _PHINTRACO_HEADLINE_TICKER = re.compile(rf"^(?P<ticker>{_IDX_TICKER})(?=\s|:|-|\(|$)")
 _PHINTRACO_STOCK_LINE = re.compile(
     rf"^(?P<ticker>{_IDX_TICKER})\s*(?:\([^\r\n)]+\))?\s*(?::|-)\s*\S.*$"
@@ -480,20 +482,41 @@ class PhintracoNewsAdapter:
                 )
             ]
 
-        if _PHINTRACO_BRANDED_NOTES.match(header):
+        if _PHINTRACO_BRANDED_NOTES.match(header) or _PHINTRACO_QUICK_NOTES.match(header):
             headline = next((line.strip() for line in lines[1:] if line.strip()), "")
+            if not headline:
+                return []
             title = _PHINTRACO_HEADLINE_TICKER.match(headline)
-            if title is None:
-                return []
-            ticker = _ticker_from_match(title)
-            if ticker is None:
-                return []
+            ticker = _ticker_from_match(title) if title is not None else None
+            source_kind = (
+                SourceKind.PHINTRACO_QUICK_NOTE
+                if _PHINTRACO_QUICK_NOTES.match(header)
+                else SourceKind.PHINTRACO_NOTE
+            )
             return [
                 _candidate(
                     self.provider,
                     message_id,
                     ticker,
-                    SourceKind.PHINTRACO_NOTE,
+                    source_kind,
+                    published_at,
+                    content,
+                    direct_image,
+                )
+            ]
+
+        if _PHINTRACO_COMPANY_UPDATE.match(header):
+            headline = next((line.strip() for line in lines[1:] if line.strip()), "")
+            if not headline:
+                return []
+            title = _PHINTRACO_HEADLINE_TICKER.match(headline)
+            ticker = _ticker_from_match(title) if title is not None else None
+            return [
+                _candidate(
+                    self.provider,
+                    message_id,
+                    ticker,
+                    SourceKind.PHINTRACO_COMPANY_UPDATE,
                     published_at,
                     content,
                     direct_image,
