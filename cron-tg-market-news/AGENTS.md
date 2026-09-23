@@ -110,7 +110,7 @@ Use all three controls together for an isolated no-post smoke:
 IDX_MARKET_NEWS_NO_POST=1 IDX_MARKET_NEWS_STATE_PATH=/tmp/idx-market-news-smoke.json IDX_MARKET_NEWS_FORCE_HEARTBEAT=1 bash ~/.hermes/scripts/bursawatch-tg-market-news.sh
 ```
 
-The smoke initializes provider cursors only in the temporary state, prints the forced heartbeat, and makes no Discord request. It is not permission to run the registered cron, reset state, backfill, or send a test message.
+The smoke initializes provider cursors only in the temporary state and places Telegram resilience state and logs beside that temporary file. It prints the forced heartbeat and makes no Discord request. No-post mode refuses a state path inside `~/.hermes/state/`. It is not permission to run the registered cron, reset state, backfill, or send a test message.
 
 ## Independent watchdog schedule
 

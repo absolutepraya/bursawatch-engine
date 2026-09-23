@@ -91,6 +91,29 @@ def _backfill_clients(message):
     )
 
 
+def test_no_post_resilience_uses_files_beside_isolated_watcher_state(tmp_path, monkeypatch):
+    watcher_state_path = tmp_path / "state.json"
+    monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(watcher_state_path))
+
+    control = scan.resilience()
+
+    assert control.state_path == tmp_path / "state.json.telegram-resilience.json"
+    assert control.log_path == tmp_path / "state.json.telegram-resilience.jsonl"
+
+
+def test_no_post_resilience_refuses_production_watcher_state(tmp_path, monkeypatch):
+    monkeypatch.setattr(scan.Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
+    monkeypatch.setenv(
+        "IDX_MARKET_NEWS_STATE_PATH",
+        str(tmp_path / ".hermes" / "state" / "idx-market-news.json"),
+    )
+
+    with pytest.raises(RuntimeError, match="isolated IDX_MARKET_NEWS_STATE_PATH"):
+        scan.resilience()
+
+
 def test_message_topic_id_reads_the_forum_root_reply_message_id():
     message = SimpleNamespace(
         reply_to=SimpleNamespace(reply_to_msg_id=3743, reply_to_top_id=None, forum_topic=True)

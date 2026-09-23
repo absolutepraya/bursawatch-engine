@@ -165,6 +165,21 @@ def _make_client() -> Any:
 
 
 def resilience() -> PolyCopResilience:
+    if _dry_run():
+        state_path_value = os.environ.get("IDX_MARKET_NEWS_STATE_PATH", "").strip()
+        if not state_path_value:
+            raise RuntimeError("no-post mode requires an isolated IDX_MARKET_NEWS_STATE_PATH")
+        watcher_state_path = Path(state_path_value).expanduser().resolve()
+        production_state_root = (Path.home() / ".hermes" / "state").resolve()
+        if watcher_state_path.is_relative_to(production_state_root):
+            raise RuntimeError("no-post mode requires an isolated IDX_MARKET_NEWS_STATE_PATH")
+        resilience_state_path = watcher_state_path.with_name(
+            watcher_state_path.name + ".telegram-resilience.json"
+        )
+        resilience_log_path = watcher_state_path.with_name(
+            watcher_state_path.name + ".telegram-resilience.jsonl"
+        )
+        return PolyCopResilience.for_paths(resilience_state_path, resilience_log_path)
     return PolyCopResilience.from_defaults()
 
 
