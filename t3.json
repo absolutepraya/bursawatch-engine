@@ -4,7 +4,7 @@
   "scripts": [
     {
       "name": "Prepare Hermes worktree",
-      "command": "if [ -n \"${T3CODE_WORKTREE_PATH:-}\" ] && [ -n \"${T3CODE_PROJECT_ROOT:-}\" ] && [ \"$T3CODE_WORKTREE_PATH\" != \"$T3CODE_PROJECT_ROOT\" ] && [ -d service-bursawatch-control ] && [ -f \"$T3CODE_PROJECT_ROOT/service-bursawatch-control/.env\" ]; then if [ -e service-bursawatch-control/.env ] || [ -L service-bursawatch-control/.env ]; then echo \"refusing to replace existing service-bursawatch-control/.env\" >&2; exit 1; fi; ln -s \"$T3CODE_PROJECT_ROOT/service-bursawatch-control/.env\" service-bursawatch-control/.env; fi",
+      "command": "if [ -n \"${T3CODE_WORKTREE_PATH:-}\" ] && [ -n \"${T3CODE_PROJECT_ROOT:-}\" ]; then bash \"$T3CODE_WORKTREE_PATH/scripts/prepare-control-plane-worktree.sh\" \"$T3CODE_PROJECT_ROOT\" \"$T3CODE_WORKTREE_PATH\"; fi",
       "icon": "configure",
       "runOnWorktreeCreate": true,
       "async": false

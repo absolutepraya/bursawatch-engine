@@ -80,6 +80,16 @@ raw Git worktree when the repository is WT-configured. An explicit current-chat
 request from the human user to work on `main` overrides that default: work
 directly on `main` until the user asks to use a worktree again.
 
+T3 Code keeps its own worktree manager. In `t3.json`,
+`defaultThreadEnvMode = "worktree"` is a repository fallback, so T3 project or
+environment settings take precedence. WT and T3 worktree creation both call
+`scripts/prepare-control-plane-worktree.sh` to share the ignored
+`service-bursawatch-control/.env` only when the package is present and the
+worktree has no conflicting path. T3 project actions from `t3.json` require an
+explicit import in T3 before `runOnWorktreeCreate` runs; a tracked file alone
+does not enable the action. T3's project file does not configure WT's worktree
+directory, slot allocation, port offsets, branch template, or base branch.
+
 The repository-local `.agents/skills/finish-workflow/` skill is an optional
 review and pull-request handoff. Do not create a pull request automatically;
 use that skill only when the user asks for a review or pull request. It retains
