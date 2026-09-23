@@ -49,6 +49,10 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
   quoted history replies recorded by the owner. `migrate-titles --apply` makes
   every existing forum topic title ticker-only. Future source replacements keep
   that topic title stable; descriptive titles remain in starter cards.
+- **Image filename repair:** `repair-starter-media --event-key <key>
+  --expected-thread-id <id>` previews one active source card repair. Add
+  `--apply` to replace its attachment in place through the durable owner outbox;
+  it never creates a new forum thread.
 - **Check:** set `IDX_SWING_PLAN_BOARD_NO_POST=1` and isolated state and media paths. Never reset state or create a live forum item.
 - **Bootstrap:** `bootstrap --dry-run --lookback-sessions 20` reads
   Phintraco Telegram history through its resilience lease and reports candidate

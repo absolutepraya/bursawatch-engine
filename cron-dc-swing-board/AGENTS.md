@@ -111,6 +111,14 @@ control.
 The one-time `migrate-titles --apply` command renames existing forum topics to
 their ticker-only names without changing starter content or tags.
 
+`repair-starter-media --event-key <key> --expected-thread-id <id>` previews a
+single open source starter whose image lost its filename type extension. It
+requires the exact current starter event and thread, an unarchived unlocked
+forum topic, the original single attachment, and matching image bytes. Add
+`--apply` to queue an in-place edit through the durable owner outbox. The
+command refuses resolved, archived, changed, or ambiguous topics and never
+creates a replacement thread.
+
 The live forum defaults to List View, Latest Activity ordering, and a
 three-day inactivity archive. Discord does not support tag-first or nested
 tag-then-date ordering; tags remain user-selectable filters.

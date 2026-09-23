@@ -50,6 +50,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     engine = BoardEngine(BoardStore(_state_path()), DiscordForumClient())
     if arguments.command == "submit-source-event":
         return _submit_source_event(engine, loaded_config)
+    if arguments.command == "repair-starter-media":
+        return _repair_starter_media(
+            engine,
+            arguments.event_key,
+            arguments.expected_thread_id,
+            apply=arguments.apply,
+        )
     if arguments.command == "drain":
         health = {"drained": engine.drain(), **engine.store.outbox_health()}
         print(json.dumps(health, separators=(",", ":")))
@@ -116,6 +123,10 @@ def _parser() -> argparse.ArgumentParser:
     subcommands = parser.add_subparsers(dest="command", required=True)
     submit = subcommands.add_parser("submit-source-event")
     submit.add_argument("--stdin", action="store_true", required=True)
+    repair_media = subcommands.add_parser("repair-starter-media")
+    repair_media.add_argument("--event-key", required=True)
+    repair_media.add_argument("--expected-thread-id", required=True)
+    repair_media.add_argument("--apply", action="store_true")
     subcommands.add_parser("drain")
     migrate = subcommands.add_parser("migrate-format")
     migrate.add_argument("--apply", action="store_true")
@@ -271,6 +282,165 @@ def _submit_source_event(
         control_run.finish(outcome, failure)
 
 
+def _repair_starter_media(
+    engine: BoardEngine,
+    event_key: str,
+    expected_thread_id: str,
+    *,
+    apply: bool,
+) -> int:
+    """Replace one open source card's wrongly named image through the owner outbox."""
+    episode = engine.store.episode_for_event(event_key)
+    if episode is None:
+        raise ValueError("source event has no Board episode")
+    if (
+        episode.closed_at is not None
+        or episode.lifecycle == "resolved"
+        or episode.thread_id != expected_thread_id
+        or not episode.starter_message_id
+    ):
+        raise ValueError("source event is not the expected open Board starter")
+
+    source_record = next(
+        (
+            (event_id, event)
+            for event_id, event in engine.store.episode_source_events(episode.id)
+            if event.event_key == event_key
+        ),
+        None,
+    )
+    if source_record is None or source_record[0] != episode.starter_source_event_id:
+        raise ValueError("source event does not own the current Board starter")
+    event = source_record[1]
+    if event.media_path is None:
+        raise ValueError("Board starter has no source image")
+
+    source_path = Path(event.media_path)
+    if not source_path.is_file():
+        raise ValueError("Board source image is unavailable")
+    suffix = _media_suffix(source_path)
+    if suffix not in {".jpg", ".png", ".gif", ".webp"}:
+        raise ValueError("Board source media is not a recognized image")
+    digest = hashlib.sha256(event.event_key.encode("utf-8")).hexdigest()
+    chart_path = _media_root() / f"{digest}{suffix}"
+
+    thread = engine.client.get_thread(expected_thread_id)
+    metadata = thread.get("thread_metadata")
+    if (
+        thread.get("parent_id") != "1548273399069933720"
+        or thread.get("name") != event.ticker
+        or not isinstance(metadata, dict)
+        or metadata.get("archived") is not False
+        or metadata.get("locked") is True
+    ):
+        raise ValueError("expected Board thread is archived, locked, or mismatched")
+    current = engine.client.get_message(expected_thread_id, episode.starter_message_id)
+    attachments = current.get("attachments")
+    if not isinstance(attachments, list) or len(attachments) != 1:
+        raise ValueError("Board starter attachment changed since review")
+    attachment = attachments[0]
+    if not isinstance(attachment, dict):
+        raise ValueError("Board starter attachment changed since review")
+    current_name = attachment.get("filename")
+    expected_mime = {
+        ".jpg": "image/jpeg",
+        ".png": "image/png",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+    }[suffix]
+    if current_name == chart_path.name and attachment.get("content_type") == expected_mime:
+        print(json.dumps({
+            "mode": "repair-starter-media",
+            "status": "already-correct",
+            "ticker": event.ticker,
+            "thread_id": expected_thread_id,
+            "message_id": episode.starter_message_id,
+            "filename": chart_path.name,
+            "created_thread": False,
+        }, separators=(",", ":")))
+        return 0
+    if current_name != source_path.name:
+        raise ValueError("Board starter filename changed since review")
+    if current.get("content") is None or attachment.get("size") != source_path.stat().st_size:
+        raise ValueError("Board starter content or image size changed since review")
+
+    dedupe_key = (
+        f"maintenance:chart-filename:{expected_thread_id}:"
+        f"{episode.starter_message_id}:{attachment.get('id')}:{chart_path.name}"
+    )
+    report = {
+        "mode": "repair-starter-media",
+        "ticker": event.ticker,
+        "thread_id": expected_thread_id,
+        "message_id": episode.starter_message_id,
+        "old_filename": current_name,
+        "new_filename": chart_path.name,
+        "created_thread": False,
+    }
+    if not apply:
+        print(json.dumps({**report, "status": "planned", "apply_required": True}, separators=(",", ":")))
+        return 0
+    if engine.client.no_post:
+        raise RuntimeError("repair-starter-media requires live Discord")
+
+    with engine.store.delivery_lock() as acquired:
+        if not acquired:
+            raise RuntimeError("Board delivery is already in progress")
+        if engine.store.outbox_health()["pending"]:
+            raise RuntimeError("Board has pending deliveries; refusing unrelated outbox drain")
+        latest_thread = engine.client.get_thread(expected_thread_id)
+        latest_metadata = latest_thread.get("thread_metadata")
+        latest_message = engine.client.get_message(expected_thread_id, episode.starter_message_id)
+        latest_attachments = latest_message.get("attachments")
+        if (
+            latest_thread.get("parent_id") != "1548273399069933720"
+            or latest_thread.get("name") != event.ticker
+            or not isinstance(latest_metadata, dict)
+            or latest_metadata.get("archived") is not False
+            or latest_metadata.get("locked") is True
+            or not isinstance(latest_attachments, list)
+            or len(latest_attachments) != 1
+            or not isinstance(latest_attachments[0], dict)
+            or latest_attachments[0].get("id") != attachment.get("id")
+            or latest_attachments[0].get("filename") != current_name
+            or latest_attachments[0].get("size") != source_path.stat().st_size
+            or latest_message.get("content") != current.get("content")
+        ):
+            raise RuntimeError("Board thread or starter changed during repair review")
+        chart_event = _own_media(event)
+        chart_path = Path(str(chart_event.media_path))
+        if chart_path.name != report["new_filename"]:
+            raise RuntimeError("Board image extension changed during repair")
+        with engine.store.transaction() as tx:
+            latest = tx.episode(episode.id)
+            if (
+                latest.closed_at is not None
+                or latest.lifecycle == "resolved"
+                or latest.thread_id != expected_thread_id
+                or latest.starter_message_id != episode.starter_message_id
+                or latest.starter_source_event_id != source_record[0]
+            ):
+                raise RuntimeError("Board starter changed during repair review")
+            tx.enqueue_outbox(
+                "edit_starter",
+                episode.id,
+                {
+                    "content": str(current["content"]),
+                    "chart": str(chart_path),
+                    "clear_attachments": False,
+                    "nonce_value": dedupe_key,
+                },
+                dedupe_key,
+                datetime.now(WIB),
+            )
+        drained = engine._drain_owned(datetime.now(WIB), limit=1)
+    health = engine.store.outbox_health()
+    if drained != 1 or health["pending"] or health["failed"]:
+        raise RuntimeError("Board attachment repair remains pending")
+    print(json.dumps({**report, "status": "edited", "drained": drained}, separators=(",", ":")))
+    return 0
+
+
 def _after_close(
     engine: BoardEngine,
     phase: str,
@@ -383,7 +553,7 @@ def _own_media(event: SourceEvent) -> SourceEvent:
         raise ValueError("source media is unavailable")
     root = _media_root()
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    suffix = source.suffix.lower() if source.suffix else ".bin"
+    suffix = _media_suffix(source)
     digest = hashlib.sha256(event.event_key.encode("utf-8")).hexdigest()
     destination = root / f"{digest}{suffix}"
     if destination.is_file():
@@ -403,6 +573,26 @@ def _own_media(event: SourceEvent) -> SourceEvent:
     finally:
         Path(temporary).unlink(missing_ok=True)
     return replace(event, media_path=str(destination))
+
+
+def _media_suffix(source: Path) -> str:
+    """Keep owner media content-addressed while preserving its display type."""
+    with source.open("rb") as stream:
+        header = stream.read(16)
+    if header.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if header.startswith((b"GIF87a", b"GIF89a")):
+        return ".gif"
+    if header.startswith(b"RIFF") and header[8:12] == b"WEBP":
+        return ".webp"
+    if len(header) >= 8 and header[4:8] == b"ftyp":
+        return ".mp4"
+    suffix = source.suffix.lower()
+    if suffix in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".mp4"}:
+        return ".jpg" if suffix == ".jpeg" else suffix
+    return ".bin"
 
 
 def _state_path() -> Path:
