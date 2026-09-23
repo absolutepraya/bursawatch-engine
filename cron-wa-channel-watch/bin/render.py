@@ -61,6 +61,9 @@ def _swing_post(
         raise ValueError("board_url must be a Discord channel or topic URL")
     clean_reasons = (reasons or event.text or "*(Tidak ada alasan dari sumber)*").strip()
     clean_reasons = re.sub(r"^\*\(Ringkasan\)\*\s*", "", clean_reasons).strip()
+    label_prefix = r"^(?:\*\*Reasons:\*\*|Reasons:)\s*"
+    while re.match(label_prefix, clean_reasons, flags=re.IGNORECASE):
+        clean_reasons = re.sub(label_prefix, "", clean_reasons, count=1, flags=re.IGNORECASE).strip()
     clean_reasons = " ".join(clean_reasons.split())
     emoji = profile.status_emojis.for_kind(SENTIMENT_KINDS[label]) or ""
     heading = f"### {profile.emoji} {_safe_name(title or profile.display_name)}"

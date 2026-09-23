@@ -53,15 +53,20 @@ watcher's scope.
   override. A later tag, typo, chart, or technical vocabulary alone never
   selects the swing route.
 - `id_stocks_news` covers a direct IDX issuer and a multi-stock post with one
-  clearly dominant lead issuer. `macro_news` covers broad market, sector,
-  infrastructure, and economy theses, including a broad thesis with a named
-  top pick.
+  clearly dominant lead issuer. `id_industry_news` covers news focused on one
+  Indonesian industry or sector. `macro_news` covers cross-industry, broad
+  market, and economy theses, including a broad thesis with a named top pick.
+- Filter minor exchange-rule and market-mechanics changes when the source does
+  not support a meaningful consequence. Keep changes with a source-supported
+  significant effect on trading, liquidity, eligibility, issuers, or investors
+  eligible.
 - For a BRI `id_stocks_swing` technical review, the LLM returns exactly one
   bounded sentiment, `Bullish`, `Bearish`, or `Sideways`, plus one concise
-  source-grounded Reasons paragraph. The renderer uses the Phintraco-shaped
-  shell with `Sentiment`, `Sentiment date`, `Reasons`, `Last updated`, `Board`,
-  and `View on WhatsApp`. Both dates use the source publication timestamp in
-  WIB. Macro and issuer-news routes never emit this swing status block.
+  source-grounded Reasons paragraph without a label prefix. The renderer uses
+  the Phintraco-shaped shell with `Sentiment`, `Sentiment date`, `Reasons`,
+  `Last updated`, `Board`, and `View on WhatsApp`. Both dates use the source
+  publication timestamp in WIB. Macro and issuer-news routes never emit this
+  swing status block.
 - The initial Board marker is the shared forum-channel mention. Once the Board
   owner materializes the topic, the watcher patches the existing All Swing
   message to the direct topic URL. A pending topic or failed patch keeps the
@@ -82,8 +87,9 @@ set, one control-plane snapshot is authoritative for the whole invocation and
 the package validator remains mandatory. A profile
 uses the stable Channel JID as its source identity and has a human-readable
 display name, public Channel URL, reviewed Discord custom emoji, and explicit
-`up`, `down`, and `hold` status-emoji fallbacks. BRI Danareksa uses the three
-routes `macro_news`, `id_stocks_news`, and `id_stocks_swing`. Adding a profile is
+`up`, `down`, and `hold` status-emoji fallbacks. BRI Danareksa uses the four
+routes `macro_news`, `id_stocks_news`, `id_industry_news`, and
+`id_stocks_swing`. Adding a profile is
 a proposal, not permission to enable it, pair an account, backfill history, or
 deploy.
 

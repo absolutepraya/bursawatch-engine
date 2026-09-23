@@ -45,7 +45,7 @@ export function nextDestination(
   kind: ProfileKind,
   rows: unknown[],
 ): Record<string, unknown> | null {
-  const keys = ["id_stocks_news", "macro_news", "id_stocks_swing"];
+  const keys = ["id_stocks_news", "macro_news", "id_industry_news", "id_stocks_swing"];
   const available = keys.find((key) => !rows.some((row) => configValue(row, ["key"]) === key));
   if (kind === "whatsapp" && !available) return null;
   return { key: kind === "whatsapp" ? available : "", channel_id: "", description: "" };
@@ -374,7 +374,10 @@ export function validateWatcherConfig(
       const channelPaths = channels.map((_, index) => [...at("discord_channels"), index]);
       channelPaths.forEach((route) => {
         if (kind === "whatsapp")
-          choice([...route, "key"], ["macro_news", "id_stocks_news", "id_stocks_swing"]);
+          choice(
+            [...route, "key"],
+            ["macro_news", "id_stocks_news", "id_industry_news", "id_stocks_swing"],
+          );
         else
           text(
             [...route, "key"],

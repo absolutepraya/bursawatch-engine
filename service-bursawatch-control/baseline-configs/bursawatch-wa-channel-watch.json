@@ -18,12 +18,17 @@
         {
           "key": "macro_news",
           "channel_id": "1531655369884045382",
-          "description": "Broad Indonesian market, sector, infrastructure, and economy theses."
+          "description": "Cross-industry, economy-wide, and broad market developments."
         },
         {
           "key": "id_stocks_news",
           "channel_id": "1525102508714889257",
           "description": "Direct IDX issuer news, earnings, dividends, corporate actions, fundamentals, and valuation."
+        },
+        {
+          "key": "id_industry_news",
+          "channel_id": "1549418098807930880",
+          "description": "News focused on one Indonesian industry or sector."
         },
         {
           "key": "id_stocks_swing",
@@ -37,7 +42,7 @@
       "enable_llm_routing": true,
       "enable_llm_relevance_filter": true,
       "relevance_scope": "stock_market",
-      "additional_prompt_instruction": "Forward only material issuer events or disclosures, factual market or macro developments, coherent macro roundups, and exact leading #TechnicalReview posts. Reject promotions, product activation, calls to action, analyst research, stock picks, watchlists, outlooks, valuations, targets, and untagged technical or price-level material. Route an exact leading #TechnicalReview post to id_stocks_swing. Use id_stocks_news for one clear lead issuer in a multi-stock post, and macro_news for broad sector or market theses even when a top pick is named. Preserve explicit source statuses without inventing them.",
+      "additional_prompt_instruction": "Forward material issuer events or disclosures, factual market or macro developments, coherent macro roundups, significant industry news, and exact leading #TechnicalReview posts. Reject promotions, product activation, calls to action, analyst research, stock picks, watchlists, outlooks, valuations, targets, and untagged technical or price-level material. Route an exact leading #TechnicalReview post to id_stocks_swing. Use id_stocks_news for one clear lead issuer in a multi-stock post, id_industry_news for news focused on one Indonesian industry, and macro_news for cross-industry, economy-wide, or broad market theses. Filter minor exchange-rule or market-mechanics changes with no source-supported meaningful consequence; keep significant changes affecting trading, liquidity, eligibility, issuers, or investors eligible. Preserve explicit source statuses without inventing them.",
       "max_items_per_poll": 20
     },
     {

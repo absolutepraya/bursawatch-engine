@@ -211,6 +211,7 @@ function Channels({ path, kind }: { path: ConfigPath; kind: ProfileKind }) {
                   ? [
                       ["id_stocks_news", "Stock news"],
                       ["macro_news", "Macro news"],
+                      ["id_industry_news", "Industry news"],
                       ["id_stocks_swing", "Swing calls"],
                     ]
                   : undefined

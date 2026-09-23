@@ -55,9 +55,13 @@ that retain their meaning alone. Do not duplicate source media across items.
 Choose exactly one configured route when routing is requested, based on the
 central thesis. The exact leading `#TechnicalReview` tag always routes to
 `id_stocks_swing`. Otherwise use `id_stocks_news` for one clear lead issuer,
-including a lead issuer inside a multi-stock post, and use `macro_news` for
-broad market, sector, infrastructure, or economy theses even when a top pick
-is named. Never route a post to `id_stocks_swing` merely because it mentions a
+including a lead issuer inside a multi-stock post. Use `id_industry_news` for
+news focused on one Indonesian industry or sector, and `macro_news` for
+cross-industry, broad market, or economy theses even when a top pick is named.
+Filter minor exchange-rule or market-mechanics changes without a source-supported
+meaningful consequence; keep changes with a source-supported significant
+effect on trading, liquidity, eligibility, issuers, or investors eligible.
+Never route a post to `id_stocks_swing` merely because it mentions a
 chart, support, resistance, or a technical indicator.
 
 The watcher renders ordinary news with its compact source footer. For an exact
@@ -65,7 +69,7 @@ leading `#TechnicalReview`, return exactly one `id_stocks_swing` item. Include
 an uppercase IDX `ticker` when the source establishes one unambiguous ticker,
 because only that single-ticker case can reach the Board. Use a
 one-paragraph summary rendered as
-`**Reasons:**` without the `*(Ringkasan)*` prefix, and exactly one `sentiment`
+one concise paragraph without a label prefix, and exactly one `sentiment`
 value: `Bullish`, `Bearish`, or `Sideways`. Preserve an explicit source stance
 when present, otherwise classify the dominant direction of the supplied
 technical evidence and use `Sideways` only for a genuinely balanced setup.

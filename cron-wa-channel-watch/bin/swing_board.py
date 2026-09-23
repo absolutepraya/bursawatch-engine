@@ -30,7 +30,7 @@ class BoardSubmission:
 
 
 def _leading_source_tickers(text: str) -> set[str]:
-    """Read the explicit ticker line immediately after the review tag."""
+    """Read only the declared ticker group immediately after the review tag."""
     lines = text.splitlines()
     tag_seen = False
     for line in lines:
@@ -38,8 +38,9 @@ def _leading_source_tickers(text: str) -> set[str]:
             if is_technical_review(line):
                 tag_seen = True
             continue
+        declared = line.split(">", 1)[0] if ">" in line else line
         candidates = {
-            token for token in _SOURCE_TICKER_RE.findall(line) if token not in _IGNORED_SOURCE_TOKENS
+            token for token in _SOURCE_TICKER_RE.findall(declared) if token not in _IGNORED_SOURCE_TOKENS
         }
         if candidates:
             return candidates

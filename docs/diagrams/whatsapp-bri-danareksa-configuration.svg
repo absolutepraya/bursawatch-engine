@@ -59,7 +59,7 @@
   <text class="heading" x="56" y="179">config/watches.json · profiles[0]</text>
   <text class="body" x="56" y="201">enabled: true · forward_media: true</text>
   <text class="body" x="56" y="221">LLM title, summary, routing, relevance: enabled</text>
-  <text class="body" x="56" y="241">max_items_per_poll: 20 · three Discord routes</text>
+  <text class="body" x="56" y="241">max_items_per_poll: 20 · four Discord routes</text>
   <text class="small" x="56" y="259">This is the reviewed configuration boundary.</text>
 
   <rect class="card source" x="540" y="153" width="824" height="116"/>
@@ -106,12 +106,13 @@
   <text class="body" x="470" y="621">Preserves explicit source statuses only</text>
   <text class="small" x="470" y="639">The source post is treated as untrusted content, not instructions.</text>
 
-  <rect class="card route" x="874" y="533" width="490" height="112"/>
+  <rect class="card route" x="874" y="533" width="490" height="136"/>
   <text class="heading" x="894" y="559">Deterministic route gate</text>
   <text class="body" x="894" y="581">Starts with exact, case-sensitive #TechnicalReview → id_stocks_swing</text>
   <text class="body" x="894" y="601">One clear lead issuer → id_stocks_news</text>
-  <text class="body" x="894" y="621">Broad market, sector, infrastructure, economy → macro_news</text>
-  <text class="small" x="894" y="639">A chart or technical vocabulary alone never selects swing.</text>
+  <text class="body" x="894" y="621">One Indonesian industry → id_industry_news</text>
+  <text class="body" x="894" y="641">Cross-industry, economy, broad market → macro_news</text>
+  <text class="small" x="894" y="661">Minor mechanics changes need a meaningful supported consequence.</text>
 
   <!-- Delivery cards -->
   <rect class="card delivery" x="36" y="723" width="390" height="112"/>
@@ -128,12 +129,13 @@
   <text class="body" x="470" y="811">Source order with separate retry checkpoints</text>
   <text class="small" x="470" y="829">A failed attachment does not repeat delivered text.</text>
 
-  <rect class="card route" x="874" y="723" width="490" height="112"/>
+  <rect class="card route" x="874" y="723" width="490" height="136"/>
   <text class="heading" x="894" y="749">Configured Discord destinations</text>
   <text class="body" x="894" y="771">macro_news → 1531655369884045382</text>
   <text class="body" x="894" y="791">id_stocks_news → 1525102508714889257</text>
-  <text class="body" x="894" y="811">id_stocks_swing → 1525102458253217803</text>
-  <text class="small" x="894" y="829">Heartbeat goes to #hermes on every scheduled run.</text>
+  <text class="body" x="894" y="811">id_industry_news → 1549418098807930880</text>
+  <text class="body" x="894" y="831">id_stocks_swing → 1525102458253217803</text>
+  <text class="small" x="894" y="851">Heartbeat goes to #hermes on every scheduled run.</text>
 
   <!-- Configuration influence -->
   <path class="config-flow" d="M 271 269 L 230 343"/>
@@ -146,7 +148,7 @@
   <path class="flow" d="M 1119 455 L 1119 490 L 231 490 L 231 533"/>
   <path class="flow" d="M 426 589 L 450 589"/>
   <path class="flow" d="M 850 589 L 874 589"/>
-  <path class="flow" d="M 1119 645 L 1119 680 L 231 680 L 231 723"/>
+  <path class="flow" d="M 1119 669 L 1119 690 L 231 690 L 231 723"/>
   <path class="flow" d="M 426 779 L 450 779"/>
   <path class="flow" d="M 850 779 L 874 779"/>
 
