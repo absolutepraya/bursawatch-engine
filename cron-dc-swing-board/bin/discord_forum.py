@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import math
+import mimetypes
 import os
 from pathlib import Path
 from typing import Any, Mapping
@@ -143,6 +144,22 @@ class DiscordForumClient:
             f"/channels/{_id(thread_id)}/messages/{_id(message_id)}",
             payload,
             path,
+        )
+
+    def get_thread(self, thread_id: str) -> dict[str, Any]:
+        """Read the current forum thread metadata without changing it."""
+        return _json_object(
+            self._request("GET", f"/channels/{_id(thread_id)}"),
+            "Discord returned an invalid forum thread",
+        )
+
+    def get_message(self, thread_id: str, message_id: str) -> dict[str, Any]:
+        """Read one current forum message without changing it."""
+        return _json_object(
+            self._request(
+                "GET", f"/channels/{_id(thread_id)}/messages/{_id(message_id)}"
+            ),
+            "Discord returned an invalid forum message",
         )
 
     def post_reply(
@@ -386,11 +403,13 @@ class DiscordForumClient:
             return self._request(method, path, json=payload)
         try:
             with source.open("rb") as file:
+                content_type = mimetypes.guess_type(source.name)[0]
+                upload = (source.name, file, content_type) if content_type else (source.name, file)
                 return self._request(
                     method,
                     path,
                     data={"payload_json": json.dumps(payload, separators=(",", ":"))},
-                    files={"files[0]": (source.name, file)},
+                    files={"files[0]": upload},
                 )
         except OSError as exc:
             raise DiscordForumError("Discord media upload failed") from exc
