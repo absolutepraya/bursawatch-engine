@@ -195,8 +195,7 @@ function Channels({ path, kind }: { path: ConfigPath; kind: ProfileKind }) {
   const rows = Array.isArray(raw) ? raw : [];
   const next =
     nextDestination(kind, rows) ??
-    (kind === "whatsapp" &&
-    !rows.some((row) => configValue(row, ["key"]) === "id_industry_news")
+    (kind === "whatsapp" && !rows.some((row) => configValue(row, ["key"]) === "id_industry_news")
       ? { key: "id_industry_news", channel_id: "", description: "" }
       : null);
   return (
