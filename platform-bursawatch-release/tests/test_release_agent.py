@@ -74,12 +74,31 @@ def test_manifest_rejects_an_unmapped_changed_path():
         manifest().matching_units(["new-unmapped-runtime/file.py"])
 
 
-def test_manifest_marks_host_bound_release_assets_manual():
-    units = manifest().matching_units(["platform-bursawatch-release/deployment/systemd/bursawatch-release-agent.service"])
+@pytest.mark.parametrize(
+    ("path", "expected_unit"),
+    [
+        ("DEPLOYMENT.md", "repository-metadata"),
+        (".github/workflows/web.yml", "repository-metadata"),
+        ("web-config/src/app/page.tsx", "web-applications"),
+        ("web-landing/src/app/page.tsx", "web-applications"),
+    ],
+)
+def test_web_migration_paths_require_no_vps_deployment(path: str, expected_unit: str):
+    units = manifest().matching_units([path])
 
-    assert [(unit.identifier, unit.handler) for unit in units] == [
-        ("manual-release-agent-bootstrap", "manual"),
-    ]
+    assert [(unit.identifier, unit.handler) for unit in units] == [(expected_unit, "metadata")]
+
+
+def test_manifest_marks_host_bound_release_assets_manual():
+    for path in (
+        "platform-bursawatch-release/deployment/systemd/bursawatch-release-agent.service",
+        "platform-bursawatch-release/release-manifest.json",
+    ):
+        units = manifest().matching_units([path])
+
+        assert [(unit.identifier, unit.handler) for unit in units] == [
+            ("manual-release-agent-bootstrap", "manual"),
+        ]
 
 
 def test_whatsapp_runtime_manifest_includes_archive_operator_wrapper():

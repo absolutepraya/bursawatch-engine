@@ -1,0 +1,44 @@
+{
+  "name": "bursawatch-web-config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "dev:safe": "WATCHPACK_POLLING=true WATCHPACK_POLLING_INTERVAL=1000 next dev",
+    "build": "NEXT_DIST_DIR=.next-build next build",
+    "start": "NEXT_DIST_DIR=.next-build next start",
+    "lint": "eslint .",
+    "format:check": "prettier --check 'src/**/*.tsx' 'src/**/*.css'",
+    "format": "prettier --write 'src/**/*.tsx' 'src/**/*.css'",
+    "typecheck": "NEXT_DIST_DIR=.next-build next typegen && tsc --noEmit",
+    "test": "vitest run",
+    "test:browser": "node scripts/public-shell-smoke.mjs && node scripts/browser-smoke.mjs && node scripts/connections-smoke.mjs && node scripts/custom-workflow-smoke.mjs && node scripts/control-workspace-smoke.mjs && node scripts/source-editor-smoke.mjs && node scripts/loading-smoke.mjs && node scripts/source-profiles-smoke.mjs",
+    "test:watch": "vitest",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build"
+  },
+  "dependencies": {
+    "@fontsource-variable/hanken-grotesk": "^5.3.0",
+    "@supabase/supabase-js": "^2.116.0",
+    "lucide-react": "1.45.0",
+    "next": "16.3.5",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "server-only": "0.0.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "eslint": "^9.39.0",
+    "eslint-config-next": "16.3.5",
+    "playwright": "^1.58.2",
+    "prettier": "^3.9.6",
+    "typescript": "6.0.3",
+    "vitest": "5.0.0"
+  }
+}

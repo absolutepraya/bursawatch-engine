@@ -1,0 +1,32 @@
+# dependencies
+/node_modules
+
+# Next.js
+/.next
+/.next-build
+/.vercel
+/out
+
+# local runtime data
+/data/*.db
+/data/*.db-*
+
+# local environment
+.env
+.env.local
+.env.*.local
+
+# tests and tooling
+/coverage
+/.impeccable/review/
+/.impeccable/mocks/
+/.impeccable/cache/
+/.impeccable/live/
+/.lavish/
+*.tsbuildinfo
+
+# OS/editor
+.DS_Store
+.idea
+.vscode
+.vercel

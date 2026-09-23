@@ -26,6 +26,16 @@ htmlcov/
 .worktrees/
 .wt/state.json
 .wt/allocations.json
+**/node_modules/
+**/.next/
+**/.next-build/
+**/.vercel/
+**/playwright-report/
+**/test-results/
+**/coverage/
+**/*.tsbuildinfo
+**/.impeccable/
+**/.lavish/
 
 # Credentials and machine-local configuration
 .env

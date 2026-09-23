@@ -1,0 +1,110 @@
+[
+  {
+    "id": "kutekians",
+    "platform": "x",
+    "url": "https://x.com/Kutekians",
+    "topics": ["macro_news"]
+  },
+  {
+    "id": "rickyho1989",
+    "platform": "x",
+    "url": "https://x.com/rickyho_1989",
+    "topics": ["macro_news", "id_stocks_news", "us_stocks_news"]
+  },
+  {
+    "id": "writingtorch",
+    "platform": "x",
+    "url": "https://x.com/writingtorch",
+    "topics": ["macro_news", "id_stocks_news"]
+  },
+  {
+    "id": "arvinhonami",
+    "platform": "x",
+    "url": "https://x.com/ArvinHonami",
+    "topics": ["macro_news", "id_stocks_news", "us_stocks_news"]
+  },
+  {
+    "id": "insidertracker",
+    "platform": "x",
+    "url": "https://x.com/InsiderTrackX",
+    "topics": ["macro_news", "id_stocks_news", "us_stocks_news"]
+  },
+  {
+    "id": "doktermarket",
+    "platform": "x",
+    "url": "https://x.com/doktermarket",
+    "topics": ["macro_news", "id_stocks_news", "id_stocks_swing"]
+  },
+  {
+    "id": "txthariansaham",
+    "platform": "x",
+    "url": "https://x.com/txthariansaham",
+    "topics": ["macro_news", "id_stocks_news", "id_stocks_swing"]
+  },
+  {
+    "id": "wavetiga",
+    "platform": "x",
+    "url": "https://x.com/wavetiga",
+    "topics": ["macro_news", "id_stocks_news", "id_stocks_swing", "us_stocks_news"]
+  },
+  {
+    "id": "aldotjahjadi8",
+    "platform": "x",
+    "url": "https://x.com/aldotjahjadi8",
+    "topics": ["macro_news", "id_stocks_news"]
+  },
+  {
+    "id": "kobeissiletter",
+    "platform": "x",
+    "url": "https://x.com/KobeissiLetter",
+    "topics": ["macro_news", "us_stocks_news"]
+  },
+  {
+    "id": "beyondthefundamental",
+    "platform": "instagram",
+    "url": "https://www.instagram.com/beyondthefundamental",
+    "topics": ["macro_news", "id_stocks_news"]
+  },
+  {
+    "id": "investart_id",
+    "platform": "instagram",
+    "url": "https://www.instagram.com/investart_id",
+    "topics": ["macro_news", "id_stocks_news"]
+  },
+  {
+    "id": "avenirresearch_id",
+    "platform": "instagram",
+    "url": "https://www.instagram.com/avenirresearch.id",
+    "topics": ["macro_news", "id_stocks_news"]
+  },
+  {
+    "id": "acresresearch",
+    "platform": "instagram",
+    "url": "https://www.instagram.com/acresresearch",
+    "topics": ["macro_news", "id_stocks_news"]
+  },
+  {
+    "id": "sectorsapp",
+    "platform": "instagram",
+    "url": "https://www.instagram.com/sectorsapp",
+    "topics": ["macro_news", "id_stocks_news"]
+  },
+  {
+    "id": "cukhurukuque",
+    "platform": "instagram",
+    "url": "https://www.instagram.com/cukhurukuque",
+    "topics": ["macro_news", "id_stocks_news"]
+  },
+  {
+    "id": "notintofinance",
+    "platform": "instagram",
+    "url": "https://www.instagram.com/notintofinance",
+    "topics": ["macro_news", "id_stocks_news"]
+  },
+  {
+    "id": "bri-danareksa-sekuritas",
+    "platform": "whatsapp",
+    "url": "https://www.whatsapp.com/channel/0029VbAjdnb60eBhwVdJxj1c",
+    "topics": ["macro_news", "id_stocks_news", "id_stocks_swing"]
+  }
+]
