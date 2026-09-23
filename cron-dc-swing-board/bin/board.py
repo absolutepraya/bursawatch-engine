@@ -301,17 +301,10 @@ def _repair_starter_media(
     ):
         raise ValueError("source event is not the expected open Board starter")
 
-    source_record = next(
-        (
-            (event_id, event)
-            for event_id, event in engine.store.episode_source_events(episode.id)
-            if event.event_key == event_key
-        ),
-        None,
-    )
-    if source_record is None or source_record[0] != episode.starter_source_event_id:
+    event = engine.store.starter_source_event(episode.id)
+    source_event_id = episode.starter_source_event_id
+    if event is None or event.event_key != event_key or source_event_id is None:
         raise ValueError("source event does not own the current Board starter")
-    event = source_record[1]
     if event.media_path is None:
         raise ValueError("Board starter has no source image")
 
@@ -418,7 +411,7 @@ def _repair_starter_media(
                 or latest.lifecycle == "resolved"
                 or latest.thread_id != expected_thread_id
                 or latest.starter_message_id != episode.starter_message_id
-                or latest.starter_source_event_id != source_record[0]
+                or latest.starter_source_event_id != source_event_id
             ):
                 raise RuntimeError("Board starter changed during repair review")
             tx.enqueue_outbox(

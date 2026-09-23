@@ -218,6 +218,10 @@ class BoardStore:
         with self._connection() as connection:
             return BoardStoreTransaction(self, connection).episode_source_events(episode_id)
 
+    def starter_source_event(self, episode_id: int) -> SourceEvent | None:
+        with self._connection() as connection:
+            return BoardStoreTransaction(self, connection).starter_source_event(episode_id)
+
     def completed_source_replies(self) -> list[SourceReply]:
         with self._connection() as connection:
             rows = connection.execute(
