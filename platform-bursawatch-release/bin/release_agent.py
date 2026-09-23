@@ -123,7 +123,7 @@ class Settings:
 
     @classmethod
     def from_environment(cls, *, require_token: bool = True) -> "Settings":
-        repository = os.environ.get("BURSAWATCH_RELEASE_REPOSITORY", "absolutepraya/bursawatch").strip()
+        repository = os.environ.get("BURSAWATCH_RELEASE_REPOSITORY", "absolutepraya/bursawatch-engine").strip()
         if not REPOSITORY_RE.fullmatch(repository):
             raise ReleaseError("BURSAWATCH_RELEASE_REPOSITORY must be owner/repository")
         token = os.environ.get("BURSAWATCH_RELEASE_GITHUB_TOKEN", "").strip()
