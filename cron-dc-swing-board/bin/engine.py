@@ -323,6 +323,7 @@ class BoardEngine:
 
     def _buy(self, tx, event, event_id, active, now):
         event_date = event.published_at.astimezone(WIB).date()
+        promoting_source = active is not None and active.lifecycle == "source"
         if active is not None and active.latest_material_at.astimezone(WIB).date() < sessions_ago(event_date, 20):
             # Close only the board's selection window. No synthetic resolution,
             # market fact, archive request, or retention message is produced.
@@ -367,8 +368,44 @@ class BoardEngine:
         self._patch(tx, event, active, now)
         if primary_card_requires_source_reply(event):
             self._source_reply(tx, event, active, now)
+        if promoting_source:
+            self._reconcile_phintraco_source_history(tx, active, event, now)
 
-    def _status(self, tx, event, event_id, active, now):
+    def _reconcile_phintraco_source_history(self, tx, active, buy_event, now):
+        """Apply durable Phintraco context that arrived before its BUY was known."""
+        history = [
+            (event_id, event)
+            for event_id, event in tx.episode_source_events(active.id)
+            if (
+                event.kind == "social"
+                and event.source.casefold() == "phintraco"
+                and event.source_status
+                and event.published_at > buy_event.published_at
+            )
+        ]
+        for event_id, source_event in sorted(
+            history, key=lambda item: (item[1].published_at, item[0])
+        ):
+            current = tx.active_episode(active.ticker)
+            if current is None or current.lifecycle != "primary":
+                return
+            current_plan = tx.active_plan(current.id)
+            if current_plan is None:
+                return
+            kind = "reminder" if source_outcome_state(source_event, current_plan) else "status"
+            self._status(
+                tx,
+                replace(
+                    source_event,
+                    kind=kind,
+                ),
+                event_id,
+                current,
+                now,
+                replay=True,
+            )
+
+    def _status(self, tx, event, event_id, active, now, *, replay=False):
         plan = tx.active_plan(active.id)
         if plan is None:
             raise StoreBlockedError("active primary episode is missing its plan")
@@ -384,7 +421,8 @@ class BoardEngine:
                          closed_at=now if terminal else None)
         tx.set_source_status(active.id, current, event.published_at)
         tx.update_episode(active)
-        self._source_reply(tx, event, active, now)
+        if not replay:
+            self._source_reply(tx, event, active, now)
         checkpoint, last_valid = tx.latest_checkpoints(active.id)
         self._enqueue(tx, event, active, "edit_starter", {
             "content": render_primary_card(
@@ -617,7 +655,7 @@ class BoardEngine:
         for reply in completed_replies:
             if reply.outbox_id in deleted_reply_ids:
                 continue
-            if reply.is_history or not reply.current_content or reply.current_content.startswith("[Source media"):
+            if not reply.current_content or reply.current_content.startswith("[Source media"):
                 continue
             chunks = render_source_replies(reply.event)
             if reply.chunk_index >= len(chunks):

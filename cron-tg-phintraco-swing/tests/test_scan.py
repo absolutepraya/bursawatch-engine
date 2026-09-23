@@ -48,6 +48,37 @@ def test_parse_verified_subtypes(filename, message_id, ticker, subtype, entry, s
     assert call.advisor_role == "Investment Advisor"
 
 
+def test_parse_hold_trading_buy_as_a_buy_subtype():
+    text = (
+        "AMMN - Hold/Trading Buy : Koreksi cenderung tertahan di atas support area 4300 "
+        "menjadi indikasi awal rebound hingga bullish continuation. Konfirmasi jika breakout resistance 4520.\n\n"
+        "Entry : 4360\n"
+        "Stop-loss : <4200\n"
+        "Target 2: 5000\n"
+        "Target 1: 4700\n\n"
+        "By PHINTRACO SEKURITAS\n"
+        "2/09/2026 6.00 WIB\n"
+        "Alrich Paskalis T| Investment Advisor\n"
+        "- Disclaimer On -"
+    )
+    published_at = dt.datetime(2026, 9, 2, 6, 0, tzinfo=scan.WIB)
+
+    call = scan.parse_swing_call(34908, text, has_photo=True, source_posted_at=published_at)
+
+    assert call is not None
+    assert call.event_kind == "BUY"
+    assert call.call_subtype == "Hold/Trading Buy"
+    assert call.ticker == "AMMN"
+    assert call.entry == "4360"
+    assert call.stop_loss == "<4200"
+    assert [(target.number, target.value) for target in call.targets] == [(1, "4700"), (2, "5000")]
+    assert call.signal_datetime == published_at
+    assert "AMMN: Buy" in scan.format_swing_alert(call, include_board=False)
+    assert "**Type:** Hold/Trading Buy <:up:1531285100346740766>" in scan.format_swing_alert(
+        call, include_board=False
+    )
+
+
 def test_targets_are_sorted_by_number():
     call = scan.parse_swing_call(33654, fixture("buy_on_support.txt"), has_photo=True)
     assert [(target.number, target.value) for target in call.targets] == [(1, "2900"), (2, "3000")]

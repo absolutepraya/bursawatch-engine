@@ -79,7 +79,12 @@ PROVIDER = "Phintraco"
 PHINTRACO_EMOJI = "<:phintraco:1531272488645038091>"
 UP_EMOJI = "<:up:1531285100346740766>"
 DOWN_EMOJI = "<:down:1531285063986053200>"
-ALLOWED_SUBTYPES = ("Trading Buy", "Buy on Support", "Speculative Buy")
+ALLOWED_SUBTYPES = (
+    "Trading Buy",
+    "Hold/Trading Buy",
+    "Buy on Support",
+    "Speculative Buy",
+)
 WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
@@ -553,7 +558,7 @@ def run_lock():
 
 HEADER_RE = re.compile(
     r"^(?P<ticker>[A-Z][A-Z0-9]{1,9})\s*-\s*"
-    r"(?P<subtype>Trading Buy|Buy on Support|Speculative Buy)\s*:\s*"
+    r"(?P<subtype>Trading Buy|Hold/Trading Buy|Buy on Support|Speculative Buy)\s*:\s*"
     r"(?P<rationale>.*)$",
     re.IGNORECASE,
 )

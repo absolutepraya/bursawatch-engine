@@ -77,6 +77,15 @@ def render_source_reply(event: SourceEvent) -> str:
             # cannot fit after adding the canonical fields, remains lossless
             # and is split by render_source_replies below.
             pass
+    if event.source.casefold() == "phintraco":
+        footer = f"[View in Telegram](<{event.source_url}>)"
+        content = all_content.rstrip()
+        if content.endswith(footer):
+            prefix = content[:-len(footer)].rstrip()
+            return f"{prefix}\n\n{footer}"
+        if event.source_url not in content:
+            return f"{content}\n\n{footer}"
+        return content
     urls = (event.source_url,)
     missing = [url for url in urls if url not in all_content]
     return all_content + ("\n\n" + "\n".join(missing) if missing else "")
