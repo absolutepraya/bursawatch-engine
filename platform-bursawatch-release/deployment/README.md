@@ -28,6 +28,10 @@ release decision. Release records contain bounded, sanitized diagnostics and
 release metadata only; credentials are redacted and live state is not copied
 into them.
 
+The systemd unit leaves `MemoryDenyWriteExecute` and `NoNewPrivileges` unset.
+On this host, `MemoryDenyWriteExecute` implies `NoNewPrivileges`, which blocks
+the agent's narrowly scoped sudo restart of the control-plane service.
+
 ## Explicit bootstrap sequence
 
 Do this only in an approved VPS operations session, from a clean published

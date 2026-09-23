@@ -20,8 +20,8 @@ ReadWritePaths=/home/praya/.hermes/scripts
 ReadWritePaths=/home/praya/.logs
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 LockPersonality=true
-MemoryDenyWriteExecute=true
 SystemCallArchitectures=native
 
-# This unit deliberately omits NoNewPrivileges. Its separately reviewed
-# sudoers rule permits only the exact control-plane restart command.
+# On this host, MemoryDenyWriteExecute implies NoNewPrivileges and prevents
+# sudo from acquiring the privilege needed for the narrowly scoped restart.
+# Keep both directives unset; the sudoers rule permits only the exact command.
