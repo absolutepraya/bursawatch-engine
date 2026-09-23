@@ -8,5 +8,5 @@ default_base = "origin/main"
 # A control-plane checkout shares the one ignored local deployment environment
 # kept in the main worktree. Branches without this package skip the link.
 setup = [
-  "if [ -d service-bursawatch-control ] && [ -f \"$WT_ROOT_PATH/service-bursawatch-control/.env\" ]; then if [ -e service-bursawatch-control/.env ] || [ -L service-bursawatch-control/.env ]; then echo 'refusing to replace existing service-bursawatch-control/.env' >&2; exit 1; fi; ln -s \"$WT_ROOT_PATH/service-bursawatch-control/.env\" service-bursawatch-control/.env; fi",
+  "if [ -n \"${WT_ROOT_PATH:-}\" ] && [ -n \"${WT_WORKSPACE_PATH:-}\" ]; then bash \"$WT_WORKSPACE_PATH/scripts/prepare-control-plane-worktree.sh\" \"$WT_ROOT_PATH\" \"$WT_WORKSPACE_PATH\"; fi",
 ]
