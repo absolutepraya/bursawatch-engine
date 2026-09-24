@@ -22,9 +22,12 @@ reference catalog, not a live source inventory. Link only to watcher IDs
 returned by the API. Actual profiles require an admin config read; decorate
 them with catalog avatars only after consistent platform and canonical
 URL/handle matching. Never infer identity from a display name or internal ID.
-Preserve all seven watcher editors and their input, processing and output
+Preserve all eight watcher editors and their input, processing and output
 summaries. WhatsApp requires configuration version 2 and explicit observe/forward
-modes; the other six editors require version 1. Mode changes must not silently
+modes; the other seven editors require version 1. Stockbit's v1 editor exposes
+only four fixed feed switches, two distinct Discord route IDs and an optional
+800-code-point additive instruction. RSS URLs, the heartbeat, credentials,
+parser behavior and agent rules remain system-owned. Mode changes must not silently
 discard routing or processing settings. Source profiles load from the separate
 metadata endpoint only on request, without blocking the configuration editor.
 Admins can save auto/manual avatar settings and explicitly request refresh.

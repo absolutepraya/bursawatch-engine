@@ -36,6 +36,11 @@ const workflows: Record<string, { input: string; processing: string; output: str
     processing: "Closing-price checks and plan status",
     output: "Discord swing board",
   },
+  "bursawatch-stockbit-snips": {
+    input: "Four Stockbit Snips feeds",
+    processing: "Article analysis and source summaries",
+    output: "Two Discord news routes",
+  },
 };
 
 export function ConnectedWorkflowSummary({ watcherId }: { watcherId: string }) {

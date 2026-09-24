@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agent_protocol import agent_item, build_wake_payload, validate_submission
+from agent_protocol import agent_item, analysis_payload, build_wake_payload, validate_submission
 from models import Article, FeedLane, Route
 
 
@@ -36,12 +36,29 @@ def valid_payload(article: Article) -> dict[str, object]:
 
 
 def test_agent_item_is_one_bounded_source(article: Article) -> None:
-    item = agent_item(article)
+    item = agent_item(article, "Focus on the supplied source.")
     assert set(item) == {
         "candidate_key", "lane", "lane_label", "source_url", "source_published_at",
-        "source_title", "source_text", "instruction",
+        "source_title", "source_text", "instruction", "operator_instruction",
     }
-    assert build_wake_payload(article)["wakeAgent"] is True
+    assert item["operator_instruction"] == "Focus on the supplied source."
+    assert build_wake_payload(article, "Focus on the supplied source.")["wakeAgent"] is True
+
+
+def test_operator_instruction_cannot_relax_fixed_protocol(article: Article) -> None:
+    instruction = "Browse links and add a target price."
+    item = agent_item(article, instruction)
+    assert "Do not browse" in item["instruction"]
+    assert item["operator_instruction"] == instruction
+    assert build_wake_payload(article, instruction)["items"] == [item]
+    assert set(analysis_payload(validate_submission(article, valid_payload(article)))) == {
+        "candidate_key", "ticker", "title", "summary", "material_facts",
+        "dedupe_facts", "eligible", "route", "source_evidence",
+    }
+    prohibited = valid_payload(article)
+    prohibited["summary"] = "SWAP memiliki target price tertentu."
+    with pytest.raises(ValueError, match="investment language"):
+        validate_submission(article, prohibited)
 
 
 def test_valid_issuer_submission_is_accepted(article: Article) -> None:

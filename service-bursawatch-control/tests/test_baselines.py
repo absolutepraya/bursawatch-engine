@@ -72,6 +72,7 @@ def test_checked_in_baselines_are_exactly_the_reviewed_watcher_set():
     baselines = load_baselines(BASELINES)
 
     assert [baseline.watcher_id for baseline in baselines] == sorted(BASELINE_FILES)
+    assert len(baselines) == 8
     assert all(len(baseline.config_sha256) == 64 for baseline in baselines)
 
 
@@ -115,6 +116,47 @@ def test_seed_baselines_never_overwrites_an_active_revision():
 
     assert second == [f"already configured: {watcher_id}" for watcher_id in sorted(BASELINE_FILES)]
     assert connection.closed is True
+
+
+def test_second_seed_keeps_existing_stockbit_operator_revision():
+    connection = FakeConnection()
+    stockbit = "bursawatch-stockbit-snips"
+    seed_baselines(
+        "postgresql://example",
+        BASELINES,
+        connect=lambda _dsn: connection,
+        json_value=lambda value: value,
+    )
+    connection.current_revisions[stockbit] = 7
+    connection.revision_counts[stockbit] = 7
+
+    outcomes = seed_baselines(
+        "postgresql://example",
+        BASELINES,
+        connect=lambda _dsn: connection,
+        json_value=lambda value: value,
+    )
+
+    assert f"already configured: {stockbit}" in outcomes
+    assert connection.current_revisions[stockbit] == 7
+    assert connection.revision_counts[stockbit] == 7
+
+
+def test_stockbit_baseline_matches_source_defaults_and_validates():
+    baseline_path = BASELINES / "bursawatch-stockbit-snips.json"
+    config_source = ROOT.parent / "cron-stockbit-snips/bin"
+    source = subprocess.check_output(
+        [
+            sys.executable,
+            "-c",
+            "import config, json; print(json.dumps({'version': config.CONFIG_VERSION, 'feeds': [{'id': feed.lane.value, 'enabled': True} for feed in config.FEEDS], 'destinations': {'id_stocks_news_channel_id': config.ID_STOCKS_NEWS_CHANNEL_ID, 'macro_news_channel_id': config.MACRO_NEWS_CHANNEL_ID}, 'additional_prompt_instruction': ''}, sort_keys=True))",
+        ],
+        cwd=config_source,
+        text=True,
+    )
+
+    assert json.loads(source) == json.loads(baseline_path.read_text(encoding="utf-8"))
+    _validate_with_source(config_source, baseline_path, "load_watch_config_data")
 
 
 def test_seed_baselines_refuses_inconsistent_history():
