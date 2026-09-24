@@ -46,7 +46,7 @@ The eight intervening commits do not change the control API or config validators
 `/workspace` uses Supabase's browser client for email/password authentication,
 session persistence, refresh and local sign-out. It is **not cookie-based SSR
 authentication**. The page pre-renders a public opening shell; protected records
-are fetched only after sign-in. The six allowed workspace URLs can use the CDN
+are fetched only after sign-in. The allowlisted workspace URLs can use the CDN
 because they contain no user session, configuration, runs or source settings.
 Only the validated public Supabase URL/publishable key is built in. Updating
 those public settings requires rebuilding. Supabase dashboard membership is not
@@ -77,15 +77,17 @@ The browser fetches only the current destination's data. Catalog-driven views
 first check watcher membership; a direct run link reads the authorized event
 endpoint without requesting unrelated watcher histories:
 
-- Workflows and Source library read only the catalog. They do not present
+- Sources uses dated public previews and the watcher catalog for any settings
+  links; the workflow list also reads only the catalog. Neither presents
   unloaded schedules or history as empty results.
-- A selected workflow starts its admin configuration read immediately after
-  catalog membership is confirmed. Only X needs parallel jobs/runs for its
-  delivery checks; other editors do not fetch unused status records.
+- A selected workflow starts its admin configuration read after catalog
+  membership is confirmed and loads only that workflow's jobs for its schedule
+  controls. X also loads source-poll runs for its delivery checks; other editors
+  do not fetch unrelated run histories.
 - A run timeline reads events directly; it does not wait for all workflows'
   histories. Metadata already present in the same signed-in component can be
   shown; direct links do not invent missing run metadata.
-- History lists read runs; Schedules reads jobs; Overview reads both. Detail reads
+- History lists read runs; Overview reads jobs and runs. Detail reads
   use at most six concurrent slots, with each completed request freeing its
   slot immediately. Account makes no control API requests.
 
@@ -106,37 +108,45 @@ visible. Diagnostics never include raw provider errors, secrets or config.
 ## Implemented surface
 
 The desktop sidebar and mobile bottom navigation expose the same five
-destinations: Overview, Workflows, History, Schedules and Account. They reuse
+destinations: Overview, Sources, Workflows, History and Account. They reuse
 the sample workspace's visual language while keeping authenticated API records
 and sample browser preferences separate.
 
 - Overview: recorded-run counts, 24-hour/7-day chart with an accessible table,
   schedule reconciliation and recent runs. Coverage is at most 50 latest runs
   per watcher, explicitly disclosed; these are not complete historical totals.
+- Sources: separate Securities and People tabs of dated public references.
+  Securities shows two-column thumbnail previews; People uses a three-column
+  profile layout where space permits. Illustrative added/to-add presentation is
+  not saved membership, an enabled source, a health check or database state.
 - Workflows: live catalog and eight schema-specific admin editors for X,
   Instagram, WhatsApp Channels, market news, daily Phintraco swing calls,
   GTW investment classes, the swing board and Stockbit Snips. Each supported workflow explains
   its input, processing and output. All existing editor fields remain available;
   unknown keys are preserved when a known field changes. No private config is
-  bundled as defaults.
+  bundled as defaults. Each selected workflow also shows its own jobs. Interval
+  schedules use API bounds, the WIB timezone and pending/effective status;
+  fixed jobs are read-only. Configuration and schedule saves have independent
+  revisions and actions.
 - History: recorded timestamps, config revisions, outcomes and event metadata.
   A server-side event-specific projection exposes bounded source IDs, validated
   counts and execution flags only. Raw messages and arbitrary attributes remain
   excluded. Missing counts are not zero; run totals and simulated dry-run counts
   cannot establish per-post/channel receipt. An `ok` run is not proof of message
   delivery or Sectors use.
-- Schedules: interval/enabled controls bounded by the API's job constraints,
-  WIB timezone, fixed-job read-only presentation, and pending/effective status.
 - Account: current identity, copyable UUID for owner-managed access and sign-out.
 
-Workflows' Source library tab (`/workspace/workflows?tab=sources`) contains the reviewed
-public brokerage and social catalog, with dated photographs, identity metadata
-and public references. Settings links appear only for watcher IDs returned by
-the API. A listing is not evidence that an account is configured, enabled or
-healthy. BRI Danareksa links to WhatsApp settings; Phintraco links separately to
-its swing and market-news settings. Current profile rows require an admin config
-read. They reuse a public avatar only when platform and canonical URL/handle
-match consistently, never from an internal ID or display name alone.
+The Sources page (`/workspace/sources`) carries the brokerage and social
+reference catalog, with illustrative security thumbnails, dated photographs,
+identity metadata and public references. Thumbnail and added/to-add states
+are presentation only; they do not create a source or prove a backend record.
+Settings links appear only for watcher IDs returned by the API. BRI Danareksa
+can link to WhatsApp settings; Phintraco has separate swing and market-news
+settings. Current profile rows require an admin config read. They reuse a
+public avatar only when platform and canonical URL/handle match consistently,
+never from an internal ID or display name alone. The former
+`/workspace/schedules` URL remains a compatibility entry point to workflow
+configuration, not an independent data source.
 
 The proxy exposes GET watchers, watcher jobs/runs/config, job schedule and run
 events and profiles; PUT is limited to watcher config, job schedule and profile
@@ -201,7 +211,7 @@ system-owned. A disabled lane stops new intake; on resumption, its first
 successful fetch establishes a future-only baseline without replaying paused
 items. Articles already queued keep their frozen dispatch settings. A saved
 config revision applies to future work after a valid runtime read and is not
-delivery proof. The Schedules view uses the generic API-provided job bounds,
+delivery proof. The workflow's schedule section uses the generic API-provided job bounds,
 desired revision and reconciler status. A saved interval or enabled change is
 pending until that exact schedule revision is reported applied and effective.
 

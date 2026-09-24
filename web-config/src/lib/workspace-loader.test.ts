@@ -36,12 +36,12 @@ async function flush() {
 describe("scoped workspace loading", () => {
   it.each([
     ["overview", null, 13, ["jobs", "runs"]],
+    ["sources", null, 1, []],
     ["workflows", null, 1, []],
-    ["workflows", "source-2", 1, []],
+    ["workflows", "source-2", 2, ["jobs"]],
     ["workflows", xWatcherId, 3, ["jobs", "runs"]],
     ["workflows", "unlisted", 1, []],
     ["history", null, 7, ["runs"]],
-    ["schedules", null, 7, ["jobs"]],
     ["settings", null, 1, []],
   ] as const)(
     "loads only needed records for %s with selection %s",
@@ -91,15 +91,20 @@ describe("scoped workspace loading", () => {
     "bursawatch-tg-kelas-investasi-gtw",
     "bursawatch-tg-phintraco-swing",
     "bursawatch-dc-swing-board",
-  ])("does not fetch unused status for the %s editor", async (watcherId) => {
+  ])("loads schedules without unrelated run history for the %s editor", async (watcherId) => {
     const catalog = [{ ...watchers[0], watcher_id: watcherId }];
-    const read = vi.fn(async () => catalog);
+    const read = vi.fn(async (path: string) => (path === "watchers" ? catalog : []));
     const records = await loadWorkspaceRecords(requester(read), {
       view: "workflows",
       watcherId,
     });
-    expect(read).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledTimes(2);
     expect(read.mock.calls[0]).toEqual(["watchers", undefined, expect.any(Object)]);
+    expect(read.mock.calls[1]).toEqual([
+      `watchers/${watcherId}/jobs`,
+      undefined,
+      expect.any(Object),
+    ]);
     expect(records).toMatchObject({ watchers: catalog, jobs: [], runs: [], issues: [] });
   });
 
@@ -195,7 +200,10 @@ describe("scoped workspace loading", () => {
       if (path === "watchers") return [watchers[0]];
       throw new WorkspaceError("forbidden", "private raw denial");
     });
-    const records = await loadWorkspaceRecords(request, { view: "schedules" });
+    const records = await loadWorkspaceRecords(request, {
+      view: "workflows",
+      watcherId: watchers[0].watcher_id,
+    });
     expect(records.jobs).toEqual([]);
     expect(records.issues[0].message).toContain("does not have access");
   });

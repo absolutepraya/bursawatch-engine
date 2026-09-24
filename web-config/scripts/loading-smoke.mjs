@@ -402,17 +402,24 @@ async function demandDrivenReads() {
     state.holdDetails = true;
     await page.getByRole("button", { name: /Open watcher details: Synthetic workflow 1/ }).click();
     await page.getByRole("heading", { name: "Watcher configuration", exact: true }).waitFor();
+    await waitUntil(
+      () => state.pending.length === 1,
+      "Selected workflow schedule jobs were not requested.",
+    );
     await fixtureState.settle();
     assert.deepEqual(
       [...state.calls].sort(),
-      ["watchers", `watchers/${instagramId}/config`].sort(),
-      "A non-X editor needs only catalog membership and its configuration.",
+      ["watchers", `watchers/${instagramId}/config`, `watchers/${instagramId}/jobs`].sort(),
+      "A non-X editor needs catalog membership, configuration and its own jobs.",
     );
-    assert.equal(state.pending.length, 0, "Non-X configuration has no status consumers.");
+    assert.equal(state.active, 1, "Non-X detail must not request unrelated run history.");
+    for (const item of state.pending.splice(0)) await item.release();
+    state.holdDetails = false;
     await page.locator(".control-back").click();
     await page.getByRole("heading", { name: "Workflows", exact: true }).waitFor();
     await fixtureState.settle();
     state.calls.length = 0;
+    state.holdDetails = true;
     await page.getByRole("button", { name: /Open watcher details: Synthetic X accounts/ }).click();
     await page.getByRole("heading", { name: "Watcher configuration", exact: true }).waitFor();
     await waitUntil(

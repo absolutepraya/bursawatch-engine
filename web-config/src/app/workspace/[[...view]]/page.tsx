@@ -1,10 +1,10 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 import { WorkspaceApp } from "@/components/workspace-app";
 import { BrandMark } from "@/components/brand";
 import { publicAuthSettings } from "@/lib/web-environment";
 
-const allowed = ["overview", "workflows", "history", "schedules", "settings"] as const;
+const allowed = ["overview", "sources", "workflows", "history", "schedules", "settings"] as const;
 
 // Only the public shell and public Auth settings are built into these pages.
 // User sessions and every protected record are fetched in the browser after
@@ -18,6 +18,8 @@ export default async function WorkspacePage({ params }: { params: Promise<{ view
   const { view = [] } = await params;
   const active = view[0] ?? "overview";
   if (view.length > 1 || !allowed.includes(active as (typeof allowed)[number])) notFound();
+  // Existing bookmarks keep working while schedules move into each workflow.
+  if (active === "schedules") redirect("/workspace/workflows");
   const settings = publicAuthSettings({
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
@@ -36,7 +38,10 @@ export default async function WorkspacePage({ params }: { params: Promise<{ view
         </main>
       }
     >
-      <WorkspaceApp settings={settings} view={active as (typeof allowed)[number]} />
+      <WorkspaceApp
+        settings={settings}
+        view={active as Exclude<(typeof allowed)[number], "schedules">}
+      />
     </Suspense>
   );
 }

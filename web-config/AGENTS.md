@@ -16,9 +16,10 @@ and admin authorization on every request. No public signup, machine/admin token,
 direct SQL, second scheduler or browser role flag may bypass that boundary.
 See `docs/CONTROL_PLANE.md` for the reviewed handoff and remaining live checks.
 
-The live sidebar and mobile bottom navigation share Overview, Workflows,
-History, Schedules and Account. Workflows' Source library tab is a dated public
-reference catalog, not a live source inventory. Link only to watcher IDs
+The live sidebar and mobile bottom navigation share Overview, Sources,
+Workflows, History and Account, in that order. Sources has Securities and People
+tabs. Its image cards and added/to-add examples are visual previews, not saved
+source state or a live inventory. Link to configuration only for watcher IDs
 returned by the API. Actual profiles require an admin config read; decorate
 them with catalog avatars only after consistent platform and canonical
 URL/handle matching. Never infer identity from a display name or internal ID.
@@ -42,12 +43,17 @@ never embed real config, destinations, sessions or runtime state in public
 bundles, fixtures, logs or snapshots. Tests use synthetic values. No silent
 retry of writes: ambiguous saves and stale drafts require a fresh read.
 Preflight revision checking is best effort, not an atomic backend lock.
-Saved schedules remain pending until matching reconciliation is observed.
-Fixed jobs are read-only. Do not trigger a real run or delivery in smoke tests.
+Schedule controls live inside the selected workflow's configuration detail;
+the old Schedules URL remains a compatibility entry point. Configuration and
+schedule saves use separate revisions and actions. Saved schedules remain
+pending until matching reconciliation is observed. Fixed jobs are read-only.
+Do not trigger a real run or delivery in smoke tests.
 
-Load only the current view's records: workflow/source lists read the catalog,
-History lists read runs, Schedules reads jobs, and Account makes no control reads.
-Selected configuration opens after the catalog; only X loads source-poll status.
+Load only the current view's records: Sources and workflow lists read the
+catalog, History lists read runs, and Account makes no control reads. Selected
+workflow configuration opens after the catalog and loads only its jobs; only X
+also loads source-poll run status. Do not show a failed jobs read as an empty
+schedule list.
 Run timelines request events directly instead of waiting for unrelated watcher
 histories. Reuse existing run metadata only within the current signed-in component;
 do not add a persistent private-record cache.
@@ -60,7 +66,7 @@ counts and execution flags only. Missing counts stay absent, never become zero.
 Run totals do not prove a particular post was delivered; dry-run counts can be
 simulated. Never forward arbitrary event attributes or raw provider errors.
 
-The six allowed `/workspace` URLs pre-render only the public opening shell and
+The allowlisted `/workspace` URLs pre-render only the public opening shell and
 validated public Supabase settings. Protected records never enter that HTML or
 the CDN cache; `/api/control` remains authenticated and `no-store`. Public Auth
 setting changes require a fresh build. Deploy web functions in Singapore (`sin1`).
