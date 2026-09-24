@@ -1,6 +1,6 @@
 # Bursawatch Source Catalog and platform-pipeline implementation plan
 
-> **Status:** Approved by user. Implementation has not started.
+> **Status:** Implementation in progress, approved by user on 2026-09-24.
 >
 > **Approved design:** [Source Catalog and platform-pipeline architecture][catalog-spec]
 
@@ -53,7 +53,7 @@ shared contracts.
 
 ## Work phases
 
-### 1. Add the source registry and capability API
+### Task 1: Add the source registry and capability API
 
 **Packages:** service-bursawatch-control, lib-bursawatch-control
 
@@ -87,7 +87,7 @@ shared contracts.
   arbitrary securities, unsupported platform/pipeline pairs, invalid endpoint
   identities, and stale writes without changing current watcher configuration.
 
-### 2. Replace source previews with the API-backed catalog
+### Task 2: Replace source previews with the API-backed catalog
 
 **Packages:** web-config and service-bursawatch-control
 
@@ -114,7 +114,7 @@ shared contracts.
   identity and configure a supported endpoint; unsupported capabilities cannot be
   saved; viewers cannot mutate; old illustrative states are clearly not live data.
 
-### 3. Add durable source events and independent subscription work
+### Task 3: Add durable source events and independent subscription work
 
 **Packages:** service-bursawatch-control, lib-bursawatch-control,
 lib-bursawatch-pipeline-runtime
@@ -150,7 +150,7 @@ lib-bursawatch-pipeline-runtime
 **Acceptance:** every accepted source event is durable before cursor advancement, and
   each enabled subscription has its own observable state and retry lifecycle.
 
-### 4. Pilot the Telegram platform with current Swing and News behavior
+### Task 4: Pilot the Telegram platform with current Swing and News behavior
 
 **Packages:** add cron-tg-source-ingest; adapt cron-tg-market-news,
 cron-tg-phintraco-swing, cron-tg-kelas-investasi-gtw, cron-dc-swing-board; use existing
@@ -181,7 +181,7 @@ Discord Delivery Owner
   events once, while event and pipeline receipts demonstrate independent delivery. No
   production source history is replayed.
 
-### 5. Migrate remaining platform adapters
+### Task 5: Migrate remaining platform adapters
 
 **Packages:** add cron-x-source-ingest, cron-ig-source-ingest, cron-wa-source-ingest,
 and cron-rss-source-ingest; adapt the corresponding existing watcher packages
@@ -208,7 +208,7 @@ and cron-rss-source-ingest; adapt the corresponding existing watcher packages
   each event is accepted once, pipeline failures remain isolated, and no source-specific
   job is removed before its cursor and pending work are accounted for.
 
-### 6. Cut over, document, and retire duplicate paths
+### Task 6: Cut over, document, and retire duplicate paths
 
 **Packages:** all migrated adapter and pipeline packages; service-bursawatch-control;
 web-config; docs and platform-bursawatch-release metadata
@@ -282,11 +282,10 @@ These are architecture-wide checkpoints, not a separate review for every cron pa
 
 ## Implementation approval boundary
 
-This plan authorizes no code changes or production actions until the user approves this
-implementation plan. Once approved, implementation may proceed in the existing managed
-worktree. Testing and code commits are part of implementation; production data
-migration, Hermes job changes, release/deploy, and live storage provisioning remain
-separate approval gates.
+The user approved this implementation plan on 2026-09-24. Code changes, tests, and
+commits may proceed in the existing managed worktree. Production data migration,
+Hermes job changes, release/deploy, and live storage provisioning remain separate
+approval gates.
 
 [catalog-spec]: ../specs/2026-09-24-bursawatch-source-catalog-and-pipeline-architecture-design.md
 [swing-spec]: ../specs/2026-09-23-swing-board-shared-architecture-design.md
