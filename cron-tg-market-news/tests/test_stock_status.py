@@ -139,7 +139,7 @@ def test_message_35377_renders_the_approved_discord_message(load_fixture):
         format_stock_status(status, exact_length_url + "x")
 
     assert format_stock_status(status, base_url) == (
-        "### <:phintraco:1531272488645038091> Stock Status: Wed, 23 Sep 2026\n\n"
+        "### <:phintraco:1531272488645038091> Stock Status: Web, Wed, 23 Sep 2026\n\n"
         "**UMA:**\n(None)\n\n"
         "**Suspend In:**\n(None)\n\n"
         "**Suspend Out:**\n- WAPO\n- NASI\n\n"

@@ -159,7 +159,7 @@ def format_stock_status(status: StockStatus, source_url: str) -> str:
         f"{effective_date.year}"
     )
     content = [
-        f"### <:phintraco:1531272488645038091> Stock Status: {heading_date}"
+        f"### <:phintraco:1531272488645038091> Stock Status: Web, {heading_date}"
     ]
     for label, tickers in (
         ("UMA", status.uma),
