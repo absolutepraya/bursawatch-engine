@@ -1,0 +1,22 @@
+[Unit]
+Description=Bursawatch Source Media Owner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=praya
+Group=praya
+WorkingDirectory=/home/praya/.hermes/bursawatch-source-media
+Environment=HOME=/home/praya
+EnvironmentFile=/home/praya/.hermes/bursawatch-source-media.env
+ExecStart=/home/praya/.hermes/bursawatch-source-media/venv/bin/python bin/serve.py
+Restart=always
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
