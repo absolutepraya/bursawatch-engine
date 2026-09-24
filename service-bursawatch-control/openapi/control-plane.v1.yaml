@@ -482,7 +482,33 @@ components:
         revision: {type: integer}
         updated_at: {type: string, format: date-time}
         selected_securities: {type: array, items: {type: string}}
-        subscriptions: {type: array, items: {type: object}}
+        subscriptions:
+          type: array
+          items: {$ref: '#/components/schemas/EffectiveSourceSubscription'}
+    EffectiveSourceSubscription:
+      type: object
+      required: [endpoint_id, publisher_id, platform, address, provider_id, credential_ref, capability_id, pipeline, enabled, verification_status, settings, source]
+      properties:
+        endpoint_id: {type: string}
+        publisher_id: {type: string}
+        platform: {type: string, enum: [telegram, x, instagram, whatsapp, rss]}
+        address: {type: string, description: Canonical endpoint handle, invitation URL, or fixed RSS feed URL.}
+        provider_id:
+          oneOf:
+            - {type: string}
+            - {type: 'null'}
+          description: Stable provider identity when known; WhatsApp uses channel JID, Telegram uses numeric channel ID, and Stockbit uses its fixed lane ID.
+        credential_ref:
+          oneOf:
+            - {type: string, pattern: '^credential:'}
+            - {type: 'null'}
+          description: Managed credential reference only; credential material is never returned.
+        capability_id: {type: string}
+        pipeline: {type: string}
+        enabled: {type: boolean}
+        verification_status: {type: string, enum: [verified, pending]}
+        settings: {type: object}
+        source: {type: string, enum: [endpoint_override, publisher_default, unset]}
     WatcherSummary:
       type: object
       additionalProperties: false

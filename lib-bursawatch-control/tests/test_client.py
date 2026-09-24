@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from io import BytesIO
 import json
 from pathlib import Path
 
@@ -23,21 +24,88 @@ from control_plane_client import (  # noqa: E402
 )
 
 
+def catalog_config():
+    return {"selected_securities": [], "people_org": [], "endpoints": [], "publisher_defaults": [], "endpoint_overrides": []}
+
+
+def catalog_revision():
+    config = catalog_config()
+    checksum = hashlib.sha256(json.dumps(config, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+    return {"revision": 2, "config": config, "sha256": checksum, "actor_id": "admin", "updated_at": "2026-09-24T00:00:00+00:00"}
+
+
+def effective_catalog():
+    return {"revision": 2, "updated_at": "2026-09-24T00:00:00+00:00", "selected_securities": [], "subscriptions": [{"endpoint_id": "telegram:phintraprofits", "publisher_id": "phintraco", "platform": "telegram", "address": "phintraprofits", "provider_id": "1444713822", "credential_ref": None, "capability_id": "trading_plans", "pipeline": "swing_plan", "enabled": True, "verification_status": "verified", "settings": {}, "source": "publisher_default"}]}
+
+
+def catalog_body():
+    return {"securities": [], "institutions": [{"id": "phintraco", "name": "Phintraco Sekuritas", "tier": 1, "asset_ref": None}], "people_org": [], "endpoints": [{"id": "telegram:phintraprofits", "publisher_id": "phintraco", "platform": "telegram", "address": "phintraprofits", "provider_id": "1444713822", "credential_ref": None, "system_owned": True, "verified": True}], "capabilities": [{"id": "trading_plans", "label": "Trading Plans", "pipeline": "swing_plan", "version": 1}], "compatibility": [{"endpoint_id": "telegram:phintraprofits", "capability_id": "trading_plans"}], "config": catalog_revision()}
+
+
 def test_source_catalog_client_reads_effective_and_puts_expected_revision_without_spooling():
-    from io import BytesIO
 
     seen = []
 
     def opener(request, timeout):
         seen.append((request.get_method(), request.full_url, request.get_header("Authorization"), request.data))
-        return BytesIO(json.dumps({"revision": 2, "subscriptions": []}).encode())
+        body = effective_catalog() if request.get_method() == "GET" else catalog_revision()
+        return BytesIO(json.dumps(body).encode())
 
     client = SourceCatalogClient("https://control.example.test", "token", opener=opener)
     assert client.get_effective()["revision"] == 2
-    assert client.put_config(1, {"selected_securities": []})["revision"] == 2
+    assert client.put_config(1, catalog_config())["revision"] == 2
     assert seen[0][:3] == ("GET", "https://control.example.test/v1/source-catalog/effective", "Bearer token")
     assert seen[1][0] == "PUT"
     assert json.loads(seen[1][3])["expected_revision"] == 1
+
+
+def test_source_catalog_client_accepts_complete_registry_response():
+    client = SourceCatalogClient("https://control.example.test", "token", opener=lambda *_args, **_kwargs: BytesIO(json.dumps(catalog_body()).encode()))
+    assert client.get_catalog()["endpoints"][0]["provider_id"] == "1444713822"
+
+
+@pytest.mark.parametrize("change", [
+    lambda body: body.update(revision={"value": 2}),
+    lambda body: body.pop("subscriptions"),
+    lambda body: body.update(subscriptions={}),
+    lambda body: body["subscriptions"][0].pop("address"),
+    lambda body: body["subscriptions"][0].update(enabled=1),
+])
+def test_source_catalog_client_rejects_malformed_effective_snapshots(change):
+    body = effective_catalog()
+    change(body)
+    client = SourceCatalogClient("https://control.example.test", "token", opener=lambda *_args, **_kwargs: BytesIO(json.dumps(body).encode()))
+    with pytest.raises(ControlPlaneContractError):
+        client.get_effective()
+
+
+@pytest.mark.parametrize("change", [
+    lambda body: body.update(revision={"value": 2}),
+    lambda body: body.pop("config"),
+    lambda body: body["config"].update(endpoints={}),
+    lambda body: body.update(sha256=7),
+    lambda body: body.update(sha256="0" * 64),
+])
+def test_source_catalog_client_rejects_malformed_write_responses(change):
+    body = catalog_revision()
+    change(body)
+    client = SourceCatalogClient("https://control.example.test", "token", opener=lambda *_args, **_kwargs: BytesIO(json.dumps(body).encode()))
+    with pytest.raises(ControlPlaneContractError):
+        client.put_config(1, catalog_config())
+
+
+@pytest.mark.parametrize("change", [
+    lambda body: body.pop("capabilities"),
+    lambda body: body["endpoints"][0].update(provider_id=123),
+    lambda body: body["institutions"][0].update(tier=True),
+    lambda body: body["config"].update(revision={"value": 2}),
+])
+def test_source_catalog_client_rejects_malformed_registry_responses(change):
+    body = catalog_body()
+    change(body)
+    client = SourceCatalogClient("https://control.example.test", "token", opener=lambda *_args, **_kwargs: BytesIO(json.dumps(body).encode()))
+    with pytest.raises(ControlPlaneContractError):
+        client.get_catalog()
 
 
 def test_source_catalog_client_exposes_revision_conflict():

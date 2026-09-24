@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import ast
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from control_plane.api import create_app
 from control_plane.auth import StaticTokenAuth
-from control_plane.source_catalog import MemoryCatalogStore, initial_config
+from control_plane.source_catalog import MemoryCatalogStore, initial_config, registry
 from control_plane.store import InMemoryStore
 
 
@@ -41,7 +43,74 @@ def test_registry_lists_canonical_ids_and_engine_owned_capabilities_without_clai
     assert {x["id"]: x["tier"] for x in body["institutions"]}["phintraco"] == 1
     assert {x["id"]: x["tier"] for x in body["people_org"]}["kelas-investasi"] == 2
     assert api.get("/v1/source-catalog", headers=MACHINE).status_code == 403
-    assert api.get("/v1/source-catalog/effective", headers=MACHINE).status_code == 200
+    effective = api.get("/v1/source-catalog/effective", headers=MACHINE)
+    assert effective.status_code == 200
+    bri = next(item for item in effective.json()["subscriptions"] if item["endpoint_id"] == "whatsapp:0029VbAjdnb60eBhwVdJxj1c")
+    assert bri["address"] == "https://www.whatsapp.com/channel/0029VbAjdnb60eBhwVdJxj1c"
+    assert bri["provider_id"] == "120363419226413141@newsletter"
+    assert bri["credential_ref"] is None
+
+
+def test_every_seeded_endpoint_matches_checked_in_source_identity_and_provider_id():
+    root = Path(__file__).resolve().parents[2]
+    actual_registry = registry()
+    actual = {row["id"]: row for row in actual_registry["endpoints"]}
+    publishers = {row["id"]: row for row in actual_registry["institutions"] + actual_registry["people_org"]}
+    expected = {}
+
+    for platform, package in (("x", "cron-x-account-watch"), ("instagram", "cron-ig-account-watch")):
+        profiles = json.loads((root / package / "config/watches.json").read_text())["profiles"]
+        for profile in profiles:
+            endpoint_id = f"{platform}:{profile['handle'].lower()}"
+            publisher_id = f"{'x' if platform == 'x' else 'instagram'}-{profile['id']}"
+            expected[endpoint_id] = (publisher_id, profile["handle"], None)
+            assert publishers[publisher_id]["name"] == profile["display_name"]
+
+    wa_profiles = json.loads((root / "cron-wa-channel-watch/config/watches.json").read_text())["profiles"]
+    wa_publishers = {"bri-danareksa-sekuritas": "bri-danareksa", "ins": "whatsapp-ins", "samuel-sekuritas-indonesia": "samuel-sekuritas"}
+    for profile in wa_profiles:
+        endpoint_id = "whatsapp:" + profile["channel_url"].split("/")[-1]
+        publisher_id = wa_publishers[profile["id"]]
+        expected[endpoint_id] = (publisher_id, profile["channel_url"], profile["channel_jid"])
+        assert publishers[publisher_id]["name"] == profile["display_name"]
+        assert profile["channel_jid"].endswith("@newsletter")
+        assert profile["channel_jid"] not in profile["channel_url"]
+    assert "by_channel.get(profile.channel_jid" in (root / "cron-wa-channel-watch/bin/scan.py").read_text()
+    assert '"jid": target["channel_jid"]' in (root / "cron-wa-channel-watch/bin/subscriptions.py").read_text()
+
+    for package, publisher_id in (("cron-tg-phintraco-swing", "phintraco"), ("cron-tg-kelas-investasi-gtw", "kelas-investasi")):
+        source = json.loads((root / "service-bursawatch-control/baseline-configs" / f"bursawatch-{package[5:]}.json").read_text())["source"]
+        expected[f"telegram:{source['telegram_username']}"] = (publisher_id, source["telegram_username"], str(source["telegram_channel_id"]))
+        source_code = (root / package / "bin/config.py").read_text()
+        assert str(source["telegram_channel_id"]) in source_code
+        assert source["telegram_username"] in source_code
+
+    providers = json.loads((root / "service-bursawatch-control/baseline-configs/bursawatch-tg-market-news.json").read_text())["providers"]
+    for publisher_id, source in providers.items():
+        expected[f"telegram:{source['telegram_username']}"] = (publisher_id, source["telegram_username"], None)
+        assert source["telegram_username"] in (root / "cron-tg-market-news/bin/config.py").read_text()
+
+    model_tree = ast.parse((root / "cron-stockbit-snips/bin/models.py").read_text())
+    lanes = {}
+    for node in model_tree.body:
+        if isinstance(node, ast.ClassDef) and node.name == "FeedLane":
+            lanes = {assignment.targets[0].id: assignment.value.value for assignment in node.body if isinstance(assignment, ast.Assign) and isinstance(assignment.value, ast.Constant)}
+    feed_tree = ast.parse((root / "cron-stockbit-snips/bin/config.py").read_text())
+    feed_assignment = next(node for node in feed_tree.body if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "FEEDS" for target in node.targets))
+    source_feeds = [(lanes[feed.args[0].attr], feed.args[2].value) for feed in feed_assignment.value.elts]
+    source_lanes = [lane for lane, _url in source_feeds]
+    configured_lanes = [feed["id"] for feed in json.loads((root / "service-bursawatch-control/baseline-configs/bursawatch-stockbit-snips.json").read_text())["feeds"]]
+    assert source_lanes == configured_lanes
+    for lane, url in source_feeds:
+        expected[f"rss:stockbit:{lane}"] = ("stockbit", url, lane)
+
+    assert set(actual) == set(expected)
+    migration = (root / "service-bursawatch-control/migrations/013_source_catalog.sql").read_text()
+    for endpoint_id, (publisher_id, address, provider_id) in expected.items():
+        row = actual[endpoint_id]
+        assert (row["publisher_id"], row["address"], row["provider_id"]) == (publisher_id, address, provider_id)
+        literal_provider_id = f"'{provider_id}'" if provider_id is not None else "null"
+        assert f"values ('{endpoint_id}', '{publisher_id}', '{row['platform']}', '{address}', {literal_provider_id});" in migration
 
 
 def test_optimistic_write_audits_and_resolves_default_then_override_without_watcher_change():
@@ -57,6 +126,7 @@ def test_optimistic_write_audits_and_resolves_default_then_override_without_watc
     effective = api.get("/v1/source-catalog/effective", headers=MACHINE).json()
     chosen = next(x for x in effective["subscriptions"] if x["endpoint_id"] == "telegram:phintasprofits" and x["capability_id"] == "company_news")
     assert (chosen["enabled"], chosen["source"]) == (False, "endpoint_override")
+    assert (chosen["address"], chosen["provider_id"], chosen["credential_ref"]) == ("phintasprofits", None, None)
     assert watchers.get_config("bursawatch-tg-market-news") == original
     assert put(api, config).status_code == 409
     assert catalog.get()["revision"] == 2
@@ -85,6 +155,7 @@ def test_new_people_endpoint_is_pending_and_cannot_activate_an_unsupported_pipel
     item = next(x for x in effective["subscriptions"] if x["endpoint_id"] == "analyst-a-x" and x["capability_id"] == "company_news")
     assert item["verification_status"] == "pending"
     assert item["enabled"] is False
+    assert (item["address"], item["provider_id"], item["credential_ref"]) == ("analyst_a", None, "credential:x-reader")
     bad = deepcopy(config)
     bad["endpoint_overrides"] = [{"endpoint_id": "analyst-a-x", "capability_id": "trading_plans", "enabled": True, "settings": {}}]
     assert put(api, bad, 2).status_code == 422

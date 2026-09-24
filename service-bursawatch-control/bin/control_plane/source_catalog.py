@@ -23,7 +23,7 @@ CAPABILITIES = (
 
 SECURITIES: tuple[dict[str, str], ...] = ()  # No reviewed finite engine universe exists yet.
 
-# IDs and addresses below come from the checked-in baseline watcher configs. A
+# IDs and addresses below come from checked-in watcher configs and Stockbit FEEDS. A
 # display name alone is never evidence of a relationship to an institution or
 # of a person versus organization subtype, so seeded People & Org kind is null.
 INSTITUTIONS = (
@@ -56,6 +56,13 @@ PEOPLE_ORG = (
     {'id': 'whatsapp-ins', 'name': 'INS', 'kind': None, 'tier': 3},
 )
 
+STOCKBIT_FEED_URLS = {
+    "stockbit_commentary": "https://snips.stockbit.com/stockbit-research?format=rss",
+    "unboxing": "https://snips.stockbit.com/unboxing?format=rss",
+    "unboxing_ipo": "https://snips.stockbit.com/unboxing-ipo?format=rss",
+    "ai_reports_stockbit": "https://snips.stockbit.com/ai-reports-stockbit?format=rss",
+}
+
 ENDPOINTS = (
     {'id': 'x:kutekians', 'publisher_id': 'x-kutekians', 'platform': 'x', 'address': 'Kutekians', 'provider_id': None, 'system_owned': True},
     {'id': 'x:rickyho_1989', 'publisher_id': 'x-rickyho1989', 'platform': 'x', 'address': 'rickyho_1989', 'provider_id': None, 'system_owned': True},
@@ -74,15 +81,15 @@ ENDPOINTS = (
     {'id': 'instagram:sectorsapp', 'publisher_id': 'instagram-sectorsapp', 'platform': 'instagram', 'address': 'sectorsapp', 'provider_id': None, 'system_owned': True},
     {'id': 'instagram:cukhurukuque', 'publisher_id': 'instagram-cukhurukuque', 'platform': 'instagram', 'address': 'cukhurukuque', 'provider_id': None, 'system_owned': True},
     {'id': 'instagram:notintofinance', 'publisher_id': 'instagram-notintofinance', 'platform': 'instagram', 'address': 'notintofinance', 'provider_id': None, 'system_owned': True},
-    {'id': 'whatsapp:0029Vb6qi96ISTkJcDn4op2z', 'publisher_id': 'whatsapp-ins', 'platform': 'whatsapp', 'address': 'https://whatsapp.com/channel/0029Vb6qi96ISTkJcDn4op2z', 'provider_id': '0029Vb6qi96ISTkJcDn4op2z', 'system_owned': True},
+    {'id': 'whatsapp:0029Vb6qi96ISTkJcDn4op2z', 'publisher_id': 'whatsapp-ins', 'platform': 'whatsapp', 'address': 'https://whatsapp.com/channel/0029Vb6qi96ISTkJcDn4op2z', 'provider_id': '120363405187024421@newsletter', 'system_owned': True},
     {"id": "telegram:phintraprofits", "publisher_id": "phintraco", "platform": "telegram", "address": "phintraprofits", "provider_id": "1444713822", "system_owned": True},
     {"id": "telegram:phintasprofits", "publisher_id": "phintraco", "platform": "telegram", "address": "phintasprofits", "provider_id": None, "system_owned": True},
     {"id": "telegram:kelasinvestasiid", "publisher_id": "kelas-investasi", "platform": "telegram", "address": "kelasinvestasiid", "provider_id": "2142109618", "system_owned": True},
     {"id": "telegram:tuntunsekuritas", "publisher_id": "tuntun", "platform": "telegram", "address": "tuntunsekuritas", "provider_id": None, "system_owned": True},
-    {"id": "whatsapp:0029VbAjdnb60eBhwVdJxj1c", "publisher_id": "bri-danareksa", "platform": "whatsapp", "address": "https://www.whatsapp.com/channel/0029VbAjdnb60eBhwVdJxj1c", "provider_id": "0029VbAjdnb60eBhwVdJxj1c", "system_owned": True},
-    {"id": "whatsapp:0029VagNdGpFMqrXKEcdBb2U", "publisher_id": "samuel-sekuritas", "platform": "whatsapp", "address": "https://whatsapp.com/channel/0029VagNdGpFMqrXKEcdBb2U", "provider_id": "0029VagNdGpFMqrXKEcdBb2U", "system_owned": True},
+    {"id": "whatsapp:0029VbAjdnb60eBhwVdJxj1c", "publisher_id": "bri-danareksa", "platform": "whatsapp", "address": "https://www.whatsapp.com/channel/0029VbAjdnb60eBhwVdJxj1c", "provider_id": "120363419226413141@newsletter", "system_owned": True},
+    {"id": "whatsapp:0029VagNdGpFMqrXKEcdBb2U", "publisher_id": "samuel-sekuritas", "platform": "whatsapp", "address": "https://whatsapp.com/channel/0029VagNdGpFMqrXKEcdBb2U", "provider_id": "120363319274271353@newsletter", "system_owned": True},
     *(
-        {"id": f"rss:stockbit:{lane}", "publisher_id": "stockbit", "platform": "rss", "address": lane, "provider_id": lane, "system_owned": True}
+        {"id": f"rss:stockbit:{lane}", "publisher_id": "stockbit", "platform": "rss", "address": STOCKBIT_FEED_URLS[lane], "provider_id": lane, "system_owned": True}
         for lane in ("stockbit_commentary", "unboxing", "unboxing_ipo", "ai_reports_stockbit")
     ),
 )
@@ -238,7 +245,7 @@ def effective_snapshot(config: dict[str, Any], registry: dict[str, Any], revisio
         key = (endpoint["id"], pair["capability_id"])
         inherited = defaults.get((endpoint["publisher_id"], pair["capability_id"]))
         chosen = overrides.get(key) or inherited
-        result.append({"endpoint_id": key[0], "publisher_id": endpoint["publisher_id"], "platform": endpoint["platform"], "capability_id": key[1], "pipeline": next(x["pipeline"] for x in registry["capabilities"] if x["id"] == key[1]), "enabled": bool(chosen and chosen["enabled"] and endpoint.get("system_owned", False)), "verification_status": "verified" if endpoint.get("system_owned", False) else "pending", "settings": chosen["settings"] if chosen else {}, "source": "endpoint_override" if key in overrides else "publisher_default" if inherited else "unset"})
+        result.append({"endpoint_id": key[0], "publisher_id": endpoint["publisher_id"], "platform": endpoint["platform"], "address": endpoint["address"], "provider_id": endpoint.get("provider_id"), "credential_ref": endpoint.get("credential_ref"), "capability_id": key[1], "pipeline": next(x["pipeline"] for x in registry["capabilities"] if x["id"] == key[1]), "enabled": bool(chosen and chosen["enabled"] and endpoint.get("system_owned", False)), "verification_status": "verified" if endpoint.get("system_owned", False) else "pending", "settings": chosen["settings"] if chosen else {}, "source": "endpoint_override" if key in overrides else "publisher_default" if inherited else "unset"})
     return {"revision": revision, "updated_at": updated_at, "selected_securities": config["selected_securities"], "subscriptions": result}
 
 
@@ -262,8 +269,14 @@ def registry() -> dict[str, Any]:
 
 def catalog_view(config: dict[str, Any], base: dict[str, Any] | None = None) -> dict[str, Any]:
     result = deepcopy(base) if base is not None else registry()
-    result["people_org"].extend(deepcopy(config["people_org"]))
-    result["endpoints"].extend({**deepcopy(item), "system_owned": False, "verified": False} for item in config["endpoints"])
+    result["institutions"] = [{**item, "asset_ref": item.get("asset_ref")} for item in result["institutions"]]
+    result["people_org"] = [{**item, "asset_ref": item.get("asset_ref")} for item in result["people_org"]]
+    result["people_org"].extend({**deepcopy(item), "tier": 3} for item in config["people_org"])
+    result["endpoints"] = [
+        {**endpoint, "provider_id": endpoint.get("provider_id"), "credential_ref": endpoint.get("credential_ref"), "verified": bool(endpoint["system_owned"])}
+        for endpoint in result["endpoints"]
+    ]
+    result["endpoints"].extend({**deepcopy(item), "provider_id": None, "system_owned": False, "verified": False} for item in config["endpoints"])
     result["compatibility"].extend(
         {"endpoint_id": endpoint["id"], "capability_id": capability}
         for endpoint in config["endpoints"]

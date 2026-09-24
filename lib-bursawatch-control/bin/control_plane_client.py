@@ -42,6 +42,85 @@ class SourceCatalogConflict(ControlPlaneError):
     """A source catalog write used a stale expected revision."""
 
 
+def _catalog_object(value: object, fields: dict[str, type | tuple[type, ...]], label: str) -> dict[str, Any]:
+    if type(value) is not dict:
+        raise ControlPlaneContractError(f"{label} must be an object")
+    for key, expected in fields.items():
+        if key not in value or type(value[key]) not in (expected if isinstance(expected, tuple) else (expected,)):
+            raise ControlPlaneContractError(f"{label}.{key} has an invalid type")
+    return value
+
+
+def _catalog_list(value: object, label: str) -> list[Any]:
+    if type(value) is not list:
+        raise ControlPlaneContractError(f"{label} must be a list")
+    return value
+
+
+def _catalog_config(value: object) -> dict[str, Any]:
+    config = _catalog_object(value, {key: list for key in ("selected_securities", "people_org", "endpoints", "publisher_defaults", "endpoint_overrides")}, "config")
+    if set(config) != {"selected_securities", "people_org", "endpoints", "publisher_defaults", "endpoint_overrides"}:
+        raise ControlPlaneContractError("config has unexpected fields")
+    if any(type(symbol) is not str for symbol in config["selected_securities"]):
+        raise ControlPlaneContractError("selected_securities must contain strings")
+    for person in config["people_org"]:
+        _catalog_object(person, {"id": str, "name": str, "kind": str, "asset_ref": (dict, type(None))}, "people_org item")
+        if person["asset_ref"] is not None:
+            _catalog_object(person["asset_ref"], {"url": str, "kind": str}, "asset_ref")
+    for endpoint in config["endpoints"]:
+        _catalog_object(endpoint, {"id": str, "publisher_id": str, "platform": str, "address": str, "credential_ref": (str, type(None))}, "endpoint item")
+    for field, owner in (("publisher_defaults", "publisher_id"), ("endpoint_overrides", "endpoint_id")):
+        for item in config[field]:
+            _catalog_object(item, {owner: str, "capability_id": str, "enabled": bool, "settings": dict}, field + " item")
+    return config
+
+
+def _catalog_revision(value: object) -> dict[str, Any]:
+    record = _catalog_object(value, {"revision": int, "config": dict, "sha256": str, "actor_id": str, "updated_at": str}, "catalog revision")
+    if record["revision"] < 1 or not re.fullmatch(r"[0-9a-f]{64}", record["sha256"]):
+        raise ControlPlaneContractError("catalog revision or checksum is invalid")
+    _catalog_config(record["config"])
+    checksum = hashlib.sha256(json.dumps(record["config"], sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+    if record["sha256"] != checksum:
+        raise ControlPlaneContractError("catalog checksum does not match config")
+    try:
+        updated_at = datetime.fromisoformat(record["updated_at"].replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ControlPlaneContractError("catalog updated_at is invalid") from exc
+    if updated_at.tzinfo is None or not record["actor_id"]:
+        raise ControlPlaneContractError("catalog timestamp or actor is invalid")
+    return record
+
+
+def _source_catalog_response(path: str, result: object) -> dict[str, Any]:
+    if path == "/v1/source-catalog/config":
+        return _catalog_revision(result)
+    if path == "/v1/source-catalog/effective":
+        body = _catalog_object(result, {"revision": int, "updated_at": str, "selected_securities": list, "subscriptions": list}, "effective catalog")
+        if body["revision"] < 1 or any(type(symbol) is not str for symbol in body["selected_securities"]):
+            raise ControlPlaneContractError("effective catalog revision or securities are invalid")
+        for item in body["subscriptions"]:
+            _catalog_object(item, {"endpoint_id": str, "publisher_id": str, "platform": str, "address": str, "provider_id": (str, type(None)), "credential_ref": (str, type(None)), "capability_id": str, "pipeline": str, "enabled": bool, "verification_status": str, "settings": dict, "source": str}, "subscription")
+        return body
+    if path == "/v1/source-catalog":
+        body = _catalog_object(result, {key: list for key in ("securities", "institutions", "people_org", "endpoints", "capabilities", "compatibility")}, "source catalog")
+        _catalog_revision(body.get("config"))
+        for item in body["securities"]:
+            _catalog_object(item, {"symbol": str, "name": str, "exchange": str}, "security")
+        for item in body["institutions"]:
+            _catalog_object(item, {"id": str, "name": str, "tier": int, "asset_ref": (dict, type(None))}, "institution")
+        for item in body["people_org"]:
+            _catalog_object(item, {"id": str, "name": str, "kind": (str, type(None)), "tier": int, "asset_ref": (dict, type(None))}, "people_org item")
+        for item in body["endpoints"]:
+            _catalog_object(item, {"id": str, "publisher_id": str, "platform": str, "address": str, "provider_id": (str, type(None)), "credential_ref": (str, type(None)), "system_owned": bool, "verified": bool}, "registered endpoint")
+        for item in body["capabilities"]:
+            _catalog_object(item, {"id": str, "label": str, "pipeline": str, "version": int}, "capability")
+        for item in body["compatibility"]:
+            _catalog_object(item, {"endpoint_id": str, "capability_id": str}, "compatibility")
+        return body
+    raise ValueError("unsupported source catalog route")
+
+
 class SourceCatalogClient:
     """Typed access to versioned source catalog snapshots.
 
@@ -70,16 +149,17 @@ class SourceCatalogClient:
         )
         try:
             with self.opener(request, timeout=self.timeout) as response:
-                result = json.load(response)
+                raw = response.read()
         except HTTPError as exc:
             if exc.code == 409:
                 raise SourceCatalogConflict("source catalog revision is stale") from exc
             raise ControlPlaneUnavailable(f"source catalog returned HTTP {exc.code}") from exc
-        except (URLError, TimeoutError, OSError, ValueError) as exc:
+        except (URLError, TimeoutError, OSError) as exc:
             raise ControlPlaneUnavailable("source catalog request failed") from exc
-        if type(result) is not dict or type(result.get("revision" if path.endswith("effective") or payload is not None else "config")) not in (int, dict):
-            raise ControlPlaneContractError("source catalog returned an invalid snapshot")
-        return result
+        try:
+            return _source_catalog_response(path, json.loads(raw))
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise ControlPlaneContractError("source catalog returned invalid JSON") from exc
 
     def get_catalog(self) -> dict[str, Any]:
         return self._request("/v1/source-catalog")

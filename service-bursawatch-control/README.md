@@ -6,7 +6,10 @@
 curated publishers, canonical platform endpoints, capabilities, compatibility,
 and the current independent catalog revision. `GET /v1/source-catalog/effective`
 resolves publisher defaults and endpoint overrides into a machine-readable
-subscription snapshot. A signed-in admin uses `PUT /v1/source-catalog/config`
+subscription snapshot. Each subscription includes its canonical address,
+provider ID when known, and only a managed credential reference when one is
+configured. WhatsApp provider IDs are channel JIDs; invitation URLs remain
+addresses. A signed-in admin uses `PUT /v1/source-catalog/config`
 with `expected_revision` and the complete config to save a new audited revision.
 Stale writes return 409. Viewers can read the registry, and machine credentials
 can read the effective snapshot. Asset metadata is an HTTPS reference only;
@@ -16,7 +19,8 @@ path is added.
 
 Migration `013_source_catalog.sql` adds a private engine registry and independent
 catalog revision/audit tables. It seeds canonical IDs from checked-in watcher
-baselines without copying, converting, or replacing any live watcher config.
+configs and the fixed Stockbit `FEEDS` definition without copying, converting,
+or replacing any live watcher config.
 There is currently no reviewed finite engine-owned IDX securities list, so
 the supported-securities table and initial selection are empty. Add securities
 only through a reviewed engine migration after establishing that allowlist.
