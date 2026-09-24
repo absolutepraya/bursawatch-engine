@@ -29,7 +29,7 @@ import { SearchableRunHistory, SearchableWorkflowList } from "@/components/works
 import { WatcherConfigEditor } from "@/components/watcher-config-editor";
 import { ScheduleEditor } from "@/components/schedule-editor";
 import { WorkspaceNavigation, type WorkspaceView } from "@/components/workspace-navigation";
-import { ConnectedSourceLibrary } from "@/components/connected-source-library";
+import { SourceCatalogView } from "@/components/source-catalog";
 import { ConnectedWorkflowSummary } from "@/components/connected-workflow-summary";
 import { WorkspaceLoading } from "@/components/workspace-loading";
 import { XDeliveryStatus } from "@/components/x-delivery-status";
@@ -479,12 +479,10 @@ function SignedInWorkspace({
         {records && view === "sources" ? (
           <>
             <WorkspaceHeading
-              title="Source library"
-              description="Explore public references and visual concepts for Bursawatch workflows."
+              title="Sources"
+              description="Review supported sources and their saved catalog settings."
             />
-            <ConnectedSourceLibrary
-              watcherIds={records.watchers.map((watcher) => watcher.watcher_id)}
-            />
+            <SourceCatalogView request={request} onDirtyChange={onDirtyChange} />
           </>
         ) : null}
         {records && view === "workflows" ? (

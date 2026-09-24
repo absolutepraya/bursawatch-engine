@@ -301,3 +301,27 @@ describe("authenticated control routes", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
+
+
+describe("source catalog proxy", () => {
+  const emptyConfig = { selected_securities: [], people_org: [], endpoints: [], publisher_defaults: [], endpoint_overrides: [] };
+  const revision = { revision: 1, config: emptyConfig, sha256: "a".repeat(64), actor_id: "baseline", updated_at: time };
+  const catalog = { securities: [], institutions: [], people_org: [], endpoints: [], capabilities: [], compatibility: [], config: revision };
+  it("forwards only exact authenticated catalog reads", async () => {
+    const fetchImpl = fake([catalog], [{ revision: 1, updated_at: time, selected_securities: [], subscriptions: [] }]);
+    expect((await invoke("source-catalog", fetchImpl)).status).toBe(200);
+    expect((await invoke("source-catalog/effective", fetchImpl)).status).toBe(200);
+    expect((await invoke("source-catalog/private", fetchImpl)).status).toBe(404);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+  it("checks origin and schema before a catalog write and preserves backend role denial", async () => {
+    const fetchImpl = fake([{ detail: "private" }, 403]);
+    const payload = { expected_revision: 1, config: emptyConfig };
+    expect((await invoke("source-catalog/config", fetchImpl, payload, { origin: "https://evil.example.test" })).status).toBe(403);
+    expect((await invoke("source-catalog/config", fetchImpl, { ...payload, secret: "bad" })).status).toBe(422);
+    const denied = await invoke("source-catalog/config", fetchImpl, payload);
+    expect(denied.status).toBe(403);
+    expect(await denied.text()).not.toContain("private");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});

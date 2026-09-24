@@ -2,6 +2,7 @@ import "server-only";
 
 import { isIP } from "node:net";
 import { z } from "zod";
+import { catalogConfig, catalogRevision, catalogWrite, effectiveCatalog, sourceCatalog } from "@/lib/source-catalog";
 
 // Reviewed against absolutepraya/bursawatch-engine at a343ec4d. The API remains the
 // authority for user identity, admin permissions and watcher validation.
@@ -294,6 +295,15 @@ export function createControlPlaneReader(options: {
   }
   return {
     listWatchers: () => read("/v1/watchers", z.array(watcher).max(200)),
+    getSourceCatalog: () => read("/v1/source-catalog", sourceCatalog),
+    getEffectiveCatalog: () => read("/v1/source-catalog/effective", effectiveCatalog),
+    async saveSourceCatalog(expectedRevision: number, config: z.infer<typeof catalogConfig>) {
+      const payload = catalogWrite.safeParse({ expected_revision: expectedRevision, config });
+      if (!payload.success) throw new ControlPlaneError("validation");
+      const result = await request("/v1/source-catalog/config", catalogRevision, payload.data);
+      if (result.revision <= expectedRevision) throw new ControlPlaneError("unknown-outcome");
+      return result;
+    },
     async listProfiles(watcherId: string) {
       const rows = await read(`${watcherPath(watcherId)}/profiles`, z.array(profile).max(500));
       if (rows.some(row => row.watcher_id !== watcherId) || new Set(rows.map(row => row.profile_id)).size !== rows.length)

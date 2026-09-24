@@ -1,5 +1,6 @@
 import "server-only";
 import { z } from "zod";
+import { catalogWrite } from "@/lib/source-catalog";
 import { avatarInput, ControlPlaneError, createControlPlaneReader, scheduleInput } from "@/server/control-plane";
 
 const opaqueId = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/;
@@ -49,6 +50,8 @@ export async function handleControlRequest(
       fetchImpl: options.fetchImpl,
     });
     if (request.method === "GET") {
+      if (path.length === 1 && path[0] === "source-catalog") return json(await api.getSourceCatalog());
+      if (path.length === 2 && path[0] === "source-catalog" && path[1] === "effective") return json(await api.getEffectiveCatalog());
       if (path.length === 1 && path[0] === "watchers") return json(await api.listWatchers());
       if (path.length === 3 && path[0] === "watchers") {
         if (path[2] === "jobs") return json(await api.listJobs(path[1]));
@@ -61,11 +64,12 @@ export async function handleControlRequest(
       if (path.length === 3 && path[0] === "runs" && path[2] === "events")
         return json(await api.listRunEvents(path[1]));
     } else {
+      const isCatalog = request.method === "PUT" && path.length === 2 && path[0] === "source-catalog" && path[1] === "config";
       const isConfig = request.method === "PUT" && path.length === 3 && path[0] === "watchers" && path[2] === "config";
       const isSchedule = request.method === "PUT" && path.length === 3 && path[0] === "jobs" && path[2] === "schedule";
       const isAvatar = request.method === "PUT" && path.length === 5 && path[0] === "watchers" && path[2] === "profiles" && path[4] === "avatar";
       const isRefresh = request.method === "POST" && path.length === 6 && path[0] === "watchers" && path[2] === "profiles" && path[4] === "avatar" && path[5] === "refresh";
-      if (!isConfig && !isSchedule && !isAvatar && !isRefresh)
+      if (!isCatalog && !isConfig && !isSchedule && !isAvatar && !isRefresh)
         return json({ code: "missing", message: "Page not found." }, 404);
       if (!request.headers.get("content-type")?.startsWith("application/json"))
         throw new ControlPlaneError("validation");
@@ -92,6 +96,11 @@ export async function handleControlRequest(
         input = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       } catch {
         throw new ControlPlaneError("validation");
+      }
+      if (isCatalog) {
+        const parsed = catalogWrite.safeParse(input);
+        if (!parsed.success) throw new ControlPlaneError("validation");
+        return json(await api.saveSourceCatalog(parsed.data.expected_revision, parsed.data.config));
       }
       if (isAvatar) {
         const parsed = avatarInput.safeParse(input);
