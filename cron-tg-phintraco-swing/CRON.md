@@ -9,3 +9,8 @@ See `AGENTS.md` for the source policy, state transitions, and shared-resilience 
 - **Shared session:** use only `POLYCOP_SESSION_STRING` through `lib-telegram-resilience` and `~/.hermes/state/telegram-resilience-polyclop.json`. A safe probe or hold must not advance the Telegram cursor or mutate the outbox.
 - **Check:** set `IDX_SWING_WATCH_PHINTRACO_DAILY_NO_POST=1`, an isolated state path, and optional forced heartbeat for no-post verification. The scanner retains a cached source chart and its `pending_board` event until the owner acknowledges exactly `{"accepted": true}`; a board retry must never repeat an All text or chart. Do not replay state or manually trigger the scheduled job.
 - **Deployment:** after a clean published commit and approved VPS write, deploy `bin/`, synchronize this contract and the wrapper separately, compare checksums, and verify through an isolated no-post run followed by the natural scheduler record.
+- **Pilot handler:** `bin/pipeline_owner.py` accepts text-only source work using
+  this watcher's existing parser, outbox, renderer, and Board handoff. It
+  requires a validated live watch-config revision whose source matches the
+  canonical Phintraco endpoint, then activates that snapshot for its entire
+  owner operation. No default route fallback is allowed. It is not scheduled.

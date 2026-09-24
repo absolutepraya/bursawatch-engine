@@ -52,6 +52,16 @@ def _source_message(envelope: dict[str, Any]) -> SimpleNamespace:
 
 
 def submit(work: dict[str, Any], *, no_post: bool = False) -> str:
+    loaded = scan.config.load_watch_config_for_run()
+    if loaded.revision is None:
+        raise ValueError("Phintraco pipeline requires an effective live watch config")
+    if (loaded.config.telegram_channel_id, loaded.config.telegram_username) != (1444713822, "phintraprofits"):
+        raise ValueError("Phintraco pipeline source does not match canonical endpoint")
+    with scan.config.activate_watch_config(loaded.config):
+        return _submit_with_config(work, no_post=no_post)
+
+
+def _submit_with_config(work: dict[str, Any], *, no_post: bool) -> str:
     if no_post:
         isolated = os.environ.get("IDX_SWING_WATCH_PHINTRACO_DAILY_STATE_PATH")
         if not isolated or Path(isolated).expanduser().resolve().is_relative_to((Path.home() / ".hermes" / "state").resolve()):

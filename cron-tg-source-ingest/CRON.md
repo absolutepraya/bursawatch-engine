@@ -3,7 +3,8 @@
 - **Scheduler:** none. No production job or wrapper is registered.
 - **Entry point:** `bin/runner.py`, for isolated synthetic integration only.
 - **Catalog:** use one effective snapshot; accept only verified canonical pilot
-  endpoints and compatible capabilities. Tuntun stays on its current reader.
+  endpoints and compatible capabilities. Validate Tuntun's exact canonical
+  publisher and identity, then leave it on its current reader.
 - **Source state:** private endpoint-local cursor and `SourceEventHandoff` spool.
   Bootstrap at newest ID, use bounded ascending reads, and advance only after
   an authenticated inbox receipt. Never replay production history.

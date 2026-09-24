@@ -17,12 +17,14 @@ from source_event_client import SourceEventHandoff
 
 
 PILOT = {
-    "telegram:phintraprofits": ("1444713822", frozenset({"trading_plans"})),
-    "telegram:phintasprofits": (None, frozenset({"company_news", "macro_news", "stock_status"})),
-    "telegram:kelasinvestasiid": ("2142109618", frozenset({"swing_support"})),
+    "telegram:phintraprofits": ("1444713822", "phintraco", frozenset({"trading_plans"})),
+    "telegram:phintasprofits": (None, "phintraco", frozenset({"company_news", "macro_news", "stock_status"})),
+    "telegram:kelasinvestasiid": ("2142109618", "kelas-investasi", frozenset({"swing_support"})),
 }
 # Classified from checked-in canonical IDs. Tuntun remains on the old News reader.
-KNOWN_UNMIGRATED = frozenset({"telegram:tuntunsekuritas"})
+KNOWN_UNMIGRATED = {
+    "telegram:tuntunsekuritas": (None, "tuntun", frozenset({"company_news", "macro_news"})),
+}
 MAX_BATCH = 20
 
 
@@ -39,13 +41,13 @@ def endpoints(snapshot: dict[str, Any]) -> dict[str, dict[str, Any]]:
         if row.get("platform") != "telegram" or row.get("enabled") is not True:
             continue
         endpoint_id = row.get("endpoint_id")
+        expected = PILOT.get(endpoint_id) or KNOWN_UNMIGRATED.get(endpoint_id)
+        if expected is None or row.get("capability_id") not in expected[2]:
+            raise IntakeBlocked("enabled Telegram endpoint or capability is not onboarded")
+        if row.get("verification_status") != "verified" or row.get("provider_id") != expected[0] or row.get("address") != endpoint_id.split(":", 1)[1] or row.get("publisher_id") != expected[1]:
+            raise IntakeBlocked("Telegram endpoint identity is not verified")
         if endpoint_id in KNOWN_UNMIGRATED:
             continue
-        expected = PILOT.get(endpoint_id)
-        if expected is None or row.get("capability_id") not in expected[1]:
-            raise IntakeBlocked("enabled Telegram endpoint or capability is not onboarded")
-        if row.get("verification_status") != "verified" or row.get("provider_id") != expected[0] or row.get("address") != endpoint_id.split(":", 1)[1] or row.get("publisher_id") not in {"phintraco", "kelas-investasi"}:
-            raise IntakeBlocked("Telegram endpoint identity is not verified")
         current = grouped.setdefault(endpoint_id, {"endpoint_id": endpoint_id, "publisher_id": row["publisher_id"], "address": row["address"], "provider_id": row["provider_id"], "capabilities": set()})
         if (current["publisher_id"], current["address"], current["provider_id"]) != (row["publisher_id"], row["address"], row["provider_id"]):
             raise IntakeBlocked("Telegram endpoint identity changed within snapshot")

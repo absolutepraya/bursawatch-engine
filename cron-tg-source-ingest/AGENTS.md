@@ -10,7 +10,9 @@ cursor and handoff spool per endpoint, and advances a cursor only after the
 source inbox confirms durable acceptance. First contact records the newest
 message ID without replaying source history. Tuntun is classified as an
 existing News reader and is deliberately outside this pilot. Unknown enabled
-Telegram identities or capabilities fail closed.
+Telegram identities or capabilities fail closed. Every canonical endpoint,
+including unmigrated Tuntun, is checked against its exact publisher before
+the pilot decides whether to poll it.
 
 The inbox owns source events and independent subscription work. The adapter
 never submits Discord or Board operations. `lib-bursawatch-pipeline-runtime`

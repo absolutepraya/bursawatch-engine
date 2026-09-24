@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import importlib.util
 import json
 import sys
 from datetime import datetime, timezone
@@ -14,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "lib-bursawatch-control" / "bin"))
 sys.path.insert(0, str(ROOT / "cron-tg-source-ingest" / "bin"))
 from adapter import IntakeBlocked, endpoints, ingest_endpoint
-from runner import run_once
+from runner import PIPELINE_OWNERS, run_once
 
 
 NOW = datetime(2026, 9, 24, tzinfo=timezone.utc)
@@ -105,10 +106,37 @@ def test_effective_catalog_rejects_unknown_enabled_endpoint():
     assert endpoints({"subscriptions": [row]})["telegram:phintraprofits"]["capabilities"] == {"trading_plans"}
     with pytest.raises(IntakeBlocked, match="not onboarded"):
         endpoints({"subscriptions": [{**row, "endpoint_id": "telegram:unknown"}]})
-    assert endpoints({"subscriptions": [{**row, "endpoint_id": "telegram:tuntunsekuritas"}]}) == {}
+    with pytest.raises(IntakeBlocked, match="identity is not verified"):
+        endpoints({"subscriptions": [{**row, "publisher_id": "kelas-investasi"}]})
+    with pytest.raises(IntakeBlocked, match="identity is not verified"):
+        endpoints({"subscriptions": [{**row, "endpoint_id": "telegram:tuntunsekuritas", "address": "tuntunsekuritas", "capability_id": "company_news", "provider_id": None, "publisher_id": "phintraco"}]})
+    tuntun = {**row, "endpoint_id": "telegram:tuntunsekuritas", "address": "tuntunsekuritas", "capability_id": "company_news", "provider_id": None, "publisher_id": "tuntun"}
+    assert endpoints({"subscriptions": [tuntun]}) == {}
+    with pytest.raises(IntakeBlocked, match="identity is not verified"):
+        endpoints({"subscriptions": [{**tuntun, "verification_status": "pending"}]})
+    with pytest.raises(IntakeBlocked, match="not onboarded"):
+        endpoints({"subscriptions": [{**tuntun, "capability_id": "trading_plans"}]})
 
 
-def test_fanout_failure_isolated_from_other_subscription(tmp_path):
+@pytest.mark.parametrize("failing", ["news", "board"])
+def test_board_and_synthetic_news_settle_independently(tmp_path, monkeypatch, failing):
+    # Load the real Phintraco owner into this isolated package test. Its domain
+    # handoff is no-post and uses an isolated ledger, while the News work is a
+    # synthetic independent item. Production does not register a News handler.
+    for package in ("cron-tg-phintraco-swing", "lib-swing-format", "lib-bursawatch-discord-delivery", "lib-telegram-resilience"):
+        sys.path.insert(0, str(ROOT / package / "bin"))
+    import scan as swing_scan
+    spec = importlib.util.spec_from_file_location("phintraco_pipeline_owner_for_test", ROOT / "cron-tg-phintraco-swing" / "bin" / "pipeline_owner.py")
+    assert spec and spec.loader
+    swing_owner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(swing_owner)
+    monkeypatch.setenv("IDX_SWING_WATCH_PHINTRACO_DAILY_STATE_PATH", str(tmp_path / "swing.json"))
+    configured = swing_scan.config.WatchConfig(1444713822, "phintraprofits", "1525102458253217803", "1505162000420835388")
+    monkeypatch.setattr(swing_scan.config, "load_watch_config_for_run", lambda: swing_scan.config.LoadedWatchConfig(configured, 5))
+    monkeypatch.setattr(swing_scan, "post_discord_text", lambda *args: "dry-text-11")
+    board_events = []
+    monkeypatch.setattr(swing_scan, "submit_board_event", lambda payload, chart, dry_run: board_events.append((payload.copy(), chart, dry_run)) or failing != "board")
+
     class WorkInbox(FakeInbox):
         def __init__(self):
             super().__init__()
@@ -117,8 +145,10 @@ def test_fanout_failure_isolated_from_other_subscription(tmp_path):
 
         def accept(self, envelope):
             receipt = super().accept(envelope)
-            for pipeline in ("stock_status", "company_news"):
-                self.work.append({"work_key": hashlib.sha256(pipeline.encode()).hexdigest(), "lease_token": pipeline, "pipeline_id": pipeline, "envelope": envelope})
+            event_key = receipt["event_key"]
+            for pipeline, capability in (("swing_plan", "trading_plans"), ("company_news", "company_news")):
+                effect = hashlib.sha256(f"{event_key}:1:{capability}".encode()).hexdigest()
+                self.work.append({"work_key": effect, "effect_key": effect, "event_key": event_key, "version": 1, "capability_id": capability, "lease_token": pipeline, "pipeline_id": pipeline, "envelope": envelope})
             return receipt
 
         def claim(self, pipeline_ids, limit):
@@ -134,16 +164,26 @@ def test_fanout_failure_isolated_from_other_subscription(tmp_path):
             return {"work_key": work_key, "status": "done" if success else "pending"}
 
     inbox = WorkInbox()
-    telegram = FakeTelegram([message(10)], address="phintasprofits")
-    snapshot = {"subscriptions": [{"platform": "telegram", "enabled": True, "endpoint_id": "telegram:phintasprofits", "capability_id": capability, "verification_status": "verified", "provider_id": None, "publisher_id": "phintraco", "address": "phintasprofits"} for capability in ("company_news", "stock_status")]}
-    asyncio.run(run_once(telegram, snapshot, tmp_path, inbox, NOW, handlers={"stock_status": lambda item: None, "company_news": lambda item: None}))
-    telegram.messages.append(message(11, "synthetic event"))
+    telegram = FakeTelegram([message(10)])
+    snapshot = {"subscriptions": [{"platform": "telegram", "enabled": True, "endpoint_id": "telegram:phintraprofits", "capability_id": "trading_plans", "verification_status": "verified", "provider_id": "1444713822", "publisher_id": "phintraco", "address": "phintraprofits"}]}
+    assert "company_news" not in PIPELINE_OWNERS
+    asyncio.run(run_once(telegram, snapshot, tmp_path, inbox, NOW, handlers={"swing_plan": lambda item: None}))
+    text = (ROOT / "cron-tg-phintraco-swing" / "tests" / "fixtures" / "trading_buy.txt").read_text()
+    telegram.messages.append(message(11, text))
 
     def failing_news(item):
-        raise RuntimeError("synthetic classifier failure")
+        if failing == "news":
+            raise RuntimeError("synthetic classifier failure")
 
-    result = asyncio.run(run_once(telegram, snapshot, tmp_path, inbox, NOW, handlers={"company_news": failing_news, "stock_status": lambda item: None}))
+    result = asyncio.run(run_once(telegram, snapshot, tmp_path, inbox, NOW, handlers={"company_news": failing_news, "swing_plan": lambda item: swing_owner.submit(item, no_post=True)}))
     assert result["source"][0]["accepted"] == 1
     assert {item["status"] for item in result["work"]} == {"done", "retry"}
-    assert inbox.settlements == [("stock_status", True), ("company_news", False)]
+    assert inbox.settlements == [("swing_plan", failing != "board"), ("company_news", failing != "news")]
+    assert len(board_events) == 1
+    assert board_events[0][0]["event_key"] == "phintraco:1444713822:11"
+    assert board_events[0][0]["source"] == "phintraco"
+    assert board_events[0][0]["kind"] == "buy"
+    assert board_events[0][0]["plan"] == {"entry": "208 to 212", "stop_loss": "<200", "targets": ["230"]}
+    assert board_events[0][0]["source_status"] == "New setup"
+    assert board_events[0][2] is True
     assert len(inbox.accepted) == 1
