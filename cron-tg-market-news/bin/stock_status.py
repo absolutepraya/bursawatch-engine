@@ -22,6 +22,21 @@ _FOOTERS = {
     "By PHINTRACO SEKURITAS | Research",
     "-Disclaimer On -",
 }
+_WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+_MONTHS = (
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,3 +148,30 @@ def parse_stock_information(source_message_id: int, text: str) -> StockStatus:
         fca_in=tuple(sections["fca_in"]),
         fca_out=tuple(sections["fca_out"]),
     )
+
+
+def format_stock_status(status: StockStatus, source_url: str) -> str:
+    """Render the fixed grouped Discord message for a parsed status post."""
+    effective_date = status.effective_date
+    heading_date = (
+        f"{_WEEKDAYS[effective_date.weekday()]}, "
+        f"{effective_date.day:02d} {_MONTHS[effective_date.month - 1]} "
+        f"{effective_date.year}"
+    )
+    content = [
+        f"### <:phintraco:1531272488645038091> Stock Status: {heading_date}"
+    ]
+    for label, tickers in (
+        ("UMA", status.uma),
+        ("Suspend In", status.suspend_in),
+        ("Suspend Out", status.suspend_out),
+        ("FCA In", status.fca_in),
+        ("FCA Out", status.fca_out),
+    ):
+        entries = "\n".join(f"- {ticker}" for ticker in tickers) or "(None)"
+        content.append(f"**{label}:**\n{entries}")
+    content.append(f"[View in Telegram](<{source_url}>)")
+    rendered = "\n\n".join(content)
+    if len(rendered) > 2000:
+        raise StockStatusError("rendered status message exceeds Discord limit")
+    return rendered

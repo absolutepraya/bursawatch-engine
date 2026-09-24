@@ -2,7 +2,12 @@ from datetime import date
 
 import pytest
 
-from stock_status import StockStatusError, is_stock_information, parse_stock_information
+from stock_status import (
+    StockStatusError,
+    format_stock_status,
+    is_stock_information,
+    parse_stock_information,
+)
 
 
 def test_message_35377_maps_all_sections_and_empty_values(load_fixture):
@@ -119,3 +124,26 @@ def test_duplicate_tickers_are_removed_only_within_their_section():
 def test_incomplete_or_malformed_status_posts_are_rejected(body):
     with pytest.raises(StockStatusError):
         parse_stock_information(35377, body)
+
+
+def test_message_35377_renders_the_approved_discord_message(load_fixture):
+    status = parse_stock_information(
+        35377, load_fixture("phintraco-stock-status-35377.txt")
+    )
+    base_url = "https://t.me/phintasprofits/35377"
+    base_content = format_stock_status(status, base_url)
+    exact_length_url = base_url + ("x" * (2000 - len(base_content)))
+
+    assert len(format_stock_status(status, exact_length_url)) == 2000
+    with pytest.raises(StockStatusError):
+        format_stock_status(status, exact_length_url + "x")
+
+    assert format_stock_status(status, base_url) == (
+        "### <:phintraco:1531272488645038091> Stock Status: Wed, 23 Sep 2026\n\n"
+        "**UMA:**\n(None)\n\n"
+        "**Suspend In:**\n(None)\n\n"
+        "**Suspend Out:**\n- WAPO\n- NASI\n\n"
+        "**FCA In:**\n(None)\n\n"
+        "**FCA Out:**\n- UNSP\n\n"
+        "[View in Telegram](<https://t.me/phintasprofits/35377>)"
+    )
