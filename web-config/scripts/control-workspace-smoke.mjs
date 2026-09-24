@@ -565,18 +565,42 @@ async function scenario(role) {
     );
     await page.getByText("View activity table", { exact: true }).click();
     await navigate("History", "Run history");
+    const runSearch = page.getByRole("searchbox", { name: "Search runs", exact: true });
+    await page.getByLabel("Outcome", { exact: true }).selectOption("failed");
+    await page.getByText("Showing 1 of 5 returned runs", { exact: true }).waitFor();
+    assert.equal(await page.getByRole("button", { name: /^View run details:/ }).count(), 1);
+    await page.getByLabel("Workflow", { exact: true }).selectOption(swingId);
+    await page.getByText("No runs match these filters", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Clear filters", exact: true }).click();
+    await runSearch.fill("fixture-run-2");
+    await page.getByText("Showing 1 of 5 returned runs", { exact: true }).waitFor();
+    assert.equal(await page.getByRole("button", { name: /^View run details:/ }).count(), 1);
+    await runSearch.fill("no matching run");
+    await page.getByText("No runs match these filters", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Clear filters", exact: true }).click();
     await page
       .getByRole("button", { name: /^View run details: Market news/ })
       .first()
       .click();
     await page.getByRole("heading", { name: "Run timeline", exact: true }).waitFor();
     await page.getByRole("heading", { name: "source checked", exact: true }).waitFor();
-    await navigate("Workflows", "Workflows");
-    await page.getByRole("link", { name: "Source library", exact: true }).click();
+    await navigate("Sources", "Source library");
     await page.getByRole("heading", { name: "Public source library", exact: true }).waitFor();
+    const securitiesTab = page.getByRole("tab", { name: "Securities", exact: true });
+    const peopleTab = page.getByRole("tab", { name: "People", exact: true });
+    assert.equal(await securitiesTab.getAttribute("aria-selected"), "true");
+    await securitiesTab.focus();
+    await page.keyboard.press("ArrowRight");
+    assert.equal(await peopleTab.getAttribute("aria-selected"), "true");
+    assert.equal(await peopleTab.evaluate((element) => element === document.activeElement), true);
+    await page.keyboard.press("ArrowLeft");
+    assert.equal(await securitiesTab.getAttribute("aria-selected"), "true");
+    assert.equal(await securitiesTab.evaluate((element) => element === document.activeElement), true);
     await page.getByRole("heading", { name: "BRI Danareksa Sekuritas", exact: true }).waitFor();
     await page.getByRole("heading", { name: "Phintraco Sekuritas", exact: true }).waitFor();
     assert.equal(await page.getByRole("link", { name: "Open X settings", exact: true }).count(), 0, "Unavailable workflow links must not be invented.");
+    await peopleTab.click();
+    await capture("source-library-people-desktop");
     const sourceSearch = page.getByRole("searchbox", { name: "Search sources", exact: true });
     await sourceSearch.fill("Ricky");
     await page.getByRole("heading", { name: "Ricky Ho", exact: true }).waitFor();
@@ -584,8 +608,24 @@ async function scenario(role) {
     await sourceSearch.fill("no matching account");
     await page.getByRole("heading", { name: "No sources match these filters", exact: true }).waitFor();
     await page.getByRole("button", { name: "Clear filters", exact: true }).click();
+    await securitiesTab.click();
     await capture("source-library-desktop");
-    await page.getByRole("link", { name: "Your workflows", exact: true }).click();
+    await page.goto(`${target.origin}/workspace/workflows?tab=sources`);
+    await page.waitForURL(`${target.origin}/workspace/sources`);
+    await page.getByRole("heading", { name: "Public source library", exact: true }).waitFor();
+    await navigate("Workflows", "Workflows");
+    const workflowSearch = page.getByRole("searchbox", {
+      name: "Search workflows",
+      exact: true,
+    });
+    await workflowSearch.fill("stockbit");
+    await page.getByText("Showing 1 of 3 workflows", { exact: true }).waitFor();
+    assert.equal(await page.getByRole("button", { name: /^Open watcher details:/ }).count(), 1);
+    await page.getByLabel("Configuration", { exact: true }).selectOption("needs-setup");
+    await page.getByText("No workflows match these filters", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Clear filters", exact: true }).click();
+    await page.getByText("Showing 3 of 3 workflows", { exact: true }).waitFor();
+    assert.equal(await page.getByRole("button", { name: /^Open watcher details:/ }).count(), 3);
     assert.equal(writes.length, 0, "Browsing source references must never write configuration.");
     await page.getByRole("button", { name: /^Open watcher details: Market news/ }).click();
     await page.getByRole("heading", { name: "Market news", exact: true }).waitFor();
@@ -734,7 +774,13 @@ async function scenario(role) {
     await navigate("Workflows", "Workflows");
     await page.getByRole("button", { name: /^Open watcher details: Market news/ }).click();
     await page.getByRole("heading", { name: "Market news", exact: true }).waitFor();
-    await navigate("Schedules", "Schedules");
+    await page.goto(`${target.origin}/workspace/schedules`);
+    await page.waitForURL(`${target.origin}/workspace/workflows`);
+    await page.getByRole("heading", { name: "Workflows", exact: true }).waitFor();
+    await page.getByRole("button", { name: /^Open watcher details: Market news/ }).click();
+    await page.getByRole("heading", { name: "Market news", exact: true }).waitFor();
+    await page.locator("#workflow-schedules").getByRole("heading", { name: "Schedules" }).waitFor();
+    await page.getByRole("heading", { name: "Market news check", exact: true }).waitFor();
     if (role === "viewer") {
       await page
         .getByText("You have view access. An administrator can change these schedules.", {
@@ -818,7 +864,7 @@ async function scenario(role) {
       await capture("schedules-desktop");
       await interval.fill("42");
       await page.goBack();
-      await page.getByRole("heading", { name: "Market news", exact: true }).waitFor();
+      await page.getByRole("heading", { name: "Workflows", exact: true }).waitFor();
       state.job.schedule.revision += 1;
       state.job.reconciliation.applied_revision = state.job.schedule.revision;
       await page.goForward();
@@ -840,7 +886,8 @@ async function scenario(role) {
         const input = document.querySelector('.watcher-schedule input[type="number"]');
         return input && !input.matches(":disabled") && input.value === "30";
       });
-      await page.getByLabel("Workflow", { exact: true }).selectOption(stockbitId);
+      await navigate("Workflows", "Workflows");
+      await page.getByRole("button", { name: /^Open watcher details: Stockbit Snips/ }).click();
       await page.getByRole("heading", { name: "Stockbit Snips check", exact: true }).waitFor();
       await page.getByText("Revision 1 is applied. This job is enabled.", { exact: true }).waitFor();
       const stockbitInterval = page.getByLabel("Check every (minutes)", { exact: true });
@@ -852,7 +899,8 @@ async function scenario(role) {
       await page.getByRole("button", { name: "Save schedule", exact: true }).click();
       await page.getByText("Revision 2 is applied. This job is enabled.", { exact: true }).waitFor();
       assert.equal(writes.find((write) => write.resource === "stockbit-schedule").payload.interval_seconds, 1200);
-      await page.getByLabel("Workflow", { exact: true }).selectOption(watcherId);
+      await navigate("Workflows", "Workflows");
+      await page.getByRole("button", { name: /^Open watcher details: Market news/ }).click();
       await page.getByRole("heading", { name: "Market news check", exact: true }).waitFor();
     }
     for (const textSize of ["100%", "200%"]) {
@@ -871,11 +919,13 @@ async function scenario(role) {
       await navigate("History", "Run history");
       await noOverflow(`${role} ${textSize} history`);
       await navigate("Workflows", "Workflows");
-      await page.getByRole("link", { name: "Source library", exact: true }).click();
+      await navigate("Sources", "Source library");
       await page.getByRole("heading", { name: "Public source library", exact: true }).waitFor();
-      await noOverflow(`${role} ${textSize} source library`);
+      await noOverflow(`${role} ${textSize} Securities library`);
       await capture(textSize === "100%" ? "source-library-375" : "source-library-375-text-200");
-      await page.getByRole("link", { name: "Your workflows", exact: true }).click();
+      await page.getByRole("tab", { name: "People", exact: true }).click();
+      await noOverflow(`${role} ${textSize} People library`);
+      await navigate("Workflows", "Workflows");
       await page.getByRole("button", { name: /^Open watcher details: Market news/ }).click();
       await page
         .getByRole("heading", {
@@ -965,8 +1015,8 @@ async function scenario(role) {
       await navigate("Account", "Account");
       await page.getByText(user.email, { exact: true }).waitFor();
       await noOverflow(`${role} ${textSize} account`);
-      await navigate("Schedules", "Schedules");
-      await page.getByLabel("Workflow", { exact: true }).selectOption(stockbitId);
+      await navigate("Workflows", "Workflows");
+      await page.getByRole("button", { name: /^Open watcher details: Stockbit Snips/ }).click();
       if (role === "admin") {
         const mobileInterval = page.getByLabel("Check every (minutes)", { exact: true });
         const expectedRevision = textSize === "100%" ? 2 : 3;
@@ -989,7 +1039,8 @@ async function scenario(role) {
         await page.getByText("Enabled · every 15 minutes", { exact: true }).waitFor();
         await page.getByText("Effective", { exact: true }).waitFor();
       }
-      await page.getByLabel("Workflow", { exact: true }).selectOption(watcherId);
+      await navigate("Workflows", "Workflows");
+      await page.getByRole("button", { name: /^Open watcher details: Market news/ }).click();
       await page.getByRole("heading", { name: "Market news check", exact: true }).waitFor();
     }
     const signOut = () =>

@@ -80,9 +80,10 @@ that revision or that Discord received an article.
 
 ## Public source identities
 
-The Workflows Source library tab uses the dated, reviewed public catalog and links
-only to workflows present in the API's watcher list. Its source membership,
-photographs and descriptions do not establish current configuration or health.
+The Sources page uses a dated, reviewed public catalog and links only to
+workflows present in the API's watcher list. Its illustrated security cards,
+people profiles, preview statuses, photographs and descriptions do not
+establish saved source membership, current configuration or health.
 Actual `profiles[]` rows come from an admin-only config read. Public avatars
 decorate a row only after consistent platform and canonical URL/handle matching;
 unmatched identities use the fallback presentation.
@@ -96,14 +97,18 @@ or `tone` configuration, or outbound WhatsApp/Telegram delivery controls.
 Sample preferences remain browser-local. All editable delivery fields above
 target Discord; credentials and provider connection setup remain backend-owned.
 
-## Schedules and boundaries
+## Schedules within workflow configuration
 
-Interval jobs expose `enabled` and `interval_seconds` as whole minutes within
+The selected workflow's detail loads only its own jobs. Interval jobs expose
+`enabled` and `interval_seconds` as whole minutes within
 each job's server bounds. `timezone` remains `Asia/Jakarta`. Fixed job schedules
 are read-only. Saved schedules are only labelled applied when the saved and
 applied revisions match and the service confirms effectiveness. Pending checks
 pause in hidden tabs, stop after a bounded number of attempts, and can be
-refreshed. Another save is disabled while reconciliation is pending.
+refreshed. Another save is disabled while reconciliation is pending. Schedule
+and watcher-config saves remain independent, with separate revisions and
+unsaved drafts. The old `/workspace/schedules` URL remains a compatibility
+entry point to workflow configuration.
 Stockbit uses this same schedule editor and the bounds returned for its job;
 its initial desired cadence is 15 minutes. A saved schedule revision remains
 pending until the reconciler reports that exact revision as effective.

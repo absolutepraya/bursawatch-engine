@@ -24,14 +24,11 @@ import type {
 } from "@/server/control-plane";
 import { BrandMark } from "@/components/brand";
 import { ToastProvider, useToast } from "@/components/toast-provider";
-import {
-  ControlDashboard,
-  ControlRunList,
-  ControlWatcherList,
-} from "@/components/control-dashboard";
+import { ControlDashboard } from "@/components/control-dashboard";
+import { SearchableRunHistory, SearchableWorkflowList } from "@/components/workspace-list-filters";
 import { WatcherConfigEditor } from "@/components/watcher-config-editor";
 import { ScheduleEditor } from "@/components/schedule-editor";
-import { WorkspaceNavigation } from "@/components/workspace-navigation";
+import { WorkspaceNavigation, type WorkspaceView } from "@/components/workspace-navigation";
 import { ConnectedSourceLibrary } from "@/components/connected-source-library";
 import { ConnectedWorkflowSummary } from "@/components/connected-workflow-summary";
 import { WorkspaceLoading } from "@/components/workspace-loading";
@@ -41,7 +38,7 @@ import { xWatcherId } from "@/lib/x-delivery-status";
 import { loadWorkspaceRecords, type WorkspaceProgress } from "@/lib/workspace-loader";
 import "@/app/workspace.css";
 
-type View = "overview" | "workflows" | "history" | "schedules" | "settings";
+type View = WorkspaceView;
 const browserClients = new Map<string, SupabaseClient>();
 function authClient(settings: WebAuthSettings) {
   const key = `${settings.supabaseUrl}:${settings.publishableKey}`;
@@ -309,7 +306,7 @@ function SignedInWorkspace({
   const params = useSearchParams();
   const watcherId = params.get("watcher");
   const runId = params.get("run");
-  const sourceLibrary = params.get("tab") === "sources";
+  const legacySourceLibrary = view === "workflows" && params.get("tab") === "sources" && !watcherId;
   const scope = `${view}:${view === "workflows" ? (watcherId ?? "") : ""}`;
   const records = recordScope === scope ? loadedRecords : null;
   const heading = useRef<HTMLElement>(null);
@@ -396,7 +393,10 @@ function SignedInWorkspace({
   }, [refresh]);
   useEffect(() => {
     heading.current?.focus();
-  }, [pathname, watcherId, runId, sourceLibrary]);
+  }, [pathname, watcherId, runId]);
+  useEffect(() => {
+    if (legacySourceLibrary) router.replace("/workspace/sources");
+  }, [legacySourceLibrary, router]);
   const selectWatcher = (id: string) =>
     router.push(`/workspace/workflows?watcher=${encodeURIComponent(id)}`);
   const selectRun = (id: string) => router.push(`/workspace/history?run=${encodeURIComponent(id)}`);
@@ -476,6 +476,17 @@ function SignedInWorkspace({
             onSelectRun={selectRun}
           />
         ) : null}
+        {records && view === "sources" ? (
+          <>
+            <WorkspaceHeading
+              title="Source library"
+              description="Explore public references and visual concepts for Bursawatch workflows."
+            />
+            <ConnectedSourceLibrary
+              watcherIds={records.watchers.map((watcher) => watcher.watcher_id)}
+            />
+          </>
+        ) : null}
         {records && view === "workflows" ? (
           watcherId ? (
             <WatcherDetail
@@ -486,37 +497,17 @@ function SignedInWorkspace({
               onDirtyChange={onDirtyChange}
               loadingStatus={refreshing}
             />
-          ) : (
+          ) : legacySourceLibrary ? null : (
             <>
               <WorkspaceHeading
                 title="Workflows"
                 description="Choose your inputs, shape the brief and set where it goes."
               />
-              <nav className="control-workflow-tabs" aria-label="Workflow views">
-                <Link
-                  href="/workspace/workflows"
-                  aria-current={!sourceLibrary ? "page" : undefined}
-                >
-                  Your workflows
-                </Link>
-                <Link
-                  href="/workspace/workflows?tab=sources"
-                  aria-current={sourceLibrary ? "page" : undefined}
-                >
-                  Source library
-                </Link>
-              </nav>
-              {sourceLibrary ? (
-                <ConnectedSourceLibrary
-                  watcherIds={records.watchers.map((watcher) => watcher.watcher_id)}
-                />
-              ) : (
-                <ControlWatcherList
-                  {...records}
-                  onSelectWatcher={selectWatcher}
-                  statusLoaded={false}
-                />
-              )}
+              <SearchableWorkflowList
+                {...records}
+                onSelectWatcher={selectWatcher}
+                statusLoaded={false}
+              />
             </>
           )
         ) : null}
@@ -534,15 +525,12 @@ function SignedInWorkspace({
               title="Run history"
               description="Up to 50 recent checks per workflow. A completed check may have nothing new to deliver."
             />
-            <ControlRunList
+            <SearchableRunHistory
               runs={records.runs}
               watchers={records.watchers}
               onSelectRun={selectRun}
             />
           </>
-        ) : null}
-        {records && view === "schedules" ? (
-          <Schedules records={records} request={request} onDirtyChange={onDirtyChange} />
         ) : null}
         {view === "settings" ? (
           <>
@@ -627,10 +615,11 @@ function WatcherDetail({
   const dirty = useRef(false);
   const configDirty = useRef(false);
   const photoDirty = useRef(false);
+  const scheduleDirty = useRef(false);
   const updateDirty = useCallback(
     (value: boolean) => {
       configDirty.current = value;
-      dirty.current = value || photoDirty.current;
+      dirty.current = value || photoDirty.current || scheduleDirty.current;
       onDirtyChange(dirty.current);
     },
     [onDirtyChange],
@@ -638,7 +627,15 @@ function WatcherDetail({
   const updatePhotoDirty = useCallback(
     (value: boolean) => {
       photoDirty.current = value;
-      dirty.current = value || configDirty.current;
+      dirty.current = value || configDirty.current || scheduleDirty.current;
+      onDirtyChange(dirty.current);
+    },
+    [onDirtyChange],
+  );
+  const updateScheduleDirty = useCallback(
+    (value: boolean) => {
+      scheduleDirty.current = value;
+      dirty.current = value || configDirty.current || photoDirty.current;
       onDirtyChange(dirty.current);
     },
     [onDirtyChange],
@@ -755,15 +752,23 @@ function WatcherDetail({
           />
         </>
       ) : null}
+      <WorkflowSchedules
+        key={records.updatedAt}
+        initialJobs={records.jobs.filter((job) => job.watcher_id === watcherId)}
+        unavailable={records.issues.some(
+          (issue) => issue.watcherId === watcherId && issue.resource === "jobs",
+        )}
+        loading={loadingStatus}
+        permission={status}
+        request={request}
+        onDirtyChange={updateScheduleDirty}
+      />
       <div className="control-detail-actions">
-        <Link className="button secondary" href="/workspace/schedules">
-          View schedules
-        </Link>
         <button
           className="button ghost"
           onClick={() => {
             if (
-              !dirty.current ||
+              !configDirty.current ||
               window.confirm("Discard unsaved changes and reload the latest configuration?")
             )
               void load(true);
@@ -776,20 +781,22 @@ function WatcherDetail({
   );
 }
 
-function Schedules({
-  records,
+function WorkflowSchedules({
+  initialJobs,
+  unavailable,
+  loading,
+  permission,
   request,
   onDirtyChange,
 }: {
-  records: Records;
+  initialJobs: ControlJob[];
+  unavailable: boolean;
+  loading: boolean;
+  permission: string;
   request: Requester;
   onDirtyChange: (dirty: boolean) => void;
 }) {
-  const [jobs, setJobs] = useState(records.jobs);
-  const [selected, setSelected] = useState(records.watchers[0]?.watcher_id ?? "");
-  const [permission, setPermission] = useState<"checking" | "admin" | "viewer" | "error">(
-    "checking",
-  );
+  const [jobs, setJobs] = useState(initialJobs);
   const dirtyJobs = useRef(new Map<string, boolean>());
   const updateDirty = useCallback(
     (id: string, dirty: boolean) => {
@@ -798,59 +805,20 @@ function Schedules({
     },
     [onDirtyChange],
   );
-  useEffect(() => {
-    if (!selected) return;
-    let active = true;
-    void request(`watchers/${encodeURIComponent(selected)}/config`)
-      .then(() => {
-        if (active) setPermission("admin");
-      })
-      .catch((failure) => {
-        if (active)
-          setPermission(
-            failure instanceof WorkspaceError && failure.code === "forbidden" ? "viewer" : "error",
-          );
-      });
-    return () => {
-      active = false;
-    };
-  }, [selected, request]);
   const updateJob = (job: ControlJob) => {
     setJobs((previous) => previous.map((item) => (item.job_id === job.job_id ? job : item)));
     return job;
   };
   return (
-    <>
-      <WorkspaceHeading
-        title="Schedules"
-        description="Set the cadence. Changes become effective when the scheduler confirms them."
-      />
-      <div className="control-filter">
-        <label htmlFor="schedule-workflow">Workflow</label>
-        <select
-          id="schedule-workflow"
-          value={selected}
-          onChange={(event) => {
-            if (
-              [...dirtyJobs.current.values()].some(Boolean) &&
-              !window.confirm("Discard unsaved schedule changes?")
-            )
-              return;
-            for (const [id, isDirty] of dirtyJobs.current) {
-              if (isDirty) discardWorkspaceDraft(`schedule:${id}`);
-            }
-            setSelected(event.target.value);
-            setPermission("checking");
-          }}
-        >
-          {records.watchers.map((watcher) => (
-            <option key={watcher.watcher_id} value={watcher.watcher_id}>
-              {watcher.display_name}
-            </option>
-          ))}
-        </select>
+    <section
+      id="workflow-schedules"
+      className="control-workflow-schedules"
+      aria-labelledby="workflow-schedules-title"
+    >
+      <div className="control-workflow-schedules-heading">
+        <h2 id="workflow-schedules-title">Schedules</h2>
+        <p>Changes take effect when the scheduler confirms them. Times use Jakarta time.</p>
       </div>
-      {permission === "checking" && selected ? <p role="status">Checking editing access…</p> : null}
       {permission === "viewer" ? (
         <p className="control-muted">
           You have view access. An administrator can change these schedules.
@@ -858,59 +826,65 @@ function Schedules({
       ) : null}
       {permission === "error" ? (
         <p className="workspace-error" role="alert">
-          Editing access could not be verified. Refresh to try again.
+          Editing access could not be verified. Reload the configuration to try again.
         </p>
       ) : null}
       <div className="control-schedule-list">
-        {jobs
-          .filter((job) => job.watcher_id === selected)
-          .map((job) =>
-            permission === "admin" ? (
-              <GuardedScheduleEditor
-                key={job.job_id}
-                job={job}
-                updateDirty={updateDirty}
-                onSave={async (input: ScheduleInput) =>
-                  updateJob(
-                    await request<ControlJob>(`jobs/${encodeURIComponent(job.job_id)}/schedule`, {
+        {jobs.map((job) =>
+          permission === "ready" ? (
+            <GuardedScheduleEditor
+              key={job.job_id}
+              job={job}
+              updateDirty={updateDirty}
+              onSave={async (input: ScheduleInput) =>
+                updateJob(
+                  await request<ControlJob>(
+                    "jobs/" + encodeURIComponent(job.job_id) + "/schedule",
+                    {
                       ...input,
                       expectedRevision: job.schedule?.revision,
-                    }),
-                  )
-                }
-                onRefresh={async () =>
-                  updateJob(
-                    await request<ControlJob>(`jobs/${encodeURIComponent(job.job_id)}/schedule`),
-                  )
-                }
-              />
-            ) : (
-              <section key={job.job_id} className="control-schedule-read">
-                <h2>{job.display_name}</h2>
-                <p>
-                  {job.schedule_kind === "fixed"
-                    ? "Source-defined schedule"
-                    : job.schedule
-                      ? `${job.schedule.enabled ? "Enabled" : "Paused"} · every ${job.schedule.interval_seconds / 60} minutes`
-                      : "No interval configured"}
-                </p>
-                <span className="control-muted">
-                  {job.reconciliation.effective
-                    ? "Effective"
-                    : job.reconciliation.status.replaceAll("_", " ")}
-                </span>
-              </section>
-            ),
-          )}
+                    },
+                  ),
+                )
+              }
+              onRefresh={async () =>
+                updateJob(
+                  await request<ControlJob>("jobs/" + encodeURIComponent(job.job_id) + "/schedule"),
+                )
+              }
+            />
+          ) : (
+            <section key={job.job_id} className="control-schedule-read">
+              <h3>{job.display_name}</h3>
+              <p>
+                {job.schedule_kind === "fixed"
+                  ? "Source-defined schedule"
+                  : job.schedule
+                    ? (job.schedule.enabled ? "Enabled" : "Paused") +
+                      " · every " +
+                      job.schedule.interval_seconds / 60 +
+                      " minutes"
+                    : "No interval configured"}
+              </p>
+              <span className="control-muted">
+                {job.reconciliation.effective
+                  ? "Effective"
+                  : job.reconciliation.status.replaceAll("_", " ")}
+              </span>
+            </section>
+          ),
+        )}
       </div>
-      {!jobs.some((job) => job.watcher_id === selected) ? (
+      {!jobs.length ? (
         <div className="control-empty">
-          {records.issues.some((issue) => issue.watcherId === selected && issue.resource === "jobs")
-            ? "Schedules could not be loaded. Refresh the page to try again."
-            : "No schedules are available for this workflow."}
+          {loading
+            ? "Loading schedules…"
+            : unavailable
+              ? "Schedules could not be loaded. Refresh the workspace to try again."
+              : "No schedules are available for this workflow."}
         </div>
       ) : null}
-    </>
+    </section>
   );
 }
 
