@@ -10,6 +10,7 @@ from market_data import MarketSnapshot
 import state as state_module
 from domain import CompanyCandidate, Destination, EventClass, Provider, SourceKind
 from selection import SelectionCandidate
+from sources import PhintracoNewsAdapter
 from state import empty_state, enqueue_candidate, load_state
 
 
@@ -215,6 +216,53 @@ def test_phintraco_entry_uses_shared_issuer_layout_and_four_horizons(monkeypatch
     )
     assert "┈" * 13 not in alert
     assert "*Harga terakhir" not in alert
+
+
+def test_phintraco_anak_usaha_quick_note_uses_the_issuer_market_card(monkeypatch):
+    content = (
+        "PHINTAS Quick Notes | 24 September 2026\n\n"
+        "Anak Usaha ARKO Peroleh Pembiayaan US$9.8 Juta untuk Proyek PLTS\n\n"
+        "ARKO melalui anak usaha tidak langsung memperoleh fasilitas pembiayaan."
+    )
+    candidates = PhintracoNewsAdapter().extract_candidates(
+        35412,
+        content,
+        datetime(2026, 9, 24, 1, 15, 42, tzinfo=timezone.utc),
+        False,
+    )
+
+    assert len(candidates) == 1
+    candidate = candidates[0]
+    assert candidate.ticker == "ARKO"
+    item = SelectionCandidate(
+        candidate=candidate,
+        event_class=EventClass.FINANCING_OR_OWNERSHIP,
+        ranking_band=1,
+        material_facts=("ARKO's subsidiary received a US$9.8 million facility.",),
+        dedupe_facts=("US$9.8 million", "subsidiary", "solar project"),
+        summary="Anak usaha ARKO memperoleh fasilitas pembiayaan US$9,8 juta untuk proyek PLTS.",
+        route=Destination.ID_STOCKS_NEWS,
+    )
+    monkeypatch.setattr(
+        delivery,
+        "get_market_snapshot",
+        lambda ticker, source_text: MarketSnapshot(
+            "PT Arkora Hydro Tbk", 1234, 24, 1.98, -18, -1.44, 55, 4.66, 118, 10.58
+        ),
+    )
+
+    alert = delivery.format_news_item(item)
+
+    assert alert == (
+        "### <:phintraco:1531272488645038091> ARKO (PT Arkora Hydro Tbk)\n\n"
+        "*(Ringkasan)* Anak usaha ARKO memperoleh fasilitas pembiayaan US$9,8 juta untuk proyek PLTS.\n\n"
+        "Harga terakhir (IDR): **1.234**\n"
+        "<:green:1531274822221434911> 1D: **+24 (+1.98%)**, "
+        "<:red:1531274756853202974> 1W: **-18 (-1.44%)**,\n"
+        "<:green:1531274822221434911> 1M: **+55 (+4.66%)**, "
+        "<:green:1531274822221434911> 3M: **+118 (+10.58%)**\n\n"
+        "[View on Telegram](<https://t.me/phintasprofits/35412>)"
+    )
 
 
 def test_phintraco_macro_entry_uses_brand_summary_and_link_without_issuer_data():

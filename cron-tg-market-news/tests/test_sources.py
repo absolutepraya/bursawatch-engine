@@ -335,6 +335,44 @@ def test_phintraco_quick_notes_extracts_issuer_from_the_headline():
     assert candidates[0].source_text == content
 
 
+def test_phintraco_quick_notes_extracts_issuer_from_anak_usaha_headline():
+    content = (
+        "PHINTAS Quick Notes | 24 September 2026\n\n"
+        "Anak Usaha ARKO Peroleh Pembiayaan US$9.8 Juta untuk Proyek PLTS\n\n"
+        "ARKO melalui anak usaha tidak langsung memperoleh fasilitas pembiayaan."
+    )
+
+    candidates = PhintracoNewsAdapter().extract_candidates(
+        35412,
+        content,
+        datetime(2026, 9, 24, 1, 15, 42, tzinfo=timezone.utc),
+        False,
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].ticker == "ARKO"
+    assert candidates[0].candidate_id == "ARKO"
+    assert candidates[0].source_kind is SourceKind.PHINTRACO_QUICK_NOTE
+
+
+def test_phintraco_multi_issuer_anak_usaha_quick_note_stays_tickerless():
+    content = (
+        "PHINTAS Quick Notes | 24 September 2026\n\n"
+        "Anak Usaha ARKO dan BRPT Peroleh Pembiayaan untuk Proyek Energi"
+    )
+
+    candidates = PhintracoNewsAdapter().extract_candidates(
+        35413,
+        content,
+        datetime(2026, 9, 24, 1, 15, 42, tzinfo=timezone.utc),
+        False,
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].ticker is None
+    assert candidates[0].candidate_id == "news"
+
+
 def test_phintraco_branded_macro_notes_create_one_tickerless_candidate():
     content = (
         "Phintraco Sekuritas Notes | 23 September 2026\n\n"

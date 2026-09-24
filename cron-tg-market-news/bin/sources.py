@@ -43,6 +43,10 @@ _PHINTRACO_BRANDED_NOTES = re.compile(r"^Phintraco Sekuritas Notes\s*\|", re.IGN
 _PHINTRACO_QUICK_NOTES = re.compile(r"^PHINTAS Quick Notes\s*\|", re.IGNORECASE)
 _PHINTRACO_COMPANY_UPDATE = re.compile(r"^Phintraco Sekuritas Company Update\s*:?[ \t]*$", re.IGNORECASE)
 _PHINTRACO_HEADLINE_TICKER = re.compile(rf"^(?P<ticker>{_IDX_TICKER})(?=\s|:|-|\(|$)")
+_PHINTRACO_QUICK_NOTE_SUBSIDIARY_HEADLINE = re.compile(
+    rf"^(?i:Anak\s+Usaha)\s+(?P<primary>{_IDX_TICKER})"
+    rf"(?:\s*(?:,|(?i:dan)|&)\s*(?P<secondary>{_IDX_TICKER}))?\b"
+)
 _PHINTRACO_STOCK_LINE = re.compile(
     rf"^(?P<ticker>{_IDX_TICKER})\s*(?:\([^\r\n)]+\))?\s*(?::|-)\s*\S.*$"
 )
@@ -487,7 +491,23 @@ class PhintracoNewsAdapter:
             if not headline:
                 return []
             title = _PHINTRACO_HEADLINE_TICKER.match(headline)
-            ticker = _ticker_from_match(title) if title is not None else None
+            subsidiary = (
+                _PHINTRACO_QUICK_NOTE_SUBSIDIARY_HEADLINE.match(headline)
+                if _PHINTRACO_QUICK_NOTES.match(header)
+                else None
+            )
+            if title is not None:
+                ticker = _ticker_from_match(title)
+            elif subsidiary is not None:
+                primary = _issuer_ticker(subsidiary["primary"])
+                secondary = subsidiary["secondary"]
+                ticker = (
+                    primary
+                    if primary is not None and (secondary is None or _issuer_ticker(secondary) is None)
+                    else None
+                )
+            else:
+                ticker = None
             source_kind = (
                 SourceKind.PHINTRACO_QUICK_NOTE
                 if _PHINTRACO_QUICK_NOTES.match(header)
