@@ -7,6 +7,8 @@ only and must not run beside the live Instagram watcher.
 Each verified configured profile has an independent future-only cursor and
 private staged inbox handoff. A media publication writes bounded caption and
 identity metadata to a private `blocked-media.json`, then retains its cursor.
+RSSHub page order determines freshness. A full page without the prior anchor
+blocks and retains the cursor; publication time remains event metadata.
 It neither stores signed CDN URLs nor claims that the media bytes are durable.
 No `company_news` or `macro_news` work is claimed. OCR, vision, agent relevance,
 and original-image delivery stay with the existing watcher until a reviewed

@@ -63,5 +63,10 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Pa
     if fetch_profile is None:
         from rsshub import fetch_profile_items
         fetch_profile = fetch_profile_items
-    fetchers = {endpoint_id: (lambda after_id, profile=by_endpoint[endpoint_id]: [_item(post) for post in fetch_profile(profile, after_id=after_id)]) for endpoint_id in selected}
+    def fetch(_cursor: dict[str, Any] | None, profile: Any) -> dict[str, Any]:
+        # RSSHub presents newest first. Keep provider page order and do not
+        # decide freshness from the publication timestamp.
+        posts = fetch_profile(profile, after_id=None)
+        return {"items": [_item(post) for post in reversed(posts)], "truncated": len(posts) >= profile.max_items_per_poll, "contiguous": False}
+    fetchers = {endpoint_id: (lambda cursor, profile=by_endpoint[endpoint_id]: fetch(cursor, profile)) for endpoint_id in selected}
     return ingest_all(selected, fetchers, state_root, inbox, observed_at, "instagram-watch-parser-1")

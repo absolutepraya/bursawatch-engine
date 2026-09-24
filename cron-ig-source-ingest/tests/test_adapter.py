@@ -28,11 +28,11 @@ def test_media_publication_stays_pending_at_endpoint_cursor(tmp_path):
     snapshot = {"revision": 4, "subscriptions": [row]}
     post = lambda identity, media, when=NOW: SourcePost(profile.id, identity, f"https://www.instagram.com/p/{identity}/", when, "caption", PublicationKind.POST, media)
     posts = [post("old", ())]
-    assert run_once(snapshot, (profile,), tmp_path, Inbox(), NOW, fetch_profile=lambda *_args, **_kwargs: posts)[0]["status"] == "bootstrapped"
+    assert run_once(snapshot, (profile,), tmp_path, Inbox(), NOW, fetch_profile=lambda *_args, **_kwargs: list(reversed(posts)))[0]["status"] == "bootstrapped"
     posts.append(post("new", (SourceMedia("https://cdn.example/image.jpg", MediaKind.IMAGE, 0),), NOW + timedelta(minutes=1)))
-    assert run_once(snapshot, (profile,), tmp_path, Inbox(), NOW, fetch_profile=lambda *_args, **_kwargs: posts)[0]["status"] == "blocked"
+    assert run_once(snapshot, (profile,), tmp_path, Inbox(), NOW, fetch_profile=lambda *_args, **_kwargs: list(reversed(posts)))[0]["status"] == "blocked"
     cursor = json.loads((tmp_path / f"instagram-{profile.handle}" / "cursor.json").read_text())
-    assert cursor["order"][1] == "old"
+    assert cursor["anchor"] == "old"
     marker = json.loads((tmp_path / f"instagram-{profile.handle}" / "blocked-media.json").read_text())
     assert marker["provider_event_id"] == "new"
     assert marker["payload"]["caption_html"] == "caption"

@@ -35,8 +35,16 @@ class Inbox:
         return {"event_key": key, "version": 1, "duplicate": False, "work_keys": []}
 
 
-def cursor(root: Path, endpoint_id: str = "x:alpha") -> list[str]:
-    return json.loads((root / endpoint_id.replace(":", "-") / "cursor.json").read_text())["order"]
+def cursor(root: Path, endpoint_id: str = "x:alpha") -> dict:
+    return json.loads((root / endpoint_id.replace(":", "-") / "cursor.json").read_text())
+
+
+def test_empty_first_poll_initializes_and_accepts_first_later_event(tmp_path):
+    inbox = Inbox()
+    assert ingest_endpoint(ENDPOINT, lambda _: [], tmp_path, inbox, NOW, "fake-1")["status"] == "bootstrapped_empty"
+    assert cursor(tmp_path) == {"initialized": True, "anchor": None, "position": None}
+    assert ingest_endpoint(ENDPOINT, lambda _: [item("11")], tmp_path, inbox, NOW, "fake-1")["accepted"] == 1
+    assert [event["provider_event_id"] for event in inbox.events] == ["11"]
 
 
 def test_future_only_ack_and_spool_resume(tmp_path):
@@ -47,11 +55,11 @@ def test_future_only_ack_and_spool_resume(tmp_path):
     inbox.fail = True
     with pytest.raises(OSError):
         ingest_endpoint(ENDPOINT, lambda _: page, tmp_path, inbox, NOW, "fake-1")
-    assert cursor(tmp_path)[1] == "10"
+    assert cursor(tmp_path)["anchor"] == "10"
     assert len(SourceEventHandoff(tmp_path / "x-alpha" / "handoff", inbox).spool.pending()) == 1
     inbox.fail = False
     assert ingest_endpoint(ENDPOINT, lambda _: page, tmp_path, inbox, NOW, "fake-1")["accepted"] == 0
-    assert cursor(tmp_path)[1] == "11"
+    assert cursor(tmp_path)["anchor"] == "11"
     assert [event["provider_event_id"] for event in inbox.events] == ["11"]
 
 
@@ -60,12 +68,12 @@ def test_media_and_batch_overflow_hold_only_affected_cursor(tmp_path):
     ingest_endpoint(ENDPOINT, lambda _: [item("10")], tmp_path, inbox, NOW, "fake-1")
     with pytest.raises(IntakeBlocked, match="media"):
         ingest_endpoint(ENDPOINT, lambda _: [item("11", media=True, minute=1)], tmp_path, inbox, NOW, "fake-1")
-    assert cursor(tmp_path)[1] == "10"
+    assert cursor(tmp_path)["anchor"] == "10"
     marker = json.loads((tmp_path / "x-alpha" / "blocked-media.json").read_text())
     assert marker["provider_event_id"] == "11"
     with pytest.raises(IntakeBlocked, match="batch"):
-        ingest_endpoint(ENDPOINT, lambda _: [item(str(n), minute=n) for n in range(1, 22)], tmp_path, inbox, NOW, "fake-1")
-    assert cursor(tmp_path)[1] == "10"
+        ingest_endpoint(ENDPOINT, lambda _: [item(str(n), minute=n) for n in range(11, 32)], tmp_path, inbox, NOW, "fake-1")
+    assert cursor(tmp_path)["anchor"] == "10"
 
 
 def test_endpoint_isolation_and_catalog_identity(tmp_path):
@@ -76,8 +84,8 @@ def test_endpoint_isolation_and_catalog_identity(tmp_path):
     assert [row["status"] for row in ingest_all(selected, fetchers, tmp_path, inbox, NOW, "fake-1")] == ["bootstrapped", "bootstrapped"]
     fetchers = {"x:alpha": lambda _: [item("11", media=True, minute=1)], "x:beta": lambda _: [item("21", minute=1)]}
     assert [row["status"] for row in ingest_all(selected, fetchers, tmp_path, inbox, NOW, "fake-1")] == ["blocked", "accepted"]
-    assert cursor(tmp_path, "x:alpha")[1] == "10"
-    assert cursor(tmp_path, "x:beta")[1] == "21"
+    assert cursor(tmp_path, "x:alpha")["anchor"] == "10"
+    assert cursor(tmp_path, "x:beta")["anchor"] == "21"
     row = {**ENDPOINT, "capability_id": "company_news", "enabled": True, "verification_status": "verified"}
     snapshot = {"revision": 2, "subscriptions": [row]}
     assert set(select_endpoints(snapshot, "x", {"x:alpha": ENDPOINT}, {"company_news"})) == {"x:alpha"}

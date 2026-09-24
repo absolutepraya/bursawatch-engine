@@ -42,7 +42,7 @@ def test_four_fixed_lanes_and_frozen_revision(tmp_path):
     assert len(selected) == 4
     article = lambda feed, guid, when=NOW: Article(feed.lane, feed.label, guid, f"https://snips.stockbit.com/{guid}", "Title", "Text", when)
     pages = {feed.lane.value: [article(feed, "old")] for feed in FEEDS}
-    fetch = lambda feed, **_kwargs: SimpleNamespace(not_modified=False, articles=pages[feed.lane.value])
+    fetch = lambda feed, **_kwargs: SimpleNamespace(not_modified=False, articles=list(reversed(pages[feed.lane.value])))
     inbox = Inbox()
     assert all(row["status"] == "bootstrapped" for row in run_once(snapshot, loaded, tmp_path, inbox, NOW, fetch_feed=fetch))
     pages[FEEDS[0].lane.value].append(article(FEEDS[0], "new", NOW + timedelta(minutes=1)))

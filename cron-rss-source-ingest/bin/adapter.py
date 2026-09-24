@@ -73,11 +73,13 @@ def run_once(snapshot: dict[str, Any], loaded_config: Any, state_root: Path, inb
     fetchers = {}
     for endpoint_id, endpoint in selected.items():
         feed = feeds[endpoint["provider_id"]]
-        def fetch(_after_id: str | None, feed: Any = feed) -> list[dict[str, Any]]:
-            result = fetch_feed(feed, page=1)
+        def fetch(_cursor: dict[str, Any] | None, feed: Any = feed) -> dict[str, Any]:
+            result = fetch_feed(feed, page=1, provider_order=True)
             if result.not_modified:
                 # This adapter does not persist conditional headers yet.
                 raise IntakeBlocked("unexpected conditional RSS response")
-            return [_item(article, loaded_config.revision) for article in result.articles]
+            # The optional parser flag preserves the XML item order. Stockbit
+            # presents newest first, so reverse once for oldest-first handoff.
+            return {"items": [_item(article, loaded_config.revision) for article in reversed(result.articles)], "truncated": len(result.articles) >= 20, "contiguous": False}
         fetchers[endpoint_id] = fetch
     return ingest_all(selected, fetchers, state_root, inbox, observed_at, "stockbit-rss-parser-1")

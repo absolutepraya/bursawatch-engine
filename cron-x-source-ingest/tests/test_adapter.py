@@ -49,3 +49,21 @@ def test_x_rejects_unverified_catalog(tmp_path):
     row = {"platform": "x", "endpoint_id": f"x:{profile.handle.casefold()}", "publisher_id": "x-kutekians", "address": profile.handle, "provider_id": None, "capability_id": "company_news", "verification_status": "pending", "enabled": True}
     with pytest.raises(Exception):
         endpoints({"revision": 3, "subscriptions": [row]}, (profile,))
+
+
+def test_full_rsshub_page_without_old_anchor_blocks_unseen_gap(tmp_path):
+    profile = replace(load_watch_config(ROOT / "cron-x-account-watch" / "config" / "watches.json").profiles[0], enabled=True)
+    endpoint_id = f"x:{profile.handle.casefold()}"
+    row = {"platform": "x", "endpoint_id": endpoint_id, "publisher_id": "x-kutekians", "address": profile.handle, "provider_id": None, "capability_id": "company_news", "verification_status": "verified", "enabled": True}
+    snapshot = {"revision": 3, "subscriptions": [row]}
+    post = lambda identity: SourcePost(profile.id, str(identity), f"https://x.com/{profile.handle}/status/{identity}", NOW, "text", PostKind.NORMAL, None, None, (), ())
+    inbox = Inbox()
+    run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: [post(10)])
+    # The old anchor has already fallen off a saturated RSSHub page. Treat
+    # the missing interval as unknown even though all returned IDs are newer.
+    full_page = [post(identity) for identity in range(11, 11 + profile.max_items_per_poll)]
+    result = run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: full_page)
+    assert result == [{"endpoint_id": endpoint_id, "status": "blocked", "reason": "page_truncated"}]
+    cursor = json.loads((tmp_path / endpoint_id.replace(":", "-") / "cursor.json").read_text())
+    assert cursor["anchor"] == "10"
+    assert inbox.events == []

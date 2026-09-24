@@ -62,14 +62,22 @@ def _write(path: Path, value: dict[str, Any]) -> None:
             os.unlink(temporary)
 
 
-def _cursor(path: Path) -> tuple[str, str] | None:
+def _cursor(path: Path) -> dict[str, Any] | None:
     if not path.exists():
         return None
-    value = json.loads(path.read_text())
-    order = value.get("order") if type(value) is dict else None
-    if type(order) is not list or len(order) != 2 or any(type(part) is not str or not part for part in order):
+    try:
+        value = json.loads(path.read_text())
+    except (OSError, ValueError) as error:
+        raise IntakeBlocked("source cursor is invalid") from error
+    if type(value) is not dict or value.get("initialized") is not True or type(value.get("anchor")) not in {str, type(None)} or type(value.get("position")) not in {str, type(None)}:
         raise IntakeBlocked("source cursor is invalid")
-    return (order[0], order[1])
+    return value
+
+
+def _save_cursor(path: Path, anchor: str | None, position: str | None) -> dict[str, Any]:
+    value = {"initialized": True, "anchor": anchor, "position": position}
+    _write(path, value)
+    return value
 
 
 def bind_catalog_revision(state_root: Path, revision: int) -> None:
@@ -90,18 +98,24 @@ def bind_catalog_revision(state_root: Path, revision: int) -> None:
         raise IntakeBlocked("source catalog revision changed; reviewed future-only transition required")
 
 
-def _order(item: dict[str, Any]) -> tuple[str, str]:
-    published = item.get("published_at")
-    identity = item.get("provider_event_id")
-    if type(published) is not str or type(identity) is not str or not identity:
-        raise IntakeBlocked("source event identity is invalid")
-    try:
-        stamp = datetime.fromisoformat(published.replace("Z", "+00:00"))
-        if stamp.tzinfo is None:
-            raise ValueError
-    except ValueError as error:
-        raise IntakeBlocked("source timestamp is invalid") from error
-    return (stamp.astimezone(timezone.utc).isoformat(), identity)
+def _page(raw: Any) -> dict[str, Any]:
+    page = {"items": raw, "truncated": False, "contiguous": False, "scanned_through": None, "bootstrap_position": None} if type(raw) is list else raw
+    if type(page) is not dict or type(page.get("items")) is not list or any(type(item) is not dict for item in page["items"]):
+        raise IntakeBlocked("source page is invalid")
+    if type(page.get("truncated")) is not bool or type(page.get("contiguous")) is not bool:
+        raise IntakeBlocked("source page completeness is invalid")
+    if type(page.get("scanned_through")) not in {str, type(None)} or type(page.get("bootstrap_position")) not in {str, type(None)}:
+        raise IntakeBlocked("source page position is invalid")
+    if len(page["items"]) > MAX_PAGE:
+        raise IntakeBlocked("source page exceeds the safe batch; cursor retained")
+    ids = [item.get("provider_event_id") for item in page["items"]]
+    if any(type(identity) is not str or not identity for identity in ids) or len(set(ids)) != len(ids):
+        raise IntakeBlocked("source page identities are invalid")
+    if page["contiguous"]:
+        positions = [item.get("ingest_position") for item in page["items"]]
+        if any(type(position) is not str or not position for position in positions) or positions != sorted(set(positions)):
+            raise IntakeBlocked("source page arrival positions are invalid")
+    return page
 
 
 def envelope(endpoint: dict[str, Any], item: dict[str, Any], observed_at: datetime, parser_version: str) -> dict[str, Any]:
@@ -124,41 +138,59 @@ def _without_media_locators(value: Any) -> Any:
     return value
 
 
-def ingest_endpoint(endpoint: dict[str, Any], fetch: Callable[[str | None], list[dict[str, Any]]], state_root: Path, inbox: Any, observed_at: datetime, parser_version: str, *, batch: int = MAX_BATCH) -> dict[str, Any]:
+def ingest_endpoint(endpoint: dict[str, Any], fetch: Callable[[dict[str, Any] | None], Any], state_root: Path, inbox: Any, observed_at: datetime, parser_version: str, *, batch: int = MAX_BATCH) -> dict[str, Any]:
     if type(batch) is not int or not 1 <= batch <= MAX_BATCH:
         raise ValueError("source batch must be between 1 and 20")
     root = state_root / endpoint["endpoint_id"].replace(":", "-")
     path = root / "cursor.json"
     cursor = _cursor(path)
     handoff = SourceEventHandoff(root / "handoff", inbox)
+    intent_path = root / "pending-position.json"
     pending = handoff.spool.pending()
-    if pending:
-        if cursor is None or len(pending) != 1 or pending[0].endpoint != "/v1/source-events":
-            raise IntakeBlocked("endpoint handoff is inconsistent")
-        staged = pending[0].payload.get("envelope")
-        if type(staged) is not dict or staged.get("endpoint_id") != endpoint["endpoint_id"]:
-            raise IntakeBlocked("endpoint handoff identity is inconsistent")
-        staged_order = _order(staged)
-        if staged_order <= cursor:
-            raise IntakeBlocked("endpoint handoff precedes cursor")
+    if intent_path.exists():
+        try:
+            intent = json.loads(intent_path.read_text())
+        except (OSError, ValueError) as error:
+            raise IntakeBlocked("endpoint handoff intent is invalid") from error
+        staged = intent.get("envelope") if type(intent) is dict else None
+        position = intent.get("position") if type(intent) is dict else None
+        if cursor is None or type(staged) is not dict or staged.get("endpoint_id") != endpoint["endpoint_id"] or type(staged.get("provider_event_id")) is not str or type(position) not in {str, type(None)}:
+            raise IntakeBlocked("endpoint handoff intent identity is invalid")
+        if pending:
+            if len(pending) != 1 or pending[0].endpoint != "/v1/source-events" or pending[0].payload.get("envelope") != staged:
+                raise IntakeBlocked("endpoint handoff is inconsistent")
+        else:
+            # The inbox may have accepted and acknowledged the request before
+            # cursor persistence. Reaccept the same event for its duplicate
+            # receipt, then finish the local cursor update.
+            handoff.stage(staged)
         if len(handoff.flush(limit=1)) != 1:
             raise IntakeBlocked("endpoint handoff lacks durable receipt")
-        _write(path, {"order": list(staged_order)})
-        cursor = staged_order
-    items = fetch(cursor[1] if cursor else None)
-    if type(items) is not list or any(type(item) is not dict for item in items):
-        raise IntakeBlocked("source page is invalid")
-    if len(items) > MAX_PAGE:
-        raise IntakeBlocked("source page exceeds the safe batch; cursor retained")
-    if not items:
-        return {"endpoint_id": endpoint["endpoint_id"], "status": "empty", "accepted": 0}
-    ordered = sorted(items, key=_order)
-    if len({_order(item) for item in ordered}) != len(ordered):
-        raise IntakeBlocked("source page contains duplicate identities")
+        cursor = _save_cursor(path, staged["provider_event_id"], position if position is not None else cursor["position"])
+        intent_path.unlink()
+    elif pending:
+        raise IntakeBlocked("endpoint handoff lacks a durable position intent")
+
+    page = _page(fetch(cursor))
+    items = page["items"]
     if cursor is None:
-        _write(path, {"order": list(_order(ordered[-1]))})
-        return {"endpoint_id": endpoint["endpoint_id"], "status": "bootstrapped", "accepted": 0}
-    fresh = [item for item in ordered if _order(item) > cursor]
+        newest = items[-1] if items else None
+        bootstrap_position = page.get("bootstrap_position") or (newest.get("ingest_position") if newest else None)
+        _save_cursor(path, newest["provider_event_id"] if newest else None, bootstrap_position)
+        return {"endpoint_id": endpoint["endpoint_id"], "status": "bootstrapped" if newest else "bootstrapped_empty", "accepted": 0}
+    if not items:
+        scanned = page.get("scanned_through")
+        if page["contiguous"] and scanned is not None and (cursor["position"] is None or scanned > cursor["position"]):
+            _save_cursor(path, cursor["anchor"], scanned)
+        return {"endpoint_id": endpoint["endpoint_id"], "status": "empty", "accepted": 0}
+    if page["contiguous"]:
+        fresh = [item for item in items if cursor["position"] is None or item["ingest_position"] > cursor["position"]]
+    else:
+        identities = [item["provider_event_id"] for item in items]
+        anchor = cursor["anchor"]
+        if page["truncated"] and (anchor is None or anchor not in identities):
+            raise IntakeBlocked("source page is truncated before the prior cursor")
+        fresh = items[identities.index(anchor) + 1:] if anchor in identities else items
     if len(fresh) > batch:
         raise IntakeBlocked("source page exceeds the safe batch; cursor retained")
     accepted = 0
@@ -173,24 +205,29 @@ def ingest_endpoint(endpoint: dict[str, Any], fetch: Callable[[str | None], list
             _write(root / "blocked-media.json", {"status": "media_blocked", "endpoint_id": endpoint["endpoint_id"], "provider_event_id": item["provider_event_id"], "published_at": item["published_at"], "source_url": item.get("source_url"), "payload": safe_payload})
             raise IntakeBlocked("source media requires reviewed durable storage")
         event = envelope(endpoint, item, observed_at, parser_version)
+        position = item.get("ingest_position") if page["contiguous"] else None
+        _write(intent_path, {"envelope": event, "position": position})
         handoff.stage(event)
         if len(handoff.flush(limit=1)) != 1:
             raise IntakeBlocked("source inbox did not acknowledge handoff")
-        cursor = _order(item)
-        _write(path, {"order": list(cursor)})
+        cursor = _save_cursor(path, item["provider_event_id"], position if position is not None else cursor["position"])
+        intent_path.unlink()
         (root / "blocked-media.json").unlink(missing_ok=True)
         accepted += 1
+    scanned = page.get("scanned_through")
+    if page["contiguous"] and scanned is not None and (cursor["position"] is None or scanned > cursor["position"]):
+        _save_cursor(path, cursor["anchor"], scanned)
     return {"endpoint_id": endpoint["endpoint_id"], "status": "accepted", "accepted": accepted}
 
 
-def ingest_all(selected: dict[str, dict[str, Any]], fetchers: dict[str, Callable[[str | None], list[dict[str, Any]]]], state_root: Path, inbox: Any, observed_at: datetime, parser_version: str) -> list[dict[str, Any]]:
+def ingest_all(selected: dict[str, dict[str, Any]], fetchers: dict[str, Callable[[dict[str, Any] | None], Any]], state_root: Path, inbox: Any, observed_at: datetime, parser_version: str) -> list[dict[str, Any]]:
     outcomes = []
     for endpoint_id, endpoint in selected.items():
         try:
             outcomes.append(ingest_endpoint(endpoint, fetchers[endpoint_id], state_root, inbox, observed_at, parser_version))
         except IntakeBlocked as error:
             reason = str(error)
-            code = "media_blocked" if "media" in reason else "batch_overflow" if "batch" in reason else "source_blocked"
+            code = "media_blocked" if "media" in reason else "page_truncated" if "truncated" in reason else "batch_overflow" if "batch" in reason else "source_blocked"
             outcomes.append({"endpoint_id": endpoint_id, "status": "blocked", "reason": code})
         except Exception:
             outcomes.append({"endpoint_id": endpoint_id, "status": "blocked", "reason": "handoff_or_fetch_failed"})
