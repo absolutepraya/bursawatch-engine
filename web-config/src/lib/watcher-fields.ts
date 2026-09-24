@@ -59,6 +59,7 @@ export const watcherNames: Record<string, string> = {
   "bursawatch-tg-market-news": "Telegram market news",
   "bursawatch-tg-phintraco-swing": "Phintraco swing calls",
   "bursawatch-dc-swing-board": "Discord swing board",
+  "bursawatch-stockbit-snips": "Stockbit Snips",
 };
 
 export function profileKind(watcherId: string): ProfileKind | null {
@@ -196,7 +197,7 @@ export function validateWatcherConfig(
   const prompt = (path: ConfigPath, bounded: boolean) => {
     const value = get(path);
     if (typeof value !== "string") error(path, "Enter text, or leave this field empty.");
-    else if (bounded && [...value.trim().split(/\s+/).join(" ")].length > 800)
+    else if (bounded && Array.from(value.trim().split(/\s+/u).join(" ")).length > 800)
       error(path, "Use 800 characters or fewer.");
   };
   const unique = (items: unknown[], paths: ConfigPath[], message: string) => {
@@ -214,6 +215,48 @@ export function validateWatcherConfig(
   }
   if (!supportsWatcherConfig(watcherId, config.version))
     error(["version"], "This configuration version is not supported by this editor.");
+  if (watcherId === "bursawatch-stockbit-snips") {
+    const exactKeys = (value: unknown, path: ConfigPath, allowed: string[]) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        error(path, "This setting must be an object.");
+        return false;
+      }
+      const keys = Object.keys(value);
+      for (const key of keys)
+        if (!allowed.includes(key)) error([...path, key], "Unsupported setting.");
+      for (const key of allowed)
+        if (!keys.includes(key)) error([...path, key], "This setting is required.");
+      return true;
+    };
+    exactKeys(config, [], ["version", "feeds", "destinations", "additional_prompt_instruction"]);
+    const feeds = config.feeds;
+    const feedIds = ["stockbit_commentary", "unboxing", "unboxing_ipo", "ai_reports_stockbit"];
+    if (!Array.isArray(feeds) || feeds.length !== feedIds.length)
+      error(["feeds"], "Keep all four fixed Stockbit feeds.");
+    if (Array.isArray(feeds)) {
+      const seen = new Set<unknown>();
+      feeds.forEach((feed, index) => {
+        const path: ConfigPath = ["feeds", index];
+        if (!exactKeys(feed, path, ["id", "enabled"])) return;
+        const id = get([...path, "id"]);
+        if (!feedIds.includes(String(id)) || seen.has(id))
+          error([...path, "id"], "Choose each fixed feed once.");
+        seen.add(id);
+        bool([...path, "enabled"]);
+      });
+      if (feedIds.some((id) => !seen.has(id)))
+        error(["feeds"], "Keep all four fixed Stockbit feeds.");
+    }
+    const destinations: ConfigPath = ["destinations"];
+    const routeKeys = ["id_stocks_news_channel_id", "macro_news_channel_id"];
+    if (exactKeys(config.destinations, destinations, routeKeys)) {
+      routeKeys.forEach((key) => discord([...destinations, key]));
+      if (get([...destinations, routeKeys[0]]) === get([...destinations, routeKeys[1]]))
+        error([...destinations, routeKeys[1]], "Choose a different destination channel.");
+    }
+    prompt(["additional_prompt_instruction"], true);
+    return errors;
+  }
   const kind = profileKind(watcherId);
   if (kind) {
     const profiles = config.profiles;

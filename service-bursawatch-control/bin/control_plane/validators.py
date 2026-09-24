@@ -58,6 +58,11 @@ VALIDATOR_SPECS = {
         loader_name="load_watch_config_data",
         directory_environment_key="CONTROL_PLANE_KELAS_INVESTASI_GTW_CONFIG_VALIDATOR_DIR",
     ),
+    "bursawatch-stockbit-snips": ValidatorSpec(
+        watcher_id="bursawatch-stockbit-snips",
+        loader_name="load_watch_config_data",
+        directory_environment_key="CONTROL_PLANE_STOCKBIT_CONFIG_VALIDATOR_DIR",
+    ),
 }
 
 

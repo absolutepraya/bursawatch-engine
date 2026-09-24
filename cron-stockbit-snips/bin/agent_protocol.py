@@ -31,6 +31,7 @@ ITEM_FIELDS = frozenset(
         "source_title",
         "source_text",
         "instruction",
+        "operator_instruction",
     }
 )
 TICKER_RE = re.compile(r"^[A-Z][A-Z0-9]{1,9}$")
@@ -40,9 +41,11 @@ INVESTMENT_RE = re.compile(
 )
 
 
-def agent_item(article: Article) -> dict[str, str]:
+def agent_item(article: Article, operator_instruction: str) -> dict[str, str]:
     if not isinstance(article, Article):
         raise ValueError("Stockbit agent item requires an Article")
+    if not isinstance(operator_instruction, str):
+        raise ValueError("Stockbit operator instruction must be text")
     source = f"Source title: {article.source_title}\n\nSource content:\n{article.source_text}"
     return {
         "candidate_key": article.key,
@@ -53,11 +56,12 @@ def agent_item(article: Article) -> dict[str, str]:
         "source_title": article.source_title,
         "source_text": source,
         "instruction": INSTRUCTION,
+        "operator_instruction": operator_instruction,
     }
 
 
-def build_wake_payload(article: Article) -> dict[str, object]:
-    return {"wakeAgent": True, "items": [agent_item(article)]}
+def build_wake_payload(article: Article, operator_instruction: str) -> dict[str, object]:
+    return {"wakeAgent": True, "items": [agent_item(article, operator_instruction)]}
 
 
 def _text(payload: Mapping[str, object], key: str) -> str:

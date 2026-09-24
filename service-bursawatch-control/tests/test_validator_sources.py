@@ -25,6 +25,10 @@ SOURCE_FILES = {
     "bursawatch-dc-swing-board": ["cron-dc-swing-board/bin/config.py"],
     "bursawatch-tg-phintraco-swing": ["cron-tg-phintraco-swing/bin/config.py"],
     "bursawatch-tg-kelas-investasi-gtw": ["cron-tg-kelas-investasi-gtw/bin/config.py"],
+    "bursawatch-stockbit-snips": [
+        "cron-stockbit-snips/bin/config.py",
+        "cron-stockbit-snips/bin/models.py",
+    ],
 }
 
 

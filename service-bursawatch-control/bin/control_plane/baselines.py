@@ -13,6 +13,7 @@ from .contract import canonical_json_bytes, config_checksum, validate_watcher_id
 BASELINE_FILES = {
     "bursawatch-dc-swing-board": "bursawatch-dc-swing-board.json",
     "bursawatch-ig-account-watch": "bursawatch-ig-account-watch.json",
+    "bursawatch-stockbit-snips": "bursawatch-stockbit-snips.json",
     "bursawatch-tg-kelas-investasi-gtw": "bursawatch-tg-kelas-investasi-gtw.json",
     "bursawatch-tg-market-news": "bursawatch-tg-market-news.json",
     "bursawatch-tg-phintraco-swing": "bursawatch-tg-phintraco-swing.json",

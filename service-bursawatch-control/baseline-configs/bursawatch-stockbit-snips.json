@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "feeds": [
+    {"id": "stockbit_commentary", "enabled": true},
+    {"id": "unboxing", "enabled": true},
+    {"id": "unboxing_ipo", "enabled": true},
+    {"id": "ai_reports_stockbit", "enabled": true}
+  ],
+  "destinations": {
+    "id_stocks_news_channel_id": "1525102508714889257",
+    "macro_news_channel_id": "1531655369884045382"
+  },
+  "additional_prompt_instruction": ""
+}

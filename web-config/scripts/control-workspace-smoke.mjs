@@ -20,7 +20,9 @@ assert.ok(!target.username && !target.password, "Do not put credentials in the t
 
 const watcherId = "bursawatch-tg-market-news";
 const swingId = "bursawatch-tg-phintraco-swing";
+const stockbitId = "bursawatch-stockbit-snips";
 const jobId = "fixture-market-news";
+const stockbitJobId = "fixture-stockbit-snips";
 const password = "synthetic-only-password";
 const screenshotDir = resolve("test-results/control-workspace");
 await mkdir(screenshotDir, { recursive: true });
@@ -73,6 +75,38 @@ function fixtures() {
     },
     reconciliation: { status: "applied", applied_revision: 2, effective: true },
   };
+  const stockbitSnapshot = {
+    api_version: 1,
+    watcher_id: stockbitId,
+    revision: 1,
+    config_version: 1,
+    config_sha256: "c".repeat(64),
+    updated_at: updatedAt,
+    config: {
+      version: 1,
+      feeds: [
+        { id: "stockbit_commentary", enabled: true },
+        { id: "unboxing", enabled: true },
+        { id: "unboxing_ipo", enabled: true },
+        { id: "ai_reports_stockbit", enabled: true },
+      ],
+      destinations: {
+        id_stocks_news_channel_id: "123456789012345678",
+        macro_news_channel_id: "234567890123456789",
+      },
+      additional_prompt_instruction: "",
+    },
+  };
+  const stockbitJob = {
+    ...job,
+    job_id: stockbitJobId,
+    watcher_id: stockbitId,
+    display_name: "Stockbit Snips check",
+    min_interval_seconds: 300,
+    max_interval_seconds: 3600,
+    schedule: { ...job.schedule, job_id: stockbitJobId, revision: 1, interval_seconds: 900 },
+    reconciliation: { status: "applied", applied_revision: 1, effective: true },
+  };
   const watchers = [
     {
       watcher_id: watcherId,
@@ -83,6 +117,12 @@ function fixtures() {
     {
       watcher_id: swingId,
       display_name: "Swing calls",
+      current_revision: 1,
+      updated_at: updatedAt,
+    },
+    {
+      watcher_id: stockbitId,
+      display_name: "Stockbit Snips",
       current_revision: 1,
       updated_at: updatedAt,
     },
@@ -100,7 +140,7 @@ function fixtures() {
       finished_at: status === "running" ? null : new Date(started + 72000).toISOString(),
     };
   });
-  return { snapshot, job, watchers, runs };
+  return { snapshot, job, stockbitSnapshot, stockbitJob, watchers, runs };
 }
 
 async function scenario(role) {
@@ -112,6 +152,7 @@ async function scenario(role) {
   const unexpectedRequests = [];
   let signedIn = false;
   let scheduleChecks = 0;
+  let stockbitScheduleChecks = 0;
   let signouts = 0;
   let expectedDialog = null;
   const user = {
@@ -223,8 +264,10 @@ async function scenario(role) {
         if (method === "GET" && path === "watchers") return json(state.watchers);
         if (method === "GET" && path === `watchers/${watcherId}/jobs`) return json([state.job]);
         if (method === "GET" && path === `watchers/${swingId}/jobs`) return json([]);
+        if (method === "GET" && path === `watchers/${stockbitId}/jobs`) return json([state.stockbitJob]);
         if (method === "GET" && path === `watchers/${watcherId}/runs`) return json(state.runs);
         if (method === "GET" && path === `watchers/${swingId}/runs`) return json([]);
+        if (method === "GET" && path === `watchers/${stockbitId}/runs`) return json([]);
         if (method === "GET" && /^runs\/fixture-run-\d\/events$/.test(path)) {
           const run = state.runs.find((item) => path.split("/")[1] === item.run_id);
           return json([
@@ -262,6 +305,27 @@ async function scenario(role) {
             return json(state.snapshot);
           }
         }
+        if (path === `watchers/${stockbitId}/config`) {
+          if (role === "viewer")
+            return json({ code: "forbidden", message: "Configuration is restricted to administrators." }, 403);
+          if (method === "GET") return json(state.stockbitSnapshot);
+          if (method === "PUT") {
+            const payload = request.postDataJSON();
+            assert.equal(payload.expectedRevision, state.stockbitSnapshot.revision);
+            assert.equal(payload.config_version, 1);
+            attempts.push({ resource: "stockbit-config", payload });
+            const failure = failures.config.shift();
+            if (failure) return json(failure.body, failure.status);
+            writes.push({ resource: "stockbit-config", payload });
+            state.stockbitSnapshot = {
+              ...state.stockbitSnapshot,
+              revision: state.stockbitSnapshot.revision + 1,
+              config: payload.config,
+            };
+            state.watchers[2].current_revision = state.stockbitSnapshot.revision;
+            return json(state.stockbitSnapshot);
+          }
+        }
         if (path === `jobs/${jobId}/schedule`) {
           assert.equal(role, "admin", "Viewers must never submit a schedule write.");
           if (method === "PUT") {
@@ -296,6 +360,41 @@ async function scenario(role) {
               effective: true,
             };
             return json(state.job);
+          }
+        }
+        if (path === `jobs/${stockbitJobId}/schedule`) {
+          assert.equal(role, "admin");
+          if (method === "PUT") {
+            const payload = request.postDataJSON();
+            assert.equal(payload.expectedRevision, state.stockbitJob.schedule.revision);
+            attempts.push({ resource: "stockbit-schedule", payload });
+            writes.push({ resource: "stockbit-schedule", payload });
+            stockbitScheduleChecks = 0;
+            state.stockbitJob = {
+              ...state.stockbitJob,
+              schedule: {
+                ...state.stockbitJob.schedule,
+                revision: state.stockbitJob.schedule.revision + 1,
+                interval_seconds: payload.interval_seconds,
+                enabled: payload.enabled,
+              },
+              reconciliation: {
+                status: "pending",
+                applied_revision: state.stockbitJob.schedule.revision,
+                effective: false,
+              },
+            };
+            return json(state.stockbitJob);
+          }
+          if (method === "GET") {
+            stockbitScheduleChecks++;
+            if (stockbitScheduleChecks > 1)
+              state.stockbitJob.reconciliation = {
+                status: "applied",
+                applied_revision: state.stockbitJob.schedule.revision,
+                effective: true,
+              };
+            return json(state.stockbitJob);
           }
         }
         unexpectedRequests.push(`Unmocked control operation: ${method} ${path}`);
@@ -589,6 +688,52 @@ async function scenario(role) {
       );
     }
     await noOverflow(`${role} desktop workflow details`);
+    await navigate("Workflows", "Workflows");
+    await page.getByRole("button", { name: /^Open watcher details: Stockbit Snips/ }).click();
+    await page.getByRole("heading", { name: "Stockbit Snips", exact: true }).waitFor();
+    await page.getByText("Four Stockbit Snips feeds", { exact: true }).waitFor();
+    if (role === "admin") {
+      const feedLabels = ["Stockbit Commentary", "Unboxing", "Unboxing IPO", "AI Reports Stockbit"];
+      for (const label of feedLabels)
+        assert.equal(await page.getByRole("checkbox", { name: label, exact: true }).count(), 1);
+      for (const label of ["Stock news channel ID", "Macro news channel ID", "Additional instructions"])
+        assert.equal(await page.getByLabel(label, { exact: true }).count(), 1);
+      assert.equal(await page.getByLabel("Heartbeat channel ID", { exact: true }).count(), 0);
+      const unboxing = page.getByRole("checkbox", { name: "Unboxing", exact: true });
+      const instructions = page.getByLabel("Additional instructions", { exact: true });
+      await unboxing.uncheck();
+      await instructions.fill("Synthetic article guidance.");
+      await page.getByRole("button", { name: "Save configuration", exact: true }).click();
+      await page.getByText("Configuration saved as revision 2.", { exact: true }).waitFor();
+      assert.deepEqual(writes.find((write) => write.resource === "stockbit-config").payload.config, {
+        ...fixtures().stockbitSnapshot.config,
+        feeds: [
+          { id: "stockbit_commentary", enabled: true },
+          { id: "unboxing", enabled: false },
+          { id: "unboxing_ipo", enabled: true },
+          { id: "ai_reports_stockbit", enabled: true },
+        ],
+        additional_prompt_instruction: "Synthetic article guidance.",
+      });
+      await instructions.fill("Stale synthetic draft.");
+      const message = failNext("config", 409, "conflict");
+      await page.getByRole("button", { name: "Save configuration", exact: true }).click();
+      await page.getByRole("alert").filter({ hasText: message }).waitFor();
+      assert.equal(await instructions.inputValue(), "Stale synthetic draft.");
+      assert.equal(await page.getByRole("button", { name: "Save configuration", exact: true }).isDisabled(), true);
+      await confirm(/Discard unsaved changes and reload/, true, () =>
+        page.getByRole("button", { name: "Reload configuration", exact: true }).click(),
+      );
+      await page.getByText("Revision 2 · Stockbit Snips", { exact: true }).waitFor();
+      assert.equal(await instructions.inputValue(), "Synthetic article guidance.");
+      await noOverflow("admin desktop Stockbit editor");
+      await capture("stockbit-configuration-desktop");
+    } else {
+      await page.getByRole("heading", { name: "View access", exact: true }).waitFor();
+    }
+    await navigate("Workflows", "Workflows");
+    await page.getByRole("button", { name: /^Open watcher details: Market news/ }).click();
+    await page.getByRole("heading", { name: "Market news", exact: true }).waitFor();
     await navigate("Schedules", "Schedules");
     if (role === "viewer") {
       await page
@@ -695,6 +840,20 @@ async function scenario(role) {
         const input = document.querySelector('.watcher-schedule input[type="number"]');
         return input && !input.matches(":disabled") && input.value === "30";
       });
+      await page.getByLabel("Workflow", { exact: true }).selectOption(stockbitId);
+      await page.getByRole("heading", { name: "Stockbit Snips check", exact: true }).waitFor();
+      await page.getByText("Revision 1 is applied. This job is enabled.", { exact: true }).waitFor();
+      const stockbitInterval = page.getByLabel("Check every (minutes)", { exact: true });
+      assert.equal(await stockbitInterval.inputValue(), "15");
+      await stockbitInterval.fill("4");
+      await page.getByRole("button", { name: "Save schedule", exact: true }).click();
+      assert.equal(writes.filter((write) => write.resource === "stockbit-schedule").length, 0);
+      await stockbitInterval.fill("20");
+      await page.getByRole("button", { name: "Save schedule", exact: true }).click();
+      await page.getByText("Revision 2 is applied. This job is enabled.", { exact: true }).waitFor();
+      assert.equal(writes.find((write) => write.resource === "stockbit-schedule").payload.interval_seconds, 1200);
+      await page.getByLabel("Workflow", { exact: true }).selectOption(watcherId);
+      await page.getByRole("heading", { name: "Market news check", exact: true }).waitFor();
     }
     for (const textSize of ["100%", "200%"]) {
       await page.setViewportSize({ width: 375, height: 900 });
@@ -726,10 +885,112 @@ async function scenario(role) {
         .waitFor();
       await noOverflow(`${role} ${textSize} workflow details`);
       if (textSize === "100%") await capture("configuration-375");
+      await navigate("Workflows", "Workflows");
+      await page.getByRole("button", { name: /^Open watcher details: Stockbit Snips/ }).click();
+      await page.getByRole("heading", { name: "Stockbit Snips", exact: true }).waitFor();
+      await noOverflow(`${role} ${textSize} Stockbit editor`);
+      if (role === "admin") {
+        const feedLabels = ["Stockbit Commentary", "Unboxing", "Unboxing IPO", "AI Reports Stockbit"];
+        for (const label of feedLabels)
+          assert.equal(await page.getByRole("checkbox", { name: label, exact: true }).count(), 1);
+        for (const label of ["Stock news channel ID", "Macro news channel ID", "Additional instructions"])
+          assert.equal(await page.getByLabel(label, { exact: true }).count(), 1);
+        assert.equal(await page.getByLabel("Heartbeat channel ID", { exact: true }).count(), 0);
+        if (textSize === "100%") {
+          const expectedConfig = {
+            version: 1,
+            feeds: [
+              { id: "stockbit_commentary", enabled: false },
+              { id: "unboxing", enabled: true },
+              { id: "unboxing_ipo", enabled: false },
+              { id: "ai_reports_stockbit", enabled: false },
+            ],
+            destinations: {
+              id_stocks_news_channel_id: "345678901234567890",
+              macro_news_channel_id: "456789012345678901",
+            },
+            additional_prompt_instruction: "Mobile synthetic guidance.",
+          };
+          for (const feed of expectedConfig.feeds) {
+            const label = {
+              stockbit_commentary: "Stockbit Commentary",
+              unboxing: "Unboxing",
+              unboxing_ipo: "Unboxing IPO",
+              ai_reports_stockbit: "AI Reports Stockbit",
+            }[feed.id];
+            await page.getByRole("checkbox", { name: label, exact: true }).setChecked(feed.enabled);
+          }
+          await page.getByLabel("Stock news channel ID", { exact: true }).fill(expectedConfig.destinations.id_stocks_news_channel_id);
+          await page.getByLabel("Macro news channel ID", { exact: true }).fill(expectedConfig.destinations.macro_news_channel_id);
+          const mobileInstruction = page.getByLabel("Additional instructions", { exact: true });
+          await mobileInstruction.fill(expectedConfig.additional_prompt_instruction);
+          const mobileSave = page.getByRole("button", { name: "Save configuration", exact: true });
+          await noOverflow("admin 375px Stockbit edited form");
+          await mobileSave.click();
+          await page.getByText("Configuration saved as revision 3.", { exact: true }).waitFor();
+          const mobileWrite = writes.filter((write) => write.resource === "stockbit-config").at(-1);
+          assert.equal(mobileWrite.payload.config_version, 1);
+          assert.equal(mobileWrite.payload.expectedRevision, 2);
+          assert.deepEqual(mobileWrite.payload.config, expectedConfig);
+          await mobileInstruction.fill("Stale mobile synthetic draft.");
+          const staleMessage = failNext("config", 409, "conflict");
+          await mobileSave.click();
+          await page.getByRole("alert").filter({ hasText: staleMessage }).waitFor();
+          assert.equal(await mobileInstruction.inputValue(), "Stale mobile synthetic draft.");
+          assert.equal(await mobileSave.isDisabled(), true);
+          await confirm(/Discard unsaved changes and reload/, false, () =>
+            page.getByRole("button", { name: "Reload configuration", exact: true }).click(),
+          );
+          assert.equal(await mobileInstruction.inputValue(), "Stale mobile synthetic draft.");
+          await confirm(/Discard unsaved changes and reload/, true, () =>
+            page.getByRole("button", { name: "Reload configuration", exact: true }).click(),
+          );
+          await page.getByText("Revision 3 · Stockbit Snips", { exact: true }).waitFor();
+          assert.equal(await mobileInstruction.inputValue(), expectedConfig.additional_prompt_instruction);
+          assert.equal(await page.getByLabel("Stock news channel ID", { exact: true }).inputValue(), expectedConfig.destinations.id_stocks_news_channel_id);
+          assert.equal(await page.getByLabel("Macro news channel ID", { exact: true }).inputValue(), expectedConfig.destinations.macro_news_channel_id);
+          for (const feed of expectedConfig.feeds) {
+            const label = {
+              stockbit_commentary: "Stockbit Commentary",
+              unboxing: "Unboxing",
+              unboxing_ipo: "Unboxing IPO",
+              ai_reports_stockbit: "AI Reports Stockbit",
+            }[feed.id];
+            assert.equal(await page.getByRole("checkbox", { name: label, exact: true }).isChecked(), feed.enabled);
+          }
+          await noOverflow("admin 375px Stockbit saved form");
+          await capture("stockbit-configuration-375");
+        }
+      }
       await navigate("Account", "Account");
       await page.getByText(user.email, { exact: true }).waitFor();
       await noOverflow(`${role} ${textSize} account`);
       await navigate("Schedules", "Schedules");
+      await page.getByLabel("Workflow", { exact: true }).selectOption(stockbitId);
+      if (role === "admin") {
+        const mobileInterval = page.getByLabel("Check every (minutes)", { exact: true });
+        const expectedRevision = textSize === "100%" ? 2 : 3;
+        await page.getByText(`Revision ${expectedRevision} is applied. This job is enabled.`, { exact: true }).waitFor();
+        assert.equal(await mobileInterval.inputValue(), textSize === "100%" ? "20" : "25");
+        assert.equal(await mobileInterval.getAttribute("min"), "5");
+        assert.equal(await mobileInterval.getAttribute("max"), "60");
+        if (textSize === "100%") {
+          await mobileInterval.fill("25");
+          await page.getByRole("button", { name: "Save schedule", exact: true }).click();
+          await page.locator(".watcher-schedule .watcher-draft-status").getByText("Pending", { exact: true }).waitFor();
+          await page.getByText("Revision 3 is applied. This job is enabled.", { exact: true }).waitFor();
+          const mobileScheduleWrite = writes.filter((write) => write.resource === "stockbit-schedule").at(-1);
+          assert.equal(mobileScheduleWrite.payload.expectedRevision, 2);
+          assert.equal(mobileScheduleWrite.payload.interval_seconds, 1500);
+        }
+        await noOverflow(`${role} ${textSize} Stockbit schedule`);
+      } else {
+        await page.getByRole("heading", { name: "Stockbit Snips check", exact: true }).waitFor();
+        await page.getByText("Enabled · every 15 minutes", { exact: true }).waitFor();
+        await page.getByText("Effective", { exact: true }).waitFor();
+      }
+      await page.getByLabel("Workflow", { exact: true }).selectOption(watcherId);
+      await page.getByRole("heading", { name: "Market news check", exact: true }).waitFor();
     }
     const signOut = () =>
       page
@@ -758,6 +1019,10 @@ async function scenario(role) {
     console.log(
       `${role}: mocked sign-in, overview/history, permissions, schedules, sign-out and 375px/200% layouts passed${role === "admin" ? "; config revision and pending→applied schedule verified" : ""}.`,
     );
+  } catch (error) {
+    console.error("Synthetic browser diagnostics:", { errors, unexpectedRequests });
+    await page.screenshot({ path: resolve(screenshotDir, `synthetic-${role}-failure.png`) }).catch(() => {});
+    throw error;
   } finally {
     await context.close();
   }

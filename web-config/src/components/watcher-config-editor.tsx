@@ -668,6 +668,52 @@ function TelegramFields({ watcherId }: { watcherId: string }) {
   );
 }
 
+function StockbitFields() {
+  const { draft, errors } = useEditor();
+  const feeds = Array.isArray(draft.feeds) ? draft.feeds : [];
+  const lanes = [
+    ["stockbit_commentary", "Stockbit Commentary"],
+    ["unboxing", "Unboxing"],
+    ["unboxing_ipo", "Unboxing IPO"],
+    ["ai_reports_stockbit", "AI Reports Stockbit"],
+  ] as const;
+  return (
+    <>
+      <Group
+        title="Stockbit feeds"
+        hint="Pause or resume intake for each fixed feed. Resuming starts with new items after the next successful check; work already queued continues."
+      >
+        {lanes.map(([id, label]) => {
+          const index = feeds.findIndex((feed) => configValue(feed, ["id"]) === id);
+          return index < 0 ? null : (
+            <Toggle key={id} path={["feeds", index, "enabled"]} label={label} />
+          );
+        })}
+        {errors.feeds ? (
+          <p className="watcher-field-error" role="alert">
+            {errors.feeds}
+          </p>
+        ) : null}
+      </Group>
+      <Group
+        title="Discord destinations"
+        hint="These two route names are fixed. Use distinct channel IDs from the Discord server you manage."
+      >
+        <Field path={["destinations", "id_stocks_news_channel_id"]} label="Stock news channel ID" />
+        <Field path={["destinations", "macro_news_channel_id"]} label="Macro news channel ID" />
+      </Group>
+      <Group title="Analysis guidance">
+        <Field
+          path={["additional_prompt_instruction"]}
+          label="Additional instructions"
+          multiline
+          hint="Optional. Up to 800 characters after whitespace normalization. Added to the fixed analysis rules for future article work."
+        />
+      </Group>
+    </>
+  );
+}
+
 export function useUnsavedWarning(dirty: boolean) {
   useEffect(() => {
     if (!dirty) return;
@@ -958,6 +1004,8 @@ export function WatcherConfigEditor({
                     Add {kind === "whatsapp" ? "channel" : "account"}
                   </button>
                 </>
+              ) : saved.watcher_id === "bursawatch-stockbit-snips" ? (
+                <StockbitFields />
               ) : (
                 <TelegramFields watcherId={saved.watcher_id} />
               )}

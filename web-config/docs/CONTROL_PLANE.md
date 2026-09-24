@@ -113,9 +113,9 @@ and sample browser preferences separate.
 - Overview: recorded-run counts, 24-hour/7-day chart with an accessible table,
   schedule reconciliation and recent runs. Coverage is at most 50 latest runs
   per watcher, explicitly disclosed; these are not complete historical totals.
-- Workflows: live catalog and seven schema-specific admin editors for X,
+- Workflows: live catalog and eight schema-specific admin editors for X,
   Instagram, WhatsApp Channels, market news, daily Phintraco swing calls,
-  GTW investment classes and the swing board. Each supported workflow explains
+  GTW investment classes, the swing board and Stockbit Snips. Each supported workflow explains
   its input, processing and output. All existing editor fields remain available;
   unknown keys are preserved when a known field changes. No private config is
   bundled as defaults.
@@ -191,6 +191,19 @@ running invocation changed. A schedule is effective only when reconciliation
 reports `applied`, matching applied/requested revisions and `effective=true`.
 Polling is bounded and paused while hidden; a failed refresh is not success.
 Fixed schedules cannot be edited.
+
+Stockbit's authenticated editor sends the complete version 1 config through
+the same config GET and PUT path. Its only editable fields are the four fixed
+feed switches, two Discord news channel IDs, and one optional additive analysis
+instruction of at most 800 normalized Unicode code points. RSS URLs, feed and
+route identities, heartbeat, credentials, parsers and fixed agent rules remain
+system-owned. A disabled lane stops new intake; on resumption, its first
+successful fetch establishes a future-only baseline without replaying paused
+items. Articles already queued keep their frozen dispatch settings. A saved
+config revision applies to future work after a valid runtime read and is not
+delivery proof. The Schedules view uses the generic API-provided job bounds,
+desired revision and reconciler status. A saved interval or enabled change is
+pending until that exact schedule revision is reported applied and effective.
 
 ## X source and delivery evidence
 

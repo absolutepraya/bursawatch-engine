@@ -34,6 +34,15 @@ def test_deployment_uses_the_self_contained_validator_bundle():
     assert "not point the API at a live watcher runtime directory" in deployment
 
 
+def test_stockbit_validator_template_and_docs_use_isolated_bundle():
+    key = "CONTROL_PLANE_STOCKBIT_CONFIG_VALIDATOR_DIR"
+    bundle = "/home/praya/.hermes/bursawatch-control-plane/validator-sources/bursawatch-stockbit-snips"
+    for path in ("env.example", "README.md", "deployment/README.md", "AGENTS.md"):
+        text = (ROOT / path).read_text(encoding="utf-8")
+        assert f"{key}={bundle}" in text
+        assert f"{key}=/home/praya/.agents/skills/" not in text
+
+
 def test_repeat_release_helper_is_syntax_checked_and_keeps_its_boundary():
     helper = ROOT / "deploy.sh"
     script = helper.read_text(encoding="utf-8")

@@ -143,3 +143,28 @@ def test_whatsapp_source_emoji_refresh_is_manual_and_keeps_operator_revisions():
     assert "source-baseline-correction" in migration
     assert "12c37e0c385f6b2431f2d318559d49406b9cb847fc5da8007459d06486602de9" in migration
     assert "56363ca42605494908b52014174dfccb660ee881882c7602ab6b2aca46d1397b" in migration
+
+
+def test_stockbit_schedule_migration_registers_existing_15_minute_job():
+    migration = (
+        Path(__file__).resolve().parents[1]
+        / "migrations/011_stockbit_snips_control_plane.sql"
+    ).read_text(encoding="utf-8")
+    checksum = schedule_checksum(True, 900, "Asia/Jakarta")
+
+    assert migration.startswith("-- bursawatch-release: manual\n")
+    assert migration.index("insert into bursawatch_watchers") < migration.index(
+        "insert into bursawatch_scheduler_jobs"
+    )
+    assert "('bursawatch-stockbit-snips', 'Stockbit Snips', 'bursawatch-stockbit-snips')" in migration
+    assert (
+        "('bursawatch-stockbit-snips', 'bursawatch-stockbit-snips', "
+        "'Stockbit Snips', 'bursawatch-stockbit-snips', 'interval', 300, 3600)"
+    ) in migration
+    assert migration.count("insert into bursawatch_schedule_revisions") == 1
+    assert (
+        "('bursawatch-stockbit-snips', 1, true, 900, "
+        f"'Asia/Jakarta', '{checksum}', 'source-baseline')"
+    ) in migration
+    assert "on conflict (job_id, revision) do nothing;" in migration
+    assert "and current_schedule_revision is null;" in migration
