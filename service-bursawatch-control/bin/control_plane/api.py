@@ -295,9 +295,9 @@ def create_app(
         return {"status": "ok"}
 
     @app.get("/v1/source-catalog")
-    def get_source_catalog(_current: Principal = Depends(human_reader)) -> dict[str, Any]:
+    def get_source_catalog(current_user: Principal = Depends(human_reader)) -> dict[str, Any]:
         current = catalog_store.get()
-        return {**catalog_view(current["config"], catalog_store.registry()), "config": current}
+        return {**catalog_view(current["config"], catalog_store.registry()), "config": current, "can_edit": current_user.kind == "admin"}
 
     @app.get("/v1/source-catalog/effective")
     def get_effective_catalog(_current: Principal = Depends(principal)) -> dict[str, Any]:

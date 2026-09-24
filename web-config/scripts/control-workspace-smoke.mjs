@@ -147,6 +147,7 @@ async function scenario(role) {
   const state = fixtures();
   const sourceConfig = { selected_securities: [], people_org: [], endpoints: [], publisher_defaults: [], endpoint_overrides: [] };
   const sourceCatalog = {
+    can_edit: role === "admin",
     securities: [],
     institutions: [{ id: "phintraco", name: "Phintraco Sekuritas", tier: 1, asset_ref: null }],
     people_org: [{ id: "x-ricky", name: "Ricky Ho", kind: null, tier: 3, asset_ref: null }],
@@ -626,13 +627,12 @@ async function scenario(role) {
     await page.getByRole("heading", { name: "Ricky Ho", exact: true }).waitFor();
     await capture("source-library-people-desktop");
     if (role === "viewer") {
-      await page.getByRole("group", { name: "Add People & Org identity" }).getByLabel("Name").fill("Viewer Draft");
-      await page.getByRole("button", { name: "Add identity to draft" }).click();
-      await page.getByRole("button", { name: "Save catalog" }).click();
-      await page.getByText("This account can view sources but cannot change them.", { exact: false }).waitFor();
+      await page.getByText("View access. An admin can change source catalog settings.", { exact: true }).waitFor();
+      assert.equal(await page.getByRole("group", { name: "Add People & Org identity" }).count(), 0);
+      assert.equal(await page.getByRole("group", { name: "Add an endpoint for People & Org" }).count(), 0);
+      assert.equal(await page.getByRole("button", { name: "Apply setting to draft" }).count(), 0);
+      assert.equal(await page.getByRole("button", { name: "Save catalog" }).count(), 0);
       assert.equal(writes.filter((item) => item.resource === "source-catalog").length, 0);
-      await page.getByRole("button", { name: "Reload current catalog" }).click();
-      await page.getByRole("heading", { name: "Source Catalog", exact: true }).waitFor();
     }
     if (role === "admin") {
       await page.getByRole("group", { name: "Add People & Org identity" }).getByLabel("Name").fill("Fixture Analyst");

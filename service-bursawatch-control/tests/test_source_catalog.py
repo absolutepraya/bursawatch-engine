@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from control_plane.api import create_app
-from control_plane.auth import StaticTokenAuth
+from control_plane.auth import Principal, StaticTokenAuth
 from control_plane.source_catalog import MemoryCatalogStore, initial_config, registry
 from control_plane.store import InMemoryStore
 
@@ -35,6 +35,7 @@ def test_registry_lists_canonical_ids_and_engine_owned_capabilities_without_clai
     assert response.status_code == 200
     body = response.json()
     assert body["securities"] == []
+    assert body["can_edit"] is True
     endpoints = {x["id"]: x for x in body["endpoints"]}
     assert endpoints["telegram:phintraprofits"]["provider_id"] == "1444713822"
     assert endpoints["telegram:kelasinvestasiid"]["publisher_id"] == "kelas-investasi"
@@ -49,6 +50,19 @@ def test_registry_lists_canonical_ids_and_engine_owned_capabilities_without_clai
     assert bri["address"] == "https://www.whatsapp.com/channel/0029VbAjdnb60eBhwVdJxj1c"
     assert bri["provider_id"] == "120363419226413141@newsletter"
     assert bri["credential_ref"] is None
+
+
+def test_catalog_edit_permission_comes_from_authenticated_backend_principal():
+    class ViewerAuth:
+        def authenticate(self, authorization):
+            assert authorization == "Bearer viewer-token"
+            return Principal(subject="viewer-user", kind="viewer")
+
+    api = TestClient(create_app(store=InMemoryStore(), catalog_store=MemoryCatalogStore(), auth=ViewerAuth()))
+    response = api.get("/v1/source-catalog", headers={"Authorization": "Bearer viewer-token"})
+    assert response.status_code == 200
+    assert response.json()["can_edit"] is False
+    assert api.put("/v1/source-catalog/config", headers={"Authorization": "Bearer viewer-token"}, json={"expected_revision": 1, "config": initial_config()}).status_code == 403
 
 
 def test_every_seeded_endpoint_matches_checked_in_source_identity_and_provider_id():

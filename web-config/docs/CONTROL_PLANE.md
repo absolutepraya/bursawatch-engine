@@ -77,9 +77,9 @@ The browser fetches only the current destination's data. Catalog-driven views
 first check watcher membership; a direct run link reads the authorized event
 endpoint without requesting unrelated watcher histories:
 
-- Sources uses dated public previews and the watcher catalog for any settings
-  links; the workflow list also reads only the catalog. Neither presents
-  unloaded schedules or history as empty results.
+- Sources reads the authenticated Source Catalog and effective subscription
+  snapshot. The workflow list reads the separate watcher catalog. Neither
+  presents unloaded schedules or history as empty results.
 - A selected workflow starts its admin configuration read after catalog
   membership is confirmed and loads only that workflow's jobs for its schedule
   controls. X also loads source-poll runs for its delivery checks; other editors
@@ -141,9 +141,12 @@ effective subscription snapshot from the authenticated API. Securities lists
 only engine-supported symbols; while that registry is empty, the page shows an
 explicit empty state. Institutions are curated engine records with static 4:3
 presentation art where available. People & Org combines seeded identities and
-user-managed records. Admins can draft new identities, platform endpoints,
-publisher defaults and compatible endpoint overrides, then save an optimistic
-catalog revision. Newly added endpoints remain pending identity verification;
+user-managed records. The catalog response includes a backend-derived
+`can_edit` flag. Viewers see read-only records, while admins can draft new
+identities, platform endpoints, publisher defaults and compatible endpoint
+overrides, then save an optimistic catalog revision. A successful PUT followed
+by a failed read leaves the draft locked and clearly marks refresh as
+unconfirmed; only an explicit successful reload restores editing. Newly added endpoints remain pending identity verification;
 an enabled intent is not an effective subscription or delivery proof. The page
 shows default, override, effective draft and saved effective values separately.
 The fixed watcher editors, including Stockbit's four RSS lanes, remain independent.

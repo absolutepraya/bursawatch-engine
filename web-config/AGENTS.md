@@ -22,7 +22,10 @@ Source Catalog API and shows Securities, Institutions, and People & Org. The
 engine owns supported securities, curated institutions, registered endpoints,
 capabilities and compatibility. People & Org identities and platform endpoints
 are revisioned admin configuration; new endpoints remain pending verification
-and are not effective subscriptions. Display publisher defaults, endpoint
+and are not effective subscriptions. The catalog read includes backend-derived
+`can_edit`; show mutation controls only when it is true. A successful PUT must
+be followed by a confirmed catalog and effective read before success feedback.
+If that read fails, preserve and lock the draft until an explicit reload. Display publisher defaults, endpoint
 overrides and the resolved status separately. Do not infer identity from a
 display name or internal ID. Public curated images remain static assets until
 an object-storage owner and upload policy are approved. No browser-local source

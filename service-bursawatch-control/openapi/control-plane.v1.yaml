@@ -11,7 +11,7 @@ paths:
   /v1/source-catalog:
     get:
       summary: List the engine registry and active catalog configuration.
-      description: Signed-in admin or viewer only. Securities, capabilities, tiers, compatibility, and system endpoints are engine-owned. People and endpoints from the active revision are included.
+      description: Signed-in admin or viewer only. `can_edit` is derived from the authenticated backend principal. Securities, capabilities, tiers, compatibility, and system endpoints are engine-owned. People and endpoints from the active revision are included.
       responses:
         '200':
           description: Registry and active configuration.
@@ -466,7 +466,7 @@ components:
         updated_at: {type: string, format: date-time}
     SourceCatalog:
       type: object
-      required: [securities, institutions, people_org, endpoints, capabilities, compatibility, config]
+      required: [securities, institutions, people_org, endpoints, capabilities, compatibility, config, can_edit]
       properties:
         securities: {type: array, items: {type: object}}
         institutions: {type: array, items: {type: object}}
@@ -475,6 +475,7 @@ components:
         capabilities: {type: array, items: {type: object}}
         compatibility: {type: array, items: {type: object}}
         config: {$ref: '#/components/schemas/SourceCatalogRevision'}
+        can_edit: {type: boolean, description: True only for an authenticated admin user.}
     EffectiveSourceCatalog:
       type: object
       required: [revision, updated_at, selected_securities, subscriptions]

@@ -306,7 +306,7 @@ describe("authenticated control routes", () => {
 describe("source catalog proxy", () => {
   const emptyConfig = { selected_securities: [], people_org: [], endpoints: [], publisher_defaults: [], endpoint_overrides: [] };
   const revision = { revision: 1, config: emptyConfig, sha256: "a".repeat(64), actor_id: "baseline", updated_at: time };
-  const catalog = { securities: [], institutions: [], people_org: [], endpoints: [], capabilities: [], compatibility: [], config: revision };
+  const catalog = { can_edit: true, securities: [], institutions: [], people_org: [], endpoints: [], capabilities: [], compatibility: [], config: revision };
   it("forwards only exact authenticated catalog reads", async () => {
     const fetchImpl = fake([catalog], [{ revision: 1, updated_at: time, selected_securities: [], subscriptions: [] }]);
     expect((await invoke("source-catalog", fetchImpl)).status).toBe(200);

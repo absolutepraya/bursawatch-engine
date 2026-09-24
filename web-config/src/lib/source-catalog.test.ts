@@ -18,6 +18,7 @@ const config = {
   ],
 };
 const catalog = {
+  can_edit: true,
   securities: [],
   institutions: [{ id: "firm", name: "Firm", tier: 1, asset_ref: null }],
   people_org: [],

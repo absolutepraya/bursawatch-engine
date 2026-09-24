@@ -4,7 +4,7 @@
 
 `GET /v1/source-catalog` returns the engine-owned securities allowlist,
 curated publishers, canonical platform endpoints, capabilities, compatibility,
-and the current independent catalog revision. `GET /v1/source-catalog/effective`
+and the current independent catalog revision. Its `can_edit` flag comes from the authenticated principal and is true only for an admin. `GET /v1/source-catalog/effective`
 resolves publisher defaults and endpoint overrides into a machine-readable
 subscription snapshot. Each subscription includes its canonical address,
 provider ID when known, and only a managed credential reference when one is

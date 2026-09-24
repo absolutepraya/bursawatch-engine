@@ -70,6 +70,7 @@ const registryEndpoint = z.object({
   verified: z.boolean(),
 });
 export const sourceCatalog = z.object({
+  can_edit: z.boolean(),
   securities: z.array(z.object({ symbol: z.string(), name: z.string() }).passthrough()).max(500),
   institutions: z.array(publisher).max(500),
   people_org: z.array(publisher).max(500),

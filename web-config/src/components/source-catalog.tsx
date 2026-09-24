@@ -59,6 +59,7 @@ export function SourceCatalogView({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [saveBlocked, setSaveBlocked] = useState(false);
+  const [writeRefreshFailed, setWriteRefreshFailed] = useState(false);
   const [name, setName] = useState("");
   const [kind, setKind] = useState<"person" | "group" | "community">("person");
   const [assetUrl, setAssetUrl] = useState("");
@@ -77,7 +78,8 @@ export function SourceCatalogView({
   const dirty = Boolean(
     catalog && draft && JSON.stringify(catalog.config.config) !== JSON.stringify(draft),
   );
-  useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
+  const canEdit = catalog?.can_edit === true;
+  useEffect(() => onDirtyChange(canEdit && dirty), [canEdit, dirty, onDirtyChange]);
   const reload = useCallback(
     async (signal?: AbortSignal) => {
       setLoading(true);
@@ -93,12 +95,18 @@ export function SourceCatalogView({
         setEffective(nextEffective);
         setDraft(structuredClone(nextCatalog.config.config));
         setSaveBlocked(false);
+        setWriteRefreshFailed(false);
+        return true;
       } catch (failure) {
-        if (signal?.aborted) return;
+        if (signal?.aborted) return false;
         setError(message(failure));
-        setCatalog(null);
-        setDraft(null);
-        setEffective(null);
+        setSaveBlocked(true);
+        if (failure instanceof WorkspaceError && ["auth", "forbidden"].includes(failure.code)) {
+          setCatalog(null);
+          setDraft(null);
+          setEffective(null);
+        }
+        return false;
       } finally {
         if (!signal?.aborted) setLoading(false);
       }
@@ -113,6 +121,7 @@ export function SourceCatalogView({
     return () => controller.abort();
   }, [reload]);
   const update = (value: CatalogConfig) => {
+    if (!canEdit || saveBlocked || saving) return;
     setDraft(value);
     setError("");
   };
@@ -136,7 +145,7 @@ export function SourceCatalogView({
     (item) => item.endpoint_id === selectedEndpoint && item.capability_id === selectedCapability,
   );
   async function save() {
-    if (!catalog || !draft || saveBlocked) return;
+    if (!catalog || !draft || !canEdit || saveBlocked || saving) return;
     const parsed = catalogConfig.safeParse(draft);
     if (!parsed.success) {
       setError("Review the identity, endpoint, and asset fields before saving.");
@@ -149,8 +158,15 @@ export function SourceCatalogView({
         expected_revision: catalog.config.revision,
         config: parsed.data,
       });
-      await reload();
-      toast("Source catalog saved. Pending endpoints still require identity verification.");
+      if (await reload()) {
+        toast("Source catalog saved. Pending endpoints still require identity verification.");
+      } else {
+        setSaveBlocked(true);
+        setWriteRefreshFailed(true);
+        setError(
+          "The save response was received, but the catalog refresh could not be confirmed. Your draft is locked. Reload current catalog before editing again.",
+        );
+      }
     } catch (failure) {
       setError(message(failure));
       if (
@@ -163,7 +179,7 @@ export function SourceCatalogView({
     }
   }
   function addPerson() {
-    if (!draft || !catalog) return;
+    if (!draft || !catalog || !canEdit || saveBlocked || saving) return;
     const slug = name
       .trim()
       .toLowerCase()
@@ -199,7 +215,7 @@ export function SourceCatalogView({
     setAssetUrl("");
   }
   function addEndpoint() {
-    if (!draft || !catalog) return;
+    if (!draft || !catalog || !canEdit || saveBlocked || saving) return;
     const publisherId = endpointPublisher;
     const address = endpointAddress.trim();
     const endpointId = `${endpointPlatform}-${address
@@ -244,7 +260,7 @@ export function SourceCatalogView({
     setSelectedEndpoint(endpointId);
   }
   function applyChoice() {
-    if (!draft || !selectedCapability || !selected) return;
+    if (!draft || !selectedCapability || !selected || !canEdit || saveBlocked || saving) return;
     const supported = compatible.some((item) => item.id === selectedCapability);
     if (!supported) {
       setError("This endpoint does not support that capability.");
@@ -290,7 +306,12 @@ export function SourceCatalogView({
       {error && (
         <div role="alert" className="control-alert">
           <p>{error}</p>
-          <button className="button secondary small" type="button" onClick={() => void reload()}>
+          <button
+            className="button secondary small"
+            type="button"
+            disabled={loading || saving}
+            onClick={() => void reload()}
+          >
             Reload current catalog
           </button>
         </div>
@@ -298,6 +319,16 @@ export function SourceCatalogView({
       {loading && <p role="status">Loading source catalog…</p>}
       {catalog && draft && (
         <>
+          {!canEdit && (
+            <p role="status" className="connected-panel-intro">
+              View access. An admin can change source catalog settings.
+            </p>
+          )}
+          {writeRefreshFailed && (
+            <p role="status" className="connected-panel-intro">
+              The last write was acknowledged but its saved state has not been refreshed.
+            </p>
+          )}
           <div className="connected-library-tabs" role="tablist" aria-label="Source category">
             {(["securities", "institutions", "people"] as const).map((value) => (
               <button
@@ -351,6 +382,7 @@ export function SourceCatalogView({
                       <input
                         type="checkbox"
                         checked={draft.selected_securities.includes(item.symbol)}
+                        disabled={!canEdit || saveBlocked || saving}
                         onChange={(event) =>
                           update({
                             ...draft,
@@ -478,144 +510,150 @@ export function SourceCatalogView({
                           ? "User managed"
                           : "Unsaved"}
                       </p>
-                      <label>
-                        Name
-                        <input
-                          value={item.name}
-                          onChange={(event) =>
-                            update({
-                              ...draft,
-                              people_org: draft.people_org.map((entry) =>
-                                entry.id === item.id
-                                  ? { ...entry, name: event.target.value }
-                                  : entry,
-                              ),
-                            })
-                          }
-                        />
-                      </label>
-                      <label>
-                        Type
-                        <select
-                          value={item.kind}
-                          onChange={(event) =>
-                            update({
-                              ...draft,
-                              people_org: draft.people_org.map((entry) =>
-                                entry.id === item.id
-                                  ? { ...entry, kind: event.target.value as typeof item.kind }
-                                  : entry,
-                              ),
-                            })
-                          }
-                        >
-                          <option value="person">Person</option>
-                          <option value="group">Group</option>
-                          <option value="community">Community</option>
-                        </select>
-                      </label>
-                      <label>
-                        Image type
-                        <select
-                          value={item.asset_ref?.kind === "logo" ? "logo" : "profile_picture"}
-                          onChange={(event) =>
-                            update({
-                              ...draft,
-                              people_org: draft.people_org.map((entry) =>
-                                entry.id === item.id && entry.asset_ref
-                                  ? {
-                                      ...entry,
-                                      asset_ref: {
-                                        ...entry.asset_ref,
-                                        kind: event.target.value as "logo" | "profile_picture",
-                                      },
-                                    }
-                                  : entry,
-                              ),
-                            })
-                          }
-                        >
-                          <option value="profile_picture">Profile picture</option>
-                          <option value="logo">Logo</option>
-                        </select>
-                      </label>
-                      <label>
-                        Image URL
-                        <input
-                          type="url"
-                          value={item.asset_ref?.url ?? ""}
-                          onChange={(event) =>
-                            update({
-                              ...draft,
-                              people_org: draft.people_org.map((entry) =>
-                                entry.id === item.id
-                                  ? {
-                                      ...entry,
-                                      asset_ref: event.target.value
-                                        ? {
-                                            url: event.target.value,
-                                            kind:
-                                              item.asset_ref?.kind === "logo"
-                                                ? "logo"
-                                                : "profile_picture",
-                                          }
-                                        : null,
-                                    }
-                                  : entry,
-                              ),
-                            })
-                          }
-                        />
-                      </label>
+                      {canEdit && !saveBlocked && (
+                        <>
+                          <label>
+                            Name
+                            <input
+                              value={item.name}
+                              onChange={(event) =>
+                                update({
+                                  ...draft,
+                                  people_org: draft.people_org.map((entry) =>
+                                    entry.id === item.id
+                                      ? { ...entry, name: event.target.value }
+                                      : entry,
+                                  ),
+                                })
+                              }
+                            />
+                          </label>
+                          <label>
+                            Type
+                            <select
+                              value={item.kind}
+                              onChange={(event) =>
+                                update({
+                                  ...draft,
+                                  people_org: draft.people_org.map((entry) =>
+                                    entry.id === item.id
+                                      ? { ...entry, kind: event.target.value as typeof item.kind }
+                                      : entry,
+                                  ),
+                                })
+                              }
+                            >
+                              <option value="person">Person</option>
+                              <option value="group">Group</option>
+                              <option value="community">Community</option>
+                            </select>
+                          </label>
+                          <label>
+                            Image type
+                            <select
+                              value={item.asset_ref?.kind === "logo" ? "logo" : "profile_picture"}
+                              onChange={(event) =>
+                                update({
+                                  ...draft,
+                                  people_org: draft.people_org.map((entry) =>
+                                    entry.id === item.id && entry.asset_ref
+                                      ? {
+                                          ...entry,
+                                          asset_ref: {
+                                            ...entry.asset_ref,
+                                            kind: event.target.value as "logo" | "profile_picture",
+                                          },
+                                        }
+                                      : entry,
+                                  ),
+                                })
+                              }
+                            >
+                              <option value="profile_picture">Profile picture</option>
+                              <option value="logo">Logo</option>
+                            </select>
+                          </label>
+                          <label>
+                            Image URL
+                            <input
+                              type="url"
+                              value={item.asset_ref?.url ?? ""}
+                              onChange={(event) =>
+                                update({
+                                  ...draft,
+                                  people_org: draft.people_org.map((entry) =>
+                                    entry.id === item.id
+                                      ? {
+                                          ...entry,
+                                          asset_ref: event.target.value
+                                            ? {
+                                                url: event.target.value,
+                                                kind:
+                                                  item.asset_ref?.kind === "logo"
+                                                    ? "logo"
+                                                    : "profile_picture",
+                                              }
+                                            : null,
+                                        }
+                                      : entry,
+                                  ),
+                                })
+                              }
+                            />
+                          </label>
+                        </>
+                      )}
                     </div>
                   </article>
                 </li>
               ))}
             </ul>
-            <fieldset className="source-catalog-form">
-              <legend>Add People & Org identity</legend>
-              <label>
-                Name
-                <input
-                  value={name}
-                  maxLength={120}
-                  onChange={(event) => setName(event.target.value)}
-                />
-              </label>
-              <label>
-                Type
-                <select
-                  value={kind}
-                  onChange={(event) => setKind(event.target.value as typeof kind)}
-                >
-                  <option value="person">Person</option>
-                  <option value="group">Group</option>
-                  <option value="community">Community</option>
-                </select>
-              </label>
-              <label>
-                Public image URL (optional)
-                <input
-                  type="url"
-                  value={assetUrl}
-                  onChange={(event) => setAssetUrl(event.target.value)}
-                  placeholder="https://…"
-                />
-              </label>
-              <label>
-                Image type
-                <select
-                  value={assetKind}
-                  onChange={(event) => setAssetKind(event.target.value as typeof assetKind)}
-                >
-                  <option value="profile_picture">Profile picture</option>
-                  <option value="logo">Logo</option>
-                </select>
-              </label>
-              <button type="button" className="button secondary" onClick={addPerson}>
-                Add identity to draft
-              </button>
-            </fieldset>
+            {canEdit && !saveBlocked && (
+              <fieldset className="source-catalog-form">
+                <legend>Add People & Org identity</legend>
+                <label>
+                  Name
+                  <input
+                    value={name}
+                    maxLength={120}
+                    onChange={(event) => setName(event.target.value)}
+                  />
+                </label>
+                <label>
+                  Type
+                  <select
+                    value={kind}
+                    onChange={(event) => setKind(event.target.value as typeof kind)}
+                  >
+                    <option value="person">Person</option>
+                    <option value="group">Group</option>
+                    <option value="community">Community</option>
+                  </select>
+                </label>
+                <label>
+                  Public image URL (optional)
+                  <input
+                    type="url"
+                    value={assetUrl}
+                    onChange={(event) => setAssetUrl(event.target.value)}
+                    placeholder="https://…"
+                  />
+                </label>
+                <label>
+                  Image type
+                  <select
+                    value={assetKind}
+                    onChange={(event) => setAssetKind(event.target.value as typeof assetKind)}
+                  >
+                    <option value="profile_picture">Profile picture</option>
+                    <option value="logo">Logo</option>
+                  </select>
+                </label>
+                <button type="button" className="button secondary" onClick={addPerson}>
+                  Add identity to draft
+                </button>
+              </fieldset>
+            )}
           </section>
           <section className="source-catalog-config" aria-labelledby={`${id}-configuration`}>
             <h2 id={`${id}-configuration`}>Endpoint configuration</h2>
@@ -623,54 +661,56 @@ export function SourceCatalogView({
               Publisher defaults apply to compatible endpoints. Endpoint overrides take precedence.
               This saves catalog intent only.
             </p>
-            <fieldset className="source-catalog-form">
-              <legend>Add an endpoint for People & Org</legend>
-              <label>
-                Publisher
-                <select
-                  value={endpointPublisher}
-                  onChange={(event) => setEndpointPublisher(event.target.value)}
-                >
-                  <option value="">Choose a publisher</option>
-                  {[
-                    ...catalog.people_org,
-                    ...draft.people_org
-                      .filter((item) => !catalog.people_org.some((entry) => entry.id === item.id))
-                      .map((item) => ({ ...item, tier: 3 })),
-                  ].map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Platform
-                <select
-                  value={endpointPlatform}
-                  onChange={(event) =>
-                    setEndpointPlatform(event.target.value as typeof endpointPlatform)
-                  }
-                >
-                  {userPlatforms.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Canonical handle
-                <input
-                  value={endpointAddress}
-                  onChange={(event) => setEndpointAddress(event.target.value)}
-                  maxLength={64}
-                />
-              </label>
-              <button className="button secondary" type="button" onClick={addEndpoint}>
-                Add pending endpoint to draft
-              </button>
-            </fieldset>
+            {canEdit && !saveBlocked && (
+              <fieldset className="source-catalog-form">
+                <legend>Add an endpoint for People & Org</legend>
+                <label>
+                  Publisher
+                  <select
+                    value={endpointPublisher}
+                    onChange={(event) => setEndpointPublisher(event.target.value)}
+                  >
+                    <option value="">Choose a publisher</option>
+                    {[
+                      ...catalog.people_org,
+                      ...draft.people_org
+                        .filter((item) => !catalog.people_org.some((entry) => entry.id === item.id))
+                        .map((item) => ({ ...item, tier: 3 })),
+                    ].map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Platform
+                  <select
+                    value={endpointPlatform}
+                    onChange={(event) =>
+                      setEndpointPlatform(event.target.value as typeof endpointPlatform)
+                    }
+                  >
+                    {userPlatforms.map((item) => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Canonical handle
+                  <input
+                    value={endpointAddress}
+                    onChange={(event) => setEndpointAddress(event.target.value)}
+                    maxLength={64}
+                  />
+                </label>
+                <button className="button secondary" type="button" onClick={addEndpoint}>
+                  Add pending endpoint to draft
+                </button>
+              </fieldset>
+            )}
             <fieldset className="source-catalog-form">
               <legend>Capability setting</legend>
               <label>
@@ -727,76 +767,87 @@ export function SourceCatalogView({
                   Save this pending endpoint first to load its backend-supported capabilities.
                 </p>
               )}
-              <label>
-                Set at
-                <select
-                  value={level}
-                  onChange={(event) => setLevel(event.target.value as typeof level)}
-                >
-                  <option value="publisher">Publisher default</option>
-                  <option value="endpoint">Endpoint override</option>
-                </select>
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={enabled}
-                  onChange={(event) => setEnabled(event.target.checked)}
-                />{" "}
-                Enabled intent
-              </label>
-              {chosen && (
-                <p role="status">
-                  Publisher default:{" "}
-                  {draft.publisher_defaults.find(
-                    (item) =>
-                      item.publisher_id === selected?.publisher_id &&
-                      item.capability_id === selectedCapability,
-                  )?.enabled
-                    ? "On"
-                    : "Off or unset"}
-                  . Endpoint override:{" "}
-                  {draft.endpoint_overrides.find(
-                    (item) =>
-                      item.endpoint_id === selectedEndpoint &&
-                      item.capability_id === selectedCapability,
-                  )?.enabled === true
-                    ? "On"
-                    : draft.endpoint_overrides.some(
-                          (item) =>
-                            item.endpoint_id === selectedEndpoint &&
-                            item.capability_id === selectedCapability,
-                        )
-                      ? "Off"
-                      : "Unset"}
-                  . Effective draft: {chosen.enabled && selected?.verified ? "On" : "Off"} (
-                  {chosen.source}). Saved: {subscription?.enabled ? "On" : "Off"} (
-                  {subscription?.source ?? "unset"},{" "}
-                  {subscription?.verification_status ?? "pending"}).
-                </p>
+              {canEdit && !saveBlocked && (
+                <>
+                  <label>
+                    Set at
+                    <select
+                      value={level}
+                      onChange={(event) => setLevel(event.target.value as typeof level)}
+                    >
+                      <option value="publisher">Publisher default</option>
+                      <option value="endpoint">Endpoint override</option>
+                    </select>
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={enabled}
+                      onChange={(event) => setEnabled(event.target.checked)}
+                    />{" "}
+                    Enabled intent
+                  </label>
+                  {chosen && (
+                    <p role="status">
+                      Publisher default:{" "}
+                      {draft.publisher_defaults.find(
+                        (item) =>
+                          item.publisher_id === selected?.publisher_id &&
+                          item.capability_id === selectedCapability,
+                      )?.enabled
+                        ? "On"
+                        : "Off or unset"}
+                      . Endpoint override:{" "}
+                      {draft.endpoint_overrides.find(
+                        (item) =>
+                          item.endpoint_id === selectedEndpoint &&
+                          item.capability_id === selectedCapability,
+                      )?.enabled === true
+                        ? "On"
+                        : draft.endpoint_overrides.some(
+                              (item) =>
+                                item.endpoint_id === selectedEndpoint &&
+                                item.capability_id === selectedCapability,
+                            )
+                          ? "Off"
+                          : "Unset"}
+                      . Effective draft: {chosen.enabled && selected?.verified ? "On" : "Off"} (
+                      {chosen.source}). Saved: {subscription?.enabled ? "On" : "Off"} (
+                      {subscription?.source ?? "unset"},{" "}
+                      {subscription?.verification_status ?? "pending"}).
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    className="button secondary"
+                    disabled={!selectedCapability}
+                    onClick={applyChoice}
+                  >
+                    Apply setting to draft
+                  </button>
+                </>
               )}
-              <button
-                type="button"
-                className="button secondary"
-                disabled={!selectedCapability}
-                onClick={applyChoice}
-              >
-                Apply setting to draft
-              </button>
             </fieldset>
           </section>
           <div className="source-catalog-save">
             <p role="status">
-              Revision {catalog.config.revision} · {dirty ? "Unsaved changes" : "Saved catalog"}
+              Revision {catalog.config.revision} ·{" "}
+              {writeRefreshFailed
+                ? "Save acknowledged, refresh unconfirmed"
+                : dirty
+                  ? "Unsaved changes"
+                  : "Saved catalog"}
             </p>
-            <button
-              type="button"
-              className="button"
-              disabled={!dirty || saving || saveBlocked}
-              onClick={() => void save()}
-            >
-              {saving ? "Saving…" : "Save catalog"}
-            </button>
+            {canEdit && (
+              <button
+                type="button"
+                className="button"
+                disabled={!dirty || saving || saveBlocked}
+                onClick={() => void save()}
+              >
+                {saving ? "Saving…" : "Save catalog"}
+              </button>
+            )}
           </div>
         </>
       )}
