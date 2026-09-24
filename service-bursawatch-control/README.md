@@ -255,14 +255,21 @@ cannot revise events. Corrections and tombstones require a stable `revision_id`;
 retrying the same revision returns its receipt even when `observed_at` changes.
 Reusing that ID for changed content is a conflict. Correction and tombstone
 acceptance returns 409 without appending a version while any older work remains
-`leased`, including an expired lease. The source adapter must keep its durable
+`leased` or `executing`, including an expired lease. The source adapter must keep its durable
 handoff and retry after the old work settles. Claim and revision transactions
-lock the same event row, so a claim cannot slip in while a revision commits.
+lock the same event row; begin-execution locks it too. A worker must call
+`POST /v1/source-work/{work_key}/begin` with its lease token immediately before
+invoking a handler. A failed begin forbids handler invocation. `executing` work
+is never automatically reclaimed, even after the original lease deadline.
+If its worker crashes, an admin must first verify the process has stopped,
+then call the audited `/recover` endpoint with `worker_stopped: true` and a
+bounded reason. Recovery moves work to dead-letter for explicit inspection
+or replay; it does not silently retry an uncertain effect.
 Once committed, the new version supersedes prior pending, dead-letter, and
 suppressed work; claim queries also fence by the latest version. The `/fence`
-endpoint lets a worker check its lease before dispatch. A handler already running
-may finish its domain effect before its lease settles and before the revision is
-accepted; the adapter waits for that lease to settle. Domain owners must still
+endpoint offers a read-only check, while `/begin` is the required atomic gate.
+A handler already running may finish its domain effect before its execution settles
+and before the revision is accepted; the adapter waits for that settlement. Domain owners must still
 deduplicate `(event_key, version, effect_key)` across retry and crash recovery.
 Run summaries remain in `ControlPlaneReporter` and do not contain source payloads.
 

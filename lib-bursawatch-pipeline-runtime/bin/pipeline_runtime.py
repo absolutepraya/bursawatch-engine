@@ -20,13 +20,12 @@ class PipelineRuntime:
             if handler is None:
                 outcomes.append({"work_key": wid, "status": "unsupported_pipeline"})
                 continue
-            if not self.client.fence(wid, token):
-                outcomes.append({"work_key": wid, "status": "superseded"})
+            if not self.client.begin(wid, token):
+                outcomes.append({"work_key": wid, "status": "begin_rejected"})
                 continue
             try:
-                # Domain owner must atomically fence event_key/version with effect_key.
-                # The API fence narrows the race but cannot prevent a revision while
-                # the handler is already executing.
+                # Begin is atomic with revision acceptance. Executing work never
+                # expires automatically; a revision waits until settlement.
                 handler(item)
             except Exception:
                 # Provider errors, source text and credentials never enter routine logs.

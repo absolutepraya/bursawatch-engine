@@ -57,6 +57,12 @@ class SourceEventClient(SourceCatalogClient):
             raise ControlPlaneContractError("source work fence is invalid")
         return result["current"]
 
+    def begin(self, work_key: str, lease_token: str) -> bool:
+        result = self._post(f"/v1/source-work/{_sha_key(work_key)}/begin", {"lease_token": lease_token})
+        if type(result) is not dict or type(result.get("begun")) is not bool:
+            raise ControlPlaneContractError("source work begin receipt is invalid")
+        return result["begun"]
+
     def inspect(self, event_key: str) -> dict[str, Any]:
         result = self._call(f"/v1/source-events/{_sha_key(event_key)}")
         if type(result) is not dict or type(result.get("event")) is not dict or type(result.get("work")) is not list:
@@ -84,6 +90,14 @@ class SourceEventClient(SourceCatalogClient):
 
     def suppress(self, work_key: str, reason: str) -> dict[str, Any]:
         return self._operator_action(work_key, "suppress", reason)
+
+    def recover(self, work_key: str, reason: str, *, worker_stopped: bool) -> dict[str, Any]:
+        if worker_stopped is not True or not 1 <= len(reason.strip()) <= 500:
+            raise ValueError("recovery requires a stopped worker and bounded reason")
+        result = self._post(f"/v1/source-work/{_sha_key(work_key)}/recover", {"reason": reason, "worker_stopped": True})
+        if type(result) is not dict or result.get("work_key") != work_key or result.get("status") != "dead_letter":
+            raise ControlPlaneContractError("source work recovery is invalid")
+        return result
 
     def revise(self, event_key: str, envelope: dict[str, Any], kind: str, revision_id: str, reason: str) -> dict[str, Any]:
         if kind not in {"correction", "tombstone"} or not 1 <= len(reason.strip()) <= 500 or type(revision_id) is not str or not 1 <= len(revision_id) <= 128:

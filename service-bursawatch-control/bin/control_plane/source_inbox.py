@@ -190,7 +190,7 @@ class MemoryInboxStore:
     def settle(self, wid: str, token: str, *, success: bool, error_code: str | None = None) -> dict[str, Any]:
         with self.lock:
             item = self.work.get(wid)
-            if not item or item["status"] != "leased" or item["lease_token"] != token or datetime.fromisoformat(item["lease_until"]) <= _now():
+            if not item or item["status"] not in {"leased", "executing"} or item["lease_token"] != token or (item["status"] == "leased" and (success or datetime.fromisoformat(item["lease_until"]) <= _now())):
                 raise InboxConflict("work lease is missing or expired")
             if success:
                 item.update(status="done", error_code=None)
@@ -204,7 +204,15 @@ class MemoryInboxStore:
     def fence(self, wid: str, token: str) -> bool:
         with self.lock:
             item = self.work.get(wid)
-            return bool(item and item["status"] == "leased" and item["lease_token"] == token and datetime.fromisoformat(item["lease_until"]) > _now() and item["version"] == len(self.events[item["event_key"]]["versions"]))
+            return bool(item and item["status"] in {"leased", "executing"} and item["lease_token"] == token and (item["status"] == "executing" or datetime.fromisoformat(item["lease_until"]) > _now()) and item["version"] == len(self.events[item["event_key"]]["versions"]))
+
+    def begin(self, wid: str, token: str) -> bool:
+        with self.lock:
+            item = self.work.get(wid)
+            if not item or item["status"] != "leased" or item["lease_token"] != token or datetime.fromisoformat(item["lease_until"]) <= _now() or item["version"] != len(self.events[item["event_key"]]["versions"]):
+                return False
+            item["status"] = "executing"
+            return True
 
     def inspect(self, key: str) -> dict[str, Any]:
         with self.lock:
@@ -213,7 +221,7 @@ class MemoryInboxStore:
             return {"event": deepcopy(self.events[key]), "work": [deepcopy(w) for w in self.work.values() if w["event_key"] == key]}
 
     def list_work(self, status: str, limit: int = 100) -> list[dict[str, Any]]:
-        if status not in {"pending", "leased", "done", "dead_letter", "suppressed", "superseded"} or not 1 <= limit <= 100:
+        if status not in {"pending", "leased", "executing", "done", "dead_letter", "suppressed", "superseded"} or not 1 <= limit <= 100:
             raise ValueError("invalid work filter")
         with self.lock:
             return [deepcopy(w) for w in self.work.values() if w["status"] == status][:limit]
@@ -234,6 +242,17 @@ class MemoryInboxStore:
                 raise InboxConflict("only dead-letter or suppressed work can be replayed")
             self._audit("replay", wid, actor, reason)
             item.update(status="pending", attempts=0, available_at=_now().isoformat(), lease_token=None, lease_until=None, error_code=None)
+            return deepcopy(item)
+
+    def recover(self, wid: str, actor: str, reason: str, worker_stopped: bool) -> dict[str, Any]:
+        if worker_stopped is not True:
+            raise ValueError("operator must assert the worker process has stopped")
+        with self.lock:
+            item = self.work.get(wid)
+            if not item or item["status"] != "executing":
+                raise InboxConflict("only executing work can be recovered")
+            self._audit("recover", wid, actor, reason)
+            item.update(status="dead_letter", lease_token=None, lease_until=None, error_code="execution_recovered")
             return deepcopy(item)
 
     def revise(self, key: str, raw: object, kind: str, revision_id: str, actor: str, reason: str) -> dict[str, Any]:
@@ -259,7 +278,7 @@ class MemoryInboxStore:
             previous = event["versions"][-1]
             if previous["kind"] == "tombstone":
                 raise InboxConflict("tombstoned source event cannot be revised")
-            if any(item["event_key"] == key and item["status"] == "leased" for item in self.work.values()):
+            if any(item["event_key"] == key and item["status"] in {"leased", "executing"} for item in self.work.values()):
                 raise InboxConflict("source revision waits for leased work to settle")
             if kind == "tombstone" and envelope["payload"]:
                 raise ValueError("tombstone payload must be empty")
@@ -346,7 +365,7 @@ class PostgresInboxStore:
             raise ValueError("error_code must be sanitized")
         with self._connect() as conn:
             row = conn.execute("select * from bursawatch_source_work where work_key=%s for update", (wid,)).fetchone()
-            if not row or row["status"] != "leased" or row["lease_token"] != token or row["lease_until"] <= _now():
+            if not row or row["status"] not in {"leased", "executing"} or row["lease_token"] != token or (row["status"] == "leased" and (success or row["lease_until"] <= _now())):
                 raise InboxConflict("work lease is missing or expired")
             status = "done" if success else "dead_letter" if row["attempts"] >= MAX_ATTEMPTS else "pending"
             delay = min(3600, 2 ** row["attempts"] * 30)
@@ -356,7 +375,21 @@ class PostgresInboxStore:
     def fence(self, wid: str, token: str) -> bool:
         with self._connect() as conn:
             row = conn.execute("select w.event_key,w.version,w.status,w.lease_token,w.lease_until,(select max(v.version) from bursawatch_source_event_versions v where v.event_key=w.event_key) as current_version from bursawatch_source_work w where w.work_key=%s", (wid,)).fetchone()
-            return bool(row and row["status"] == "leased" and row["lease_token"] == token and row["lease_until"] > _now() and row["version"] == row["current_version"])
+            return bool(row and row["status"] in {"leased", "executing"} and row["lease_token"] == token and (row["status"] == "executing" or row["lease_until"] > _now()) and row["version"] == row["current_version"])
+
+    def begin(self, wid: str, token: str) -> bool:
+        with self._connect() as conn:
+            event = conn.execute("select event_key from bursawatch_source_events where event_key=(select event_key from bursawatch_source_work where work_key=%s) for update", (wid,)).fetchone()
+            if not event:
+                return False
+            row = conn.execute("select event_key,version,status,lease_token,lease_until from bursawatch_source_work where work_key=%s for update", (wid,)).fetchone()
+            if not row or row["status"] != "leased" or row["lease_token"] != token or row["lease_until"] <= _now():
+                return False
+            latest = conn.execute("select max(version) as version from bursawatch_source_event_versions where event_key=%s", (row["event_key"],)).fetchone()
+            if row["version"] != latest["version"]:
+                return False
+            conn.execute("update bursawatch_source_work set status='executing' where work_key=%s", (wid,))
+            return True
 
     def inspect(self, key: str) -> dict[str, Any]:
         with self._connect() as conn:
@@ -368,7 +401,7 @@ class PostgresInboxStore:
             return {"event": {**dict(event), "created_at": event["created_at"].isoformat(), "versions": [{**dict(v), "created_at": v["created_at"].isoformat()} for v in versions]}, "work": [self._work(w) for w in work]}
 
     def list_work(self, status: str, limit: int = 100) -> list[dict[str, Any]]:
-        if status not in {"pending", "leased", "done", "dead_letter", "suppressed", "superseded"} or not 1 <= limit <= 100:
+        if status not in {"pending", "leased", "executing", "done", "dead_letter", "suppressed", "superseded"} or not 1 <= limit <= 100:
             raise ValueError("invalid work filter")
         with self._connect() as conn:
             rows = conn.execute("select * from bursawatch_source_work where status=%s order by available_at,work_key limit %s", (status, limit)).fetchall()
@@ -392,6 +425,19 @@ class PostgresInboxStore:
 
     def replay(self, wid: str, actor: str, reason: str) -> dict[str, Any]:
         return self._operator_action(wid, actor, reason, "replay")
+
+    def recover(self, wid: str, actor: str, reason: str, worker_stopped: bool) -> dict[str, Any]:
+        if worker_stopped is not True:
+            raise ValueError("operator must assert the worker process has stopped")
+        if not actor or type(reason) is not str or not 1 <= len(reason.strip()) <= 500:
+            raise ValueError("actor and bounded reason required")
+        with self._connect() as conn:
+            row = conn.execute("select status from bursawatch_source_work where work_key=%s for update", (wid,)).fetchone()
+            if not row or row["status"] != "executing":
+                raise InboxConflict("only executing work can be recovered")
+            updated = conn.execute("update bursawatch_source_work set status='dead_letter', lease_token=null, lease_until=null, error_code='execution_recovered' where work_key=%s returning *", (wid,)).fetchone()
+            conn.execute("insert into bursawatch_source_work_audit (work_key,action,actor_id,reason) values (%s,'recover',%s,%s)", (wid, actor, reason))
+            return self._work(updated)
 
     def revise(self, key: str, raw: object, kind: str, revision_id: str, actor: str, reason: str) -> dict[str, Any]:
         if kind not in {"correction", "tombstone"}:
@@ -420,7 +466,7 @@ class PostgresInboxStore:
                 raise KeyError(key)
             if old["kind"] == "tombstone":
                 raise InboxConflict("tombstoned source event cannot be revised")
-            leased = conn.execute("select 1 from bursawatch_source_work where event_key=%s and status='leased' limit 1", (key,)).fetchone()
+            leased = conn.execute("select 1 from bursawatch_source_work where event_key=%s and status in ('leased','executing') limit 1", (key,)).fetchone()
             if leased:
                 raise InboxConflict("source revision waits for leased work to settle")
             if old["envelope"] == envelope and old["kind"] == kind:

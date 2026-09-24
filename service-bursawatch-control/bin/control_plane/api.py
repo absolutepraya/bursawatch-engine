@@ -82,6 +82,10 @@ class WorkAction(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
 
+class WorkRecover(WorkAction):
+    worker_stopped: StrictBool
+
+
 class SourceRevisionWrite(WorkAction):
     envelope: dict[str, Any]
     kind: Literal["correction", "tombstone"]
@@ -379,8 +383,12 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    @app.post("/v1/source-work/{work_key}/begin")
+    def begin_source_work(work_key: str, payload: WorkFence, _current: Principal = Depends(worker_or_admin)) -> dict[str, bool]:
+        return {"begun": inbox_store.begin(work_key, payload.lease_token)}
+
     @app.get("/v1/source-work")
-    def list_source_work(status: Literal["pending", "leased", "done", "dead_letter", "suppressed", "superseded"], limit: int = Query(default=100, ge=1, le=100), _current: Principal = Depends(worker_or_admin)) -> list[dict[str, Any]]:
+    def list_source_work(status: Literal["pending", "leased", "executing", "done", "dead_letter", "suppressed", "superseded"], limit: int = Query(default=100, ge=1, le=100), _current: Principal = Depends(worker_or_admin)) -> list[dict[str, Any]]:
         return inbox_store.list_work(status, limit)
 
     @app.post("/v1/source-work/{work_key}/settle")
@@ -416,6 +424,15 @@ def create_app(
             return inbox_store.replay(work_key, current.subject, payload.reason)
         except InboxConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/v1/source-work/{work_key}/recover")
+    def recover_source_work(work_key: str, payload: WorkRecover, current: Principal = Depends(admin_only)) -> dict[str, Any]:
+        try:
+            return inbox_store.recover(work_key, current.subject, payload.reason, payload.worker_stopped)
+        except InboxConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/v1/source-events/{event_key}/versions")
     def revise_source_event(event_key: str, payload: SourceRevisionWrite, current: Principal = Depends(source_event_principal)) -> dict[str, Any]:

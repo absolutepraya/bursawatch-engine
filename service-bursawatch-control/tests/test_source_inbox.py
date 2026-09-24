@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from control_plane.api import create_app
 from control_plane.auth import StaticTokenAuth
 from control_plane.source_catalog import MemoryCatalogStore, initial_config
-from control_plane.source_inbox import MemoryInboxStore
+from control_plane.source_inbox import InboxConflict, MemoryInboxStore
 from control_plane.store import InMemoryStore
 
 MACHINE = {"Authorization": "Bearer machine-token"}
@@ -53,6 +53,7 @@ def test_atomic_acceptance_duplicate_and_independent_work_with_snapshot_retry():
     failed = api.post(f"/v1/source-work/{claimed[0]['work_key']}/settle", headers=MACHINE, json={"lease_token": claimed[0]["lease_token"], "success": False, "error_code": "handler_failed"})
     assert failed.status_code == 200 and failed.json()["status"] == "pending"
     assert failed.json()["catalog_revision"] == 2
+    assert api.post(f"/v1/source-work/{claimed[1]['work_key']}/begin", headers=MACHINE, json={"lease_token": claimed[1]["lease_token"]}).json()["begun"] is True
     succeeded = api.post(f"/v1/source-work/{claimed[1]['work_key']}/settle", headers=MACHINE, json={"lease_token": claimed[1]["lease_token"], "success": True})
     assert succeeded.json()["status"] == "done"
     assert api.post("/v1/source-events", headers=MACHINE, json={"envelope": envelope("43")}).json()["work_keys"] == []
@@ -184,6 +185,7 @@ def test_claim_pipeline_filter_and_source_machine_authorization():
     assert api.post("/v1/source-work/claim", headers=MACHINE, json={"pipeline_ids": ["stockbit_snips"]}).json() == []
     claimed = api.post("/v1/source-work/claim", headers=MACHINE, json={"pipeline_ids": ["macro_news"]}).json()
     assert len(claimed) == 1 and claimed[0]["pipeline_id"] == "macro_news"
+    assert api.post(f"/v1/source-work/{claimed[0]['work_key']}/begin", headers=MACHINE, json={"lease_token": claimed[0]["lease_token"]}).json()["begun"] is True
     assert api.post(f"/v1/source-work/{claimed[0]['work_key']}/settle", headers=MACHINE, json={"lease_token": claimed[0]["lease_token"], "success": True}).status_code == 200
     edited = envelope()
     edited["payload"] = {"text": "edited"}
@@ -194,3 +196,79 @@ def test_claim_pipeline_filter_and_source_machine_authorization():
     assert api.post(path, headers=SOURCE, json={"envelope": wrong_endpoint, "kind": "correction", "revision_id": "edit-2", "reason": "edit"}).status_code == 403
     assert api.post(path, headers=MACHINE, json={"envelope": edited, "kind": "correction", "revision_id": "edit-2", "reason": "edit"}).status_code == 403
     assert api.post(path, headers=SOURCE, json={"envelope": edited, "kind": "correction", "revision_id": "edit-2", "reason": "edit"}).status_code == 200
+
+
+def test_begin_blocks_revision_and_reclaim_even_after_lease_deadline_until_audited_recovery():
+    api, _catalog, inbox = setup()
+    receipt = api.post("/v1/source-events", headers=SOURCE, json={"envelope": envelope()}).json()
+    claimed = api.post("/v1/source-work/claim", headers=MACHINE, json={"pipeline_ids": ["company_news"]}).json()[0]
+    wid, token = claimed["work_key"], claimed["lease_token"]
+    assert api.post(f"/v1/source-work/{wid}/begin", headers=MACHINE, json={"lease_token": token}).json()["begun"] is True
+    inbox.work[wid]["lease_until"] = "2020-01-01T00:00:00+00:00"
+    assert api.post("/v1/source-work/claim", headers=MACHINE, json={"pipeline_ids": ["company_news"]}).json() == []
+    assert api.get("/v1/source-work?status=executing", headers=MACHINE).json()[0]["work_key"] == wid
+    edited = envelope()
+    edited["content_hash"] = hashlib.sha256(b"executing-edit").hexdigest()
+    edited["payload"] = {"text": "edited"}
+    path = f"/v1/source-events/{receipt['event_key']}/versions"
+    revision = {"envelope": edited, "kind": "correction", "revision_id": "exec-edit", "reason": "provider edit"}
+    assert api.post(path, headers=SOURCE, json=revision).status_code == 409
+    assert len(inbox.events[receipt["event_key"]]["versions"]) == 1
+    assert api.post(f"/v1/source-work/{wid}/recover", headers=MACHINE, json={"reason": "process stopped", "worker_stopped": True}).status_code == 403
+    assert api.post(f"/v1/source-work/{wid}/recover", headers=ADMIN, json={"reason": "process stopped", "worker_stopped": False}).status_code == 422
+    recovered = api.post(f"/v1/source-work/{wid}/recover", headers=ADMIN, json={"reason": "worker process terminated and verified", "worker_stopped": True})
+    assert recovered.json()["status"] == "dead_letter"
+    assert inbox.audit[-1]["action"] == "recover"
+    assert api.post(path, headers=SOURCE, json=revision).json()["version"] == 2
+    assert api.post(f"/v1/source-work/{wid}/settle", headers=MACHINE, json={"lease_token": token, "success": True}).status_code == 409
+
+
+def test_expired_lease_cannot_begin_then_revision_waits_for_claim_settlement():
+    api, _catalog, inbox = setup()
+    receipt = api.post("/v1/source-events", headers=SOURCE, json={"envelope": envelope()}).json()
+    claimed = api.post("/v1/source-work/claim", headers=MACHINE, json={"pipeline_ids": ["company_news"]}).json()[0]
+    inbox.work[claimed["work_key"]]["lease_until"] = "2020-01-01T00:00:00+00:00"
+    assert api.post(f"/v1/source-work/{claimed['work_key']}/begin", headers=MACHINE, json={"lease_token": claimed["lease_token"]}).json()["begun"] is False
+    edited = envelope()
+    edited["content_hash"] = hashlib.sha256(b"expired-edit").hexdigest()
+    edited["payload"] = {"text": "edited"}
+    path = f"/v1/source-events/{receipt['event_key']}/versions"
+    revision = {"envelope": edited, "kind": "correction", "revision_id": "expired-edit", "reason": "edit"}
+    assert api.post(path, headers=SOURCE, json=revision).status_code == 409
+    reclaimed = api.post("/v1/source-work/claim", headers=MACHINE, json={"pipeline_ids": ["company_news"]}).json()[0]
+    assert api.post(f"/v1/source-work/{reclaimed['work_key']}/settle", headers=MACHINE, json={"lease_token": reclaimed["lease_token"], "success": False, "error_code": "handler_skipped"}).status_code == 200
+    assert api.post(path, headers=SOURCE, json=revision).json()["version"] == 2
+
+
+def test_begin_and_revision_race_cannot_commit_both():
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    _api, _catalog, inbox = setup()
+    receipt = inbox.accept(envelope())
+    claimed = inbox.claim(["company_news"], 1)[0]
+    edited = envelope()
+    edited["content_hash"] = hashlib.sha256(b"concurrent-edit").hexdigest()
+    edited["payload"] = {"text": "edited"}
+    barrier = Barrier(3)
+
+    def begin():
+        barrier.wait()
+        return inbox.begin(claimed["work_key"], claimed["lease_token"])
+
+    def revise():
+        barrier.wait()
+        try:
+            inbox.revise(receipt["event_key"], edited, "correction", "concurrent-edit", "source-actor", "provider edit")
+        except InboxConflict as exc:
+            return exc
+        return None
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        begun = pool.submit(begin)
+        revision = pool.submit(revise)
+        barrier.wait()
+        assert begun.result() is True
+        assert "source revision waits for leased work" in str(revision.result())
+    assert len(inbox.events[receipt["event_key"]]["versions"]) == 1
+    assert inbox.work[claimed["work_key"]]["status"] == "executing"

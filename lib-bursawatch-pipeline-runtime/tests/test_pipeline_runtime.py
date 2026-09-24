@@ -12,7 +12,7 @@ class Client:
     def claim(self, pipeline_ids, limit):
         self.claimed_pipelines = pipeline_ids
         return [{"work_key": str(i), "lease_token": str(i), "pipeline_id": str(i), "effect_key": str(i)} for i in range(2)]
-    def fence(self, wid, token):
+    def begin(self, wid, token):
         return True
     def settle(self, *args):
         self.settled.append(args)
@@ -31,10 +31,10 @@ def test_one_handler_failure_does_not_block_another():
     assert client.settled == [("0", "0", False, "handler_failed"), ("1", "1", True)]
 
 
-def test_fenced_old_version_is_not_dispatched():
+def test_rejected_begin_does_not_dispatch_handler():
     client = Client()
-    client.fence = lambda wid, token: wid != "0"
+    client.begin = lambda wid, token: wid != "0"
     seen = []
     result = PipelineRuntime(client, {"0": lambda item: seen.append("old"), "1": lambda item: seen.append("new")}).run_once()
-    assert [row["status"] for row in result] == ["superseded", "done"]
+    assert [row["status"] for row in result] == ["begin_rejected", "done"]
     assert seen == ["new"]
