@@ -165,7 +165,7 @@ The current Sources UI is a useful visual starting point, but it does not yet im
 11. Binary images and media live in private Supabase Storage behind the Source Media Owner; relational records hold references, provenance, and metadata. The owner validates type, digest, and size and returns stable opaque refs; source adapters never call Storage directly.
 12. Adding a compatible endpoint is configuration. Adding a platform adapter or pipeline requires reviewed engine code, validation, and release.
 13. Existing cursors, queues, and delivery history are preserved through separately reviewed, integrity-checked migrations; no implicit replay or state reset occurs.
-14. UI status distinguishes configured, enabled, pending, degraded, and applied state based on backend records; it does not infer health from static metadata or a successful cron invocation alone.
+14. UI status distinguishes endpoint identity verification, configured subscriptions, enabled subscriptions, pending or degraded reconciliation, applied state, and run health based on backend records. Source Catalog shows endpoint verification beside each registered endpoint; subscription state, schedule reconciliation, and run health remain on their respective views. It does not infer health from static metadata or a successful cron invocation alone.
 
 ## Non-goals
 

@@ -12,6 +12,7 @@ import {
   type EffectiveCatalog,
   type SourceCatalog,
 } from "@/lib/source-catalog";
+import { StatusBadge } from "./status-badge";
 import { useToast } from "./toast-provider";
 import "@/app/connected-sources.css";
 
@@ -35,6 +36,26 @@ const curatedPeopleImages: Record<string, string> = {
   "x-kobeissiletter": "/sources/kobeissiletter.png",
 };
 const userPlatforms = ["telegram", "x", "instagram", "whatsapp"] as const;
+
+function RegisteredEndpointList({ endpoints }: { endpoints: SourceCatalog["endpoints"] }) {
+  if (endpoints.length === 0) return null;
+  return (
+    <ul className="source-endpoint-list" aria-label="Registered platform endpoints">
+      {endpoints.map((endpoint) => (
+        <li className="source-endpoint-row" key={endpoint.id}>
+          <span className="source-endpoint-identity">
+            <strong>{endpoint.platform}</strong> · {endpoint.address}
+          </span>
+          <StatusBadge
+            status={endpoint.verified ? "verified" : "verification-pending"}
+            label={endpoint.verified ? "Verified" : "Pending verification"}
+          />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function message(error: unknown) {
   if (error instanceof WorkspaceError && error.code === "forbidden")
     return "This account can view sources but cannot change them. An admin must save catalog changes.";
@@ -415,7 +436,8 @@ export function SourceCatalogView({
           >
             <p className="connected-panel-intro">
               Curated institutions and their registered platform endpoints. Institution records are
-              managed by the engine.
+              managed by the engine. Endpoint badges show identity verification, not subscription
+              state or run health.
             </p>
             <ul className="connected-securities-grid">
               {catalog.institutions.map((item) => (
@@ -438,15 +460,9 @@ export function SourceCatalogView({
                         4:3 banner or logo:{" "}
                         {item.asset_ref?.url ? "Registered" : "No registered asset"}
                       </p>
-                      <ul>
-                        {endpoints
-                          .filter((entry) => entry.publisher_id === item.id)
-                          .map((entry) => (
-                            <li key={entry.id}>
-                              {entry.platform} · {entry.address}
-                            </li>
-                          ))}
-                      </ul>
+                      <RegisteredEndpointList
+                        endpoints={endpoints.filter((entry) => entry.publisher_id === item.id)}
+                      />
                     </div>
                   </article>
                 </li>
@@ -462,7 +478,7 @@ export function SourceCatalogView({
           >
             <p className="connected-panel-intro">
               People, groups and communities. New endpoints remain pending identity verification and
-              are not effective subscriptions.
+              are not effective subscriptions. Endpoint badges show identity verification only.
             </p>
             <ul className="connected-people-grid">
               {catalog.people_org
@@ -495,6 +511,9 @@ export function SourceCatalogView({
                               ? "Profile picture"
                               : "No registered image"}
                         </p>
+                        <RegisteredEndpointList
+                          endpoints={endpoints.filter((entry) => entry.publisher_id === item.id)}
+                        />
                       </div>
                     </article>
                   </li>
@@ -510,6 +529,9 @@ export function SourceCatalogView({
                           ? "User managed"
                           : "Unsaved"}
                       </p>
+                      <RegisteredEndpointList
+                        endpoints={endpoints.filter((entry) => entry.publisher_id === item.id)}
+                      />
                       {canEdit && !saveBlocked && (
                         <>
                           <label>
