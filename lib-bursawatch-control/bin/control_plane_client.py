@@ -38,6 +38,61 @@ class ControlPlaneSpoolFull(ControlPlaneError):
     """Raised when the bounded local request spool cannot accept another item."""
 
 
+class SourceCatalogConflict(ControlPlaneError):
+    """A source catalog write used a stale expected revision."""
+
+
+class SourceCatalogClient:
+    """Typed access to versioned source catalog snapshots.
+
+    Machine credentials can read effective subscriptions. Human admin
+    credentials are required for writes. Writes are never spooled or retried
+    because a stale revision must be handled by the caller.
+    """
+
+    def __init__(self, base_url: str, token: str, *, timeout: float = 5.0, opener: Callable[..., Any] = urlopen) -> None:
+        parsed = urlparse(base_url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc or parsed.username or parsed.password:
+            raise ValueError("source catalog base URL is invalid")
+        if type(token) is not str or not token.strip():
+            raise ValueError("source catalog token is required")
+        self.base_url = base_url.rstrip("/")
+        self.token = token
+        self.timeout = timeout
+        self.opener = opener
+
+    def _request(self, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        request = Request(
+            self.base_url + path,
+            data=json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8") if payload is not None else None,
+            headers={"Accept": "application/json", "Authorization": f"Bearer {self.token}", "Content-Type": "application/json"},
+            method="PUT" if payload is not None else "GET",
+        )
+        try:
+            with self.opener(request, timeout=self.timeout) as response:
+                result = json.load(response)
+        except HTTPError as exc:
+            if exc.code == 409:
+                raise SourceCatalogConflict("source catalog revision is stale") from exc
+            raise ControlPlaneUnavailable(f"source catalog returned HTTP {exc.code}") from exc
+        except (URLError, TimeoutError, OSError, ValueError) as exc:
+            raise ControlPlaneUnavailable("source catalog request failed") from exc
+        if type(result) is not dict or type(result.get("revision" if path.endswith("effective") or payload is not None else "config")) not in (int, dict):
+            raise ControlPlaneContractError("source catalog returned an invalid snapshot")
+        return result
+
+    def get_catalog(self) -> dict[str, Any]:
+        return self._request("/v1/source-catalog")
+
+    def get_effective(self) -> dict[str, Any]:
+        return self._request("/v1/source-catalog/effective")
+
+    def put_config(self, expected_revision: int, config: dict[str, Any]) -> dict[str, Any]:
+        if type(expected_revision) is not int or expected_revision < 1 or type(config) is not dict:
+            raise ValueError("source catalog write requires a revision and config")
+        return self._request("/v1/source-catalog/config", {"expected_revision": expected_revision, "config": config})
+
+
 @dataclass(frozen=True)
 class SpoolItem:
     path: Path

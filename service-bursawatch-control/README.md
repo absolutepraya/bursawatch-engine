@@ -1,5 +1,27 @@
 # Bursawatch Control Plane
 
+## Source Catalog phase 1
+
+`GET /v1/source-catalog` returns the engine-owned securities allowlist,
+curated publishers, canonical platform endpoints, capabilities, compatibility,
+and the current independent catalog revision. `GET /v1/source-catalog/effective`
+resolves publisher defaults and endpoint overrides into a machine-readable
+subscription snapshot. A signed-in admin uses `PUT /v1/source-catalog/config`
+with `expected_revision` and the complete config to save a new audited revision.
+Stale writes return 409. Viewers can read the registry, and machine credentials
+can read the effective snapshot. Asset metadata is an HTTPS reference only;
+secrets are managed credential references. New People & Org endpoints stay
+pending and cannot activate a pipeline until a reviewed identity verification
+path is added.
+
+Migration `013_source_catalog.sql` adds a private engine registry and independent
+catalog revision/audit tables. It seeds canonical IDs from checked-in watcher
+baselines without copying, converting, or replacing any live watcher config.
+There is currently no reviewed finite engine-owned IDX securities list, so
+the supported-securities table and initial selection are empty. Add securities
+only through a reviewed engine migration after establishing that allowlist.
+Current curated web images remain usable without a new upload flow.
+
 This service is the backend boundary between Bursawatch crons, the managed
 Postgres control-plane database, and the separate Bursawatch web application.
 

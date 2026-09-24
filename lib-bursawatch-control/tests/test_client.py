@@ -18,7 +18,36 @@ from control_plane_client import (  # noqa: E402
     ControlPlaneReporter,
     ControlPlaneSpoolFull,
     RequestSpool,
+    SourceCatalogClient,
+    SourceCatalogConflict,
 )
+
+
+def test_source_catalog_client_reads_effective_and_puts_expected_revision_without_spooling():
+    from io import BytesIO
+
+    seen = []
+
+    def opener(request, timeout):
+        seen.append((request.get_method(), request.full_url, request.get_header("Authorization"), request.data))
+        return BytesIO(json.dumps({"revision": 2, "subscriptions": []}).encode())
+
+    client = SourceCatalogClient("https://control.example.test", "token", opener=opener)
+    assert client.get_effective()["revision"] == 2
+    assert client.put_config(1, {"selected_securities": []})["revision"] == 2
+    assert seen[0][:3] == ("GET", "https://control.example.test/v1/source-catalog/effective", "Bearer token")
+    assert seen[1][0] == "PUT"
+    assert json.loads(seen[1][3])["expected_revision"] == 1
+
+
+def test_source_catalog_client_exposes_revision_conflict():
+    from urllib.error import HTTPError
+
+    def opener(request, timeout):
+        raise HTTPError(request.full_url, 409, "conflict", {}, None)
+
+    with pytest.raises(SourceCatalogConflict):
+        SourceCatalogClient("https://control.example.test", "token", opener=opener).put_config(1, {})
 
 
 class FakeResponse:

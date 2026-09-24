@@ -8,6 +8,57 @@ servers:
 security:
   - bearerAuth: []
 paths:
+  /v1/source-catalog:
+    get:
+      summary: List the engine registry and active catalog configuration.
+      description: Signed-in admin or viewer only. Securities, capabilities, tiers, compatibility, and system endpoints are engine-owned. People and endpoints from the active revision are included.
+      responses:
+        '200':
+          description: Registry and active configuration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceCatalog'
+  /v1/source-catalog/effective:
+    get:
+      summary: Read machine-readable effective subscriptions.
+      description: Admin, viewer, and machine credentials may read this resolved snapshot. Endpoint overrides take precedence over publisher defaults.
+      responses:
+        '200':
+          description: Resolved source configuration revision.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EffectiveSourceCatalog'
+  /v1/source-catalog/config:
+    put:
+      summary: Write an optimistic source catalog revision.
+      description: Human admin operation. Does not change watcher configuration, schedule, cursors, or live source state. Credentials are managed references only. User endpoints remain unverified until separately reviewed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expected_revision, config]
+              properties:
+                expected_revision:
+                  type: integer
+                  minimum: 1
+                config:
+                  $ref: '#/components/schemas/SourceCatalogConfig'
+      responses:
+        '200':
+          description: Stored revision and checksum.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceCatalogRevision'
+        '409':
+          description: Expected revision is stale.
+        '422':
+          description: Field or compatibility validation failed.
   /healthz:
     get:
       security: []
@@ -333,6 +384,105 @@ components:
         maximum: 1000
         default: 500
   schemas:
+    SourceCatalogConfig:
+      type: object
+      additionalProperties: false
+      required: [selected_securities, people_org, endpoints, publisher_defaults, endpoint_overrides]
+      properties:
+        selected_securities:
+          type: array
+          uniqueItems: true
+          items: {type: string}
+        people_org:
+          type: array
+          items: {$ref: '#/components/schemas/PeopleOrgInput'}
+        endpoints:
+          type: array
+          items: {$ref: '#/components/schemas/SourceEndpointInput'}
+        publisher_defaults:
+          type: array
+          items: {$ref: '#/components/schemas/PublisherDefaultInput'}
+        endpoint_overrides:
+          type: array
+          items: {$ref: '#/components/schemas/EndpointOverrideInput'}
+    AssetReference:
+      type: object
+      additionalProperties: false
+      required: [url, kind]
+      properties:
+        url: {type: string, format: uri, maxLength: 2048, pattern: '^https://'}
+        kind: {type: string, enum: [logo, profile_picture, banner]}
+    PeopleOrgInput:
+      type: object
+      additionalProperties: false
+      required: [id, name, kind, asset_ref]
+      properties:
+        id: {type: string, pattern: '^[a-z0-9][a-z0-9-]{1,63}$'}
+        name: {type: string, minLength: 1, maxLength: 120}
+        kind: {type: string, enum: [person, group, community]}
+        asset_ref:
+          oneOf:
+            - {$ref: '#/components/schemas/AssetReference'}
+            - {type: 'null'}
+    SourceEndpointInput:
+      type: object
+      additionalProperties: false
+      required: [id, publisher_id, platform, address, credential_ref]
+      properties:
+        id: {type: string, pattern: '^[a-z0-9][a-z0-9-]{1,63}$'}
+        publisher_id: {type: string}
+        platform: {type: string, enum: [telegram, x, instagram, whatsapp]}
+        address: {type: string, pattern: '^[A-Za-z0-9_.]{1,64}$'}
+        credential_ref:
+          oneOf:
+            - {type: string, pattern: '^credential:[a-z0-9][a-z0-9-]{1,63}$'}
+            - {type: 'null'}
+    PublisherDefaultInput:
+      type: object
+      additionalProperties: false
+      required: [publisher_id, capability_id, enabled, settings]
+      properties:
+        publisher_id: {type: string}
+        capability_id: {type: string}
+        enabled: {type: boolean}
+        settings: {type: object, maxProperties: 0}
+    EndpointOverrideInput:
+      type: object
+      additionalProperties: false
+      required: [endpoint_id, capability_id, enabled, settings]
+      properties:
+        endpoint_id: {type: string}
+        capability_id: {type: string}
+        enabled: {type: boolean}
+        settings: {type: object, maxProperties: 0}
+    SourceCatalogRevision:
+      type: object
+      required: [revision, config, sha256, actor_id, updated_at]
+      properties:
+        revision: {type: integer}
+        config: {$ref: '#/components/schemas/SourceCatalogConfig'}
+        sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
+        actor_id: {type: string}
+        updated_at: {type: string, format: date-time}
+    SourceCatalog:
+      type: object
+      required: [securities, institutions, people_org, endpoints, capabilities, compatibility, config]
+      properties:
+        securities: {type: array, items: {type: object}}
+        institutions: {type: array, items: {type: object}}
+        people_org: {type: array, items: {type: object}}
+        endpoints: {type: array, items: {type: object}}
+        capabilities: {type: array, items: {type: object}}
+        compatibility: {type: array, items: {type: object}}
+        config: {$ref: '#/components/schemas/SourceCatalogRevision'}
+    EffectiveSourceCatalog:
+      type: object
+      required: [revision, updated_at, selected_securities, subscriptions]
+      properties:
+        revision: {type: integer}
+        updated_at: {type: string, format: date-time}
+        selected_securities: {type: array, items: {type: string}}
+        subscriptions: {type: array, items: {type: object}}
     WatcherSummary:
       type: object
       additionalProperties: false

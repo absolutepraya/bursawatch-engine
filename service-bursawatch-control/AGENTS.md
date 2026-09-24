@@ -4,6 +4,12 @@ This package owns the Bursawatch control-plane API, Postgres migrations,
 configuration revisions, desired schedule revisions, audit records, run
 summaries, structured events, profile avatar URL metadata, and the versioned
 API contract consumed by the separate web repository.
+It also owns the Source Catalog registry, capability compatibility, and
+versioned source configuration. Source catalog revisions are separate from
+watcher configuration revisions. User endpoints remain pending until a
+reviewed verification path exists; pending endpoints cannot produce effective
+subscriptions. The supported securities table starts empty because no
+reviewed finite engine universe has been established in source.
 
 It does not own watcher cursors, deduplication, image bytes, media, outboxes,
 retry state, Telegram resilience, Swing Board state, secrets, or scheduler

@@ -30,6 +30,13 @@ from .store import (
     SchedulerJobRecord,
     Store,
 )
+from .source_catalog import (
+    CatalogConflict,
+    MemoryCatalogStore,
+    PostgresCatalogStore,
+    catalog_view,
+    effective_snapshot,
+)
 from .validators import validators_from_environment
 
 
@@ -37,6 +44,13 @@ class ConfigWrite(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     config_version: int = Field(ge=1)
+    config: dict[str, Any]
+
+
+class CatalogWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int = Field(ge=1)
     config: dict[str, Any]
 
 
@@ -190,10 +204,12 @@ def create_app(
     validators: dict[str, Callable[[dict[str, Any]], None]] | None = None,
     allowed_origins: list[str] | None = None,
     avatar_resolver: AvatarResolver | None = None,
+    catalog_store: MemoryCatalogStore | PostgresCatalogStore | None = None,
 ) -> FastAPI:
     store = store or InMemoryStore()
     auth = auth or StaticTokenAuth.from_environment()
     validators = validators or {}
+    catalog_store = catalog_store or (PostgresCatalogStore(store.dsn) if isinstance(store, PostgresStore) else MemoryCatalogStore())
     app = FastAPI(title="Bursawatch Control Plane", version="1.0.0")
     if allowed_origins:
         app.add_middleware(
@@ -277,6 +293,27 @@ def create_app(
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/v1/source-catalog")
+    def get_source_catalog(_current: Principal = Depends(human_reader)) -> dict[str, Any]:
+        current = catalog_store.get()
+        return {**catalog_view(current["config"], catalog_store.registry()), "config": current}
+
+    @app.get("/v1/source-catalog/effective")
+    def get_effective_catalog(_current: Principal = Depends(principal)) -> dict[str, Any]:
+        if _current.kind not in {"admin", "viewer", "machine"}:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="insufficient role")
+        current = catalog_store.get()
+        return effective_snapshot(current["config"], catalog_view(current["config"], catalog_store.registry()), current["revision"], current["updated_at"])
+
+    @app.put("/v1/source-catalog/config")
+    def put_source_catalog(payload: CatalogWrite, current: Principal = Depends(admin_only)) -> dict[str, Any]:
+        try:
+            return catalog_store.put(payload.expected_revision, payload.config, current.subject)
+        except CatalogConflict as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        except (ValueError, TypeError, KeyError) as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
     @app.get("/v1/watchers")
     def list_watchers(_current: Principal = Depends(human_reader)) -> list[dict[str, Any]]:
