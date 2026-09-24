@@ -48,6 +48,7 @@ this contract:
 - `service-bursawatch-discord-delivery/AGENTS.md`
 - `service-bursawatch-control/AGENTS.md`
 - `cron-tg-market-news/AGENTS.md`
+- `cron-tg-source-ingest/AGENTS.md`
 - `cron-dc-swing-board/AGENTS.md`
 - `cron-tg-phintraco-swing/AGENTS.md`
 - `cron-ig-account-watch/AGENTS.md`

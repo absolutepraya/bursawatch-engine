@@ -42,6 +42,18 @@
       "paths": ["lib-bursawatch-control/README.md", "lib-bursawatch-control/tests/**"]
     },
     {
+      "id": "lib-bursawatch-pipeline-runtime",
+      "handler": "runtime",
+      "runtime": "lib-bursawatch-pipeline-runtime",
+      "paths": ["lib-bursawatch-pipeline-runtime/bin/**"],
+      "verification": "checksum-only"
+    },
+    {
+      "id": "lib-bursawatch-pipeline-runtime-metadata",
+      "handler": "metadata",
+      "paths": ["lib-bursawatch-pipeline-runtime/README.md", "lib-bursawatch-pipeline-runtime/tests/**"]
+    },
+    {
       "id": "lib-bursawatch-discord-delivery",
       "handler": "runtime",
       "runtime": "lib-bursawatch-discord-delivery",
@@ -118,6 +130,11 @@
         {"source": "watchdog-wrapper.sh", "destination": "bursawatch-tg-market-news-watchdog.sh"}
       ],
       "verification": "market-news-no-post"
+    },
+    {
+      "id": "cron-tg-source-ingest-pilot",
+      "handler": "metadata",
+      "paths": ["cron-tg-source-ingest/**"]
     },
     {
       "id": "cron-tg-market-news-metadata",

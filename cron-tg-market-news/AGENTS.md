@@ -4,6 +4,12 @@ This file supplements the repository root `AGENTS.md`. It is the development and
 
 ## Runtime and deterministic boundary
 
+The Telegram source-ingest pilot adds `bin/pipeline_owner.py` for deterministic
+Phintraco Stock Information only. It reuses this package's parser, renderer,
+and durable stock-status ledger. Agent News source work remains unclaimed
+until a bounded Hermes classifier handoff can replace the current scheduled
+reader without losing candidate analysis.
+
 - Development source: this directory. The deployed scanner lives at `~/.agents/skills/bursawatch-tg-market-news/`; its wrapper is `~/.hermes/scripts/bursawatch-tg-market-news.sh`.
 - The deterministic scanner owns provider intake, cursoring, candidate creation, event classification validation, deduplication, ranking, durable state, delivery, retries, and heartbeats. Hermes receives exactly one bounded candidate only when `wakeAgent` is true and may classify only that supplied evidence.
 - Tuntun (`tuntunsekuritas`) accepts only thread `3743`: standalone `📰` news, issuer-specific ticker-led standalone news, explicit foreign-partner `<name> China-<IDX ticker>` headlines, explicitly issuer-named `Anak Usaha <TICKER>` headlines with one or two named issuers, individual company entries in Corporate posts, issuer-specific Special Topics, and bounded Midday or Evening Updates. A Corporate post creates at most one candidate per ticker and keeps the first entry when a ticker repeats, preserving the durable message-plus-ticker identity on retries. A decorated headline selects its first non-market, non-abbreviation ticker when present, otherwise it is a tickerless macro candidate. The deterministic reserved-acronym set covers market symbols plus verified government, regulatory, market-infrastructure, macro, and industry labels such as `APBN`, `BUMN`, `POJK`, `RKAB`, `SPBU`, and `TKDN`, so they cannot create an issuer price card. Each addition must first be checked against the current IDX Stock List because ambiguous acronyms may be live issuers. An update creates one lead plus one candidate per `Macro & Global` or `Industry` news paragraph. `Overview`, sector, movers, breadth, and foreign-flow tables are excluded. Daily, promotional, and customer-service material is excluded.

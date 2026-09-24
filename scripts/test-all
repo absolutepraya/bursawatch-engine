@@ -32,6 +32,7 @@ run_suite() {
 run_suite service-bursawatch-discord-delivery service-bursawatch-discord-delivery tests
 run_suite lib-bursawatch-discord-delivery lib-bursawatch-discord-delivery tests
 run_suite cron-tg-market-news cron-tg-market-news tests
+run_suite cron-tg-source-ingest cron-tg-source-ingest tests
 run_suite cron-tg-phintraco-swing cron-tg-phintraco-swing tests
 run_suite lib-swing-format lib-swing-format tests
 run_suite cron-dc-swing-board cron-dc-swing-board tests
