@@ -1112,6 +1112,55 @@ def test_malformed_status_is_persisted_before_cursor_advance_and_degrades_run(
     assert "⚠️" in operational_posts[0]
 
 
+def test_persisted_status_rejection_ignores_later_edit_and_recovers_cursor(
+    tmp_state, monkeypatch, load_fixture
+):
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_state))
+    monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
+    _bootstrapped_state(tmp_state)
+    malformed = load_fixture("phintraco-stock-status-35377.txt") + "\nNew Status:\n>ABCD\n"
+    valid_edit = load_fixture("phintraco-stock-status-35377.txt")
+    clients = FakeClients()
+    clients.client.messages["tuntun"] = []
+    clients.client.messages["phintraco"] = [_status_source_message(35377, malformed)]
+    original_advance = scan.advance_provider_cursor
+    fail_once = True
+
+    def interrupt_after_status_persist(state, provider, message_id):
+        nonlocal fail_once
+        if provider is Provider.PHINTRACO and fail_once:
+            fail_once = False
+            assert state["stats"]["stock_status_events"][
+                "phintraco-stock-status:35377"
+            ]["phase"] == "rejected"
+            raise OSError("simulated cursor persistence interruption")
+        return original_advance(state, provider, message_id)
+
+    monkeypatch.setattr(scan, "advance_provider_cursor", interrupt_after_status_persist)
+    monkeypatch.setattr(delivery, "post_discord_text", lambda *_args, **_kwargs: "unexpected")
+    now = datetime.fromisoformat("2026-09-23T08:30:00+07:00")
+
+    first = asyncio.run(scan.run(now, clients))
+    clients.client.messages["phintraco"] = [
+        _status_source_message(35377, valid_edit),
+        _status_source_message(35378, "Company Flash: PTBA reports higher coal sales volume."),
+    ]
+    second = asyncio.run(scan.run(now + timedelta(minutes=1), clients))
+
+    persisted = load_state(tmp_state)
+    assert first["providers"]["phintraco"]["healthy"] is False
+    assert second["providers"]["phintraco"]["healthy"] is True
+    assert persisted["providers"]["phintraco"]["observed_message_id"] == 35378
+    assert persisted["stats"]["stock_status_events"]["phintraco-stock-status:35377"][
+        "phase"
+    ] == "rejected"
+    assert persisted["stats"]["stock_status_events"]["phintraco-stock-status:35377"][
+        "rejection_code"
+    ] == "invalid_status"
+    assert "phintraco:35378:PTBA" in persisted["candidates"]
+    assert second["stock_status_events"] == 0
+
+
 def test_regular_phintraco_company_flash_and_tuntun_paths_still_ingest(
     tmp_state, monkeypatch
 ):

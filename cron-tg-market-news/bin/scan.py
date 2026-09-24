@@ -54,6 +54,7 @@ from state import (
     enqueue_candidate,
     enqueue_stock_status,
     expire_agent_leases,
+    has_stock_status_event,
     load_state,
     mark_terminal,
     provider_bootstrap_complete,
@@ -365,6 +366,14 @@ async def _ingest_provider(
         status_rejected = 0
         for message in messages:
             message_id = _message_id(message)
+            if (
+                provider is Provider.PHINTRACO
+                and has_stock_status_event(state, message_id)
+            ):
+                # The durable decision wins if a previous run stopped before
+                # cursor persistence. Do not observe later edits or route changes.
+                advance_provider_cursor(state, provider, message_id)
+                continue
             text = _message_text(message)
             published_at = _message_published_at(message)
             direct_image = bool(getattr(message, "photo", None))

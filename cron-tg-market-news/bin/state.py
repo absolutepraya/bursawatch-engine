@@ -357,6 +357,12 @@ def _stock_status_events(state: dict[str, object], *, create: bool = False) -> d
     return events
 
 
+def has_stock_status_event(state: dict[str, object], source_message_id: int) -> bool:
+    """Return whether this Phintraco source identity already has a durable outcome."""
+    _validate_state(state)
+    key = _status_event_key(source_message_id)
+    return key in _stock_status_events(state)
+
 
 def _validate_selection_data(value: object, field_name: str) -> None:
     if value is None:
