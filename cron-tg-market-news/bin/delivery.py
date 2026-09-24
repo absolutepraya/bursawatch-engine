@@ -16,7 +16,14 @@ import requests
 from domain import CompanyCandidate, Destination, Provider, retry_delay_minutes, source_message_url
 from market_data import fallback_company_name, get_market_snapshot
 from selection import SelectionCandidate
-from state import StateBlockedError, mark_terminal, save_state
+from state import (
+    StateBlockedError,
+    mark_stock_status_delivered,
+    mark_terminal,
+    pending_stock_status_events,
+    save_state,
+    schedule_stock_status_retry,
+)
 
 
 DISCORD_API_V10 = "https://discord.com/api/v10"
@@ -502,4 +509,54 @@ async def deliver_event(
         _schedule_delivery_retry(state, items, now, "Discord text delivery failed")
         return False
     _mark_text_delivered(state, items, message_id, now)
+    return True
+
+
+async def deliver_stock_status_event(
+    state: dict[str, object],
+    event_key: str,
+    now: datetime,
+    *,
+    dry_run: bool = False,
+) -> bool:
+    """Deliver one due status event using its frozen text, route, and identity."""
+    if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("delivery time must be timezone-aware")
+    due_events = dict(pending_stock_status_events(state, now))
+    event = due_events.get(event_key)
+    if event is None:
+        stats = state.get("stats")
+        records = stats.get("stock_status_events") if isinstance(stats, dict) else None
+        record = records.get(event_key) if isinstance(records, dict) else None
+        if isinstance(record, dict) and record.get("phase") == "pending_delivery":
+            return False
+        raise StateBlockedError(f"status event {event_key!r} is not pending delivery")
+    content = event.get("content")
+    channel_id = event.get("channel_id")
+    if not isinstance(content, str) or not content or len(content) > _DISCORD_MESSAGE_LIMIT:
+        raise StateBlockedError(f"status event {event_key!r} has invalid persisted content")
+    if not isinstance(channel_id, str) or not channel_id:
+        raise StateBlockedError(f"status event {event_key!r} has no frozen destination")
+
+    try:
+        message_id = post_discord_text(content, channel_id, event_key, dry_run=dry_run)
+    except DiscordRateLimited as error:
+        schedule_stock_status_retry(
+            state,
+            event_key,
+            now,
+            str(error),
+            minimum_delay_seconds=error.retry_after,
+        )
+        return False
+    except Exception as error:
+        schedule_stock_status_retry(state, event_key, now, str(error))
+        return False
+    if message_id is None:
+        schedule_stock_status_retry(state, event_key, now, "Discord text delivery failed")
+        return False
+
+    mark_stock_status_delivered(state, event_key, message_id, now)
+    state["last_delivery_success"] = now.isoformat()
+    save_state(state)
     return True

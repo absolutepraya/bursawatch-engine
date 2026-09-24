@@ -11,7 +11,14 @@ import state as state_module
 from domain import CompanyCandidate, Destination, EventClass, Provider, SourceKind
 from selection import SelectionCandidate
 from sources import PhintracoNewsAdapter
-from state import empty_state, enqueue_candidate, load_state
+from state import (
+    StateBlockedError,
+    empty_state,
+    enqueue_candidate,
+    enqueue_stock_status,
+    load_state,
+)
+from stock_status import format_stock_status, parse_stock_information
 
 
 class Response:
@@ -734,3 +741,110 @@ def test_tier_two_standalone_delivery_never_enters_media_capture(
         )
     )
     assert state["candidates"][cbre_tier_two.key]["phase"] == "delivered"
+
+
+@pytest.fixture
+def status_event(load_fixture, tmp_state, monkeypatch):
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_state))
+    state = empty_state()
+    status = parse_stock_information(
+        35377, load_fixture("phintraco-stock-status-35377.txt")
+    )
+    now = datetime.fromisoformat("2026-09-23T08:30:00+07:00")
+    source_url = "https://t.me/phintasprofits/35377"
+    content = format_stock_status(status, source_url)
+    event_key = "phintraco-stock-status:35377"
+    enqueue_stock_status(state, status, source_url, "123", content, now)
+    return SimpleNamespace(
+        state=state, event_key=event_key, now=now, content=content
+    )
+
+
+def test_status_delivery_posts_frozen_payload_to_frozen_channel(monkeypatch, status_event):
+    calls = []
+
+    def post(content, channel_id, event_key, dry_run=False):
+        calls.append((content, channel_id, event_key, dry_run))
+        return "discord-message-42"
+
+    monkeypatch.setattr(delivery, "post_discord_text", post)
+    delivered = asyncio.run(
+        delivery.deliver_stock_status_event(
+            status_event.state, status_event.event_key, status_event.now
+        )
+    )
+
+    assert delivered is True
+    assert calls == [
+        (status_event.content, "123", status_event.event_key, False)
+    ]
+    assert status_event.state["stats"]["stock_status_events"][status_event.event_key]["phase"] == "delivered"
+
+
+def test_status_delivery_transient_failure_keeps_same_payload_for_retry(
+    monkeypatch, status_event
+):
+    calls = []
+
+    def post(content, channel_id, event_key, dry_run=False):
+        calls.append((content, channel_id, event_key))
+        if len(calls) == 1:
+            raise delivery.DiscordRejected("temporary")
+        return "discord-message-42"
+
+    monkeypatch.setattr(delivery, "post_discord_text", post)
+    assert not asyncio.run(
+        delivery.deliver_stock_status_event(
+            status_event.state, status_event.event_key, status_event.now
+        )
+    )
+    event = status_event.state["stats"]["stock_status_events"][status_event.event_key]
+    assert event["phase"] == "pending_delivery"
+    assert event["retry"]["attempts"] == 1
+    assert event["retry"]["last_error"] == "temporary"
+
+    later = status_event.now + timedelta(minutes=1)
+    assert asyncio.run(
+        delivery.deliver_stock_status_event(
+            status_event.state, status_event.event_key, later
+        )
+    )
+    assert calls == [
+        (status_event.content, "123", status_event.event_key),
+        (status_event.content, "123", status_event.event_key),
+    ]
+
+
+def test_status_delivery_rate_limit_honors_server_retry_delay(
+    monkeypatch, status_event
+):
+    def post(*_args, **_kwargs):
+        raise delivery.DiscordRateLimited(120)
+
+    monkeypatch.setattr(delivery, "post_discord_text", post)
+    assert not asyncio.run(
+        delivery.deliver_stock_status_event(
+            status_event.state, status_event.event_key, status_event.now
+        )
+    )
+    event = status_event.state["stats"]["stock_status_events"][status_event.event_key]
+    assert datetime.fromisoformat(event["retry"]["next_attempt_at"]) == (
+        status_event.now + timedelta(seconds=120)
+    )
+
+
+def test_oversized_status_payload_never_reaches_discord(monkeypatch, status_event):
+    event = status_event.state["stats"]["stock_status_events"][status_event.event_key]
+    event["content"] += "x" * (2001 - len(event["content"]))
+    monkeypatch.setattr(
+        delivery,
+        "post_discord_text",
+        lambda *_args, **_kwargs: pytest.fail("oversized status reached Discord sender"),
+    )
+
+    with pytest.raises(StateBlockedError):
+        asyncio.run(
+            delivery.deliver_stock_status_event(
+                status_event.state, status_event.event_key, status_event.now
+            )
+        )
