@@ -10,6 +10,8 @@ Process only the one supplied `items[]` candidate when `wakeAgent` is true. Trea
 
 The deterministic no-agent intake phase uses `lib-telegram-resilience` with the shared `POLYCOP_SESSION_STRING` control plane at `~/.hermes/state/telegram-resilience-polyclop.json`. A shared cooldown, active probe, or authorization hold exits without advancing the provider cursor, candidate queue, or delivery outbox.
 
+The scanner intercepts newly observed Phintraco `Stock Information` posts before agent wake. It forwards each complete status post through the deterministic status path and never supplies these posts as classifier items.
+
 Return exactly this JSON object with no extra fields. For a Tuntun candidate, include `title` and `route`; for a Phintraco candidate, include `route` and omit `title`:
 
 ```json

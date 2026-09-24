@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import errno
 import fcntl
 import json
 import math
 import os
 from pathlib import Path
+import re
 import stat
 import tempfile
 
@@ -23,6 +24,7 @@ from domain import (
     candidate_key,
     retry_delay_minutes,
 )
+from stock_status import StockStatus
 
 
 STATE_VERSION = 1
@@ -90,6 +92,36 @@ _LEGACY_CANDIDATE_PAYLOAD_KEYS = frozenset(
 _CANDIDATE_PAYLOAD_KEYS = _LEGACY_CANDIDATE_PAYLOAD_KEYS | {"candidate_id"}
 _SOURCE_ATTRIBUTION_CANDIDATE_PAYLOAD_KEYS = _CANDIDATE_PAYLOAD_KEYS | {"source_name"}
 _RETRY_KEYS = frozenset({"attempts", "next_attempt_at", "last_error"})
+_STOCK_STATUS_EVENT_PREFIX = "phintraco-stock-status:"
+_STOCK_STATUS_CATEGORIES = (
+    "uma",
+    "suspend_in",
+    "suspend_out",
+    "fca_in",
+    "fca_out",
+)
+_STOCK_STATUS_EVENT_KEYS = frozenset(
+    {
+        "source_message_id",
+        "source_url",
+        "effective_date",
+        *_STOCK_STATUS_CATEGORIES,
+        "channel_id",
+        "content",
+        "phase",
+        "enqueued_at",
+        "retry",
+        "discord_message_id",
+        "delivered_at",
+        "rejection_code",
+    }
+)
+_REJECTED_STOCK_STATUS_EVENT_KEYS = frozenset(
+    {"source_message_id", "source_url", "phase", "rejected_at", "rejection_code"}
+)
+_STOCK_STATUS_REASON_CODES = frozenset({"invalid_status", "message_too_long"})
+_STOCK_STATUS_URL_RE = re.compile(r"https://t\.me/[A-Za-z0-9_]{5,32}/([1-9][0-9]*)\Z")
+_STOCK_TICKER_RE = re.compile(r"[A-Z]{4}\Z")
 _BASE_SELECTION_DATA_KEYS = frozenset({"summary", "ranking_band", "material_facts", "dedupe_facts"})
 _SELECTION_DATA_KEYS = _BASE_SELECTION_DATA_KEYS | {"title"}
 _LEGACY_SELECTION_DATA_KEYS = _BASE_SELECTION_DATA_KEYS - {"summary"}
@@ -236,6 +268,101 @@ def _validate_retry(value: object, field_name: str) -> None:
         raise StateBlockedError(f"malformed state: {field_name}.last_error must be text or null")
 
 
+def _validate_stock_status_source(source_message_id: object, source_url: object, field_name: str) -> int:
+    if not _is_plain_int(source_message_id) or source_message_id <= 0:
+        raise StateBlockedError(f"malformed state: {field_name}.source_message_id must be positive")
+    if not isinstance(source_url, str):
+        raise StateBlockedError(f"malformed state: {field_name}.source_url must be text")
+    match = _STOCK_STATUS_URL_RE.fullmatch(source_url)
+    if not match or int(match.group(1)) != source_message_id:
+        raise StateBlockedError(f"malformed state: {field_name}.source_url has invalid identity")
+    return source_message_id
+
+
+def _validate_stock_status_event(key: object, event: object) -> None:
+    if not isinstance(key, str) or not key.startswith(_STOCK_STATUS_EVENT_PREFIX):
+        raise StateBlockedError("malformed state: stock status event key is invalid")
+    suffix = key.removeprefix(_STOCK_STATUS_EVENT_PREFIX)
+    if not suffix.isdigit() or suffix.startswith("0"):
+        raise StateBlockedError("malformed state: stock status event key is invalid")
+    if not isinstance(event, dict):
+        raise StateBlockedError(f"malformed state: {key} must be an object")
+    phase = event.get("phase")
+    if phase == "rejected":
+        if set(event) != _REJECTED_STOCK_STATUS_EVENT_KEYS:
+            raise StateBlockedError(f"malformed state: {key} has invalid rejection fields")
+        source_message_id = _validate_stock_status_source(
+            event["source_message_id"], event["source_url"], key
+        )
+        _validate_timestamp_or_none(event["rejected_at"], f"{key}.rejected_at")
+        if not isinstance(event["rejection_code"], str) or event["rejection_code"] not in _STOCK_STATUS_REASON_CODES:
+            raise StateBlockedError(f"malformed state: {key}.rejection_code is invalid")
+    else:
+        if set(event) != _STOCK_STATUS_EVENT_KEYS:
+            raise StateBlockedError(f"malformed state: {key} has invalid event fields")
+        source_message_id = _validate_stock_status_source(
+            event["source_message_id"], event["source_url"], key
+        )
+        if phase not in {"pending_delivery", "delivered"}:
+            raise StateBlockedError(f"malformed state: {key} has invalid phase")
+        if not isinstance(event["effective_date"], str):
+            raise StateBlockedError(f"malformed state: {key}.effective_date must be a date")
+        try:
+            parsed_date = date.fromisoformat(event["effective_date"])
+        except ValueError as error:
+            raise StateBlockedError(f"malformed state: {key}.effective_date must be a date") from error
+        if parsed_date.isoformat() != event["effective_date"]:
+            raise StateBlockedError(f"malformed state: {key}.effective_date must be canonical")
+        for category in _STOCK_STATUS_CATEGORIES:
+            tickers = event[category]
+            if not isinstance(tickers, list) or any(
+                not isinstance(ticker, str) or not _STOCK_TICKER_RE.fullmatch(ticker)
+                for ticker in tickers
+            ) or len(set(tickers)) != len(tickers):
+                raise StateBlockedError(f"malformed state: {key}.{category} has invalid tickers")
+        if not isinstance(event["channel_id"], str) or not event["channel_id"].isdigit():
+            raise StateBlockedError(f"malformed state: {key}.channel_id is invalid")
+        if not isinstance(event["content"], str) or not event["content"] or len(event["content"]) > 2000:
+            raise StateBlockedError(f"malformed state: {key}.content is invalid")
+        _parse_timestamp(event["enqueued_at"], f"{key}.enqueued_at")
+        retry = event["retry"]
+        _validate_retry(retry, f"{key}.retry")
+        if retry["attempts"] > 1_000_000 or (
+            retry["last_error"] is not None and len(retry["last_error"]) > 500
+        ):
+            raise StateBlockedError(f"malformed state: {key}.retry is out of bounds")
+        discord_message_id = event["discord_message_id"]
+        delivered_at = event["delivered_at"]
+        if phase == "pending_delivery":
+            if discord_message_id is not None or delivered_at is not None or event["rejection_code"] is not None:
+                raise StateBlockedError(f"malformed state: {key} has delivery fields before success")
+        else:
+            if not isinstance(discord_message_id, str) or not discord_message_id:
+                raise StateBlockedError(f"malformed state: {key}.discord_message_id is invalid")
+            _parse_timestamp(delivered_at, f"{key}.delivered_at")
+            if event["rejection_code"] is not None:
+                raise StateBlockedError(f"malformed state: {key} has a rejection code after delivery")
+    if source_message_id != int(suffix):
+        raise StateBlockedError(f"malformed state: {key} does not match its source identity")
+
+
+def _stock_status_events(state: dict[str, object], *, create: bool = False) -> dict[str, object]:
+    stats = state["stats"]
+    assert isinstance(stats, dict)
+    if "stock_status_events" not in stats and create:
+        stats["stock_status_events"] = {}
+    events = stats.get("stock_status_events", {})
+    if not isinstance(events, dict):
+        raise StateBlockedError("malformed state: stats.stock_status_events must be an object")
+    return events
+
+
+def has_stock_status_event(state: dict[str, object], source_message_id: int) -> bool:
+    """Return whether this Phintraco source identity already has a durable outcome."""
+    _validate_state(state)
+    key = _status_event_key(source_message_id)
+    return key in _stock_status_events(state)
+
 
 def _validate_selection_data(value: object, field_name: str) -> None:
     if value is None:
@@ -323,6 +450,12 @@ def _validate_state(state: object) -> None:
         if not isinstance(value, dict):
             raise StateBlockedError(f"malformed state: {name} must be an object")
         _validate_json_value(value, name)
+    status_events = state["stats"].get("stock_status_events")
+    if "stock_status_events" in state["stats"]:
+        if not isinstance(status_events, dict):
+            raise StateBlockedError("malformed state: stats.stock_status_events must be an object")
+        for key, event in status_events.items():
+            _validate_stock_status_event(key, event)
     _validate_timestamp_or_none(state["last_poll_success"], "last_poll_success")
     _validate_timestamp_or_none(state["last_delivery_success"], "last_delivery_success")
     _validate_timestamp_or_none(state["last_heartbeat_hour"], "last_heartbeat_hour")
@@ -503,6 +636,188 @@ def _record_for_candidate(state: dict[str, object], key: str) -> dict[str, objec
     if not isinstance(record, dict):
         raise StateBlockedError(f"candidate {key!r} is not in durable state")
     return record
+
+
+def _status_event_key(source_message_id: int) -> str:
+    if not _is_plain_int(source_message_id) or source_message_id <= 0:
+        raise ValueError("source_message_id must be a positive integer")
+    return f"{_STOCK_STATUS_EVENT_PREFIX}{source_message_id}"
+
+
+def _status_identity_fields(event: dict[str, object]) -> tuple[object, ...]:
+    return (
+        event.get("source_message_id"),
+        event.get("source_url"),
+        event.get("effective_date"),
+        *(event.get(category) for category in _STOCK_STATUS_CATEGORIES),
+        event.get("channel_id"),
+        event.get("content"),
+    )
+
+
+def enqueue_stock_status(
+    state: dict[str, object],
+    status: StockStatus,
+    source_url: str,
+    channel_id: str,
+    content: str,
+    now: datetime,
+) -> bool:
+    _validate_state(state)
+    _require_aware_timestamp(now, "now")
+    if not isinstance(status, StockStatus):
+        raise ValueError("status must be a StockStatus")
+    key = _status_event_key(status.source_message_id)
+    _validate_stock_status_source(status.source_message_id, source_url, key)
+    if not isinstance(channel_id, str) or not channel_id.isdigit():
+        raise ValueError("channel_id must be a numeric Discord ID")
+    if not isinstance(content, str) or not content or len(content) > 2000:
+        raise ValueError("content must be nonempty and at most 2,000 characters")
+    if not isinstance(status.effective_date, date):
+        raise ValueError("status effective_date must be a date")
+    event: dict[str, object] = {
+        "source_message_id": status.source_message_id,
+        "source_url": source_url,
+        "effective_date": status.effective_date.isoformat(),
+        **{category: list(getattr(status, category)) for category in _STOCK_STATUS_CATEGORIES},
+        "channel_id": channel_id,
+        "content": content,
+        "phase": "pending_delivery",
+        "enqueued_at": now.isoformat(),
+        "retry": {"attempts": 0, "next_attempt_at": None, "last_error": None},
+        "discord_message_id": None,
+        "delivered_at": None,
+        "rejection_code": None,
+    }
+    events = _stock_status_events(state, create=True)
+    existing = events.get(key)
+    if existing is not None:
+        if (
+            isinstance(existing, dict)
+            and existing.get("phase") in {"pending_delivery", "delivered"}
+            and _status_identity_fields(existing) == _status_identity_fields(event)
+        ):
+            return False
+        raise StateBlockedError(f"status event {key!r} collides with different durable content")
+    events[key] = event
+    save_state(state)
+    return True
+
+
+def reject_stock_status(
+    state: dict[str, object],
+    source_message_id: int,
+    source_url: str,
+    reason_code: str,
+    now: datetime,
+) -> bool:
+    _validate_state(state)
+    _require_aware_timestamp(now, "now")
+    key = _status_event_key(source_message_id)
+    _validate_stock_status_source(source_message_id, source_url, key)
+    if reason_code not in _STOCK_STATUS_REASON_CODES:
+        raise ValueError("unsupported stock status rejection code")
+    event: dict[str, object] = {
+        "source_message_id": source_message_id,
+        "source_url": source_url,
+        "phase": "rejected",
+        "rejected_at": now.isoformat(),
+        "rejection_code": reason_code,
+    }
+    events = _stock_status_events(state, create=True)
+    existing = events.get(key)
+    if existing is not None:
+        if existing == event:
+            return False
+        if (
+            isinstance(existing, dict)
+            and existing.get("phase") == "rejected"
+            and existing.get("source_message_id") == source_message_id
+            and existing.get("source_url") == source_url
+            and existing.get("rejection_code") == reason_code
+        ):
+            return False
+        raise StateBlockedError(f"status event {key!r} collides with different durable content")
+    events[key] = event
+    save_state(state)
+    return True
+
+
+def pending_stock_status_events(
+    state: dict[str, object], now: datetime
+) -> list[tuple[str, dict[str, object]]]:
+    _validate_state(state)
+    _require_aware_timestamp(now, "now")
+    due: list[tuple[str, dict[str, object]]] = []
+    for key, event in _stock_status_events(state).items():
+        assert isinstance(key, str) and isinstance(event, dict)
+        if event["phase"] != "pending_delivery":
+            continue
+        retry = event["retry"]
+        assert isinstance(retry, dict)
+        next_attempt_at = retry["next_attempt_at"]
+        if next_attempt_at is None or _parse_timestamp(next_attempt_at, f"{key}.retry.next_attempt_at") <= now:
+            due.append((key, event))
+    return sorted(due, key=lambda item: item[0])
+
+
+def mark_stock_status_delivered(
+    state: dict[str, object],
+    event_key: str,
+    discord_message_id: str,
+    now: datetime,
+) -> None:
+    _validate_state(state)
+    _require_aware_timestamp(now, "now")
+    if not isinstance(discord_message_id, str) or not discord_message_id:
+        raise ValueError("discord_message_id must be nonempty text")
+    event = _stock_status_events(state).get(event_key)
+    if not isinstance(event, dict):
+        raise StateBlockedError(f"status event {event_key!r} is not in durable state")
+    if event["phase"] == "delivered":
+        if event["discord_message_id"] == discord_message_id:
+            return
+        raise StateBlockedError(f"status event {event_key!r} was delivered with a different ID")
+    if event["phase"] != "pending_delivery":
+        raise StateBlockedError(f"status event {event_key!r} is not pending delivery")
+    event["phase"] = "delivered"
+    event["discord_message_id"] = discord_message_id
+    event["delivered_at"] = now.isoformat()
+    save_state(state)
+
+
+def schedule_stock_status_retry(
+    state: dict[str, object],
+    event_key: str,
+    now: datetime,
+    error: str,
+    minimum_delay_seconds: float = 0,
+) -> None:
+    _validate_state(state)
+    _require_aware_timestamp(now, "now")
+    if not isinstance(error, str) or not error.strip():
+        raise ValueError("retry error must be nonempty text")
+    if (
+        isinstance(minimum_delay_seconds, bool)
+        or not isinstance(minimum_delay_seconds, (int, float))
+        or not math.isfinite(minimum_delay_seconds)
+        or minimum_delay_seconds < 0
+    ):
+        raise ValueError("minimum_delay_seconds must be finite and non-negative")
+    event = _stock_status_events(state).get(event_key)
+    if not isinstance(event, dict) or event["phase"] != "pending_delivery":
+        raise StateBlockedError(f"status event {event_key!r} is not pending delivery")
+    retry = event["retry"]
+    assert isinstance(retry, dict)
+    attempts = retry["attempts"]
+    due_at = now + timedelta(minutes=retry_delay_minutes(attempts))
+    server_due_at = now + timedelta(seconds=minimum_delay_seconds)
+    if server_due_at > due_at:
+        due_at = server_due_at
+    retry["attempts"] = attempts + 1
+    retry["next_attempt_at"] = due_at.isoformat()
+    retry["last_error"] = error.strip()[:500]
+    save_state(state)
 
 
 def _candidate_from_record(key: str, record: dict[str, object]) -> CompanyCandidate:
