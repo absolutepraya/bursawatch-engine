@@ -8,6 +8,80 @@ servers:
 security:
   - bearerAuth: []
 paths:
+  /v1/source-events:
+    post:
+      summary: Accept a version 1 normalized source event durably.
+      description: Machine or admin credential. Duplicate provider identities return the original receipt; conflicting content requires an audited correction. Acceptance and per-subscription work insertion share a transaction. Media refs are currently rejected until durable object storage is reviewed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [envelope]
+              properties:
+                envelope:
+                  $ref: '#/components/schemas/SourceEventEnvelope'
+      responses:
+        '200':
+          description: Durable acceptance receipt with event key, version, duplicate flag, and work keys.
+        '409':
+          description: Provider identity conflicts with the accepted original.
+        '422':
+          description: Invalid endpoint identity, envelope, or media dependency.
+  /v1/source-events/{event_key}:
+    get:
+      summary: Inspect source event versions and all subscription work.
+      description: Machine or admin credential. Includes bounded source payload and must not be logged routinely.
+      responses:
+        '200':
+          description: Event history and work state.
+        '404':
+          description: Unknown event key.
+  /v1/source-events/{event_key}/versions:
+    post:
+      summary: Append an audited correction or deletion tombstone.
+      description: Human admin only. Original subscription targets and config snapshots remain frozen. A tombstone is terminal.
+      responses:
+        '200':
+          description: New immutable version and work keys.
+  /v1/source-work:
+    get:
+      summary: Inspect subscription work by status.
+      description: Machine or admin credential. Query status and bounded limit.
+      responses:
+        '200':
+          description: Work items with frozen catalog and capability revisions.
+  /v1/source-work/claim:
+    post:
+      summary: Claim available subscription work with expiring leases.
+      description: Machine or admin credential. Claiming increments the per-item attempt count; each work item carries a stable effect key for domain-owner deduplication.
+      responses:
+        '200':
+          description: Claimed work with envelope and lease token.
+  /v1/source-work/{work_key}/settle:
+    post:
+      summary: Settle a current lease, or schedule a bounded retry.
+      description: Machine or admin credential. Failure accepts a sanitized error code only; five failed attempts dead-letter the item.
+      responses:
+        '200':
+          description: Updated work item.
+        '409':
+          description: Lease expired or token mismatched.
+  /v1/source-work/{work_key}/suppress:
+    post:
+      summary: Suppress idle work with an audited reason.
+      description: Human admin only. Disabling a catalog subscription never suppresses accepted work automatically.
+      responses:
+        '200':
+          description: Suppressed work item.
+  /v1/source-work/{work_key}/replay:
+    post:
+      summary: Replay suppressed or dead-letter work with an audited reason.
+      description: Human admin only. The effect key is unchanged so the domain owner can deduplicate an earlier effect.
+      responses:
+        '200':
+          description: Pending work item.
   /v1/source-catalog:
     get:
       summary: List the engine registry and active catalog configuration.
@@ -384,6 +458,46 @@ components:
         maximum: 1000
         default: 500
   schemas:
+    SourceEventEnvelope:
+      type: object
+      additionalProperties: false
+      required: [version, endpoint_id, publisher_id, platform, provider_event_id, published_at, observed_at, source_url, parser_version, content_hash, payload, media_refs, media_required]
+      properties:
+        version:
+          type: integer
+          const: 1
+        endpoint_id:
+          type: string
+        publisher_id:
+          type: string
+        platform:
+          type: string
+          enum: [telegram, x, instagram, whatsapp, rss]
+        provider_event_id:
+          type: string
+        published_at:
+          type: string
+          format: date-time
+        observed_at:
+          type: string
+          format: date-time
+        source_url:
+          type: string
+          format: uri
+        parser_version:
+          type: string
+        content_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        payload:
+          type: object
+          description: Finite JSON, at most 64 KiB.
+        media_refs:
+          type: array
+          maxItems: 16
+          description: Currently must be empty until durable storage is approved.
+        media_required:
+          type: boolean
     SourceCatalogConfig:
       type: object
       additionalProperties: false

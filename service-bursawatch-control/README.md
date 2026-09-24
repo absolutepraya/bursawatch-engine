@@ -226,3 +226,32 @@ X, one hour to 24 hours for Instagram, one minute to one hour for Phintraco and
 Market News, and five minutes to six hours for Kelas Investasi. WhatsApp is one minute
 to six hours. The two Swing Board calendar jobs and the X queue worker remain
 fixed and read-only.
+
+## Source inbox (development contract, not yet live)
+
+`POST /v1/source-events` accepts a bounded version 1 envelope. Its provider identity
+is `(platform, endpoint_id, provider_event_id)`; repeating the same original returns
+its durable receipt and a conflicting original returns 409. Acceptance validates
+publisher and endpoint identity against the Source Catalog, then writes the source
+version and one work item per enabled, compatible subscription in one Postgres
+transaction. Work freezes the catalog revision, capability version, resolved settings,
+and the configuration source. A later disable prevents new work but leaves accepted
+items pending. Corrections and tombstones append audited versions targeted at the
+original subscription set, even if those subscriptions were later disabled. Tombstones
+are terminal. No legacy cursor or watcher state is moved by this migration.
+
+Machine clients may claim work, settle a current lease, and inspect events or work.
+Claims use `FOR UPDATE SKIP LOCKED`, a 120-second lease, and at most five attempts.
+Failed attempts back off up to one hour and store only a sanitized error code. Human
+admins may explicitly suppress idle work or replay suppressed and dead-letter items
+with a bounded reason; both actions are audited. The stable `effect_key` must be used
+as the idempotency key at each domain owner. A lease expiry can run a handler again,
+so the domain owner must deduplicate the effect before claiming exactly-once output.
+Run summaries remain in `ControlPlaneReporter` and do not contain source payloads.
+
+Media bytes never enter Postgres. The API currently rejects every media reference and
+any media-dependent event because no durable object-storage integration has been
+reviewed. This blocks media-dependent ingestion safely; it does not authorize a
+bucket, Supabase change, or production replay. Operator inspection can contain source
+payload and should be restricted to the authenticated API, never copied into routine
+logs or heartbeats. The in-memory inbox is for local contract testing only.

@@ -40,6 +40,7 @@ run_suite cron-tg-kelas-investasi-gtw cron-tg-kelas-investasi-gtw tests
 run_suite skill-guess-stock skill-guess-stock tests
 run_suite lib-telegram-resilience lib-telegram-resilience tests
 run_suite lib-bursawatch-control lib-bursawatch-control tests
+run_suite lib-bursawatch-pipeline-runtime lib-bursawatch-pipeline-runtime tests
 run_suite cron-x-account-watch cron-x-account-watch tests
 run_suite cron-stockbit-snips cron-stockbit-snips tests
 if [[ "${SKIP_WHATSAPP_CHANNEL_WATCH:-0}" == "1" ]]; then

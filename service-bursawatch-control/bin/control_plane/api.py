@@ -37,6 +37,7 @@ from .source_catalog import (
     catalog_view,
     effective_snapshot,
 )
+from .source_inbox import InboxConflict, MemoryInboxStore, PostgresInboxStore
 from .validators import validators_from_environment
 
 
@@ -52,6 +53,28 @@ class CatalogWrite(BaseModel):
 
     expected_revision: int = Field(ge=1)
     config: dict[str, Any]
+
+
+class SourceEventWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    envelope: dict[str, Any]
+
+
+class WorkSettle(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    lease_token: str = Field(min_length=1, max_length=64)
+    success: bool
+    error_code: str | None = None
+
+
+class WorkAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class SourceRevisionWrite(WorkAction):
+    envelope: dict[str, Any]
+    kind: Literal["correction", "tombstone"]
 
 
 class AvatarWrite(BaseModel):
@@ -205,11 +228,13 @@ def create_app(
     allowed_origins: list[str] | None = None,
     avatar_resolver: AvatarResolver | None = None,
     catalog_store: MemoryCatalogStore | PostgresCatalogStore | None = None,
+    inbox_store: MemoryInboxStore | PostgresInboxStore | None = None,
 ) -> FastAPI:
     store = store or InMemoryStore()
     auth = auth or StaticTokenAuth.from_environment()
     validators = validators or {}
     catalog_store = catalog_store or (PostgresCatalogStore(store.dsn) if isinstance(store, PostgresStore) else MemoryCatalogStore())
+    inbox_store = inbox_store or (PostgresInboxStore(store.dsn, catalog_store) if isinstance(store, PostgresStore) else MemoryInboxStore(catalog_store))
     app = FastAPI(title="Bursawatch Control Plane", version="1.0.0")
     if allowed_origins:
         app.add_middleware(
@@ -314,6 +339,64 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         except (ValueError, TypeError, KeyError) as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    @app.post("/v1/source-events")
+    def accept_source_event(payload: SourceEventWrite, _current: Principal = Depends(machine_or_admin)) -> dict[str, Any]:
+        try:
+            return inbox_store.accept(payload.envelope)
+        except InboxConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (ValueError, TypeError, KeyError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/v1/source-work/claim")
+    def claim_source_work(limit: int = Query(default=10, ge=1, le=100), _current: Principal = Depends(machine_or_admin)) -> list[dict[str, Any]]:
+        return inbox_store.claim(limit)
+
+    @app.get("/v1/source-work")
+    def list_source_work(status: Literal["pending", "leased", "done", "dead_letter", "suppressed"], limit: int = Query(default=100, ge=1, le=100), _current: Principal = Depends(machine_or_admin)) -> list[dict[str, Any]]:
+        return inbox_store.list_work(status, limit)
+
+    @app.post("/v1/source-work/{work_key}/settle")
+    def settle_source_work(work_key: str, payload: WorkSettle, _current: Principal = Depends(machine_or_admin)) -> dict[str, Any]:
+        try:
+            return inbox_store.settle(work_key, payload.lease_token, success=payload.success, error_code=payload.error_code)
+        except InboxConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/v1/source-events/{event_key}")
+    def inspect_source_event(event_key: str, _current: Principal = Depends(machine_or_admin)) -> dict[str, Any]:
+        try:
+            return inbox_store.inspect(event_key)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="source event not found") from exc
+
+    @app.post("/v1/source-work/{work_key}/suppress")
+    def suppress_source_work(work_key: str, payload: WorkAction, current: Principal = Depends(admin_only)) -> dict[str, Any]:
+        try:
+            return inbox_store.suppress(work_key, current.subject, payload.reason)
+        except InboxConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/v1/source-work/{work_key}/replay")
+    def replay_source_work(work_key: str, payload: WorkAction, current: Principal = Depends(admin_only)) -> dict[str, Any]:
+        try:
+            return inbox_store.replay(work_key, current.subject, payload.reason)
+        except InboxConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/v1/source-events/{event_key}/versions")
+    def revise_source_event(event_key: str, payload: SourceRevisionWrite, current: Principal = Depends(admin_only)) -> dict[str, Any]:
+        try:
+            return inbox_store.revise(event_key, payload.envelope, payload.kind, current.subject, payload.reason)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="source event not found") from exc
+        except InboxConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/v1/watchers")
     def list_watchers(_current: Principal = Depends(human_reader)) -> list[dict[str, Any]]:

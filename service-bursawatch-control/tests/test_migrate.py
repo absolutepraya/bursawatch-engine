@@ -112,6 +112,7 @@ def test_discover_migrations_uses_the_checked_legacy_eligibility_registry():
         "011_stockbit_snips_control_plane.sql",
         "012_stockbit_scheduler_job_key.sql",
         "013_source_catalog.sql",
+        "014_source_inbox.sql",
     }
     assert {migration.release_eligibility for migration in migrations} == {"automatic", "manual"}
     assert next(
