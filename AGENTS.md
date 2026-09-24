@@ -115,19 +115,26 @@ explicitly approved action after review.
    the first write, receive current-session approval, then compare checksums.
    A scheduler wrapper under `~/.hermes/scripts/` must retain mode `0755` and
    pass a direct executability check before a cron is retargeted to it.
-6. GitHub Actions validates only and has no production credential or VPS
-   access. After the exact current `main` SHA passes `CI / validate`, the
-   separately bootstrapped VPS-local release agent may deploy only the
-   allowlisted units in `platform-bursawatch-release/release-manifest.json`.
-   It is the sole automatic deployment authority. A normal push never gives
-   GitHub Actions deployment access.
+6. GitHub Actions has no VPS credential or access. The narrowly scoped
+   `.github/workflows/web-owner-sign.yml` exception may use the repository
+   owner's GitHub token to create an owner-authored web sign commit on `main`
+   after successful Web CI for web content that lacks a current signature.
+   The first run initializes both package markers and can trigger both Vercel
+   projects; later runs update stale markers. Vercel's Git integration, not
+   that Action, performs the web deployment. After the exact
+   current `main` SHA passes `CI / validate`, the separately bootstrapped
+   VPS-local release agent may deploy only the allowlisted units in
+   `platform-bursawatch-release/release-manifest.json`. It remains the sole
+   automatic VPS deployment authority. See `DEPLOYMENT.md` for the web-only
+   secret, trigger, review and verification contract.
 
 `web-config/` and `web-landing/` are independent Node 24 packages. Their
 source paths are release-manifest metadata, not VPS deployment units. Web CI
-validates both packages; Vercel projects deploy them separately from their
-package roots. Follow `DEPLOYMENT.md` for the web release sequence. Do not
-move web environment values into the backend service, copy backend credentials
-into either app, or infer that a successful web build proves live delivery.
+validates both packages; the `personalpraya` Vercel projects deploy them
+separately from their package roots. Follow `DEPLOYMENT.md` for the web release
+sequence. Do not move web environment values into the backend service, copy
+backend credentials into either app, or infer that a successful web build or
+sign commit proves live delivery.
 
 `service-cobalt/deploy.sh` owns Cobalt deployment. `skill-profile-emoji/deploy.sh`
 owns its skill deployment. The generic deploy helper supports cron and library

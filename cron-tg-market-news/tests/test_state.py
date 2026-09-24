@@ -9,6 +9,7 @@ import pytest
 import state as state_module
 
 from domain import Classification, EventClass
+from stock_status import format_stock_status, parse_stock_information
 from state import (
     StateBlockedError,
     advance_provider_cursor,
@@ -17,14 +18,19 @@ from state import (
     clear_retry,
     empty_state,
     enqueue_candidate,
+    enqueue_stock_status,
     expire_agent_leases,
     load_state,
     mark_terminal,
     mark_provider_bootstrap_complete,
+    mark_stock_status_delivered,
+    pending_stock_status_events,
     provider_bootstrap_complete,
     provider_cursor,
     run_lock,
+    reject_stock_status,
     save_state,
+    schedule_stock_status_retry,
     schedule_retry,
     submit_classification,
 )
@@ -139,6 +145,171 @@ def test_terminal_rank_suppression_never_requeues(tmp_path, monkeypatch, candida
 
     assert state["candidates"][candidate.key]["phase"] == "suppressed_rank"
     assert claim_oldest_pending_analysis(state, now + timedelta(days=1)) is None
+
+
+def test_stock_status_event_round_trips_without_changing_provider_cursors(
+    tmp_path, monkeypatch, load_fixture
+):
+    state_path = tmp_path / "state.json"
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(state_path))
+    state = empty_state()
+    status = parse_stock_information(
+        35377, load_fixture("phintraco-stock-status-35377.txt")
+    )
+    now = datetime.fromisoformat("2026-09-23T08:30:00+07:00")
+    source_url = "https://t.me/phintasprofits/35377"
+    content = format_stock_status(status, source_url)
+
+    assert enqueue_stock_status(state, status, source_url, "123", content, now) is True
+    save_state(state, state_path)
+    restored = load_state(state_path)
+
+    assert restored["providers"]["phintraco"]["observed_message_id"] == 0
+    assert "phintraco-stock-status:35377" in restored["stats"]["stock_status_events"]
+
+
+def test_old_state_without_stock_status_map_remains_readable():
+    state = empty_state()
+    state["stats"].pop("stock_status_events", None)
+
+    assert pending_stock_status_events(state, datetime.now().astimezone()) == []
+
+
+def test_rejected_status_is_durable_before_provider_cursor_advances(tmp_path, monkeypatch):
+    state_path = tmp_path / "state.json"
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(state_path))
+    state = empty_state()
+    now = datetime.fromisoformat("2026-09-23T08:30:00+07:00")
+
+    assert reject_stock_status(
+        state,
+        35378,
+        "https://t.me/phintasprofits/35378",
+        "invalid_status",
+        now,
+    ) is True
+    assert state["providers"]["phintraco"]["observed_message_id"] == 0
+    assert load_state(state_path)["stats"]["stock_status_events"][
+        "phintraco-stock-status:35378"
+    ]["phase"] == "rejected"
+
+    advance_provider_cursor(state, "phintraco", 35378)
+    restored = load_state(state_path)
+    event = restored["stats"]["stock_status_events"]["phintraco-stock-status:35378"]
+    assert restored["providers"]["phintraco"]["observed_message_id"] == 35378
+    assert event["rejection_code"] == "invalid_status"
+    assert "content" not in event
+
+
+def test_duplicate_status_event_is_idempotent_and_payload_collision_blocks(
+    tmp_path, monkeypatch, load_fixture
+):
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_path / "state.json"))
+    state = empty_state()
+    status = parse_stock_information(
+        35377, load_fixture("phintraco-stock-status-35377.txt")
+    )
+    now = datetime.fromisoformat("2026-09-23T08:30:00+07:00")
+    source_url = "https://t.me/phintasprofits/35377"
+    content = format_stock_status(status, source_url)
+
+    assert enqueue_stock_status(state, status, source_url, "123", content, now) is True
+    assert enqueue_stock_status(state, status, source_url, "123", content, now) is False
+    with pytest.raises(StateBlockedError):
+        enqueue_stock_status(state, status, source_url, "456", content, now)
+
+
+def test_stock_status_retry_metadata_and_frozen_payload_survive_reload(
+    tmp_path, monkeypatch, load_fixture
+):
+    state_path = tmp_path / "state.json"
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(state_path))
+    state = empty_state()
+    status = parse_stock_information(
+        35377, load_fixture("phintraco-stock-status-35377.txt")
+    )
+    now = datetime.fromisoformat("2026-09-23T08:30:00+07:00")
+    source_url = "https://t.me/phintasprofits/35377"
+    content = format_stock_status(status, source_url)
+    enqueue_stock_status(state, status, source_url, "123", content, now)
+    schedule_stock_status_retry(
+        state,
+        "phintraco-stock-status:35377",
+        now,
+        "temporary failure",
+        minimum_delay_seconds=90,
+    )
+
+    restored = load_state(state_path)
+    events = restored["stats"]["stock_status_events"]
+    event = events["phintraco-stock-status:35377"]
+    assert event["content"] == content
+    assert event["channel_id"] == "123"
+    assert event["retry"] == {
+        "attempts": 1,
+        "next_attempt_at": "2026-09-23T08:31:30+07:00",
+        "last_error": "temporary failure",
+    }
+    assert pending_stock_status_events(restored, now) == []
+    assert pending_stock_status_events(restored, now.replace(minute=32)) == [
+        ("phintraco-stock-status:35377", event)
+    ]
+
+
+def test_stock_status_delivery_transition_persists_success(tmp_path, monkeypatch, load_fixture):
+    state_path = tmp_path / "state.json"
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(state_path))
+    state = empty_state()
+    status = parse_stock_information(
+        35377, load_fixture("phintraco-stock-status-35377.txt")
+    )
+    source_url = "https://t.me/phintasprofits/35377"
+    now = datetime.fromisoformat("2026-09-23T08:30:00+07:00")
+    enqueue_stock_status(
+        state, status, source_url, "123", format_stock_status(status, source_url), now
+    )
+
+    mark_stock_status_delivered(
+        state, "phintraco-stock-status:35377", "discord-message-42", now
+    )
+
+    restored = load_state(state_path)
+    event = restored["stats"]["stock_status_events"]["phintraco-stock-status:35377"]
+    assert event["phase"] == "delivered"
+    assert event["discord_message_id"] == "discord-message-42"
+    assert pending_stock_status_events(restored, now) == []
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda event: event.update(phase="unknown"),
+        lambda event: event["retry"].update(attempts=-1),
+    ],
+)
+def test_load_state_rejects_malformed_stock_status_event(tmp_path, monkeypatch, load_fixture, mutate):
+    state_path = tmp_path / "state.json"
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(state_path))
+    state = empty_state()
+    status = parse_stock_information(
+        35377, load_fixture("phintraco-stock-status-35377.txt")
+    )
+    source_url = "https://t.me/phintasprofits/35377"
+    enqueue_stock_status(
+        state,
+        status,
+        source_url,
+        "123",
+        format_stock_status(status, source_url),
+        datetime.fromisoformat("2026-09-23T08:30:00+07:00"),
+    )
+    persisted = json.loads(state_path.read_text(encoding="utf-8"))
+    mutate(persisted["stats"]["stock_status_events"]["phintraco-stock-status:35377"])
+    state_path.write_text(json.dumps(persisted), encoding="utf-8")
+    os.chmod(state_path, 0o600)
+
+    with pytest.raises(StateBlockedError):
+        load_state(state_path)
 
 
 def test_expired_agent_lease_returns_candidate_to_bounded_retry(tmp_path, monkeypatch, candidate):

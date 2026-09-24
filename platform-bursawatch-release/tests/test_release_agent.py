@@ -398,6 +398,9 @@ def test_no_post_verifications_use_an_isolated_path_and_disable_control_plane_wr
         if control_plane_values:
             assert "" in control_plane_values
         if verification == "stockbit-snips-no-post":
+            manifest_data = json.loads((ROOT / "release-manifest.json").read_text(encoding="utf-8"))
+            stockbit_unit = next(unit for unit in manifest_data["units"] if unit["id"] == "cron-stockbit-snips")
+            assert "lib-bursawatch-control" in stockbit_unit.get("depends_on", [])
             assert specification.environment["STOCKBIT_SNIPS_NO_POST"] == "1"
             assert specification.environment["STOCKBIT_SNIPS_STATE_PATH"] == str(
                 specification.temporary_path / "state.json"
@@ -405,8 +408,73 @@ def test_no_post_verifications_use_an_isolated_path_and_disable_control_plane_wr
             assert specification.command == (
                 str(Path.home() / ".hermes/scripts/bursawatch-stockbit-snips.sh"),
             )
+            assert "STOCKBIT_SNIPS_CONTROL_PLANE_URL" not in specification.environment
+            assert "STOCKBIT_SNIPS_CONTROL_PLANE_SPOOL_PATH" not in specification.environment
+            assert not any("REPORTER" in key for key in specification.environment if key.startswith("STOCKBIT_SNIPS_"))
     finally:
         shutil.rmtree(specification.temporary_path, ignore_errors=True)
+
+
+def test_stockbit_no_post_uses_fresh_state_and_clears_inherited_event_spool(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("STOCKBIT_SNIPS_CONTROL_PLANE_SPOOL_PATH", "/inherited/forbidden/spool")
+    first = release_agent._no_post_specification("stockbit-snips-no-post", tmp_path)
+    second = release_agent._no_post_specification("stockbit-snips-no-post", tmp_path)
+    try:
+        assert first.temporary_path != second.temporary_path
+        assert first.environment["STOCKBIT_SNIPS_STATE_PATH"] != second.environment["STOCKBIT_SNIPS_STATE_PATH"]
+        assert not Path(first.environment["STOCKBIT_SNIPS_STATE_PATH"]).exists()
+        assert not Path(second.environment["STOCKBIT_SNIPS_STATE_PATH"]).exists()
+        assert "STOCKBIT_SNIPS_CONTROL_PLANE_SPOOL_PATH" not in first.environment
+        assert "STOCKBIT_SNIPS_CONTROL_PLANE_SPOOL_PATH" not in second.environment
+    finally:
+        shutil.rmtree(first.temporary_path, ignore_errors=True)
+        shutil.rmtree(second.temporary_path, ignore_errors=True)
+
+
+def test_stockbit_no_post_rejects_degraded_exit_zero_without_exposing_diagnostics(monkeypatch, tmp_path: Path):
+    def degraded(_command, **kwargs):
+        assert kwargs["environment"]["STOCKBIT_SNIPS_NO_POST"] == "1"
+        return (
+            "Stockbit live configuration is unavailable or invalid\n"
+            + json.dumps({
+                "wakeAgent": False,
+                "items": [],
+                "stats": {"degraded": True, "errors": ["Stockbit live configuration is unavailable or invalid"]},
+            })
+            + "\n"
+        )
+
+    monkeypatch.setattr(release_agent, "_run_command", degraded)
+    deployer = release_agent.ReleaseDeployer(
+        settings=make_settings(tmp_path), release_sha="a" * 40, checkout=tmp_path / "checkout"
+    )
+    with pytest.raises(release_agent.DeploymentError) as raised:
+        deployer._run_verification("stockbit-snips-no-post")
+    assert "live config" in str(raised.value)
+    assert "unavailable or invalid" not in str(raised.value)
+    assert not list((tmp_path / "state/no-post/stockbit-snips-no-post").glob("run-*"))
+
+
+def test_stockbit_no_post_accepts_successful_config_read_with_fresh_state(monkeypatch, tmp_path: Path):
+    def successful(_command, **kwargs):
+        state_path = Path(kwargs["environment"]["STOCKBIT_SNIPS_STATE_PATH"])
+        state_path.write_text(json.dumps({
+            "version": 2,
+            "articles": {},
+            "last_heartbeat": "2026-09-23T12:00:00+07:00",
+        }), encoding="utf-8")
+        return json.dumps({
+            "wakeAgent": False,
+            "items": [],
+            "stats": {"degraded": False, "errors": []},
+        }) + "\n"
+
+    monkeypatch.setattr(release_agent, "_run_command", successful)
+    deployer = release_agent.ReleaseDeployer(
+        settings=make_settings(tmp_path), release_sha="a" * 40, checkout=tmp_path / "checkout"
+    )
+    deployer._run_verification("stockbit-snips-no-post")
+    assert not list((tmp_path / "state/no-post/stockbit-snips-no-post").glob("run-*"))
 
 
 def test_release_store_writes_a_sanitized_atomic_state_and_record(tmp_path: Path):

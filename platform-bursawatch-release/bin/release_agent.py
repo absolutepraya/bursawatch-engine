@@ -693,7 +693,9 @@ class ReleaseDeployer:
             return
         specification = _no_post_specification(verification, self.settings.state_root)
         try:
-            _run_command(specification.command, environment=specification.environment, timeout=300)
+            output = _run_command(specification.command, environment=specification.environment, timeout=300)
+            if verification == "stockbit-snips-no-post":
+                _verify_stockbit_no_post(output, Path(specification.environment["STOCKBIT_SNIPS_STATE_PATH"]))
         except CommandFailure as exc:
             exc.add_details(
                 verification=verification,
@@ -709,6 +711,32 @@ class NoPostSpecification:
     command: tuple[str, ...]
     environment: dict[str, str]
     temporary_path: Path
+
+
+def _verify_stockbit_no_post(output: str, state_path: Path) -> None:
+    """Require evidence that an isolated Stockbit run loaded live config."""
+    failure = DeploymentError("Stockbit no-post did not confirm a successful live config read")
+    try:
+        lines = output.strip().splitlines()
+        result = json.loads(lines[-1]) if lines else None
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        timestamp = datetime.fromisoformat(state["last_heartbeat"])
+    except (IndexError, KeyError, TypeError, ValueError, OSError, json.JSONDecodeError) as exc:
+        raise failure from None
+    if (
+        not isinstance(result, dict)
+        or result.get("wakeAgent") is not False
+        or result.get("items") != []
+        or not isinstance(result.get("stats"), dict)
+        or result["stats"].get("degraded") is not False
+        or result["stats"].get("errors") != []
+        or not isinstance(state, dict)
+        or state.get("version") != 2
+        or state.get("articles") != {}
+        or timestamp.tzinfo is None
+        or timestamp.utcoffset() is None
+    ):
+        raise failure
 
 
 def _no_post_specification(verification: str, state_root: Path) -> NoPostSpecification:
@@ -793,6 +821,9 @@ def _no_post_specification(verification: str, state_root: Path) -> NoPostSpecifi
         )
         command = (str(scripts / "bursawatch-wa-channel-watch.sh"),)
     elif verification == "stockbit-snips-no-post":
+        # The wrapper imports the read credentials for its mandatory config GET.
+        # Keep this isolated run free of inherited event-spool settings.
+        environment.pop("STOCKBIT_SNIPS_CONTROL_PLANE_SPOOL_PATH", None)
         environment.update(
             {
                 "STOCKBIT_SNIPS_NO_POST": "1",

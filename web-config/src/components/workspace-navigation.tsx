@@ -1,18 +1,18 @@
 "use client";
 
-import { Activity, Clock3, LayoutDashboard, LogOut, Settings2, Workflow } from "lucide-react";
+import { Activity, LayoutDashboard, LibraryBig, LogOut, Settings2, Workflow } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef } from "react";
 import { BrandMark } from "@/components/brand";
 import "@/app/workspace-navigation.css";
 
-export type WorkspaceView = "overview" | "workflows" | "history" | "schedules" | "settings";
+export type WorkspaceView = "overview" | "sources" | "workflows" | "history" | "settings";
 
 const destinations = [
   { id: "overview", label: "Overview", href: "/workspace", icon: LayoutDashboard },
+  { id: "sources", label: "Sources", href: "/workspace/sources", icon: LibraryBig },
   { id: "workflows", label: "Workflows", href: "/workspace/workflows", icon: Workflow },
   { id: "history", label: "History", href: "/workspace/history", icon: Activity },
-  { id: "schedules", label: "Schedules", href: "/workspace/schedules", icon: Clock3 },
   { id: "settings", label: "Account", href: "/workspace/settings", icon: Settings2 },
 ] as const;
 

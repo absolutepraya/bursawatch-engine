@@ -2,7 +2,8 @@ import { controlBrowser, WorkspaceError } from "./control-browser";
 import { xWatcherId } from "./x-delivery-status";
 import type { ControlJob, ControlRun, ControlWatcher } from "@/server/control-plane";
 
-export type WorkspaceView = "overview" | "workflows" | "history" | "schedules" | "settings";
+export type WorkspaceView =
+  "overview" | "sources" | "workflows" | "history" | "settings";
 export type WorkspaceIssue = {
   watcherId: string;
   resource: "jobs" | "runs";
@@ -97,16 +98,19 @@ export async function loadWorkspaceRecords(
     checkCancelled();
     options.onCatalog?.(watchers);
     const relevant =
-      options.view === "workflows"
-        ? watchers.filter(
-            (watcher) =>
-              watcher.watcher_id === options.watcherId && watcher.watcher_id === xWatcherId,
-          )
-        : watchers;
+      options.view === "sources" || (options.view === "workflows" && !options.watcherId)
+        ? []
+        : options.view === "workflows"
+          ? watchers.filter((watcher) => watcher.watcher_id === options.watcherId)
+          : watchers;
     for (const watcher of relevant) {
-      if (["overview", "workflows", "schedules"].includes(options.view))
+      if (["overview", "workflows"].includes(options.view))
         entries.push({ watcherId: watcher.watcher_id, resource: "jobs", status: "loading" });
-      if (["overview", "workflows", "history"].includes(options.view))
+      if (
+        options.view === "overview" ||
+        options.view === "history" ||
+        (options.view === "workflows" && watcher.watcher_id === xWatcherId)
+      )
         entries.push({ watcherId: watcher.watcher_id, resource: "runs", status: "loading" });
     }
     const jobs = new Map<number, ControlJob[]>();

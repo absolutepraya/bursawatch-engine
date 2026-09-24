@@ -15,7 +15,7 @@ This branch adds:
   explicit reconciliation status so a dashboard never mistakes stored intent
   for a changed live Hermes job;
 - an isolated validator bridge for the migrated X, Instagram, WhatsApp,
-  Market News, Swing Board, Phintraco, and Kelas Investasi schemas, including bounded
+  Market News, Swing Board, Phintraco, Kelas Investasi, and Stockbit schemas, including bounded
   `additional_prompt_instruction` fields where the watcher has an LLM path.
 - immutable Postgres schema migrations with a checksum ledger and advisory
   lock, so a changed applied migration is refused;
@@ -26,7 +26,8 @@ This branch adds:
 - opt-in live configuration support for X Account Watch, Instagram Account
   Watch, WhatsApp Channel Watch, Telegram Market News, Discord Swing Board,
   Telegram Phintraco Swing, and Telegram Kelas Investasi GTW, with one frozen
-  revision per invocation.
+  revision per invocation. Stockbit Snips requires live configuration for each
+  invocation and has no static fallback.
 
 The Supabase Auth verifier and the reconciler-only control API are implemented
 and covered by local tests. A VPS reconciler service unit, real environment
@@ -67,7 +68,7 @@ private `bursawatch_schema_migrations` ledger. It applies each SQL file exactly
 once and refuses an applied file whose checksum changed.
 
 After migrations and before a watcher enables live mode, the explicitly
-approved deployment runs `bin/seed_baseline_configs.py`. Its seven reviewed
+approved deployment runs `bin/seed_baseline_configs.py`. Its eight reviewed
 JSON snapshots are exact copies of the current source defaults and tracked
 watch JSON. The seeder creates revision 1 only for a watcher with no config
 history. It never replaces an active dashboard revision and refuses partial
@@ -94,7 +95,8 @@ records, but cannot use the dashboard read routes.
 ## Watcher config validation
 
 The API rejects a configuration write unless the watcher parser accepts it.
-Configure only paths to deployed, reviewed watcher `bin/` directories:
+Configure only paths to deployed, reviewed validator sources. The legacy
+watcher paths below require separate migration to the isolated bundle:
 
 ```text
 CONTROL_PLANE_X_CONFIG_VALIDATOR_DIR=/home/praya/.agents/skills/bursawatch-x-account-watch/bin
@@ -104,12 +106,15 @@ CONTROL_PLANE_MARKET_NEWS_CONFIG_VALIDATOR_DIR=/home/praya/.agents/skills/bursaw
 CONTROL_PLANE_SWING_BOARD_CONFIG_VALIDATOR_DIR=/home/praya/.agents/skills/bursawatch-dc-swing-board/bin
 CONTROL_PLANE_PHINTRACO_CONFIG_VALIDATOR_DIR=/home/praya/.agents/skills/bursawatch-tg-phintraco-swing/bin
 CONTROL_PLANE_KELAS_INVESTASI_GTW_CONFIG_VALIDATOR_DIR=/home/praya/.agents/skills/bursawatch-tg-kelas-investasi-gtw/bin
+CONTROL_PLANE_STOCKBIT_CONFIG_VALIDATOR_DIR=/home/praya/.hermes/bursawatch-control-plane/validator-sources/bursawatch-stockbit-snips
 ```
 
 Each validator executes in a fresh, credential-free subprocess. This prevents
 Python module collisions between watcher packages and means the same strict
 schema used at cron startup guards web writes. Unconfigured watchers remain
-read-only through the API until their typed validator is added.
+read-only through the API until their typed validator is added. Stockbit config
+PUTs remain unavailable until the reviewed Stockbit validator bundle path is
+configured in the dedicated API environment and the service is restarted.
 
 ## Profile avatar metadata
 

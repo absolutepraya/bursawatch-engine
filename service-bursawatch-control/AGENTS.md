@@ -144,7 +144,11 @@ Human configuration writes still go through the authenticated API.
 The optional watcher config-validator directories are trusted deployed source,
 not web input. The service invokes each configured parser in a fresh process
 with a minimal environment and no service credentials, so the X, Instagram,
-WhatsApp, Market News, Swing Board, Phintraco, and Kelas Investasi modules
+WhatsApp, Market News, Swing Board, Phintraco, Kelas Investasi, and Stockbit modules
 cannot collide by Python module name. VPS deployment uses the self-contained
 `validator-sources/` bundle, not a live watcher runtime directory. Its parity
 test requires exact byte-for-byte agreement with each cron source file.
+For Stockbit, the reviewed dedicated API environment must set
+`CONTROL_PLANE_STOCKBIT_CONFIG_VALIDATOR_DIR=/home/praya/.hermes/bursawatch-control-plane/validator-sources/bursawatch-stockbit-snips`.
+Stockbit configuration PUTs remain unavailable until that setting is deployed
+and the API service is restarted. Do not point it at the live cron directory.

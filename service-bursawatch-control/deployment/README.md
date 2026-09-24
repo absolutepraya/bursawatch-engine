@@ -59,6 +59,10 @@ DNS, TLS, Hermes scheduler, or reconciler.
    `/home/praya/.hermes/bursawatch-control-plane/validator-sources/<watcher-id>`
    directory. Do not point the API at a live watcher runtime directory or add
    these API-only keys to Hermes's shared `.env`.
+   For Stockbit, set
+   `CONTROL_PLANE_STOCKBIT_CONFIG_VALIDATOR_DIR=/home/praya/.hermes/bursawatch-control-plane/validator-sources/bursawatch-stockbit-snips`.
+   Stockbit config PUTs remain unavailable until this reviewed setting is
+   applied to the dedicated API environment and the service is restarted.
 5. Source the dedicated environment, then run `venv/bin/python bin/migrate.py`
    and `venv/bin/python bin/seed_baseline_configs.py`. The migration runner
    records immutable file checksums and aborts on a changed applied migration.

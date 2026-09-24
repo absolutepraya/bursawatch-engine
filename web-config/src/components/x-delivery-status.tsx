@@ -89,7 +89,7 @@ export function XDeliveryStatus({
         </p>
       </details>
       <div className="x-delivery-links">
-        <Link href="/workspace/schedules">
+        <Link href="/workspace/workflows?watcher=bursawatch-x-account-watch#workflow-schedules">
           Review schedules <ArrowUpRight size={15} aria-hidden="true" />
         </Link>
         {latest ? (

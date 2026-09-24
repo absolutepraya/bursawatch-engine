@@ -16,6 +16,7 @@ MARKET_NEWS_WATCHER = "bursawatch-tg-market-news"
 SWING_BOARD_WATCHER = "bursawatch-dc-swing-board"
 PHINTRACO_WATCHER = "bursawatch-tg-phintraco-swing"
 KELAS_INVESTASI_WATCHER = "bursawatch-tg-kelas-investasi-gtw"
+STOCKBIT_WATCHER = "bursawatch-stockbit-snips"
 
 
 @pytest.mark.parametrize(
@@ -114,6 +115,23 @@ def test_validator_reuses_the_swing_board_strict_config_schema():
             },
         }
     )
+
+
+def test_validator_reuses_the_stockbit_strict_config_schema():
+    validators = validators_from_directories(
+        {STOCKBIT_WATCHER: ROOT / "service-bursawatch-control/validator-sources" / STOCKBIT_WATCHER}
+    )
+    baseline = json.loads(
+        (ROOT / "service-bursawatch-control/baseline-configs" / f"{STOCKBIT_WATCHER}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    validators[STOCKBIT_WATCHER](baseline)
+    baseline["feeds"][0]["enabled"] = "false"
+    with pytest.raises(ConfigValidationError, match="must be boolean"):
+        validators[STOCKBIT_WATCHER](baseline)
+
 
 def test_validator_rejects_an_unregistered_watcher():
     with pytest.raises(ValueError, match="no config validator is defined"):

@@ -29,12 +29,17 @@ backend is required by this proxy design.
 ## Authenticated workspace
 
 - **Overview**: recorded activity chart/table, reconciliation and recent runs.
-- **Workflows**: seven schema-specific watcher editors for authorized admins,
-  plus the dated source library with brokerage photographs, social profiles
-  and institution references. Public listings do not imply an enabled source.
+- **Sources**: Securities and People reference tabs with illustrated previews.
+  Preview status does not imply a saved or enabled source; configuration links
+  require a matching watcher returned by the authenticated API.
+- **Workflows**: eight schema-specific watcher editors for authorized admins.
+  Each workflow detail also contains its job schedules: API-bounded intervals,
+  pending/effective state and fixed jobs. Config and schedule saves are separate.
 - **History**: actual returned run metadata and event timelines.
-- **Schedules**: API-bounded intervals, pending/effective state and fixed jobs.
 - **Account**: signed-in identity, UUID sharing and sign-out.
+
+The former `/workspace/schedules` URL remains a compatibility entry point to
+workflow configuration. It is no longer a primary navigation destination.
 
 Uncertain saves are never silently retried. Revision preflight is best effort,
 not an atomic concurrency lock. Coordinate one editor per record until the API

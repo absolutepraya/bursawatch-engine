@@ -1,0 +1,29 @@
+Stock Information
+Effective date : 21 September 2026
+
+Unusual Market Activity (UMA) :
+>WAPO
+>NASI
+
+Suspend :
+>SEMA
+>TEBE
+>IDEA
+>NICK
+>WIKA
+>BIKE
+
+Unsuspend :
+>LIFE
+>GRPH
+>TRUE
+
+FCA In :
+>LIFE
+>GRPH
+
+FCA Out :
+>CSMI
+
+By PHINTRACO SEKURITAS | Research
+-Disclaimer On -

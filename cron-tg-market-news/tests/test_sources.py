@@ -44,6 +44,36 @@ def test_tuntun_corporate_post_with_emoji_header_splits_company_entries():
     assert [candidate.ticker for candidate in candidates] == ["TBIG", "AGAR"]
 
 
+def test_tuntun_corporate_repeated_ticker_entries_keep_one_stable_candidate():
+    first_plas = (
+        "PLAS (PT Polaris Investama Tbk): PLAS menyiapkan sekitar Rp60,39 miliar "
+        "untuk membeli kembali 1,184 miliar saham publik pada harga Rp51 per saham menjelang delisting. "
+        "Periode buyback berlangsung 24 September-6 November dan delisting dijadwalkan efektif 10 November 2026."
+    )
+    second_plas = (
+        "PLAS (PT Polaris Investama Tbk): Menjelang delisting, PLAS menawarkan buyback seluruh "
+        "1,184 miliar saham publik di harga Rp51 per saham dengan dana sekitar Rp60,39 miliar. "
+        "Periode buyback berlangsung 24 September-6 November dan delisting dijadwalkan efektif 10 November 2026."
+    )
+    candidates = TuntunNewsAdapter().extract_candidates(
+        message_id=14978,
+        text=(
+            "Corporate 🏢\n\n"
+            f"{first_plas}\n\n"
+            "SILO (PT Siloam International Hospitals Tbk): Acquires 14 hospitals.\n\n"
+            f"{second_plas}"
+        ),
+        published_at=datetime(2026, 9, 23, 10, 48, 2, tzinfo=timezone.utc),
+        topic_id=3743,
+        direct_image=False,
+    )
+
+    assert [candidate.ticker for candidate in candidates] == ["PLAS", "SILO"]
+    assert candidates[0].key == "tuntun:14978:PLAS"
+    assert candidates[0].source_text == first_plas
+    assert second_plas not in candidates[0].source_text
+
+
 def test_tuntun_issuer_headline_with_decorative_prefix_is_ticker_led():
     candidates = TuntunNewsAdapter().extract_candidates(
         message_id=14021,
@@ -333,6 +363,44 @@ def test_phintraco_quick_notes_extracts_issuer_from_the_headline():
     assert candidates[0].ticker == "POWR"
     assert candidates[0].source_kind is SourceKind.PHINTRACO_QUICK_NOTE
     assert candidates[0].source_text == content
+
+
+def test_phintraco_quick_notes_extracts_issuer_from_anak_usaha_headline():
+    content = (
+        "PHINTAS Quick Notes | 24 September 2026\n\n"
+        "Anak Usaha ARKO Peroleh Pembiayaan US$9.8 Juta untuk Proyek PLTS\n\n"
+        "ARKO melalui anak usaha tidak langsung memperoleh fasilitas pembiayaan."
+    )
+
+    candidates = PhintracoNewsAdapter().extract_candidates(
+        35412,
+        content,
+        datetime(2026, 9, 24, 1, 15, 42, tzinfo=timezone.utc),
+        False,
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].ticker == "ARKO"
+    assert candidates[0].candidate_id == "ARKO"
+    assert candidates[0].source_kind is SourceKind.PHINTRACO_QUICK_NOTE
+
+
+def test_phintraco_multi_issuer_anak_usaha_quick_note_stays_tickerless():
+    content = (
+        "PHINTAS Quick Notes | 24 September 2026\n\n"
+        "Anak Usaha ARKO dan BRPT Peroleh Pembiayaan untuk Proyek Energi"
+    )
+
+    candidates = PhintracoNewsAdapter().extract_candidates(
+        35413,
+        content,
+        datetime(2026, 9, 24, 1, 15, 42, tzinfo=timezone.utc),
+        False,
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].ticker is None
+    assert candidates[0].candidate_id == "news"
 
 
 def test_phintraco_branded_macro_notes_create_one_tickerless_candidate():

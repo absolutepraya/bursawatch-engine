@@ -16,6 +16,21 @@ import {
 const destination = "100000000000000001";
 const heartbeat = "100000000000000002";
 const sourceEmoji = "<:example:100000000000000003>";
+const stockbitWatcherId = "bursawatch-stockbit-snips";
+const validStockbitConfig = () => ({
+  version: 1,
+  feeds: [
+    { id: "stockbit_commentary", enabled: true },
+    { id: "unboxing", enabled: true },
+    { id: "unboxing_ipo", enabled: true },
+    { id: "ai_reports_stockbit", enabled: true },
+  ],
+  destinations: {
+    id_stocks_news_channel_id: "123456789012345678",
+    macro_news_channel_id: "234567890123456789",
+  },
+  additional_prompt_instruction: "",
+});
 const watcherFor = {
   x: "bursawatch-x-account-watch",
   instagram: "bursawatch-ig-account-watch",
@@ -47,6 +62,87 @@ function profile(kind: ProfileKind) {
 }
 
 describe("watcher configuration drafts", () => {
+  it("validates the exact Stockbit v1 configuration shape", () => {
+    expect(supportsWatcherConfig(stockbitWatcherId, 1)).toBe(true);
+    expect(supportsWatcherConfig(stockbitWatcherId, 2)).toBe(false);
+    expect(validateWatcherConfig(stockbitWatcherId, validStockbitConfig())).toEqual({});
+    expect(
+      validateWatcherConfig(stockbitWatcherId, { ...validStockbitConfig(), extra: true }),
+    ).toHaveProperty("extra");
+    expect(
+      validateWatcherConfig(stockbitWatcherId, { ...validStockbitConfig(), version: 2 }),
+    ).toHaveProperty("version");
+  });
+
+  it("requires four unique fixed Stockbit lanes with boolean switches", () => {
+    const config = validStockbitConfig();
+    expect(
+      validateWatcherConfig(stockbitWatcherId, { ...config, feeds: config.feeds.slice(1) }),
+    ).toHaveProperty("feeds");
+    expect(
+      validateWatcherConfig(stockbitWatcherId, {
+        ...config,
+        feeds: [config.feeds[0], config.feeds[0], ...config.feeds.slice(2)],
+      }),
+    ).toHaveProperty("feeds.1.id");
+    expect(
+      validateWatcherConfig(stockbitWatcherId, {
+        ...config,
+        feeds: [{ ...config.feeds[0], enabled: "true" }, ...config.feeds.slice(1)],
+      }),
+    ).toHaveProperty("feeds.0.enabled");
+    expect(
+      validateWatcherConfig(stockbitWatcherId, {
+        ...config,
+        feeds: [{ ...config.feeds[0], extra: true }, ...config.feeds.slice(1)],
+      }),
+    ).toHaveProperty("feeds.0.extra");
+  });
+
+  it("requires two distinct Stockbit Discord routes and 800 normalized code points", () => {
+    const config = validStockbitConfig();
+    expect(
+      validateWatcherConfig(stockbitWatcherId, {
+        ...config,
+        destinations: { ...config.destinations, macro_news_channel_id: "bad" },
+      }),
+    ).toHaveProperty("destinations.macro_news_channel_id");
+    for (const channelId of ["١٢٣٤٥٦٧٨٩٠١٢٣٤٥٦٧٨", "１２３４５６７８９０１２３４５６７８"])
+      expect(
+        validateWatcherConfig(stockbitWatcherId, {
+          ...config,
+          destinations: { ...config.destinations, macro_news_channel_id: channelId },
+        }),
+      ).toHaveProperty("destinations.macro_news_channel_id");
+    expect(
+      validateWatcherConfig(stockbitWatcherId, {
+        ...config,
+        destinations: {
+          ...config.destinations,
+          macro_news_channel_id: config.destinations.id_stocks_news_channel_id,
+        },
+      }),
+    ).toHaveProperty("destinations.macro_news_channel_id");
+    expect(
+      validateWatcherConfig(stockbitWatcherId, {
+        ...config,
+        destinations: { ...config.destinations, extra: "123456789012345678" },
+      }),
+    ).toHaveProperty("destinations.extra");
+    for (const text of ["x".repeat(800), "🧪".repeat(800)])
+      expect(
+        validateWatcherConfig(stockbitWatcherId, {
+          ...config,
+          additional_prompt_instruction: text,
+        }),
+      ).toEqual({});
+    expect(
+      validateWatcherConfig(stockbitWatcherId, {
+        ...config,
+        additional_prompt_instruction: "🧪".repeat(801),
+      }),
+    ).toHaveProperty("additional_prompt_instruction");
+  });
   it("maps indexed API paths without exposing upstream error prose or unsafe keys", () => {
     expect(
       configFieldErrors([
@@ -379,6 +475,13 @@ describe("WhatsApp v2 mode boundaries", () => {
 });
 
 describe("schedule confirmation", () => {
+  it("uses schedule metadata for Stockbit bounds", () => {
+    expect(validateScheduleMinutes("5", 300, 3600)).toBeNull();
+    expect(validateScheduleMinutes("60", 300, 3600)).toBeNull();
+    expect(validateScheduleMinutes("4", 300, 3600)).not.toBeNull();
+    expect(validateScheduleMinutes("61", 300, 3600)).not.toBeNull();
+  });
+
   it("requires effective status and both matching revisions", () => {
     const pending = {
       schedule: { revision: 4 },

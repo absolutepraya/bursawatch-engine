@@ -56,7 +56,10 @@ source for the agent-backed `cron-stockbit-snips` watcher.
 - The wrapper imports the Stockbit control-plane URL, watcher ID, token, and
   timeout plus the Delivery Owner URL and client/admin token-file paths from
   Hermes's `.env`. It unsets `DISCORD_BOT_TOKEN`, requires the deployed
-  `lib-bursawatch-control` client, and never sets an event spool path.
+  `lib-bursawatch-control` client and the shared Discord delivery client, and
+  never sets an event spool path. It imports the live Stockbit configuration
+  settings even in release no-post mode; missing or invalid live configuration
+  blocks RSS intake, with no static fallback.
 - Discord article sends and heartbeats go through the shared Delivery Owner
   client. Once accepted, the owner's durable retry state is authoritative and
   the local article stays pending until the owner returns a delivered receipt.

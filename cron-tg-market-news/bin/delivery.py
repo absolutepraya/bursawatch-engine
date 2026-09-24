@@ -14,7 +14,15 @@ from tempfile import NamedTemporaryFile
 from domain import CompanyCandidate, Destination, Provider, retry_delay_minutes, source_message_url
 from market_data import fallback_company_name, get_market_snapshot
 from selection import SelectionCandidate
-from state import StateBlockedError, clear_retry, mark_terminal, save_state
+from state import (
+    StateBlockedError,
+    clear_retry,
+    mark_stock_status_delivered,
+    mark_terminal,
+    pending_stock_status_events,
+    save_state,
+    schedule_stock_status_retry,
+)
 
 try:
     from bursawatch_discord_delivery import Attachment, DeliveryClient, OperationIntent, OperationReceipt
@@ -28,7 +36,6 @@ except ModuleNotFoundError:
         sys.path.insert(0, str(_shared_library))
     from bursawatch_discord_delivery import Attachment, DeliveryClient, OperationIntent, OperationReceipt
     from bursawatch_discord_delivery.client import DeliveryClientError
-
 
 _DISCORD_MESSAGE_LIMIT = 2_000
 _DELIVERY_OWNER_PREFIX = "bursawatch-market-news"
@@ -653,3 +660,109 @@ async def deliver_event(
     _store_handoff_receipt(state, item, latest)
     _mark_text_delivered(state, items, message_id, now)
     return True
+
+
+async def deliver_stock_status_event(
+    state: dict[str, object],
+    event_key: str,
+    now: datetime,
+    *,
+    dry_run: bool = False,
+    delivery_client: object | None = None,
+) -> bool:
+    """Deliver one frozen status event through the shared Delivery Owner."""
+    if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("delivery time must be timezone-aware")
+    due_events = dict(pending_stock_status_events(state, now))
+    event = due_events.get(event_key)
+    if event is None:
+        stats = state.get("stats")
+        records = stats.get("stock_status_events") if isinstance(stats, dict) else None
+        record = records.get(event_key) if isinstance(records, dict) else None
+        if isinstance(record, dict) and record.get("phase") == "pending_delivery":
+            return False
+        raise StateBlockedError(f"status event {event_key!r} is not pending delivery")
+    content = event.get("content")
+    channel_id = event.get("channel_id")
+    if not isinstance(content, str) or not content or len(content) > _DISCORD_MESSAGE_LIMIT:
+        raise StateBlockedError(f"status event {event_key!r} has invalid persisted content")
+    if not isinstance(channel_id, str) or not channel_id:
+        raise StateBlockedError(f"status event {event_key!r} has no frozen destination")
+
+    operation = _channel_message_operation(content, channel_id, event_key)
+    raw_handoff = event.get("delivery_handoff")
+    if raw_handoff is None:
+        raw_handoff = {
+            "state": "unknown",
+            "operation_key": operation.key,
+            "receipt": None,
+        }
+        event["delivery_handoff"] = raw_handoff
+        save_state(state)
+    if not isinstance(raw_handoff, dict) or set(raw_handoff) != {
+        "state", "operation_key", "receipt"
+    }:
+        raise StateBlockedError(f"status event {event_key!r} has invalid delivery handoff metadata")
+    if raw_handoff.get("operation_key") != operation.key:
+        raise StateBlockedError(f"status event {event_key!r} has a different operation key")
+
+    if dry_run:
+        message_id = post_discord_text(content, channel_id, event_key, dry_run=True)
+        if message_id is None:
+            return False
+        mark_stock_status_delivered(state, event_key, message_id, now)
+        state["last_delivery_success"] = now.isoformat()
+        save_state(state)
+        return True
+
+    owner = delivery_client if delivery_client is not None else delivery_client_from_environment()
+    accepted_state = raw_handoff.get("state") == "accepted"
+    try:
+        if accepted_state:
+            try:
+                stored_receipt = OperationReceipt.from_json(raw_handoff.get("receipt"), operation)
+            except (TypeError, ValueError):
+                raise DeliveryClientError("invalid_response") from None
+            if stored_receipt.status == "delivered" and _delivered_message_id(stored_receipt, channel_id):
+                latest = stored_receipt
+            else:
+                latest = _require_matching_receipt(operation, owner.status(operation.key))  # type: ignore[attr-defined]
+                if latest is None:
+                    return False
+        else:
+            latest = owner.status(operation.key)  # type: ignore[attr-defined]
+            if latest is None:
+                latest = owner.submit(operation)  # type: ignore[attr-defined]
+            latest = _require_matching_receipt(operation, latest)
+            _store_stock_status_handoff(event, latest)
+            save_state(state)
+            accepted_state = True
+        if latest.status in {"pending", "pending_reconciliation", "retrying", "delivering"}:
+            latest = _require_matching_receipt(
+                operation, owner.wait(operation.key, 0)  # type: ignore[attr-defined]
+            )
+            _store_stock_status_handoff(event, latest)
+            save_state(state)
+        message_id = _delivered_message_id(latest, channel_id)
+    except Exception as error:
+        if not accepted_state:
+            schedule_stock_status_retry(
+                state, event_key, now, _delivery_error_category(error)
+            )
+        return False
+    if message_id is None:
+        return False
+
+    _store_stock_status_handoff(event, latest)
+    mark_stock_status_delivered(state, event_key, message_id, now)
+    state["last_delivery_success"] = now.isoformat()
+    save_state(state)
+    return True
+
+
+def _store_stock_status_handoff(event: dict[str, object], receipt: OperationReceipt) -> None:
+    event["delivery_handoff"] = {
+        "state": "accepted",
+        "operation_key": receipt.key,
+        "receipt": _receipt_document(receipt),
+    }

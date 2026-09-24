@@ -11,7 +11,15 @@ from bursawatch_discord_delivery import OperationReceipt
 import state as state_module
 from domain import CompanyCandidate, Destination, EventClass, Provider, SourceKind
 from selection import SelectionCandidate
-from state import empty_state, enqueue_candidate, load_state
+from sources import PhintracoNewsAdapter
+from state import (
+    StateBlockedError,
+    empty_state,
+    enqueue_candidate,
+    enqueue_stock_status,
+    load_state,
+)
+from stock_status import format_stock_status, parse_stock_information
 
 
 class Response:
@@ -244,6 +252,53 @@ def test_phintraco_entry_uses_shared_issuer_layout_and_four_horizons(monkeypatch
     )
     assert "┈" * 13 not in alert
     assert "*Harga terakhir" not in alert
+
+
+def test_phintraco_anak_usaha_quick_note_uses_the_issuer_market_card(monkeypatch):
+    content = (
+        "PHINTAS Quick Notes | 24 September 2026\n\n"
+        "Anak Usaha ARKO Peroleh Pembiayaan US$9.8 Juta untuk Proyek PLTS\n\n"
+        "ARKO melalui anak usaha tidak langsung memperoleh fasilitas pembiayaan."
+    )
+    candidates = PhintracoNewsAdapter().extract_candidates(
+        35412,
+        content,
+        datetime(2026, 9, 24, 1, 15, 42, tzinfo=timezone.utc),
+        False,
+    )
+
+    assert len(candidates) == 1
+    candidate = candidates[0]
+    assert candidate.ticker == "ARKO"
+    item = SelectionCandidate(
+        candidate=candidate,
+        event_class=EventClass.FINANCING_OR_OWNERSHIP,
+        ranking_band=1,
+        material_facts=("ARKO's subsidiary received a US$9.8 million facility.",),
+        dedupe_facts=("US$9.8 million", "subsidiary", "solar project"),
+        summary="Anak usaha ARKO memperoleh fasilitas pembiayaan US$9,8 juta untuk proyek PLTS.",
+        route=Destination.ID_STOCKS_NEWS,
+    )
+    monkeypatch.setattr(
+        delivery,
+        "get_market_snapshot",
+        lambda ticker, source_text: MarketSnapshot(
+            "PT Arkora Hydro Tbk", 1234, 24, 1.98, -18, -1.44, 55, 4.66, 118, 10.58
+        ),
+    )
+
+    alert = delivery.format_news_item(item)
+
+    assert alert == (
+        "### <:phintraco:1531272488645038091> ARKO (PT Arkora Hydro Tbk)\n\n"
+        "*(Ringkasan)* Anak usaha ARKO memperoleh fasilitas pembiayaan US$9,8 juta untuk proyek PLTS.\n\n"
+        "Harga terakhir (IDR): **1.234**\n"
+        "<:green:1531274822221434911> 1D: **+24 (+1.98%)**, "
+        "<:red:1531274756853202974> 1W: **-18 (-1.44%)**,\n"
+        "<:green:1531274822221434911> 1M: **+55 (+4.66%)**, "
+        "<:green:1531274822221434911> 3M: **+118 (+10.58%)**\n\n"
+        "[View on Telegram](<https://t.me/phintasprofits/35412>)"
+    )
 
 
 def test_phintraco_macro_entry_uses_brand_summary_and_link_without_issuer_data():
@@ -848,3 +903,164 @@ def test_accepted_service_retry_stays_with_owner_without_local_delivery_backoff(
     assert owner.submits == 1
     assert owner.status_calls >= 2
     assert state["candidates"][dewa_tier_one.key]["retry"]["attempts"] == 0
+@pytest.fixture
+def status_event(load_fixture, tmp_state, monkeypatch):
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_state))
+    state = empty_state()
+    status = parse_stock_information(
+        35377, load_fixture("phintraco-stock-status-35377.txt")
+    )
+    now = datetime.fromisoformat("2026-09-23T08:30:00+07:00")
+    source_url = "https://t.me/phintasprofits/35377"
+    content = format_stock_status(status, source_url)
+    event_key = "phintraco-stock-status:35377"
+    enqueue_stock_status(state, status, source_url, "123", content, now)
+    return SimpleNamespace(
+        state=state, event_key=event_key, now=now, content=content
+    )
+
+
+def test_status_delivery_posts_frozen_payload_to_frozen_channel(status_event):
+    owner = DeliveredOwner()
+    delivered = asyncio.run(
+        delivery.deliver_stock_status_event(
+            status_event.state,
+            status_event.event_key,
+            status_event.now,
+            delivery_client=owner,
+        )
+    )
+
+    assert delivered is True
+    assert len(owner.submissions) == 1
+    operation = owner.submissions[0]
+    assert operation.target == {"channel_id": "123"}
+    assert operation.payload["content"] == status_event.content
+    record = status_event.state["stats"]["stock_status_events"][status_event.event_key]
+    assert record["phase"] == "delivered"
+    assert record["delivery_handoff"]["state"] == "accepted"
+
+
+def test_status_delivery_transient_failure_keeps_same_owner_operation_for_retry(status_event):
+    class Owner:
+        def __init__(self):
+            self.operations = {}
+            self.submissions = []
+
+        def status(self, operation_key):
+            return self.operations.get(operation_key)
+
+        def submit(self, operation):
+            self.submissions.append(operation)
+            if len(self.submissions) == 1:
+                raise RuntimeError("temporary")
+            receipt = OperationReceipt(
+                id="owner-status-1",
+                key=operation.key,
+                digest=operation.digest,
+                status="delivered",
+                receipt={"channel_id": "123", "message_id": "456"},
+            )
+            self.operations[operation.key] = receipt
+            return receipt
+
+        def wait(self, operation_key, timeout_seconds):
+            assert timeout_seconds == 0
+            return self.operations[operation_key]
+
+    owner = Owner()
+    assert not asyncio.run(
+        delivery.deliver_stock_status_event(
+            status_event.state,
+            status_event.event_key,
+            status_event.now,
+            delivery_client=owner,
+        )
+    )
+    event = status_event.state["stats"]["stock_status_events"][status_event.event_key]
+    assert event["phase"] == "pending_delivery"
+    assert event["retry"]["attempts"] == 1
+    assert event["retry"]["last_error"]
+
+    later = status_event.now + timedelta(minutes=1)
+    assert asyncio.run(
+        delivery.deliver_stock_status_event(
+            status_event.state,
+            status_event.event_key,
+            later,
+            delivery_client=owner,
+        )
+    )
+    assert len(owner.submissions) == 2
+    assert owner.submissions[0].key == owner.submissions[1].key
+    assert owner.submissions[0].digest == owner.submissions[1].digest
+
+
+def test_accepted_status_retry_stays_with_owner_without_local_backoff(status_event):
+    class Owner:
+        def __init__(self):
+            self.operations = {}
+            self.submissions = []
+            self.status_calls = 0
+
+        def status(self, operation_key):
+            self.status_calls += 1
+            return self.operations.get(operation_key)
+
+        def submit(self, operation):
+            self.submissions.append(operation)
+            receipt = OperationReceipt(
+                id="owner-status-pending",
+                key=operation.key,
+                digest=operation.digest,
+                status="retrying",
+                receipt=None,
+            )
+            self.operations[operation.key] = receipt
+            return receipt
+
+        def wait(self, operation_key, timeout_seconds):
+            assert timeout_seconds == 0
+            return self.operations[operation_key]
+
+    owner = Owner()
+    assert not asyncio.run(
+        delivery.deliver_stock_status_event(
+            status_event.state,
+            status_event.event_key,
+            status_event.now,
+            delivery_client=owner,
+        )
+    )
+    event = status_event.state["stats"]["stock_status_events"][status_event.event_key]
+    assert event["delivery_handoff"]["state"] == "accepted"
+    assert event["retry"]["attempts"] == 0
+    later = status_event.now + timedelta(minutes=1)
+    assert not asyncio.run(
+        delivery.deliver_stock_status_event(
+            status_event.state,
+            status_event.event_key,
+            later,
+            delivery_client=owner,
+        )
+    )
+    assert len(owner.submissions) == 1
+    assert owner.status_calls >= 2
+    assert event["retry"]["attempts"] == 0
+
+
+def test_oversized_status_payload_never_reaches_discord(monkeypatch, status_event):
+    event = status_event.state["stats"]["stock_status_events"][status_event.event_key]
+    event["content"] += "x" * (2001 - len(event["content"]))
+    monkeypatch.setattr(
+        delivery,
+        "post_discord_text",
+        lambda *_args, **_kwargs: pytest.fail("oversized status reached Discord sender"),
+    )
+
+    with pytest.raises(StateBlockedError):
+        asyncio.run(
+            delivery.deliver_stock_status_event(
+                status_event.state, status_event.event_key, status_event.now
+            )
+        )

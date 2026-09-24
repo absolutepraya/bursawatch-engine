@@ -224,7 +224,7 @@
       "id": "cron-stockbit-snips",
       "handler": "runtime",
       "runtime": "bursawatch-stockbit-snips",
-      "depends_on": ["lib-bursawatch-discord-delivery"],
+      "depends_on": ["lib-bursawatch-control", "lib-bursawatch-discord-delivery"],
       "paths": ["cron-stockbit-snips/bin/**", "cron-stockbit-snips/SKILL.md"],
       "wrappers": [{"source": "bursawatch-stockbit-snips.sh", "destination": "bursawatch-stockbit-snips.sh"}],
       "verification": "stockbit-snips-no-post"
