@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +27,7 @@ KNOWN_UNMIGRATED = {
     "telegram:tuntunsekuritas": (None, "tuntun", frozenset({"company_news", "macro_news"})),
 }
 MAX_BATCH = 20
+MAX_MEDIA_OBJECT_BYTES = 8 * 1024 * 1024
 
 
 class IntakeBlocked(RuntimeError):
@@ -94,30 +96,92 @@ def _stamp(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat()
 
 
-def envelope(endpoint: dict[str, Any], message: Any, observed_at: datetime, *, reply_parent: Any = None) -> dict[str, Any]:
+async def _upload_message_media(client: Any, endpoint: dict[str, Any], message: Any, state_root: Path, media_store: Any) -> list[dict[str, Any]]:
+    photo = getattr(message, "photo", None)
+    document = getattr(message, "document", None)
+    if photo is not None:
+        kind, content_type, filename = "image", "image/jpeg", f"telegram-{message.id}.jpg"
+    elif document is not None:
+        content_type = getattr(document, "mime_type", None)
+        if type(content_type) is not str or "/" not in content_type:
+            raise IntakeBlocked("Telegram media content type is unavailable")
+        major = content_type.split("/", 1)[0]
+        kind = major if major in {"image", "video", "audio"} else "document"
+        source_file = getattr(message, "file", None)
+        filename = getattr(source_file, "name", None) or f"telegram-{message.id}"
+    else:
+        raise IntakeBlocked("Telegram media type is unsupported")
+    if media_store is None:
+        raise IntakeBlocked("Telegram media requires the Source Media Owner")
+    size_hint = getattr(document, "size", None) if document is not None else None
+    if type(size_hint) is int and size_hint > MAX_MEDIA_OBJECT_BYTES:
+        raise IntakeBlocked("Telegram media exceeds the 8 MiB object bound")
+    staging_root = state_root / "media-staging"
+    staging_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(staging_root, 0o700)
+    temporary_dir = Path(tempfile.mkdtemp(prefix="telegram-", dir=staging_root))
+    os.chmod(temporary_dir, 0o700)
+    temporary_path = temporary_dir / "attachment.bin"
+    try:
+        def enforce_download_limit(downloaded: int, _total: int) -> None:
+            if downloaded > MAX_MEDIA_OBJECT_BYTES:
+                raise IntakeBlocked("Telegram media exceeds the 8 MiB object bound")
+
+        await client.download_media(
+            message,
+            file=str(temporary_path),
+            progress_callback=enforce_download_limit,
+        )
+        if not temporary_path.is_file():
+            raise IntakeBlocked("Telegram media download did not produce a file")
+        size = temporary_path.stat().st_size
+        if not 1 <= size <= MAX_MEDIA_OBJECT_BYTES:
+            raise IntakeBlocked("Telegram media size is outside the 8 MiB object bound")
+        data = temporary_path.read_bytes()
+    finally:
+        shutil.rmtree(temporary_dir, ignore_errors=True)
+    try:
+        reference = media_store.upload(
+            f"telegram:{endpoint['endpoint_id']}:{message.id}:attachment:0",
+            data,
+            kind=kind,
+            content_type=content_type,
+            filename=filename,
+        )
+    except Exception:
+        raise IntakeBlocked("Telegram media upload to the Source Media Owner failed") from None
+    if type(reference) is not dict or reference.get("durable") is not True or reference.get("kind") != kind or reference.get("content_type") != content_type or reference.get("size_bytes") != size:
+        raise IntakeBlocked("Source Media Owner returned invalid media metadata")
+    return [reference]
+
+
+def envelope(endpoint: dict[str, Any], message: Any, observed_at: datetime, *, reply_parent: Any = None, media_refs: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     message_id = getattr(message, "id", None)
     if type(message_id) is not int or message_id <= 0:
         raise IntakeBlocked("Telegram message identity is invalid")
     text = getattr(message, "raw_text", None) or getattr(message, "message", None) or ""
     if type(text) is not str:
         raise IntakeBlocked("Telegram message text is invalid")
-    # No verified object store exists. A photo/document must stay in the local
-    # source boundary so it can be retried after storage is approved.
-    if getattr(message, "media", None) is not None or getattr(message, "photo", None) is not None:
-        raise IntakeBlocked("Telegram media requires durable storage")
+    media_refs = list(media_refs or [])
+    if (getattr(message, "media", None) is not None or getattr(message, "photo", None) is not None) and not media_refs:
+        raise IntakeBlocked("Telegram media requires a durable media reference")
     reply = getattr(message, "reply_to_msg_id", None)
     if reply is not None and (type(reply) is not int or reply <= 0):
         raise IntakeBlocked("Telegram reply identity is invalid")
     body = {"text": text, "reply_to_message_id": reply}
+    image_refs = [ref["ref"] for ref in media_refs if getattr(message, "photo", None) is not None and ref.get("kind") == "image"]
+    if image_refs:
+        body["media_ref_ids"] = image_refs
     if reply_parent is not None:
         if getattr(reply_parent, "id", None) != reply:
             raise IntakeBlocked("Telegram reply parent identity is invalid")
         body["reply_parent"] = {"message_id": reply, "text": getattr(reply_parent, "raw_text", None) or getattr(reply_parent, "message", "") or "", "published_at": _stamp(reply_parent.date), "has_photo": getattr(reply_parent, "photo", None) is not None}
-    content_hash = hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
-    return {"version": 1, "endpoint_id": endpoint["endpoint_id"], "publisher_id": endpoint["publisher_id"], "platform": "telegram", "provider_event_id": str(message_id), "published_at": _stamp(message.date), "observed_at": _stamp(observed_at), "source_url": f"https://t.me/{endpoint['address']}/{message_id}", "parser_version": "telegram-pilot-1", "content_hash": content_hash, "payload": body, "media_refs": [], "media_required": False}
+    identity = {"payload": body, "media_refs": media_refs}
+    content_hash = hashlib.sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
+    return {"version": 1, "endpoint_id": endpoint["endpoint_id"], "publisher_id": endpoint["publisher_id"], "platform": "telegram", "provider_event_id": str(message_id), "published_at": _stamp(message.date), "observed_at": _stamp(observed_at), "source_url": f"https://t.me/{endpoint['address']}/{message_id}", "parser_version": "telegram-pilot-1", "content_hash": content_hash, "payload": body, "media_refs": media_refs, "media_required": bool(media_refs)}
 
 
-async def ingest_endpoint(client: Any, endpoint: dict[str, Any], state_root: Path, inbox: Any, observed_at: datetime, *, batch: int = MAX_BATCH) -> dict[str, Any]:
+async def ingest_endpoint(client: Any, endpoint: dict[str, Any], state_root: Path, inbox: Any, observed_at: datetime, *, batch: int = MAX_BATCH, media_store: Any = None) -> dict[str, Any]:
     if type(batch) is not int or not 1 <= batch <= MAX_BATCH:
         raise ValueError("Telegram batch must be between 1 and 20")
     root = state_root / endpoint["endpoint_id"].replace(":", "-")
@@ -152,19 +216,33 @@ async def ingest_endpoint(client: Any, endpoint: dict[str, Any], state_root: Pat
         if len(receipts) != 1:
             raise IntakeBlocked("Telegram endpoint handoff was not acknowledged")
         _save_cursor(cursor_path, staged_id)
+        blocked_path = root / "blocked-media.json"
+        if blocked_path.exists():
+            try:
+                blocked = json.loads(blocked_path.read_text())
+            except (OSError, ValueError):
+                blocked = None
+            if type(blocked) is dict and blocked.get("message_id") == staged_id:
+                blocked_path.unlink(missing_ok=True)
         cursor = staged_id
     messages = [message async for message in client.iter_messages(entity, min_id=cursor, reverse=True, limit=batch)]
     for message in sorted(messages, key=lambda item: item.id):
         if message.id <= cursor:
             continue
+        media_refs: list[dict[str, Any]] = []
         if getattr(message, "media", None) is not None or getattr(message, "photo", None) is not None:
             _write_json(root / "blocked-media.json", {"endpoint_id": endpoint["endpoint_id"], "message_id": message.id, "published_at": _stamp(message.date), "media_type": type(getattr(message, "media", None)).__name__})
-            raise IntakeBlocked("Telegram media requires durable storage")
+            try:
+                media_refs = await _upload_message_media(client, endpoint, message, root, media_store)
+            except IntakeBlocked:
+                raise
+            except Exception:
+                raise IntakeBlocked("Telegram media upload to the Source Media Owner failed") from None
         reply_id = getattr(message, "reply_to_msg_id", None)
         parent = await client.get_messages(entity, ids=reply_id) if reply_id is not None and endpoint["endpoint_id"] == "telegram:phintraprofits" else None
         if reply_id is not None and endpoint["endpoint_id"] == "telegram:phintraprofits" and parent is None:
             raise IntakeBlocked("Telegram reply parent is unavailable")
-        item = envelope(endpoint, message, observed_at, reply_parent=parent)
+        item = envelope(endpoint, message, observed_at, reply_parent=parent, media_refs=media_refs)
         handoff.stage(item)
         receipts = handoff.flush(limit=1)
         if len(receipts) != 1:
@@ -176,13 +254,13 @@ async def ingest_endpoint(client: Any, endpoint: dict[str, Any], state_root: Pat
     return {"endpoint_id": endpoint["endpoint_id"], "bootstrapped": False, "cursor": cursor, "accepted": accepted}
 
 
-async def ingest_all(client: Any, snapshot: dict[str, Any], state_root: Path, inbox: Any, observed_at: datetime) -> list[dict[str, Any]]:
+async def ingest_all(client: Any, snapshot: dict[str, Any], state_root: Path, inbox: Any, observed_at: datetime, *, media_store: Any = None) -> list[dict[str, Any]]:
     """Poll each known endpoint independently after validating the full snapshot."""
     selected = endpoints(snapshot)
     outcomes = []
     for endpoint in selected.values():
         try:
-            outcomes.append(await ingest_endpoint(client, endpoint, state_root, inbox, observed_at))
+            outcomes.append(await ingest_endpoint(client, endpoint, state_root, inbox, observed_at, media_store=media_store))
         except Exception:
             # Keep source text and provider errors out of routine run summaries.
             outcomes.append({"endpoint_id": endpoint["endpoint_id"], "status": "blocked"})

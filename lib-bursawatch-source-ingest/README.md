@@ -13,9 +13,14 @@ without its prior anchor blocks advancement. Ordered, nontruncated pages and
 truncated pages that retain their prior anchor can be drained in 20-event
 batches. Each acknowledged event advances the cursor; a contiguous page does
 not advance `scanned_through` past unaccepted events in a partial batch. An
-unavailable inbox leaves the request staged. A media event stores bounded
-source text and identity metadata without media bytes or signed locators and
-holds its cursor. That metadata cannot replace a durable media object.
+unavailable inbox leaves the request staged. Platform adapters may attach
+already uploaded Source Media Owner references through `media_refs`; this
+provider-agnostic library validates their UUID, digest, kind, MIME type,
+filename, object size, and event aggregate limits before staging. The durable
+handoff spool preserves refs for retries. `media_required` with no valid refs
+stores only the adapter's bounded safe text and identity in a private
+`blocked-media.json` and holds the cursor. This library never fetches media,
+receives bytes, or calls Supabase.
 
 `select_endpoints` validates enabled verified effective catalog rows against
 each adapter's independently reviewed source and publisher binding. One

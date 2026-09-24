@@ -19,3 +19,12 @@ destination and instruction settings, routing, and future-only policy remain
 with the current watcher until a separate parity and state migration. A
 watcher config revision change blocks this pilot until a reviewed future-only
 transition; it cannot replay articles accumulated while a lane was disabled.
+
+The existing parser preserves RSS `content`, `thumbnail`, and `enclosure`
+media URLs in its `Article` output. This pilot does not download those URLs:
+feed-controlled hosts have no reviewed allowlist, and the existing feed fetcher
+does not provide a bounded attachment transfer, redirect policy, or media
+signature validation path. A media-bearing article therefore sets
+`media_required` without refs. Source-ingest stores only a locator-stripped
+blocked record, does not accept the URL into the source inbox, and holds that
+lane's cursor. Text-only articles continue through the normal handoff.

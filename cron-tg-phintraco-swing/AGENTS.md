@@ -66,13 +66,15 @@ Deploy only a clean published commit with `./deploy.sh cron-tg-phintraco-swing`,
 
 ## Historical references and related projects
 
-The Telegram source-ingest pilot adds `bin/pipeline_owner.py` for text-only
-source work. It reuses this watcher's parser, outbox, renderer, and Board
-handoff. The owner requires a validated live watch-config revision and
-activates that frozen source and route snapshot before opening its ledger or
-delivering. Its source identity must still match the canonical pilot endpoint;
-there is no default-config fallback in this path. Source charts remain blocked
-at the platform boundary until durable media storage is reviewed. The existing
-scheduled reader stays active; this handler is not a cutover signal.
+The Telegram source-ingest pilot adds `bin/pipeline_owner.py` for source work. It
+reuses this watcher's parser, outbox, renderer, and Board handoff. The owner
+requires a validated live watch-config revision and activates that frozen source
+and route snapshot before opening its ledger or delivering. Its source identity
+must still match the canonical pilot endpoint; there is no default-config
+fallback in this path. When a Swing event has a source chart, the owner retrieves
+its opaque ref through `lib-bursawatch-source-media`, verifies the digest, and
+places the bytes into the existing private source-chart handoff so All and Board
+delivery keep their established text-then-chart behavior. The existing scheduled
+reader stays active; this handler is not a cutover signal.
 
 This is a Phintraco-specific parser. Future providers require independent source validation. Root `AGENTS.md` and `lib-telegram-resilience/README.md` define the shared session and control-plane contract.

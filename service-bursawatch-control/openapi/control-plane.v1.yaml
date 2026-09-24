@@ -11,7 +11,7 @@ paths:
   /v1/source-events:
     post:
       summary: Accept a version 1 normalized source event durably.
-      description: Machine or admin credential. Duplicate provider identities return the original receipt; conflicting content requires an audited correction. Acceptance and per-subscription work insertion share a transaction. Media refs are currently rejected until durable object storage is reviewed.
+      description: Machine or admin credential. Duplicate provider identities return the original receipt; conflicting content requires an audited correction. Acceptance and per-subscription work insertion share a transaction. Media refs are opaque IDs returned by the private Source Media Owner, with bounded verified metadata only.
       requestBody:
         required: true
         content:
@@ -552,9 +552,38 @@ components:
         media_refs:
           type: array
           maxItems: 16
-          description: Currently must be empty until durable storage is approved.
+          description: Stable opaque references returned by the Source Media Owner. Bytes and public or signed URLs are never stored in the event.
+          items:
+            type: object
+            additionalProperties: false
+            required: [ref, sha256, kind, content_type, size_bytes, filename, durable]
+            properties:
+              ref:
+                type: string
+                format: uuid
+                description: Opaque identity resolved only by an authorized Source Media Owner client.
+              sha256:
+                type: string
+                pattern: '^[0-9a-f]{64}$'
+              kind:
+                type: string
+                enum: [image, video, document, audio]
+              content_type:
+                type: string
+                enum: [image/jpeg, image/png, image/gif, image/webp, image/avif, video/mp4, video/quicktime, video/webm, application/pdf, application/zip, text/plain, audio/mpeg, audio/wav, audio/ogg, audio/flac, audio/mp4]
+              size_bytes:
+                type: integer
+                minimum: 1
+                maximum: 8388608
+              filename:
+                type: string
+                pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'
+              durable:
+                type: boolean
+                enum: [true]
         media_required:
           type: boolean
+          description: True when the normalized event depends on media. A true value requires at least one durable media ref.
     SourceCatalogConfig:
       type: object
       additionalProperties: false

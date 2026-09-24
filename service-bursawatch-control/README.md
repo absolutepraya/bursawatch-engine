@@ -273,9 +273,12 @@ and before the revision is accepted; the adapter waits for that settlement. Doma
 deduplicate `(event_key, version, effect_key)` across retry and crash recovery.
 Run summaries remain in `ControlPlaneReporter` and do not contain source payloads.
 
-Media bytes never enter Postgres. The API currently rejects every media reference and
-any media-dependent event because no durable object-storage integration has been
-reviewed. This blocks media-dependent ingestion safely; it does not authorize a
-bucket, Supabase change, or production replay. Operator inspection can contain source
-payload and should be restricted to the authenticated API, never copied into routine
-logs or heartbeats. The in-memory inbox is for local contract testing only.
+Media bytes never enter Postgres. Source-event media references must be opaque stable
+identities minted by the private Source Media Owner, with bounded digest, kind, MIME,
+size, and filename metadata. The inbox validates those fields and the per-object and
+per-event byte limits, but does not resolve refs or access Storage. The media service
+owns Storage credentials and provides authenticated upload and download operations.
+This code path uses fake providers in tests; it does not authorize a bucket, Supabase
+change, or production replay. Operator inspection can contain source payload and should
+be restricted to the authenticated API, never copied into routine logs or heartbeats.
+The in-memory inbox is for local contract testing only.

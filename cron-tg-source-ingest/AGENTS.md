@@ -15,15 +15,22 @@ including unmigrated Tuntun, is checked against its exact publisher before
 the pilot decides whether to poll it.
 
 The inbox owns source events and independent subscription work. The adapter
-never submits Discord or Board operations. `lib-bursawatch-pipeline-runtime`
+never submits Discord or Board operations. `service-bursawatch-source-media`
+owns private Supabase Storage access; `lib-bursawatch-source-media` uploads
+bounded media before event acceptance and returns opaque durable refs. The
+adapter never receives Storage credentials or stores signed/public media URLs.
+`lib-bursawatch-pipeline-runtime`
 claims only registered handler pipelines. The pilot registers the existing
-Phintraco Swing owner for text-only plans and the existing Market News owner
+Phintraco Swing owner for plans and the existing Market News owner
 for deterministic Stock Information. Both retain their own state and route
 through the Discord Delivery Owner. Agent News and Kelas work remain pending
 in the inbox because they lack a bounded Hermes agent handoff. Telegram media
-blocks the endpoint before cursor advancement because no reviewed durable
-media store exists. A local `blocked-media.json` records only the source
-identity and media type needed to diagnose the stop; it is private state, never Git.
+blocks the endpoint before cursor advancement only when its type is unsupported,
+the media service is unavailable, or durable upload fails. A local
+`blocked-media.json` records only source identity and media type to diagnose a
+blocked handoff; it is private state, never Git. If upload succeeds but inbox
+acceptance fails, the private handoff spool retains the opaque reference and
+retries it without reuploading or advancing the Telegram cursor.
 
 Do not register or invoke this package against live Telegram, inbox, or
 Discord under the development plan. It cannot replace the current readers

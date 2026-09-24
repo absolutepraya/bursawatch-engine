@@ -57,10 +57,12 @@ def endpoints(snapshot: dict[str, Any], loaded_config: Any) -> tuple[dict[str, d
 
 def _item(article: Any, revision: int) -> dict[str, Any]:
     payload = article.to_payload()
-    # The existing Stockbit renderer does not consume media_url. Preserve the
-    # article field for its parser contract; no media byte or signed URL is
-    # fetched or promised to a downstream worker.
-    return {"provider_event_id": hashlib.sha256(article.guid.encode("utf-8")).hexdigest(), "published_at": article.published_at.isoformat(), "source_url": article.url, "payload": {"article": payload, "watch_config_revision": revision}, "media_required": False}
+    # The fixed RSS parser exposes arbitrary provider media URLs, but this
+    # adapter has no host-reviewed, bounded media byte fetcher. Such entries
+    # remain fail-closed in source-ingest, whose blocked record strips media
+    # locators. The parser output itself is left intact for that decision.
+    has_media = isinstance(article.media_url, str) and bool(article.media_url)
+    return {"provider_event_id": hashlib.sha256(article.guid.encode("utf-8")).hexdigest(), "published_at": article.published_at.isoformat(), "source_url": article.url, "payload": {"article": payload, "watch_config_revision": revision}, "media_required": has_media, "media_refs": []}
 
 
 def run_once(snapshot: dict[str, Any], loaded_config: Any, state_root: Path, inbox: Any, observed_at: datetime, *, fetch_feed: Any = None) -> list[dict[str, Any]]:

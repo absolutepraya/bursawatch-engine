@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-24
 
-**Status:** Approved by user; implementation plan pending approval
+**Status:** Approved by user; implementation in progress under the approved plan
 
 **Owner:** Abhip / Yanto, Hermes agent on the VPS
 
@@ -26,7 +26,7 @@ The user-facing catalog has three distinct sections:
 | Institutions | Curated Bursa Efek-certified securities firms that users recognize and trust | Users select from the maintained catalog. Institution identity and verified platform endpoints are catalog data, not free-form workflow definitions. |
 | People & Org | Individual experts, groups, and communities | Users may add a person or organization and connect supported platform endpoints. An entry is not active until a supported endpoint and compatible capability are configured. |
 
-Institution profiles have a 4:3 banner and a logo. People & Org profiles have a logo or profile picture. Store binary assets in object storage and keep validated asset references and metadata in the control plane. The exact storage provider is an implementation decision; the browser must not write directly to storage metadata or the database.
+Institution profiles have a 4:3 banner and a logo. People & Org profiles have a logo or profile picture. Store binary assets in private Supabase Storage and keep validated asset references and metadata in the Control Plane. The browser must use an authenticated upload path; it never receives a privileged Storage credential or writes database metadata directly. The catalog asset upload path remains separate follow-up work from the source-media upload API.
 
 Securities are monitored entities, not publishers. Institutions and People & Org are publisher identities. One publisher may have several platform endpoints, and one endpoint may publish content about many securities. The UI may show their relationships together, but the backend must keep those identities separate.
 
@@ -52,6 +52,7 @@ User-facing capabilities may include Trading Plans, Company/Stock News, and Macr
 | Source event | An immutable, normalized record of one source publication, with attribution, source identity, timestamps, content references, and a stable event ID. |
 | Subscription work item | Durable processing of one source event by one enabled pipeline under a frozen effective configuration. |
 | Domain owner | The service that owns canonical business state, such as the Swing Board owner or a news owner. |
+| Source Media Owner | The service that validates, stores, and privately serves binary media through Supabase Storage. It owns Storage credentials and object operations, not source events or domain state. |
 
 The Bursawatch Control Plane owns catalog records, publisher-endpoint relationships, capability definitions and compatibility, versioned subscriptions, user-managed settings, and desired schedules. It exposes the versioned API consumed by web-config and workers. The browser is an API projection and has no direct database access.
 
@@ -64,9 +65,12 @@ flowchart LR
   User[Operator] --> UI[web-config]
   UI -->|versioned catalog and configuration API| CP[Control Plane]
   CP -->|effective endpoint and subscription snapshots| Adapter[Platform adapter workers]
+  Adapter -->|validated media uploads| Media[Source Media Owner]
+  Media -->|private objects| Storage[(Supabase Storage)]
   Adapter -->|durable normalized events| Inbox[Source Event Inbox and dispatcher]
   Inbox -->|independent work item per subscription| Pipelines[Capability pipelines]
   Pipelines --> Domains[Domain owners<br/>Swing Board, News, other domains]
+  Domains -->|private media fetch| Media
   Domains --> Renderers[Shared renderers]
   Renderers -->|canonical delivery intents| Delivery[Shared Discord Delivery Owner]
   Delivery --> Discord[Discord destinations]
@@ -123,10 +127,10 @@ The Swing Board owner remains authoritative for ticker-to-forum routing, episode
 | Immutable source events and per-subscription work/retry records | Source Event Inbox and dispatcher | Durable acknowledgement, replay, deduplication, retention, and audit contract. It may initially run within the existing control-plane deployment, but remains a distinct module and schema owner. |
 | Canonical plan, news, and Board state | Corresponding domain owner | No watcher writes another owner's state directly. |
 | Discord operations, remote IDs, receipts, retries, and reconciliation | Shared Discord Delivery Owner | One delivery authority for all Bursawatch Discord destinations. |
-| Institution banners, logos, profile pictures, and source media | Object storage | Database records hold validated references and metadata, not binary image bodies. |
+| Institution banners, logos, profile pictures, and source media | Supabase Storage, mediated by the Source Media Owner | Private objects; the Control Plane and source events store validated stable references and metadata, not bytes or expiring signed URLs. |
 | Run summaries, config revisions, event/work-item correlation IDs, sanitized errors | Control Plane observability API/database | Raw source content and secrets are excluded. Hermes process logs remain available for execution diagnostics. |
 
-The current Control Plane uses Postgres for versioned watcher configuration and schedule records. Supabase is used by the web app for user authentication; its storage/database must not be assumed to be the approved binary asset or event store. The initial physical database and object storage choices, retention limits, and media access controls are implementation decisions. The architecture requires stable APIs and owner boundaries if the physical stores later change.
+The current Control Plane uses Postgres for versioned watcher configuration and schedule records. The user selected Supabase Storage for binary source media. A separate Source Media Owner holds the privileged Storage credential, validates and stores bounded uploads, and serves private bytes to authorized platform/domain clients. It exposes opaque stable references rather than public object URLs or expiring signed URLs. The Control Plane remains metadata-only for media, consistent with its package contract. A future catalog asset upload flow for web-config must use an authenticated server-side path and must not expose a service credential to the browser.
 
 Schedule configuration retains separate desired and applied revisions. The trusted schedule reconciler remains the only authority that applies approved Hermes schedule changes. Source subscription settings must not silently rewrite scheduler state.
 
@@ -158,7 +162,7 @@ The current Sources UI is a useful visual starting point, but it does not yet im
 8. Retries use a frozen effective configuration snapshot and do not silently reroute, change content, or duplicate domain effects.
 9. Domain state is written only by its owning service. Shared physical storage does not permit cross-owner direct writes.
 10. Shared formatters do not send. All Bursawatch Discord API access, including reads required for management or reconciliation, goes through the Shared Discord Delivery Owner.
-11. Binary images and media live in object storage; relational records hold references, provenance, and metadata.
+11. Binary images and media live in private Supabase Storage behind the Source Media Owner; relational records hold references, provenance, and metadata. The owner validates type, digest, and size and returns stable opaque refs; source adapters never call Storage directly.
 12. Adding a compatible endpoint is configuration. Adding a platform adapter or pipeline requires reviewed engine code, validation, and release.
 13. Existing cursors, queues, and delivery history are preserved through separately reviewed, integrity-checked migrations; no implicit replay or state reset occurs.
 14. UI status distinguishes configured, enabled, pending, degraded, and applied state based on backend records; it does not infer health from static metadata or a successful cron invocation alone.
@@ -170,12 +174,12 @@ The current Sources UI is a useful visual starting point, but it does not yet im
 - Rewriting every cron in one release or moving all existing cursors without separate migration review.
 - Changing Swing episode lifecycle or forum behavior defined in the Swing Board design.
 - Giving web-config direct database, provider-credential, Discord-token, or Hermes-scheduler access.
-- Selecting a physical Supabase deployment, object-storage provider, event retention duration, or queue technology in this architecture document.
+- Provisioning the selected Supabase Storage bucket, policies, credentials, retention, and backup controls.
 
 ## Implementation decisions to settle in the approved plan
 
 - Whether the Source Event Inbox is first hosted as isolated modules and tables inside service-bursawatch-control or as a separately deployed worker/API, using expected throughput and recovery needs.
-- Physical database, object storage provider, source media retention, access control, and backup/restore policy.
+- Supabase Storage bucket provisioning, source media retention and backup/restore policy, and the authenticated catalog asset upload flow.
 - Endpoint verification and approval flows per platform, including how private or authenticated sources are authorized.
 - Versioned contracts for normalized event types, capability compatibility, and explicit historical replay.
 - Per-platform polling limits, leases, sharding, and backpressure thresholds.

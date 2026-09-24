@@ -77,7 +77,7 @@ def test_lease_expiry_suppression_replay_and_authorization():
     assert [entry["action"] for entry in inbox.audit] == ["replay", "suppress"]
 
 
-def test_correction_tombstone_and_media_fail_closed():
+def test_correction_tombstone_and_durable_media_refs():
     api, catalog, inbox = setup()
     receipt = api.post("/v1/source-events", headers=MACHINE, json={"envelope": envelope()}).json()
     catalog.put(2, initial_config(), "admin")
@@ -98,8 +98,22 @@ def test_correction_tombstone_and_media_fail_closed():
     assert api.post(f"/v1/source-events/{receipt['event_key']}/versions", headers=ADMIN, json={"envelope": corrected, "kind": "correction", "revision_id": "edit-1", "reason": "retry"}).json()["duplicate"] is True
     media = envelope("media")
     media["media_required"] = True
-    assert api.post("/v1/source-events", headers=MACHINE, json={"envelope": media}).status_code == 422
-    assert len(inbox.events) == 1
+    media["media_refs"] = [{"ref": "00000000-0000-4000-8000-000000000001", "sha256": hashlib.sha256(b"chart").hexdigest(), "kind": "image", "content_type": "image/jpeg", "size_bytes": 5, "filename": "chart.jpg", "durable": True}]
+    accepted = api.post("/v1/source-events", headers=MACHINE, json={"envelope": media})
+    assert accepted.status_code == 200
+    accepted_event = inbox.events[accepted.json()["event_key"]]["versions"][0]["envelope"]
+    assert accepted_event["media_refs"] == media["media_refs"]
+
+    too_large = envelope("too-large-media")
+    too_large["media_refs"] = [{**media["media_refs"][0], "ref": "00000000-0000-4000-8000-000000000002", "size_bytes": 8 * 1024 * 1024 + 1}]
+    assert api.post("/v1/source-events", headers=MACHINE, json={"envelope": too_large}).status_code == 422
+    aggregate = envelope("aggregate-media")
+    aggregate["media_refs"] = [{**media["media_refs"][0], "ref": f"00000000-0000-4000-8000-{number:012x}", "size_bytes": 8 * 1024 * 1024} for number in range(3, 7)]
+    assert api.post("/v1/source-events", headers=MACHINE, json={"envelope": aggregate}).status_code == 422
+    exposed_url = envelope("url-media")
+    exposed_url["media_refs"] = [{**media["media_refs"][0], "ref": "00000000-0000-4000-8000-000000000007", "url": "https://storage.example/signed"}]
+    assert api.post("/v1/source-events", headers=MACHINE, json={"envelope": exposed_url}).status_code == 422
+    assert len(inbox.events) == 2
 
 
 def test_override_resolution_and_bounded_dead_letter():

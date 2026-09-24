@@ -1065,7 +1065,8 @@ def test_status_retry_reuses_frozen_payload_route_and_event_identity(
 
     assert first["stock_status_delivered"] == 0
     assert scan._pending_count(failed_state) == 1
-    assert scan._health_and_warning(failed_state) == (False, True, True)
+    # No-post mode keeps the event pending but does not count a failed live delivery attempt.
+    assert scan._health_and_warning(failed_state) == (False, False, True)
     assert second["stock_status_delivered"] == 1
     assert len(posts) == 2
     assert posts[0] == posts[1]

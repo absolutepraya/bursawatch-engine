@@ -29,7 +29,7 @@ The privileged Supabase service-role key is owned only by this service. Store th
     bursawatch-source-media.sqlite3                   mode 0600
 ```
 
-The upload and read bearer tokens are distinct values and are delivered only to the relevant clients. The service binds to `127.0.0.1:9130`; do not add an Nginx route, tunnel, public bind address, or firewall opening. Local clients must reject non-loopback base URLs.
+The environment file stores distinct service-side upload and read bearer tokens, plus the privileged key path, but never the key value. The files under `secrets/` hold the corresponding mode-0600 client copies, delivered only to the adapter or domain owner that needs that scope. The service binds to `127.0.0.1:9130`; do not add an Nginx route, tunnel, public bind address, or firewall opening. Local clients must reject non-loopback base URLs.
 
 ## First bootstrap boundary
 

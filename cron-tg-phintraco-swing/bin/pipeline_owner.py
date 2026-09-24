@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 from datetime import datetime
@@ -43,25 +44,62 @@ def _acknowledge_effect(path: Path, work: dict[str, Any]) -> None:
 
 def _source_message(envelope: dict[str, Any]) -> SimpleNamespace:
     body = envelope["payload"]
+    media_ref_ids = body.get("media_ref_ids", [])
+    if type(media_ref_ids) is not list or any(type(ref) is not str for ref in media_ref_ids):
+        raise ValueError("Phintraco source media mapping is invalid")
     return SimpleNamespace(
         id=int(envelope["provider_event_id"]),
         message=body["text"],
         date=datetime.fromisoformat(envelope["published_at"]),
-        photo=None,
+        photo=object() if media_ref_ids else None,
     )
 
 
-def submit(work: dict[str, Any], *, no_post: bool = False) -> str:
+def _source_media_client():
+    base_url = os.environ.get("BURSAWATCH_SOURCE_MEDIA_URL")
+    token_file = os.environ.get("BURSAWATCH_SOURCE_MEDIA_READ_TOKEN_FILE")
+    if not base_url or not token_file:
+        raise OwnerPending("Source Media Owner read credentials are unavailable")
+    local = Path(__file__).resolve().parents[2] / "lib-bursawatch-source-media" / "bin"
+    if not local.exists():
+        local = Path.home() / ".agents" / "skills" / "lib-bursawatch-source-media" / "bin"
+    if str(local) not in sys.path:
+        sys.path.insert(0, str(local))
+    from bursawatch_source_media import SourceMediaClient
+    return SourceMediaClient(base_url, Path(token_file))
+
+
+def _download_source_chart(envelope: dict[str, Any], media_store: Any = None) -> bytes:
+    ids = envelope["payload"].get("media_ref_ids", [])
+    refs = envelope.get("media_refs", [])
+    if type(ids) is not list or type(refs) is not list:
+        raise ValueError("Phintraco source chart reference is invalid")
+    matches = [ref for ref in refs if type(ref) is dict and ref.get("ref") in ids and ref.get("kind") == "image"]
+    if len(matches) != 1:
+        raise ValueError("Phintraco source chart must have exactly one durable image ref")
+    reference = matches[0]
+    if reference.get("content_type") != "image/jpeg":
+        raise ValueError("Phintraco source chart must be JPEG")
+    downloaded = (media_store or _source_media_client()).download(reference["ref"])
+    data = getattr(downloaded, "data", None)
+    if (type(data) is not bytes or not data or len(data) > 8 * 1024 * 1024
+            or hashlib.sha256(data).hexdigest() != reference.get("sha256")
+            or len(data) != reference.get("size_bytes")):
+        raise OwnerPending("Source Media Owner returned a chart that failed integrity checks")
+    return data
+
+
+def submit(work: dict[str, Any], *, no_post: bool = False, media_store: Any = None) -> str:
     loaded = scan.config.load_watch_config_for_run()
     if loaded.revision is None:
         raise ValueError("Phintraco pipeline requires an effective live watch config")
     if (loaded.config.telegram_channel_id, loaded.config.telegram_username) != (1444713822, "phintraprofits"):
         raise ValueError("Phintraco pipeline source does not match canonical endpoint")
     with scan.config.activate_watch_config(loaded.config):
-        return _submit_with_config(work, no_post=no_post)
+        return _submit_with_config(work, no_post=no_post, media_store=media_store)
 
 
-def _submit_with_config(work: dict[str, Any], *, no_post: bool) -> str:
+def _submit_with_config(work: dict[str, Any], *, no_post: bool, media_store: Any = None) -> str:
     if no_post:
         isolated = os.environ.get("IDX_SWING_WATCH_PHINTRACO_DAILY_STATE_PATH")
         if not isolated or Path(isolated).expanduser().resolve().is_relative_to((Path.home() / ".hermes" / "state").resolve()):
@@ -70,7 +108,7 @@ def _submit_with_config(work: dict[str, Any], *, no_post: bool) -> str:
     if (work["pipeline_id"], work["capability_id"], work["version"], envelope["endpoint_id"], envelope["publisher_id"]) != ("swing_plan", "trading_plans", 1, "telegram:phintraprofits", "phintraco"):
         raise ValueError("unsupported Phintraco source work")
     expected = hashlib.sha256(f'{work["event_key"]}:1:trading_plans'.encode()).hexdigest()
-    if work["effect_key"] != expected or work["work_key"] != expected or envelope["media_required"] or envelope["media_refs"]:
+    if work["effect_key"] != expected or work["work_key"] != expected or (envelope["media_required"] and not envelope["media_refs"]):
         raise ValueError("Phintraco work identity or media contract is invalid")
     message = _source_message(envelope)
     call = scan.parse_source_event(message)
@@ -84,8 +122,6 @@ def _submit_with_config(work: dict[str, Any], *, no_post: bool) -> str:
         if scan.looks_like_swing_call(message.message):
             raise ValueError("malformed Phintraco plan")
         return "irrelevant"
-    if call.has_source_chart:
-        raise ValueError("Phintraco chart needs durable media")
     now = datetime.now(scan.WIB)
     with scan.run_lock() as acquired:
         if not acquired:
@@ -96,7 +132,15 @@ def _submit_with_config(work: dict[str, Any], *, no_post: bool) -> str:
                 raise ValueError("Phintraco effect receipt is invalid")
             return "accepted"
         state = scan.load_state()
-        scan.enqueue_call(state, call, now)
+        event = scan.enqueue_call(state, call, now)
+        if call.has_source_chart and scan._cached_media_path(event) is None:
+            chart = _download_source_chart(envelope, media_store)
+            media_path = scan.media_dir() / f"phintraco-{call.source_message_id}.jpg"
+            scan._ensure_durable_directory(media_path.parent)
+            scan._write_durable_media(media_path, chart)
+            event["media_path"] = str(media_path)
+            event["chart_status"] = "captured"
+            event["phase"] = scan.PHASE_PENDING_TEXT
         scan.save_state(state)
         scan.drain_outbox(state, now, dry_run=no_post)
         if str(call.source_message_id) in state["outbox"]:

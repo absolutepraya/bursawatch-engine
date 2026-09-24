@@ -46,6 +46,7 @@ this contract:
 
 - `service-cobalt/AGENTS.md`
 - `service-bursawatch-discord-delivery/AGENTS.md`
+- `service-bursawatch-source-media/AGENTS.md`
 - `service-bursawatch-control/AGENTS.md`
 - `cron-tg-market-news/AGENTS.md`
 - `cron-tg-source-ingest/AGENTS.md`
@@ -191,6 +192,17 @@ The service owns operation keys, payload digests, delivery retries and
 reconciliation, receipts, and staged media. Its service and first host
 bootstrap are manual rollout boundaries. See the service and client package
 documentation before changing either contract.
+
+`service-bursawatch-source-media` owns source media object operations in private
+Supabase Storage, including its privileged Storage credential and upload/read
+authorization. Adapters and domain owners use `lib-bursawatch-source-media` for
+opaque stable refs and bounded byte transfer. Control Plane stores only
+validated media metadata and refs. No watcher, web client, Control Plane
+process, or Discord Delivery Owner calls Supabase Storage directly. Institution
+and People & Org asset uploads are a separate follow-up; their authenticated
+path may reuse this owner after its API is designed. The bucket, policies,
+credentials, retention, and first service bootstrap remain separate deployment
+approvals.
 
 ## Safety
 

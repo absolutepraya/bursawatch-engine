@@ -16,10 +16,11 @@ from source_event_client import SourceEventHandoff
 
 NOW = datetime(2026, 9, 24, tzinfo=timezone.utc)
 ENDPOINT = {"endpoint_id": "x:alpha", "publisher_id": "alpha", "platform": "x", "address": "alpha", "provider_id": None}
+MEDIA_REF = {"ref": "10000000-0000-4000-8000-000000000001", "sha256": "a" * 64, "kind": "image", "content_type": "image/jpeg", "size_bytes": 128, "filename": "chart.jpg", "durable": True}
 
 
-def item(identity: str, *, media: bool = False, minute: int = 0) -> dict:
-    return {"provider_event_id": identity, "published_at": NOW.replace(minute=minute).isoformat(), "source_url": f"https://x.com/alpha/status/{identity}", "payload": {"text": identity}, "media_required": media}
+def item(identity: str, *, media: bool = False, media_refs: list[dict] | None = None, minute: int = 0) -> dict:
+    return {"provider_event_id": identity, "published_at": NOW.replace(minute=minute).isoformat(), "source_url": f"https://x.com/alpha/status/{identity}", "payload": {"text": identity}, "media_refs": list(media_refs or []), "media_required": media}
 
 
 class Inbox:
@@ -155,6 +156,34 @@ def test_media_block_holds_only_affected_cursor(tmp_path):
     assert cursor(tmp_path)["anchor"] == "10"
     marker = json.loads((tmp_path / "x-alpha" / "blocked-media.json").read_text())
     assert marker["provider_event_id"] == "11"
+
+
+def test_durable_media_refs_survive_spool_retry_and_ack(tmp_path):
+    inbox = Inbox()
+    ingest_endpoint(ENDPOINT, lambda _: [item("10")], tmp_path, inbox, NOW, "fake-1")
+    page = [item("10"), item("11", media=True, media_refs=[MEDIA_REF], minute=1)]
+    inbox.fail = True
+    with pytest.raises(OSError):
+        ingest_endpoint(ENDPOINT, lambda _: page, tmp_path, inbox, NOW, "fake-1")
+    assert cursor(tmp_path)["anchor"] == "10"
+    pending = SourceEventHandoff(tmp_path / "x-alpha" / "handoff", inbox).spool.pending()
+    assert pending[0].payload["envelope"]["media_refs"] == [MEDIA_REF]
+    inbox.fail = False
+    assert ingest_endpoint(ENDPOINT, lambda _: page, tmp_path, inbox, NOW, "fake-1")["accepted"] == 0
+    assert cursor(tmp_path)["anchor"] == "11"
+    assert len(inbox.events) == 1
+    assert inbox.events[0]["media_refs"] == [MEDIA_REF]
+    assert inbox.events[0]["media_required"] is True
+
+
+def test_media_references_are_validated_before_inbox_acceptance(tmp_path):
+    inbox = Inbox()
+    ingest_endpoint(ENDPOINT, lambda _: [item("10")], tmp_path, inbox, NOW, "fake-1")
+    invalid = {**MEDIA_REF, "content_type": "video/mp4"}
+    with pytest.raises(IntakeBlocked, match="media"):
+        ingest_endpoint(ENDPOINT, lambda _: [item("11", media=True, media_refs=[invalid], minute=1)], tmp_path, inbox, NOW, "fake-1")
+    assert cursor(tmp_path)["anchor"] == "10"
+    assert inbox.events == []
 
 
 def test_endpoint_isolation_and_catalog_identity(tmp_path):

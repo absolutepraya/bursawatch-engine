@@ -59,6 +59,18 @@
       "paths": ["lib-bursawatch-source-ingest/**"]
     },
     {
+      "id": "lib-bursawatch-source-media",
+      "handler": "runtime",
+      "runtime": "lib-bursawatch-source-media",
+      "paths": ["lib-bursawatch-source-media/bin/**"],
+      "verification": "checksum-only"
+    },
+    {
+      "id": "lib-bursawatch-source-media-metadata",
+      "handler": "metadata",
+      "paths": ["lib-bursawatch-source-media/AGENTS.md", "lib-bursawatch-source-media/README.md", "lib-bursawatch-source-media/tests/**"]
+    },
+    {
       "id": "lib-bursawatch-discord-delivery",
       "handler": "runtime",
       "runtime": "lib-bursawatch-discord-delivery",
@@ -150,7 +162,7 @@
       "id": "cron-tg-phintraco-swing",
       "handler": "runtime",
       "runtime": "bursawatch-tg-phintraco-swing",
-      "depends_on": ["lib-telegram-resilience", "lib-swing-format", "lib-bursawatch-control", "lib-bursawatch-discord-delivery", "cron-dc-swing-board"],
+      "depends_on": ["lib-telegram-resilience", "lib-swing-format", "lib-bursawatch-control", "lib-bursawatch-discord-delivery", "lib-bursawatch-source-media", "cron-dc-swing-board"],
       "paths": ["cron-tg-phintraco-swing/bin/**", "cron-tg-phintraco-swing/CRON.md"],
       "wrappers": [{"source": "bursawatch-tg-phintraco-swing.sh", "destination": "bursawatch-tg-phintraco-swing.sh"}],
       "verification": "phintraco-no-post"
@@ -294,6 +306,11 @@
       "id": "manual-discord-delivery-owner",
       "handler": "manual",
       "paths": ["service-bursawatch-discord-delivery/**"]
+    },
+    {
+      "id": "manual-source-media-owner",
+      "handler": "manual",
+      "paths": ["service-bursawatch-source-media/**"]
     },
     {
       "id": "manual-cobalt",

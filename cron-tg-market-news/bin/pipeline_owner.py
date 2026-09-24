@@ -33,7 +33,7 @@ def _check_no_post(no_post: bool) -> None:
 def _check_identity(work: dict[str, Any], capability: str) -> dict[str, Any]:
     envelope = work["envelope"]
     expected = hashlib.sha256(f'{work["event_key"]}:1:{capability}'.encode()).hexdigest()
-    if (work["pipeline_id"], work["capability_id"], work["version"], envelope["endpoint_id"], envelope["publisher_id"]) != (capability, capability, 1, "telegram:phintasprofits", "phintraco") or work["effect_key"] != expected or work["work_key"] != expected or envelope["media_required"] or envelope["media_refs"]:
+    if (work["pipeline_id"], work["capability_id"], work["version"], envelope["endpoint_id"], envelope["publisher_id"]) != (capability, capability, 1, "telegram:phintasprofits", "phintraco") or work["effect_key"] != expected or work["work_key"] != expected or type(envelope["media_refs"]) is not list or (envelope["media_required"] and not envelope["media_refs"]):
         raise ValueError("News work identity or media contract is invalid")
     return envelope
 

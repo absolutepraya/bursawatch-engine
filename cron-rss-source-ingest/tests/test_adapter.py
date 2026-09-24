@@ -65,3 +65,34 @@ def test_live_revision_change_blocks_reenable_without_history_replay(tmp_path):
     run_once(snapshot, loaded, tmp_path, Inbox(), NOW, fetch_feed=fetch)
     with pytest.raises(Exception, match="future-only transition"):
         run_once(snapshot, LoadedStockbitConfig(loaded.config, 8), tmp_path, Inbox(), NOW, fetch_feed=fetch)
+
+
+def test_media_url_blocks_without_entering_inbox_or_safe_marker(tmp_path):
+    snapshot, loaded = snapshot_and_config()
+    feed = FEEDS[0]
+    old = Article(feed.lane, feed.label, "old", "https://snips.stockbit.com/old", "Title", "Text", NOW)
+    media = Article(
+        feed.lane,
+        feed.label,
+        "media-guid",
+        "https://snips.stockbit.com/media",
+        "Media title",
+        "Media text",
+        NOW + timedelta(minutes=1),
+        media_url="https://unreviewed.example.test/image.jpg?signature=private",
+    )
+    pages = {lane.lane.value: [old] for lane in FEEDS}
+    fetch = lambda selected, **_kwargs: SimpleNamespace(not_modified=False, articles=list(reversed(pages[selected.lane.value])))
+    inbox = Inbox()
+    run_once(snapshot, loaded, tmp_path, inbox, NOW, fetch_feed=fetch)
+
+    pages[feed.lane.value].append(media)
+    result = run_once(snapshot, loaded, tmp_path, inbox, NOW, fetch_feed=fetch)
+    assert result[0] == {"endpoint_id": f"rss:stockbit:{feed.lane.value}", "status": "blocked", "reason": "media_blocked"}
+    assert inbox.events == []
+    marker_path = tmp_path / f"rss-stockbit-{feed.lane.value}" / "blocked-media.json"
+    marker = json.loads(marker_path.read_text())
+    assert marker["payload"]["article"]["guid"] == "media-guid"
+    assert "media_url" not in marker["payload"]["article"]
+    assert "unreviewed.example.test" not in json.dumps(marker)
+    assert Article.from_payload(media.to_payload()).media_url == media.media_url

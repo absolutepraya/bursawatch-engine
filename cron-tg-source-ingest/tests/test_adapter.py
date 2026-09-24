@@ -56,6 +56,23 @@ class FakeTelegram:
             if message.id > min_id:
                 yield message
 
+    async def download_media(self, message, *, file, progress_callback=None):
+        data = b"\xff\xd8\xfftelegram-chart"
+        Path(file).write_bytes(data)
+        if progress_callback:
+            progress_callback(len(data), len(data))
+        return file
+
+
+class FakeMediaStore:
+    def __init__(self):
+        self.uploads = []
+
+    def upload(self, identity, data, *, kind, content_type, filename):
+        ref = {"ref": "00000000-0000-4000-8000-000000000011", "sha256": hashlib.sha256(data).hexdigest(), "kind": kind, "content_type": content_type, "size_bytes": len(data), "filename": filename, "durable": True}
+        self.uploads.append((identity, data, ref))
+        return ref
+
 
 def message(mid, text="BUY", *, media=None):
     return SimpleNamespace(id=mid, raw_text=text, message=text, date=NOW, media=media, photo=media, reply_to_msg_id=None)
@@ -92,13 +109,68 @@ async def _media_keeps_cursor_at_previous_ack(tmp_path):
     client = FakeTelegram([message(10)])
     await ingest_endpoint(client, ENDPOINT, tmp_path, inbox, NOW)
     client.messages.extend((message(11), message(12, media=object()), message(13)))
-    with pytest.raises(IntakeBlocked, match="durable storage"):
+    with pytest.raises(IntakeBlocked, match="Source Media Owner"):
         await ingest_endpoint(client, ENDPOINT, tmp_path, inbox, NOW)
     cursor = tmp_path / "telegram-phintraprofits" / "cursor.json"
     assert json.loads(cursor.read_text())["cursor"] == 11
     blocked = json.loads((cursor.parent / "blocked-media.json").read_text())
     assert blocked["message_id"] == 12
     assert [item["provider_event_id"] for item in inbox.accepted] == ["11"]
+
+
+def test_durable_media_upload_precedes_source_acceptance_and_retry_reuses_handoff(tmp_path):
+    asyncio.run(_durable_media_upload_precedes_source_acceptance_and_retry_reuses_handoff(tmp_path))
+
+
+async def _durable_media_upload_precedes_source_acceptance_and_retry_reuses_handoff(tmp_path):
+    inbox = FakeInbox()
+    client = FakeTelegram([message(10)])
+    media_store = FakeMediaStore()
+    await ingest_endpoint(client, ENDPOINT, tmp_path, inbox, NOW)
+    media_message = message(11, "chart plan", media=object())
+    client.messages.append(media_message)
+    inbox.fail = True
+    with pytest.raises(OSError, match="inbox unavailable"):
+        await ingest_endpoint(client, ENDPOINT, tmp_path, inbox, NOW, media_store=media_store)
+    cursor = tmp_path / "telegram-phintraprofits" / "cursor.json"
+    assert json.loads(cursor.read_text())["cursor"] == 10
+    assert len(media_store.uploads) == 1
+    inbox.fail = False
+    result = await ingest_endpoint(client, ENDPOINT, tmp_path, inbox, NOW, media_store=media_store)
+    assert result["cursor"] == 11
+    assert len(media_store.uploads) == 1
+    accepted = inbox.accepted[0]
+    assert accepted["media_required"] is True
+    assert accepted["media_refs"] == [media_store.uploads[0][2]]
+    assert accepted["payload"]["media_ref_ids"] == [media_store.uploads[0][2]["ref"]]
+    assert not (cursor.parent / "blocked-media.json").exists()
+
+
+def test_oversized_telegram_media_stops_during_download_before_upload(tmp_path):
+    asyncio.run(_oversized_telegram_media_stops_during_download_before_upload(tmp_path))
+
+
+async def _oversized_telegram_media_stops_during_download_before_upload(tmp_path):
+    inbox = FakeInbox()
+    client = FakeTelegram([message(10)])
+    await ingest_endpoint(client, ENDPOINT, tmp_path, inbox, NOW)
+
+    class OversizedTelegram(FakeTelegram):
+        async def download_media(self, message, *, file, progress_callback=None):
+            Path(file).write_bytes(b"partial")
+            assert progress_callback is not None
+            progress_callback(8 * 1024 * 1024 + 1, 8 * 1024 * 1024 + 1)
+            raise AssertionError("oversized transfer was not stopped")
+
+    oversized = OversizedTelegram([message(11, "chart", media=object())])
+    media_store = FakeMediaStore()
+    with pytest.raises(IntakeBlocked, match="exceeds the 8 MiB"):
+        await ingest_endpoint(oversized, ENDPOINT, tmp_path, inbox, NOW, media_store=media_store)
+
+    cursor = tmp_path / "telegram-phintraprofits" / "cursor.json"
+    assert json.loads(cursor.read_text())["cursor"] == 10
+    assert media_store.uploads == []
+    assert json.loads((cursor.parent / "blocked-media.json").read_text())["message_id"] == 11
 
 
 def test_effective_catalog_rejects_unknown_enabled_endpoint():

@@ -15,6 +15,12 @@ and its caller contract is in
 [`lib-bursawatch-discord-delivery/README.md`](../lib-bursawatch-discord-delivery/README.md).
 The service and its initial host bootstrap remain manual rollout boundaries.
 
+The Bursawatch Source Media Owner is the only Supabase Storage path for private
+source media. Its service contract and shared client live in
+[`service-bursawatch-source-media/README.md`](../service-bursawatch-source-media/README.md)
+and [`lib-bursawatch-source-media/README.md`](../lib-bursawatch-source-media/README.md).
+The service and its initial host bootstrap remain manual rollout boundaries.
+
 For collaboration, `.wt/config.toml` defines managed feature worktrees and the
 repository-local `finish-workflow` skill ends with a pull request. It does not
 deploy, merge, or remove the review workspace.

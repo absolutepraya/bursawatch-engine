@@ -18,7 +18,17 @@ MAX_ATTEMPTS = 5
 LEASE_SECONDS = 120
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9:._/@-]{0,255}\Z")
 _HEX = re.compile(r"[0-9a-f]{64}\Z")
+_MEDIA_REF = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z")
+_MEDIA_FILENAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _PIPELINE = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
+_MAX_MEDIA_OBJECT_BYTES = 8 * 1024 * 1024
+_MAX_EVENT_MEDIA_BYTES = 25 * 1024 * 1024
+_MEDIA_KIND_TYPES = {
+    "image": {"image/jpeg", "image/png", "image/gif", "image/webp", "image/avif"},
+    "video": {"video/mp4", "video/quicktime", "video/webm"},
+    "document": {"application/pdf", "application/zip", "text/plain"},
+    "audio": {"audio/mpeg", "audio/wav", "audio/ogg", "audio/flac", "audio/mp4"},
+}
 
 
 class InboxConflict(ValueError):
@@ -74,14 +84,31 @@ def validate_envelope(value: object) -> dict[str, Any]:
     except (TypeError, ValueError) as exc:
         raise ValueError("payload must be bounded finite JSON") from exc
     _reject_embedded_media(value["payload"])
+    total_media_bytes = 0
+    seen_media_refs: set[str] = set()
     for ref in value["media_refs"]:
-        if type(ref) is not dict or set(ref) != {"url", "sha256", "kind", "durable"} or ref["durable"] is not True or type(ref["sha256"]) is not str or not _HEX.fullmatch(ref["sha256"]) or ref["kind"] not in {"image", "video", "document", "audio"}:
+        if type(ref) is not dict or set(ref) != {"ref", "sha256", "kind", "content_type", "size_bytes", "filename", "durable"} or ref["durable"] is not True:
             raise ValueError("media refs require verified durable metadata")
-        url = urlparse(ref["url"] if type(ref["url"]) is str else "")
-        if url.scheme != "https" or not url.hostname or url.username or url.password or len(ref["url"]) > 2048:
-            raise ValueError("media ref must be an HTTPS URL")
-    if value["media_refs"]:
-        raise ValueError("durable media storage is not configured")
+        if type(ref["ref"]) is not str or not _MEDIA_REF.fullmatch(ref["ref"]):
+            raise ValueError("media ref must be an opaque storage identity")
+        if ref["ref"] in seen_media_refs:
+            raise ValueError("media refs cannot repeat an object")
+        seen_media_refs.add(ref["ref"])
+        if type(ref["sha256"]) is not str or not _HEX.fullmatch(ref["sha256"]):
+            raise ValueError("media ref digest must be lowercase SHA-256")
+        if type(ref["kind"]) is not str or ref["kind"] not in {"image", "video", "document", "audio"}:
+            raise ValueError("media ref kind is unsupported")
+        if type(ref["content_type"]) is not str or len(ref["content_type"]) > 128 or "/" not in ref["content_type"] or any(char.isspace() for char in ref["content_type"]):
+            raise ValueError("media content type is invalid")
+        if ref["content_type"] not in _MEDIA_KIND_TYPES[ref["kind"]]:
+            raise ValueError("media kind and content type do not match")
+        if type(ref["size_bytes"]) is not int or not 1 <= ref["size_bytes"] <= _MAX_MEDIA_OBJECT_BYTES:
+            raise ValueError("media object size is outside the 8 MiB bound")
+        if type(ref["filename"]) is not str or not _MEDIA_FILENAME.fullmatch(ref["filename"]):
+            raise ValueError("media filename is invalid")
+        total_media_bytes += ref["size_bytes"]
+    if total_media_bytes > _MAX_EVENT_MEDIA_BYTES:
+        raise ValueError("source event media exceeds the 25 MiB aggregate bound")
     if value["media_required"] and not value["media_refs"]:
         raise ValueError("media-dependent processing requires durable media refs")
     result = deepcopy(value)

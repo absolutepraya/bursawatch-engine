@@ -8,7 +8,9 @@ The Telegram source-ingest pilot adds `bin/pipeline_owner.py` for deterministic
 Phintraco Stock Information only. It reuses this package's parser, renderer,
 and durable stock-status ledger. Agent News source work remains unclaimed
 until a bounded Hermes classifier handoff can replace the current scheduled
-reader without losing candidate analysis.
+reader without losing candidate analysis. A stock-status work item may retain
+Source Media Owner refs at the immutable event layer; this text-only capability
+continues to ignore attachments, matching its existing parser and output contract.
 
 - Development source: this directory. The deployed scanner lives at `~/.agents/skills/bursawatch-tg-market-news/`; its wrapper is `~/.hermes/scripts/bursawatch-tg-market-news.sh`.
 - The deterministic scanner owns provider intake, cursoring, candidate creation, event classification validation, deduplication, ranking, durable state, delivery, retries, and heartbeats. Hermes receives exactly one bounded candidate only when `wakeAgent` is true and may classify only that supplied evidence.

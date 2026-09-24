@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-for local, installed in (("lib-bursawatch-control", "lib-bursawatch-control"), ("lib-bursawatch-pipeline-runtime", "lib-bursawatch-pipeline-runtime"), ("lib-telegram-resilience", "lib-telegram-resilience")):
+for local, installed in (("lib-bursawatch-control", "lib-bursawatch-control"), ("lib-bursawatch-pipeline-runtime", "lib-bursawatch-pipeline-runtime"), ("lib-bursawatch-source-media", "lib-bursawatch-source-media"), ("lib-telegram-resilience", "lib-telegram-resilience")):
     candidate = ROOT / local / "bin"
     if not candidate.exists():
         candidate = Path.home() / ".agents" / "skills" / installed / "bin"
@@ -56,8 +56,8 @@ def _owner_handler(package: str, *, no_post: bool):
     return handle
 
 
-async def run_once(telegram: Any, snapshot: dict[str, Any], state_root: Path, inbox: Any, now: datetime, *, handlers: dict[str, Any] | None = None) -> dict[str, Any]:
-    source = await ingest_all(telegram, snapshot, state_root, inbox, now)
+async def run_once(telegram: Any, snapshot: dict[str, Any], state_root: Path, inbox: Any, now: datetime, *, handlers: dict[str, Any] | None = None, media_store: Any = None) -> dict[str, Any]:
+    source = await ingest_all(telegram, snapshot, state_root, inbox, now, media_store=media_store)
     selected = handlers if handlers is not None else {pipeline: _owner_handler(package, no_post=False) for pipeline, package in PIPELINE_OWNERS.items()}
     work = PipelineRuntime(inbox, selected).run_once(limit=20)
     return {"source": source, "work": work}
@@ -69,6 +69,15 @@ def _client() -> SourceEventClient:
     if token_file.stat().st_mode & 0o077:
         raise RuntimeError("source inbox token file permissions are too broad")
     return SourceEventClient(url, token_file.read_text().strip())
+
+
+def _media_client():
+    token_file = os.environ.get("BURSAWATCH_SOURCE_MEDIA_UPLOAD_TOKEN_FILE")
+    url = os.environ.get("BURSAWATCH_SOURCE_MEDIA_URL")
+    if not token_file or not url:
+        return None
+    from bursawatch_source_media import SourceMediaClient
+    return SourceMediaClient(url, Path(token_file))
 
 
 def _telegram_client():
@@ -93,7 +102,7 @@ async def _run_live() -> dict[str, Any]:
             resilience.record_auth_required(decision.lease_id, WATCHER, now)
             return {"source": [{"status": "auth_required"}], "work": []}
         resilience.record_authenticated_success(decision.lease_id, WATCHER, now, getattr(telegram.session, "dc_id", None), None)
-        return await run_once(telegram, snapshot, state_root, inbox, now)
+        return await run_once(telegram, snapshot, state_root, inbox, now, media_store=_media_client())
     except Exception as error:
         if is_transport_error(error):
             resilience.record_transport_failure(decision.lease_id, WATCHER, error, now)

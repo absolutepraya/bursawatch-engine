@@ -46,10 +46,14 @@ shared contracts.
    item per event and subscription. Platform runtimes use shared work and handler
    contracts; domain-specific handlers keep writing through their current owners. A
    failure or retry in one work item never blocks another.
-5. **Do not choose a storage provider by assumption.** Keep current curated public
-   assets usable. Before implementing custom uploads or retaining source media,
-   inventory available object storage and propose the smallest safe integration. Do not
-   provision a bucket or mutate Supabase during ordinary code work.
+5. **Use Supabase Storage for durable media, behind a separate owner.** The user chose
+   Supabase Storage on 2026-09-24. Keep the bucket private and place its privileged
+   credential only in a dedicated Source Media Owner service. Adapters and domain
+   owners use a typed shared client and opaque stable references; Control Plane stores
+   only reference metadata. The Control Plane package contract explicitly excludes
+   image bytes and media. Use an injected fake provider in local tests. Bucket creation,
+   policies, credentials, retention, and service bootstrap remain separate deployment
+   approvals.
 
 ## Work phases
 
@@ -117,11 +121,25 @@ shared contracts.
 ### Task 3: Add durable source events and independent subscription work
 
 **Packages:** service-bursawatch-control, lib-bursawatch-control,
-lib-bursawatch-pipeline-runtime
+lib-bursawatch-pipeline-runtime, service-bursawatch-source-media,
+lib-bursawatch-source-media
 
 - Define a versioned normalized event envelope with source, publisher, endpoint,
   platform, provider event identity, published/observed time, source URL, parser
-  version, content hash, and bounded payload/media references.
+  version, content hash, bounded payload, and stable opaque media references.
+- Add the Source Media Owner and shared client. The service validates size, actual
+  content type, digest, and attachment kind before uploading private objects to
+  Supabase Storage. Start with the existing 8 MiB per-source-object acquisition bound,
+  the existing 25 MiB aggregate delivery-operation bound, and at most 16 source refs.
+  Keep attachment bytes out of Postgres and never persist expiring signed URLs.
+- Use deterministic upload identities so a source retry reuses the same object and a
+  conflicting retry cannot overwrite it. Adapters upload media before source-event
+  acceptance; they advance their source cursor only after the inbox receipt. If event
+  acceptance fails, upload retry remains idempotent. Do not automatically delete
+  source objects until a retention policy is separately approved.
+- Domain owners retrieve private bytes through the Source Media client and pass them
+  to their existing output owner. The Discord Delivery Owner remains the only service
+  with Discord access and receives attachment bytes through its current operation API.
 - Add durable idempotent event acceptance. A platform adapter must retain its cursor and
   local handoff record until the Control Plane confirms durable acceptance.
 - In one database transaction, resolve compatible active subscriptions and create one
@@ -138,9 +156,8 @@ lib-bursawatch-pipeline-runtime
 - Preserve immutable source events. Corrections append audited versions; message
   deletion uses a tombstone. Idempotency keys must prevent repeated provider reads, API
   retries, or handler retries from duplicating a domain effect.
-- Keep media bytes out of Postgres. The implementation must verify an object-storage
-  option before enabling uploads or persisting media needed after the source adapter
-  run.
+- Keep media bytes out of Postgres. Control Plane validates only the stable reference
+  and bounded metadata; the Source Media Owner alone resolves references to bytes.
 - Keep run summaries in ControlPlaneReporter. Do not copy raw source text, credentials,
   images, or provider errors into heartbeats or routine logs.
 - Add contract tests for acceptance/ack ordering, duplicate events, default/override
@@ -171,6 +188,10 @@ Discord Delivery Owner
   Control Plane.
 - Preserve current message text, tier, media order, source attribution, event keys, and
   source timestamps. Use the shared renderer where the existing contract requires it.
+- Replace the current Telegram media block with Source Media Owner uploads. Persist only
+  returned opaque refs in source events; retrieve bytes through the shared client when
+  the existing domain owner needs to forward an attachment. Keep the current event
+  ordering and never use a Telegram URL as durable media storage.
 - Add golden output and no-post integration coverage for events that fan out to multiple
   subscriptions. Prove that a failing news pipeline does not block a Swing Board work
   item and vice versa.
@@ -189,6 +210,10 @@ and cron-rss-source-ingest; adapt the corresponding existing watcher packages
 - Move X, Instagram, WhatsApp, and supported RSS endpoint polling behind one runtime
   boundary per platform. Keep platform-specific authentication, cursors, limits, and
   fetch behavior in that adapter.
+- Where a source publishes attachments, use the shared Source Media client and the same
+  validated opaque-reference contract. Each adapter must persist the source handoff and
+  advance its cursor only after event acceptance; no adapter may write Supabase Storage
+  directly or expose source media through public/signed locators.
 - Convert each current configured source into a catalog endpoint and attach only
   compatible capabilities. People & Org endpoint additions use the same validation and
   revision model.
@@ -239,11 +264,9 @@ web-config; docs and platform-bursawatch-release metadata
 
 ## Review checkpoints
 
-1. Review the Control Plane entity/API contract and the object-storage recommendation
-   before adding the first migration or upload flow.
-2. Review Telegram pilot parity and failure isolation once the no-post implementation is
-   complete.
-3. Review the complete platform migration evidence before any live schedule or state
+1. Review Telegram pilot parity and failure isolation after the shared media path and
+   domain-owner handoff are exercised with synthetic fixtures.
+2. Review the complete platform migration evidence before any live schedule or state
    cutover.
 
 These are architecture-wide checkpoints, not a separate review for every cron package.

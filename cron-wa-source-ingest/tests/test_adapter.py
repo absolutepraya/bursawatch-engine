@@ -6,6 +6,7 @@ import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "cron-wa-source-ingest" / "bin"))
@@ -27,6 +28,43 @@ class Inbox:
         self.events.append(event)
         identity = [event[key] for key in ("platform", "endpoint_id", "provider_event_id")]
         return {"event_key": hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest(), "version": 1, "duplicate": False, "work_keys": []}
+
+
+class IdempotentMediaStore:
+    def __init__(self, order):
+        self.order = order
+        self.uploads = {}
+
+    def upload(self, key, data, *, kind, content_type, filename):
+        self.order.append("upload")
+        value = self.uploads.get(key)
+        if value is None:
+            value = {
+                "ref": str(uuid.uuid5(uuid.NAMESPACE_URL, key)),
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "kind": kind,
+                "content_type": content_type,
+                "size_bytes": len(data),
+                "filename": filename,
+                "durable": True,
+            }
+            self.uploads[key] = (data, value)
+        else:
+            assert value[0] == data
+        return self.uploads[key][1]
+
+
+class OrderedInbox(Inbox):
+    def __init__(self, order):
+        super().__init__()
+        self.order = order
+        self.fail = False
+
+    def accept(self, event):
+        self.order.append("accept")
+        if self.fail:
+            raise OSError("inbox unavailable")
+        return super().accept(event)
 
 
 def context():
@@ -93,6 +131,62 @@ def test_bri_media_queue_item_is_durably_blocked_without_queue_mutation(tmp_path
     assert "/private/image" not in json.dumps(marker)
     assert old_path.read_bytes() == before and new_path.exists()
     assert cursor(state_root, endpoint_id)["anchor"] is None
+
+
+def test_archive_media_upload_precedes_acceptance_and_survives_retry(tmp_path):
+    profiles, bri, snapshot, endpoint_id = context()
+    queue_dir = tmp_path / "queue"
+    state_root = tmp_path / "state"
+    archive_root = tmp_path / "archive"
+    old = ChannelEvent(bri.channel_jid, "old", NOW, "old", (), (), NOW)
+    old_path = queue_event(queue_dir, old, 1_000_000_000_000_000_000)
+    inbox_order = []
+    inbox = OrderedInbox(inbox_order)
+    assert run_once(snapshot, profiles, queue_dir, state_root, inbox, NOW)[0]["status"] == "bootstrapped_empty"
+    bootstrap_cursor = cursor(state_root, endpoint_id)
+    assert bootstrap_cursor["anchor"] is None
+    assert bootstrap_cursor["position"].endswith(old_path.name)
+
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    staged_media = staging / "private-source.jpg"
+    staged_media.write_bytes(b"\xff\xd8\xffdurable-channel-image")
+    new = ChannelEvent(
+        bri.channel_jid,
+        "with-media",
+        NOW + timedelta(minutes=1),
+        "chart update",
+        (),
+        (ChannelMedia("image", 0, "image/jpeg", str(staged_media)),),
+        NOW,
+    )
+    import archive
+    archive.ensure(archive_root, bri.id, new, 4, staging_root=staging)
+    queue_path = queue_event(queue_dir, new, 2_000_000_000_000_000_000)
+    assert not staged_media.exists(), "the bridge staging copy is disposable after archive capture"
+
+    media_store = IdempotentMediaStore(inbox_order)
+    inbox.fail = True
+    failed = run_once(snapshot, profiles, queue_dir, state_root, inbox, NOW, archive_root=archive_root, media_store=media_store)
+    assert failed[0]["status"] == "blocked"
+    assert cursor(state_root, endpoint_id) == bootstrap_cursor
+    assert queue_path.exists()
+    assert inbox_order == ["upload", "accept"]
+
+    inbox.fail = False
+    recovered = run_once(snapshot, profiles, queue_dir, state_root, inbox, NOW, archive_root=archive_root, media_store=media_store)
+    assert cursor(state_root, endpoint_id)["anchor"] == "with-media"
+    assert len(inbox.events) == 1
+    assert inbox_order == ["upload", "accept", "accept"]
+    assert list(media_store.uploads) == [f"{endpoint_id}:with-media:attachment:0"]
+    event = inbox.events[0]
+    assert event["media_required"] is True
+    assert event["media_refs"] == [media_store.uploads[next(iter(media_store.uploads))][1]]
+    assert event["payload"]["media_ref_ids"] == [event["media_refs"][0]["ref"]]
+    serialized = json.dumps(event)
+    assert str(staged_media) not in serialized
+    assert "archive_path" not in serialized and "media/" not in serialized
+    assert "durable-channel-image" not in serialized
 
 
 def test_retained_history_over_500_files_is_not_parsed_on_new_arrival(tmp_path):

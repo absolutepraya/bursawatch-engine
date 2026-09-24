@@ -34,6 +34,7 @@ run_suite lib-bursawatch-discord-delivery lib-bursawatch-discord-delivery tests
 run_suite cron-tg-market-news cron-tg-market-news tests
 run_suite cron-tg-source-ingest cron-tg-source-ingest tests
 run_suite lib-bursawatch-source-ingest lib-bursawatch-source-ingest tests
+run_suite lib-bursawatch-source-media lib-bursawatch-source-media tests
 run_suite cron-x-source-ingest cron-x-source-ingest tests
 run_suite cron-ig-source-ingest cron-ig-source-ingest tests
 run_suite cron-wa-source-ingest cron-wa-source-ingest tests
@@ -55,6 +56,7 @@ else
   run_suite cron-wa-channel-watch cron-wa-channel-watch tests
 fi
 run_suite service-bursawatch-control service-bursawatch-control tests
+run_suite service-bursawatch-source-media service-bursawatch-source-media tests
 run_suite platform-hermes-schedule-reconciler platform-hermes-schedule-reconciler tests
 run_suite platform-bursawatch-release platform-bursawatch-release tests
 if [[ "${SKIP_WHATSAPP_CHANNEL_WATCH:-0}" != "1" ]]; then
