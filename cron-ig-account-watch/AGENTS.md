@@ -21,6 +21,9 @@ and domain source of truth for the agent-backed `cron-ig-account-watch` package.
   other raw provider data.
 - Credentials, cookies, signed CDN URLs, raw provider response bodies, and local secret paths are explicitly excluded from source, logs, wake payloads, and persistent state.
 - The watched profiles are `beyondthefundamental`, `investart_id`, `avenirresearch_id`, `acresresearch`, `sectorsapp`, `cukhurukuque`, and `notintofinance`, with `macro_news` channel `1531655369884045382` and `id_stocks_news` channel `1525102508714889257`. Profile IDs are durable state namespaces and must not be renamed after deployment. A first successful observation records the newest source publication and never backfills it. The legacy route values `macro` and `id_stock` are accepted only as submission aliases and are normalized to the canonical keys.
+- `cron-ig-source-ingest` is an unscheduled metadata-only inbox pilot. It
+  holds media publications at its private cursor and does not replace this
+  watcher's OCR, vision, agent, queue, or Delivery Owner contract.
 
 ## Media, OCR, and vision
 

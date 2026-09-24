@@ -21,6 +21,18 @@ Every scheduled package has `AGENTS.md` and exactly one contract file:
 | `cron-ig-account-watch` | `bursawatch-ig-account-watch` | Instagram account and reel watcher |
 | `cron-wa-channel-watch` | `bursawatch-wa-channel-watch` | WhatsApp Channel watcher and queue |
 | `cron-stockbit-snips` | `bursawatch-stockbit-snips` | Stockbit Snips RSS news watcher |
+| `cron-x-source-ingest` | reserved `bursawatch-x-source-ingest` | Unscheduled X catalog and inbox pilot |
+| `cron-ig-source-ingest` | reserved `bursawatch-ig-source-ingest` | Unscheduled Instagram catalog and inbox pilot |
+| `cron-wa-source-ingest` | reserved `bursawatch-wa-source-ingest` | Unscheduled WhatsApp bridge-queue inbox pilot |
+| `cron-rss-source-ingest` | reserved `bursawatch-rss-source-ingest` | Unscheduled fixed Stockbit RSS inbox pilot |
+
+The four source-ingest packages are incomplete development pilots. They are
+release metadata only, have no Hermes jobs, and do not claim social or
+Stockbit pipeline work. The existing watcher packages remain live source,
+queue, agent, rendering, and Delivery Owner authorities. The shared
+`lib-bursawatch-source-ingest` code stages bounded endpoint-local events and
+advances a private cursor only after an inbox receipt. Media-dependent events
+remain locally blocked pending the reviewed Supabase Storage integration.
 
 `lib-swing-format` is the shared cash-Swing renderer. `lib-telegram-resilience`
 owns the shared PolyCop Telegram control plane. Hermes Personal's Polymarket

@@ -7,6 +7,11 @@ Channels. It archives every event from an enabled profile and forwards only
 profiles explicitly configured for forwarding, using the same bounded
 relevance, title, summary, and routing contract as `cron-x-account-watch`.
 
+`cron-wa-source-ingest` is an unscheduled metadata-only inbox pilot. It reads
+the durable bridge queue without changing this watcher's archive, outbox,
+agent, BRI Board, or Delivery Owner authority. INS and Samuel remain observed
+by this watcher without pipeline subscriptions.
+
 The watcher reuses the existing single Baileys bridge in Hermes. The bridge is
 the only WhatsApp Web connection. Its Channel sink is additive: it copies
 supported `@newsletter` events into this watcher's durable queue while the

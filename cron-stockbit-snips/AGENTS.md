@@ -3,6 +3,12 @@
 This package supplements the repository `AGENTS.md` and owns the development
 source for the agent-backed `cron-stockbit-snips` watcher.
 
+`cron-rss-source-ingest` is an unscheduled metadata-only inbox pilot for the
+same four fixed lanes. This watcher retains the live configuration revision,
+article queue, frozen settings, routes, agent wake, and Delivery Owner path.
+The pilot cannot replace this source job before a reviewed state inventory
+and exact output parity are proven.
+
 ## Boundary
 
 - The source is public RSS from `https://snips.stockbit.com/`.

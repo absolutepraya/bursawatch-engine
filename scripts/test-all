@@ -33,6 +33,11 @@ run_suite service-bursawatch-discord-delivery service-bursawatch-discord-deliver
 run_suite lib-bursawatch-discord-delivery lib-bursawatch-discord-delivery tests
 run_suite cron-tg-market-news cron-tg-market-news tests
 run_suite cron-tg-source-ingest cron-tg-source-ingest tests
+run_suite lib-bursawatch-source-ingest lib-bursawatch-source-ingest tests
+run_suite cron-x-source-ingest cron-x-source-ingest tests
+run_suite cron-ig-source-ingest cron-ig-source-ingest tests
+run_suite cron-wa-source-ingest cron-wa-source-ingest tests
+run_suite cron-rss-source-ingest cron-rss-source-ingest tests
 run_suite cron-tg-phintraco-swing cron-tg-phintraco-swing tests
 run_suite lib-swing-format lib-swing-format tests
 run_suite cron-dc-swing-board cron-dc-swing-board tests

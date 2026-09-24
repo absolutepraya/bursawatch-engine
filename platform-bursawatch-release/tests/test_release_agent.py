@@ -72,6 +72,17 @@ def test_manifest_orders_dependencies_before_the_x_runtime_unit():
     ]
 
 
+def test_source_ingest_pilots_are_metadata_only_and_share_one_library():
+    result = manifest()
+    for platform in ("x", "ig", "wa", "rss"):
+        units = result.matching_units([f"cron-{platform}-source-ingest/bin/runner.py"])
+        assert [unit.identifier for unit in units] == [
+            "lib-bursawatch-source-ingest-pilot",
+            f"cron-{platform}-source-ingest-pilot",
+        ]
+        assert all(unit.handler == "metadata" for unit in units)
+
+
 def test_delivery_library_precedes_every_migrated_discord_runtime():
     sources = (
         "cron-tg-market-news/bin/scan.py",

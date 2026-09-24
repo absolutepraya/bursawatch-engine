@@ -54,6 +54,11 @@
       "paths": ["lib-bursawatch-pipeline-runtime/README.md", "lib-bursawatch-pipeline-runtime/tests/**"]
     },
     {
+      "id": "lib-bursawatch-source-ingest-pilot",
+      "handler": "metadata",
+      "paths": ["lib-bursawatch-source-ingest/**"]
+    },
+    {
       "id": "lib-bursawatch-discord-delivery",
       "handler": "runtime",
       "runtime": "lib-bursawatch-discord-delivery",
@@ -205,6 +210,12 @@
       "paths": ["cron-x-account-watch/AGENTS.md", "cron-x-account-watch/tests/**"]
     },
     {
+      "id": "cron-x-source-ingest-pilot",
+      "handler": "metadata",
+      "depends_on": ["lib-bursawatch-source-ingest-pilot"],
+      "paths": ["cron-x-source-ingest/**"]
+    },
+    {
       "id": "cron-ig-account-watch",
       "handler": "runtime",
       "runtime": "bursawatch-ig-account-watch",
@@ -217,6 +228,12 @@
       "id": "cron-ig-account-watch-metadata",
       "handler": "metadata",
       "paths": ["cron-ig-account-watch/AGENTS.md", "cron-ig-account-watch/tests/**", "cron-ig-account-watch/tools/**"]
+    },
+    {
+      "id": "cron-ig-source-ingest-pilot",
+      "handler": "metadata",
+      "depends_on": ["lib-bursawatch-source-ingest-pilot"],
+      "paths": ["cron-ig-source-ingest/**"]
     },
     {
       "id": "cron-wa-channel-watch",
@@ -238,6 +255,12 @@
       "paths": ["cron-wa-channel-watch/AGENTS.md", "cron-wa-channel-watch/integrations/**", "cron-wa-channel-watch/tests/**"]
     },
     {
+      "id": "cron-wa-source-ingest-pilot",
+      "handler": "metadata",
+      "depends_on": ["lib-bursawatch-source-ingest-pilot"],
+      "paths": ["cron-wa-source-ingest/**"]
+    },
+    {
       "id": "cron-stockbit-snips",
       "handler": "runtime",
       "runtime": "bursawatch-stockbit-snips",
@@ -250,6 +273,12 @@
       "id": "cron-stockbit-snips-metadata",
       "handler": "metadata",
       "paths": ["cron-stockbit-snips/AGENTS.md", "cron-stockbit-snips/tests/**"]
+    },
+    {
+      "id": "cron-rss-source-ingest-pilot",
+      "handler": "metadata",
+      "depends_on": ["lib-bursawatch-source-ingest-pilot"],
+      "paths": ["cron-rss-source-ingest/**"]
     },
     {
       "id": "manual-schedule-reconciler",

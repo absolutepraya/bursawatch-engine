@@ -11,6 +11,9 @@ This file supplements the repository root `AGENTS.md`. It is the development and
 - `bin/` owns source adapters, linked-article retrieval, structural source eligibility, cursor and outbox state transitions, rendering, media preparation, heartbeat accounting, and the wrappers. Discord operations use `lib-bursawatch-discord-delivery`; the service owns Discord REST. Negative content relevance is decided by the LLM.
 - Development source is this directory. The deployed runtime is `~/.agents/skills/bursawatch-x-account-watch/`; its source-polling wrapper is `~/.hermes/scripts/bursawatch-x-account-watch.sh` and its queue-worker wrapper is `~/.hermes/scripts/bursawatch-x-account-watch-queue.sh`.
 - The live state directory, cursors, outbox, media, and `~/.dotfiles/vps/agents/skills/bursawatch-x-account-watch/` are not authoring targets. Never reset, edit, replay, or backfill them without explicit approval.
+- `cron-x-source-ingest` is an unscheduled metadata-only inbox pilot. It has no
+  X agent, thread, edit, queue, Board, or delivery parity yet. Keep this
+  watcher's source and queue jobs authoritative until a reviewed cutover.
 
 With live configuration, the dashboard records one frozen revision per source,
 queue-worker, or agent-submission invocation. It receives lifecycle, per-profile
