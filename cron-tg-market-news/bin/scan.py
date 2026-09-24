@@ -22,8 +22,16 @@ from telegram_resilience import (
 
 import config
 from agent_protocol import agent_item, build_wake_payload, submit_classification as submit_agent_classification
-from delivery import deliver_event, post_discord_text
-from domain import CompanyCandidate, Destination, EventClass, Provider, SourceKind
+from delivery import deliver_event, deliver_stock_status_event, post_discord_text
+from domain import (
+    CompanyCandidate,
+    Destination,
+    EventClass,
+    Provider,
+    SourceKind,
+    SourceMessage,
+    source_message_url,
+)
 from selection import (
     SelectionCandidate,
     assign_tier,
@@ -32,17 +40,26 @@ from selection import (
     rank_update_sections,
 )
 from sources import PhintracoNewsAdapter, TuntunNewsAdapter, bootstrap_provider, fetch_unseen_messages
+from stock_status import (
+    StockStatusError,
+    format_stock_status,
+    is_stock_information,
+    parse_stock_information,
+)
 from state import (
     StateBlockedError,
     abandon_active_candidates,
     advance_provider_cursor,
     claim_oldest_pending_analysis,
     enqueue_candidate,
+    enqueue_stock_status,
     expire_agent_leases,
     load_state,
     mark_terminal,
     provider_bootstrap_complete,
     provider_cursor,
+    pending_stock_status_events,
+    reject_stock_status,
     run_lock,
     save_state,
 )
@@ -92,6 +109,15 @@ class RuntimeClients:
     tuntun_entity: Any
 
 
+@dataclass(frozen=True, slots=True)
+class ProviderIngestResult:
+    source_messages: int
+    candidates: int
+    status_events: int
+    status_rejected: int
+    error: str | None
+
+
 def _require_aware(now: datetime) -> datetime:
     if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("now must be timezone-aware")
@@ -131,6 +157,7 @@ def format_heartbeat(
     provider_errored: bool = False,
     retrying: bool = False,
     delivery_pending: bool = False,
+    status_rejected: bool = False,
 ) -> str:
     """Render the fixed watcher heartbeat, including only operational counters."""
     _require_aware(now)
@@ -139,7 +166,9 @@ def format_heartbeat(
         f"{source_messages} source messages · {classified_candidates} classified candidates · "
         f"{news_delivered} news delivered · {pending} pending"
     )
-    return line + (" ⚠️" if provider_errored or retrying or delivery_pending else "")
+    return line + (
+        " ⚠️" if provider_errored or retrying or delivery_pending or status_rejected else ""
+    )
 
 
 def post_hermes_text(content: str, event_key: str, dry_run: bool) -> str | None:
@@ -321,22 +350,58 @@ async def _ingest_provider(
     provider: Provider,
     entity: object,
     now: datetime,
-) -> tuple[int, int, str | None]:
+) -> ProviderIngestResult:
     """Bootstrap or ingest exactly one provider lane without touching the other."""
     try:
         if not provider_bootstrap_complete(state, provider):
             await bootstrap_provider(runtime.client, entity, state, provider)
             _mark_provider_success(state, provider, now)
-            return 0, 0, None
+            return ProviderIngestResult(0, 0, 0, 0, None)
 
         messages = await fetch_unseen_messages(runtime.client, entity, provider_cursor(state, provider))
         adapter = TuntunNewsAdapter() if provider is Provider.TUNTUN else PhintracoNewsAdapter()
         candidates = 0
+        status_events = 0
+        status_rejected = 0
         for message in messages:
             message_id = _message_id(message)
             text = _message_text(message)
             published_at = _message_published_at(message)
             direct_image = bool(getattr(message, "photo", None))
+            if provider is Provider.PHINTRACO and is_stock_information(text):
+                source = SourceMessage(
+                    Provider.PHINTRACO,
+                    message_id,
+                    published_at,
+                    text,
+                    direct_image,
+                )
+                source_url = source_message_url(source)
+                try:
+                    status = parse_stock_information(message_id, text)
+                    content = format_stock_status(status, source_url)
+                except StockStatusError as error:
+                    reason_code = (
+                        "message_too_long"
+                        if "exceeds Discord limit" in str(error)
+                        else "invalid_status"
+                    )
+                    reject_stock_status(
+                        state, message_id, source_url, reason_code, now
+                    )
+                    status_rejected += 1
+                else:
+                    if enqueue_stock_status(
+                        state,
+                        status,
+                        source_url,
+                        config.active_watch_config().id_stocks_news_channel_id,
+                        content,
+                        now,
+                    ):
+                        status_events += 1
+                advance_provider_cursor(state, provider, message_id)
+                continue
             extracted = (
                 adapter.extract_candidates(message_id, text, published_at, _message_topic_id(message), direct_image)
                 if provider is Provider.TUNTUN
@@ -347,10 +412,12 @@ async def _ingest_provider(
                     candidates += 1
             advance_provider_cursor(state, provider, message_id)
         _mark_provider_success(state, provider, now)
-        return len(messages), candidates, None
+        return ProviderIngestResult(
+            len(messages), candidates, status_events, status_rejected, None
+        )
     except Exception as error:
         _mark_provider_error(state, provider, error)
-        return 0, 0, _clean_reason(error)
+        return ProviderIngestResult(0, 0, 0, 0, _clean_reason(error))
 
 
 async def backfill_phintraco_quick_note(
@@ -688,14 +755,38 @@ async def _drain_delivery(
     return delivered
 
 
+async def _drain_stock_status_events(
+    state: dict[str, object], now: datetime, dry_run: bool
+) -> int:
+    delivered = 0
+    for event_key, _event in pending_stock_status_events(state, now):
+        if await deliver_stock_status_event(
+            state, event_key, now, dry_run=dry_run
+        ):
+            delivered += 1
+    return delivered
+
+
 def _pending_count(state: Mapping[str, object]) -> int:
     candidates = state["candidates"]
     assert isinstance(candidates, Mapping)
-    return sum(
+    pending_candidates = sum(
         1
         for record in candidates.values()
         if isinstance(record, Mapping) and record.get("phase") in _ACTIVE_PHASES
     )
+    stats = state.get("stats")
+    status_events = stats.get("stock_status_events", {}) if isinstance(stats, Mapping) else {}
+    pending_status = (
+        sum(
+            1
+            for record in status_events.values()
+            if isinstance(record, Mapping) and record.get("phase") == "pending_delivery"
+        )
+        if isinstance(status_events, Mapping)
+        else 0
+    )
+    return pending_candidates + pending_status
 
 
 def _health_and_warning(state: Mapping[str, object]) -> tuple[bool, bool, bool]:
@@ -711,6 +802,16 @@ def _health_and_warning(state: Mapping[str, object]) -> tuple[bool, bool, bool]:
         for record in candidates.values()
     )
     delivery_pending = any(isinstance(record, Mapping) and record.get("phase") == "pending_delivery" for record in candidates.values())
+    stats = state.get("stats")
+    status_events = stats.get("stock_status_events", {}) if isinstance(stats, Mapping) else {}
+    if isinstance(status_events, Mapping):
+        for record in status_events.values():
+            if not isinstance(record, Mapping) or record.get("phase") != "pending_delivery":
+                continue
+            delivery_pending = True
+            retry = record.get("retry")
+            if isinstance(retry, Mapping) and int(retry.get("attempts", 0)) > 0:
+                retrying = True
     return provider_errored, retrying, delivery_pending
 
 
@@ -721,6 +822,7 @@ def _post_heartbeat_if_due(
     classified_candidates: int,
     news_delivered: int,
     dry_run: bool,
+    status_rejected: bool = False,
 ) -> bool:
     hour = _hour_key(now)
     if os.environ.get("IDX_MARKET_NEWS_FORCE_HEARTBEAT") != "1" and state.get("last_heartbeat_hour") == hour:
@@ -736,6 +838,7 @@ def _post_heartbeat_if_due(
             provider_errored=provider_errored,
             retrying=retrying,
             delivery_pending=delivery_pending,
+            status_rejected=status_rejected,
         ),
         f"heartbeat-{hour}",
         dry_run,
@@ -793,6 +896,7 @@ async def _run_loaded_config(
         )
         owned_client: Any | None = None
         source_messages = source_candidates = classified = news_delivered = 0
+        stock_status_events = stock_status_rejected = stock_status_delivered = 0
         outcome = "failed"
         failure: str | None = None
         try:
@@ -866,20 +970,26 @@ async def _run_loaded_config(
                 if isinstance(entity, Exception):
                     _mark_provider_error(state, provider, entity)
                     continue
-                messages, candidates, _ = await _ingest_provider(state, runtime, provider, entity, now)
-                source_messages += messages
-                source_candidates += candidates
+                ingest = await _ingest_provider(state, runtime, provider, entity, now)
+                source_messages += ingest.source_messages
+                source_candidates += ingest.candidates
+                stock_status_events += ingest.status_events
+                stock_status_rejected += ingest.status_rejected
             classified, news_delivered = await _route_and_deliver(state, runtime, now, dry_run)
+            stock_status_delivered = await _drain_stock_status_events(state, now, dry_run)
+            news_delivered += stock_status_delivered
             provider_errored, retrying, delivery_pending = _health_and_warning(state)
             control_run.event(
                 "source-poll-completed",
-                level="warning" if provider_errored else "info",
+                level="warning" if provider_errored or stock_status_rejected else "info",
                 phase="source",
                 event_type="source.poll.completed",
                 message="Telegram Market News source poll completed",
                 attributes={
                     "source_messages": source_messages,
                     "source_candidates": source_candidates,
+                    "stock_status_events": stock_status_events,
+                    "stock_status_rejected": stock_status_rejected,
                     "providers": {
                         Provider.PHINTRACO.value: _provider_result(state, Provider.PHINTRACO),
                         Provider.TUNTUN.value: _provider_result(state, Provider.TUNTUN),
@@ -887,17 +997,25 @@ async def _run_loaded_config(
                 },
             )
             heartbeat_posted = _post_heartbeat_if_due(
-                state, now, source_messages, classified, news_delivered, dry_run
+                state,
+                now,
+                source_messages,
+                classified,
+                news_delivered,
+                dry_run,
+                status_rejected=stock_status_rejected > 0,
             )
             control_run.event(
                 "delivery-drain-completed",
-                level="warning" if retrying or delivery_pending else "info",
+                level="warning" if retrying or delivery_pending or stock_status_rejected else "info",
                 phase="delivery",
                 event_type="delivery.drain.completed",
                 message="Telegram Market News delivery drain completed",
                 attributes={
                     "classified_candidates": classified,
                     "news_delivered": news_delivered,
+                    "stock_status_delivered": stock_status_delivered,
+                    "stock_status_rejected": stock_status_rejected,
                     "pending": _pending_count(state),
                     "heartbeat_posted": heartbeat_posted,
                 },
@@ -915,6 +1033,9 @@ async def _run_loaded_config(
                 "source_candidates": source_candidates,
                 "classified_candidates": classified,
                 "news_delivered": news_delivered,
+                "stock_status_events": stock_status_events,
+                "stock_status_delivered": stock_status_delivered,
+                "stock_status_rejected": stock_status_rejected,
             }
             if candidate is None:
                 result.update({"wakeAgent": False, "items": []})
@@ -932,7 +1053,11 @@ async def _run_loaded_config(
                     message="Telegram Market News requested one bounded agent classification",
                     attributes={"candidate_key": candidate.key},
                 )
-            outcome = "degraded" if provider_errored or retrying or delivery_pending else "ok"
+            outcome = (
+                "degraded"
+                if provider_errored or retrying or delivery_pending or stock_status_rejected
+                else "ok"
+            )
             return result
         except Exception as error:
             failure = _clean_reason(error)
@@ -959,6 +1084,8 @@ async def _run_loaded_config(
                     "source_candidates": source_candidates,
                     "classified_candidates": classified,
                     "news_delivered": news_delivered,
+                    "stock_status_delivered": stock_status_delivered,
+                    "stock_status_rejected": stock_status_rejected,
                     "config_revision": loaded_config.revision,
                 },
             )

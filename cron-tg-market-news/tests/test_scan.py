@@ -13,7 +13,14 @@ import config
 import scan
 from domain import CompanyCandidate, Destination, EventClass, Provider, SourceKind
 from selection import SelectionCandidate
-from state import claim_oldest_pending_analysis, empty_state, enqueue_candidate, load_state, save_state
+from state import (
+    claim_oldest_pending_analysis,
+    empty_state,
+    enqueue_candidate,
+    load_state,
+    save_state,
+)
+from stock_status import format_stock_status, parse_stock_information
 
 
 class FakeClient:
@@ -885,3 +892,242 @@ def test_reloaded_failed_delivery_retries_once_without_a_hermes_wake(
     assert retried["wakeAgent"] is False
     assert load_state()["candidates"][candidate.key]["phase"] == "delivered"
     assert len(posts) == 2
+
+
+def _status_source_message(message_id, text):
+    return SimpleNamespace(
+        id=message_id,
+        message=text,
+        date=datetime.fromisoformat("2026-09-23T01:27:27+00:00"),
+        photo=None,
+    )
+
+
+def test_status_post_sends_one_grouped_message_without_agent_wake(
+    tmp_state, monkeypatch, load_fixture
+):
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_state))
+    monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
+    _bootstrapped_state(tmp_state)
+    monkeypatch.setattr(
+        delivery,
+        "get_market_snapshot",
+        lambda *_args: pytest.fail("status-only run requested a market quote"),
+    )
+    clients = FakeClients()
+    clients.client.messages["tuntun"] = []
+    body = load_fixture("phintraco-stock-status-35377.txt")
+    clients.client.messages["phintraco"] = [_status_source_message(35377, body)]
+    posts = []
+
+    def post(content, channel_id, event_key, dry_run=False):
+        posts.append((content, channel_id, event_key, dry_run))
+        return "discord-message-42"
+
+    monkeypatch.setattr(delivery, "post_discord_text", post)
+
+    result = asyncio.run(
+        scan.run(datetime.fromisoformat("2026-09-23T08:30:00+07:00"), clients)
+    )
+
+    assert result["wakeAgent"] is False
+    assert result["items"] == []
+    assert result["stock_status_delivered"] == 1
+    assert result["stock_status_rejected"] == 0
+    assert load_state()["candidates"] == {}
+    assert load_state()["providers"]["phintraco"]["observed_message_id"] == 35377
+    assert len(posts) == 1
+    assert posts[0][0] == format_stock_status(
+        parse_stock_information(35377, body),
+        "https://t.me/phintasprofits/35377",
+    )
+    assert posts[0][1] == config.default_watch_config().id_stocks_news_channel_id
+    assert posts[0][2] == "phintraco-stock-status:35377"
+    assert posts[0][3] is True
+
+
+def test_status_post_with_all_empty_categories_still_sends_complete_message(
+    tmp_state, monkeypatch, load_fixture
+):
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_state))
+    monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
+    _bootstrapped_state(tmp_state)
+    body = load_fixture("phintraco-stock-status-35377.txt")
+    empty_body = body.replace(">WAPO\n>NASI", ">-").replace(">UNSP", ">-")
+    clients = FakeClients()
+    clients.client.messages["tuntun"] = []
+    clients.client.messages["phintraco"] = [_status_source_message(35377, empty_body)]
+    posts = []
+    monkeypatch.setattr(
+        delivery,
+        "post_discord_text",
+        lambda content, channel_id, event_key, dry_run=False: posts.append(
+            (content, channel_id, event_key)
+        ) or "discord-message-42",
+    )
+
+    result = asyncio.run(
+        scan.run(datetime.fromisoformat("2026-09-23T08:30:00+07:00"), clients)
+    )
+
+    assert result["stock_status_delivered"] == 1
+    assert len(posts) == 1
+    assert posts[0][0].count("(None)") == 5
+    assert "- WAPO" not in posts[0][0] and "- NASI" not in posts[0][0]
+    assert "- UNSP" not in posts[0][0]
+
+
+def test_status_duplicate_read_does_not_post_twice(tmp_state, monkeypatch, load_fixture):
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_state))
+    monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
+    _bootstrapped_state(tmp_state)
+    clients = FakeClients()
+    clients.client.messages["tuntun"] = []
+    clients.client.messages["phintraco"] = [
+        _status_source_message(35377, load_fixture("phintraco-stock-status-35377.txt"))
+    ]
+    posts = []
+    monkeypatch.setattr(
+        delivery,
+        "post_discord_text",
+        lambda content, channel_id, event_key, dry_run=False: posts.append(
+            (content, channel_id, event_key)
+        ) or "discord-message-42",
+    )
+    now = datetime.fromisoformat("2026-09-23T08:30:00+07:00")
+
+    first = asyncio.run(scan.run(now, clients))
+    second = asyncio.run(scan.run(now + timedelta(minutes=1), clients))
+
+    assert first["stock_status_delivered"] == 1
+    assert second["stock_status_delivered"] == 0
+    assert len(posts) == 1
+
+
+def test_status_retry_reuses_frozen_payload_route_and_event_identity(
+    tmp_state, monkeypatch, load_fixture
+):
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_state))
+    monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
+    _bootstrapped_state(tmp_state)
+    clients = FakeClients()
+    clients.client.messages["tuntun"] = []
+    clients.client.messages["phintraco"] = [
+        _status_source_message(35377, load_fixture("phintraco-stock-status-35377.txt"))
+    ]
+    posts = []
+
+    def post(content, channel_id, event_key, dry_run=False):
+        posts.append((content, channel_id, event_key))
+        return None if len(posts) == 1 else "discord-message-42"
+
+    monkeypatch.setattr(delivery, "post_discord_text", post)
+    now = datetime.fromisoformat("2026-09-23T08:30:00+07:00")
+    first = asyncio.run(scan.run(now, clients))
+    failed_state = load_state(tmp_state)
+    clients.client.messages["phintraco"] = []
+    second = asyncio.run(scan.run(now + timedelta(minutes=1), clients))
+
+    assert first["stock_status_delivered"] == 0
+    assert scan._pending_count(failed_state) == 1
+    assert scan._health_and_warning(failed_state) == (False, True, True)
+    assert second["stock_status_delivered"] == 1
+    assert len(posts) == 2
+    assert posts[0] == posts[1]
+    assert posts[0][1] == config.default_watch_config().id_stocks_news_channel_id
+    assert posts[0][2] == "phintraco-stock-status:35377"
+
+
+def test_malformed_status_is_persisted_before_cursor_advance_and_degrades_run(
+    tmp_state, monkeypatch, load_fixture, capsys
+):
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_state))
+    monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
+    _bootstrapped_state(tmp_state)
+    body = load_fixture("phintraco-stock-status-35377.txt") + "\nNew Status:\n>ABCD\n"
+    clients = FakeClients()
+    clients.client.messages["tuntun"] = []
+    clients.client.messages["phintraco"] = [_status_source_message(35377, body)]
+    cursor_advances = []
+    original_advance = scan.advance_provider_cursor
+
+    def checked_advance(state, provider, message_id):
+        if provider is Provider.PHINTRACO:
+            event = state["stats"]["stock_status_events"][
+                "phintraco-stock-status:35377"
+            ]
+            assert event["phase"] == "rejected"
+            assert event["rejection_code"] == "invalid_status"
+            cursor_advances.append(message_id)
+        return original_advance(state, provider, message_id)
+
+    monkeypatch.setattr(scan, "advance_provider_cursor", checked_advance)
+    operational_posts = []
+    status_posts = []
+    monkeypatch.setattr(
+        scan,
+        "post_hermes_text",
+        lambda content, *_args, **_kwargs: operational_posts.append(content) or "heartbeat-id",
+    )
+    monkeypatch.setattr(
+        delivery,
+        "post_discord_text",
+        lambda *args, **kwargs: status_posts.append((args, kwargs)) or "unexpected-id",
+    )
+
+    class CapturedRun:
+        events = []
+        finished = []
+
+        @classmethod
+        def begin(cls, *_args, **_kwargs):
+            return cls()
+
+        def event(self, event_id, **kwargs):
+            self.events.append((event_id, kwargs))
+
+        def finish(self, outcome, error=None):
+            self.finished.append((outcome, error))
+
+    monkeypatch.setattr(scan, "ControlPlaneRun", CapturedRun)
+    result = asyncio.run(
+        scan.run(datetime.fromisoformat("2026-09-23T08:30:00+07:00"), clients)
+    )
+
+    persisted = load_state(tmp_state)
+    event = persisted["stats"]["stock_status_events"]["phintraco-stock-status:35377"]
+    assert event["phase"] == "rejected"
+    assert event["rejection_code"] == "invalid_status"
+    assert persisted["providers"]["phintraco"]["observed_message_id"] == 35377
+    assert cursor_advances == [35377]
+    assert result["stock_status_rejected"] == 1
+    assert result["stock_status_delivered"] == 0
+    assert CapturedRun.finished == [("degraded", None)]
+    attributes = json.dumps(CapturedRun.events)
+    assert '"stock_status_rejected": 1' in attributes
+    assert "WAPO" not in attributes and "New Status" not in attributes
+    captured_output = capsys.readouterr()
+    assert body not in captured_output.out + captured_output.err
+    assert status_posts == []
+    assert "⚠️" in operational_posts[0]
+
+
+def test_regular_phintraco_company_flash_and_tuntun_paths_still_ingest(
+    tmp_state, monkeypatch
+):
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_state))
+    monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
+    _bootstrapped_state(tmp_state)
+    clients = FakeClients()
+    clients.client.messages["phintraco"] = [
+        _status_source_message(500, "Company Flash: PTBA reports higher coal sales volume.")
+    ]
+    result = asyncio.run(
+        scan.run(datetime.fromisoformat("2026-09-23T08:30:00+07:00"), clients)
+    )
+
+    persisted = load_state(tmp_state)
+    assert result["source_candidates"] == 2
+    assert result["stock_status_events"] == 0
+    assert "phintraco:500:PTBA" in persisted["candidates"]
+    assert "tuntun:201:CBRE" in persisted["candidates"]
