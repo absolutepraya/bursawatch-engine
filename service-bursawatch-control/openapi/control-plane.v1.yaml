@@ -41,7 +41,7 @@ paths:
   /v1/source-events/{event_key}/versions:
     post:
       summary: Append an audited correction or deletion tombstone.
-      description: Human admin or credential scoped to the originating endpoint. A stable revision_id returns the original receipt on retries, including a later observed_at. Original subscription targets and config snapshots remain frozen. A tombstone is terminal.
+      description: Human admin or credential scoped to the originating endpoint. A stable revision_id returns the original receipt on retries, including a later observed_at. A leased older work item, even with an expired lease, blocks a new revision with retryable 409 and no version append. Claims and revisions lock the same event row. Original subscription targets and config snapshots remain frozen. A tombstone is terminal.
       requestBody:
         required: true
         content:

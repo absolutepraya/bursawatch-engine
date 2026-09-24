@@ -131,6 +131,10 @@ def test_revision_retry_identity_fences_old_work_and_rejects_conflicts():
     edited["payload"] = {"text": "edited"}
     path = f"/v1/source-events/{receipt['event_key']}/versions"
     body = {"envelope": edited, "kind": "correction", "revision_id": "provider-edit-17", "reason": "provider edit"}
+    blocked = api.post(path, headers=SOURCE, json=body)
+    assert blocked.status_code == 409
+    assert len(inbox.events[receipt["event_key"]]["versions"]) == 1
+    assert api.post(f"/v1/source-work/{original['work_key']}/settle", headers=MACHINE, json={"lease_token": original["lease_token"], "success": False, "error_code": "handler_failed"}).json()["status"] == "pending"
     first = api.post(path, headers=SOURCE, json=body).json()
     assert first["version"] == 2 and first["duplicate"] is False
     reread = deepcopy(body)
@@ -147,8 +151,30 @@ def test_revision_retry_identity_fences_old_work_and_rejects_conflicts():
     assert api.post(path, headers=SOURCE, json=conflict).status_code == 409
 
 
+def test_expired_lease_still_blocks_revision_until_reclaimed_and_settled():
+    api, _catalog, inbox = setup()
+    receipt = api.post("/v1/source-events", headers=SOURCE, json={"envelope": envelope()}).json()
+    original = api.post("/v1/source-work/claim?limit=1", headers=MACHINE, json={"pipeline_ids": ["company_news"]}).json()[0]
+    inbox.work[original["work_key"]]["lease_until"] = "2020-01-01T00:00:00+00:00"
+    edited = envelope()
+    edited["content_hash"] = hashlib.sha256(b"edit-expired").hexdigest()
+    edited["payload"] = {"text": "new"}
+    path = f"/v1/source-events/{receipt['event_key']}/versions"
+    body = {"envelope": edited, "kind": "correction", "revision_id": "edit-expired", "reason": "edit"}
+    assert api.post(path, headers=SOURCE, json=body).status_code == 409
+    assert len(inbox.events[receipt["event_key"]]["versions"]) == 1
+    reclaimed = api.post("/v1/source-work/claim?limit=1", headers=MACHINE, json={"pipeline_ids": ["company_news"]}).json()[0]
+    assert reclaimed["lease_token"] != original["lease_token"]
+    assert api.post(f"/v1/source-work/{reclaimed['work_key']}/settle", headers=MACHINE, json={"lease_token": reclaimed["lease_token"], "success": False, "error_code": "handler_failed"}).status_code == 200
+    assert api.post(path, headers=SOURCE, json=body).json()["version"] == 2
+    assert api.post(f"/v1/source-work/{original['work_key']}/settle", headers=MACHINE, json={"lease_token": original["lease_token"], "success": True}).status_code == 409
+
+
 def test_claim_pipeline_filter_and_source_machine_authorization():
     api, _catalog, _inbox = setup()
+    assert api.get("/v1/watchers/bursawatch-tg-market-news/config", headers=SOURCE).status_code == 403
+    assert api.put("/v1/watchers/bursawatch-tg-market-news/config", headers=SOURCE, json={"config_version": 1, "config": {"version": 1}}).status_code == 403
+    assert api.post("/v1/runs", headers=SOURCE, json={"watcher_id": "bursawatch-tg-market-news", "config_revision": 1}).status_code == 403
     wrong = envelope()
     wrong["endpoint_id"] = "telegram:phintraprofits"
     assert api.post("/v1/source-events", headers=SOURCE, json={"envelope": wrong}).status_code == 403
@@ -158,6 +184,7 @@ def test_claim_pipeline_filter_and_source_machine_authorization():
     assert api.post("/v1/source-work/claim", headers=MACHINE, json={"pipeline_ids": ["stockbit_snips"]}).json() == []
     claimed = api.post("/v1/source-work/claim", headers=MACHINE, json={"pipeline_ids": ["macro_news"]}).json()
     assert len(claimed) == 1 and claimed[0]["pipeline_id"] == "macro_news"
+    assert api.post(f"/v1/source-work/{claimed[0]['work_key']}/settle", headers=MACHINE, json={"lease_token": claimed[0]["lease_token"], "success": True}).status_code == 200
     edited = envelope()
     edited["payload"] = {"text": "edited"}
     edited["content_hash"] = hashlib.sha256(b"edited").hexdigest()

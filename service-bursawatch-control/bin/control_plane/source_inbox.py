@@ -259,6 +259,8 @@ class MemoryInboxStore:
             previous = event["versions"][-1]
             if previous["kind"] == "tombstone":
                 raise InboxConflict("tombstoned source event cannot be revised")
+            if any(item["event_key"] == key and item["status"] == "leased" for item in self.work.values()):
+                raise InboxConflict("source revision waits for leased work to settle")
             if kind == "tombstone" and envelope["payload"]:
                 raise ValueError("tombstone payload must be empty")
             if previous["envelope"] == envelope and previous["kind"] == kind:
@@ -326,7 +328,7 @@ class PostgresInboxStore:
         if not 1 <= limit <= 100:
             raise ValueError("claim limit out of range")
         with self._connect() as conn:
-            rows = conn.execute("select w.work_key, w.attempts from bursawatch_source_work w where w.pipeline_id = any(%s) and not exists (select 1 from bursawatch_source_event_versions newer where newer.event_key=w.event_key and newer.version>w.version) and ((w.status='pending' and w.available_at <= now()) or (w.status='leased' and w.lease_until <= now())) order by w.available_at, w.work_key for update of w skip locked limit %s", (list(pipelines), limit)).fetchall()
+            rows = conn.execute("select w.work_key, w.attempts from bursawatch_source_work w join bursawatch_source_events e on e.event_key=w.event_key where w.pipeline_id = any(%s) and not exists (select 1 from bursawatch_source_event_versions newer where newer.event_key=w.event_key and newer.version>w.version) and ((w.status='pending' and w.available_at <= now()) or (w.status='leased' and w.lease_until <= now())) order by w.available_at, w.work_key for update of e,w skip locked limit %s", (list(pipelines), limit)).fetchall()
             result = []
             for row in rows:
                 wid = row["work_key"]
@@ -402,7 +404,7 @@ class PostgresInboxStore:
             raise ValueError("actor and bounded reason required")
         with self._connect() as conn:
             conn.execute("select pg_advisory_xact_lock(71938142)")
-            source = conn.execute("select publisher_id from bursawatch_source_events where event_key=%s", (key,)).fetchone()
+            source = conn.execute("select publisher_id from bursawatch_source_events where event_key=%s for update", (key,)).fetchone()
             if not source:
                 raise KeyError(key)
             if source["publisher_id"] != envelope["publisher_id"]:
@@ -418,6 +420,9 @@ class PostgresInboxStore:
                 raise KeyError(key)
             if old["kind"] == "tombstone":
                 raise InboxConflict("tombstoned source event cannot be revised")
+            leased = conn.execute("select 1 from bursawatch_source_work where event_key=%s and status='leased' limit 1", (key,)).fetchone()
+            if leased:
+                raise InboxConflict("source revision waits for leased work to settle")
             if old["envelope"] == envelope and old["kind"] == kind:
                 raise InboxConflict("duplicate correction")
             version = old["version"] + 1

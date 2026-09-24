@@ -29,6 +29,9 @@ handoff records on restart. If it crashes after acceptance and before cursor sav
 provider rereads are safe because the server returns the original receipt. An HTTP
 error, invalid receipt, or full spool must stop cursor advancement. Platform adapters
 are introduced in later tasks; this library alone does not change any live cursor.
+Corrections and tombstones use `stage_revision` with a stable provider revision ID.
+A 409 while an older work item is leased leaves that staged revision pending for retry;
+the adapter must retain its source cursor until a revision receipt is validated.
 
 Claims require explicit supported pipeline IDs. Claimed work includes a stable
 `effect_key` and event version. Domain handlers must send both to their owner to

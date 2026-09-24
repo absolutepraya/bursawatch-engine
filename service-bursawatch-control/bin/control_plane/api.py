@@ -263,8 +263,13 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
     def machine_or_admin(current: Principal = Depends(principal)) -> Principal:
-        if current.kind not in {"machine", "source_machine", "admin"}:
+        if current.kind not in {"machine", "admin"}:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="insufficient role")
+        return current
+
+    def source_event_principal(current: Principal = Depends(principal)) -> Principal:
+        if current.kind not in {"machine", "source_machine", "admin"}:
+            raise HTTPException(status_code=403, detail="source event role required")
         return current
 
     def worker_or_admin(current: Principal = Depends(principal)) -> Principal:
@@ -357,7 +362,7 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
     @app.post("/v1/source-events")
-    def accept_source_event(payload: SourceEventWrite, current: Principal = Depends(machine_or_admin)) -> dict[str, Any]:
+    def accept_source_event(payload: SourceEventWrite, current: Principal = Depends(source_event_principal)) -> dict[str, Any]:
         if current.kind == "source_machine" and payload.envelope.get("endpoint_id") != current.subject:
             raise HTTPException(status_code=403, detail="source endpoint credential mismatch")
         try:
@@ -413,7 +418,7 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/v1/source-events/{event_key}/versions")
-    def revise_source_event(event_key: str, payload: SourceRevisionWrite, current: Principal = Depends(principal)) -> dict[str, Any]:
+    def revise_source_event(event_key: str, payload: SourceRevisionWrite, current: Principal = Depends(source_event_principal)) -> dict[str, Any]:
         if current.kind not in {"admin", "source_machine"}:
             raise HTTPException(status_code=403, detail="source revision role required")
         if current.kind == "source_machine" and payload.envelope.get("endpoint_id") != current.subject:

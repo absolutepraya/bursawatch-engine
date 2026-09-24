@@ -253,14 +253,17 @@ An endpoint-scoped source credential (configured privately with
 accept and revise only its own endpoint. The shared worker machine credential
 cannot revise events. Corrections and tombstones require a stable `revision_id`;
 retrying the same revision returns its receipt even when `observed_at` changes.
-Reusing that ID for changed content is a conflict. A new version supersedes all
-noncompleted prior work, including old leases. Claim queries also fence by the
-latest version. The `/fence` endpoint lets a worker check its lease immediately
-before dispatch. A revision can still arrive after that check. A handler must
-send `(event_key, version, effect_key)` to its domain owner, and the owner must
-atomically reject a stale version when applying an effect. Until Task 4 handlers
-have that owner-side fence, the inbox does not guarantee that an already running
-old handler cannot produce an effect.
+Reusing that ID for changed content is a conflict. Correction and tombstone
+acceptance returns 409 without appending a version while any older work remains
+`leased`, including an expired lease. The source adapter must keep its durable
+handoff and retry after the old work settles. Claim and revision transactions
+lock the same event row, so a claim cannot slip in while a revision commits.
+Once committed, the new version supersedes prior pending, dead-letter, and
+suppressed work; claim queries also fence by the latest version. The `/fence`
+endpoint lets a worker check its lease before dispatch. A handler already running
+may finish its domain effect before its lease settles and before the revision is
+accepted; the adapter waits for that lease to settle. Domain owners must still
+deduplicate `(event_key, version, effect_key)` across retry and crash recovery.
 Run summaries remain in `ControlPlaneReporter` and do not contain source payloads.
 
 Media bytes never enter Postgres. The API currently rejects every media reference and

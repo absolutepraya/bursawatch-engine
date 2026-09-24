@@ -46,3 +46,25 @@ def test_handoff_retains_event_until_durable_receipt(tmp_path):
     assert handoff.flush()[0]["event_key"] == expected
     assert handoff.spool.pending() == []
     assert attempts[0] == attempts[1] == attempts[2]
+
+
+def test_revision_handoff_retains_lease_conflict_until_retry(tmp_path):
+    identity = {"platform": "telegram", "endpoint_id": "telegram:phintasprofits", "provider_event_id": "42"}
+    key = hashlib.sha256(json.dumps([identity["platform"], identity["endpoint_id"], identity["provider_event_id"]], separators=(",", ":")).encode()).hexdigest()
+    class Client:
+        def __init__(self):
+            self.calls = 0
+        def revise(self, event_key, envelope, kind, revision_id, reason):
+            self.calls += 1
+            assert (event_key, kind, revision_id) == (key, "correction", "edit-1")
+            if self.calls == 1:
+                raise ControlPlaneUnavailable("source inbox returned HTTP 409")
+            return {"event_key": key, "version": 2, "duplicate": False, "work_keys": []}
+    client = Client()
+    handoff = SourceEventHandoff(tmp_path, client)
+    handoff.stage_revision(key, identity, "correction", "edit-1", "provider edit")
+    with pytest.raises(ControlPlaneUnavailable):
+        handoff.flush()
+    assert len(handoff.spool.pending()) == 1
+    assert handoff.flush()[0]["version"] == 2
+    assert handoff.spool.pending() == []

@@ -128,12 +128,26 @@ class SourceEventHandoff:
     def stage(self, envelope: dict[str, Any]) -> Path:
         return self.spool.append("POST", "/v1/source-events", {"envelope": envelope})
 
+    def stage_revision(self, event_key: str, envelope: dict[str, Any], kind: str, revision_id: str, reason: str) -> Path:
+        key = _sha_key(event_key)
+        if _event_key(envelope) != key or kind not in {"correction", "tombstone"} or type(revision_id) is not str or not 1 <= len(revision_id) <= 128 or type(reason) is not str or not 1 <= len(reason.strip()) <= 500:
+            raise ValueError("invalid staged source revision")
+        return self.spool.append("POST", f"/v1/source-events/{key}/versions", {"envelope": envelope, "kind": kind, "revision_id": revision_id, "reason": reason})
+
     def flush(self, limit: int = 50) -> list[dict[str, Any]]:
         receipts = []
         for item in self.spool.pending(limit):
-            if item.endpoint != "/v1/source-events" or type(item.payload) is not dict or type(item.payload.get("envelope")) is not dict:
+            if type(item.payload) is not dict or type(item.payload.get("envelope")) is not dict:
                 raise ControlPlaneContractError("source event handoff contains an invalid request")
-            receipt = self.client.accept(item.payload["envelope"])
+            if item.endpoint == "/v1/source-events":
+                receipt = self.client.accept(item.payload["envelope"])
+            elif item.endpoint.startswith("/v1/source-events/") and item.endpoint.endswith("/versions"):
+                key = item.endpoint.removeprefix("/v1/source-events/").removesuffix("/versions")
+                if not _valid_sha_key(key) or _event_key(item.payload["envelope"]) != key or set(item.payload) != {"envelope", "kind", "revision_id", "reason"}:
+                    raise ControlPlaneContractError("source revision handoff identity is invalid")
+                receipt = self.client.revise(key, item.payload["envelope"], item.payload["kind"], item.payload["revision_id"], item.payload["reason"])
+            else:
+                raise ControlPlaneContractError("source event handoff endpoint is invalid")
             self.spool.acknowledge(item.path)
             receipts.append(receipt)
         return receipts
