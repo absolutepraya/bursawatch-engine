@@ -68,3 +68,13 @@ def test_revision_handoff_retains_lease_conflict_until_retry(tmp_path):
     assert len(handoff.spool.pending()) == 1
     assert handoff.flush()[0]["version"] == 2
     assert handoff.spool.pending() == []
+
+
+def test_list_work_accepts_executing_for_recovery_inspection():
+    requests = []
+    def opener(request, timeout):
+        requests.append((request.get_method(), request.full_url))
+        return Response([{"work_key": "a" * 64, "status": "executing"}])
+    client = SourceEventClient("http://127.0.0.1:9119", "machine", opener=opener)
+    assert client.list_work("executing", 5)[0]["status"] == "executing"
+    assert requests == [("GET", "http://127.0.0.1:9119/v1/source-work?status=executing&limit=5")]

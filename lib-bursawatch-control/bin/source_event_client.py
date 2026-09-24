@@ -70,7 +70,7 @@ class SourceEventClient(SourceCatalogClient):
         return result
 
     def list_work(self, status: str, limit: int = 100) -> list[dict[str, Any]]:
-        if status not in {"pending", "leased", "done", "dead_letter", "suppressed", "superseded"} or not 1 <= limit <= 100:
+        if status not in {"pending", "leased", "executing", "done", "dead_letter", "suppressed", "superseded"} or not 1 <= limit <= 100:
             raise ValueError("invalid work filter")
         result = self._call(f"/v1/source-work?status={status}&limit={limit}")
         if type(result) is not list:
