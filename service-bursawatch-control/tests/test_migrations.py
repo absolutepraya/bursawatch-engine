@@ -168,3 +168,18 @@ def test_stockbit_schedule_migration_registers_existing_15_minute_job():
     ) in migration
     assert "on conflict (job_id, revision) do nothing;" in migration
     assert "and current_schedule_revision is null;" in migration
+
+
+def test_stockbit_scheduler_job_key_migration_targets_exact_hermes_job_name():
+    migration = (
+        Path(__file__).resolve().parents[1]
+        / "migrations/012_stockbit_scheduler_job_key.sql"
+    ).read_text(encoding="utf-8")
+
+    assert migration.startswith("-- bursawatch-release: manual\n")
+    assert "where job_id = 'bursawatch-stockbit-snips'" in migration
+    assert "registered_runtime_job_key not in (" in migration
+    assert "'bursawatch-stockbit-snips'" in migration
+    assert "'cron-stockbit-snips'" in migration
+    assert "set runtime_job_key = 'cron-stockbit-snips'" in migration
+    assert "set current_schedule_revision" not in migration

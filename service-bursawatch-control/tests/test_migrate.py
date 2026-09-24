@@ -110,6 +110,7 @@ def test_discover_migrations_uses_the_checked_legacy_eligibility_registry():
         "009_promote_whatsapp_v2_baseline.sql",
         "010_refresh_bri_source_emoji.sql",
         "011_stockbit_snips_control_plane.sql",
+        "012_stockbit_scheduler_job_key.sql",
     }
     assert {migration.release_eligibility for migration in migrations} == {"automatic", "manual"}
     assert next(
