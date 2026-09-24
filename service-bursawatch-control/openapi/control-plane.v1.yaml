@@ -41,7 +41,27 @@ paths:
   /v1/source-events/{event_key}/versions:
     post:
       summary: Append an audited correction or deletion tombstone.
-      description: Human admin only. Original subscription targets and config snapshots remain frozen. A tombstone is terminal.
+      description: Human admin or credential scoped to the originating endpoint. A stable revision_id returns the original receipt on retries, including a later observed_at. Original subscription targets and config snapshots remain frozen. A tombstone is terminal.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [envelope, kind, revision_id, reason]
+              properties:
+                envelope:
+                  $ref: '#/components/schemas/SourceEventEnvelope'
+                kind:
+                  type: string
+                  enum: [correction, tombstone]
+                revision_id:
+                  type: string
+                  maxLength: 128
+                reason:
+                  type: string
+                  maxLength: 500
       responses:
         '200':
           description: New immutable version and work keys.
@@ -55,7 +75,23 @@ paths:
   /v1/source-work/claim:
     post:
       summary: Claim available subscription work with expiring leases.
-      description: Machine or admin credential. Claiming increments the per-item attempt count; each work item carries a stable effect key for domain-owner deduplication.
+      description: Worker machine or admin credential. A required pipeline_ids filter limits claims to supported handlers. Only the newest event version can be claimed. Claiming increments the per-item attempt count; each work item carries a stable effect key for domain-owner deduplication.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [pipeline_ids]
+              properties:
+                pipeline_ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 32
+                  uniqueItems: true
+                  items:
+                    type: string
       responses:
         '200':
           description: Claimed work with envelope and lease token.
@@ -68,6 +104,13 @@ paths:
           description: Updated work item.
         '409':
           description: Lease expired or token mismatched.
+  /v1/source-work/{work_key}/fence:
+    post:
+      summary: Check a lease against the latest event version before dispatch.
+      description: Worker machine or admin credential. This check reduces stale dispatch but a revision may still arrive while the handler executes; domain owners must atomically enforce monotonic event versions with effect idempotency.
+      responses:
+        '200':
+          description: Object with boolean current.
   /v1/source-work/{work_key}/suppress:
     post:
       summary: Suppress idle work with an audited reason.

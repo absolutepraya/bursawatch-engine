@@ -18,6 +18,7 @@ MAX_ATTEMPTS = 5
 LEASE_SECONDS = 120
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9:._/@-]{0,255}\Z")
 _HEX = re.compile(r"[0-9a-f]{64}\Z")
+_PIPELINE = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
 
 
 class InboxConflict(ValueError):
@@ -98,6 +99,22 @@ def work_key(key: str, version: int, capability: str) -> str:
     return hashlib.sha256(f"{key}:{version}:{capability}".encode()).hexdigest()
 
 
+def _pipeline_filter(values: object) -> tuple[str, ...]:
+    if type(values) is not list or not 1 <= len(values) <= 32 or any(type(value) is not str or not _PIPELINE.fullmatch(value) for value in values) or len(set(values)) != len(values):
+        raise ValueError("pipeline claim requires unique supported pipeline IDs")
+    return tuple(values)
+
+
+def _revision_identity(value: object) -> str:
+    if type(value) is not str or not _ID.fullmatch(value) or len(value) > 128:
+        raise ValueError("revision_id must be a bounded stable provider revision identity")
+    return value
+
+
+def _same_revision(existing: dict[str, Any], envelope: dict[str, Any], kind: str) -> bool:
+    return existing["kind"] == kind and existing["envelope"]["content_hash"] == envelope["content_hash"] and existing["envelope"]["publisher_id"] == envelope["publisher_id"]
+
+
 def _subscriptions(catalog: dict[str, Any], registry: dict[str, Any], envelope: dict[str, Any]) -> list[dict[str, Any]]:
     view = catalog_view(catalog["config"], registry)
     endpoints = {row["id"]: row for row in view["endpoints"]}
@@ -150,7 +167,8 @@ class MemoryInboxStore:
         self.work[wid] = item
         return item
 
-    def claim(self, limit: int = 10) -> list[dict[str, Any]]:
+    def claim(self, pipeline_ids: list[str], limit: int = 10) -> list[dict[str, Any]]:
+        pipelines = _pipeline_filter(pipeline_ids)
         if not 1 <= limit <= 100:
             raise ValueError("claim limit out of range")
         result = []
@@ -159,7 +177,7 @@ class MemoryInboxStore:
             for item in self.work.values():
                 if len(result) >= limit:
                     break
-                if item["status"] not in {"pending", "leased"} or (item["status"] == "pending" and datetime.fromisoformat(item["available_at"]) > now) or (item["status"] == "leased" and datetime.fromisoformat(item["lease_until"]) > now):
+                if item["pipeline_id"] not in pipelines or item["version"] != len(self.events[item["event_key"]]["versions"]) or item["status"] not in {"pending", "leased"} or (item["status"] == "pending" and datetime.fromisoformat(item["available_at"]) > now) or (item["status"] == "leased" and datetime.fromisoformat(item["lease_until"]) > now):
                     continue
                 if item["attempts"] >= MAX_ATTEMPTS:
                     item.update(status="dead_letter", lease_token=None, lease_until=None, error_code="attempts_exhausted")
@@ -183,6 +201,11 @@ class MemoryInboxStore:
             item.update(lease_token=None, lease_until=None)
             return deepcopy(item)
 
+    def fence(self, wid: str, token: str) -> bool:
+        with self.lock:
+            item = self.work.get(wid)
+            return bool(item and item["status"] == "leased" and item["lease_token"] == token and datetime.fromisoformat(item["lease_until"]) > _now() and item["version"] == len(self.events[item["event_key"]]["versions"]))
+
     def inspect(self, key: str) -> dict[str, Any]:
         with self.lock:
             if key not in self.events:
@@ -190,7 +213,7 @@ class MemoryInboxStore:
             return {"event": deepcopy(self.events[key]), "work": [deepcopy(w) for w in self.work.values() if w["event_key"] == key]}
 
     def list_work(self, status: str, limit: int = 100) -> list[dict[str, Any]]:
-        if status not in {"pending", "leased", "done", "dead_letter", "suppressed"} or not 1 <= limit <= 100:
+        if status not in {"pending", "leased", "done", "dead_letter", "suppressed", "superseded"} or not 1 <= limit <= 100:
             raise ValueError("invalid work filter")
         with self.lock:
             return [deepcopy(w) for w in self.work.values() if w["status"] == status][:limit]
@@ -213,9 +236,10 @@ class MemoryInboxStore:
             item.update(status="pending", attempts=0, available_at=_now().isoformat(), lease_token=None, lease_until=None, error_code=None)
             return deepcopy(item)
 
-    def revise(self, key: str, raw: object, kind: str, actor: str, reason: str) -> dict[str, Any]:
+    def revise(self, key: str, raw: object, kind: str, revision_id: str, actor: str, reason: str) -> dict[str, Any]:
         if kind not in {"correction", "tombstone"}:
             raise ValueError("invalid revision kind")
+        revision_id = _revision_identity(revision_id)
         envelope = validate_envelope(raw)
         if event_key(envelope) != key:
             raise ValueError("correction must retain provider identity")
@@ -226,6 +250,12 @@ class MemoryInboxStore:
             original_envelope = event["versions"][0]["envelope"]
             if envelope["publisher_id"] != original_envelope["publisher_id"]:
                 raise ValueError("correction must retain publisher identity")
+            for existing in event["versions"][1:]:
+                if existing["revision_id"] == revision_id:
+                    if not _same_revision(existing, envelope, kind):
+                        raise InboxConflict("revision identity already accepted with different content")
+                    version = existing["version"]
+                    return {"event_key": key, "version": version, "duplicate": True, "work_keys": [wid for wid, item in self.work.items() if item["event_key"] == key and item["version"] == version]}
             previous = event["versions"][-1]
             if previous["kind"] == "tombstone":
                 raise InboxConflict("tombstoned source event cannot be revised")
@@ -235,12 +265,15 @@ class MemoryInboxStore:
                 raise InboxConflict("duplicate correction")
             version = len(event["versions"]) + 1
             self._audit(kind, key, actor, reason, before=previous["envelope"]["content_hash"], after=envelope["content_hash"])
-            event["versions"].append({"version": version, "kind": kind, "envelope": envelope})
+            event["versions"].append({"version": version, "kind": kind, "revision_id": revision_id, "envelope": envelope})
+            for item in self.work.values():
+                if item["event_key"] == key and item["version"] < version and item["status"] != "done":
+                    item.update(status="superseded", lease_token=None, lease_until=None)
             subs = [
                 {field: item[field] for field in ("capability_id", "pipeline", "capability_version", "catalog_revision", "settings", "config_source")}
                 for item in self.work.values() if item["event_key"] == key and item["version"] == 1
             ]
-            return {"event_key": key, "version": version, "work_keys": [self._create_work(key, version, sub)["work_key"] for sub in subs]}
+            return {"event_key": key, "version": version, "duplicate": False, "work_keys": [self._create_work(key, version, sub)["work_key"] for sub in subs]}
 
     def _audit(self, action: str, target: str, actor: str, reason: str, **extra) -> None:
         if not actor or type(reason) is not str or not 1 <= len(reason.strip()) <= 500:
@@ -288,11 +321,12 @@ class PostgresInboxStore:
         conn.execute("insert into bursawatch_source_work (work_key,event_key,version,capability_id,pipeline_id,capability_version,catalog_revision,settings,config_source,effect_key) values (%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s)", (wid, key, version, sub["capability_id"], sub["pipeline"], sub["capability_version"], sub["catalog_revision"], json.dumps(sub["settings"]), sub["config_source"], wid))
         return wid
 
-    def claim(self, limit: int = 10) -> list[dict[str, Any]]:
+    def claim(self, pipeline_ids: list[str], limit: int = 10) -> list[dict[str, Any]]:
+        pipelines = _pipeline_filter(pipeline_ids)
         if not 1 <= limit <= 100:
             raise ValueError("claim limit out of range")
         with self._connect() as conn:
-            rows = conn.execute("select work_key, attempts from bursawatch_source_work where ((status='pending' and available_at <= now()) or (status='leased' and lease_until <= now())) order by available_at, work_key for update skip locked limit %s", (limit,)).fetchall()
+            rows = conn.execute("select w.work_key, w.attempts from bursawatch_source_work w where w.pipeline_id = any(%s) and not exists (select 1 from bursawatch_source_event_versions newer where newer.event_key=w.event_key and newer.version>w.version) and ((w.status='pending' and w.available_at <= now()) or (w.status='leased' and w.lease_until <= now())) order by w.available_at, w.work_key for update of w skip locked limit %s", (list(pipelines), limit)).fetchall()
             result = []
             for row in rows:
                 wid = row["work_key"]
@@ -317,17 +351,22 @@ class PostgresInboxStore:
             updated = conn.execute("update bursawatch_source_work set status=%s, error_code=%s, available_at=now()+(%s * interval '1 second'), lease_token=null, lease_until=null where work_key=%s returning *", (status, None if success else error_code, 0 if success else delay, wid)).fetchone()
             return self._work(updated)
 
+    def fence(self, wid: str, token: str) -> bool:
+        with self._connect() as conn:
+            row = conn.execute("select w.event_key,w.version,w.status,w.lease_token,w.lease_until,(select max(v.version) from bursawatch_source_event_versions v where v.event_key=w.event_key) as current_version from bursawatch_source_work w where w.work_key=%s", (wid,)).fetchone()
+            return bool(row and row["status"] == "leased" and row["lease_token"] == token and row["lease_until"] > _now() and row["version"] == row["current_version"])
+
     def inspect(self, key: str) -> dict[str, Any]:
         with self._connect() as conn:
             event = conn.execute("select event_key, endpoint_id, publisher_id, platform, provider_event_id, created_at from bursawatch_source_events where event_key=%s", (key,)).fetchone()
             if not event:
                 raise KeyError(key)
-            versions = conn.execute("select version,kind,envelope,created_at,actor_id,reason from bursawatch_source_event_versions where event_key=%s order by version", (key,)).fetchall()
+            versions = conn.execute("select version,kind,revision_id,envelope,created_at,actor_id,reason from bursawatch_source_event_versions where event_key=%s order by version", (key,)).fetchall()
             work = conn.execute("select * from bursawatch_source_work where event_key=%s order by version,capability_id", (key,)).fetchall()
             return {"event": {**dict(event), "created_at": event["created_at"].isoformat(), "versions": [{**dict(v), "created_at": v["created_at"].isoformat()} for v in versions]}, "work": [self._work(w) for w in work]}
 
     def list_work(self, status: str, limit: int = 100) -> list[dict[str, Any]]:
-        if status not in {"pending", "leased", "done", "dead_letter", "suppressed"} or not 1 <= limit <= 100:
+        if status not in {"pending", "leased", "done", "dead_letter", "suppressed", "superseded"} or not 1 <= limit <= 100:
             raise ValueError("invalid work filter")
         with self._connect() as conn:
             rows = conn.execute("select * from bursawatch_source_work where status=%s order by available_at,work_key limit %s", (status, limit)).fetchall()
@@ -352,9 +391,10 @@ class PostgresInboxStore:
     def replay(self, wid: str, actor: str, reason: str) -> dict[str, Any]:
         return self._operator_action(wid, actor, reason, "replay")
 
-    def revise(self, key: str, raw: object, kind: str, actor: str, reason: str) -> dict[str, Any]:
+    def revise(self, key: str, raw: object, kind: str, revision_id: str, actor: str, reason: str) -> dict[str, Any]:
         if kind not in {"correction", "tombstone"}:
             raise ValueError("invalid revision kind")
+        revision_id = _revision_identity(revision_id)
         envelope = validate_envelope(raw)
         if event_key(envelope) != key or (kind == "tombstone" and envelope["payload"]):
             raise ValueError("revision identity or tombstone payload is invalid")
@@ -367,6 +407,12 @@ class PostgresInboxStore:
                 raise KeyError(key)
             if source["publisher_id"] != envelope["publisher_id"]:
                 raise ValueError("correction must retain publisher identity")
+            prior = conn.execute("select version,kind,envelope from bursawatch_source_event_versions where event_key=%s and revision_id=%s", (key, revision_id)).fetchone()
+            if prior:
+                if not _same_revision(prior, envelope, kind):
+                    raise InboxConflict("revision identity already accepted with different content")
+                rows = conn.execute("select work_key from bursawatch_source_work where event_key=%s and version=%s order by work_key", (key, prior["version"])).fetchall()
+                return {"event_key": key, "version": prior["version"], "duplicate": True, "work_keys": [row["work_key"] for row in rows]}
             old = conn.execute("select version,kind,envelope from bursawatch_source_event_versions where event_key=%s order by version desc limit 1 for update", (key,)).fetchone()
             if not old:
                 raise KeyError(key)
@@ -377,6 +423,7 @@ class PostgresInboxStore:
             version = old["version"] + 1
             original = conn.execute("select capability_id,pipeline_id,capability_version,catalog_revision,settings,config_source from bursawatch_source_work where event_key=%s and version=1", (key,)).fetchall()
             subs = [{"capability_id": row["capability_id"], "pipeline": row["pipeline_id"], "capability_version": row["capability_version"], "catalog_revision": row["catalog_revision"], "settings": row["settings"], "config_source": row["config_source"]} for row in original]
-            conn.execute("insert into bursawatch_source_event_versions (event_key,version,kind,envelope,content_hash,actor_id,reason) values (%s,%s,%s,%s::jsonb,%s,%s,%s)", (key, version, kind, json.dumps(envelope), envelope["content_hash"], actor, reason))
+            conn.execute("insert into bursawatch_source_event_versions (event_key,version,kind,envelope,content_hash,actor_id,reason,revision_id) values (%s,%s,%s,%s::jsonb,%s,%s,%s,%s)", (key, version, kind, json.dumps(envelope), envelope["content_hash"], actor, reason, revision_id))
+            conn.execute("update bursawatch_source_work set status='superseded', lease_token=null, lease_until=null where event_key=%s and version<%s and status<>'done'", (key, version))
             keys = [self._insert_work(conn, key, version, sub) for sub in subs]
-            return {"event_key": key, "version": version, "work_keys": keys}
+            return {"event_key": key, "version": version, "duplicate": False, "work_keys": keys}

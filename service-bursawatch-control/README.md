@@ -240,13 +240,27 @@ items pending. Corrections and tombstones append audited versions targeted at th
 original subscription set, even if those subscriptions were later disabled. Tombstones
 are terminal. No legacy cursor or watcher state is moved by this migration.
 
-Machine clients may claim work, settle a current lease, and inspect events or work.
-Claims use `FOR UPDATE SKIP LOCKED`, a 120-second lease, and at most five attempts.
+Worker machine clients may claim work, settle a current lease, and inspect events or work.
+Claims require a nonempty list of supported pipeline IDs and use
+`FOR UPDATE SKIP LOCKED`, a 120-second lease, and at most five attempts.
 Failed attempts back off up to one hour and store only a sanitized error code. Human
 admins may explicitly suppress idle work or replay suppressed and dead-letter items
 with a bounded reason; both actions are audited. The stable `effect_key` must be used
 as the idempotency key at each domain owner. A lease expiry can run a handler again,
 so the domain owner must deduplicate the effect before claiming exactly-once output.
+An endpoint-scoped source credential (configured privately with
+`CONTROL_PLANE_SOURCE_ENDPOINT_TOKENS` as an endpoint-ID to token JSON map) may
+accept and revise only its own endpoint. The shared worker machine credential
+cannot revise events. Corrections and tombstones require a stable `revision_id`;
+retrying the same revision returns its receipt even when `observed_at` changes.
+Reusing that ID for changed content is a conflict. A new version supersedes all
+noncompleted prior work, including old leases. Claim queries also fence by the
+latest version. The `/fence` endpoint lets a worker check its lease immediately
+before dispatch. A revision can still arrive after that check. A handler must
+send `(event_key, version, effect_key)` to its domain owner, and the owner must
+atomically reject a stale version when applying an effect. Until Task 4 handlers
+have that owner-side fence, the inbox does not guarantee that an already running
+old handler cannot produce an effect.
 Run summaries remain in `ControlPlaneReporter` and do not contain source payloads.
 
 Media bytes never enter Postgres. The API currently rejects every media reference and

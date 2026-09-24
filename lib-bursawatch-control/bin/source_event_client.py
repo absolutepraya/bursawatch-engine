@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -30,16 +31,18 @@ class SourceEventClient(SourceCatalogClient):
 
     def accept(self, envelope: dict[str, Any]) -> dict[str, Any]:
         result = self._post("/v1/source-events", {"envelope": envelope})
-        if type(result) is not dict or type(result.get("event_key")) is not str or len(result["event_key"]) != 64 or type(result.get("version")) is not int or type(result.get("duplicate")) is not bool or type(result.get("work_keys")) is not list:
+        if type(result) is not dict or result.get("event_key") != _event_key(envelope) or result.get("version") != 1 or type(result.get("duplicate")) is not bool or type(result.get("work_keys")) is not list or any(type(key) is not str or not _valid_sha_key(key) for key in result["work_keys"]):
             raise ControlPlaneContractError("source acceptance receipt is invalid")
         return result
 
-    def claim(self, limit: int = 10) -> list[dict[str, Any]]:
-        if not 1 <= limit <= 100:
-            raise ValueError("invalid claim limit")
-        result = self._post(f"/v1/source-work/claim?limit={limit}", {})
+    def claim(self, pipeline_ids: list[str], limit: int = 10) -> list[dict[str, Any]]:
+        if not 1 <= limit <= 100 or type(pipeline_ids) is not list or not pipeline_ids or any(type(item) is not str for item in pipeline_ids):
+            raise ValueError("invalid claim filter")
+        result = self._post(f"/v1/source-work/claim?limit={limit}", {"pipeline_ids": pipeline_ids})
         if type(result) is not list:
             raise ControlPlaneContractError("source work claim is invalid")
+        if any(type(item) is not dict or item.get("pipeline_id") not in pipeline_ids for item in result):
+            raise ControlPlaneContractError("source work claim contains an unsupported pipeline")
         return result
 
     def settle(self, work_key: str, lease_token: str, success: bool, error_code: str | None = None) -> dict[str, Any]:
@@ -48,6 +51,12 @@ class SourceEventClient(SourceCatalogClient):
             raise ControlPlaneContractError("source work settlement is invalid")
         return result
 
+    def fence(self, work_key: str, lease_token: str) -> bool:
+        result = self._post(f"/v1/source-work/{_sha_key(work_key)}/fence", {"lease_token": lease_token})
+        if type(result) is not dict or type(result.get("current")) is not bool:
+            raise ControlPlaneContractError("source work fence is invalid")
+        return result["current"]
+
     def inspect(self, event_key: str) -> dict[str, Any]:
         result = self._call(f"/v1/source-events/{_sha_key(event_key)}")
         if type(result) is not dict or type(result.get("event")) is not dict or type(result.get("work")) is not list:
@@ -55,7 +64,7 @@ class SourceEventClient(SourceCatalogClient):
         return result
 
     def list_work(self, status: str, limit: int = 100) -> list[dict[str, Any]]:
-        if status not in {"pending", "leased", "done", "dead_letter", "suppressed"} or not 1 <= limit <= 100:
+        if status not in {"pending", "leased", "done", "dead_letter", "suppressed", "superseded"} or not 1 <= limit <= 100:
             raise ValueError("invalid work filter")
         result = self._call(f"/v1/source-work?status={status}&limit={limit}")
         if type(result) is not list:
@@ -76,18 +85,32 @@ class SourceEventClient(SourceCatalogClient):
     def suppress(self, work_key: str, reason: str) -> dict[str, Any]:
         return self._operator_action(work_key, "suppress", reason)
 
-    def revise(self, event_key: str, envelope: dict[str, Any], kind: str, reason: str) -> dict[str, Any]:
-        if kind not in {"correction", "tombstone"} or not 1 <= len(reason.strip()) <= 500:
+    def revise(self, event_key: str, envelope: dict[str, Any], kind: str, revision_id: str, reason: str) -> dict[str, Any]:
+        if kind not in {"correction", "tombstone"} or not 1 <= len(reason.strip()) <= 500 or type(revision_id) is not str or not 1 <= len(revision_id) <= 128:
             raise ValueError("valid revision kind and bounded reason required")
-        result = self._post(f"/v1/source-events/{_sha_key(event_key)}/versions", {"envelope": envelope, "kind": kind, "reason": reason})
-        if type(result) is not dict or result.get("event_key") != event_key or type(result.get("version")) is not int:
+        result = self._post(f"/v1/source-events/{_sha_key(event_key)}/versions", {"envelope": envelope, "kind": kind, "revision_id": revision_id, "reason": reason})
+        if type(result) is not dict or result.get("event_key") != event_key or type(result.get("version")) is not int or type(result.get("duplicate")) is not bool:
             raise ControlPlaneContractError("source revision receipt is invalid")
         return result
 
 
-def _sha_key(value: str) -> str:
+def _event_key(envelope: dict[str, Any]) -> str:
+    try:
+        identity = [envelope["platform"], envelope["endpoint_id"], envelope["provider_event_id"]]
+        if any(type(value) is not str or not value for value in identity):
+            raise ValueError
+        return hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()
+    except (KeyError, ValueError, TypeError) as exc:
+        raise ControlPlaneContractError("staged source event identity is invalid") from exc
+
+
+def _valid_sha_key(value: str) -> bool:
     import re
-    if type(value) is not str or not re.fullmatch(r"[0-9a-f]{64}", value):
+    return bool(re.fullmatch(r"[0-9a-f]{64}", value))
+
+
+def _sha_key(value: str) -> str:
+    if type(value) is not str or not _valid_sha_key(value):
         raise ValueError("invalid source key")
     return value
 

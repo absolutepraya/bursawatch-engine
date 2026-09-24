@@ -22,11 +22,15 @@ copies during migration.
 `bin/source_event_client.py` provides `SourceEventClient` and `SourceEventHandoff`.
 The adapter stages a bounded event in the private local spool before sending. The
 handoff removes that record only after a validated durable acceptance receipt. The
+client computes the expected event key from the staged provider identity and refuses
+an unrelated or malformed receipt, leaving the handoff file in place. The
 adapter must persist its own cursor only after the receipt and must retry pending
 handoff records on restart. If it crashes after acceptance and before cursor save,
 provider rereads are safe because the server returns the original receipt. An HTTP
 error, invalid receipt, or full spool must stop cursor advancement. Platform adapters
 are introduced in later tasks; this library alone does not change any live cursor.
 
-Claimed work includes a stable `effect_key`. Domain handlers must send that key to
-their owner to deduplicate effects across retries, lease expiry, and audited replay.
+Claims require explicit supported pipeline IDs. Claimed work includes a stable
+`effect_key` and event version. Domain handlers must send both to their owner to
+deduplicate effects and reject stale versions across retries, lease expiry, and
+audited replay.

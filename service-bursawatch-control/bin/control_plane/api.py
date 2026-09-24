@@ -67,6 +67,16 @@ class WorkSettle(BaseModel):
     error_code: str | None = None
 
 
+class WorkFence(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    lease_token: str = Field(min_length=1, max_length=64)
+
+
+class WorkClaim(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    pipeline_ids: list[str] = Field(min_length=1, max_length=32)
+
+
 class WorkAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
     reason: str = Field(min_length=1, max_length=500)
@@ -75,6 +85,7 @@ class WorkAction(BaseModel):
 class SourceRevisionWrite(WorkAction):
     envelope: dict[str, Any]
     kind: Literal["correction", "tombstone"]
+    revision_id: str = Field(min_length=1, max_length=128)
 
 
 class AvatarWrite(BaseModel):
@@ -252,8 +263,13 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
     def machine_or_admin(current: Principal = Depends(principal)) -> Principal:
-        if current.kind not in {"machine", "admin"}:
+        if current.kind not in {"machine", "source_machine", "admin"}:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="insufficient role")
+        return current
+
+    def worker_or_admin(current: Principal = Depends(principal)) -> Principal:
+        if current.kind not in {"machine", "admin"}:
+            raise HTTPException(status_code=403, detail="worker role required")
         return current
 
     def admin_only(current: Principal = Depends(principal)) -> Principal:
@@ -341,7 +357,9 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
     @app.post("/v1/source-events")
-    def accept_source_event(payload: SourceEventWrite, _current: Principal = Depends(machine_or_admin)) -> dict[str, Any]:
+    def accept_source_event(payload: SourceEventWrite, current: Principal = Depends(machine_or_admin)) -> dict[str, Any]:
+        if current.kind == "source_machine" and payload.envelope.get("endpoint_id") != current.subject:
+            raise HTTPException(status_code=403, detail="source endpoint credential mismatch")
         try:
             return inbox_store.accept(payload.envelope)
         except InboxConflict as exc:
@@ -350,15 +368,18 @@ def create_app(
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/v1/source-work/claim")
-    def claim_source_work(limit: int = Query(default=10, ge=1, le=100), _current: Principal = Depends(machine_or_admin)) -> list[dict[str, Any]]:
-        return inbox_store.claim(limit)
+    def claim_source_work(payload: WorkClaim, limit: int = Query(default=10, ge=1, le=100), _current: Principal = Depends(worker_or_admin)) -> list[dict[str, Any]]:
+        try:
+            return inbox_store.claim(payload.pipeline_ids, limit)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/v1/source-work")
-    def list_source_work(status: Literal["pending", "leased", "done", "dead_letter", "suppressed"], limit: int = Query(default=100, ge=1, le=100), _current: Principal = Depends(machine_or_admin)) -> list[dict[str, Any]]:
+    def list_source_work(status: Literal["pending", "leased", "done", "dead_letter", "suppressed", "superseded"], limit: int = Query(default=100, ge=1, le=100), _current: Principal = Depends(worker_or_admin)) -> list[dict[str, Any]]:
         return inbox_store.list_work(status, limit)
 
     @app.post("/v1/source-work/{work_key}/settle")
-    def settle_source_work(work_key: str, payload: WorkSettle, _current: Principal = Depends(machine_or_admin)) -> dict[str, Any]:
+    def settle_source_work(work_key: str, payload: WorkSettle, _current: Principal = Depends(worker_or_admin)) -> dict[str, Any]:
         try:
             return inbox_store.settle(work_key, payload.lease_token, success=payload.success, error_code=payload.error_code)
         except InboxConflict as exc:
@@ -366,8 +387,12 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    @app.post("/v1/source-work/{work_key}/fence")
+    def fence_source_work(work_key: str, payload: WorkFence, _current: Principal = Depends(worker_or_admin)) -> dict[str, bool]:
+        return {"current": inbox_store.fence(work_key, payload.lease_token)}
+
     @app.get("/v1/source-events/{event_key}")
-    def inspect_source_event(event_key: str, _current: Principal = Depends(machine_or_admin)) -> dict[str, Any]:
+    def inspect_source_event(event_key: str, _current: Principal = Depends(worker_or_admin)) -> dict[str, Any]:
         try:
             return inbox_store.inspect(event_key)
         except KeyError as exc:
@@ -388,9 +413,13 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/v1/source-events/{event_key}/versions")
-    def revise_source_event(event_key: str, payload: SourceRevisionWrite, current: Principal = Depends(admin_only)) -> dict[str, Any]:
+    def revise_source_event(event_key: str, payload: SourceRevisionWrite, current: Principal = Depends(principal)) -> dict[str, Any]:
+        if current.kind not in {"admin", "source_machine"}:
+            raise HTTPException(status_code=403, detail="source revision role required")
+        if current.kind == "source_machine" and payload.envelope.get("endpoint_id") != current.subject:
+            raise HTTPException(status_code=403, detail="source endpoint credential mismatch")
         try:
-            return inbox_store.revise(event_key, payload.envelope, payload.kind, current.subject, payload.reason)
+            return inbox_store.revise(event_key, payload.envelope, payload.kind, payload.revision_id, current.subject, payload.reason)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="source event not found") from exc
         except InboxConflict as exc:
