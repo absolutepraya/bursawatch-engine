@@ -403,7 +403,7 @@ class TuntunNewsAdapter:
         published_at: datetime,
         direct_image: bool,
     ) -> list[CompanyCandidate]:
-        candidates: list[CompanyCandidate] = []
+        entries_by_ticker: dict[str, str] = {}
         for line in lines:
             entry = line.strip()
             match = _TICKER_LEAD.match(entry)
@@ -412,18 +412,21 @@ class TuntunNewsAdapter:
             ticker = _ticker_from_match(match)
             if ticker is None:
                 continue
-            candidates.append(
-                _candidate(
-                    self.provider,
-                    message_id,
-                    ticker,
-                    SourceKind.CORPORATE_ENTRY,
-                    published_at,
-                    entry,
-                    direct_image,
-                )
+            # The durable segment key is message ID plus ticker. Keep the first
+            # entry unchanged so retries match a candidate already in state.
+            entries_by_ticker.setdefault(ticker, entry)
+        return [
+            _candidate(
+                self.provider,
+                message_id,
+                ticker,
+                SourceKind.CORPORATE_ENTRY,
+                published_at,
+                entry,
+                direct_image,
             )
-        return candidates
+            for ticker, entry in entries_by_ticker.items()
+        ]
 
 
 class PhintracoNewsAdapter:
