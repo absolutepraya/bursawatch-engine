@@ -63,7 +63,91 @@ def test_future_only_ack_and_spool_resume(tmp_path):
     assert [event["provider_event_id"] for event in inbox.events] == ["11"]
 
 
-def test_media_and_batch_overflow_hold_only_affected_cursor(tmp_path):
+def test_complete_anchored_page_drains_over_two_bounded_polls(tmp_path):
+    inbox = Inbox()
+    page = {"items": [item("10")], "truncated": False, "contiguous": False}
+    assert ingest_endpoint(ENDPOINT, lambda _: page, tmp_path, inbox, NOW, "fake-1")["status"] == "bootstrapped"
+    page["items"].extend(item(str(identity)) for identity in range(11, 32))
+
+    first = ingest_endpoint(ENDPOINT, lambda _: page, tmp_path, inbox, NOW, "fake-1")
+    assert first["accepted"] == 20
+    assert cursor(tmp_path)["anchor"] == "30"
+    assert [event["provider_event_id"] for event in inbox.events] == [str(identity) for identity in range(11, 31)]
+
+    second = ingest_endpoint(ENDPOINT, lambda _: page, tmp_path, inbox, NOW, "fake-1")
+    assert second["accepted"] == 1
+    assert cursor(tmp_path)["anchor"] == "31"
+    assert [event["provider_event_id"] for event in inbox.events] == [str(identity) for identity in range(11, 32)]
+
+
+def test_empty_bootstrap_backlog_drains_in_two_bounded_polls(tmp_path):
+    inbox = Inbox()
+    assert ingest_endpoint(ENDPOINT, lambda _: [], tmp_path, inbox, NOW, "fake-1")["status"] == "bootstrapped_empty"
+    page = {"items": [item(str(identity)) for identity in range(1, 22)], "truncated": False, "contiguous": False}
+
+    first = ingest_endpoint(ENDPOINT, lambda _: page, tmp_path, inbox, NOW, "fake-1")
+    assert first["accepted"] == 20
+    assert cursor(tmp_path)["anchor"] == "20"
+    assert [event["provider_event_id"] for event in inbox.events] == [str(identity) for identity in range(1, 21)]
+
+    second = ingest_endpoint(ENDPOINT, lambda _: page, tmp_path, inbox, NOW, "fake-1")
+    assert second["accepted"] == 1
+    assert cursor(tmp_path)["anchor"] == "21"
+    assert [event["provider_event_id"] for event in inbox.events] == [str(identity) for identity in range(1, 22)]
+
+
+def test_saturated_page_with_visible_anchor_drains_in_bounded_polls(tmp_path):
+    inbox = Inbox()
+    ingest_endpoint(ENDPOINT, lambda _: [item("10")], tmp_path, inbox, NOW, "fake-1")
+    page = {"items": [item(str(identity)) for identity in range(10, 110)], "truncated": True, "contiguous": False}
+
+    accepted = []
+    for _ in range(5):
+        result = ingest_endpoint(ENDPOINT, lambda _: page, tmp_path, inbox, NOW, "fake-1")
+        assert result["accepted"] <= 20
+        accepted.append(result["accepted"])
+
+    assert accepted == [20, 20, 20, 20, 19]
+    assert cursor(tmp_path)["anchor"] == "109"
+    assert [event["provider_event_id"] for event in inbox.events] == [str(identity) for identity in range(11, 110)]
+
+
+def test_truncated_page_without_old_anchor_blocks_and_retains_cursor(tmp_path):
+    inbox = Inbox()
+    ingest_endpoint(ENDPOINT, lambda _: [item("10")], tmp_path, inbox, NOW, "fake-1")
+    page = {"items": [item(str(identity)) for identity in range(11, 32)], "truncated": True, "contiguous": False}
+
+    with pytest.raises(IntakeBlocked, match="truncated"):
+        ingest_endpoint(ENDPOINT, lambda _: page, tmp_path, inbox, NOW, "fake-1")
+
+    assert cursor(tmp_path)["anchor"] == "10"
+    assert inbox.events == []
+
+
+def test_contiguous_partial_batch_does_not_advance_scanned_through(tmp_path):
+    inbox = Inbox()
+    bootstrap = item("10")
+    bootstrap["ingest_position"] = "001"
+    ingest_endpoint(ENDPOINT, lambda _: {"items": [bootstrap], "truncated": False, "contiguous": True}, tmp_path, inbox, NOW, "fake-1")
+    page_items = []
+    for position, identity in enumerate(range(11, 36), start=2):
+        row = item(str(identity))
+        row["ingest_position"] = f"{position:03}"
+        page_items.append(row)
+    page = {"items": page_items, "truncated": False, "contiguous": True, "scanned_through": "999"}
+
+    first = ingest_endpoint(ENDPOINT, lambda _: page, tmp_path, inbox, NOW, "fake-1")
+    assert first["accepted"] == 20
+    assert cursor(tmp_path)["position"] == "021"
+    assert [event["provider_event_id"] for event in inbox.events] == [str(identity) for identity in range(11, 31)]
+
+    second = ingest_endpoint(ENDPOINT, lambda _: page, tmp_path, inbox, NOW, "fake-1")
+    assert second["accepted"] == 5
+    assert cursor(tmp_path)["position"] == "999"
+    assert [event["provider_event_id"] for event in inbox.events] == [str(identity) for identity in range(11, 36)]
+
+
+def test_media_block_holds_only_affected_cursor(tmp_path):
     inbox = Inbox()
     ingest_endpoint(ENDPOINT, lambda _: [item("10")], tmp_path, inbox, NOW, "fake-1")
     with pytest.raises(IntakeBlocked, match="media"):
@@ -71,9 +155,6 @@ def test_media_and_batch_overflow_hold_only_affected_cursor(tmp_path):
     assert cursor(tmp_path)["anchor"] == "10"
     marker = json.loads((tmp_path / "x-alpha" / "blocked-media.json").read_text())
     assert marker["provider_event_id"] == "11"
-    with pytest.raises(IntakeBlocked, match="batch"):
-        ingest_endpoint(ENDPOINT, lambda _: [item(str(n), minute=n) for n in range(11, 32)], tmp_path, inbox, NOW, "fake-1")
-    assert cursor(tmp_path)["anchor"] == "10"
 
 
 def test_endpoint_isolation_and_catalog_identity(tmp_path):

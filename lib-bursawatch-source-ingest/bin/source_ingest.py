@@ -178,6 +178,10 @@ def ingest_endpoint(endpoint: dict[str, Any], fetch: Callable[[dict[str, Any] | 
         bootstrap_position = page.get("bootstrap_position") or (newest.get("ingest_position") if newest else None)
         _save_cursor(path, newest["provider_event_id"] if newest else None, bootstrap_position)
         return {"endpoint_id": endpoint["endpoint_id"], "status": "bootstrapped" if newest else "bootstrapped_empty", "accepted": 0}
+    identities = [item["provider_event_id"] for item in items]
+    anchor = cursor["anchor"]
+    if page["truncated"] and (anchor is None or anchor not in identities):
+        raise IntakeBlocked("source page is truncated before the prior cursor")
     if not items:
         scanned = page.get("scanned_through")
         if page["contiguous"] and scanned is not None and (cursor["position"] is None or scanned > cursor["position"]):
@@ -186,13 +190,14 @@ def ingest_endpoint(endpoint: dict[str, Any], fetch: Callable[[dict[str, Any] | 
     if page["contiguous"]:
         fresh = [item for item in items if cursor["position"] is None or item["ingest_position"] > cursor["position"]]
     else:
-        identities = [item["provider_event_id"] for item in items]
-        anchor = cursor["anchor"]
-        if page["truncated"] and (anchor is None or anchor not in identities):
-            raise IntakeBlocked("source page is truncated before the prior cursor")
         fresh = items[identities.index(anchor) + 1:] if anchor in identities else items
-    if len(fresh) > batch:
-        raise IntakeBlocked("source page exceeds the safe batch; cursor retained")
+    partial_batch = len(fresh) > batch
+    if partial_batch:
+        # A complete ordered page is safe even after an empty bootstrap. A
+        # truncated identity-anchored page is safe only when its old anchor is
+        # still visible; that case was checked above. Position-ordered pages
+        # also resume from each acknowledged event on the next poll.
+        fresh = fresh[:batch]
     accepted = 0
     for item in fresh:
         if item.get("media_required") is True:
@@ -215,7 +220,13 @@ def ingest_endpoint(endpoint: dict[str, Any], fetch: Callable[[dict[str, Any] | 
         (root / "blocked-media.json").unlink(missing_ok=True)
         accepted += 1
     scanned = page.get("scanned_through")
-    if page["contiguous"] and scanned is not None and (cursor["position"] is None or scanned > cursor["position"]):
+    if (
+        page["contiguous"]
+        and not partial_batch
+        and accepted == len(fresh)
+        and scanned is not None
+        and (cursor["position"] is None or scanned > cursor["position"])
+    ):
         _save_cursor(path, cursor["anchor"], scanned)
     return {"endpoint_id": endpoint["endpoint_id"], "status": "accepted", "accepted": accepted}
 

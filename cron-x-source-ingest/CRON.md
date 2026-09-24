@@ -5,11 +5,12 @@ Runtime identity reserved: `bursawatch-x-source-ingest`. Entry point:
 only and must not be run beside the current source polling job.
 
 Each verified configured X account has its own future-only cursor and
-`SourceEventHandoff`. A page above 20 new posts blocks the endpoint; inbox
-failure leaves the staged request and cursor in place. A full RSSHub page
-whose prior anchor is absent blocks with `page_truncated`
-and retain the cursor. Post IDs set provider order; publication time remains
-event metadata. Media-bearing posts leave bounded text and identity in
+`SourceEventHandoff`. A nontruncated page, or a truncated page that still
+contains the prior anchor, drains in at most 20-post batches, advancing only
+through acknowledged posts. A truncated page without its prior anchor blocks
+with `page_truncated` and retains the cursor. Inbox failure leaves the staged
+request and cursor in place. Post IDs set provider order; publication time
+remains event metadata. Media-bearing posts leave bounded text and identity in
 `blocked-media.json` with the cursor held.
 The media bytes are not retained and upstream availability remains a blocker.
 The runner reads one live watcher config revision and the effective catalog.
