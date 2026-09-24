@@ -14,12 +14,20 @@ handlers, verifies synchronized checksums, runs the package's isolated no-post
 control, and stores sanitized durable release records under
 `~/.local/share/bursawatch-release/`.
 
+The existing `#hermes` heartbeat is submitted through the shared Discord
+Delivery Owner at `http://127.0.0.1:9120`. The systemd unit exposes the already
+installed client package, and the release environment names its mode-0600
+Delivery Owner client-token file. This package must never read or receive a
+Discord bot token. Delivery remains best effort and does not affect release
+state or GitHub status behavior.
+
 No web application credential, Supabase database credential, watcher state,
 or scheduler registry belongs in this package. Do not install the timer, add
 the environment file, change sudoers, run `--release-manual`, or invoke the
 agent against the VPS without explicit operations approval. The checked-in
-bootstrap script is an artifact and a runbook, not authorization to mutate a
-host.
+bootstrap script requires `--apply` and verifies the installed shared client
+and private client-token file, but remains an artifact and a runbook, not
+authorization to mutate a host.
 
 `release-manifest.json` is fail-closed. Every changed tracked source path must
 map to exactly one declared unit. `manual` units are never processed by the

@@ -16,7 +16,7 @@ import re
 import subprocess
 import sys
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -39,12 +39,20 @@ if not _SHARED_FORMAT_BIN.exists():
 if str(_SHARED_FORMAT_BIN) not in sys.path:
     sys.path.insert(0, str(_SHARED_FORMAT_BIN))
 
+_DISCORD_DELIVERY_BIN = Path(__file__).resolve().parents[2] / "lib-bursawatch-discord-delivery" / "bin"
+if not _DISCORD_DELIVERY_BIN.exists():
+    _DISCORD_DELIVERY_BIN = Path.home() / ".agents" / "skills" / "lib-bursawatch-discord-delivery" / "bin"
+if str(_DISCORD_DELIVERY_BIN) not in sys.path:
+    sys.path.insert(0, str(_DISCORD_DELIVERY_BIN))
+
 from swing_format import (
     SwingMessage,
     fields as shared_fields,
     render_message,
     replace_board_topic_link,
 )
+from bursawatch_discord_delivery import Attachment, DeliveryClient, DiscordQuery, OperationIntent, OperationReceipt
+from bursawatch_discord_delivery.client import DeliveryClientError
 
 from telegram_resilience import (
     PolyCopResilience,
@@ -67,7 +75,6 @@ except ModuleNotFoundError:
         def finish(self, *_args, **_kwargs):
             pass
 
-DISCORD_API = "https://discord.com/api/v10"
 WIB = ZoneInfo("Asia/Jakarta")
 _DEFAULT_WATCH_CONFIG = config.default_watch_config()
 # Compatibility defaults for isolated parser and watchdog tests. Runtime calls
@@ -1220,67 +1227,176 @@ async def capture_oldest_media(client, entity, state: dict, now: dt.datetime) ->
         return False
 
 
-def _discord_token() -> str | None:
-    return _env("DISCORD_BOT_TOKEN")
-
-
 def discord_nonce(event_key: str, leg: str) -> str:
     identity = f"{WATCHER_NAME}:{event_key}:{leg}"
     return hashlib.sha256(identity.encode()).hexdigest()[:24]
 
 
-def _discord_request(method: str, url: str, *, headers: dict, max_retries: int = 3, **kwargs):
-    import requests
-
-    response = None
-    for attempt in range(max_retries):
-        try:
-            response = requests.request(method, url, headers=headers, timeout=20, **kwargs)
-        except Exception as exc:
-            print(f"Discord request failed on attempt {attempt + 1}: {exc}", file=os.sys.stderr)
-            if attempt + 1 < max_retries:
-                time.sleep(1.5 * (attempt + 1))
-            continue
-        if response.status_code == 429:
-            try:
-                retry_after = float(response.json().get("retry_after", 1.0))
-            except Exception:
-                try:
-                    retry_after = float(response.headers.get("Retry-After", 1.0))
-                except Exception:
-                    retry_after = 1.0
-            if not math.isfinite(retry_after) or retry_after < 0:
-                retry_after = 1.0
-            raise DiscordRetryAfter(retry_after)
-        return response
-    return response
+_DELIVERY_OWNER_PREFIX = "bursawatch-tg-phintraco-swing"
+_DELIVERY_OWNER_URL = "http://127.0.0.1:9120"
+_DELIVERY_CLIENT_TOKEN_FILE = ".hermes/secrets/bursawatch-discord-delivery-client-token"
+_NON_TERMINAL_DELIVERY_STATUSES = frozenset({"pending", "pending_reconciliation", "retrying", "delivering"})
 
 
-def post_discord_text(content: str, channel_id: str, dry_run: bool, event_key: str) -> str | None:
+def delivery_client_from_environment(*, include_admin: bool = False) -> DeliveryClient:
+    base_url = os.environ.get("BURSAWATCH_DISCORD_DELIVERY_URL", _DELIVERY_OWNER_URL)
+    token_path = Path(
+        os.environ.get(
+            "BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE",
+            str(Path.home() / _DELIVERY_CLIENT_TOKEN_FILE),
+        )
+    ).expanduser()
+    admin_path = None
+    if include_admin:
+        configured = os.environ.get("BURSAWATCH_DISCORD_DELIVERY_ADMIN_TOKEN_FILE")
+        if not configured:
+            raise DeliveryClientError("admin_credentials_required")
+        admin_path = Path(configured).expanduser()
+    return DeliveryClient(base_url, token_path, admin_token_file=admin_path)
+
+
+def _operation_key(event_key: str, leg: str) -> str:
+    if not isinstance(event_key, str) or not event_key or not isinstance(leg, str) or not leg:
+        raise ValueError("delivery identity requires a nonempty source event and leg")
+    normalized = re.sub(
+        r"[^A-Za-z0-9:_./-]",
+        lambda match: f"_u{ord(match.group()):04x}_",
+        f"{event_key}:{leg}",
+    )
+    key = f"{_DELIVERY_OWNER_PREFIX}:{normalized}"
+    if len(key) > 200:
+        raise ValueError("delivery operation identity is too long")
+    return key
+
+
+def _channel_message_operation(
+    content: str,
+    channel_id: str,
+    event_key: str,
+    *,
+    leg: str,
+    attachments: tuple[Attachment, ...] = (),
+) -> OperationIntent:
+    if len(content) > 2000:
+        raise ValueError("Swing Alert exceeds Discord message limit")
+    return OperationIntent(
+        key=_operation_key(event_key, leg),
+        kind="channel_message_create",
+        ordering_key=f"channel:{channel_id}",
+        target={"channel_id": channel_id},
+        payload={"content": content, "allowed_mentions": {"parse": []}},
+        attachments=attachments,
+    )
+
+
+def _submit_or_lookup(
+    operation: OperationIntent,
+    client: object,
+    *,
+    legacy_import_nonce: str | None = None,
+) -> OperationReceipt:
+    receipt = client.status(operation.key)  # type: ignore[attr-defined]
+    from_existing_status = receipt is not None
+    if not from_existing_status:
+        receipt = client.submit(operation)  # type: ignore[attr-defined]
+    expected_digest = operation.digest
+    if isinstance(receipt, OperationReceipt) and receipt.key == operation.key and receipt.digest != operation.digest:
+        if not from_existing_status or legacy_import_nonce is None:
+            raise DeliveryClientError("invalid_response")
+        imported = replace(
+            operation,
+            reconcile_before_first_create=True,
+            legacy_nonce=legacy_import_nonce,
+        )
+        if receipt.digest != imported.digest:
+            raise DeliveryClientError("invalid_response")
+        expected_digest = imported.digest
+    if not isinstance(receipt, OperationReceipt) or receipt.key != operation.key or receipt.digest != expected_digest:
+        raise DeliveryClientError("invalid_response")
+    if receipt.status in _NON_TERMINAL_DELIVERY_STATUSES:
+        receipt = client.wait(operation.key, 0)  # type: ignore[attr-defined]
+        if not isinstance(receipt, OperationReceipt) or receipt.key != operation.key or receipt.digest != expected_digest:
+            raise DeliveryClientError("invalid_response")
+    return receipt
+
+
+def _delivered_message_id(receipt: OperationReceipt, operation: OperationIntent) -> str | None:
+    if receipt.status != "delivered" or not isinstance(receipt.receipt, dict):
+        return None
+    if receipt.receipt.get("channel_id") not in (None, operation.target["channel_id"]):
+        raise DeliveryClientError("invalid_response")
+    message_id = receipt.receipt.get("message_id")
+    return message_id if isinstance(message_id, str) and message_id.isdigit() else None
+
+
+def post_discord_text(
+    content: str,
+    channel_id: str,
+    dry_run: bool,
+    event_key: str,
+    *,
+    client: object | None = None,
+) -> str | None:
     if len(content) > 2000:
         raise ValueError("Swing Alert exceeds Discord message limit")
     if dry_run or os.environ.get("IDX_SWING_WATCH_PHINTRACO_DAILY_NO_POST") == "1":
         print(f"[dry-run] Discord text {channel_id} event {event_key}:\n{content}")
         return f"dry-text-{event_key}"
-    token = _discord_token()
-    if not token:
-        return None
-    response = _discord_request(
-        "POST",
-        f"{DISCORD_API}/channels/{channel_id}/messages",
-        headers={"Authorization": f"Bot {token}", "Content-Type": "application/json"},
-        json={
-            "content": content,
-            "nonce": discord_nonce(event_key, "text"),
-            "enforce_nonce": True,
-        },
-    )
-    if response is None or response.status_code not in (200, 201):
-        return None
-    return str(response.json()["id"])
+    operation = _channel_message_operation(content, channel_id, event_key, leg="text")
+    owner = client if client is not None else delivery_client_from_environment()
+    try:
+        receipt = _submit_or_lookup(
+            operation,
+            owner,
+            legacy_import_nonce=discord_nonce(event_key, "text"),
+        )
+    except DeliveryClientError as error:
+        if error.category == "rate_limited":
+            raise DiscordRetryAfter(60.0) from None
+        raise
+    return _delivered_message_id(receipt, operation)
 
 
-def edit_discord_board_link(message_id: str | None, board_url: str | None, dry_run: bool, event_key: str) -> bool:
+def _read_channel_message_content(client: object, channel_id: str, message_id: str) -> str | None:
+    try:
+        target_id = int(message_id)
+    except (TypeError, ValueError):
+        return None
+    cursor = str(target_id + 1)
+    while True:
+        result = client.query(  # type: ignore[attr-defined]
+            DiscordQuery(kind="channel_messages", channel_id=channel_id, before=cursor, limit=100)
+        )
+        messages = result.get("messages") if isinstance(result, dict) else result
+        if not isinstance(messages, list):
+            return None
+        if not messages:
+            return None
+        ids: list[int] = []
+        for item in messages:
+            if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"].isdigit():
+                return None
+            ids.append(int(item["id"]))
+            if item["id"] == message_id:
+                content = item.get("content")
+                return content if isinstance(content, str) else None
+        oldest = min(ids)
+        if oldest <= target_id:
+            return None
+        next_cursor = str(oldest)
+        if next_cursor == cursor:
+            return None
+        cursor = next_cursor
+
+
+def edit_discord_board_link(
+    message_id: str | None,
+    board_url: str | None,
+    dry_run: bool,
+    event_key: str,
+    *,
+    client: object | None = None,
+) -> bool:
     """Replace the generic forum-channel marker in one delivered All message."""
     if not message_id or not board_url:
         return True
@@ -1290,66 +1406,67 @@ def edit_discord_board_link(message_id: str | None, board_url: str | None, dry_r
             f"-> {board_url} event {event_key}"
         )
         return True
-    token = _discord_token()
-    if not token:
-        return False
-    headers = {"Authorization": f"Bot {token}", "Content-Type": "application/json"}
-    response = _discord_request(
-        "GET",
-        f"{DISCORD_API}/channels/{config.active_watch_config().alert_discord_channel_id}/messages/{message_id}",
-        headers=headers,
-    )
-    if response is None or response.status_code != 200:
-        return False
-    try:
-        current = response.json().get("content")
-    except (AttributeError, TypeError, ValueError):
-        return False
-    if not isinstance(current, str):
+    channel_id = config.active_watch_config().alert_discord_channel_id
+    owner = client if client is not None else delivery_client_from_environment()
+    current = _read_channel_message_content(owner, channel_id, message_id)
+    if current is None:
         return False
     updated = replace_board_topic_link(current, board_url)
     if updated == current:
         return True
-    response = _discord_request(
-        "PATCH",
-        f"{DISCORD_API}/channels/{config.active_watch_config().alert_discord_channel_id}/messages/{message_id}",
-        headers=headers,
-        json={"content": updated, "allowed_mentions": {"parse": []}},
+    operation = OperationIntent(
+        key=_operation_key(event_key, "board-link"),
+        kind="channel_message_edit",
+        ordering_key=f"channel:{channel_id}",
+        target={"channel_id": channel_id, "message_id": message_id},
+        payload={"content": updated, "allowed_mentions": {"parse": []}},
     )
-    return response is not None and response.status_code == 200
+    try:
+        receipt = _submit_or_lookup(operation, owner)
+    except DeliveryClientError as error:
+        if error.category == "rate_limited":
+            raise DiscordRetryAfter(60.0) from None
+        raise
+    return receipt.status == "delivered"
 
 
-def post_discord_file(path: str, channel_id: str, dry_run: bool, event_key: str) -> str | None:
+def post_discord_file(
+    path: str,
+    channel_id: str,
+    dry_run: bool,
+    event_key: str,
+    *,
+    client: object | None = None,
+) -> str | None:
     file_path = Path(path)
     try:
-        valid_file = file_path.is_file() and file_path.stat().st_size > 0
+        if not file_path.is_file() or file_path.stat().st_size == 0:
+            return None
+        content = file_path.read_bytes()
     except OSError:
-        valid_file = False
-    if not valid_file:
         return None
     if dry_run or os.environ.get("IDX_SWING_WATCH_PHINTRACO_DAILY_NO_POST") == "1":
         print(f"[dry-run] Discord chart {channel_id} event {event_key}: {file_path}")
         return f"dry-chart-{event_key}"
-    token = _discord_token()
-    if not token:
-        return None
-    payload = {
-        "content": "",
-        "nonce": discord_nonce(event_key, "chart"),
-        "enforce_nonce": True,
-    }
-    with file_path.open("rb") as handle:
-        response = _discord_request(
-            "POST",
-            f"{DISCORD_API}/channels/{channel_id}/messages",
-            headers={"Authorization": f"Bot {token}"},
-            max_retries=1,
-            data={"payload_json": json.dumps(payload)},
-            files={"files[0]": (file_path.name, handle, "image/jpeg")},
+    operation = _channel_message_operation(
+        "",
+        channel_id,
+        event_key,
+        leg="chart",
+        attachments=(Attachment(file_path.name, "image/jpeg", content),),
+    )
+    owner = client if client is not None else delivery_client_from_environment()
+    try:
+        receipt = _submit_or_lookup(
+            operation,
+            owner,
+            legacy_import_nonce=discord_nonce(event_key, "chart"),
         )
-    if response is None or response.status_code not in (200, 201):
-        return None
-    return str(response.json()["id"])
+    except DeliveryClientError as error:
+        if error.category == "rate_limited":
+            raise DiscordRetryAfter(60.0) from None
+        raise
+    return _delivered_message_id(receipt, operation)
 
 
 def board_event_payload(event: dict, call: SwingCall) -> tuple[dict, Path | None]:

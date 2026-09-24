@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 import sys
@@ -178,6 +179,229 @@ def test_gtw_board_adapter_creates_a_no_post_supporting_episode_with_current_for
         sys.path.remove(str(board_bin))
 
 
+def test_delivery_owner_keeps_text_before_image_and_persists_each_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import copy
+
+    class FakeOwner:
+        def __init__(self) -> None:
+            self.operations = []
+            self.persisted = []
+
+        def status(self, key):
+            return None
+
+        def submit(self, operation):
+            self.operations.append(operation)
+            if operation.key.endswith(":media:0"):
+                assert self.persisted[0]["outbox"][0]["text_index"] == 1
+                assert self.persisted[0]["outbox"][0]["text_message_ids"] == ["90001"]
+            message_id = "90001" if operation.key.endswith(":text:0") else "90002"
+            return discord.OperationReceipt(
+                id=f"receipt-{message_id}",
+                key=operation.key,
+                digest=operation.digest,
+                status="delivered",
+                receipt={"channel_id": operation.target["channel_id"], "message_id": message_id},
+            )
+
+    source_image = image(tmp_path, "source.jpg")
+    event = ready_event(media=[source_image])
+    state_value = state_with(event)
+    owner = FakeOwner()
+
+    def persist() -> None:
+        owner.persisted.append(copy.deepcopy(state_value))
+
+    monkeypatch.setattr(discord, "submit_board_event", lambda *_args: False)
+
+    assert deliver_oldest_ready_event(
+        state_value, now(), False, persist=persist, media_root=tmp_path, client=owner
+    ) is True
+    assert deliver_oldest_ready_event(
+        state_value, now(), False, persist=persist, media_root=tmp_path, client=owner
+    ) is False
+
+    assert [operation.key for operation in owner.operations] == [
+        "bursawatch-tg-kelas-investasi-gtw:101:CTRA:text:0",
+        "bursawatch-tg-kelas-investasi-gtw:101:CTRA:media:0",
+    ]
+    assert owner.operations[1].attachments[0].data == Path(source_image["path"]).read_bytes()
+    assert event["text_message_ids"] == ["90001"]
+    assert event["next_media_index"] == 1
+
+
+def test_board_link_edit_reads_and_edits_the_original_message_without_reposting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeOwner:
+        def __init__(self) -> None:
+            self.queries = []
+            self.operations = []
+
+        def query(self, query):
+            self.queries.append(query)
+            return [{"id": "876543210123456789", "content": "Alert\n\n**Board:** <#1548273399069933720>"}]
+
+        def status(self, key):
+            return None
+
+        def submit(self, operation):
+            self.operations.append(operation)
+            return discord.OperationReceipt(
+                id="edit-receipt",
+                key=operation.key,
+                digest=operation.digest,
+                status="delivered",
+                receipt={"channel_id": operation.target["channel_id"], "message_id": operation.target["message_id"]},
+            )
+
+    owner = FakeOwner()
+    board_url = "https://discord.com/channels/940285152335110204/777777777777777777"
+
+    assert discord.edit_board_links(
+        ["876543210123456789"], board_url, False, "101:CTRA", client=owner
+    ) is True
+
+    assert owner.queries == [
+        discord.DiscordQuery(kind="channel_messages", channel_id="1525102458253217803", before="876543210123456790", limit=100)
+    ]
+    assert len(owner.operations) == 1
+    operation = owner.operations[0]
+    assert operation.kind == "channel_message_edit"
+    assert operation.key == "bursawatch-tg-kelas-investasi-gtw:101:CTRA:board-link:0"
+    assert operation.target == {"channel_id": "1525102458253217803", "message_id": "876543210123456789"}
+    assert board_url in operation.payload["content"]
+    assert "channel_message_create" not in {item.kind for item in owner.operations}
+
+
+def test_imported_pending_receipt_waits_without_resubmitting() -> None:
+    event_key = "101:CTRA"
+    leg = "text:0"
+    operation = discord._message_operation(
+        "alert", discord.DISCORD_CHANNEL_ID, event_key, leg=leg
+    )
+    imported = replace(
+        operation,
+        reconcile_before_first_create=True,
+        legacy_nonce=nonce(event_key, leg),
+    )
+
+    class FakeOwner:
+        def __init__(self) -> None:
+            self.submits = []
+            self.waits = []
+
+        def status(self, key):
+            assert key == operation.key
+            return discord.OperationReceipt(
+                id="imported",
+                key=key,
+                digest=imported.digest,
+                status="pending_reconciliation",
+                receipt=None,
+            )
+
+        def submit(self, value):
+            self.submits.append(value)
+            pytest.fail("an imported operation must not be submitted again")
+
+        def wait(self, key, timeout):
+            self.waits.append((key, timeout))
+            return discord.OperationReceipt(
+                id="imported",
+                key=key,
+                digest=imported.digest,
+                status="delivered",
+                receipt={"channel_id": discord.DISCORD_CHANNEL_ID, "message_id": "90001"},
+            )
+
+    owner = FakeOwner()
+    nonce_value = nonce(event_key, leg)
+
+    assert post_text(
+        "alert",
+        discord.DISCORD_CHANNEL_ID,
+        False,
+        nonce_value,
+        event_key,
+        leg,
+        owner,
+    ) == "90001"
+    assert owner.submits == []
+    assert owner.waits == [(operation.key, 0)]
+
+
+def test_unrecognized_existing_digest_is_rejected_without_resubmitting() -> None:
+    event_key = "101:CTRA"
+    leg = "text:0"
+    operation = discord._message_operation(
+        "alert", discord.DISCORD_CHANNEL_ID, event_key, leg=leg
+    )
+
+    class FakeOwner:
+        def status(self, key):
+            assert key == operation.key
+            return discord.OperationReceipt(
+                id="existing",
+                key=key,
+                digest="a" * 64,
+                status="delivered",
+                receipt={"channel_id": discord.DISCORD_CHANNEL_ID, "message_id": "90001"},
+            )
+
+        def submit(self, _operation):
+            pytest.fail("a mismatched existing receipt must never trigger a create")
+
+    with pytest.raises(DiscordDeliveryError, match="invalid response"):
+        post_text(
+            "alert",
+            discord.DISCORD_CHANNEL_ID,
+            False,
+            nonce(event_key, leg),
+            event_key,
+            leg,
+            FakeOwner(),
+        )
+
+
+def test_submit_response_cannot_use_legacy_import_digest() -> None:
+    event_key = "101:CTRA"
+    leg = "text:0"
+    operation = discord._message_operation(
+        "alert", discord.DISCORD_CHANNEL_ID, event_key, leg=leg
+    )
+    imported = replace(
+        operation,
+        reconcile_before_first_create=True,
+        legacy_nonce=nonce(event_key, leg),
+    )
+
+    class FakeOwner:
+        def status(self, key):
+            assert key == operation.key
+            return None
+
+        def submit(self, value):
+            assert value.digest == operation.digest
+            assert value.reconcile_before_first_create is False
+            return discord.OperationReceipt(
+                id="unexpected-import",
+                key=value.key,
+                digest=imported.digest,
+                status="delivered",
+                receipt={"channel_id": discord.DISCORD_CHANNEL_ID, "message_id": "90001"},
+            )
+
+    with pytest.raises(discord.DeliveryClientError, match="invalid response"):
+        discord._submit_or_lookup(
+            operation,
+            FakeOwner(),
+            legacy_import_nonce=nonce(event_key, leg),
+        )
+
+
 def test_gtw_payload_skips_board_context_when_a_legacy_event_has_no_source_time() -> None:
     event = ready_gtw_event("Good to watch - RAJA #GTW")
     event["source_published_at"] = None
@@ -273,8 +497,8 @@ def test_board_backoff_does_not_block_later_all_text_or_image(tmp_path, monkeypa
     second = ready_event(media=[image(tmp_path, "second.jpg")])
     value = {"outbox": [first, second]}
     sent = []
-    monkeypatch.setattr(discord, "post_text", lambda *_: sent.append("second-text"))
-    monkeypatch.setattr(discord, "post_file", lambda *_: sent.append("second-image"))
+    monkeypatch.setattr(discord, "post_text", lambda *_: sent.append("second-text") or "text-id")
+    monkeypatch.setattr(discord, "post_file", lambda *_: sent.append("second-image") or "image-id")
     handoffs = []
     monkeypatch.setattr(discord, "submit_board_event", lambda payload, *_: handoffs.append(payload["event_key"]) or False)
     for _ in range(4):
@@ -291,8 +515,8 @@ def test_board_backoff_does_not_block_later_all_text_or_image(tmp_path, monkeypa
 def test_delivery_sends_text_then_images_in_source_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     event = ready_event(media=[image(tmp_path, "one.jpg"), image(tmp_path, "two.jpg")])
     sent: list[str] = []
-    monkeypatch.setattr(discord, "post_text", lambda *args: sent.append("text"))
-    monkeypatch.setattr(discord, "post_file", lambda path, *args: sent.append(Path(path).name))
+    monkeypatch.setattr(discord, "post_text", lambda *args: sent.append("text") or "text-id")
+    monkeypatch.setattr(discord, "post_file", lambda path, *args: sent.append(Path(path).name) or "image-id")
     monkeypatch.setattr(discord, "submit_board_event", lambda *_: True)
     state = state_with(event)
 
@@ -306,7 +530,7 @@ def test_delivery_sends_text_then_images_in_source_order(tmp_path: Path, monkeyp
 def test_delivery_targets_id_stocks_swing(monkeypatch: pytest.MonkeyPatch) -> None:
     event = ready_event()
     channels: list[str] = []
-    monkeypatch.setattr(discord, "post_text", lambda _content, channel_id, *_args: channels.append(channel_id))
+    monkeypatch.setattr(discord, "post_text", lambda _content, channel_id, *_args: channels.append(channel_id) or "text-id")
     monkeypatch.setattr(discord, "submit_board_event", lambda *_: True)
 
     assert deliver_oldest_ready_event(state_with(event), now(), False) is True
@@ -324,6 +548,7 @@ def test_second_image_failure_retries_only_second_image(tmp_path: Path, monkeypa
         calls.append(path.name)
         if len(calls) == 1:
             raise RuntimeError("temporary")
+        return "image-id"
 
     monkeypatch.setattr(discord, "post_file", post)
     monkeypatch.setattr(discord, "submit_board_event", lambda *_: True)
@@ -338,7 +563,11 @@ def test_second_image_failure_retries_only_second_image(tmp_path: Path, monkeypa
 
 def test_dry_run_prints_without_http_or_delivery_state_advance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     event = ready_event(media=[image(tmp_path, "one.jpg")])
-    monkeypatch.setattr(discord.requests, "post", lambda *args, **kwargs: pytest.fail("HTTP was called"))
+    monkeypatch.setattr(
+        discord,
+        "delivery_client_from_environment",
+        lambda **_kwargs: pytest.fail("delivery client was initialized"),
+    )
 
     assert deliver_oldest_ready_event(state_with(event), now(), True, media_root=tmp_path) is False
 
@@ -347,18 +576,29 @@ def test_dry_run_prints_without_http_or_delivery_state_advance(tmp_path: Path, m
 
 
 def test_text_limit_is_rejected_before_http(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(discord.requests, "post", lambda *args, **kwargs: pytest.fail("HTTP was called"))
+    monkeypatch.setattr(
+        discord,
+        "delivery_client_from_environment",
+        lambda **_kwargs: pytest.fail("delivery client was initialized"),
+    )
     with pytest.raises(ValueError, match="2,000"):
         post_text("x" * 2001, "123", False, "nonce")
 
 
-def test_429_uses_retry_after(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_delivery_owner_rate_limit_uses_bounded_retry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     event = ready_event(media=[image(tmp_path, "one.jpg")])
-    monkeypatch.setattr(discord, "post_text", lambda *args: (_ for _ in ()).throw(DiscordRateLimitError(17.5)))
+    class FakeOwner:
+        def status(self, _key):
+            return None
+
+        def submit(self, _operation):
+            raise discord.DeliveryClientError("rate_limited")
+
+    monkeypatch.setattr(discord, "delivery_client_from_environment", lambda **_kwargs: FakeOwner())
 
     assert deliver_oldest_ready_event(state_with(event), now(), False, media_root=tmp_path) is False
 
-    assert event["next_attempt_at"] == (now() + timedelta(seconds=17.5)).isoformat()
+    assert event["next_attempt_at"] == (now() + timedelta(seconds=discord.RETRY_INITIAL_SECONDS)).isoformat()
     assert event["attempts"] == 1
 
 
@@ -392,7 +632,7 @@ def test_successful_leg_is_persisted_before_a_fresh_execution(tmp_path: Path, mo
     state["outbox"].append(event)
     state_path = tmp_path / "state.json"
     save_state(state_path, state)
-    monkeypatch.setattr(discord, "post_text", lambda *args: None)
+    monkeypatch.setattr(discord, "post_text", lambda *args: "text-id")
     monkeypatch.setattr(discord, "submit_board_event", lambda *_: True)
 
     assert deliver_oldest_ready_event(state, now(), False, state_path=state_path)
@@ -405,9 +645,10 @@ def test_retry_reuses_the_same_nonce(tmp_path: Path, monkeypatch: pytest.MonkeyP
     sent: list[str] = []
 
     def post(*args: object) -> None:
-        sent.append(str(args[-1]))
+        sent.append(str(args[3]))
         if len(sent) == 1:
             raise RuntimeError("temporary server body /secret/token")
+        return "text-id"
 
     monkeypatch.setattr(discord, "post_text", post)
     monkeypatch.setattr(discord, "submit_board_event", lambda *_: True)
@@ -427,21 +668,13 @@ def test_cursor_past_rendered_text_is_not_removed(tmp_path: Path) -> None:
     assert event["last_error"] == "delivery cursor is invalid"
 
 
-@pytest.mark.parametrize("retry_after", [0, -1, float("nan"), float("inf"), "not-a-number"])
-def test_invalid_429_retry_after_uses_bounded_fallback(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, retry_after: object) -> None:
-    class Response:
-        def json(self):
-            return {"retry_after": retry_after}
-
-    event = ready_event()
-    monkeypatch.setattr(discord, "post_text", lambda *args: (_ for _ in ()).throw(DiscordRateLimitError(discord._retry_after(Response()))))
-    assert not deliver_oldest_ready_event(state_with(event), now(), False, media_root=tmp_path)
-    assert event["next_attempt_at"] == (now() + timedelta(seconds=60)).isoformat()
-
-
 def test_no_post_environment_is_resolved_by_delivery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("KELAS_INVESTASI_GTW_NO_POST", "1")
-    monkeypatch.setattr(discord.requests, "post", lambda *args, **kwargs: pytest.fail("HTTP was called"))
+    monkeypatch.setattr(
+        discord,
+        "delivery_client_from_environment",
+        lambda **_kwargs: pytest.fail("delivery client was initialized"),
+    )
     event = ready_event()
     assert not deliver_oldest_ready_event(state_with(event), now(), media_root=tmp_path)
     assert event["text_index"] == 0

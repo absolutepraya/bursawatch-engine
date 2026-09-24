@@ -70,6 +70,36 @@ def test_duplicate_outbox_intent_reuses_the_existing_operation(tmp_path) -> None
     assert store.count_rows("outbox") == 1
 
 
+def test_heartbeat_intent_is_persisted_and_receipt_applied_once(tmp_path) -> None:
+    store = BoardStore(tmp_path / "board.sqlite3")
+    key = "scheduled-heartbeat:v1:initial:run-001"
+
+    first = store.enqueue_heartbeat(
+        "1505162000420835388", "🫀 swing board · checked=1", key, at()
+    )
+    duplicate = store.enqueue_heartbeat(
+        "1505162000420835388", "🫀 swing board · checked=1", key, at(6)
+    )
+
+    assert first.id == duplicate.id
+    assert first.dedupe_key == duplicate.dedupe_key == key
+    assert first.content == duplicate.content == "🫀 swing board · checked=1"
+    claim = store.claim_due_heartbeat(at())
+    assert claim is not None and claim.claim_token
+    assert store.claim_due_heartbeat(at()) is None
+
+    receipt = {"message_id": "1550000000000000001"}
+    store.complete_heartbeat(claim.id, claim.claim_token, receipt, at())
+    with pytest.raises(StoreBlockedError, match="receipt cannot be replaced"):
+        store.complete_heartbeat(
+            claim.id, claim.claim_token, {"message_id": "different"}, at(6)
+        )
+    store.complete_heartbeat(claim.id, claim.claim_token, receipt, at(6))
+
+    assert store.pending_heartbeat_count() == 0
+    assert store.heartbeat_receipt(claim.id) == receipt
+
+
 def test_history_cleanup_queues_and_completes_legacy_message_deletion(tmp_path) -> None:
     store = BoardStore(tmp_path / "board.sqlite3")
     episode = store.create_episode("SCMA", "primary", "SCMA: Buy", at())
@@ -174,7 +204,7 @@ def test_version_one_database_migrates_without_losing_source_rows(tmp_path) -> N
     store = BoardStore(path)
 
     assert store.count_rows("source_events") == 1
-    assert store.schema_version == 8
+    assert store.schema_version == 9
 
     connection = sqlite3.connect(path)
     assert connection.execute("SELECT event_key, ticker FROM source_events").fetchone() == (
@@ -215,7 +245,7 @@ def test_version_two_outbox_migrates_to_claim_tokens_without_reset(tmp_path) -> 
 
     store = BoardStore(path)
 
-    assert store.schema_version == 8
+    assert store.schema_version == 9
     connection = sqlite3.connect(path)
     assert connection.execute("SELECT dedupe_key, claim_token FROM outbox").fetchone() == (
         "existing",
@@ -260,7 +290,7 @@ def test_version_three_migration_preserves_event_plan_and_outbox(tmp_path) -> No
 
     upgraded = BoardStore(path)
 
-    assert upgraded.schema_version == 8
+    assert upgraded.schema_version == 9
     assert upgraded.count_rows("source_events") == 1
     assert upgraded.active_plan(episode.id) == event
     assert upgraded.operations_for_ticker("SCMA")[0].payload == {"content": "preserved"}
@@ -297,7 +327,7 @@ def test_version_five_history_migration_preserves_rows_and_adds_chunk_identity(t
 
     store = BoardStore(path)
 
-    assert store.schema_version == 8
+    assert store.schema_version == 9
     with sqlite3.connect(path) as connection:
         assert connection.execute(
             "SELECT material_payload, discord_message_id, history_key FROM history_events"

@@ -22,7 +22,7 @@ from telegram_resilience import (
 
 import config
 from agent_protocol import agent_item, build_wake_payload, submit_classification as submit_agent_classification
-from delivery import deliver_event, post_discord_text
+from delivery import deliver_event, delivery_client_from_environment, post_discord_text
 from domain import CompanyCandidate, Destination, EventClass, Provider, SourceKind
 from selection import (
     SelectionCandidate,
@@ -142,13 +142,20 @@ def format_heartbeat(
     return line + (" ⚠️" if provider_errored or retrying or delivery_pending else "")
 
 
-def post_hermes_text(content: str, event_key: str, dry_run: bool) -> str | None:
+def post_hermes_text(
+    content: str,
+    event_key: str,
+    dry_run: bool,
+    *,
+    delivery_client: object | None = None,
+) -> str | None:
     """Post watcher operations only to the Hermes heartbeat channel."""
     return post_discord_text(
         content,
         config.active_watch_config().heartbeat_channel_id,
         event_key,
         dry_run=dry_run,
+        client=delivery_client,
     )
 
 
@@ -204,7 +211,11 @@ async def _disconnect_quietly(client: object) -> None:
 
 
 def deliver_resilience_notification(
-    control: PolyCopResilience, now: datetime, dry_run: bool
+    control: PolyCopResilience,
+    now: datetime,
+    dry_run: bool,
+    *,
+    delivery_client: object | None = None,
 ) -> None:
     try:
         notification = control.claim_notification(WATCHER_NAME, now)
@@ -213,7 +224,12 @@ def deliver_resilience_notification(
     if notification is None:
         return
     try:
-        message_id = post_hermes_text(notification.content, notification.event_key, dry_run)
+        message_id = post_hermes_text(
+            notification.content,
+            notification.event_key,
+            dry_run,
+            delivery_client=delivery_client,
+        )
     except Exception:
         return
     if message_id is None:
@@ -224,12 +240,18 @@ def deliver_resilience_notification(
         return
 
 
-def _report_resilience_state_blocked(now: datetime, dry_run: bool) -> None:
+def _report_resilience_state_blocked(
+    now: datetime,
+    dry_run: bool,
+    *,
+    delivery_client: object | None = None,
+) -> None:
     try:
         post_hermes_text(
             f"❌ telegram-polycop · {now.astimezone(WIB):%H:%M} WIB · control state unavailable",
             f"telegram-resilience-state-blocked-{now.astimezone(WIB):%Y%m%d%H}",
             dry_run,
+            delivery_client=delivery_client,
         )
     except Exception:
         pass
@@ -665,7 +687,12 @@ def _delivery_channel(item: SelectionCandidate) -> str:
 
 
 async def _drain_delivery(
-    state: dict[str, object], runtime: RuntimeClients | None, now: datetime, dry_run: bool
+    state: dict[str, object],
+    runtime: RuntimeClients | None,
+    now: datetime,
+    dry_run: bool,
+    *,
+    delivery_client: object | None = None,
 ) -> int:
     delivered = 0
     entities = {} if runtime is None else {
@@ -681,6 +708,7 @@ async def _drain_delivery(
             now,
             dry_run=dry_run,
             client=None if runtime is None else runtime.client,
+            delivery_client=delivery_client,
             entity=entities.get(item.provider),
         )
         if did_deliver:
@@ -721,6 +749,8 @@ def _post_heartbeat_if_due(
     classified_candidates: int,
     news_delivered: int,
     dry_run: bool,
+    *,
+    delivery_client: object | None = None,
 ) -> bool:
     hour = _hour_key(now)
     if os.environ.get("IDX_MARKET_NEWS_FORCE_HEARTBEAT") != "1" and state.get("last_heartbeat_hour") == hour:
@@ -739,6 +769,7 @@ def _post_heartbeat_if_due(
         ),
         f"heartbeat-{hour}",
         dry_run,
+        delivery_client=delivery_client,
     )
     if message_id is None:
         return False
@@ -756,10 +787,17 @@ def _provider_result(state: Mapping[str, object], provider: Provider) -> dict[st
 
 
 async def _route_and_deliver(
-    state: dict[str, object], runtime: RuntimeClients | None, now: datetime, dry_run: bool
+    state: dict[str, object],
+    runtime: RuntimeClients | None,
+    now: datetime,
+    dry_run: bool,
+    *,
+    delivery_client: object | None = None,
 ) -> tuple[int, int]:
     classified = _route_pending(state)
-    news_delivered = await _drain_delivery(state, runtime, now, dry_run)
+    news_delivered = await _drain_delivery(
+        state, runtime, now, dry_run, delivery_client=delivery_client
+    )
     return classified, news_delivered
 
 
@@ -777,6 +815,7 @@ async def _run_loaded_config(
     loaded_config: config.LoadedWatchConfig,
 ) -> dict[str, object]:
     dry_run = _dry_run()
+    shared_delivery_client = None if dry_run else delivery_client_from_environment()
     with run_lock():
         control_run = ControlPlaneRun.begin(
             "IDX_MARKET_NEWS",
@@ -802,7 +841,9 @@ async def _run_loaded_config(
                     resilience_control, WATCHER_NAME, now
                 )
                 if decision.kind == "state_blocked":
-                    _report_resilience_state_blocked(now, dry_run)
+                    _report_resilience_state_blocked(
+                        now, dry_run, delivery_client=shared_delivery_client
+                    )
                     outcome = "blocked"
                     control_run.event(
                         "resilience-state-blocked",
@@ -813,7 +854,9 @@ async def _run_loaded_config(
                     )
                     return {"wakeAgent": False, "_telegram_resilience_handled": True}
                 if decision.kind != "probe":
-                    deliver_resilience_notification(resilience_control, now, dry_run)
+                    deliver_resilience_notification(
+                        resilience_control, now, dry_run, delivery_client=shared_delivery_client
+                    )
                     outcome = "blocked"
                     control_run.event(
                         "resilience-probe-deferred",
@@ -830,7 +873,9 @@ async def _run_loaded_config(
                     await owned_client.connect()
                     if not await owned_client.is_user_authorized():
                         resilience_control.record_auth_required(decision.lease_id, WATCHER_NAME, now)
-                        deliver_resilience_notification(resilience_control, now, dry_run)
+                        deliver_resilience_notification(
+                            resilience_control, now, dry_run, delivery_client=shared_delivery_client
+                        )
                         outcome = "blocked"
                         return {"wakeAgent": False, "_telegram_resilience_handled": True}
                     await owned_client.get_me()
@@ -838,13 +883,17 @@ async def _run_loaded_config(
                     resilience_control.record_authenticated_success(
                         decision.lease_id, WATCHER_NAME, now, dc_id, endpoint
                     )
-                    deliver_resilience_notification(resilience_control, now, dry_run)
+                    deliver_resilience_notification(
+                        resilience_control, now, dry_run, delivery_client=shared_delivery_client
+                    )
                 except Exception as error:
                     if is_transport_error(error):
                         resilience_control.record_transport_failure(
                             decision.lease_id, WATCHER_NAME, error, now
                         )
-                        deliver_resilience_notification(resilience_control, now, dry_run)
+                        deliver_resilience_notification(
+                            resilience_control, now, dry_run, delivery_client=shared_delivery_client
+                        )
                         outcome = "blocked"
                         return {"wakeAgent": False, "_telegram_resilience_handled": True}
                     raise
@@ -869,7 +918,13 @@ async def _run_loaded_config(
                 messages, candidates, _ = await _ingest_provider(state, runtime, provider, entity, now)
                 source_messages += messages
                 source_candidates += candidates
-            classified, news_delivered = await _route_and_deliver(state, runtime, now, dry_run)
+            classified, news_delivered = await _route_and_deliver(
+                state,
+                runtime,
+                now,
+                dry_run,
+                delivery_client=shared_delivery_client,
+            )
             provider_errored, retrying, delivery_pending = _health_and_warning(state)
             control_run.event(
                 "source-poll-completed",
@@ -887,7 +942,13 @@ async def _run_loaded_config(
                 },
             )
             heartbeat_posted = _post_heartbeat_if_due(
-                state, now, source_messages, classified, news_delivered, dry_run
+                state,
+                now,
+                source_messages,
+                classified,
+                news_delivered,
+                dry_run,
+                delivery_client=shared_delivery_client,
             )
             control_run.event(
                 "delivery-drain-completed",
@@ -1047,7 +1108,15 @@ async def _submit_classification_payload_loaded(
                 attributes={"candidate_key": candidate.key, "event_class": classification.event_class.value},
             )
             runtime = _provided_runtime_clients(clients) if clients is not None else None
-            classified, news_delivered = await _route_and_deliver(state, runtime, now, _dry_run())
+            dry_run = _dry_run()
+            shared_delivery_client = None if dry_run else delivery_client_from_environment()
+            classified, news_delivered = await _route_and_deliver(
+                state,
+                runtime,
+                now,
+                dry_run,
+                delivery_client=shared_delivery_client,
+            )
             provider_errored, retrying, delivery_pending = _health_and_warning(state)
             outcome = "degraded" if provider_errored or retrying or delivery_pending else "ok"
             control_run.event(

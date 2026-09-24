@@ -8,6 +8,7 @@ Type=oneshot
 User=praya
 Group=praya
 EnvironmentFile=/home/praya/.hermes/bursawatch-release-agent.env
+Environment=PYTHONPATH=/home/praya/.agents/skills/lib-bursawatch-discord-delivery/bin
 ExecStart=/home/praya/.local/lib/bursawatch-release/bursawatch-release-agent.sh --once
 UMask=0077
 PrivateTmp=true

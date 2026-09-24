@@ -42,6 +42,22 @@
       "paths": ["lib-bursawatch-control/README.md", "lib-bursawatch-control/tests/**"]
     },
     {
+      "id": "lib-bursawatch-discord-delivery",
+      "handler": "runtime",
+      "runtime": "lib-bursawatch-discord-delivery",
+      "paths": ["lib-bursawatch-discord-delivery/bin/**"],
+      "verification": "checksum-only"
+    },
+    {
+      "id": "lib-bursawatch-discord-delivery-metadata",
+      "handler": "metadata",
+      "paths": [
+        "lib-bursawatch-discord-delivery/AGENTS.md",
+        "lib-bursawatch-discord-delivery/README.md",
+        "lib-bursawatch-discord-delivery/tests/**"
+      ]
+    },
+    {
       "id": "lib-swing-format",
       "handler": "runtime",
       "runtime": "lib-swing-format",
@@ -95,7 +111,7 @@
       "id": "cron-tg-market-news",
       "handler": "runtime",
       "runtime": "bursawatch-tg-market-news",
-      "depends_on": ["lib-telegram-resilience", "lib-bursawatch-control"],
+      "depends_on": ["lib-telegram-resilience", "lib-bursawatch-control", "lib-bursawatch-discord-delivery"],
       "paths": ["cron-tg-market-news/bin/**", "cron-tg-market-news/SKILL.md"],
       "wrappers": [
         {"source": "bursawatch-tg-market-news.sh", "destination": "bursawatch-tg-market-news.sh"},
@@ -112,7 +128,7 @@
       "id": "cron-tg-phintraco-swing",
       "handler": "runtime",
       "runtime": "bursawatch-tg-phintraco-swing",
-      "depends_on": ["lib-telegram-resilience", "lib-swing-format", "lib-bursawatch-control", "cron-dc-swing-board"],
+      "depends_on": ["lib-telegram-resilience", "lib-swing-format", "lib-bursawatch-control", "lib-bursawatch-discord-delivery", "cron-dc-swing-board"],
       "paths": ["cron-tg-phintraco-swing/bin/**", "cron-tg-phintraco-swing/CRON.md"],
       "wrappers": [{"source": "bursawatch-tg-phintraco-swing.sh", "destination": "bursawatch-tg-phintraco-swing.sh"}],
       "verification": "phintraco-no-post"
@@ -126,7 +142,7 @@
       "id": "cron-tg-kelas-investasi-gtw",
       "handler": "runtime",
       "runtime": "bursawatch-tg-kelas-investasi-gtw",
-      "depends_on": ["lib-telegram-resilience", "lib-swing-format", "lib-bursawatch-control", "cron-dc-swing-board"],
+      "depends_on": ["lib-telegram-resilience", "lib-swing-format", "lib-bursawatch-control", "lib-bursawatch-discord-delivery", "cron-dc-swing-board"],
       "paths": ["cron-tg-kelas-investasi-gtw/bin/**", "cron-tg-kelas-investasi-gtw/SKILL.md"],
       "wrappers": [{"source": "bursawatch-tg-kelas-investasi-gtw.sh", "destination": "bursawatch-tg-kelas-investasi-gtw.sh"}],
       "verification": "kelas-no-post"
@@ -140,7 +156,7 @@
       "id": "cron-dc-swing-board",
       "handler": "runtime",
       "runtime": "bursawatch-dc-swing-board",
-      "depends_on": ["lib-swing-format", "lib-bursawatch-control"],
+      "depends_on": ["lib-swing-format", "lib-bursawatch-control", "lib-bursawatch-discord-delivery"],
       "paths": ["cron-dc-swing-board/bin/**", "cron-dc-swing-board/CRON.md"],
       "wrappers": [
         {"source": "bursawatch-dc-swing-board.sh", "destination": "bursawatch-dc-swing-board.sh"},
@@ -158,7 +174,7 @@
       "id": "cron-x-account-watch",
       "handler": "runtime",
       "runtime": "bursawatch-x-account-watch",
-      "depends_on": ["lib-bursawatch-control", "cron-dc-swing-board"],
+      "depends_on": ["lib-bursawatch-control", "lib-bursawatch-discord-delivery", "cron-dc-swing-board"],
       "paths": ["cron-x-account-watch/bin/**", "cron-x-account-watch/config/**", "cron-x-account-watch/SKILL.md"],
       "wrappers": [
         {"source": "bursawatch-x-account-watch.sh", "destination": "bursawatch-x-account-watch.sh"},
@@ -175,7 +191,7 @@
       "id": "cron-ig-account-watch",
       "handler": "runtime",
       "runtime": "bursawatch-ig-account-watch",
-      "depends_on": ["lib-bursawatch-control"],
+      "depends_on": ["lib-bursawatch-control", "lib-bursawatch-discord-delivery"],
       "paths": ["cron-ig-account-watch/bin/**", "cron-ig-account-watch/config/**", "cron-ig-account-watch/SKILL.md"],
       "wrappers": [{"source": "bursawatch-ig-account-watch.sh", "destination": "bursawatch-ig-account-watch.sh"}],
       "verification": "instagram-no-post"
@@ -189,7 +205,7 @@
       "id": "cron-wa-channel-watch",
       "handler": "runtime",
       "runtime": "bursawatch-wa-channel-watch",
-      "depends_on": ["lib-bursawatch-control"],
+      "depends_on": ["lib-bursawatch-control", "lib-bursawatch-discord-delivery"],
       "paths": ["cron-wa-channel-watch/bin/**", "cron-wa-channel-watch/config/**", "cron-wa-channel-watch/SKILL.md"],
       "wrappers": [
         {"source": "bursawatch-wa-channel-watch.sh", "destination": "bursawatch-wa-channel-watch.sh"},
@@ -208,6 +224,7 @@
       "id": "cron-stockbit-snips",
       "handler": "runtime",
       "runtime": "bursawatch-stockbit-snips",
+      "depends_on": ["lib-bursawatch-discord-delivery"],
       "paths": ["cron-stockbit-snips/bin/**", "cron-stockbit-snips/SKILL.md"],
       "wrappers": [{"source": "bursawatch-stockbit-snips.sh", "destination": "bursawatch-stockbit-snips.sh"}],
       "verification": "stockbit-snips-no-post"
@@ -226,6 +243,11 @@
       "id": "manual-release-agent-bootstrap",
       "handler": "manual",
       "paths": ["platform-bursawatch-release/**"]
+    },
+    {
+      "id": "manual-discord-delivery-owner",
+      "handler": "manual",
+      "paths": ["service-bursawatch-discord-delivery/**"]
     },
     {
       "id": "manual-cobalt",

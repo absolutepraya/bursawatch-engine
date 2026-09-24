@@ -12,7 +12,7 @@ from typing import Iterator
 from models import Article, Feed, FeedLane
 
 
-STATE_VERSION = 1
+STATE_VERSION = 2
 AGENT_LEASE = timedelta(minutes=2)
 RETRY_MINUTES = (1, 2, 4, 8, 15, 30, 60)
 
@@ -27,6 +27,7 @@ def new_state(feeds: tuple[Feed, ...]) -> dict[str, object]:
                 "last_modified": None,
                 "last_poll_success": None,
                 "last_error": None,
+                "enabled": True,
             }
             for feed in feeds
         },
@@ -55,8 +56,9 @@ def load_state(path: Path, feeds: tuple[Feed, ...]) -> dict[str, object]:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise RuntimeError("Stockbit Snips state is unreadable") from error
-    if not isinstance(value, dict) or value.get("version") != STATE_VERSION:
+    if not isinstance(value, dict) or type(value.get("version")) is not int or value["version"] not in {1, STATE_VERSION}:
         raise RuntimeError("Stockbit Snips state has an unsupported version")
+    source_version = value["version"]
     if not isinstance(value.get("feeds"), dict) or not isinstance(value.get("articles"), dict):
         raise RuntimeError("Stockbit Snips state has invalid containers")
     expected_lanes = {feed.lane.value for feed in feeds}
@@ -65,6 +67,8 @@ def load_state(path: Path, feeds: tuple[Feed, ...]) -> dict[str, object]:
     for lane, record in value["feeds"].items():
         if not isinstance(record, dict) or not _valid_timestamp(record.get("last_poll_success")):
             raise RuntimeError(f"Stockbit Snips state feed {lane} is invalid")
+        if source_version == STATE_VERSION and type(record.get("enabled")) is not bool:
+            raise RuntimeError(f"Stockbit Snips state feed {lane} enabled is invalid")
         cursor = record.get("cursor")
         if cursor is not None and (
             not isinstance(cursor, dict)
@@ -80,9 +84,54 @@ def load_state(path: Path, feeds: tuple[Feed, ...]) -> dict[str, object]:
             raise RuntimeError(f"Stockbit Snips article phase {key} is invalid")
         if not isinstance(record.get("article"), dict):
             raise RuntimeError(f"Stockbit Snips article payload {key} is invalid")
+        try:
+            article = Article.from_payload(record["article"])
+        except (TypeError, ValueError) as error:
+            raise RuntimeError(f"Stockbit Snips article payload {key} is invalid") from error
+        if article.key != key:
+            raise RuntimeError(f"Stockbit Snips article key {key} is invalid")
         if not _valid_timestamp(record.get("agent_lease_until")):
             raise RuntimeError(f"Stockbit Snips agent lease {key} is invalid")
+        if not _valid_retry(record.get("retry")):
+            raise RuntimeError(f"Stockbit Snips article retry {key} is invalid")
+        if "config_snapshot" in record and not _valid_config_snapshot(record["config_snapshot"]):
+            raise RuntimeError(f"Stockbit Snips article config snapshot {key} is invalid")
+    if source_version == 1:
+        value["version"] = STATE_VERSION
+        for record in value["feeds"].values():
+            record["enabled"] = True
     return value
+
+
+def _valid_retry(value: object) -> bool:
+    if type(value) is not dict or set(value) != {"attempts", "next_attempt_at", "last_error"}:
+        return False
+    attempts = value["attempts"]
+    last_error = value["last_error"]
+    return (
+        type(attempts) is int
+        and attempts >= 0
+        and _valid_timestamp(value["next_attempt_at"])
+        and (last_error is None or type(last_error) is str)
+    )
+
+
+def _valid_config_snapshot(value: object) -> bool:
+    if type(value) is not dict or set(value) != {
+        "revision",
+        "additional_prompt_instruction",
+        "id_stocks_news_channel_id",
+        "macro_news_channel_id",
+    }:
+        return False
+    if type(value["revision"]) is not int or value["revision"] < 1:
+        return False
+    instruction = value["additional_prompt_instruction"]
+    if type(instruction) is not str or len(instruction) > 800:
+        return False
+    issuer = value["id_stocks_news_channel_id"]
+    macro = value["macro_news_channel_id"]
+    return all(type(channel) is str and channel.isascii() and channel.isdecimal() and 17 <= len(channel) <= 20 for channel in (issuer, macro)) and issuer != macro
 
 
 def save_state(path: Path, value: dict[str, object]) -> None:

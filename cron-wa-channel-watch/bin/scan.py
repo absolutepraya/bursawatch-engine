@@ -281,7 +281,7 @@ def _deliver_ready(
                             state.save(state_path, value)
                             continue
                         media_path = archived[1]
-                    discord.post_media(
+                    message_id = discord.post_media(
                         media_path,
                         target,
                         dry_run,
@@ -294,6 +294,13 @@ def _deliver_ready(
                         ),
                         mime=media.mime,
                     )
+                    if isinstance(message_id, str) and message_id:
+                        media_ids = record.setdefault("media_message_ids", [])
+                        if not isinstance(media_ids, list):
+                            media_ids = []
+                            record["media_message_ids"] = media_ids
+                        if message_id not in media_ids:
+                            media_ids.append(message_id)
                     media_index += 1
                     record["media_index"] = media_index
                     state.save(state_path, value)
@@ -605,6 +612,7 @@ def _run(
                 "text_message_ids": [],
                 "text_message_id": None,
                 "media_index": 0,
+                "media_message_ids": [],
                 "media_skipped_indexes": [],
                 "media_delivery_status": "pending",
                 "media_error": None,

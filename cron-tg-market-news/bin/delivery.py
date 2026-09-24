@@ -1,26 +1,39 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import math
 import mimetypes
 import os
 import re
+import sys
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-import requests
-
 from domain import CompanyCandidate, Destination, Provider, retry_delay_minutes, source_message_url
 from market_data import fallback_company_name, get_market_snapshot
 from selection import SelectionCandidate
-from state import StateBlockedError, mark_terminal, save_state
+from state import StateBlockedError, clear_retry, mark_terminal, save_state
+
+try:
+    from bursawatch_discord_delivery import Attachment, DeliveryClient, OperationIntent, OperationReceipt
+    from bursawatch_discord_delivery.client import DeliveryClientError
+except ModuleNotFoundError:
+    # Development checkout fallback. Runtime wrappers add the installed shared
+    # library path before invoking this package.
+    _repository_root = Path(__file__).resolve().parents[2]
+    _shared_library = _repository_root / "lib-bursawatch-discord-delivery" / "bin"
+    if _shared_library.is_dir():
+        sys.path.insert(0, str(_shared_library))
+    from bursawatch_discord_delivery import Attachment, DeliveryClient, OperationIntent, OperationReceipt
+    from bursawatch_discord_delivery.client import DeliveryClientError
 
 
-DISCORD_API_V10 = "https://discord.com/api/v10"
 _DISCORD_MESSAGE_LIMIT = 2_000
+_DELIVERY_OWNER_PREFIX = "bursawatch-market-news"
+_DELIVERY_OWNER_URL = "http://127.0.0.1:9120"
+_DELIVERY_OWNER_TOKEN_FILE = ".hermes/secrets/bursawatch-discord-delivery-client-token"
 _INVESTMENT_TERMS = (
     "buy",
     "sell",
@@ -42,18 +55,6 @@ _DIRECTION_EMOJIS = {
 }
 _ENTRY_SEPARATOR = "┈" * 13
 _RINGKASAN_PREFIX = "*(Ringkasan)* "
-
-
-class DiscordRateLimited(RuntimeError):
-    """Discord rejected the request with a delay that the caller must respect."""
-
-    def __init__(self, retry_after: float) -> None:
-        self.retry_after = retry_after
-        super().__init__(f"Discord rate limited for {retry_after:g} seconds")
-
-
-class DiscordRejected(RuntimeError):
-    """Discord returned a non-success response other than rate limiting."""
 
 
 def _require_selection_candidate(item: object) -> SelectionCandidate:
@@ -229,105 +230,139 @@ def discord_nonce(event_key: str, leg: str) -> str:
     return hashlib.sha256(f"idx-market-news:{event_key}:{leg}".encode("utf-8")).hexdigest()[:24]
 
 
-def _discord_token() -> str | None:
-    token = os.environ.get("DISCORD_BOT_TOKEN")
-    return token if token else None
+def delivery_client_from_environment(*, include_admin: bool = False) -> DeliveryClient:
+    """Build the shared client from its URL and private token-file paths."""
+    base_url = os.environ.get("BURSAWATCH_DISCORD_DELIVERY_URL", _DELIVERY_OWNER_URL)
+    token_path = Path(
+        os.environ.get(
+            "BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE",
+            str(Path.home() / _DELIVERY_OWNER_TOKEN_FILE),
+        )
+    ).expanduser()
+    admin_path = None
+    if include_admin:
+        configured_admin_path = os.environ.get("BURSAWATCH_DISCORD_DELIVERY_ADMIN_TOKEN_FILE")
+        if not configured_admin_path:
+            raise DeliveryClientError("admin_credentials_required")
+        admin_path = Path(configured_admin_path).expanduser()
+    return DeliveryClient(base_url, token_path, admin_token_file=admin_path)
 
 
-def _retry_after(response: object) -> float:
-    delay = 1.0
-    try:
-        payload = response.json()  # type: ignore[attr-defined]
-        delay = float(payload.get("retry_after", delay))
-    except (AttributeError, TypeError, ValueError):
-        try:
-            delay = float(response.headers.get("Retry-After", delay))  # type: ignore[attr-defined]
-        except (AttributeError, TypeError, ValueError):
-            delay = 1.0
-    return delay if math.isfinite(delay) and delay >= 0 else 1.0
+def _operation_key(event_key: str, leg: str) -> str:
+    if not isinstance(event_key, str) or not event_key or not isinstance(leg, str) or not leg:
+        raise ValueError("delivery identity requires a nonempty event key and leg")
+    leg_key = event_key if event_key.endswith(f":{leg}") else f"{event_key}:{leg}"
+    # Keep caller event/leg identity stable while encoding characters that the
+    # shared operation-key contract does not permit (notably the WIB '+' offset).
+    safe_leg_key = re.sub(
+        r"[^A-Za-z0-9:_./-]",
+        lambda match: f"_u{ord(match.group()):04x}_",
+        leg_key,
+    )
+    return f"{_DELIVERY_OWNER_PREFIX}:{safe_leg_key}"
 
 
-def _discord_request(*, headers: dict[str, str], **kwargs: object):
-    response = requests.request("POST", kwargs.pop("url"), headers=headers, timeout=20, **kwargs)
-    if response.status_code == 429:
-        raise DiscordRateLimited(_retry_after(response))
-    return response
-
-
-def _message_id(response: object) -> str | None:
-    if response is None:
-        raise DiscordRejected("Discord returned no response")
-    status = getattr(response, "status_code", None)
-    if status not in (200, 201):
-        detail = "unknown error"
-        try:
-            message = response.json().get("message")  # type: ignore[attr-defined]
-            if isinstance(message, str) and message.strip():
-                detail = message.strip()[:180]
-        except (AttributeError, TypeError, ValueError):
-            pass
-        raise DiscordRejected(f"Discord HTTP {status}: {detail}")
-    try:
-        identifier = response.json()["id"]  # type: ignore[attr-defined]
-    except (AttributeError, KeyError, TypeError, ValueError):
-        raise DiscordRejected("Discord success response omitted a message id")
-    return str(identifier)
-
-
-def post_discord_text(content: str, channel_id: str, event_key: str, dry_run: bool = False) -> str | None:
-    """Post a Discord text message using an idempotency nonce."""
+def _channel_message_operation(
+    content: str,
+    channel_id: str,
+    event_key: str,
+    *,
+    leg: str = "text",
+    attachments: Sequence[Attachment] = (),
+    reconcile_before_first_create: bool = False,
+    legacy_nonce: str | None = None,
+) -> OperationIntent:
     if not isinstance(content, str):
         raise ValueError("Discord content must be text")
     _require_discord_length(content)
     if not isinstance(channel_id, str) or not channel_id:
         raise ValueError("Discord channel id must be nonempty text")
-    payload = {
-        "content": content,
-        "nonce": discord_nonce(event_key, "text"),
-        "enforce_nonce": True,
-    }
+    return OperationIntent(
+        key=_operation_key(event_key, leg),
+        kind="channel_message_create",
+        ordering_key=f"channel:{channel_id}",
+        target={"channel_id": channel_id},
+        payload={"content": content, "allowed_mentions": {"parse": []}},
+        attachments=tuple(attachments),
+        reconcile_before_first_create=reconcile_before_first_create,
+        legacy_nonce=legacy_nonce,
+    )
+
+
+def _require_matching_receipt(operation: OperationIntent, receipt: object) -> OperationReceipt:
+    if (not isinstance(receipt, OperationReceipt) or receipt.key != operation.key
+            or receipt.digest != operation.digest):
+        raise DeliveryClientError("invalid_response")
+    return receipt
+
+
+def _delivered_message_id(receipt: OperationReceipt, channel_id: str) -> str | None:
+    if receipt.status != "delivered" or not isinstance(receipt.receipt, dict):
+        return None
+    if receipt.receipt.get("channel_id") not in (None, channel_id):
+        raise DeliveryClientError("invalid_response")
+    message_id = receipt.receipt.get("message_id")
+    return message_id if isinstance(message_id, str) and message_id.isdigit() else None
+
+
+def _submit_or_lookup(
+    operation: OperationIntent,
+    client: object,
+) -> OperationReceipt:
+    receipt = client.status(operation.key)  # type: ignore[attr-defined]
+    if receipt is None:
+        receipt = client.submit(operation)  # type: ignore[attr-defined]
+    accepted = _require_matching_receipt(operation, receipt)
+    if accepted.status in {"pending", "pending_reconciliation", "retrying", "delivering"}:
+        accepted = _require_matching_receipt(operation, client.wait(operation.key, 0))  # type: ignore[attr-defined]
+    return accepted
+
+
+def post_discord_text(
+    content: str,
+    channel_id: str,
+    event_key: str,
+    dry_run: bool = False,
+    *,
+    client: object | None = None,
+) -> str | None:
+    """Submit one idempotent text operation to the shared Delivery Owner."""
+    operation = _channel_message_operation(content, channel_id, event_key)
     if dry_run:
         return f"dry-text-{event_key}"
-    token = _discord_token()
-    if token is None:
-        return None
-    response = _discord_request(
-        url=f"{DISCORD_API_V10}/channels/{channel_id}/messages",
-        headers={"Authorization": f"Bot {token}", "Content-Type": "application/json"},
-        json=payload,
-    )
-    return _message_id(response)
+    owner = client if client is not None else delivery_client_from_environment()
+    receipt = _submit_or_lookup(operation, owner)
+    return _delivered_message_id(receipt, channel_id)
 
 
-def post_discord_image(path: str | os.PathLike[str], channel_id: str, event_key: str, dry_run: bool = False) -> str | None:
-    """Upload one cached source photo, never a media preview or derived image."""
+def post_discord_image(
+    path: str | os.PathLike[str],
+    channel_id: str,
+    event_key: str,
+    dry_run: bool = False,
+    *,
+    client: object | None = None,
+) -> str | None:
+    """Submit the exact cached source-photo bytes as one ordered owner operation."""
     image_path = Path(path)
     try:
         if not image_path.is_file() or image_path.stat().st_size == 0:
             return None
+        content = image_path.read_bytes()
     except OSError:
         return None
     if not isinstance(channel_id, str) or not channel_id:
         raise ValueError("Discord channel id must be nonempty text")
     if dry_run:
         return f"dry-image-{event_key}"
-    token = _discord_token()
-    if token is None:
-        return None
-    payload = {
-        "content": "",
-        "nonce": discord_nonce(event_key, "image"),
-        "enforce_nonce": True,
-    }
     mime_type = mimetypes.guess_type(image_path.name)[0] or "application/octet-stream"
-    with image_path.open("rb") as image:
-        response = _discord_request(
-            url=f"{DISCORD_API_V10}/channels/{channel_id}/messages",
-            headers={"Authorization": f"Bot {token}"},
-            data={"payload_json": json.dumps(payload)},
-            files={"files[0]": (image_path.name, image, mime_type)},
-        )
-    return _message_id(response)
+    attachment = Attachment(image_path.name, mime_type, content)
+    operation = _channel_message_operation(
+        "", channel_id, event_key, leg="image", attachments=(attachment,)
+    )
+    owner = client if client is not None else delivery_client_from_environment()
+    receipt = _submit_or_lookup(operation, owner)
+    return _delivered_message_id(receipt, channel_id)
 
 
 def _default_media_directory() -> Path:
@@ -396,6 +431,7 @@ def _persist_text_payload(
     items: Sequence[SelectionCandidate],
     content: str,
     event_key: str,
+    channel_id: str,
 ) -> None:
     records = _delivery_records(state)
     nonce = discord_nonce(event_key, "text")
@@ -404,9 +440,15 @@ def _persist_text_payload(
             "content": content,
             "nonce": nonce,
             "enforce_nonce": True,
+            "channel_id": channel_id,
             "text_discord_id": None,
             "image_discord_id": None,
             "image_error": None,
+            "delivery_handoff": {
+                "state": "unknown",
+                "operation_key": _operation_key(event_key, "text"),
+                "receipt": None,
+            },
         }
     save_state(state)
 
@@ -435,6 +477,36 @@ def _mark_text_delivered(state: dict[str, object], items: Sequence[SelectionCand
         _update_delivery_record(state, item, text_discord_id=message_id)
     state["last_delivery_success"] = now.isoformat()
     save_state(state)
+
+
+def _receipt_document(receipt: OperationReceipt) -> dict[str, object]:
+    return {
+        "id": receipt.id,
+        "key": receipt.key,
+        "digest": receipt.digest,
+        "status": receipt.status,
+        "receipt": dict(receipt.receipt) if receipt.receipt is not None else None,
+    }
+
+
+def _store_handoff_receipt(
+    state: dict[str, object], item: SelectionCandidate, receipt: OperationReceipt
+) -> None:
+    _update_delivery_record(
+        state,
+        item,
+        delivery_handoff={
+            "state": "accepted",
+            "operation_key": receipt.key,
+            "receipt": _receipt_document(receipt),
+        },
+    )
+
+
+def _delivery_error_category(error: Exception) -> str:
+    if isinstance(error, DeliveryClientError):
+        return f"Delivery Owner request failed ({error.category})"
+    return "Delivery Owner acceptance could not be confirmed"
 
 
 def _schedule_delivery_retry(
@@ -477,6 +549,7 @@ async def deliver_event(
     *,
     dry_run: bool = False,
     client: object | None = None,
+    delivery_client: object | None = None,
     entity: object | None = None,
     media_directory: str | os.PathLike[str] | None = None,
 ) -> bool:
@@ -489,17 +562,94 @@ async def deliver_event(
     content = _existing_text_payload(state, item)
     if content is None:
         content = format_news_item(item)
-        _persist_text_payload(state, items, content, event_key)
+        _persist_text_payload(state, items, content, event_key, channel_id)
+    records = _delivery_records(state)
+    record = records.get(item.key)
+    if not isinstance(record, dict):
+        raise StateBlockedError(f"candidate {item.key!r} has no persisted delivery payload")
+    saved_channel_id = record.get("channel_id")
+    if isinstance(saved_channel_id, str) and saved_channel_id:
+        channel_id = saved_channel_id
+    else:
+        record["channel_id"] = channel_id
+        save_state(state)
+
+    operation = _channel_message_operation(content, channel_id, event_key)
+    raw_handoff = record.get("delivery_handoff")
+    if not isinstance(raw_handoff, dict):
+        # A known legacy Discord ID can be adopted only by the separately
+        # gated handoff command. Never replay it from an ordinary cron run.
+        if isinstance(record.get("text_discord_id"), str) and record["text_discord_id"]:
+            return False
+        raw_handoff = {
+            "state": "unknown",
+            "operation_key": operation.key,
+            "receipt": None,
+        }
+        record["delivery_handoff"] = raw_handoff
+        save_state(state)
+    if set(raw_handoff) != {"state", "operation_key", "receipt"}:
+        raise StateBlockedError(f"candidate {item.key!r} has invalid delivery handoff metadata")
+    if raw_handoff.get("operation_key") != operation.key:
+        raise StateBlockedError(f"candidate {item.key!r} has a different accepted operation key")
+    if raw_handoff.get("state") == "accepted":
+        saved_receipt = raw_handoff.get("receipt")
+        saved_digest = saved_receipt.get("digest") if isinstance(saved_receipt, dict) else None
+        if saved_digest != operation.digest:
+            try:
+                migrated_operation = _channel_message_operation(
+                    content,
+                    channel_id,
+                    event_key,
+                    reconcile_before_first_create=True,
+                    legacy_nonce=record.get("nonce") if isinstance(record.get("nonce"), str) else None,
+                )
+            except ValueError:
+                raise StateBlockedError(f"candidate {item.key!r} has an invalid accepted operation") from None
+            if migrated_operation.digest != saved_digest:
+                raise StateBlockedError(f"candidate {item.key!r} has a different accepted operation digest")
+            operation = migrated_operation
+
+    if dry_run:
+        message_id = f"dry-text-{item.key}"
+        _mark_text_delivered(state, items, message_id, now)
+        return True
+
+    owner = delivery_client if delivery_client is not None else delivery_client_from_environment()
+    accepted_state = raw_handoff.get("state") == "accepted"
     try:
-        message_id = post_discord_text(content, channel_id, event_key, dry_run=dry_run)
-    except DiscordRateLimited as error:
-        _schedule_delivery_retry(state, items, now, str(error), minimum_delay_seconds=error.retry_after)
-        return False
+        if accepted_state:
+            raw_receipt = raw_handoff.get("receipt")
+            try:
+                stored_receipt = OperationReceipt.from_json(raw_receipt, operation)
+            except (TypeError, ValueError):
+                raise DeliveryClientError("invalid_response") from None
+            if stored_receipt.status == "delivered" and _delivered_message_id(stored_receipt, channel_id):
+                latest = stored_receipt
+            else:
+                latest = _require_matching_receipt(operation, owner.status(operation.key))  # type: ignore[attr-defined]
+                if latest is None:
+                    return False
+        else:
+            latest = owner.status(operation.key)  # type: ignore[attr-defined]
+            if latest is None:
+                latest = owner.submit(operation)  # type: ignore[attr-defined]
+            latest = _require_matching_receipt(operation, latest)
+            _store_handoff_receipt(state, item, latest)
+            clear_retry(state, item.key)
+            accepted_state = True
+        if latest.status in {"pending", "pending_reconciliation", "retrying", "delivering"}:
+            latest = _require_matching_receipt(
+                operation, owner.wait(operation.key, 0)  # type: ignore[attr-defined]
+            )
+            _store_handoff_receipt(state, item, latest)
+        message_id = _delivered_message_id(latest, channel_id)
     except Exception as error:
-        _schedule_delivery_retry(state, items, now, str(error))
+        if not accepted_state:
+            _schedule_delivery_retry(state, items, now, _delivery_error_category(error))
         return False
     if message_id is None:
-        _schedule_delivery_retry(state, items, now, "Discord text delivery failed")
         return False
+    _store_handoff_receipt(state, item, latest)
     _mark_text_delivered(state, items, message_id, now)
     return True

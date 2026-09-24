@@ -13,6 +13,7 @@ SPEC = importlib.util.spec_from_file_location("wa_backfill", MODULE_PATH)
 assert SPEC and SPEC.loader
 wa_backfill = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(wa_backfill)
+from bursawatch_discord_delivery import OperationReceipt
 
 
 def source(tmp_path: Path) -> tuple[Path, ChannelEvent]:
@@ -52,6 +53,30 @@ def manifest(tmp_path: Path, event: ChannelEvent, current: str) -> Path:
     return path
 
 
+class DeliveryOwner:
+    def __init__(self, current: str):
+        self.current = current
+        self.queries = []
+        self.operations = []
+
+    def query(self, query):
+        self.queries.append(query)
+        return [{"id": "123456789012345678", "content": self.current}]
+
+    def status(self, key):
+        return None
+
+    def submit(self, operation):
+        self.operations.append(operation)
+        return OperationReceipt(
+            id="op-1", key=operation.key, digest=operation.digest, status="delivered",
+            receipt={"channel_id": operation.target["channel_id"], "message_id": operation.target["message_id"]},
+        )
+
+    def wait(self, key, timeout):
+        raise AssertionError("delivered edit should not need a wait")
+
+
 def test_backfill_plan_is_archive_backed_and_read_only(tmp_path):
     root, event = source(tmp_path)
     current = "old BRI message"
@@ -78,6 +103,22 @@ def test_discover_accepts_legacy_bri_emoji_alias():
     assert candidate["suggested_sentiment"] == "Bearish"
 
 
+def test_discover_uses_injected_delivery_owner_with_bounded_query():
+    owner = DeliveryOwner(
+        "### :bridanareksa: RMKE: Rebound\n"
+        "Status: Bearish\n"
+        "Source: [BRI](<https://www.whatsapp.com/channel/example>)"
+    )
+
+    result = wa_backfill.discover(wa_backfill.BRI_SWING_CHANNEL_ID, 25, client=owner)
+
+    assert len(result["items"]) == 1
+    assert owner.queries[0].kind == "channel_messages"
+    assert owner.queries[0].channel_id == wa_backfill.BRI_SWING_CHANNEL_ID
+    assert owner.queries[0].limit == 25
+    assert owner.queries[0].before is None
+
+
 def test_backfill_apply_requires_guard_and_edits_existing_message(tmp_path, monkeypatch):
     root, event = source(tmp_path)
     current = "old BRI message"
@@ -92,7 +133,6 @@ def test_backfill_apply_requires_guard_and_edits_existing_message(tmp_path, monk
             raise AssertionError("backfill apply must require the environment guard")
 
     monkeypatch.setenv("WHATSAPP_CHANNEL_WATCH_ALLOW_BACKEDIT", "1")
-    monkeypatch.setattr(wa_backfill.discord, "get_message", lambda *_args: {"content": current})
     monkeypatch.setattr(
         wa_backfill.swing_board,
         "submit_chart_context",
@@ -102,8 +142,19 @@ def test_backfill_apply_requires_guard_and_edits_existing_message(tmp_path, monk
             False,
         ),
     )
-    edits = []
-    monkeypatch.setattr(wa_backfill.discord, "edit_message_content", lambda *args, **kwargs: edits.append(args) or True)
-    result = wa_backfill.apply(root, path)
+    owner = DeliveryOwner(current)
+    monkeypatch.setattr(
+        wa_backfill.discord,
+        "delivery_client_from_environment",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("injected owner must be used")),
+    )
+    result = wa_backfill.apply(root, path, client=owner)
     assert result["results"][0]["status"] == "edited"
-    assert edits and edits[0][1] == "123456789012345678"
+    assert owner.queries[0].kind == "channel_messages"
+    assert owner.queries[0].limit == 1
+    assert len(owner.operations) == 1
+    assert owner.operations[0].kind == "channel_message_edit"
+    assert owner.operations[0].target == {
+        "channel_id": wa_backfill.BRI_SWING_CHANNEL_ID,
+        "message_id": "123456789012345678",
+    }

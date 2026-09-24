@@ -7,6 +7,7 @@ import pytest
 
 import delivery
 from market_data import MarketSnapshot
+from bursawatch_discord_delivery import OperationReceipt
 import state as state_module
 from domain import CompanyCandidate, Destination, EventClass, Provider, SourceKind
 from selection import SelectionCandidate
@@ -21,6 +22,34 @@ class Response:
 
     def json(self):
         return self._payload
+
+
+class DeliveredOwner:
+    def __init__(self):
+        self.operations = {}
+        self.submissions = []
+
+    def status(self, operation_key):
+        return self.operations.get(operation_key)
+
+    def submit(self, operation):
+        self.submissions.append(operation)
+        receipt = OperationReceipt(
+            id=f"owner-{len(self.submissions)}",
+            key=operation.key,
+            digest=operation.digest,
+            status="delivered",
+            receipt={
+                "channel_id": operation.target["channel_id"],
+                "message_id": str(5000 + len(self.submissions)),
+            },
+        )
+        self.operations[operation.key] = receipt
+        return receipt
+
+    def wait(self, operation_key, timeout_seconds):
+        assert timeout_seconds == 0
+        return self.operations[operation_key]
 
 
 def _item(
@@ -371,11 +400,10 @@ def test_pending_delivery_reuses_existing_payload_instead_of_reformatting(
         "image_discord_id": None,
         "image_error": None,
     }
-    posted = []
-    monkeypatch.setattr(delivery, "post_discord_text", lambda content, *args, **kwargs: posted.append(content) or "id")
+    owner = DeliveredOwner()
 
-    assert asyncio.run(delivery.deliver_event(state, dewa_tier_one, "123", now))
-    assert posted == [legacy_content]
+    assert asyncio.run(delivery.deliver_event(state, dewa_tier_one, "123", now, delivery_client=owner))
+    assert [operation.payload["content"] for operation in owner.submissions] == [legacy_content]
 
 
 def test_entry_uses_complete_legal_name_when_quote_is_unavailable():
@@ -430,15 +458,15 @@ def test_each_news_item_is_a_standalone_message_without_a_shared_heading(monkeyp
     for item in (dewa_tier_one, second):
         enqueue_candidate(state, item.candidate, now)
         state["candidates"][item.key]["phase"] = "pending_delivery"
-    posted = []
-    monkeypatch.setattr(delivery, "post_discord_text", lambda content, *args, **kwargs: posted.append(content) or "id")
+    owner = DeliveredOwner()
 
-    assert asyncio.run(delivery.deliver_event(state, dewa_tier_one, "123", now))
-    assert asyncio.run(delivery.deliver_event(state, second, "123", now))
+    assert asyncio.run(delivery.deliver_event(state, dewa_tier_one, "123", now, delivery_client=owner))
+    assert asyncio.run(delivery.deliver_event(state, second, "123", now, delivery_client=owner))
 
-    assert posted[0].startswith("### <:tuntun:1531272430985937086> DEWA")
-    assert posted[1].startswith("### <:tuntun:1531272430985937086> ADRO: Test news")
-    assert all("INTRA-DAY" not in message for message in posted)
+    contents = [operation.payload["content"] for operation in owner.submissions]
+    assert contents[0].startswith("### <:tuntun:1531272430985937086> DEWA")
+    assert contents[1].startswith("### <:tuntun:1531272430985937086> ADRO: Test news")
+    assert all("INTRA-DAY" not in message for message in contents)
 
 
 def test_tier_two_uses_the_same_standalone_format_and_oversize_is_rejected(cbre_tier_two):
@@ -455,81 +483,79 @@ def test_tier_two_uses_the_same_standalone_format_and_oversize_is_rejected(cbre_
         delivery.format_news_item(oversized)
 
 
-@pytest.mark.parametrize("status", [200, 201])
-def test_post_text_uses_v10_nonce_and_treats_200_and_201_as_success(monkeypatch, status):
-    calls = []
+def test_post_text_uses_stable_owner_operation_and_reuses_its_receipt():
+    owner = DeliveredOwner()
 
-    def request(method, url, **kwargs):
-        calls.append((method, url, kwargs))
-        return Response(status, {"id": "42"})
+    assert delivery.post_discord_text("message", "123", "event-key", client=owner) == "5001"
+    assert delivery.post_discord_text("message", "123", "event-key", client=owner) == "5001"
 
-    monkeypatch.setenv("DISCORD_BOT_TOKEN", "token")
-    monkeypatch.setattr(delivery.requests, "request", request)
-
-    assert delivery.post_discord_text("message", "123", "event-key") == "42"
-    assert calls == [
-        (
-            "POST",
-            "https://discord.com/api/v10/channels/123/messages",
-            {
-                "headers": {"Authorization": "Bot token", "Content-Type": "application/json"},
-                "json": {
-                    "content": "message",
-                    "nonce": delivery.discord_nonce("event-key", "text"),
-                    "enforce_nonce": True,
-                },
-                "timeout": 20,
-            },
-        )
-    ]
-    assert delivery.discord_nonce("event-key", "text") == delivery.discord_nonce("event-key", "text")
-    assert len(delivery.discord_nonce("event-key", "text")) == 24
+    assert len(owner.submissions) == 1
+    operation = owner.submissions[0]
+    assert operation.kind == "channel_message_create"
+    assert operation.key == "bursawatch-market-news:event-key:text"
+    assert operation.ordering_key == "channel:123"
+    assert operation.target == {"channel_id": "123"}
+    assert operation.payload == {"content": "message", "allowed_mentions": {"parse": []}}
 
 
-def test_post_text_rejects_oversize_before_request(monkeypatch):
-    monkeypatch.setenv("DISCORD_BOT_TOKEN", "token")
-    monkeypatch.setattr(delivery.requests, "request", lambda *args, **kwargs: pytest.fail("called"))
+def test_post_text_rejects_oversize_before_owner_call():
+    owner = DeliveredOwner()
 
     with pytest.raises(ValueError, match="2,000"):
-        delivery.post_discord_text("x" * 2_001, "123", "event-key")
+        delivery.post_discord_text("x" * 2_001, "123", "event-key", client=owner)
+
+    assert owner.submissions == []
 
 
-def test_post_text_reports_discord_http_rejection(monkeypatch):
-    monkeypatch.setenv("DISCORD_BOT_TOKEN", "token")
-    monkeypatch.setattr(delivery.requests, "request", lambda *args, **kwargs: Response(403, {"message": "Missing Access"}))
+def test_post_text_reports_service_errors_without_reading_discord_credentials():
+    class RejectedOwner:
+        def status(self, operation_key):
+            raise delivery.DeliveryClientError("forbidden")
 
-    with pytest.raises(delivery.DiscordRejected, match="Discord HTTP 403: Missing Access"):
-        delivery.post_discord_text("message", "123", "event-key")
+        def submit(self, operation):
+            pytest.fail("must not submit after owner rejection")
+
+    with pytest.raises(delivery.DeliveryClientError) as error:
+        delivery.post_discord_text("message", "123", "event-key", client=RejectedOwner())
+    assert error.value.category == "forbidden"
 
 
-def test_post_text_reports_discord_rate_limit(monkeypatch):
-    monkeypatch.setenv("DISCORD_BOT_TOKEN", "token")
-    monkeypatch.setattr(
-        delivery.requests, "request", lambda *args, **kwargs: Response(429, {"retry_after": 2.5})
-    )
+def test_post_text_leaves_owner_retry_and_rate_limit_state_remote():
+    class RetryingOwner(DeliveredOwner):
+        def submit(self, operation):
+            self.submissions.append(operation)
+            receipt = OperationReceipt(
+                id="owner-retrying",
+                key=operation.key,
+                digest=operation.digest,
+                status="retrying",
+                receipt=None,
+            )
+            self.operations[operation.key] = receipt
+            return receipt
 
-    with pytest.raises(delivery.DiscordRateLimited, match="2.5") as error:
-        delivery.post_discord_text("message", "123", "event-key")
-    assert error.value.retry_after == 2.5
+    owner = RetryingOwner()
+
+    assert delivery.post_discord_text("message", "123", "event-key", client=owner) is None
+
+    assert len(owner.submissions) == 1
+    assert owner.operations[owner.submissions[0].key].status == "retrying"
 
 
 def test_post_image_uploads_cached_bytes_and_accepts_200(monkeypatch, tmp_path):
     image = tmp_path / "source.jpg"
     image.write_bytes(b"jpeg bytes")
-    observed = {}
+    owner = DeliveredOwner()
 
-    def request(method, url, **kwargs):
-        observed.update(method=method, url=url, kwargs=kwargs)
-        return Response(200, {"id": "image-id"})
+    assert delivery.post_discord_image(image, "123", "event-key", client=owner) == "5001"
 
-    monkeypatch.setenv("DISCORD_BOT_TOKEN", "token")
-    monkeypatch.setattr(delivery.requests, "request", request)
-
-    assert delivery.post_discord_image(image, "123", "event-key") == "image-id"
-    assert observed["method"] == "POST"
-    assert observed["url"] == "https://discord.com/api/v10/channels/123/messages"
-    assert observed["kwargs"]["data"]["payload_json"]
-    assert "files[0]" in observed["kwargs"]["files"]
+    operation = owner.submissions[0]
+    assert operation.kind == "channel_message_create"
+    assert operation.key == "bursawatch-market-news:event-key:image"
+    assert operation.payload["content"] == ""
+    assert len(operation.attachments) == 1
+    assert operation.attachments[0].filename == "source.jpg"
+    assert operation.attachments[0].data == b"jpeg bytes"
 
 
 def test_capture_direct_image_requires_the_exact_source_message_photo(tmp_path, dewa_tier_one):
@@ -580,21 +606,31 @@ def test_tier_one_persists_text_before_post_and_marks_delivered_only_after_succe
     state["candidates"][dewa_tier_one.key]["phase"] = "pending_delivery"
     observed_phase = []
 
-    def post(content, channel_id, event_key, dry_run=False):
-        observed_phase.append(state["candidates"][dewa_tier_one.key]["phase"])
-        assert state["stats"]["delivery_payloads"][dewa_tier_one.key]["content"] == content
-        return "discord-text-id"
+    class Owner(DeliveredOwner):
+        def submit(self, operation):
+            observed_phase.append(state["candidates"][dewa_tier_one.key]["phase"])
+            assert state["stats"]["delivery_payloads"][dewa_tier_one.key]["content"] == operation.payload["content"]
+            return super().submit(operation)
 
-    monkeypatch.setattr(delivery, "post_discord_text", post)
+    owner = Owner()
 
-    assert asyncio.run(delivery.deliver_event(state, dewa_tier_one, "123", now, media_directory=tmp_path / "media"))
+    assert asyncio.run(
+        delivery.deliver_event(
+            state,
+            dewa_tier_one,
+            "123",
+            now,
+            delivery_client=owner,
+            media_directory=tmp_path / "media",
+        )
+    )
     assert observed_phase == ["pending_delivery"]
     assert state["candidates"][dewa_tier_one.key]["phase"] == "delivered"
-    assert state["stats"]["delivery_payloads"][dewa_tier_one.key]["text_discord_id"] == "discord-text-id"
+    assert state["stats"]["delivery_payloads"][dewa_tier_one.key]["text_discord_id"] == "5001"
     assert state["last_delivery_success"] == now.isoformat()
 
 
-def test_rate_limited_text_preserves_payload_and_uses_state_retry(
+def test_unaccepted_owner_request_preserves_payload_and_uses_state_retry(
     monkeypatch, tmp_path, dewa_tier_one
 ):
     monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_path / "state.json"))
@@ -603,22 +639,26 @@ def test_rate_limited_text_preserves_payload_and_uses_state_retry(
     enqueue_candidate(state, dewa_tier_one.candidate, now)
     state["candidates"][dewa_tier_one.key]["phase"] = "pending_delivery"
 
-    def rate_limited(*args, **kwargs):
-        raise delivery.DiscordRateLimited(120)
+    class UnavailableOwner:
+        def status(self, operation_key):
+            raise delivery.DeliveryClientError("timeout")
 
-    monkeypatch.setattr(delivery, "post_discord_text", rate_limited)
+        def submit(self, operation):
+            pytest.fail("must not submit after a failed status lookup")
 
 
-    assert not asyncio.run(delivery.deliver_event(state, dewa_tier_one, "123", now))
+    assert not asyncio.run(
+        delivery.deliver_event(state, dewa_tier_one, "123", now, delivery_client=UnavailableOwner())
+    )
     assert state["stats"]["delivery_payloads"][dewa_tier_one.key]["content"] == delivery.format_news_item(
         dewa_tier_one
     )
     assert state["candidates"][dewa_tier_one.key]["phase"] == "pending_delivery"
-    assert state["candidates"][dewa_tier_one.key]["retry"]["last_error"] == "Discord rate limited for 120 seconds"
+    assert state["candidates"][dewa_tier_one.key]["retry"]["last_error"] == "Delivery Owner request failed (timeout)"
     retry_due_at = datetime.fromisoformat(
         state["candidates"][dewa_tier_one.key]["retry"]["next_attempt_at"]
     )
-    assert retry_due_at >= now + timedelta(seconds=120)
+    assert retry_due_at >= now + timedelta(minutes=1)
     restored = load_state()
     assert restored["candidates"][dewa_tier_one.key]["phase"] == "pending_delivery"
     assert restored["stats"]["delivery_payloads"][dewa_tier_one.key]["content"] == delivery.format_news_item(
@@ -626,7 +666,7 @@ def test_rate_limited_text_preserves_payload_and_uses_state_retry(
     )
     assert datetime.fromisoformat(
         restored["candidates"][dewa_tier_one.key]["retry"]["next_attempt_at"]
-    ) >= now + timedelta(seconds=120)
+    ) >= now + timedelta(minutes=1)
 
 
 def test_text_only_immediate_delivery_never_attempts_source_image(
@@ -637,7 +677,7 @@ def test_text_only_immediate_delivery_never_attempts_source_image(
     now = datetime(2026, 7, 14, 13, 30, tzinfo=timezone.utc)
     enqueue_candidate(state, dewa_tier_one.candidate, now)
     state["candidates"][dewa_tier_one.key]["phase"] = "pending_delivery"
-    monkeypatch.setattr(delivery, "post_discord_text", lambda *args, **kwargs: "discord-text-id")
+    owner = DeliveredOwner()
 
     async def broken_capture(*args, **kwargs):
         raise OSError("download failed")
@@ -652,6 +692,7 @@ def test_text_only_immediate_delivery_never_attempts_source_image(
             "123",
             now,
             client=client,
+            delivery_client=owner,
             entity="source",
             media_directory=tmp_path / "media",
         )
@@ -668,7 +709,7 @@ def test_tier_two_standalone_delivery_never_enters_media_capture(
     now = datetime(2026, 7, 14, 13, 30, tzinfo=timezone.utc)
     enqueue_candidate(state, cbre_tier_two.candidate, now)
     state["candidates"][cbre_tier_two.key]["phase"] = "pending_delivery"
-    monkeypatch.setattr(delivery, "post_discord_text", lambda *args, **kwargs: "discord-text-id")
+    owner = DeliveredOwner()
 
     async def fail_capture(*args, **kwargs):
         pytest.fail("Standalone news delivery must not capture media")
@@ -683,6 +724,127 @@ def test_tier_two_standalone_delivery_never_enters_media_capture(
             now,
             client=SimpleNamespace(),
             entity="source",
+            delivery_client=owner,
         )
     )
     assert state["candidates"][cbre_tier_two.key]["phase"] == "delivered"
+
+
+def test_delivery_recovers_lost_acceptance_ack_with_same_operation_key_without_duplicate_create(
+    monkeypatch, tmp_path, dewa_tier_one
+):
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_path / "state.json"))
+    state = empty_state()
+    now = datetime(2026, 7, 14, 13, 30, tzinfo=timezone.utc)
+    enqueue_candidate(state, dewa_tier_one.candidate, now)
+    state["candidates"][dewa_tier_one.key]["phase"] = "pending_delivery"
+
+    class Owner:
+        def __init__(self):
+            self.operations = {}
+            self.submits = []
+            self.discord_creates = 0
+            self.hide_first_status_after_acceptance = False
+
+        def status(self, operation_key):
+            if self.hide_first_status_after_acceptance:
+                self.hide_first_status_after_acceptance = False
+                return None
+            return self.operations.get(operation_key)
+
+        def submit(self, operation):
+            self.submits.append(operation)
+            previous = self.operations.get(operation.key)
+            if previous is None:
+                self.discord_creates += 1
+                previous = OperationReceipt(
+                    id="owner-operation-1",
+                    key=operation.key,
+                    digest=operation.digest,
+                    status="delivered",
+                    receipt={"channel_id": "123", "message_id": "456"},
+                )
+                self.operations[operation.key] = previous
+                self.hide_first_status_after_acceptance = True
+                raise RuntimeError("accepted but response was lost")
+            assert previous.digest == operation.digest
+            return previous
+
+        def wait(self, operation_key, timeout_seconds):
+            assert timeout_seconds == 0
+            return self.operations[operation_key]
+
+    owner = Owner()
+
+    assert not asyncio.run(
+        delivery.deliver_event(state, dewa_tier_one, "123", now, delivery_client=owner)
+    )
+    saved = load_state()["stats"]["delivery_payloads"][dewa_tier_one.key]
+    assert saved["content"] == delivery.format_news_item(dewa_tier_one)
+    assert saved["delivery_handoff"]["state"] == "unknown"
+    assert state["candidates"][dewa_tier_one.key]["phase"] == "pending_delivery"
+
+    assert asyncio.run(
+        delivery.deliver_event(state, dewa_tier_one, "123", now, delivery_client=owner)
+    )
+
+    assert state["candidates"][dewa_tier_one.key]["phase"] == "delivered"
+    assert state["stats"]["delivery_payloads"][dewa_tier_one.key]["text_discord_id"] == "456"
+    assert len(owner.submits) == 2
+    assert owner.submits[0].key == owner.submits[1].key
+    assert owner.submits[0].digest == owner.submits[1].digest
+    assert owner.discord_creates == 1
+
+
+def test_accepted_service_retry_stays_with_owner_without_local_delivery_backoff(
+    monkeypatch, tmp_path, dewa_tier_one
+):
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_path / "state.json"))
+    state = empty_state()
+    now = datetime(2026, 7, 14, 13, 30, tzinfo=timezone.utc)
+    enqueue_candidate(state, dewa_tier_one.candidate, now)
+    state["candidates"][dewa_tier_one.key]["phase"] = "pending_delivery"
+
+    class Owner:
+        def __init__(self):
+            self.operations = {}
+            self.submits = 0
+            self.status_calls = 0
+
+        def status(self, operation_key):
+            self.status_calls += 1
+            return self.operations.get(operation_key)
+
+        def submit(self, operation):
+            self.submits += 1
+            receipt = OperationReceipt(
+                id="owner-operation-2",
+                key=operation.key,
+                digest=operation.digest,
+                status="retrying",
+                receipt=None,
+            )
+            self.operations[operation.key] = receipt
+            return receipt
+
+        def wait(self, operation_key, timeout_seconds):
+            assert timeout_seconds == 0
+            return self.operations[operation_key]
+
+    owner = Owner()
+
+    assert not asyncio.run(
+        delivery.deliver_event(state, dewa_tier_one, "123", now, delivery_client=owner)
+    )
+    accepted = state["stats"]["delivery_payloads"][dewa_tier_one.key]["delivery_handoff"]
+    assert accepted["state"] == "accepted"
+    assert accepted["receipt"]["status"] == "retrying"
+    assert state["candidates"][dewa_tier_one.key]["retry"]["attempts"] == 0
+
+    assert not asyncio.run(
+        delivery.deliver_event(state, dewa_tier_one, "123", now, delivery_client=owner)
+    )
+
+    assert owner.submits == 1
+    assert owner.status_calls >= 2
+    assert state["candidates"][dewa_tier_one.key]["retry"]["attempts"] == 0

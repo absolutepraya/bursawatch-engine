@@ -4,7 +4,7 @@ This file supplements the repository root `AGENTS.md`. It is the canonical devel
 
 ## Ownership and boundary
 
-The board owner alone mutates its SQLite database, private media directory, forum threads, starter cards, replies, titles, tags, legacy history records, and archival state. It accepts only validated internal watcher events after their All Swing delivery. It never imports a watcher store or writes watcher state.
+The Board Engine alone mutates canonical episode/domain state, its SQLite intent outbox, and private media. The Delivery Owner service is the only Discord API writer. Board code sends forum/channel reads and writes through the typed shared client, and applies accepted receipts and Discord IDs back to SQLite exactly once. The Board accepts only validated internal watcher events after their All Swing delivery. It never imports a watcher store or writes watcher state.
 
 The board is read-only and factual. It has no LLM, does not infer a plan or a price state, does not give trading advice, and does not place orders. Only a complete Phintraco Daily cash-equity BUY creates or replaces a Primary Plan. Only active cash-equity source events may reach the board. When a complete BUY promotes an open source-only episode, already-recorded Phintraco status or reminder context after that BUY is reconciled against the new plan before the transition completes.
 
@@ -33,11 +33,11 @@ updates, and same-tier replacements never rename the topic. The one-time
 
 Ordered X media URLs become separate durable attachment intents. Only public HTTPS `pbs.twimg.com` and `video.twimg.com` URLs are accepted. The owner downloads validated image/MP4 content into private atomic cache files, with an 8 MiB limit per attachment, bounded timeouts and redirects, and no inherited credentials or proxy settings. Acquisition and upload failures retain the intent; upload retries reuse the owner copy. No-post skips remote acquisition. All source replies are split losslessly into at most 2,000 UTF-16 units per message. Managed cards reserve checkpoint space; compacted source fields remain complete in ordered source replies. Type and already escaped rationale retain their source rendering.
 
-Before a Discord create, the owner persists its operation identity, exact message/attachment identity, bot ID, and read-back boundary. After timeout or interruption, it searches subsequent own messages or active/public-archived forum threads before completing that intent. Stable nonces are only a short-window aid, not durable idempotency. An inconclusive, ambiguous, or exhausted bounded search stays pending without another create; operator investigation requires separate approval. Only a definite rejected POST clears the create snapshot. A separate delivery lock prevents overlapping HTTP workers, and 429 retries honor Discord's delay.
+Before remote mutation, the Board persists the desired operation, payload, and stable delivery key in its SQLite outbox. The Delivery Owner stores the exact create snapshot and bounded read-back boundary before its Discord request. On timeout or interruption, the service reconciles by that key and snapshot; Board retries look up the same key and never issue a new create for an ambiguous result. Accepted receipts and IDs are applied once to canonical Board state. The service owns Discord delivery locks, bounded recovery, and rate-limit handling.
 
 `drain` reports `drained`, `pending`, and `failed` counts and exits nonzero while any work remains. Pending includes retained backoff work; failed counts pending operations with a recorded delivery failure.
 
-Only scheduled `after-close --phase initial` at 16:30 WIB and `after-close --phase retry` at 17:00 WIB evaluate a valid current IDX session close. Each phase accepts a start within the following five minutes to tolerate Hermes scheduler lateness, while later or early invocations are ignored. The zero-argument scheduler executables are `bursawatch-dc-swing-board-close.sh` and `bursawatch-dc-swing-board-retry.sh`, respectively. The retry is eligible only when that exact active plan recorded an unavailable initial attempt for the current reviewed IDX session. A second unavailable result edits only the card to `Market check unavailable`, retaining the latest valid price/time and tags, without a history reply. A valid close updates the card and factual tags on an exact market-state or terminal-lifecycle transition, with operation identity scoped to plan and session. Stop-loss or the actual final target resolves and finishes the plan; target tags clamp at TP6 without shortening the target ladder. The owner does not generate quoted history replies. An unclassifiable plan preserves its facts, increments `invalid`, and does not block other tickers. Missing calendar coverage fails closed without a board mutation, drains safely, and emits one fatal `#hermes` heartbeat. Other unexpected reconciliation failures emit a sanitized fatal heartbeat. Every covered scheduled phase drains and direct-posts one normal or degraded `#hermes` heartbeat, warning on unavailable, invalid, or pending work.
+Only scheduled `after-close --phase initial` at 16:30 WIB and `after-close --phase retry` at 17:00 WIB evaluate a valid current IDX session close. Each phase accepts a start within the following five minutes to tolerate Hermes scheduler lateness, while later or early invocations are ignored. The zero-argument scheduler executables are `bursawatch-dc-swing-board-close.sh` and `bursawatch-dc-swing-board-retry.sh`, respectively. The retry is eligible only when that exact active plan recorded an unavailable initial attempt for the current reviewed IDX session. A second unavailable result edits only the card to `Market check unavailable`, retaining the latest valid price/time and tags, without a history reply. A valid close updates the card and factual tags on an exact market-state or terminal-lifecycle transition, with operation identity scoped to plan and session. Stop-loss or the actual final target resolves and finishes the plan; target tags clamp at TP6 without shortening the target ladder. The owner does not generate quoted history replies. An unclassifiable plan preserves its facts, increments `invalid`, and does not block other tickers. Missing calendar coverage fails closed without a board mutation, drains safely, and emits one fatal `#hermes` heartbeat. Other unexpected reconciliation failures emit a sanitized fatal heartbeat. Every covered scheduled phase persists one normal or degraded `#hermes` heartbeat intent in `channel_outbox` before draining it through the typed Delivery Owner operation, warning on unavailable, invalid, or pending work.
 
 ## Control-plane boundary
 
@@ -72,7 +72,17 @@ changing the forum through the web would need a separately reviewed state and
 forum migration. The close and retry schedules are fixed market-calendar jobs,
 not web-editable interval schedules.
 
-Set `IDX_SWING_PLAN_BOARD_NO_POST=1` with isolated `IDX_SWING_PLAN_BOARD_STATE_PATH` and `IDX_SWING_PLAN_BOARD_MEDIA_ROOT` paths for every smoke test. Never reset, hand-edit, initialize, or replay production state.
+Set `IDX_SWING_PLAN_BOARD_NO_POST=1` with isolated `IDX_SWING_PLAN_BOARD_STATE_PATH` and `IDX_SWING_PLAN_BOARD_MEDIA_ROOT` paths for every smoke test. This selects a local fake before any Delivery Owner client configuration is read, so no-post tests never contact the service. Never reset, hand-edit, initialize, or replay production state.
+
+`bin/delivery_handoff.py --plan <private-plan-path>` captures a payload-free,
+read-only plan from Board SQLite and preserves stored forum, thread, starter,
+reply, and pending-create snapshot identities. Applying a reviewed plan
+requires `--apply <private-plan-path>`,
+`BURSAWATCH_DISCORD_HANDOFF_ALLOW_APPLY=1`, and the Delivery Owner admin token
+file. The adapter imports receipts or pending intents into the shared service
+and records acknowledgments in a private sidecar; it does not rewrite Board
+SQLite state. Never run apply against production without a separately approved
+handoff window.
 
 `bootstrap --dry-run --lookback-sessions 20` is a Telegram-history
 reconstruction report only. It reads the Phintraco source through the shared
@@ -125,7 +135,7 @@ tag-then-date ordering; tags remain user-selectable filters.
 
 ## Development and deployment
 
-Run the focused suite from the repository root with the shared virtual environment:
+Run the package suite from the repository root with the shared virtual environment:
 
 ```bash
 ../../.venv/bin/python -m pytest -q cron-dc-swing-board/tests

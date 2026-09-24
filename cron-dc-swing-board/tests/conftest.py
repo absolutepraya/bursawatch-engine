@@ -1,12 +1,20 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "bin"))
 # The board contract intentionally owns the short module name ``calendar``.
 # Pytest may have already imported the standard-library module during startup.
 sys.modules.pop("calendar", None)
+
+
+@pytest.fixture(autouse=True)
+def local_delivery_fake(monkeypatch):
+    """Package tests never resolve or contact a live Delivery Owner service."""
+    monkeypatch.setenv("IDX_SWING_PLAN_BOARD_NO_POST", "1")
 
 
 def example_buy_event(

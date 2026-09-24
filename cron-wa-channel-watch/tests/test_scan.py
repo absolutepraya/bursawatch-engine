@@ -1086,6 +1086,7 @@ def test_swing_delivery_patches_direct_board_topic_after_media(tmp_path, monkeyp
     assert delivered == 1
     assert value["outbox"][0]["agent_phase"] == "delivered"
     assert value["outbox"][0]["text_message_ids"] == ["discord-message-1"]
+    assert value["outbox"][0]["media_message_ids"] == ["discord-media-1"]
     assert edits and edits[0][0][1] == ["discord-message-1"]
     assert edits[0][0][2] == "https://discord.com/channels/940285152335110204/999"
 

@@ -7,6 +7,7 @@ export IDX_SWING_PLAN_BOARD_WRAPPER="${IDX_SWING_PLAN_BOARD_WRAPPER:-$HOME/.herm
 RESILIENCE_BIN="$HOME/.agents/skills/lib-telegram-resilience/bin"
 SWING_FORMAT_BIN="$HOME/.agents/skills/lib-swing-format/bin"
 CONTROL_PLANE_BIN="$HOME/.agents/skills/lib-bursawatch-control/bin"
+DELIVERY_CLIENT_BIN="$HOME/.agents/skills/lib-bursawatch-discord-delivery/bin"
 if [[ ! -r "$RESILIENCE_BIN/telegram_resilience.py" ]]; then
   printf '%s FATAL: telegram resilience module missing at %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$RESILIENCE_BIN" >&2
   exit 127
@@ -18,14 +19,25 @@ if [[ ! -r "$SWING_FORMAT_BIN/swing_format.py" ]]; then
   printf '%s FATAL: shared Swing formatter missing at %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$SWING_FORMAT_BIN" >&2
   exit 127
 fi
+if [[ ! -r "$DELIVERY_CLIENT_BIN/bursawatch_discord_delivery/client.py" ]]; then
+  DELIVERY_CLIENT_BIN="$(cd "$(dirname "$0")/../.." && pwd)/lib-bursawatch-discord-delivery/bin"
+fi
+if [[ ! -r "$DELIVERY_CLIENT_BIN/bursawatch_discord_delivery/client.py" ]]; then
+  printf '%s FATAL: shared Discord delivery client missing at %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$DELIVERY_CLIENT_BIN" >&2
+  exit 127
+fi
 if [[ -d "$CONTROL_PLANE_BIN" ]]; then
-  export PYTHONPATH="$CONTROL_PLANE_BIN:$SWING_FORMAT_BIN:$RESILIENCE_BIN:${PYTHONPATH-}"
+  export PYTHONPATH="$DELIVERY_CLIENT_BIN:$CONTROL_PLANE_BIN:$SWING_FORMAT_BIN:$RESILIENCE_BIN:${PYTHONPATH-}"
 else
-  export PYTHONPATH="$SWING_FORMAT_BIN:$RESILIENCE_BIN:${PYTHONPATH-}"
+  export PYTHONPATH="$DELIVERY_CLIENT_BIN:$SWING_FORMAT_BIN:$RESILIENCE_BIN:${PYTHONPATH-}"
 fi
 
 if [[ -r "$HOME/.hermes/.env" ]]; then
-  for k in DISCORD_BOT_TOKEN TELEGRAM_API_ID TELEGRAM_API_HASH POLYCOP_SESSION_STRING; do
+  for k in TELEGRAM_API_ID TELEGRAM_API_HASH POLYCOP_SESSION_STRING; do
+    v="$(grep -E "^${k}=" "$HOME/.hermes/.env" | head -1 | cut -d= -f2- || true)"
+    [[ -n "${v:-}" ]] && export "${k}=${v}"
+  done
+  for k in BURSAWATCH_DISCORD_DELIVERY_URL BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE; do
     v="$(grep -E "^${k}=" "$HOME/.hermes/.env" | head -1 | cut -d= -f2- || true)"
     [[ -n "${v:-}" ]] && export "${k}=${v}"
   done
@@ -40,6 +52,9 @@ if [[ -r "$HOME/.hermes/.env" ]]; then
     done
   fi
 fi
+
+export BURSAWATCH_DISCORD_DELIVERY_URL="${BURSAWATCH_DISCORD_DELIVERY_URL:-http://127.0.0.1:9120}"
+export BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE="${BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE:-$HOME/.hermes/secrets/bursawatch-discord-delivery-client-token}"
 
 PYTHON_BIN="${IDX_SWING_WATCH_PHINTRACO_DAILY_PY:-$HOME/.local/share/uv/tools/yahoo-finance-mcp/bin/python}"
 SCRIPT="$HOME/.agents/skills/bursawatch-tg-phintraco-swing/bin/scan.py"

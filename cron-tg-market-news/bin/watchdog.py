@@ -114,7 +114,13 @@ def is_stale(state: Mapping[str, object], now: datetime, max_gap_minutes: int = 
     return now.astimezone(WIB) - last_success.astimezone(WIB) > timedelta(minutes=max_gap_minutes)
 
 
-def report_watchdog_fatal(now: datetime, reason: str, dry_run: bool) -> bool:
+def report_watchdog_fatal(
+    now: datetime,
+    reason: str,
+    dry_run: bool,
+    *,
+    delivery_client: object | None = None,
+) -> bool:
     metadata = load_watchdog_metadata()
     fingerprint = scan.error_fingerprint(reason)
     hour = scan._hour_key(now)
@@ -126,7 +132,14 @@ def report_watchdog_fatal(now: datetime, reason: str, dry_run: bool) -> bool:
             fingerprints = [value for value in raw if isinstance(value, str)]
     if fingerprint in fingerprints:
         return False
-    if scan.post_hermes_text(scan.format_fatal(now, reason), f"watchdog-fatal-{fingerprint}-{hour}", dry_run) is None:
+    if delivery_client is None and not dry_run:
+        delivery_client = scan.delivery_client_from_environment()
+    if scan.post_hermes_text(
+        scan.format_fatal(now, reason),
+        f"watchdog-fatal-{fingerprint}-{hour}",
+        dry_run,
+        delivery_client=delivery_client,
+    ) is None:
         return False
     fingerprints.append(fingerprint)
     metadata["last_error_notice"] = {"hour": hour, "fingerprints": fingerprints[-64:]}

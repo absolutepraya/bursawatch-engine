@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import mimetypes
 import os
-import math
+import re
 import subprocess
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 import sys
 from typing import Any, Callable, Mapping
-
-import requests
 
 import config
 
@@ -20,17 +20,27 @@ if not _SHARED_FORMAT_BIN.exists():
 if str(_SHARED_FORMAT_BIN) not in sys.path:
     sys.path.insert(0, str(_SHARED_FORMAT_BIN))
 
+_DISCORD_DELIVERY_BIN = Path(__file__).resolve().parents[2] / "lib-bursawatch-discord-delivery" / "bin"
+if not _DISCORD_DELIVERY_BIN.exists():
+    _DISCORD_DELIVERY_BIN = Path.home() / ".agents" / "skills" / "lib-bursawatch-discord-delivery" / "bin"
+if str(_DISCORD_DELIVERY_BIN) not in sys.path:
+    sys.path.insert(0, str(_DISCORD_DELIVERY_BIN))
+
+from bursawatch_discord_delivery import Attachment, DeliveryClient, DiscordQuery, OperationIntent, OperationReceipt
+from bursawatch_discord_delivery.client import DeliveryClientError
 from render import GTW_SOURCE_STATUS, MAX_DISCORD_CHARACTERS, render_event
 from swing_format import replace_board_topic_link
 
 
-DISCORD_API = "https://discord.com/api/v10"
-DISCORD_TIMEOUT_SECONDS = 30
 # The GTW All feed is part of the chronological Swing feed.  Board delivery
 # is a separate owner handoff after this channel delivery succeeds.
 DISCORD_CHANNEL_ID = "1525102458253217803"  # #id-stocks-swing
 RETRY_INITIAL_SECONDS = 60
 RETRY_CAP_SECONDS = 15 * 60
+DELIVERY_OWNER_PREFIX = "bursawatch-tg-kelas-investasi-gtw"
+DELIVERY_OWNER_URL = "http://127.0.0.1:9120"
+DELIVERY_CLIENT_TOKEN_FILE = ".hermes/secrets/bursawatch-discord-delivery-client-token"
+NON_TERMINAL_DELIVERY_STATUSES = frozenset({"pending", "pending_reconciliation", "retrying", "delivering"})
 
 
 class DiscordDeliveryError(RuntimeError):
@@ -49,30 +59,179 @@ def nonce(event_key: str, leg: str) -> str:
     return hashlib.sha256(value).hexdigest()[:24]
 
 
-def post_text(content: str, channel_id: str, dry_run: bool, nonce_value: str) -> str | None:
+def delivery_client_from_environment(*, include_admin: bool = False) -> DeliveryClient:
+    base_url = os.environ.get("BURSAWATCH_DISCORD_DELIVERY_URL", DELIVERY_OWNER_URL)
+    token_path = Path(
+        os.environ.get(
+            "BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE",
+            str(Path.home() / DELIVERY_CLIENT_TOKEN_FILE),
+        )
+    ).expanduser()
+    admin_path = None
+    if include_admin:
+        configured = os.environ.get("BURSAWATCH_DISCORD_DELIVERY_ADMIN_TOKEN_FILE")
+        if not configured:
+            raise DeliveryClientError("admin_credentials_required")
+        admin_path = Path(configured).expanduser()
+    return DeliveryClient(base_url, token_path, admin_token_file=admin_path)
+
+
+def operation_key(event_key: str, leg: str) -> str:
+    if not isinstance(event_key, str) or not event_key or not isinstance(leg, str) or not leg:
+        raise ValueError("delivery identity requires a nonempty source event and leg")
+    normalized = re.sub(
+        r"[^A-Za-z0-9:_./-]",
+        lambda match: f"_u{ord(match.group()):04x}_",
+        f"{event_key}:{leg}",
+    )
+    key = f"{DELIVERY_OWNER_PREFIX}:{normalized}"
+    if len(key) > 200:
+        raise ValueError("delivery operation identity is too long")
+    return key
+
+
+def _message_operation(
+    content: str,
+    channel_id: str,
+    event_key: str,
+    *,
+    leg: str,
+    attachments: tuple[Attachment, ...] = (),
+) -> OperationIntent:
+    if len(content) > MAX_DISCORD_CHARACTERS:
+        raise ValueError("Discord text content exceeds 2,000 characters")
+    return OperationIntent(
+        key=operation_key(event_key, leg),
+        kind="channel_message_create",
+        ordering_key=f"channel:{channel_id}",
+        target={"channel_id": channel_id},
+        payload={"content": content, "allowed_mentions": {"parse": []}},
+        attachments=attachments,
+    )
+
+
+def _submit_or_lookup(
+    operation: OperationIntent,
+    client: object,
+    *,
+    legacy_import_nonce: str | None = None,
+) -> OperationReceipt:
+    receipt = client.status(operation.key)  # type: ignore[attr-defined]
+    from_existing_status = receipt is not None
+    if not from_existing_status:
+        receipt = client.submit(operation)  # type: ignore[attr-defined]
+    expected_digest = operation.digest
+    if isinstance(receipt, OperationReceipt) and receipt.key == operation.key and receipt.digest != operation.digest:
+        if not from_existing_status or legacy_import_nonce is None:
+            raise DeliveryClientError("invalid_response")
+        imported = replace(
+            operation,
+            reconcile_before_first_create=True,
+            legacy_nonce=legacy_import_nonce,
+        )
+        if receipt.digest != imported.digest:
+            raise DeliveryClientError("invalid_response")
+        expected_digest = imported.digest
+    if not isinstance(receipt, OperationReceipt) or receipt.key != operation.key or receipt.digest != expected_digest:
+        raise DeliveryClientError("invalid_response")
+    if receipt.status in NON_TERMINAL_DELIVERY_STATUSES:
+        receipt = client.wait(operation.key, 0)  # type: ignore[attr-defined]
+        if not isinstance(receipt, OperationReceipt) or receipt.key != operation.key or receipt.digest != expected_digest:
+            raise DeliveryClientError("invalid_response")
+    return receipt
+
+
+def _delivered_message_id(receipt: OperationReceipt, operation: OperationIntent) -> str | None:
+    if receipt.status != "delivered" or not isinstance(receipt.receipt, dict):
+        return None
+    if receipt.receipt.get("channel_id") not in (None, operation.target["channel_id"]):
+        raise DeliveryClientError("invalid_response")
+    message_id = receipt.receipt.get("message_id")
+    return message_id if isinstance(message_id, str) and message_id.isdigit() else None
+
+
+def _mime_type(path: Path) -> str:
+    return mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+
+
+def post_text(
+    content: str,
+    channel_id: str,
+    dry_run: bool,
+    nonce_value: str,
+    operation_event_key: str | None = None,
+    operation_leg: str = "text",
+    client: object | None = None,
+) -> str | None:
     if len(content) > MAX_DISCORD_CHARACTERS:
         raise ValueError("Discord text content exceeds 2,000 characters")
     if dry_run:
         print(f"would post text channel={channel_id} nonce={nonce_value}")
         return None
-    response = _post(channel_id, json={"content": content, "nonce": nonce_value})
-    return _message_id(response)
+    identity = operation_event_key if operation_event_key is not None else nonce_value
+    operation = _message_operation(content, channel_id, identity, leg=operation_leg)
+    owner = client if client is not None else delivery_client_from_environment()
+    try:
+        legacy_import_nonce = (
+            nonce(operation_event_key, operation_leg)
+            if operation_event_key is not None
+            else None
+        )
+        receipt = _submit_or_lookup(
+            operation,
+            owner,
+            legacy_import_nonce=legacy_import_nonce,
+        )
+    except DeliveryClientError as error:
+        if error.category == "rate_limited":
+            raise DiscordRateLimitError(RETRY_INITIAL_SECONDS) from None
+        raise DiscordDeliveryError(str(error)) from None
+    message_id = _delivered_message_id(receipt, operation)
+    if message_id is None:
+        raise DiscordDeliveryError("Discord delivery is still pending")
+    return message_id
 
 
-def post_file(path: Path, channel_id: str, dry_run: bool, nonce_value: str) -> str | None:
+def post_file(
+    path: Path,
+    channel_id: str,
+    dry_run: bool,
+    nonce_value: str,
+    operation_event_key: str | None = None,
+    operation_leg: str = "media:0",
+    client: object | None = None,
+) -> str | None:
     path = Path(path)
     if not path.is_file():
         raise FileNotFoundError("source image file is missing")
     if dry_run:
         print(f"would post file channel={channel_id} path={path} nonce={nonce_value}")
         return None
-    with path.open("rb") as source:
-        response = _post(
-            channel_id,
-            data={"payload_json": json.dumps({"nonce": nonce_value})},
-            files={"files[0]": (path.name, source)},
+    attachment = Attachment(path.name, _mime_type(path), path.read_bytes())
+    identity = operation_event_key if operation_event_key is not None else nonce_value
+    operation = _message_operation(
+        "", channel_id, identity, leg=operation_leg, attachments=(attachment,)
+    )
+    owner = client if client is not None else delivery_client_from_environment()
+    try:
+        legacy_import_nonce = (
+            nonce(operation_event_key, operation_leg)
+            if operation_event_key is not None
+            else None
         )
-    return _message_id(response)
+        receipt = _submit_or_lookup(
+            operation,
+            owner,
+            legacy_import_nonce=legacy_import_nonce,
+        )
+    except DeliveryClientError as error:
+        if error.category == "rate_limited":
+            raise DiscordRateLimitError(RETRY_INITIAL_SECONDS) from None
+        raise DiscordDeliveryError(str(error)) from None
+    message_id = _delivered_message_id(receipt, operation)
+    if message_id is None:
+        raise DiscordDeliveryError("Discord delivery is still pending")
+    return message_id
 
 
 def deliver_oldest_ready_event(
@@ -84,6 +243,7 @@ def deliver_oldest_ready_event(
     state_path: Path | None = None,
     media_root: Path | None = None,
     channel_id: str = DISCORD_CHANNEL_ID,
+    client: object | None = None,
 ) -> bool:
     """Deliver at most one durable leg, or print all pending legs in no-post mode.
 
@@ -125,17 +285,37 @@ def deliver_oldest_ready_event(
     try:
         if int(event["text_index"]) < len(chunks):
             index = int(event["text_index"])
-            message_id = post_text(chunks[index], channel_id, False, nonce(str(event["event_key"]), f"text:{index}"))
+            message_id = post_text(
+                chunks[index],
+                channel_id,
+                False,
+                nonce(str(event["event_key"]), f"text:{index}"),
+                str(event["event_key"]),
+                f"text:{index}",
+                client,
+            )
             if message_id:
                 event.setdefault("text_message_ids", []).append(message_id)
+            else:
+                raise DiscordDeliveryError("Discord text receipt is unavailable")
             event["text_index"] = index + 1
         elif int(event["next_media_index"]) < len(_media(event)):
             index = int(event["next_media_index"])
             path = _media_path(_media(event)[index], media_root)
-            post_file(path, channel_id, False, nonce(str(event["event_key"]), f"media:{index}"))
+            message_id = post_file(
+                path,
+                channel_id,
+                False,
+                nonce(str(event["event_key"]), f"media:{index}"),
+                str(event["event_key"]),
+                f"media:{index}",
+                client,
+            )
+            if not message_id:
+                raise DiscordDeliveryError("Discord image receipt is unavailable")
             event["next_media_index"] = index + 1
         else:
-            return _submit_board_context(state, event, now, dry_run, persist, media_root, channel_id)
+            return _submit_board_context(state, event, now, dry_run, persist, media_root, channel_id, client)
     except DiscordRateLimitError as error:
         _record_failure(event, now, error, error.retry_after)
         _persist(persist)
@@ -148,7 +328,7 @@ def deliver_oldest_ready_event(
     _clear_failure(event)
     _persist(persist)
     if _complete(event, chunks):
-        return _submit_board_context(state, event, now, dry_run, persist, media_root, channel_id)
+        return _submit_board_context(state, event, now, dry_run, persist, media_root, channel_id, client)
     return True
 
 
@@ -239,6 +419,7 @@ def edit_board_links(
     event_key: str,
     *,
     channel_id: str = DISCORD_CHANNEL_ID,
+    client: object | None = None,
 ) -> bool:
     """Patch every delivered GTW text chunk that still has the legacy link."""
     if not isinstance(board_url, str) or not board_url:
@@ -248,91 +429,62 @@ def edit_board_links(
     if dry_run:
         print(f"would patch board links event={event_key} url={board_url}")
         return True
-    token = os.environ.get("DISCORD_BOT_TOKEN")
-    if not token:
-        return False
-    headers = {"Authorization": f"Bot {token}", "Content-Type": "application/json"}
-    for message_id in message_ids:
+    owner = client if client is not None else delivery_client_from_environment()
+    for index, message_id in enumerate(message_ids):
         if not isinstance(message_id, str) or not message_id:
             return False
         try:
-            response = requests.get(
-                f"{DISCORD_API}/channels/{channel_id}/messages/{message_id}",
-                headers=headers,
-                timeout=DISCORD_TIMEOUT_SECONDS,
-            )
-            if response.status_code == 429:
-                raise DiscordRateLimitError(_retry_after(response))
-            if response.status_code != 200:
-                return False
-            current = response.json().get("content")
-            if not isinstance(current, str):
+            current = _read_channel_message_content(owner, channel_id, message_id)
+            if current is None:
                 return False
             updated = replace_board_topic_link(current, board_url)
             if updated == current:
                 continue
-            response = requests.patch(
-                f"{DISCORD_API}/channels/{channel_id}/messages/{message_id}",
-                headers=headers,
-                json={"content": updated, "allowed_mentions": {"parse": []}},
-                timeout=DISCORD_TIMEOUT_SECONDS,
+            operation = OperationIntent(
+                key=operation_key(event_key, f"board-link:{index}"),
+                kind="channel_message_edit",
+                ordering_key=f"channel:{channel_id}",
+                target={"channel_id": channel_id, "message_id": message_id},
+                payload={"content": updated, "allowed_mentions": {"parse": []}},
             )
-            if response.status_code == 429:
-                raise DiscordRateLimitError(_retry_after(response))
-            if response.status_code != 200:
+            receipt = _submit_or_lookup(operation, owner)
+            if receipt.status != "delivered":
                 return False
-        except requests.RequestException:
+        except DeliveryClientError as error:
+            if error.category == "rate_limited":
+                raise DiscordRateLimitError(RETRY_INITIAL_SECONDS) from None
             return False
     return True
 
 
-def _post(channel_id: str, **kwargs: Any) -> requests.Response:
-    token = os.environ.get("DISCORD_BOT_TOKEN")
-    if not token:
-        raise DiscordDeliveryError("Discord bot token is not configured")
+def _read_channel_message_content(client: object, channel_id: str, message_id: str) -> str | None:
     try:
-        response = requests.post(
-            f"{DISCORD_API}/channels/{channel_id}/messages",
-            headers={"Authorization": f"Bot {token}"},
-            timeout=DISCORD_TIMEOUT_SECONDS,
-            **kwargs,
+        target_id = int(message_id)
+    except (TypeError, ValueError):
+        return None
+    cursor = str(target_id + 1)
+    while True:
+        result = client.query(  # type: ignore[attr-defined]
+            DiscordQuery(kind="channel_messages", channel_id=channel_id, before=cursor, limit=100)
         )
-    except requests.RequestException as error:
-        raise DiscordDeliveryError("Discord request failed") from error
-    if response.status_code == 429:
-        raise DiscordRateLimitError(_retry_after(response))
-    if not response.ok:
-        raise DiscordDeliveryError("Discord API request was rejected")
-    return response
-
-
-def _retry_after(response: requests.Response) -> float:
-    try:
-        payload = response.json()
-        value = payload.get("retry_after") if isinstance(payload, dict) else None
-        seconds = float(value)
-    except (TypeError, ValueError, requests.RequestException):
-        seconds = 0.0
-    return seconds if math.isfinite(seconds) and seconds > 0 else RETRY_INITIAL_SECONDS
-
-
-def _message_id(response: requests.Response) -> str:
-    try:
-        payload = response.json()
-    except requests.RequestException as error:
-        raise DiscordDeliveryError("Discord API returned an invalid response") from error
-    value = payload.get("id") if isinstance(payload, dict) else None
-    return str(value) if value is not None else ""
-
-
-def _response_error(response: requests.Response) -> str:
-    try:
-        payload = response.json()
-    except requests.RequestException:
-        return "request was rejected"
-    if isinstance(payload, dict) and isinstance(payload.get("message"), str):
-        return _sanitize(payload["message"])
-    return "request was rejected"
+        messages = result.get("messages") if isinstance(result, dict) else result
+        if not isinstance(messages, list) or not messages:
+            return None
+        ids: list[int] = []
+        for item in messages:
+            if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"].isdigit():
+                return None
+            ids.append(int(item["id"]))
+            if item["id"] == message_id:
+                content = item.get("content")
+                return content if isinstance(content, str) else None
+        oldest = min(ids)
+        if oldest <= target_id:
+            return None
+        next_cursor = str(oldest)
+        if next_cursor == cursor:
+            return None
+        cursor = next_cursor
 
 
 def _oldest_deliverable_event(state: Mapping[str, object]) -> dict[str, object] | None:
@@ -381,7 +533,10 @@ def _print_intended(
 ) -> None:
     event_key = str(event["event_key"])
     for index in range(int(event["text_index"]), len(chunks)):
-        post_text(chunks[index], channel_id, True, nonce(event_key, f"text:{index}"))
+        post_text(
+            chunks[index], channel_id, True, nonce(event_key, f"text:{index}"),
+            event_key, f"text:{index}",
+        )
     for index in range(int(event["next_media_index"]), len(_media(event))):
         item = _media(event)[index]
         try:
@@ -413,6 +568,7 @@ def _submit_board_context(
     persist: Callable[[], None] | None,
     media_root: Path,
     channel_id: str,
+    client: object | None = None,
 ) -> bool:
     # Keep board handoffs in source order while the All queue is independent.
     for earlier in state.get("outbox", []):
@@ -439,6 +595,7 @@ def _submit_board_context(
             dry_run,
             str(event["event_key"]),
             channel_id=channel_id,
+            client=client,
         ):
             accepted = False
     except Exception:

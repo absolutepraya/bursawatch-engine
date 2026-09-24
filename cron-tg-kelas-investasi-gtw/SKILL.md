@@ -28,6 +28,11 @@ JSON
 
 Do not call `scan.py` directly or return natural-language output. The scanner validates the matching 15-minute lease, then delivers text and only the header image. `KELAS_INVESTASI_GTW_NO_POST=1` remains the non-posting operational control.
 
+The scanner sends All text, images, original-message reads and Board-link edits,
+normal heartbeats, and fatal notices through the shared typed Discord
+DeliveryClient. It persists each accepted message receipt before advancing the
+matching delivery cursor and preserves source order.
+
 The wrapper persists the accepted fields only while the matching 15-minute lease is active. If the scanner rejects the submitted JSON, it reports a safe `submission_rejected=<code>` warning heartbeat, exits nonzero, and leaves the event eligible for retry. This is an agent-output problem, not evidence that the Telegram source is unavailable. Do not expose or repeat raw validation details.
 
 After the scanner completes All delivery, it may submit the accepted GTW bundle as source-only context to the board owner. This is deterministic scanner work, not part of this JSON schema or agent task. The board owner alone makes every forum, title, tag, price, and lifecycle decision.

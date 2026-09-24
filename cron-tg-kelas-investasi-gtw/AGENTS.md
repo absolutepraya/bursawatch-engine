@@ -22,7 +22,7 @@ Use only the shared `POLYCOP_SESSION_STRING` and `lib-telegram-resilience` contr
 
 The watcher state is `~/.hermes/state/kelas-investasi-gtw-watch.json`. It and the shared resilience state are production data: never reset, hand-edit, copy, deploy, or backfill either. Do not introduce a watcher-specific Telegram session variable or auth file.
 
-The Hermes wrapper is `~/.hermes/scripts/bursawatch-tg-kelas-investasi-gtw.sh`. It exports `lib-telegram-resilience/bin` and, when deployed, `lib-bursawatch-control/bin`. It loads `DISCORD_BOT_TOKEN`, `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `POLYCOP_SESSION_STRING`, and the optional narrowly scoped `KELAS_INVESTASI_GTW_CONTROL_PLANE_*` settings from `~/.hermes/.env`. No web application or watcher configuration contains a credential.
+The Hermes wrapper is `~/.hermes/scripts/bursawatch-tg-kelas-investasi-gtw.sh`. It exports `lib-telegram-resilience/bin`, `lib-bursawatch-discord-delivery/bin`, and, when deployed, `lib-bursawatch-control/bin`. It loads Telegram session values, the shared Discord Delivery Owner URL and client-token file path, and the optional narrowly scoped `KELAS_INVESTASI_GTW_CONTROL_PLANE_*` settings from `~/.hermes/.env`. The client defaults to `http://127.0.0.1:9120` and `~/.hermes/secrets/bursawatch-discord-delivery-client-token`. `DISCORD_BOT_TOKEN` is not loaded; the scanner does not call Discord REST directly. No web application or watcher configuration contains a credential.
 
 The typed control-plane payload has only `source.telegram_channel_id`, `source.telegram_username`, `destinations.alert_discord_channel_id`, `destinations.heartbeat_discord_channel_id`, and an `additional_prompt_instruction` capped at 800 normalized characters. Each run reads one snapshot before it opens Telegram or mutates local state. A live-mode fetch or validation failure fails closed and never silently reuses a local copy. Cursors, leases, pending bundles, outbox phases, retry/backoff, media, board wrapper paths, parser grammar, agent schema, and shared resilience state are not web configuration.
 
@@ -53,6 +53,12 @@ link. A failed link edit remains retryable without replaying the All delivery.
 The board copy omits the Board line. Provider-specific summary and plan fields remain
 source-faithful, and no synthetic quoted status message is created.
 
+The scanner delivers text chunks and images in source order through typed
+DeliveryClient operations. It queries the Delivery Owner to read the original
+All message before submitting a typed Board-link edit, and it uses stable
+event-and-leg keys for delivery and heartbeat operations. The event cursor
+advances only after a matching durable owner receipt.
+
 GTW is a qualifying non-Phintraco source-only event. It is delivered to the
 chronological `#id-stocks-swing` All feed (`1525102458253217803`) and then
 submitted to the Swing board owner. A GTW event may create or append to a
@@ -66,6 +72,12 @@ replay the All feed. An archived episode never receives a later GTW event.
 Successful runs send `🫀 bursawatch-tg-kelas-investasi-gtw · HH:MM WIB · scanned=N pending=N delivered=N` to the configured heartbeat destination, whose reviewed default is `#hermes` (`1505162000420835388`). Fatal errors use `❌ bursawatch-tg-kelas-investasi-gtw · HH:MM WIB · failed: <sanitized reason>`. Accepted output is delivered to the configured chronological All feed, whose reviewed default is `#id-stocks-swing` (`1525102458253217803`), only by the scanner. The registered agent-backed Hermes job uses `local` delivery because scanner stdout is control protocol, not a Discord heartbeat; only the scanner's explicit heartbeat and fatal posts belong in `#hermes`.
 
 Board-pending events retain source order in a separate logical queue: a failed or backed-off handoff never blocks subsequent All text/image delivery. Migrated legacy bundles without a source publication time remain board-unavailable when they close and reload; no observation time is substituted for missing source evidence.
+
+`bin/delivery_handoff.py --plan <private-plan-path>` creates a read-only plan
+for a paused-writer import. Apply requires `--apply`,
+`BURSAWATCH_DISCORD_HANDOFF_ALLOW_APPLY=1`, the admin client token, and a
+separately approved cutover while the scanner is paused. The adapter records
+handoff acknowledgment only after a matching Delivery Owner acceptance.
 
 ## Safe verification and deployment
 

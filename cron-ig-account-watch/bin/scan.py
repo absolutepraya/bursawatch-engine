@@ -77,6 +77,7 @@ class RunStats:
     vision_fallback: int = 0
     delivered: int = 0
     delivery_legs: int = 0
+    owner_pending: int = 0
     errors: int = 0
     degraded: bool = False
     needs_attention: bool = False
@@ -100,7 +101,8 @@ class RunStats:
         return (
             f"{self.fetched} fetched · {self.filtered} filtered · {self.queued} queued · "
             f"{self.ocr} OCR · {self.vision_fallback} vision fallback · "
-            f"{self.delivered} delivered · {self.delivery_legs} delivery legs · {self.errors} errors"
+            f"{self.delivered} delivered · {self.delivery_legs} delivery legs · "
+            f"{self.errors} errors · owner pending {self.owner_pending}"
         )
 
 
@@ -236,6 +238,8 @@ def _post_heartbeat(now: datetime, stats: RunStats) -> None:
             False,
             discord.nonce("heartbeat", now.astimezone(WIB).strftime("%Y%m%d%H%M")),
         )
+    except discord.DeliveryOwnerPending:
+        stats.owner_pending += 1
     except Exception:
         stats.note_error("Discord heartbeat delivery failed")
 
@@ -470,7 +474,15 @@ def _deliver(
             return True
 
         return _finalize_delivery(value, event_index, storage, stats, now)
-    except Exception:
+    except Exception as error:
+        if isinstance(error, discord.DeliveryOwnerPending):
+            event["last_error"] = "Delivery Owner accepted pending work"
+            stats.owner_pending += 1
+            try:
+                state.save_state(storage, value)
+            except Exception:
+                stats.note_error("delivery failure state persistence failed")
+            return False
         event["last_error"] = "Discord delivery failed"
         stats.note_error("Discord delivery failed")
         try:

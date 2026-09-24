@@ -27,6 +27,20 @@ class Feed:
 
 
 @dataclass(frozen=True, slots=True)
+class StockbitFeedSetting:
+    lane: FeedLane
+    enabled: bool
+
+
+@dataclass(frozen=True, slots=True)
+class StockbitWatchConfig:
+    feeds: tuple[StockbitFeedSetting, ...]
+    id_stocks_news_channel_id: str
+    macro_news_channel_id: str
+    additional_prompt_instruction: str
+
+
+@dataclass(frozen=True, slots=True)
 class Article:
     lane: FeedLane
     lane_label: str

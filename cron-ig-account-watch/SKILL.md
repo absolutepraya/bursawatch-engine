@@ -6,7 +6,7 @@ user-invocable: false
 
 # Instagram Post Watch
 
-The scanner owns RSSHub access, structural source eligibility, publication state, media downloads, OCR, vision decisions, Discord delivery, and heartbeats. The LLM owns the negative content-relevance decision. When `wakeAgent` is false, do nothing. When it is true, process exactly the one supplied event and follow only the trusted `item.instruction` field.
+The scanner owns RSSHub access, structural source eligibility, publication state, media downloads, OCR, vision decisions, Discord delivery through the shared Delivery Owner client, and heartbeats. The watcher retains archive state, validates and stages its local media, and preserves text-before-media order; the Delivery Owner service owns Discord REST. The LLM owns the negative content-relevance decision. When `wakeAgent` is false, do nothing. When it is true, process exactly the one supplied event and follow only the trusted `item.instruction` field.
 
 Forward only substantive stock-market, issuer, or macro analysis. Exclude generic trading or investing education and advice, including tips, how-to guides, strategies, techniques, chart lessons, risk or money management, and mindset, psychology, discipline, patience, fear, greed, or emotional-control lessons. Exclude actionable trade setups whose core is a buy or sell call, entry, target, stop-loss, breakout, support or resistance, or similar trading instruction. A target derived from earnings, fundamentals, or valuation remains substantive analysis, not an actionable trade setup. Keep concrete issuer news, earnings, fundamentals, valuation, corporate actions, and macro theses with an explicit stock-market implication, even when they contain a non-central opinion.
 

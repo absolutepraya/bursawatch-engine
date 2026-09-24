@@ -190,6 +190,34 @@ reports archive media that would become unreferenced. A destructive prune
 requires separate explicit approval, an absolute archive root, and an operator
 review of its dry-run count.
 
+### Discord Delivery Owner handoff
+
+The watcher, archive helper, and BRI backfill helper use the shared
+`lib-bursawatch-discord-delivery` client for Discord sends, bounded message
+queries, and in-place edits. They do not read `DISCORD_BOT_TOKEN`; wrappers
+unset it. Configure `BURSAWATCH_DISCORD_DELIVERY_URL` and
+`BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE` in the Hermes environment when
+the defaults (`http://127.0.0.1:9120` and
+`~/.hermes/secrets/bursawatch-discord-delivery-client-token`) do not apply.
+The Delivery Owner owns retries after accepting an operation. Watcher state
+keeps its existing text/media cursors and saved message IDs, with the additive
+`media_message_ids` list recording successful media receipts.
+
+An operator can make a private, payload-free delivery-state plan through the
+archive wrapper. Planning reads watcher state and verified archive bytes but
+does not alter the queue, archive, subscription state, or backfill manifest:
+
+```bash
+~/.hermes/scripts/bursawatch-wa-channel-archive.sh delivery-handoff --plan /home/praya/.hermes/state/whatsapp-channel-watch/delivery-handoff.json
+```
+
+After reviewing the plan, applying requires the explicit `--apply` flag,
+`BURSAWATCH_DISCORD_HANDOFF_ALLOW_APPLY=1`, and a configured
+`BURSAWATCH_DISCORD_DELIVERY_ADMIN_TOKEN_FILE`. The helper writes its private
+source backup and acknowledgment sidecar beside the plan. It is an operator
+migration command only; watcher, archive, and backfill startup never invokes
+it.
+
 ### BRI Swing back-edit helper
 
 The deployed runtime also contains the operator wrapper

@@ -8,6 +8,13 @@ Current operating guidance is deliberately kept close to the source it governs:
 - A reusable service or skill: its local `AGENTS.md`, `README.md`, or
   `SKILL.md` as applicable.
 
+The Bursawatch Discord Delivery Owner is the only Discord REST path. Its
+service contract and deployment gates are in
+[`service-bursawatch-discord-delivery/README.md`](../service-bursawatch-discord-delivery/README.md)
+and its caller contract is in
+[`lib-bursawatch-discord-delivery/README.md`](../lib-bursawatch-discord-delivery/README.md).
+The service and its initial host bootstrap remain manual rollout boundaries.
+
 For collaboration, `.wt/config.toml` defines managed feature worktrees and the
 repository-local `finish-workflow` skill ends with a pull request. It does not
 deploy, merge, or remove the review workspace.

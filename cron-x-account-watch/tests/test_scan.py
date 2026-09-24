@@ -282,7 +282,7 @@ def test_queue_only_run_skips_source_fetch_and_claims_oldest_agent(tmp_path, mon
 
     assert result["wakeAgent"] is True
     assert result["item"]["event_key"] == "kutekians:101"
-    assert "1 pending · oldest 60m" in heartbeats[0]
+    assert "1 pending · owner pending 0 · oldest 60m" in heartbeats[0]
     saved = state.load_state(storage)
     assert saved["outbox"][0]["agent_phase"] == "awaiting_agent"
 
@@ -417,7 +417,7 @@ def test_cleanup_agent_vision_ignores_os_errors(tmp_path, monkeypatch):
 
 def test_heartbeat_format_is_canonical():
     value = scan.format_heartbeat(datetime(2026, 7, 28, 6, 0, tzinfo=scan.WIB), scan.RunStats())
-    assert value == "🫀 x-post · 06:00 WIB · 0 fetched · 0 filtered · 0 queued · 0 delivered · 0 errors · 0 pending · oldest 0m"
+    assert value == "🫀 x-post · 06:00 WIB · 0 fetched · 0 filtered · 0 queued · 0 delivered · 0 errors · 0 pending · owner pending 0 · oldest 0m"
 
 
 def test_x_board_event_requires_one_exact_ticker_led_source_title() -> None:

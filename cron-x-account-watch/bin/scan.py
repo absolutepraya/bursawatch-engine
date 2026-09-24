@@ -91,6 +91,7 @@ class RunStats:
     queued: int = 0
     delivered: int = 0
     pending: int = 0
+    owner_pending: int = 0
     oldest_pending_minutes: int = 0
     degraded: bool = False
     needs_attention: bool = False
@@ -110,7 +111,8 @@ class RunStats:
         return (
             f"{self.fetched} fetched · {self.filtered} filtered · {self.queued} queued · "
             f"{self.delivered} delivered · {len(self.reasons)} errors · "
-            f"{self.pending} pending · oldest {self.oldest_pending_minutes}m"
+            f"{self.pending} pending · owner pending {self.owner_pending} · "
+            f"oldest {self.oldest_pending_minutes}m"
         )
 
 
@@ -530,7 +532,10 @@ def _retry_cleanup(value: dict, dry_run: bool, storage: Path, stats: RunStats) -
                 discord.delete_message(item["channel_id"], message_id, dry_run)
             except Exception as exc:
                 remaining.append(message_id)
-                stats.note_source_error(f"supersession cleanup: {' '.join(str(exc).split())[:140]}")
+                if isinstance(exc, discord.DeliveryOwnerPending):
+                    stats.owner_pending += 1
+                else:
+                    stats.note_source_error(f"supersession cleanup: {' '.join(str(exc).split())[:140]}")
         item["attempts"] = int(item.get("attempts", 0)) + 1
         if remaining:
             item["message_ids"] = remaining
@@ -603,6 +608,11 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
             state.save_state(storage, value)
             return True
     except Exception as exc:
+        if isinstance(exc, discord.DeliveryOwnerPending):
+            stats.owner_pending += 1
+            event["last_error"] = "Delivery Owner accepted pending work"
+            state.save_state(storage, value)
+            return False
         if media_url is not None and isinstance(exc, discord.MediaUnavailable):
             if media_url not in event["media_skipped_urls"]:
                 event["media_skipped_urls"].append(media_url)
@@ -654,7 +664,11 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
         state.save_state(storage, value)
         return False
     if not discord.edit_board_links(
-        channel_id, event.get("text_message_ids", []), payload.get("_board_url"), dry_run
+        channel_id,
+        event.get("text_message_ids", []),
+        payload.get("_board_url"),
+        dry_run,
+        event_key=f"{profile.id}:{post.post_id}",
     ):
         _record_board_failure(event, delivered_at)
         stats.degraded = True
@@ -795,6 +809,7 @@ def run(
                     "queue_only": queue_only,
                     "delivered": stats.delivered,
                     "pending": stats.pending,
+                    "owner_pending": stats.owner_pending,
                     "oldest_pending_minutes": stats.oldest_pending_minutes,
                     "reasons": stats.reasons[:10],
                 },
@@ -846,7 +861,15 @@ def run(
                 agent_item(profiles[event["profile_id"]], post, thread_posts, vision_bundle, article_bundle)
                 if event and post else None
             )
-            discord.post_text(format_heartbeat(now, stats), HEARTBEAT_CHANNEL_ID, dry_run, discord.nonce("heartbeat", heartbeat_leg))
+            try:
+                discord.post_text(
+                    format_heartbeat(now, stats),
+                    HEARTBEAT_CHANNEL_ID,
+                    dry_run,
+                    discord.nonce("heartbeat", heartbeat_leg),
+                )
+            except discord.DeliveryOwnerPending:
+                stats.owner_pending += 1
             if event is not None:
                 _report_control_event(
                     reporter,

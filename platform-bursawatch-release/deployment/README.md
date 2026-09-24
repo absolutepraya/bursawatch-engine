@@ -18,15 +18,20 @@ the scoped API service through one sudoers command, and check loopback health.
 An explicit operations release also applies reviewed manual migrations.
 
 The agent stores sanitized per-SHA records and durable state below
-`~/.local/share/bursawatch-release/records/`. It sends a concise success,
-retry, or blocked heartbeat to `#hermes`. When the optional
+`~/.local/share/bursawatch-release/records/`. It submits the existing concise
+success, retry, or blocked heartbeat to `#hermes` through the shared Discord
+Delivery Owner on loopback. The agent uses the shared client installed at
+`~/.agents/skills/lib-bursawatch-discord-delivery/bin` and the mode-0600 client
+token file at
+`~/.hermes/secrets/bursawatch-discord-delivery-client-token`. It has no Discord
+bot token. When the optional
 `BURSAWATCH_RELEASE_STATUS_TOKEN` is configured, it also publishes the
 `bursawatch/release` commit status for the exact candidate SHA. The polling
 token remains read-only; the status token is separate and only needs commit
-status write access. Status publication is best effort and never changes the
-release decision. Release records contain bounded, sanitized diagnostics and
-release metadata only; credentials are redacted and live state is not copied
-into them.
+status write access. Heartbeat and status publication are best effort and
+never change the release decision. Release records contain bounded, sanitized
+diagnostics and release metadata only; credentials are redacted and live state
+is not copied into them.
 
 The systemd unit leaves `MemoryDenyWriteExecute` and `NoNewPrivileges` unset.
 On this host, `MemoryDenyWriteExecute` implies `NoNewPrivileges`, which blocks
@@ -42,7 +47,9 @@ checkout of this repository:
    and set mode `0600`. The polling token needs this private repository's
    Contents and Actions read access only. If repository-visible release status
    is approved, add a separate token with Commit statuses: write only. Do not
-   reuse `gh` authentication.
+   reuse `gh` authentication. Set up the Delivery Owner separately, install
+   its shared client under `/home/praya/.agents/skills/`, and create the
+   private client-token file named in the environment file.
 2. Compare every source asset in this directory against its target. In
    particular, review the one-command sudoers rule before copying it.
 3. Run `./platform-bursawatch-release/deployment/bootstrap-release-agent.sh --apply`.
