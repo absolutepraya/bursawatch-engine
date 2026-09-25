@@ -21,7 +21,7 @@ Every scheduled package has `AGENTS.md` and exactly one contract file:
 | `cron-ig-account-watch` | `bursawatch-ig-account-watch` | Instagram account and reel watcher |
 | `cron-wa-channel-watch` | `bursawatch-wa-channel-watch` | WhatsApp Channel watcher and queue |
 | `cron-stockbit-snips` | `bursawatch-stockbit-snips` | Stockbit Snips RSS news watcher |
-| `cron-tg-source-ingest` | reserved `bursawatch-tg-source-ingest` | Unscheduled Telegram catalog and inbox pilot |
+| `cron-tg-source-ingest` | reserved `bursawatch-tg-source-ingest` | Unscheduled Telegram source, pipeline, and bounded agent handoff pilot |
 | `cron-x-source-ingest` | reserved `bursawatch-x-source-ingest` | Unscheduled X catalog and inbox pilot |
 | `cron-ig-source-ingest` | reserved `bursawatch-ig-source-ingest` | Unscheduled Instagram catalog and inbox pilot |
 | `cron-wa-source-ingest` | reserved `bursawatch-wa-source-ingest` | Unscheduled WhatsApp bridge-queue inbox pilot |

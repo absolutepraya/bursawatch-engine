@@ -33,6 +33,23 @@ def envelope(provider="42"):
     return {"version": 1, "endpoint_id": "telegram:phintasprofits", "publisher_id": "phintraco", "platform": "telegram", "provider_event_id": provider, "published_at": "2026-09-24T07:00:00+07:00", "observed_at": "2026-09-24T07:01:00+07:00", "source_url": "https://t.me/phintasprofits/42", "parser_version": "parser-1", "content_hash": hashlib.sha256(b"content").hexdigest(), "payload": {"text": "source"}, "media_refs": [], "media_required": False}
 
 
+def kelas_envelope(provider: str):
+    result = envelope(provider)
+    result.update(endpoint_id="telegram:kelasinvestasiid", publisher_id="kelas-investasi")
+    result["source_url"] = f"https://t.me/kelasinvestasiid/{provider}"
+    return result
+
+
+def setup_kelas():
+    api, catalog, _inbox = setup()
+    config = catalog.get()["config"]
+    config["publisher_defaults"] = [
+        {"publisher_id": "kelas-investasi", "capability_id": "swing_support", "enabled": True, "settings": {}}
+    ]
+    catalog.put(2, config, "admin")
+    return api
+
+
 def test_atomic_acceptance_duplicate_and_independent_work_with_snapshot_retry():
     api, catalog, inbox = setup()
     first = api.post("/v1/source-events", headers=MACHINE, json={"envelope": envelope()})
@@ -58,6 +75,34 @@ def test_atomic_acceptance_duplicate_and_independent_work_with_snapshot_retry():
     assert succeeded.json()["status"] == "done"
     assert api.post("/v1/source-events", headers=MACHINE, json={"envelope": envelope("43")}).json()["work_keys"] == []
     assert api.get(f"/v1/source-events/{receipt['event_key']}", headers=MACHINE).status_code == 200
+
+
+def test_kelas_claim_order_is_source_message_order_and_later_work_waits_on_retry():
+    api = setup_kelas()
+    later = api.post("/v1/source-events", headers=MACHINE, json={"envelope": kelas_envelope("103")}).json()
+    earlier = api.post("/v1/source-events", headers=MACHINE, json={"envelope": kelas_envelope("101")}).json()
+
+    first = api.post("/v1/source-work/claim?limit=20", headers=MACHINE, json={"pipeline_ids": ["swing_support"]}).json()
+    assert len(first) == 1
+    assert first[0]["event_key"] == earlier["event_key"]
+    failed = api.post(
+        f"/v1/source-work/{first[0]['work_key']}/settle",
+        headers=MACHINE,
+        json={"lease_token": first[0]["lease_token"], "success": False, "error_code": "handler_failed"},
+    )
+    assert failed.status_code == 200
+    assert api.post("/v1/source-work/claim?limit=20", headers=MACHINE, json={"pipeline_ids": ["swing_support"]}).json() == []
+
+    # An audited terminal suppression for the earlier event unblocks the next
+    # source message without changing its publication identity.
+    suppressed = api.post(
+        f"/v1/source-work/{first[0]['work_key']}/suppress",
+        headers=ADMIN,
+        json={"reason": "synthetic ordering test"},
+    )
+    assert suppressed.status_code == 200
+    second = api.post("/v1/source-work/claim?limit=20", headers=MACHINE, json={"pipeline_ids": ["swing_support"]}).json()
+    assert [item["event_key"] for item in second] == [later["event_key"]]
 
 
 def test_lease_expiry_suppression_replay_and_authorization():

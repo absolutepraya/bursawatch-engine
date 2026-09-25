@@ -21,10 +21,14 @@ bounded media before event acceptance and returns opaque durable refs. The
 adapter never receives Storage credentials or stores signed/public media URLs.
 `lib-bursawatch-pipeline-runtime`
 claims only registered handler pipelines. The pilot registers the existing
-Phintraco Swing owner for plans and the existing Market News owner
-for deterministic Stock Information. Both retain their own state and route
-through the Discord Delivery Owner. Agent News and Kelas work remain pending
-in the inbox because they lack a bounded Hermes agent handoff. Telegram media
+Phintraco Swing owner for plans, Kelas Investasi for supporting setups, and
+Market News for Stock Information and Phintraco news. Each owner retains its
+own state and uses the Discord Delivery Owner. Market News and Kelas analysis
+use the existing owner lease and submission contracts. When both have ready
+agent work, the runner claims at most one oldest candidate, using a persisted
+round-robin tie break for equal publication times. Kelas inbox work is claimed
+in Telegram message order; a failed earlier message blocks later messages
+until it succeeds or an admin explicitly suppresses it. Telegram media
 blocks the endpoint before cursor advancement only when its type is unsupported,
 the media service is unavailable, or durable upload fails. A local
 `blocked-media.json` records only source identity and media type to diagnose a
@@ -36,7 +40,9 @@ Do not register or invoke this package against live Telegram, inbox, or
 Discord under the development plan. It cannot replace the current readers
 until media and agent paths have exact output parity, an approved state
 cutover, and separate scheduler approval. No production cursor should be
-bootstrapped by this pilot.
+bootstrapped by this pilot. The source owner must emit a heartbeat to #hermes
+on every future scheduled run, including no-hit runs, using the shared Discord
+Delivery Owner and the package contract's fixed heartbeat format.
 
 Run focused synthetic tests from the repository root with
 `../../.venv/bin/python -m pytest -q cron-tg-source-ingest/tests`.

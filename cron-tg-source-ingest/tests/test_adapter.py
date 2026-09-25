@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "lib-bursawatch-control" / "bin"))
 sys.path.insert(0, str(ROOT / "cron-tg-source-ingest" / "bin"))
 from adapter import IntakeBlocked, endpoints, ingest_endpoint
-from runner import PIPELINE_OWNERS, run_once
+from runner import AGENT_OWNERS, HEARTBEAT_CHANNEL_ID, PIPELINE_OWNERS, dispatch_agent, format_fatal, format_heartbeat, post_heartbeat, run_once
 
 
 NOW = datetime(2026, 9, 24, tzinfo=timezone.utc)
@@ -253,7 +253,7 @@ def test_board_and_synthetic_news_settle_independently(tmp_path, monkeypatch, fa
     inbox = WorkInbox()
     telegram = FakeTelegram([message(10)])
     snapshot = {"subscriptions": [{"platform": "telegram", "enabled": True, "endpoint_id": "telegram:phintraprofits", "capability_id": "trading_plans", "verification_status": "verified", "provider_id": "1444713822", "publisher_id": "phintraco", "address": "phintraprofits"}]}
-    assert "company_news" not in PIPELINE_OWNERS
+    assert PIPELINE_OWNERS["company_news"] == "cron-tg-market-news"
     asyncio.run(run_once(telegram, snapshot, tmp_path, inbox, NOW, handlers={"swing_plan": lambda item: None}))
     text = (ROOT / "cron-tg-phintraco-swing" / "tests" / "fixtures" / "trading_buy.txt").read_text()
     telegram.messages.append(message(11, text))
@@ -274,3 +274,158 @@ def test_board_and_synthetic_news_settle_independently(tmp_path, monkeypatch, fa
     assert board_events[0][0]["source_status"] == "New setup"
     assert board_events[0][2] is True
     assert len(inbox.accepted) == 1
+
+
+def test_agent_dispatch_claims_one_oldest_ready_owner(tmp_path):
+    calls = []
+    statuses = {
+        ("cron-tg-market-news", "agent-status"): {
+            "ready": True,
+            "event_key": "a" * 64,
+            "published_at": "2026-09-24T06:00:00+00:00",
+        },
+        ("cron-tg-kelas-investasi-gtw", "--agent-status"): {
+            "ready": True,
+            "pipeline_id": "swing_support",
+            "event_key": "event-kelas",
+            "published_at": "2026-09-24T07:00:00+00:00",
+        },
+    }
+
+    def owner_command(package, *arguments):
+        calls.append((package, arguments))
+        if arguments[0] in {"agent-status", "--agent-status"}:
+            return statuses[(package, arguments[0])]
+        assert (package, arguments) == ("cron-tg-market-news", ("claim-agent",))
+        return {"wakeAgent": True, "items": [{"candidate_key": "phintraco:42", "instruction": "trusted owner prompt"}]}
+
+    result = dispatch_agent(tmp_path, owner_command=owner_command)
+
+    assert result == {
+        "wakeAgent": True,
+        "agent_target": "market_news",
+        "items": [{"candidate_key": "phintraco:42", "instruction": "trusted owner prompt"}],
+    }
+    assert calls[-1] == ("cron-tg-market-news", ("claim-agent",))
+    assert json.loads((tmp_path / "agent-dispatch.json").read_text()) == {"version": 1, "last_owner": "market_news"}
+
+
+def test_agent_dispatch_rotates_equal_time_ties(tmp_path):
+    (tmp_path / "agent-dispatch.json").write_text(json.dumps({"version": 1, "last_owner": "market_news"}))
+    calls = []
+    timestamp = "2026-09-24T07:00:00+00:00"
+
+    def owner_command(package, *arguments):
+        calls.append((package, arguments))
+        if arguments[0] in {"agent-status", "--agent-status"}:
+            return {
+                "ready": True,
+                "pipeline_id": "swing_support" if package.startswith("cron-tg-kelas") else None,
+                "event_key": f"event:{package}",
+                "published_at": timestamp,
+            }
+        assert (package, arguments) == ("cron-tg-kelas-investasi-gtw", ("--claim-agent",))
+        return {"wakeAgent": True, "item": {"event_key": "event:kelas", "instruction": "trusted owner prompt"}}
+
+    result = dispatch_agent(tmp_path, owner_command=owner_command)
+
+    assert result["agent_target"] == "kelas_investasi"
+    assert "item" in result and "items" not in result
+    assert calls[-1] == ("cron-tg-kelas-investasi-gtw", ("--claim-agent",))
+    assert json.loads((tmp_path / "agent-dispatch.json").read_text())["last_owner"] == "kelas_investasi"
+
+
+def test_agent_dispatch_keeps_other_owner_available_when_one_status_fails(tmp_path):
+    def owner_command(package, *arguments):
+        if package == "cron-tg-market-news":
+            raise RuntimeError("private owner failure")
+        if arguments == ("--agent-status",):
+            return {"ready": True, "pipeline_id": "swing_support", "event_key": "kelas-1", "published_at": NOW.isoformat()}
+        return {"wakeAgent": True, "item": {"event_key": "kelas-1", "instruction": "trusted owner prompt"}}
+
+    result = dispatch_agent(tmp_path, owner_command=owner_command)
+
+    assert result["wakeAgent"] is True
+    assert result["agent_target"] == "kelas_investasi"
+    assert result["agent_dispatch_warning"] is True
+
+
+def test_agent_dispatch_does_not_claim_when_no_owner_is_ready(tmp_path):
+    calls = []
+
+    def owner_command(package, *arguments):
+        calls.append((package, arguments))
+        return {"ready": False}
+
+    assert dispatch_agent(tmp_path, owner_command=owner_command) == {"wakeAgent": False}
+    assert len(calls) == len(AGENT_OWNERS)
+
+
+def test_heartbeat_is_compact_sanitized_and_uses_shared_delivery_owner():
+    class FakeDelivery:
+        def __init__(self):
+            self.operation = None
+            self.waited = []
+
+        def status(self, key):
+            return None
+
+        def submit(self, operation):
+            self.operation = operation
+            return SimpleNamespace(key=operation.key, digest=operation.digest, status="pending")
+
+        def wait(self, key, timeout):
+            self.waited.append((key, timeout))
+            return SimpleNamespace(key=key, digest=self.operation.digest, status="delivered")
+
+    now = datetime(2026, 9, 24, 0, 15, tzinfo=timezone.utc)
+    result = {
+        "source": [{"endpoint_id": "telegram:phintraprofits", "accepted": 2}],
+        "work": [{"status": "done"}, {"status": "retry"}],
+        "wakeAgent": True,
+        "agent_target": "kelas_investasi",
+    }
+    client = FakeDelivery()
+    content = format_heartbeat(now, result)
+
+    post_heartbeat(content, now, delivery_client=client)
+
+    assert content == "🫀 bursawatch-tg-source-ingest · 07:15 WIB · endpoints=1 accepted=2 work=2 pending=1 agent=kelas_investasi ⚠️"
+    assert client.operation.kind == "channel_message_create"
+    assert client.operation.target == {"channel_id": HEARTBEAT_CHANNEL_ID}
+    assert client.operation.payload["content"] == content
+    assert client.operation.payload["allowed_mentions"] == {"parse": []}
+    assert client.waited == [(client.operation.key, 0)]
+    assert format_fatal(now) == "❌ bursawatch-tg-source-ingest · 07:15 WIB · failed: source processing failed"
+
+
+def test_heartbeat_warns_when_endpoint_is_blocked():
+    now = datetime(2026, 9, 24, 0, 15, tzinfo=timezone.utc)
+    result = {"source": [{"endpoint_id": "telegram:phintraprofits", "status": "blocked"}], "work": []}
+
+    assert format_heartbeat(now, result) == (
+        "🫀 bursawatch-tg-source-ingest · 07:15 WIB · "
+        "endpoints=1 accepted=0 work=0 pending=0 agent=none ⚠️"
+    )
+
+
+def test_heartbeat_counts_dead_letter_as_pending_attention():
+    now = datetime(2026, 9, 24, 0, 15, tzinfo=timezone.utc)
+    result = {"source": [], "work": [{"status": "dead_letter"}]}
+
+    assert format_heartbeat(now, result) == (
+        "🫀 bursawatch-tg-source-ingest · 07:15 WIB · "
+        "endpoints=0 accepted=0 work=1 pending=1 agent=none ⚠️"
+    )
+
+
+def test_runtime_skill_routes_only_to_the_two_fixed_analysis_owners():
+    package = ROOT / "cron-tg-source-ingest"
+    skill = (package / "SKILL.md").read_text()
+
+    assert (package / "AGENTS.md").is_file()
+    assert not (package / "CRON.md").exists()
+    assert "agent_target: market_news" in skill and "agent_target: kelas_investasi" in skill
+    assert 'bursawatch-tg-market-news.sh" submit-classification' in skill
+    assert 'bursawatch-tg-kelas-investasi-gtw.sh" --submit-analysis' in skill
+    assert "post to Discord directly" in skill

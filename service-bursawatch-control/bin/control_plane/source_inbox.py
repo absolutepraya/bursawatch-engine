@@ -67,6 +67,10 @@ def validate_envelope(value: object) -> dict[str, Any]:
     for key in ("endpoint_id", "publisher_id", "platform", "provider_event_id", "parser_version"):
         if type(value[key]) is not str or not _ID.fullmatch(value[key]):
             raise ValueError(f"invalid {key}")
+    if value["endpoint_id"] == "telegram:kelasinvestasiid" and (
+        value["platform"] != "telegram" or not value["provider_event_id"].isdecimal()
+    ):
+        raise ValueError("Kelas Telegram event identity must be a numeric message ID")
     if value["platform"] not in {"telegram", "x", "instagram", "whatsapp", "rss"}:
         raise ValueError("unsupported platform")
     if type(value["content_hash"]) is not str or not _HEX.fullmatch(value["content_hash"]):
@@ -158,6 +162,40 @@ def _subscriptions(catalog: dict[str, Any], registry: dict[str, Any], envelope: 
     return result
 
 
+def _claim_order_key(item: dict[str, Any], events: dict[str, dict[str, Any]]) -> tuple[Any, ...]:
+    event = events[item["event_key"]]
+    envelope = event["versions"][item["version"] - 1]["envelope"]
+    if item["pipeline_id"] == "swing_support" and envelope["endpoint_id"] == "telegram:kelasinvestasiid":
+        return (0, int(envelope["provider_event_id"]), item["available_at"], item["work_key"])
+    return (1, item["available_at"], item["work_key"])
+
+
+def _blocked_by_earlier_kelas_work(
+    item: dict[str, Any],
+    work_items: dict[str, dict[str, Any]],
+    events: dict[str, dict[str, Any]],
+) -> bool:
+    event = events[item["event_key"]]
+    envelope = event["versions"][item["version"] - 1]["envelope"]
+    if item["pipeline_id"] != "swing_support" or envelope["endpoint_id"] != "telegram:kelasinvestasiid":
+        return False
+    message_id = int(envelope["provider_event_id"])
+    for earlier in work_items.values():
+        if earlier["work_key"] == item["work_key"] or earlier["pipeline_id"] != "swing_support":
+            continue
+        if earlier["version"] != len(events[earlier["event_key"]]["versions"]):
+            continue
+        earlier_event = events[earlier["event_key"]]
+        earlier_envelope = earlier_event["versions"][earlier["version"] - 1]["envelope"]
+        if earlier_envelope["endpoint_id"] != envelope["endpoint_id"]:
+            continue
+        if int(earlier_envelope["provider_event_id"]) >= message_id:
+            continue
+        if earlier["status"] not in {"done", "suppressed", "superseded"}:
+            return True
+    return False
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -201,10 +239,16 @@ class MemoryInboxStore:
         result = []
         with self.lock:
             now = _now()
-            for item in self.work.values():
+            items = sorted(
+                self.work.values(),
+                key=lambda item: _claim_order_key(item, self.events),
+            )
+            for item in items:
                 if len(result) >= limit:
                     break
                 if item["pipeline_id"] not in pipelines or item["version"] != len(self.events[item["event_key"]]["versions"]) or item["status"] not in {"pending", "leased"} or (item["status"] == "pending" and datetime.fromisoformat(item["available_at"]) > now) or (item["status"] == "leased" and datetime.fromisoformat(item["lease_until"]) > now):
+                    continue
+                if _blocked_by_earlier_kelas_work(item, self.work, self.events):
                     continue
                 if item["attempts"] >= MAX_ATTEMPTS:
                     item.update(status="dead_letter", lease_token=None, lease_until=None, error_code="attempts_exhausted")
@@ -374,7 +418,52 @@ class PostgresInboxStore:
         if not 1 <= limit <= 100:
             raise ValueError("claim limit out of range")
         with self._connect() as conn:
-            rows = conn.execute("select w.work_key, w.attempts from bursawatch_source_work w join bursawatch_source_events e on e.event_key=w.event_key where w.pipeline_id = any(%s) and not exists (select 1 from bursawatch_source_event_versions newer where newer.event_key=w.event_key and newer.version>w.version) and ((w.status='pending' and w.available_at <= now()) or (w.status='leased' and w.lease_until <= now())) order by w.available_at, w.work_key for update of e,w skip locked limit %s", (list(pipelines), limit)).fetchall()
+            rows = conn.execute(
+                """
+                select w.work_key, w.attempts
+                from bursawatch_source_work w
+                join bursawatch_source_events e on e.event_key=w.event_key
+                where w.pipeline_id = any(%s)
+                  and not exists (
+                    select 1 from bursawatch_source_event_versions newer
+                    where newer.event_key=w.event_key and newer.version>w.version
+                  )
+                  and ((w.status='pending' and w.available_at <= now())
+                    or (w.status='leased' and w.lease_until <= now()))
+                  and not (
+                    w.pipeline_id='swing_support'
+                    and e.endpoint_id='telegram:kelasinvestasiid'
+                    and exists (
+                      select 1
+                      from bursawatch_source_work earlier
+                      join bursawatch_source_events earlier_event
+                        on earlier_event.event_key=earlier.event_key
+                      where earlier.pipeline_id='swing_support'
+                        and earlier_event.endpoint_id=e.endpoint_id
+                        and case
+                          when earlier_event.provider_event_id ~ '^[0-9]+$'
+                            and e.provider_event_id ~ '^[0-9]+$'
+                          then earlier_event.provider_event_id::numeric < e.provider_event_id::numeric
+                          else false
+                        end
+                        and earlier.status not in ('done','suppressed','superseded')
+                        and not exists (
+                          select 1 from bursawatch_source_event_versions newer_earlier
+                          where newer_earlier.event_key=earlier.event_key
+                            and newer_earlier.version>earlier.version
+                        )
+                    )
+                  )
+                order by
+                  case when e.endpoint_id='telegram:kelasinvestasiid'
+                    and e.provider_event_id ~ '^[0-9]+$'
+                    then e.provider_event_id::numeric end nulls last,
+                  w.available_at, w.work_key
+                for update of e,w skip locked
+                limit %s
+                """,
+                (list(pipelines), limit),
+            ).fetchall()
             result = []
             for row in rows:
                 wid = row["work_key"]

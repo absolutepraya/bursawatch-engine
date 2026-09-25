@@ -243,6 +243,11 @@ are terminal. No legacy cursor or watcher state is moved by this migration.
 Worker machine clients may claim work, settle a current lease, and inspect events or work.
 Claims require a nonempty list of supported pipeline IDs and use
 `FOR UPDATE SKIP LOCKED`, a 120-second lease, and at most five attempts.
+Kelas Telegram `swing_support` work is ordered by numeric source message ID.
+A later Kelas message cannot be claimed while an earlier current-version item
+is pending, leased, executing, or dead-lettered. This preserves bundle and
+cursor order through retry; an audited admin suppression or replay is required
+to clear a blocked predecessor.
 Failed attempts back off up to one hour and store only a sanitized error code. Human
 admins may explicitly suppress idle work or replay suppressed and dead-letter items
 with a bounded reason; both actions are audited. The stable `effect_key` must be used

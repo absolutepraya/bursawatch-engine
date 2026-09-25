@@ -6,12 +6,14 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-for local, installed in (("lib-bursawatch-control", "lib-bursawatch-control"), ("lib-bursawatch-pipeline-runtime", "lib-bursawatch-pipeline-runtime"), ("lib-bursawatch-source-media", "lib-bursawatch-source-media"), ("lib-telegram-resilience", "lib-telegram-resilience")):
+for local, installed in (("lib-bursawatch-control", "lib-bursawatch-control"), ("lib-bursawatch-pipeline-runtime", "lib-bursawatch-pipeline-runtime"), ("lib-bursawatch-source-media", "lib-bursawatch-source-media"), ("lib-bursawatch-discord-delivery", "lib-bursawatch-discord-delivery"), ("lib-telegram-resilience", "lib-telegram-resilience")):
     candidate = ROOT / local / "bin"
     if not candidate.exists():
         candidate = Path.home() / ".agents" / "skills" / installed / "bin"
@@ -22,11 +24,35 @@ from pipeline_runtime import PipelineRuntime
 from source_event_client import SourceEventClient
 from telegram_resilience import PolyCopResilience, acquire_probe_after_active_lease, is_transport_error
 from adapter import ingest_all
+from bursawatch_discord_delivery import DeliveryClient, OperationIntent
 
 WATCHER = "bursawatch-tg-source-ingest"
-# Agent News and Kelas require a bounded classifier/media handoff. They stay
-# visible as pending inbox work instead of being marked done by this pilot.
-PIPELINE_OWNERS = {"swing_plan": "cron-tg-phintraco-swing", "stock_status": "cron-tg-market-news"}
+HEARTBEAT_CHANNEL_ID = "1505162000420835388"
+DELIVERY_OWNER_URL = "http://127.0.0.1:9120"
+DELIVERY_CLIENT_TOKEN_FILE = ".hermes/secrets/bursawatch-discord-delivery-client-token"
+WIB = ZoneInfo("Asia/Jakarta")
+NON_TERMINAL_DELIVERY_STATUSES = frozenset({"pending", "pending_reconciliation", "retrying", "delivering"})
+PIPELINE_OWNERS = {
+    "swing_plan": "cron-tg-phintraco-swing",
+    "stock_status": "cron-tg-market-news",
+    "swing_support": "cron-tg-kelas-investasi-gtw",
+    "company_news": "cron-tg-market-news",
+    "macro_news": "cron-tg-market-news",
+}
+AGENT_OWNERS = {
+    "market_news": {
+        "package": "cron-tg-market-news",
+        "pipelines": None,
+        "status_args": ("agent-status",),
+        "claim_args": ("claim-agent",),
+    },
+    "kelas_investasi": {
+        "package": "cron-tg-kelas-investasi-gtw",
+        "pipelines": frozenset({"swing_support"}),
+        "status_args": ("--agent-status",),
+        "claim_args": ("--claim-agent",),
+    },
+}
 
 
 def _owner_path(package: str) -> Path:
@@ -56,11 +82,220 @@ def _owner_handler(package: str, *, no_post: bool):
     return handle
 
 
-async def run_once(telegram: Any, snapshot: dict[str, Any], state_root: Path, inbox: Any, now: datetime, *, handlers: dict[str, Any] | None = None, media_store: Any = None) -> dict[str, Any]:
-    source = await ingest_all(telegram, snapshot, state_root, inbox, now, media_store=media_store)
+def _owner_command(package: str, *arguments: str) -> dict[str, Any]:
+    path = _owner_path(package)
+    result = subprocess.run(
+        [sys.executable, str(path), *arguments],
+        text=True,
+        capture_output=True,
+        timeout=60,
+        env=os.environ.copy(),
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("agent owner command failed")
+    try:
+        value = json.loads(result.stdout.strip())
+    except ValueError as error:
+        raise RuntimeError("agent owner response is invalid") from error
+    if type(value) is not dict:
+        raise RuntimeError("agent owner response is invalid")
+    return value
+
+
+def _read_last_agent_owner(state_root: Path) -> str | None:
+    path = state_root / "agent-dispatch.json"
+    if not path.exists():
+        return None
+    try:
+        value = json.loads(path.read_text())
+    except (OSError, ValueError):
+        raise RuntimeError("agent dispatch state is unavailable") from None
+    if type(value) is not dict or set(value) != {"version", "last_owner"} or value["version"] != 1 or value["last_owner"] not in AGENT_OWNERS:
+        raise RuntimeError("agent dispatch state is invalid")
+    return value["last_owner"]
+
+
+def _write_last_agent_owner(state_root: Path, owner: str) -> None:
+    state_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path = state_root / "agent-dispatch.json"
+    descriptor, temporary = tempfile.mkstemp(prefix=".agent-dispatch-", dir=state_root)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w") as stream:
+            json.dump({"version": 1, "last_owner": owner}, stream, separators=(",", ":"))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        directory = os.open(state_root, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def _ready_agent_candidate(owner: str, status: dict[str, Any]) -> dict[str, Any] | None:
+    if type(status.get("ready")) is not bool:
+        raise RuntimeError("agent owner status is invalid")
+    if not status["ready"]:
+        return None
+    specification = AGENT_OWNERS[owner]
+    pipeline_id = status.get("pipeline_id")
+    event_key = status.get("event_key")
+    published_at = status.get("published_at")
+    supported_pipelines = specification["pipelines"]
+    if ((supported_pipelines is not None and pipeline_id not in supported_pipelines) or type(event_key) is not str
+            or not event_key or len(event_key) > 256 or type(published_at) is not str):
+        raise RuntimeError("agent owner status is invalid")
+    try:
+        timestamp = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise RuntimeError("agent owner timestamp is invalid") from error
+    if timestamp.tzinfo is None:
+        raise RuntimeError("agent owner timestamp is invalid")
+    return {
+        "owner": owner,
+        "pipeline_id": pipeline_id,
+        "event_key": event_key,
+        "published_at": timestamp.astimezone(timezone.utc),
+    }
+
+
+def _claimed_agent_payload(owner: str, claim: dict[str, Any]) -> dict[str, Any] | None:
+    if type(claim.get("wakeAgent")) is not bool:
+        raise RuntimeError("agent owner claim is invalid")
+    if not claim["wakeAgent"]:
+        return None
+    if owner == "market_news":
+        items = claim.get("items")
+        if type(items) is not list or len(items) != 1 or type(items[0]) is not dict:
+            raise RuntimeError("Market News wake payload is invalid")
+        return {"wakeAgent": True, "agent_target": owner, "items": items}
+    item = claim.get("item")
+    if type(item) is not dict:
+        raise RuntimeError("Kelas wake payload is invalid")
+    return {"wakeAgent": True, "agent_target": owner, "item": item}
+
+
+def dispatch_agent(state_root: Path, *, owner_command: Any = _owner_command) -> dict[str, Any]:
+    """Claim at most one oldest ready Hermes task across the Telegram owners."""
+    last_owner = _read_last_agent_owner(state_root)
+    owners = list(AGENT_OWNERS)
+    if last_owner in owners:
+        start = (owners.index(last_owner) + 1) % len(owners)
+        tie_order = owners[start:] + owners[:start]
+    else:
+        tie_order = owners
+    tie_rank = {owner: index for index, owner in enumerate(tie_order)}
+    candidates = []
+    unavailable = []
+    for owner, specification in AGENT_OWNERS.items():
+        try:
+            status = owner_command(specification["package"], *specification["status_args"])
+            candidate = _ready_agent_candidate(owner, status)
+        except Exception:
+            unavailable.append(owner)
+            continue
+        if candidate is not None:
+            candidate["tie_rank"] = tie_rank[owner]
+            candidates.append(candidate)
+    candidates.sort(key=lambda item: (item["published_at"], item["tie_rank"], item["owner"]))
+    for candidate in candidates:
+        owner = candidate["owner"]
+        specification = AGENT_OWNERS[owner]
+        try:
+            claim = owner_command(specification["package"], *specification["claim_args"])
+            payload = _claimed_agent_payload(owner, claim)
+        except Exception:
+            unavailable.append(owner)
+            continue
+        if payload is None:
+            continue
+        _write_last_agent_owner(state_root, owner)
+        if unavailable:
+            payload["agent_dispatch_warning"] = True
+        return payload
+    result = {"wakeAgent": False}
+    if unavailable:
+        result["agent_dispatch_warning"] = True
+    return result
+
+
+def _process_pending(inbox: Any, state_root: Path, *, handlers: dict[str, Any] | None = None, agent_dispatcher: Any = dispatch_agent) -> dict[str, Any]:
     selected = handlers if handlers is not None else {pipeline: _owner_handler(package, no_post=False) for pipeline, package in PIPELINE_OWNERS.items()}
     work = PipelineRuntime(inbox, selected).run_once(limit=20)
-    return {"source": source, "work": work}
+    agent = agent_dispatcher(state_root) if agent_dispatcher is not None else {"wakeAgent": False}
+    return {"work": work, **agent}
+
+
+def format_heartbeat(now: datetime, result: dict[str, Any]) -> str:
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("heartbeat time must be timezone-aware")
+    source = result.get("source", [])
+    work = result.get("work", [])
+    if type(source) is not list or type(work) is not list:
+        raise ValueError("heartbeat counters are invalid")
+    accepted = sum(item.get("accepted", 0) for item in source if type(item) is dict and type(item.get("accepted", 0)) is int)
+    endpoint_count = len({item.get("endpoint_id") for item in source if type(item) is dict and type(item.get("endpoint_id")) is str})
+    pending = sum(item.get("status") in {"retry", "settlement_unconfirmed", "begin_rejected", "unsupported_pipeline", "dead_letter"} for item in work if type(item) is dict)
+    target = result.get("agent_target", "none")
+    if target not in {"none", *AGENT_OWNERS}:
+        target = "invalid"
+    warning = bool(result.get("agent_dispatch_warning")) or pending > 0 or any(
+        type(item) is dict and item.get("status") in {"resilience_blocked", "auth_required", "blocked"}
+        for item in source
+    )
+    suffix = " ⚠️" if warning else ""
+    return (
+        f"🫀 {WATCHER} · {now.astimezone(WIB):%H:%M} WIB · "
+        f"endpoints={endpoint_count} accepted={accepted} work={len(work)} pending={pending} agent={target}{suffix}"
+    )
+
+
+def format_fatal(now: datetime) -> str:
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("heartbeat time must be timezone-aware")
+    return f"❌ {WATCHER} · {now.astimezone(WIB):%H:%M} WIB · failed: source processing failed"
+
+
+def post_heartbeat(content: str, now: datetime, *, delivery_client: Any = None) -> None:
+    if len(content) > 2000:
+        raise ValueError("heartbeat exceeds Discord message limit")
+    if delivery_client is None:
+        base_url = os.environ.get("BURSAWATCH_DISCORD_DELIVERY_URL", DELIVERY_OWNER_URL)
+        token_path = Path(os.environ.get(
+            "BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE",
+            str(Path.home() / DELIVERY_CLIENT_TOKEN_FILE),
+        )).expanduser()
+        delivery_client = DeliveryClient(base_url, token_path)
+    operation = OperationIntent(
+        key=f"{WATCHER}:heartbeat:{now.astimezone(timezone.utc):%Y%m%dT%H%M%S%f}",
+        kind="channel_message_create",
+        ordering_key=f"channel:{HEARTBEAT_CHANNEL_ID}",
+        target={"channel_id": HEARTBEAT_CHANNEL_ID},
+        payload={"content": content, "allowed_mentions": {"parse": []}},
+    )
+    receipt = delivery_client.status(operation.key)
+    if receipt is None:
+        receipt = delivery_client.submit(operation)
+    if receipt.key != operation.key or receipt.digest != operation.digest:
+        raise RuntimeError("heartbeat receipt is invalid")
+    if receipt.status in NON_TERMINAL_DELIVERY_STATUSES:
+        receipt = delivery_client.wait(operation.key, 0)
+    if receipt.key != operation.key or receipt.digest != operation.digest or receipt.status != "delivered":
+        raise RuntimeError("heartbeat delivery is incomplete")
+
+
+async def run_once(telegram: Any, snapshot: dict[str, Any], state_root: Path, inbox: Any, now: datetime, *, handlers: dict[str, Any] | None = None, media_store: Any = None, agent_dispatcher: Any = None) -> dict[str, Any]:
+    source = await ingest_all(telegram, snapshot, state_root, inbox, now, media_store=media_store)
+    dispatch = agent_dispatcher
+    if dispatch is None and handlers is None:
+        dispatch = dispatch_agent
+    pending = _process_pending(inbox, state_root, handlers=handlers, agent_dispatcher=dispatch)
+    return {"source": source, **pending}
 
 
 def _client() -> SourceEventClient:
@@ -94,13 +329,13 @@ async def _run_live() -> dict[str, Any]:
     resilience = PolyCopResilience.from_defaults()
     decision = await acquire_probe_after_active_lease(resilience, WATCHER, now)
     if decision.kind != "probe":
-        return {"source": [{"status": "resilience_blocked"}], "work": PipelineRuntime(inbox, {pipeline: _owner_handler(package, no_post=False) for pipeline, package in PIPELINE_OWNERS.items()}).run_once(limit=20)}
+        return {"source": [{"status": "resilience_blocked"}], **_process_pending(inbox, state_root)}
     telegram = _telegram_client()
     try:
         await telegram.connect()
         if not await telegram.is_user_authorized():
             resilience.record_auth_required(decision.lease_id, WATCHER, now)
-            return {"source": [{"status": "auth_required"}], "work": []}
+            return {"source": [{"status": "auth_required"}], **_process_pending(inbox, state_root)}
         resilience.record_authenticated_success(decision.lease_id, WATCHER, now, getattr(telegram.session, "dc_id", None), None)
         return await run_once(telegram, snapshot, state_root, inbox, now, media_store=_media_client())
     except Exception as error:
@@ -114,7 +349,16 @@ async def _run_live() -> dict[str, Any]:
 def main() -> int:
     if os.environ.get("BURSAWATCH_TG_SOURCE_NO_POST") == "1":
         raise RuntimeError("use injected synthetic clients for no-post validation")
-    result = asyncio.run(_run_live())
+    now = datetime.now(timezone.utc)
+    try:
+        result = asyncio.run(_run_live())
+    except Exception:
+        try:
+            post_heartbeat(format_fatal(now), now)
+        except Exception:
+            pass
+        raise RuntimeError("source processing failed") from None
+    post_heartbeat(format_heartbeat(now, result), now)
     print(json.dumps(result, separators=(",", ":"), ensure_ascii=False))
     return 0
 

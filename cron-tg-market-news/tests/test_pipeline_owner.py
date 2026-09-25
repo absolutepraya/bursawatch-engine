@@ -102,6 +102,38 @@ def test_phintraco_news_sibling_work_claims_one_frozen_agent_item_and_renders_go
     assert pipeline_owner.agent_status()["candidates"]["pending_analysis"] == 0
 
 
+def test_expired_news_agent_lease_is_visible_then_reclaimed_after_backoff(tmp_path, monkeypatch):
+    state_path = tmp_path / "news.json"
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(state_path))
+    monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
+    work, inspection = _news_work("company_news")
+    assert pipeline_owner.submit(work, no_post=True, inbox=_Inbox(inspection)) == "accepted"
+
+    now = datetime.now(scan.WIB) + timedelta(seconds=1)
+    first = pipeline_owner.claim_agent(now)
+    assert first["wakeAgent"] is True
+    candidate_key = first["items"][0]["candidate_key"]
+    lease_end = datetime.fromisoformat(load_state()["candidates"][candidate_key]["agent_lease_until"])
+    assert pipeline_owner.agent_status(lease_end - timedelta(microseconds=1))["ready"] is False
+
+    before = state_path.read_bytes()
+    expired = pipeline_owner.agent_status(lease_end)
+    assert expired["ready"] is True
+    assert expired["event_key"] == work["event_key"]
+    assert state_path.read_bytes() == before
+
+    assert pipeline_owner.claim_agent(lease_end) == {"wakeAgent": False, "items": []}
+    pending = load_state()["candidates"][candidate_key]
+    assert pending["phase"] == "pending_analysis"
+    assert pending["retry"]["attempts"] == 1
+    retry_at = datetime.fromisoformat(pending["retry"]["next_attempt_at"])
+    assert pipeline_owner.agent_status(retry_at - timedelta(microseconds=1))["ready"] is False
+    assert pipeline_owner.agent_status(retry_at)["ready"] is True
+    reclaimed = pipeline_owner.claim_agent(retry_at)
+    assert reclaimed["wakeAgent"] is True
+    assert reclaimed["items"][0]["candidate_key"] == candidate_key
+
+
 def test_company_only_subscription_suppresses_a_macro_route(tmp_path, monkeypatch):
     monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_path / "news.json"))
     monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")

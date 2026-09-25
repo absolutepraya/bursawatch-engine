@@ -173,7 +173,13 @@ def agent_status(now: datetime | None = None) -> dict[str, Any]:
             phases[phase] += 1
         retry = record["retry"]
         due = retry["next_attempt_at"]
-        if phase == "pending_analysis" and (due is None or datetime.fromisoformat(due) <= now):
+        pending_due = phase == "pending_analysis" and (due is None or datetime.fromisoformat(due) <= now)
+        lease_until = record["agent_lease_until"]
+        lease_expired = (
+            phase == "awaiting_agent" and isinstance(lease_until, str)
+            and datetime.fromisoformat(lease_until) <= now
+        )
+        if pending_due or lease_expired:
             origin = provenance(state, key)
             assert origin is not None
             ready.append((record["enqueued_at"], key, origin["event_key"]))

@@ -8,16 +8,17 @@ NO_AGENT_CRONS = {
     "cron-dc-swing-board", "cron-tg-phintraco-swing",
 }
 UNSCHEDULED_NO_AGENT_CRONS = {
-    "cron-tg-source-ingest", "cron-x-source-ingest",
+    "cron-x-source-ingest",
     "cron-ig-source-ingest", "cron-wa-source-ingest",
     "cron-rss-source-ingest",
 }
+UNSCHEDULED_AGENT_BACKED_CRONS = {"cron-tg-source-ingest"}
 AGENT_BACKED_CRONS = {
     "cron-tg-market-news", "cron-tg-kelas-investasi-gtw",
     "cron-ig-account-watch", "cron-wa-channel-watch", "cron-x-account-watch",
     "cron-stockbit-snips",
 }
-ALL_CRONS = NO_AGENT_CRONS | UNSCHEDULED_NO_AGENT_CRONS | AGENT_BACKED_CRONS
+ALL_CRONS = NO_AGENT_CRONS | UNSCHEDULED_NO_AGENT_CRONS | UNSCHEDULED_AGENT_BACKED_CRONS | AGENT_BACKED_CRONS
 REDUNDANT_ROOT_DOCS = {
     "README.md", "SPEC.md", "DEPLOY.md", "DESIGN.md", "PLAN.md",
     "PROFILE_CONFIGURATION.md", "CRON_PROMPT.md",
