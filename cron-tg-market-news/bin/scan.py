@@ -37,6 +37,7 @@ from domain import (
     SourceMessage,
     source_message_url,
 )
+from news_source_work import candidate_keys as source_work_candidate_keys, loaded_config_for, route_enabled
 from selection import (
     SelectionCandidate,
     assign_tier,
@@ -662,6 +663,9 @@ def _update_is_ready(state: Mapping[str, object], source_message_id: int) -> boo
 
 
 def _route_one(state: dict[str, object], item: SelectionCandidate, classified: Sequence[SelectionCandidate]) -> None:
+    if not route_enabled(state, item.key, item.route):
+        mark_terminal(state, item.key, "suppressed_ineligible")
+        return
     earlier = [
         existing
         for existing in classified
@@ -781,17 +785,19 @@ async def _drain_delivery(
         Provider.TUNTUN: runtime.tuntun_entity,
     }
     for item in _pending_delivery(state, now):
-        channel_id = _delivery_channel(item)
-        did_deliver = await deliver_event(
-            state,
-            item,
-            channel_id,
-            now,
-            dry_run=dry_run,
-            client=None if runtime is None else runtime.client,
-            delivery_client=delivery_client,
-            entity=entities.get(item.provider),
-        )
+        frozen = loaded_config_for(state, item.key)
+        with config.activate_watch_config(frozen.config if frozen is not None else config.active_watch_config()):
+            channel_id = _delivery_channel(item)
+            did_deliver = await deliver_event(
+                state,
+                item,
+                channel_id,
+                now,
+                dry_run=dry_run,
+                client=None if runtime is None else runtime.client,
+                delivery_client=delivery_client,
+                entity=entities.get(item.provider),
+            )
         if did_deliver:
             delivered += 1
     return delivered
@@ -1101,8 +1107,9 @@ async def _run_loaded_config(
             )
             # Lease expiry must happen immediately before this sole claim, so an
             # expired lease cannot incorrectly hide the deterministic oldest candidate.
-            expire_agent_leases(state, now)
-            candidate = claim_oldest_pending_analysis(state, now)
+            legacy_keys = set(state["candidates"]) - source_work_candidate_keys(state)
+            expire_agent_leases(state, now, candidate_keys=legacy_keys)
+            candidate = claim_oldest_pending_analysis(state, now, candidate_keys=legacy_keys)
             result: dict[str, object] = {
                 "providers": {
                     Provider.PHINTRACO.value: _provider_result(state, Provider.PHINTRACO),
@@ -1211,7 +1218,11 @@ async def submit_classification_payload(
     now = _require_aware(now or datetime.now(WIB))
     if not isinstance(payload, Mapping):
         raise ValueError("submission must be a JSON object")
-    loaded_config = config.load_watch_config_for_run()
+    with run_lock():
+        state = load_state()
+        candidate_key = payload.get("candidate_key")
+        frozen = loaded_config_for(state, candidate_key) if isinstance(candidate_key, str) else None
+    loaded_config = frozen if frozen is not None else config.load_watch_config_for_run()
     with config.activate_watch_config(loaded_config.config):
         return await _submit_classification_payload_loaded(payload, now, clients, loaded_config)
 

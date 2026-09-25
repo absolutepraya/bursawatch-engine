@@ -552,7 +552,7 @@ def empty_state() -> dict[str, object]:
     }
 
 
-def load_state(path: str | os.PathLike[str] | None = None) -> dict[str, object]:
+def load_state(path: str | os.PathLike[str] | None = None, *, migrate: bool = True) -> dict[str, object]:
     state_path = _state_path(path)
     try:
         status = state_path.lstat()
@@ -575,7 +575,7 @@ def load_state(path: str | os.PathLike[str] | None = None) -> dict[str, object]:
     except (json.JSONDecodeError, ValueError) as error:
         raise StateBlockedError("malformed state: JSON cannot be decoded") from error
     _validate_state(loaded)
-    if _migrate_legacy_provider_lanes(loaded) or _migrate_legacy_candidate_records(loaded):
+    if migrate and (_migrate_legacy_provider_lanes(loaded) or _migrate_legacy_candidate_records(loaded)):
         save_state(loaded, state_path)
     return loaded
 
@@ -882,7 +882,9 @@ def enqueue_candidate(state: dict[str, object], candidate: CompanyCandidate, now
     return True
 
 
-def claim_oldest_pending_analysis(state: dict[str, object], now: datetime) -> CompanyCandidate | None:
+def claim_oldest_pending_analysis(
+    state: dict[str, object], now: datetime, *, candidate_keys: set[str] | None = None
+) -> CompanyCandidate | None:
     _validate_state(state)
     _require_aware_timestamp(now, "now")
     candidates = state["candidates"]
@@ -890,7 +892,7 @@ def claim_oldest_pending_analysis(state: dict[str, object], now: datetime) -> Co
     due_candidates: list[tuple[datetime, str, dict[str, object]]] = []
     for key, record in candidates.items():
         assert isinstance(key, str) and isinstance(record, dict)
-        if record["phase"] == _PENDING_ANALYSIS and _retry_due_at(record, now):
+        if (candidate_keys is None or key in candidate_keys) and record["phase"] == _PENDING_ANALYSIS and _retry_due_at(record, now):
             due_candidates.append((_parse_timestamp(record["enqueued_at"], f"candidates.{key}.enqueued_at"), key, record))
     if not due_candidates:
         return None
@@ -924,7 +926,9 @@ def _schedule_retry(
     return RetryState(candidate_key=key, attempt=next_attempt)
 
 
-def expire_agent_leases(state: dict[str, object], now: datetime) -> list[CompanyCandidate]:
+def expire_agent_leases(
+    state: dict[str, object], now: datetime, *, candidate_keys: set[str] | None = None
+) -> list[CompanyCandidate]:
     _validate_state(state)
     _require_aware_timestamp(now, "now")
     candidates = state["candidates"]
@@ -932,7 +936,7 @@ def expire_agent_leases(state: dict[str, object], now: datetime) -> list[Company
     expired: list[CompanyCandidate] = []
     for key, record in candidates.items():
         assert isinstance(key, str) and isinstance(record, dict)
-        if record["phase"] != _AWAITING_AGENT:
+        if (candidate_keys is not None and key not in candidate_keys) or record["phase"] != _AWAITING_AGENT:
             continue
         lease_until = _parse_timestamp(record["agent_lease_until"], f"candidates.{key}.agent_lease_until")
         if lease_until > now:
