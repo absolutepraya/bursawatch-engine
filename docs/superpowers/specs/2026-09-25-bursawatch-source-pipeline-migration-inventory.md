@@ -112,6 +112,65 @@ The distinct local loopback port map is Control Plane `9120`, Source Media `9130
 - Inspect the permissive X state and Swing Board database modes and approve any permission correction as a separate scoped production operation.
 - Provision and validate private Supabase Storage, Source Media, and Discord Delivery Owner only after separate production approval. This inspection did not query Storage or Discord and does not claim the object references exist.
 
+### Source cursor migration readiness
+
+The platform adapters do not import legacy cursor state. Their empty cursor
+behavior intentionally records the provider's current newest position and
+accepts no source event on that first run. Scheduling an adapter without a
+reviewed cursor seed after pausing the legacy reader can therefore skip posts
+published between the inventory boundary and first adapter run. The shared
+source ingest module and Telegram adapter both need an exact legacy-boundary
+import before they can replace a live reader.
+
+| Platform / source | Legacy boundary | New adapter boundary | Cutover readiness |
+|---|---|---|---|
+| Telegram Phintraco | Observed Telegram message ID, with blocked state retained separately | Integer message cursor | Cursor is directly mappable, but no import command or source-event crosswalk exists. The local outbox was empty in the snapshot. |
+| Telegram Market News / Tuntun | Per-provider observed message IDs plus candidates, digest windows, dedupe state, and agent leases | Telegram adapter currently includes Phintraco only; Tuntun remains on the legacy reader | Not ready. Tuntun has no new adapter binding. Legacy candidate delivery outcomes lack a per-row delivery timestamp and need source/receipt reconciliation. |
+| Telegram Kelas | Integer message cursor plus pending bundle and domain outbox | Integer message cursor with a Kelas bootstrap identity | Cursor is directly mappable, but there is no seed/import operation. Preserve pending media and bundles if a new snapshot finds any. |
+| X | Per-profile post ID cursor, delivery rows, cleanup and supersession state | Shared per-endpoint cursor anchored to provider post ID | Not ready. No profile-to-endpoint cursor import or historical inbox/receipt crosswalk exists. The captured X file mode `0644` needs separate review. |
+| Instagram | Per-profile publication ID and timestamp, delivery rows, cleanup state | Shared per-endpoint anchor/high-water cursor | Not ready. No cursor translation or legacy-media to Source Media reference mapping exists. Its existing Hermes job was paused in the observed registry. |
+| WhatsApp / BRI | Per-profile `(published_at, event_key)` cursor, outbox phases, archive and media evidence | Queue-file arrival position `(mtime_ns, filename)` | Not ready. The two cursor orders are not equivalent. The captured outbox has rows with incomplete phase metadata, and the event/archive/media/receipt crosswalk is unresolved. |
+| Stockbit | Per-lane `(published_at, guid)` cursor, ETag/Last-Modified validators, article queue and frozen live config | Per-feed source position based on provider event identity | Not ready. No cursor or validator import exists; the new adapter blocks conditional 304 responses and media-bearing items. Preserve the current live four-lane config. |
+| Swing Board | Canonical SQLite episode/source history and local media, plus legacy Discord receipts | Board remains the domain owner; outgoing operations move to the shared Delivery Owner | Not ready. Snapshot outbox rows are complete, but old receipts are not in the Delivery Owner ledger and media paths do not prove Discord attachment or Source Media references. |
+
+The new eight-owner synthetic handoff rehearsal proves only the Delivery Owner
+operation transfer. It does not prove legacy cursor import, Control Plane
+inbox/work migration, or source-event identity mapping. No platform is ready
+for source-state cutover from this rehearsal alone. Keep each current reader
+active until its cursor import, pending work, and receipts have a package-owned
+synthetic migration test and a reviewed snapshot crosswalk.
+
+### Candidate coordinated snapshot pause set
+
+The point-in-time Hermes registry observation at 2026-09-25T08:14Z showed the
+following relevant writers and Board reconcilers active. These IDs are a
+preflight candidate list only; query the live registry again before applying
+any pause. The temporary operation changes only enabled state to paused, then
+restores the previously active jobs immediately after the coordinated archive
+and integrity checks. It does not change job cadence, command, destination, or
+unrelated Hermes jobs.
+
+| Job | Hermes ID | Observed state | Snapshot action |
+|---|---:|---|---|
+| Phintraco Swing | `2b5c0a128652` | active | temporarily pause, then resume |
+| Market News | `6a0b4f895b07` | active | temporarily pause, then resume |
+| Market News watchdog | `d34dc79771b0` | active | temporarily pause, then resume |
+| Kelas Investasi GTW | `c5844b3c21a0` | active | temporarily pause, then resume |
+| X account watch | `bc519bd9abc0` | active | temporarily pause, then resume |
+| X account queue | `ca1839ba1dcf` | active | temporarily pause, then resume |
+| WhatsApp channel watch | `b0e11d17b784` | active | temporarily pause, then resume |
+| Stockbit Snips | `0c6b17e4c944` | active | temporarily pause, then resume |
+| Swing Board close reconcile | `5c0b79e08fae` | active | temporarily pause, then resume |
+| Swing Board retry reconcile | `71c4f9a32acd` | active | temporarily pause, then resume |
+
+Instagram (`c2869d60502b`) was already paused in that registry observation and
+must stay paused unless the user separately asks to resume it. Before pausing,
+verify these states again, wait for any in-flight run to finish, and confirm
+all selected jobs are paused before copying state. If a precondition fails,
+restore the observed enabled state and stop. A coordinated pause and archive
+is a production schedule write and requires an exact current-session approval
+under the repository operations policy.
+
 ### Approved private baseline capture
 
 - Captured on 2026-09-25 under `~/backup/hermes/runtime-cutovers/2026-09-25/`, with manifest `inventory-20260925-115808.json`.
