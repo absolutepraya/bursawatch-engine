@@ -16,7 +16,7 @@ from adapter import endpoints, plan_legacy_cursor_seed, run_once
 from runner import process_pending
 
 sys.path.insert(0, str(ROOT / "cron-x-account-watch" / "bin"))
-from config import load_watch_config
+from config import REVIEWED_PUBLISHERS, load_watch_config
 from models import PostKind, SourceMedia, SourcePost
 import pipeline_owner
 import state
@@ -106,6 +106,38 @@ def test_x_legacy_seed_proves_numeric_boundary_even_when_anchor_left_page(tmp_pa
     assert [event["provider_event_id"] for event in inbox.events] == ["11"]
     cursor = json.loads((state_root / endpoint_id.replace(":", "-") / "cursor.json").read_text())
     assert cursor["legacy_seed"]["legacy_state_sha256"] == plan["legacy_state_sha256"]
+
+
+@pytest.mark.parametrize("profile_id", ["rickyho1989", "insidertracker"])
+def test_x_legacy_seed_uses_stable_profile_id_when_handle_differs(tmp_path, profile_id):
+    profile = replace(
+        next(item for item in load_watch_config(ROOT / "cron-x-account-watch" / "config" / "watches.json").profiles if item.id == profile_id),
+        enabled=True,
+    )
+    endpoint_id = f"x:{profile.handle.casefold()}"
+    publisher_id = REVIEWED_PUBLISHERS[profile.id]
+    endpoint = {
+        "platform": "x",
+        "endpoint_id": endpoint_id,
+        "publisher_id": publisher_id,
+        "address": profile.handle,
+        "provider_id": None,
+        "catalog_revision": 3,
+    }
+    row = {
+        **{key: value for key, value in endpoint.items() if key != "catalog_revision"},
+        "capability_id": "company_news",
+        "verification_status": "verified",
+        "enabled": True,
+    }
+    selected, _ = endpoints({"revision": 3, "subscriptions": [row]}, (profile,))
+    assert endpoint_id in selected
+
+    legacy_path = tmp_path / profile.id / "legacy.json"
+    legacy_path.parent.mkdir()
+    legacy_path.write_text(json.dumps({"profiles": {profile.id: {"cursor": "10"}}, "outbox": [], "deliveries": []}))
+    preview = plan_legacy_cursor_seed(legacy_path, tmp_path / profile.id / "new", endpoint, profile, 3)
+    assert preview["status"] == "preview"
 
 
 def test_x_rejects_unverified_catalog(tmp_path):

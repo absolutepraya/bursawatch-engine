@@ -86,8 +86,10 @@ def _news_siblings(work: dict[str, Any], inbox: Any) -> dict[str, str]:
             or row.get("pipeline_id") != capability or row.get("settings") != {}
             or row.get("catalog_revision") != work.get("catalog_revision")):
             raise ValueError("News sibling work identity is invalid")
-        if row.get("status") not in {"suppressed", "dead_letter", "superseded"}:
-            keys[capability] = expected
+        # The sibling rows capture the capabilities enabled when the event was
+        # accepted. Execution status must not change route eligibility or the
+        # stable provenance recorded when another sibling is replayed.
+        keys[capability] = expected
         if expected == work["work_key"]:
             active = row.get("status") == "executing" and row.get("lease_token") == work.get("lease_token")
     if not active or work["capability_id"] not in keys:

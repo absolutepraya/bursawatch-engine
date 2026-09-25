@@ -34,7 +34,7 @@ ALLOWED = {"company_news", "macro_news"}
 def plan_legacy_cursor_seed(legacy_state_path: Path, state_root: Path, endpoint: dict[str, Any], profile: Any, catalog_revision: int, *, apply: bool = False, expected_plan: dict[str, Any] | None = None) -> dict[str, Any]:
     """Map one legacy X profile ID cursor to its canonical source endpoint."""
     endpoint_id = f"x:{profile.handle.casefold()}"
-    publisher_id = REVIEWED_PUBLISHERS.get(profile.handle.casefold())
+    publisher_id = REVIEWED_PUBLISHERS.get(profile.id)
     expected = ("x", endpoint_id, publisher_id, profile.handle, None)
     observed = tuple(endpoint.get(key) for key in ("platform", "endpoint_id", "publisher_id", "address", "provider_id"))
     if observed != expected or endpoint.get("catalog_revision") != catalog_revision:

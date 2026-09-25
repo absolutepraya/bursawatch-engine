@@ -102,6 +102,41 @@ def test_phintraco_news_sibling_work_claims_one_frozen_agent_item_and_renders_go
     assert pipeline_owner.agent_status()["candidates"]["pending_analysis"] == 0
 
 
+def test_dead_lettered_news_sibling_keeps_enabled_route_and_stable_replay_provenance(tmp_path, monkeypatch):
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_path / "news.json"))
+    monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
+    company, first_inspection = _news_work("company_news")
+    macro_row = next(row for row in first_inspection["work"] if row["capability_id"] == "macro_news")
+    macro_row["status"] = "dead_letter"
+
+    assert pipeline_owner.submit(company, no_post=True, inbox=_Inbox(first_inspection)) == "accepted"
+    candidate_key = "phintraco:35390:DEWA"
+    initial_state = load_state()
+    initial_origin = initial_state["stats"]["news_source_work"][candidate_key]
+    assert initial_origin["enabled_capabilities"] == ["company_news", "macro_news"]
+    assert scan.route_enabled(initial_state, candidate_key, scan.Destination.MACRO_NEWS)
+
+    replay_inspection = {"event": first_inspection["event"], "work": []}
+    for row in first_inspection["work"]:
+        replayed = dict(row)
+        if replayed["capability_id"] == "company_news":
+            replayed.update(status="done", lease_token=None)
+        else:
+            replayed.update(status="executing", lease_token="lease-replay")
+        replay_inspection["work"].append(replayed)
+    macro_work = {
+        **next(row for row in replay_inspection["work"] if row["capability_id"] == "macro_news"),
+        "event_kind": "original",
+        "envelope": company["envelope"],
+    }
+    assert pipeline_owner.submit(macro_work, no_post=True, inbox=_Inbox(replay_inspection)) == "accepted"
+
+    replayed_state = load_state()
+    replayed_origin = replayed_state["stats"]["news_source_work"][candidate_key]
+    assert replayed_origin["work_keys"] == initial_origin["work_keys"]
+    assert replayed_origin["enabled_capabilities"] == initial_origin["enabled_capabilities"]
+
+
 def test_expired_news_agent_lease_is_visible_then_reclaimed_after_backoff(tmp_path, monkeypatch):
     state_path = tmp_path / "news.json"
     monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(state_path))
