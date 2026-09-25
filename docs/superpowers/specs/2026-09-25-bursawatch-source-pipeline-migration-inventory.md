@@ -63,6 +63,8 @@ Keep payload-bearing snapshots and source media on the VPS in the approved priva
 6. Exercise rollback using the synthetic pre-cutover snapshot. Restore the old reader's cursor and pending queue without deleting accepted events or receipts, then prove repeated handoff cannot duplicate a domain effect.
 7. Run each package's `delivery_handoff.py` fixture suite and `bash scripts/test-all`. These local results prove code behavior only, not production inventory or cutover readiness.
 
+The repository also includes `service-bursawatch-control/tests/test_migration_rehearsal.py`. It uses the real shared source cursor writer, source handoff spool, in-memory Control Plane inbox, leased `PipelineRuntime`, and SQLite Delivery Owner. Its synthetic rollback restores the legacy reader snapshot while retaining accepted inbox work and Delivery Owner records, then verifies duplicate source delivery creates no new pipeline work and preserves both a delivered receipt and an ambiguous operation. This fixture is a contract rehearsal, not a Postgres migration test or proof that any live package-specific state has been mapped.
+
 The existing package handoff plans are useful inputs, but they cover Discord delivery state, not the whole source/event/pipeline inventory. Any mismatch, missing cursor boundary, unreadable state, checksum change, unknown delivery outcome, or missing media bytes blocks that endpoint's cutover. Do not initialize a new source cursor from zero or replay historical provider content to repair an incomplete inventory.
 
 ## Separate operational approval gate
