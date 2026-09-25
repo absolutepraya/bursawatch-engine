@@ -67,15 +67,15 @@ Current readers and Board reconciler jobs remain the production owners. The exac
 | Market News | `idx-market-news.json`, mode `0600`, 1,500,376 bytes; 635 candidates, 36 dedupe entries, 6 digest windows, and 2 provider cursors. |
 | Kelas Investasi GTW | `kelas-investasi-gtw-watch.json`, mode `0600`, 80 bytes; cursor present, empty local outbox and pending queue. |
 | Stockbit Snips | `stockbit-snips.json`, mode `0600`, 16,286 bytes; 4 feed states and 3 article records, all 3 currently marked delivered. |
-| WhatsApp channel watch | `state.json`, mode `0600`, 194,735 bytes; 90 durable outbox records: 35 delivered, 42 filtered, 11 pending, and 2 ready. Preserve these records and their ordering; do not replay or rebuild them from the queue. |
+| WhatsApp channel watch | At the original live read, `state.json` was mode `0600`, 194,735 bytes, with 90 durable outbox records: 35 delivered, 42 filtered, 11 pending, and 2 ready. The later snapshot's state has 93 rows, including 3 additional filtered rows. Preserve the captured records and ordering; do not replay or rebuild them from the queue. |
 
 ### Swing Board state
 
 The live Board database is `~/.hermes/state/idx-swing-board.sqlite3`, mode `0644`, 811,008 bytes. It contains 69 episodes (22 `primary`, 9 `source`, 38 `resolved`), 61 plan rows, 106 source events, 10 history events, 119 close checkpoints, 119 close attempts, and 531 Board outbox operations, all marked complete. All 69 episodes have a thread ID and starter-message ID; all 10 history rows have Discord message IDs. No unprocessed source event was found. The current Board client uses one code-owned forum ID; the episode rows do not store a forum ID or a per-ticker route assignment.
 
-**Cutover blocker:** the database has one ticker with two open episodes, both `primary`; the maximum is two open episodes for one ticker. The ticker and Discord IDs are intentionally omitted here. This conflicts with the agreed invariant of at most one open episode per ticker. Do not merge, close, supersede, or recreate either episode automatically. A separately reviewed reconciliation must identify the canonical episode and preserve both histories before that ticker can cut over.
+**Unresolved Board status discrepancy:** the live aggregate read at `2026-09-25T04:26:37Z` reported one ticker with two open `primary` episodes. The later private snapshot captured at `2026-09-25T04:58:08Z` contains one ticker group with two `primary` episodes, but one row is open and the other has `closed_at=2026-09-23T00:35:53Z`, which predates the live read. The sanitized earlier observation does not retain ticker identity, so this audit cannot prove whether both observations refer to the same group. Do not merge, close, supersede, or recreate either episode. The at-most-one-open invariant remains unverified until an approved read-only reconciliation against the canonical live database; preserve both source histories.
 
-One hundred Board source events reference media; 91 retain a legacy local media path. The Board media directory contains 105 files totaling 14,309,875 bytes. The separate Source Media Owner and Discord Delivery Owner are not installed on the VPS, so these local bytes and the existing Board receipts have not been reconciled to durable object references or a Delivery Owner ledger. Do not delete or relocate the legacy files as part of this inventory.
+One hundred Board source events reference media; 91 retain a legacy local media path. The Board media directory contains 105 files totaling 14,309,875 bytes. The private snapshot maps all 91 local path references by basename to 91 unique copied files, with no basename collisions. This proves a path-to-file-name mapping inside the captured copy, not a durable Source Media object reference or a Discord attachment receipt. The Source Media Owner and Discord Delivery Owner are not installed on the VPS. Do not delete or relocate the legacy files as part of this inventory.
 
 ### Runtime owner and Discord transport status
 
@@ -87,9 +87,9 @@ The distinct local loopback port map is Control Plane `9120`, Source Media `9130
 
 - The approved private baseline capture below is complete and verified. It is not a coordinated cutover snapshot because source writers remained active during capture. A new snapshot after an approved writer/watchdog pause is still required before any state migration.
 - From that coordinated snapshot, record exact per-endpoint cursor boundaries, pending payload digests, source and event crosswalks, and `#hermes` health evidence without adding payloads to Git.
-- Reconcile the Board's duplicate open Primary episode before any Swing source migration.
+- Resolve the mismatch between the earlier live Board aggregate and the later snapshot's recorded episode statuses before any Swing source migration.
 - Verify each Discord completion against exact channel/thread/message receipts and the source event or operation key. The legacy SQLite Board outbox is complete, but a separate Delivery Owner receipt ledger is absent.
-- Verify WhatsApp's 42 filtered, 11 pending, and 2 ready records against its immutable source/archive records and output receipts.
+- Verify the snapshot's 45 filtered, 11 pending, and 2 ready WhatsApp records against immutable source/archive records and output receipts; 42 filtered was the earlier live-read count.
 - Inspect the permissive X state and Swing Board database modes and approve any permission correction as a separate scoped production operation.
 - Provision and validate private Supabase Storage, Source Media, and Discord Delivery Owner only after separate production approval. This inspection did not query Storage or Discord and does not claim the object references exist.
 
@@ -99,7 +99,25 @@ The distinct local loopback port map is Control Plane `9120`, Source Media `9130
 - The manifest SHA-256 is `7836ecc803472b5fae474f8e039a20fe38fd3cc5fe2a77830e45faf9aa2126bd`. It records 9 runtime identities, 13 artifact entries, and 32,587,648 artifact bytes. The snapshot contains 678 files.
 - Verification passed for every listed file hash and size, each directory inventory and tree hash, destination containment, absence of symlinks and partial paths, and exact manifest-to-filesystem membership. Files are mode `0600`; directories are mode `0700`. The Swing Board SQLite copy passed `PRAGMA integrity_check`, and its table counts matched the manifest.
 - Retain this private archive through 2026-10-25. The copied state and media remain on the VPS and are not Git artifacts. The Control Plane Postgres database, credentials, and runtime logs were not exported.
-- The SQLite database used its online backup API. Other owners were captured individually while their jobs remained active, so this is a durable baseline, not a fleet-wide consistent point-in-time cutover image. No live state or schedule was changed. The duplicate open Primary episodes remain unreconciled and continue to block Swing cutover.
+- The SQLite database used its online backup API. Other owners were captured individually while their jobs remained active, so this is a durable baseline, not a fleet-wide consistent point-in-time cutover image. No live state or schedule was changed. The Board status discrepancy remains unresolved and blocks Swing cutover.
+
+### Snapshot reconciliation packet
+
+This is a read-only analysis of the captured copy at `2026-09-25T04:58:08Z`. No live files, Discord, provider APIs, or Control Plane Postgres were read for this follow-up. Counts below describe the snapshot only, not current production state.
+
+| Owner | Captured state evidence | Remaining mapping gap |
+|---|---|---|
+| Phintraco Swing | Blocked state and observed-message cursor are present; outbox is empty. Poll, delivery, and heartbeat fields are retained. | Preserve the blocked state and cursor independently. No queued rows provide another handoff boundary. |
+| Market News | 635 candidate records: 551 delivered, 36 duplicate-suppressed, 7 abandoned, 9 ineligible, and 32 rank-suppressed; 36 dedupe entries, 6 digest windows, and 2 provider cursors. | Candidate rows have enqueue timestamps but no per-row delivery timestamp. |
+| Kelas Investasi | Integer cursor is present; outbox and pending list are empty. | Cursor is the only row-level boundary in this snapshot. |
+| X account watch | 12 profile cursors, 944 delivery rows, empty outbox; each delivery row has published and delivered timestamps. | Preserve profile cursors separately from delivery rows. |
+| Instagram account watch | 5 profile cursors, 16 delivery rows with delivered timestamps, empty outbox and cleanup list. | Preserve profile cursor timestamps and delivery rows together. |
+| Stockbit Snips | 4 feed cursors, validators, and poll times; 3 article rows are delivered and have enqueue timestamps. | Article rows have no `delivered_at` field. |
+| WhatsApp channel watch | 93 outbox rows; recorded phases are 35 delivered, 45 filtered, 2 ready, and 11 pending. The snapshot includes 238 event JSON files, 326 archive/reconciliation files, 16 quarantine objects, 193 media-reference objects, and 193 media files with SHA fields. The media-staging directory is empty. | Some outbox rows lack phase/delivery metadata, so crosswalk individual rows before treating phase labels as a complete partition. Event-to-media-file correspondence and archive receipt parity still need mapping. Preserve quarantine cursor references. |
+| Telegram resilience | Authentication-success timestamp and 44 notification records are present. | This is shared operational control state, not a watcher source cursor; preserve it separately. |
+| Swing Board | 69 episodes, 106 source events, 61 plans, 10 history rows, 119 close checkpoints, 119 close attempts, and 531 outbox rows. All 531 outbox rows are complete; none are ambiguous. The duplicate `primary` group has one open and one closed episode in the snapshot. Both episode starters resolve to source events, both plans resolve to source events, and both have completed thread-creation receipts. The open episode also has a completed source-reply receipt. No history row is linked to that episode pair. | The recorded closed status conflicts with the earlier live aggregate, so a fresh approved read-only live reconciliation is required. The copied Discord receipts are legacy owner state, not Delivery Owner ledger receipts. |
+
+For the Board media copy, all 91 non-empty legacy `media_path` basenames matched unique filenames among the 105 copied media files. The snapshot hashes verify the copied files, but the Board state does not prove which Discord message received each file or establish Source Media object references. No attachment content was opened during this reconciliation.
 
 ## Shared downstream state to inventory
 
@@ -147,6 +165,6 @@ The existing package handoff plans are useful inputs, but they cover Discord del
 
 ## Separate operational approval gate
 
-This branch does not authorize production state reads, migrations, scheduler edits, deployments, source replay, or Discord writes. Before any endpoint is cut over, present the sanitized live packet and proposed exact transition for review. Then obtain separate approval for the bounded production state cutover and any Hermes schedule change. Pause the old writer and watchdog, snapshot and checksum its state, apply the reviewed mapping once, verify source acceptance, pipeline receipt, domain effect, Discord receipt, and `#hermes` heartbeat separately, and retain the prior state until unattended evidence is stable.
+This branch does not itself authorize additional live production reads, state migrations, scheduler edits, deployments, source replay, or Discord writes. This follow-up was limited to the approved inventory and read-only analysis of its private snapshot. Before any endpoint is cut over, present the sanitized live packet and proposed exact transition for review. Then obtain separate approval for the bounded production state cutover and any Hermes schedule change. Pause the old writer and watchdog, take a coordinated snapshot and checksums, apply the reviewed mapping once, verify source acceptance, pipeline receipt, domain effect, Discord receipt, and `#hermes` heartbeat separately, and retain the prior state until unattended evidence is stable.
 
 Until that sequence is approved and verified, existing watchers remain the production source readers and the platform adapters remain unscheduled development code.
