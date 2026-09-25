@@ -1,311 +1,364 @@
+from datetime import datetime, timezone
+from dataclasses import replace
 import hashlib
-import json
 from pathlib import Path
+import sys
 
 import pytest
 
-import discord_forum
+from conftest import example_buy_event
 from discord_forum import (
     DiscordForumClient,
-    DiscordRateLimitError,
+    DiscordForumError,
     FORUM_CHANNEL_ID,
+    forum_thread_url,
+    operation_key,
+    operation_key_for,
+    stable_nonce,
 )
 
+_DELIVERY_BIN = Path(__file__).resolve().parents[2] / "lib-bursawatch-discord-delivery" / "bin"
+if str(_DELIVERY_BIN) not in sys.path:
+    sys.path.insert(0, str(_DELIVERY_BIN))
 
-class Response:
-    def __init__(self, status_code: int, payload: object) -> None:
-        self.status_code = status_code
-        self._payload = payload
-        self.ok = 200 <= status_code < 300
-
-    def json(self) -> object:
-        return self._payload
+from bursawatch_discord_delivery.models import DiscordQuery, OperationIntent, OperationReceipt
 
 
-def test_create_thread_posts_starter_with_title_tags_and_stable_nonce(monkeypatch) -> None:
-    calls: list[dict] = []
+class RecordingOwner:
+    def __init__(self):
+        self.statuses = {}
+        self.submitted = []
+        self.queries = []
+        self.status_calls = []
+        self.submit_status = "delivered"
+        self.timeout_after_accept = False
+        self.wait_responses = {}
+        self.wait_calls = []
+        self.submit_responses = {}
 
-    def request(method: str, url: str, **kwargs):
-        calls.append({"method": method, "url": url, **kwargs})
-        if method == "GET":
-            return Response(
-                200,
-                {
-                    "available_tags": [
-                        {"id": "primary-tag-id", "name": "Primary plan"},
-                        {"id": "tp1-tag-id", "name": "TP1 reached"},
-                    ]
-                },
-            )
-        return Response(201, {"id": "thread-1", "message": {"id": "starter-1"}})
+    def status(self, key):
+        self.status_calls.append(key)
+        return self.statuses.get(key)
 
-    monkeypatch.setattr(discord_forum.requests, "request", request)
-    client = DiscordForumClient(token="token")
+    def submit(self, intent):
+        assert isinstance(intent, OperationIntent)
+        self.submitted.append(intent)
+        if intent.key in self.submit_responses:
+            return self.submit_responses[intent.key]
+        receipt = self._receipt(intent, self.submit_status)
+        self.statuses[intent.key] = receipt
+        if self.timeout_after_accept:
+            self.timeout_after_accept = False
+            from bursawatch_discord_delivery.client import DeliveryClientError
+            raise DeliveryClientError("timeout")
+        return receipt
 
-    created = client.create_forum_thread(
-        "SCMA: Buy", "card", ("Primary plan", "TP1 reached"), None, "episode:1:create"
-    )
+    def wait(self, key, _timeout):
+        self.wait_calls.append(key)
+        return self.wait_responses.get(key, self.statuses[key])
 
-    assert created.thread_id == "thread-1"
-    assert created.starter_message_id == "starter-1"
-    assert calls[0] == {
-        "method": "GET",
-        "url": f"https://discord.com/api/v10/channels/{FORUM_CHANNEL_ID}",
-        "headers": {"Authorization": "Bot token"},
-        "timeout": 30,
-    }
-    assert calls[1] == {
-        "method": "POST",
-        "url": f"https://discord.com/api/v10/channels/{FORUM_CHANNEL_ID}/threads",
-        "headers": {"Authorization": "Bot token", "Content-Type": "application/json"},
-        "timeout": 30,
-        "json": {
-            "name": "SCMA: Buy",
-            "applied_tags": ["primary-tag-id", "tp1-tag-id"],
-            "message": {
-                "content": "card",
-                "nonce": hashlib.sha256(b"episode:1:create").hexdigest()[:24],
-                "enforce_nonce": True,
-                "allowed_mentions": {"parse": []},
-            },
-        },
-    }
+    def query(self, query):
+        assert isinstance(query, DiscordQuery)
+        self.queries.append(query)
+        if query.kind == "forum_channel_read":
+            return {"id": query.channel_id, "guild_id": "940285152335110204", "available_tags": [
+                {"id": "100000000000000001", "name": "Primary plan"},
+                {"id": "100000000000000002", "name": "Resolved"},
+                {"id": "100000000000000003", "name": "TP1 reached"},
+            ]}
+        if query.kind == "forum_thread_read":
+            return {"id": query.thread_id, "parent_id": FORUM_CHANNEL_ID, "name": "SCMA",
+                    "thread_metadata": {"archived": False, "locked": False}}
+        if query.kind == "thread_message_read":
+            return {"id": query.message_id, "content": "old", "attachments": [
+                {"id": "1550000000000000002", "filename": "chart.jpg", "description": "chart"}
+            ]}
+        raise AssertionError(query.kind)
 
-
-def test_edit_starter_retains_existing_attachment_when_chart_is_unchanged(monkeypatch) -> None:
-    calls: list[dict] = []
-
-    def request(method: str, url: str, **kwargs):
-        calls.append({"method": method, "url": url, **kwargs})
-        if method == "GET":
-            return Response(200, {"attachments": [{"id": "42", "filename": "chart.jpg", "description": "Source chart", "url": "private"}]})
-        return Response(200, {"id": "starter-1"})
-
-    monkeypatch.setattr(discord_forum.requests, "request", request)
-    client = DiscordForumClient(token="token")
-
-    client.edit_starter("thread-1", "starter-1", "revised card", None)
-
-    assert calls[0]["method"] == "GET"
-    assert calls[0]["url"].endswith("/channels/thread-1/messages/starter-1")
-    assert calls[1]["method"] == "PATCH"
-    assert calls[1]["json"] == {
-        "content": "revised card",
-        "attachments": [{"id": "42", "filename": "chart.jpg", "description": "Source chart"}],
-        "allowed_mentions": {"parse": []},
-    }
-
-
-def test_edit_starter_replaces_attachment_with_chart_file(tmp_path: Path, monkeypatch) -> None:
-    chart = tmp_path / "source-chart.jpg"
-    chart.write_bytes(b"chart")
-    calls: list[dict] = []
-
-    def request(method: str, url: str, **kwargs):
-        calls.append({"method": method, "url": url, **kwargs})
-        return Response(200, {"id": "starter-1"})
-
-    monkeypatch.setattr(discord_forum.requests, "request", request)
-    client = DiscordForumClient(token="token")
-
-    client.edit_starter("thread-1", "starter-1", "revised card", chart)
-
-    assert len(calls) == 1
-    assert calls[0]["method"] == "PATCH"
-    assert json.loads(calls[0]["data"]["payload_json"]) == {
-        "content": "revised card",
-        "attachments": [{"id": "0", "filename": "source-chart.jpg"}],
-        "allowed_mentions": {"parse": []},
-    }
-    assert calls[0]["files"]["files[0]"][0] == "source-chart.jpg"
-
-
-def test_edit_starter_explicitly_clears_attachments_without_fetching_old_chart(monkeypatch):
-    calls = []
-
-    def request(method, url, **kwargs):
-        calls.append({"method": method, "url": url, **kwargs})
-        return Response(200, {})
-
-    monkeypatch.setattr(discord_forum.requests, "request", request)
-    client = DiscordForumClient(token="token")
-    client.execute("edit_starter", {
-        "thread_id": "thread-1", "message_id": "starter-1", "content": "chartless replacement",
-        "chart": None, "clear_attachments": True,
-    })
-
-    assert len(calls) == 1
-    assert calls[0]["method"] == "PATCH"
-    assert calls[0]["json"]["attachments"] == []
-    assert "files" not in calls[0]
-
-
-def test_delete_message_uses_the_forum_message_delete_endpoint(monkeypatch) -> None:
-    calls: list[dict] = []
-
-    def request(method: str, url: str, **kwargs):
-        calls.append({"method": method, "url": url, **kwargs})
-        return Response(204, {})
-
-    monkeypatch.setattr(discord_forum.requests, "request", request)
-    DiscordForumClient(token="token").delete_message("thread-1", "history-7")
-
-    assert calls == [{
-        "method": "DELETE",
-        "url": "https://discord.com/api/v10/channels/thread-1/messages/history-7",
-        "headers": {"Authorization": "Bot token"},
-        "timeout": 30,
-    }]
-
-
-def test_reply_patch_and_execute_use_complete_desired_state(monkeypatch) -> None:
-    calls: list[dict] = []
-
-    def request(method: str, url: str, **kwargs):
-        calls.append({"method": method, "url": url, **kwargs})
-        if method == "GET" and url.endswith(f"/channels/{FORUM_CHANNEL_ID}"):
-            return Response(
-                200,
-                {
-                    "available_tags": [
-                        {"id": "resolved-id", "name": "Resolved"},
-                        {"id": "tp1-id", "name": "TP1 reached"},
-                    ]
-                },
-            )
-        if method == "POST":
-            return Response(200, {"id": "reply-1"})
-        return Response(200, {})
-
-    monkeypatch.setattr(discord_forum.requests, "request", request)
-    client = DiscordForumClient(token="token")
-
-    assert client.post_reply("thread-1", "history", None, "history:1") == "reply-1"
-    client.patch_thread("thread-1", "SCMA: Buy", ("Resolved", "TP1 reached"), True)
-    result = client.execute(
-        "post_history_reply",
-        {"thread_id": "thread-1", "content": "history 2", "nonce": "history:2"},
-    )
-
-    assert result == {"message_id": "reply-1"}
-    assert calls[1]["method"] == "GET"
-    assert calls[1]["url"].endswith(f"/channels/{FORUM_CHANNEL_ID}")
-    assert calls[2]["method"] == "PATCH"
-    assert calls[2]["json"] == {
-        "name": "SCMA: Buy",
-        "applied_tags": ["resolved-id", "tp1-id"],
-        "archived": True,
-    }
-    assert calls[3]["json"]["nonce"] == hashlib.sha256(b"history:2").hexdigest()[:24]
-
-
-def test_attachment_only_reply_sends_empty_content_with_media(tmp_path: Path, monkeypatch) -> None:
-    chart = tmp_path / "chart.jpg"
-    chart.write_bytes(b"chart")
-    calls: list[dict] = []
-
-    def request(method: str, url: str, **kwargs):
-        calls.append({"method": method, "url": url, **kwargs})
-        return Response(200, {"id": "reply-1"})
-
-    monkeypatch.setattr(discord_forum.requests, "request", request)
-
-    result = DiscordForumClient(token="token").post_reply(
-        "thread-1", "", chart, "media-only:1"
-    )
-
-    assert result == "reply-1"
-    assert len(calls) == 1
-    assert calls[0]["method"] == "POST"
-    assert json.loads(calls[0]["data"]["payload_json"]) == {
-        "content": "",
-        "nonce": hashlib.sha256(b"media-only:1").hexdigest()[:24],
-        "enforce_nonce": True,
-        "allowed_mentions": {"parse": []},
-    }
-    assert calls[0]["files"]["files[0]"][0] == "chart.jpg"
-
-
-def test_execute_allows_attachment_only_reply_with_media(tmp_path: Path, monkeypatch) -> None:
-    chart = tmp_path / "chart.jpg"
-    chart.write_bytes(b"chart")
-    calls: list[dict] = []
-
-    def request(method: str, url: str, **kwargs):
-        calls.append({"method": method, "url": url, **kwargs})
-        return Response(200, {"id": "reply-1"})
-
-    monkeypatch.setattr(discord_forum.requests, "request", request)
-
-    result = DiscordForumClient(token="token").execute(
-        "post_source_reply",
-        {
-            "thread_id": "thread-1",
-            "content": "",
-            "media": str(chart),
-            "nonce": "media-only:execute",
-        },
-    )
-
-    assert result == {"message_id": "reply-1"}
-    assert len(calls) == 1
-    assert calls[0]["method"] == "POST"
-    assert json.loads(calls[0]["data"]["payload_json"])["content"] == ""
-    assert calls[0]["files"]["files[0]"][0] == "chart.jpg"
-
-
-@pytest.mark.parametrize(
-    "available_tags",
-    [
-        [{"id": "primary-id", "name": "Primary plan"}],
-        [
-            {"id": "primary-id", "name": "Primary plan"},
-            {"id": "duplicate-id", "name": "Primary plan"},
-        ],
-    ],
-    ids=["missing", "duplicate"],
-)
-def test_create_thread_fails_closed_when_a_required_tag_name_is_not_exactly_resolvable(
-    available_tags: list[dict[str, str]], monkeypatch
-) -> None:
-    calls: list[dict] = []
-
-    def request(method: str, url: str, **kwargs):
-        calls.append({"method": method, "url": url, **kwargs})
-        return Response(200, {"available_tags": available_tags})
-
-    monkeypatch.setattr(discord_forum.requests, "request", request)
-
-    with pytest.raises(discord_forum.DiscordForumError, match="tag"):
-        DiscordForumClient(token="token").create_forum_thread(
-            "SCMA: Buy", "card", ("Primary plan", "TP1 reached"), None, "create"
+    @staticmethod
+    def _receipt(intent, status):
+        if intent.kind == "forum_thread_create":
+            result = {"thread_id": "1550000000000000001", "message_id": "1550000000000000001"}
+        elif intent.kind in {"thread_message_create", "channel_message_create"}:
+            result = {"message_id": "1550000000000000003"}
+            if intent.kind == "channel_message_create":
+                result["channel_id"] = intent.target["channel_id"]
+        elif intent.kind in {"forum_thread_update", "forum_thread_archive"}:
+            result = {"thread_id": intent.target["thread_id"]}
+        elif intent.kind.endswith("_edit"):
+            result = {"message_id": intent.target["message_id"]}
+        elif intent.kind.endswith("_delete"):
+            result = {"message_id": intent.target["message_id"]}
+        else:
+            result = {}
+        return OperationReceipt(
+            id=f"receipt-{len(intent.key)}",
+            key=intent.key,
+            digest=intent.digest,
+            status=status,
+            receipt=result if status == "delivered" else None,
         )
 
-    assert [call["method"] for call in calls] == ["GET"]
+
+def test_create_and_update_use_shared_typed_forum_operations():
+    owner = RecordingOwner()
+    client = DiscordForumClient(delivery_client=owner, no_post=False)
+
+    created = client.execute("create_thread", {
+        "name": "SCMA",
+        "content": "Primary card",
+        "tag_names": ["Primary plan"],
+        "_delivery_key": "event:one:create_thread",
+    })
+
+    assert created == {
+        "thread_id": "1550000000000000001",
+        "starter_message_id": "1550000000000000001",
+    }
+    intent = owner.submitted[0]
+    assert intent.kind == "forum_thread_create"
+    assert intent.key == operation_key("event:one:create_thread")
+    assert intent.target == {"forum_id": FORUM_CHANNEL_ID}
+    assert intent.payload["applied_tags"] == ["100000000000000001"]
+    assert owner.queries[0].kind == "forum_channel_read"
+
+    for archived in (True, False):
+        owner.submitted.clear()
+        client.execute("patch_thread", {
+            "name": "SCMA",
+            "tag_names": ["Resolved", "TP1 reached"],
+            "applied_tag_ids": ["100000000000000002", "100000000000000003"],
+            "archived": archived,
+            "thread_id": "1550000000000000001",
+            "_delivery_key": f"tag-update:{archived}",
+        })
+        update = owner.submitted[0]
+        assert update.kind == "forum_thread_update"
+        assert update.payload["applied_tags"] == ["100000000000000002", "100000000000000003"]
+        assert update.payload["archived"] is archived
 
 
-def test_rate_limit_exposes_the_provider_retry_delay(monkeypatch) -> None:
-    monkeypatch.setattr(
-        discord_forum.requests,
-        "request",
-        lambda *_args, **_kwargs: Response(429, {"retry_after": 2.5}),
+def test_typed_forum_and_message_reads_preserve_existing_remote_ids():
+    owner = RecordingOwner()
+    client = DiscordForumClient(delivery_client=owner, no_post=False)
+
+    thread = client.get_thread("1550000000000000001")
+    message = client.get_message("1550000000000000001", "1550000000000000002")
+
+    assert thread["id"] == "1550000000000000001"
+    assert message["id"] == "1550000000000000002"
+    assert [query.kind for query in owner.queries] == ["forum_thread_read", "thread_message_read"]
+    assert forum_thread_url(thread["id"]).endswith("/1550000000000000001")
+
+
+@pytest.mark.parametrize("mode", ["keep", "clear", "replace"])
+def test_starter_edit_maps_explicit_attachment_mode(mode, tmp_path):
+    owner = RecordingOwner()
+    client = DiscordForumClient(delivery_client=owner, no_post=False)
+    chart = None
+    payload = {
+        "thread_id": "1550000000000000001",
+        "message_id": "1550000000000000002",
+        "content": "updated card",
+        "clear_attachments": mode == "clear",
+        "_delivery_key": f"edit:{mode}",
+    }
+    if mode == "replace":
+        chart = tmp_path / "chart.jpg"
+        chart.write_bytes(b"approved chart bytes")
+        payload["chart"] = str(chart)
+
+    client.execute("edit_starter", payload)
+
+    intent = owner.submitted[0]
+    assert intent.kind == "thread_message_edit"
+    assert intent.payload["attachments_mode"] == mode
+    assert (len(intent.attachments) == 1) is (mode == "replace")
+    if mode == "replace":
+        assert intent.attachments[0].filename == "chart.jpg"
+        assert intent.attachments[0].data == b"approved chart bytes"
+
+
+def test_accepted_timeout_recovers_receipt_without_a_second_submit():
+    owner = RecordingOwner()
+    owner.timeout_after_accept = True
+    client = DiscordForumClient(delivery_client=owner, no_post=False)
+    payload = {
+        "name": "SCMA", "content": "Primary card", "tag_names": [],
+        "applied_tag_ids": [], "_delivery_key": "event:timeout:create_thread",
+    }
+
+    with pytest.raises(Exception, match="timed out|timeout|Delivery Owner"):
+        client.execute("create_thread", payload)
+    result = client.execute("create_thread", payload)
+
+    assert result["thread_id"] == "1550000000000000001"
+    assert len(owner.submitted) == 1
+    assert owner.status_calls == [operation_key("event:timeout:create_thread")] * 2
+
+
+def test_forum_create_accepts_imported_digest_only_from_existing_status():
+    owner = RecordingOwner()
+    client = DiscordForumClient(delivery_client=owner, no_post=False)
+    payload = {
+        "name": "SCMA", "content": "Primary card", "tag_names": [],
+        "applied_tag_ids": [], "_delivery_key": "event:handoff:create_thread",
+    }
+    normal = client._intent("create_thread", payload, payload["_delivery_key"])
+    imported = replace(normal, reconcile_before_first_create=True)
+    owner.statuses[normal.key] = OperationReceipt(
+        id="adopted-forum-create", key=imported.key, digest=imported.digest,
+        status="delivered",
+        receipt={"thread_id": "1550000000000000001", "message_id": "1550000000000000002"},
     )
 
-    with pytest.raises(DiscordRateLimitError) as error:
-        DiscordForumClient(token="token").post_reply("thread-1", "history", None, "history:1")
+    result = client.execute("create_thread", payload)
 
-    assert error.value.retry_after == 2.5
+    assert result == {
+        "thread_id": "1550000000000000001", "starter_message_id": "1550000000000000002"
+    }
+    assert owner.submitted == []
+    assert owner.status_calls == [normal.key]
 
 
-def test_no_post_makes_no_http_request(monkeypatch) -> None:
-    monkeypatch.setattr(
-        discord_forum.requests,
-        "request",
-        lambda *_args, **_kwargs: pytest.fail("no-post must not contact Discord"),
+def test_heartbeat_wait_validates_the_existing_imported_digest():
+    owner = RecordingOwner()
+    client = DiscordForumClient(delivery_client=owner, no_post=False)
+    key_source = "scheduled-heartbeat:handoff:run-1"
+    stable_key = operation_key_for(key_source)
+    normal = OperationIntent(
+        key=stable_key,
+        kind="channel_message_create",
+        ordering_key="channel:1505162000420835388",
+        target={"channel_id": "1505162000420835388"},
+        payload={"content": "🫀 board", "allowed_mentions": {"parse": []}},
     )
-    client = DiscordForumClient(token="token", no_post=True)
+    imported = replace(
+        normal,
+        reconcile_before_first_create=True,
+        legacy_nonce=stable_nonce(key_source),
+    )
+    owner.statuses[stable_key] = OperationReceipt(
+        id="adopted-heartbeat", key=stable_key, digest=imported.digest,
+        status="pending_reconciliation", receipt=None,
+    )
+    owner.wait_responses[stable_key] = OperationReceipt(
+        id="adopted-heartbeat", key=stable_key, digest=imported.digest,
+        status="delivered",
+        receipt={"channel_id": "1505162000420835388", "message_id": "1550000000000000003"},
+    )
 
-    created = client.create_forum_thread("SCMA: Buy", "card", ("Primary plan",), None, "create")
-    assert created.thread_id == "dry-run-thread"
-    assert client.post_reply("dry-run-thread", "history", None, "reply") == "dry-run-message"
-    client.patch_thread("dry-run-thread", "SCMA: Buy", ("Primary plan",), False)
+    result = client.post_heartbeat(
+        "1505162000420835388", "🫀 board", operation_key=key_source
+    )
+
+    assert result == {"message_id": "1550000000000000003"}
+    assert owner.submitted == []
+    assert owner.wait_calls == [stable_key]
+
+
+def test_imported_digest_is_rejected_when_status_is_absent_or_digest_is_arbitrary():
+    key_source = "scheduled-heartbeat:submit-must-be-normal"
+    stable_key = operation_key_for(key_source)
+    for existing_status in (None, "arbitrary"):
+        owner = RecordingOwner()
+        client = DiscordForumClient(delivery_client=owner, no_post=False)
+        normal = OperationIntent(
+            key=stable_key,
+            kind="channel_message_create",
+            ordering_key="channel:1505162000420835388",
+            target={"channel_id": "1505162000420835388"},
+            payload={"content": "🫀 board", "allowed_mentions": {"parse": []}},
+        )
+        imported = replace(
+            normal,
+            reconcile_before_first_create=True,
+            legacy_nonce=stable_nonce(key_source),
+        )
+        if existing_status == "arbitrary":
+            owner.statuses[stable_key] = OperationReceipt(
+                id="unrelated", key=stable_key, digest="0" * 64,
+                status="delivered",
+                receipt={"channel_id": "1505162000420835388", "message_id": "1550000000000000004"},
+            )
+        else:
+            owner.submit_responses[stable_key] = OperationReceipt(
+                id="new-submit-imported-digest", key=stable_key, digest=imported.digest,
+                status="delivered",
+                receipt={"channel_id": "1505162000420835388", "message_id": "1550000000000000004"},
+            )
+
+        with pytest.raises(DiscordForumError, match="receipt did not match"):
+            client.post_heartbeat(
+                "1505162000420835388", "🫀 board", operation_key=key_source
+            )
+        assert len(owner.submitted) == (1 if existing_status is None else 0)
+
+
+def test_ambiguous_delivery_status_never_submits_another_create():
+    owner = RecordingOwner()
+    owner.submit_status = "ambiguous"
+    client = DiscordForumClient(delivery_client=owner, no_post=False)
+    payload = {
+        "name": "SCMA", "content": "Primary card", "tag_names": [],
+        "applied_tag_ids": [], "_delivery_key": "event:ambiguous:create_thread",
+    }
+
+    with pytest.raises(DiscordForumError, match="ambiguous"):
+        client.execute("create_thread", payload)
+    with pytest.raises(DiscordForumError, match="ambiguous"):
+        client.execute("create_thread", payload)
+
+    assert len(owner.submitted) == 1
+    assert owner.status_calls == [operation_key("event:ambiguous:create_thread")] * 2
+
+
+def test_no_post_uses_process_local_fake_without_touching_injected_client():
+    external = RecordingOwner()
+    client = DiscordForumClient(delivery_client=external, no_post=True)
+
+    result = client.execute("create_thread", {
+        "name": "SCMA", "content": "Primary card", "tag_names": ["Primary plan"],
+        "_delivery_key": "dry-run:create",
+    })
+
+    assert result["thread_id"].isdigit()
+    assert result["starter_message_id"].isdigit()
+    assert external.submitted == []
+    assert external.queries == []
+    assert external.status_calls == []
+
+
+def test_heartbeat_maps_to_a_typed_channel_message_and_returns_receipt_id():
+    owner = RecordingOwner()
+    client = DiscordForumClient(delivery_client=owner, no_post=False)
+
+    result = client.post_heartbeat(
+        "1505162000420835388", "🫀 board", operation_key="scheduled-heartbeat:run-1"
+    )
+
+    intent = owner.submitted[0]
+    assert intent.kind == "channel_message_create"
+    assert intent.target == {"channel_id": "1505162000420835388"}
+    assert intent.payload["content"] == "🫀 board"
+    assert result == {"message_id": "1550000000000000003"}
+
+
+def test_old_persisted_create_snapshot_cannot_be_resubmitted_before_handoff():
+    owner = RecordingOwner()
+    client = DiscordForumClient(delivery_client=owner, no_post=False)
+    payload = {
+        "name": "SCMA", "content": "Primary card", "tag_names": [],
+        "applied_tag_ids": [], "create_snapshot": {"content": "Primary card"},
+        "_delivery_key": "legacy:create:one",
+    }
+
+    with pytest.raises(DiscordForumError, match="handoff"):
+        client.execute("create_thread", payload)
+
+    assert owner.submitted == []
+
+
+def test_discord_thread_url_rejects_non_snowflake_ids():
+    with pytest.raises(ValueError, match="thread_id"):
+        forum_thread_url("not-a-snowflake")

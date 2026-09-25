@@ -2,7 +2,7 @@
 
 See `AGENTS.md` for ownership and detailed safety boundaries.
 
-- **Owner:** the board process is the sole mutator of its SQLite database, media, and Discord forum state. It accepts only validated internal watcher events after All Swing delivery.
+- **Owner:** Board Engine is the sole writer of canonical SQLite episode/domain state, intent outboxes, and private media. The Delivery Owner service is the only Discord API writer. Board sends reads and writes through the typed shared client, persists each intent and stable key first, then applies accepted receipts and Discord IDs once. It accepts only validated internal watcher events after All Swing delivery.
 - **Boundary:** deterministic and read-only. No LLM, inferred plan, trading advice, market order, or watcher-state write is allowed. Only active cash-equity source events are eligible.
 - **Source-only events:** Kelas Investasi GTW events use the `Supporting setup`
   lifecycle tier. X and other social/chart events use `Chart context`. A single
@@ -15,17 +15,19 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
   in place; it preserves the previous source starter once as history, without
   a separate GTW resend or All Swing replay.
 - **Source submission:** `submit-source-event --stdin` first copies supplied local media into the owner directory, then atomically persists the validated event and owner intents and runs one best-effort drain. Its acknowledgement includes `accepted:true` plus the direct forum-topic `board_url` when the topic is materialized, or `board_url:null,"board_pending":true` while that topic is retryable. An accepted board-unavailable event omits `board_pending`. It may not calculate a close or post a heartbeat.
-- **Scheduled reconciliation:** `after-close --phase initial` is scheduled for 16:30 WIB and `--phase retry` for 17:00 WIB. Each phase accepts a start within the following five minutes to tolerate Hermes scheduler lateness, while earlier or later invocations are ignored. The retry runs only for a current-session unavailable initial attempt on the same active plan. Both phases use the reviewed IDX calendar. Missing coverage makes no board mutation, drains safely, and direct-posts one fatal `#hermes` heartbeat; covered phases direct-post exactly one normal or degraded heartbeat. A second unavailable result changes only the card to `Market check unavailable`; it preserves prior valid price/time and tags and adds no history reply.
+- **Scheduled reconciliation:** `after-close --phase initial` is scheduled for 16:30 WIB and `--phase retry` for 17:00 WIB. Each phase accepts a start within the following five minutes to tolerate Hermes scheduler lateness, while earlier or later invocations are ignored. The retry runs only for a current-session unavailable initial attempt on the same active plan. Both phases use the reviewed IDX calendar. Missing coverage makes no board mutation, drains safely, and persists one fatal `#hermes` heartbeat intent; covered phases persist exactly one normal or degraded heartbeat intent. All heartbeat intents use the typed Delivery Owner channel operation and remain durable for retry. A second unavailable result changes only the card to `Market check unavailable`; it preserves prior valid price/time and tags and adds no history reply.
 - **Runtime wrapper:** `bin/bursawatch-dc-swing-board.sh` reads only
-  `DISCORD_BOT_TOKEN` plus its optional `IDX_SWING_PLAN_BOARD_CONTROL_PLANE_*`
-  settings for ordinary owner commands, uses the shared Yahoo Finance MCP
+  `BURSAWATCH_DISCORD_DELIVERY_URL` and
+  `BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE`, plus its optional
+  `IDX_SWING_PLAN_BOARD_CONTROL_PLANE_*` settings for ordinary owner commands,
+  uses the shared Yahoo Finance MCP
   Python, defaults state to
   `$HOME/.hermes/state/idx-swing-board.sqlite3`, and passes board arguments
   unchanged. The live control-plane config can change only the heartbeat
   Discord destination and records structured run events. Each event is
   attempted immediately; failed requests remain in the durable local request
   spool for a later retry. A temporary control-plane outage does not block
-  board reconciliation or Discord delivery. Accepted records are stored by the
+  board reconciliation or Delivery Owner submission. Accepted records are stored by the
   control plane in Postgres tables `bursawatch_runs` and `bursawatch_events`.
   The forum/guild
   topology is durable-state owned and not web-editable. The explicit `bootstrap` command additionally reads the
@@ -38,7 +40,7 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
 - **Forum defaults:** `#id-stocks-swing-board` uses List View, Latest Activity
   ordering, and Discord's three-day inactivity archive. Discord has no
   tag-first or nested tag/date sort; tags remain filters.
-- **Delivery health:** `drain` returns JSON counts `drained`, `pending`, and `failed`, with a nonzero exit while work remains, including backoff. Ambiguous Discord creates use durable pre-POST read-back identity; inconclusive recovery stays pending without another POST. Nonce reuse alone is not durable idempotency.
+- **Delivery health:** `drain` returns JSON counts `drained`, `pending`, and `failed`, with a nonzero exit while work remains, including backoff. Board persists each desired operation and stable key before submission. The Delivery Owner stores create snapshots and does bounded read-back; Board retries status lookup by the same key and never submits a new create for an ambiguous outcome. Accepted receipts and IDs apply once to Board state. Nonce reuse alone is not durable idempotency.
 - **Media and size:** the owner downloads ordered public direct X media into private storage and retries each attachment independently. Source text is split losslessly into ordered replies within 2,000 UTF-16 units; managed cards stay within the same limit with complete source replies when compacted. Retired quoted history is deletion-only maintenance, never new delivery. Unsupported or oversized media stays pending, never silently dropped.
 - **Close outcomes:** stop-loss or the actual final target resolves the plan, including target ladders beyond TP6 whose factual tag clamps at TP6. The owner updates the card and tags without generating quoted history replies. Unclassifiable plans preserve prior facts, increment `invalid`, and do not block other tickers. Invalid, unavailable, and pending work degrade the heartbeat; unexpected failures emit a sanitized fatal heartbeat.
 - **One-time maintenance:** `migrate-tags --apply` converts legacy `Source plan`
@@ -53,7 +55,8 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
   --expected-thread-id <id>` previews one active source card repair. Add
   `--apply` to replace its attachment in place through the durable owner outbox;
   it never creates a new forum thread.
-- **Check:** set `IDX_SWING_PLAN_BOARD_NO_POST=1` and isolated state and media paths. Never reset state or create a live forum item.
+- **Handoff:** `bin/delivery_handoff.py --plan <private-plan-path>` writes a payload-free, read-only plan preserving known forum/thread/starter/reply IDs and persisted create snapshots. `--apply <private-plan-path>` also requires `BURSAWATCH_DISCORD_HANDOFF_ALLOW_APPLY=1` and a Delivery Owner admin token file; it imports through the service and writes only a private acknowledgment sidecar, preserving the Board SQLite source.
+- **Check:** set `IDX_SWING_PLAN_BOARD_NO_POST=1` and isolated state and media paths. The local fake is selected before Delivery Owner client settings are read, so no-post tests never reach a live service. Never reset state or create a live forum item.
 - **Bootstrap:** `bootstrap --dry-run --lookback-sessions 20` reads
   Phintraco Telegram history through its resilience lease and reports candidate
   BUY/status chains without opening Board state or Discord. `bootstrap --apply

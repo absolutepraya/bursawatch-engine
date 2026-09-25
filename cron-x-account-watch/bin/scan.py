@@ -91,6 +91,7 @@ class RunStats:
     queued: int = 0
     delivered: int = 0
     pending: int = 0
+    owner_pending: int = 0
     oldest_pending_minutes: int = 0
     degraded: bool = False
     needs_attention: bool = False
@@ -110,7 +111,8 @@ class RunStats:
         return (
             f"{self.fetched} fetched · {self.filtered} filtered · {self.queued} queued · "
             f"{self.delivered} delivered · {len(self.reasons)} errors · "
-            f"{self.pending} pending · oldest {self.oldest_pending_minutes}m"
+            f"{self.pending} pending · owner pending {self.owner_pending} · "
+            f"oldest {self.oldest_pending_minutes}m"
         )
 
 
@@ -372,6 +374,10 @@ def board_source_event(event: dict, profile, *, status_date: datetime | None = N
     )
     normalized_source_title = f"{ticker}: {source_match.group(2).strip()}"
     skipped_media = set(event.get("media_skipped_urls", []))
+    source_paths = event.get("source_media_paths", {})
+    source_urls = _direct_media_urls(thread_posts)
+    from source_media import reference_id
+    first_ref = reference_id(source_urls[0]) if source_urls else None
     return {
         "event_key": f"x:{profile.id}:{post.post_id}",
         "source": "x",
@@ -383,8 +389,8 @@ def board_source_event(event: dict, profile, *, status_date: datetime | None = N
         "source_title": normalized_source_title,
         "source_status": None,
         "plan": None,
-        "media_path": None,
-        "media_urls": [url for url in _direct_media_urls(thread_posts) if url not in skipped_media],
+        "media_path": source_paths.get(first_ref) if first_ref else None,
+        "media_urls": [] if first_ref else [url for url in source_urls if url not in skipped_media],
     }
 
 
@@ -530,7 +536,10 @@ def _retry_cleanup(value: dict, dry_run: bool, storage: Path, stats: RunStats) -
                 discord.delete_message(item["channel_id"], message_id, dry_run)
             except Exception as exc:
                 remaining.append(message_id)
-                stats.note_source_error(f"supersession cleanup: {' '.join(str(exc).split())[:140]}")
+                if isinstance(exc, discord.DeliveryOwnerPending):
+                    stats.owner_pending += 1
+                else:
+                    stats.note_source_error(f"supersession cleanup: {' '.join(str(exc).split())[:140]}")
         item["attempts"] = int(item.get("attempts", 0)) + 1
         if remaining:
             item["message_ids"] = remaining
@@ -596,13 +605,22 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
         if profile.forward_media and event["media_index"] < len(all_media):
             index = event["media_index"]
             media_url = all_media[index].url
-            message_id = discord.post_media(media_url, channel_id, dry_run, discord.nonce(f"{profile.id}:{post.post_id}", f"media:{index}"), storage.parent / "media")
+            from source_media import reference_id
+            ref = reference_id(media_url)
+            reference = event.get("source_media_refs", {}).get(ref) if ref else None
+            media_arguments = {"source_reference": reference} if ref else {}
+            message_id = discord.post_media(media_url, channel_id, dry_run, discord.nonce(f"{profile.id}:{post.post_id}", f"media:{index}"), storage.parent / "media", **media_arguments)
             if message_id is not None:
                 event.setdefault("media_message_ids", []).append(message_id)
             event["media_index"] += 1
             state.save_state(storage, value)
             return True
     except Exception as exc:
+        if isinstance(exc, discord.DeliveryOwnerPending):
+            stats.owner_pending += 1
+            event["last_error"] = "Delivery Owner accepted pending work"
+            state.save_state(storage, value)
+            return False
         if media_url is not None and isinstance(exc, discord.MediaUnavailable):
             if media_url not in event["media_skipped_urls"]:
                 event["media_skipped_urls"].append(media_url)
@@ -654,7 +672,11 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
         state.save_state(storage, value)
         return False
     if not discord.edit_board_links(
-        channel_id, event.get("text_message_ids", []), payload.get("_board_url"), dry_run
+        channel_id,
+        event.get("text_message_ids", []),
+        payload.get("_board_url"),
+        dry_run,
+        event_key=f"{profile.id}:{post.post_id}",
     ):
         _record_board_failure(event, delivered_at)
         stats.degraded = True
@@ -795,6 +817,7 @@ def run(
                     "queue_only": queue_only,
                     "delivered": stats.delivered,
                     "pending": stats.pending,
+                    "owner_pending": stats.owner_pending,
                     "oldest_pending_minutes": stats.oldest_pending_minutes,
                     "reasons": stats.reasons[:10],
                 },
@@ -816,10 +839,18 @@ def run(
                     fcntl.flock(lock, fcntl.LOCK_UN)
                     try:
                         try:
-                            vision_bundle = _prepare_agent_vision(post, storage, dry_run)
+                            if event.get("source_media_refs") and not dry_run:
+                                vision_bundle = vision_media.prepare(
+                                    post, vision_media.default_root(storage),
+                                    reference_meta=event["source_media_refs"],
+                                )
+                            else:
+                                vision_bundle = _prepare_agent_vision(post, storage, dry_run)
                             if vision_bundle is not None and vision_bundle.unavailable_count:
                                 stats.note_source_error("vision image preparation incomplete")
                         except vision_media.VisionMediaError:
+                            if event.get("source_media_refs"):
+                                raise
                             stats.note_source_error("vision image preparation failed")
                         try:
                             article_bundle = _prepare_article_context(thread_posts, dry_run)
@@ -846,7 +877,15 @@ def run(
                 agent_item(profiles[event["profile_id"]], post, thread_posts, vision_bundle, article_bundle)
                 if event and post else None
             )
-            discord.post_text(format_heartbeat(now, stats), HEARTBEAT_CHANNEL_ID, dry_run, discord.nonce("heartbeat", heartbeat_leg))
+            try:
+                discord.post_text(
+                    format_heartbeat(now, stats),
+                    HEARTBEAT_CHANNEL_ID,
+                    dry_run,
+                    discord.nonce("heartbeat", heartbeat_leg),
+                )
+            except discord.DeliveryOwnerPending:
+                stats.owner_pending += 1
             if event is not None:
                 _report_control_event(
                     reporter,

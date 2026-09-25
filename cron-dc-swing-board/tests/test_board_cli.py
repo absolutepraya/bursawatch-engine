@@ -13,6 +13,7 @@ import pytest
 
 import board
 import config
+import discord_forum
 from calendar import CalendarCoverageError
 from conftest import example_buy_event
 from discord_forum import DiscordForumClient
@@ -28,6 +29,8 @@ def at(value="2026-09-21T16:30:00+07:00"):
 def owner(tmp_path):
     client = Mock(spec=DiscordForumClient)
     client.execute.side_effect = lambda op, payload: {"thread_id": "123", "starter_message_id": "456"} if op == "create_thread" else {"message_id": "789"}
+    client.prepare_payload.side_effect = lambda _op, payload: dict(payload)
+    client.post_heartbeat.return_value = {"message_id": "1550000000000000001"}
     engine = BoardEngine(BoardStore(tmp_path / "board.sqlite3"), client)
     engine.submit(example_buy_event(), at("2026-09-21T09:00:00+07:00"))
     return engine
@@ -170,14 +173,21 @@ def test_cli_durable_acceptance_owns_media_even_when_delivery_fails(tmp_path, mo
 
 def test_cli_acknowledgement_includes_the_materialized_topic_url(tmp_path, monkeypatch, capsys):
     state = tmp_path / "owner.sqlite3"
+    monkeypatch.setenv("IDX_SWING_PLAN_BOARD_NO_POST", "0")
     monkeypatch.setenv("IDX_SWING_PLAN_BOARD_STATE_PATH", str(state))
     monkeypatch.setenv("IDX_SWING_PLAN_BOARD_MEDIA_ROOT", str(tmp_path / "media"))
+    monkeypatch.setattr(
+        discord_forum,
+        "delivery_client_from_environment",
+        lambda: discord_forum._FakeDeliveryClient(),
+    )
     monkeypatch.setattr(
         DiscordForumClient,
         "execute",
         lambda _self, operation, _payload: (
             {"thread_id": "1549000000000000000", "starter_message_id": "1549000000000000001"}
-            if operation == "create_thread" else {"message_id": "1549000000000000002"}
+            if getattr(operation, "operation", operation) == "create_thread"
+            else {"message_id": "1549000000000000002"}
         ),
     )
     event = asdict(example_buy_event())
@@ -283,15 +293,12 @@ def test_missing_calendar_coverage_emits_one_fatal_heartbeat_without_mutation(
         "engine.is_idx_trading_day",
         Mock(side_effect=CalendarCoverageError("IDX holiday calendar is missing 2099")),
     )
-    request = Mock(side_effect=AssertionError("HTTP forbidden"))
-    monkeypatch.setattr("discord_forum.requests.request", request)
-
     assert board.main(["after-close", "--phase", "initial"]) == 0
 
     output = capsys.readouterr().out
     assert output == "❌ bursawatch-dc-swing-board · 16:30 WIB · failed: calendar coverage unavailable\n"
     assert BoardStore(state).count_rows("checkpoints") == 0
-    request.assert_not_called()
+    assert not hasattr(discord_forum, "requests")
 
 
 def test_cli_rejects_watcher_supplied_database_path():
@@ -333,12 +340,16 @@ def test_no_post_wrapper_preserves_arguments_and_uses_isolated_owner_paths(tmp_p
 
     assert completed.stdout.count("🫀 bursawatch-dc-swing-board") == 1
     assert "active=0 checked=0 unavailable=0 pending=0" in completed.stdout
+    assert BoardStore(env["IDX_SWING_PLAN_BOARD_STATE_PATH"]).pending_heartbeat_count() == 0
+    assert BoardStore(env["IDX_SWING_PLAN_BOARD_STATE_PATH"]).count_rows("channel_outbox") == 1
 
 
 def test_wrapper_optionally_loads_only_the_board_control_plane_settings():
     wrapper = (Path(__file__).resolve().parent.parent / "bin/bursawatch-dc-swing-board.sh").read_text()
 
     assert 'CONTROL_PLANE_BIN="$HOME/.agents/skills/lib-bursawatch-control/bin"' in wrapper
+    assert 'DELIVERY_CLIENT_BIN="$HOME/.agents/skills/lib-bursawatch-discord-delivery/bin"' in wrapper
+    assert "DISCORD_BOT_TOKEN" not in wrapper
     for key in (
         "IDX_SWING_PLAN_BOARD_CONTROL_PLANE_URL",
         "IDX_SWING_PLAN_BOARD_CONTROL_PLANE_WATCHER_ID",

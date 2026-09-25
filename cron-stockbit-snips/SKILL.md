@@ -77,5 +77,13 @@ STOCKBIT_SNIPS_STATE_PATH="$HOME/.hermes/state/stockbit-snips.json" "$HOME/.herm
 ```
 
 Do not post directly to Discord or invoke another local program. The scanner
-owns validation, state, routing, price lookup, rendering, delivery, retries,
-and heartbeats.
+owns validation, state, routing, price lookup, rendering, delivery
+coordination, and heartbeats.
+
+The scanner sends articles and heartbeats through the shared Delivery Owner
+client. The owner controls retries after accepting an operation; keep the
+article pending until it returns a delivered receipt. Never read or pass a
+Discord bot token. Delivery-state migration is an explicit operator action via
+`bursawatch-stockbit-snips.sh delivery-handoff --plan <private-path>` and a
+separately gated `--apply <private-path>`. Handoff uses each article's frozen
+live destination snapshot and does not load static destinations.

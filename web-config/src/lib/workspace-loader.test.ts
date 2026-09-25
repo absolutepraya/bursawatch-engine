@@ -36,7 +36,7 @@ async function flush() {
 describe("scoped workspace loading", () => {
   it.each([
     ["overview", null, 13, ["jobs", "runs"]],
-    ["sources", null, 1, []],
+    ["sources", null, 0, []],
     ["workflows", null, 1, []],
     ["workflows", "source-2", 2, ["jobs"]],
     ["workflows", xWatcherId, 3, ["jobs", "runs"]],
@@ -53,7 +53,7 @@ describe("scoped workspace loading", () => {
         watcherId,
       });
       expect(read).toHaveBeenCalledTimes(count);
-      expect(read.mock.calls[0][0]).toBe("watchers");
+      if (view !== "sources") expect(read.mock.calls[0][0]).toBe("watchers");
       expect(
         read.mock.calls
           .slice(1)
@@ -63,7 +63,7 @@ describe("scoped workspace loading", () => {
         expect(
           read.mock.calls.slice(1).every(([path]) => path.startsWith(`watchers/${watcherId}/`)),
         ).toBe(true);
-      expect(records.watchers).toEqual(catalog);
+      expect(records.watchers).toEqual(view === "sources" ? [] : catalog);
       expect(records.issues).toEqual([]);
     },
   );

@@ -243,7 +243,6 @@ def _drain_delivery(
             message_id = discord.post_text(
                 content,
                 channel_id,
-                token=runtime.discord_token,
                 dry_run=False,
                 event_key=key,
                 leg="news",
@@ -255,6 +254,11 @@ def _drain_delivery(
                 "delivered_at": now.isoformat(),
             }
             delivered += 1
+        except discord.DeliveryOwnerPending:
+            # The service accepted this operation. Its durable retry schedule
+            # is authoritative, so keep the source item pending without
+            # advancing a second local retry clock.
+            break
         except discord.DiscordRateLimited as error:
             state.mark_delivery_failure(record, now, str(error))
             if errors is not None:
@@ -282,7 +286,6 @@ def _heartbeat(runtime: config.RuntimeConfig, now: datetime, stats: Mapping[str,
     discord.post_text(
         content,
         config.HEARTBEAT_CHANNEL_ID,
-        token=runtime.discord_token,
         dry_run=False,
         event_key=f"heartbeat:{now:%Y%m%d%H%M}",
         leg="heartbeat",

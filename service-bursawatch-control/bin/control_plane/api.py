@@ -30,6 +30,14 @@ from .store import (
     SchedulerJobRecord,
     Store,
 )
+from .source_catalog import (
+    CatalogConflict,
+    MemoryCatalogStore,
+    PostgresCatalogStore,
+    catalog_view,
+    effective_snapshot,
+)
+from .source_inbox import InboxConflict, MemoryInboxStore, PostgresInboxStore
 from .validators import validators_from_environment
 
 
@@ -38,6 +46,50 @@ class ConfigWrite(BaseModel):
 
     config_version: int = Field(ge=1)
     config: dict[str, Any]
+
+
+class CatalogWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int = Field(ge=1)
+    config: dict[str, Any]
+
+
+class SourceEventWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    envelope: dict[str, Any]
+
+
+class WorkSettle(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    lease_token: str = Field(min_length=1, max_length=64)
+    success: bool
+    error_code: str | None = None
+
+
+class WorkFence(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    lease_token: str = Field(min_length=1, max_length=64)
+
+
+class WorkClaim(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    pipeline_ids: list[str] = Field(min_length=1, max_length=32)
+
+
+class WorkAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class WorkRecover(WorkAction):
+    worker_stopped: StrictBool
+
+
+class SourceRevisionWrite(WorkAction):
+    envelope: dict[str, Any]
+    kind: Literal["correction", "tombstone"]
+    revision_id: str = Field(min_length=1, max_length=128)
 
 
 class AvatarWrite(BaseModel):
@@ -190,10 +242,14 @@ def create_app(
     validators: dict[str, Callable[[dict[str, Any]], None]] | None = None,
     allowed_origins: list[str] | None = None,
     avatar_resolver: AvatarResolver | None = None,
+    catalog_store: MemoryCatalogStore | PostgresCatalogStore | None = None,
+    inbox_store: MemoryInboxStore | PostgresInboxStore | None = None,
 ) -> FastAPI:
     store = store or InMemoryStore()
     auth = auth or StaticTokenAuth.from_environment()
     validators = validators or {}
+    catalog_store = catalog_store or (PostgresCatalogStore(store.dsn) if isinstance(store, PostgresStore) else MemoryCatalogStore())
+    inbox_store = inbox_store or (PostgresInboxStore(store.dsn, catalog_store) if isinstance(store, PostgresStore) else MemoryInboxStore(catalog_store))
     app = FastAPI(title="Bursawatch Control Plane", version="1.0.0")
     if allowed_origins:
         app.add_middleware(
@@ -213,6 +269,16 @@ def create_app(
     def machine_or_admin(current: Principal = Depends(principal)) -> Principal:
         if current.kind not in {"machine", "admin"}:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="insufficient role")
+        return current
+
+    def source_event_principal(current: Principal = Depends(principal)) -> Principal:
+        if current.kind not in {"machine", "source_machine", "admin"}:
+            raise HTTPException(status_code=403, detail="source event role required")
+        return current
+
+    def worker_or_admin(current: Principal = Depends(principal)) -> Principal:
+        if current.kind not in {"machine", "admin"}:
+            raise HTTPException(status_code=403, detail="worker role required")
         return current
 
     def admin_only(current: Principal = Depends(principal)) -> Principal:
@@ -277,6 +343,111 @@ def create_app(
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/v1/source-catalog")
+    def get_source_catalog(current_user: Principal = Depends(human_reader)) -> dict[str, Any]:
+        current = catalog_store.get()
+        return {**catalog_view(current["config"], catalog_store.registry()), "config": current, "can_edit": current_user.kind == "admin"}
+
+    @app.get("/v1/source-catalog/effective")
+    def get_effective_catalog(_current: Principal = Depends(principal)) -> dict[str, Any]:
+        if _current.kind not in {"admin", "viewer", "machine"}:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="insufficient role")
+        current = catalog_store.get()
+        return effective_snapshot(current["config"], catalog_view(current["config"], catalog_store.registry()), current["revision"], current["updated_at"])
+
+    @app.put("/v1/source-catalog/config")
+    def put_source_catalog(payload: CatalogWrite, current: Principal = Depends(admin_only)) -> dict[str, Any]:
+        try:
+            return catalog_store.put(payload.expected_revision, payload.config, current.subject)
+        except CatalogConflict as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        except (ValueError, TypeError, KeyError) as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    @app.post("/v1/source-events")
+    def accept_source_event(payload: SourceEventWrite, current: Principal = Depends(source_event_principal)) -> dict[str, Any]:
+        if current.kind == "source_machine" and payload.envelope.get("endpoint_id") != current.subject:
+            raise HTTPException(status_code=403, detail="source endpoint credential mismatch")
+        try:
+            return inbox_store.accept(payload.envelope)
+        except InboxConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (ValueError, TypeError, KeyError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/v1/source-work/claim")
+    def claim_source_work(payload: WorkClaim, limit: int = Query(default=10, ge=1, le=100), _current: Principal = Depends(worker_or_admin)) -> list[dict[str, Any]]:
+        try:
+            return inbox_store.claim(payload.pipeline_ids, limit)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/v1/source-work/{work_key}/begin")
+    def begin_source_work(work_key: str, payload: WorkFence, _current: Principal = Depends(worker_or_admin)) -> dict[str, bool]:
+        return {"begun": inbox_store.begin(work_key, payload.lease_token)}
+
+    @app.get("/v1/source-work")
+    def list_source_work(status: Literal["pending", "leased", "executing", "done", "dead_letter", "suppressed", "superseded"], limit: int = Query(default=100, ge=1, le=100), _current: Principal = Depends(worker_or_admin)) -> list[dict[str, Any]]:
+        return inbox_store.list_work(status, limit)
+
+    @app.post("/v1/source-work/{work_key}/settle")
+    def settle_source_work(work_key: str, payload: WorkSettle, _current: Principal = Depends(worker_or_admin)) -> dict[str, Any]:
+        try:
+            return inbox_store.settle(work_key, payload.lease_token, success=payload.success, error_code=payload.error_code)
+        except InboxConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/v1/source-work/{work_key}/fence")
+    def fence_source_work(work_key: str, payload: WorkFence, _current: Principal = Depends(worker_or_admin)) -> dict[str, bool]:
+        return {"current": inbox_store.fence(work_key, payload.lease_token)}
+
+    @app.get("/v1/source-events/{event_key}")
+    def inspect_source_event(event_key: str, _current: Principal = Depends(worker_or_admin)) -> dict[str, Any]:
+        try:
+            return inbox_store.inspect(event_key)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="source event not found") from exc
+
+    @app.post("/v1/source-work/{work_key}/suppress")
+    def suppress_source_work(work_key: str, payload: WorkAction, current: Principal = Depends(admin_only)) -> dict[str, Any]:
+        try:
+            return inbox_store.suppress(work_key, current.subject, payload.reason)
+        except InboxConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/v1/source-work/{work_key}/replay")
+    def replay_source_work(work_key: str, payload: WorkAction, current: Principal = Depends(admin_only)) -> dict[str, Any]:
+        try:
+            return inbox_store.replay(work_key, current.subject, payload.reason)
+        except InboxConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/v1/source-work/{work_key}/recover")
+    def recover_source_work(work_key: str, payload: WorkRecover, current: Principal = Depends(admin_only)) -> dict[str, Any]:
+        try:
+            return inbox_store.recover(work_key, current.subject, payload.reason, payload.worker_stopped)
+        except InboxConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/v1/source-events/{event_key}/versions")
+    def revise_source_event(event_key: str, payload: SourceRevisionWrite, current: Principal = Depends(source_event_principal)) -> dict[str, Any]:
+        if current.kind not in {"admin", "source_machine"}:
+            raise HTTPException(status_code=403, detail="source revision role required")
+        if current.kind == "source_machine" and payload.envelope.get("endpoint_id") != current.subject:
+            raise HTTPException(status_code=403, detail="source endpoint credential mismatch")
+        try:
+            return inbox_store.revise(event_key, payload.envelope, payload.kind, payload.revision_id, current.subject, payload.reason)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="source event not found") from exc
+        except InboxConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/v1/watchers")
     def list_watchers(_current: Principal = Depends(human_reader)) -> list[dict[str, Any]]:

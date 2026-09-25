@@ -99,42 +99,50 @@ def test_canonicalize_image_rejects_animation() -> None:
         helper._canonicalize_image(output.getvalue())
 
 
-def test_discord_create_sends_static_png_data_uri() -> None:
-    import json
+def test_emoji_client_uses_delivery_owner_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
 
-    class Response:
-        status = 200
+    class FakeDelivery:
+        def __init__(self, url: str, token_file: Path, *, emoji_token_file: Path) -> None:
+            assert url == "http://127.0.0.1:9140"
+            assert token_file.name == "bursawatch-discord-delivery-client-token"
+            assert emoji_token_file.name == "bursawatch-discord-delivery-emoji-token"
 
-        def __enter__(self) -> "Response":
-            return self
+        def list_guild_emojis(self, guild_id: str) -> list[dict[str, object]]:
+            assert guild_id == helper.DEFAULT_GUILD_ID
+            return []
 
-        def __exit__(self, *_: object) -> None:
-            return None
+        def create_guild_emoji(self, guild_id: str, name: str, data: bytes) -> object:
+            assert (guild_id, name, data) == (helper.DEFAULT_GUILD_ID, "writer", b"png")
+            return SimpleNamespace(status="pending", key="profile-emoji:key", receipt=None)
 
-        def read(self, _: int) -> bytes:
-            return b'{"id":"1531672630602498129","name":"writer"}'
+        def wait(self, key: str, timeout: int) -> object:
+            assert key == "profile-emoji:key"
+            assert timeout == helper.DISCORD_TIMEOUT_SECONDS
+            return SimpleNamespace(status="delivered", receipt={"emoji_id": "1531672630602498129"})
 
-    class Opener:
-        def __init__(self) -> None:
-            self.requests = []
+    monkeypatch.setattr(helper, "DeliveryClient", FakeDelivery)
+    client = helper.EmojiDeliveryClient()
+    assert client.list_guild_emojis(helper.DEFAULT_GUILD_ID) == []
+    assert client.create_guild_emoji(helper.DEFAULT_GUILD_ID, "writer", b"png") == {
+        "name": "writer", "id": "1531672630602498129"
+    }
 
-        def open(self, request: object, timeout: int) -> Response:
-            self.requests.append((request, timeout))
-            return Response()
 
-    opener = Opener()
-    client = helper.DiscordClient("token-for-test", opener=opener)
-    response = client.create_guild_emoji(helper.DEFAULT_GUILD_ID, "writer", b"png")
+def test_ensure_cli_preserves_json_output_without_bot_token(monkeypatch: pytest.MonkeyPatch,
+                                                            capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
 
-    assert response["id"] == "1531672630602498129"
-    assert len(opener.requests) == 1
-    request, timeout = opener.requests[0]
-    assert timeout == helper.DISCORD_TIMEOUT_SECONDS
-    assert request.full_url.endswith(f"/guilds/{helper.DEFAULT_GUILD_ID}/emojis")
-    payload = json.loads(request.data.decode("utf-8"))
-    assert payload["name"] == "writer"
-    assert payload["roles"] == []
-    assert payload["image"].startswith("data:image/png;base64,")
+    class FakeClient:
+        def list_guild_emojis(self, _: str) -> list[dict[str, object]]:
+            return [{"id": "1531672630602498129", "name": "x_writer",
+                     "animated": False, "managed": False}]
+
+    monkeypatch.setattr(helper, "EmojiDeliveryClient", FakeClient)
+    assert helper.main(["ensure", "--platform", "x", "--account", "writer", "--json"]) == 0
+    output = helper.json.loads(capsys.readouterr().out)
+    assert output["action"] == "existing"
+    assert output["discord_markup"] == "<:x_writer:1531672630602498129>"
 
 
 def test_resolve_profile_image_uses_profile_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -165,8 +173,7 @@ def test_ensure_returns_existing_without_resolving_or_mutating(monkeypatch: pyte
     existing = {"id": "1531672630602498129", "name": "writer", "animated": False, "managed": False}
 
     class FakeClient:
-        def __init__(self, token: str) -> None:
-            assert token == "token-for-test"
+        def __init__(self) -> None:
             self.created = False
 
         def list_guild_emojis(self, guild_id: str) -> list[dict[str, object]]:
@@ -180,7 +187,7 @@ def test_ensure_returns_existing_without_resolving_or_mutating(monkeypatch: pyte
     def fail_resolve(_: helper.Account) -> helper.ResolvedImage:
         raise AssertionError("existing emoji must not download a new image")
 
-    monkeypatch.setattr(helper, "DiscordClient", FakeClient)
+    monkeypatch.setattr(helper, "EmojiDeliveryClient", FakeClient)
     monkeypatch.setattr(helper, "resolve_profile_image", fail_resolve)
 
     result = helper.ensure(
@@ -188,7 +195,6 @@ def test_ensure_returns_existing_without_resolving_or_mutating(monkeypatch: pyte
         "writer",
         helper.DEFAULT_GUILD_ID,
         apply=True,
-        token="token-for-test",
     )
     assert result["action"] == "existing"
     assert result["shortcode"] == ":writer:"
@@ -201,7 +207,7 @@ def test_ensure_dry_run_reports_absent_without_posting(monkeypatch: pytest.Monke
     resolved = _resolved_image(account)
 
     class FakeClient:
-        def __init__(self, _: str) -> None:
+        def __init__(self) -> None:
             self.created = False
 
         def list_guild_emojis(self, _: str) -> list[dict[str, object]]:
@@ -211,7 +217,7 @@ def test_ensure_dry_run_reports_absent_without_posting(monkeypatch: pytest.Monke
             self.created = True
             raise AssertionError("dry run must not post")
 
-    monkeypatch.setattr(helper, "DiscordClient", FakeClient)
+    monkeypatch.setattr(helper, "EmojiDeliveryClient", FakeClient)
     monkeypatch.setattr(helper, "resolve_profile_image", lambda _: resolved)
 
     result = helper.ensure(
@@ -219,7 +225,6 @@ def test_ensure_dry_run_reports_absent_without_posting(monkeypatch: pytest.Monke
         "ig_example_id",
         helper.DEFAULT_GUILD_ID,
         apply=False,
-        token="token-for-test",
     )
     assert result["action"] == "would_create"
     assert result["emoji_id"] is None
@@ -244,7 +249,7 @@ def test_ensure_image_apply_creates_absent_emoji(monkeypatch: pytest.MonkeyPatch
     image_path.write_bytes(_png_bytes())
 
     class FakeClient:
-        def __init__(self, _: str) -> None:
+        def __init__(self) -> None:
             self.created_payload: tuple[str, str, bytes] | None = None
 
         def list_guild_emojis(self, _: str) -> list[dict[str, object]]:
@@ -256,19 +261,17 @@ def test_ensure_image_apply_creates_absent_emoji(monkeypatch: pytest.MonkeyPatch
 
     fake_client: FakeClient | None = None
 
-    def make_client(token: str) -> FakeClient:
+    def make_client() -> FakeClient:
         nonlocal fake_client
-        assert token == "token-for-test"
-        fake_client = FakeClient(token)
+        fake_client = FakeClient()
         return fake_client
 
-    monkeypatch.setattr(helper, "DiscordClient", make_client)
+    monkeypatch.setattr(helper, "EmojiDeliveryClient", make_client)
     result = helper.ensure_image(
         str(image_path),
         "bridanareksa",
         helper.DEFAULT_GUILD_ID,
         apply=True,
-        token="token-for-test",
     )
 
     assert fake_client is not None
@@ -284,7 +287,7 @@ def test_ensure_apply_creates_absent_emoji_and_returns_both_forms(monkeypatch: p
     resolved = _resolved_image(account)
 
     class FakeClient:
-        def __init__(self, _: str) -> None:
+        def __init__(self) -> None:
             self.created_payload: tuple[str, str, bytes] | None = None
 
         def list_guild_emojis(self, _: str) -> list[dict[str, object]]:
@@ -296,13 +299,12 @@ def test_ensure_apply_creates_absent_emoji_and_returns_both_forms(monkeypatch: p
 
     fake_client: FakeClient | None = None
 
-    def make_client(token: str) -> FakeClient:
+    def make_client() -> FakeClient:
         nonlocal fake_client
-        assert token == "token-for-test"
-        fake_client = FakeClient(token)
+        fake_client = FakeClient()
         return fake_client
 
-    monkeypatch.setattr(helper, "DiscordClient", make_client)
+    monkeypatch.setattr(helper, "EmojiDeliveryClient", make_client)
     monkeypatch.setattr(helper, "resolve_profile_image", lambda _: resolved)
 
     result = helper.ensure(
@@ -310,7 +312,6 @@ def test_ensure_apply_creates_absent_emoji_and_returns_both_forms(monkeypatch: p
         "ig_example_id",
         helper.DEFAULT_GUILD_ID,
         apply=True,
-        token="token-for-test",
     )
     assert fake_client is not None
     assert fake_client.created_payload == (

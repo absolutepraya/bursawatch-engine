@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 
 from calendar import is_idx_trading_day, sessions_ago
-from discord_forum import DiscordForumClient, DiscordForumError, DiscordRateLimitError, DiscordRejectedError
+from discord_forum import DiscordForumClient, DiscordForumError
 from models import Checkpoint, Episode, MarketState, SourceEvent
 from media_store import acquire_media
 from prices import classify_close, fetch_session_close, parse_plan_levels
@@ -697,6 +697,10 @@ class BoardEngine:
         with self.store.delivery_lock() as acquired:
             return self._drain_owned(now, limit) if acquired else 0
 
+    def enqueue_heartbeat(self, channel_id: str, content: str, dedupe_key: str, now: datetime):
+        """Persist one scheduled channel intent before the owner can submit it."""
+        return self.store.enqueue_heartbeat(channel_id, content, dedupe_key, now)
+
     def _drain_owned(self, now: datetime | None, limit: int) -> int:
         completed = 0
         for _ in range(limit):
@@ -721,15 +725,18 @@ class BoardEngine:
                             thread_id=episode.thread_id,
                             message_id=payload.pop("target_message_id", episode.starter_message_id),
                         )
-                creating = operation.operation in {"create_thread", "post_source_reply", "post_history_reply"}
-                if creating and payload.get("create_snapshot"):
-                    completion = self.client.recover_create(operation.operation, payload)
-                else:
-                    def before_create():
-                        snapshot = self.client.create_snapshot(operation.operation, payload)
-                        self.store.set_create_snapshot(operation.id, operation.claim_token, snapshot)
-                    self.client.before_create = before_create if creating else None
-                    completion = self.client.execute(operation.operation, payload)
+                payload.setdefault("nonce_value", operation.dedupe_key)
+                # Tag IDs and any acquired media path become durable before the
+                # shared owner can mutate Discord. The operation key itself is
+                # already persisted as the outbox dedupe key.
+                payload = self.client.prepare_payload(operation.operation, payload)
+                if not isinstance(payload, dict):
+                    raise DiscordForumError("Board transport preparation returned an invalid payload")
+                self.store.persist_claimed_outbox_payload(
+                    operation.id, operation.claim_token, payload
+                )
+                payload["_delivery_key"] = operation.dedupe_key
+                completion = self.client.execute(operation.operation, payload)
                 if operation.operation == "create_thread" and not all(
                     completion.get(key) for key in ("thread_id", "starter_message_id")
                 ):
@@ -737,15 +744,31 @@ class BoardEngine:
                 self.store.complete_outbox(operation.id, operation.claim_token, completion, instant)
                 completed += 1
             except Exception as exc:
-                if isinstance(exc, (DiscordRateLimitError, DiscordRejectedError)) and getattr(exc, "create_rejected", False):
-                    self.store.set_create_snapshot(operation.id, operation.claim_token, None)
                 # Store only a safe category, never provider bodies or credentials.
                 self.store.fail_outbox(
                     operation.id, operation.claim_token, type(exc).__name__, instant,
-                    minimum_delay_seconds=exc.retry_after if isinstance(exc, DiscordRateLimitError) else 0,
                 )
-            finally:
-                self.client.before_create = None
+        while completed < limit:
+            instant = now or datetime.now(timezone.utc)
+            operation = self.store.claim_due_heartbeat(instant)
+            if operation is None:
+                break
+            try:
+                receipt = self.client.post_heartbeat(
+                    operation.channel_id,
+                    operation.content,
+                    operation_key=operation.dedupe_key,
+                )
+                if not isinstance(receipt, dict) or not receipt.get("message_id"):
+                    raise DiscordForumError("Delivery Owner returned no heartbeat message ID")
+                self.store.complete_heartbeat(
+                    operation.id, operation.claim_token or "", receipt, instant
+                )
+                completed += 1
+            except Exception as exc:
+                self.store.fail_heartbeat(
+                    operation.id, operation.claim_token or "", type(exc).__name__, instant
+                )
         return completed
 
 

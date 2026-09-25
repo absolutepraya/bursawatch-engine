@@ -57,6 +57,7 @@ def test_ordered_x_attachments_are_owned_and_retry_without_redownload(tmp_path, 
     monkeypatch.setenv("IDX_SWING_PLAN_BOARD_MEDIA_ROOT", str(root))
     downloads = source_session(monkeypatch, [MediaResponse(), MediaResponse()])
     client = Mock(spec=DiscordForumClient)
+    client.prepare_payload.side_effect = lambda _op, payload: dict(payload)
     uploads = []
 
     def execute(op, payload):

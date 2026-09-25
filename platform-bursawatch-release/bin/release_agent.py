@@ -27,6 +27,8 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
+from bursawatch_discord_delivery import DeliveryClient, OperationIntent
+
 
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 REPOSITORY_RE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
@@ -114,7 +116,8 @@ class Settings:
     runtime_home: Path
     control_plane_runtime: Path
     control_plane_env: Path
-    heartbeat_env: Path
+    delivery_owner_url: str
+    delivery_client_token_file: Path
     heartbeat_channel_id: str
     github_api_url: str
     timeout_seconds: float
@@ -166,8 +169,14 @@ class Settings:
                     "~/.hermes/bursawatch-control-plane.env",
                 )
             ).expanduser(),
-            heartbeat_env=Path(
-                os.environ.get("BURSAWATCH_RELEASE_HEARTBEAT_ENV", "~/.hermes/.env")
+            delivery_owner_url=os.environ.get(
+                "BURSAWATCH_DISCORD_DELIVERY_URL", "http://127.0.0.1:9140"
+            ).rstrip("/"),
+            delivery_client_token_file=Path(
+                os.environ.get(
+                    "BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE",
+                    "~/.hermes/secrets/bursawatch-discord-delivery-client-token",
+                )
             ).expanduser(),
             heartbeat_channel_id=os.environ.get(
                 "BURSAWATCH_RELEASE_HEARTBEAT_CHANNEL_ID", "1505162000420835388"
@@ -1285,31 +1294,22 @@ def _run_command(
 
 def _send_heartbeat(settings: Settings, content: str) -> None:
     try:
-        token = _discord_token(settings.heartbeat_env)
-        if not token:
-            return
-        body = json.dumps({"content": content, "allowed_mentions": {"parse": []}}).encode("utf-8")
-        request = Request(
-            f"https://discord.com/api/v10/channels/{settings.heartbeat_channel_id}/messages",
-            data=body,
-            method="POST",
-            headers={"Authorization": f"Bot {token}", "Content-Type": "application/json"},
+        content_digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        operation = OperationIntent(
+            key=f"bursawatch-release:heartbeat:{content_digest}",
+            kind="channel_message_create",
+            ordering_key=f"channel:{settings.heartbeat_channel_id}",
+            target={"channel_id": settings.heartbeat_channel_id},
+            payload={"content": content, "allowed_mentions": {"parse": []}},
         )
-        with urlopen(request, timeout=settings.timeout_seconds):
-            return
+        client = DeliveryClient(
+            settings.delivery_owner_url,
+            settings.delivery_client_token_file,
+            timeout_seconds=settings.timeout_seconds,
+        )
+        client.submit(operation)
     except Exception:
         return
-
-
-def _discord_token(path: Path) -> str | None:
-    try:
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if line.startswith("DISCORD_BOT_TOKEN="):
-                value = line.partition("=")[2].strip()
-                return value or None
-    except OSError:
-        return None
-    return None
 
 
 def _best_effort_sha(state: dict[str, Any]) -> str | None:

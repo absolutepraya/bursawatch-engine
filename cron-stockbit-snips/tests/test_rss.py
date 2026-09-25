@@ -35,5 +35,17 @@ def test_page_url_uses_squarespace_page_query() -> None:
     assert page_url(FEED, 2) == f"{FEED.url}&page=2"
 
 
+def test_provider_order_preserves_xml_position_without_changing_default() -> None:
+    xml = """<rss><channel>
+      <item><title>First</title><link>https://example.test/first</link><guid>first</guid>
+        <pubDate>Tue, 24 Sep 2024 00:00:00 GMT</pubDate></item>
+      <item><title>Second</title><link>https://example.test/second</link><guid>second</guid>
+        <pubDate>Wed, 25 Sep 2024 00:00:00 GMT</pubDate></item>
+    </channel></rss>"""
+
+    assert [article.guid for article in parse_feed(xml, FEED)] == ["second", "first"]
+    assert [article.guid for article in parse_feed(xml, FEED, provider_order=True)] == ["first", "second"]
+
+
 def test_visible_text_removes_scripts_and_collapses_blank_lines() -> None:
     assert visible_text("<script>x</script><p>A</p><div>B</div>") == "A\n\nB"

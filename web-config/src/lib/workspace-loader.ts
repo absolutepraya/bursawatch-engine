@@ -2,8 +2,7 @@ import { controlBrowser, WorkspaceError } from "./control-browser";
 import { xWatcherId } from "./x-delivery-status";
 import type { ControlJob, ControlRun, ControlWatcher } from "@/server/control-plane";
 
-export type WorkspaceView =
-  "overview" | "sources" | "workflows" | "history" | "settings";
+export type WorkspaceView = "overview" | "sources" | "workflows" | "history" | "settings";
 export type WorkspaceIssue = {
   watcherId: string;
   resource: "jobs" | "runs";
@@ -91,6 +90,8 @@ export async function loadWorkspaceRecords(
         updatedAt: new Date().toISOString(),
         issues: [],
       };
+    if (options.view === "sources")
+      return { watchers: [], jobs: [], runs: [], updatedAt: new Date().toISOString(), issues: [] };
     progress("catalog");
     const watchers = await request<ControlWatcher[]>("watchers", undefined, {
       signal: controller.signal,
@@ -98,7 +99,7 @@ export async function loadWorkspaceRecords(
     checkCancelled();
     options.onCatalog?.(watchers);
     const relevant =
-      options.view === "sources" || (options.view === "workflows" && !options.watcherId)
+      options.view === "workflows" && !options.watcherId
         ? []
         : options.view === "workflows"
           ? watchers.filter((watcher) => watcher.watcher_id === options.watcherId)

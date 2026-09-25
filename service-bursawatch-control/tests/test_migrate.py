@@ -111,6 +111,10 @@ def test_discover_migrations_uses_the_checked_legacy_eligibility_registry():
         "010_refresh_bri_source_emoji.sql",
         "011_stockbit_snips_control_plane.sql",
         "012_stockbit_scheduler_job_key.sql",
+        "013_source_catalog.sql",
+        "014_source_inbox.sql",
+        "015_source_revision_identity.sql",
+        "016_source_execution_fence.sql",
     }
     assert {migration.release_eligibility for migration in migrations} == {"automatic", "manual"}
     assert next(

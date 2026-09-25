@@ -7,6 +7,15 @@ Channels. It archives every event from an enabled profile and forwards only
 profiles explicitly configured for forwarding, using the same bounded
 relevance, title, summary, and routing contract as `cron-x-account-watch`.
 
+`cron-wa-source-ingest` is an unscheduled platform adapter. It reads the
+durable bridge queue and hands accepted Source Inbox work to
+`bin/pipeline_owner.py`. This watcher remains authoritative for archive,
+outbox, agent analysis, BRI Board, rendering, Delivery Owner, and heartbeat.
+Frozen source capabilities constrain which validated routes may be delivered;
+a truthful but unsubscribed classification becomes a terminal
+`route_not_subscribed` outcome. INS and Samuel remain observe-only without
+pipeline subscriptions.
+
 The watcher reuses the existing single Baileys bridge in Hermes. The bridge is
 the only WhatsApp Web connection. Its Channel sink is additive: it copies
 supported `@newsletter` events into this watcher's durable queue while the
@@ -71,6 +80,15 @@ watcher's scope.
   owner materializes the topic, the watcher patches the existing All Swing
   message to the direct topic URL. A pending topic or failed patch keeps the
   record retryable and cannot create a duplicate All message.
+- The unscheduled WhatsApp platform adapter may accept BRI source work into
+  this watcher's canonical outbox only after verifying the Source Inbox work
+  identity, frozen sibling capabilities, and all durable media originals.
+  `pipeline_owner.py` first writes and verifies the immutable archive, then
+  records the source event plus its frozen route scope. Its retry key is the
+  existing Channel event key. Agent submissions keep the truthful full-route
+  classification; routes absent from the frozen capability scope are recorded
+  as `route_not_subscribed` and never delivered. Legacy outbox records without
+  source scope retain their current behavior.
 - Already-delivered BRI Swing repairs use
   `bin/bursawatch-wa-channel-backfill.py`. Its `discover` and `plan` commands
   are read-only; `apply --apply` also requires
@@ -189,6 +207,34 @@ new explicit path with an existing private parent. `prune` is a dry run without
 reports archive media that would become unreferenced. A destructive prune
 requires separate explicit approval, an absolute archive root, and an operator
 review of its dry-run count.
+
+### Discord Delivery Owner handoff
+
+The watcher, archive helper, and BRI backfill helper use the shared
+`lib-bursawatch-discord-delivery` client for Discord sends, bounded message
+queries, and in-place edits. They do not read `DISCORD_BOT_TOKEN`; wrappers
+unset it. Configure `BURSAWATCH_DISCORD_DELIVERY_URL` and
+`BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE` in the Hermes environment when
+the defaults (`http://127.0.0.1:9140` and
+`~/.hermes/secrets/bursawatch-discord-delivery-client-token`) do not apply.
+The Delivery Owner owns retries after accepting an operation. Watcher state
+keeps its existing text/media cursors and saved message IDs, with the additive
+`media_message_ids` list recording successful media receipts.
+
+An operator can make a private, payload-free delivery-state plan through the
+archive wrapper. Planning reads watcher state and verified archive bytes but
+does not alter the queue, archive, subscription state, or backfill manifest:
+
+```bash
+~/.hermes/scripts/bursawatch-wa-channel-archive.sh delivery-handoff --plan /home/praya/.hermes/state/whatsapp-channel-watch/delivery-handoff.json
+```
+
+After reviewing the plan, applying requires the explicit `--apply` flag,
+`BURSAWATCH_DISCORD_HANDOFF_ALLOW_APPLY=1`, and a configured
+`BURSAWATCH_DISCORD_DELIVERY_ADMIN_TOKEN_FILE`. The helper writes its private
+source backup and acknowledgment sidecar beside the plan. It is an operator
+migration command only; watcher, archive, and backfill startup never invokes
+it.
 
 ### BRI Swing back-edit helper
 

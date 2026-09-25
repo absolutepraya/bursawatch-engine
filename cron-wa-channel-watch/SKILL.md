@@ -83,6 +83,12 @@ source media is unavailable. The watcher records that degraded media result,
 does not retry the same unavailable source forever, and still retries a Discord
 transport or upload failure. Technical Swing remains image-strict.
 
+All Discord sends, bounded history reads, and existing-message edits use the
+shared Delivery Owner client. Do not read a bot token, call Discord directly,
+or run the operator-only `delivery-handoff` plan/apply command while processing
+an event. A service-accepted operation remains under the owner's retry
+lifecycle while the watcher keeps its source cursor unchanged.
+
 Submit through the watcher wrapper:
 
 ```text

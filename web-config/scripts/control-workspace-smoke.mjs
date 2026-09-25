@@ -145,6 +145,18 @@ function fixtures() {
 
 async function scenario(role) {
   const state = fixtures();
+  const sourceConfig = { selected_securities: [], people_org: [], endpoints: [], publisher_defaults: [], endpoint_overrides: [] };
+  const sourceCatalog = {
+    can_edit: role === "admin",
+    securities: [],
+    institutions: [{ id: "phintraco", name: "Phintraco Sekuritas", tier: 1, asset_ref: null }],
+    people_org: [{ id: "x-ricky", name: "Ricky Ho", kind: null, tier: 3, asset_ref: null }],
+    endpoints: [{ id: "x:ricky", publisher_id: "x-ricky", platform: "x", address: "rickyho", provider_id: null, credential_ref: null, system_owned: true, verified: true }],
+    capabilities: [{ id: "company_news", label: "Company News", pipeline: "company_news", version: 1 }, { id: "trading_plans", label: "Trading Plans", pipeline: "swing_plan", version: 1 }],
+    compatibility: [{ endpoint_id: "x:ricky", capability_id: "company_news" }],
+    config: { revision: 1, config: sourceConfig, sha256: "a".repeat(64), actor_id: "baseline", updated_at: new Date().toISOString() },
+  };
+  const effectiveCatalog = () => ({ revision: sourceCatalog.config.revision, updated_at: sourceCatalog.config.updated_at, selected_securities: [], subscriptions: [{ endpoint_id: "x:ricky", publisher_id: "x-ricky", platform: "x", address: "rickyho", provider_id: null, credential_ref: null, capability_id: "company_news", pipeline: "company_news", enabled: false, verification_status: "verified", settings: {}, source: "unset" }] });
   const writes = [];
   const attempts = [];
   const failures = { config: [], schedule: [] };
@@ -261,6 +273,21 @@ async function scenario(role) {
         );
         assert.equal(signedIn, true, "Control requests require a signed-in synthetic user.");
         const path = url.pathname.slice("/api/control/".length);
+        if (method === "GET" && path === "source-catalog") return json(sourceCatalog);
+        if (method === "GET" && path === "source-catalog/effective") return json(effectiveCatalog());
+        if (method === "PUT" && path === "source-catalog/config") {
+          if (role === "viewer") return json({ code: "forbidden", message: "Admin access required." }, 403);
+          const payload = request.postDataJSON();
+          assert.equal(payload.expected_revision, sourceCatalog.config.revision);
+          assert.ok(payload.config.people_org.every((item) => item.kind));
+          assert.ok(payload.config.endpoint_overrides.every((item) => item.capability_id === "company_news"));
+          writes.push({ resource: "source-catalog", payload });
+          sourceCatalog.config = { ...sourceCatalog.config, revision: sourceCatalog.config.revision + 1, config: payload.config, updated_at: new Date().toISOString() };
+          sourceCatalog.people_org.push(...payload.config.people_org.map((item) => ({ ...item, tier: 3 })));
+          sourceCatalog.endpoints.push(...payload.config.endpoints.map((item) => ({ ...item, provider_id: null, verified: false, system_owned: false })));
+          sourceCatalog.compatibility.push(...payload.config.endpoints.flatMap((item) => ["company_news", "macro_news"].map((capability_id) => ({ endpoint_id: item.id, capability_id }))));
+          return json(sourceCatalog.config);
+        }
         if (method === "GET" && path === "watchers") return json(state.watchers);
         if (method === "GET" && path === `watchers/${watcherId}/jobs`) return json([state.job]);
         if (method === "GET" && path === `watchers/${swingId}/jobs`) return json([]);
@@ -584,35 +611,58 @@ async function scenario(role) {
       .click();
     await page.getByRole("heading", { name: "Run timeline", exact: true }).waitFor();
     await page.getByRole("heading", { name: "source checked", exact: true }).waitFor();
-    await navigate("Sources", "Source library");
-    await page.getByRole("heading", { name: "Public source library", exact: true }).waitFor();
+    await navigate("Sources", "Sources");
+    await page.getByRole("heading", { name: "Source Catalog", exact: true }).waitFor();
     const securitiesTab = page.getByRole("tab", { name: "Securities", exact: true });
-    const peopleTab = page.getByRole("tab", { name: "People", exact: true });
-    assert.equal(await securitiesTab.getAttribute("aria-selected"), "true");
+    const institutionsTab = page.getByRole("tab", { name: "Institutions", exact: true });
+    const peopleTab = page.getByRole("tab", { name: "People & Org", exact: true });
+    await page.getByText("No engine supported securities are available yet.", { exact: false }).waitFor();
+    assert.equal(await page.getByRole("button", { name: "Add security" }).count(), 0);
     await securitiesTab.focus();
     await page.keyboard.press("ArrowRight");
-    assert.equal(await peopleTab.getAttribute("aria-selected"), "true");
-    assert.equal(await peopleTab.evaluate((element) => element === document.activeElement), true);
-    await page.keyboard.press("ArrowLeft");
-    assert.equal(await securitiesTab.getAttribute("aria-selected"), "true");
-    assert.equal(await securitiesTab.evaluate((element) => element === document.activeElement), true);
-    await page.getByRole("heading", { name: "BRI Danareksa Sekuritas", exact: true }).waitFor();
+    assert.equal(await institutionsTab.getAttribute("aria-selected"), "true");
     await page.getByRole("heading", { name: "Phintraco Sekuritas", exact: true }).waitFor();
-    assert.equal(await page.getByRole("link", { name: "Open X settings", exact: true }).count(), 0, "Unavailable workflow links must not be invented.");
-    await peopleTab.click();
-    await capture("source-library-people-desktop");
-    const sourceSearch = page.getByRole("searchbox", { name: "Search sources", exact: true });
-    await sourceSearch.fill("Ricky");
+    await page.keyboard.press("ArrowRight");
+    assert.equal(await peopleTab.getAttribute("aria-selected"), "true");
     await page.getByRole("heading", { name: "Ricky Ho", exact: true }).waitFor();
-    assert.equal(await page.getByRole("heading", { name: "Phintraco Sekuritas", exact: true }).count(), 0);
-    await sourceSearch.fill("no matching account");
-    await page.getByRole("heading", { name: "No sources match these filters", exact: true }).waitFor();
-    await page.getByRole("button", { name: "Clear filters", exact: true }).click();
+    await capture("source-library-people-desktop");
+    if (role === "viewer") {
+      await page.getByText("View access. An admin can change source catalog settings.", { exact: true }).waitFor();
+      assert.equal(await page.getByRole("group", { name: "Add People & Org identity" }).count(), 0);
+      assert.equal(await page.getByRole("group", { name: "Add an endpoint for People & Org" }).count(), 0);
+      assert.equal(await page.getByRole("button", { name: "Apply setting to draft" }).count(), 0);
+      assert.equal(await page.getByRole("button", { name: "Save catalog" }).count(), 0);
+      assert.equal(writes.filter((item) => item.resource === "source-catalog").length, 0);
+    }
+    if (role === "admin") {
+      await page.getByRole("group", { name: "Add People & Org identity" }).getByLabel("Name").fill("Fixture Analyst");
+      await page.getByRole("button", { name: "Add identity to draft" }).click();
+      await page.getByRole("group", { name: "Add an endpoint for People & Org" }).getByLabel("Publisher").selectOption("fixture-analyst");
+      await page.getByRole("group", { name: "Add an endpoint for People & Org" }).getByLabel("Canonical handle").fill("fixture_analyst");
+      await page.getByRole("button", { name: "Add pending endpoint to draft" }).click();
+      await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(0).selectOption("x-fixture-analyst");
+      assert.equal(await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(1).locator("option").count(), 1, "Unsaved endpoints have no backend compatibility yet.");
+      await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(0).selectOption("x:ricky");
+      assert.equal(await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(1).getByRole("option", { name: "Trading Plans" }).count(), 0);
+      await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(1).selectOption("company_news");
+      await page.getByRole("group", { name: "Capability setting" }).getByLabel("Enabled intent").check();
+      await page.getByRole("button", { name: "Apply setting to draft" }).click();
+      await page.getByRole("button", { name: "Save catalog" }).click();
+      await page.getByText("Saved catalog", { exact: false }).waitFor();
+      assert.equal(writes.filter((item) => item.resource === "source-catalog").length, 1);
+      await page.reload();
+      await page.getByRole("heading", { name: "Source Catalog", exact: true }).waitFor();
+      await page.getByRole("tab", { name: "People & Org", exact: true }).click();
+      await page.getByRole("heading", { name: "Fixture Analyst", exact: true }).waitFor();
+      await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(0).selectOption("x-fixture-analyst");
+      await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(1).selectOption("company_news");
+      await page.getByText("pending", { exact: false }).first().waitFor();
+    }
     await securitiesTab.click();
     await capture("source-library-desktop");
     await page.goto(`${target.origin}/workspace/workflows?tab=sources`);
     await page.waitForURL(`${target.origin}/workspace/sources`);
-    await page.getByRole("heading", { name: "Public source library", exact: true }).waitFor();
+    await page.getByRole("heading", { name: "Source Catalog", exact: true }).waitFor();
     await navigate("Workflows", "Workflows");
     const workflowSearch = page.getByRole("searchbox", {
       name: "Search workflows",
@@ -626,7 +676,7 @@ async function scenario(role) {
     await page.getByRole("button", { name: "Clear filters", exact: true }).click();
     await page.getByText("Showing 3 of 3 workflows", { exact: true }).waitFor();
     assert.equal(await page.getByRole("button", { name: /^Open watcher details:/ }).count(), 3);
-    assert.equal(writes.length, 0, "Browsing source references must never write configuration.");
+    assert.equal(writes.filter((item) => item.resource !== "source-catalog").length, 0, "Browsing workflows must not write watcher configuration.");
     await page.getByRole("button", { name: /^Open watcher details: Market news/ }).click();
     await page.getByRole("heading", { name: "Market news", exact: true }).waitFor();
     if (role === "viewer") {
@@ -652,7 +702,7 @@ async function scenario(role) {
         true,
         "Validation failures must allow a corrected retry.",
       );
-      assert.equal(writes.length, 0);
+      assert.equal(writes.filter((item) => item.resource !== "source-catalog").length, 0);
       await instructions.fill("Updated synthetic fixture instructions.");
       await saveConfig.click();
       await page
@@ -919,11 +969,11 @@ async function scenario(role) {
       await navigate("History", "Run history");
       await noOverflow(`${role} ${textSize} history`);
       await navigate("Workflows", "Workflows");
-      await navigate("Sources", "Source library");
-      await page.getByRole("heading", { name: "Public source library", exact: true }).waitFor();
+      await navigate("Sources", "Sources");
+      await page.getByRole("heading", { name: "Source Catalog", exact: true }).waitFor();
       await noOverflow(`${role} ${textSize} Securities library`);
       await capture(textSize === "100%" ? "source-library-375" : "source-library-375-text-200");
-      await page.getByRole("tab", { name: "People", exact: true }).click();
+      await page.getByRole("tab", { name: "People & Org", exact: true }).click();
       await noOverflow(`${role} ${textSize} People library`);
       await navigate("Workflows", "Workflows");
       await page.getByRole("button", { name: /^Open watcher details: Market news/ }).click();

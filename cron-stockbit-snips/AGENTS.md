@@ -3,6 +3,16 @@
 This package supplements the repository `AGENTS.md` and owns the development
 source for the agent-backed `cron-stockbit-snips` watcher.
 
+`cron-rss-source-ingest` is an unscheduled source and pipeline pilot for the
+same four fixed lanes. Its accepted source events carry a validated frozen
+snapshot of the live configuration. `bin/pipeline_owner.py` admits text-only
+articles to this watcher's existing article queue with durable source-work
+provenance. It rejects a conflicting legacy article or revision and claims
+only source-backed articles for the RSS runner's agent wake. This watcher
+retains the live source job, routes, rendering, Delivery Owner path, and
+heartbeat. The pilot cannot replace the live source job before a reviewed
+state inventory and exact output parity are proven.
+
 ## Boundary
 
 - The source is public RSS from `https://snips.stockbit.com/`.
@@ -53,9 +63,21 @@ source for the agent-backed `cron-stockbit-snips` watcher.
   Discord or writes control-plane run events. It still performs the required
   live config GET. Release verification uses a fresh temporary state, so it
   cannot submit an article for agent analysis.
-- The wrapper imports only the Stockbit control-plane URL, watcher ID, token,
-  and timeout from Hermes's `.env`, even in release no-post. It requires the
-  deployed `lib-bursawatch-control` client and never sets an event spool path.
+- The wrapper imports the Stockbit control-plane URL, watcher ID, token, and
+  timeout plus the Delivery Owner URL and client/admin token-file paths from
+  Hermes's `.env`. It unsets `DISCORD_BOT_TOKEN`, requires the deployed
+  `lib-bursawatch-control` client and the shared Discord delivery client, and
+  never sets an event spool path. It imports the live Stockbit configuration
+  settings even in release no-post mode; missing or invalid live configuration
+  blocks RSS intake, with no static fallback.
+- Discord article sends and heartbeats go through the shared Delivery Owner
+  client. Once accepted, the owner's durable retry state is authoritative and
+  the local article stays pending until the owner returns a delivered receipt.
+  The operator-only `delivery-handoff --plan <path>` command reconstructs
+  pending operations from their saved rendered content and frozen live
+  configuration snapshot. Its gated `--apply <path>` requires
+  `BURSAWATCH_DISCORD_HANDOFF_ALLOW_APPLY=1` and the admin token-file setting.
+  It never runs during RSS polling, agent submission, or state migration.
 - The one-time first-page backfill is a later, separately approved operation.
 - Do not add, enable, pause, or reschedule the live Hermes job from this
   package without explicit approval.

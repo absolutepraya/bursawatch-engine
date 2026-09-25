@@ -5,17 +5,16 @@ script_dir="$(cd "$(dirname "$0")" && pwd)"
 export TZ=Asia/Jakarta
 export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
 control_plane_bin="$HOME/.agents/skills/lib-bursawatch-control/bin"
-if [[ -d "$control_plane_bin" ]]; then
-  export PYTHONPATH="$control_plane_bin${PYTHONPATH:+:$PYTHONPATH}"
-fi
+delivery_bin="$HOME/.agents/skills/lib-bursawatch-discord-delivery/bin"
+export PYTHONPATH="$control_plane_bin:$delivery_bin${PYTHONPATH:+:$PYTHONPATH}"
+unset DISCORD_BOT_TOKEN
 
 if [[ -r "$HOME/.hermes/.env" ]]; then
-  value="$(grep -E '^DISCORD_BOT_TOKEN=' "$HOME/.hermes/.env" | head -1 | cut -d= -f2- || true)"
-  [[ -n "$value" ]] && export "DISCORD_BOT_TOKEN=$value"
   if [[ "${BURSAWATCH_RELEASE_NO_POST:-}" != "1" ]]; then
     for name in WHATSAPP_CHANNEL_WATCH_CONTROL_PLANE_URL WHATSAPP_CHANNEL_WATCH_CONTROL_PLANE_WATCHER_ID \
       WHATSAPP_CHANNEL_WATCH_CONTROL_PLANE_TOKEN WHATSAPP_CHANNEL_WATCH_CONTROL_PLANE_TIMEOUT_SECONDS \
-      WHATSAPP_CHANNEL_WATCH_CONTROL_PLANE_SPOOL_PATH; do
+      WHATSAPP_CHANNEL_WATCH_CONTROL_PLANE_SPOOL_PATH BURSAWATCH_DISCORD_DELIVERY_URL \
+      BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE BURSAWATCH_DISCORD_DELIVERY_ADMIN_TOKEN_FILE; do
       value="$(grep -E "^${name}=" "$HOME/.hermes/.env" | head -1 | cut -d= -f2- || true)"
       [[ -n "$value" ]] && export "$name=$value"
     done

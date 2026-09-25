@@ -4,8 +4,11 @@ set -euo pipefail
 export TZ=Asia/Jakarta
 export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
 control_plane_bin="$HOME/.agents/skills/lib-bursawatch-control/bin"
+delivery_client_bin="$HOME/.agents/skills/lib-bursawatch-discord-delivery/bin"
 if [[ -d "$control_plane_bin" ]]; then
-  export PYTHONPATH="$control_plane_bin${PYTHONPATH:+:$PYTHONPATH}"
+  export PYTHONPATH="$delivery_client_bin:$control_plane_bin${PYTHONPATH:+:$PYTHONPATH}"
+else
+  export PYTHONPATH="$delivery_client_bin${PYTHONPATH:+:$PYTHONPATH}"
 fi
 
 if [[ "${INSTAGRAM_POST_WATCH_NO_POST:-}" == "1" ]]; then
@@ -20,8 +23,10 @@ if [[ "${INSTAGRAM_POST_WATCH_NO_POST:-}" == "1" ]]; then
 fi
 
 if [[ -r "$HOME/.hermes/.env" ]]; then
-  value="$(grep -E '^DISCORD_BOT_TOKEN=' "$HOME/.hermes/.env" | head -1 | cut -d= -f2- || true)"
-  [[ -n "$value" ]] && export "DISCORD_BOT_TOKEN=$value"
+  for name in BURSAWATCH_DISCORD_DELIVERY_URL BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE; do
+    value="$(grep -E "^${name}=" "$HOME/.hermes/.env" | head -1 | cut -d= -f2- || true)"
+    [[ -n "$value" ]] && export "$name=$value"
+  done
   if [[ "${BURSAWATCH_RELEASE_NO_POST:-}" != "1" ]]; then
     for name in INSTAGRAM_POST_WATCH_CONTROL_PLANE_URL INSTAGRAM_POST_WATCH_CONTROL_PLANE_WATCHER_ID \
       INSTAGRAM_POST_WATCH_CONTROL_PLANE_TOKEN INSTAGRAM_POST_WATCH_CONTROL_PLANE_TIMEOUT_SECONDS \
@@ -31,6 +36,8 @@ if [[ -r "$HOME/.hermes/.env" ]]; then
     done
   fi
 fi
+export BURSAWATCH_DISCORD_DELIVERY_URL="${BURSAWATCH_DISCORD_DELIVERY_URL:-http://127.0.0.1:9140}"
+export BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE="${BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE:-$HOME/.hermes/secrets/bursawatch-discord-delivery-client-token}"
 
 python_bin="${INSTAGRAM_POST_WATCH_PY:-$HOME/.local/share/instagram-post-watch/paddleocr-venv/bin/python}"
 script="$HOME/.agents/skills/bursawatch-ig-account-watch/bin/scan.py"

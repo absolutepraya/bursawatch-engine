@@ -21,6 +21,22 @@ Every scheduled package has `AGENTS.md` and exactly one contract file:
 | `cron-ig-account-watch` | `bursawatch-ig-account-watch` | Instagram account and reel watcher |
 | `cron-wa-channel-watch` | `bursawatch-wa-channel-watch` | WhatsApp Channel watcher and queue |
 | `cron-stockbit-snips` | `bursawatch-stockbit-snips` | Stockbit Snips RSS news watcher |
+| `cron-tg-source-ingest` | reserved `bursawatch-tg-source-ingest` | Unscheduled Telegram source, pipeline, and bounded agent handoff pilot |
+| `cron-x-source-ingest` | reserved `bursawatch-x-source-ingest` | Unscheduled X catalog and inbox pilot |
+| `cron-ig-source-ingest` | reserved `bursawatch-ig-source-ingest` | Unscheduled Instagram catalog and inbox pilot |
+| `cron-wa-source-ingest` | reserved `bursawatch-wa-source-ingest` | Unscheduled WhatsApp bridge-queue inbox pilot |
+| `cron-rss-source-ingest` | reserved `bursawatch-rss-source-ingest` | Unscheduled fixed Stockbit RSS inbox pilot |
+
+The five source-ingest packages and their platform-to-domain handoffs are
+development pilots. They are release metadata only and have no Hermes jobs.
+Existing watcher packages remain the production readers and continue to own
+their current queues, agents, rendering, and domain state until a separately
+approved state and schedule cutover. The shared
+`lib-bursawatch-source-ingest` code stages bounded endpoint-local events and
+advances a private cursor only after an inbox receipt. Media uses the shared
+Source Media Owner contract; no live bucket or service bootstrap is claimed.
+The [migration inventory](docs/superpowers/specs/2026-09-25-bursawatch-source-pipeline-migration-inventory.md)
+lists checked-in endpoint/state contracts and the live evidence still required.
 
 `lib-swing-format` is the shared cash-Swing renderer. `lib-telegram-resilience`
 owns the shared PolyCop Telegram control plane. Hermes Personal's Polymarket

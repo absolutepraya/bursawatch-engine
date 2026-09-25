@@ -11,6 +11,8 @@ package_dir="$(cd "$(dirname "$0")/.." && pwd)"
 agent_dir="$HOME/.local/lib/bursawatch-release"
 state_root="$HOME/.local/share/bursawatch-release"
 environment_file="$HOME/.hermes/bursawatch-release-agent.env"
+delivery_client_bin="$HOME/.agents/skills/lib-bursawatch-discord-delivery/bin"
+delivery_client_token_file="$HOME/.hermes/secrets/bursawatch-discord-delivery-client-token"
 
 [[ -r "$environment_file" ]] || {
   echo "refused: create $environment_file with mode 0600 first" >&2
@@ -22,6 +24,18 @@ environment_file="$HOME/.hermes/bursawatch-release-agent.env"
 }
 grep -q '^BURSAWATCH_RELEASE_GITHUB_TOKEN=.' "$environment_file" || {
   echo "refused: release environment does not define the GitHub token" >&2
+  exit 1
+}
+[[ -r "$delivery_client_bin/bursawatch_discord_delivery/client.py" ]] || {
+  echo "refused: the shared Discord Delivery client is not installed" >&2
+  exit 1
+}
+[[ -r "$delivery_client_token_file" ]] || {
+  echo "refused: create $delivery_client_token_file with mode 0600 first" >&2
+  exit 1
+}
+[[ "$(stat -c '%a' "$delivery_client_token_file")" == "600" ]] || {
+  echo "refused: $delivery_client_token_file must have mode 0600" >&2
   exit 1
 }
 command -v git >/dev/null

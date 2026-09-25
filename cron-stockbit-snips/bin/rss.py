@@ -92,7 +92,7 @@ def _media_url(item: ET.Element) -> str | None:
     return None
 
 
-def parse_feed(xml: str, feed: Feed) -> list[Article]:
+def parse_feed(xml: str, feed: Feed, *, provider_order: bool = False) -> list[Article]:
     try:
         root = ET.fromstring(xml)
     except ET.ParseError as error:
@@ -125,7 +125,8 @@ def parse_feed(xml: str, feed: Feed) -> list[Article]:
                 media_url=_media_url(item),
             )
         )
-    articles.sort(key=lambda item: (item.published_at, item.guid), reverse=True)
+    if not provider_order:
+        articles.sort(key=lambda item: (item.published_at, item.guid), reverse=True)
     return articles
 
 
@@ -151,6 +152,7 @@ def fetch_feed(
     page: int = 1,
     etag: str | None = None,
     last_modified: str | None = None,
+    provider_order: bool = False,
 ) -> FetchResult:
     headers = {"User-Agent": USER_AGENT, "Accept": "application/rss+xml, application/xml;q=0.9, text/xml;q=0.8"}
     if etag:
@@ -163,7 +165,7 @@ def fetch_feed(
     response.raise_for_status()
     return FetchResult(
         feed,
-        tuple(parse_feed(response.text, feed)),
+        tuple(parse_feed(response.text, feed, provider_order=provider_order)),
         response.headers.get("ETag") or etag,
         response.headers.get("Last-Modified") or last_modified,
         False,

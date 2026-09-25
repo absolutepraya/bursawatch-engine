@@ -1,5 +1,31 @@
 # Bursawatch Control Plane
 
+## Source Catalog phase 1
+
+`GET /v1/source-catalog` returns the engine-owned securities allowlist,
+curated publishers, canonical platform endpoints, capabilities, compatibility,
+and the current independent catalog revision. Its `can_edit` flag comes from the authenticated principal and is true only for an admin. `GET /v1/source-catalog/effective`
+resolves publisher defaults and endpoint overrides into a machine-readable
+subscription snapshot. Each subscription includes its canonical address,
+provider ID when known, and only a managed credential reference when one is
+configured. WhatsApp provider IDs are channel JIDs; invitation URLs remain
+addresses. A signed-in admin uses `PUT /v1/source-catalog/config`
+with `expected_revision` and the complete config to save a new audited revision.
+Stale writes return 409. Viewers can read the registry, and machine credentials
+can read the effective snapshot. Asset metadata is an HTTPS reference only;
+secrets are managed credential references. New People & Org endpoints stay
+pending and cannot activate a pipeline until a reviewed identity verification
+path is added.
+
+Migration `013_source_catalog.sql` adds a private engine registry and independent
+catalog revision/audit tables. It seeds canonical IDs from checked-in watcher
+configs and the fixed Stockbit `FEEDS` definition without copying, converting,
+or replacing any live watcher config.
+There is currently no reviewed finite engine-owned IDX securities list, so
+the supported-securities table and initial selection are empty. Add securities
+only through a reviewed engine migration after establishing that allowlist.
+Current curated web images remain usable without a new upload flow.
+
 This service is the backend boundary between Bursawatch crons, the managed
 Postgres control-plane database, and the separate Bursawatch web application.
 
@@ -200,3 +226,64 @@ X, one hour to 24 hours for Instagram, one minute to one hour for Phintraco and
 Market News, and five minutes to six hours for Kelas Investasi. WhatsApp is one minute
 to six hours. The two Swing Board calendar jobs and the X queue worker remain
 fixed and read-only.
+
+## Source inbox (development contract, not yet live)
+
+`POST /v1/source-events` accepts a bounded version 1 envelope. Its provider identity
+is `(platform, endpoint_id, provider_event_id)`; repeating the same original returns
+its durable receipt and a conflicting original returns 409. Acceptance validates
+publisher and endpoint identity against the Source Catalog, then writes the source
+version and one work item per enabled, compatible subscription in one Postgres
+transaction. Work freezes the catalog revision, capability version, resolved settings,
+and the configuration source. A later disable prevents new work but leaves accepted
+items pending. Corrections and tombstones append audited versions targeted at the
+original subscription set, even if those subscriptions were later disabled. Tombstones
+are terminal. No legacy cursor or watcher state is moved by this migration.
+
+Worker machine clients may claim work, settle a current lease, and inspect events or work.
+Claims require a nonempty list of supported pipeline IDs and use
+`FOR UPDATE SKIP LOCKED`, a 120-second lease, and at most five attempts.
+Kelas Telegram `swing_support` work is ordered by numeric source message ID.
+A later Kelas message cannot be claimed while an earlier current-version item
+is pending, leased, executing, or dead-lettered. This preserves bundle and
+cursor order through retry; an audited admin suppression or replay is required
+to clear a blocked predecessor.
+Failed attempts back off up to one hour and store only a sanitized error code. Human
+admins may explicitly suppress idle work or replay suppressed and dead-letter items
+with a bounded reason; both actions are audited. The stable `effect_key` must be used
+as the idempotency key at each domain owner. A lease expiry can run a handler again,
+so the domain owner must deduplicate the effect before claiming exactly-once output.
+An endpoint-scoped source credential (configured privately with
+`CONTROL_PLANE_SOURCE_ENDPOINT_TOKENS` as an endpoint-ID to token JSON map) may
+accept and revise only its own endpoint. The shared worker machine credential
+cannot revise events. Corrections and tombstones require a stable `revision_id`;
+retrying the same revision returns its receipt even when `observed_at` changes.
+Reusing that ID for changed content is a conflict. Correction and tombstone
+acceptance returns 409 without appending a version while any older work remains
+`leased` or `executing`, including an expired lease. The source adapter must keep its durable
+handoff and retry after the old work settles. Claim and revision transactions
+lock the same event row; begin-execution locks it too. A worker must call
+`POST /v1/source-work/{work_key}/begin` with its lease token immediately before
+invoking a handler. A failed begin forbids handler invocation. `executing` work
+is never automatically reclaimed, even after the original lease deadline.
+If its worker crashes, an admin must first verify the process has stopped,
+then call the audited `/recover` endpoint with `worker_stopped: true` and a
+bounded reason. Recovery moves work to dead-letter for explicit inspection
+or replay; it does not silently retry an uncertain effect.
+Once committed, the new version supersedes prior pending, dead-letter, and
+suppressed work; claim queries also fence by the latest version. The `/fence`
+endpoint offers a read-only check, while `/begin` is the required atomic gate.
+A handler already running may finish its domain effect before its execution settles
+and before the revision is accepted; the adapter waits for that settlement. Domain owners must still
+deduplicate `(event_key, version, effect_key)` across retry and crash recovery.
+Run summaries remain in `ControlPlaneReporter` and do not contain source payloads.
+
+Media bytes never enter Postgres. Source-event media references must be opaque stable
+identities minted by the private Source Media Owner, with bounded digest, kind, MIME,
+size, and filename metadata. The inbox validates those fields and the per-object and
+per-event byte limits, but does not resolve refs or access Storage. The media service
+owns Storage credentials and provides authenticated upload and download operations.
+This code path uses fake providers in tests; it does not authorize a bucket, Supabase
+change, or production replay. Operator inspection can contain source payload and should
+be restricted to the authenticated API, never copied into routine logs or heartbeats.
+The in-memory inbox is for local contract testing only.

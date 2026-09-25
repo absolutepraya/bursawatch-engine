@@ -72,6 +72,45 @@ class FakeClients:
         self.client.phintraco_error = value
 
 
+class FakeDeliveryOwner:
+    def __init__(self, *, fail_first_news=False):
+        self.operations = {}
+        self.submissions = []
+        self.fail_first_news = fail_first_news
+
+    def status(self, operation_key):
+        return self.operations.get(operation_key)
+
+    def submit(self, operation):
+        self.submissions.append(operation)
+        if self.fail_first_news and "heartbeat-" not in operation.key:
+            self.fail_first_news = False
+            raise delivery.DeliveryClientError("timeout")
+        receipt = delivery.OperationReceipt(
+            id=f"owner-{len(self.submissions)}",
+            key=operation.key,
+            digest=operation.digest,
+            status="delivered",
+            receipt={
+                "channel_id": operation.target["channel_id"],
+                "message_id": str(6000 + len(self.submissions)),
+            },
+        )
+        self.operations[operation.key] = receipt
+        return receipt
+
+    def wait(self, operation_key, timeout_seconds):
+        assert timeout_seconds == 0
+        return self.operations[operation_key]
+
+
+def _install_delivery_owner(monkeypatch, *, fail_first_news=False):
+    owner = FakeDeliveryOwner(fail_first_news=fail_first_news)
+    monkeypatch.setattr(scan, "_dry_run", lambda: False)
+    monkeypatch.setattr(scan, "delivery_client_from_environment", lambda: owner)
+    return owner
+
+
 def _bootstrapped_state(tmp_state):
     state = empty_state()
     for lane in state["providers"].values():
@@ -576,10 +615,11 @@ def test_run_preserves_news_state_when_shared_telegram_probe_times_out(
     monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_state))
     monkeypatch.setattr(scan, "resilience", lambda: resilience)
     monkeypatch.setattr(scan, "_make_client", UnavailableClient)
+    monkeypatch.setattr(scan, "delivery_client_from_environment", lambda: object())
     monkeypatch.setattr(
         scan,
         "post_hermes_text",
-        lambda content, *_args: posted.append(content) or "discord-id",
+        lambda content, *_args, **_kwargs: posted.append(content) or "discord-id",
     )
 
     assert asyncio.run(
@@ -653,13 +693,7 @@ def test_news_delivery_failure_stays_delivery_work_and_retries_once(tmp_state, m
     fake_clients = FakeClients()
     monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_state))
     monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
-    posts = []
-
-    def post(content, channel_id, event_key, dry_run=False):
-        posts.append((content, channel_id, event_key))
-        return None if len(posts) == 1 else "discord-id"
-
-    monkeypatch.setattr(delivery, "post_discord_text", post)
+    owner = _install_delivery_owner(monkeypatch, fail_first_news=True)
     first = asyncio.run(scan.run(datetime.fromisoformat("2026-07-14T16:29:00+07:00"), fake_clients))
     item = first["items"][0]
     payload = {
@@ -691,9 +725,11 @@ def test_news_delivery_failure_stays_delivery_work_and_retries_once(tmp_state, m
 
     assert retried["news_delivered"] == 1
     assert load_state()["candidates"][item["candidate_key"]]["phase"] == "delivered"
-    assert len(posts) == 2
+    news_operations = [operation for operation in owner.submissions if "heartbeat-" not in operation.key]
+    assert len(news_operations) == 2
+    assert news_operations[0].key == news_operations[1].key
     assert scan.ALERT_CHANNEL_ID == "1525102508714889257"
-    assert {channel_id for _, channel_id, _ in posts} == {scan.ALERT_CHANNEL_ID}
+    assert {operation.target["channel_id"] for operation in news_operations} == {scan.ALERT_CHANNEL_ID}
 
 
 def test_failed_tier_two_delivery_retries_without_waiting_for_a_scheduled_window(tmp_state, monkeypatch):
@@ -701,13 +737,7 @@ def test_failed_tier_two_delivery_retries_without_waiting_for_a_scheduled_window
     fake_clients = FakeClients()
     monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_state))
     monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
-    posts = []
-
-    def post(content, channel_id, event_key, dry_run=False):
-        posts.append((content, channel_id, event_key))
-        return None if len(posts) == 1 else "discord-id"
-
-    monkeypatch.setattr(delivery, "post_discord_text", post)
+    owner = _install_delivery_owner(monkeypatch, fail_first_news=True)
     first = asyncio.run(scan.run(datetime.fromisoformat("2026-07-14T16:30:00+07:00"), fake_clients))
     item = first["items"][0]
     payload = {
@@ -740,8 +770,10 @@ def test_failed_tier_two_delivery_retries_without_waiting_for_a_scheduled_window
 
     assert retried["news_delivered"] == 1
     assert load_state()["candidates"][item["candidate_key"]]["phase"] == "delivered"
-    assert len(posts) == 2
-    assert {channel_id for _, channel_id, _ in posts} == {scan.ALERT_CHANNEL_ID}
+    news_operations = [operation for operation in owner.submissions if "heartbeat-" not in operation.key]
+    assert len(news_operations) == 2
+    assert news_operations[0].key == news_operations[1].key
+    assert {operation.target["channel_id"] for operation in news_operations} == {scan.ALERT_CHANNEL_ID}
 
 
 def test_tier_two_delivery_does_not_wait_for_a_market_window(tmp_state, monkeypatch):
@@ -870,15 +902,16 @@ def test_reloaded_failed_delivery_retries_once_without_a_hermes_wake(
     assert scan._route_pending(state) == 1
     item = scan._all_classified(state)[0]
     save_state(state, tmp_state)
-    posts = []
-
-    def post(content, channel_id, event_key, dry_run=False):
-        posts.append((content, channel_id, event_key))
-        return None if len(posts) == 1 else "discord-id"
-
-    monkeypatch.setattr(delivery, "post_discord_text", post)
+    owner = _install_delivery_owner(monkeypatch, fail_first_news=True)
     assert not asyncio.run(
-        delivery.deliver_event(state, item, scan.ALERT_CHANNEL_ID, now, dry_run=True)
+        delivery.deliver_event(
+            state,
+            item,
+            scan.ALERT_CHANNEL_ID,
+            now,
+            dry_run=False,
+            delivery_client=owner,
+        )
     )
     reloaded = load_state()
     assert reloaded["candidates"][candidate.key]["phase"] == "pending_delivery"
@@ -891,7 +924,9 @@ def test_reloaded_failed_delivery_retries_once_without_a_hermes_wake(
     assert retried["news_delivered"] == 1
     assert retried["wakeAgent"] is False
     assert load_state()["candidates"][candidate.key]["phase"] == "delivered"
-    assert len(posts) == 2
+    news_operations = [operation for operation in owner.submissions if "heartbeat-" not in operation.key]
+    assert len(news_operations) == 2
+    assert news_operations[0].key == news_operations[1].key
 
 
 def _status_source_message(message_id, text):
@@ -1030,7 +1065,8 @@ def test_status_retry_reuses_frozen_payload_route_and_event_identity(
 
     assert first["stock_status_delivered"] == 0
     assert scan._pending_count(failed_state) == 1
-    assert scan._health_and_warning(failed_state) == (False, True, True)
+    # No-post mode keeps the event pending but does not count a failed live delivery attempt.
+    assert scan._health_and_warning(failed_state) == (False, False, True)
     assert second["stock_status_delivered"] == 1
     assert len(posts) == 2
     assert posts[0] == posts[1]

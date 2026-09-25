@@ -17,13 +17,21 @@ direct SQL, second scheduler or browser role flag may bypass that boundary.
 See `docs/CONTROL_PLANE.md` for the reviewed handoff and remaining live checks.
 
 The live sidebar and mobile bottom navigation share Overview, Sources,
-Workflows, History and Account, in that order. Sources has Securities and People
-tabs. Its image cards and added/to-add examples are visual previews, not saved
-source state or a live inventory. Link to configuration only for watcher IDs
-returned by the API. Actual profiles require an admin config read; decorate
-them with catalog avatars only after consistent platform and canonical
-URL/handle matching. Never infer identity from a display name or internal ID.
-Preserve all eight watcher editors and their input, processing and output
+Workflows, History and Account, in that order. Sources reads the authenticated
+Source Catalog API and shows Securities, Institutions, and People & Org. The
+engine owns supported securities, curated institutions, registered endpoints,
+capabilities and compatibility. People & Org identities and platform endpoints
+are revisioned admin configuration; new endpoints remain pending verification
+and are not effective subscriptions. Show each registered endpoint's
+identity-verification state beside its address, separate from subscription
+state. The catalog read includes backend-derived
+`can_edit`; show mutation controls only when it is true. A successful PUT must
+be followed by a confirmed catalog and effective read before success feedback.
+If that read fails, preserve and lock the draft until an explicit reload. Display publisher defaults, endpoint
+overrides and the resolved status separately. Do not infer identity from a
+display name or internal ID. Public curated images remain static assets until
+an object-storage owner and upload policy are approved. No browser-local source
+preferences count as saved catalog records. Preserve all eight watcher editors and their input, processing and output
 summaries. WhatsApp requires configuration version 2 and explicit observe/forward
 modes; the other seven editors require version 1. Stockbit's v1 editor exposes
 only four fixed feed switches, two distinct Discord route IDs and an optional
@@ -49,8 +57,9 @@ schedule saves use separate revisions and actions. Saved schedules remain
 pending until matching reconciliation is observed. Fixed jobs are read-only.
 Do not trigger a real run or delivery in smoke tests.
 
-Load only the current view's records: Sources and workflow lists read the
-catalog, History lists read runs, and Account makes no control reads. Selected
+Load only the current view's records: Sources reads the source catalog,
+workflow lists read watchers, History lists read runs, and Account makes no
+control reads. Selected
 workflow configuration opens after the catalog and loads only its jobs; only X
 also loads source-poll run status. Do not show a failed jobs read as an empty
 schedule list.

@@ -6,6 +6,7 @@ export LC_ALL="${LC_ALL:-C.UTF-8}"
 export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
 SWING_FORMAT_BIN="$HOME/.agents/skills/lib-swing-format/bin"
 CONTROL_PLANE_BIN="$HOME/.agents/skills/lib-bursawatch-control/bin"
+DELIVERY_CLIENT_BIN="$HOME/.agents/skills/lib-bursawatch-discord-delivery/bin"
 if [[ ! -r "$SWING_FORMAT_BIN/swing_format.py" ]]; then
   SWING_FORMAT_BIN="$(cd "$(dirname "$0")/../.." && pwd)/lib-swing-format/bin"
 fi
@@ -13,19 +14,28 @@ if [[ ! -r "$SWING_FORMAT_BIN/swing_format.py" ]]; then
   printf '%s FATAL: shared Swing formatter missing at %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$SWING_FORMAT_BIN" >&2
   exit 127
 fi
+if [[ ! -r "$DELIVERY_CLIENT_BIN/bursawatch_discord_delivery/client.py" ]]; then
+  DELIVERY_CLIENT_BIN="$(cd "$(dirname "$0")/../.." && pwd)/lib-bursawatch-discord-delivery/bin"
+fi
+if [[ ! -r "$DELIVERY_CLIENT_BIN/bursawatch_discord_delivery/client.py" ]]; then
+  printf '%s FATAL: shared Discord delivery client missing at %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$DELIVERY_CLIENT_BIN" >&2
+  exit 127
+fi
 if [[ -d "$CONTROL_PLANE_BIN" ]]; then
-  export PYTHONPATH="$CONTROL_PLANE_BIN:$SWING_FORMAT_BIN:${PYTHONPATH-}"
+  export PYTHONPATH="$DELIVERY_CLIENT_BIN:$CONTROL_PLANE_BIN:$SWING_FORMAT_BIN:${PYTHONPATH-}"
 else
-  export PYTHONPATH="$SWING_FORMAT_BIN:${PYTHONPATH-}"
+  export PYTHONPATH="$DELIVERY_CLIENT_BIN:$SWING_FORMAT_BIN:${PYTHONPATH-}"
 fi
 
-# The owner needs only the Discord bot identity. Do not source an environment
-# file wholesale because watcher credentials do not belong in this process.
+# The Delivery Owner owns bot credentials and Discord API calls. Only its
+# loopback client address and private token-file path are passed to the Board.
 if [[ -r "$HOME/.hermes/.env" ]]; then
-  for key in DISCORD_BOT_TOKEN; do
-    value="$(grep -E "^${key}=" "$HOME/.hermes/.env" | head -1 | cut -d= -f2- || true)"
-    [[ -n "$value" ]] && export "${key}=${value}"
-  done
+  if [[ "${IDX_SWING_PLAN_BOARD_NO_POST:-}" != "1" ]]; then
+    for key in BURSAWATCH_DISCORD_DELIVERY_URL BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE; do
+      value="$(grep -E "^${key}=" "$HOME/.hermes/.env" | head -1 | cut -d= -f2- || true)"
+      [[ -n "$value" ]] && export "${key}=${value}"
+    done
+  fi
   if [[ "${BURSAWATCH_RELEASE_NO_POST:-}" != "1" ]]; then
     for key in IDX_SWING_PLAN_BOARD_CONTROL_PLANE_URL \
       IDX_SWING_PLAN_BOARD_CONTROL_PLANE_WATCHER_ID \
@@ -36,6 +46,11 @@ if [[ -r "$HOME/.hermes/.env" ]]; then
       [[ -n "$value" ]] && export "${key}=${value}"
     done
   fi
+fi
+
+if [[ "${IDX_SWING_PLAN_BOARD_NO_POST:-}" != "1" ]]; then
+  export BURSAWATCH_DISCORD_DELIVERY_URL="${BURSAWATCH_DISCORD_DELIVERY_URL:-http://127.0.0.1:9140}"
+  export BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE="${BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE:-$HOME/.hermes/secrets/bursawatch-discord-delivery-client-token}"
 fi
 
 # Bootstrap is an explicitly invoked historical read/backfill command. It

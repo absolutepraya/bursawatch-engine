@@ -649,6 +649,40 @@ def test_config_outage_drains_bound_delivery_and_attempts_fixed_heartbeat(monkey
     assert "/local/path" not in repr(result)
 
 
+def test_owner_accepted_pending_delivery_does_not_start_local_retry_clock(monkeypatch, tmp_path) -> None:
+    path = tmp_path / "state.json"
+    value = state.new_state(config.FEEDS)
+    item = article(FeedLane.UNBOXING_IPO)
+    now = datetime(2026, 9, 24, 0, 0, tzinfo=UTC)
+    state.queue_article(value, item, now)
+    record = value["articles"][item.key]
+    record["phase"] = "pending_delivery"
+    record["analysis"] = _issuer_payload(item)
+    record["rendered"] = "Previously rendered content"
+    record["config_snapshot"] = {
+        "revision": 7, "additional_prompt_instruction": "instruction A",
+        "id_stocks_news_channel_id": "123456789012345678",
+        "macro_news_channel_id": "234567890123456789",
+    }
+    runtime = config.RuntimeConfig(
+        state_path=path, no_post=False, request_timeout=20,
+        heartbeat_channel_id=config.HEARTBEAT_CHANNEL_ID,
+        id_stocks_news_channel_id=config.ID_STOCKS_NEWS_CHANNEL_ID,
+        macro_news_channel_id=config.MACRO_NEWS_CHANNEL_ID,
+    )
+    monkeypatch.setattr(
+        scan.discord,
+        "post_text",
+        lambda *args, **kwargs: (_ for _ in ()).throw(scan.discord.DeliveryOwnerPending("accepted")),
+    )
+
+    assert scan._drain_delivery(value, runtime, now) == 0
+
+    saved = value["articles"][item.key]
+    assert saved["phase"] == "pending_delivery"
+    assert saved["retry"] == {"attempts": 0, "next_attempt_at": None, "last_error": None}
+
+
 def test_unbound_legacy_delivery_waits_for_config_then_uses_first_revision(monkeypatch, tmp_path) -> None:
     path = tmp_path / "state.json"
     value = state.new_state(config.FEEDS)

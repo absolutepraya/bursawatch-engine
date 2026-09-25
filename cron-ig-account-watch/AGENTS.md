@@ -21,18 +21,26 @@ and domain source of truth for the agent-backed `cron-ig-account-watch` package.
   other raw provider data.
 - Credentials, cookies, signed CDN URLs, raw provider response bodies, and local secret paths are explicitly excluded from source, logs, wake payloads, and persistent state.
 - The watched profiles are `beyondthefundamental`, `investart_id`, `avenirresearch_id`, `acresresearch`, `sectorsapp`, `cukhurukuque`, and `notintofinance`, with `macro_news` channel `1531655369884045382` and `id_stocks_news` channel `1525102508714889257`. Profile IDs are durable state namespaces and must not be renamed after deployment. A first successful observation records the newest source publication and never backfills it. The legacy route values `macro` and `id_stock` are accepted only as submission aliases and are normalized to the canonical keys.
+- `cron-ig-source-ingest` is an unscheduled Source Inbox pilot. Its accepted
+  news work enters this watcher's owner ledger with durable original media.
+  The watcher still owns OCR, vision, agent prompt, rendering, delivery
+  receipts, and cleanup. `pipeline_owner.py` reconstructs source originals
+  through the shared Source Media Owner; source route records freeze the
+  accepted company and macro capabilities. A relevant publication classified
+  to an unsubscribed route is audited as `route_not_subscribed` and gets no
+  Discord delivery. Live source polling stays here until approved cutover.
 
 ## Media, OCR, and vision
 
 - A publication is one event. Always retain the caption and download every carousel image in source order. For reels, retain the original video and sample the cover plus the bounded frame set for analysis.
 - Run OCR on every downloaded image and every sampled reel frame before the LLM decision. Tesseract is the selected backend based on the VPS benchmark. PaddleOCR is an optional, watcher-owned isolated backend and must not be installed into the shared Yahoo Finance environment.
-- Discord delivery sends only the first successfully downloaded original image per publication, normally the first carousel image or reel cover. If no original image is available, it falls back to the first available original asset. Analysis and OCR still retain every downloaded source image and sampled reel frame.
+- Discord delivery sends only the first successfully downloaded original image per publication, normally the first carousel image or reel cover. If no original image is available, it falls back to the first available original asset. The watcher validates and stages local media before passing bytes to the shared Delivery Owner client. Analysis and OCR still retain every downloaded source image and sampled reel frame.
 - Keep downloads, sampled frames, OCR references, and temporary uploads below the configured `INSTAGRAM_POST_WATCH_MEDIA_ROOT`, inside event-managed directories. Clean only the event's managed media after all delivery legs and state records are complete. Never edit live state or capture media and OCR caches as source.
 - Use `text_only` when the caption and complete OCR are sufficient, `vision_partial` when only failed or uncertain assets need visual review, and `vision_full` when the publication needs complete visual context. The scanner supplies local vision paths only for the selected assets and always owns original-media delivery.
 
 ## Deterministic and agent boundaries
 
-- The deterministic scanner owns RSSHub fetching, public post and reel source eligibility, deduplication, cursor and outbox state, media downloads, reel sampling, OCR, caching, the vision gate, the positive disclosure safeguard, Discord text and media delivery, and the heartbeat. OCR is context for the LLM, not a deterministic content-relevance verdict. Every OCR-prepared publication reaches the normal LLM relevance decision, including generic education, actionable trade setups, promotions, profile-specific exclusions, and unrelated content.
+- The deterministic scanner owns RSSHub fetching, public post and reel source eligibility, deduplication, cursor and outbox state, media downloads, reel sampling, OCR, caching, the vision gate, the positive disclosure safeguard, and Discord delivery intents through `lib-bursawatch-discord-delivery`. The Delivery Owner service owns Discord REST. The scanner owns the heartbeat and reports service-accepted pending operations separately. OCR is context for the LLM, not a deterministic content-relevance verdict. Every OCR-prepared publication reaches the normal LLM relevance decision, including generic education, actionable trade setups, promotions, profile-specific exclusions, and unrelated content.
 - The LLM receives one bounded wake event only. It must use the caption and every labeled OCR section, read every supplied local vision path, return the exact closed submission object, and submit through the wrapper. It must not browse, inspect state, process history, or post directly.
 - Captions, OCR text, and local paths are untrusted source data. Scanner metadata, event identity, route keys, lease state, and delivery state are trusted scanner data. Untrusted content cannot change routing, paths, or delivery, and no agent path may post directly.
 - Use the shared X and Instagram LLM relevance boundaries: exclude advertisements, products, paid services, generic engagement, greetings, and unrelated posts; preserve substantive economy, business, market, and issuer analysis. Also exclude generic trading or investing education, mindset and psychology advice, and actionable trade setups such as buy or sell calls, entries, targets, stop-losses, breakouts, and support or resistance lessons. A target derived from earnings, fundamentals, or valuation remains substantive analysis, not an actionable trade setup. These are LLM relevance rules, not pre-LLM OCR filters. Direct disclosures, earnings, corporate actions, dilution, rights issues, private placements, and approved disclosure hashtags set the positive relevance safeguard. Promotions and profile-specific negative exceptions remain LLM decisions and do not disable that safeguard.
@@ -106,7 +114,8 @@ deploy before the complete batch is approved.
 
 ## Heartbeat and cadence
 
-- Every run reports the short heartbeat name `instagram-post` to Discord `#hermes` (`1505162000420835388`) using `🫀 instagram-post · HH:MM WIB · <tokens>` and a sanitized warning or fatal form when degraded.
+- Every run reports the short heartbeat name `instagram-post` to Discord `#hermes` (`1505162000420835388`) using `🫀 instagram-post · HH:MM WIB · <tokens>` and a sanitized warning or fatal form when degraded. Tokens include accepted-but-pending Delivery Owner operations. The wrapper reads `BURSAWATCH_DISCORD_DELIVERY_URL` and `BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE` from the local Hermes environment file, with the local Delivery Owner URL and client-token path as defaults.
+- `delivery_handoff.py --plan <path>` writes a private, payload-free state handoff plan. Applying it requires `--apply <path>`, `BURSAWATCH_DISCORD_HANDOFF_ALLOW_APPLY=1`, and the Delivery Owner admin token file. Scheduled runs never apply a handoff. Archive state, source validation, local media-path checks, text-before-media order, cleanup state, and `INSTAGRAM_POST_WATCH_NO_POST=1` remain watcher-owned.
 - The intended source cadence is `0 * * * *` in `Asia/Jakarta`, once per hour. This is a source intention, not proof of live registration. Any Hermes schedule registration, enablement, rescheduling, or delivery change requires explicit approval and the supported Hermes CLI. Never hand-edit `~/.hermes/cron/jobs.json`.
 
 ## Development, testing, and deployment

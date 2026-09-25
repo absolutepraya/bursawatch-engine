@@ -11,6 +11,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = ROOT.parent
+sys.path.insert(0, str(REPOSITORY_ROOT / "lib-bursawatch-discord-delivery" / "bin"))
 sys.path.insert(0, str(ROOT / "bin"))
 import release_agent
 
@@ -28,7 +29,8 @@ def make_settings(tmp_path: Path, **overrides: object) -> release_agent.Settings
         "runtime_home": tmp_path / "runtime",
         "control_plane_runtime": tmp_path / "control-plane",
         "control_plane_env": tmp_path / "control-plane.env",
-        "heartbeat_env": tmp_path / "heartbeat.env",
+        "delivery_owner_url": "http://127.0.0.1:9140",
+        "delivery_client_token_file": tmp_path / "delivery-client-token",
         "heartbeat_channel_id": "123",
         "github_api_url": "https://api.github.com",
         "timeout_seconds": 1,
@@ -63,9 +65,48 @@ def test_manifest_orders_dependencies_before_the_x_runtime_unit():
 
     assert [unit.identifier for unit in units] == [
         "lib-bursawatch-control",
+        "lib-bursawatch-discord-delivery",
         "lib-swing-format",
         "cron-dc-swing-board",
         "cron-x-account-watch",
+    ]
+
+
+def test_source_ingest_pilots_are_metadata_only_and_share_one_library():
+    result = manifest()
+    for platform in ("x", "ig", "wa", "rss"):
+        units = result.matching_units([f"cron-{platform}-source-ingest/bin/runner.py"])
+        assert [unit.identifier for unit in units] == [
+            "lib-bursawatch-source-ingest-pilot",
+            f"cron-{platform}-source-ingest-pilot",
+        ]
+        assert all(unit.handler == "metadata" for unit in units)
+
+
+def test_delivery_library_precedes_every_migrated_discord_runtime():
+    sources = (
+        "cron-tg-market-news/bin/scan.py",
+        "cron-tg-phintraco-swing/bin/scan.py",
+        "cron-tg-kelas-investasi-gtw/bin/scan.py",
+        "cron-dc-swing-board/bin/board.py",
+        "cron-x-account-watch/bin/scan.py",
+        "cron-ig-account-watch/bin/scan.py",
+        "cron-wa-channel-watch/bin/scan.py",
+        "cron-stockbit-snips/bin/scan.py",
+    )
+    for source in sources:
+        package = source.split("/", 1)[0]
+        units = manifest().matching_units([source])
+        identifiers = [unit.identifier for unit in units]
+        runtime_id = package
+        assert runtime_id in identifiers
+        assert identifiers.index("lib-bursawatch-discord-delivery") < identifiers.index(runtime_id)
+
+
+def test_discord_delivery_service_remains_a_manual_unit():
+    units = manifest().matching_units(["service-bursawatch-discord-delivery/bin/serve.py"])
+    assert [(unit.identifier, unit.handler) for unit in units] == [
+        ("manual-discord-delivery-owner", "manual"),
     ]
 
 
@@ -113,6 +154,119 @@ def test_manifest_maps_market_news_watchdog_wrapper_to_its_vps_name():
     unit = next(unit for unit in manifest().units if unit.identifier == "cron-tg-market-news")
 
     assert ("watchdog-wrapper.sh", "bursawatch-tg-market-news-watchdog.sh") in unit.wrappers
+
+
+def test_release_heartbeats_use_delivery_owner_with_stable_keys_and_existing_content(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    settings = make_settings(tmp_path)
+    token_file = tmp_path / "delivery-client-token"
+    clients = []
+    submissions = []
+
+    class FakeDeliveryClient:
+        def __init__(self, base_url, token_path, *, timeout_seconds):
+            clients.append((base_url, token_path, timeout_seconds))
+
+        def submit(self, operation):
+            submissions.append(operation)
+
+    monkeypatch.setattr(release_agent, "DeliveryClient", FakeDeliveryClient, raising=False)
+    monkeypatch.setattr(
+        release_agent,
+        "urlopen",
+        lambda *args, **kwargs: pytest.fail("release heartbeat attempted a direct HTTP request"),
+    )
+
+    success = "🫀 bursawatch-release · 12:34 WIB · sha=abcdef01 units=2"
+    failure = "❌ bursawatch-release · 12:35 WIB · blocked manual=manual-release-agent-bootstrap"
+    for content in (success, failure, success):
+        release_agent._send_heartbeat(settings, content)
+
+    assert clients == [
+        ("http://127.0.0.1:9140", token_file, settings.timeout_seconds),
+        ("http://127.0.0.1:9140", token_file, settings.timeout_seconds),
+        ("http://127.0.0.1:9140", token_file, settings.timeout_seconds),
+    ]
+    assert [operation.kind for operation in submissions] == [
+        "channel_message_create",
+        "channel_message_create",
+        "channel_message_create",
+    ]
+    assert [operation.key for operation in submissions] == [
+        submissions[0].key,
+        submissions[1].key,
+        submissions[0].key,
+    ]
+    assert submissions[0].key != submissions[1].key
+    assert all(operation.ordering_key == "channel:123" for operation in submissions)
+    assert all(operation.target == {"channel_id": "123"} for operation in submissions)
+    assert [operation.payload for operation in submissions] == [
+        {"content": success, "allowed_mentions": {"parse": []}},
+        {"content": failure, "allowed_mentions": {"parse": []}},
+        {"content": success, "allowed_mentions": {"parse": []}},
+    ]
+
+
+def test_release_heartbeat_delivery_failure_is_best_effort_and_does_not_change_state(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    settings = make_settings(tmp_path)
+    sha = "b" * 40
+    heartbeat_attempts = []
+
+    class FakeGitHub:
+        def __init__(self, configured_settings):
+            assert configured_settings is settings
+
+        def current_main_sha(self):
+            return sha
+
+        def has_successful_ci(self, candidate):
+            return candidate == sha
+
+    class FakeMirror:
+        def __init__(self, configured_settings):
+            assert configured_settings is settings
+
+        def materialize(self, candidate):
+            assert candidate == sha
+            return REPOSITORY_ROOT
+
+        def changed_paths(self, worktree, base_sha, candidate):
+            assert worktree == REPOSITORY_ROOT
+            assert base_sha is None
+            assert candidate == sha
+            return []
+
+    class UnavailableDeliveryClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def submit(self, operation):
+            heartbeat_attempts.append(operation)
+            raise OSError("delivery owner unavailable")
+
+    monkeypatch.setattr(release_agent, "GitHubClient", FakeGitHub)
+    monkeypatch.setattr(release_agent, "GitMirror", FakeMirror)
+    monkeypatch.setattr(release_agent, "DeliveryClient", UnavailableDeliveryClient, raising=False)
+
+    assert release_agent.release_once(settings) == "released"
+
+    state = json.loads((settings.state_root / "state.json").read_text(encoding="utf-8"))
+    record = json.loads((settings.state_root / "records" / f"{sha}.json").read_text(encoding="utf-8"))
+    assert state["last_success_sha"] == sha
+    assert state["blocked"] is None
+    assert record["status"] == "released"
+    assert len(heartbeat_attempts) == 1
+
+
+def test_release_agent_does_not_read_discord_credentials_or_call_discord_rest():
+    source = (ROOT / "bin" / "release_agent.py").read_text(encoding="utf-8")
+
+    assert "discord.com/api" not in source
+    assert "DISCORD_BOT_TOKEN" not in source
+    assert "def _discord_token" not in source
 
 
 def test_release_no_post_mode_keeps_wrappers_from_reloading_control_plane_credentials():
@@ -588,6 +742,8 @@ def test_systemd_unit_keeps_static_agent_code_and_scoped_restart_boundary():
 
     assert "ExecStart=/home/praya/.local/lib/bursawatch-release/bursawatch-release-agent.sh --once" in service
     assert "EnvironmentFile=/home/praya/.hermes/bursawatch-release-agent.env" in service
+    assert "Environment=PYTHONPATH=/home/praya/.agents/skills/lib-bursawatch-discord-delivery/bin" in service
+    assert "DISCORD_BOT_TOKEN" not in service
     assert "NoNewPrivileges=true" not in service
     assert "OnUnitActiveSec=1m" in timer
     assert "/usr/bin/systemctl restart bursawatch-control-plane.service" in sudoers
@@ -602,5 +758,20 @@ def test_bootstrap_script_requires_apply_and_has_valid_shell_syntax():
     assert '"${1:-}" != "--apply"' in source
     assert "bursawatch-release-agent.env" in source
     assert 'state_root="$HOME/.local/share/bursawatch-release"' in source
+    assert 'delivery_client_bin="$HOME/.agents/skills/lib-bursawatch-discord-delivery/bin"' in source
+    assert 'delivery_client_token_file="$HOME/.hermes/secrets/bursawatch-discord-delivery-client-token"' in source
+    assert '[[ "$(stat -c \'%a\' "$delivery_client_token_file")" == "600" ]]' in source
     assert 'install -d -m 0700 "$agent_dir" "$state_root"' in source
     assert "systemctl enable --now bursawatch-release-agent.timer" in source
+
+
+def test_release_env_template_uses_only_the_delivery_client_token_for_heartbeat():
+    source = (ROOT / "deployment/env.example").read_text(encoding="utf-8")
+
+    assert "BURSAWATCH_DISCORD_DELIVERY_URL=http://127.0.0.1:9140" in source
+    assert (
+        "BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE="
+        "/home/praya/.hermes/secrets/bursawatch-discord-delivery-client-token"
+    ) in source
+    assert "BURSAWATCH_RELEASE_HEARTBEAT_ENV" not in source
+    assert "DISCORD_BOT_TOKEN" not in source

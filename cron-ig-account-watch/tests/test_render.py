@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-import json as json_module
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-import requests
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "bin"))
 
 import discord
 import render
+from bursawatch_discord_delivery.client import DeliveryClientError
+from bursawatch_discord_delivery.models import OperationReceipt
 from config import load_watch_config
 from models import MediaKind, PublicationKind, SourceMedia, SourcePost
 
@@ -113,13 +113,35 @@ def test_render_does_not_render_ocr_automatically(profile):
     assert "Image 1" not in rendered
 
 
-class FakeResponse:
-    def __init__(self, status_code: int = 200, payload: object | None = None):
-        self.status_code = status_code
-        self._payload = payload if payload is not None else {"id": "123456789"}
+class FakeDeliveryOwner:
+    def __init__(self):
+        self.operations = {}
+        self.submissions = []
+        self.next_error = None
 
-    def json(self):
-        return self._payload
+    def status(self, key):
+        return self.operations.get(key)
+
+    def submit(self, operation):
+        if self.next_error is not None:
+            error, self.next_error = self.next_error, None
+            raise error
+        self.submissions.append(operation)
+        receipt = OperationReceipt(
+            id=f"operation-{len(self.submissions)}",
+            key=operation.key,
+            digest=operation.digest,
+            status="delivered",
+            receipt={"channel_id": operation.target["channel_id"], "message_id": "123456789"},
+        )
+        self.operations[operation.key] = receipt
+        return receipt
+
+
+def _use_delivery_owner(monkeypatch: pytest.MonkeyPatch) -> FakeDeliveryOwner:
+    owner = FakeDeliveryOwner()
+    monkeypatch.setattr(discord, "delivery_client_from_environment", lambda **_kwargs: owner)
+    return owner
 
 
 def _media_path(tmp_path: Path, name: str) -> Path:
@@ -140,143 +162,70 @@ def test_nonce_is_deterministic_bounded_and_unique_per_leg():
     assert first != discord.nonce("beyondthefundamental:DcaLqsggXrE", "media:0")
 
 
-def test_text_and_ordered_media_uploads_use_module_apis(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    calls: list[tuple[str, str, str | None]] = []
-
-    def fake_post(url, *, headers, json=None, files=None, timeout):
-        assert url.endswith("/channels/1531655369884045382/messages")
-        assert headers["Authorization"] == "Bot test-token"
-        assert timeout == 30
-        if json is not None:
-            assert json["allowed_mentions"] == {"parse": []}
-            calls.append(("text", json["nonce"], json["content"]))
-        else:
-            assert files is not None
-            upload = files["files[0]"]
-            payload = json_module.loads(files["payload_json"][1])
-            assert payload["allowed_mentions"] == {"parse": []}
-            calls.append(("media", upload[0], None))
-            assert upload[1].read() == b"media bytes"
-        return FakeResponse()
-
-    monkeypatch.setenv("DISCORD_BOT_TOKEN", "test-token")
+def test_text_and_ordered_media_operations_preserve_names_and_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    owner = _use_delivery_owner(monkeypatch)
     _use_media_root(tmp_path, monkeypatch)
-    monkeypatch.setattr(discord.requests, "post", fake_post)
     first = _media_path(tmp_path, "slide-1.jpg")
     second = _media_path(tmp_path, "slide-2.jpg")
 
     assert discord.post_text("caption", "1531655369884045382", False, discord.nonce("event", "text:0")) == "123456789"
     assert discord.post_media(first, "1531655369884045382", False, discord.nonce("event", "media:0")) == "123456789"
     assert discord.post_media(second, "1531655369884045382", False, discord.nonce("event", "media:1")) == "123456789"
-    assert [call[0] for call in calls] == ["text", "media", "media"]
-    assert [call[1] for call in calls[1:]] == ["slide-1.jpg", "slide-2.jpg"]
+    assert [len(operation.attachments) for operation in owner.submissions] == [0, 1, 1]
+    assert [operation.attachments[0].filename for operation in owner.submissions[1:]] == ["slide-1.jpg", "slide-2.jpg"]
+    assert [operation.attachments[0].data for operation in owner.submissions[1:]] == [b"media bytes", b"media bytes"]
     assert first.exists() and second.exists()
 
 
-def test_image_and_video_uploads_use_local_files_and_multipart_payload(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    observed: list[tuple[str, str]] = []
-
-    def fake_post(_url, *, headers, json=None, files=None, timeout):
-        assert json is None
-        assert headers["Authorization"] == "Bot token"
-        assert timeout == 30
-        assert files is not None
-        media = files["files[0]"]
-        observed.append((media[0], media[2]))
-        payload = json_module.loads(files["payload_json"][1])
-        assert payload["allowed_mentions"] == {"parse": []}
-        return FakeResponse()
-
-    monkeypatch.setenv("DISCORD_BOT_TOKEN", "token")
+def test_image_and_video_operations_use_local_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    owner = _use_delivery_owner(monkeypatch)
     _use_media_root(tmp_path, monkeypatch)
-    monkeypatch.setattr(discord.requests, "post", fake_post)
-    discord.post_media(_media_path(tmp_path, "slide.webp"), "123", False, "nonce-image")
-    discord.post_media(_media_path(tmp_path, "reel.mp4"), "123", False, "nonce-video")
+    discord.post_media(_media_path(tmp_path, "slide.webp"), "123", False, discord.nonce("event", "media:image"))
+    discord.post_media(_media_path(tmp_path, "reel.mp4"), "123", False, discord.nonce("event", "media:video"))
 
-    assert observed == [("slide.webp", "image/webp"), ("reel.mp4", "video/mp4")]
+    assert [(operation.attachments[0].filename, operation.attachments[0].mime_type)
+            for operation in owner.submissions] == [("slide.webp", "image/webp"), ("reel.mp4", "video/mp4")]
 
 
-def test_ordered_four_image_uploads_preserve_source_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("DISCORD_BOT_TOKEN", "token")
+def test_ordered_four_image_operations_preserve_source_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    owner = _use_delivery_owner(monkeypatch)
     _use_media_root(tmp_path, monkeypatch)
-    observed: list[str] = []
-
-    def fake_post(_url, *, headers, json=None, files=None, timeout):
-        assert json is None
-        assert headers["Authorization"] == "Bot token"
-        assert timeout == 30
-        assert files is not None
-        upload = files["files[0]"]
-        observed.append(upload[0])
-        assert json_module.loads(files["payload_json"][1])["allowed_mentions"] == {"parse": []}
-        upload[1].read()
-        return FakeResponse()
-
-    monkeypatch.setattr(discord.requests, "post", fake_post)
     paths = [_media_path(tmp_path, f"slide-{index}.jpg") for index in range(4)]
     for index, path in enumerate(paths):
         assert discord.post_media(path, "123", False, discord.nonce("event", f"media:{index}")) == "123456789"
 
-    assert observed == [f"slide-{index}.jpg" for index in range(4)]
+    assert [operation.attachments[0].filename for operation in owner.submissions] == [
+        f"slide-{index}.jpg" for index in range(4)
+    ]
 
 
-def test_media_retry_is_independent_after_text_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("DISCORD_BOT_TOKEN", "token")
+def test_media_retry_is_independent_after_text_acceptance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    owner = _use_delivery_owner(monkeypatch)
     _use_media_root(tmp_path, monkeypatch)
     source = _media_path(tmp_path, "slide-0.jpg")
-    calls: list[str] = []
-    media_attempts = 0
-
-    def fake_post(_url, *, headers, json=None, files=None, timeout):
-        nonlocal media_attempts
-        assert headers["Authorization"] == "Bot token"
-        assert timeout == 30
-        if json is not None:
-            assert json["allowed_mentions"] == {"parse": []}
-            calls.append("text")
-            return FakeResponse()
-        assert files is not None
-        assert json_module.loads(files["payload_json"][1])["allowed_mentions"] == {"parse": []}
-        calls.append("media")
-        media_attempts += 1
-        if media_attempts == 1:
-            return FakeResponse(429, {"retry_after": 1.5})
-        return FakeResponse()
-
-    monkeypatch.setattr(discord.requests, "post", fake_post)
     assert discord.post_text("caption", "123", False, discord.nonce("event", "text:0")) == "123456789"
+    owner.next_error = DeliveryClientError("rate_limited")
     with pytest.raises(discord.DiscordRetryAfter):
         discord.post_media(source, "123", False, discord.nonce("event", "media:0"))
     assert discord.post_media(source, "123", False, discord.nonce("event", "media:0")) == "123456789"
 
-    assert calls == ["text", "media", "media"]
-    assert media_attempts == 2
+    assert [len(operation.attachments) for operation in owner.submissions] == [0, 1]
 
 
 def test_text_limit_uses_utf16_code_units(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("DISCORD_BOT_TOKEN", "token")
-    calls = 0
-
-    def fake_post(_url, *, headers, json=None, files=None, timeout):
-        nonlocal calls
-        calls += 1
-        assert json is not None
-        assert json["allowed_mentions"] == {"parse": []}
-        return FakeResponse()
-
-    monkeypatch.setattr(discord.requests, "post", fake_post)
+    owner = _use_delivery_owner(monkeypatch)
     exactly_at_limit = "a" * 1_998 + "😀"
     over_limit = "a" * 1_999 + "😀"
 
     assert discord.discord_length(exactly_at_limit) == 2_000
-    assert discord.post_text(exactly_at_limit, "123", False, "nonce") == "123456789"
+    assert discord.post_text(exactly_at_limit, "123", False, discord.nonce("event", "text:limit")) == "123456789"
     with pytest.raises(ValueError, match="2,000"):
-        discord.post_text(over_limit, "123", False, "nonce")
-    assert calls == 1
+        discord.post_text(over_limit, "123", False, discord.nonce("event", "text:over-limit"))
+    assert len(owner.submissions) == 1
 
 
-def test_dry_run_makes_no_http_calls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(discord.requests, "post", lambda *args, **kwargs: pytest.fail("HTTP was called"))
+def test_dry_run_makes_no_owner_calls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(discord, "delivery_client_from_environment", lambda **_kwargs: pytest.fail("owner was called"))
     _use_media_root(tmp_path, monkeypatch)
     path = _media_path(tmp_path, "slide.png")
 
@@ -284,24 +233,27 @@ def test_dry_run_makes_no_http_calls(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert discord.post_media(path, "123", True, "media-nonce") is None
 
 
-def test_status_and_429_errors_are_sanitized(monkeypatch: pytest.MonkeyPatch):
+def test_owner_errors_are_sanitized(monkeypatch: pytest.MonkeyPatch):
     secret = "token-that-must-not-leak"
-    monkeypatch.setenv("DISCORD_BOT_TOKEN", secret)
 
-    class ErrorResponse(FakeResponse):
-        text = f"provider body contains {secret}"
+    class FailingOwner:
+        def status(self, _key):
+            raise DeliveryClientError("server_error", f"provider body contains {secret}")
 
-    monkeypatch.setattr(discord.requests, "post", lambda *args, **kwargs: ErrorResponse(500, {"message": "secret body"}))
+    monkeypatch.setattr(discord, "delivery_client_from_environment", lambda **_kwargs: FailingOwner())
     with pytest.raises(discord.DiscordDeliveryError) as error:
-        discord.post_text("hello", "123", False, "nonce")
-    assert "Discord HTTP 500" == str(error.value)
+        discord.post_text("hello", "123", False, discord.nonce("event", "text:error"))
+    assert str(error.value) == "Delivery Owner request failed"
     assert secret not in str(error.value)
-    assert "secret body" not in str(error.value)
 
-    monkeypatch.setattr(discord.requests, "post", lambda *args, **kwargs: FakeResponse(429, {"retry_after": 4.5}))
+    class LimitedOwner:
+        def status(self, _key):
+            raise DeliveryClientError("rate_limited")
+
+    monkeypatch.setattr(discord, "delivery_client_from_environment", lambda **_kwargs: LimitedOwner())
     with pytest.raises(discord.DiscordRetryAfter) as limited:
-        discord.post_text("hello", "123", False, "nonce")
-    assert limited.value.retry_after == 4.5
+        discord.post_text("hello", "123", False, discord.nonce("event", "text:rate-limit"))
+    assert limited.value.retry_after == discord.RETRY_FALLBACK_SECONDS
     assert secret not in str(limited.value)
 
 
@@ -341,16 +293,16 @@ def test_media_upload_requires_a_valid_watcher_root(tmp_path: Path, monkeypatch:
 
 
 def test_upload_temporary_copy_is_removed_after_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("DISCORD_BOT_TOKEN", "token")
     _use_media_root(tmp_path, monkeypatch)
     source = _media_path(tmp_path, "slide.jpg")
 
-    def fail_post(*args, **kwargs):
-        raise requests.ConnectionError("provider body token")
+    class FailingOwner:
+        def status(self, _key):
+            raise DeliveryClientError("network_error")
 
-    monkeypatch.setattr(discord.requests, "post", fail_post)
-    with pytest.raises(discord.DiscordDeliveryError, match="request failed"):
-        discord.post_media(source, "123", False, "nonce")
+    monkeypatch.setattr(discord, "delivery_client_from_environment", lambda **_kwargs: FailingOwner())
+    with pytest.raises(discord.DiscordDeliveryError, match="Delivery Owner"):
+        discord.post_media(source, "123", False, discord.nonce("event", "media:error"))
 
     assert source.exists()
     assert list(tmp_path.glob(".instagram-post-watch-upload-*")) == []

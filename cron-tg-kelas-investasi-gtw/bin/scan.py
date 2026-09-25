@@ -105,7 +105,14 @@ def post_heartbeat(
         return
     hour = now.astimezone(WIB).strftime("%Y%m%d%H")
     seed = nonce_seed or f"heartbeat:{hour}"
-    post_text(content, channel_id, False, nonce(seed, "status"))
+    post_text(
+        content,
+        channel_id,
+        False,
+        nonce(seed, "status"),
+        seed,
+        "status",
+    )
 
 
 async def _disconnect(client: object | None) -> None:

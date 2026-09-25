@@ -67,6 +67,8 @@ def test_wrapper_imports_only_allowed_control_plane_settings_into_isolated_no_po
     assert child["STOCKBIT_SNIPS_CONTROL_PLANE_TIMEOUT_SECONDS"] == "13"
     assert "STOCKBIT_SNIPS_CONTROL_PLANE_SPOOL_PATH" not in child
     assert str(tmp_path / "home/.agents/skills/lib-bursawatch-control/bin") in child["PYTHONPATH"].split(":")
+    assert str(tmp_path / "home/.agents/skills/lib-bursawatch-discord-delivery/bin") in child["PYTHONPATH"].split(":")
+    assert "DISCORD_BOT_TOKEN" not in child
     assert child["STOCKBIT_SNIPS_STATE_PATH"] == str(release_temp / "state.json")
     assert (release_temp / "bursawatch-stockbit-snips.log").exists()
     logs = result.stdout + result.stderr + (release_temp / "bursawatch-stockbit-snips.log").read_text(encoding="utf-8")

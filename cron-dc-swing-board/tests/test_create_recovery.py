@@ -1,139 +1,280 @@
 from datetime import datetime, timedelta
-import pytest
-import requests
+from dataclasses import replace
+import json
+import sqlite3
+from pathlib import Path
+import sys
 
-from conftest import example_buy_event, social_event
-from discord_forum import DiscordForumClient, FORUM_CHANNEL_ID
+from conftest import example_buy_event
+from discord_forum import DiscordForumClient, operation_key, operation_key_for
 from engine import BoardEngine
 from store import BoardStore
 
+_DELIVERY_BIN = Path(__file__).resolve().parents[2] / "lib-bursawatch-discord-delivery" / "bin"
+if str(_DELIVERY_BIN) not in sys.path:
+    sys.path.insert(0, str(_DELIVERY_BIN))
 
-class Response:
-    def __init__(self, value, status=200):
-        self.value, self.status_code = value, status
-
-    def json(self):
-        return self.value
+from bursawatch_discord_delivery.client import DeliveryClientError
+from bursawatch_discord_delivery.models import OperationIntent, OperationReceipt
 
 
-class RemoteDiscord:
-    """Mock the real REST boundary, including acceptance before lost response."""
+class FakeDeliveryOwner:
+    """In-memory Delivery Owner fake; it has no Discord REST path."""
 
     def __init__(self, store):
         self.store = store
-        self.threads = []
-        self.messages = {}
-        self.posts = 0
-        self.failure = None
-        self.archived = False
-        self.empty_recovery = False
-        self.rejection = None
+        self.receipts = {}
+        self.submit_calls = []
+        self.status_calls = []
+        self.query_calls = []
+        self.accept_then_timeout = False
+        self.fail_before_accept = False
+        self.next_status = "delivered"
+        self.sequence = 900
 
-    def request(self, method, url, **kwargs):
-        path = url.split("/api/v10", 1)[1]
-        if method == "POST":
-            self.posts += 1
-            op = [op for op in self.store.operations_for_ticker("SCMA") if op.status == "claimed"][0]
-            snapshot = op.payload["create_snapshot"]
-            assert snapshot["operation_key"] == op.dedupe_key
-            if self.rejection:
-                rejection, self.rejection = self.rejection, None
-                return rejection
-            # This assertion runs before the server accepts anything: the
-            # recovery identity and boundary must survive a killed process.
-            message_id = str(max([int(snapshot["after_id"]), *map(int, self.messages)]) + 100)
-            payload = kwargs["json"]
-            is_thread = path.endswith("/threads")
-            content = payload["message"]["content"] if is_thread else payload["content"]
-            message = {"id": message_id, "content": content, "author": {"id": "99"}, "attachments": []}
-            # Omit nonce from the read-back response. It is not a long-term
-            # idempotency contract and recovery must not depend on it.
-            self.messages[message_id] = message
-            if is_thread:
-                self.threads.append({"id": message_id, "parent_id": FORUM_CHANNEL_ID,
-                                     "thread_metadata": {"archive_timestamp": datetime.now().astimezone().isoformat()}})
-            failure, self.failure = self.failure, None
-            if failure:
-                raise failure
-            return Response({"id": message_id, "message": message} if is_thread else message)
-        if path == "/users/@me":
-            return Response({"id": "99"})
-        if path == f"/channels/{FORUM_CHANNEL_ID}":
-            return Response({"guild_id": "55", "available_tags": [{"name": "Primary plan", "id": "11"}]})
-        if path == "/guilds/55/threads/active":
-            return Response({"threads": [] if self.archived or self.empty_recovery else self.threads})
-        if path.endswith("/threads/archived/public"):
-            return Response({"threads": self.threads if self.archived and not self.empty_recovery else [], "has_more": False})
-        if path.endswith("/messages"):
-            messages = [] if self.empty_recovery else sorted(self.messages.values(), key=lambda item: int(item["id"]), reverse=True)
-            return Response(messages[:kwargs["params"]["limit"]])
-        if "/messages/" in path:
-            return Response(self.messages[path.rsplit("/", 1)[1]])
-        raise AssertionError((method, path))
+    def status(self, key):
+        self.status_calls.append(key)
+        return self.receipts.get(key)
 
+    def submit(self, intent):
+        assert isinstance(intent, OperationIntent)
+        self.submit_calls.append(intent)
+        pending = [
+            item for item in self.store.operations_for_ticker("SCMA")
+            if operation_key(item.dedupe_key) == intent.key
+        ]
+        assert len(pending) == 1, "Board must persist the operation before service submission"
+        assert pending[0].status == "claimed"
+        assert pending[0].payload.get("applied_tag_ids") == intent.payload.get("applied_tags")
+        if self.fail_before_accept:
+            self.fail_before_accept = False
+            raise DeliveryClientError("network_error")
+        receipt = self._receipt(intent, self.next_status)
+        self.receipts[intent.key] = receipt
+        if self.accept_then_timeout:
+            self.accept_then_timeout = False
+            raise DeliveryClientError("timeout")
+        return receipt
 
-@pytest.mark.parametrize("operation", ["create_thread", "post_source_reply", "post_history_reply"])
-@pytest.mark.parametrize("failure", [requests.Timeout("raw private transport detail"), KeyboardInterrupt()])
-def test_restart_recovers_accepted_create_without_second_post(tmp_path, monkeypatch, operation, failure):
-    now = datetime.fromisoformat("2026-09-21T10:00:00+07:00")
-    store = BoardStore(tmp_path / "board.sqlite3")
-    remote = RemoteDiscord(store)
-    monkeypatch.setattr("discord_forum.requests.request", remote.request)
-    owner = BoardEngine(store, DiscordForumClient(token="unused-test-token"))
-    owner.submit(example_buy_event(), now)
-    if operation != "create_thread":
-        assert owner.drain(now=now) == 1
-        if operation == "post_source_reply":
-            owner.submit(social_event("source:102", "SCMA", "SCMA: source update"), now)
+    def wait(self, key, _timeout_seconds):
+        return self.status(key)
+
+    def query(self, query):
+        self.query_calls.append(query)
+        if query.kind == "forum_channel_read":
+            return {
+                "guild_id": "940285152335110204",
+                "available_tags": [{"name": "Primary plan", "id": "100000000000000001"}],
+            }
+        raise AssertionError(f"unexpected Delivery Owner query: {query.kind}")
+
+    def deliver(self, key, *, thread_id="900", message_id="901"):
+        previous = self.receipts[key]
+        self.receipts[key] = OperationReceipt(
+            id=previous.id,
+            key=previous.key,
+            digest=previous.digest,
+            status="delivered",
+            receipt={"thread_id": thread_id, "message_id": message_id},
+        )
+
+    def _receipt(self, intent, status):
+        self.sequence += 1
+        if intent.kind == "forum_thread_create":
+            result = {"thread_id": str(self.sequence), "message_id": str(self.sequence)}
+        elif intent.kind == "thread_message_create":
+            result = {"message_id": str(self.sequence)}
         else:
-            with store.transaction() as tx:
-                tx.enqueue_outbox("post_history_reply", tx.active_episode("SCMA").id,
-                                  {"content": "> 21 Sep\n> Source status confirmed", "media": None, "nonce_value": "history:102"}, "history:102", now)
-    remote.failure = failure
-    if isinstance(failure, KeyboardInterrupt):
-        with pytest.raises(KeyboardInterrupt):
-            owner.drain(now=now)
-    else:
+            result = {"thread_id": intent.target.get("thread_id", "900")}
+        return OperationReceipt(
+            id=f"delivery-{self.sequence}",
+            key=intent.key,
+            digest=intent.digest,
+            status=status,
+            receipt=result if status == "delivered" else None,
+        )
+
+
+def new_owner(path, delivery):
+    return BoardEngine(
+        BoardStore(path),
+        DiscordForumClient(delivery_client=delivery, no_post=False),
+    )
+
+
+def test_acceptance_timeout_restart_applies_the_same_thread_and_starter_ids(tmp_path):
+    now = datetime.fromisoformat("2026-09-21T10:00:00+07:00")
+    store = BoardStore(tmp_path / "board.sqlite3")
+    delivery = FakeDeliveryOwner(store)
+    delivery.accept_then_timeout = True
+    owner = new_owner(store.path, delivery)
+    owner.submit(example_buy_event(), now)
+
+    assert owner.drain(now=now) == 0
+    operation = store.operations_for_ticker("SCMA")[0]
+    stable_key = operation.dedupe_key
+    shared_key = operation_key(stable_key)
+    assert operation.status == "pending"
+    assert delivery.submit_calls[0].key == shared_key
+    assert operation.payload["applied_tag_ids"] == ["100000000000000001"]
+    assert store.active_episode("SCMA").thread_id is None
+
+    restarted = new_owner(store.path, delivery)
+    assert restarted.drain(now=now + timedelta(hours=1)) == 1
+    episode = store.active_episode("SCMA")
+    assert (episode.thread_id, episode.starter_message_id) == ("901", "901")
+    assert [item.key for item in delivery.submit_calls] == [shared_key]
+    assert delivery.status_calls[-1] == shared_key
+    assert restarted.drain(now=now + timedelta(hours=2)) == 0
+    assert (store.active_episode("SCMA").thread_id,
+            store.active_episode("SCMA").starter_message_id) == ("901", "901")
+
+
+def test_service_unavailable_retries_only_the_persisted_operation_key(tmp_path):
+    now = datetime.fromisoformat("2026-09-21T10:00:00+07:00")
+    store = BoardStore(tmp_path / "board.sqlite3")
+    delivery = FakeDeliveryOwner(store)
+    delivery.fail_before_accept = True
+    owner = new_owner(store.path, delivery)
+    owner.submit(example_buy_event(), now)
+
+    assert owner.drain(now=now) == 0
+    operation = store.operations_for_ticker("SCMA")[0]
+    shared_key = operation_key(operation.dedupe_key)
+    assert operation.status == "pending"
+    assert delivery.submit_calls[0].key == shared_key
+
+    assert owner.drain(now=now + timedelta(hours=1)) == 1
+    assert len(delivery.submit_calls) == 2
+    assert {item.key for item in delivery.submit_calls} == {shared_key}
+    assert store.active_episode("SCMA").thread_id == "901"
+
+
+def test_pending_reconciliation_restart_applies_receipt_without_second_create(tmp_path):
+    now = datetime.fromisoformat("2026-09-21T10:00:00+07:00")
+    store = BoardStore(tmp_path / "board.sqlite3")
+    delivery = FakeDeliveryOwner(store)
+    delivery.next_status = "pending_reconciliation"
+    owner = new_owner(store.path, delivery)
+    owner.submit(example_buy_event(), now)
+
+    assert owner.drain(now=now) == 0
+    stable_key = operation_key(store.operations_for_ticker("SCMA")[0].dedupe_key)
+    delivery.deliver(stable_key, thread_id="990", message_id="991")
+
+    restarted = new_owner(store.path, delivery)
+    assert restarted.drain(now=now + timedelta(hours=1)) == 1
+    assert (store.active_episode("SCMA").thread_id,
+            store.active_episode("SCMA").starter_message_id) == ("990", "991")
+    assert [item.key for item in delivery.submit_calls] == [stable_key]
+
+
+def test_handoff_create_receipt_digest_applies_ids_once_after_board_restart(tmp_path):
+    now = datetime.fromisoformat("2026-09-21T10:00:00+07:00")
+    store = BoardStore(tmp_path / "board.sqlite3")
+    delivery = FakeDeliveryOwner(store)
+    owner = new_owner(store.path, delivery)
+    owner.submit(example_buy_event(), now)
+    operation = store.operations_for_ticker("SCMA")[0]
+    prepared = owner.client.prepare_payload(operation.operation, operation.payload)
+    normal = owner.client._intent(operation.operation, prepared, operation.dedupe_key)
+    imported = replace(normal, reconcile_before_first_create=True)
+    delivery.receipts[normal.key] = OperationReceipt(
+        id="adopted-forum-create", key=normal.key, digest=imported.digest,
+        status="delivered",
+        receipt={"thread_id": "990", "message_id": "991"},
+    )
+
+    assert owner.drain(now=now) == 1
+    episode = store.active_episode("SCMA")
+    assert (episode.thread_id, episode.starter_message_id) == ("990", "991")
+    with sqlite3.connect(store.path) as connection:
+        completion = connection.execute(
+            "SELECT completion_json FROM outbox WHERE id = ?", (operation.id,)
+        ).fetchone()[0]
+    assert json.loads(completion) == {"starter_message_id": "991", "thread_id": "990"}
+
+    restarted = new_owner(store.path, delivery)
+    assert restarted.drain(now=now + timedelta(hours=1)) == 0
+    assert (store.active_episode("SCMA").thread_id,
+            store.active_episode("SCMA").starter_message_id) == ("990", "991")
+    assert [item.key for item in delivery.submit_calls] == []
+
+
+def test_handoff_heartbeat_receipt_digest_completes_once_after_restart(tmp_path):
+    from delivery_handoff import stable_nonce
+
+    now = datetime.fromisoformat("2026-09-21T10:00:00+07:00")
+    store = BoardStore(tmp_path / "board.sqlite3")
+    delivery = FakeDeliveryOwner(store)
+    owner = new_owner(store.path, delivery)
+    key_source = "scheduled-heartbeat:handoff:run-1"
+    channel_id = "1505162000420835388"
+    stable_key = operation_key_for(key_source)
+    normal = OperationIntent(
+        key=stable_key,
+        kind="channel_message_create",
+        ordering_key=f"channel:{channel_id}",
+        target={"channel_id": channel_id},
+        payload={"content": "🫀 board", "allowed_mentions": {"parse": []}},
+    )
+    imported = replace(
+        normal,
+        reconcile_before_first_create=True,
+        legacy_nonce=stable_nonce(key_source),
+    )
+    delivery.receipts[stable_key] = OperationReceipt(
+        id="adopted-heartbeat", key=stable_key, digest=imported.digest,
+        status="delivered",
+        receipt={"channel_id": channel_id, "message_id": "1550000000000000003"},
+    )
+    heartbeat = store.enqueue_heartbeat(channel_id, "🫀 board", key_source, now)
+
+    assert owner.drain(now=now) == 1
+    assert store.heartbeat_receipt(heartbeat.id) == {"message_id": "1550000000000000003"}
+
+    restarted = new_owner(store.path, delivery)
+    assert restarted.drain(now=now + timedelta(hours=1)) == 0
+    assert store.heartbeat_receipt(heartbeat.id) == {"message_id": "1550000000000000003"}
+    assert delivery.submit_calls == []
+
+
+def test_ambiguous_and_rejected_owner_outcomes_never_generate_a_new_create(tmp_path):
+    for status in ("ambiguous", "rejected"):
+        now = datetime.fromisoformat("2026-09-21T10:00:00+07:00")
+        store = BoardStore(tmp_path / f"{status}.sqlite3")
+        delivery = FakeDeliveryOwner(store)
+        delivery.next_status = status
+        owner = new_owner(store.path, delivery)
+        owner.submit(example_buy_event(), now)
+
         assert owner.drain(now=now) == 0
-    posts = remote.posts
-    assert store.pending_outbox_count() == 1
-    restarted = BoardEngine(BoardStore(store.path), DiscordForumClient(token="unused-test-token"))
-    remote.archived = operation == "create_thread"
-    assert restarted.drain(now=now + timedelta(minutes=6)) == 1
-    assert remote.posts == posts
-    assert store.pending_outbox_count() == 0
-    assert store.active_episode("SCMA").thread_id is not None
+        operation = store.operations_for_ticker("SCMA")[0]
+        shared_key = operation_key(operation.dedupe_key)
+        assert operation.status == "pending"
+        assert store.active_episode("SCMA").thread_id is None
+
+        restarted = new_owner(store.path, delivery)
+        assert restarted.drain(now=now + timedelta(hours=1)) == 0
+        assert [item.key for item in delivery.submit_calls] == [shared_key]
+        assert operation_key(store.operations_for_ticker("SCMA")[0].dedupe_key) == shared_key
 
 
-def test_inconclusive_recovery_keeps_intent_pending_without_recreating(tmp_path, monkeypatch):
+def test_legacy_create_snapshot_waits_for_handoff_instead_of_submitting(tmp_path):
     now = datetime.fromisoformat("2026-09-21T10:00:00+07:00")
     store = BoardStore(tmp_path / "board.sqlite3")
-    remote = RemoteDiscord(store)
-    monkeypatch.setattr("discord_forum.requests.request", remote.request)
-    owner = BoardEngine(store, DiscordForumClient(token="unused-test-token"))
+    delivery = FakeDeliveryOwner(store)
+    owner = new_owner(store.path, delivery)
     owner.submit(example_buy_event(), now)
-    remote.failure = requests.Timeout("credential-like private exception")
-    assert owner.drain(now=now) == 0
-    remote.empty_recovery = True
-    assert owner.drain(now=now + timedelta(minutes=2)) == 0
-    assert remote.posts == 1
-    op = store.operations_for_ticker("SCMA")[0]
-    assert op.payload["create_snapshot"]
-    assert op.last_error == "DiscordForumError"
-    assert store.outbox_health() == {"pending": 1, "failed": 1}
+    operation = store.operations_for_ticker("SCMA")[0]
+    payload = dict(operation.payload)
+    payload["create_snapshot"] = {"content": payload["content"], "after_id": "100"}
+    with sqlite3.connect(store.path) as connection:
+        connection.execute(
+            "UPDATE outbox SET payload_json = ? WHERE id = ?",
+            (json.dumps(payload, sort_keys=True), operation.id),
+        )
 
-
-def test_definite_create_rejection_retries_only_after_discord_delay(tmp_path, monkeypatch):
-    now = datetime.fromisoformat("2026-09-21T10:00:00+07:00")
-    store = BoardStore(tmp_path / "board.sqlite3")
-    remote = RemoteDiscord(store)
-    monkeypatch.setattr("discord_forum.requests.request", remote.request)
-    owner = BoardEngine(store, DiscordForumClient(token="unused-test-token"))
-    owner.submit(example_buy_event(), now)
-    remote.rejection = Response({"retry_after": 900}, 429)
     assert owner.drain(now=now) == 0
-    assert "create_snapshot" not in store.operations_for_ticker("SCMA")[0].payload
-    assert owner.drain(now=now + timedelta(minutes=2)) == 0
-    assert remote.posts == 1
-    assert owner.drain(now=now + timedelta(minutes=15)) == 1
-    assert remote.posts == 2 and len(remote.threads) == 1
+    assert delivery.submit_calls == []
+    assert store.operations_for_ticker("SCMA")[0].status == "pending"

@@ -13,8 +13,9 @@ def test_watchdog_wrapper_copied_to_scripts_executes_skill_watchdog_target(tmp_p
     copied_wrapper = scripts / "bursawatch-tg-market-news-watchdog.sh"
     shutil.copy2(ROOT / "bin" / "watchdog-wrapper.sh", copied_wrapper)
     copied_wrapper.chmod(0o755)
-    secret = tmp_path / "discord.env"
-    secret.write_text("DISCORD_BOT_TOKEN=test-token\n", encoding="utf-8")
+    client_token = tmp_path / "delivery-client-token"
+    client_token.write_text("test-token\n", encoding="utf-8")
+    client_token.chmod(0o600)
     captured_target = tmp_path / "target.txt"
     fake_python = tmp_path / "python"
     fake_python.write_text(f'#!/bin/sh\nprintf "%s" "$1" > "{captured_target}"\n', encoding="utf-8")
@@ -33,7 +34,7 @@ def test_watchdog_wrapper_copied_to_scripts_executes_skill_watchdog_target(tmp_p
             **os.environ,
             "HOME": str(home),
             "IDX_MARKET_NEWS_PYTHON": str(fake_python),
-            "IDX_MARKET_NEWS_DISCORD_SECRET_FILE": str(secret),
+            "BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE": str(client_token),
         },
     )
 
@@ -41,8 +42,8 @@ def test_watchdog_wrapper_copied_to_scripts_executes_skill_watchdog_target(tmp_p
         home / ".agents" / "skills" / "bursawatch-tg-market-news" / "bin" / "watchdog.py"
     )
     wrapper = copied_wrapper.read_text(encoding="utf-8")
-    assert "IDX_MARKET_NEWS_DISCORD_SECRET_FILE" in wrapper
-    assert '. "$DISCORD_SECRET_FILE"' in wrapper
+    assert "BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE" in wrapper
+    assert "DISCORD_BOT_TOKEN" not in wrapper
     assert "TELEGRAM_API_ID" not in wrapper
     assert "TELEGRAM_API_HASH" not in wrapper
     assert "POLYCOP_SESSION_STRING" not in wrapper
@@ -68,7 +69,7 @@ def test_agents_includes_independent_minutely_watchdog_schedule():
     assert "## Independent watchdog schedule" in guide
     assert "watchdog-wrapper.sh" in guide
     assert "* * * * *" in guide
-    assert "IDX_MARKET_NEWS_DISCORD_SECRET_FILE" in guide
-    assert "only `DISCORD_BOT_TOKEN=<token>`" in guide
+    assert "BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE" in guide
+    assert "shared Delivery Owner" in guide
     assert "IDX_MARKET_NEWS_NO_POST=1" in guide
     assert "$HOME/.agents/skills/bursawatch-tg-market-news/bin/watchdog.py" in guide

@@ -42,8 +42,14 @@ def test_skill_submission_targets_the_live_state_and_names_every_event_class():
 
 def test_wrapper_sources_only_required_runtime_secrets():
     wrapper = (ROOT / "bin/bursawatch-tg-market-news.sh").read_text()
-    for key in ("DISCORD_BOT_TOKEN", "TELEGRAM_API_ID", "TELEGRAM_API_HASH", "POLYCOP_SESSION_STRING"):
+    for key in (
+        "BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE",
+        "TELEGRAM_API_ID",
+        "TELEGRAM_API_HASH",
+        "POLYCOP_SESSION_STRING",
+    ):
         assert key in wrapper
+    assert "DISCORD_BOT_TOKEN" not in wrapper
     assert "OPENAI_API_KEY" not in wrapper
     assert "ANTHROPIC_API_KEY" not in wrapper
     assert "claude" not in wrapper.lower()

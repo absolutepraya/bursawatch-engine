@@ -1,6 +1,7 @@
 import asyncio
 import datetime as dt
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -1433,18 +1434,14 @@ def test_delivery_retry_delay_starts_when_failure_is_observed(
     )
 
 
-def test_discord_429_is_exposed_without_sleeping_or_truncation(monkeypatch):
-    import requests
+def test_delivery_owner_rate_limit_is_exposed_without_sleeping(monkeypatch):
+    class FakeOwner:
+        def status(self, _key):
+            return None
 
-    class Response:
-        status_code = 429
-        headers = {}
+        def submit(self, _operation):
+            raise scan.DeliveryClientError("rate_limited")
 
-        @staticmethod
-        def json():
-            return {"retry_after": 125.5}
-
-    monkeypatch.setattr(requests, "request", lambda *args, **kwargs: Response())
     monkeypatch.setattr(
         scan.time,
         "sleep",
@@ -1452,8 +1449,8 @@ def test_discord_429_is_exposed_without_sleeping_or_truncation(monkeypatch):
     )
 
     with pytest.raises(scan.DiscordRetryAfter) as raised:
-        scan._discord_request("POST", "https://discord.invalid", headers={})
-    assert raised.value.retry_after == 125.5
+        scan.post_discord_text("alert", scan.ALERT_CHANNEL_ID, False, "33655", client=FakeOwner())
+    assert raised.value.retry_after == 60.0
 
 
 def test_full_discord_retry_after_is_persisted_from_failure_time(
@@ -1485,46 +1482,294 @@ def test_full_discord_retry_after_is_persisted_from_failure_time(
     ] == event["next_attempt_at"]
 
 
-def test_discord_text_and_chart_use_stable_distinct_enforced_nonces(
-    tmp_path, monkeypatch
-):
-    requests_seen = []
+def test_discord_text_and_chart_use_stable_distinct_delivery_keys(tmp_path):
+    class FakeOwner:
+        def __init__(self):
+            self.operations = []
 
-    class Response:
-        status_code = 201
+        def status(self, _key):
+            return None
 
-        @staticmethod
-        def json():
-            return {"id": "discord-id"}
-
-    def capture_request(method, url, **kwargs):
-        requests_seen.append(kwargs)
-        return Response()
+        def submit(self, operation):
+            self.operations.append(operation)
+            return scan.OperationReceipt(
+                id=f"receipt-{len(self.operations)}",
+                key=operation.key,
+                digest=operation.digest,
+                status="delivered",
+                receipt={"channel_id": operation.target["channel_id"], "message_id": str(90000 + len(self.operations))},
+            )
 
     chart = tmp_path / "chart.jpg"
     chart.write_bytes(b"chart")
-    monkeypatch.setattr(scan, "_discord_token", lambda: "token")
-    monkeypatch.setattr(scan, "_discord_request", capture_request)
+    owner = FakeOwner()
 
-    assert scan.post_discord_text("alert", scan.ALERT_CHANNEL_ID, False, "33655")
-    assert scan.post_discord_text("alert", scan.ALERT_CHANNEL_ID, False, "33655")
-    assert scan.post_discord_file(str(chart), scan.ALERT_CHANNEL_ID, False, "33655")
-    assert scan.post_discord_file(str(chart), scan.ALERT_CHANNEL_ID, False, "33655")
+    assert scan.post_discord_text("alert", scan.ALERT_CHANNEL_ID, False, "33655", client=owner)
+    assert scan.post_discord_text("alert", scan.ALERT_CHANNEL_ID, False, "33655", client=owner)
+    assert scan.post_discord_file(str(chart), scan.ALERT_CHANNEL_ID, False, "33655", client=owner)
+    assert scan.post_discord_file(str(chart), scan.ALERT_CHANNEL_ID, False, "33655", client=owner)
 
-    text_payloads = [request["json"] for request in requests_seen[:2]]
-    chart_payloads = [
-        json.loads(request["data"]["payload_json"]) for request in requests_seen[2:]
+    keys = [operation.key for operation in owner.operations]
+    assert keys == [
+        "bursawatch-tg-phintraco-swing:33655:text",
+        "bursawatch-tg-phintraco-swing:33655:text",
+        "bursawatch-tg-phintraco-swing:33655:chart",
+        "bursawatch-tg-phintraco-swing:33655:chart",
     ]
-    assert text_payloads[0]["nonce"] == text_payloads[1]["nonce"]
-    assert chart_payloads[0]["nonce"] == chart_payloads[1]["nonce"]
-    assert text_payloads[0]["nonce"] != chart_payloads[0]["nonce"]
-    assert all(payload["enforce_nonce"] is True for payload in text_payloads)
-    assert all(payload["enforce_nonce"] is True for payload in chart_payloads)
+    assert keys[0] != keys[2]
+    assert owner.operations[2].attachments[0].data == b"chart"
+
+
+def test_imported_pending_receipt_waits_without_resubmitting():
+    operation = scan._channel_message_operation(
+        "alert", scan.ALERT_CHANNEL_ID, "33655", leg="text"
+    )
+    imported = replace(
+        operation,
+        reconcile_before_first_create=True,
+        legacy_nonce=scan.discord_nonce("33655", "text"),
+    )
+
+    class FakeOwner:
+        def __init__(self):
+            self.submits = []
+            self.waits = []
+
+        def status(self, key):
+            assert key == operation.key
+            return scan.OperationReceipt(
+                id="imported",
+                key=key,
+                digest=imported.digest,
+                status="pending_reconciliation",
+                receipt=None,
+            )
+
+        def submit(self, value):
+            self.submits.append(value)
+            pytest.fail("an imported operation must not be submitted again")
+
+        def wait(self, key, timeout):
+            self.waits.append((key, timeout))
+            return scan.OperationReceipt(
+                id="imported",
+                key=key,
+                digest=imported.digest,
+                status="delivered",
+                receipt={"channel_id": scan.ALERT_CHANNEL_ID, "message_id": "90001"},
+            )
+
+    owner = FakeOwner()
+
+    assert scan.post_discord_text(
+        "alert", scan.ALERT_CHANNEL_ID, False, "33655", client=owner
+    ) == "90001"
+    assert owner.submits == []
+    assert owner.waits == [(operation.key, 0)]
+
+
+def test_unrecognized_existing_digest_is_rejected_without_resubmitting():
+    operation = scan._channel_message_operation(
+        "alert", scan.ALERT_CHANNEL_ID, "33655", leg="text"
+    )
+
+    class FakeOwner:
+        def status(self, key):
+            assert key == operation.key
+            return scan.OperationReceipt(
+                id="existing",
+                key=key,
+                digest="a" * 64,
+                status="delivered",
+                receipt={"channel_id": scan.ALERT_CHANNEL_ID, "message_id": "90001"},
+            )
+
+        def submit(self, _operation):
+            pytest.fail("a mismatched existing receipt must never trigger a create")
+
+    with pytest.raises(scan.DeliveryClientError, match="invalid response"):
+        scan.post_discord_text(
+            "alert", scan.ALERT_CHANNEL_ID, False, "33655", client=FakeOwner()
+        )
+
+
+def test_submit_response_cannot_use_legacy_import_digest():
+    operation = scan._channel_message_operation(
+        "alert", scan.ALERT_CHANNEL_ID, "33655", leg="text"
+    )
+    imported = replace(
+        operation,
+        reconcile_before_first_create=True,
+        legacy_nonce=scan.discord_nonce("33655", "text"),
+    )
+
+    class FakeOwner:
+        def status(self, key):
+            assert key == operation.key
+            return None
+
+        def submit(self, value):
+            assert value.digest == operation.digest
+            assert value.reconcile_before_first_create is False
+            return scan.OperationReceipt(
+                id="unexpected-import",
+                key=value.key,
+                digest=imported.digest,
+                status="delivered",
+                receipt={"channel_id": scan.ALERT_CHANNEL_ID, "message_id": "90001"},
+            )
+
+    with pytest.raises(scan.DeliveryClientError, match="invalid response"):
+        scan._submit_or_lookup(
+            operation,
+            FakeOwner(),
+            legacy_import_nonce=scan.discord_nonce("33655", "text"),
+        )
+
 
 def test_oversized_alert_is_rejected_without_splitting(monkeypatch):
-    monkeypatch.setattr(scan, "_discord_token", lambda: "token")
     with pytest.raises(ValueError, match="Discord message limit"):
         scan.post_discord_text("x" * 2001, scan.ALERT_CHANNEL_ID, False, "1")
+
+
+def test_delivery_owner_receipts_persist_text_before_chart_and_keep_source_keys(
+    tmp_state, tmp_path, monkeypatch
+):
+    class FakeOwner:
+        def __init__(self):
+            self.operations = []
+            self.chart_saw_saved_text = False
+
+        def status(self, key):
+            return None
+
+        def submit(self, operation):
+            self.operations.append(operation)
+            if operation.key.endswith(":chart"):
+                stored = json.loads(tmp_state.read_text())["outbox"]["33655"]
+                self.chart_saw_saved_text = (
+                    stored["text_discord_id"] == "90001"
+                    and stored["phase"] == scan.PHASE_PENDING_CHART
+                )
+            message_id = "90001" if operation.key.endswith(":text") else "90002"
+            return scan.OperationReceipt(
+                id=f"receipt-{message_id}",
+                key=operation.key,
+                digest=operation.digest,
+                status="delivered",
+                receipt={"channel_id": operation.target["channel_id"], "message_id": message_id},
+            )
+
+    state = scan.empty_state()
+    event = enqueue_ready(state, sample_call(), tmp_path)
+    owner = FakeOwner()
+    monkeypatch.setattr(scan, "delivery_client_from_environment", lambda **_kwargs: owner)
+    monkeypatch.setattr(scan, "submit_board_event", lambda *_args: True)
+
+    scan.save_state(state)
+    assert scan.drain_outbox(state, now()) == 1
+
+    assert [operation.key for operation in owner.operations] == [
+        "bursawatch-tg-phintraco-swing:33655:text",
+        "bursawatch-tg-phintraco-swing:33655:chart",
+    ]
+    assert owner.operations[0].payload["content"] == scan.format_swing_alert(
+        sample_call(), include_board=True
+    )
+    assert owner.operations[1].attachments[0].data == b"chart"
+    assert owner.chart_saw_saved_text is True
+    assert event["phase"] == scan.PHASE_DELIVERED
+
+
+def test_delivery_owner_unavailable_keeps_only_unfinished_chart_leg(
+    tmp_state, tmp_path, monkeypatch
+):
+    class FakeOwner:
+        operations = []
+
+        def status(self, key):
+            return None
+
+        def submit(self, operation):
+            self.operations.append(operation)
+            if operation.key.endswith(":chart"):
+                raise scan.DeliveryClientError("network_error")
+            return scan.OperationReceipt(
+                id="receipt-text",
+                key=operation.key,
+                digest=operation.digest,
+                status="delivered",
+                receipt={"channel_id": operation.target["channel_id"], "message_id": "90001"},
+            )
+
+    state = scan.empty_state()
+    scan_event = enqueue_ready(state, sample_call(), tmp_path)
+    owner = FakeOwner()
+    monkeypatch.setattr(scan, "delivery_client_from_environment", lambda **_kwargs: owner)
+    monkeypatch.setattr(scan, "submit_board_event", lambda *_args: pytest.fail("Board handoff must wait"))
+    scan.save_state(state)
+
+    assert scan.drain_outbox(state, now()) == 0
+
+    persisted = json.loads(tmp_state.read_text())["outbox"]["33655"]
+    assert [operation.key for operation in owner.operations] == [
+        "bursawatch-tg-phintraco-swing:33655:text",
+        "bursawatch-tg-phintraco-swing:33655:chart",
+    ]
+    assert persisted["text_discord_id"] == "90001"
+    assert persisted["phase"] == scan.PHASE_PENDING_CHART
+    assert persisted["last_error"] == "delivery service could not be reached"
+    assert scan_event["phase"] == scan.PHASE_PENDING_CHART
+
+
+def test_board_link_edit_reads_and_edits_the_original_message_without_reposting():
+    class FakeOwner:
+        def __init__(self):
+            self.queries = []
+            self.operations = []
+
+        def query(self, query):
+            self.queries.append(query)
+            return [{
+                "id": "876543210123456789",
+                "content": "Alert\n\n**Board:** <#1548273399069933720>",
+            }]
+
+        def status(self, _key):
+            return None
+
+        def submit(self, operation):
+            self.operations.append(operation)
+            return scan.OperationReceipt(
+                id="edit-receipt",
+                key=operation.key,
+                digest=operation.digest,
+                status="delivered",
+                receipt={"channel_id": operation.target["channel_id"], "message_id": operation.target["message_id"]},
+            )
+
+    owner = FakeOwner()
+    board_url = "https://discord.com/channels/940285152335110204/777777777777777777"
+
+    assert scan.edit_discord_board_link(
+        "876543210123456789", board_url, False, "33655", client=owner
+    ) is True
+
+    assert owner.queries == [scan.DiscordQuery(
+        kind="channel_messages",
+        channel_id=scan.ALERT_CHANNEL_ID,
+        before="876543210123456790",
+        limit=100,
+    )]
+    assert len(owner.operations) == 1
+    operation = owner.operations[0]
+    assert operation.kind == "channel_message_edit"
+    assert operation.key == "bursawatch-tg-phintraco-swing:33655:board-link"
+    assert operation.target == {
+        "channel_id": scan.ALERT_CHANNEL_ID,
+        "message_id": "876543210123456789",
+    }
+    assert board_url in operation.payload["content"]
 
 
 # Heartbeat and orchestration

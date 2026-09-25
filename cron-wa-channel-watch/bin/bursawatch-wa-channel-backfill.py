@@ -56,11 +56,13 @@ def _sha256(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def _fetch_messages(channel_id: str, limit: int) -> list[dict[str, object]]:
+def _fetch_messages(channel_id: str, limit: int, *, client: object | None = None) -> list[dict[str, object]]:
     messages: list[dict[str, object]] = []
     before: str | None = None
     while len(messages) < limit:
-        page = discord.list_messages(channel_id, limit=min(100, limit - len(messages)), before=before)
+        page = discord.list_messages(
+            channel_id, limit=min(100, limit - len(messages)), before=before, client=client
+        )
         if not page:
             break
         messages.extend(page)
@@ -101,8 +103,8 @@ def _candidate(message: dict[str, object], channel_id: str) -> dict[str, object]
     }
 
 
-def discover(channel_id: str, limit: int) -> dict[str, object]:
-    candidates = [candidate for message in _fetch_messages(channel_id, limit) if (candidate := _candidate(message, channel_id))]
+def discover(channel_id: str, limit: int, *, client: object | None = None) -> dict[str, object]:
+    candidates = [candidate for message in _fetch_messages(channel_id, limit, client=client) if (candidate := _candidate(message, channel_id))]
     return {
         "manifest_version": MANIFEST_VERSION,
         "purpose": "bri-whatsapp-swing-backfill",
@@ -249,7 +251,7 @@ def plan(root: Path, manifest_path: Path) -> dict[str, object]:
     return {"manifest_version": MANIFEST_VERSION, "mode": "plan", "count": len(operations), "operations": operations}
 
 
-def apply(root: Path, manifest_path: Path) -> dict[str, object]:
+def apply(root: Path, manifest_path: Path, *, client: object | None = None) -> dict[str, object]:
     if os.environ.get("WHATSAPP_CHANNEL_WATCH_ALLOW_BACKEDIT") != "1":
         raise RuntimeError("set WHATSAPP_CHANNEL_WATCH_ALLOW_BACKEDIT=1 for the explicitly approved back-edit")
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -259,7 +261,7 @@ def apply(root: Path, manifest_path: Path) -> dict[str, object]:
         item = value["item"]
         channel_id = str(item["discord_channel_id"])
         message_id = str(item["discord_message_id"])
-        current = discord.get_message(channel_id, message_id)
+        current = discord.get_message(channel_id, message_id, client=client)
         content = current.get("content") if current else None
         if not isinstance(content, str):
             raise RuntimeError(f"Discord message is unavailable: {channel_id}/{message_id}")
@@ -292,7 +294,7 @@ def apply(root: Path, manifest_path: Path) -> dict[str, object]:
             sentiment=str(item["sentiment"]),
             board_url=acknowledgement.board_url,
         )
-        if len(final) != 1 or not discord.edit_message_content(channel_id, message_id, final[0]):
+        if len(final) != 1 or not discord.edit_message_content(channel_id, message_id, final[0], client=client):
             raise RuntimeError(f"Discord message edit failed: {channel_id}/{message_id}")
         results.append({"message_id": message_id, "event_key": item["event_key"], "status": "edited", "board_url": acknowledgement.board_url})
     return {"manifest_version": MANIFEST_VERSION, "mode": "apply", "count": len(results), "results": results}

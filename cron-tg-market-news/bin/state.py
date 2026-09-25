@@ -116,6 +116,7 @@ _STOCK_STATUS_EVENT_KEYS = frozenset(
         "rejection_code",
     }
 )
+_STOCK_STATUS_DELIVERY_HANDOFF_KEYS = _STOCK_STATUS_EVENT_KEYS | {"delivery_handoff"}
 _REJECTED_STOCK_STATUS_EVENT_KEYS = frozenset(
     {"source_message_id", "source_url", "phase", "rejected_at", "rejection_code"}
 )
@@ -298,7 +299,7 @@ def _validate_stock_status_event(key: object, event: object) -> None:
         if not isinstance(event["rejection_code"], str) or event["rejection_code"] not in _STOCK_STATUS_REASON_CODES:
             raise StateBlockedError(f"malformed state: {key}.rejection_code is invalid")
     else:
-        if set(event) != _STOCK_STATUS_EVENT_KEYS:
+        if frozenset(event) not in {_STOCK_STATUS_EVENT_KEYS, _STOCK_STATUS_DELIVERY_HANDOFF_KEYS}:
             raise StateBlockedError(f"malformed state: {key} has invalid event fields")
         source_message_id = _validate_stock_status_source(
             event["source_message_id"], event["source_url"], key
@@ -324,6 +325,28 @@ def _validate_stock_status_event(key: object, event: object) -> None:
             raise StateBlockedError(f"malformed state: {key}.channel_id is invalid")
         if not isinstance(event["content"], str) or not event["content"] or len(event["content"]) > 2000:
             raise StateBlockedError(f"malformed state: {key}.content is invalid")
+        if "delivery_handoff" in event:
+            handoff = event["delivery_handoff"]
+            if not isinstance(handoff, dict) or set(handoff) != {
+                "state", "operation_key", "receipt"
+            }:
+                raise StateBlockedError(f"malformed state: {key}.delivery_handoff is invalid")
+            if handoff["state"] not in {"unknown", "accepted"}:
+                raise StateBlockedError(f"malformed state: {key}.delivery_handoff.state is invalid")
+            if not isinstance(handoff["operation_key"], str) or not handoff["operation_key"]:
+                raise StateBlockedError(f"malformed state: {key}.delivery_handoff.operation_key is invalid")
+            receipt = handoff["receipt"]
+            if handoff["state"] == "unknown":
+                if receipt is not None:
+                    raise StateBlockedError(f"malformed state: {key}.delivery_handoff receipt is invalid")
+            elif (
+                not isinstance(receipt, dict)
+                or set(receipt) != {"id", "key", "digest", "status", "receipt"}
+                or receipt.get("key") != handoff["operation_key"]
+                or not all(isinstance(receipt.get(field), str) and receipt[field] for field in ("id", "key", "digest", "status"))
+                or receipt.get("receipt") is not None and not isinstance(receipt["receipt"], dict)
+            ):
+                raise StateBlockedError(f"malformed state: {key}.delivery_handoff receipt is invalid")
         _parse_timestamp(event["enqueued_at"], f"{key}.enqueued_at")
         retry = event["retry"]
         _validate_retry(retry, f"{key}.retry")
@@ -529,7 +552,7 @@ def empty_state() -> dict[str, object]:
     }
 
 
-def load_state(path: str | os.PathLike[str] | None = None) -> dict[str, object]:
+def load_state(path: str | os.PathLike[str] | None = None, *, migrate: bool = True) -> dict[str, object]:
     state_path = _state_path(path)
     try:
         status = state_path.lstat()
@@ -552,7 +575,7 @@ def load_state(path: str | os.PathLike[str] | None = None) -> dict[str, object]:
     except (json.JSONDecodeError, ValueError) as error:
         raise StateBlockedError("malformed state: JSON cannot be decoded") from error
     _validate_state(loaded)
-    if _migrate_legacy_provider_lanes(loaded) or _migrate_legacy_candidate_records(loaded):
+    if migrate and (_migrate_legacy_provider_lanes(loaded) or _migrate_legacy_candidate_records(loaded)):
         save_state(loaded, state_path)
     return loaded
 
@@ -859,7 +882,9 @@ def enqueue_candidate(state: dict[str, object], candidate: CompanyCandidate, now
     return True
 
 
-def claim_oldest_pending_analysis(state: dict[str, object], now: datetime) -> CompanyCandidate | None:
+def claim_oldest_pending_analysis(
+    state: dict[str, object], now: datetime, *, candidate_keys: set[str] | None = None
+) -> CompanyCandidate | None:
     _validate_state(state)
     _require_aware_timestamp(now, "now")
     candidates = state["candidates"]
@@ -867,7 +892,7 @@ def claim_oldest_pending_analysis(state: dict[str, object], now: datetime) -> Co
     due_candidates: list[tuple[datetime, str, dict[str, object]]] = []
     for key, record in candidates.items():
         assert isinstance(key, str) and isinstance(record, dict)
-        if record["phase"] == _PENDING_ANALYSIS and _retry_due_at(record, now):
+        if (candidate_keys is None or key in candidate_keys) and record["phase"] == _PENDING_ANALYSIS and _retry_due_at(record, now):
             due_candidates.append((_parse_timestamp(record["enqueued_at"], f"candidates.{key}.enqueued_at"), key, record))
     if not due_candidates:
         return None
@@ -901,7 +926,9 @@ def _schedule_retry(
     return RetryState(candidate_key=key, attempt=next_attempt)
 
 
-def expire_agent_leases(state: dict[str, object], now: datetime) -> list[CompanyCandidate]:
+def expire_agent_leases(
+    state: dict[str, object], now: datetime, *, candidate_keys: set[str] | None = None
+) -> list[CompanyCandidate]:
     _validate_state(state)
     _require_aware_timestamp(now, "now")
     candidates = state["candidates"]
@@ -909,7 +936,7 @@ def expire_agent_leases(state: dict[str, object], now: datetime) -> list[Company
     expired: list[CompanyCandidate] = []
     for key, record in candidates.items():
         assert isinstance(key, str) and isinstance(record, dict)
-        if record["phase"] != _AWAITING_AGENT:
+        if (candidate_keys is not None and key not in candidate_keys) or record["phase"] != _AWAITING_AGENT:
             continue
         lease_until = _parse_timestamp(record["agent_lease_until"], f"candidates.{key}.agent_lease_until")
         if lease_until > now:

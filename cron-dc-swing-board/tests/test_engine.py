@@ -8,6 +8,7 @@ import pytest
 
 from calendar import sessions_ago
 from conftest import example_buy_event, social_event
+import discord_forum
 from discord_forum import DiscordForumClient, DiscordForumError
 from engine import BoardEngine, source_outcome_state
 from models import Checkpoint, MarketState, PlanLevels, SourceEvent
@@ -23,6 +24,7 @@ def at(value="2026-09-19T09:05:00+07:00") -> datetime:
 @pytest.fixture
 def engine(tmp_path):
     client = Mock(spec=DiscordForumClient)
+    client.prepare_payload.side_effect = lambda _op, payload: dict(payload)
     client.execute.side_effect = lambda op, payload: (
         {"thread_id": "123", "starter_message_id": "456"}
         if op == "create_thread" else {"message_id": "789"}
@@ -618,32 +620,32 @@ def test_replacement_status_does_not_restore_prior_plan_checkpoints(engine):
 
 
 def test_engine_intents_execute_through_real_client_in_no_post_mode(engine, monkeypatch):
-    request = Mock(side_effect=AssertionError("HTTP must not run"))
-    monkeypatch.setattr("discord_forum.requests.request", request)
     engine.client = DiscordForumClient(no_post=True)
     engine.submit(social(), at())
     engine.submit(buy(), at())
     engine.submit(status("Stop-loss hit"), at())
     assert engine.drain(now=at()) == 7
     assert all(op.status == "complete" for op in operations(engine))
-    request.assert_not_called()
+    assert not hasattr(discord_forum, "requests")
 
 
-def test_illustrated_buy_replaced_by_chartless_buy_clears_old_attachment(engine, monkeypatch):
-    engine.submit(buy(media_path="/tmp/old-chart.png"), at())
+def test_chartless_buy_replacement_persists_clear_attachment_mode(engine):
+    engine.submit(buy(), at())
     engine.drain(now=at())
     engine.submit(buy(event_key="chartless-replacement", media_path=None), at())
-    response = Mock(status_code=200, ok=True)
-    response.json.return_value = {"attachments": [{"id": "42", "filename": "old-chart.png"}]}
-    request = Mock(return_value=response)
-    monkeypatch.setattr("discord_forum.requests.request", request)
-    engine.client = DiscordForumClient(token="test-token", no_post=False)
+    engine.client = DiscordForumClient(no_post=True)
 
     assert engine.drain(now=at(), limit=1) == 1
-
-    request.assert_called_once()
-    assert request.call_args.args[0] == "PATCH"
-    assert request.call_args.kwargs["json"]["attachments"] == []
+    edit = next(op for op in operations(engine) if op.operation == "edit_starter" and op.status == "complete")
+    episode = engine.store.episode(edit.episode_id)
+    prepared = engine.client.prepare_payload("edit_starter", {
+        **edit.payload,
+        "thread_id": episode.thread_id,
+        "message_id": episode.starter_message_id,
+        "_delivery_key": edit.dedupe_key,
+    })
+    intent = engine.client._intent("edit_starter", prepared, edit.dedupe_key)
+    assert intent.payload["attachments_mode"] == "clear"
 
 
 def test_six_target_all_targets_confirmation_resolves_with_tp6_tag(engine):

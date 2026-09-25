@@ -1,5 +1,21 @@
 # Configuration coverage
 
+## Source Catalog API contract (phase 1)
+
+The Control Plane now exposes a separate source registry and catalog revision
+through `/v1/source-catalog`, with `/v1/source-catalog/effective` for resolved
+subscriptions and an admin-only optimistic write route at
+`/v1/source-catalog/config`. The Sources page reads and edits this catalog;
+the eight workflow editors below still write their own watcher revisions.
+Catalog writes do not alter those revisions, schedules, cursors, or existing
+live source behavior. The source securities allowlist is initially empty
+pending a reviewed finite engine universe. New People & Org endpoints can be
+recorded as pending, but they are inactive until identity verification exists.
+Identity verification and an enabled subscription do not by themselves make a
+new endpoint runnable. The platform adapter and its domain owner must also
+have a reviewed profile/configuration snapshot contract for that endpoint.
+Until then, ingestion rejects the endpoint and creates no source events.
+
 The workspace exposes eight watcher editors. Seven originate from the
 `absolutepraya/bursawatch` control-plane commit
 `25079b3465a97de132ed977ffec3ce3a488a867a`. The additional optional X

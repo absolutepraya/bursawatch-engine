@@ -14,6 +14,7 @@ import shutil
 import sys
 import tempfile
 from typing import Sequence
+from uuid import uuid4
 
 from calendar import CalendarCoverageError
 import config
@@ -468,7 +469,7 @@ def _after_close(
         engine.drain()
         failure = "calendar coverage unavailable"
         heartbeat = _fatal_heartbeat(phase, failure)
-        engine.client.post_heartbeat(loaded_config.config.heartbeat_discord_channel_id, heartbeat)
+        _queue_heartbeat(engine, loaded_config.config.heartbeat_discord_channel_id, heartbeat, phase)
         control_run.event(
             "run-failed",
             level="fatal",
@@ -483,7 +484,7 @@ def _after_close(
         engine.drain()
         failure = _failure_reason(error)
         heartbeat = _fatal_heartbeat(phase, "reconciliation failed")
-        engine.client.post_heartbeat(loaded_config.config.heartbeat_discord_channel_id, heartbeat)
+        _queue_heartbeat(engine, loaded_config.config.heartbeat_discord_channel_id, heartbeat, phase)
         control_run.event(
             "run-failed",
             level="fatal",
@@ -500,7 +501,7 @@ def _after_close(
         # the number of operations just completed.
         result["pending"] = engine.store.pending_outbox_count()
         heartbeat = _heartbeat(phase, result)
-        engine.client.post_heartbeat(loaded_config.config.heartbeat_discord_channel_id, heartbeat)
+        _queue_heartbeat(engine, loaded_config.config.heartbeat_discord_channel_id, heartbeat, phase)
         outcome = "degraded" if (
             result["unavailable"] or result["pending"] or result.get("invalid", 0)
         ) else "ok"
@@ -532,6 +533,13 @@ def _after_close(
             attributes={"config_revision": loaded_config.revision, "phase": phase, **result},
         )
         control_run.finish(outcome, failure)
+
+
+def _queue_heartbeat(engine: BoardEngine, channel_id: str, content: str, phase: str) -> None:
+    """Commit a stable channel intent before handing it to Delivery Owner."""
+    identity = f"scheduled-heartbeat:v1:{phase}:{uuid4().hex}"
+    engine.enqueue_heartbeat(channel_id, content, identity, datetime.now(WIB))
+    engine.drain()
 
 
 def _failure_reason(error: object) -> str:

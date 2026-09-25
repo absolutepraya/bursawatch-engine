@@ -77,9 +77,9 @@ The browser fetches only the current destination's data. Catalog-driven views
 first check watcher membership; a direct run link reads the authorized event
 endpoint without requesting unrelated watcher histories:
 
-- Sources uses dated public previews and the watcher catalog for any settings
-  links; the workflow list also reads only the catalog. Neither presents
-  unloaded schedules or history as empty results.
+- Sources reads the authenticated Source Catalog and effective subscription
+  snapshot. The workflow list reads the separate watcher catalog. Neither
+  presents unloaded schedules or history as empty results.
 - A selected workflow starts its admin configuration read after catalog
   membership is confirmed and loads only that workflow's jobs for its schedule
   controls. X also loads source-poll runs for its delivery checks; other editors
@@ -136,22 +136,33 @@ and sample browser preferences separate.
   delivery or Sectors use.
 - Account: current identity, copyable UUID for owner-managed access and sign-out.
 
-The Sources page (`/workspace/sources`) carries the brokerage and social
-reference catalog, with illustrative security thumbnails, dated photographs,
-identity metadata and public references. Thumbnail and added/to-add states
-are presentation only; they do not create a source or prove a backend record.
-Settings links appear only for watcher IDs returned by the API. BRI Danareksa
-can link to WhatsApp settings; Phintraco has separate swing and market-news
-settings. Current profile rows require an admin config read. They reuse a
-public avatar only when platform and canonical URL/handle match consistently,
-never from an internal ID or display name alone. The former
-`/workspace/schedules` URL remains a compatibility entry point to workflow
-configuration, not an independent data source.
+The Sources page (`/workspace/sources`) reads the versioned Source Catalog and
+effective subscription snapshot from the authenticated API. Securities lists
+only engine-supported symbols; while that registry is empty, the page shows an
+explicit empty state. Institutions are curated engine records with static 4:3
+presentation art where available. People & Org combines seeded identities and
+user-managed records. The catalog response includes a backend-derived
+`can_edit` flag. Viewers see read-only records, while admins can draft new
+identities, platform endpoints, publisher defaults and compatible endpoint
+overrides, then save an optimistic catalog revision. A successful PUT followed
+by a failed read leaves the draft locked and clearly marks refresh as
+unconfirmed; only an explicit successful reload restores editing. Newly added endpoints remain pending identity verification;
+an enabled intent is not an effective subscription or delivery proof. The page
+shows default, override, effective draft and saved effective values separately.
+For ingestion, verified or enabled catalog state remains subject to the
+platform adapter's fixed identity bindings and owner configuration-snapshot
+support. Current platform pilots fail closed for unbound endpoints; adding a
+person to the catalog does not silently start provider polling or delivery.
+The fixed watcher editors, including Stockbit's four RSS lanes, remain independent.
+There is no browser source cache, object-storage upload, direct database access,
+or custom-security creation. Public curated assets remain in the web package.
 
-The proxy exposes GET watchers, watcher jobs/runs/config, job schedule and run
-events and profiles; PUT is limited to watcher config, job schedule and profile
-avatar settings, with POST limited to an explicit avatar-refresh request. It exposes no run
-creation, internal reconciliation, provider connection or trade endpoint.
+The same-origin proxy allowlists GET `/source-catalog` and
+`/source-catalog/effective`, plus PUT `/source-catalog/config`. It forwards only
+user JWTs; the backend enforces admin writes and validates compatibility.
+Existing watcher, schedule and avatar routes retain their separate contracts.
+The proxy exposes no run creation, internal reconciliation, provider connection
+or trade endpoint.
 Private admin config stays in the signed-in session's memory, not public
 fixtures or persistent browser storage. Unsaved drafts survive same-document
 Back/Forward; they clear on sign-out, identity change or page reload. Returning

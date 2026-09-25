@@ -28,6 +28,8 @@ def at(day=21, hour=16, minute=30):
 def owner(tmp_path):
     client = Mock(spec=DiscordForumClient)
     client.execute.side_effect = lambda op, payload: {"thread_id": "123", "starter_message_id": "456"} if op == "create_thread" else {"message_id": "789"}
+    client.prepare_payload.side_effect = lambda _op, payload: dict(payload)
+    client.post_heartbeat.return_value = {"message_id": "1550000000000000001"}
     return BoardEngine(BoardStore(tmp_path / "board.sqlite3"), client)
 
 

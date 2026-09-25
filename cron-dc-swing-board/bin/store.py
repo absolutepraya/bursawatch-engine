@@ -19,13 +19,13 @@ from uuid import uuid4
 from models import Checkpoint, Episode, MarketState, OutboxOperation, PlanLevels, SourceEvent, SubmittedEvent
 
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 _LEGAL_OPERATIONS = frozenset(
     {"create_thread", "edit_starter", "post_source_reply", "post_history_reply", "delete_message", "patch_thread"}
 )
 _BACKOFF_MINUTES = (1, 2, 4, 8, 15, 30, 60)
 _LEASE = timedelta(minutes=5)
-_TABLES = frozenset({"source_events", "episodes", "plans", "checkpoints", "history_events", "outbox", "close_attempts"})
+_TABLES = frozenset({"source_events", "episodes", "plans", "checkpoints", "history_events", "outbox", "close_attempts", "channel_outbox"})
 
 
 class StoreBlockedError(RuntimeError):
@@ -65,6 +65,19 @@ class SourceReply:
     current_content: str
     has_media: bool
     is_history: bool
+
+
+@dataclass(frozen=True)
+class ChannelOutboxOperation:
+    """Durable typed channel delivery intent, currently used by heartbeats."""
+
+    id: int
+    channel_id: str
+    content: str
+    dedupe_key: str
+    attempts: int
+    status: str
+    claim_token: str | None
 
 
 class BoardStore:
@@ -271,9 +284,13 @@ class BoardStore:
 
     def pending_outbox_count(self) -> int:
         with self._connection() as connection:
-            return int(connection.execute(
+            forum_pending = int(connection.execute(
                 "SELECT COUNT(*) FROM outbox WHERE status != 'complete'"
             ).fetchone()[0])
+            channel_pending = int(connection.execute(
+                "SELECT COUNT(*) FROM channel_outbox WHERE status != 'complete'"
+            ).fetchone()[0])
+            return forum_pending + channel_pending
 
     def history_cleanup_count(self) -> int:
         with self._connection() as connection:
@@ -291,7 +308,116 @@ class BoardStore:
                 "SELECT COUNT(*), COALESCE(SUM(last_error IS NOT NULL), 0) "
                 "FROM outbox WHERE status != 'complete'"
             ).fetchone()
-            return {"pending": int(row[0]), "failed": int(row[1])}
+            channel = connection.execute(
+                "SELECT COUNT(*), COALESCE(SUM(last_error IS NOT NULL), 0) "
+                "FROM channel_outbox WHERE status != 'complete'"
+            ).fetchone()
+            return {"pending": int(row[0]) + int(channel[0]), "failed": int(row[1]) + int(channel[1])}
+
+    def enqueue_heartbeat(
+        self, channel_id: str, content: str, dedupe_key: str, now: datetime
+    ) -> ChannelOutboxOperation:
+        if not channel_id.strip() or not content.strip() or not dedupe_key.strip():
+            raise ValueError("heartbeat channel, content, and identity must be non-empty")
+        now = _aware(now, "now")
+        with self._transaction() as connection:
+            connection.execute(
+                """INSERT INTO channel_outbox (
+                    channel_id, content, dedupe_key, attempts, next_attempt_at,
+                    status, created_at
+                ) VALUES (?, ?, ?, 0, ?, 'pending', ?)
+                ON CONFLICT(dedupe_key) DO NOTHING""",
+                (channel_id, content, dedupe_key, _timestamp(now), _timestamp(now)),
+            )
+            row = connection.execute(
+                "SELECT * FROM channel_outbox WHERE dedupe_key = ?", (dedupe_key,)
+            ).fetchone()
+            if row["channel_id"] != channel_id or row["content"] != content:
+                raise StoreBlockedError("heartbeat identity conflicts with persisted intent")
+            return _channel_outbox_from_row(row)
+
+    def claim_due_heartbeat(self, now: datetime) -> ChannelOutboxOperation | None:
+        now = _aware(now, "now")
+        stale_before = now - _LEASE
+        with self._transaction() as connection:
+            row = connection.execute(
+                """SELECT id FROM channel_outbox
+                WHERE ((status = 'pending' AND julianday(next_attempt_at) <= julianday(?))
+                   OR (status = 'claimed' AND julianday(claimed_at) <= julianday(?)))
+                ORDER BY id LIMIT 1""",
+                (_timestamp(now), _timestamp(stale_before)),
+            ).fetchone()
+            if row is None:
+                return None
+            claim_token = uuid4().hex
+            connection.execute(
+                "UPDATE channel_outbox SET status = 'claimed', claimed_at = ?, claim_token = ? WHERE id = ?",
+                (_timestamp(now), claim_token, int(row[0])),
+            )
+            claimed = connection.execute(
+                "SELECT * FROM channel_outbox WHERE id = ?", (int(row[0]),)
+            ).fetchone()
+            return _channel_outbox_from_row(claimed)
+
+    def complete_heartbeat(
+        self, operation_id: int, claim_token: str, receipt: Mapping[str, Any], completed_at: datetime
+    ) -> None:
+        completed_at = _aware(completed_at, "completed_at")
+        receipt_json = json.dumps(dict(receipt), sort_keys=True, separators=(",", ":"))
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM channel_outbox WHERE id = ?", (operation_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"unknown heartbeat operation: {operation_id}")
+            if row["status"] == "complete":
+                if row["completion_json"] != receipt_json:
+                    raise StoreBlockedError("heartbeat receipt cannot be replaced")
+                return
+            if row["status"] != "claimed" or row["claim_token"] != claim_token:
+                raise StoreBlockedError("heartbeat claim no longer owns operation")
+            connection.execute(
+                """UPDATE channel_outbox SET status = 'complete', completion_json = ?,
+                    completed_at = ?, claimed_at = NULL, claim_token = NULL
+                WHERE id = ?""",
+                (receipt_json, _timestamp(completed_at), operation_id),
+            )
+
+    def fail_heartbeat(self, operation_id: int, claim_token: str, error: str, failed_at: datetime) -> None:
+        if not error.strip():
+            raise ValueError("heartbeat error must be non-empty")
+        failed_at = _aware(failed_at, "failed_at")
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM channel_outbox WHERE id = ?", (operation_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"unknown heartbeat operation: {operation_id}")
+            if row["status"] != "claimed" or row["claim_token"] != claim_token:
+                raise StoreBlockedError("heartbeat claim no longer owns operation")
+            attempts = int(row["attempts"]) + 1
+            delay = _BACKOFF_MINUTES[min(attempts - 1, len(_BACKOFF_MINUTES) - 1)]
+            connection.execute(
+                """UPDATE channel_outbox SET attempts = ?, next_attempt_at = ?,
+                    status = 'pending', claimed_at = NULL, claim_token = NULL, last_error = ?
+                WHERE id = ?""",
+                (attempts, _timestamp(failed_at + timedelta(minutes=delay)), error, operation_id),
+            )
+
+    def pending_heartbeat_count(self) -> int:
+        with self._connection() as connection:
+            return int(connection.execute(
+                "SELECT COUNT(*) FROM channel_outbox WHERE status != 'complete'"
+            ).fetchone()[0])
+
+    def heartbeat_receipt(self, operation_id: int) -> dict[str, Any] | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT completion_json FROM channel_outbox WHERE id = ?", (operation_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"unknown heartbeat operation: {operation_id}")
+            return json.loads(row[0]) if row[0] else None
 
     @contextmanager
     def delivery_lock(self) -> Iterator[bool]:
@@ -317,6 +443,19 @@ class BoardStore:
                 payload["create_snapshot"] = snapshot
             connection.execute("UPDATE outbox SET payload_json = ? WHERE id = ?",
                                (json.dumps(payload, sort_keys=True), operation_id))
+
+    def persist_claimed_outbox_payload(
+        self, operation_id: int, claim_token: str, payload: Mapping[str, Any]
+    ) -> None:
+        """Persist resolved transport inputs while retaining the claimed intent."""
+        value = dict(payload)
+        value.pop("_delivery_key", None)
+        with self._transaction() as connection:
+            self._require_claim(connection, operation_id, claim_token)
+            connection.execute(
+                "UPDATE outbox SET payload_json = ? WHERE id = ?",
+                (json.dumps(value, sort_keys=True), operation_id),
+            )
 
     def operations_for_ticker(self, ticker: str) -> list[OutboxOperation]:
         with self._connection() as connection:
@@ -562,6 +701,8 @@ class BoardStore:
                         _migrate_v6_to_v7(connection)
                     if version in {1, 2, 3, 4, 5, 6, 7}:
                         _migrate_v7_to_v8(connection)
+                    if version in {1, 2, 3, 4, 5, 6, 7, 8}:
+                        _migrate_v8_to_v9(connection)
                     connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
                     connection.execute("COMMIT")
                 except BaseException:
@@ -1110,6 +1251,21 @@ def _create_non_event_tables(connection: sqlite3.Connection) -> None:
             available INTEGER NOT NULL CHECK (available IN (0, 1)),
             UNIQUE(plan_id, session_date, phase)
         );
+        CREATE TABLE channel_outbox (
+            id INTEGER PRIMARY KEY,
+            channel_id TEXT NOT NULL,
+            content TEXT NOT NULL,
+            dedupe_key TEXT NOT NULL UNIQUE,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            next_attempt_at TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('pending', 'claimed', 'complete')),
+            claimed_at TEXT,
+            claim_token TEXT,
+            last_error TEXT,
+            completion_json TEXT,
+            completed_at TEXT,
+            created_at TEXT NOT NULL
+        );
         """
     )
 
@@ -1288,6 +1444,27 @@ def _migrate_v7_to_v8(connection: sqlite3.Connection) -> None:
         )
 
 
+def _migrate_v8_to_v9(connection: sqlite3.Connection) -> None:
+    """Add a durable channel outbox for scheduled heartbeat operations."""
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS channel_outbox (
+            id INTEGER PRIMARY KEY,
+            channel_id TEXT NOT NULL,
+            content TEXT NOT NULL,
+            dedupe_key TEXT NOT NULL UNIQUE,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            next_attempt_at TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('pending', 'claimed', 'complete')),
+            claimed_at TEXT,
+            claim_token TEXT,
+            last_error TEXT,
+            completion_json TEXT,
+            completed_at TEXT,
+            created_at TEXT NOT NULL
+        )"""
+    )
+
+
 def _create_missing_tables(connection: sqlite3.Connection) -> None:
     existing = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     if "episodes" not in existing:
@@ -1343,6 +1520,18 @@ def _episode_from_row(row: sqlite3.Row) -> Episode:
         starter_source_event_id=row["starter_source_event_id"],
         lifecycle_tag=row["lifecycle_tag"],
         market_tag=row["market_tag"],
+    )
+
+
+def _channel_outbox_from_row(row: sqlite3.Row) -> ChannelOutboxOperation:
+    return ChannelOutboxOperation(
+        id=int(row["id"]),
+        channel_id=str(row["channel_id"]),
+        content=str(row["content"]),
+        dedupe_key=str(row["dedupe_key"]),
+        attempts=int(row["attempts"]),
+        status=str(row["status"]),
+        claim_token=row["claim_token"],
     )
 
 

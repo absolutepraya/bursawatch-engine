@@ -20,6 +20,7 @@ def new_state() -> dict:
         "outbox": [],
         "deliveries": [],
         "cleanup": [],
+        "source_events": {},
         "filtered_since_last_heartbeat": 0,
     }
 
@@ -35,7 +36,8 @@ def load_state(path: Path) -> dict:
         value["deliveries"] = []
     if "cleanup" not in value:
         value["cleanup"] = []
-    if type(value["deliveries"]) is not list or type(value["cleanup"]) is not list:
+    value.setdefault("source_events", {})
+    if type(value["deliveries"]) is not list or type(value["cleanup"]) is not list or type(value["source_events"]) is not dict:
         raise ValueError("x-post-watch state is invalid")
     if "filtered_since_last_heartbeat" not in value:
         value["filtered_since_last_heartbeat"] = 0

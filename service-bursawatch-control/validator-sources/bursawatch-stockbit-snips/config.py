@@ -144,7 +144,6 @@ class RuntimeConfig:
     state_path: Path
     no_post: bool
     request_timeout: float
-    discord_token: str | None
     heartbeat_channel_id: str
     id_stocks_news_channel_id: str
     macro_news_channel_id: str
@@ -166,7 +165,6 @@ def runtime() -> RuntimeConfig:
         state_path=Path(state_value).expanduser(),
         no_post=os.environ.get("STOCKBIT_SNIPS_NO_POST") == "1",
         request_timeout=timeout,
-        discord_token=os.environ.get("DISCORD_BOT_TOKEN"),
         heartbeat_channel_id=os.environ.get("STOCKBIT_SNIPS_HEARTBEAT_CHANNEL_ID", HEARTBEAT_CHANNEL_ID),
         id_stocks_news_channel_id=os.environ.get("STOCKBIT_SNIPS_ID_STOCKS_NEWS_CHANNEL_ID", ID_STOCKS_NEWS_CHANNEL_ID),
         macro_news_channel_id=os.environ.get("STOCKBIT_SNIPS_MACRO_NEWS_CHANNEL_ID", MACRO_NEWS_CHANNEL_ID),

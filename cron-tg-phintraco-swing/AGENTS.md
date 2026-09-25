@@ -36,7 +36,9 @@ After the All text and, when present, its same-message chart succeed, the watche
 
 State owns the observation cursor, outbox, cached source media, retry metadata, liveness, and rate-limited fatal fingerprints. Atomic writes and a nonblocking run lock prevent overlap. Corrupt state fails closed and must not be cleared as a recovery shortcut.
 
-The wrapper loads only `DISCORD_BOT_TOKEN`, `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `POLYCOP_SESSION_STRING`, and the narrowly named Phintraco control-plane values from VPS `~/.hermes/.env`; it exports the board wrapper path without loading board credentials. The shared control-plane library remains optional until live mode is deliberately enabled. Source charts, logs, and credentials stay private.
+The wrapper loads `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `POLYCOP_SESSION_STRING`, the shared Discord Delivery Owner URL and client-token file path, and the narrowly named Phintraco control-plane values from VPS `~/.hermes/.env`; it exports the board wrapper path without loading board credentials. It adds `lib-bursawatch-discord-delivery/bin` to `PYTHONPATH` and defaults the client to `http://127.0.0.1:9140` with the private token file `~/.hermes/secrets/bursawatch-discord-delivery-client-token`. The scanner and watchdog use typed DeliveryClient operations for text, charts, message reads and Board-link edits, and heartbeats. Stable source event and leg keys are persisted before local delivery progress advances. Runtime paths do not load a Discord bot token or call Discord REST directly. The shared control-plane library remains optional until live mode is deliberately enabled. Source charts, logs, and credentials stay private.
+
+`bin/delivery_handoff.py --plan <private-plan-path>` creates a read-only plan for paused-writer state import. Apply requires `--apply`, `BURSAWATCH_DISCORD_HANDOFF_ALLOW_APPLY=1`, the admin client token, and a separately approved cutover while the scanner is paused. Handoff acknowledgments are written only after the Delivery Owner accepts a matching operation receipt.
 
 ## Delivery contract and failure semantics
 
@@ -63,5 +65,16 @@ The suite covers parsing and rejections, timestamp and source-chart rules, durab
 Deploy only a clean published commit with `./deploy.sh cron-tg-phintraco-swing`, synchronize the wrapper and `CRON.md` separately after approval, and compare changed VPS checksums. Deploy `lib-bursawatch-control` before enabling live mode. Use isolated no-post verification through the actual wrapper, then inspect the natural scheduler record and target delivery path. State, media, logs, and the dotfiles mirror are not source to change.
 
 ## Historical references and related projects
+
+The Telegram source-ingest pilot adds `bin/pipeline_owner.py` for source work. It
+reuses this watcher's parser, outbox, renderer, and Board handoff. The owner
+requires a validated live watch-config revision and activates that frozen source
+and route snapshot before opening its ledger or delivering. Its source identity
+must still match the canonical pilot endpoint; there is no default-config
+fallback in this path. When a Swing event has a source chart, the owner retrieves
+its opaque ref through `lib-bursawatch-source-media`, verifies the digest, and
+places the bytes into the existing private source-chart handoff so All and Board
+delivery keep their established text-then-chart behavior. The existing scheduled
+reader stays active; this handler is not a cutover signal.
 
 This is a Phintraco-specific parser. Future providers require independent source validation. Root `AGENTS.md` and `lib-telegram-resilience/README.md` define the shared session and control-plane contract.

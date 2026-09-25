@@ -1,45 +1,43 @@
-"""The IDX Swing board's only Discord forum REST surface.
+"""Typed Delivery Owner adapter for the deterministic Swing Board.
 
-The client has no store access.  It receives already-durable owner intents and
-either executes exactly one REST operation or, in no-post mode, returns stable
-placeholder identities without making an HTTP request.
+This module contains no Discord REST transport or bot credential. The Board
+persists each desired operation in its SQLite outbox, then uses the shared
+Delivery Owner client to submit and recover it by one stable operation key.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import replace
 from datetime import datetime, timezone
 import hashlib
-import json
-import math
 import mimetypes
 import os
 from pathlib import Path
+import sys
 from typing import Any, Mapping
 
-# The board deliberately owns a short ``calendar`` module name.  Pytest adds
-# this directory to ``sys.path`` before importing requests, whose stdlib
-# cookiejar dependency imports ``calendar.timegm``.  Supply that one standard
-# helper on the already-loaded board module so the HTTP dependency cannot
-# accidentally fail during import because of the intentional local name.
-import calendar as _board_calendar
-if not hasattr(_board_calendar, "timegm"):
-    def _timegm(parts: tuple[int, ...]) -> int:
-        from datetime import datetime, timezone
+_DELIVERY_BIN = Path(__file__).resolve().parents[2] / "lib-bursawatch-discord-delivery" / "bin"
+if not _DELIVERY_BIN.exists():
+    _DELIVERY_BIN = Path.home() / ".agents" / "skills" / "lib-bursawatch-discord-delivery" / "bin"
+if str(_DELIVERY_BIN) not in sys.path:
+    sys.path.insert(0, str(_DELIVERY_BIN))
 
-        return int(datetime(*parts[:6], tzinfo=timezone.utc).timestamp())
+from bursawatch_discord_delivery import (
+    Attachment,
+    DeliveryClient,
+    DeliveryClientError,
+    DiscordQuery,
+    OperationIntent,
+    OperationReceipt,
+)
 
-    _board_calendar.timegm = _timegm
 
-import requests
-
-
-DISCORD_API = "https://discord.com/api/v10"
 DISCORD_GUILD_ID = "940285152335110204"
 FORUM_CHANNEL_ID = "1548273399069933720"
-DISCORD_TIMEOUT_SECONDS = 30
-_RETRY_FALLBACK_SECONDS = 60.0
-_RETRY_CAP_SECONDS = 15 * 60.0
+DELIVERY_OWNER_URL = "http://127.0.0.1:9140"
+DELIVERY_CLIENT_TOKEN_FILE = ".hermes/secrets/bursawatch-discord-delivery-client-token"
+DELIVERY_OPERATION_PREFIX = "bursawatch-swing-board"
+_NON_TERMINAL = frozenset({"pending", "pending_reconciliation", "retrying", "delivering"})
 
 
 def forum_thread_url(thread_id: str) -> str:
@@ -51,548 +49,495 @@ def forum_thread_url(thread_id: str) -> str:
 
 
 class DiscordForumError(RuntimeError):
-    """A safe Discord forum operation failure, suitable for owner retry state."""
+    """A safe Board delivery error, suitable for durable retry state."""
 
 
 class DiscordRateLimitError(DiscordForumError):
+    """Compatibility error for callers that supply a retry delay."""
+
     def __init__(self, retry_after: float) -> None:
-        super().__init__("Discord rate limited")
+        super().__init__("Delivery Owner rate limited the operation")
         self.retry_after = retry_after
 
 
 class DiscordRejectedError(DiscordForumError):
-    """A definite client rejection that did not create a Discord object."""
+    """Compatibility error for a definite provider rejection."""
 
 
-@dataclass(frozen=True)
-class ForumThread:
-    thread_id: str
-    starter_message_id: str
+def delivery_client_from_environment() -> DeliveryClient:
+    """Build the standard client using the loopback URL and private token file."""
+    base_url = os.environ.get("BURSAWATCH_DISCORD_DELIVERY_URL", DELIVERY_OWNER_URL)
+    token_path = Path(
+        os.environ.get(
+            "BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE",
+            str(Path.home() / DELIVERY_CLIENT_TOKEN_FILE),
+        )
+    ).expanduser()
+    return DeliveryClient(base_url, token_path)
+
+
+def operation_key(board_key: str) -> str:
+    """Map any durable Board dedupe key into the shared operation-key grammar."""
+    if not isinstance(board_key, str) or not board_key.strip():
+        raise ValueError("Board delivery identity must be non-empty")
+    digest = hashlib.sha256(board_key.encode("utf-8")).hexdigest()
+    return f"{DELIVERY_OPERATION_PREFIX}:{digest}"
+
+
+def stable_nonce(value: str) -> str:
+    """Map a historical Board create key to a deterministic bounded nonce."""
+    if not isinstance(value, str) or not value:
+        raise ValueError("Board legacy create key must be non-empty")
+    return "swb-" + hashlib.sha256(value.encode("utf-8")).hexdigest()[:20]
 
 
 class DiscordForumClient:
-    """Perform idempotent forum operations for the deterministic board owner."""
+    """Board-shaped typed adapter over the shared Delivery Owner client."""
 
-    def __init__(self, *, token: str | None = None, no_post: bool | None = None) -> None:
-        self._token_override = token
-        self.before_create = None
+    def __init__(self, *, delivery_client: object | None = None, no_post: bool | None = None) -> None:
         self.no_post = (
             os.environ.get("IDX_SWING_PLAN_BOARD_NO_POST") == "1"
             if no_post is None
-            else no_post
+            else bool(no_post)
         )
-
-    def create_forum_thread(
-        self,
-        name: str,
-        content: str,
-        tag_names: tuple[str, ...] | list[str],
-        chart: Path | str | None,
-        nonce_value: str,
-    ) -> ForumThread:
-        """Create one forum post and its Yanto-owned starter card."""
         if self.no_post:
-            return ForumThread("dry-run-thread", "dry-run-starter")
-        message = self._message(content, nonce_value)
-        payload: dict[str, object] = {
-            "name": _text(name, "thread name"),
-            "applied_tags": self._resolve_tag_names(tag_names),
-            "message": message,
-        }
-        response = self._request_with_media(
-            "POST", f"/channels/{FORUM_CHANNEL_ID}/threads", payload, chart
-        )
-        body = _json_object(response, "Discord returned an invalid forum thread")
-        thread_id = _identifier(body.get("id"))
-        starter = body.get("message")
-        if thread_id is None or not isinstance(starter, Mapping):
-            raise DiscordForumError("Discord returned an invalid forum thread")
-        starter_message_id = _identifier(starter.get("id"))
-        if starter_message_id is None:
-            raise DiscordForumError("Discord returned an invalid forum thread")
-        return ForumThread(thread_id, starter_message_id)
-
-    def edit_starter(
-        self,
-        thread_id: str,
-        message_id: str,
-        content: str,
-        chart: Path | str | None,
-        *,
-        clear_attachments: bool = False,
-    ) -> None:
-        """Edit a card, retaining charts unless replaced or explicitly cleared."""
-        if self.no_post:
-            return
-        _bool(clear_attachments, "clear_attachments")
-        path = _media_path(chart)
-        if clear_attachments and path is not None:
-            raise ValueError("cannot clear attachments and provide a chart")
-        payload: dict[str, object] = {
-            "content": _content(content),
-            "allowed_mentions": {"parse": []},
-        }
-        if clear_attachments:
-            payload["attachments"] = []
-        elif path is None:
-            existing = self._request("GET", f"/channels/{_id(thread_id)}/messages/{_id(message_id)}")
-            payload["attachments"] = _retained_attachments(existing)
+            # The local fake is selected before reading live URL/token settings.
+            self._delivery = _FakeDeliveryClient()
         else:
-            payload["attachments"] = [{"id": "0", "filename": path.name}]
-        self._request_with_media(
-            "PATCH",
-            f"/channels/{_id(thread_id)}/messages/{_id(message_id)}",
-            payload,
-            path,
-        )
+            self._delivery = delivery_client if delivery_client is not None else delivery_client_from_environment()
 
     def get_thread(self, thread_id: str) -> dict[str, Any]:
-        """Read the current forum thread metadata without changing it."""
-        return _json_object(
-            self._request("GET", f"/channels/{_id(thread_id)}"),
-            "Discord returned an invalid forum thread",
-        )
+        """Read a forum topic through an allowlisted Delivery Owner query."""
+        result = self._query(DiscordQuery(kind="forum_thread_read", thread_id=_id(thread_id)))
+        return _mapping(result, "Delivery Owner returned an invalid forum thread")
 
     def get_message(self, thread_id: str, message_id: str) -> dict[str, Any]:
-        """Read one current forum message without changing it."""
-        return _json_object(
-            self._request(
-                "GET", f"/channels/{_id(thread_id)}/messages/{_id(message_id)}"
-            ),
-            "Discord returned an invalid forum message",
-        )
-
-    def post_reply(
-        self,
-        thread_id: str,
-        content: str,
-        media: Path | str | None,
-        nonce_value: str,
-    ) -> str:
-        """Create one normal source or quoted-history reply within a thread."""
-        if self.no_post:
-            return "dry-run-message"
-        response = self._request_with_media(
-            "POST",
-            f"/channels/{_id(thread_id)}/messages",
-            self._message(content, nonce_value, allow_empty=media is not None),
-            media,
-        )
-        message_id = _identifier(_json_object(response, "Discord returned an invalid message").get("id"))
-        if message_id is None:
-            raise DiscordForumError("Discord returned an invalid message")
-        return message_id
-
-    def delete_message(self, thread_id: str, message_id: str) -> None:
-        """Delete one approved legacy history reply from a forum thread."""
-        if self.no_post:
-            return
-        self._request(
-            "DELETE",
-            f"/channels/{_id(thread_id)}/messages/{_id(message_id)}",
-        )
-
-    def patch_thread(
-        self,
-        thread_id: str,
-        name: str,
-        tag_names: tuple[str, ...] | list[str],
-        archived: bool,
-    ) -> None:
-        """Write the complete desired title, lifecycle/market tags, and archive state."""
-        if self.no_post:
-            return
-        if not isinstance(archived, bool):
-            raise ValueError("archived must be a boolean")
-        self._request(
-            "PATCH",
-            f"/channels/{_id(thread_id)}",
-            json={
-                "name": _text(name, "thread name"),
-                "applied_tags": self._resolve_tag_names(tag_names),
-                "archived": archived,
-            },
-        )
-
-    def post_heartbeat(self, channel_id: str, content: str) -> None:
-        """Direct-post one scheduler heartbeat outside the board's forum outbox."""
-        if self.no_post:
-            return
-        self._request(
-            "POST",
-            f"/channels/{_id(channel_id)}/messages",
-            json={"content": _text(content, "heartbeat content"), "allowed_mentions": {"parse": []}},
-        )
+        """Read one forum message through an allowlisted Delivery Owner query."""
+        result = self._query(DiscordQuery(
+            kind="thread_message_read", thread_id=_id(thread_id), message_id=_id(message_id)
+        ))
+        return _mapping(result, "Delivery Owner returned an invalid forum message")
 
     def execute(
         self, operation: object, payload: Mapping[str, object] | None = None
     ) -> dict[str, str]:
-        """Dispatch one persisted owner operation without touching its store state."""
+        """Submit one already-persisted Board operation and return its receipt IDs."""
         operation_name, operation_payload = _operation(operation, payload)
+        operation_payload = self.prepare_payload(operation_name, operation_payload)
+        stable_key = operation_payload.get("_delivery_key") or operation_payload.get("nonce_value")
+        if not isinstance(stable_key, str) or not stable_key.strip():
+            raise DiscordForumError("Board operation has no persisted delivery key")
+        intent = self._intent(operation_name, operation_payload, stable_key)
+        snapshot = operation_payload.get("create_snapshot")
+        nonce_source = (
+            snapshot.get("operation_key")
+            if isinstance(snapshot, Mapping) and isinstance(snapshot.get("operation_key"), str)
+            else stable_key
+        )
+        # Legacy Board snapshots describe a create that may already have
+        # reached Discord. They must first be adopted by the owner handoff,
+        # which performs bounded read-back before any possible create.
+        receipt = self._submit_or_lookup(
+            intent,
+            require_existing=bool(operation_payload.get("create_snapshot")),
+            imported_legacy_nonce=stable_nonce(nonce_source),
+        )
+        value = receipt.receipt or {}
         if operation_name == "create_thread":
-            created = self.create_forum_thread(
-                _required(operation_payload, "name"),
-                _required(operation_payload, "content"),
-                _tag_names(operation_payload),
-                operation_payload.get("chart"),
-                _nonce(operation_payload),
-            )
-            return {"thread_id": created.thread_id, "starter_message_id": created.starter_message_id}
-        if operation_name == "edit_starter":
-            self.edit_starter(
-                _required(operation_payload, "thread_id"),
-                _required(operation_payload, "message_id"),
-                _required(operation_payload, "content"),
-                operation_payload.get("chart"),
-                clear_attachments=_bool(operation_payload.get("clear_attachments", False), "clear_attachments"),
-            )
-            return {}
+            thread_id = _identifier(value.get("thread_id"))
+            starter_id = _identifier(value.get("message_id"))
+            if thread_id is None or starter_id is None:
+                raise DiscordForumError("Delivery Owner returned incomplete forum thread IDs")
+            return {"thread_id": thread_id, "starter_message_id": starter_id}
         if operation_name in {"post_source_reply", "post_history_reply"}:
-            return {
-                "message_id": self.post_reply(
-                    _required(operation_payload, "thread_id"),
-                    _reply_content(operation_payload),
-                    operation_payload.get("media"),
-                    _nonce(operation_payload),
-                )
-            }
-        if operation_name == "delete_message":
-            self.delete_message(
-                _required(operation_payload, "thread_id"),
-                _required(operation_payload, "message_id"),
-            )
-            return {}
-        if operation_name == "patch_thread":
-            self.patch_thread(
-                _required(operation_payload, "thread_id"),
-                _required(operation_payload, "name"),
-                _tag_names(operation_payload),
-                _bool(operation_payload.get("archived"), "archived"),
-            )
-            return {}
-        raise ValueError(f"unsupported forum operation: {operation_name}")
+            message_id = _identifier(value.get("message_id"))
+            if message_id is None:
+                raise DiscordForumError("Delivery Owner returned an invalid reply ID")
+            return {"message_id": message_id}
+        return {}
 
-    def create_snapshot(self, operation: str, payload: Mapping[str, object]) -> dict:
-        """Read a pre-POST boundary; the engine persists it before sending.
+    def prepare_payload(
+        self, operation: object, payload: Mapping[str, object]
+    ) -> dict[str, object]:
+        """Resolve tag names through the typed read path before Board persists them."""
+        operation_name, value = _operation(operation, payload)
+        if operation_name in {"create_thread", "patch_thread"}:
+            if "applied_tag_ids" not in value:
+                value["applied_tag_ids"] = self._tag_ids(_tag_names(value))
+            else:
+                tag_ids = value["applied_tag_ids"]
+                if (not isinstance(tag_ids, list)
+                        or any(_identifier(item) is None for item in tag_ids)
+                        or len(set(tag_ids)) != len(tag_ids)):
+                    raise DiscordForumError("persisted forum tag IDs are invalid")
+        return value
 
-        The immutable intent contains the source URL/operation key and content.
-        No recovery marker or internal identifier is added to visible messages.
-        """
-        own = _json_object(self._request("GET", "/users/@me"), "Discord identity unavailable")
-        bot_id = _id(own.get("id"))
-        started = datetime.now(timezone.utc)
-        after_id = str(max(0, int(started.timestamp() * 1000) - 1420070400000) << 22)
-        if operation != "create_thread":
-            page = self._request("GET", f"/channels/{_id(payload['thread_id'])}/messages", params={"limit": 1}).json()
-            if not isinstance(page, list):
-                raise DiscordForumError("Discord recovery boundary unavailable")
-            after_id = _id(page[0].get("id")) if page else "0"
-        media = payload.get("chart") if operation == "create_thread" else payload.get("media")
-        return {"after_id": after_id, "started_at": started.isoformat(), "bot_id": bot_id,
-                "content": payload["content"], "filename": Path(str(media)).name if media else None,
-                "operation_key": _nonce(payload)}
+    def post_heartbeat(
+        self,
+        channel_id: str,
+        content: str,
+        *,
+        operation_key: str | None = None,
+    ) -> dict[str, str]:
+        """Submit a scheduler heartbeat as a typed channel-message operation."""
+        destination = _id(channel_id)
+        key_source = operation_key or f"heartbeat:{destination}:{datetime.now(timezone.utc).isoformat()}"
+        intent = OperationIntent(
+            key=operation_key_for(key_source),
+            kind="channel_message_create",
+            ordering_key=f"channel:{destination}",
+            target={"channel_id": destination},
+            payload={"content": _text(content, "heartbeat content"), "allowed_mentions": {"parse": []}},
+        )
+        receipt = self._submit_or_lookup(
+            intent, imported_legacy_nonce=stable_nonce(key_source)
+        )
+        message_id = _identifier((receipt.receipt or {}).get("message_id"))
+        if message_id is None:
+            raise DiscordForumError("Delivery Owner returned an invalid heartbeat message ID")
+        return {"message_id": message_id}
 
-    def recover_create(self, operation: str, payload: Mapping[str, object]) -> dict[str, str]:
-        """Recover ambiguous success, never blindly repeat a possibly accepted POST.
-
-        Discord enforces nonce uniqueness for only a few minutes. Read back
-        exact bot-authored content and attachment identity beyond the persisted
-        boundary instead. An incomplete search or no unique match stays pending
-        for review, because absence is not proof that a timed-out POST failed.
-        """
-        snapshot = payload["create_snapshot"]
-        matches = []
+    def _intent(
+        self,
+        operation: str,
+        payload: Mapping[str, object],
+        board_key: str,
+    ) -> OperationIntent:
+        key = operation_key(board_key)
         if operation == "create_thread":
-            channel = _json_object(self._request("GET", f"/channels/{FORUM_CHANNEL_ID}"), "Discord forum unavailable")
-            guild_id = _id(channel.get("guild_id"))
-            active = _json_object(self._request("GET", f"/guilds/{guild_id}/threads/active"), "Discord threads unavailable")
-            threads = _thread_list(active)
-            before = None
-            for _ in range(10):
-                params = {"limit": 100}
-                if before:
-                    params["before"] = before
-                archived = _json_object(self._request("GET", f"/channels/{FORUM_CHANNEL_ID}/threads/archived/public", params=params), "Discord threads unavailable")
-                batch = _thread_list(archived)
-                threads.extend(batch)
-                if not archived.get("has_more"):
-                    break
-                next_before = batch[-1].get("thread_metadata", {}).get("archive_timestamp") if batch else None
-                if not next_before or next_before == before:
-                    raise DiscordForumError("Discord recovery pagination unavailable")
-                if datetime.fromisoformat(next_before) < datetime.fromisoformat(snapshot["started_at"]):
-                    break
-                before = next_before
-            else:
-                raise DiscordForumError("Discord recovery search limit reached")
-            for thread in {str(item["id"]): item for item in threads}.values():
-                if str(thread.get("parent_id")) != FORUM_CHANNEL_ID or int(thread["id"]) <= int(snapshot["after_id"]):
-                    continue
-                thread_id = _id(thread["id"])
-                message = _json_object(self._request("GET", f"/channels/{thread_id}/messages/{thread_id}"), "Discord starter unavailable")
-                if _matches_create(message, snapshot):
-                    matches.append({"thread_id": thread_id, "starter_message_id": _id(message["id"])})
-        else:
-            before = None
-            for _ in range(10):
-                params = {"limit": 100}
-                if before:
-                    params["before"] = before
-                batch = self._request("GET", f"/channels/{_id(payload['thread_id'])}/messages", params=params).json()
-                if not isinstance(batch, list):
-                    raise DiscordForumError("Discord recovery messages unavailable")
-                for message in batch:
-                    if int(message["id"]) > int(snapshot["after_id"]) and _matches_create(message, snapshot):
-                        matches.append({"message_id": _id(message["id"])})
-                if not batch or len(batch) < 100 or int(batch[-1]["id"]) <= int(snapshot["after_id"]):
-                    break
-                next_before = _id(batch[-1]["id"])
-                if next_before == before:
-                    raise DiscordForumError("Discord recovery pagination unavailable")
-                before = next_before
-            else:
-                raise DiscordForumError("Discord recovery search limit reached")
-        if len(matches) != 1:
-            raise DiscordForumError("Discord create outcome remains uncertain")
-        return matches[0]
+            tag_ids = _persisted_tag_ids(payload)
+            media = _attachment(payload.get("chart") or payload.get("media"))
+            return OperationIntent(
+                key=key,
+                kind="forum_thread_create",
+                ordering_key=f"forum:{FORUM_CHANNEL_ID}",
+                target={"forum_id": FORUM_CHANNEL_ID},
+                payload={
+                    "name": _text(payload.get("name"), "thread name"),
+                    "content": _content(payload.get("content")),
+                    "allowed_mentions": {"parse": []},
+                    "applied_tags": tag_ids,
+                },
+                attachments=() if media is None else (media,),
+            )
+        if operation == "edit_starter":
+            thread_id = _id(payload.get("thread_id"))
+            message_id = _id(payload.get("message_id"))
+            chart = _attachment(payload.get("chart") or payload.get("media"))
+            clear = _bool(payload.get("clear_attachments", False), "clear_attachments")
+            if chart is not None and clear:
+                raise ValueError("cannot clear attachments and provide a chart")
+            mode = "replace" if chart is not None else "clear" if clear else "keep"
+            return OperationIntent(
+                key=key,
+                kind="thread_message_edit",
+                ordering_key=f"thread:{thread_id}",
+                target={"thread_id": thread_id, "message_id": message_id},
+                payload={
+                    "content": _content(payload.get("content")),
+                    "allowed_mentions": {"parse": []},
+                    "attachments_mode": mode,
+                },
+                attachments=() if chart is None else (chart,),
+            )
+        if operation in {"post_source_reply", "post_history_reply"}:
+            thread_id = _id(payload.get("thread_id"))
+            media = _attachment(payload.get("media"))
+            content = _reply_content(payload)
+            return OperationIntent(
+                key=key,
+                kind="thread_message_create",
+                ordering_key=f"thread:{thread_id}",
+                target={"thread_id": thread_id},
+                payload={"content": content, "allowed_mentions": {"parse": []}},
+                attachments=() if media is None else (media,),
+            )
+        if operation == "delete_message":
+            thread_id = _id(payload.get("thread_id"))
+            message_id = _id(payload.get("message_id"))
+            return OperationIntent(
+                key=key,
+                kind="thread_message_delete",
+                ordering_key=f"thread:{thread_id}",
+                target={"thread_id": thread_id, "message_id": message_id},
+                payload={},
+            )
+        if operation == "patch_thread":
+            thread_id = _id(payload.get("thread_id"))
+            return OperationIntent(
+                key=key,
+                kind="forum_thread_update",
+                ordering_key=f"thread:{thread_id}",
+                target={"thread_id": thread_id},
+                payload={
+                    "name": _text(payload.get("name"), "thread name"),
+                    "applied_tags": _persisted_tag_ids(payload),
+                    "archived": _bool(payload.get("archived"), "archived"),
+                },
+            )
+        raise ValueError(f"unsupported Board delivery operation: {operation}")
 
-    def _message(self, content: str, nonce_value: str, *, allow_empty: bool = False) -> dict[str, object]:
-        return {
-            "content": _content(content, allow_empty=allow_empty),
-            "nonce": stable_nonce(nonce_value),
-            "enforce_nonce": True,
-            "allowed_mentions": {"parse": []},
-        }
-
-    def _token(self) -> str:
-        token = self._token_override or os.environ.get("DISCORD_BOT_TOKEN")
-        if not token:
-            raise DiscordForumError("Discord bot token is unavailable")
-        return token
-
-    def _resolve_tag_names(self, tag_names: tuple[str, ...] | list[str]) -> list[str]:
-        """Resolve reviewed canonical names against the forum's current tag catalog."""
-        required_names = _validated_tag_names(tag_names)
-        response = self._request("GET", f"/channels/{FORUM_CHANNEL_ID}")
-        channel = _json_object(response, "Discord returned an invalid forum channel")
-        available_tags = channel.get("available_tags")
-        if not isinstance(available_tags, list):
-            raise DiscordForumError("Discord returned an invalid forum tag catalog")
-
+    def _tag_ids(self, names: tuple[str, ...]) -> list[str]:
+        if not names:
+            return []
+        result = self._query(DiscordQuery(kind="forum_channel_read", channel_id=FORUM_CHANNEL_ID))
+        channel = _mapping(result, "Delivery Owner returned an invalid forum tag catalog")
+        catalog = channel.get("available_tags")
+        if not isinstance(catalog, list):
+            raise DiscordForumError("Delivery Owner returned an invalid forum tag catalog")
         resolved: list[str] = []
-        for required_name in required_names:
+        for name in names:
             matches = [
                 _identifier(tag.get("id"))
-                for tag in available_tags
-                if isinstance(tag, Mapping) and tag.get("name") == required_name
+                for tag in catalog
+                if isinstance(tag, Mapping) and tag.get("name") == name
             ]
             if len(matches) != 1 or matches[0] is None:
-                raise DiscordForumError(f"Discord forum tag is not uniquely available: {required_name}")
+                raise DiscordForumError(f"Board forum tag is not uniquely available: {name}")
             resolved.append(matches[0])
         return resolved
 
-    def _request_with_media(
+    def _query(self, query: DiscordQuery) -> object:
+        try:
+            return self._delivery.query(query)  # type: ignore[attr-defined]
+        except DeliveryClientError:
+            raise
+        except Exception as exc:
+            raise DiscordForumError("Delivery Owner query failed") from exc
+
+    def _submit_or_lookup(
         self,
-        method: str,
-        path: str,
-        payload: dict[str, object],
-        media: Path | str | None,
-    ) -> Any:
-        source = _media_path(media)
-        if source is None:
-            return self._request(method, path, json=payload)
+        intent: OperationIntent,
+        *,
+        require_existing: bool = False,
+        imported_legacy_nonce: str | None = None,
+    ) -> OperationReceipt:
         try:
-            with source.open("rb") as file:
-                content_type = mimetypes.guess_type(source.name)[0]
-                upload = (source.name, file, content_type) if content_type else (source.name, file)
-                return self._request(
-                    method,
-                    path,
-                    data={"payload_json": json.dumps(payload, separators=(",", ":"))},
-                    files={"files[0]": upload},
-                )
-        except OSError as exc:
-            raise DiscordForumError("Discord media upload failed") from exc
-
-    def _request(self, method: str, path: str, **kwargs: object) -> Any:
-        headers = {"Authorization": f"Bot {self._token()}"}
-        if "json" in kwargs:
-            headers["Content-Type"] = "application/json"
-        if method == "POST" and self.before_create is not None:
-            self.before_create()
-        try:
-            response = requests.request(
-                method,
-                f"{DISCORD_API}{path}",
-                headers=headers,
-                timeout=DISCORD_TIMEOUT_SECONDS,
-                **kwargs,
+            receipt = self._delivery.status(intent.key)  # type: ignore[attr-defined]
+            from_existing_status = receipt is not None
+            if receipt is None:
+                if require_existing:
+                    raise DiscordForumError("legacy create requires Delivery Owner handoff")
+                receipt = self._delivery.submit(intent)  # type: ignore[attr-defined]
+            expected_digest = self._matching_digest(
+                intent,
+                receipt,
+                from_existing_status=from_existing_status,
+                imported_legacy_nonce=imported_legacy_nonce,
             )
-        except requests.RequestException as exc:
-            raise DiscordForumError("Discord request failed") from exc
-        status = getattr(response, "status_code", None)
-        if status == 429:
-            error = DiscordRateLimitError(_retry_after(response))
-            error.create_rejected = method == "POST"
-            raise error
-        if isinstance(status, int) and 400 <= status < 500:
-            error = DiscordRejectedError("Discord API request was rejected")
-            error.create_rejected = method == "POST"
-            raise error
-        if not isinstance(status, int) or not 200 <= status < 300:
-            raise DiscordForumError("Discord API request was rejected")
-        return response
+            if receipt.status in _NON_TERMINAL:
+                receipt = self._delivery.wait(intent.key, 0)  # type: ignore[attr-defined]
+                self._require_matching_receipt(intent, receipt, expected_digest)
+        except DeliveryClientError:
+            raise
+        except DiscordForumError:
+            raise
+        except Exception as exc:
+            raise DiscordForumError("Delivery Owner acceptance could not be confirmed") from exc
+        if receipt.status != "delivered":
+            raise DiscordForumError(f"Delivery Owner operation is {receipt.status}")
+        if not isinstance(receipt.receipt, dict):
+            raise DiscordForumError("Delivery Owner returned no operation receipt")
+        return receipt
+
+    @staticmethod
+    def _matching_digest(
+        intent: OperationIntent,
+        receipt: object,
+        *,
+        from_existing_status: bool,
+        imported_legacy_nonce: str | None,
+    ) -> str:
+        if isinstance(receipt, OperationReceipt) and receipt.key == intent.key:
+            if receipt.digest == intent.digest:
+                return intent.digest
+            if (from_existing_status and intent.kind.endswith("_create")
+                    and imported_legacy_nonce is not None):
+                candidate = replace(
+                    intent,
+                    reconcile_before_first_create=True,
+                    **({"legacy_nonce": imported_legacy_nonce}
+                       if intent.kind in {"channel_message_create", "thread_message_create"}
+                       else {}),
+                )
+                if receipt.digest == candidate.digest:
+                    return candidate.digest
+        DiscordForumClient._require_matching_receipt(intent, receipt, intent.digest)
+        raise AssertionError("receipt matcher did not return a digest")
+
+    @staticmethod
+    def _require_matching_receipt(
+        intent: OperationIntent, receipt: object, expected_digest: str
+    ) -> None:
+        if (not isinstance(receipt, OperationReceipt)
+                or receipt.key != intent.key
+                or receipt.digest != expected_digest):
+            raise DiscordForumError("Delivery Owner receipt did not match the Board operation")
 
 
-def stable_nonce(value: str) -> str:
-    """Derive one Discord-safe, stable nonce from durable owner identity."""
-    return hashlib.sha256(_text(value, "nonce").encode("utf-8")).hexdigest()[:24]
+class _FakeDeliveryClient:
+    """Process-local Delivery Owner fake used only by explicit no-post runs."""
+
+    def __init__(self) -> None:
+        self._receipts: dict[str, OperationReceipt] = {}
+        self._tag_catalog = [
+            "Primary plan", "Supporting setup", "Chart context", "Resolved", "Source plan",
+            "Below entry", "Entry zone", "Above entry", "TP1 reached", "TP2 reached",
+            "TP3 reached", "TP4 reached", "TP5 reached", "TP6 reached", "Stop-loss breached",
+        ]
+
+    def status(self, operation_key: str) -> OperationReceipt | None:
+        return self._receipts.get(operation_key)
+
+    def submit(self, operation: OperationIntent) -> OperationReceipt:
+        existing = self._receipts.get(operation.key)
+        if existing is not None:
+            if existing.digest != operation.digest:
+                raise DeliveryClientError("conflict")
+            return existing
+        identity = str(1_000_000_000_000_000_000 + int(operation.digest[:15], 16))
+        if operation.kind == "forum_thread_create":
+            value = {"thread_id": identity, "message_id": identity}
+        elif operation.kind == "forum_thread_update":
+            value = {"thread_id": operation.target["thread_id"]}
+        elif operation.kind.startswith("forum_thread_"):
+            value = {"thread_id": operation.target["thread_id"]}
+        elif operation.kind == "thread_message_edit":
+            value = {"message_id": operation.target["message_id"]}
+        elif operation.kind.endswith("_delete"):
+            value = {"message_id": operation.target["message_id"]}
+        elif operation.kind.startswith("thread_message_"):
+            value = {"message_id": identity}
+        elif operation.kind.startswith("channel_message_"):
+            value = {"message_id": identity, "channel_id": operation.target["channel_id"]}
+        else:
+            value = {}
+        receipt = OperationReceipt(
+            id=f"dry-run:{identity}",
+            key=operation.key,
+            digest=operation.digest,
+            status="delivered",
+            receipt=value,
+        )
+        self._receipts[operation.key] = receipt
+        return receipt
+
+    def wait(self, operation_key: str, _timeout_seconds: float) -> OperationReceipt:
+        result = self._receipts.get(operation_key)
+        if result is None:
+            raise DeliveryClientError("not_found")
+        return result
+
+    def query(self, query: DiscordQuery) -> object:
+        if query.kind == "forum_channel_read":
+            return {
+                "id": query.channel_id,
+                "guild_id": DISCORD_GUILD_ID,
+                "available_tags": [
+                    {"id": str(1_500_000_000_000_000_000 + index), "name": name}
+                    for index, name in enumerate(self._tag_catalog, start=1)
+                ],
+            }
+        if query.kind == "forum_thread_read":
+            return {
+                "id": query.thread_id,
+                "parent_id": FORUM_CHANNEL_ID,
+                "name": "SCMA",
+                "thread_metadata": {"archived": False, "locked": False},
+            }
+        if query.kind == "thread_message_read":
+            return {"id": query.message_id, "content": "", "attachments": []}
+        raise DeliveryClientError("invalid_query")
 
 
-def _thread_list(payload: Mapping) -> list[dict]:
-    value = payload.get("threads")
-    if not isinstance(value, list) or any(not isinstance(item, dict) or "id" not in item for item in value):
-        raise DiscordForumError("Discord recovery threads unavailable")
-    return value
+def operation_key_for(board_key: str) -> str:
+    """Public helper for the heartbeat path, using the same stable key mapping."""
+    return operation_key(board_key)
 
 
-def _matches_create(message: Mapping, snapshot: Mapping) -> bool:
-    attachments = message.get("attachments")
-    if not isinstance(attachments, list):
-        return False
-    filenames = [item.get("filename") for item in attachments]
-    expected = [snapshot["filename"]] if snapshot["filename"] else []
-    return (str(message.get("author", {}).get("id")) == snapshot["bot_id"]
-            and message.get("content") == snapshot["content"] and filenames == expected
-            and (message.get("nonce") is None or str(message["nonce"]) == stable_nonce(snapshot["operation_key"])))
+def _operation(operation: object, payload: Mapping[str, object] | None) -> tuple[str, dict[str, object]]:
+    if isinstance(operation, str):
+        name = operation
+        value = dict(payload or {})
+    else:
+        name = getattr(operation, "operation", None)
+        value = dict(getattr(operation, "payload", {}) if payload is None else payload)
+    if not isinstance(name, str):
+        raise ValueError("Board operation name is invalid")
+    return name, value
 
 
-def _content(value: object, *, allow_empty: bool = False) -> str:
-    if allow_empty and value == "":
-        return ""
-    value = _text(value, "message content")
-    if len(value.encode("utf-16-le")) // 2 > 2000:
-        raise ValueError("Discord message content exceeds 2000 characters")
-    return value
-
-
-def _retry_after(response: object) -> float:
-    try:
-        payload = response.json()  # type: ignore[union-attr]
-        value = payload.get("retry_after") if isinstance(payload, Mapping) else None
-        delay = float(value)
-    except (AttributeError, TypeError, ValueError, requests.RequestException):
-        delay = _RETRY_FALLBACK_SECONDS
-    if not math.isfinite(delay) or delay <= 0:
-        return _RETRY_FALLBACK_SECONDS
-    return min(delay, _RETRY_CAP_SECONDS)
-
-
-def _json_object(response: object, error: str) -> Mapping[str, object]:
-    try:
-        payload = response.json()  # type: ignore[union-attr]
-    except (AttributeError, ValueError, requests.RequestException) as exc:
-        raise DiscordForumError(error) from exc
-    if not isinstance(payload, Mapping):
-        raise DiscordForumError(error)
-    return payload
-
-
-def _retained_attachments(response: object) -> list[dict[str, str]]:
-    payload = _json_object(response, "Discord returned an invalid starter message")
-    attachments = payload.get("attachments")
-    if not isinstance(attachments, list):
-        raise DiscordForumError("Discord returned an invalid starter message")
-    retained: list[dict[str, str]] = []
-    for attachment in attachments:
-        if not isinstance(attachment, Mapping):
-            raise DiscordForumError("Discord returned an invalid starter message")
-        attachment_id = _identifier(attachment.get("id"))
-        filename = attachment.get("filename")
-        if attachment_id is None or not isinstance(filename, str) or not filename:
-            raise DiscordForumError("Discord returned an invalid starter message")
-        kept = {"id": attachment_id, "filename": filename}
-        description = attachment.get("description")
-        if isinstance(description, str) and description:
-            kept["description"] = description
-        retained.append(kept)
-    return retained
-
-
-def _media_path(value: Path | str | object | None) -> Path | None:
+def _attachment(value: object) -> Attachment | None:
     if value is None:
         return None
-    if not isinstance(value, (Path, str)) or not str(value):
-        raise ValueError("Discord media path is invalid")
-    path = Path(value)
-    if not path.is_file():
-        raise FileNotFoundError("Discord media file is unavailable")
-    return path
+    try:
+        path = Path(value)
+        data = path.read_bytes()
+    except (OSError, TypeError, ValueError):
+        raise DiscordForumError("Board attachment is unavailable") from None
+    if not path.is_file() or not data:
+        raise DiscordForumError("Board attachment is unavailable")
+    return Attachment(path.name, mimetypes.guess_type(path.name)[0] or "application/octet-stream", data)
 
 
-def _operation(
-    operation: object, payload: Mapping[str, object] | None
-) -> tuple[str, Mapping[str, object]]:
-    if isinstance(operation, str):
-        return operation, payload or {}
-    name = getattr(operation, "operation", None)
-    operation_payload = getattr(operation, "payload", None)
-    if not isinstance(name, str) or not isinstance(operation_payload, Mapping):
-        raise ValueError("forum operation is invalid")
-    return name, operation_payload
+def _tag_names(payload: Mapping[str, object]) -> tuple[str, ...]:
+    value = payload.get("tag_names", ())
+    if not isinstance(value, (list, tuple)) or any(not isinstance(item, str) for item in value):
+        raise ValueError("Board tag names are invalid")
+    if len(value) > 5 or len(set(value)) != len(value):
+        raise ValueError("Board tag names are invalid")
+    return tuple(value)
 
 
-def _required(payload: Mapping[str, object], key: str) -> str:
-    return _text(payload.get(key), key)
+def _persisted_tag_ids(payload: Mapping[str, object]) -> list[str]:
+    value = payload.get("applied_tag_ids")
+    if (not isinstance(value, list)
+            or any(_identifier(item) is None for item in value)
+            or len(set(value)) != len(value)):
+        raise ValueError("persisted forum tag IDs are invalid")
+    return list(value)
 
 
 def _reply_content(payload: Mapping[str, object]) -> str:
-    """Allow an attachment-only reply while retaining normal content validation."""
-    if payload.get("content") == "" and payload.get("media") is not None:
+    value = payload.get("content")
+    if value == "" and (payload.get("media") or payload.get("media_url")):
         return ""
-    return _required(payload, "content")
+    return _content(value)
 
 
-def _nonce(payload: Mapping[str, object]) -> str:
-    value = payload.get("nonce", payload.get("nonce_value"))
-    return _text(value, "nonce")
+def _content(value: object) -> str:
+    result = _text(value, "message content")
+    if len(result.encode("utf-16-le")) // 2 > 2000:
+        raise ValueError("Discord message content exceeds 2000 characters")
+    return result
 
 
-def _tag_names(payload: Mapping[str, object]) -> list[str]:
-    return _validated_tag_names(payload.get("tag_names"))
-
-
-def _validated_tag_names(value: object) -> list[str]:
-    if not isinstance(value, (list, tuple)) or not value:
-        raise ValueError("forum tag names must be a non-empty list")
-    names = [_text(tag, "forum tag name") for tag in value]
-    if len(names) != len(set(names)):
-        raise ValueError("forum tag names must be unique")
-    return names
+def _text(value: object, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{label} must be a non-empty string")
+    return value
 
 
 def _id(value: object) -> str:
-    identifier = _identifier(value)
-    if identifier is None:
+    result = _identifier(value)
+    if result is None:
         raise ValueError("Discord identifier is invalid")
-    return identifier
+    return result
 
 
 def _identifier(value: object) -> str | None:
-    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
-        return str(value)
-    if isinstance(value, str) and value and len(value) <= 128 and not any(ord(char) < 32 for char in value):
-        return value
-    return None
+    if isinstance(value, int) and not isinstance(value, bool):
+        value = str(value)
+    return value if isinstance(value, str) and value.isdigit() and 1 <= len(value) <= 20 else None
 
 
-def _text(value: object, name: str) -> str:
-    if not isinstance(value, str) or not value or "\x00" in value:
-        raise ValueError(f"{name} must be non-empty text")
+def _bool(value: object, label: str) -> bool:
+    if type(value) is not bool:
+        raise ValueError(f"{label} must be a boolean")
     return value
 
 
-def _bool(value: object, name: str) -> bool:
-    if not isinstance(value, bool):
-        raise ValueError(f"{name} must be a boolean")
-    return value
+def _mapping(value: object, message: str) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise DiscordForumError(message)
+    return dict(value)

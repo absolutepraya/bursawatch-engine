@@ -10,6 +10,10 @@ def test_wrapper_exports_only_the_shared_polycop_resilience_path() -> None:
     assert 'RESILIENCE_BIN="$HOME/.agents/skills/lib-telegram-resilience/bin"' in wrapper
     assert "telegram_resilience.py" in wrapper
     assert "TELEGRAM_SESSION_STRING" not in wrapper
+    assert "DISCORD_BOT_TOKEN" not in wrapper
+    assert 'DELIVERY_CLIENT_BIN="$HOME/.agents/skills/lib-bursawatch-discord-delivery/bin"' in wrapper
+    assert "BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE" in wrapper
+    assert "$HOME/.hermes/secrets/bursawatch-discord-delivery-client-token" in wrapper
 
 
 def test_wrapper_exposes_control_plane_only_when_its_shared_library_is_deployed() -> None:

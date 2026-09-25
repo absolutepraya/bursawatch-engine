@@ -9,6 +9,15 @@ from urllib.parse import urlparse
 
 from models import DiscordChannel, Profile, ThreadHandling, WatchConfig
 
+# The reviewed source-catalog crosswalk is shared by the X adapter and owner.
+REVIEWED_PUBLISHERS = {
+    "kutekians": "x-kutekians", "rickyho1989": "x-rickyho1989",
+    "writingtorch": "x-writingtorch", "arvinhonami": "x-arvinhonami",
+    "insidertracker": "x-insidertracker", "doktermarket": "x-doktermarket",
+    "txthariansaham": "x-txthariansaham", "wavetiga": "x-wavetiga",
+    "aldotjahjadi8": "x-aldotjahjadi8", "kobeissiletter": "x-kobeissiletter",
+}
+
 
 CONFIG_VERSION = 1
 PROFILE_FIELDS = {

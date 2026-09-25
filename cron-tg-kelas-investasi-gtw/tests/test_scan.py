@@ -420,7 +420,14 @@ def test_heartbeat_uses_a_stable_discord_length_nonce(monkeypatch: pytest.Monkey
 
     scan.post_heartbeat("heartbeat", moment, False)
 
-    assert calls == [("heartbeat", "1505162000420835388", False, "3abb1eb66e74807b23239d72")]
+    assert calls == [(
+        "heartbeat",
+        "1505162000420835388",
+        False,
+        "3abb1eb66e74807b23239d72",
+        "heartbeat:2026081109",
+        "status",
+    )]
 
 
 async def _raise_async(error: BaseException) -> object:
@@ -528,8 +535,8 @@ def test_submission_drains_text_then_two_images_without_reclaim(monkeypatch: pyt
     save_state(tmp_path / "state.json", value)
     sent: list[str] = []
     import discord
-    monkeypatch.setattr(discord, "post_text", lambda *_args: sent.append("text"))
-    monkeypatch.setattr(discord, "post_file", lambda path, *_args: sent.append(Path(path).name))
+    monkeypatch.setattr(discord, "post_text", lambda *_args: sent.append("text") or "text-id")
+    monkeypatch.setattr(discord, "post_file", lambda path, *_args: sent.append(Path(path).name) or "image-id")
     monkeypatch.setattr(discord, "submit_board_event", lambda *_: True)
 
     result = scan.submit_analysis_payload(json.dumps({"event_key": "101:CTRA", "title": "CTRA: Buy area", "summary": "*(Ringkasan)* Buy area 605 sampai 630."}), dry_run=False, now=at("2026-08-11T09:01:00+07:00"))
