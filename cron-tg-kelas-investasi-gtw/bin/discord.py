@@ -38,7 +38,7 @@ DISCORD_CHANNEL_ID = "1525102458253217803"  # #id-stocks-swing
 RETRY_INITIAL_SECONDS = 60
 RETRY_CAP_SECONDS = 15 * 60
 DELIVERY_OWNER_PREFIX = "bursawatch-tg-kelas-investasi-gtw"
-DELIVERY_OWNER_URL = "http://127.0.0.1:9120"
+DELIVERY_OWNER_URL = "http://127.0.0.1:9140"
 DELIVERY_CLIENT_TOKEN_FILE = ".hermes/secrets/bursawatch-discord-delivery-client-token"
 NON_TERMINAL_DELIVERY_STATUSES = frozenset({"pending", "pending_reconciliation", "retrying", "delivering"})
 

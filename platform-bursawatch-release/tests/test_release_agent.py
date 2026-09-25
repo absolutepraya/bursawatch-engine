@@ -29,7 +29,7 @@ def make_settings(tmp_path: Path, **overrides: object) -> release_agent.Settings
         "runtime_home": tmp_path / "runtime",
         "control_plane_runtime": tmp_path / "control-plane",
         "control_plane_env": tmp_path / "control-plane.env",
-        "delivery_owner_url": "http://127.0.0.1:9120",
+        "delivery_owner_url": "http://127.0.0.1:9140",
         "delivery_client_token_file": tmp_path / "delivery-client-token",
         "heartbeat_channel_id": "123",
         "github_api_url": "https://api.github.com",
@@ -184,9 +184,9 @@ def test_release_heartbeats_use_delivery_owner_with_stable_keys_and_existing_con
         release_agent._send_heartbeat(settings, content)
 
     assert clients == [
-        ("http://127.0.0.1:9120", token_file, settings.timeout_seconds),
-        ("http://127.0.0.1:9120", token_file, settings.timeout_seconds),
-        ("http://127.0.0.1:9120", token_file, settings.timeout_seconds),
+        ("http://127.0.0.1:9140", token_file, settings.timeout_seconds),
+        ("http://127.0.0.1:9140", token_file, settings.timeout_seconds),
+        ("http://127.0.0.1:9140", token_file, settings.timeout_seconds),
     ]
     assert [operation.kind for operation in submissions] == [
         "channel_message_create",
@@ -768,7 +768,7 @@ def test_bootstrap_script_requires_apply_and_has_valid_shell_syntax():
 def test_release_env_template_uses_only_the_delivery_client_token_for_heartbeat():
     source = (ROOT / "deployment/env.example").read_text(encoding="utf-8")
 
-    assert "BURSAWATCH_DISCORD_DELIVERY_URL=http://127.0.0.1:9120" in source
+    assert "BURSAWATCH_DISCORD_DELIVERY_URL=http://127.0.0.1:9140" in source
     assert (
         "BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE="
         "/home/praya/.hermes/secrets/bursawatch-discord-delivery-client-token"

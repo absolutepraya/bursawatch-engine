@@ -15,7 +15,7 @@ control, and stores sanitized durable release records under
 `~/.local/share/bursawatch-release/`.
 
 The existing `#hermes` heartbeat is submitted through the shared Discord
-Delivery Owner at `http://127.0.0.1:9120`. The systemd unit exposes the already
+Delivery Owner at `http://127.0.0.1:9140`. The systemd unit exposes the already
 installed client package, and the release environment names its mode-0600
 Delivery Owner client-token file. This package must never read or receive a
 Discord bot token. Delivery remains best effort and does not affect release

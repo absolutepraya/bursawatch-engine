@@ -1,6 +1,6 @@
 # Bursawatch Discord Delivery client
 
-This package gives Bursawatch callers a typed, authenticated client for the local Discord Delivery Owner. It uses Python's standard library and sends requests only to a loopback HTTP base URL, normally `http://127.0.0.1:9120`.
+This package gives Bursawatch callers a typed, authenticated client for the local Discord Delivery Owner. It uses Python's standard library and sends requests only to a loopback HTTP base URL, normally `http://127.0.0.1:9140`.
 
 ## Client setup
 
@@ -11,7 +11,7 @@ from pathlib import Path
 from bursawatch_discord_delivery import DeliveryClient
 
 client = DeliveryClient(
-    "http://127.0.0.1:9120",
+    "http://127.0.0.1:9140",
     Path("/home/praya/.hermes/secrets/bursawatch-discord-delivery-client-token"),
 )
 ```
@@ -20,7 +20,7 @@ The client validates that the token file is a private regular file. The ordinary
 
 ```python
 emoji_client = DeliveryClient(
-    "http://127.0.0.1:9120",
+    "http://127.0.0.1:9140",
     Path("/home/praya/.hermes/secrets/bursawatch-discord-delivery-client-token"),
     emoji_token_file=Path("/home/praya/.hermes/secrets/bursawatch-discord-delivery-emoji-token"),
 )
@@ -30,7 +30,7 @@ Guild emoji listing and receipt polling still use the ordinary token. State adop
 
 ```python
 client = DeliveryClient(
-    "http://127.0.0.1:9120",
+    "http://127.0.0.1:9140",
     Path("/home/praya/.hermes/secrets/bursawatch-discord-delivery-client-token"),
     admin_token_file=Path("/home/praya/.hermes/secrets/bursawatch-discord-delivery-admin-token"),
 )

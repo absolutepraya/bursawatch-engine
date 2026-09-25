@@ -104,7 +104,7 @@ def test_emoji_client_uses_delivery_owner_only(monkeypatch: pytest.MonkeyPatch) 
 
     class FakeDelivery:
         def __init__(self, url: str, token_file: Path, *, emoji_token_file: Path) -> None:
-            assert url == "http://127.0.0.1:9120"
+            assert url == "http://127.0.0.1:9140"
             assert token_file.name == "bursawatch-discord-delivery-client-token"
             assert emoji_token_file.name == "bursawatch-discord-delivery-emoji-token"
 

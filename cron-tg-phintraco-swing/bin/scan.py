@@ -1233,7 +1233,7 @@ def discord_nonce(event_key: str, leg: str) -> str:
 
 
 _DELIVERY_OWNER_PREFIX = "bursawatch-tg-phintraco-swing"
-_DELIVERY_OWNER_URL = "http://127.0.0.1:9120"
+_DELIVERY_OWNER_URL = "http://127.0.0.1:9140"
 _DELIVERY_CLIENT_TOKEN_FILE = ".hermes/secrets/bursawatch-discord-delivery-client-token"
 _NON_TERMINAL_DELIVERY_STATUSES = frozenset({"pending", "pending_reconciliation", "retrying", "delivering"})
 

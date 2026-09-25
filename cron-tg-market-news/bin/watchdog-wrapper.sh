@@ -6,7 +6,7 @@ SCRIPT="$HOME/.agents/skills/bursawatch-tg-market-news/bin/watchdog.py"
 RESILIENCE_BIN="$HOME/.agents/skills/lib-telegram-resilience/bin"
 DELIVERY_CLIENT_BIN="$HOME/.agents/skills/lib-bursawatch-discord-delivery/bin"
 export IDX_MARKET_NEWS_STATE_PATH="${IDX_MARKET_NEWS_STATE_PATH:-$HOME/.hermes/state/idx-market-news.json}"
-export BURSAWATCH_DISCORD_DELIVERY_URL="${BURSAWATCH_DISCORD_DELIVERY_URL:-http://127.0.0.1:9120}"
+export BURSAWATCH_DISCORD_DELIVERY_URL="${BURSAWATCH_DISCORD_DELIVERY_URL:-http://127.0.0.1:9140}"
 export BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE="${BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE:-$HOME/.hermes/secrets/bursawatch-discord-delivery-client-token}"
 
 if [ ! -r "$RESILIENCE_BIN/telegram_resilience.py" ]; then

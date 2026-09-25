@@ -138,7 +138,7 @@ The smoke initializes provider cursors only in the temporary state and places Te
 The independent watchdog uses `bin/watchdog-wrapper.sh`, the scanner's durable default state path, and the shared Delivery Owner URL and client-token file. Its established scheduler entry is:
 
 ```cron
-* * * * * IDX_MARKET_NEWS_STATE_PATH=$HOME/.hermes/state/idx-market-news.json BURSAWATCH_DISCORD_DELIVERY_URL=http://127.0.0.1:9120 BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE=$HOME/.hermes/secrets/bursawatch-discord-delivery-client-token $HOME/.hermes/scripts/bursawatch-tg-market-news-watchdog.sh
+* * * * * IDX_MARKET_NEWS_STATE_PATH=$HOME/.hermes/state/idx-market-news.json BURSAWATCH_DISCORD_DELIVERY_URL=http://127.0.0.1:9140 BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE=$HOME/.hermes/secrets/bursawatch-discord-delivery-client-token $HOME/.hermes/scripts/bursawatch-tg-market-news-watchdog.sh
 ```
 
 The wrapper executes `$HOME/.agents/skills/bursawatch-tg-market-news/bin/watchdog.py`, does not source Telegram, model, scheduler, or Discord bot secrets, and reports deduplicated fatal fingerprints through the Delivery Owner only to `#hermes`. Do not recreate or change this schedule without explicit approval.

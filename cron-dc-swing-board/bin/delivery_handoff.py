@@ -392,7 +392,7 @@ class SwingBoardHandoffAdapter:
 
 
 def _delivery_client_from_environment(*, include_admin: bool) -> DeliveryClient:
-    base_url = os.environ.get("BURSAWATCH_DISCORD_DELIVERY_URL", "http://127.0.0.1:9120")
+    base_url = os.environ.get("BURSAWATCH_DISCORD_DELIVERY_URL", "http://127.0.0.1:9140")
     token_path = Path(os.environ.get(
         "BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE",
         str(Path.home() / ".hermes/secrets/bursawatch-discord-delivery-client-token"),

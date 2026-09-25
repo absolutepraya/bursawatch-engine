@@ -213,7 +213,7 @@ def _state_path() -> Path:
 
 
 def _delivery_client(*, include_admin: bool) -> DeliveryClient:
-    url = os.environ.get("BURSAWATCH_DISCORD_DELIVERY_URL", "http://127.0.0.1:9120")
+    url = os.environ.get("BURSAWATCH_DISCORD_DELIVERY_URL", "http://127.0.0.1:9140")
     token = Path(os.environ.get(
         "BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE",
         str(Path.home() / ".hermes/secrets/bursawatch-discord-delivery-client-token"),

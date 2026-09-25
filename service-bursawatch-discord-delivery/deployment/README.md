@@ -32,7 +32,8 @@ emoji-token file matches `DISCORD_DELIVERY_EMOJI_TOKEN`. Keep all credentials
 distinct. Without the emoji token, the service stays available and rejects
 emoji creation. Do not print or store any token value in this repository.
 
-The service listens on `127.0.0.1:9120`. Do not add an Nginx route, tunnel,
+The service listens on `127.0.0.1:9140`. The Control Plane owns 9120 and Source
+Media owns 9130. Do not add an Nginx route, tunnel,
 public bind address, DNS name, or firewall allowance. The HTTP API is for local
 watchers and operators on the VPS only.
 
@@ -55,7 +56,7 @@ current service/release state. Then, only within the approved scope:
    `systemctl daemon-reload`, and enable/start it only after the approved
    bootstrap is ready.
 5. Verify `systemctl is-active` and
-   `curl --noproxy '*' http://127.0.0.1:9120/healthz` on the VPS. Health proves
+   `curl --noproxy '*' http://127.0.0.1:9140/healthz` on the VPS. Health proves
    the local service responds, not that Discord delivery succeeded.
 
 The SQLite schema is initialized by the service when it opens the database;

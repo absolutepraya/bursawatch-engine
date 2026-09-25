@@ -44,7 +44,7 @@ if [[ -r "$HOME/.hermes/.env" ]]; then
   fi
 fi
 
-export BURSAWATCH_DISCORD_DELIVERY_URL="${BURSAWATCH_DISCORD_DELIVERY_URL:-http://127.0.0.1:9120}"
+export BURSAWATCH_DISCORD_DELIVERY_URL="${BURSAWATCH_DISCORD_DELIVERY_URL:-http://127.0.0.1:9140}"
 export BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE="${BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE:-$HOME/.hermes/secrets/bursawatch-discord-delivery-client-token}"
 
 PYTHON_BIN="$HOME/.local/share/uv/tools/yahoo-finance-mcp/bin/python"

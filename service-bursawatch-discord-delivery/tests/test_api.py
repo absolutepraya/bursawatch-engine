@@ -14,7 +14,7 @@ from discord_delivery.store import DeliveryStore
 
 
 def setup_client(tmp_path, executor=None):
-    config = Config("127.0.0.1", 9120, "client-secret", "admin-secret",
+    config = Config("127.0.0.1", 9140, "client-secret", "admin-secret",
                     tmp_path / "bot-token", tmp_path / "delivery.sqlite3", tmp_path / "media",
                     emoji_token="emoji-secret")
     store = DeliveryStore(config.state_path, config.media_path)
@@ -68,8 +68,10 @@ def test_unprovisioned_emoji_token_keeps_service_available_and_create_closed(tmp
     }
     for name, value in values.items():
         monkeypatch.setenv(name, value)
+    monkeypatch.delenv("DISCORD_DELIVERY_PORT", raising=False)
     monkeypatch.delenv("DISCORD_DELIVERY_EMOJI_TOKEN", raising=False)
     config = Config.from_environment()
+    assert config.port == 9140
     assert config.emoji_token is None
     store = DeliveryStore(config.state_path, config.media_path)
     client = TestClient(create_app(config, store))

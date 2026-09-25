@@ -2,7 +2,7 @@
 
 This loopback FastAPI service is the only Bursawatch path to Discord REST. It accepts typed, idempotent operations, stores them in a private SQLite ledger, stages attachment bytes under a private service-owned media directory, and returns durable receipts after delivery. It also performs the allowlisted Discord reads needed for delivery verification and reconciliation.
 
-The service defaults to `127.0.0.1:9120`. It is not a public API and must not be exposed through Nginx, a tunnel, or an open firewall port. Watchers, the Swing Board owner, and the host release agent use [`lib-bursawatch-discord-delivery`](../lib-bursawatch-discord-delivery/README.md); they do not hold the Discord bot token or construct Discord REST requests.
+The service defaults to `127.0.0.1:9140`. The Control Plane owns 9120 and Source Media owns 9130. It is not a public API and must not be exposed through Nginx, a tunnel, or an open firewall port. Watchers, the Swing Board owner, and the host release agent use [`lib-bursawatch-discord-delivery`](../lib-bursawatch-discord-delivery/README.md); they do not hold the Discord bot token or construct Discord REST requests.
 
 ## API
 

@@ -25,7 +25,7 @@ except ModuleNotFoundError:
 
 BOARD_URL = "https://discord.com/channels/940285152335110204/1548273399069933720"
 BOARD_MENTION = "<#1548273399069933720>"
-DELIVERY_OWNER_URL = "http://127.0.0.1:9120"
+DELIVERY_OWNER_URL = "http://127.0.0.1:9140"
 DELIVERY_CLIENT_TOKEN_FILE = ".hermes/secrets/bursawatch-discord-delivery-client-token"
 DELIVERY_OPERATION_PREFIX = "bursawatch-wa-channel-watch"
 NON_TERMINAL_STATUSES = frozenset({"pending", "pending_reconciliation", "retrying", "delivering"})

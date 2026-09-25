@@ -280,7 +280,7 @@ def apply_instagram_handoff(plan_path: Path, adapter: InstagramAccountWatchHando
 
 
 def _client(*, include_admin: bool) -> DeliveryClient:
-    url = os.environ.get("BURSAWATCH_DISCORD_DELIVERY_URL", "http://127.0.0.1:9120")
+    url = os.environ.get("BURSAWATCH_DISCORD_DELIVERY_URL", "http://127.0.0.1:9140")
     token = Path(
         os.environ.get(
             "BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE",

@@ -21,7 +21,7 @@ except ModuleNotFoundError:
     from bursawatch_discord_delivery.client import DeliveryClientError
 
 
-DELIVERY_OWNER_URL = "http://127.0.0.1:9120"
+DELIVERY_OWNER_URL = "http://127.0.0.1:9140"
 DELIVERY_CLIENT_TOKEN_FILE = ".hermes/secrets/bursawatch-discord-delivery-client-token"
 DELIVERY_OPERATION_PREFIX = "bursawatch-stockbit-snips"
 NON_TERMINAL_STATUSES = frozenset({"pending", "pending_reconciliation", "retrying", "delivering"})

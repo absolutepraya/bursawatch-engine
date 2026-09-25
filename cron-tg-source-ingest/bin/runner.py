@@ -28,7 +28,7 @@ from bursawatch_discord_delivery import DeliveryClient, OperationIntent
 
 WATCHER = "bursawatch-tg-source-ingest"
 HEARTBEAT_CHANNEL_ID = "1505162000420835388"
-DELIVERY_OWNER_URL = "http://127.0.0.1:9120"
+DELIVERY_OWNER_URL = "http://127.0.0.1:9140"
 DELIVERY_CLIENT_TOKEN_FILE = ".hermes/secrets/bursawatch-discord-delivery-client-token"
 WIB = ZoneInfo("Asia/Jakarta")
 NON_TERMINAL_DELIVERY_STATUSES = frozenset({"pending", "pending_reconciliation", "retrying", "delivering"})

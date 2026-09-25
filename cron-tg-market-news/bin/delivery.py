@@ -39,7 +39,7 @@ except ModuleNotFoundError:
 
 _DISCORD_MESSAGE_LIMIT = 2_000
 _DELIVERY_OWNER_PREFIX = "bursawatch-market-news"
-_DELIVERY_OWNER_URL = "http://127.0.0.1:9120"
+_DELIVERY_OWNER_URL = "http://127.0.0.1:9140"
 _DELIVERY_OWNER_TOKEN_FILE = ".hermes/secrets/bursawatch-discord-delivery-client-token"
 _INVESTMENT_TERMS = (
     "buy",

@@ -170,7 +170,7 @@ class Settings:
                 )
             ).expanduser(),
             delivery_owner_url=os.environ.get(
-                "BURSAWATCH_DISCORD_DELIVERY_URL", "http://127.0.0.1:9120"
+                "BURSAWATCH_DISCORD_DELIVERY_URL", "http://127.0.0.1:9140"
             ).rstrip("/"),
             delivery_client_token_file=Path(
                 os.environ.get(

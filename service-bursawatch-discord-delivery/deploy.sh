@@ -7,7 +7,7 @@ repo_root="$(cd "$package_dir/.." && pwd)"
 remote_host="${BURSAWATCH_DISCORD_DELIVERY_REMOTE:-vps}"
 runtime_dir="/home/praya/.hermes/bursawatch-discord-delivery"
 service_name="bursawatch-discord-delivery.service"
-health_url="http://127.0.0.1:9120/healthz"
+health_url="http://127.0.0.1:9140/healthz"
 
 usage() {
   cat <<'USAGE'

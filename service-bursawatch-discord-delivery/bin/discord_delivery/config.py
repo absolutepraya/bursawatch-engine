@@ -26,7 +26,7 @@ class Config:
         missing = [name for name in required if not os.environ.get(name)]
         if missing:
             raise ValueError("missing Discord delivery configuration: " + ", ".join(missing))
-        port = int(os.environ.get("DISCORD_DELIVERY_PORT", "9120"))
+        port = int(os.environ.get("DISCORD_DELIVERY_PORT", "9140"))
         if not 1 <= port <= 65535:
             raise ValueError("invalid Discord delivery port")
         api_token = os.environ["DISCORD_DELIVERY_API_TOKEN"]

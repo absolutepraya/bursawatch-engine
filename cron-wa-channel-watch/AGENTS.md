@@ -215,7 +215,7 @@ The watcher, archive helper, and BRI backfill helper use the shared
 queries, and in-place edits. They do not read `DISCORD_BOT_TOKEN`; wrappers
 unset it. Configure `BURSAWATCH_DISCORD_DELIVERY_URL` and
 `BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE` in the Hermes environment when
-the defaults (`http://127.0.0.1:9120` and
+the defaults (`http://127.0.0.1:9140` and
 `~/.hermes/secrets/bursawatch-discord-delivery-client-token`) do not apply.
 The Delivery Owner owns retries after accepting an operation. Watcher state
 keeps its existing text/media cursors and saved message IDs, with the additive

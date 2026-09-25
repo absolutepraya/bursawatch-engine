@@ -78,7 +78,9 @@ def test_apply_commands_require_published_commit_gate() -> None:
 
 def test_systemd_unit_is_loopback_only_and_reads_private_environment() -> None:
     source = UNIT.read_text()
+    env_example = (PACKAGE / "env.example").read_text()
     assert "EnvironmentFile=/home/praya/.hermes/bursawatch-discord-delivery.env" in source
     assert "ExecStart=/home/praya/.hermes/bursawatch-discord-delivery/venv/bin/python bin/serve.py" in source
     assert "UMask=0077" in source
     assert "0.0.0.0" not in source
+    assert "DISCORD_DELIVERY_PORT=9140" in env_example

@@ -42,7 +42,7 @@ if [[ -d "$CONTROL_PLANE_BIN" ]]; then
 else
   export PYTHONPATH="$DELIVERY_CLIENT_BIN:$SWING_FORMAT_BIN:$HOME/.agents/skills/lib-telegram-resilience/bin:${PYTHONPATH-}"
 fi
-export BURSAWATCH_DISCORD_DELIVERY_URL="${BURSAWATCH_DISCORD_DELIVERY_URL:-http://127.0.0.1:9120}"
+export BURSAWATCH_DISCORD_DELIVERY_URL="${BURSAWATCH_DISCORD_DELIVERY_URL:-http://127.0.0.1:9140}"
 export BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE="${BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE:-$HOME/.hermes/secrets/bursawatch-discord-delivery-client-token}"
 set +e
 "$python_bin" "$HOME/.agents/skills/bursawatch-tg-kelas-investasi-gtw/bin/scan.py" "$@" 2>&1 | sed -E 's/(POLYCOP_SESSION_STRING|TELEGRAM_API_ID|TELEGRAM_API_HASH)=[^[:space:]]+/\1=<redacted>/g' | tee -a "$log_file"

@@ -34,7 +34,7 @@ from bursawatch_discord_delivery import (
 
 DISCORD_GUILD_ID = "940285152335110204"
 FORUM_CHANNEL_ID = "1548273399069933720"
-DELIVERY_OWNER_URL = "http://127.0.0.1:9120"
+DELIVERY_OWNER_URL = "http://127.0.0.1:9140"
 DELIVERY_CLIENT_TOKEN_FILE = ".hermes/secrets/bursawatch-discord-delivery-client-token"
 DELIVERY_OPERATION_PREFIX = "bursawatch-swing-board"
 _NON_TERMINAL = frozenset({"pending", "pending_reconciliation", "retrying", "delivering"})

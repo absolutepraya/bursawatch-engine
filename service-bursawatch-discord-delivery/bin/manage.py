@@ -11,7 +11,7 @@ import urllib.request
 
 
 def _request(method: str, path: str, data: dict | None = None) -> dict:
-    base = os.environ.get("DISCORD_DELIVERY_ADMIN_URL", "http://127.0.0.1:9120")
+    base = os.environ.get("DISCORD_DELIVERY_ADMIN_URL", "http://127.0.0.1:9140")
     token = os.environ.get("DISCORD_DELIVERY_ADMIN_TOKEN")
     if not token:
         raise RuntimeError("DISCORD_DELIVERY_ADMIN_TOKEN is required")

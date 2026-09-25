@@ -187,7 +187,8 @@ runtime data remain VPS-owned until a separate reviewed import is approved.
 path. Its `discord_delivery/discord_gateway.py` owns API URL construction,
 bot-token use, and raw REST routes. Watchers, the Swing Board owner, and the
 release agent use `lib-bursawatch-discord-delivery` to call the loopback service
-at `127.0.0.1:9120`; rendered Discord channel links do not make API calls.
+at `127.0.0.1:9140`. The Control Plane uses 9120 and Source Media uses 9130;
+rendered Discord channel links do not make API calls.
 The service owns operation keys, payload digests, delivery retries and
 reconciliation, receipts, and staged media. Its service and first host
 bootstrap are manual rollout boundaries. See the service and client package

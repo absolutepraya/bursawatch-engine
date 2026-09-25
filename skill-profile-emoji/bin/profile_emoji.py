@@ -532,7 +532,7 @@ class EmojiDeliveryClient:
     def __init__(self) -> None:
         try:
             self._client = DeliveryClient(
-                os.environ.get("BURSAWATCH_DISCORD_DELIVERY_URL", "http://127.0.0.1:9120"),
+                os.environ.get("BURSAWATCH_DISCORD_DELIVERY_URL", "http://127.0.0.1:9140"),
                 Path(os.environ.get(
                     "BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE",
                     str(Path.home() / ".hermes/secrets/bursawatch-discord-delivery-client-token"),
