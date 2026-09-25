@@ -285,12 +285,18 @@ def post_media(
     event_key: str | None = None,
     operation_leg: str = "media",
     client: object | None = None,
+    source_reference: dict | None = None,
 ) -> str | None:
     if dry_run:
         print(f"[dry-run] Discord media {channel_id}: {url}")
         return "dry-run"
-    # This GET is source retrieval. All Discord operations use the Delivery Owner.
-    attachment = download_source_attachment(url, nonce_value)
+    from source_media import reference_id
+    ref = reference_id(url)
+    if ref is None:
+        # Legacy source retrieval stays available for already queued events.
+        attachment = download_source_attachment(url, nonce_value)
+    else:
+        attachment = attachment_from_source_reference(ref, source_reference, nonce_value)
     identity = event_key if event_key is not None else nonce_value
     operation = _message_operation("", channel_id, identity, operation_leg, attachment=attachment)
     if event_key is None:
@@ -304,6 +310,14 @@ def post_media(
         )
     legacy = nonce(event_key, operation_leg) if event_key is not None else nonce_value
     return _submit_message(operation, client=client, legacy_nonce=legacy)
+
+
+def attachment_from_source_reference(ref: str, reference: dict | None, nonce_value: str) -> Attachment:
+    from source_media import client_from_environment, verified_download
+    if not isinstance(reference, dict) or reference.get("ref") != ref:
+        raise DeliveryOwnerError("X media reference metadata is missing")
+    data, suffix = verified_download(reference, client_from_environment())
+    return Attachment(f"x-post-{nonce_value}{suffix}", reference["content_type"], data)
 
 
 def download_source_attachment(url: str, nonce_value: str) -> Attachment:

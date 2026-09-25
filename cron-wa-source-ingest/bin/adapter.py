@@ -283,9 +283,11 @@ def _upload_archive_media(item: dict[str, Any], profile: Any, archive_root: Path
         return None
 
 
-def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], queue_dir: Path, state_root: Path, inbox: Any, observed_at: datetime, *, scan_queue: Any = None, archive_root: Path | None = None, media_store: Any = None) -> list[dict[str, Any]]:
+def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], queue_dir: Path, state_root: Path, inbox: Any, observed_at: datetime, *, scan_queue: Any = None, archive_root: Path | None = None, media_store: Any = None, owner_config_revision: int | None = None) -> list[dict[str, Any]]:
     selected, by_endpoint = endpoints(snapshot, profiles)
     bind_catalog_revision(state_root, snapshot["revision"])
+    if owner_config_revision is not None and (type(owner_config_revision) is not int or owner_config_revision < 1):
+        raise IntakeBlocked("WhatsApp watcher configuration revision is invalid")
     if scan_queue is None:
         scan_queue = bounded_queue
     # The bridge and existing archive retain their own queue and state. This
@@ -301,12 +303,21 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], queue_dir: Pat
             for item in page["items"]:
                 prepared = dict(item)
                 descriptors = prepared.pop("_source_media", None)
+                payload = dict(prepared.get("payload", {}))
+                payload["owner_config_revision"] = owner_config_revision
                 if descriptors is not None:
                     prepared["media_refs"] = _upload_archive_media(prepared | {"_source_media": descriptors}, profile, archive_root, media_store) or []
                     if prepared["media_refs"]:
-                        payload = dict(prepared.get("payload", {}))
                         payload["media_ref_ids"] = [reference["ref"] for reference in prepared["media_refs"]]
+                        payload["media_manifest"] = [
+                            {"index": descriptor["index"], "kind": descriptor["kind"], "mime": reference["content_type"], "ref_id": reference["ref"]}
+                            for descriptor, reference in zip(descriptors, prepared["media_refs"], strict=True)
+                        ]
                         prepared["payload"] = payload
+                else:
+                    payload["media_ref_ids"] = []
+                    payload["media_manifest"] = []
+                    prepared["payload"] = payload
                 prepared_items.append(prepared)
             return {**page, "items": prepared_items}
         fetchers[endpoint_id] = fetch

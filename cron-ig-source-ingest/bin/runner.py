@@ -1,14 +1,16 @@
-"""Unscheduled Instagram source entry point. Media remains pending locally."""
+"""Unscheduled Instagram source entry point and domain-owner handoff."""
 from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-for package in ("lib-bursawatch-control", "lib-bursawatch-source-ingest", "lib-bursawatch-source-media"):
+for package in ("lib-bursawatch-control", "lib-bursawatch-source-ingest", "lib-bursawatch-source-media", "lib-bursawatch-pipeline-runtime"):
     candidate = ROOT / package / "bin"
     if not candidate.exists():
         candidate = Path.home() / ".agents" / "skills" / package / "bin"
@@ -18,8 +20,63 @@ if not owner.exists():
     owner = Path.home() / ".agents" / "skills" / "bursawatch-ig-account-watch" / "bin"
 sys.path.insert(0, str(owner))
 from source_runner import client, state_root
-from adapter import run_once
+from pipeline_runtime import PipelineRuntime
+from adapter import run_once as ingest_once
 from config import load_watch_config_for_run
+
+
+def _owner_command(*arguments: str, work: dict[str, Any] | None = None) -> dict[str, Any]:
+    path = owner / "pipeline_owner.py"
+    result = subprocess.run(
+        [sys.executable, str(path), *arguments],
+        input=json.dumps(work, separators=(",", ":"), ensure_ascii=False) if work is not None else None,
+        text=True, capture_output=True, timeout=90, env=os.environ.copy(), check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("Instagram domain owner did not acknowledge source work")
+    try:
+        receipt = json.loads(result.stdout.strip())
+    except ValueError as error:
+        raise RuntimeError("Instagram domain owner response is invalid") from error
+    if type(receipt) is not dict:
+        raise RuntimeError("Instagram domain owner response is invalid")
+    return receipt
+
+
+def _owner_handler(work: dict[str, Any]) -> None:
+    receipt = _owner_command(work=work)
+    if receipt.get("outcome") not in {"accepted", "irrelevant"}:
+        raise RuntimeError("Instagram domain owner receipt is invalid")
+
+
+def _claim_agent() -> dict[str, Any]:
+    result = _owner_command("claim-agent")
+    if type(result.get("wakeAgent")) is not bool:
+        raise RuntimeError("Instagram agent claim is invalid")
+    return result
+
+
+def _drain_owner() -> dict[str, int]:
+    result = _owner_command("drain")
+    if any(type(result.get(key)) is not int or result[key] < 0 for key in ("delivered", "delivery_legs", "owner_pending", "errors")):
+        raise RuntimeError("Instagram delivery drain response is invalid")
+    return result
+
+
+def run_once(
+    snapshot: dict[str, Any], profiles: tuple[Any, ...], root: Path, inbox: Any, observed_at: datetime,
+    *, fetch_profile: Any = None, media_store: Any = None, media_downloader: Any = None,
+    handlers: dict[str, Any] | None = None, owner_drain: Any = _drain_owner, agent_claim: Any = _claim_agent,
+) -> dict[str, Any]:
+    source = ingest_once(
+        snapshot, profiles, root, inbox, observed_at,
+        fetch_profile=fetch_profile, media_store=media_store, media_downloader=media_downloader,
+    )
+    selected = handlers if handlers is not None else {capability: _owner_handler for capability in ("company_news", "macro_news")}
+    work = PipelineRuntime(inbox, selected).run_once(limit=20)
+    delivery = owner_drain() if owner_drain is not None else {"delivered": 0, "delivery_legs": 0, "owner_pending": 0, "errors": 0}
+    agent = agent_claim() if agent_claim is not None else {"wakeAgent": False}
+    return {"source": source, "work": work, "delivery": delivery, **agent}
 
 
 def _media_client():

@@ -6,16 +6,20 @@ import sys
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "cron-x-source-ingest" / "bin"))
 from adapter import endpoints, run_once
+from runner import process_pending
 
 sys.path.insert(0, str(ROOT / "cron-x-account-watch" / "bin"))
 from config import load_watch_config
 from models import PostKind, SourceMedia, SourcePost
+import pipeline_owner
+import state
 
 NOW = datetime(2026, 9, 24, tzinfo=timezone.utc)
 
@@ -23,10 +27,16 @@ NOW = datetime(2026, 9, 24, tzinfo=timezone.utc)
 class Inbox:
     def __init__(self):
         self.events = []
+        self.revisions = []
     def accept(self, event):
         self.events.append(event)
         identity = [event[key] for key in ("platform", "endpoint_id", "provider_event_id")]
         return {"event_key": hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest(), "version": 1, "duplicate": False, "work_keys": []}
+    def revise(self, event_key, event, kind, revision_id, reason):
+        self.revisions.append((event_key, event, kind, revision_id, reason))
+        return {"event_key": event_key, "version": 2, "duplicate": False, "work_keys": []}
+    def inspect(self, event_key):
+        return {"event": {"event_key": event_key}, "work": [{"status": "pending"}]}
 
 
 class MediaStore:
@@ -35,6 +45,10 @@ class MediaStore:
     def upload(self, key, data, *, kind, content_type, filename):
         self.uploads.append((key, data, kind, content_type, filename))
         return {"ref": "20000000-0000-4000-8000-000000000001", "sha256": hashlib.sha256(data).hexdigest(), "kind": kind, "content_type": content_type, "size_bytes": len(data), "filename": filename, "durable": True}
+    def download(self, ref):
+        assert ref == "20000000-0000-4000-8000-000000000001"
+        data = self.uploads[-1][1]
+        return SimpleNamespace(data=data, content_type="image/jpeg", kind="image", sha256=hashlib.sha256(data).hexdigest())
 
 
 def fake_image_prepare(post, root):
@@ -133,3 +147,129 @@ def test_unsupported_x_video_media_holds_cursor(tmp_path):
     cursor = json.loads((tmp_path / endpoint_id.replace(":", "-") / "cursor.json").read_text())
     assert cursor["anchor"] == "10"
     assert store.uploads == []
+
+
+def test_two_x_images_hold_cursor_before_unrepresentable_board_work(tmp_path):
+    profile = replace(load_watch_config(ROOT / "cron-x-account-watch" / "config" / "watches.json").profiles[0], enabled=True)
+    endpoint_id = f"x:{profile.handle.casefold()}"
+    snapshot = {"revision": 3, "subscriptions": [{"platform": "x", "endpoint_id": endpoint_id, "publisher_id": "x-kutekians", "address": profile.handle, "provider_id": None, "capability_id": "company_news", "verification_status": "verified", "enabled": True}]}
+    post = lambda identity, media=(): SourcePost(profile.id, identity, f"https://x.com/{profile.handle}/status/{identity}", NOW, "Two charts", PostKind.NORMAL, None, None, tuple(media), ())
+    posts = [post("100")]
+    inbox = Inbox()
+    run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
+    posts.append(post("101", (SourceMedia("https://pbs.twimg.com/media/a.jpg", 0), SourceMedia("https://pbs.twimg.com/media/b.jpg", 1))))
+    result = run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts,
+                      media_store=MediaStore(), media_preparer=fake_image_prepare)
+    assert result[0]["status"] == "blocked"
+    assert result[0]["reason"] == "media_blocked"
+    assert inbox.events == []
+    assert json.loads((tmp_path / endpoint_id.replace(":", "-") / "cursor.json").read_text())["anchor"] == "100"
+
+
+def test_same_provider_post_edit_becomes_durable_source_revision(tmp_path):
+    profile = replace(load_watch_config(ROOT / "cron-x-account-watch" / "config" / "watches.json").profiles[0], enabled=True)
+    endpoint_id = f"x:{profile.handle.casefold()}"
+    snapshot = {"revision": 3, "subscriptions": [{"platform": "x", "endpoint_id": endpoint_id, "publisher_id": "x-kutekians", "address": profile.handle, "provider_id": None, "capability_id": "company_news", "verification_status": "verified", "enabled": True}]}
+    posts = [SourcePost(profile.id, "100", f"https://x.com/{profile.handle}/status/100", NOW, "Bootstrap", PostKind.NORMAL, None, None, (), ())]
+    inbox = Inbox()
+    assert run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)[0]["status"] == "bootstrapped"
+    posts.append(SourcePost(profile.id, "101", f"https://x.com/{profile.handle}/status/101", NOW, "First text", PostKind.NORMAL, None, None, (), ()))
+    assert run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)[0]["accepted"] == 1
+    posts[-1] = replace(posts[-1], content_html="Corrected text")
+    assert run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)[0]["status"] != "blocked"
+    assert len(inbox.revisions) == 1
+    assert inbox.revisions[0][2] == "correction"
+    assert inbox.revisions[0][1]["provider_event_id"] == "101"
+    assert inbox.revisions[0][1]["payload"]["post"]["content_html"] == "Corrected text"
+    run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
+    assert len(inbox.revisions) == 1
+
+
+def test_x_correction_after_original_work_claim_stays_at_source_boundary(tmp_path):
+    profile = replace(load_watch_config(ROOT / "cron-x-account-watch" / "config" / "watches.json").profiles[0], enabled=True)
+    endpoint_id = f"x:{profile.handle.casefold()}"
+    snapshot = {"revision": 3, "subscriptions": [{"platform": "x", "endpoint_id": endpoint_id, "publisher_id": "x-kutekians", "address": profile.handle, "provider_id": None, "capability_id": "company_news", "verification_status": "verified", "enabled": True}]}
+    posts = [SourcePost(profile.id, "100", f"https://x.com/{profile.handle}/status/100", NOW, "Bootstrap", PostKind.NORMAL, None, None, (), ())]
+
+    class CompletedInbox(Inbox):
+        def inspect(self, event_key):
+            return {"event": {"event_key": event_key}, "work": [{"status": "done"}]}
+
+    inbox = CompletedInbox()
+    run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
+    posts.append(SourcePost(profile.id, "101", f"https://x.com/{profile.handle}/status/101", NOW, "Original", PostKind.NORMAL, None, None, (), ()))
+    run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
+    posts[-1] = replace(posts[-1], content_html="Edited")
+    result = run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
+    assert result[0]["status"] == "blocked"
+    assert result[0]["reason"] == "correction_handoff_failed"
+    assert inbox.revisions == []
+
+
+def test_self_chain_source_event_carries_ordered_post_context(tmp_path):
+    profile = replace(next(item for item in load_watch_config(ROOT / "cron-x-account-watch" / "config" / "watches.json").profiles if item.id == "writingtorch"), enabled=True)
+    endpoint_id = f"x:{profile.handle.casefold()}"
+    snapshot = {"revision": 3, "subscriptions": [{"platform": "x", "endpoint_id": endpoint_id, "publisher_id": "x-writingtorch", "address": profile.handle, "provider_id": None, "capability_id": "company_news", "verification_status": "verified", "enabled": True}]}
+    root = SourcePost(profile.id, "100", f"https://x.com/{profile.handle}/status/100", NOW, "Root", PostKind.NORMAL, None, None, (), ())
+    posts = [root]
+    inbox = Inbox()
+    run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
+    child = SourcePost(profile.id, "101", f"https://x.com/{profile.handle}/status/101", NOW, "Child", PostKind.REPLY, None, None, (), (), root.url)
+    posts.append(child)
+    assert run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)[0]["accepted"] == 1
+    assert [item["post_id"] for item in inbox.events[0]["payload"]["thread_posts"]] == ["100", "101"]
+    assert inbox.events[0]["provider_event_id"] == "101"
+
+
+def test_x_subscriptions_settle_independently_through_pipeline_runtime():
+    class WorkInbox:
+        def __init__(self):
+            self.work = [{"work_key": "company", "lease_token": "a", "pipeline_id": "company_news"},
+                         {"work_key": "macro", "lease_token": "b", "pipeline_id": "macro_news"}]
+            self.settled = {}
+        def claim(self, pipelines, limit):
+            assert set(pipelines) == {"company_news", "macro_news"}
+            return self.work[:limit]
+        def begin(self, key, token):
+            return True
+        def settle(self, key, token, success, error_code=None):
+            self.settled[key] = (success, error_code)
+            return {"status": "done" if success else "pending"}
+
+    inbox = WorkInbox()
+    def handler(item):
+        if item["pipeline_id"] == "company_news":
+            raise RuntimeError("fake owner rejection")
+    results = process_pending(inbox, handler=handler)
+    assert results == [{"work_key": "company", "status": "retry"}, {"work_key": "macro", "status": "done"}]
+    assert inbox.settled == {"company": (False, "handler_failed"), "macro": (True, None)}
+
+
+def test_adapter_to_existing_owner_queue_uses_same_event_and_opaque_image(tmp_path):
+    profile = replace(load_watch_config(ROOT / "cron-x-account-watch" / "config" / "watches.json").profiles[0], enabled=True)
+    endpoint_id = f"x:{profile.handle.casefold()}"
+    snapshot = {"revision": 3, "subscriptions": [{"platform": "x", "endpoint_id": endpoint_id, "publisher_id": "x-kutekians", "address": profile.handle, "provider_id": None, "capability_id": "company_news", "verification_status": "verified", "enabled": True}]}
+    image_url = "https://pbs.twimg.com/media/chart.jpg"
+    post = lambda identity, media=(): SourcePost(profile.id, identity, f"https://x.com/{profile.handle}/status/{identity}", NOW, "KPIG: Chart setup", PostKind.NORMAL, None, None, tuple(media), ())
+    posts = [post("100")]
+    inbox = Inbox()
+    media = MediaStore()
+    run_once(snapshot, (profile,), tmp_path / "source", inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
+    posts.append(post("101", (SourceMedia(image_url, 0),)))
+    assert run_once(snapshot, (profile,), tmp_path / "source", inbox, NOW,
+                    fetch_profile=lambda *_args, **_kwargs: posts, media_store=media,
+                    media_preparer=fake_image_prepare)[0]["accepted"] == 1
+    event = inbox.events[0]
+    source_key = hashlib.sha256(json.dumps(["x", endpoint_id, "101"], separators=(",", ":")).encode()).hexdigest()
+    work_key = hashlib.sha256(f"{source_key}:1:company_news".encode()).hexdigest()
+    work = {"event_key": source_key, "work_key": work_key, "effect_key": work_key,
+            "pipeline_id": "company_news", "capability_id": "company_news", "version": 1,
+            "event_kind": "original", "envelope": event}
+    owner_path = tmp_path / "owner.json"
+    assert pipeline_owner.accept_source_work(work, profiles=(profile,), storage=owner_path,
+                                             media_client=media, no_post=True) == {"outcome": "accepted"}
+    queued = state.load_state(owner_path)["outbox"]
+    assert len(queued) == 1
+    assert queued[0]["source_event_key"] == source_key
+    assert queued[0]["post"]["media"][0]["url"] == "source-media-ref:20000000-0000-4000-8000-000000000001"
+    assert image_url not in json.dumps(queued)

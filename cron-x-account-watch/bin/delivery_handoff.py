@@ -193,7 +193,12 @@ class XAccountWatchHandoffAdapter:
                 if index < media_cursor and url in skipped:
                     continue
                 nonce_value = discord.nonce(event_key, f"media:{index}")
-                attachment = discord.download_source_attachment(url, nonce_value)
+                from source_media import reference_id
+                ref = reference_id(url)
+                attachment = (
+                    discord.attachment_from_source_reference(ref, event.get("source_media_refs", {}).get(ref), nonce_value)
+                    if ref else discord.download_source_attachment(url, nonce_value)
+                )
                 known_id = None
                 if index < media_cursor:
                     if delivered_index >= len(media_ids):

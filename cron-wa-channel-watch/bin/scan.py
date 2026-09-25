@@ -17,6 +17,7 @@ import event_queue
 from normalize import deserialize_queue_event
 import render
 import state
+import source_work_routes
 import swing_board
 
 
@@ -736,16 +737,20 @@ def submit_analysis(
             routes = [item.get("route") for item in items if type(item) is dict]
             if "id_stocks_swing" in routes and route_override != "id_stocks_swing":
                 raise ValueError("id_stocks_swing requires a leading #TechnicalReview tag")
-        record["items"] = (
-            None
-            if result.get("is_relevant") is False
-            else result.get("items") or _deterministic_items(profile)
-        )
+        selected_items = None if result.get("is_relevant") is False else result.get("items") or _deterministic_items(profile)
+        if selected_items is not None and source_work_routes.scoped_routes(record) is not None:
+            selected_items, scope_outcome, dropped = source_work_routes.filter_items(record, selected_items)
+            record["pipeline_scope_outcome"] = scope_outcome
+            if dropped:
+                record["pipeline_scope_dropped_routes"] = dropped
+        elif source_work_routes.scoped_routes(record) is not None:
+            record["pipeline_scope_outcome"] = "irrelevant"
+        record["items"] = selected_items
         record["item_index"] = 0
         record["text_index"] = 0
         record["media_index"] = 0
         record["agent_lease_until"] = None
-        record["agent_phase"] = "filtered" if result.get("is_relevant") is False else "ready"
+        record["agent_phase"] = "filtered" if result.get("is_relevant") is False or selected_items == [] else "ready"
         errors: list[str] = []
         delivered = _deliver_ready(
             value,

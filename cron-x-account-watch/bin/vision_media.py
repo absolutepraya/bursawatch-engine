@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 import requests
 
 from models import SourceMedia, SourcePost
+from source_media import client_from_environment, reference_id, verified_download
 
 
 MAX_VISION_ASSETS = 8
@@ -115,6 +116,8 @@ def cleanup_event(root: Path, profile_id: str, post_id: str) -> None:
 
 
 def _is_supported_source(media: SourceMedia) -> bool:
+    if reference_id(media.url) is not None:
+        return True
     if not isinstance(media.url, str):
         return False
     parsed = urlparse(media.url)
@@ -210,6 +213,8 @@ def prepare(
     root: Path,
     session: requests.Session | None = None,
     deadline: float | None = None,
+    reference_meta: dict[str, dict] | None = None,
+    media_client: object | None = None,
 ) -> VisionBundle:
     candidates = _candidate_media(post)
     if not candidates:
@@ -230,7 +235,23 @@ def prepare(
                 unavailable_count += len(candidates) - ordinal
                 break
             try:
-                path, size = _download_image(client, media, directory, ordinal, total_bytes, deadline)
+                ref = reference_id(media.url)
+                if ref is None:
+                    path, size = _download_image(client, media, directory, ordinal, total_bytes, deadline)
+                else:
+                    reference = (reference_meta or {}).get(ref)
+                    if reference is None:
+                        raise VisionMediaError("source image reference metadata is missing")
+                    try:
+                        data, suffix = verified_download(reference, media_client or client_from_environment())
+                    except Exception as error:
+                        raise VisionMediaError("source image retrieval failed") from error
+                    if len(data) > MAX_ASSET_BYTES or total_bytes + len(data) > MAX_EVENT_BYTES:
+                        raise VisionMediaError("vision image size limit exceeded")
+                    path = directory / f"{ordinal}{suffix}"
+                    path.write_bytes(data)
+                    path.chmod(0o600)
+                    size = len(data)
             except VisionMediaError:
                 unavailable_count += 1
                 continue

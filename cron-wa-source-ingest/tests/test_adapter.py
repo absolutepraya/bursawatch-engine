@@ -183,6 +183,8 @@ def test_archive_media_upload_precedes_acceptance_and_survives_retry(tmp_path):
     assert event["media_required"] is True
     assert event["media_refs"] == [media_store.uploads[next(iter(media_store.uploads))][1]]
     assert event["payload"]["media_ref_ids"] == [event["media_refs"][0]["ref"]]
+    assert event["payload"]["media_manifest"] == [{"index": 0, "kind": "image", "mime": "image/jpeg", "ref_id": event["media_refs"][0]["ref"]}]
+    assert event["payload"]["owner_config_revision"] is None
     serialized = json.dumps(event)
     assert str(staged_media) not in serialized
     assert "archive_path" not in serialized and "media/" not in serialized

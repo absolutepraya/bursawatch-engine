@@ -7,10 +7,14 @@ Channels. It archives every event from an enabled profile and forwards only
 profiles explicitly configured for forwarding, using the same bounded
 relevance, title, summary, and routing contract as `cron-x-account-watch`.
 
-`cron-wa-source-ingest` is an unscheduled metadata-only inbox pilot. It reads
-the durable bridge queue without changing this watcher's archive, outbox,
-agent, BRI Board, or Delivery Owner authority. INS and Samuel remain observed
-by this watcher without pipeline subscriptions.
+`cron-wa-source-ingest` is an unscheduled platform adapter. It reads the
+durable bridge queue and hands accepted Source Inbox work to
+`bin/pipeline_owner.py`. This watcher remains authoritative for archive,
+outbox, agent analysis, BRI Board, rendering, Delivery Owner, and heartbeat.
+Frozen source capabilities constrain which validated routes may be delivered;
+a truthful but unsubscribed classification becomes a terminal
+`route_not_subscribed` outcome. INS and Samuel remain observe-only without
+pipeline subscriptions.
 
 The watcher reuses the existing single Baileys bridge in Hermes. The bridge is
 the only WhatsApp Web connection. Its Channel sink is additive: it copies
@@ -76,6 +80,15 @@ watcher's scope.
   owner materializes the topic, the watcher patches the existing All Swing
   message to the direct topic URL. A pending topic or failed patch keeps the
   record retryable and cannot create a duplicate All message.
+- The unscheduled WhatsApp platform adapter may accept BRI source work into
+  this watcher's canonical outbox only after verifying the Source Inbox work
+  identity, frozen sibling capabilities, and all durable media originals.
+  `pipeline_owner.py` first writes and verifies the immutable archive, then
+  records the source event plus its frozen route scope. Its retry key is the
+  existing Channel event key. Agent submissions keep the truthful full-route
+  classification; routes absent from the frozen capability scope are recorded
+  as `route_not_subscribed` and never delivered. Legacy outbox records without
+  source scope retain their current behavior.
 - Already-delivered BRI Swing repairs use
   `bin/bursawatch-wa-channel-backfill.py`. Its `discover` and `plan` commands
   are read-only; `apply --apply` also requires

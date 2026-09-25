@@ -9,10 +9,11 @@ NO_AGENT_CRONS = {
 }
 UNSCHEDULED_NO_AGENT_CRONS = {
     "cron-x-source-ingest",
-    "cron-ig-source-ingest", "cron-wa-source-ingest",
-    "cron-rss-source-ingest",
 }
-UNSCHEDULED_AGENT_BACKED_CRONS = {"cron-tg-source-ingest"}
+UNSCHEDULED_AGENT_BACKED_CRONS = {
+    "cron-tg-source-ingest", "cron-ig-source-ingest",
+    "cron-wa-source-ingest", "cron-rss-source-ingest",
+}
 AGENT_BACKED_CRONS = {
     "cron-tg-market-news", "cron-tg-kelas-investasi-gtw",
     "cron-ig-account-watch", "cron-wa-channel-watch", "cron-x-account-watch",
@@ -149,7 +150,7 @@ def test_agent_backed_agents_documents_keep_reviewed_governance_anchors() -> Non
 
 
 def test_agent_backed_skills_exclude_deployment_only_scheduler_instructions() -> None:
-    for cron in AGENT_BACKED_CRONS:
+    for cron in AGENT_BACKED_CRONS | UNSCHEDULED_AGENT_BACKED_CRONS:
         text = (ROOT / cron / "SKILL.md").read_text(encoding="utf-8")
         for pattern in DEPLOYMENT_ONLY_SCHEDULER_PATTERNS:
             assert not pattern.search(text), (

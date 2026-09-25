@@ -21,6 +21,7 @@ import media
 import ocr
 import render
 import rsshub
+import source_work_routes
 import state
 import vision_gate
 from models import (
@@ -391,6 +392,8 @@ def _finalize_delivery(
     now: datetime,
 ) -> bool:
     event = value["outbox"][event_index]
+    if source_work_routes.read(storage, event["event_key"]) is not None:
+        source_work_routes.record_terminal(storage, event["event_key"], "delivered")
     media_root = _delivery_media_root(event)
     state.record_delivery(
         value,
@@ -611,6 +614,18 @@ def _prepare_event(
         )
     finally:
         session.close()
+    return _prepare_downloaded_event(post, profile, downloaded, cache_root, backend, stats)
+
+
+def _prepare_downloaded_event(
+    post: SourcePost,
+    profile: Profile,
+    downloaded: DownloadedPublication,
+    cache_root: Path,
+    backend: object,
+    stats: RunStats,
+) -> dict[str, object]:
+    """Apply the watcher OCR and vision flow to already durable originals."""
     if not isinstance(downloaded, DownloadedPublication):
         raise ValueError("media preparation returned an invalid publication")
     if downloaded.failed_assets:
@@ -1095,6 +1110,8 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
             if irrelevant:
                 if agent_protocol.requires_relevance(post, ocr_text):
                     raise ValueError("direct market disclosure must be relevant")
+                if source_work_routes.read(storage, event_key) is not None:
+                    source_work_routes.record_terminal(storage, event_key, "irrelevant")
                 state.discard_analysis(value, analysis["event_key"], now)
                 state.save_state(storage, value)
                 stats = RunStats()
@@ -1111,6 +1128,30 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 )
                 control_run.finish("degraded" if stats.degraded else "ok")
                 return {"submitted": True, "ignored": True, "delivered": 0}
+
+            # Source Catalog subscriptions select delivery routes after the
+            # usual relevance and route classification. A truthful relevant
+            # publication for an unsubscribed route has its own no-match
+            # outcome; it is never mislabeled irrelevant or delivered there.
+            allowed_routes = source_work_routes.allowed_routes(storage, event_key)
+            if allowed_routes is not None and analysis.get("route") not in allowed_routes:
+                source_work_routes.record_terminal(storage, event_key, "route_not_subscribed", analysis["route"])
+                state.discard_analysis(value, analysis["event_key"], now)
+                state.save_state(storage, value)
+                stats = RunStats()
+                _retry_media_cleanup(value, storage, stats, no_post=no_post)
+                if stats.degraded and not no_post:
+                    _post_heartbeat(now, stats)
+                control_run.event(
+                    "agent-submission-route-not-subscribed",
+                    level="info",
+                    phase="agent",
+                    event_type="agent.submission.route_not_subscribed",
+                    message="Instagram publication route is not subscribed",
+                    attributes={"route": analysis["route"], "delivered": 0},
+                )
+                control_run.finish("degraded" if stats.degraded else "ok")
+                return {"submitted": True, "ignored": True, "delivered": 0, "outcome": "route_not_subscribed"}
 
             state.submit_analysis(
                 value,

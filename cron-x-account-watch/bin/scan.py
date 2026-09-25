@@ -374,6 +374,10 @@ def board_source_event(event: dict, profile, *, status_date: datetime | None = N
     )
     normalized_source_title = f"{ticker}: {source_match.group(2).strip()}"
     skipped_media = set(event.get("media_skipped_urls", []))
+    source_paths = event.get("source_media_paths", {})
+    source_urls = _direct_media_urls(thread_posts)
+    from source_media import reference_id
+    first_ref = reference_id(source_urls[0]) if source_urls else None
     return {
         "event_key": f"x:{profile.id}:{post.post_id}",
         "source": "x",
@@ -385,8 +389,8 @@ def board_source_event(event: dict, profile, *, status_date: datetime | None = N
         "source_title": normalized_source_title,
         "source_status": None,
         "plan": None,
-        "media_path": None,
-        "media_urls": [url for url in _direct_media_urls(thread_posts) if url not in skipped_media],
+        "media_path": source_paths.get(first_ref) if first_ref else None,
+        "media_urls": [] if first_ref else [url for url in source_urls if url not in skipped_media],
     }
 
 
@@ -601,7 +605,11 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
         if profile.forward_media and event["media_index"] < len(all_media):
             index = event["media_index"]
             media_url = all_media[index].url
-            message_id = discord.post_media(media_url, channel_id, dry_run, discord.nonce(f"{profile.id}:{post.post_id}", f"media:{index}"), storage.parent / "media")
+            from source_media import reference_id
+            ref = reference_id(media_url)
+            reference = event.get("source_media_refs", {}).get(ref) if ref else None
+            media_arguments = {"source_reference": reference} if ref else {}
+            message_id = discord.post_media(media_url, channel_id, dry_run, discord.nonce(f"{profile.id}:{post.post_id}", f"media:{index}"), storage.parent / "media", **media_arguments)
             if message_id is not None:
                 event.setdefault("media_message_ids", []).append(message_id)
             event["media_index"] += 1
@@ -831,10 +839,18 @@ def run(
                     fcntl.flock(lock, fcntl.LOCK_UN)
                     try:
                         try:
-                            vision_bundle = _prepare_agent_vision(post, storage, dry_run)
+                            if event.get("source_media_refs") and not dry_run:
+                                vision_bundle = vision_media.prepare(
+                                    post, vision_media.default_root(storage),
+                                    reference_meta=event["source_media_refs"],
+                                )
+                            else:
+                                vision_bundle = _prepare_agent_vision(post, storage, dry_run)
                             if vision_bundle is not None and vision_bundle.unavailable_count:
                                 stats.note_source_error("vision image preparation incomplete")
                         except vision_media.VisionMediaError:
+                            if event.get("source_media_refs"):
+                                raise
                             stats.note_source_error("vision image preparation failed")
                         try:
                             article_bundle = _prepare_article_context(thread_posts, dry_run)

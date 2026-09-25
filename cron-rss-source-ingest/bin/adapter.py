@@ -55,14 +55,21 @@ def endpoints(snapshot: dict[str, Any], loaded_config: Any) -> tuple[dict[str, d
     return selected, feeds
 
 
-def _item(article: Any, revision: int) -> dict[str, Any]:
+def _item(article: Any, loaded_config: Any) -> dict[str, Any]:
     payload = article.to_payload()
     # The fixed RSS parser exposes arbitrary provider media URLs, but this
     # adapter has no host-reviewed, bounded media byte fetcher. Such entries
     # remain fail-closed in source-ingest, whose blocked record strips media
     # locators. The parser output itself is left intact for that decision.
     has_media = isinstance(article.media_url, str) and bool(article.media_url)
-    return {"provider_event_id": hashlib.sha256(article.guid.encode("utf-8")).hexdigest(), "published_at": article.published_at.isoformat(), "source_url": article.url, "payload": {"article": payload, "watch_config_revision": revision}, "media_required": has_media, "media_refs": []}
+    watch = loaded_config.config
+    frozen = {
+        "revision": loaded_config.revision,
+        "additional_prompt_instruction": watch.additional_prompt_instruction,
+        "id_stocks_news_channel_id": watch.id_stocks_news_channel_id,
+        "macro_news_channel_id": watch.macro_news_channel_id,
+    }
+    return {"provider_event_id": hashlib.sha256(article.guid.encode("utf-8")).hexdigest(), "published_at": article.published_at.isoformat(), "source_url": article.url, "payload": {"article": payload, "watch_config_revision": loaded_config.revision, "watch_config_snapshot": frozen}, "media_required": has_media, "media_refs": []}
 
 
 def run_once(snapshot: dict[str, Any], loaded_config: Any, state_root: Path, inbox: Any, observed_at: datetime, *, fetch_feed: Any = None) -> list[dict[str, Any]]:
@@ -82,6 +89,6 @@ def run_once(snapshot: dict[str, Any], loaded_config: Any, state_root: Path, inb
                 raise IntakeBlocked("unexpected conditional RSS response")
             # The optional parser flag preserves the XML item order. Stockbit
             # presents newest first, so reverse once for oldest-first handoff.
-            return {"items": [_item(article, loaded_config.revision) for article in reversed(result.articles)], "truncated": len(result.articles) >= 20, "contiguous": False}
+            return {"items": [_item(article, loaded_config) for article in reversed(result.articles)], "truncated": len(result.articles) >= 20, "contiguous": False}
         fetchers[endpoint_id] = fetch
     return ingest_all(selected, fetchers, state_root, inbox, observed_at, "stockbit-rss-parser-1")
