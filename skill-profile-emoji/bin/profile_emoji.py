@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
 from dataclasses import dataclass
 from html import unescape
 from html.parser import HTMLParser
@@ -21,9 +20,15 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, unquote, urljoin, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+_DELIVERY_BIN = Path(__file__).resolve().parents[2] / "lib-bursawatch-discord-delivery" / "bin"
+if not _DELIVERY_BIN.exists():
+    _DELIVERY_BIN = Path.home() / ".agents" / "skills" / "lib-bursawatch-discord-delivery" / "bin"
+if str(_DELIVERY_BIN) not in sys.path:
+    sys.path.insert(0, str(_DELIVERY_BIN))
+from bursawatch_discord_delivery import DeliveryClient, DeliveryClientError  # noqa: E402
+
 
 DEFAULT_GUILD_ID = "940285152335110204"
-DISCORD_API_BASE = "https://discord.com/api/v10"
 DISCORD_TIMEOUT_SECONDS = 30
 MAX_HTML_BYTES = 5 * 1024 * 1024
 MAX_IMAGE_INPUT_BYTES = 10 * 1024 * 1024
@@ -521,56 +526,41 @@ def _validate_emoji_id(value: Any) -> str:
     return candidate
 
 
-class DiscordClient:
-    def __init__(self, token: str, *, opener: Any = None) -> None:
-        if not token:
-            raise ProfileEmojiError("DISCORD_BOT_TOKEN is not available on the VPS")
-        self._token = token
-        self._opener = opener or build_opener()
+class EmojiDeliveryClient:
+    """Use only the loopback Delivery Owner for Discord emoji access."""
 
-    def _request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> Any:
-        body = None if payload is None else json.dumps(payload, separators=(",", ":")).encode("utf-8")
-        headers = {
-            "Authorization": f"Bot {self._token}",
-            "User-Agent": USER_AGENT,
-            "Accept": "application/json",
-        }
-        if body is not None:
-            headers["Content-Type"] = "application/json"
-        request = Request(f"{DISCORD_API_BASE}{path}", data=body, headers=headers, method=method)
+    def __init__(self) -> None:
         try:
-            with self._opener.open(request, timeout=DISCORD_TIMEOUT_SECONDS) as response:
-                raw = response.read(2 * 1024 * 1024 + 1)
-                if len(raw) > 2 * 1024 * 1024:
-                    raise ProfileEmojiError("Discord response is too large")
-        except HTTPError as exc:
-            if exc.code == 429:
-                raise ProfileEmojiError("Discord rate limited the request; try again later") from exc
-            raise ProfileEmojiError(f"Discord request failed with HTTP {exc.code}") from exc
-        except (URLError, TimeoutError, OSError) as exc:
-            raise ProfileEmojiError("Discord request failed") from exc
-        try:
-            return json.loads(raw.decode("utf-8")) if raw else None
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise ProfileEmojiError("Discord returned invalid JSON") from exc
+            self._client = DeliveryClient(
+                os.environ.get("BURSAWATCH_DISCORD_DELIVERY_URL", "http://127.0.0.1:9120"),
+                Path(os.environ.get(
+                    "BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE",
+                    str(Path.home() / ".hermes/secrets/bursawatch-discord-delivery-client-token"),
+                )),
+                emoji_token_file=Path(os.environ.get(
+                    "BURSAWATCH_DISCORD_DELIVERY_EMOJI_TOKEN_FILE",
+                    str(Path.home() / ".hermes/secrets/bursawatch-discord-delivery-emoji-token"),
+                )),
+            )
+        except DeliveryClientError as exc:
+            raise ProfileEmojiError(str(exc)) from None
 
     def list_guild_emojis(self, guild_id: str) -> list[dict[str, Any]]:
-        payload = self._request("GET", f"/guilds/{guild_id}/emojis")
-        if not isinstance(payload, list) or any(not isinstance(item, dict) for item in payload):
-            raise ProfileEmojiError("Discord returned an invalid emoji list")
-        return payload
+        try:
+            return self._client.list_guild_emojis(guild_id)
+        except DeliveryClientError as exc:
+            raise ProfileEmojiError(str(exc)) from None
 
     def create_guild_emoji(self, guild_id: str, name: str, png_bytes: bytes) -> dict[str, Any]:
-        encoded = base64.b64encode(png_bytes).decode("ascii")
-        payload = {
-            "name": name,
-            "image": f"data:image/png;base64,{encoded}",
-            "roles": [],
-        }
-        response = self._request("POST", f"/guilds/{guild_id}/emojis", payload)
-        if not isinstance(response, dict):
-            raise ProfileEmojiError("Discord returned an invalid created emoji")
-        return response
+        try:
+            receipt = self._client.create_guild_emoji(guild_id, name, png_bytes)
+            if receipt.status != "delivered":
+                receipt = self._client.wait(receipt.key, DISCORD_TIMEOUT_SECONDS)
+        except DeliveryClientError as exc:
+            raise ProfileEmojiError(str(exc)) from None
+        if receipt.status != "delivered" or not receipt.receipt:
+            raise ProfileEmojiError(f"emoji creation is {receipt.status}; retry ensure after Delivery Owner resolves it")
+        return {"name": name, "id": receipt.receipt.get("emoji_id")}
 
 
 def _result_base(account: Account | None, name: str) -> dict[str, Any]:
@@ -622,9 +612,8 @@ def ensure(
     guild_id: str,
     *,
     apply: bool,
-    token: str,
 ) -> dict[str, Any]:
-    client = DiscordClient(token)
+    client = EmojiDeliveryClient()
     result = _result_base(account, name)
     matching = [emoji for emoji in client.list_guild_emojis(guild_id) if emoji.get("name") == name]
     if len(matching) > 1:
@@ -654,9 +643,8 @@ def ensure_image(
     guild_id: str,
     *,
     apply: bool,
-    token: str,
 ) -> dict[str, Any]:
-    client = DiscordClient(token)
+    client = EmojiDeliveryClient()
     result = _result_base(None, name)
     matching = [emoji for emoji in client.list_guild_emojis(guild_id) if emoji.get("name") == name]
     if len(matching) > 1:
@@ -734,8 +722,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "ensure-image":
             guild_id = _validate_guild_id(args.guild_id)
             name = validate_emoji_name(args.emoji_name)
-            token = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
-            result = ensure_image(args.image_path, name, guild_id, apply=args.apply, token=token)
+            result = ensure_image(args.image_path, name, guild_id, apply=args.apply)
         else:
             account = normalize_account(args.platform, args.account)
             name = resolve_emoji_name(account, args.emoji_name, args.profile_id)
@@ -743,8 +730,7 @@ def main(argv: list[str] | None = None) -> int:
                 result = prepare(account, name)
             else:
                 guild_id = _validate_guild_id(args.guild_id)
-                token = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
-                result = ensure(account, name, guild_id, apply=args.apply, token=token)
+                result = ensure(account, name, guild_id, apply=args.apply)
         _print_result(result, args.json)
         return 0
     except ProfileEmojiError as exc:

@@ -14,12 +14,20 @@ service contract and deployment gates are in
 and its caller contract is in
 [`lib-bursawatch-discord-delivery/README.md`](../lib-bursawatch-discord-delivery/README.md).
 The service and its initial host bootstrap remain manual rollout boundaries.
+The all-client Discord boundary is recorded in
+[`adr/0030-shared-discord-delivery-owner.md`](adr/0030-shared-discord-delivery-owner.md).
 
 The Bursawatch Source Media Owner is the only Supabase Storage path for private
 source media. Its service contract and shared client live in
 [`service-bursawatch-source-media/README.md`](../service-bursawatch-source-media/README.md)
 and [`lib-bursawatch-source-media/README.md`](../lib-bursawatch-source-media/README.md).
 The service and its initial host bootstrap remain manual rollout boundaries.
+
+The platform source migration inventory documents checked-in endpoint and state
+ownership contracts, plus the read-only evidence needed before a production
+cutover. It is not a live inventory; exact cursors, queues, receipts, and Hermes
+job IDs require a separate approved VPS read:
+[`source-pipeline migration inventory`](superpowers/specs/2026-09-25-bursawatch-source-pipeline-migration-inventory.md).
 
 For collaboration, `.wt/config.toml` defines managed feature worktrees and the
 repository-local `finish-workflow` skill ends with a pull request. It does not

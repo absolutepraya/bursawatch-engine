@@ -1,5 +1,6 @@
 import hashlib
 import json
+import base64
 
 import pytest
 
@@ -15,6 +16,38 @@ class Response:
 
     def json(self):
         return self.body
+
+    @property
+    def content(self):
+        return json.dumps(self.body).encode()
+
+
+def emoji_intent(data=b"\x89PNG\r\n\x1a\npixels"):
+    return OperationIntent("profile-emoji:123:writer", "guild_emoji_create", "guild-emoji:123",
+                           {"guild_id": "123"}, {"name": "writer"},
+                           (Attachment("emoji.png", "image/png", data),))
+
+
+def test_guild_emoji_create_builds_data_uri_only_inside_gateway(tmp_path):
+    data = b"\x89PNG\r\n\x1a\npixels"
+    path = tmp_path / "emoji.png"
+    path.write_bytes(data)
+    staged = StoredAttachment("emoji.png", "image/png", path, hashlib.sha256(data).hexdigest())
+    session = Session([Response(body={"id": "456", "name": "writer"})])
+    gateway = DiscordGateway("secret", session=session)
+    assert gateway.execute(emoji_intent(data), (staged,)) == {"emoji_id": "456"}
+    method, url, options = session.calls[0]
+    assert (method, url) == ("POST", "https://discord.com/api/v10/guilds/123/emojis")
+    assert options["json"]["image"] == "data:image/png;base64," + base64.b64encode(data).decode()
+    assert "image" not in gateway.request_spec(emoji_intent(data))[2]
+
+
+def test_guild_emoji_query_returns_only_bounded_safe_fields():
+    session = Session([Response(body=[{"id": "456", "name": "writer", "animated": False,
+                                    "managed": False, "url": "secret-value"}])])
+    result = DiscordGateway("secret", session=session).query({"kind": "guild_emojis", "guild_id": "123"})
+    assert result == [{"id": "456", "name": "writer", "animated": False, "managed": False}]
+    assert session.calls[0][:2] == ("GET", "https://discord.com/api/v10/guilds/123/emojis")
 
 
 class Session:

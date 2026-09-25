@@ -59,7 +59,10 @@ contains both forms and the numeric ID. `prepare` returns no Discord ID.
 
 - `prepare` never contacts Discord. `ensure` is read-only unless `--apply` is
   present.
-- The wrapper reads only `DISCORD_BOT_TOKEN` from the VPS-local Hermes env.
+- The helper uses the shared Delivery Owner client token file for guild emoji
+  reads and receipt polling. Creating an emoji requires the separate private
+  `~/.hermes/secrets/bursawatch-discord-delivery-emoji-token` file, read only
+  when creation is requested. Only the Delivery Owner reads the Discord bot token.
 - Profile source URLs are limited to trusted profile pages and fixed local
   watcher routes. The local-image command accepts only an explicitly supplied
   filesystem path. Do not pass arbitrary CDN URLs or credentials to the

@@ -63,6 +63,43 @@ def client_for(fake_owner, token_file: Path, **kwargs) -> DeliveryClient:
     return DeliveryClient(fake_owner.base_url, token_file, **kwargs)
 
 
+def test_emoji_client_uses_typed_query_and_dedicated_create_token(fake_owner, token_file, tmp_path):
+    fake_owner.state["query_response"] = [
+        {"id": "456", "name": "writer", "managed": False, "animated": False}
+    ]
+    emoji_token_file = tmp_path / "emoji-token"
+    client = client_for(fake_owner, token_file, emoji_token_file=emoji_token_file)
+    assert client.list_guild_emojis("123")[0]["name"] == "writer"
+    assert fake_owner.state["last_query"] == {"kind": "guild_emojis", "guild_id": "123"}
+    assert fake_owner.state["requests"][-1]["headers"]["Authorization"] == "Bearer test-client-token"
+    png = b"\x89PNG\r\n\x1a\npixels"
+    with pytest.raises(DeliveryClientError) as missing:
+        client.create_guild_emoji("123", "writer", png)
+    assert missing.value.category == "invalid_token_file"
+    emoji_token_file.write_text("test-emoji-token", encoding="utf-8")
+    emoji_token_file.chmod(0o644)
+    with pytest.raises(DeliveryClientError) as unsafe:
+        client.create_guild_emoji("123", "writer", png)
+    assert unsafe.value.category == "invalid_token_file"
+    emoji_token_file.chmod(0o600)
+    receipt = client.create_guild_emoji("123", "writer", png)
+    assert receipt.status == "pending"
+    assert receipt.key == "profile-emoji:123:writer"
+    request = fake_owner.state["requests"][-1]
+    assert request["path"] == "/v1/operations"
+    assert request["headers"]["Authorization"] == "Bearer test-emoji-token"
+    assert png in request["body"]
+    assert "image" not in fake_owner.state["last_operation"]["payload"]
+    with pytest.raises(DeliveryClientError) as caught:
+        client.create_guild_emoji("123", "writer", b"invalid")
+    assert caught.value.category == "invalid_operation"
+
+    ordinary_client = client_for(fake_owner, token_file)
+    with pytest.raises(DeliveryClientError) as absent:
+        ordinary_client.create_guild_emoji("123", "another", png)
+    assert absent.value.category == "emoji_credentials_required"
+
+
 def test_loads_private_client_token_and_parses_accepted_receipt(fake_owner, token_file):
     client = client_for(fake_owner, token_file)
     operation = make_operation()

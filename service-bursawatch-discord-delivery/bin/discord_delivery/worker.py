@@ -111,6 +111,10 @@ class DeliveryWorker:
                 if len(ids) != len(threads) or any(not isinstance(value, str) or not value.isdigit() for value in ids):
                     raise GatewayError("invalid_response")
                 boundary = str(max(int(value) for value in ids))
+        elif intent.kind == "guild_emoji_create":
+            read = self.gateway.query({"kind": "guild_emojis", "guild_id": target["guild_id"]})
+            if any(item["name"] == intent.payload["name"] for item in read):
+                raise GatewayError("emoji_name_taken")
         metadata = self.store.stored_attachments(record.key)
         exact_body = dict(body)
         if metadata:
@@ -170,6 +174,15 @@ class DeliveryWorker:
             if operation.kind == "forum_channel_create":
                 # Discord has no safe guild channel history boundary for this create.
                 return ReconcileResult("inconclusive")
+            if operation.kind == "guild_emoji_create":
+                if not snapshot.get("boundary_observed", False):
+                    return ReconcileResult("inconclusive")
+                read = self.gateway.query({"kind": "guild_emojis", "guild_id": intent.target["guild_id"]})
+                if any(item["name"] == intent.payload["name"] for item in read):
+                    # Discord supplies no nonce or image digest on an emoji. A name alone
+                    # cannot prove that this request created the returned asset.
+                    return ReconcileResult("inconclusive")
+                return ReconcileResult("not_found")
             channel = intent.target.get("channel_id", intent.target.get("thread_id"))
             boundary = snapshot.get("boundary")
             boundary_observed = snapshot.get("boundary_observed", False)

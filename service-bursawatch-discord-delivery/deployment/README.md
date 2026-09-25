@@ -13,6 +13,7 @@ first bootstrap or later release operation.
   secrets/
     bursawatch-discord-delivery-bot-token             mode 0600
     bursawatch-discord-delivery-client-token          mode 0600
+    bursawatch-discord-delivery-emoji-token           mode 0600 when enabled
     bursawatch-discord-delivery-admin-token           mode 0600
   bursawatch-discord-delivery/
     bin/
@@ -23,11 +24,13 @@ first bootstrap or later release operation.
     bursawatch-discord-delivery-media/                 mode 0700
 ```
 
-The service environment holds the client and admin API token values and paths
-for the bot token, SQLite database, and media directory. The client-token file
-matches `DISCORD_DELIVERY_API_TOKEN`; the admin-token file matches
-`DISCORD_DELIVERY_ADMIN_TOKEN`. Do not print or store any token value in this
-repository, and do not reuse either API token as the bot token.
+The service environment holds client and admin API token values, an optional
+`DISCORD_DELIVERY_EMOJI_TOKEN`, and paths for the bot token, SQLite database,
+and media directory. The client-token file matches `DISCORD_DELIVERY_API_TOKEN`;
+the admin-token file matches `DISCORD_DELIVERY_ADMIN_TOKEN`; when enabled, the
+emoji-token file matches `DISCORD_DELIVERY_EMOJI_TOKEN`. Keep all credentials
+distinct. Without the emoji token, the service stays available and rejects
+emoji creation. Do not print or store any token value in this repository.
 
 The service listens on `127.0.0.1:9120`. Do not add an Nginx route, tunnel,
 public bind address, DNS name, or firewall allowance. The HTTP API is for local
@@ -42,7 +45,8 @@ current service/release state. Then, only within the approved scope:
 1. Create the dedicated service directory and Python virtual environment;
    install the pinned `requirements.txt` into that environment.
 2. Create a private dedicated environment file from `env.example`. Supply
-   distinct API/admin tokens and the reviewed token, database, and media paths.
+   distinct API/admin tokens, the optional distinct emoji token, and the
+   reviewed token, database, and media paths.
 3. Install each token file as a regular mode-0600 file owned by `praya`. The
    service validates the bot-token file and never expects client callers to
    receive it.

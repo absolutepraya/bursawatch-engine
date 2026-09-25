@@ -5,9 +5,11 @@ reusable agent skill, not a scheduled Hermes cron.
 
 ## Contract
 
-- `bin/profile-emoji` runs on the VPS and loads Yanto's local
-  `DISCORD_BOT_TOKEN` from `~/.hermes/.env`. The token and the Instagram
-  cookie never move to the Mac, enter source control, or appear in output.
+- `bin/profile-emoji` runs on the VPS and uses the shared Delivery Owner client
+  token file for guild reads and receipt polling. Creation loads a separate
+  mode-0600 emoji token file at `~/.hermes/secrets/bursawatch-discord-delivery-emoji-token`
+  only when needed. Only the Delivery Owner reads the Discord bot token. No
+  token or Instagram cookie moves to the Mac or appears in output.
 - The helper accepts an X or Instagram profile URL, or a handle together with
   an explicit platform. Its `ensure-image` command also accepts an explicitly
   supplied local image for approved custom-asset onboarding. It center-crops
@@ -36,11 +38,12 @@ match the requested account. The actual image CDN URL is transient and is
 never included in the result. `source_url` means the canonical profile page;
 `image_source_host` is the redacted image host.
 
-The normal path keeps the fetched page, source image, and generated circular
-PNG in VPS process memory only. The `ensure-image` path reads the supplied
-local file only for that invocation and does not copy it to the Mac, watcher
-state, or a cache. The helper has no image-file output option. The Discord
-custom emoji is the only durable image asset produced by this helper.
+The normal path keeps the fetched page and source image in VPS process memory.
+The `ensure-image` path reads the supplied local file only for that invocation.
+For an approved create, the Delivery Owner stages the circular PNG in its
+private media directory and keeps only its digest and metadata in SQLite.
+The helper does not copy the image to the Mac or watcher state and has no
+image-file output option.
 
 Instagram's authenticated RSSHub cookie remains owned by the VPS-local
 universal `rsshub` service. The helper must not read, print, or receive
@@ -56,6 +59,9 @@ universal `rsshub` service. The helper must not read, print, or receive
   repository verification command.
 - Publish a clean reviewed commit before deployment. Run `./deploy.sh` only
   after comparing the exact local and VPS files and receiving approval for the
-  first VPS write in the conversation. Compare checksums after deployment.
+  first VPS write in the conversation. Confirm the shared client library and
+  compatible Delivery Owner service release are already in place; their
+  dependencies are listed in the release manifest. Compare checksums after
+  deployment.
 - Do not edit the VPS runtime or the dotfiles mirror as source, and do not
   create or modify watcher state while onboarding an account.

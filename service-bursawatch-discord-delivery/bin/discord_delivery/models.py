@@ -16,9 +16,10 @@ KINDS = frozenset({
     "forum_thread_create", "forum_thread_update", "forum_thread_archive",
     "thread_message_create", "thread_message_edit", "thread_message_delete",
     "forum_channel_create", "forum_channel_edit", "forum_channel_delete",
+    "guild_emoji_create",
 })
 QUERIES = frozenset({"forum_thread_read", "thread_message_read", "forum_channel_read",
-                     "channel_messages", "thread_messages", "forum_threads"})
+                     "channel_messages", "thread_messages", "forum_threads", "guild_emojis"})
 TARGET_FIELDS = {
     "channel_message_create": frozenset({"channel_id"}),
     "channel_message_edit": frozenset({"channel_id", "message_id"}),
@@ -32,6 +33,7 @@ TARGET_FIELDS = {
     "forum_channel_create": frozenset({"guild_id"}),
     "forum_channel_edit": frozenset({"channel_id"}),
     "forum_channel_delete": frozenset({"channel_id"}),
+    "guild_emoji_create": frozenset({"guild_id"}),
 }
 PAYLOAD_FIELDS = {
     "channel_message_create": frozenset({"content", "allowed_mentions"}),
@@ -46,6 +48,7 @@ PAYLOAD_FIELDS = {
     "forum_channel_create": frozenset({"name", "topic"}),
     "forum_channel_edit": frozenset({"name", "topic"}),
     "forum_channel_delete": frozenset(),
+    "guild_emoji_create": frozenset({"name"}),
 }
 MAX_CONTENT = 2000
 MAX_ATTACHMENTS = 10
@@ -128,6 +131,15 @@ class OperationIntent:
             name = payload.get("name")
             if not isinstance(name, str) or not 1 <= len(name) <= 100:
                 raise ValidationError("invalid thread name")
+        if self.kind == "guild_emoji_create":
+            name = payload.get("name")
+            if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_]{1,32}", name):
+                raise ValidationError("invalid emoji name")
+            if (len(self.attachments) != 1 or self.attachments[0].filename != "emoji.png"
+                    or self.attachments[0].mime_type != "image/png"
+                    or not 8 <= len(self.attachments[0].data) <= 256 * 1024
+                    or not self.attachments[0].data.startswith(b"\x89PNG\r\n\x1a\n")):
+                raise ValidationError("invalid emoji PNG")
         if self.kind in {"forum_thread_update", "forum_channel_edit"} and not payload:
             raise ValidationError("update requires a change")
         if "name" in payload and (not isinstance(payload["name"], str) or not 1 <= len(payload["name"]) <= 100):
@@ -159,7 +171,7 @@ class OperationIntent:
             if mode != "replace" and self.attachments:
                 raise ValidationError("only replace mode accepts uploaded attachments")
         if self.attachments and self.kind not in {
-            "channel_message_create", "thread_message_create", "forum_thread_create", "thread_message_edit"
+            "channel_message_create", "thread_message_create", "forum_thread_create", "thread_message_edit", "guild_emoji_create"
         }:
             raise ValidationError("attachments not supported for operation kind")
         if not isinstance(self.reconcile_before_first_create, bool):
@@ -209,6 +221,9 @@ def validate_receipt(receipt: Mapping[str, str], kind: str,
     elif kind.startswith("forum_channel_"):
         required = {"channel_id"}
         allowed = {"channel_id"}
+    elif kind == "guild_emoji_create":
+        required = {"emoji_id"}
+        allowed = {"emoji_id"}
     elif kind.startswith("thread_message_"):
         required = {"message_id"}
         allowed = {"message_id", "thread_id"}
@@ -255,11 +270,12 @@ def validate_query(value: Any) -> dict[str, Any]:
         "channel_messages": ({"kind", "channel_id"}, {"kind", "channel_id", "before", "after", "limit"}),
         "thread_messages": ({"kind", "thread_id"}, {"kind", "thread_id", "before", "after", "limit"}),
         "forum_threads": ({"kind", "channel_id"}, {"kind", "channel_id", "before", "limit"}),
+        "guild_emojis": ({"kind", "guild_id"}, {"kind", "guild_id"}),
     }
     required, allowed = fields[query["kind"]]
     if not required <= set(query) or set(query) - allowed:
         raise ValidationError("invalid query fields")
-    for name in ("channel_id", "thread_id", "message_id", "before", "after"):
+    for name in ("channel_id", "thread_id", "message_id", "guild_id", "before", "after"):
         if name in query:
             _snowflake(query[name], name)
     if "limit" in query and (type(query["limit"]) is not int or not 1 <= query["limit"] <= 100):

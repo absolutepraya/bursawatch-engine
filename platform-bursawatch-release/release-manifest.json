@@ -325,6 +325,7 @@
     {
       "id": "manual-profile-emoji",
       "handler": "manual",
+      "depends_on": ["lib-bursawatch-discord-delivery", "manual-discord-delivery-owner"],
       "paths": ["skill-profile-emoji/**"]
     },
     {

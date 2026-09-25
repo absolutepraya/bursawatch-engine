@@ -16,6 +16,7 @@ class Config:
     bot_token_path: Path
     state_path: Path
     media_path: Path
+    emoji_token: str | None = None
 
     @classmethod
     def from_environment(cls) -> "Config":
@@ -30,12 +31,14 @@ class Config:
             raise ValueError("invalid Discord delivery port")
         api_token = os.environ["DISCORD_DELIVERY_API_TOKEN"]
         admin_token = os.environ["DISCORD_DELIVERY_ADMIN_TOKEN"]
-        if api_token == admin_token:
-            raise ValueError("client and admin tokens must differ")
+        emoji_token = os.environ.get("DISCORD_DELIVERY_EMOJI_TOKEN") or None
+        if api_token == admin_token or emoji_token in {api_token, admin_token}:
+            raise ValueError("client, admin, and emoji tokens must differ")
         return cls(
             host=os.environ.get("DISCORD_DELIVERY_HOST", "127.0.0.1"), port=port,
             api_token=api_token, admin_token=admin_token,
             bot_token_path=Path(os.environ["DISCORD_DELIVERY_BOT_TOKEN_PATH"]),
             state_path=Path(os.environ["DISCORD_DELIVERY_STATE_PATH"]),
             media_path=Path(os.environ["DISCORD_DELIVERY_MEDIA_PATH"]),
+            emoji_token=emoji_token,
         )

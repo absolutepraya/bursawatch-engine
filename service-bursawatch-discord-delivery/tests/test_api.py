@@ -15,7 +15,8 @@ from discord_delivery.store import DeliveryStore
 
 def setup_client(tmp_path, executor=None):
     config = Config("127.0.0.1", 9120, "client-secret", "admin-secret",
-                    tmp_path / "bot-token", tmp_path / "delivery.sqlite3", tmp_path / "media")
+                    tmp_path / "bot-token", tmp_path / "delivery.sqlite3", tmp_path / "media",
+                    emoji_token="emoji-secret")
     store = DeliveryStore(config.state_path, config.media_path)
     return TestClient(create_app(config, store, executor)), store
 
@@ -26,6 +27,58 @@ def operation(key="news:1", **changes):
              "payload": {"content": "Example", "allowed_mentions": {"parse": []}}}
     value.update(changes)
     return value
+
+
+def test_guild_emoji_contract_is_typed_and_idempotent(tmp_path):
+    client, store = setup_client(tmp_path, lambda query: [{"id": "456", "name": "writer"}])
+    value = operation("profile-emoji:123:writer", kind="guild_emoji_create",
+                      ordering_key="guild-emoji:123", target={"guild_id": "123"},
+                      payload={"name": "writer"})
+    png = b"\x89PNG\r\n\x1a\npixels"
+    files = [("emoji.png", png, "image/png")]
+    assert submit(client, value, attachments=files).status_code == 403
+    assert store.counts()["pending"] == 0
+    assert submit(client, operation("ordinary:emoji-token"), token="emoji-secret").status_code == 403
+    assert store.counts()["pending"] == 0
+    first = submit(client, value, token="emoji-secret", attachments=files)
+    assert first.status_code == 202
+    assert submit(client, value, token="emoji-secret", attachments=files).json()["id"] == first.json()["id"]
+    assert submit(client, value, token="emoji-secret", attachments=[("emoji.png", png + b"x", "image/png")]).status_code == 409
+    assert submit(client, value, token="emoji-secret", attachments=[("emoji.png", b"not a png", "image/png")]).status_code == 422
+    assert png not in (tmp_path / "delivery.sqlite3").read_bytes()
+    assert store.load_intent(value["key"]).attachments[0].data == png
+    headers = {"Authorization": "Bearer client-secret"}
+    assert client.post("/v1/queries", json={"kind": "guild_emojis", "guild_id": "123"},
+                       headers=headers).json() == [{"id": "456", "name": "writer"}]
+    assert client.post("/v1/queries", json={"kind": "guild_emojis", "guild_id": "bad"},
+                       headers=headers).status_code == 422
+    assert client.post("/v1/queries", json={"kind": "guild_emojis", "guild_id": "123"},
+                       headers={"Authorization": "Bearer emoji-secret"}).status_code == 401
+    assert client.get("/v1/operations/by-key/profile-emoji:123:writer",
+                      headers={"Authorization": "Bearer emoji-secret"}).status_code == 401
+
+
+def test_unprovisioned_emoji_token_keeps_service_available_and_create_closed(tmp_path, monkeypatch):
+    values = {
+        "DISCORD_DELIVERY_API_TOKEN": "client-secret",
+        "DISCORD_DELIVERY_ADMIN_TOKEN": "admin-secret",
+        "DISCORD_DELIVERY_BOT_TOKEN_PATH": str(tmp_path / "bot-token"),
+        "DISCORD_DELIVERY_STATE_PATH": str(tmp_path / "delivery.sqlite3"),
+        "DISCORD_DELIVERY_MEDIA_PATH": str(tmp_path / "media"),
+    }
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv("DISCORD_DELIVERY_EMOJI_TOKEN", raising=False)
+    config = Config.from_environment()
+    assert config.emoji_token is None
+    store = DeliveryStore(config.state_path, config.media_path)
+    client = TestClient(create_app(config, store))
+    emoji = operation("profile-emoji:123:writer", kind="guild_emoji_create",
+                      ordering_key="guild-emoji:123", target={"guild_id": "123"},
+                      payload={"name": "writer"})
+    assert submit(client, emoji, attachments=[("emoji.png", b"\x89PNG\r\n\x1a\npixels", "image/png")]).status_code == 403
+    assert submit(client, operation()).status_code == 202
+    assert store.get_by_key(emoji["key"]) is None
 
 
 def submit(client, value, token="client-secret", attachments=()):

@@ -6,23 +6,30 @@ The service defaults to `127.0.0.1:9120`. It is not a public API and must not be
 
 ## API
 
-All authenticated requests use a bearer token. `DISCORD_DELIVERY_API_TOKEN` authorizes normal client operations, queries, and status lookups. `DISCORD_DELIVERY_ADMIN_TOKEN` is a distinct credential for pending-state adoption, sanitized admin listing, and retrying an exactly matching blocked operation.
+All authenticated requests use a bearer token. `DISCORD_DELIVERY_API_TOKEN` authorizes ordinary client operations, queries, and status lookups. The optional `DISCORD_DELIVERY_EMOJI_TOKEN` authorizes only `guild_emoji_create` submissions; with it unset, emoji creation is unavailable. `DISCORD_DELIVERY_ADMIN_TOKEN` remains a distinct credential for pending-state adoption, sanitized admin listing, and retrying an exactly matching blocked operation.
 
 | Route | Access | Purpose |
 |---|---|---|
 | `GET /healthz` | Loopback only | Service status and counts for pending, blocked, and ambiguous work |
-| `POST /v1/operations` | Client token | Validate and durably accept a typed operation and attachment bytes |
+| `POST /v1/operations` | Client token for ordinary kinds; emoji token for `guild_emoji_create` | Validate and durably accept a typed operation and attachment bytes |
 | `GET /v1/operations/by-key/{key}` | Client token | Read the durable receipt or current operation state |
-| `POST /v1/queries` | Client token | Perform one of the six allowlisted, read-only Discord queries |
+| `POST /v1/queries` | Client token | Perform an allowlisted, read-only Discord query, including bounded guild emoji listing |
 | `POST /v1/operations/adopt` | Admin token | Adopt an existing completed receipt or a pending operation during a reviewed cutover |
 | `GET /v1/admin/operations` | Admin token | List sanitized operation summaries without message bodies or media bytes |
 | `POST /v1/admin/operations/{key}/retry` | Admin token | Retry a blocked operation after exact digest verification |
 
-Mutation kinds cover channel messages, forum threads and forum channels, and messages inside threads. Query kinds are `forum_thread_read`, `thread_message_read`, `forum_channel_read`, `channel_messages`, `thread_messages`, and `forum_threads`. The service validates identifiers, payload fields, attachment names and sizes, and allowed mentions before accepting work.
+Mutation kinds are `channel_message_create`, `channel_message_edit`, `channel_message_delete`, `forum_thread_create`, `forum_thread_update`, `forum_thread_archive`, `thread_message_create`, `thread_message_edit`, `thread_message_delete`, `forum_channel_create`, `forum_channel_edit`, `forum_channel_delete`, and `guild_emoji_create`. Query kinds are `forum_thread_read`, `thread_message_read`, `forum_channel_read`, `channel_messages`, `thread_messages`, `forum_threads`, and `guild_emojis`. The service validates identifiers, payload fields, attachment names and sizes, and allowed mentions before accepting work.
 
 ## Durable operation and recovery contract
 
 Every operation has a caller-supplied stable key, an ordering key, and a canonical payload digest. Reusing a key with the same payload returns the existing row and receipt. Reusing it with different content returns `409` without replacing the operation or making a Discord request. Accepted attachment bytes are copied to the service media directory; the service does not read caller-supplied filesystem paths.
+
+`guild_emoji_create` accepts a name and one bounded static PNG attachment. The
+service builds Discord's image data URI only inside the gateway. SQLite stores
+the name, PNG digest, and private media path, never the image bytes. Before the
+create, the worker checks that the name is absent. If a response is lost and
+the name later appears, the operation stays ambiguous because Discord provides
+no nonce or image digest to prove which request created it.
 
 Operations move through these states:
 
@@ -43,10 +50,11 @@ Callers retry only the same immutable key and payload until the service acknowle
 
 ## Configuration and private data
 
-Copy the tracked field names from [`env.example`](env.example) into the dedicated VPS environment file `/home/praya/.hermes/bursawatch-discord-delivery.env` with mode `0600`. Do not commit or print its values. Keep all three token classes separate:
+Copy the tracked field names from [`env.example`](env.example) into the dedicated VPS environment file `/home/praya/.hermes/bursawatch-discord-delivery.env` with mode `0600`. Do not commit or print its values. Keep client, admin, emoji, and bot credentials separate:
 
-- The service environment contains the distinct API and admin bearer token values.
+- The service environment contains the distinct API and admin bearer token values, and the optional distinct `DISCORD_DELIVERY_EMOJI_TOKEN` value when emoji creation is enabled.
 - Callers read the matching API token from `/home/praya/.hermes/secrets/bursawatch-discord-delivery-client-token`.
+- The profile emoji helper reads the matching emoji token from `/home/praya/.hermes/secrets/bursawatch-discord-delivery-emoji-token` only for creation; guild emoji reads and receipt polling use the client token.
 - Reviewed migration tools read the matching admin token from `/home/praya/.hermes/secrets/bursawatch-discord-delivery-admin-token`.
 - The service reads its Discord bot token from `/home/praya/.hermes/secrets/bursawatch-discord-delivery-bot-token`.
 

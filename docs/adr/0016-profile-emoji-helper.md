@@ -2,6 +2,10 @@
 
 Status: accepted
 
+> **Transport update:** The direct Discord client described below was
+> superseded by [ADR 0030](0030-shared-discord-delivery-owner.md). The profile
+> validation, image processing, and output decisions remain current.
+
 ## Context
 
 X and Instagram watcher onboarding needs a consistent way to turn a public

@@ -26,6 +26,17 @@ def _authorized(header: str | None, token: str) -> None:
         raise HTTPException(401, "unauthorized")
 
 
+def _submit_scope(header: str | None, config: Config) -> str:
+    if not header or not header.startswith("Bearer "):
+        raise HTTPException(401, "unauthorized")
+    presented = header[7:]
+    client = hmac.compare_digest(presented, config.api_token)
+    emoji = config.emoji_token is not None and hmac.compare_digest(presented, config.emoji_token)
+    if not client and not emoji:
+        raise HTTPException(401, "unauthorized")
+    return "emoji" if emoji else "client"
+
+
 def _parse_intent(data: dict[str, Any], attachments: tuple[Attachment, ...] = (),
                   *, allow_legacy_nonce: bool = False) -> OperationIntent:
     if not isinstance(data, dict) or not {"key", "kind", "ordering_key", "target", "payload"} <= set(data):
@@ -159,8 +170,10 @@ def create_app(config: Config, store: DeliveryStore | None = None,
 
     @app.post("/v1/operations", status_code=202)
     async def submit(request: Request, authorization: str | None = Header(default=None)) -> dict[str, Any]:
-        _authorized(authorization, config.api_token)
+        scope = _submit_scope(authorization, config)
         intent = await _multipart_operation(request)
+        if (intent.kind == "guild_emoji_create") != (scope == "emoji"):
+            raise HTTPException(403, "operation not authorized for token")
         return _public(store.accept(intent))
 
     @app.post("/v1/operations/adopt", status_code=202)

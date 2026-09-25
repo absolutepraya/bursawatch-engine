@@ -46,6 +46,7 @@ _CATEGORY_MESSAGES = {
     "invalid_configuration": "delivery service configuration is invalid",
     "invalid_token_file": "delivery token file must be a private regular file",
     "admin_credentials_required": "admin token file is required for adoption",
+    "emoji_credentials_required": "emoji token file is required for guild emoji creation",
     "invalid_operation": "operation is not valid for this client method",
     "invalid_query": "query is not in the allowlist",
     "invalid_timeout": "wait timeout must be a finite non-negative number",
@@ -136,8 +137,9 @@ def _response_category(status: int) -> str:
 class DeliveryClient:
     """Submit typed operations to a local Delivery Owner service.
 
-    The normal token authorizes submit, status, query, and wait. Adoption uses
-    the separately configured admin token because it imports historical state.
+    The normal token authorizes ordinary submit, status, query, and wait. Guild
+    emoji creation loads a dedicated token only when submitting that operation.
+    Adoption uses the separately configured admin token.
     """
 
     def __init__(
@@ -147,6 +149,7 @@ class DeliveryClient:
         timeout_seconds: float = 20,
         *,
         admin_token_file: Path | None = None,
+        emoji_token_file: Path | None = None,
     ) -> None:
         self._base_url = _validate_base_url(base_url)
         if not isinstance(timeout_seconds, (int, float)) or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
@@ -154,6 +157,7 @@ class DeliveryClient:
         self.timeout_seconds = float(timeout_seconds)
         self._token = _load_token(Path(token_file))
         self._admin_token = _load_token(Path(admin_token_file)) if admin_token_file is not None else None
+        self._emoji_token_file = Path(emoji_token_file) if emoji_token_file is not None else None
         self._opener = urllib.request.build_opener(
             urllib.request.ProxyHandler({}),
             _NoRedirectHandler(),
@@ -164,13 +168,16 @@ class DeliveryClient:
             raise DeliveryClientError("invalid_operation")
         if operation.legacy_nonce is not None:
             raise DeliveryClientError("invalid_operation")
+        if operation.kind == "guild_emoji_create" and self._emoji_token_file is None:
+            raise DeliveryClientError("emoji_credentials_required")
+        token = _load_token(self._emoji_token_file) if operation.kind == "guild_emoji_create" else self._token
         body, content_type = _multipart_body(operation, include_legacy_nonce=False)
         response = self._request(
             "POST",
             "/v1/operations",
             body=body,
             content_type=content_type,
-            token=self._token,
+            token=token,
         )
         return self._parse_receipt(response, operation)
 
@@ -254,6 +261,34 @@ class DeliveryClient:
             return json.loads(response)
         except (json.JSONDecodeError, UnicodeDecodeError, TypeError):
             raise DeliveryClientError("invalid_response") from None
+
+    def list_guild_emojis(self, guild_id: str) -> list[dict[str, Any]]:
+        try:
+            response = self.query(DiscordQuery("guild_emojis", guild_id=guild_id))
+        except ValidationError:
+            raise DeliveryClientError("invalid_query") from None
+        if not isinstance(response, list) or len(response) > 500:
+            raise DeliveryClientError("invalid_response")
+        emojis = []
+        for item in response:
+            if (not isinstance(item, dict) or set(item) != {"id", "name", "animated", "managed"}
+                    or not isinstance(item["id"], str) or not item["id"].isdigit() or len(item["id"]) > 20
+                    or not isinstance(item["name"], str) or len(item["name"]) > 32
+                    or type(item["animated"]) is not bool or type(item["managed"]) is not bool):
+                raise DeliveryClientError("invalid_response")
+            emojis.append(dict(item))
+        return emojis
+
+    def create_guild_emoji(self, guild_id: str, name: str, png_bytes: bytes) -> OperationReceipt:
+        try:
+            operation = OperationIntent(
+                key=f"profile-emoji:{guild_id}:{name}", kind="guild_emoji_create",
+                ordering_key=f"guild-emoji:{guild_id}", target={"guild_id": guild_id},
+                payload={"name": name}, attachments=(Attachment("emoji.png", "image/png", png_bytes),),
+            )
+        except (ValidationError, TypeError):
+            raise DeliveryClientError("invalid_operation") from None
+        return self.submit(operation)
 
     def wait(self, operation_key: str, timeout_seconds: float) -> OperationReceipt:
         if (not isinstance(timeout_seconds, (int, float)) or not math.isfinite(timeout_seconds)

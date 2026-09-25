@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import base64
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -79,6 +80,8 @@ class DiscordGateway:
             return "PATCH", f"/channels/{target['channel_id']}", payload
         if kind == "forum_channel_delete":
             return "DELETE", f"/channels/{target['channel_id']}", {}
+        if kind == "guild_emoji_create":
+            return "POST", f"/guilds/{target['guild_id']}/emojis", {"name": payload["name"], "roles": []}
         raise ValidationError("invalid operation kind")
 
     def _request(self, method: str, path: str, *, body: Mapping[str, Any] | None = None,
@@ -146,6 +149,8 @@ class DiscordGateway:
             raise GatewayError("rejected")
         if status == 204 or method == "DELETE":
             return {}
+        if method == "GET" and path.endswith("/emojis") and len(response.content) > 1024 * 1024:
+            raise GatewayError("invalid_response")
         try:
             return response.json()
         except ValueError as exc:
@@ -153,6 +158,22 @@ class DiscordGateway:
 
     def execute(self, intent: OperationIntent, attachments: Sequence[StoredAttachment]) -> dict[str, str]:
         method, path, body = self.request_spec(intent)
+        if intent.kind == "guild_emoji_create":
+            if len(attachments) != 1:
+                raise GatewayError("invalid_attachment_state")
+            data = attachments[0].path.read_bytes()
+            if hashlib.sha256(data).hexdigest() != attachments[0].sha256:
+                raise GatewayError("attachment_changed")
+            if not 8 <= len(data) <= 256 * 1024 or not data.startswith(b"\x89PNG\r\n\x1a\n"):
+                raise GatewayError("invalid_attachment_state")
+            body["image"] = "data:image/png;base64," + base64.b64encode(data).decode("ascii")
+            result = self._request(method, path, body=body)
+            if not isinstance(result, dict) or result.get("name") != intent.payload["name"]:
+                raise GatewayError("invalid_response")
+            try:
+                return validate_receipt({"emoji_id": result["id"]}, intent.kind, intent.target)
+            except (KeyError, TypeError, ValidationError) as exc:
+                raise GatewayError("invalid_response") from exc
         if attachments and intent.kind not in {
             "channel_message_create", "thread_message_create", "forum_thread_create", "thread_message_edit"
         }:
@@ -207,6 +228,21 @@ class DiscordGateway:
     def query(self, query: Mapping[str, Any]) -> object:
         value = validate_query(dict(query))
         kind = value["kind"]
+        if kind == "guild_emojis":
+            result = self._request("GET", f"/guilds/{value['guild_id']}/emojis")
+            if not isinstance(result, list) or len(result) > 500:
+                raise GatewayError("invalid_response")
+            emojis = []
+            for item in result:
+                if (not isinstance(item, dict) or not isinstance(item.get("id"), str)
+                        or not item["id"].isdigit() or len(item["id"]) > 20
+                        or not isinstance(item.get("name"), str) or len(item["name"]) > 32
+                        or type(item.get("animated", False)) is not bool
+                        or type(item.get("managed", False)) is not bool):
+                    raise GatewayError("invalid_response")
+                emojis.append({"id": item["id"], "name": item["name"],
+                               "animated": item.get("animated", False), "managed": item.get("managed", False)})
+            return emojis
         if kind == "forum_threads":
             channel = self._request("GET", f"/channels/{value['channel_id']}")
             if not isinstance(channel, dict) or not isinstance(channel.get("guild_id"), str) or not channel["guild_id"].isdigit():

@@ -14,6 +14,50 @@ from test_discord_gateway import Response, Session
 NOW = datetime(2026, 9, 24, 0, 0, tzinfo=timezone.utc)
 
 
+def emoji_operation():
+    return OperationIntent("profile-emoji:123:writer", "guild_emoji_create", "guild-emoji:123",
+                           {"guild_id": "123"}, {"name": "writer"},
+                           (Attachment("emoji.png", "image/png", b"\x89PNG\r\n\x1a\npixels"),))
+
+
+def test_emoji_create_stages_png_outside_sqlite_and_delivers(tmp_path):
+    store, session, delivery = worker(tmp_path, [Response(body=[]), Response(body={"id": "456", "name": "writer"})])
+    store.accept(emoji_operation())
+    assert b"pixels" not in (tmp_path / "state.sqlite3").read_bytes()
+    assert delivery.run_once(NOW).status == "delivered"
+    assert store.get_by_key("profile-emoji:123:writer").receipt == {"emoji_id": "456"}
+    assert b"pixels" not in (tmp_path / "state.sqlite3").read_bytes()
+    assert [item[0] for item in session.calls] == ["GET", "POST"]
+
+
+def test_emoji_lost_response_with_same_name_stays_ambiguous(tmp_path):
+    class LostResponse(Session):
+        def request(self, method, url, **kwargs):
+            self.calls.append((method, url, kwargs))
+            if method == "POST":
+                raise requests.Timeout("private response")
+            if len(self.calls) == 1:
+                return Response(body=[])
+            return Response(body=[{"id": "456", "name": "writer", "managed": False}])
+
+    store = DeliveryStore(tmp_path / "state.sqlite3", tmp_path / "media")
+    store.accept(emoji_operation())
+    session = LostResponse([])
+    delivery = DeliveryWorker(store, DiscordGateway("secret", session=session), alert=lambda *_: None)
+    assert delivery.run_once(NOW).status == "ambiguous"
+    assert [item[0] for item in session.calls] == ["GET", "POST", "GET"]
+    assert store.get_by_key("profile-emoji:123:writer").receipt is None
+
+
+def test_emoji_create_rejects_existing_name_before_post(tmp_path):
+    store, session, delivery = worker(tmp_path, [Response(body=[
+        {"id": "456", "name": "writer", "managed": False, "animated": False}
+    ])])
+    store.accept(emoji_operation())
+    assert delivery.run_once(NOW).status == "rejected"
+    assert [item[0] for item in session.calls] == ["GET"]
+
+
 def operation(key="one", *, migrated=False):
     return OperationIntent(key, "channel_message_create", "channel:123", {"channel_id": "123"},
                            {"content": "exact content"}, (), migrated)

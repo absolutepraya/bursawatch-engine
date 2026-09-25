@@ -149,6 +149,10 @@ by a failed read leaves the draft locked and clearly marks refresh as
 unconfirmed; only an explicit successful reload restores editing. Newly added endpoints remain pending identity verification;
 an enabled intent is not an effective subscription or delivery proof. The page
 shows default, override, effective draft and saved effective values separately.
+For ingestion, verified or enabled catalog state remains subject to the
+platform adapter's fixed identity bindings and owner configuration-snapshot
+support. Current platform pilots fail closed for unbound endpoints; adding a
+person to the catalog does not silently start provider polling or delivery.
 The fixed watcher editors, including Stockbit's four RSS lanes, remain independent.
 There is no browser source cache, object-storage upload, direct database access,
 or custom-security creation. Public curated assets remain in the web package.

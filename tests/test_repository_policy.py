@@ -140,3 +140,10 @@ def test_discord_clients_depend_on_shared_runtime_library() -> None:
     for runtime in migrated_runtimes:
         assert runtime in runtime_units
         assert "lib-bursawatch-discord-delivery" in runtime_units[runtime].get("depends_on", [])
+
+
+def test_profile_emoji_depends_on_shared_discord_owner() -> None:
+    manifest = _manifest()
+    unit = next(item for item in manifest["units"] if item["id"] == "manual-profile-emoji")
+    assert "lib-bursawatch-discord-delivery" in unit.get("depends_on", [])
+    assert "manual-discord-delivery-owner" in unit.get("depends_on", [])
