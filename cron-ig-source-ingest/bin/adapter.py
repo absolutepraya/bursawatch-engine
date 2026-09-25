@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sys
 import hashlib
+import json
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +20,7 @@ if not owner.exists():
     owner = Path.home() / ".agents" / "skills" / "bursawatch-ig-account-watch" / "bin"
 sys.path.insert(0, str(owner))
 
+from legacy_cursor_seed import LegacySeedBlocked, plan_seed, read_legacy_snapshot
 from source_ingest import IntakeBlocked, bind_catalog_revision, ingest_all, select_endpoints
 
 ALLOWED = {"company_news", "macro_news"}
@@ -31,6 +33,32 @@ PUBLISHERS = {
     "instagram:cukhurukuque": "instagram-cukhurukuque",
     "instagram:notintofinance": "instagram-notintofinance",
 }
+
+
+def plan_legacy_cursor_seed(legacy_state_path: Path, state_root: Path, endpoint: dict[str, Any], profile: Any, catalog_revision: int, *, apply: bool = False, expected_plan: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Map one legacy Instagram publication cursor to its RSS endpoint."""
+    endpoint_id = f"instagram:{profile.handle.casefold()}"
+    publisher_id = PUBLISHERS.get(endpoint_id)
+    expected = ("instagram", endpoint_id, publisher_id, profile.handle, None)
+    observed = tuple(endpoint.get(key) for key in ("platform", "endpoint_id", "publisher_id", "address", "provider_id"))
+    if observed != expected or endpoint.get("catalog_revision") != catalog_revision:
+        raise LegacySeedBlocked("Instagram endpoint does not match the selected legacy profile")
+    raw, legacy = read_legacy_snapshot(legacy_state_path)
+    profiles = legacy.get("profiles") if type(legacy) is dict else None
+    record = profiles.get(profile.id) if type(profiles) is dict else None
+    boundary = record.get("cursor") if type(record) is dict else None
+    published_at = record.get("cursor_published_at") if type(record) is dict else None
+    if not isinstance(boundary, str) or not boundary or not isinstance(published_at, str) or not published_at:
+        raise LegacySeedBlocked("Instagram legacy profile cursor or publication timestamp is absent")
+    try:
+        parsed_time = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+        if parsed_time.tzinfo is None:
+            raise ValueError("timezone required")
+    except ValueError as error:
+        raise LegacySeedBlocked("Instagram legacy publication timestamp is invalid") from error
+    if legacy.get("outbox") or legacy.get("cleanup"):
+        raise LegacySeedBlocked("Instagram legacy outbox or cleanup work must be reconciled before cursor seeding")
+    return plan_seed(legacy_state_path=legacy_state_path, state_root=state_root, endpoint=endpoint, snapshot_bytes=raw, catalog_revision=catalog_revision, anchor=boundary, cursor_shape="generic", boundary_timestamp=published_at, apply=apply, expected_plan=expected_plan)
 
 
 def endpoints(snapshot: dict[str, Any], profiles: tuple[Any, ...]) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:

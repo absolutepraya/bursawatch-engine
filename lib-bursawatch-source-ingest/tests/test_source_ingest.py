@@ -11,11 +11,12 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "lib-bursawatch-control" / "bin"))
 sys.path.insert(0, str(ROOT / "lib-bursawatch-source-ingest" / "bin"))
-from source_ingest import IntakeBlocked, bind_catalog_revision, ingest_all, ingest_endpoint, select_endpoints
+from source_ingest import IntakeBlocked, _write, bind_catalog_revision, envelope, ingest_all, ingest_endpoint, select_endpoints
 from source_event_client import SourceEventHandoff
+from legacy_cursor_seed import LegacySeedBlocked, plan_seed, read_legacy_snapshot
 
 NOW = datetime(2026, 9, 24, tzinfo=timezone.utc)
-ENDPOINT = {"endpoint_id": "x:alpha", "publisher_id": "alpha", "platform": "x", "address": "alpha", "provider_id": None}
+ENDPOINT = {"endpoint_id": "x:alpha", "publisher_id": "alpha", "platform": "x", "address": "alpha", "provider_id": None, "catalog_revision": 5}
 MEDIA_REF = {"ref": "10000000-0000-4000-8000-000000000001", "sha256": "a" * 64, "kind": "image", "content_type": "image/jpeg", "size_bytes": 128, "filename": "chart.jpg", "durable": True}
 
 
@@ -40,12 +41,117 @@ def cursor(root: Path, endpoint_id: str = "x:alpha") -> dict:
     return json.loads((root / endpoint_id.replace(":", "-") / "cursor.json").read_text())
 
 
+def test_legacy_seed_requires_unchanged_preview_and_refuses_initialized_or_pending_state(tmp_path, monkeypatch):
+    snapshot = tmp_path / "synthetic-snapshot"
+    source = snapshot / "legacy.json"
+    source.parent.mkdir()
+    source.write_text(json.dumps({"cursor": 10}))
+    state_root = snapshot / "new"
+    endpoint = {"platform": "x", "endpoint_id": "x:alpha", "publisher_id": "alpha", "address": "alpha", "provider_id": None, "catalog_revision": 5}
+    raw, _ = read_legacy_snapshot(source)
+    preview = plan_seed(legacy_state_path=source, state_root=state_root, endpoint=endpoint, snapshot_bytes=raw, catalog_revision=5, anchor="10", cursor_shape="generic")
+    with pytest.raises(LegacySeedBlocked, match="catalog revision"):
+        plan_seed(legacy_state_path=source, state_root=state_root, endpoint=endpoint, snapshot_bytes=raw, catalog_revision=6, anchor="10", cursor_shape="generic", apply=True, expected_plan=preview)
+    source.write_text(json.dumps({"cursor": 11}))
+    with pytest.raises(LegacySeedBlocked, match="unchanged preview plan"):
+        changed, _ = read_legacy_snapshot(source)
+        plan_seed(legacy_state_path=source, state_root=state_root, endpoint=endpoint, snapshot_bytes=changed, catalog_revision=5, anchor="11", cursor_shape="generic", apply=True, expected_plan=preview)
+    source.write_text(json.dumps({"cursor": 10}))
+    raw, _ = read_legacy_snapshot(source)
+    preview = plan_seed(legacy_state_path=source, state_root=state_root, endpoint=endpoint, snapshot_bytes=raw, catalog_revision=5, anchor="10", cursor_shape="generic")
+    monkeypatch.setenv("BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY", "1")
+    plan_seed(legacy_state_path=source, state_root=state_root, endpoint=endpoint, snapshot_bytes=raw, catalog_revision=5, anchor="10", cursor_shape="generic", apply=True, expected_plan=preview)
+    with pytest.raises(LegacySeedBlocked, match="initialized source cursor"):
+        plan_seed(legacy_state_path=source, state_root=state_root, endpoint=endpoint, snapshot_bytes=raw, catalog_revision=5, anchor="10", cursor_shape="generic", apply=True, expected_plan=preview)
+
+
+def test_legacy_seed_refuses_pending_source_handoff(tmp_path, monkeypatch):
+    snapshot = tmp_path / "synthetic-snapshot"
+    source = snapshot / "legacy.json"
+    source.parent.mkdir()
+    source.write_text(json.dumps({"cursor": 10}))
+    state_root = snapshot / "new"
+    endpoint = {"platform": "x", "endpoint_id": "x:alpha", "publisher_id": "alpha", "address": "alpha", "provider_id": None, "catalog_revision": 5}
+    pending = state_root / "x-alpha" / "handoff" / "pending.json"
+    pending.parent.mkdir(parents=True)
+    pending.write_text("{}")
+    monkeypatch.setenv("BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY", "1")
+    with pytest.raises(LegacySeedBlocked, match="pending source handoff"):
+        raw, _ = read_legacy_snapshot(source)
+        plan_seed(legacy_state_path=source, state_root=state_root, endpoint=endpoint, snapshot_bytes=raw, catalog_revision=5, anchor="10", cursor_shape="generic")
+
+
+def test_legacy_seed_apply_requires_dedicated_environment_opt_in(tmp_path, monkeypatch):
+    source = tmp_path / "legacy.json"
+    source.write_text(json.dumps({"cursor": 10}))
+    endpoint = {"platform": "x", "endpoint_id": "x:alpha", "publisher_id": "alpha", "address": "alpha", "provider_id": None, "catalog_revision": 5}
+    raw, _ = read_legacy_snapshot(source)
+    preview = plan_seed(legacy_state_path=source, state_root=tmp_path / "state", endpoint=endpoint, snapshot_bytes=raw, catalog_revision=5, anchor="10", cursor_shape="generic")
+    monkeypatch.delenv("BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY", raising=False)
+    with pytest.raises(LegacySeedBlocked, match="BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY=1"):
+        plan_seed(legacy_state_path=source, state_root=tmp_path / "state", endpoint=endpoint, snapshot_bytes=raw, catalog_revision=5, anchor="10", cursor_shape="generic", apply=True, expected_plan=preview)
+    with pytest.raises(LegacySeedBlocked, match="unchanged preview plan"):
+        plan_seed(legacy_state_path=source, state_root=tmp_path / "other-state", endpoint=endpoint, snapshot_bytes=raw, catalog_revision=5, anchor="10", cursor_shape="generic", apply=True, expected_plan=preview)
+
+
+def test_legacy_seed_atomic_create_does_not_overwrite_concurrent_cursor(tmp_path, monkeypatch):
+    import legacy_cursor_seed
+
+    source = tmp_path / "legacy.json"
+    source.write_text(json.dumps({"cursor": 10}))
+    state_root = tmp_path / "state"
+    endpoint = {"platform": "x", "endpoint_id": "x:alpha", "publisher_id": "alpha", "address": "alpha", "provider_id": None, "catalog_revision": 5}
+    raw, _ = read_legacy_snapshot(source)
+    preview = plan_seed(legacy_state_path=source, state_root=state_root, endpoint=endpoint, snapshot_bytes=raw, catalog_revision=5, anchor="10", cursor_shape="generic")
+    monkeypatch.setenv("BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY", "1")
+    real_link = legacy_cursor_seed.os.link
+
+    def concurrent_create(source_path, cursor_path):
+        cursor_path.write_text("concurrent-owner")
+        return real_link(source_path, cursor_path)
+
+    monkeypatch.setattr(legacy_cursor_seed.os, "link", concurrent_create)
+    with pytest.raises(LegacySeedBlocked, match="appeared during apply"):
+        plan_seed(legacy_state_path=source, state_root=state_root, endpoint=endpoint, snapshot_bytes=raw, catalog_revision=5, anchor="10", cursor_shape="generic", apply=True, expected_plan=preview)
+    cursor_path = state_root / "x-alpha" / "cursor.json"
+    assert cursor_path.read_text() == "concurrent-owner"
+
+
+def test_acknowledged_handoff_recovery_preserves_staged_publication_time(tmp_path):
+    inbox = Inbox()
+    endpoint = dict(ENDPOINT)
+    state_root = tmp_path / "state"
+    endpoint_root = state_root / "x-alpha"
+    cursor_path = endpoint_root / "cursor.json"
+    _write(cursor_path, {"initialized": True, "anchor": "10", "position": None})
+    event = envelope(endpoint, item("11", minute=3), NOW, "fake-1")
+    handoff = SourceEventHandoff(endpoint_root / "handoff", inbox)
+    handoff.stage(event)
+    _write(endpoint_root / "pending-position.json", {"envelope": event, "position": None})
+    later = event["published_at"]
+    result = ingest_endpoint(endpoint, lambda _: [], state_root, inbox, NOW, "fake-1")
+    assert result["status"] == "empty"
+    assert inbox.events[0]["provider_event_id"] == "11"
+    assert cursor(state_root)["anchor"] == "11"
+    assert cursor(state_root)["boundary_published_at"] == later
+
+
 def test_empty_first_poll_initializes_and_accepts_first_later_event(tmp_path):
     inbox = Inbox()
     assert ingest_endpoint(ENDPOINT, lambda _: [], tmp_path, inbox, NOW, "fake-1")["status"] == "bootstrapped_empty"
     assert cursor(tmp_path) == {"initialized": True, "anchor": None, "position": None}
     assert ingest_endpoint(ENDPOINT, lambda _: [item("11")], tmp_path, inbox, NOW, "fake-1")["accepted"] == 1
     assert [event["provider_event_id"] for event in inbox.events] == ["11"]
+
+
+def test_unmarked_numeric_endpoint_blocks_when_anchor_falls_off(tmp_path):
+    endpoint_root = tmp_path / "x-alpha"
+    _write(endpoint_root / "cursor.json", {"initialized": True, "anchor": "10", "position": None})
+    inbox = Inbox()
+    page = {"items": [item("11"), item("12")], "truncated": False, "contiguous": False}
+    result = ingest_all({"x:alpha": ENDPOINT}, {"x:alpha": lambda _: page}, tmp_path, inbox, NOW, "fake-1")
+    assert result == [{"endpoint_id": "x:alpha", "status": "blocked", "reason": "source_blocked"}]
+    assert inbox.events == []
 
 
 def test_future_only_ack_and_spool_resume(tmp_path):
@@ -152,7 +258,7 @@ def test_media_block_holds_only_affected_cursor(tmp_path):
     inbox = Inbox()
     ingest_endpoint(ENDPOINT, lambda _: [item("10")], tmp_path, inbox, NOW, "fake-1")
     with pytest.raises(IntakeBlocked, match="media"):
-        ingest_endpoint(ENDPOINT, lambda _: [item("11", media=True, minute=1)], tmp_path, inbox, NOW, "fake-1")
+        ingest_endpoint(ENDPOINT, lambda _: [item("10"), item("11", media=True, minute=1)], tmp_path, inbox, NOW, "fake-1")
     assert cursor(tmp_path)["anchor"] == "10"
     marker = json.loads((tmp_path / "x-alpha" / "blocked-media.json").read_text())
     assert marker["provider_event_id"] == "11"
@@ -181,7 +287,7 @@ def test_media_references_are_validated_before_inbox_acceptance(tmp_path):
     ingest_endpoint(ENDPOINT, lambda _: [item("10")], tmp_path, inbox, NOW, "fake-1")
     invalid = {**MEDIA_REF, "content_type": "video/mp4"}
     with pytest.raises(IntakeBlocked, match="media"):
-        ingest_endpoint(ENDPOINT, lambda _: [item("11", media=True, media_refs=[invalid], minute=1)], tmp_path, inbox, NOW, "fake-1")
+        ingest_endpoint(ENDPOINT, lambda _: [item("10"), item("11", media=True, media_refs=[invalid], minute=1)], tmp_path, inbox, NOW, "fake-1")
     assert cursor(tmp_path)["anchor"] == "10"
     assert inbox.events == []
 
@@ -192,7 +298,7 @@ def test_endpoint_isolation_and_catalog_identity(tmp_path):
     selected = {"x:alpha": ENDPOINT, "x:beta": other}
     fetchers = {"x:alpha": lambda _: [item("10")], "x:beta": lambda _: [item("20")]}
     assert [row["status"] for row in ingest_all(selected, fetchers, tmp_path, inbox, NOW, "fake-1")] == ["bootstrapped", "bootstrapped"]
-    fetchers = {"x:alpha": lambda _: [item("11", media=True, minute=1)], "x:beta": lambda _: [item("21", minute=1)]}
+    fetchers = {"x:alpha": lambda _: [item("10"), item("11", media=True, minute=1)], "x:beta": lambda _: [item("20"), item("21", minute=1)]}
     assert [row["status"] for row in ingest_all(selected, fetchers, tmp_path, inbox, NOW, "fake-1")] == ["blocked", "accepted"]
     assert cursor(tmp_path, "x:alpha")["anchor"] == "10"
     assert cursor(tmp_path, "x:beta")["anchor"] == "21"

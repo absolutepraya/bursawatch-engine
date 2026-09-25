@@ -9,11 +9,22 @@ import hashlib
 import json
 import os
 import shutil
+import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+ROOT = Path(__file__).resolve().parents[2]
+for package in ("lib-bursawatch-control", "lib-bursawatch-source-ingest"):
+    candidate = ROOT / package / "bin"
+    if not candidate.exists():
+        candidate = Path.home() / ".agents" / "skills" / package / "bin"
+    if str(candidate) not in sys.path:
+        sys.path.insert(0, str(candidate))
+
+from legacy_cursor_seed import LegacySeedBlocked, plan_seed, read_legacy_snapshot
+from source_ingest import bind_catalog_revision
 from source_event_client import SourceEventHandoff
 
 
@@ -34,9 +45,47 @@ class IntakeBlocked(RuntimeError):
     """A source message needs an operator-reviewed migration or durable media."""
 
 
+def plan_legacy_cursor_seed(legacy_state_path: Path, state_root: Path, endpoint: dict[str, Any], catalog_revision: int, *, apply: bool = False, expected_plan: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Preview or seed the exact Telegram message boundary from a snapshot."""
+    if endpoint.get("endpoint_id") == "telegram:phintraprofits":
+        field = "observed_message_id"
+        pending_key = "outbox"
+    elif endpoint.get("endpoint_id") == "telegram:kelasinvestasiid":
+        field = "cursor"
+        pending_key = "pending"
+    else:
+        raise LegacySeedBlocked("Telegram endpoint has no reviewed legacy cursor mapping")
+    expected_provider, expected_publisher, _ = PILOT[endpoint["endpoint_id"]]
+    expected = ("telegram", endpoint["endpoint_id"], expected_publisher, endpoint["endpoint_id"].split(":", 1)[1], expected_provider)
+    observed = tuple(endpoint.get(key) for key in ("platform", "endpoint_id", "publisher_id", "address", "provider_id"))
+    if observed != expected or endpoint.get("catalog_revision") != catalog_revision:
+        raise LegacySeedBlocked("Telegram endpoint identity or catalog revision differs from the reviewed binding")
+    raw, legacy = read_legacy_snapshot(legacy_state_path)
+    boundary = legacy.get(field)
+    if type(boundary) is not int or boundary < 0:
+        raise LegacySeedBlocked(f"Telegram legacy {field} boundary is invalid")
+    pending = legacy.get(pending_key) if type(legacy) is dict else None
+    if pending:
+        raise LegacySeedBlocked(f"Telegram legacy {pending_key} work must be reconciled before cursor seeding")
+    if endpoint["endpoint_id"] == "telegram:kelasinvestasiid" and legacy.get("outbox"):
+        raise LegacySeedBlocked("Kelas legacy outbox work must be reconciled before cursor seeding")
+    return plan_seed(
+        legacy_state_path=legacy_state_path,
+        state_root=state_root,
+        endpoint=endpoint,
+        snapshot_bytes=raw,
+        catalog_revision=catalog_revision,
+        anchor=str(boundary),
+        cursor_shape="telegram",
+        bootstrap_anchor=str(boundary) if endpoint["endpoint_id"] == "telegram:kelasinvestasiid" else None,
+        apply=apply,
+        expected_plan=expected_plan,
+    )
+
+
 def endpoints(snapshot: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Accept one effective catalog snapshot, rejecting unknown enabled work."""
-    if type(snapshot) is not dict or type(snapshot.get("subscriptions")) is not list:
+    if type(snapshot) is not dict or type(snapshot.get("subscriptions")) is not list or type(snapshot.get("revision")) is not int or snapshot["revision"] < 1:
         raise ValueError("effective source catalog is invalid")
     grouped: dict[str, dict[str, Any]] = {}
     for row in snapshot["subscriptions"]:
@@ -50,7 +99,7 @@ def endpoints(snapshot: dict[str, Any]) -> dict[str, dict[str, Any]]:
             raise IntakeBlocked("Telegram endpoint identity is not verified")
         if endpoint_id in KNOWN_UNMIGRATED:
             continue
-        current = grouped.setdefault(endpoint_id, {"endpoint_id": endpoint_id, "publisher_id": row["publisher_id"], "address": row["address"], "provider_id": row["provider_id"], "capabilities": set()})
+        current = grouped.setdefault(endpoint_id, {"platform": "telegram", "endpoint_id": endpoint_id, "publisher_id": row["publisher_id"], "address": row["address"], "provider_id": row["provider_id"], "catalog_revision": snapshot["revision"], "capabilities": set()})
         if (current["publisher_id"], current["address"], current["provider_id"]) != (row["publisher_id"], row["address"], row["provider_id"]):
             raise IntakeBlocked("Telegram endpoint identity changed within snapshot")
         current["capabilities"].add(row["capability_id"])
@@ -88,10 +137,19 @@ def _write_json(path: Path, value: dict[str, Any]) -> None:
             os.unlink(temp)
 
 
-def _save_cursor(path: Path, value: int, *, bootstrap_cursor: int | None = None) -> None:
+def _save_cursor(path: Path, value: int, *, bootstrap_cursor: int | None = None, published_at: str | None = None) -> None:
     record = {"cursor": value}
     if bootstrap_cursor is not None:
         record["bootstrap_cursor"] = bootstrap_cursor
+    if path.exists():
+        try:
+            previous = json.loads(path.read_text())
+        except (OSError, ValueError) as error:
+            raise IntakeBlocked("Telegram cursor is invalid") from error
+        if type(previous) is dict and isinstance(previous.get("legacy_seed"), dict):
+            record["legacy_seed"] = previous["legacy_seed"]
+    if published_at is not None:
+        record["boundary_published_at"] = published_at
     _write_json(path, record)
 
 
@@ -238,7 +296,7 @@ async def ingest_endpoint(client: Any, endpoint: dict[str, Any], state_root: Pat
         receipts = handoff.flush(limit=1)
         if len(receipts) != 1:
             raise IntakeBlocked("Telegram endpoint handoff was not acknowledged")
-        _save_cursor(cursor_path, staged_id, bootstrap_cursor=bootstrap_cursor)
+        _save_cursor(cursor_path, staged_id, bootstrap_cursor=bootstrap_cursor, published_at=staged["published_at"])
         blocked_path = root / "blocked-media.json"
         if blocked_path.exists():
             try:
@@ -278,8 +336,9 @@ async def ingest_endpoint(client: Any, endpoint: dict[str, Any], state_root: Pat
 
 
 async def ingest_all(client: Any, snapshot: dict[str, Any], state_root: Path, inbox: Any, observed_at: datetime, *, media_store: Any = None) -> list[dict[str, Any]]:
-    """Poll each known endpoint independently after validating the full snapshot."""
+    """Pin the catalog revision, then poll each known endpoint independently."""
     selected = endpoints(snapshot)
+    bind_catalog_revision(state_root, snapshot["revision"])
     outcomes = []
     for endpoint in selected.values():
         try:

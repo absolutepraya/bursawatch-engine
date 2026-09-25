@@ -24,9 +24,20 @@ if not owner.exists():
 sys.path.insert(0, str(owner))
 
 from source_ingest import IntakeBlocked, bind_catalog_revision, ingest_all, select_endpoints
+from legacy_cursor_seed import blocked_seed_plan
 
 ALLOWED = {"company_news", "macro_news", "swing_chart_context"}
 PUBLISHERS = {"whatsapp:0029VbAjdnb60eBhwVdJxj1c": "bri-danareksa"}
+
+
+def plan_legacy_cursor_seed(legacy_state_path: Path, endpoint: dict[str, Any], catalog_revision: int) -> dict[str, Any]:
+    """WhatsApp's timestamp/event cursor cannot seed a queue-arrival cursor."""
+    return blocked_seed_plan(
+        legacy_state_path,
+        endpoint,
+        catalog_revision,
+        "WhatsApp legacy (published_at, event_key) has no proven order-preserving mapping to (mtime_ns, filename); queue/archive/media reconciliation is required",
+    )
 MAX_QUEUE_FILES = 500
 MAX_QUEUE_ITEM_BYTES = 1_000_000
 MAX_MEDIA_OBJECT_BYTES = 8 * 1024 * 1024

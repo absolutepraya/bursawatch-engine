@@ -114,31 +114,39 @@ The distinct local loopback port map is Control Plane `9120`, Source Media `9130
 
 ### Source cursor migration readiness
 
-The platform adapters do not import legacy cursor state. Their empty cursor
-behavior intentionally records the provider's current newest position and
-accepts no source event on that first run. Scheduling an adapter without a
-reviewed cursor seed after pausing the legacy reader can therefore skip posts
-published between the inventory boundary and first adapter run. The shared
-source ingest module and Telegram adapter both need an exact legacy-boundary
-import before they can replace a live reader.
+The local source-adapter packages now provide a package-owned seed planning
+API. Preview is the default. `apply=True` requires the dedicated
+`BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY=1` opt-in, the exact unchanged
+preview (including cursor path), a matching source snapshot SHA-256 and
+endpoint/catalog identity, no initialized cursor, and no pending handoff.
+Cursor creation is atomic and refuses an existing destination. Apply was
+exercised only against temporary synthetic fixtures. This is not a command to
+run against production and does not make a platform cutover-ready. Empty
+adapter state still bootstraps at the provider's latest position and accepts
+no source event, so operators must use the reviewed seed plan during a
+separately approved coordinated cutover.
 
 | Platform / source | Legacy boundary | New adapter boundary | Cutover readiness |
 |---|---|---|---|
-| Telegram Phintraco | Observed Telegram message ID, with blocked state retained separately | Integer message cursor | Cursor is directly mappable, but no import command or source-event crosswalk exists. The local outbox was empty in the snapshot. |
-| Telegram Market News / Tuntun | Per-provider observed message IDs plus candidates, digest windows, dedupe state, and agent leases | Telegram adapter currently includes Phintraco only; Tuntun remains on the legacy reader | Not ready. Tuntun has no new adapter binding. Legacy candidate delivery outcomes lack a per-row delivery timestamp and need source/receipt reconciliation. |
-| Telegram Kelas | Integer message cursor plus pending bundle and domain outbox | Integer message cursor with a Kelas bootstrap identity | Cursor is directly mappable, but there is no seed/import operation. Preserve pending media and bundles if a new snapshot finds any. |
-| X | Per-profile post ID cursor, delivery rows, cleanup and supersession state | Shared per-endpoint cursor anchored to provider post ID | Not ready. No profile-to-endpoint cursor import or historical inbox/receipt crosswalk exists. The captured X file mode `0644` needs separate review. |
-| Instagram | Per-profile publication ID and timestamp, delivery rows, cleanup state | Shared per-endpoint anchor/high-water cursor | Not ready. No cursor translation or legacy-media to Source Media reference mapping exists. Its existing Hermes job was paused in the observed registry. |
-| WhatsApp / BRI | Per-profile `(published_at, event_key)` cursor, outbox phases, archive and media evidence | Queue-file arrival position `(mtime_ns, filename)` | Not ready. The two cursor orders are not equivalent. The captured outbox has rows with incomplete phase metadata, and the event/archive/media/receipt crosswalk is unresolved. |
-| Stockbit | Per-lane `(published_at, guid)` cursor, ETag/Last-Modified validators, article queue and frozen live config | Per-feed source position based on provider event identity | Not ready. No cursor or validator import exists; the new adapter blocks conditional 304 responses and media-bearing items. Preserve the current live four-lane config. |
-| Swing Board | Canonical SQLite episode/source history and local media, plus legacy Discord receipts | Board remains the domain owner; outgoing operations move to the shared Delivery Owner | Not ready. Snapshot outbox rows are complete, but old receipts are not in the Delivery Owner ledger and media paths do not prove Discord attachment or Source Media references. |
+| Telegram Phintraco | `observed_message_id`; separate blocked state and legacy outbox | Integer Telegram message cursor | Local mapping and synthetic tests exist. The old boundary maps directly, but the seed does not reconcile accepted inbox events or receipts. The captured baseline's local outbox was empty. |
+| Telegram Market News / Tuntun | Market News has per-provider observed IDs plus candidates, digest windows, dedupe state, and agent leases; Tuntun has its own observed message boundary | Adapter supports Phintraco and Kelas only; no Tuntun binding | Explicitly unmigrated. Market News candidate outcomes lack per-row delivery timestamps and need a source/receipt crosswalk. Tuntun remains on the legacy reader. |
+| Telegram Kelas | Integer `cursor`, pending bundle state, and domain outbox | Integer Telegram message cursor with Kelas bootstrap identity | Local mapping and synthetic tests exist for the exact cursor. Pending bundle/outbox state blocks seeding; the captured baseline had no pending work. Inbox and receipt reconciliation remains outstanding. |
+| X | Per-profile post ID cursor, delivery rows, cleanup and supersession state | Shared per-endpoint cursor anchored to provider post ID | Local profile-to-endpoint seed mapping and synthetic no-history-replay tests exist. Delivery rows and old inbox/receipt crosswalk are not imported. The captured X file mode `0644` needs separate review. |
+| Instagram | Per-profile publication ID and `cursor_published_at`, delivery rows, cleanup state | Shared per-endpoint anchor plus publication-time boundary | Local mapping preserves both ID and timestamp; synthetic tests prove older posts are skipped and later posts accepted. Legacy media refs and delivery/receipt crosswalk are not imported. Its existing Hermes job was paused in the observed registry. |
+| WhatsApp / BRI | Per-profile `(published_at, event_key)` cursor, outbox phases, archive and media evidence | Queue-file arrival position `(mtime_ns, filename)` | Explicitly blocked from seed. The two cursor orders are not equivalent. The captured outbox has rows with incomplete phase metadata, and the event/archive/media/receipt crosswalk is unresolved. |
+| Stockbit | Per-lane `(published_at, guid)` cursor, ETag/Last-Modified validators, article queue and frozen live config | Per-feed source position based on provider event identity | Explicitly blocked from seed because the old GUID/publication boundary cannot be proven from a bounded complete page with the present adapter contract. The adapter also blocks conditional 304 responses and media-bearing items. Preserve the current live four-lane config. |
+| Swing Board | Canonical SQLite episode/source history and local media, plus legacy Discord receipts | Board remains the domain owner; outgoing operations move to the shared Delivery Owner | Not a source cursor seed path. Synthetic rollback/retry rehearses Delivery Owner handoff only. Snapshot outbox rows are complete, but old receipts are not in the Delivery Owner ledger and media paths do not prove Discord attachment or Source Media references. |
 
-The new eight-owner synthetic handoff rehearsal proves only the Delivery Owner
-operation transfer. It does not prove legacy cursor import, Control Plane
-inbox/work migration, or source-event identity mapping. No platform is ready
-for source-state cutover from this rehearsal alone. Keep each current reader
-active until its cursor import, pending work, and receipts have a package-owned
-synthetic migration test and a reviewed snapshot crosswalk.
+The eight-owner synthetic handoff rehearsal covers stable operation identity,
+payload/media handling where present, acknowledgement after acceptance, and
+rollback/retry without duplicate delivery effects. Additional seed tests cover
+Telegram Phintraco/Kelas, X, and Instagram mappings, plus fail-closed WhatsApp
+and Stockbit plans. Neither rehearsal proves Control Plane inbox/work
+migration, exact production event identity, or legacy receipt/media crosswalk.
+No platform is ready for production source-state cutover from these local
+tests alone. Keep each current reader active until its coordinated snapshot,
+pending work, event/receipt crosswalk, deployment prerequisites, and approved
+transition are complete.
 
 ### Candidate coordinated snapshot pause set
 

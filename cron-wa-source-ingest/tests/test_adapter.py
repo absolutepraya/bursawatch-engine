@@ -10,7 +10,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "cron-wa-source-ingest" / "bin"))
-from adapter import endpoints, run_once
+from adapter import endpoints, plan_legacy_cursor_seed, run_once
 
 sys.path.insert(0, str(ROOT / "cron-wa-channel-watch" / "bin"))
 from config import load
@@ -18,6 +18,16 @@ from event_queue import enqueue, event_filename
 from models import ChannelEvent, ChannelMedia
 
 NOW = datetime(2026, 9, 24, tzinfo=timezone.utc)
+
+
+def test_legacy_cursor_seed_is_explicitly_blocked_for_queue_order_mismatch(tmp_path):
+    source = tmp_path / "snapshot" / "wa.json"
+    source.parent.mkdir()
+    source.write_text(json.dumps({"profiles": {}, "outbox": []}))
+    result = plan_legacy_cursor_seed(source, {"platform": "whatsapp", "endpoint_id": "whatsapp:0029VbAjdnb60eBhwVdJxj1c", "publisher_id": "bri-danareksa", "address": "https://whatsapp.com/channel/example", "provider_id": "0029VbAjdnb60eBhwVdJxj1c"}, 2)
+    assert result["status"] == "blocked"
+    assert "no proven order-preserving mapping" in result["reason"]
+    assert result["legacy_state_sha256"]
 
 
 class Inbox:

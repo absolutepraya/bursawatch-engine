@@ -12,7 +12,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "cron-x-source-ingest" / "bin"))
-from adapter import endpoints, run_once
+from adapter import endpoints, plan_legacy_cursor_seed, run_once
 from runner import process_pending
 
 sys.path.insert(0, str(ROOT / "cron-x-account-watch" / "bin"))
@@ -81,6 +81,31 @@ def test_x_parser_identity_and_future_only_ingest(tmp_path):
     assert run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)[0]["accepted"] == 1
     assert inbox.events[0]["payload"]["post"]["content_html"] == "<p>Market</p>"
     assert inbox.events[0]["provider_event_id"] == "11"
+
+
+def test_x_legacy_seed_proves_numeric_boundary_even_when_anchor_left_page(tmp_path, monkeypatch):
+    profile = replace(load_watch_config(ROOT / "cron-x-account-watch" / "config" / "watches.json").profiles[0], enabled=True)
+    endpoint_id = f"x:{profile.handle.casefold()}"
+    endpoint = {"platform": "x", "endpoint_id": endpoint_id, "publisher_id": "x-kutekians", "address": profile.handle, "provider_id": None, "catalog_revision": 3}
+    legacy_path = tmp_path / "synthetic-snapshot" / "x.json"
+    legacy_path.parent.mkdir()
+    legacy_path.write_text(json.dumps({"profiles": {profile.id: {"cursor": "10"}}, "outbox": [], "deliveries": []}))
+    state_root = tmp_path / "synthetic-snapshot" / "new"
+    with pytest.raises(Exception, match="selected legacy profile"):
+        plan_legacy_cursor_seed(legacy_path, state_root, {**endpoint, "address": "wrong"}, profile, 3)
+    preview = plan_legacy_cursor_seed(legacy_path, state_root, endpoint, profile, 3)
+    assert preview["status"] == "preview"
+    monkeypatch.setenv("BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY", "1")
+    plan = plan_legacy_cursor_seed(legacy_path, state_root, endpoint, profile, 3, apply=True, expected_plan=preview)
+    row = {"platform": "x", "endpoint_id": endpoint_id, "publisher_id": "x-kutekians", "address": profile.handle, "provider_id": None, "capability_id": "company_news", "verification_status": "verified", "enabled": True}
+    snapshot = {"revision": 3, "subscriptions": [row]}
+    post = lambda identity: SourcePost(profile.id, str(identity), f"https://x.com/{profile.handle}/status/{identity}", NOW, "text", PostKind.NORMAL, None, None, (), ())
+    inbox = Inbox()
+    result = run_once(snapshot, (profile,), state_root, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: [post(9), post(11)])[0]
+    assert result["accepted"] == 1
+    assert [event["provider_event_id"] for event in inbox.events] == ["11"]
+    cursor = json.loads((state_root / endpoint_id.replace(":", "-") / "cursor.json").read_text())
+    assert cursor["legacy_seed"]["legacy_state_sha256"] == plan["legacy_state_sha256"]
 
 
 def test_x_rejects_unverified_catalog(tmp_path):

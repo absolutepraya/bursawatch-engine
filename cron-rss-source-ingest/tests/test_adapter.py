@@ -11,7 +11,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "cron-rss-source-ingest" / "bin"))
-from adapter import endpoints, run_once
+from adapter import endpoints, plan_legacy_cursor_seed, run_once
 from runner import run_once as run_pipeline
 
 sys.path.insert(0, str(ROOT / "cron-stockbit-snips" / "bin"))
@@ -20,6 +20,17 @@ from models import Article
 import pipeline_owner
 
 NOW = datetime(2026, 9, 24, tzinfo=timezone.utc)
+
+
+def test_stockbit_legacy_cursor_plan_stays_blocked_without_page_proof(tmp_path):
+    source = tmp_path / "snapshot" / "stockbit.json"
+    source.parent.mkdir()
+    source.write_text(json.dumps({"feeds": {}, "articles": {}}))
+    result = plan_legacy_cursor_seed(source, {"platform": "rss", "endpoint_id": "rss:stockbit:unboxing", "publisher_id": "stockbit", "address": "https://snips.stockbit.com/feed", "provider_id": "unboxing"}, 4)
+    assert result["status"] == "blocked"
+    assert "GUID" in result["reason"]
+    assert result["proposed_cursor"] is None
+    assert result["legacy_state_sha256"]
 
 
 class Inbox:

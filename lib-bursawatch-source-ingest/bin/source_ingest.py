@@ -88,10 +88,57 @@ def _cursor(path: Path) -> dict[str, Any] | None:
     return value
 
 
-def _save_cursor(path: Path, anchor: str | None, position: str | None) -> dict[str, Any]:
+def _save_cursor(path: Path, anchor: str | None, position: str | None, published_at: str | None = None) -> dict[str, Any]:
     value = {"initialized": True, "anchor": anchor, "position": position}
+    if path.exists():
+        try:
+            previous = json.loads(path.read_text())
+        except (OSError, ValueError) as error:
+            raise IntakeBlocked("source cursor is invalid") from error
+        if type(previous) is dict and isinstance(previous.get("legacy_seed"), dict):
+            value["legacy_seed"] = previous["legacy_seed"]
+    if published_at is not None:
+        value["boundary_published_at"] = published_at
+    elif path.exists():
+        previous = json.loads(path.read_text())
+        if type(previous) is dict and isinstance(previous.get("boundary_published_at"), str):
+            value["boundary_published_at"] = previous["boundary_published_at"]
     _write(path, value)
     return value
+
+
+def _after_cursor_boundary(items: list[dict[str, Any]], cursor: dict[str, Any], id_order: str | None) -> list[dict[str, Any]]:
+    """Prove a bounded RSS page is beyond a cursor even if its ID fell off."""
+    anchor = cursor.get("anchor")
+    if anchor is None:
+        return items
+    if id_order == "numeric_provider_event_id":
+        return [item for item in items if int(item["provider_event_id"]) > int(anchor)]
+    if not isinstance(cursor.get("legacy_seed"), dict):
+        raise IntakeBlocked("source cursor is absent from the bounded page; migration boundary proof is unavailable")
+    boundary_time = cursor.get("boundary_published_at")
+    if isinstance(boundary_time, str):
+        try:
+            from datetime import datetime
+            boundary = datetime.fromisoformat(boundary_time.replace("Z", "+00:00"))
+            if boundary.tzinfo is None:
+                raise ValueError("boundary timezone missing")
+            fresh = []
+            for item in items:
+                published = datetime.fromisoformat(item["published_at"].replace("Z", "+00:00"))
+                if published.tzinfo is None:
+                    raise ValueError("item timezone missing")
+                item_id = str(item["provider_event_id"])
+                anchor_id = str(anchor)
+                if published == boundary and item_id != anchor_id and id_order != "numeric_provider_event_id":
+                    raise ValueError("provider ID order is not declared")
+                later_id = int(item_id) > int(anchor_id) if id_order == "numeric_provider_event_id" else item_id > anchor_id
+                if published > boundary or (published == boundary and later_id):
+                    fresh.append(item)
+            return fresh
+        except (KeyError, TypeError, ValueError) as error:
+            raise IntakeBlocked("source page cannot be ordered against the imported cursor") from error
+    raise IntakeBlocked("source cursor is absent from the bounded page and order cannot be proven")
 
 
 def bind_catalog_revision(state_root: Path, revision: int) -> None:
@@ -113,18 +160,24 @@ def bind_catalog_revision(state_root: Path, revision: int) -> None:
 
 
 def _page(raw: Any) -> dict[str, Any]:
-    page = {"items": raw, "truncated": False, "contiguous": False, "scanned_through": None, "bootstrap_position": None} if type(raw) is list else raw
+    page = {"items": raw, "truncated": False, "contiguous": False, "scanned_through": None, "bootstrap_position": None, "id_order": None} if type(raw) is list else raw
     if type(page) is not dict or type(page.get("items")) is not list or any(type(item) is not dict for item in page["items"]):
         raise IntakeBlocked("source page is invalid")
     if type(page.get("truncated")) is not bool or type(page.get("contiguous")) is not bool:
         raise IntakeBlocked("source page completeness is invalid")
     if type(page.get("scanned_through")) not in {str, type(None)} or type(page.get("bootstrap_position")) not in {str, type(None)}:
         raise IntakeBlocked("source page position is invalid")
+    if type(page.get("id_order")) not in {str, type(None)} or page.get("id_order") not in {None, "numeric_provider_event_id"}:
+        raise IntakeBlocked("source page ID ordering contract is invalid")
     if len(page["items"]) > MAX_PAGE:
         raise IntakeBlocked("source page exceeds the safe batch; cursor retained")
     ids = [item.get("provider_event_id") for item in page["items"]]
     if any(type(identity) is not str or not identity for identity in ids) or len(set(ids)) != len(ids):
         raise IntakeBlocked("source page identities are invalid")
+    if page.get("id_order") == "numeric_provider_event_id":
+        numeric_ids = [int(identity) for identity in ids if identity.isdigit()]
+        if len(numeric_ids) != len(ids) or numeric_ids != sorted(numeric_ids):
+            raise IntakeBlocked("source page numeric ID ordering is invalid")
     if page["contiguous"]:
         positions = [item.get("ingest_position") for item in page["items"]]
         if any(type(position) is not str or not position for position in positions) or positions != sorted(set(positions)):
@@ -229,7 +282,7 @@ def ingest_endpoint(endpoint: dict[str, Any], fetch: Callable[[dict[str, Any] | 
             handoff.stage(staged)
         if len(handoff.flush(limit=1)) != 1:
             raise IntakeBlocked("endpoint handoff lacks durable receipt")
-        cursor = _save_cursor(path, staged["provider_event_id"], position if position is not None else cursor["position"])
+        cursor = _save_cursor(path, staged["provider_event_id"], position if position is not None else cursor["position"], staged["published_at"])
         intent_path.unlink()
     elif pending:
         raise IntakeBlocked("endpoint handoff lacks a durable position intent")
@@ -239,7 +292,7 @@ def ingest_endpoint(endpoint: dict[str, Any], fetch: Callable[[dict[str, Any] | 
     if cursor is None:
         newest = items[-1] if items else None
         bootstrap_position = page.get("bootstrap_position") or (newest.get("ingest_position") if newest else None)
-        _save_cursor(path, newest["provider_event_id"] if newest else None, bootstrap_position)
+        _save_cursor(path, newest["provider_event_id"] if newest else None, bootstrap_position, newest.get("published_at") if newest else None)
         return {"endpoint_id": endpoint["endpoint_id"], "status": "bootstrapped" if newest else "bootstrapped_empty", "accepted": 0}
     identities = [item["provider_event_id"] for item in items]
     anchor = cursor["anchor"]
@@ -253,7 +306,7 @@ def ingest_endpoint(endpoint: dict[str, Any], fetch: Callable[[dict[str, Any] | 
     if page["contiguous"]:
         fresh = [item for item in items if cursor["position"] is None or item["ingest_position"] > cursor["position"]]
     else:
-        fresh = items[identities.index(anchor) + 1:] if anchor in identities else items
+        fresh = items[identities.index(anchor) + 1:] if anchor in identities else _after_cursor_boundary(items, cursor, page.get("id_order"))
     partial_batch = len(fresh) > batch
     if partial_batch:
         # A complete ordered page is safe even after an empty bootstrap. A
@@ -282,7 +335,7 @@ def ingest_endpoint(endpoint: dict[str, Any], fetch: Callable[[dict[str, Any] | 
         handoff.stage(event)
         if len(handoff.flush(limit=1)) != 1:
             raise IntakeBlocked("source inbox did not acknowledge handoff")
-        cursor = _save_cursor(path, item["provider_event_id"], position if position is not None else cursor["position"])
+        cursor = _save_cursor(path, item["provider_event_id"], position if position is not None else cursor["position"], item["published_at"])
         intent_path.unlink()
         (root / "blocked-media.json").unlink(missing_ok=True)
         accepted += 1

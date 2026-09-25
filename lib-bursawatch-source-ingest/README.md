@@ -27,3 +27,11 @@ each adapter's independently reviewed source and publisher binding. One
 endpoint's fetch or handoff failure returns a bounded status code and does
 not stop another endpoint. The library never claims pipeline work, handles
 Discord, or reads production state by itself.
+
+`legacy_cursor_seed.plan_seed` provides preview-first migration for
+package-owned adapters. Apply requires the unchanged preview, the explicit
+`apply=True` function argument, and `BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY=1`; it refuses
+initialized cursors or pending handoffs. The opt-in is unset during ordinary
+work. Provenance binds the legacy file SHA-256, endpoint identity, and catalog
+revision. Platform adapters remain responsible for proving their legacy
+boundary mapping and reconciling pending domain work.

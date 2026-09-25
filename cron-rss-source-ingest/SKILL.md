@@ -14,6 +14,11 @@ supplies the frozen instruction and destination snapshot for accepted events.
 Source work is admitted to the existing Stockbit article ledger by the
 `stockbit_snips` pipeline handler. The source reader keeps its own future-only
 cursor. A production cutover needs an exact queue and receipt inventory.
+`adapter.plan_legacy_cursor_seed` returns an auditable blocked plan for legacy
+Stockbit state. The existing `(published_at, GUID)` cursor and HTTP validators
+cannot be proven equivalent to the adapter's hashed GUID anchor without a
+complete bounded page and validator transfer. Do not initialize the cursor
+from this blocked plan or replay the feed to infer a boundary.
 The adapter uses page one of Stockbit's existing RSS parser and reverses XML
 item order once for oldest-first handoff. A full 20-article page without its
 previous anchor blocks the lane and holds its cursor. Complete pages and

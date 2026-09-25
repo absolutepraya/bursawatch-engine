@@ -29,3 +29,7 @@ INS and Samuel remain observe-only and never produce agent work.
 
 This package has no production reader transition. Use its fake-queue no-post
 tests for validation. Do not run it beside the existing watcher source reader.
+`adapter.plan_legacy_cursor_seed` returns an auditable blocked plan for legacy
+WhatsApp state. The old `(published_at, event_key)` cursor has no proven
+order-preserving mapping to the bridge queue's `(mtime_ns, filename)` position;
+queue, archive, media, and receipt reconciliation remains required.

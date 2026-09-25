@@ -23,11 +23,33 @@ if not owner.exists():
     owner = Path.home() / ".agents" / "skills" / "bursawatch-x-account-watch" / "bin"
 sys.path.insert(0, str(owner))
 
+from legacy_cursor_seed import LegacySeedBlocked, plan_seed, read_legacy_snapshot
 from source_ingest import IntakeBlocked, _write, bind_catalog_revision, envelope, ingest_all, select_endpoints
 from source_event_client import SourceEventHandoff
 from config import REVIEWED_PUBLISHERS
 
 ALLOWED = {"company_news", "macro_news"}
+
+
+def plan_legacy_cursor_seed(legacy_state_path: Path, state_root: Path, endpoint: dict[str, Any], profile: Any, catalog_revision: int, *, apply: bool = False, expected_plan: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Map one legacy X profile ID cursor to its canonical source endpoint."""
+    endpoint_id = f"x:{profile.handle.casefold()}"
+    publisher_id = REVIEWED_PUBLISHERS.get(profile.handle.casefold())
+    expected = ("x", endpoint_id, publisher_id, profile.handle, None)
+    observed = tuple(endpoint.get(key) for key in ("platform", "endpoint_id", "publisher_id", "address", "provider_id"))
+    if observed != expected or endpoint.get("catalog_revision") != catalog_revision:
+        raise LegacySeedBlocked("X endpoint does not match the selected legacy profile")
+    raw, legacy = read_legacy_snapshot(legacy_state_path)
+    profiles = legacy.get("profiles") if type(legacy) is dict else None
+    record = profiles.get(profile.id) if type(profiles) is dict else None
+    boundary = record.get("cursor") if type(record) is dict else None
+    if type(boundary) not in {str, int} or not str(boundary).isdigit():
+        raise LegacySeedBlocked("X legacy profile cursor is absent or invalid")
+    if legacy.get("outbox") or legacy.get("cleanup"):
+        raise LegacySeedBlocked("X legacy outbox or cleanup work must be reconciled before cursor seeding")
+    return plan_seed(legacy_state_path=legacy_state_path, state_root=state_root, endpoint=endpoint, snapshot_bytes=raw, catalog_revision=catalog_revision, anchor=str(boundary), cursor_shape="generic", apply=apply, expected_plan=expected_plan)
+
+
 class _TrackedInbox:
     """Keep a private, acknowledged index for later same-ID source corrections."""
 
@@ -239,7 +261,7 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Pa
             if post.post_id in upload_ids and is_self_thread_post(profile, post) and len(chain) == 1 and post.related_url:
                 raise IntakeBlocked("self-chain parent is unavailable")
             items.append(_item(post, endpoint_id, media_store, upload_media=post.post_id in upload_ids, media_preparer=media_preparer, thread_posts=chain))
-        return {"items": items, "truncated": truncated, "contiguous": False}
+        return {"items": items, "truncated": truncated, "contiguous": False, "id_order": "numeric_provider_event_id"}
     fetchers = {endpoint_id: (lambda cursor, profile=by_endpoint[endpoint_id], endpoint_id=endpoint_id: fetch(cursor, profile, endpoint_id)) for endpoint_id in selected}
     outcomes = ingest_all(selected, fetchers, state_root, tracked, observed_at, "x-watch-parser-1")
     for result in outcomes:

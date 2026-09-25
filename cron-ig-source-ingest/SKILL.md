@@ -30,3 +30,13 @@ through the existing watcher wrapper:
 Do not fetch Instagram, inspect history, access watcher state, or post to
 Discord directly. This package has no registered production job or wrapper;
 the existing watcher remains the active source reader until cutover.
+
+`adapter.plan_legacy_cursor_seed` previews a per-profile cursor seed from an
+explicit legacy JSON snapshot. The Python API defaults to preview. Applying
+uses its explicit `apply=True` argument and requires
+`BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY=1`, the unchanged preview, an empty
+legacy outbox, and no initialized cursor or source handoff. The plan binds the
+legacy SHA-256, endpoint identity, and catalog revision. If the imported
+anchor is absent from a complete page, the adapter uses the preserved
+publication timestamp; equal-time IDs require a declared provider ordering.
+Any unprovable page blocks. This helper does not cut over production state.

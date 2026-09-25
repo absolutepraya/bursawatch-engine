@@ -14,12 +14,12 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "lib-bursawatch-control" / "bin"))
 sys.path.insert(0, str(ROOT / "cron-tg-source-ingest" / "bin"))
-from adapter import IntakeBlocked, endpoints, ingest_endpoint
+from adapter import IntakeBlocked, endpoints, ingest_all as adapter_ingest_all, ingest_endpoint, plan_legacy_cursor_seed, envelope as telegram_envelope
 from runner import AGENT_OWNERS, HEARTBEAT_CHANNEL_ID, PIPELINE_OWNERS, dispatch_agent, format_fatal, format_heartbeat, post_heartbeat, run_once
 
 
 NOW = datetime(2026, 9, 24, tzinfo=timezone.utc)
-ENDPOINT = {"endpoint_id": "telegram:phintraprofits", "publisher_id": "phintraco", "address": "phintraprofits", "provider_id": "1444713822", "capabilities": {"trading_plans"}}
+ENDPOINT = {"platform": "telegram", "endpoint_id": "telegram:phintraprofits", "publisher_id": "phintraco", "address": "phintraprofits", "provider_id": "1444713822", "catalog_revision": 7, "capabilities": {"trading_plans"}}
 
 
 class FakeInbox:
@@ -74,6 +74,81 @@ class FakeMediaStore:
         return ref
 
 
+def test_phintraco_legacy_seed_is_previewed_then_accepts_only_after_cursor(tmp_path, monkeypatch):
+    legacy_path = tmp_path / "synthetic-snapshot" / "phin.json"
+    legacy_path.parent.mkdir()
+    legacy_path.write_text(json.dumps({"observed_message_id": 100, "outbox": {}}))
+    state_root = tmp_path / "synthetic-snapshot" / "new"
+    preview = plan_legacy_cursor_seed(legacy_path, state_root, ENDPOINT, 7)
+    assert preview["status"] == "preview"
+    assert not (state_root / "telegram-phintraprofits" / "cursor.json").exists()
+    monkeypatch.setenv("BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY", "1")
+    applied = plan_legacy_cursor_seed(legacy_path, state_root, ENDPOINT, 7, apply=True, expected_plan=preview)
+    assert applied["status"] == "applied"
+    client = FakeTelegram([message(99), message(100), message(101)])
+    inbox = FakeInbox()
+    result = asyncio.run(ingest_endpoint(client, ENDPOINT, state_root, inbox, NOW))
+    assert result["accepted"] == 1
+    assert [row["provider_event_id"] for row in inbox.accepted] == ["101"]
+    cursor = json.loads((state_root / "telegram-phintraprofits" / "cursor.json").read_text())
+    assert cursor["legacy_seed"]["legacy_state_sha256"] == applied["legacy_state_sha256"]
+
+
+def test_telegram_seed_validates_endpoint_tuple_and_pins_catalog_revision(tmp_path, monkeypatch):
+    legacy_path = tmp_path / "synthetic-snapshot" / "phin.json"
+    legacy_path.parent.mkdir()
+    legacy_path.write_text(json.dumps({"observed_message_id": 100, "outbox": {}}))
+    state_root = tmp_path / "synthetic-snapshot" / "new"
+    with pytest.raises(Exception, match="reviewed binding"):
+        plan_legacy_cursor_seed(legacy_path, state_root, {**ENDPOINT, "publisher_id": "wrong"}, 7)
+    preview = plan_legacy_cursor_seed(legacy_path, state_root, ENDPOINT, 7)
+    monkeypatch.setenv("BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY", "1")
+    plan_legacy_cursor_seed(legacy_path, state_root, ENDPOINT, 7, apply=True, expected_plan=preview)
+    changed_snapshot = {"revision": 8, "subscriptions": [{"platform": "telegram", "endpoint_id": "telegram:phintraprofits", "publisher_id": "phintraco", "address": "phintraprofits", "provider_id": "1444713822", "capability_id": "trading_plans", "verification_status": "verified", "enabled": True}]}
+    with pytest.raises(Exception, match="catalog revision changed"):
+        asyncio.run(adapter_ingest_all(FakeTelegram([]), changed_snapshot, state_root, FakeInbox(), NOW))
+
+
+def test_telegram_ack_recovery_preserves_staged_published_at(tmp_path):
+    from source_event_client import SourceEventHandoff
+
+    state_root = tmp_path / "state"
+    endpoint_root = state_root / "telegram-phintraprofits"
+    endpoint_root.mkdir(parents=True)
+    cursor_path = endpoint_root / "cursor.json"
+    cursor_path.write_text(json.dumps({"cursor": 100}))
+    event = telegram_envelope(ENDPOINT, message(101), NOW, previous_message_id=100)
+    inbox = FakeInbox()
+    handoff = SourceEventHandoff(endpoint_root / "handoff", inbox)
+    handoff.stage(event)
+    (endpoint_root / "pending-position.json").write_text(json.dumps({"envelope": event, "position": None}))
+    result = asyncio.run(ingest_endpoint(FakeTelegram([message(101)]), ENDPOINT, state_root, inbox, NOW))
+    assert result["cursor"] == 101
+    assert json.loads(cursor_path.read_text())["boundary_published_at"] == event["published_at"]
+
+
+def test_kelas_legacy_seed_preserves_bootstrap_and_predecessor(tmp_path, monkeypatch):
+    async def check():
+        legacy_path = tmp_path / "synthetic-snapshot" / "kelas.json"
+        legacy_path.parent.mkdir()
+        legacy_path.write_text(json.dumps({"cursor": 100, "pending": [], "outbox": []}))
+        state_root = tmp_path / "synthetic-snapshot" / "new"
+        endpoint = {"platform": "telegram", "endpoint_id": "telegram:kelasinvestasiid", "publisher_id": "kelas-investasi", "address": "kelasinvestasiid", "provider_id": "2142109618", "catalog_revision": 8, "capabilities": {"swing_support"}}
+        preview = plan_legacy_cursor_seed(legacy_path, state_root, endpoint, 8)
+        monkeypatch.setenv("BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY", "1")
+        result = plan_legacy_cursor_seed(legacy_path, state_root, endpoint, 8, apply=True, expected_plan=preview)
+        telegram = FakeTelegram([message(99), message(100), message(101)], address="kelasinvestasiid", entity_id=2142109618)
+        inbox = FakeInbox()
+        outcome = await ingest_endpoint(telegram, endpoint, state_root, inbox, NOW)
+        assert outcome["accepted"] == 1
+        assert inbox.accepted[0]["provider_event_id"] == "101"
+        assert inbox.accepted[0]["payload"]["previous_provider_event_id"] == 100
+        assert inbox.accepted[0]["payload"]["bootstrap_provider_event_id"] == 100
+        assert result["legacy_state_sha256"] == json.loads((state_root / "telegram-kelasinvestasiid" / "cursor.json").read_text())["legacy_seed"]["legacy_state_sha256"]
+
+    asyncio.run(check())
+
+
 def message(mid, text="BUY", *, media=None):
     return SimpleNamespace(id=mid, raw_text=text, message=text, date=NOW, media=media, photo=media, reply_to_msg_id=None)
 
@@ -84,7 +159,7 @@ def test_future_only_cursor_and_ack_order(tmp_path):
 
 def test_kelas_event_carries_durable_predecessor_after_inbox_acceptance(tmp_path):
     async def check():
-        endpoint = {"endpoint_id": "telegram:kelasinvestasiid", "publisher_id": "kelas-investasi", "address": "kelasinvestasiid", "provider_id": "2142109618", "capabilities": {"swing_support"}}
+        endpoint = {"platform": "telegram", "endpoint_id": "telegram:kelasinvestasiid", "publisher_id": "kelas-investasi", "address": "kelasinvestasiid", "provider_id": "2142109618", "catalog_revision": 8, "capabilities": {"swing_support"}}
         telegram = FakeTelegram([message(100)], address="kelasinvestasiid", entity_id=2142109618)
         inbox = FakeInbox()
         await ingest_endpoint(telegram, endpoint, tmp_path, inbox, NOW)
@@ -190,19 +265,19 @@ async def _oversized_telegram_media_stops_during_download_before_upload(tmp_path
 
 def test_effective_catalog_rejects_unknown_enabled_endpoint():
     row = {"platform": "telegram", "enabled": True, "endpoint_id": "telegram:phintraprofits", "capability_id": "trading_plans", "verification_status": "verified", "provider_id": "1444713822", "publisher_id": "phintraco", "address": "phintraprofits"}
-    assert endpoints({"subscriptions": [row]})["telegram:phintraprofits"]["capabilities"] == {"trading_plans"}
+    assert endpoints({"revision": 5, "subscriptions": [row]})["telegram:phintraprofits"]["capabilities"] == {"trading_plans"}
     with pytest.raises(IntakeBlocked, match="not onboarded"):
-        endpoints({"subscriptions": [{**row, "endpoint_id": "telegram:unknown"}]})
+        endpoints({"revision": 5, "subscriptions": [{**row, "endpoint_id": "telegram:unknown"}]})
     with pytest.raises(IntakeBlocked, match="identity is not verified"):
-        endpoints({"subscriptions": [{**row, "publisher_id": "kelas-investasi"}]})
+        endpoints({"revision": 5, "subscriptions": [{**row, "publisher_id": "kelas-investasi"}]})
     with pytest.raises(IntakeBlocked, match="identity is not verified"):
-        endpoints({"subscriptions": [{**row, "endpoint_id": "telegram:tuntunsekuritas", "address": "tuntunsekuritas", "capability_id": "company_news", "provider_id": None, "publisher_id": "phintraco"}]})
+        endpoints({"revision": 5, "subscriptions": [{**row, "endpoint_id": "telegram:tuntunsekuritas", "address": "tuntunsekuritas", "capability_id": "company_news", "provider_id": None, "publisher_id": "phintraco"}]})
     tuntun = {**row, "endpoint_id": "telegram:tuntunsekuritas", "address": "tuntunsekuritas", "capability_id": "company_news", "provider_id": None, "publisher_id": "tuntun"}
-    assert endpoints({"subscriptions": [tuntun]}) == {}
+    assert endpoints({"revision": 5, "subscriptions": [tuntun]}) == {}
     with pytest.raises(IntakeBlocked, match="identity is not verified"):
-        endpoints({"subscriptions": [{**tuntun, "verification_status": "pending"}]})
+        endpoints({"revision": 5, "subscriptions": [{**tuntun, "verification_status": "pending"}]})
     with pytest.raises(IntakeBlocked, match="not onboarded"):
-        endpoints({"subscriptions": [{**tuntun, "capability_id": "trading_plans"}]})
+        endpoints({"revision": 5, "subscriptions": [{**tuntun, "capability_id": "trading_plans"}]})
 
 
 @pytest.mark.parametrize("failing", ["news", "board"])
@@ -252,7 +327,7 @@ def test_board_and_synthetic_news_settle_independently(tmp_path, monkeypatch, fa
 
     inbox = WorkInbox()
     telegram = FakeTelegram([message(10)])
-    snapshot = {"subscriptions": [{"platform": "telegram", "enabled": True, "endpoint_id": "telegram:phintraprofits", "capability_id": "trading_plans", "verification_status": "verified", "provider_id": "1444713822", "publisher_id": "phintraco", "address": "phintraprofits"}]}
+    snapshot = {"revision": 5, "subscriptions": [{"platform": "telegram", "enabled": True, "endpoint_id": "telegram:phintraprofits", "capability_id": "trading_plans", "verification_status": "verified", "provider_id": "1444713822", "publisher_id": "phintraco", "address": "phintraprofits"}]}
     assert PIPELINE_OWNERS["company_news"] == "cron-tg-market-news"
     asyncio.run(run_once(telegram, snapshot, tmp_path, inbox, NOW, handlers={"swing_plan": lambda item: None}))
     text = (ROOT / "cron-tg-phintraco-swing" / "tests" / "fixtures" / "trading_buy.txt").read_text()

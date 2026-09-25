@@ -20,8 +20,19 @@ if not owner.exists():
 sys.path.insert(0, str(owner))
 
 from source_ingest import IntakeBlocked, _write, bind_catalog_revision, ingest_all, select_endpoints
+from legacy_cursor_seed import blocked_seed_plan
 
 ALLOWED = {"stockbit_snips"}
+
+
+def plan_legacy_cursor_seed(legacy_state_path: Path, endpoint: dict[str, Any], catalog_revision: int) -> dict[str, Any]:
+    """Stockbit stays blocked until a complete bounded page proves its GUID boundary."""
+    return blocked_seed_plan(
+        legacy_state_path,
+        endpoint,
+        catalog_revision,
+        "Stockbit uses (published_at, GUID) plus conditional validators; the current adapter has no reviewed complete-page proof or validator transfer",
+    )
 
 
 def _bind_revision(state_root: Path, revision: int) -> None:

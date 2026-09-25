@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import pytest
 import sys
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -9,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "cron-ig-source-ingest" / "bin"))
-from adapter import run_once
+from adapter import plan_legacy_cursor_seed, run_once
 
 sys.path.insert(0, str(ROOT / "cron-ig-account-watch" / "bin"))
 from config import load_watch_config
@@ -46,6 +47,32 @@ def fake_download(post, root):
         path.write_bytes(data)
         assets.append(DownloadedAsset(source, path, hashlib.sha256(data).hexdigest(), len(data), content_type))
     return DownloadedPublication(tuple(assets), root / post.publication_id)
+
+
+def test_instagram_legacy_seed_uses_timestamp_when_anchor_left_complete_page(tmp_path, monkeypatch):
+    profile = replace(load_watch_config(ROOT / "cron-ig-account-watch" / "config" / "watches.json").profiles[0], enabled=True)
+    endpoint_id = f"instagram:{profile.handle}"
+    endpoint = {"platform": "instagram", "endpoint_id": endpoint_id, "publisher_id": "instagram-beyondthefundamental", "address": profile.handle, "provider_id": None, "catalog_revision": 4}
+    legacy_path = tmp_path / "synthetic-snapshot" / "instagram.json"
+    legacy_path.parent.mkdir()
+    legacy_path.write_text(json.dumps({"profiles": {profile.id: {"cursor": "old-id", "cursor_published_at": NOW.isoformat()}}, "outbox": [], "deliveries": []}))
+    state_root = tmp_path / "synthetic-snapshot" / "new"
+    with pytest.raises(Exception, match="selected legacy profile"):
+        plan_legacy_cursor_seed(legacy_path, state_root, {**endpoint, "publisher_id": "wrong"}, profile, 4)
+    assert plan_legacy_cursor_seed(legacy_path, state_root, endpoint, profile, 4)["status"] == "preview"
+    preview = plan_legacy_cursor_seed(legacy_path, state_root, endpoint, profile, 4)
+    monkeypatch.setenv("BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY", "1")
+    plan = plan_legacy_cursor_seed(legacy_path, state_root, endpoint, profile, 4, apply=True, expected_plan=preview)
+    row = {"platform": "instagram", "endpoint_id": endpoint_id, "publisher_id": "instagram-beyondthefundamental", "address": profile.handle, "provider_id": None, "capability_id": "company_news", "verification_status": "verified", "enabled": True}
+    snapshot = {"revision": 4, "subscriptions": [row]}
+    older = SourcePost(profile.id, "old-visible", "https://www.instagram.com/p/old-visible/", NOW - timedelta(minutes=1), "old", PublicationKind.POST, ())
+    newer = SourcePost(profile.id, "new-post", "https://www.instagram.com/p/new-post/", NOW + timedelta(minutes=1), "new", PublicationKind.POST, ())
+    inbox = Inbox()
+    result = run_once(snapshot, (profile,), state_root, inbox, NOW + timedelta(minutes=2), fetch_profile=lambda *_args, **_kwargs: [newer, older])[0]
+    assert result["accepted"] == 1
+    assert [event["provider_event_id"] for event in inbox.events] == ["new-post"]
+    cursor = json.loads((state_root / endpoint_id.replace(":", "-") / "cursor.json").read_text())
+    assert cursor["legacy_seed"]["legacy_state_sha256"] == plan["legacy_state_sha256"]
 
 
 def test_media_publication_uploads_refs_before_inbox_acceptance(tmp_path):

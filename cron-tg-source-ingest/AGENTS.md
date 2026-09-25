@@ -14,6 +14,15 @@ Telegram identities or capabilities fail closed. Every canonical endpoint,
 including unmigrated Tuntun, is checked against its exact publisher before
 the pilot decides whether to poll it.
 
+`adapter.plan_legacy_cursor_seed` previews a seed from an explicit Phintraco or
+Kelas JSON snapshot. It records the snapshot SHA-256, endpoint identity, and
+catalog revision. The Python function's `apply=True` argument is the explicit
+apply interface and requires the unchanged preview plan plus
+`BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY=1`; it refuses initialized
+cursors or pending handoffs and blocks legacy pending domain work. Kelas maps
+its current cursor to both the new cursor and future-only bootstrap boundary.
+Production cutover remains separately approved. Tuntun has no seed mapping.
+
 The inbox owns source events and independent subscription work. The adapter
 never submits Discord or Board operations. `service-bursawatch-source-media`
 owns private Supabase Storage access; `lib-bursawatch-source-media` uploads

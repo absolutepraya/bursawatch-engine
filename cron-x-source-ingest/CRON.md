@@ -9,7 +9,10 @@ Each verified configured X account has its own future-only cursor and
 contains the prior anchor, drains in at most 20-post batches, advancing only
 through acknowledged posts. A truncated page without its prior anchor blocks
 with `page_truncated` and retains the cursor. Inbox failure leaves the staged
-request and cursor in place. Post IDs set provider order; publication time
+request and cursor in place. A numeric ID cursor can be compared against a
+complete page when its anchor has fallen off. Opaque IDs require migration
+provenance with a timestamp boundary, otherwise a missing anchor blocks.
+Post IDs set provider order; publication time
 remains event metadata. At most the next 20 fresh events are considered for
 media upload. The adapter reuses the live watcher's bounded, image-only
 `pbs.twimg.com` fetch path, then uploads bytes through the shared Source Media
@@ -36,3 +39,17 @@ The existing X watcher retains its self-chain, edit/supersession, classifier,
 rendering, outbox, Board, Delivery Owner, and heartbeat behavior. Do not
 remove its source job or queue worker before a reviewed state and scheduler
 transition proves parity and accounts for pending output.
+
+`adapter.plan_legacy_cursor_seed` previews a per-profile seed from an explicit
+legacy JSON snapshot. The Python API defaults to preview. Applying uses its
+explicit `apply=True` argument and requires
+`BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY=1`, the unchanged preview, an empty
+legacy outbox, and no initialized cursor or source handoff. It binds the
+legacy SHA-256, endpoint identity, and catalog revision.
+
+The X adapter marks its ordered page with
+`id_order="numeric_provider_event_id"`. The shared cursor reader validates
+that marker and the ascending numeric IDs before comparing a seed boundary
+that has fallen off the page. Other adapters cannot infer numeric ordering
+from ID shape and block when their anchor is absent without another proven
+boundary. This is a synthetic migration aid, not production cutover approval.
