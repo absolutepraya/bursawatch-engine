@@ -8,6 +8,37 @@ The watcher is a future-only intake for completed `#GTW` bundles from public Tel
 
 The deterministic scanner owns source filtering, ascending message-ID cursoring, bundle closure, image capture, retry state, and Discord delivery. Hermes receives only one completed bundle and returns a validated Indonesian title and summary. It never posts to Telegram or Discord directly, trades, evaluates a source thesis, forwards promotions, or backfills historical signals.
 
+`bin/pipeline_owner.py` is the development-only `swing_support` entry point for
+the shared Telegram source pilot. It accepts only inbox-acknowledged work from
+the verified Kelas endpoint. The adapter includes the previous accepted
+Telegram message ID and the original bootstrap high-water mark in each event.
+An empty owner state initializes only from that original mark, and every
+subsequent event requires its predecessor to match the current owner cursor.
+It downloads only a qualifying header
+photo through `lib-bursawatch-source-media`, verifies its digest and size, then
+uses the existing bundle parser, 15-minute agent lease, All renderer, Delivery
+Owner client, and Board handoff. Later photos are never forwarded. The source
+event retains only the opaque media ref; the owner keeps a private verified
+local image for its existing delivery and Board contracts.
+
+The owner checks the exact inbox event key, version-one effect key, and work
+key on every call, including retries. The existing watcher state has no
+per-message revision ledger, so source-event corrections require a separate
+reviewed design and are outside this pilot.
+
+The pipeline interface is one source work object on stdin, read-only
+`--agent-status` for a single ready key and source timestamp, `--claim-agent`
+for at most one `{wakeAgent,item}` response, and `--submit-analysis <JSON>`
+for a matching claimed bundle. The platform runner can compare ready owners
+before claiming exactly one agent item. These operations require one live,
+frozen Kelas watch configuration revision. They use
+`KELAS_INVESTASI_GTW_STATE_PATH` as the
+only Kelas domain ledger. The pilot has no Hermes job and must not run against
+the live watcher while the old source reader is active. A reviewed cutover must
+align the adapter's bootstrap cursor with the existing watcher state before
+claiming Kelas work. No-post pipeline verification requires an isolated state
+and media root and `BURSAWATCH_TG_SOURCE_NO_POST=1`.
+
 ## Source and bundle boundary
 
 - Accept only an anchored, case-insensitive `Good to watch - <IDX ticker> #GTW` header.

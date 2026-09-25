@@ -82,6 +82,21 @@ def test_future_only_cursor_and_ack_order(tmp_path):
     asyncio.run(_future_only_cursor_and_ack_order(tmp_path))
 
 
+def test_kelas_event_carries_durable_predecessor_after_inbox_acceptance(tmp_path):
+    async def check():
+        endpoint = {"endpoint_id": "telegram:kelasinvestasiid", "publisher_id": "kelas-investasi", "address": "kelasinvestasiid", "provider_id": "2142109618", "capabilities": {"swing_support"}}
+        telegram = FakeTelegram([message(100)], address="kelasinvestasiid", entity_id=2142109618)
+        inbox = FakeInbox()
+        await ingest_endpoint(telegram, endpoint, tmp_path, inbox, NOW)
+        telegram.messages.extend((message(101, "Good to watch - CTRA #GTW"), message(103, "Buy area: 605-630")))
+        await ingest_endpoint(telegram, endpoint, tmp_path, inbox, NOW)
+        assert [event["payload"]["previous_provider_event_id"] for event in inbox.accepted] == [100, 101]
+        assert [event["payload"]["bootstrap_provider_event_id"] for event in inbox.accepted] == [100, 100]
+        assert json.loads((tmp_path / "telegram-kelasinvestasiid" / "cursor.json").read_text()) == {"cursor": 103, "bootstrap_cursor": 100}
+
+    asyncio.run(check())
+
+
 async def _future_only_cursor_and_ack_order(tmp_path):
     inbox = FakeInbox()
     client = FakeTelegram([message(10)])

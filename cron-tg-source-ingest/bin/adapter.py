@@ -57,13 +57,15 @@ def endpoints(snapshot: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return grouped
 
 
-def _read_cursor(path: Path) -> int | None:
+def _read_cursor(path: Path) -> dict[str, int] | None:
     if not path.exists():
         return None
     data = json.loads(path.read_text())
     if type(data) is not dict or type(data.get("cursor")) is not int or data["cursor"] < 0:
         raise IntakeBlocked("Telegram cursor is invalid")
-    return data["cursor"]
+    if "bootstrap_cursor" in data and (type(data["bootstrap_cursor"]) is not int or not 0 <= data["bootstrap_cursor"] <= data["cursor"]):
+        raise IntakeBlocked("Telegram bootstrap cursor is invalid")
+    return data
 
 
 def _write_json(path: Path, value: dict[str, Any]) -> None:
@@ -86,8 +88,11 @@ def _write_json(path: Path, value: dict[str, Any]) -> None:
             os.unlink(temp)
 
 
-def _save_cursor(path: Path, value: int) -> None:
-    _write_json(path, {"cursor": value})
+def _save_cursor(path: Path, value: int, *, bootstrap_cursor: int | None = None) -> None:
+    record = {"cursor": value}
+    if bootstrap_cursor is not None:
+        record["bootstrap_cursor"] = bootstrap_cursor
+    _write_json(path, record)
 
 
 def _stamp(value: datetime) -> str:
@@ -155,7 +160,7 @@ async def _upload_message_media(client: Any, endpoint: dict[str, Any], message: 
     return [reference]
 
 
-def envelope(endpoint: dict[str, Any], message: Any, observed_at: datetime, *, reply_parent: Any = None, media_refs: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def envelope(endpoint: dict[str, Any], message: Any, observed_at: datetime, *, reply_parent: Any = None, media_refs: list[dict[str, Any]] | None = None, previous_message_id: int | None = None, bootstrap_message_id: int | None = None) -> dict[str, Any]:
     message_id = getattr(message, "id", None)
     if type(message_id) is not int or message_id <= 0:
         raise IntakeBlocked("Telegram message identity is invalid")
@@ -169,6 +174,13 @@ def envelope(endpoint: dict[str, Any], message: Any, observed_at: datetime, *, r
     if reply is not None and (type(reply) is not int or reply <= 0):
         raise IntakeBlocked("Telegram reply identity is invalid")
     body = {"text": text, "reply_to_message_id": reply}
+    if endpoint["endpoint_id"] == "telegram:kelasinvestasiid":
+        if type(previous_message_id) is not int or previous_message_id < 0 or previous_message_id >= message_id:
+            raise IntakeBlocked("Kelas source predecessor is invalid")
+        if type(bootstrap_message_id) is not int or not 0 <= bootstrap_message_id <= previous_message_id:
+            raise IntakeBlocked("Kelas bootstrap identity is invalid")
+        body["previous_provider_event_id"] = previous_message_id
+        body["bootstrap_provider_event_id"] = bootstrap_message_id
     image_refs = [ref["ref"] for ref in media_refs if getattr(message, "photo", None) is not None and ref.get("kind") == "image"]
     if image_refs:
         body["media_ref_ids"] = image_refs
@@ -186,7 +198,11 @@ async def ingest_endpoint(client: Any, endpoint: dict[str, Any], state_root: Pat
         raise ValueError("Telegram batch must be between 1 and 20")
     root = state_root / endpoint["endpoint_id"].replace(":", "-")
     cursor_path = root / "cursor.json"
-    cursor = _read_cursor(cursor_path)
+    cursor_record = _read_cursor(cursor_path)
+    cursor = cursor_record["cursor"] if cursor_record is not None else None
+    bootstrap_cursor = cursor_record.get("bootstrap_cursor") if cursor_record is not None else None
+    if endpoint["endpoint_id"] == "telegram:kelasinvestasiid" and cursor_record is not None and bootstrap_cursor is None:
+        raise IntakeBlocked("Kelas adapter bootstrap cursor is unavailable")
     entity = await client.get_entity(endpoint["address"])
     if endpoint["provider_id"] is not None and str(getattr(entity, "id", "")) != endpoint["provider_id"]:
         raise IntakeBlocked("Telegram resolved identity does not match catalog")
@@ -198,7 +214,9 @@ async def ingest_endpoint(client: Any, endpoint: dict[str, Any], state_root: Pat
         high = getattr(first, "id", 0) if first is not None else 0
         if type(high) is not int or high < 0:
             raise IntakeBlocked("Telegram bootstrap identity is invalid")
-        _save_cursor(cursor_path, high)
+        if endpoint["endpoint_id"] == "telegram:kelasinvestasiid":
+            bootstrap_cursor = high
+        _save_cursor(cursor_path, high, bootstrap_cursor=bootstrap_cursor)
         return {"endpoint_id": endpoint["endpoint_id"], "bootstrapped": True, "cursor": high, "accepted": 0}
     accepted = 0
     handoff = SourceEventHandoff(root / "handoff", inbox)
@@ -212,10 +230,15 @@ async def ingest_endpoint(client: Any, endpoint: dict[str, Any], state_root: Pat
         staged_id = int(staged["provider_event_id"])
         if staged["endpoint_id"] != endpoint["endpoint_id"] or staged_id <= cursor:
             raise IntakeBlocked("Telegram endpoint handoff identity is inconsistent")
+        if endpoint["endpoint_id"] == "telegram:kelasinvestasiid" and (
+            staged.get("payload", {}).get("bootstrap_provider_event_id") != bootstrap_cursor
+            or staged.get("payload", {}).get("previous_provider_event_id") != cursor
+        ):
+            raise IntakeBlocked("Kelas endpoint handoff sequence is inconsistent")
         receipts = handoff.flush(limit=1)
         if len(receipts) != 1:
             raise IntakeBlocked("Telegram endpoint handoff was not acknowledged")
-        _save_cursor(cursor_path, staged_id)
+        _save_cursor(cursor_path, staged_id, bootstrap_cursor=bootstrap_cursor)
         blocked_path = root / "blocked-media.json"
         if blocked_path.exists():
             try:
@@ -242,12 +265,12 @@ async def ingest_endpoint(client: Any, endpoint: dict[str, Any], state_root: Pat
         parent = await client.get_messages(entity, ids=reply_id) if reply_id is not None and endpoint["endpoint_id"] == "telegram:phintraprofits" else None
         if reply_id is not None and endpoint["endpoint_id"] == "telegram:phintraprofits" and parent is None:
             raise IntakeBlocked("Telegram reply parent is unavailable")
-        item = envelope(endpoint, message, observed_at, reply_parent=parent, media_refs=media_refs)
+        item = envelope(endpoint, message, observed_at, reply_parent=parent, media_refs=media_refs, previous_message_id=cursor, bootstrap_message_id=bootstrap_cursor)
         handoff.stage(item)
         receipts = handoff.flush(limit=1)
         if len(receipts) != 1:
             raise IntakeBlocked("Telegram source handoff was not acknowledged")
-        _save_cursor(cursor_path, message.id)
+        _save_cursor(cursor_path, message.id, bootstrap_cursor=bootstrap_cursor)
         (root / "blocked-media.json").unlink(missing_ok=True)
         cursor = message.id
         accepted += 1
