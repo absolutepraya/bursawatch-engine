@@ -7,9 +7,9 @@
 
 ## Evidence boundary
 
-This inventory combines checked-in package contracts, source code, release metadata, synthetic tests, and a read-only VPS inspection at `2026-09-25T04:26:37Z`. No source payloads, credentials, Discord content, or image bytes were printed or copied. The endpoint IDs below are repository seed identities unless a live Control Plane selection is explicitly reported below.
+This inventory combines checked-in package contracts, source code, release metadata, synthetic tests, and a read-only VPS inspection at `2026-09-25T04:26:37Z`. That inspection printed no source payloads, credentials, Discord content, or image bytes. Afterward, an approved per-owner baseline snapshot copied selected package state and media into the VPS private backup tree; details and limits are recorded below. The endpoint IDs below are repository seed identities unless a live Control Plane selection is explicitly reported below.
 
-This was not a frozen state snapshot: exact source cursors, payload digests, per-message delivery receipts, and per-object media references were not exported. The observed file sizes and database counts are a point-in-time inventory only. Before cutover, capture and checksum package-owned snapshots in the approved private backup location, then repeat the exact cursor, pending payload, receipt, and media crosswalk against that frozen snapshot.
+The original inspection was not a frozen state snapshot. The later baseline copy is also not one coordinated fleet-wide cutover boundary because writers were not paused. Its private files preserve state for follow-up, but this sanitized report does not include exact cursor values, payload digests, per-message receipts, or per-object media references. Before cutover, quiesce the relevant writer and watchdog, capture a new coordinated package-owned snapshot, then perform the cursor, pending payload, receipt, and media crosswalk against it.
 
 ## Known platform ownership
 
@@ -85,13 +85,21 @@ The distinct local loopback port map is Control Plane `9120`, Source Media `9130
 
 ### Remaining evidence before a cutover proposal
 
-- Capture frozen, package-owned state snapshots and SHA-256 checksums under the approved private VPS backup path. No snapshots or backup writes were made during this read-only inspection.
-- Record exact per-endpoint cursor boundaries, pending payload digests, source and event crosswalks, and `#hermes` health evidence from the frozen snapshots without adding payloads to Git.
+- The approved private baseline capture below is complete and verified. It is not a coordinated cutover snapshot because source writers remained active during capture. A new snapshot after an approved writer/watchdog pause is still required before any state migration.
+- From that coordinated snapshot, record exact per-endpoint cursor boundaries, pending payload digests, source and event crosswalks, and `#hermes` health evidence without adding payloads to Git.
 - Reconcile the Board's duplicate open Primary episode before any Swing source migration.
 - Verify each Discord completion against exact channel/thread/message receipts and the source event or operation key. The legacy SQLite Board outbox is complete, but a separate Delivery Owner receipt ledger is absent.
 - Verify WhatsApp's 42 filtered, 11 pending, and 2 ready records against its immutable source/archive records and output receipts.
 - Inspect the permissive X state and Swing Board database modes and approve any permission correction as a separate scoped production operation.
 - Provision and validate private Supabase Storage, Source Media, and Discord Delivery Owner only after separate production approval. This inspection did not query Storage or Discord and does not claim the object references exist.
+
+### Approved private baseline capture
+
+- Captured on 2026-09-25 under `~/backup/hermes/runtime-cutovers/2026-09-25/`, with manifest `inventory-20260925-115808.json`.
+- The manifest SHA-256 is `7836ecc803472b5fae474f8e039a20fe38fd3cc5fe2a77830e45faf9aa2126bd`. It records 9 runtime identities, 13 artifact entries, and 32,587,648 artifact bytes. The snapshot contains 678 files.
+- Verification passed for every listed file hash and size, each directory inventory and tree hash, destination containment, absence of symlinks and partial paths, and exact manifest-to-filesystem membership. Files are mode `0600`; directories are mode `0700`. The Swing Board SQLite copy passed `PRAGMA integrity_check`, and its table counts matched the manifest.
+- Retain this private archive through 2026-10-25. The copied state and media remain on the VPS and are not Git artifacts. The Control Plane Postgres database, credentials, and runtime logs were not exported.
+- The SQLite database used its online backup API. Other owners were captured individually while their jobs remained active, so this is a durable baseline, not a fleet-wide consistent point-in-time cutover image. No live state or schedule was changed. The duplicate open Primary episodes remain unreconciled and continue to block Swing cutover.
 
 ## Shared downstream state to inventory
 
