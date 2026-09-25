@@ -149,6 +149,20 @@ def test_handoff_plan_reconstructs_archive_media_in_source_order_without_state_w
     assert all(item.operation.reconcile_before_first_create for item in snapshot.items)
     assert state_path.read_bytes() == original
 
+    import sys
+
+    support = str(Path(__file__).resolve().parents[2] / "service-bursawatch-control" / "tests")
+    if support not in sys.path:
+        sys.path.insert(0, support)
+    from legacy_handoff_rehearsal import SyntheticDeliveryOwner, rehearse_legacy_handoff
+
+    owner = SyntheticDeliveryOwner()
+    identities = rehearse_legacy_handoff(
+        adapter, owner, restore_source=lambda: state_path.write_bytes(original)
+    )
+    assert len(identities) == 3
+    assert len(owner.new_pending_acceptances) == 3
+
 
 def test_handoff_plan_keeps_existing_text_receipt_and_does_not_replay_it(tmp_path):
     import delivery_handoff

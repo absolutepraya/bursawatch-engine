@@ -115,3 +115,57 @@ def test_handoff_uses_saved_live_destination_and_leaves_v1_state_unmigrated(tmp_
     assert operation.legacy_nonce == discord.nonce(article.key, "news")
     assert state_path.read_bytes() == original
     assert json.loads(state_path.read_text(encoding="utf-8"))["version"] == 1
+
+
+def test_synthetic_rollback_retry_reuses_stockbit_operation_key(tmp_path):
+    import json
+    import sys
+    from datetime import datetime, timezone
+
+    support = str(Path(__file__).resolve().parents[2] / "service-bursawatch-control" / "tests")
+    if support not in sys.path:
+        sys.path.insert(0, support)
+    from legacy_handoff_rehearsal import SyntheticDeliveryOwner, rehearse_legacy_handoff
+    import config
+    import delivery_handoff
+    from models import Article, FeedLane
+
+    article = Article(
+        lane=FeedLane.STOCKBIT_COMMENTARY, lane_label="Stockbit Commentary",
+        guid="synthetic-guid", url="https://snips.stockbit.com/article/synthetic",
+        source_title="Synthetic source", source_text="Synthetic evidence",
+        published_at=datetime(2026, 9, 20, tzinfo=timezone.utc),
+    )
+    frozen = {
+        "revision": 41, "additional_prompt_instruction": "frozen",
+        "id_stocks_news_channel_id": "1551234567890123456",
+        "macro_news_channel_id": "1551234567890123457",
+    }
+    source_state = {
+        "version": 1,
+        "feeds": {feed.lane.value: {"cursor": None, "etag": None, "last_modified": None,
+                                    "last_poll_success": None, "last_error": None}
+                  for feed in config.FEEDS},
+        "articles": {article.key: {
+            "article": article.to_payload(), "phase": "pending_delivery",
+            "enqueued_at": "2026-09-20T00:00:00+00:00", "agent_lease_until": None,
+            "analysis": {"candidate_key": article.key, "ticker": "BBCA", "title": "BBCA: Update",
+                         "summary": "Summary", "material_facts": ["fact"], "dedupe_facts": [],
+                         "eligible": True, "route": "id_stocks_news", "source_evidence": "source"},
+            "rendered": "Synthetic rendered content", "retry": {"attempts": 0, "next_attempt_at": None,
+                                                                    "last_error": None},
+            "config_snapshot": frozen,
+        }},
+    }
+    state_path = tmp_path / "stockbit-state.json"
+    state_path.write_text(json.dumps(source_state), encoding="utf-8")
+    original = state_path.read_bytes()
+    adapter = delivery_handoff.StockbitSnipsHandoffAdapter(state_path, tmp_path / "stockbit-plan.json")
+    owner = SyntheticDeliveryOwner()
+
+    identities = rehearse_legacy_handoff(
+        adapter, owner, restore_source=lambda: state_path.write_bytes(original)
+    )
+
+    assert len(identities) == 1
+    assert len(owner.new_pending_acceptances) == 1

@@ -112,3 +112,29 @@ def test_handoff_source_acknowledgments_do_not_change_outbox_schema(
         state.load_state(state_path)["outbox"][0]
     )
     assert "delivery_handoff" not in persisted["outbox"][0]
+
+
+def test_synthetic_rollback_retry_reuses_kelas_operation_keys(tmp_path, monkeypatch):
+    import sys
+
+    support = str(Path(__file__).resolve().parents[2] / "service-bursawatch-control" / "tests")
+    if support not in sys.path:
+        sys.path.insert(0, support)
+    from legacy_handoff_rehearsal import SyntheticDeliveryOwner, rehearse_legacy_handoff
+
+    state_path = tmp_path / "watcher.json"
+    media_root = tmp_path / "media"
+    monkeypatch.setenv("KELAS_INVESTASI_GTW_STATE_MEDIA_ROOT", str(media_root))
+    _state_with_completed_text_and_pending_image(state_path, media_root)
+    original = state_path.read_bytes()
+    owner = SyntheticDeliveryOwner()
+    adapter = delivery_handoff.KelasInvestasiHandoffAdapter(
+        state_path, tmp_path / "kelas-handoff.json", media_root=media_root
+    )
+
+    identities = rehearse_legacy_handoff(
+        adapter, owner, restore_source=lambda: state_path.write_bytes(original)
+    )
+
+    assert len(identities) == 2
+    assert len(owner.new_pending_acceptances) == 1

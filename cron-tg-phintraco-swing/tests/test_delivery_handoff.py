@@ -87,3 +87,30 @@ def test_handoff_acknowledgments_are_kept_out_of_watcher_state(
     source = json.loads(tmp_state.read_text())
     assert source["outbox"]["33655"]["text_discord_id"] == "987654321012345678"
     assert "delivery_handoff" not in source["outbox"]["33655"]
+
+
+def test_synthetic_rollback_retry_reuses_phintraco_operation_keys(
+    tmp_state: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sys
+
+    support = str(Path(__file__).resolve().parents[2] / "service-bursawatch-control" / "tests")
+    if support not in sys.path:
+        sys.path.insert(0, support)
+    from legacy_handoff_rehearsal import SyntheticDeliveryOwner, rehearse_legacy_handoff
+
+    monkeypatch.setattr(scan, "state_path", lambda: tmp_state)
+    _state_with_pending_chart(tmp_state, tmp_path)
+    original = tmp_state.read_bytes()
+    owner = SyntheticDeliveryOwner()
+    adapter = delivery_handoff.PhintracoHandoffAdapter(tmp_state, tmp_path / "plan.json")
+
+    identities = rehearse_legacy_handoff(
+        adapter, owner, restore_source=lambda: tmp_state.write_bytes(original)
+    )
+
+    assert [key for key, _digest in identities] == [
+        "bursawatch-tg-phintraco-swing:33655:text",
+        "bursawatch-tg-phintraco-swing:33655:chart",
+    ]
+    assert len(owner.new_pending_acceptances) == 1

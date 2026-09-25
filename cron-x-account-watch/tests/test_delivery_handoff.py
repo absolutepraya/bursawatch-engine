@@ -83,6 +83,20 @@ def test_plan_preserves_known_text_receipt_and_source_media_payload(tmp_path, co
     assert "x-source-image-bytes" not in plan_path.read_text(encoding="utf-8")
     assert stat.S_IMODE(plan_path.stat().st_mode) == 0o600
 
+    import sys
+
+    support = str(Path(__file__).resolve().parents[2] / "service-bursawatch-control" / "tests")
+    if support not in sys.path:
+        sys.path.insert(0, support)
+    from legacy_handoff_rehearsal import SyntheticDeliveryOwner, rehearse_legacy_handoff
+
+    owner = SyntheticDeliveryOwner()
+    identities = rehearse_legacy_handoff(
+        adapter, owner, restore_source=lambda: source.write_bytes(original)
+    )
+    assert len(identities) == 2
+    assert len(owner.new_pending_acceptances) == 1
+
 
 def test_plan_requires_reconciliation_for_first_unacknowledged_x_create(tmp_path, config_path, monkeypatch):
     profile = config.load_watch_config(config_path).profiles[0]

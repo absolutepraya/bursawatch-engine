@@ -37,6 +37,25 @@ The endpoints in each row are catalog seed identities, not a claim that the plat
 
 The new source catalog is not live. The checked-in seeds do not describe effective live subscriptions. Stockbit's existing live database configuration remains authoritative and must be preserved by any later migration.
 
+### Read-only release and runtime refresh, 2026-09-25
+
+At 2026-09-25T08:14Z, the authenticated Source Catalog API check still
+returned HTTP 404, with only database migrations `001` to `012` present. The
+Hermes registry still had 21 jobs and no platform `*-source-ingest` job. These
+observations confirm that the feature branch has not been rolled into the
+production source path.
+
+At 2026-09-25T08:21:52Z, the Control Plane health endpoint returned
+`{"status":"ok"}`. `bursawatch-control-plane.service` was active;
+`bursawatch-discord-delivery.service` and `bursawatch-source-media.service`
+were inactive. The `bursawatch-release-agent.timer` was active. Its read-only
+status reported last successful SHA
+`332bc97f5861e455c277ec06098738d87fe2990b`, with no blocked SHA. The matching
+per-SHA record was `released`, with `units=[]` and no manual migrations. This
+confirms a successful release-agent poll of a main commit that changed no
+runtime unit. The source-pipeline feature branch is not deployed, and the
+shared Delivery Owner and Source Media Owner are not live.
+
 ### Hermes readers and Board jobs
 
 These are current registry observations, not proposed replacement schedules. There were 21 registered Hermes jobs in total. No platform `*-source-ingest` job was registered.

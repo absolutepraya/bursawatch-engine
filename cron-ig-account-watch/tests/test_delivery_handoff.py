@@ -106,3 +106,28 @@ def test_plan_rejects_instagram_media_symlink_before_owner_handoff(tmp_path, mon
 
     assert state_path.read_bytes() == original
     assert not (tmp_path / "ig-handoff.json").exists()
+
+
+def test_synthetic_rollback_retry_reuses_instagram_operation_and_media(tmp_path, monkeypatch, config_path):
+    import sys
+
+    support = str(Path(__file__).resolve().parents[2] / "service-bursawatch-control" / "tests")
+    if support not in sys.path:
+        sys.path.insert(0, support)
+    from legacy_handoff_rehearsal import SyntheticDeliveryOwner, rehearse_legacy_handoff
+
+    media_root = tmp_path / "media"
+    profile, value, _asset_path, _payload = make_state(media_root, config_path)
+    state_path = tmp_path / "ig-state.json"
+    state.save_state(state_path, value)
+    original = state_path.read_bytes()
+    monkeypatch.setenv("INSTAGRAM_POST_WATCH_MEDIA_ROOT", str(media_root))
+    plan_path = tmp_path / "ig-handoff.json"
+    adapter = InstagramAccountWatchHandoffAdapter(state_path, plan_path, {profile.id: profile})
+    owner = SyntheticDeliveryOwner()
+
+    identities = rehearse_legacy_handoff(
+        adapter, owner, restore_source=lambda: state_path.write_bytes(original)
+    )
+
+    assert len(identities) == 2

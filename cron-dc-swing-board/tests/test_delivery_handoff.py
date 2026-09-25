@@ -210,3 +210,20 @@ def test_plan_rejects_create_snapshot_that_does_not_match_persisted_payload(tmp_
 
     with pytest.raises(HandoffError, match="snapshot does not match"):
         adapter.build_handoff_snapshot()
+
+
+def test_synthetic_rollback_retry_reuses_board_operation_keys(tmp_path):
+    support = str(ROOT / "service-bursawatch-control" / "tests")
+    if support not in sys.path:
+        sys.path.insert(0, support)
+    from legacy_handoff_rehearsal import SyntheticDeliveryOwner, rehearse_legacy_handoff
+
+    store, _chart = _fixture_state(tmp_path)
+    owner = SyntheticDeliveryOwner()
+    adapter = delivery_handoff.SwingBoardHandoffAdapter(
+        store.path, tmp_path / "board-handoff.json", media_root=tmp_path, delivery_client=owner
+    )
+
+    identities = rehearse_legacy_handoff(adapter, owner, restore_source=lambda: None)
+
+    assert len(identities) == 4

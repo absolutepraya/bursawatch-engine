@@ -228,3 +228,34 @@ def test_rejected_service_import_leaves_source_without_handoff_ack(tmp_path):
     payload = updated["stats"]["delivery_payloads"][candidates[0].key]
     assert "delivery_handoff" not in payload
     assert "image_delivery_handoff" not in payload
+
+
+def test_synthetic_rollback_retry_reuses_market_news_operations(tmp_path):
+    import sys
+
+    support = str(Path(__file__).resolve().parents[2] / "service-bursawatch-control" / "tests")
+    if support not in sys.path:
+        sys.path.insert(0, support)
+    from legacy_handoff_rehearsal import SyntheticDeliveryOwner, rehearse_legacy_handoff
+
+    state_path = tmp_path / "news-state.json"
+    media_path = tmp_path / "media" / "tuntun-701.jpg"
+    media_path.parent.mkdir()
+    media_path.write_bytes(b"synthetic exact image bytes")
+    _state, _candidates = _state_with_payloads(
+        state_path,
+        [
+            {"source_message_id": 701, "ticker": "DEWA", "text_discord_id": "7001", "image_discord_id": "7002"},
+            {"source_message_id": 702, "ticker": "CBRE", "text_discord_id": None},
+        ],
+    )
+    original = state_path.read_bytes()
+    owner = SyntheticDeliveryOwner()
+    adapter = delivery_handoff.MarketNewsHandoffAdapter(state_path, tmp_path / "news-handoff.json")
+
+    identities = rehearse_legacy_handoff(
+        adapter, owner, restore_source=lambda: state_path.write_bytes(original)
+    )
+
+    assert len(identities) == 3
+    assert len(owner.new_pending_acceptances) == 1
