@@ -14,6 +14,14 @@ handlers, verifies synchronized checksums, runs the package's isolated no-post
 control, and stores sanitized durable release records under
 `~/.local/share/bursawatch-release/`.
 
+The Telegram source-ingest pilot's no-post control is synthetic-only. Its
+scrubbed environment contains no inherited credentials; the wrapper does not
+read `.env` in this mode. It calls `runner.py --verify-synthetic`, which uses
+an in-memory catalog row and message, makes no network calls, writes no pilot
+state, and reports explicit `network=false`, `secrets=false`, and `writes=false`
+evidence. The wrapper's only verification artifact is a log inside the release
+agent's disposable temporary directory.
+
 The existing `#hermes` heartbeat is submitted through the shared Discord
 Delivery Owner at `http://127.0.0.1:9140`. The systemd unit exposes the already
 installed client package, and the release environment names its mode-0600

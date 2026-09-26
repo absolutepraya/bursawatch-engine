@@ -23,7 +23,7 @@ for local, installed in (("lib-bursawatch-control", "lib-bursawatch-control"), (
 from pipeline_runtime import PipelineRuntime
 from source_event_client import SourceEventClient
 from telegram_resilience import PolyCopResilience, acquire_probe_after_active_lease, is_transport_error
-from adapter import ingest_all
+from adapter import endpoints as normalize_endpoints, envelope as make_envelope, ingest_all
 from bursawatch_discord_delivery import DeliveryClient, OperationIntent
 
 WATCHER = "bursawatch-tg-source-ingest"
@@ -363,5 +363,48 @@ def main() -> int:
     return 0
 
 
+def verify_synthetic() -> int:
+    """Exercise only pure adapter contracts with synthetic, in-memory data."""
+    from types import SimpleNamespace
+
+    snapshot = {
+        "revision": 1,
+        "subscriptions": [{
+            "platform": "telegram",
+            "endpoint_id": "telegram:phintraprofits",
+            "publisher_id": "phintraco",
+            "address": "phintraprofits",
+            "provider_id": "1444713822",
+            "capability_id": "trading_plans",
+            "verification_status": "verified",
+            "enabled": True,
+        }],
+    }
+    bound = normalize_endpoints(snapshot)["telegram:phintraprofits"]
+    now = datetime(2026, 9, 26, tzinfo=timezone.utc)
+    message = SimpleNamespace(
+        id=424242,
+        raw_text="Synthetic Telegram source event",
+        date=now,
+        media=None,
+        photo=None,
+        reply_to_msg_id=None,
+    )
+    event = make_envelope(bound, message, now)
+    if event["provider_event_id"] != "424242" or event["payload"]["text"] != message.raw_text:
+        raise RuntimeError("synthetic Telegram adapter verification failed")
+    print(json.dumps({
+        "outcome": "synthetic-ok",
+        "network": False,
+        "secrets": False,
+        "writes": False,
+        "events": 1,
+        "content_hash": event["content_hash"],
+    }, separators=(",", ":")))
+    return 0
+
+
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--verify-synthetic"]:
+        raise SystemExit(verify_synthetic())
     raise SystemExit(main())

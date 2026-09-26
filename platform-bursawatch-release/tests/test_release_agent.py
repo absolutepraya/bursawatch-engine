@@ -72,15 +72,100 @@ def test_manifest_orders_dependencies_before_the_x_runtime_unit():
     ]
 
 
-def test_source_ingest_pilots_are_metadata_only_and_share_one_library():
+def test_telegram_source_ingest_resolves_runtime_dependencies_before_pilot():
+    units = manifest().matching_units(["cron-tg-source-ingest/bin/runner.py"])
+    identifiers = [unit.identifier for unit in units]
+
+    assert identifiers == [
+        "lib-bursawatch-control",
+        "lib-bursawatch-discord-delivery",
+        "lib-bursawatch-pipeline-runtime",
+        "lib-bursawatch-source-ingest-pilot",
+        "lib-bursawatch-source-media",
+        "lib-telegram-resilience",
+        "cron-tg-market-news",
+        "lib-swing-format",
+        "cron-dc-swing-board",
+        "cron-tg-phintraco-swing",
+        "cron-tg-kelas-investasi-gtw",
+        "cron-tg-source-ingest-pilot",
+    ]
+    assert all(unit.handler == "runtime" for unit in units)
+    runtime = units[-1]
+    assert runtime.runtime == "bursawatch-tg-source-ingest"
+    assert runtime.verification == "telegram-source-ingest-no-post"
+
+
+def test_other_source_ingest_pilots_remain_metadata_only():
     result = manifest()
     for platform in ("x", "ig", "wa", "rss"):
         units = result.matching_units([f"cron-{platform}-source-ingest/bin/runner.py"])
-        assert [unit.identifier for unit in units] == [
-            "lib-bursawatch-source-ingest-pilot",
-            f"cron-{platform}-source-ingest-pilot",
-        ]
-        assert all(unit.handler == "metadata" for unit in units)
+        assert [unit.identifier for unit in units] == [f"cron-{platform}-source-ingest-pilot"]
+        assert [unit.handler for unit in units] == ["metadata"]
+
+
+def test_telegram_source_ingest_no_post_is_synthetic_and_has_no_secret_environment(tmp_path: Path):
+    specification = release_agent._no_post_specification("telegram-source-ingest-no-post", tmp_path)
+
+    assert specification.command == (str(Path.home() / ".hermes/scripts/bursawatch-tg-source-ingest.sh"),)
+    assert specification.environment["BURSAWATCH_RELEASE_NO_POST"] == "1"
+    assert specification.environment["BURSAWATCH_RELEASE_NO_POST_TEMP"] == str(specification.temporary_path)
+    assert specification.environment["HOME"] == str(Path.home())
+    assert set(specification.environment) == {
+        "PATH", "HOME", "TZ", "LANG", "BURSAWATCH_RELEASE_NO_POST",
+        "BURSAWATCH_RELEASE_NO_POST_TEMP",
+    }
+    assert "POLYCOP_SESSION_STRING" not in specification.environment
+    assert "TELEGRAM_API_HASH" not in specification.environment
+    assert "BURSAWATCH_TG_SOURCE_CONTROL_PLANE_TOKEN_FILE" not in specification.environment
+
+
+def test_telegram_source_ingest_verification_rejects_non_synthetic_success():
+    with pytest.raises(release_agent.DeploymentError, match="synthetic verification"):
+        release_agent._verify_telegram_source_ingest_no_post('{"outcome":"ok"}')
+
+    release_agent._verify_telegram_source_ingest_no_post(
+        '{"outcome":"synthetic-ok","network":false,"secrets":false,"writes":false,"events":1,"content_hash":"' + "a" * 64 + '"}'
+    )
+
+
+def test_telegram_wrapper_runs_synthetic_check_without_reading_environment_files(tmp_path: Path):
+    home = tmp_path / "home"
+    skills = home / ".agents/skills"
+    skills.mkdir(parents=True)
+    for package, runtime in (
+        ("cron-tg-source-ingest", "bursawatch-tg-source-ingest"),
+        ("lib-bursawatch-control", "lib-bursawatch-control"),
+        ("lib-bursawatch-pipeline-runtime", "lib-bursawatch-pipeline-runtime"),
+        ("lib-bursawatch-source-ingest", "lib-bursawatch-source-ingest-pilot"),
+        ("lib-bursawatch-source-media", "lib-bursawatch-source-media"),
+        ("lib-bursawatch-discord-delivery", "lib-bursawatch-discord-delivery"),
+        ("lib-telegram-resilience", "lib-telegram-resilience"),
+    ):
+        (skills / runtime).symlink_to(REPOSITORY_ROOT / package, target_is_directory=True)
+    python = home / ".local/share/uv/tools/yahoo-finance-mcp/bin/python"
+    python.parent.mkdir(parents=True)
+    python.symlink_to(sys.executable)
+    env_path = home / ".hermes/.env"
+    env_path.mkdir(parents=True)  # Opening it as a file would fail if no-post reads it.
+    temporary = tmp_path / "release-agent-temporary"
+    temporary.mkdir()
+    wrapper = REPOSITORY_ROOT / "cron-tg-source-ingest/bin/bursawatch-tg-source-ingest.sh"
+    environment = {
+        "HOME": str(home),
+        "PATH": "/usr/bin:/bin",
+        "BURSAWATCH_RELEASE_NO_POST": "1",
+        "BURSAWATCH_RELEASE_NO_POST_TEMP": str(temporary),
+        "POLYCOP_SESSION_STRING": "must-not-be-passed",
+        "TELEGRAM_API_HASH": "must-not-be-passed",
+    }
+
+    result = subprocess.run([str(wrapper)], env=environment, text=True, capture_output=True, check=False)
+
+    assert result.returncode == 0, result.stderr
+    assert "must-not-be-passed" not in result.stdout + result.stderr
+    release_agent._verify_telegram_source_ingest_no_post(result.stdout)
+    assert [path.name for path in temporary.iterdir()] == ["telegram-source-ingest.log"]
 
 
 def test_delivery_library_precedes_every_migrated_discord_runtime():

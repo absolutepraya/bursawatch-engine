@@ -50,6 +50,9 @@ def plan_legacy_cursor_seed(legacy_state_path: Path, state_root: Path, endpoint:
     if endpoint.get("endpoint_id") == "telegram:phintraprofits":
         field = "observed_message_id"
         pending_key = "outbox"
+    elif endpoint.get("endpoint_id") == "telegram:phintasprofits":
+        field = "providers.phintraco.observed_message_id"
+        pending_key = None
     elif endpoint.get("endpoint_id") == "telegram:kelasinvestasiid":
         field = "cursor"
         pending_key = "pending"
@@ -61,10 +64,44 @@ def plan_legacy_cursor_seed(legacy_state_path: Path, state_root: Path, endpoint:
     if observed != expected or endpoint.get("catalog_revision") != catalog_revision:
         raise LegacySeedBlocked("Telegram endpoint identity or catalog revision differs from the reviewed binding")
     raw, legacy = read_legacy_snapshot(legacy_state_path)
-    boundary = legacy.get(field)
+    if endpoint["endpoint_id"] == "telegram:phintasprofits":
+        if legacy.get("version") != 1:
+            raise LegacySeedBlocked("Market News state version is unsupported for Phintraco cursor seeding")
+        providers = legacy.get("providers")
+        lane = providers.get("phintraco") if type(providers) is dict else None
+        boundary = lane.get("observed_message_id") if type(lane) is dict else None
+        candidates = legacy.get("candidates")
+        active_phintraco_phases = {"pending_analysis", "awaiting_agent", "pending_selection", "pending_delivery"}
+        if type(candidates) is not dict:
+            raise LegacySeedBlocked("Market News candidate state is unavailable for Phintraco cursor seeding")
+        for record in candidates.values():
+            candidate = record.get("candidate") if type(record) is dict else None
+            if type(candidate) is not dict or type(record.get("phase")) is not str:
+                raise LegacySeedBlocked("Market News candidate state is malformed")
+            if candidate.get("provider") not in {"phintraco", "tuntun"} or record["phase"] not in {
+                "pending_analysis", "awaiting_agent", "pending_selection", "pending_delivery",
+                "suppressed_rank", "suppressed_duplicate", "suppressed_ineligible",
+                "delivered", "delivery_failed", "abandoned",
+            }:
+                raise LegacySeedBlocked("Market News candidate state contains an unsupported outcome")
+            if candidate.get("provider") == "phintraco" and record["phase"] in active_phintraco_phases:
+                raise LegacySeedBlocked("pending Phintraco Market News candidates must be reconciled before cursor seeding")
+        stats = legacy.get("stats")
+        status_events = stats.get("stock_status_events", {}) if type(stats) is dict else None
+        if type(status_events) is not dict:
+            raise LegacySeedBlocked("Market News stock-status state is unavailable for Phintraco cursor seeding")
+        for event in status_events.values():
+            if type(event) is not dict or type(event.get("phase")) is not str:
+                raise LegacySeedBlocked("Market News stock-status state is malformed")
+            if event["phase"] not in {"pending_delivery", "delivered", "rejected"}:
+                raise LegacySeedBlocked("Market News stock-status state contains an unsupported outcome")
+            if event["phase"] == "pending_delivery":
+                raise LegacySeedBlocked("pending Phintraco stock-status deliveries must be reconciled before cursor seeding")
+    else:
+        boundary = legacy.get(field)
     if type(boundary) is not int or boundary < 0:
         raise LegacySeedBlocked(f"Telegram legacy {field} boundary is invalid")
-    pending = legacy.get(pending_key) if type(legacy) is dict else None
+    pending = legacy.get(pending_key) if pending_key is not None else None
     if pending:
         raise LegacySeedBlocked(f"Telegram legacy {pending_key} work must be reconciled before cursor seeding")
     if endpoint["endpoint_id"] == "telegram:kelasinvestasiid" and legacy.get("outbox"):
