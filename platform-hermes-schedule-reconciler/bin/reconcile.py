@@ -109,6 +109,8 @@ class DesiredSchedule:
     enabled: bool
     interval_seconds: int
     timezone: str
+    already_applied: bool
+    reported_error: str | None
 
     @property
     def interval_minutes(self) -> int:
@@ -251,6 +253,22 @@ def parse_desired_schedule(payload: object) -> DesiredSchedule:
     if type(checksum) is not str or checksum != schedule_checksum(enabled, interval_seconds, timezone):
         raise ContractError("schedule checksum does not match schedule")
     _validate_timestamp(snapshot["updated_at"])
+    reconciliation = payload["reconciliation"]
+    if type(reconciliation) is not dict or set(reconciliation) != {
+        "status", "applied_revision", "last_error", "effective"
+    }:
+        raise ContractError("schedule reconciliation has unexpected fields")
+    if type(reconciliation["status"]) is not str or reconciliation["status"] not in {
+        "not_connected", "pending", "applied", "error"
+    }:
+        raise ContractError("schedule reconciliation status is invalid")
+    applied_revision = reconciliation["applied_revision"]
+    if applied_revision is not None and (type(applied_revision) is not int or applied_revision < 1):
+        raise ContractError("schedule applied_revision is invalid")
+    if reconciliation["last_error"] is not None and type(reconciliation["last_error"]) is not str:
+        raise ContractError("schedule reconciliation last_error is invalid")
+    if type(reconciliation["effective"]) is not bool:
+        raise ContractError("schedule reconciliation effective is invalid")
     return DesiredSchedule(
         job_id=job_id,
         runtime_job_key=runtime_job_key,
@@ -258,6 +276,14 @@ def parse_desired_schedule(payload: object) -> DesiredSchedule:
         enabled=enabled,
         interval_seconds=interval_seconds,
         timezone=timezone,
+        already_applied=(
+            reconciliation["status"] == "applied"
+            and applied_revision == revision
+            and reconciliation["effective"]
+        ),
+        reported_error=(
+            reconciliation["last_error"] if reconciliation["status"] == "error" else None
+        ),
     )
 
 
@@ -473,6 +499,9 @@ def reconcile_all(
             if settings.dry_run:
                 outcomes.append(Outcome(desired.job_id, desired.revision, "error", [], error))
                 continue
+            if desired.reported_error == error:
+                outcomes.append(Outcome(desired.job_id, desired.revision, "error", [], error))
+                continue
             try:
                 client.report(desired, "error", error)
             except StaleRevisionError:
@@ -486,6 +515,9 @@ def reconcile_all(
             continue
         if settings.dry_run:
             outcomes.append(Outcome(desired.job_id, desired.revision, "planned", actions, None))
+            continue
+        if not actions and desired.already_applied:
+            outcomes.append(Outcome(desired.job_id, desired.revision, "applied", [], None))
             continue
         try:
             client.report(desired, "applied")
