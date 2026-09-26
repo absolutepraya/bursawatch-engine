@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib-bursawatch-discord-delivery" / "bin"))
 
 import discord
@@ -200,3 +202,77 @@ def test_handoff_plan_keeps_existing_text_receipt_and_does_not_replay_it(tmp_pat
     assert len(snapshot.items) == 1
     assert snapshot.items[0].receipt == {"channel_id": "1525102508714889257", "message_id": "123456789012345678"}
     assert snapshot.items[0].operation.payload["content"]
+
+
+def _legacy_bri_profile():
+    profile_data = {
+        "id": "bri-danareksa-sekuritas", "enabled": True, "mode": "forward",
+        "channel_jid": "1@newsletter", "channel_url": "https://whatsapp.com/channel/example",
+        "display_name": "BRI", "emoji": "<:bri:12345678901234567>",
+        "status_emojis": {"up": None, "down": None, "hold": None},
+        "discord_channels": [{"key": "macro_news", "channel_id": "1525102508714889257", "description": "Macro"}],
+        "forward_media": False, "enable_llm_title": True, "enable_llm_summary": True,
+        "enable_llm_routing": True, "enable_llm_relevance_filter": True,
+        "relevance_scope": "financial_market", "additional_prompt_instruction": "", "max_items_per_poll": 5,
+    }
+    return config.load_data({"version": 2, "profiles": [profile_data]}).profiles[0]
+
+
+def _legacy_bri_state(tmp_path, phase):
+    import json
+
+    profile = _legacy_bri_profile()
+    event = normalize_bridge_event({
+        "channel_jid": profile.channel_jid, "message_id": "wa-legacy-1",
+        "published_at": "2026-09-15T04:26:00Z", "text": "Source post", "media": [],
+    })
+    record = {
+        "event_key": event.event_key,
+        "profile_id": profile.id,
+        "event": serialize_event(event),
+        "agent_phase": phase,
+        "analysis": {
+            "event_key": event.event_key, "is_relevant": True,
+            "route": "macro_news", "title": "Source title", "summary": "Source summary",
+        },
+        "text_index": 1,
+    }
+    if phase == "delivered":
+        record["delivered_at"] = "2026-09-15T04:27:00+00:00"
+    state_path = tmp_path / "legacy-wa-state.json"
+    state_path.write_text(
+        json.dumps({"version": 1, "profiles": {}, "outbox": [record]}),
+        encoding="utf-8",
+    )
+    return profile, state_path
+
+
+def test_handoff_skips_terminal_legacy_record_without_reconstructable_items(tmp_path):
+    import delivery_handoff
+
+    profile, state_path = _legacy_bri_state(tmp_path, "delivered")
+    original = state_path.read_bytes()
+    plan_path = tmp_path / "legacy-wa-plan.json"
+    adapter = delivery_handoff.WhatsAppChannelWatchHandoffAdapter(
+        state_path, plan_path, archive_root=tmp_path / "archive", profiles={profile.id: profile},
+    )
+
+    plan = delivery_handoff.plan_handoff(adapter, plan_path=plan_path)
+
+    assert plan.operation_count == 0
+    assert adapter.skipped_terminal_legacy_count == 1
+    assert state_path.read_bytes() == original
+
+
+def test_handoff_still_rejects_ready_legacy_record_without_items(tmp_path):
+    import delivery_handoff
+    from bursawatch_discord_delivery.handoff import HandoffError
+
+    profile, state_path = _legacy_bri_state(tmp_path, "ready")
+    adapter = delivery_handoff.WhatsAppChannelWatchHandoffAdapter(
+        state_path, tmp_path / "ready-wa-plan.json", archive_root=tmp_path / "archive",
+        profiles={profile.id: profile},
+    )
+
+    with pytest.raises(HandoffError, match="outbox cannot be reconstructed"):
+        adapter.build_handoff_snapshot()

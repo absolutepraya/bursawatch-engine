@@ -892,32 +892,7 @@ class BoardStoreTransaction:
 
     def episode_sources(self, episode_id: int) -> set[str]:
         """Resolve immutable source names through the board-owned reply intents."""
-        starter = self._connection.execute(
-            """SELECT s.source FROM episodes e JOIN source_events s
-            ON s.id = e.starter_source_event_id WHERE e.id = ?""",
-            (episode_id,),
-        ).fetchone()
-        sources: set[str] = {str(starter["source"])} if starter is not None else set()
-        rows = self._connection.execute(
-            "SELECT dedupe_key FROM outbox "
-            "WHERE episode_id = ? AND operation = 'post_source_reply'",
-            (episode_id,),
-        ).fetchall()
-        seen: set[str] = set()
-        for row in rows:
-            try:
-                event_key, _ = _source_event_key_from_dedupe(row["dedupe_key"])
-            except StoreBlockedError:
-                continue
-            if event_key in seen:
-                continue
-            seen.add(event_key)
-            event = self._connection.execute(
-                "SELECT source FROM source_events WHERE event_key = ?", (event_key,)
-            ).fetchone()
-            if event is not None:
-                sources.add(str(event["source"]))
-        return sources
+        return episode_sources_from_connection(self._connection, episode_id)
 
     def update_episode(self, episode: Episode) -> None:
         self._connection.execute(
@@ -1504,6 +1479,38 @@ def _source_event_key_from_dedupe(value: str) -> tuple[str, int]:
         if trailing.isdigit():
             chunk_index = int(trailing)
     return event_key, chunk_index
+
+
+def episode_sources_from_connection(
+    connection: sqlite3.Connection, episode_id: int
+) -> set[str]:
+    """Resolve source names for one episode using an existing read connection."""
+    starter = connection.execute(
+        """SELECT s.source FROM episodes e JOIN source_events s
+        ON s.id = e.starter_source_event_id WHERE e.id = ?""",
+        (episode_id,),
+    ).fetchone()
+    sources: set[str] = {str(starter["source"])} if starter is not None else set()
+    rows = connection.execute(
+        "SELECT dedupe_key FROM outbox "
+        "WHERE episode_id = ? AND operation = 'post_source_reply'",
+        (episode_id,),
+    ).fetchall()
+    seen: set[str] = set()
+    for row in rows:
+        try:
+            event_key, _ = _source_event_key_from_dedupe(row["dedupe_key"])
+        except StoreBlockedError:
+            continue
+        if event_key in seen:
+            continue
+        seen.add(event_key)
+        event = connection.execute(
+            "SELECT source FROM source_events WHERE event_key = ?", (event_key,)
+        ).fetchone()
+        if event is not None:
+            sources.add(str(event["source"]))
+    return sources
 
 
 def _episode_from_row(row: sqlite3.Row) -> Episode:
