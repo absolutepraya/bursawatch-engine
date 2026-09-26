@@ -724,12 +724,15 @@ class InMemoryStore:
 class PostgresStore:
     """Postgres implementation used by the deployed control-plane service."""
 
-    def __init__(self, dsn: str) -> None:
+    def __init__(self, dsn: str, *, pool: Any | None = None) -> None:
         if type(dsn) is not str or not dsn.strip():
             raise ValueError("Postgres DSN is required")
         self.dsn = dsn
+        self.pool = pool
 
     def _connect(self):
+        if self.pool is not None:
+            return self.pool.connection()
         try:
             import psycopg
             from psycopg.rows import dict_row

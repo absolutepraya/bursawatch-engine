@@ -45,6 +45,13 @@ helper does not bootstrap or reconfigure the host:
 it never copies `.env`, edits the dedicated environment, systemd unit, Nginx,
 DNS, TLS, Hermes scheduler, or reconciler.
 
+The API requirements include `psycopg_pool`. After a reviewed release, check
+the service health and normal watcher run outcomes, then compare redacted
+Supavisor client authentication and termination counts across comparable
+windows. The shared API pool should reduce short-lived client connections;
+the counts alone do not attribute all project traffic to this service. No
+database-state or log-deletion step is part of this release.
+
 ## Planned reviewed sequence
 
 1. Compare this source branch and each template with the VPS target.

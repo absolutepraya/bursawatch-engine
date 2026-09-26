@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import datetime
 import json
 import os
@@ -20,6 +21,7 @@ from .profile_metadata import (
     profile_inputs_from_config,
     validate_profile_id,
 )
+from .postgres_pool import create_postgres_pool
 from .store import (
     EventRecord,
     InMemoryStore,
@@ -248,9 +250,21 @@ def create_app(
     store = store or InMemoryStore()
     auth = auth or StaticTokenAuth.from_environment()
     validators = validators or {}
-    catalog_store = catalog_store or (PostgresCatalogStore(store.dsn) if isinstance(store, PostgresStore) else MemoryCatalogStore())
-    inbox_store = inbox_store or (PostgresInboxStore(store.dsn, catalog_store) if isinstance(store, PostgresStore) else MemoryInboxStore(catalog_store))
-    app = FastAPI(title="Bursawatch Control Plane", version="1.0.0")
+    pool = store.pool if isinstance(store, PostgresStore) else None
+    catalog_store = catalog_store or (PostgresCatalogStore(store.dsn, pool=pool) if isinstance(store, PostgresStore) else MemoryCatalogStore())
+    inbox_store = inbox_store or (PostgresInboxStore(store.dsn, catalog_store, pool=pool) if isinstance(store, PostgresStore) else MemoryInboxStore(catalog_store))
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        try:
+            if pool is not None:
+                pool.open(wait=True, timeout=10.0)
+            yield
+        finally:
+            if pool is not None:
+                pool.close()
+
+    app = FastAPI(title="Bursawatch Control Plane", version="1.0.0", lifespan=lifespan)
     if allowed_origins:
         app.add_middleware(
             CORSMiddleware,
@@ -726,7 +740,7 @@ def create_app_from_environment() -> FastAPI:
         dsn = os.environ.get("DATABASE_URL", "").strip()
         if not dsn:
             raise RuntimeError("DATABASE_URL is required when CONTROL_PLANE_STORE=postgres")
-        store = PostgresStore(dsn)
+        store = PostgresStore(dsn, pool=create_postgres_pool(dsn))
     else:
         raise RuntimeError("set CONTROL_PLANE_STORE=memory or CONTROL_PLANE_STORE=postgres")
     origins = [
