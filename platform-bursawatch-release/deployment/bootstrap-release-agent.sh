@@ -2,18 +2,36 @@
 # Explicit VPS bootstrap for the static Bursawatch release-agent boundary.
 set -euo pipefail
 
-if [[ "${1:-}" != "--apply" || "$#" -gt 2 ]]; then
-  echo "refused: run bootstrap with --apply, optionally followed by --retry-blocked" >&2
+if [[ "${1:-}" != "--apply" ]]; then
+  echo "refused: run bootstrap with --apply and optional reviewed flags" >&2
   exit 2
 fi
 retry_blocked=false
-if [[ "$#" -eq 2 ]]; then
-  [[ "$2" == "--retry-blocked" ]] || {
-    echo "refused: unknown bootstrap option: $2" >&2
-    exit 2
-  }
-  retry_blocked=true
-fi
+preserve_agent_code=false
+shift
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --retry-blocked)
+      [[ "$retry_blocked" == false ]] || {
+        echo "refused: duplicate --retry-blocked option" >&2
+        exit 2
+      }
+      retry_blocked=true
+      ;;
+    --preserve-agent-code)
+      [[ "$preserve_agent_code" == false ]] || {
+        echo "refused: duplicate --preserve-agent-code option" >&2
+        exit 2
+      }
+      preserve_agent_code=true
+      ;;
+    *)
+      echo "refused: unknown bootstrap option: $1" >&2
+      exit 2
+      ;;
+  esac
+  shift
+done
 
 [[ "$(id -un)" == "praya" && "$HOME" == "/home/praya" ]] || {
   echo "refused: run this bootstrap as praya from /home/praya" >&2
@@ -51,6 +69,12 @@ grep -q '^BURSAWATCH_RELEASE_GITHUB_TOKEN=.' "$environment_file" || {
   echo "refused: $delivery_client_token_file must have mode 0600" >&2
   exit 1
 }
+if [[ "$preserve_agent_code" == true ]]; then
+  [[ -x "$agent_dir/bursawatch-release-agent.sh" && -r "$agent_dir/release_agent.py" ]] || {
+    echo "refused: installed release-agent code is incomplete" >&2
+    exit 1
+  }
+fi
 command -v git >/dev/null
 command -v rsync >/dev/null
 command -v sudo >/dev/null
@@ -60,10 +84,11 @@ id -nG "$release_user" | tr ' ' '\n' | grep -Fxq sudo || {
   echo "refused: $release_user must retain passworded sudo-group access" >&2
   exit 1
 }
+install -d -m 0700 "$agent_dir" "$state_root"
 
 # One root transaction performs the boundary change and service start. This
 # avoids needing broad passwordless sudo for follow-up bootstrap commands.
-sudo bash -s -- "$HOME" "$agent_dir" "$state_root" "$package_dir" "$release_user" "$release_group" "$retry_blocked" <<'ROOT'
+sudo bash -s -- "$HOME" "$agent_dir" "$state_root" "$package_dir" "$release_user" "$release_group" "$retry_blocked" "$preserve_agent_code" <<'ROOT'
 set -euo pipefail
 
 release_home="$1"
@@ -73,6 +98,7 @@ package_dir="$4"
 release_user="$5"
 release_group="$6"
 retry_blocked="$7"
+preserve_agent_code="$8"
 broad_sudoers_file=/etc/sudoers.d/praya
 expected_broad_rule='praya ALL=(ALL) NOPASSWD:ALL'
 
@@ -120,11 +146,12 @@ backup_if_present /etc/systemd/system/bursawatch-release-agent.timer release-age
 backup_if_present /etc/sudoers.d/bursawatch-release-agent release-agent.sudoers
 backup_if_present "$broad_sudoers_file" praya.sudoers
 
-install -d -o "$release_user" -g "$release_group" -m 0700 "$agent_dir" "$state_root"
-install -o "$release_user" -g "$release_group" -m 0700 \
-  "$package_dir/bin/bursawatch-release-agent.sh" "$agent_dir/bursawatch-release-agent.sh"
-install -o "$release_user" -g "$release_group" -m 0600 \
-  "$package_dir/bin/release_agent.py" "$agent_dir/release_agent.py"
+if [[ "$preserve_agent_code" != true ]]; then
+  install -o "$release_user" -g "$release_group" -m 0700 \
+    "$package_dir/bin/bursawatch-release-agent.sh" "$agent_dir/bursawatch-release-agent.sh"
+  install -o "$release_user" -g "$release_group" -m 0600 \
+    "$package_dir/bin/release_agent.py" "$agent_dir/release_agent.py"
+fi
 
 install -o root -g root -m 0644 \
   "$package_dir/deployment/systemd/bursawatch-release-agent.service" \

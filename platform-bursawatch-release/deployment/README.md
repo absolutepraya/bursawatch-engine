@@ -63,7 +63,9 @@ checkout of this repository:
 3. Run `./platform-bursawatch-release/deployment/bootstrap-release-agent.sh --apply`.
    This is the only operation that installs or changes the agent boundary. To
    retry a release that was blocked by the old boundary, explicitly add
-   `--retry-blocked` after `--apply`.
+   `--retry-blocked` after `--apply`. If the installed agent code has a
+   different reviewed checksum from this checkout, add
+   `--preserve-agent-code` to change only its host boundary.
 4. Inspect `systemctl status bursawatch-release-agent.timer`, then inspect
    `~/.local/share/bursawatch-release/state.json` and its per-SHA record. The
    first candidate intentionally reports a manual release requirement because
