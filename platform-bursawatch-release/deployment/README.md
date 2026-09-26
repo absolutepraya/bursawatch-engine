@@ -33,9 +33,15 @@ never change the release decision. Release records contain bounded, sanitized
 diagnostics and release metadata only; credentials are redacted and live state
 is not copied into them.
 
-The systemd unit leaves `MemoryDenyWriteExecute` and `NoNewPrivileges` unset.
-On this host, `MemoryDenyWriteExecute` implies `NoNewPrivileges`, which blocks
-the agent's narrowly scoped sudo restart of the control-plane service.
+On this VPS's systemd 252, `RestrictAddressFamilies`, `LockPersonality`, and
+`SystemCallArchitectures` implicitly set kernel `NoNewPrivs` for the unit,
+although `systemctl show` reports `NoNewPrivileges=no`. That prevents the
+agent from using its narrowly scoped sudo restart. The service leaves those
+three restrictions unset and retains the other filesystem and temporary-file
+sandboxing. The bootstrap also removes the exact
+`/etc/sudoers.d/praya` blanket `NOPASSWD:ALL` rule, after saving a root-only
+rollback copy. The existing `sudo` group continues to grant passworded admin
+access; the release agent retains only its fixed Control Plane restart rule.
 
 ## Explicit bootstrap sequence
 
@@ -50,10 +56,14 @@ checkout of this repository:
    reuse `gh` authentication. Set up the Delivery Owner separately, install
    its shared client under `/home/praya/.agents/skills/`, and create the
    private client-token file named in the environment file.
-2. Compare every source asset in this directory against its target. In
-   particular, review the one-command sudoers rule before copying it.
+2. Compare every source asset in this directory against its target. Confirm
+   `/etc/sudoers.d/praya` contains exactly `praya ALL=(ALL) NOPASSWD:ALL`;
+   the bootstrap refuses to change any other contents. Confirm the operator
+   still has passworded access through the `sudo` group.
 3. Run `./platform-bursawatch-release/deployment/bootstrap-release-agent.sh --apply`.
-   This is the only operation that installs or changes the agent boundary.
+   This is the only operation that installs or changes the agent boundary. To
+   retry a release that was blocked by the old boundary, explicitly add
+   `--retry-blocked` after `--apply`.
 4. Inspect `systemctl status bursawatch-release-agent.timer`, then inspect
    `~/.local/share/bursawatch-release/state.json` and its per-SHA record. The
    first candidate intentionally reports a manual release requirement because

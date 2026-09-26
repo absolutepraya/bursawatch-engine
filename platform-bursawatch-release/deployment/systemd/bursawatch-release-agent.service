@@ -19,10 +19,6 @@ ReadWritePaths=/home/praya/.agents/skills
 ReadWritePaths=/home/praya/.hermes/bursawatch-control-plane
 ReadWritePaths=/home/praya/.hermes/scripts
 ReadWritePaths=/home/praya/.logs
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-LockPersonality=true
-SystemCallArchitectures=native
-
-# On this host, MemoryDenyWriteExecute implies NoNewPrivileges and prevents
-# sudo from acquiring the privilege needed for the narrowly scoped restart.
-# Keep both directives unset; the sudoers rule permits only the exact command.
+# On this host's systemd 252, the following restrictions implicitly enable
+# kernel NoNewPrivs and block sudo's narrow restart rule. Keep them unset; the
+# bootstrap removes praya's blanket NOPASSWD rule before starting this service.
