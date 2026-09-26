@@ -235,6 +235,12 @@ After reviewing the plan, applying requires the explicit `--apply` flag,
 source backup and acknowledgment sidecar beside the plan. It is an operator
 migration command only; watcher, archive, and backfill startup never invokes
 it.
+For legacy records written before `items` were stored, planning omits a record
+only when it is marked delivered, has a delivery timestamp, and has no pending
+Board or media work. The command summary reports this count separately; a ready
+record or a delivered record with unresolved work still blocks planning. The
+source state remains unchanged, and the planner never regenerates a delivered
+message from incomplete historical analysis.
 
 ### BRI Swing back-edit helper
 

@@ -55,7 +55,7 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
   --expected-thread-id <id>` previews one active source card repair. Add
   `--apply` to replace its attachment in place through the durable owner outbox;
   it never creates a new forum thread.
-- **Handoff:** `bin/delivery_handoff.py --plan <private-plan-path>` writes a payload-free, read-only plan preserving known forum/thread/starter/reply IDs and persisted create snapshots. `--apply <private-plan-path>` also requires `BURSAWATCH_DISCORD_HANDOFF_ALLOW_APPLY=1` and a Delivery Owner admin token file; it imports through the service and writes only a private acknowledgment sidecar, preserving the Board SQLite source.
+- **Handoff:** `bin/delivery_handoff.py --plan <private-plan-path>` writes a payload-free, read-only plan preserving known forum/thread/starter/reply IDs and persisted create snapshots. Historical `Source plan` tag names are translated from canonical episode state and source records before resolving current Discord tag IDs. `--apply <private-plan-path>` also requires `BURSAWATCH_DISCORD_HANDOFF_ALLOW_APPLY=1` and a Delivery Owner admin token file; it imports through the service and writes only a private acknowledgment sidecar, preserving the Board SQLite source.
 - **Check:** set `IDX_SWING_PLAN_BOARD_NO_POST=1` and isolated state and media paths. The local fake is selected before Delivery Owner client settings are read, so no-post tests never reach a live service. Never reset state or create a live forum item.
 - **Bootstrap:** `bootstrap --dry-run --lookback-sessions 20` reads
   Phintraco Telegram history through its resilience lease and reports candidate

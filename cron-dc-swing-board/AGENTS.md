@@ -81,8 +81,10 @@ requires `--apply <private-plan-path>`,
 `BURSAWATCH_DISCORD_HANDOFF_ALLOW_APPLY=1`, and the Delivery Owner admin token
 file. The adapter imports receipts or pending intents into the shared service
 and records acknowledgments in a private sidecar; it does not rewrite Board
-SQLite state. Never run apply against production without a separately approved
-handoff window.
+SQLite state. Historical `Source plan` tag names are resolved from the
+episode's canonical lifecycle and source records before querying the current
+Discord tag catalog. Never run apply against production without a separately
+approved handoff window.
 
 `bootstrap --dry-run --lookback-sessions 20` is a Telegram-history
 reconstruction report only. It reads the Phintraco source through the shared
