@@ -19,10 +19,10 @@ import "@/app/connected-sources.css";
 type Request = ReturnType<typeof controlBrowser>;
 type Tab = "securities" | "institutions" | "people";
 const institutionImages: Record<string, string> = {
-  "bri-danareksa": "/securities/bri-danareksa.webp",
+  "bri-danareksa": "/securities/bri-danareksa-2026.webp",
   phintraco: "/securities/phintraco.webp",
   tuntun: "/securities/tuntun.webp",
-  "samuel-sekuritas": "/securities/samuel.webp",
+  "samuel-sekuritas": "/securities/samuel-2026.webp",
 };
 const curatedPeopleImages: Record<string, string> = {
   "x-kutekians": "/sources/kutekians.png",

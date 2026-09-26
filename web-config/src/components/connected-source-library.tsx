@@ -28,7 +28,7 @@ const securities = [
   {
     id: "bri-danareksa",
     name: "BRI Danareksa Sekuritas",
-    image: "/securities/bri-danareksa.webp",
+    image: "/securities/bri-danareksa-2026.webp",
     description: "Equity research and market commentary.",
     website: "https://www.bridanareksasekuritas.co.id/",
     previewStatus: "Added in preview",
@@ -52,7 +52,7 @@ const securities = [
   {
     id: "stockbit",
     name: "Stockbit",
-    image: "/securities/stockbit.webp",
+    image: "/securities/stockbit-2026.webp",
     description: "Stockbit research and Snips source preview.",
     website: "https://stockbit.com/about",
     previewStatus: "Added in preview",
@@ -60,7 +60,7 @@ const securities = [
   {
     id: "samuel",
     name: "Samuel Sekuritas Indonesia",
-    image: "/securities/samuel.webp",
+    image: "/securities/samuel-2026.webp",
     description: "A brokerage source under consideration.",
     website: "https://samuel.co.id/",
     previewStatus: "To add",
