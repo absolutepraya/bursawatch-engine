@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { controlBrowser } from "@/lib/control-browser";
 import { WorkspaceError } from "@/lib/control-browser";
 import type { CatalogConfig, EffectiveCatalog, SourceCatalog } from "@/lib/source-catalog";
@@ -11,8 +11,19 @@ vi.mock("./toast-provider", () => ({ useToast: () => toast }));
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   toast.mockReset();
 });
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((success, failure) => {
+    resolve = success;
+    reject = failure;
+  });
+  return { promise, resolve, reject };
+}
 
 const emptyConfig: CatalogConfig = {
   selected_securities: [],
@@ -80,6 +91,66 @@ function renderCatalog(request: ReturnType<typeof controlBrowser>) {
 }
 
 describe("SourceCatalogView", () => {
+  it("keeps the skeleton visible and counts each catalog read as it settles", async () => {
+    const catalogRead = deferred<SourceCatalog>();
+    const effectiveRead = deferred<EffectiveCatalog>();
+    const request = vi.fn((path: string) =>
+      path === "source-catalog" ? catalogRead.promise : effectiveRead.promise,
+    ) as unknown as ReturnType<typeof controlBrowser>;
+    renderCatalog(request);
+
+    await waitFor(() => expect(vi.mocked(request)).toHaveBeenCalledTimes(2));
+    const loading = screen.getByRole("region", { name: "Loading status" });
+    expect(loading.querySelector(".workspace-skeleton")).not.toBeNull();
+    expect(loading.getAttribute("aria-label")).toBe("Loading status");
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuemin")).toBe("0");
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuemax")).toBe("2");
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("0");
+    expect(screen.getByText("0 of 2 requests finished.")).toBeTruthy();
+
+    await act(async () => catalogRead.resolve(catalog(false)));
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("1");
+    expect(screen.getByText("1 of 2 requests finished.")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Loading status" })).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: "Securities" })).toBeNull();
+
+    await act(async () => effectiveRead.resolve(effective()));
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "Loading status" })).toBeNull(),
+    );
+    expect(screen.getByRole("tab", { name: "Securities" })).toBeTruthy();
+  });
+
+  it("shows safe per-request details during a long read and recovers from a failed read", async () => {
+    vi.useFakeTimers();
+    const catalogRead = deferred<SourceCatalog>();
+    const effectiveRead = deferred<EffectiveCatalog>();
+    const request = vi.fn((path: string) =>
+      path === "source-catalog" ? catalogRead.promise : effectiveRead.promise,
+    ) as unknown as ReturnType<typeof controlBrowser>;
+    renderCatalog(request);
+    await act(async () => Promise.resolve());
+    expect(vi.mocked(request)).toHaveBeenCalledTimes(2);
+
+    await act(async () => vi.advanceTimersByTime(8_000));
+    const loading = screen.getByRole("region", { name: "Loading status" });
+    expect(screen.getByText("This is taking longer than usual")).toBeTruthy();
+    expect(loading.querySelector("details")?.textContent).toContain("Request details");
+
+    await act(async () =>
+      catalogRead.reject(new WorkspaceError("unavailable", "PRIVATE_FIXTURE_PROVIDER_DIAGNOSTIC")),
+    );
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("1");
+    expect(loading.querySelector("details")?.textContent).toMatch(/could not be loaded|failed/i);
+    expect(document.body.textContent).not.toContain("PRIVATE_FIXTURE_PROVIDER_DIAGNOSTIC");
+
+    await act(async () => effectiveRead.resolve(effective()));
+    expect(screen.queryByRole("region", { name: "Loading status" })).toBeNull();
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("PRIVATE_FIXTURE_PROVIDER_DIAGNOSTIC");
+    expect(screen.getByRole("button", { name: "Reload current catalog" })).toBeTruthy();
+  });
+
   it("renders backend-confirmed viewers without mutation controls", async () => {
     const request = vi.fn(async (path: string) =>
       path === "source-catalog" ? catalog(false) : effective(),
