@@ -4,9 +4,7 @@ This host-bound platform package is the only planned bridge from Bursawatch
 desired interval schedules to the live Hermes scheduler. It reads the private
 control-plane API, resolves immutable runtime job names from the live Hermes
 registry, invokes only the supported Hermes CLI, reloads the registry to
-verify any change, then reports a new revision or changed outcome. Each timer
-pass still checks the live job, but an already applied matching job or an
-unchanged recurring error needs no repeat report.
+verify the result, then reports the revision outcome.
 
 It never edits `~/.hermes/cron/jobs.json`, writes a cron expression supplied by
 the web application, exposes its credential to the web application, or changes

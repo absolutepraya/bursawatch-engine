@@ -10,8 +10,8 @@ def create_postgres_pool(dsn: str):
     except ImportError as exc:
         raise RuntimeError("psycopg with pool support is required for the Postgres API") from exc
 
-    # The API runs as one Uvicorn process. The inbox may borrow a catalog
-    # connection while holding its own transaction, so one slot is insufficient.
+    # The API runs as one Uvicorn process. Keep concurrent request checkouts
+    # bounded; inbox catalog reads reuse their existing transaction connection.
     # Supavisor transaction mode does not support server-side prepared statements.
     return ConnectionPool(
         conninfo=dsn,

@@ -15,7 +15,7 @@ Control-plane desired revision
   -> read-only Hermes registry lookup by exact runtime job name
   -> hermes cron edit, pause, or resume
   -> registry reload and exact verification
-  -> guarded applied or error report when the recorded outcome needs updating
+  -> guarded applied or error report for the same desired revision
 ```
 
 The reconciler sees only interval jobs. It converts an API-approved whole
@@ -30,14 +30,6 @@ An outcome only becomes effective after the control plane records `applied` for
 the same current revision. If an administrator writes a newer revision mid-run,
 the old report is rejected and the next timer pass fetches the new desired
 state.
-
-Each timer pass compares every live interval job with the desired schedule.
-When the live job matches a revision already recorded as applied, the
-reconciler skips the repeat API report. A new revision, a repaired live drift,
-or a changed failure still gets a guarded report. The reconciler retries a
-failed live check every minute, but skips an identical error report for the
-same revision. A recovery reports `applied`. This avoids updating unchanged
-control-plane rows every minute while preserving drift checks.
 
 ## Environment
 

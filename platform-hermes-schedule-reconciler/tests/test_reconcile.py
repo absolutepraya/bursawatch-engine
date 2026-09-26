@@ -52,17 +52,6 @@ def desired_job(*, revision: int = 1, enabled: bool = True, interval_seconds: in
     }
 
 
-def already_applied_job(*, revision: int = 1, enabled: bool = True, interval_seconds: int = 60) -> dict[str, object]:
-    job = desired_job(revision=revision, enabled=enabled, interval_seconds=interval_seconds)
-    job["reconciliation"] = {
-        "status": "applied",
-        "applied_revision": revision,
-        "last_error": None,
-        "effective": True,
-    }
-    return job
-
-
 class Response:
     def __init__(self, payload: object, status: int = 200) -> None:
         self.payload = json.dumps(payload).encode("utf-8")
@@ -207,88 +196,6 @@ def test_reconciler_edits_then_pauses_reloads_registry_and_reports_applied(tmp_p
         "enabled": False,
         "schedule": {"kind": "interval", "minutes": 2},
     }
-
-
-def test_reconciler_checks_live_job_but_skips_report_for_unchanged_applied_revision(tmp_path: Path):
-    registry = tmp_path / "jobs.json"
-    write_registry(registry)
-    api = FakeControlPlane([already_applied_job()])
-    client = reconcile.ControlPlaneClient("https://control.example.test", "reconciler-token", 15, opener=api)
-    looked_up: list[str] = []
-
-    def loader(path: Path, runtime_job_key: str) -> reconcile.HermesJob:
-        looked_up.append(runtime_job_key)
-        return reconcile.load_hermes_job(path, runtime_job_key)
-
-    outcomes = reconcile.reconcile_all(
-        settings(registry), client, registry_loader=loader,
-        command_runner=lambda *_args, **_kwargs: pytest.fail("unchanged job invoked Hermes CLI"),
-    )
-
-    assert looked_up == ["bursawatch-tg-market-news"]
-    assert outcomes == [reconcile.Outcome("bursawatch-tg-market-news", 1, "applied", [])]
-    assert api.reports == []
-
-
-def test_reconciler_repairs_live_drift_and_reports_even_when_revision_was_applied(tmp_path: Path):
-    registry = tmp_path / "jobs.json"
-    write_registry(registry, enabled=False)
-    api = FakeControlPlane([already_applied_job()])
-    client = reconcile.ControlPlaneClient("https://control.example.test", "reconciler-token", 15, opener=api)
-    commands: list[list[str]] = []
-
-    def runner(command: list[str], timeout: float) -> None:
-        commands.append(command)
-        write_registry(registry, enabled=True)
-
-    outcomes = reconcile.reconcile_all(settings(registry), client, command_runner=runner)
-
-    assert commands == [["/usr/local/bin/hermes", "cron", "resume", "6a0b4f895b07"]]
-    assert outcomes == [reconcile.Outcome("bursawatch-tg-market-news", 1, "applied", ["resume job"])]
-    assert api.reports == [{"revision": 1, "status": "applied"}]
-
-
-def test_reconciler_reports_matching_job_when_revision_is_not_yet_applied(tmp_path: Path):
-    registry = tmp_path / "jobs.json"
-    write_registry(registry)
-    api = FakeControlPlane([desired_job(revision=2)])
-    client = reconcile.ControlPlaneClient("https://control.example.test", "reconciler-token", 15, opener=api)
-
-    outcomes = reconcile.reconcile_all(settings(registry), client)
-
-    assert outcomes == [reconcile.Outcome("bursawatch-tg-market-news", 2, "applied", [])]
-    assert api.reports == [{"revision": 2, "status": "applied"}]
-
-
-def test_reconciler_retries_live_failure_without_repeating_identical_error_report(tmp_path: Path):
-    registry = tmp_path / "jobs.json"
-    registry.write_text('{"jobs": []}', encoding="utf-8")
-    job = desired_job()
-    error = "Hermes scheduler job name was missing or ambiguous"
-    job["reconciliation"] = {
-        "status": "error", "applied_revision": None,
-        "last_error": error, "effective": False,
-    }
-    api = FakeControlPlane([job])
-    client = reconcile.ControlPlaneClient("https://control.example.test", "reconciler-token", 15, opener=api)
-    looked_up: list[str] = []
-
-    def loader(path: Path, runtime_job_key: str) -> reconcile.HermesJob:
-        looked_up.append(runtime_job_key)
-        return reconcile.load_hermes_job(path, runtime_job_key)
-
-    first = reconcile.reconcile_all(settings(registry), client, registry_loader=loader)
-    assert first == [reconcile.Outcome("bursawatch-tg-market-news", 1, "error", [], error)]
-    assert looked_up == ["bursawatch-tg-market-news"]
-    assert api.reports == []
-
-    job["reconciliation"]["last_error"] = "previous failure"
-    reconcile.reconcile_all(settings(registry), client)
-    assert api.reports == [{"revision": 1, "status": "error", "error": error}]
-
-    write_registry(registry)
-    reconcile.reconcile_all(settings(registry), client)
-    assert api.reports[-1] == {"revision": 1, "status": "applied"}
 
 
 @pytest.mark.parametrize(
