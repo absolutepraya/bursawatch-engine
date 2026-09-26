@@ -86,6 +86,20 @@ def _source_state(path: Path) -> tuple[bytes, dict[str, object]]:
         raise HandoffError("WhatsApp Channel source state is invalid") from None
 
 
+def _terminal_legacy_delivery(record: dict[str, object]) -> bool:
+    """Return whether a pre-items record is provably terminal and needs no owner work."""
+    delivered_at = record.get("delivered_at")
+    if record.get("agent_phase") != "delivered" or not isinstance(delivered_at, str) or not delivered_at.strip():
+        return False
+    if record.get("board_phase") == "pending" or record.get("board_link_phase") == "pending":
+        return False
+    if record.get("board_phase") == "accepted" and record.get("board_link_phase") != "patched":
+        return False
+    if record.get("media_delivery_status") in {"pending", "retrying"}:
+        return False
+    return True
+
+
 class WhatsAppChannelWatchHandoffAdapter:
     """Translate saved WhatsApp text/media cursors into owner operations."""
 
@@ -109,6 +123,7 @@ class WhatsAppChannelWatchHandoffAdapter:
             profiles = {profile.id: profile for profile in loaded.config.profiles}
         self.profiles = dict(profiles)
         self._operations: dict[str, OperationIntent] = {}
+        self.skipped_terminal_legacy_count = 0
 
     def _acks(self) -> dict[str, object]:
         if not self.ack_path.exists():
@@ -222,9 +237,18 @@ class WhatsAppChannelWatchHandoffAdapter:
         backup, value = _source_state(self.state_path)
         items: list[HandoffItem] = []
         self._operations = {}
+        self.skipped_terminal_legacy_count = 0
         for record in value["outbox"]:
-            if not isinstance(record, dict) or record.get("agent_phase") not in {"ready", "delivered"}:
+            if not isinstance(record, dict):
                 continue
+            phase = record.get("agent_phase")
+            if phase not in {"ready", "delivered"}:
+                continue
+            if phase == "delivered" and "items" not in record:
+                if _terminal_legacy_delivery(record):
+                    self.skipped_terminal_legacy_count += 1
+                    continue
+                raise HandoffError("WhatsApp Channel legacy delivery has unresolved work")
             try:
                 profile = self.profiles[str(record["profile_id"])]
                 event = deserialize_queue_event(record["event"])
@@ -400,7 +424,9 @@ def main(argv: list[str] | None = None) -> int:
         adapter = WhatsAppChannelWatchHandoffAdapter(_state_path(), args.plan or args.apply)
         if args.plan is not None:
             plan = plan_handoff(adapter, plan_path=args.plan)
-            print(json.dumps(plan.as_dict(), sort_keys=True, separators=(",", ":")))
+            summary = plan.as_dict()
+            summary["skipped_terminal_legacy_count"] = adapter.skipped_terminal_legacy_count
+            print(json.dumps(summary, sort_keys=True, separators=(",", ":")))
             return 0
         require_apply_authorization(apply=True)
         result = apply_handoff(args.apply, adapter, _delivery_client(include_admin=True))

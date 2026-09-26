@@ -16,6 +16,7 @@ from bursawatch_discord_delivery.handoff import APPLY_ENVIRONMENT_VARIABLE, Hand
 from bursawatch_discord_delivery.models import OperationIntent, OperationReceipt
 
 import delivery_handoff
+from models import SourceEvent
 from store import BoardStore
 
 
@@ -30,7 +31,11 @@ class ReadOnlyDelivery:
     def query(self, query):
         self.queries.append(query)
         assert query.kind == "forum_channel_read"
-        return {"available_tags": [{"id": "1550000000000000008", "name": "Primary plan"}]}
+        return {"available_tags": [
+            {"id": "1550000000000000008", "name": "Primary plan"},
+            {"id": "1550000000000000007", "name": "Chart context"},
+            {"id": "1550000000000000006", "name": "Supporting setup"},
+        ]}
 
     def adopt_completed(self, intent, receipt):
         self.adopted.append(("completed", intent, dict(receipt)))
@@ -227,3 +232,44 @@ def test_synthetic_rollback_retry_reuses_board_operation_keys(tmp_path):
     identities = rehearse_legacy_handoff(adapter, owner, restore_source=lambda: None)
 
     assert len(identities) == 4
+
+
+def test_plan_replaces_removed_source_plan_tag_from_canonical_episode_state(tmp_path):
+    store = BoardStore(tmp_path / "legacy-board.sqlite3")
+    episode = store.create_episode("SCMA", "source", "SCMA", NOW)
+    event = SourceEvent.from_json({
+        "event_key": "legacy:kelas:scma",
+        "source": "kelas-investasi",
+        "kind": "social",
+        "ticker": "SCMA",
+        "published_at": NOW.isoformat(),
+        "source_url": "https://t.me/kelasinvestasiid/1",
+        "all_content": "Source context",
+        "source_title": "SCMA source context",
+        "source_status": None,
+        "plan": None,
+        "media_path": None,
+        "media_urls": [],
+    })
+    submitted = store.submit_event(event, NOW)
+    with sqlite3.connect(store.path) as connection:
+        connection.execute(
+            "UPDATE episodes SET lifecycle_tag = 'Source plan', starter_source_event_id = ? WHERE id = ?",
+            (submitted.id, episode.id),
+        )
+    store.enqueue_outbox(
+        "create_thread", episode.id,
+        {"name": "SCMA", "content": "legacy card", "tag_names": ["Source plan"]},
+        "event:legacy:board:create", NOW,
+    )
+    owner = ReadOnlyDelivery()
+    adapter = delivery_handoff.SwingBoardHandoffAdapter(
+        store.path, tmp_path / "legacy-board-plan.json", media_root=tmp_path,
+        delivery_client=owner,
+    )
+    before_state = _logical_state(store.path)
+
+    snapshot = adapter.build_handoff_snapshot()
+
+    assert snapshot.items[0].operation.payload["applied_tags"] == ["1550000000000000006"]
+    assert _logical_state(store.path) == before_state

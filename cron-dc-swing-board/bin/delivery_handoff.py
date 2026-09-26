@@ -37,6 +37,8 @@ from bursawatch_discord_delivery.handoff import (
 )
 
 from discord_forum import DiscordForumClient, FORUM_CHANNEL_ID, operation_key, stable_nonce
+from store import episode_sources_from_connection
+from tags import LEGACY_SOURCE_PLAN, desired_lifecycle_tag
 
 _ACK_VERSION = 1
 _MAX_MEDIA_BYTES = 8 * 1024 * 1024
@@ -180,7 +182,12 @@ class SwingBoardHandoffAdapter:
             raise HandoffError("cannot persist Swing Board handoff acknowledgment") from None
 
     def _operation_payload(
-        self, operation: str, dedupe_key: str, payload_json: str, episode: sqlite3.Row | None
+        self,
+        snapshot_db: sqlite3.Connection,
+        operation: str,
+        dedupe_key: str,
+        payload_json: str,
+        episode: sqlite3.Row | None,
     ) -> dict[str, object]:
         try:
             payload = json.loads(payload_json)
@@ -189,6 +196,21 @@ class SwingBoardHandoffAdapter:
         if not isinstance(payload, dict):
             raise HandoffError("Swing Board outbox payload is invalid")
         payload = dict(payload)
+        tag_names = payload.get("tag_names")
+        if isinstance(tag_names, list) and LEGACY_SOURCE_PLAN in tag_names:
+            try:
+                current_tag = desired_lifecycle_tag(
+                    str(episode["lifecycle"]),
+                    episode["lifecycle_tag"],
+                    episode_sources_from_connection(snapshot_db, int(episode["id"])),
+                )
+            except (KeyError, TypeError, ValueError):
+                raise HandoffError(
+                    "Swing Board legacy source tag cannot be resolved from episode state"
+                ) from None
+            payload["tag_names"] = [
+                current_tag if name == LEGACY_SOURCE_PLAN else name for name in tag_names
+            ]
         payload["_delivery_key"] = dedupe_key
         payload.setdefault("nonce_value", dedupe_key)
         if operation != "create_thread":
@@ -274,7 +296,7 @@ class SwingBoardHandoffAdapter:
                     # the topic and applies its accepted thread receipt.
                     continue
                 payload = self._operation_payload(
-                    operation_name, row["dedupe_key"], row["payload_json"], episode
+                    snapshot_db, operation_name, row["dedupe_key"], row["payload_json"], episode
                 )
                 intent, preflight = self._intent(
                     operation_name,
