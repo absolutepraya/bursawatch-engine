@@ -1,7 +1,8 @@
 # Telegram source ingest pilot
 
-This package is a development pilot. It has no Hermes job, deployed wrapper, or
-automatic release unit. The existing Telegram jobs remain the active readers.
+This package is an unscheduled development pilot with an automatic release
+unit and a deployable runtime wrapper. It has no Hermes job; the existing
+Telegram jobs remain the active readers.
 
 `bin/runner.py` reads one authenticated effective source catalog snapshot, then
 `bin/adapter.py` groups enabled verified subscriptions by canonical endpoint.
@@ -21,7 +22,16 @@ apply interface and requires the unchanged preview plan plus
 `BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY=1`; it refuses initialized
 cursors or pending handoffs and blocks legacy pending domain work. Kelas maps
 its current cursor to both the new cursor and future-only bootstrap boundary.
-Production cutover remains separately approved. Tuntun has no seed mapping.
+For `telegram:phintasprofits`, the Phintraco Market News provider cursor is
+previewable from the checked-in `providers.phintraco.observed_message_id`
+field in a version 1 snapshot. The preview fails closed on malformed state.
+Preview and apply both block while any Phintraco candidate is in
+`pending_analysis`, `awaiting_agent`, `pending_selection`, or
+`pending_delivery`, or any stock-status event is in `pending_delivery`; those
+old domain effects need an event/receipt crosswalk first. Pending Tuntun News
+candidates do not block Phintraco seeding because Tuntun remains on its legacy
+reader. Production cutover remains separately approved. Tuntun has no seed
+mapping in this pilot.
 
 The inbox owns source events and independent subscription work. The adapter
 never submits Discord or Board operations. `service-bursawatch-source-media`
@@ -52,6 +62,18 @@ cutover, and separate scheduler approval. No production cursor should be
 bootstrapped by this pilot. The source owner must emit a heartbeat to #hermes
 on every future scheduled run, including no-hit runs, using the shared Discord
 Delivery Owner and the package contract's fixed heartbeat format.
+
+The release wrapper is `bin/bursawatch-tg-source-ingest.sh`. Its normal entry
+point reads only `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`,
+`POLYCOP_SESSION_STRING`, `BURSAWATCH_TG_SOURCE_CONTROL_PLANE_URL`,
+`BURSAWATCH_TG_SOURCE_CONTROL_PLANE_TOKEN_FILE`, optional
+`BURSAWATCH_SOURCE_MEDIA_URL` and `BURSAWATCH_SOURCE_MEDIA_UPLOAD_TOKEN_FILE`,
+and the two `BURSAWATCH_DISCORD_DELIVERY_*` settings from
+`~/.hermes/.env`. Credential contents stay in their existing private files and
+never enter logs. The release-agent `BURSAWATCH_RELEASE_NO_POST=1`
+path does not open `.env` or credential files. It invokes only the synthetic
+in-memory contract check, passes a scrubbed environment, and keeps its log in
+the release agent's disposable `BURSAWATCH_RELEASE_NO_POST_TEMP` directory.
 
 Run focused synthetic tests from the repository root with
 `../../.venv/bin/python -m pytest -q cron-tg-source-ingest/tests`.

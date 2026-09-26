@@ -696,6 +696,8 @@ class ReleaseDeployer:
             output = _run_command(specification.command, environment=specification.environment, timeout=300)
             if verification == "stockbit-snips-no-post":
                 _verify_stockbit_no_post(output, Path(specification.environment["STOCKBIT_SNIPS_STATE_PATH"]))
+            elif verification == "telegram-source-ingest-no-post":
+                _verify_telegram_source_ingest_no_post(output)
         except CommandFailure as exc:
             exc.add_details(
                 verification=verification,
@@ -735,6 +737,27 @@ def _verify_stockbit_no_post(output: str, state_path: Path) -> None:
         or state.get("articles") != {}
         or timestamp.tzinfo is None
         or timestamp.utcoffset() is None
+    ):
+        raise failure
+
+
+def _verify_telegram_source_ingest_no_post(output: str) -> None:
+    """Require a synthetic adapter result with explicit no-side-effect claims."""
+    failure = DeploymentError("Telegram source-ingest synthetic verification did not confirm isolation")
+    try:
+        lines = output.strip().splitlines()
+        result = json.loads(lines[-1]) if lines else None
+    except (IndexError, ValueError, json.JSONDecodeError):
+        raise failure from None
+    if (
+        not isinstance(result, dict)
+        or result.get("outcome") != "synthetic-ok"
+        or result.get("network") is not False
+        or result.get("secrets") is not False
+        or result.get("writes") is not False
+        or result.get("events") != 1
+        or not isinstance(result.get("content_hash"), str)
+        or not re.fullmatch(r"[0-9a-f]{64}", result["content_hash"])
     ):
         raise failure
 
@@ -831,6 +854,16 @@ def _no_post_specification(verification: str, state_root: Path) -> NoPostSpecifi
             }
         )
         command = (str(scripts / "bursawatch-stockbit-snips.sh"),)
+    elif verification == "telegram-source-ingest-no-post":
+        environment = {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(home),
+            "TZ": "Asia/Jakarta",
+            "LANG": "C.UTF-8",
+            "BURSAWATCH_RELEASE_NO_POST": "1",
+            "BURSAWATCH_RELEASE_NO_POST_TEMP": str(base),
+        }
+        command = (str(scripts / "bursawatch-tg-source-ingest.sh"),)
     else:
         raise DeploymentError(f"release manifest references an unknown verification: {verification}")
     return NoPostSpecification(command=command, environment=environment, temporary_path=base)

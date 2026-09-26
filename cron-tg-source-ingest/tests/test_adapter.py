@@ -16,10 +16,25 @@ sys.path.insert(0, str(ROOT / "lib-bursawatch-control" / "bin"))
 sys.path.insert(0, str(ROOT / "cron-tg-source-ingest" / "bin"))
 from adapter import IntakeBlocked, endpoints, ingest_all as adapter_ingest_all, ingest_endpoint, plan_legacy_cursor_seed, envelope as telegram_envelope
 from runner import AGENT_OWNERS, HEARTBEAT_CHANNEL_ID, PIPELINE_OWNERS, dispatch_agent, format_fatal, format_heartbeat, post_heartbeat, run_once
+from runner import verify_synthetic
 
 
 NOW = datetime(2026, 9, 24, tzinfo=timezone.utc)
 ENDPOINT = {"platform": "telegram", "endpoint_id": "telegram:phintraprofits", "publisher_id": "phintraco", "address": "phintraprofits", "provider_id": "1444713822", "catalog_revision": 7, "capabilities": {"trading_plans"}}
+NEWS_ENDPOINT = {"platform": "telegram", "endpoint_id": "telegram:phintasprofits", "publisher_id": "phintraco", "address": "phintasprofits", "provider_id": None, "catalog_revision": 7, "capabilities": {"company_news"}}
+
+
+def test_release_synthetic_verification_uses_only_in_memory_fixture(capsys, tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert verify_synthetic() == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["outcome"] == "synthetic-ok"
+    assert result["network"] is False
+    assert result["secrets"] is False
+    assert result["writes"] is False
+    assert result["events"] == 1
+    assert len(result["content_hash"]) == 64
+    assert list(tmp_path.iterdir()) == []
 
 
 class FakeInbox:
@@ -107,6 +122,68 @@ def test_telegram_seed_validates_endpoint_tuple_and_pins_catalog_revision(tmp_pa
     changed_snapshot = {"revision": 8, "subscriptions": [{"platform": "telegram", "endpoint_id": "telegram:phintraprofits", "publisher_id": "phintraco", "address": "phintraprofits", "provider_id": "1444713822", "capability_id": "trading_plans", "verification_status": "verified", "enabled": True}]}
     with pytest.raises(Exception, match="catalog revision changed"):
         asyncio.run(adapter_ingest_all(FakeTelegram([]), changed_snapshot, state_root, FakeInbox(), NOW))
+
+
+def test_phintraco_news_cursor_seed_previews_market_news_provider_boundary(tmp_path):
+    legacy_path = tmp_path / "synthetic-snapshot" / "market-news.json"
+    legacy_path.parent.mkdir()
+    legacy_path.write_text(json.dumps({
+        "version": 1,
+        "providers": {"phintraco": {"observed_message_id": 35377}},
+        "candidates": {},
+        "stats": {"stock_status_events": {}},
+    }))
+    state_root = tmp_path / "new"
+
+    preview = plan_legacy_cursor_seed(legacy_path, state_root, NEWS_ENDPOINT, 7)
+
+    assert preview["status"] == "preview"
+    assert preview["proposed_anchor"] == "35377"
+    assert preview["legacy_state_sha256"] == hashlib.sha256(legacy_path.read_bytes()).hexdigest()
+    assert not (state_root / "telegram-phintasprofits" / "cursor.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("candidate_phase", "status_phase", "message"),
+    [
+        ("pending_analysis", None, "pending Phintraco Market News candidates"),
+        (None, "pending_delivery", "pending Phintraco stock-status deliveries"),
+    ],
+)
+def test_phintraco_news_seed_blocks_unreconciled_domain_work(tmp_path, candidate_phase, status_phase, message):
+    legacy_path = tmp_path / "synthetic-snapshot" / "market-news.json"
+    legacy_path.parent.mkdir()
+    candidates = {}
+    if candidate_phase:
+        candidates["phintraco:35378:ABCD"] = {
+            "candidate": {"provider": "phintraco"},
+            "phase": candidate_phase,
+        }
+    status_events = {"phintraco-stock-status:35379": {"phase": status_phase}} if status_phase else {}
+    legacy_path.write_text(json.dumps({
+        "version": 1,
+        "providers": {"phintraco": {"observed_message_id": 35377}},
+        "candidates": candidates,
+        "stats": {"stock_status_events": status_events},
+    }))
+
+    with pytest.raises(Exception, match=message):
+        plan_legacy_cursor_seed(legacy_path, tmp_path / "new", NEWS_ENDPOINT, 7)
+
+
+def test_phintraco_news_seed_does_not_block_pending_tuntun_candidate(tmp_path):
+    legacy_path = tmp_path / "synthetic-snapshot" / "market-news.json"
+    legacy_path.parent.mkdir()
+    legacy_path.write_text(json.dumps({
+        "version": 1,
+        "providers": {"phintraco": {"observed_message_id": 35377}},
+        "candidates": {"tuntun:991:ABCD": {"candidate": {"provider": "tuntun"}, "phase": "pending_analysis"}},
+        "stats": {"stock_status_events": {}},
+    }))
+
+    preview = plan_legacy_cursor_seed(legacy_path, tmp_path / "new", NEWS_ENDPOINT, 7)
+
+    assert preview["status"] == "preview"
 
 
 def test_telegram_ack_recovery_preserves_staged_published_at(tmp_path):

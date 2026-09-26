@@ -1,8 +1,8 @@
 # Source ingest handoff
 
 `bin/source_ingest.py` provides an endpoint-local future-only cursor and the
-Task 3 durable source inbox handoff contract. It is used only by the
-unscheduled Task 5 platform adapters. A source event is staged in a private
+Task 3 durable source inbox handoff contract. It is used by the Telegram pilot
+and planned later platform adapters. A source event is staged in a private
 spool before inbox acceptance; the cursor advances only after the receipt.
 An empty first poll persists an initialized cursor, so its first later event
 is accepted. Each staged event also has a durable position intent, allowing

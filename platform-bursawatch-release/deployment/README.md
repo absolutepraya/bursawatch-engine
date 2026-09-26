@@ -17,6 +17,14 @@ dependencies, apply automatic migrations, seed only absent baselines, restart
 the scoped API service through one sudoers command, and check loopback health.
 An explicit operations release also applies reviewed manual migrations.
 
+The Telegram source-ingest runtime is an unscheduled release unit. Its wrapper
+no-post check runs only `runner.py --verify-synthetic` with an in-memory source
+row and message. The release agent passes a scrubbed environment, and the
+wrapper skips `.env` and all credential files in this mode. It makes no network
+requests or pilot state writes; its verification log stays inside the
+release-agent temporary directory. Runtime installation does not register or
+enable a Hermes job.
+
 The agent stores sanitized per-SHA records and durable state below
 `~/.local/share/bursawatch-release/records/`. It submits the existing concise
 success, retry, or blocked heartbeat to `#hermes` through the shared Discord

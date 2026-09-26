@@ -55,8 +55,15 @@
     },
     {
       "id": "lib-bursawatch-source-ingest-pilot",
+      "handler": "runtime",
+      "runtime": "lib-bursawatch-source-ingest-pilot",
+      "paths": ["lib-bursawatch-source-ingest/bin/**"],
+      "verification": "checksum-only"
+    },
+    {
+      "id": "lib-bursawatch-source-ingest-pilot-metadata",
       "handler": "metadata",
-      "paths": ["lib-bursawatch-source-ingest/**"]
+      "paths": ["lib-bursawatch-source-ingest/README.md", "lib-bursawatch-source-ingest/tests/**"]
     },
     {
       "id": "lib-bursawatch-source-media",
@@ -150,8 +157,17 @@
     },
     {
       "id": "cron-tg-source-ingest-pilot",
+      "handler": "runtime",
+      "runtime": "bursawatch-tg-source-ingest",
+      "depends_on": ["lib-bursawatch-control", "lib-bursawatch-discord-delivery", "lib-bursawatch-pipeline-runtime", "lib-bursawatch-source-ingest-pilot", "lib-bursawatch-source-media", "lib-telegram-resilience", "cron-tg-market-news", "cron-tg-phintraco-swing", "cron-tg-kelas-investasi-gtw"],
+      "paths": ["cron-tg-source-ingest/bin/**", "cron-tg-source-ingest/SKILL.md"],
+      "wrappers": [{"source": "bursawatch-tg-source-ingest.sh", "destination": "bursawatch-tg-source-ingest.sh"}],
+      "verification": "telegram-source-ingest-no-post"
+    },
+    {
+      "id": "cron-tg-source-ingest-pilot-metadata",
       "handler": "metadata",
-      "paths": ["cron-tg-source-ingest/**"]
+      "paths": ["cron-tg-source-ingest/AGENTS.md", "cron-tg-source-ingest/tests/**"]
     },
     {
       "id": "cron-tg-market-news-metadata",
@@ -224,7 +240,6 @@
     {
       "id": "cron-x-source-ingest-pilot",
       "handler": "metadata",
-      "depends_on": ["lib-bursawatch-source-ingest-pilot"],
       "paths": ["cron-x-source-ingest/**"]
     },
     {
@@ -244,7 +259,6 @@
     {
       "id": "cron-ig-source-ingest-pilot",
       "handler": "metadata",
-      "depends_on": ["lib-bursawatch-source-ingest-pilot"],
       "paths": ["cron-ig-source-ingest/**"]
     },
     {
@@ -269,7 +283,6 @@
     {
       "id": "cron-wa-source-ingest-pilot",
       "handler": "metadata",
-      "depends_on": ["lib-bursawatch-source-ingest-pilot"],
       "paths": ["cron-wa-source-ingest/**"]
     },
     {
@@ -289,7 +302,6 @@
     {
       "id": "cron-rss-source-ingest-pilot",
       "handler": "metadata",
-      "depends_on": ["lib-bursawatch-source-ingest-pilot"],
       "paths": ["cron-rss-source-ingest/**"]
     },
     {
