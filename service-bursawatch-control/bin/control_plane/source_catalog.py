@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
@@ -307,10 +308,13 @@ class MemoryCatalogStore:
 
 
 class PostgresCatalogStore:
-    def __init__(self, dsn: str) -> None:
+    def __init__(self, dsn: str, *, pool: Any | None = None) -> None:
         self.dsn = dsn
+        self.pool = pool
 
     def _connect(self):
+        if self.pool is not None:
+            return self.pool.connection()
         import psycopg
         from psycopg.rows import dict_row
         return psycopg.connect(self.dsn, row_factory=dict_row)
@@ -319,15 +323,15 @@ class PostgresCatalogStore:
     def _decode(row: dict[str, Any]) -> dict[str, Any]:
         return {"revision": row["revision"], "config": row["config"], "sha256": row["config_sha256"], "actor_id": row["actor_id"], "updated_at": row["created_at"].isoformat()}
 
-    def get(self) -> dict[str, Any]:
-        with self._connect() as conn:
+    def get(self, *, connection=None) -> dict[str, Any]:
+        with (nullcontext(connection) if connection is not None else self._connect()) as conn:
             row = conn.execute("select revision, config, config_sha256, actor_id, created_at from bursawatch_source_catalog_revisions order by revision desc limit 1").fetchone()
         if row is None:
             raise RuntimeError("source catalog baseline migration is missing")
         return self._decode(row)
 
-    def registry(self) -> dict[str, Any]:
-        with self._connect() as conn:
+    def registry(self, *, connection=None) -> dict[str, Any]:
+        with (nullcontext(connection) if connection is not None else self._connect()) as conn:
             securities = conn.execute("select symbol, name, exchange from bursawatch_supported_securities order by symbol").fetchall()
             publishers = conn.execute("select publisher_id as id, category, name, kind, source_tier as tier from bursawatch_source_publishers order by publisher_id").fetchall()
             endpoints = conn.execute("select endpoint_id as id, publisher_id, platform, address, provider_id, system_owned from bursawatch_source_endpoints order by endpoint_id").fetchall()

@@ -40,6 +40,16 @@ worktree. WT links it into eligible feature worktrees. It is never committed.
 The reviewed VPS service uses its separate mode-`0600`
 `~/.hermes/bursawatch-control-plane.env`, never Hermes's shared `.env`.
 
+The long-lived API shares one process-local Psycopg pool across the watcher,
+source catalog, and source inbox Postgres stores. It opens during FastAPI
+startup and closes during shutdown, with one idle connection and at most four
+client connections. Each store method still commits or rolls back when its
+borrowed connection context exits. Source-event acceptance reads the catalog
+inside its existing advisory-locked transaction. The migration, baseline seed,
+and avatar refresh CLI commands keep their separate short-lived connections.
+Do not create a new database connection per API request or enable prepared
+statements for a Supavisor transaction-pooler DSN.
+
 The separate web origin must be supplied through the exact
 `CONTROL_PLANE_ALLOWED_ORIGINS` allowlist. Never use a wildcard origin with
 credentialed browser requests.
@@ -47,7 +57,8 @@ credentialed browser requests.
 Run the focused suite with:
 
 ```bash
-uv run --with 'fastapi>=0.115,<1' --with 'httpx>=0.27,<1' pytest -q tests
+uv run --with 'fastapi>=0.115,<1' --with 'httpx>=0.27,<1' \
+  --with 'psycopg[binary,pool]>=3.2,<4' pytest -q tests
 ```
 
 ## Local admin access-token helper

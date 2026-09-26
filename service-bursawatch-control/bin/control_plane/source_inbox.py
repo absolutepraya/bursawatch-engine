@@ -11,7 +11,7 @@ import uuid
 from typing import Any
 from urllib.parse import urlparse
 
-from .source_catalog import catalog_view, effective_snapshot
+from .source_catalog import MemoryCatalogStore, PostgresCatalogStore, catalog_view, effective_snapshot
 
 
 MAX_ATTEMPTS = 5
@@ -374,11 +374,14 @@ class MemoryInboxStore:
 
 
 class PostgresInboxStore:
-    def __init__(self, dsn: str, catalog_store):
+    def __init__(self, dsn: str, catalog_store: PostgresCatalogStore | MemoryCatalogStore, *, pool: Any | None = None):
         self.dsn = dsn
         self.catalog = catalog_store
+        self.pool = pool
 
     def _connect(self):
+        if self.pool is not None:
+            return self.pool.connection()
         import psycopg
         from psycopg.rows import dict_row
         return psycopg.connect(self.dsn, row_factory=dict_row)
@@ -402,7 +405,16 @@ class PostgresInboxStore:
                     raise InboxConflict("provider identity already accepted with different content; use correction")
                 rows = conn.execute("select work_key from bursawatch_source_work where event_key=%s and version=1 order by work_key", (key,)).fetchall()
                 return {"event_key": key, "version": 1, "duplicate": True, "work_keys": [r["work_key"] for r in rows]}
-            subs = _subscriptions(self.catalog.get(), self.catalog.registry(), envelope)
+            # Keep the production catalog snapshot under the same
+            # advisory-locked transaction. An injected test catalog may not
+            # implement connection-aware reads.
+            if isinstance(self.catalog, PostgresCatalogStore):
+                catalog = self.catalog.get(connection=conn)
+                registry = self.catalog.registry(connection=conn)
+            else:
+                catalog = self.catalog.get()
+                registry = self.catalog.registry()
+            subs = _subscriptions(catalog, registry, envelope)
             conn.execute("insert into bursawatch_source_events (event_key, endpoint_id, publisher_id, platform, provider_event_id) values (%s,%s,%s,%s,%s)", (key, envelope["endpoint_id"], envelope["publisher_id"], envelope["platform"], envelope["provider_event_id"]))
             conn.execute("insert into bursawatch_source_event_versions (event_key, version, kind, envelope, content_hash) values (%s,1,'original',%s::jsonb,%s)", (key, json.dumps(envelope), envelope["content_hash"]))
             keys = [self._insert_work(conn, key, 1, sub) for sub in subs]

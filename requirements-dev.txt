@@ -19,7 +19,7 @@ peewee==4.1.0
 platformdirs==4.10.0
 pluggy==1.6.0
 protobuf==7.35.1
-psycopg[binary]==3.3.6
+psycopg[binary,pool]==3.3.6
 pycparser==3.0
 Pygments==2.20.0
 PyJWT[crypto]==2.14.0

@@ -93,6 +93,21 @@ human principal configuration. `bin/migrate.py` uses an advisory lock and a
 private `bursawatch_schema_migrations` ledger. It applies each SQL file exactly
 once and refuses an applied file whose checksum changed.
 
+The persistent API uses a shared, process-local Psycopg pool for its three
+Postgres stores. Its size is one idle connection and at most four concurrent
+connections; the pool starts with the API and closes on shutdown. Borrowed
+connections retain each store method's transaction boundary. Source-event
+acceptance reads its catalog under the same transaction and advisory lock.
+Prepared statements are disabled so the same code works with a Supavisor
+transaction-pooler connection string. The migration, seed, and avatar refresh
+commands remain short-lived CLI database clients.
+
+This removes the Control Plane's known per-request connection churn. It does
+not establish that this service caused every Supavisor log in a billing window;
+verify the change against redacted Supavisor authentication and termination
+counts, service access logs, and successful watcher runs after the reviewed
+production release. Previously ingested logs are not database rows to delete.
+
 After migrations and before a watcher enables live mode, the explicitly
 approved deployment runs `bin/seed_baseline_configs.py`. Its eight reviewed
 JSON snapshots are exact copies of the current source defaults and tracked
