@@ -14,6 +14,7 @@ import {
 } from "@/lib/source-catalog";
 import { StatusBadge } from "./status-badge";
 import { useToast } from "./toast-provider";
+import { WorkspaceLoading, type LoadingRequest } from "./workspace-loading";
 import "@/app/connected-sources.css";
 
 type Request = ReturnType<typeof controlBrowser>;
@@ -65,6 +66,29 @@ function message(error: unknown) {
     return "The save could not be confirmed. Reload current settings before editing again.";
   return error instanceof Error ? error.message : "Could not load the source catalog.";
 }
+
+const revisionMismatchMessage = "Catalog revisions differ. Refresh to read a consistent snapshot.";
+const sourceRequests: LoadingRequest[] = [
+  { label: "Source catalog", status: "loading" },
+  { label: "Effective subscriptions", status: "loading" },
+];
+
+function safeReadError(error: unknown) {
+  if (error instanceof Error && error.message === revisionMismatchMessage) return error.message;
+  if (error instanceof WorkspaceError) {
+    const reasons: Record<string, string> = {
+      auth: "Your session has expired. Sign in again.",
+      forbidden: "Your account cannot access the source catalog.",
+      timeout: "The request timed out. Try again.",
+      "rate-limit": "The service is busy. Wait a moment, then try again.",
+      setup: "The workspace owner needs to finish connecting the service.",
+      "invalid-response": "The response could not be verified. Try again.",
+    };
+    if (reasons[error.code]) return reasons[error.code];
+  }
+  return "The source catalog could not be loaded. Check your connection and try again.";
+}
+
 export function SourceCatalogView({
   request,
   onDirtyChange,
@@ -77,6 +101,7 @@ export function SourceCatalogView({
   const [draft, setDraft] = useState<CatalogConfig | null>(null);
   const [tab, setTab] = useState<Tab>("securities");
   const [loading, setLoading] = useState(true);
+  const [readRequests, setReadRequests] = useState<LoadingRequest[]>(sourceRequests);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [saveBlocked, setSaveBlocked] = useState(false);
@@ -104,14 +129,64 @@ export function SourceCatalogView({
   const reload = useCallback(
     async (signal?: AbortSignal) => {
       setLoading(true);
+      setReadRequests(sourceRequests.map((entry) => ({ ...entry })));
       setError("");
+      const controller = new AbortController();
+      const cancel = () => controller.abort();
+      signal?.addEventListener("abort", cancel, { once: true });
+      if (signal?.aborted) controller.abort();
+      const mark = (index: number, status: LoadingRequest["status"], failure?: unknown) => {
+        if (controller.signal.aborted) return;
+        setReadRequests((current) =>
+          current.map((entry, position) =>
+            position === index
+              ? { ...entry, status, message: failure ? safeReadError(failure) : undefined }
+              : entry,
+          ),
+        );
+      };
+      async function read<T>(path: string, index: number): Promise<T> {
+        try {
+          const result = await request<T>(path, undefined, { signal: controller.signal });
+          mark(index, "ready");
+          return result;
+        } catch (failure) {
+          mark(index, "error", failure);
+          if (
+            failure instanceof WorkspaceError &&
+            ["auth", "forbidden"].includes(failure.code) &&
+            !controller.signal.aborted
+          ) {
+            setCatalog(null);
+            setDraft(null);
+            setEffective(null);
+            controller.abort();
+          }
+          throw failure;
+        }
+      }
       try {
-        const [nextCatalog, nextEffective] = await Promise.all([
-          request<SourceCatalog>("source-catalog", undefined, { signal }),
-          request<EffectiveCatalog>("source-catalog/effective", undefined, { signal }),
+        const [catalogResult, effectiveResult] = await Promise.allSettled([
+          read<SourceCatalog>("source-catalog", 0),
+          read<EffectiveCatalog>("source-catalog/effective", 1),
         ]);
+        const failures = [catalogResult, effectiveResult].filter(
+          (result): result is PromiseRejectedResult => result.status === "rejected",
+        );
+        if (failures.length) {
+          const accessFailure = failures.find(
+            (result) =>
+              result.reason instanceof WorkspaceError &&
+              ["auth", "forbidden"].includes(result.reason.code),
+          );
+          throw (accessFailure ?? failures[0]).reason;
+        }
+        if (catalogResult.status !== "fulfilled" || effectiveResult.status !== "fulfilled")
+          throw new Error("The source catalog could not be loaded.");
+        const nextCatalog = catalogResult.value;
+        const nextEffective = effectiveResult.value;
         if (nextCatalog.config.revision !== nextEffective.revision)
-          throw new Error("Catalog revisions differ. Refresh to read a consistent snapshot.");
+          throw new Error(revisionMismatchMessage);
         setCatalog(nextCatalog);
         setEffective(nextEffective);
         setDraft(structuredClone(nextCatalog.config.config));
@@ -120,7 +195,7 @@ export function SourceCatalogView({
         return true;
       } catch (failure) {
         if (signal?.aborted) return false;
-        setError(message(failure));
+        setError(safeReadError(failure));
         setSaveBlocked(true);
         if (failure instanceof WorkspaceError && ["auth", "forbidden"].includes(failure.code)) {
           setCatalog(null);
@@ -129,6 +204,7 @@ export function SourceCatalogView({
         }
         return false;
       } finally {
+        signal?.removeEventListener("abort", cancel);
         if (!signal?.aborted) setLoading(false);
       }
     },
@@ -337,7 +413,13 @@ export function SourceCatalogView({
           </button>
         </div>
       )}
-      {loading && <p role="status">Loading source catalog…</p>}
+      {loading && (
+        <WorkspaceLoading
+          title="Loading source catalog…"
+          requests={readRequests}
+          compact={Boolean(catalog)}
+        />
+      )}
       {catalog && draft && (
         <>
           {!canEdit && (

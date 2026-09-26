@@ -315,7 +315,7 @@ function SignedInWorkspace({
     readController.current?.abort();
     const controller = new AbortController();
     readController.current = controller;
-    if (view === "settings") {
+    if (view === "settings" || view === "sources") {
       setRefreshing(false);
       setError("");
       return;
@@ -427,6 +427,7 @@ function SignedInWorkspace({
           </div>
         ) : null}
         {view !== "settings" &&
+        view !== "sources" &&
         !(view === "history" && runId) &&
         !error &&
         (!records || refreshing) ? (
@@ -476,7 +477,7 @@ function SignedInWorkspace({
             onSelectRun={selectRun}
           />
         ) : null}
-        {records && view === "sources" ? (
+        {view === "sources" ? (
           <>
             <WorkspaceHeading
               title="Sources"

@@ -97,13 +97,17 @@ session restoration, network access and response decoding; saves retain a
 25-second deadline for their revision preflight and write. A cancelled or
 timed-out write remains an unknown outcome and is never automatically retried.
 
-The workspace begins with a skeleton for a full-page load, adds a spinner after
-two seconds, and exposes elapsed time and request details after eight seconds.
-Compact resource loaders name the actual operation. Reduced motion disables
-the spinner animation. Partial failures retain successful results with safe
-resource-specific reasons and recovery actions. Lost authentication discards
-protected records; it must not leave the editor or false empty diagnostics
-visible. Diagnostics never include raw provider errors, secrets or config.
+The shared loading UI begins with a skeleton and subtle shimmer only while a
+read is pending, adds a spinner after two seconds, and exposes elapsed time and
+request details after eight seconds. Known requests show a determinate progress
+bar and completed/total count; the details show safe per-resource pending,
+loaded, or error status. Sources tracks its catalog and effective-subscription
+reads as two requests, and compact loaders name the actual operation. Reduced
+motion leaves the skeleton static and disables the spinner animation. Partial
+failures retain successful results with safe resource-specific reasons and
+recovery actions. Lost authentication discards protected records; it must not
+leave the editor or false empty diagnostics visible. Diagnostics never include
+raw provider errors, secrets or config.
 
 ## Implemented surface
 
