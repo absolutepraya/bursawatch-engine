@@ -1,5 +1,10 @@
 # Bursawatch development repository
 
+## CI waiting policy (read first)
+
+- Never poll, watch, or wait on a GitHub CI run just to see it finish. After triggering CI, continue useful work or end the turn. Check the relevant run after it has finished, when its result is needed, then act on the observed pass or failure.
+- This is an interactive workflow rule. Keep CI checks and the VPS release agent's exact-`main`-SHA success gate unchanged.
+
 ## Scope and split boundary
 
 This private repository is the canonical Mac development source for

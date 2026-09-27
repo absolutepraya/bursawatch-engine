@@ -110,12 +110,14 @@ workflows from an Action-created commit.
    initialize both markers. Record the sign commit SHA.
    The merge SHA may itself show a blocked Vercel deployment; inspect the
    owner-authored sign SHA instead.
-4. Wait for `CI / validate` and the relevant `Web CI` checks on the **exact
-   current `main` SHA**, including the sign commit. In Daffa's Vercel account,
-   inspect each project triggered by that SHA; check both projects when the
-   markers are first created. Confirm the build logs, `Ready` state and
-   production domain assignment. A green web build or sign Action is not
-   delivery proof.
+4. Continue other useful work while CI and Vercel builds run. When the result
+   is needed for the next release decision, check `CI / validate` and the
+   relevant `Web CI` checks on the **exact current `main` SHA**, including the
+   sign commit. The release agent still requires successful `CI / validate`
+   for that exact SHA. In Daffa's Vercel account, inspect each project
+   triggered by that SHA; check both projects when the markers are first
+   created. Confirm the build logs, `Ready` state and production domain
+   assignment. A green web build or sign Action is not delivery proof.
 5. Check both production origins, the landing-to-workspace links, login
    screen, mobile layout, keyboard controls, reduced motion, security headers
    and unauthenticated API rejection. Never put credentials in smoke-test

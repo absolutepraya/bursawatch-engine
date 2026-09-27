@@ -6,6 +6,13 @@ Runtime identity: `bursawatch-x-source-ingest`. Entry point:
 invoke this runtime beside the current X source polling job; production
 cutover requires a separate reviewed one-reader scheduler transition.
 
+Before scheduling, configure the private Source Event API URL and token file
+as `BURSAWATCH_X_SOURCE_CONTROL_PLANE_URL` and
+`BURSAWATCH_X_SOURCE_CONTROL_PLANE_TOKEN_FILE`. Every enabled X endpoint must
+also have a reviewed publisher binding; unknown bindings block intake rather
+than being inferred from a handle. Keep credentials out of logs and source
+control.
+
 When separately scheduled, every run sends a heartbeat through the shared
 Discord Delivery Owner to `#hermes`, including empty polls. The format is
 `🫀 bursawatch-x-source-ingest · HH:MM WIB · endpoints=N accepted=N work=N pending=N`

@@ -4,6 +4,21 @@
 >
 > **Approved design:** [Source Catalog and platform-pipeline architecture][catalog-spec]
 
+## Execution checkpoint, 2026-09-27
+
+- The X watcher state-path mismatch is fixed in commit `4770a99` and published
+  to `main`. This is a source change, not proof of VPS deployment or X pilot
+  cutover.
+- The X pilot remains unscheduled. Before it can intake live events, every
+  enabled X endpoint needs a reviewed publisher binding, and its private
+  Source Event API URL and token file must be configured. The current read-only
+  inventory found enabled profile `dafandikri` without a reviewed binding.
+- No X schedule transition, production state handoff, or source-history replay
+  has been performed. Verify release and runtime evidence separately before
+  describing the published code as deployed.
+- Telegram Market News natural-delivery confirmation is deferred until the
+  next market weekday; the weekend provides no comparable new event.
+
 ## Goal
 
 Implement the approved Source Catalog, platform ingestion boundary, durable normalized
