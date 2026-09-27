@@ -346,6 +346,47 @@ def test_release_heartbeat_delivery_failure_is_best_effort_and_does_not_change_s
     assert len(heartbeat_attempts) == 1
 
 
+def test_successfully_released_sha_is_a_silent_noop(monkeypatch, tmp_path: Path):
+    sha = "f" * 40
+    settings = make_settings(tmp_path)
+    store = release_agent.ReleaseStore(settings.state_root)
+    state = store.read_state()
+    state["last_success_sha"] = sha
+    store.write_state(state)
+    store.record(sha, "released", units=["cron-tg-source-ingest-pilot"])
+    state_before = (settings.state_root / "state.json").read_bytes()
+    record_before = (settings.state_root / "records" / f"{sha}.json").read_bytes()
+    heartbeat_attempts = []
+
+    class FakeGitHub:
+        def __init__(self, _settings):
+            pass
+
+        def current_main_sha(self):
+            return sha
+
+        def has_successful_ci(self, _candidate):
+            pytest.fail("already-released SHA should not recheck CI")
+
+    class NoOpMirror:
+        def __init__(self, _settings):
+            pytest.fail("already-released SHA should not materialize a worktree")
+
+    monkeypatch.setattr(release_agent, "GitHubClient", FakeGitHub)
+    monkeypatch.setattr(release_agent, "GitMirror", NoOpMirror)
+    monkeypatch.setattr(
+        release_agent,
+        "_send_heartbeat",
+        lambda *args, **kwargs: heartbeat_attempts.append((args, kwargs)),
+    )
+
+    assert release_agent.release_once(settings) == "already-released"
+
+    assert (settings.state_root / "state.json").read_bytes() == state_before
+    assert (settings.state_root / "records" / f"{sha}.json").read_bytes() == record_before
+    assert heartbeat_attempts == []
+
+
 def test_release_agent_does_not_read_discord_credentials_or_call_discord_rest():
     source = (ROOT / "bin" / "release_agent.py").read_text(encoding="utf-8")
 
@@ -818,6 +859,18 @@ def test_main_returns_nonzero_for_a_blocked_release(monkeypatch, capsys):
 
     assert release_agent.main(["--once"]) == 1
     assert json.loads(capsys.readouterr().out) == {"status": "blocked"}
+
+
+def test_main_returns_success_for_an_already_released_sha(monkeypatch, capsys):
+    monkeypatch.setenv("BURSAWATCH_RELEASE_GITHUB_TOKEN", "read-token")
+    monkeypatch.setattr(
+        release_agent,
+        "release_once",
+        lambda settings, *, allow_manual=False: "already-released",
+    )
+
+    assert release_agent.main(["--once"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"status": "already-released"}
 
 
 def test_systemd_unit_keeps_static_agent_code_and_scoped_restart_boundary():

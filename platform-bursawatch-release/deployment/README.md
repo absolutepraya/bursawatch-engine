@@ -16,6 +16,8 @@ no-post verification. Control-plane releases additionally install Python
 dependencies, apply automatic migrations, seed only absent baselines, restart
 the scoped API service through one sudoers command, and check loopback health.
 An explicit operations release also applies reviewed manual migrations.
+Once a SHA succeeds, later timer ticks recognize it as already released and
+return without rewriting its record or sending another release heartbeat.
 
 Market News, Phintraco Swing, and Kelas verification still polls Telegram, but
 uses temporary watcher and Telegram resilience state/log paths. It therefore
