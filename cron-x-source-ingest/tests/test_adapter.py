@@ -13,7 +13,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "cron-x-source-ingest" / "bin"))
 from adapter import endpoints, plan_legacy_cursor_seed, run_once
-from runner import process_pending
+from runner import format_fatal, format_heartbeat, process_pending
 
 sys.path.insert(0, str(ROOT / "cron-x-account-watch" / "bin"))
 from config import REVIEWED_PUBLISHERS, load_watch_config
@@ -22,6 +22,18 @@ import pipeline_owner
 import state
 
 NOW = datetime(2026, 9, 24, tzinfo=timezone.utc)
+
+
+def test_x_source_heartbeat_reports_empty_runs_and_warns_on_pending_work():
+    clean = format_heartbeat(NOW, {"source": [{"endpoint_id": "x:kutekians", "status": "empty", "accepted": 0}], "work": []})
+    assert clean == "🫀 bursawatch-x-source-ingest · 07:00 WIB · endpoints=1 accepted=0 work=0 pending=0"
+
+    degraded = format_heartbeat(NOW, {
+        "source": [{"endpoint_id": "x:kutekians", "status": "blocked", "accepted": 0}],
+        "work": [{"status": "retry"}],
+    })
+    assert degraded == "🫀 bursawatch-x-source-ingest · 07:00 WIB · endpoints=1 accepted=0 work=1 pending=1 ⚠️"
+    assert format_fatal(NOW) == "❌ bursawatch-x-source-ingest · 07:00 WIB · failed: source processing failed"
 
 
 class Inbox:

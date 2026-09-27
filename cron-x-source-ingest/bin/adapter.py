@@ -13,10 +13,13 @@ from typing import Any
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
-for package in ("lib-bursawatch-control", "lib-bursawatch-source-ingest"):
+for package, installed in (
+    ("lib-bursawatch-control", "lib-bursawatch-control"),
+    ("lib-bursawatch-source-ingest", "lib-bursawatch-source-ingest-pilot"),
+):
     candidate = ROOT / package / "bin"
     if not candidate.exists():
-        candidate = Path.home() / ".agents" / "skills" / package / "bin"
+        candidate = Path.home() / ".agents" / "skills" / installed / "bin"
     sys.path.insert(0, str(candidate))
 owner = ROOT / "cron-x-account-watch" / "bin"
 if not owner.exists():

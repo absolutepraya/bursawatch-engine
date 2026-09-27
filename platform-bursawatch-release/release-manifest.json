@@ -239,8 +239,19 @@
     },
     {
       "id": "cron-x-source-ingest-pilot",
+      "handler": "runtime",
+      "runtime": "bursawatch-x-source-ingest",
+      "depends_on": ["lib-bursawatch-control", "lib-bursawatch-discord-delivery", "lib-bursawatch-pipeline-runtime", "lib-bursawatch-source-ingest-pilot", "lib-bursawatch-source-media", "cron-x-account-watch"],
+      "paths": ["cron-x-source-ingest/bin/**", "cron-x-source-ingest/CRON.md"],
+      "wrappers": [
+        {"source": "bursawatch-x-source-ingest.sh", "destination": "bursawatch-x-source-ingest.sh"}
+      ],
+      "verification": "x-source-ingest-no-post"
+    },
+    {
+      "id": "cron-x-source-ingest-pilot-metadata",
       "handler": "metadata",
-      "paths": ["cron-x-source-ingest/**"]
+      "paths": ["cron-x-source-ingest/AGENTS.md", "cron-x-source-ingest/tests/**"]
     },
     {
       "id": "cron-ig-account-watch",

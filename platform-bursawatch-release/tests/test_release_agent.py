@@ -96,9 +96,28 @@ def test_telegram_source_ingest_resolves_runtime_dependencies_before_pilot():
     assert runtime.verification == "telegram-source-ingest-no-post"
 
 
-def test_other_source_ingest_pilots_remain_metadata_only():
+def test_x_source_ingest_resolves_as_an_installable_runtime():
+    units = manifest().matching_units(["cron-x-source-ingest/bin/runner.py"])
+    by_id = {unit.identifier: unit for unit in units}
+    runtime = by_id["cron-x-source-ingest-pilot"]
+
+    assert runtime.handler == "runtime"
+    assert runtime.runtime == "bursawatch-x-source-ingest"
+    assert runtime.verification == "x-source-ingest-no-post"
+    assert ("bursawatch-x-source-ingest.sh", "bursawatch-x-source-ingest.sh") in runtime.wrappers
+    assert {
+        "lib-bursawatch-control",
+        "lib-bursawatch-discord-delivery",
+        "lib-bursawatch-pipeline-runtime",
+        "lib-bursawatch-source-ingest-pilot",
+        "lib-bursawatch-source-media",
+        "cron-x-account-watch",
+    } <= set(by_id)
+
+
+def test_instagram_whatsapp_and_rss_source_ingest_pilots_remain_metadata_only():
     result = manifest()
-    for platform in ("x", "ig", "wa", "rss"):
+    for platform in ("ig", "wa", "rss"):
         units = result.matching_units([f"cron-{platform}-source-ingest/bin/runner.py"])
         assert [unit.identifier for unit in units] == [f"cron-{platform}-source-ingest-pilot"]
         assert [unit.handler for unit in units] == ["metadata"]
@@ -126,6 +145,28 @@ def test_telegram_source_ingest_verification_rejects_non_synthetic_success():
 
     release_agent._verify_telegram_source_ingest_no_post(
         '{"outcome":"synthetic-ok","network":false,"secrets":false,"writes":false,"events":1,"content_hash":"' + "a" * 64 + '"}'
+    )
+
+
+def test_x_source_ingest_no_post_is_synthetic_and_has_no_secret_environment(tmp_path: Path):
+    specification = release_agent._no_post_specification("x-source-ingest-no-post", tmp_path)
+
+    assert specification.command == (str(Path.home() / ".hermes/scripts/bursawatch-x-source-ingest.sh"),)
+    assert specification.environment["BURSAWATCH_RELEASE_NO_POST"] == "1"
+    assert specification.environment["BURSAWATCH_RELEASE_NO_POST_TEMP"] == str(specification.temporary_path)
+    assert specification.environment["HOME"] == str(Path.home())
+    assert set(specification.environment) == {
+        "PATH", "HOME", "TZ", "LANG", "BURSAWATCH_RELEASE_NO_POST",
+        "BURSAWATCH_RELEASE_NO_POST_TEMP",
+    }
+
+
+def test_x_source_ingest_verification_rejects_non_synthetic_success():
+    with pytest.raises(release_agent.DeploymentError, match="X source-ingest synthetic verification"):
+        release_agent._verify_x_source_ingest_no_post('{"outcome":"ok"}')
+
+    release_agent._verify_x_source_ingest_no_post(
+        '{"outcome":"synthetic-ok","network":false,"secrets":false,"writes":false,"events":1,"content_hash":"' + "b" * 64 + '"}'
     )
 
 
@@ -166,6 +207,50 @@ def test_telegram_wrapper_runs_synthetic_check_without_reading_environment_files
     assert "must-not-be-passed" not in result.stdout + result.stderr
     release_agent._verify_telegram_source_ingest_no_post(result.stdout)
     assert [path.name for path in temporary.iterdir()] == ["telegram-source-ingest.log"]
+
+
+def test_x_wrapper_runs_synthetic_check_without_reading_environment_files(tmp_path: Path):
+    home = tmp_path / "home"
+    skills = home / ".agents/skills"
+    skills.mkdir(parents=True)
+    for package, runtime in (
+        ("cron-x-source-ingest", "bursawatch-x-source-ingest"),
+        ("cron-x-account-watch", "bursawatch-x-account-watch"),
+        ("lib-bursawatch-control", "lib-bursawatch-control"),
+        ("lib-bursawatch-pipeline-runtime", "lib-bursawatch-pipeline-runtime"),
+        ("lib-bursawatch-source-ingest", "lib-bursawatch-source-ingest-pilot"),
+        ("lib-bursawatch-source-media", "lib-bursawatch-source-media"),
+        ("lib-bursawatch-discord-delivery", "lib-bursawatch-discord-delivery"),
+    ):
+        destination = skills / runtime
+        source = REPOSITORY_ROOT / package
+        if package == "cron-x-source-ingest":
+            shutil.copytree(source, destination)
+        else:
+            destination.symlink_to(source, target_is_directory=True)
+    python = home / ".local/share/uv/tools/yahoo-finance-mcp/bin/python"
+    python.parent.mkdir(parents=True)
+    python.symlink_to(sys.executable)
+    env_path = home / ".hermes/.env"
+    env_path.mkdir(parents=True)
+    temporary = tmp_path / "release-agent-temporary"
+    temporary.mkdir()
+    wrapper = REPOSITORY_ROOT / "cron-x-source-ingest/bin/bursawatch-x-source-ingest.sh"
+    environment = {
+        "HOME": str(home),
+        "PATH": "/usr/bin:/bin",
+        "BURSAWATCH_RELEASE_NO_POST": "1",
+        "BURSAWATCH_RELEASE_NO_POST_TEMP": str(temporary),
+        "X_POST_WATCH_CONTROL_PLANE_TOKEN": "must-not-be-passed",
+        "BURSAWATCH_X_SOURCE_CONTROL_PLANE_TOKEN_FILE": "must-not-be-passed",
+    }
+
+    result = subprocess.run([str(wrapper)], env=environment, text=True, capture_output=True, check=False)
+
+    assert result.returncode == 0, result.stderr
+    assert "must-not-be-passed" not in result.stdout + result.stderr
+    release_agent._verify_x_source_ingest_no_post(result.stdout)
+    assert [path.name for path in temporary.iterdir()] == ["x-source-ingest.log"]
 
 
 def test_delivery_library_precedes_every_migrated_discord_runtime():
@@ -402,6 +487,7 @@ def test_release_no_post_mode_keeps_wrappers_from_reloading_control_plane_creden
         REPOSITORY_ROOT / "cron-tg-kelas-investasi-gtw/bin/bursawatch-tg-kelas-investasi-gtw.sh",
         REPOSITORY_ROOT / "cron-dc-swing-board/bin/bursawatch-dc-swing-board.sh",
         REPOSITORY_ROOT / "cron-x-account-watch/bin/bursawatch-x-account-watch.sh",
+        REPOSITORY_ROOT / "cron-x-source-ingest/bin/bursawatch-x-source-ingest.sh",
         REPOSITORY_ROOT / "cron-ig-account-watch/bin/bursawatch-ig-account-watch.sh",
         REPOSITORY_ROOT / "cron-wa-channel-watch/bin/bursawatch-wa-channel-watch.sh",
     ]
@@ -514,6 +600,7 @@ def test_explicit_manual_release_applies_reviewed_manual_migrations(
         "kelas-no-post",
         "swing-board-no-post",
         "x-no-post",
+        "x-source-ingest-no-post",
         "instagram-no-post",
         "whatsapp-no-post",
         "stockbit-snips-no-post",

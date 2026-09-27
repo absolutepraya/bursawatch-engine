@@ -1,8 +1,16 @@
 # X platform source boundary
 
-Runtime identity reserved: `bursawatch-x-source-ingest`. Entry point:
-`bin/runner.py`. No Hermes job is registered. The adapter is release metadata
-only and must not be run beside the current source polling job.
+Runtime identity: `bursawatch-x-source-ingest`. Entry point:
+`bin/runner.py`, installed by the release agent with
+`bin/bursawatch-x-source-ingest.sh`. No Hermes job is registered. Do not
+invoke this runtime beside the current X source polling job; production
+cutover requires a separate reviewed one-reader scheduler transition.
+
+When separately scheduled, every run sends a heartbeat through the shared
+Discord Delivery Owner to `#hermes`, including empty polls. The format is
+`🫀 bursawatch-x-source-ingest · HH:MM WIB · endpoints=N accepted=N work=N pending=N`
+with `⚠️` for blocked source endpoints or pending work. Fatal runs use
+`❌ bursawatch-x-source-ingest · HH:MM WIB · failed: source processing failed`.
 
 Each verified configured X account has its own future-only cursor and
 `SourceEventHandoff`. A nontruncated page, or a truncated page that still

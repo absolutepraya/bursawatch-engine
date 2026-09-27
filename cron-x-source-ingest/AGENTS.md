@@ -1,7 +1,9 @@
 # X source ingest pilot
 
-This package supplements the repository `AGENTS.md`. It is an unscheduled
-Task 5 source adapter. Read `CRON.md` before changing its intake.
+This package supplements the repository `AGENTS.md`. It is an installable,
+unscheduled Task 5 source adapter. The release agent may install it and its
+wrapper, but this package has no Hermes job or production cutover. Read
+`CRON.md` before changing its intake.
 
 `bin/adapter.py` uses the existing X watcher's RSSHub or direct X fetcher and
 parser. The reviewed current endpoint to publisher bindings are fixed here;
