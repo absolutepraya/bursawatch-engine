@@ -17,6 +17,13 @@ dependencies, apply automatic migrations, seed only absent baselines, restart
 the scoped API service through one sudoers command, and check loopback health.
 An explicit operations release also applies reviewed manual migrations.
 
+Market News, Phintraco Swing, and Kelas verification still polls Telegram, but
+uses temporary watcher and Telegram resilience state/log paths. It therefore
+does not write production cursors, delivery state, or shared resilience state.
+It makes no Discord posts. The Telegram polls still make network requests.
+The source-ingest pilot check below is synthetic and makes no network
+requests.
+
 The Telegram source-ingest runtime is an unscheduled release unit. Its wrapper
 no-post check runs only `runner.py --verify-synthetic` with an in-memory source
 row and message. The release agent passes a scrubbed environment, and the

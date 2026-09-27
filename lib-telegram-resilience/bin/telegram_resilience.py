@@ -140,7 +140,19 @@ class PolyCopResilience:
 
     @classmethod
     def from_defaults(cls) -> "PolyCopResilience":
-        return cls(DEFAULT_STATE_PATH, DEFAULT_LOG_PATH)
+        state_path = os.environ.get("POLYCOP_RESILIENCE_STATE_PATH")
+        log_path = os.environ.get("POLYCOP_RESILIENCE_LOG_PATH")
+        if os.environ.get("BURSAWATCH_RELEASE_NO_POST") == "1":
+            release_no_post_root = os.environ.get("BURSAWATCH_RELEASE_NO_POST_TEMP")
+            if not release_no_post_root:
+                raise StateBlockedError("release no-post resilience paths are unavailable")
+            release_root = Path(release_no_post_root)
+            state_path = str(release_root / "telegram-resilience.json")
+            log_path = str(release_root / "telegram-resilience.jsonl")
+        return cls(
+            Path(state_path) if state_path else DEFAULT_STATE_PATH,
+            Path(log_path) if log_path else DEFAULT_LOG_PATH,
+        )
 
     @contextmanager
     def _lock(self) -> Iterator[None]:

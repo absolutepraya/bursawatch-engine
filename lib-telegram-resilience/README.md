@@ -33,6 +33,15 @@ contains timestamps, watcher names, state transitions, error classes, and safe
 connection metadata only. It must never contain credentials, session strings,
 tokens, source text, or raw exception messages.
 
+`POLYCOP_RESILIENCE_STATE_PATH` and `POLYCOP_RESILIENCE_LOG_PATH` may override
+these paths for an explicitly isolated run. Production watchers leave them
+unset so all four consumers coordinate through the same shared state.
+The release agent sets `BURSAWATCH_RELEASE_NO_POST=1` and
+`BURSAWATCH_RELEASE_NO_POST_TEMP` for its disposable verification run; when
+the marker is present, the temporary root is required and always takes
+precedence over PolyCop path overrides. This keeps release verification from
+writing production resilience state or logs.
+
 Each scanner obtains a probe decision before opening its Telethon connection.
 A watcher in cooldown, blocked by another watcher's probe lease, or waiting for
 manual re-login returns cleanly without advancing its own cursor or outbox.
