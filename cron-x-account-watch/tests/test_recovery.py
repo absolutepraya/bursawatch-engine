@@ -4,6 +4,7 @@ import pytest
 
 import recovery
 import state
+from rsshub import SourceFetchError
 
 
 NOW = datetime(2026, 9, 27, 12, 0, tzinfo=UTC)
@@ -92,6 +93,106 @@ def test_recovery_rejects_future_cursor_and_invalid_or_duplicate_urls(config_pat
         recovery.preview(value, (profile,), [url, url], NOW, lambda _p, post_id: payload(post_id))
     with pytest.raises(ValueError, match="invalid X status URL"):
         recovery.preview(value, (profile,), ["https://evil.test/Kutekians/status/101"], NOW, lambda _p, post_id: payload(post_id))
+
+
+def test_recovery_detail_falls_back_to_fxtwitter_and_preserves_post_media(config_path, monkeypatch):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    timestamp = int((NOW - timedelta(hours=2)).timestamp())
+
+    class Response:
+        def __init__(self, status_code, body=None):
+            self.status_code = status_code
+            self.body = body
+
+        def json(self):
+            return self.body
+
+    class Session:
+        def __init__(self):
+            self.trust_env = True
+            self.proxies = {"https": "http://unexpected-proxy"}
+            self.urls = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def get(self, url, timeout, headers=None):
+            assert timeout == 30
+            self.urls.append(url)
+            if url == "https://api.vxtwitter.com/Kutekians/status/101":
+                return Response(403)
+            assert url == "https://api.fxtwitter.com/Kutekians/status/101"
+            return Response(200, {
+                "code": 200,
+                "tweet": {
+                    "id": "101",
+                    "url": "https://twitter.com/Kutekians/status/101",
+                    "text": "Source fact with an attached chart",
+                    "created_timestamp": timestamp,
+                    "author": {"screen_name": "Kutekians"},
+                    "replying_to": None,
+                    "replying_to_status": None,
+                    "media": {
+                        "all": [{"type": "photo", "url": "https://pbs.twimg.com/media/chart.jpg"}],
+                        "photos": [{"type": "photo", "url": "https://pbs.twimg.com/media/chart.jpg"}],
+                    },
+                },
+            })
+
+    session = Session()
+    monkeypatch.setattr(recovery.requests, "Session", lambda: session)
+
+    fetched = recovery.fetch_public_detail(profile, "101")
+    value = state.new_state()
+    value["profiles"][profile.id] = {"cursor": "102"}
+    rows = recovery.preview(
+        value, (profile,), ["https://x.com/Kutekians/status/101"], NOW,
+        lambda _profile, _post_id: fetched,
+    )
+
+    assert rows[0].status == "eligible"
+    assert rows[0].post.post_id == "101"
+    assert rows[0].post.published_at == datetime.fromtimestamp(timestamp, UTC)
+    assert [item.url for item in rows[0].post.media] == ["https://pbs.twimg.com/media/chart.jpg"]
+    assert session.urls == [
+        "https://api.vxtwitter.com/Kutekians/status/101",
+        "https://api.fxtwitter.com/Kutekians/status/101",
+    ]
+    assert session.trust_env is False
+    assert session.proxies == {}
+
+
+def test_fxtwitter_fallback_rejects_a_different_status_id(config_path, monkeypatch):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+
+    class Response:
+        status_code = 200
+
+        def json(self):
+            return {"code": 200, "tweet": {"id": "999", "author": {"screen_name": "Kutekians"}}}
+
+    class Session:
+        trust_env = True
+        proxies = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def get(self, url, timeout, headers=None):
+            if url.startswith("https://api.vxtwitter.com/"):
+                return type("Blocked", (), {"status_code": 403})()
+            return Response()
+
+    monkeypatch.setattr(recovery.requests, "Session", Session)
+
+    with pytest.raises(SourceFetchError, match="mismatched post id"):
+        recovery.fetch_public_detail(profile, "101")
 
 
 def test_scanner_recovery_command_rechecks_and_queues_without_rewinding_cursor(tmp_path, config_path, monkeypatch):

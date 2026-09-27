@@ -3,20 +3,22 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from urllib.parse import urlsplit
-from collections.abc import Callable, Iterable
 
 import requests
 
 import direct_x
 import state
 from models import PostKind, Profile, SourcePost
+from rsshub import SourceFetchError
 
 
 STATUS_PATH = re.compile(r"/([A-Za-z0-9_]{1,15})/status/(\d+)")
 MAX_AGE = timedelta(hours=24)
+FXTWEET_USER_AGENT = "Bursawatch-X-Account-Watch/1.0"
 
 
 @dataclass(frozen=True)
@@ -38,7 +40,91 @@ def fetch_public_detail(profile: Profile, post_id: str) -> dict[str, object]:
     with requests.Session() as session:
         session.trust_env = False
         session.proxies.clear()
-        return direct_x._payload(session, profile, post_id)
+        try:
+            return direct_x._payload(session, profile, post_id)
+        except SourceFetchError as primary_error:
+            try:
+                return _fxtwitter_payload(session, profile, post_id)
+            except SourceFetchError as fallback_error:
+                raise SourceFetchError(
+                    f"public X status detail unavailable via VxTwitter ({primary_error}) "
+                    f"and FixTweet ({fallback_error})"
+                ) from fallback_error
+
+
+def _media_urls(value: object) -> list[str]:
+    if type(value) is not dict:
+        return []
+    items = value.get("all")
+    if type(items) is not list:
+        items = []
+        for key in ("photos", "videos"):
+            candidates = value.get(key)
+            if type(candidates) is list:
+                items.extend(candidates)
+    urls: list[str] = []
+    for item in items:
+        if type(item) is dict:
+            url = item.get("url")
+            if type(url) is str and url.startswith("https://") and url not in urls:
+                urls.append(url)
+    return urls
+
+
+def _x_status_url(value: object) -> str | None:
+    if type(value) is not str:
+        return None
+    parsed = urlsplit(value)
+    if parsed.scheme != "https" or parsed.netloc not in {"x.com", "www.x.com", "twitter.com", "www.twitter.com"}:
+        return None
+    if not re.fullmatch(r"/[A-Za-z0-9_]{1,15}/status/\d+", parsed.path):
+        return None
+    return f"https://x.com{parsed.path}"
+
+
+def _fxtwitter_payload(session: requests.Session, profile: Profile, post_id: str) -> dict[str, object]:
+    url = f"https://api.fxtwitter.com/{profile.handle}/status/{post_id}"
+    try:
+        response = session.get(url, timeout=30, headers={"User-Agent": FXTWEET_USER_AGENT})
+    except requests.Timeout as exc:
+        raise SourceFetchError("FixTweet status request timed out") from exc
+    except requests.RequestException as exc:
+        raise SourceFetchError("FixTweet status request failed") from exc
+    if response.status_code >= 400:
+        raise SourceFetchError(f"FixTweet status HTTP {response.status_code}")
+    try:
+        value = response.json()
+    except ValueError as exc:
+        raise SourceFetchError("FixTweet status returned malformed JSON") from exc
+    if type(value) is not dict or value.get("code") != 200 or type(value.get("tweet")) is not dict:
+        raise SourceFetchError("FixTweet status returned an invalid object")
+
+    tweet = value["tweet"]
+    if str(tweet.get("id")) != post_id:
+        raise SourceFetchError("FixTweet status returned a mismatched post id")
+    author = tweet.get("author")
+    author_handle = author.get("screen_name") if type(author) is dict else None
+    quote = tweet.get("quote")
+    normalized_quote = None
+    quote_url = None
+    if type(quote) is dict:
+        normalized_quote = {
+            "text": quote.get("text"),
+            "mediaURLs": _media_urls(quote.get("media")),
+        }
+        quote_url = _x_status_url(quote.get("url"))
+
+    return {
+        "tweetID": str(tweet["id"]),
+        "date_epoch": tweet.get("created_timestamp"),
+        "text": tweet.get("text"),
+        "user_screen_name": author_handle,
+        "replyingTo": tweet.get("replying_to"),
+        "replyingToID": tweet.get("replying_to_status"),
+        "mediaURLs": _media_urls(tweet.get("media")),
+        "qrtURL": quote_url,
+        "qrt": normalized_quote,
+    }
 
 
 def _known_status(value: dict, profile: Profile, post_id: str) -> str | None:

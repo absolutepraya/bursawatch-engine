@@ -186,7 +186,13 @@ state under the watcher's run lock, queues all eligible posts atomically, and
 records a source-gap marker in the outbox and delivery ledger. The queue worker
 then applies the normal LLM and Discord path. Do not use this command for bulk
 history, a cursor reset, or a direct Discord resend. Preview before every
-approved apply and inspect the resulting queue and delivery receipts.
+approved apply and inspect the resulting queue and delivery receipts. Detail
+lookup tries VxTwitter first and falls back to the FixTweet Status Fetch API
+(`api.fxtwitter.com`) when unavailable. Both responses are normalized into the
+same source model, then the normal post-ID, author, age, settle, cursor, and
+deduplication checks still apply. This fallback is limited to explicit
+`recover-missing` requests and does not change normal polling or thread
+retrieval.
 
 ## Development, no-post verification, and deployment
 
