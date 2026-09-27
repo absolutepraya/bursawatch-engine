@@ -352,7 +352,7 @@ def test_queue_worker_passes_authored_and_quoted_vision_images_to_the_agent(tmp_
 
     result = scan.run(now=current, dry_run=False)
 
-    assert prepared == [(post, storage, False)]
+    assert prepared == [(post, storage, False, (post,))]
     assert prepared_articles == [((post,), False)]
     assert result["item"]["vision_asset_paths"] == [str(authored), str(quoted)]
     assert "Authored X post image 1" in result["item"]["post_text"]

@@ -136,7 +136,7 @@ def test_empty_first_poll_then_first_post_initializes_without_backfill(config_pa
     assert [event["post_id"] for event in value["outbox"]] == ["102"]
 
 
-def test_lone_self_chain_keeps_one_deadline_then_child_is_ready_immediately(config_path):
+def test_self_chain_continuation_keeps_first_observation_settle_deadline(config_path):
     payload = json.loads(config_path.read_text(encoding="utf-8"))
     payload["profiles"][0]["thread_handling"]["settle_minutes"] = 15
     config_path.write_text(json.dumps(payload), encoding="utf-8")
@@ -153,10 +153,14 @@ def test_lone_self_chain_keeps_one_deadline_then_child_is_ready_immediately(conf
     event = value["outbox"][0]
     assert len(value["outbox"]) == 1
     assert [post["post_id"] for post in event["thread_posts"]] == ["101", "102"]
-    assert state.is_ready(event, started + timedelta(minutes=1)) is True
+    assert state.is_ready(event, started + timedelta(minutes=14)) is False
+    assert state.is_ready(event, started + timedelta(minutes=15)) is True
 
 
 def test_same_poll_root_and_continuation_use_the_newest_complete_thread(config_path):
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    payload["profiles"][0]["thread_handling"]["settle_minutes"] = 15
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     now = datetime(2026, 8, 1, 9, 0, tzinfo=UTC)
     root = SourcePost(profile.id, "101", "https://x.com/Kutekians/status/101", now, "Root", PostKind.NORMAL, None, None, (), ())
@@ -168,7 +172,8 @@ def test_same_poll_root_and_continuation_use_the_newest_complete_thread(config_p
     assert len(value["outbox"]) == 1
     assert event["post_id"] == "102"
     assert [post["post_id"] for post in event["thread_posts"]] == ["101", "102"]
-    assert state.is_ready(event, now) is True
+    assert state.is_ready(event, now) is False
+    assert state.is_ready(event, now + timedelta(minutes=15)) is True
 
 
 def test_disabled_thread_handling_delivers_without_a_quiet_window(config_path, profile_payload):

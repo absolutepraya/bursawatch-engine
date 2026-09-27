@@ -135,10 +135,10 @@ def config_path() -> Path:
     return Path(os.environ.get("X_POST_WATCH_CONFIG_PATH", str(Path(__file__).resolve().parent.parent / "config" / "watches.json")))
 
 
-def _prepare_agent_vision(post: SourcePost, storage: Path, dry_run: bool):
+def _prepare_agent_vision(post: SourcePost, storage: Path, dry_run: bool, thread_posts: tuple[SourcePost, ...] | None = None):
     if dry_run:
         return None
-    return vision_media.prepare(post, vision_media.default_root(storage))
+    return vision_media.prepare(post, vision_media.default_root(storage), thread_posts=thread_posts)
 
 
 def _prepare_article_context(thread_posts: tuple[SourcePost, ...] | None, dry_run: bool):
@@ -843,9 +843,10 @@ def run(
                                 vision_bundle = vision_media.prepare(
                                     post, vision_media.default_root(storage),
                                     reference_meta=event["source_media_refs"],
+                                    thread_posts=thread_posts,
                                 )
                             else:
-                                vision_bundle = _prepare_agent_vision(post, storage, dry_run)
+                                vision_bundle = _prepare_agent_vision(post, storage, dry_run, thread_posts)
                             if vision_bundle is not None and vision_bundle.unavailable_count:
                                 stats.note_source_error("vision image preparation incomplete")
                         except vision_media.VisionMediaError:

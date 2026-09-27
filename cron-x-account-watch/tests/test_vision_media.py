@@ -67,6 +67,35 @@ def test_prepare_downloads_authored_and_quoted_images_to_private_event_directory
     assert bundle.unavailable_count == 0
 
 
+def test_prepare_includes_images_from_every_observed_thread_post(tmp_path):
+    latest = post()
+    root = SourcePost(
+        latest.profile_id, "101", "https://x.com/Kutekians/status/101",
+        latest.published_at, "Root text", PostKind.NORMAL, None, None,
+        (SourceMedia("https://pbs.twimg.com/media/root.jpg", 0),), (),
+    )
+    session = Session(
+        Response(200, b"root"), Response(200, b"authored"), Response(200, b"quoted"),
+    )
+
+    bundle = vision_media.prepare(
+        latest, tmp_path / "vision", session, thread_posts=(root, latest),
+    )
+
+    assert session.urls == [
+        "https://pbs.twimg.com/media/root.jpg",
+        "https://pbs.twimg.com/media/authored.jpg?format=jpg&name=large",
+        "https://pbs.twimg.com/media/quoted.png?format=png&name=large",
+    ]
+    assert [asset.post_id for asset in bundle.assets] == ["101", "102", "102"]
+    assert [asset.label for asset in bundle.assets] == [
+        "Thread post 1/2 authored image 1",
+        "Thread post 2/2 authored image 1",
+        "Thread post 2/2 quoted image 1",
+    ]
+    assert [asset.path.read_bytes() for asset in bundle.assets] == [b"root", b"authored", b"quoted"]
+
+
 def test_prepare_skips_unsupported_or_unavailable_images_without_blocking_other_vision(tmp_path):
     source = post()
     source = SourcePost(
