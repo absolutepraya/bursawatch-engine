@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Obtain a Supabase Auth user token and store it in the local control-plane env.
 
-This helper deliberately prompts for credentials instead of accepting them as
-command-line arguments, and never prints the returned access token.
+By default, credentials are read from the ignored local env file. Use
+``--prompt`` for an interactive login. Credentials and tokens are never printed.
 """
 
 from __future__ import annotations
@@ -67,6 +67,11 @@ def main() -> int:
         default=Path.cwd() / "service-bursawatch-control" / ".env",
         help="ignored control-plane env file to update",
     )
+    parser.add_argument(
+        "--prompt",
+        action="store_true",
+        help="prompt for Auth credentials instead of reading them from the env file",
+    )
     args = parser.parse_args()
     env_path = args.env.expanduser().resolve()
     if not env_path.is_file():
@@ -77,9 +82,23 @@ def main() -> int:
     if not supabase_url:
         parser.error("CONTROL_PLANE_SUPABASE_URL is missing from the env file")
 
-    email = input("Supabase Auth email: ").strip()
-    password = getpass.getpass("Supabase Auth password: ")
-    publishable_key = getpass.getpass("Supabase publishable/anon key: ").strip()
+    if args.prompt:
+        email = input("Supabase Auth email: ").strip()
+        password = getpass.getpass("Supabase Auth password: ")
+        publishable_key = getpass.getpass("Supabase publishable/anon key: ").strip()
+    else:
+        email = values.get("SUPABASE_AUTH_EMAIL", "").strip()
+        password = values.get("SUPABASE_AUTH_PASSWORD", "")
+        publishable_key = values.get("SUPABASE_PUBLISHABLE_KEY", "").strip()
+        missing = [
+            name for name, value in (
+                ("SUPABASE_AUTH_EMAIL", email),
+                ("SUPABASE_AUTH_PASSWORD", password),
+                ("SUPABASE_PUBLISHABLE_KEY", publishable_key),
+            ) if not value
+        ]
+        if missing:
+            parser.error("set the required local env entries: " + ", ".join(missing))
     if not email or not password or not publishable_key:
         parser.error("email, password, and publishable/anon key are required")
 

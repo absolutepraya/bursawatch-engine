@@ -63,11 +63,21 @@ uv run --with 'fastapi>=0.115,<1' --with 'httpx>=0.27,<1' \
 
 ## Local admin access-token helper
 
-`tools/get_admin_access_token.py` obtains a Supabase Auth user session
-through the password grant and stores only its short-lived `access_token` in
-the ignored control-plane `.env`. Run it as a file so its prompts remain
-attached to the terminal. Do not pipe the source through `python3 -`, since
-that consumes standard input before `input()` can read the prompts:
+`tools/get_admin_access_token.py` obtains a Supabase Auth user session through
+the password grant and stores its short-lived `access_token` in the ignored
+control-plane `.env`. By default it reads these local entries from that file:
+
+```dotenv
+SUPABASE_AUTH_EMAIL=
+SUPABASE_AUTH_PASSWORD=
+SUPABASE_PUBLISHABLE_KEY=
+```
+
+The helper is noninteractive by default and never prints credential values or
+the returned access token. Keep `.env` private with mode `0600`; do not commit,
+copy to the VPS, or put credentials in command arguments. Use `--prompt` to
+request an interactive login instead. Do not pipe the helper through
+`python3 -`, since that breaks interactive input:
 
 ```bash
 cd ~/Documents/Projects/Hermes
@@ -83,7 +93,9 @@ python3 service-bursawatch-control/tools/get_admin_access_token.py \
   --env ~/Documents/Projects/Hermes/service-bursawatch-control/.env
 ```
 
-If the Supabase account is passwordless, use
+`SUPABASE_PUBLISHABLE_KEY` must be the publishable/anon key for the same
+Supabase project as `CONTROL_PLANE_SUPABASE_URL`. Never use a `service_role`
+key for Auth login. If the Supabase account is passwordless, use
 `tools/supabase_recovery_server.py` first. It binds only to
 `127.0.0.1:3000`, keeps the recovery token in the browser fragment, and
 updates the password through Supabase's authenticated user endpoint. Request a
