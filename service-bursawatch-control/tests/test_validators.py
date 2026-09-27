@@ -41,6 +41,16 @@ def test_validator_rejects_invalid_config_without_exposing_process_details():
         validators[X_WATCHER]({"version": 1, "profiles": []})
 
 
+def test_x_validator_accepts_hybrid_source_mode():
+    validators = validators_from_directories(
+        {X_WATCHER: ROOT / "service-bursawatch-control/validator-sources" / X_WATCHER}
+    )
+    config = json.loads((ROOT / "cron-x-account-watch/config/watches.json").read_text(encoding="utf-8"))
+    config["profiles"][0]["source"] = "hybrid"
+
+    validators[X_WATCHER](config)
+
+
 def test_validator_reuses_the_phintraco_strict_config_schema():
     validators = validators_from_directories(
         {PHINTRACO_WATCHER: ROOT / "cron-tg-phintraco-swing/bin"}

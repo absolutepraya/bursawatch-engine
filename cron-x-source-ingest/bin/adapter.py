@@ -245,7 +245,7 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Pa
         # RSSHub returns a whole visible page. Direct X takes an after-id and
         # expands threads; a full result without the old anchor remains
         # ambiguous and must block rather than skip unseen posts.
-        after_id = cursor["anchor"] if cursor and profile.source == "direct_x" else None
+        after_id = cursor["anchor"] if cursor and profile.source in {"direct_x", "hybrid"} else None
         posts = fetch_profile(profile, after_id=after_id)
         ordered = sorted(posts, key=lambda post: int(post.post_id))
         observed[endpoint_id] = tuple(ordered)

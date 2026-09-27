@@ -167,6 +167,8 @@ def record_delivery(value: dict, event: dict, channel_id: str, delivered_at: dat
         "replacement_of": list(event.get("replacement_of", [])),
         "replacement_pending": False,
     }
+    if event.get("recovery"):
+        record["recovery"] = event["recovery"]
     value["deliveries"].append(record)
     return record
 

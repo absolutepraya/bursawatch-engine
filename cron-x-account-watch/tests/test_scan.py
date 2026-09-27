@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -113,6 +114,27 @@ def test_run_skips_a_profile_during_source_retry_cooldown(tmp_path, monkeypatch,
     assert result["wakeAgent"] is False
     assert calls == []
     assert "<@" not in heartbeats[0]
+
+
+def test_initialized_hybrid_profile_with_no_new_posts_is_not_an_empty_feed_alarm(tmp_path, monkeypatch, config_path):
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    payload["profiles"][0]["source"] = "hybrid"
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+    storage = tmp_path / "state.json"
+    value = state.new_state()
+    value["profiles"][payload["profiles"][0]["id"]] = {"cursor": "101"}
+    state.save_state(storage, value)
+    heartbeats = []
+    monkeypatch.setattr(scan, "state_path", lambda: storage)
+    monkeypatch.setattr(scan, "config_path", lambda: config_path)
+    monkeypatch.setattr(scan.rsshub, "fetch_profile_items", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(scan.discord, "post_text", lambda message, *args: heartbeats.append(message))
+
+    scan.run(now=now(), dry_run=True)
+
+    assert len(heartbeats) == 1
+    assert "empty source feed" not in heartbeats[0]
+    assert "⚠️" not in heartbeats[0]
 
 
 def test_run_persists_source_retry_after(tmp_path, monkeypatch, config_path):

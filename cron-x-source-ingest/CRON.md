@@ -20,6 +20,11 @@ with `page_truncated` and retains the cursor. Inbox failure leaves the staged
 request and cursor in place. A numeric ID cursor can be compared against a
 complete page when its anchor has fallen off. Opaque IDs require migration
 provenance with a timestamp boundary, otherwise a missing anchor blocks.
+For `hybrid` source mode, the adapter passes the prior numeric anchor to the
+shared X fetcher. That fetcher merges the RSSHub page with missing IDs visible
+on the public X profile before the cursor advances. Either source failing
+blocks intake. The public profile is a bounded window and cannot prove complete
+historical coverage.
 Post IDs set provider order; publication time
 remains event metadata. At most the next 20 fresh events are considered for
 media upload. The adapter reuses the live watcher's bounded, image-only

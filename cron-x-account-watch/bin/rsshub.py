@@ -192,9 +192,18 @@ def fetch_profile_items(profile: Profile, session: requests.Session | None = Non
     if response.status_code >= 400:
         raise SourceFetchError(f"RSSHub X feed HTTP {response.status_code}")
     try:
-        return parse_feed(response.json(), profile)
+        posts = parse_feed(response.json(), profile)
     except ValueError as exc:
         raise SourceFetchError("RSSHub X feed returned malformed JSON") from exc
+    if profile.source == "hybrid":
+        from direct_x import fetch_profile_items as fetch_direct_x_items
+        known = {post.post_id for post in posts}
+        for post in fetch_direct_x_items(profile, after_id=after_id, skip_ids=set(known)):
+            if post.post_id not in known:
+                posts.append(post)
+                known.add(post.post_id)
+        posts.sort(key=lambda post: int(post.post_id))
+    return posts
 
 
 def is_forwardable(profile: Profile, post: SourcePost) -> bool:

@@ -93,6 +93,143 @@ def test_fetches_and_expands_a_same_author_thread(config_path):
     assert [media.url for media in posts[0].media] == ["https://pbs.twimg.com/media/root.jpg"]
 
 
+def test_direct_x_uses_public_detail_and_keeps_normal_post_when_status_page_is_blocked(config_path, monkeypatch):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+
+    class ProfileProxy:
+        def get(self, url, timeout, headers=None):
+            if url == profile.profile_url:
+                return Response(200, text='<a href="/Kutekians/status/101">post</a>')
+            return Response(403)
+
+    class PublicDetail:
+        trust_env = True
+        proxies = {"https": "http://unwanted-proxy"}
+        def __init__(self):
+            self.urls = []
+        def get(self, url, timeout, headers=None):
+            self.urls.append(url)
+            return Response(200, payload={
+                "tweetID": "101", "conversationID": "101", "date_epoch": 1787137418,
+                "text": "A market fact", "mediaURLs": [], "user_screen_name": "Kutekians",
+            })
+        def close(self):
+            pass
+
+    detail = PublicDetail()
+    monkeypatch.setattr(direct_x, "_configured_session", ProfileProxy)
+    monkeypatch.setattr(direct_x.requests, "Session", lambda: detail)
+
+    posts = direct_x.fetch_profile_items(profile, after_id="100")
+
+    assert [post.post_id for post in posts] == ["101"]
+    assert posts[0].content_html == "A market fact"
+    assert detail.trust_env is False
+    assert detail.proxies == {}
+    assert detail.urls == ["https://api.vxtwitter.com/Kutekians/status/101"]
+
+
+def test_direct_x_recovers_same_author_parent_when_status_page_is_blocked(config_path, monkeypatch):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+
+    class ProfileProxy:
+        def get(self, url, timeout, headers=None):
+            if url == profile.profile_url:
+                return Response(200, text='<a href="/Kutekians/status/102">reply</a>')
+            return Response(403)
+
+    class PublicDetail:
+        def __init__(self):
+            self.trust_env = True
+            self.proxies = {"https": "http://unwanted-proxy"}
+        def get(self, url, timeout, headers=None):
+            post_id = url.rsplit("/", 1)[-1]
+            return Response(200, payload={
+                "tweetID": post_id, "conversationID": "101", "date_epoch": 1787137418 + int(post_id),
+                "text": "Root context" if post_id == "101" else "Reply context",
+                "replyingToID": "101" if post_id == "102" else None,
+                "replyingTo": "Kutekians" if post_id == "102" else None,
+                "mediaURLs": [], "user_screen_name": "Kutekians",
+            })
+        def close(self):
+            pass
+
+    monkeypatch.setattr(direct_x, "_configured_session", ProfileProxy)
+    monkeypatch.setattr(direct_x.requests, "Session", PublicDetail)
+
+    posts = direct_x.fetch_profile_items(profile, after_id="101")
+
+    assert [post.post_id for post in posts] == ["101", "102"]
+    assert posts[1].related_url == "https://x.com/Kutekians/status/101"
+
+
+def test_direct_x_recovers_intermediate_self_replies_when_status_page_is_blocked(config_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+
+    class BlockedThreadSession(Session):
+        def get(self, url, timeout, headers=None):
+            if url == profile.profile_url:
+                return Response(200, text='<a href="/Kutekians/status/103">reply</a>')
+            if url.startswith("https://x.com/Kutekians/status/"):
+                return Response(403)
+            post_id = url.rsplit("/", 1)[-1]
+            return Response(200, payload={
+                "tweetID": post_id, "conversationID": "101", "date_epoch": 1787137418 + int(post_id),
+                "text": f"Part {post_id}", "replyingToID": str(int(post_id) - 1) if post_id != "101" else None,
+                "replyingTo": "Kutekians" if post_id != "101" else None,
+                "mediaURLs": [], "user_screen_name": "Kutekians",
+            })
+
+    posts = direct_x.fetch_profile_items(profile, BlockedThreadSession(), after_id="102")
+
+    assert [post.post_id for post in posts] == ["101", "102", "103"]
+
+
+def test_direct_x_keeps_fresh_reply_when_thread_page_is_partial(config_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+
+    class PartialThreadSession(Session):
+        def get(self, url, timeout, headers=None):
+            if url == profile.profile_url:
+                return Response(200, text='<a href="/Kutekians/status/103">reply</a>')
+            if url.startswith("https://x.com/Kutekians/status/"):
+                return Response(200, text='<a href="/Kutekians/status/101">root only</a>')
+            post_id = url.rsplit("/", 1)[-1]
+            return Response(200, payload={
+                "tweetID": post_id, "conversationID": "101", "date_epoch": 1787137418 + int(post_id),
+                "text": f"Part {post_id}", "replyingToID": str(int(post_id) - 1) if post_id != "101" else None,
+                "replyingTo": "Kutekians" if post_id != "101" else None,
+                "mediaURLs": [], "user_screen_name": "Kutekians",
+            })
+
+    posts = direct_x.fetch_profile_items(profile, PartialThreadSession(), after_id="102")
+
+    assert [post.post_id for post in posts] == ["101", "102", "103"]
+
+
+def test_direct_x_bootstrap_excludes_other_authors_even_in_profile_markup(config_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+
+    class MixedProfileSession(Session):
+        def get(self, url, timeout, headers=None):
+            if url == profile.profile_url:
+                return Response(200, text=(
+                    '<article data-tweet-id="202"></article>'
+                    '<a href="/other/status/202">quote</a>'
+                    '<a href="/Kutekians/status/101">own post</a>'
+                ))
+            if url.endswith("/202"):
+                return Response(200, payload={
+                    "tweetID": "202", "date_epoch": 1787137418, "text": "Not ours",
+                    "user_screen_name": "other", "mediaURLs": [],
+                })
+            return super().get(url, timeout, headers=headers)
+
+    posts = direct_x.fetch_profile_items(profile, MixedProfileSession())
+
+    assert [post.post_id for post in posts] == ["101"]
+
+
 def test_direct_x_keeps_quoted_tweet_media_for_vision_context(config_path):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     post = direct_x._source_post(profile, {
@@ -125,6 +262,16 @@ def test_does_not_fetch_status_details_when_no_new_thread_exists(config_path):
     session = Session()
 
     posts = direct_x.fetch_profile_items(profile, session, after_id=101)
+
+    assert posts == []
+    assert session.urls == ["https://x.com/Kutekians"]
+
+
+def test_skips_profile_ids_already_supplied_by_rsshub(config_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    session = Session()
+
+    posts = direct_x.fetch_profile_items(profile, session, after_id="100", skip_ids={"101"})
 
     assert posts == []
     assert session.urls == ["https://x.com/Kutekians"]

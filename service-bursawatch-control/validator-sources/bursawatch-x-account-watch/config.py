@@ -181,8 +181,8 @@ def _parse_profile(index: int, value: object) -> Profile:
     if type(max_items) is not int or not 1 <= max_items <= 100:
         raise ValueError(f"profiles[{index}].max_items_per_poll must be an integer from 1 to 100")
     source = profile.get("source", "rsshub")
-    if source not in {"rsshub", "direct_x"}:
-        raise ValueError("profiles[].source must be rsshub or direct_x")
+    if source not in {"rsshub", "direct_x", "hybrid"}:
+        raise ValueError("profiles[].source must be rsshub, direct_x, or hybrid")
     media_policy = _parse_media_policy(profile.get("media_policy", "all"), f"profiles[{index}].media_policy")
     relevance_scope = _parse_relevance_scope(profile.get("relevance_scope", "stock_market"), f"profiles[{index}].relevance_scope")
     show_quoted_post = _expect_bool(profile.get("show_quoted_post", False), f"profiles[{index}].show_quoted_post")

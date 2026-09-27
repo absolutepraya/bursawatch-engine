@@ -356,6 +356,7 @@ function ProfileFields({ index, kind }: { index: number; kind: ProfileKind }) {
                 fallback="rsshub"
                 options={[
                   ["rsshub", "RSS feed"],
+                  ["hybrid", "RSS feed + public X"],
                   ["direct_x", "Direct X"],
                 ]}
               />

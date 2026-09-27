@@ -95,6 +95,34 @@ def test_x_parser_identity_and_future_only_ingest(tmp_path):
     assert inbox.events[0]["provider_event_id"] == "11"
 
 
+def test_hybrid_source_passes_prior_anchor_to_shared_fetcher(tmp_path):
+    profile = replace(
+        load_watch_config(ROOT / "cron-x-account-watch" / "config" / "watches.json").profiles[0],
+        enabled=True, source="hybrid",
+    )
+    endpoint_id = f"x:{profile.handle.casefold()}"
+    snapshot = {"revision": 3, "subscriptions": [{
+        "platform": "x", "endpoint_id": endpoint_id, "publisher_id": "x-kutekians",
+        "address": profile.handle, "provider_id": None, "capability_id": "company_news",
+        "verification_status": "verified", "enabled": True,
+    }]}
+    calls = []
+    post = lambda identity: SourcePost(
+        profile.id, identity, f"https://x.com/{profile.handle}/status/{identity}",
+        NOW, "Market", PostKind.NORMAL, None, None, (), (),
+    )
+    def fetch(_profile, *, after_id):
+        calls.append(after_id)
+        return [post("10")] if after_id is None else [post("10"), post("11")]
+
+    inbox = Inbox()
+    run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=fetch)
+    run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=fetch)
+
+    assert calls == [None, "10"]
+    assert [event["provider_event_id"] for event in inbox.events] == ["11"]
+
+
 def test_x_legacy_seed_proves_numeric_boundary_even_when_anchor_left_page(tmp_path, monkeypatch):
     profile = replace(load_watch_config(ROOT / "cron-x-account-watch" / "config" / "watches.json").profiles[0], enabled=True)
     endpoint_id = f"x:{profile.handle.casefold()}"

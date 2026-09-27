@@ -22,6 +22,14 @@ receipt or an individual account's source cursor through the reviewed API.
    progress. A matching revision establishes that run's configuration version,
    not that a particular account was successfully fetched.
 
+The X source connection can be **RSS feed**, **RSS feed + public X**, or
+**Direct X**. The combined mode checks public profile IDs for posts omitted by
+RSSHub before the cursor advances. Its public window is bounded, so a healthy
+combined poll is still not proof of complete X history. Changing this setting
+does not recover a post already behind the cursor; the backend owner can use
+the explicit, bounded source-gap recovery path after verifying its URL and
+delivery history.
+
 ## Understand eligibility and delay
 
 The first successful nonempty poll for a new account records a starting point
