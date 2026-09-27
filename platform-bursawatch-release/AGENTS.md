@@ -13,6 +13,8 @@ materializes that SHA from its local bare mirror. It deploys only known runtime
 handlers, verifies synchronized checksums, runs the package's isolated no-post
 control, and stores sanitized durable release records under
 `~/.local/share/bursawatch-release/`.
+After recording a successful SHA, later timer ticks for that same SHA return
+without rematerializing it, rewriting its record, or sending another heartbeat.
 
 The Telegram source-ingest pilot's no-post control is synthetic-only. Its
 scrubbed environment contains no inherited credentials; the wrapper does not

@@ -929,6 +929,8 @@ def release_once(settings: Settings, *, allow_manual: bool = False) -> str:
             if isinstance(blocked, dict) and blocked.get("sha") != sha:
                 state["blocked"] = None
                 store.write_state(state)
+            if state.get("last_success_sha") == sha:
+                return "already-released"
             transient = state.get("transient")
             if _transient_backoff_active(transient, sha):
                 attempts = transient.get("attempts", 1) if isinstance(transient, dict) else 1
@@ -1414,6 +1416,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps({"status": status}))
         return {
             "released": 0,
+            "already-released": 0,
             "waiting-for-ci": 0,
             "backoff": 0,
             "blocked": 1,
