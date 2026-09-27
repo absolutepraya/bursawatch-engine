@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bin"))
 
-from telegram_resilience import PolyCopResilience, ProbeDecision
+from telegram_resilience import PolyCopResilience, ProbeDecision, StateBlockedError
 
 
 WIB_NOW = datetime.fromisoformat("2026-08-10T15:00:00+07:00")
@@ -23,6 +23,40 @@ def _resilience(tmp_path: Path) -> PolyCopResilience:
 
 def _state(tmp_path: Path) -> dict[str, object]:
     return json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
+
+
+def test_from_defaults_accepts_explicit_isolated_paths(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("BURSAWATCH_RELEASE_NO_POST", raising=False)
+    monkeypatch.delenv("BURSAWATCH_RELEASE_NO_POST_TEMP", raising=False)
+    state_path = tmp_path / "isolated-state.json"
+    log_path = tmp_path / "isolated-events.jsonl"
+    monkeypatch.setenv("POLYCOP_RESILIENCE_STATE_PATH", str(state_path))
+    monkeypatch.setenv("POLYCOP_RESILIENCE_LOG_PATH", str(log_path))
+
+    resilience = PolyCopResilience.from_defaults()
+
+    assert resilience.state_path == state_path
+    assert resilience.log_path == log_path
+
+
+def test_release_no_post_defaults_to_its_temporary_root(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("BURSAWATCH_RELEASE_NO_POST", "1")
+    monkeypatch.setenv("BURSAWATCH_RELEASE_NO_POST_TEMP", str(tmp_path))
+    monkeypatch.setenv("POLYCOP_RESILIENCE_STATE_PATH", "/production/state.json")
+    monkeypatch.setenv("POLYCOP_RESILIENCE_LOG_PATH", "/production/events.jsonl")
+
+    resilience = PolyCopResilience.from_defaults()
+
+    assert resilience.state_path == tmp_path / "telegram-resilience.json"
+    assert resilience.log_path == tmp_path / "telegram-resilience.jsonl"
+
+
+def test_release_no_post_requires_a_temporary_root(monkeypatch) -> None:
+    monkeypatch.setenv("BURSAWATCH_RELEASE_NO_POST", "1")
+    monkeypatch.delenv("BURSAWATCH_RELEASE_NO_POST_TEMP", raising=False)
+
+    with pytest.raises(StateBlockedError, match="release no-post resilience paths are unavailable"):
+        PolyCopResilience.from_defaults()
 
 
 def test_new_state_is_private_and_versioned(tmp_path: Path) -> None:

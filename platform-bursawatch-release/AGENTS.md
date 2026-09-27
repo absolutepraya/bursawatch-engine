@@ -22,6 +22,12 @@ state, and reports explicit `network=false`, `secrets=false`, and `writes=false`
 evidence. The wrapper's only verification artifact is a log inside the release
 agent's disposable temporary directory.
 
+Market News, Phintraco Swing, and Kelas no-post checks still connect to their
+Telegram sources. Their disposable watcher state and media paths are isolated,
+and the shared Telegram resilience library routes its state and log to the
+release temporary directory. It must not mutate the production resilience
+state or log.
+
 The existing `#hermes` heartbeat is submitted through the shared Discord
 Delivery Owner at `http://127.0.0.1:9140`. The systemd unit exposes the already
 installed client package, and the release environment names its mode-0600
