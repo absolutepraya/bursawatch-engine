@@ -975,6 +975,12 @@ def test_systemd_unit_keeps_static_agent_code_and_scoped_restart_boundary():
     assert "NOPASSWD" in sudoers
 
 
+def test_cli_wrapper_exposes_the_shared_discord_client_package():
+    wrapper = (ROOT / "bin/bursawatch-release-agent.sh").read_text(encoding="utf-8")
+
+    assert 'export PYTHONPATH="/home/praya/.agents/skills/lib-bursawatch-discord-delivery/bin${PYTHONPATH:+:$PYTHONPATH}"' in wrapper
+
+
 def test_bootstrap_script_requires_apply_and_has_valid_shell_syntax():
     script = ROOT / "deployment/bootstrap-release-agent.sh"
     source = script.read_text(encoding="utf-8")
@@ -984,6 +990,7 @@ def test_bootstrap_script_requires_apply_and_has_valid_shell_syntax():
     assert "bursawatch-release-agent.env" in source
     assert 'state_root="$HOME/.local/share/bursawatch-release"' in source
     assert 'delivery_client_bin="$HOME/.agents/skills/lib-bursawatch-discord-delivery/bin"' in source
+    assert 'PYTHONPATH="$release_home/.agents/skills/lib-bursawatch-discord-delivery/bin"' in source
     assert 'delivery_client_token_file="$HOME/.hermes/secrets/bursawatch-discord-delivery-client-token"' in source
     assert '[[ "$(stat -c \'%a\' "$delivery_client_token_file")" == "600" ]]' in source
     assert 'install -d -m 0700 "$agent_dir" "$state_root"' in source
