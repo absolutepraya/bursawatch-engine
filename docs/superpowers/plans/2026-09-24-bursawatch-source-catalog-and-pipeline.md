@@ -9,13 +9,16 @@
 - The X watcher state-path mismatch is fixed in commit `4770a99` and published
   to `main`. This is a source change, not proof of VPS deployment or X pilot
   cutover.
-- The X pilot remains unscheduled. Before it can intake live events, every
-  enabled X endpoint needs a reviewed publisher binding, and its private
-  Source Event API URL and token file must be configured. The current read-only
-  inventory found enabled profile `dafandikri` without a reviewed binding.
-- No X schedule transition, production state handoff, or source-history replay
-  has been performed. Verify release and runtime evidence separately before
-  describing the published code as deployed.
+- A read-only Control Plane check returned source catalog revision 3 with ten
+  registered, verified X endpoints and zero enabled effective X subscriptions.
+  The current watcher config has eleven enabled profiles; `dafandikri` is
+  absent from both the catalog endpoints and reviewed publisher crosswalk.
+- Before live intake, reconcile those two inventories, configure the intended
+  X subscriptions and reviewed publisher bindings, and provision the private
+  Source Event API URL and token file required by the pilot wrapper.
+- The X pilot remains unscheduled. No X schedule transition, production state
+  handoff, or source-history replay has been performed. Verify release and
+  runtime evidence separately before describing the published code as deployed.
 - Telegram Market News natural-delivery confirmation is deferred until the
   next market weekday; the weekend provides no comparable new event.
 
