@@ -66,14 +66,17 @@ Delivery Owner and the package contract's fixed heartbeat format.
 The release wrapper is `bin/bursawatch-tg-source-ingest.sh`. Its normal entry
 point reads only `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`,
 `POLYCOP_SESSION_STRING`, `BURSAWATCH_TG_SOURCE_CONTROL_PLANE_URL`,
-`BURSAWATCH_TG_SOURCE_CONTROL_PLANE_TOKEN_FILE`, optional
-`BURSAWATCH_SOURCE_MEDIA_URL` and `BURSAWATCH_SOURCE_MEDIA_UPLOAD_TOKEN_FILE`,
-and the two `BURSAWATCH_DISCORD_DELIVERY_*` settings from
+`BURSAWATCH_TG_SOURCE_CONTROL_PLANE_TOKEN_FILE`, and, when media is enabled,
+`BURSAWATCH_SOURCE_MEDIA_URL`, `BURSAWATCH_SOURCE_MEDIA_UPLOAD_TOKEN_FILE`,
+and `BURSAWATCH_SOURCE_MEDIA_READ_TOKEN_FILE`, plus the two
+`BURSAWATCH_DISCORD_DELIVERY_*` settings from
 `~/.hermes/.env`. Credential contents stay in their existing private files and
 never enter logs. The release-agent `BURSAWATCH_RELEASE_NO_POST=1`
 path does not open `.env` or credential files. It invokes only the synthetic
 in-memory contract check, passes a scrubbed environment, and keeps its log in
 the release agent's disposable `BURSAWATCH_RELEASE_NO_POST_TEMP` directory.
+The source adapter uses the media upload token; domain owners use the read
+token to download accepted private media through Source Media.
 
 Run focused synthetic tests from the repository root with
 `../../.venv/bin/python -m pytest -q cron-tg-source-ingest/tests`.
