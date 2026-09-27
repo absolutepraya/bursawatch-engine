@@ -66,6 +66,9 @@ class FakeTelegram:
         assert address == self.address
         return SimpleNamespace(id=self.entity_id, username=self.address)
 
+    async def get_dialogs(self):
+        return [SimpleNamespace(entity=SimpleNamespace(id=self.entity_id, username=self.address))]
+
     async def get_messages(self, entity, limit):
         assert limit == 1
         return [self.messages[-1]] if self.messages else []
@@ -131,7 +134,7 @@ def test_telegram_seed_validates_endpoint_tuple_and_pins_catalog_revision(tmp_pa
 
 def test_blocked_endpoint_reports_stage_and_error_type_without_provider_text(tmp_path):
     class FailingTelegram(FakeTelegram):
-        async def get_entity(self, address):
+        async def get_dialogs(self):
             raise RuntimeError("private source details")
 
     snapshot = {
@@ -157,6 +160,43 @@ def test_blocked_endpoint_reports_stage_and_error_type_without_provider_text(tmp
         "error_type": "RuntimeError",
     }]
     assert "private source details" not in json.dumps(result)
+
+
+def test_phintraco_entity_resolves_from_authenticated_dialog_by_provider_id(tmp_path):
+    class DialogTelegram(FakeTelegram):
+        async def get_dialogs(self):
+            return [SimpleNamespace(entity=SimpleNamespace(id=1444713822, username="phintraprofits"))]
+
+        async def get_entity(self, address):
+            raise ValueError("private source details")
+
+    state_root = tmp_path / "state"
+    endpoint_root = state_root / "telegram-phintraprofits"
+    endpoint_root.mkdir(parents=True)
+    (endpoint_root / "cursor.json").write_text(json.dumps({"cursor": 100}))
+    (state_root / "catalog-revision.json").write_text(json.dumps({"revision": 8}))
+    snapshot = {
+        "revision": 8,
+        "subscriptions": [{
+            "platform": "telegram",
+            "endpoint_id": "telegram:phintraprofits",
+            "publisher_id": "phintraco",
+            "address": "phintraprofits",
+            "provider_id": "1444713822",
+            "capability_id": "trading_plans",
+            "verification_status": "verified",
+            "enabled": True,
+        }],
+    }
+
+    result = asyncio.run(adapter_ingest_all(DialogTelegram([]), snapshot, state_root, FakeInbox(), NOW))
+
+    assert result == [{
+        "endpoint_id": "telegram:phintraprofits",
+        "bootstrapped": False,
+        "cursor": 100,
+        "accepted": 0,
+    }]
 
 
 def test_phintraco_news_cursor_seed_previews_market_news_provider_boundary(tmp_path):

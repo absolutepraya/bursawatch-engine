@@ -1,6 +1,5 @@
 """Future-only Telegram intake for the source event inbox.
 
-The existing source jobs remain the production readers until a reviewed cutover.
 This module has no Discord or Board credentials.
 """
 from __future__ import annotations
@@ -190,6 +189,19 @@ def _save_cursor(path: Path, value: int, *, bootstrap_cursor: int | None = None,
     _write_json(path, record)
 
 
+async def _resolve_entity(client: Any, endpoint: dict[str, Any]) -> Any:
+    # Phintraco's private channel is reliably present in authenticated dialogs,
+    # while Telethon username lookup can fail even when the account can read it.
+    if endpoint["endpoint_id"] == "telegram:phintraprofits":
+        expected_id = endpoint["provider_id"]
+        for dialog in await client.get_dialogs():
+            entity = getattr(dialog, "entity", None)
+            if str(getattr(entity, "id", "")) == expected_id:
+                return entity
+        raise IntakeBlocked("Telegram configured source is not present in accessible dialogs")
+    return await client.get_entity(endpoint["address"])
+
+
 def _stamp(value: datetime) -> str:
     if not isinstance(value, datetime) or value.tzinfo is None:
         raise IntakeBlocked("Telegram source timestamp is missing")
@@ -304,7 +316,7 @@ async def ingest_endpoint(client: Any, endpoint: dict[str, Any], state_root: Pat
     if endpoint["endpoint_id"] == "telegram:kelasinvestasiid" and cursor_record is not None and bootstrap_cursor is None:
         raise IntakeBlocked("Kelas adapter bootstrap cursor is unavailable")
     set_stage("resolve_entity")
-    entity = await client.get_entity(endpoint["address"])
+    entity = await _resolve_entity(client, endpoint)
     set_stage("validate_identity")
     if endpoint["provider_id"] is not None and str(getattr(entity, "id", "")) != endpoint["provider_id"]:
         raise IntakeBlocked("Telegram resolved identity does not match catalog")
