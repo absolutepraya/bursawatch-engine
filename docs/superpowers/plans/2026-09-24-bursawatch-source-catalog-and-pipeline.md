@@ -11,14 +11,18 @@
   cutover.
 - A read-only Control Plane check returned source catalog revision 3 with ten
   registered, verified X endpoints and zero enabled effective X subscriptions.
-  The current watcher config has eleven enabled profiles; `dafandikri` is
-  absent from both the catalog endpoints and reviewed publisher crosswalk.
+  On 2026-09-27, the test-only `dafandikri-testing` profile was removed from the
+  active X watcher configuration. Watcher revision 8 now contains the other
+  ten profiles. Its stored cursor/history was retained; the live outbox was
+  empty at removal time.
 - Before live intake, reconcile those two inventories, configure the intended
   X subscriptions and reviewed publisher bindings, and provision the private
   Source Event API URL and token file required by the pilot wrapper.
 - The X pilot remains unscheduled. No X schedule transition, production state
   handoff, or source-history replay has been performed. Verify release and
   runtime evidence separately before describing the published code as deployed.
+- Platform rollout order after X is WhatsApp, then RSS/Stockbit. Instagram is
+  deferred until its source is online and its fetch path can be verified.
 - Telegram Market News natural-delivery confirmation is deferred until the
   next market weekday; the weekend provides no comparable new event.
 
@@ -222,12 +226,14 @@ Discord Delivery Owner
 
 ### Task 5: Migrate remaining platform adapters
 
-**Packages:** add cron-x-source-ingest, cron-ig-source-ingest, cron-wa-source-ingest,
-and cron-rss-source-ingest; adapt the corresponding existing watcher packages
+**Packages:** add cron-x-source-ingest, cron-wa-source-ingest,
+cron-rss-source-ingest, and later cron-ig-source-ingest; adapt the corresponding
+existing watcher packages
 
-- Move X, Instagram, WhatsApp, and supported RSS endpoint polling behind one runtime
-  boundary per platform. Keep platform-specific authentication, cursors, limits, and
-  fetch behavior in that adapter.
+- Migrate X first, then WhatsApp, then supported RSS endpoints behind one
+  runtime boundary per platform. Keep platform-specific authentication,
+  cursors, limits, and fetch behavior in that adapter. Defer Instagram until
+  its source is online and its fetch path can be verified.
 - Where a source publishes attachments, use the shared Source Media client and the same
   validated opaque-reference contract. Each adapter must persist the source handoff and
   advance its cursor only after event acceptance; no adapter may write Supabase Storage
@@ -235,8 +241,9 @@ and cron-rss-source-ingest; adapt the corresponding existing watcher packages
 - Convert each current configured source into a catalog endpoint and attach only
   compatible capabilities. People & Org endpoint additions use the same validation and
   revision model.
-- Map Stockbit's four existing fixed lanes to system-owned RSS endpoints. Preserve its
-  live config revision, article queue, frozen settings, routes, and future-only
+- Map Stockbit's four existing fixed lanes to system-owned RSS endpoints.
+  These four feeds are the current RSS rollout scope. Preserve Stockbit's live
+  config revision, article queue, frozen settings, routes, and future-only
   behavior. Do not permit arbitrary RSS URLs or replay old articles.
 - Use independent source cursor and event idempotency for each endpoint. Preserve
   pending delivery and handoff receipts through the shared Delivery Owner.
