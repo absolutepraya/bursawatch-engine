@@ -170,7 +170,9 @@ visudo -c
 systemctl daemon-reload
 
 if [[ "$retry_blocked" == true ]]; then
-  runuser -u "$release_user" -- env HOME="$release_home" \
+  runuser -u "$release_user" -- env \
+    HOME="$release_home" \
+    PYTHONPATH="$release_home/.agents/skills/lib-bursawatch-discord-delivery/bin" \
     "$agent_dir/bursawatch-release-agent.sh" --clear-block
 fi
 

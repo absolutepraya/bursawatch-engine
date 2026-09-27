@@ -51,7 +51,8 @@ Delivery Owner on loopback. The agent uses the shared client installed at
 `~/.agents/skills/lib-bursawatch-discord-delivery/bin` and the mode-0600 client
 token file at
 `~/.hermes/secrets/bursawatch-discord-delivery-client-token`. It has no Discord
-bot token. When the optional
+bot token. The agent wrapper also supplies the shared client package path for
+operator CLI calls outside systemd. When the optional
 `BURSAWATCH_RELEASE_STATUS_TOKEN` is configured, it also publishes the
 `bursawatch/release` commit status for the exact candidate SHA. The polling
 token remains read-only; the status token is separate and only needs commit
