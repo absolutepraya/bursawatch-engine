@@ -51,5 +51,45 @@ does not backfill or replay Telegram history.
   other topics.
 - Tuntun cursor previews use the Tuntun legacy boundary and isolate pending
   work by provider.
-- Focused source-ingest and Market News test suites pass; no live config,
-  schedule, cursor, source inbox, media store, or Discord state is changed.
+- Focused source-ingest and Market News test suites pass. Implementation tests
+  did not mutate production; the separately approved production cutover is
+  recorded below.
+
+## Production execution record
+
+The paired cutover completed on 2026-09-27 after commit
+`374824276a6a2aa06d3e5ea5ba3ca35df79caae9` passed `CI / validate` and the
+VPS release agent deployed the source-ingest, Market News, and shared source
+ingest runtime units.
+
+- Effective source catalog revision moved from 2 to 3. The only changes enabled
+  Phintraco News `company_news`, `macro_news`, and `stock_status`, plus Tuntun
+  `company_news` and `macro_news`. All other subscriptions and selected
+  securities remained unchanged.
+- The legacy Market News Hermes job `6a0b4f895b07` and watchdog
+  `d34dc79771b0` remain paused. Desired schedule revision 6 is disabled and
+  confirmed effective by the reconciler. Shared Telegram source ingest
+  `262b25371e83` is active at its existing one-minute cadence.
+- The paired cursor transition moved source-ingest state revision 2 to 3 using
+  the frozen legacy high-water marks: Phintraco 35444 and Tuntun 15006. The
+  transition journal is complete. It created no historical candidates and did
+  not replay Telegram history.
+- The private, checksummed snapshot bundle is retained at
+  `~/backup/hermes/runtime-cutovers/2026-09-27/bursawatch-tg-market-news-handoff/`.
+  It contains the pre-transition legacy and source-ingest state, prior and
+  target catalog snapshots, the exact preview plan, and post-transition
+  source-ingest state. The checksum manifest passed verification; the bundle
+  is about 1.9 MB.
+- The first natural source-ingest run after resume, execution
+  `3e3e489070fe43ed8519d472b1a65cb9`, completed successfully at 13:15 WIB.
+  It polled all four configured Telegram endpoints without a block, accepted
+  zero new messages, and had no pending work or agent dispatch. Successful
+  completion also confirms the run's required heartbeat receipt from the
+  Delivery Owner. No News content post was made by that run.
+- Two immediately preceding legacy Market News run records, at 13:02 and
+  13:04 WIB, were marked failed with `delivery service returned an invalid
+  response`; both reported zero source messages, candidates, and content
+  deliveries. The shared source-ingest heartbeat succeeded after cutover, but
+  News content delivery was not exercised by the first natural run. Observe
+  the first naturally occurring News event through the new owner before
+  treating that content-delivery path as live-verified.

@@ -2,10 +2,12 @@
 
 This package is the active Telegram source-intake pilot with an automatic
 release unit and deployable runtime wrapper. Hermes job
-`bursawatch-tg-source-ingest` runs every minute. Its current live scope is
-Phintraco Swing `trading_plans` and Kelas Investasi `swing_support`; the shared
-adapter now also supports Tuntun News intake, while Tuntun remains on the
-legacy reader until its separately coordinated cutover.
+`bursawatch-tg-source-ingest` runs every minute. Its live scope includes
+Phintraco Swing `trading_plans`, Kelas Investasi `swing_support`, Phintraco News
+`company_news`, `macro_news`, and `stock_status`, plus Tuntun News
+`company_news` and `macro_news`. The paired Phintraco and Tuntun News cutover
+completed on 2026-09-27. Its production record is in
+[`docs/superpowers/plans/2026-09-27-tuntun-telegram-source-intake.md`](../docs/superpowers/plans/2026-09-27-tuntun-telegram-source-intake.md).
 
 `bin/runner.py` reads one authenticated effective source catalog snapshot, then
 `bin/adapter.py` groups enabled verified subscriptions by canonical endpoint.
@@ -69,14 +71,15 @@ blocked handoff; it is private state, never Git. If upload succeeds but inbox
 acceptance fails, the private handoff spool retains the opaque reference and
 retries it without reuploading or advancing the Telegram cursor.
 
-Keep the current live scope limited to Phintraco `trading_plans` and Kelas
-`swing_support` until Tuntun is separately coordinated with the legacy Market
-News reader and its durable state. Do not enable other Telegram subscriptions
-or change the pilot schedule without an approved rollout. Seeded cursors are
-future-only; do not backfill or replay source history. The source owner must
-emit a heartbeat to #hermes on every scheduled run, including no-hit runs,
-using the shared Discord Delivery Owner and the package contract's fixed
-heartbeat format.
+Keep live subscriptions within the reviewed catalog scope above. Do not enable
+other Telegram subscriptions or change the pilot schedule without an approved
+rollout. News cursors were seeded from the legacy high-water marks and are
+future-only; do not backfill or replay source history. The legacy Market News
+scanner and watchdog remain paused, and the legacy scanner's desired schedule
+is disabled. Do not resume either while shared source ingest polls these
+publishers. The source owner must emit a heartbeat to #hermes on every scheduled
+run, including no-hit runs, using the shared Discord Delivery Owner and the
+package contract's fixed heartbeat format.
 
 The release wrapper is `bin/bursawatch-tg-source-ingest.sh`. Its normal entry
 point reads only `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`,

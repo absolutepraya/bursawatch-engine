@@ -4,41 +4,40 @@ This file supplements the repository root `AGENTS.md`. It is the development and
 
 ## Runtime and deterministic boundary
 
-The Telegram source-ingest pilot adds `bin/pipeline_owner.py` for deterministic
-Phintraco Stock Information and agent-classified Phintraco and Tuntun News.
-News source work is accepted into this package's existing candidate ledger
-without a Telegram read or Discord post. The owner inspects same-version source
-work after the inbox execution fence, records the enabled Company and Macro
-capabilities and a validated Market News config snapshot with the one source
-candidate, then settles source work on durable owner acceptance. Its
-`agent-status` command reads without claiming and exposes the next ready
-candidate's event key and source publication time for shared arbitration;
-`claim-agent` leases at most one candidate and emits the existing exact Hermes
-wake payload. The agent still submits through this package's
-`submit-classification` command;
-the existing validator, two-minute candidate lease, route selection, and
-Delivery Owner path remain authoritative. Each provider's legacy reader must
-stop polling it before that provider's live source-ingest cutover. Tuntun
-source events carry their forum topic ID; the owner accepts only topic `3743`
-and preserves all deterministic candidates extracted from a multi-ticker
+Shared Telegram source ingest now sends Phintraco Stock Information and
+Phintraco and Tuntun News to `bin/pipeline_owner.py`. News source work enters
+this package's existing candidate ledger without another Telegram read or
+immediate Discord post. The owner inspects same-version source work after the
+inbox execution fence, records its enabled Company and Macro capabilities and
+a validated Market News config snapshot with the source candidate, then settles
+source work on durable owner acceptance. Its `agent-status` command reads
+without claiming and exposes the next ready candidate's event key and source
+publication time for shared arbitration; `claim-agent` leases at most one
+candidate and emits the existing exact Hermes wake payload. The agent submits
+through this package's `submit-classification` command; the existing validator,
+two-minute candidate lease, route selection, and Delivery Owner path remain
+authoritative. The paired Phintraco and Tuntun News cutover completed on
+2026-09-27. The legacy Market News reader and watchdog are paused, and the
+Control Plane desired schedule for the legacy reader is disabled. Tuntun source
+events carry their forum topic ID; the owner accepts only topic `3743` and
+preserves all deterministic candidates extracted from a multi-ticker
 publication under the same immutable source event and frozen config. A
-stock-status work item may retain
-Source Media Owner refs at the immutable event layer; this text-only capability
-continues to ignore attachments, matching its existing parser and output contract.
+stock-status work item may retain Source Media Owner refs at the immutable
+event layer; this text-only capability continues to ignore attachments,
+matching its existing parser and output contract.
 
-- Development source: this directory. The deployed scanner lives at `~/.agents/skills/bursawatch-tg-market-news/`; its wrapper is `~/.hermes/scripts/bursawatch-tg-market-news.sh`.
-- The deterministic scanner owns provider intake, cursoring, candidate creation, event classification validation, deduplication, ranking, durable state, delivery, retries, and heartbeats. Hermes receives exactly one bounded candidate only when `wakeAgent` is true and may classify only that supplied evidence.
+- Development source: this directory. The Market News domain owner lives at `~/.agents/skills/bursawatch-tg-market-news/`; its wrapper is `~/.hermes/scripts/bursawatch-tg-market-news.sh`. The scheduled legacy reader using that wrapper remains paused after cutover.
+- `cron-tg-source-ingest` owns live Telegram polling, resilience, cursors, source inbox acceptance, and cross-owner dispatch. The Market News owner owns source-backed candidate state, deterministic parsing and validation, classification, deduplication, ranking, rendering, and delivery retries. Hermes receives exactly one bounded candidate only when `wakeAgent` is true and may classify only that supplied evidence.
 - Tuntun (`tuntunsekuritas`) accepts only thread `3743`: standalone `📰` news, issuer-specific ticker-led standalone news, explicit foreign-partner `<name> China-<IDX ticker>` headlines, explicitly issuer-named `Anak Usaha <TICKER>` headlines with one or two named issuers, individual company entries in Corporate posts, issuer-specific Special Topics, and bounded Midday or Evening Updates. A Corporate post creates at most one candidate per ticker and keeps the first entry when a ticker repeats, preserving the durable message-plus-ticker identity on retries. A decorated headline selects its first non-market, non-abbreviation ticker when present, otherwise it is a tickerless macro candidate. The deterministic reserved-acronym set covers market symbols plus verified government, regulatory, market-infrastructure, macro, and industry labels such as `APBN`, `BUMN`, `POJK`, `RKAB`, `SPBU`, and `TKDN`, so they cannot create an issuer price card. Each addition must first be checked against the current IDX Stock List because ambiguous acronyms may be live issuers. An update creates one lead plus one candidate per `Macro & Global` or `Industry` news paragraph. `Overview`, sector, movers, breadth, and foreign-flow tables are excluded. Daily, promotional, and customer-service material is excluded.
 - Phintraco (`phintasprofits`) accepts Notes, PHINTAS Quick Notes, Company Update, Company Flash, Company Notes, and Stock Information. Notes, Quick Notes, and Company Update create one candidate from the first non-empty headline. A ticker-led headline supplies that issuer; a PHINTAS Quick Notes headline beginning `Anak Usaha <TICKER>` also supplies its single listed parent issuer. Headlines naming multiple listed issuers remain tickerless so their impact is summarized once as macro. Company Flash and Company Notes require an identified issuer. Market Review, including a mixed review with appended top-pick material, is excluded.
-- Phintraco `Stock Information` messages are intercepted by the deterministic scanner before candidate creation. Each newly observed post becomes one grouped event to the existing `id_stocks_news` route (`#id-stocks-news`); it bypasses AI classification and Yahoo Finance market data. The effective date supplies the `Stock Status: Wed, 23 Sep 2026` header date. Source sections map as `Unusual Market Activity (UMA)` to `UMA`, `Suspend` to `Suspend In`, `Unsuspend` to `Suspend Out`, and `FCA In` and `FCA Out` to the same output labels. Every message contains all five sections in the fixed order `UMA`, `Suspend In`, `Suspend Out`, `FCA In`, `FCA Out`; tickers are bullet-listed in source order and an empty category is `(None)`. Missing or duplicate headings, an unknown heading, an invalid or duplicate effective date, or a malformed category entry rejects the entire message. The Discord content limit is 2,000 characters; longer content is rejected without truncation or splitting. The event or rejection is persisted before advancing the Phintraco cursor. This path processes new messages only, does not monitor edits, and does not backfill or replay history.
+- Phintraco `Stock Information` arrives as `stock_status` source work and is handled by the deterministic Market News owner before agent wake. Each newly observed post becomes one grouped event to the existing `id_stocks_news` route (`#id-stocks-news`); it bypasses AI classification and Yahoo Finance market data. The effective date supplies the `Stock Status: Wed, 23 Sep 2026` header date. Source sections map as `Unusual Market Activity (UMA)` to `UMA`, `Suspend` to `Suspend In`, `Unsuspend` to `Suspend Out`, and `FCA In` and `FCA Out` to the same output labels. Every message contains all five sections in the fixed order `UMA`, `Suspend In`, `Suspend Out`, `FCA In`, `FCA Out`; tickers are bullet-listed in source order and an empty category is `(None)`. Missing or duplicate headings, an unknown heading, an invalid or duplicate effective date, or a malformed category entry rejects the entire message. The Discord content limit is 2,000 characters; longer content is rejected without truncation or splitting. The event or rejection is persisted before the Phintraco source cursor advances. This path processes new messages only, does not monitor edits, and does not backfill or replay history.
 - A fresh provider cursor is initialized at the current highest message. It creates no historical candidate or backfill.
-- A separate operator command may queue exactly one verified Phintraco Quick Note published today: `~/.hermes/scripts/bursawatch-tg-market-news.sh backfill-phintraco-quick-note --message-id <id>`. It fetches that exact message, verifies its format and Jakarta publication date, requires the provider cursor to be bootstrapped and already at or beyond the message, and leaves the cursor unchanged. It is idempotent and queues analysis only; the next natural watcher run handles classification and delivery. It cannot backfill older dates or other Phintraco formats.
-- The separate desired-schedule catalog identifies the registered Hermes job as
-  `bursawatch-tg-market-news`. Its verified one-minute baseline may be changed
-  by an administrator to any one-minute to one-hour interval, or paused, as
-  durable intent only. It remains pending until the future trusted VPS
-  reconciler uses the Hermes CLI and reports the applied revision. It never
-  changes the watchdog schedule, provider state, credentials, or alert routes.
+- A separate operator command may queue exactly one verified Phintraco Quick Note published today: `~/.hermes/scripts/bursawatch-tg-market-news.sh backfill-phintraco-quick-note --message-id <id>`. It fetches that exact message, verifies its format and Jakarta publication date, requires the provider cursor to be bootstrapped and already at or beyond the message, and leaves the cursor unchanged. It is idempotent and queues analysis only; the next natural shared source-ingest run handles classification and delivery. It cannot backfill older dates or other Phintraco formats.
+- The Control Plane schedule row `bursawatch-tg-market-news` describes only
+  the legacy reader. Desired schedule revision 6 is intentionally disabled and
+  reconciled as effective after the paired cutover. Keep it disabled while
+  shared source ingest polls these publishers. This row does not control the
+  shared source-ingest cadence or the separate watchdog schedule.
 
 ## Agent classification contract
 
@@ -64,7 +63,7 @@ Allowed event classes are `financial_results_or_guidance`, `corporate_action`, `
 
 ## Delivery, state, and shared Telegram resilience
 
-Eligible issuer news is delivered as one text-only Discord message to `1525102508714889257` (`#id-stocks-news`), eligible Macro & Global news is delivered to `1531655369884045382` (`#macro-news`), and eligible Industry update news is delivered to `1549418098807930880` (`#id-industry-news`). Standalone news delivers immediately after deterministic validation, deduplication, and classification. A Midday or Evening Update waits until every extracted segment is classified, then may deliver its eligible lead, at most two highest-ranked eligible `Macro & Global` items, and at most two highest-ranked eligible Industry items. The Macro & Global and Industry caps are independent. No pre-market, post-market, or intraday heading is added, and multiple tickers are never batched. Operational heartbeats and failure notices go only to `1505162000420835388`. The registered agent-backed Hermes job uses `local` delivery because scanner stdout is control protocol, not a Discord heartbeat; only the scanner's explicit heartbeat and fatal posts belong in `#hermes`.
+Eligible issuer news is delivered as one text-only Discord message to `1525102508714889257` (`#id-stocks-news`), eligible Macro & Global news is delivered to `1531655369884045382` (`#macro-news`), and eligible Industry update news is delivered to `1549418098807930880` (`#id-industry-news`). Standalone news delivers immediately after deterministic validation, deduplication, and classification. A Midday or Evening Update waits until every extracted segment is classified, then may deliver its eligible lead, at most two highest-ranked eligible `Macro & Global` items, and at most two highest-ranked eligible Industry items. The Macro & Global and Industry caps are independent. No pre-market, post-market, or intraday heading is added, and multiple tickers are never batched. Operational heartbeats and failure notices go only to `1505162000420835388`. The shared `bursawatch-tg-source-ingest` Hermes job uses `local` delivery for its agent control protocol; its explicit heartbeat and fatal posts go to `#hermes` through the Delivery Owner. The paused legacy Market News job no longer owns the production heartbeat.
 
 ### Candidate identity and duplicate boundary
 
@@ -91,13 +90,13 @@ Harga terakhir (IDR): **<price>**
 
 Every macro-routed item omits ticker and market data. Tuntun uses its generated title; Phintraco uses the brand heading `Phintraco Sekuritas`. Both show `*(Ringkasan)*`, then the Telegram link. Every issuer-routed Tuntun and Phintraco item uses the same market-card structure: provider-specific heading, Tuntun's title or Phintraco's legal-name heading, `*(Ringkasan)*` body, bold price, bold 1D/1W/1M/3M values, dot-decimal percentages, and a Telegram link. Phintraco research estimates are attributed within the summary; there is no separate source-attribution line. Every summary is prefixed with `*(Ringkasan)* ` because every eligible item is summarized by the LLM. Direction emoji markup has one following space. A missing value is rendered as bold `-` with the grey direction emoji. There is no tier, session, per-entry timestamp, source image, separator, italic price, or follow-up media message. A Tier One or Tier Two issuer item uses the same standalone layout within its provider contract, and each candidate is posted as exactly one Discord text message.
 
-Before submitting an item, the scanner persists its exact rendered text, deterministic nonce, and handoff state. The scanner submits a stable event-and-leg operation through the shared Delivery Owner using the private client-token file at `~/.hermes/secrets/bursawatch-discord-delivery-client-token`. Local state keeps the item pending until the service durably accepts the operation key and digest. After acceptance, the Delivery Owner owns queued delivery, rate limits, and retries; the scanner looks up that same operation and marks the item delivered only after the service returns its message ID. A lost acceptance response remains locally unknown and is resolved through the same operation key. This preserves each item's payload and does not batch it with another item.
+Before submitting an item, the deterministic Market News delivery workflow persists its exact rendered text, deterministic nonce, and handoff state. It submits a stable event-and-leg operation through the shared Delivery Owner using the private client-token file at `~/.hermes/secrets/bursawatch-discord-delivery-client-token`. Local state keeps the item pending until the service durably accepts the operation key and digest. After acceptance, the Delivery Owner owns queued delivery, rate limits, and retries; the workflow looks up that same operation and marks the item delivered only after the service returns its message ID. A lost acceptance response remains locally unknown and is resolved through the same operation key. This preserves each item's payload and does not batch it with another item.
 
 The owner-specific `bin/delivery_handoff.py --plan <private-plan-path>` command writes a read-only plan for legacy sender state. Apply only during a separately approved cutover with scanner and watchdog paused, using `BURSAWATCH_DISCORD_HANDOFF_ALLOW_APPLY=1 python bin/delivery_handoff.py --apply <private-plan-path>`. Apply preserves the source state until each operation key and digest is durably accepted.
 
-This watcher uses the shared `POLYCOP_SESSION_STRING` profile and `telegram-resilience` control plane at `~/.hermes/state/telegram-resilience-polyclop.json`. Before creating a Telegram client, it acquires `acquire_probe_after_active_lease`. A cooldown, peer probe lease, transport backoff, or authorization hold exits cleanly without advancing a provider cursor, candidate queue, delivery outbox, or other production state. Do not add a watcher-specific session, reset the shared state, replay candidates, or manually post an item.
+The shared source-ingest runner uses the shared `POLYCOP_SESSION_STRING` profile and `telegram-resilience` control plane at `~/.hermes/state/telegram-resilience-polyclop.json`. Before creating a Telegram client, it acquires `acquire_probe_after_active_lease`. A cooldown, peer probe lease, transport backoff, or authorization hold exits cleanly without advancing a provider cursor, candidate queue, delivery outbox, or other production state. Do not add a watcher-specific session, reset the shared state, replay candidates, or manually post an item. The legacy Market News scanner also uses this shared state if run for approved maintenance, but its scheduled reader stays paused.
 
-The scanner's durable state is `~/.hermes/state/idx-market-news.json`. It and the shared resilience control state are production data, not deploy inputs. The optional live control-plane configuration is one frozen invocation snapshot: its two provider usernames, the three Discord news routes, heartbeat route, and bounded additive agent context may change through the web application after deployment. It never changes durable candidates, cursors, retry state, state paths, model protocol, or the watchdog schedule. The independent watchdog remains outside this config surface because it reads only existing durable state and uses the shared Delivery Owner client token.
+The Market News owner's durable state is `~/.hermes/state/idx-market-news.json`; it and the shared resilience control state are production data, not deploy inputs. The optional live Market News configuration is one frozen owner snapshot: provider usernames, three Discord news routes, the heartbeat route, and bounded additive agent context may change through the web application after deployment. Telegram source selection is owned separately by the Source Catalog. Neither configuration changes durable candidates, cursors, retry state, state paths, model protocol, or the watchdog schedule. The independent watchdog remains outside this config surface because it reads only existing durable state and uses the shared Delivery Owner client token. It is paused after the paired News cutover and must not be resumed while shared source ingest is polling these publishers.
 
 ### Live configuration schema
 
@@ -135,17 +134,17 @@ Use all three controls together for an isolated no-post smoke:
 IDX_MARKET_NEWS_NO_POST=1 IDX_MARKET_NEWS_STATE_PATH=/tmp/idx-market-news-smoke.json IDX_MARKET_NEWS_FORCE_HEARTBEAT=1 bash ~/.hermes/scripts/bursawatch-tg-market-news.sh
 ```
 
-The smoke initializes provider cursors only in the temporary state and places Telegram resilience state and logs beside that temporary file. It prints the forced heartbeat and makes no Discord request. No-post mode refuses a state path inside `~/.hermes/state/`. It is not permission to run the registered cron, reset state, backfill, or send a test message.
+The smoke initializes provider cursors only in the temporary state and places Telegram resilience state and logs beside that temporary file. It prints the forced heartbeat and makes no Discord request. No-post mode refuses a state path inside `~/.hermes/state/`. It validates the legacy scanner only, not live source ingestion. It is not permission to run the registered cron, reset state, backfill, or send a test message.
 
 ## Independent watchdog schedule
 
-The independent watchdog uses `bin/watchdog-wrapper.sh`, the scanner's durable default state path, and the shared Delivery Owner URL and client-token file. Its established scheduler entry is:
+The independent watchdog uses `bin/watchdog-wrapper.sh`, the Market News owner's durable default state path, and the shared Delivery Owner URL and client-token file. It is paused after the paired News cutover and must remain paused while shared source ingest polls the same publishers. Its former scheduler entry is:
 
 ```cron
 * * * * * IDX_MARKET_NEWS_STATE_PATH=$HOME/.hermes/state/idx-market-news.json BURSAWATCH_DISCORD_DELIVERY_URL=http://127.0.0.1:9140 BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE=$HOME/.hermes/secrets/bursawatch-discord-delivery-client-token $HOME/.hermes/scripts/bursawatch-tg-market-news-watchdog.sh
 ```
 
-The wrapper executes `$HOME/.agents/skills/bursawatch-tg-market-news/bin/watchdog.py`, does not source Telegram, model, scheduler, or Discord bot secrets, and reports deduplicated fatal fingerprints through the Delivery Owner only to `#hermes`. Do not recreate or change this schedule without explicit approval.
+The wrapper executes `$HOME/.agents/skills/bursawatch-tg-market-news/bin/watchdog.py`, does not source Telegram, model, scheduler, or Discord bot secrets, and reports deduplicated fatal fingerprints through the Delivery Owner only to `#hermes`. Do not resume it alongside shared source ingest.
 
 ## Development and deployment
 
