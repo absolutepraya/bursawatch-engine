@@ -13,10 +13,13 @@ from typing import Any
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
-for package in ("lib-bursawatch-control", "lib-bursawatch-source-ingest"):
+for package, installed in (
+    ("lib-bursawatch-control", "lib-bursawatch-control"),
+    ("lib-bursawatch-source-ingest", "lib-bursawatch-source-ingest-pilot"),
+):
     candidate = ROOT / package / "bin"
     if not candidate.exists():
-        candidate = Path.home() / ".agents" / "skills" / package / "bin"
+        candidate = Path.home() / ".agents" / "skills" / installed / "bin"
     sys.path.insert(0, str(candidate))
 owner = ROOT / "cron-x-account-watch" / "bin"
 if not owner.exists():
@@ -242,7 +245,7 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Pa
         # RSSHub returns a whole visible page. Direct X takes an after-id and
         # expands threads; a full result without the old anchor remains
         # ambiguous and must block rather than skip unseen posts.
-        after_id = cursor["anchor"] if cursor and profile.source == "direct_x" else None
+        after_id = cursor["anchor"] if cursor and profile.source in {"direct_x", "hybrid"} else None
         posts = fetch_profile(profile, after_id=after_id)
         ordered = sorted(posts, key=lambda post: int(post.post_id))
         observed[endpoint_id] = tuple(ordered)

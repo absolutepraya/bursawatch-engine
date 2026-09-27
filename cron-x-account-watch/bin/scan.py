@@ -20,6 +20,7 @@ import state
 import supersession
 import article_context
 import vision_media
+import recovery
 from agent_protocol import (
     normalize_route,
     agent_item,
@@ -135,10 +136,10 @@ def config_path() -> Path:
     return Path(os.environ.get("X_POST_WATCH_CONFIG_PATH", str(Path(__file__).resolve().parent.parent / "config" / "watches.json")))
 
 
-def _prepare_agent_vision(post: SourcePost, storage: Path, dry_run: bool):
+def _prepare_agent_vision(post: SourcePost, storage: Path, dry_run: bool, thread_posts: tuple[SourcePost, ...] | None = None):
     if dry_run:
         return None
-    return vision_media.prepare(post, vision_media.default_root(storage))
+    return vision_media.prepare(post, vision_media.default_root(storage), thread_posts=thread_posts)
 
 
 def _prepare_article_context(thread_posts: tuple[SourcePost, ...] | None, dry_run: bool):
@@ -754,7 +755,7 @@ def run(
                         record = value["profiles"].get(profile.id) or {}
                         posts = rsshub.fetch_profile_items(profile, after_id=record.get("cursor"))
                         stats.fetched += len(posts)
-                        empty_feed = not posts and (profile.source != "direct_x" or record.get("cursor") is None)
+                        empty_feed = not posts and (profile.source not in {"direct_x", "hybrid"} or record.get("cursor") is None)
                         if empty_feed:
                             stats.note_empty_profile(profile.handle)
                         fresh_ids = state.fresh_post_ids(value, profile, posts)
@@ -843,9 +844,10 @@ def run(
                                 vision_bundle = vision_media.prepare(
                                     post, vision_media.default_root(storage),
                                     reference_meta=event["source_media_refs"],
+                                    thread_posts=thread_posts,
                                 )
                             else:
-                                vision_bundle = _prepare_agent_vision(post, storage, dry_run)
+                                vision_bundle = _prepare_agent_vision(post, storage, dry_run, thread_posts)
                             if vision_bundle is not None and vision_bundle.unavailable_count:
                                 stats.note_source_error("vision image preparation incomplete")
                         except vision_media.VisionMediaError:
@@ -1049,15 +1051,72 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
         raise
 
 
+def recover_missing_source(urls: list[str], *, apply: bool = False) -> dict[str, object]:
+    if not 1 <= len(urls) <= 10:
+        raise ValueError("recovery requires one to ten explicit X status URLs")
+    if apply and os.environ.get("X_POST_WATCH_RECOVERY_APPLY") != "1":
+        raise ValueError("recovery apply requires X_POST_WATCH_RECOVERY_APPLY=1")
+    if apply and os.environ.get("X_POST_WATCH_NO_POST") == "1":
+        raise ValueError("recovery apply is unavailable in no-post mode")
+    storage = state_path()
+    loaded = config.load_watch_config_for_run(config_path())
+    observed_at = datetime.now(WIB)
+    cached_payloads = {}
+
+    def fetch(profile, post_id):
+        key = (profile.id, post_id)
+        if key not in cached_payloads:
+            cached_payloads[key] = recovery.fetch_public_detail(profile, post_id)
+        return cached_payloads[key]
+
+    rows = recovery.preview(state.load_state(storage), loaded.config.profiles, urls, observed_at, fetch)
+    if apply:
+        storage.parent.mkdir(parents=True, exist_ok=True)
+        with (storage.parent / "run.lock").open("w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            current = config.load_watch_config_for_run(config_path())
+            if current != loaded:
+                raise ValueError("X configuration changed during recovery preview")
+            value = state.load_state(storage)
+            rows = recovery.preview(value, current.config.profiles, urls, observed_at, fetch)
+            if any(row.status != "eligible" for row in rows):
+                raise ValueError("recovery preview changed or contains ineligible posts")
+            created = recovery.apply(value, rows, observed_at)
+            if created != len(rows):
+                raise ValueError("recovery could not queue every eligible post")
+            state.save_state(storage, value)
+    else:
+        created = 0
+    return {
+        "applied": apply,
+        "queued": created,
+        "posts": [
+            {
+                "profile_id": row.profile.id,
+                "post_id": row.post.post_id,
+                "published_at": row.post.published_at.isoformat(),
+                "media_count": len(row.post.media),
+                "status": row.status,
+            }
+            for row in rows
+        ],
+    }
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command")
     submit = subparsers.add_parser("submit-analysis")
     submit.add_argument("--json", required=True, dest="payload")
+    recover = subparsers.add_parser("recover-missing")
+    recover.add_argument("--status-url", action="append", required=True, dest="urls")
+    recover.add_argument("--apply", action="store_true")
     arguments = parser.parse_args()
     try:
         if arguments.command == "submit-analysis":
             result = submit_analysis_payload(json.loads(arguments.payload))
+        elif arguments.command == "recover-missing":
+            result = recover_missing_source(arguments.urls, apply=arguments.apply)
         else:
             result = run()
     except Exception as exc:

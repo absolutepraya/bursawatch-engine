@@ -39,10 +39,15 @@ class VisionAsset:
     post_id: str
     index: int
     path: Path
+    thread_position: int | None = None
+    thread_count: int | None = None
 
     @property
     def label(self) -> str:
         source = "Authored X post" if self.role == "tweet" else "Quoted X post"
+        if self.thread_position is not None and self.thread_count is not None and self.thread_count > 1:
+            role = "authored" if self.role == "tweet" else "quoted"
+            source = f"Thread post {self.thread_position}/{self.thread_count} {role}"
         return f"{source} image {self.index + 1}"
 
 
@@ -136,17 +141,16 @@ def _is_supported_source(media: SourceMedia) -> bool:
     )
 
 
-def _candidate_media(post: SourcePost) -> tuple[tuple[str, SourceMedia], ...]:
-    candidates: list[tuple[str, SourceMedia]] = []
+def _candidate_media(posts: tuple[SourcePost, ...]) -> tuple[tuple[str, SourcePost, SourceMedia, int], ...]:
+    candidates: list[tuple[str, SourcePost, SourceMedia, int]] = []
     seen: set[str] = set()
-    for role, collection in (("tweet", post.media), ("quoted_tweet", post.quoted_media)):
-        for media in collection:
-            if len(candidates) >= MAX_VISION_ASSETS:
-                return tuple(candidates)
-            if not _is_supported_source(media) or media.url in seen:
-                continue
-            seen.add(media.url)
-            candidates.append((role, media))
+    for role, collection_name in (("tweet", "media"), ("quoted_tweet", "quoted_media")):
+        for position, post in enumerate(posts, start=1):
+            for media in getattr(post, collection_name):
+                if not _is_supported_source(media) or media.url in seen:
+                    continue
+                seen.add(media.url)
+                candidates.append((role, post, media, position))
     return tuple(candidates)
 
 
@@ -215,10 +219,14 @@ def prepare(
     deadline: float | None = None,
     reference_meta: dict[str, dict] | None = None,
     media_client: object | None = None,
+    thread_posts: tuple[SourcePost, ...] | None = None,
 ) -> VisionBundle:
-    candidates = _candidate_media(post)
+    posts = thread_posts or (post,)
+    candidates = _candidate_media(posts)
     if not candidates:
         return VisionBundle(root.resolve(strict=False), (), 0)
+    unavailable_count = max(0, len(candidates) - MAX_VISION_ASSETS)
+    candidates = candidates[:MAX_VISION_ASSETS]
     directory = _ensure_event_directory(root, post.profile_id, post.post_id)
     _clear_directory(directory)
     owns_session = session is None
@@ -226,11 +234,10 @@ def prepare(
     client.trust_env = False
     client.proxies.clear()
     assets: list[VisionAsset] = []
-    unavailable_count = 0
     total_bytes = 0
     deadline = deadline if deadline is not None else time.monotonic() + PREPARATION_TIMEOUT_SECONDS
     try:
-        for ordinal, (role, media) in enumerate(candidates):
+        for ordinal, (role, source_post, media, position) in enumerate(candidates):
             if time.monotonic() >= deadline:
                 unavailable_count += len(candidates) - ordinal
                 break
@@ -256,7 +263,7 @@ def prepare(
                 unavailable_count += 1
                 continue
             total_bytes += size
-            assets.append(VisionAsset(role, post.post_id, media.index, path))
+            assets.append(VisionAsset(role, source_post.post_id, media.index, path, position, len(posts)))
     finally:
         if owns_session:
             client.close()

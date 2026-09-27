@@ -698,6 +698,8 @@ class ReleaseDeployer:
                 _verify_stockbit_no_post(output, Path(specification.environment["STOCKBIT_SNIPS_STATE_PATH"]))
             elif verification == "telegram-source-ingest-no-post":
                 _verify_telegram_source_ingest_no_post(output)
+            elif verification == "x-source-ingest-no-post":
+                _verify_x_source_ingest_no_post(output)
         except CommandFailure as exc:
             exc.add_details(
                 verification=verification,
@@ -743,7 +745,16 @@ def _verify_stockbit_no_post(output: str, state_path: Path) -> None:
 
 def _verify_telegram_source_ingest_no_post(output: str) -> None:
     """Require a synthetic adapter result with explicit no-side-effect claims."""
-    failure = DeploymentError("Telegram source-ingest synthetic verification did not confirm isolation")
+    _verify_synthetic_source_ingest_no_post(output, "Telegram")
+
+
+def _verify_x_source_ingest_no_post(output: str) -> None:
+    """Require a synthetic adapter result with explicit no-side-effect claims."""
+    _verify_synthetic_source_ingest_no_post(output, "X")
+
+
+def _verify_synthetic_source_ingest_no_post(output: str, platform: str) -> None:
+    failure = DeploymentError(f"{platform} source-ingest synthetic verification did not confirm isolation")
     try:
         lines = output.strip().splitlines()
         result = json.loads(lines[-1]) if lines else None
@@ -864,6 +875,16 @@ def _no_post_specification(verification: str, state_root: Path) -> NoPostSpecifi
             "BURSAWATCH_RELEASE_NO_POST_TEMP": str(base),
         }
         command = (str(scripts / "bursawatch-tg-source-ingest.sh"),)
+    elif verification == "x-source-ingest-no-post":
+        environment = {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(home),
+            "TZ": "Asia/Jakarta",
+            "LANG": "C.UTF-8",
+            "BURSAWATCH_RELEASE_NO_POST": "1",
+            "BURSAWATCH_RELEASE_NO_POST_TEMP": str(base),
+        }
+        command = (str(scripts / "bursawatch-x-source-ingest.sh"),)
     else:
         raise DeploymentError(f"release manifest references an unknown verification: {verification}")
     return NoPostSpecification(command=command, environment=environment, temporary_path=base)

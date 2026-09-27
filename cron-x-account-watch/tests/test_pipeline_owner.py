@@ -67,7 +67,7 @@ def test_ordered_thread_and_same_source_two_subscriptions_share_one_owner_event(
     events = state.load_state(storage)["outbox"]
     assert len(events) == 1
     assert [item["post_id"] for item in events[0]["thread_posts"]] == ["101", "102"]
-    assert events[0]["ready_after"] == (NOW + timedelta(minutes=1)).isoformat()
+    assert events[0]["ready_after"] == (NOW + timedelta(minutes=15)).isoformat()
     item = scan.agent_item(profile, state.deserialize_post(events[0]["post"]), tuple(state.deserialize_post(item) for item in events[0]["thread_posts"]))
     assert item["thread_post_count"] == "2"
     assert "Thread post 1/2" in item["post_text"] and "Continuation with evidence" in item["post_text"]

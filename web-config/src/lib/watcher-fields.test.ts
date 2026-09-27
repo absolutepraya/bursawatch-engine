@@ -62,6 +62,14 @@ function profile(kind: ProfileKind) {
 }
 
 describe("watcher configuration drafts", () => {
+  it("accepts the X hybrid source while rejecting it for Instagram", () => {
+    const x = { ...profile("x"), source: "hybrid" };
+    expect(validateWatcherConfig(watcherFor.x, { version: 1, profiles: [x] })).toEqual({});
+    const instagram = { ...profile("instagram"), source: "hybrid" };
+    expect(validateWatcherConfig(watcherFor.instagram, { version: 1, profiles: [instagram] }))
+      .toHaveProperty("profiles.0.source");
+  });
+
   it("validates the exact Stockbit v1 configuration shape", () => {
     expect(supportsWatcherConfig(stockbitWatcherId, 1)).toBe(true);
     expect(supportsWatcherConfig(stockbitWatcherId, 2)).toBe(false);

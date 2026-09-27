@@ -272,7 +272,7 @@ def test_canonical_wavetiga_profile_is_direct_x_and_fully_routed():
         ("enable_llm_routing", "yes", "boolean"),
         ("enable_llm_relevance_filter", "yes", "boolean"),
         ("relevance_scope", "unsupported", "stock_market, financial_market, or indonesia_economy"),
-        ("source", "unsupported", "rsshub or direct_x"),
+        ("source", "unsupported", "rsshub, direct_x, or hybrid"),
         ("media_policy", "drop_last_two", "all or omit_last"),
         ("additional_prompt_instruction", 1, "must be text"),
         ("max_items_per_poll", 101, "1 to 100"),

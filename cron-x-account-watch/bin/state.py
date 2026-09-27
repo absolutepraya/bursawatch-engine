@@ -167,6 +167,8 @@ def record_delivery(value: dict, event: dict, channel_id: str, delivered_at: dat
         "replacement_of": list(event.get("replacement_of", [])),
         "replacement_pending": False,
     }
+    if event.get("recovery"):
+        record["recovery"] = event["recovery"]
     value["deliveries"].append(record)
     return record
 
@@ -270,8 +272,6 @@ def _event_for_thread(state: dict, profile: Profile, thread: tuple[SourcePost, .
     root_id = thread[0].post_id
     latest = thread[-1]
     serialized = [serialize_post(post) for post in thread]
-    is_multi_post_chain = len(thread) > 1
-    immediate = now.isoformat()
     deadline = (now + timedelta(minutes=settle_minutes)).isoformat()
     existing = next((event for event in state["outbox"] if event.get("profile_id") == profile.id and event.get("thread_root_id") == root_id), None)
     if existing is not None:
@@ -284,25 +284,13 @@ def _event_for_thread(state: dict, profile: Profile, thread: tuple[SourcePost, .
             "post": serialize_post(latest),
             "thread_posts": serialized,
         })
-        if is_multi_post_chain:
-            def existing_ready_after() -> datetime:
-                ready_after = existing.get("ready_after")
-                if not isinstance(ready_after, str):
-                    return now
-                try:
-                    parsed = datetime.fromisoformat(ready_after)
-                except ValueError:
-                    return now
-                return parsed if (parsed.tzinfo is None) == (now.tzinfo is None) else now
-
-            existing["ready_after"] = min(existing_ready_after(), now).isoformat()
         return False
     event = {
         "profile_id": profile.id,
         "post_id": latest.post_id,
         "thread_root_id": root_id,
         "thread_posts": serialized,
-        "ready_after": immediate if is_multi_post_chain else deadline,
+        "ready_after": deadline,
         "text_index": 0,
         "media_index": 0,
         "media_skipped_urls": [],

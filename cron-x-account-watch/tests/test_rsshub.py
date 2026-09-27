@@ -1,10 +1,11 @@
 from datetime import datetime
+from dataclasses import replace
 
 import pytest
 import requests
 
 import rsshub
-from models import PostKind
+from models import PostKind, SourcePost
 
 
 def item(url="https://x.com/Kutekians/status/102", links=None, html="Market <strong>note</strong><img src='https://img.example/1.jpg'>"):
@@ -78,3 +79,34 @@ def test_fetch_sanitizes_auth_and_timeout(config_path):
         rsshub.fetch_profile_items(profile, Session(Response(403)))
     with pytest.raises(rsshub.SourceFetchError, match="timed out"):
         rsshub.fetch_profile_items(profile, Session(error=requests.Timeout("cookie=secret")))
+
+
+def test_hybrid_source_merges_missing_profile_posts_before_cursor_moves(config_path, monkeypatch):
+    profile = replace(__import__("config").load_watch_config(config_path).profiles[0], source="hybrid")
+    missing = SourcePost(
+        profile.id, "101", "https://x.com/Kutekians/status/101",
+        datetime.fromisoformat("2026-07-28T00:00:00+00:00"), "Missing market fact",
+        PostKind.NORMAL, None, None, (), (),
+    )
+    calls = []
+    monkeypatch.setattr(
+        __import__("direct_x"), "fetch_profile_items",
+        lambda selected, **kwargs: calls.append((selected.id, kwargs)) or [missing],
+    )
+
+    posts = rsshub.fetch_profile_items(
+        profile, Session(Response(200, {"items": [item()]})), after_id="100",
+    )
+
+    assert [post.post_id for post in posts] == ["101", "102"]
+    assert calls == [(profile.id, {"after_id": "100", "skip_ids": {"102"}})]
+
+
+def test_hybrid_source_fails_closed_when_public_profile_is_unavailable(config_path, monkeypatch):
+    profile = replace(__import__("config").load_watch_config(config_path).profiles[0], source="hybrid")
+    def unavailable(*_args, **_kwargs):
+        raise rsshub.SourceFetchError("public profile unavailable")
+    monkeypatch.setattr(__import__("direct_x"), "fetch_profile_items", unavailable)
+
+    with pytest.raises(rsshub.SourceFetchError, match="public profile unavailable"):
+        rsshub.fetch_profile_items(profile, Session(Response(200, {"items": [item()]})), after_id="100")

@@ -82,13 +82,14 @@ def _configured_session() -> _ProxySession:
 
 
 def _tweet_ids(document: str, handle: str | None = None) -> list[str]:
-    ids = TWEET_ID_RE.findall(document)
+    ids: list[str] = []
     if handle is not None:
         ids.extend(
             post_id
             for author, post_id in STATUS_URL_RE.findall(document)
             if author.casefold() == handle.casefold()
         )
+    ids.extend(TWEET_ID_RE.findall(document))
     return list(dict.fromkeys(ids))
 
 
@@ -188,45 +189,107 @@ def _payload(session: requests.Session, profile: Profile, post_id: str) -> dict[
         raise SourceFetchError("direct X status returned malformed JSON") from exc
     if type(value) is not dict:
         raise SourceFetchError("direct X status returned an invalid object")
+    if str(value.get("tweetID")) != post_id:
+        raise SourceFetchError("direct X status returned a mismatched post id")
     return value
 
 
-def fetch_profile_items(profile: Profile, session: requests.Session | None = None, after_id: str | None = None) -> list[SourcePost]:
+def _same_author(payload: dict[str, object], profile: Profile) -> bool:
+    author = payload.get("user_screen_name")
+    if type(author) is not str or not author:
+        raise SourceFetchError("direct X status has no author identity")
+    return author.casefold() == profile.handle.casefold()
+
+
+def fetch_profile_items(profile: Profile, session: requests.Session | None = None, after_id: str | None = None, skip_ids: set[str] | None = None) -> list[SourcePost]:
     client = session or _configured_session()
-    profile_response = _get(client, profile.profile_url)
-    visible_ids = _tweet_ids(profile_response.text, profile.handle)[: profile.max_items_per_poll]
-    if not visible_ids:
-        raise SourceFetchError("direct X profile returned no status links")
-    fresh_ids = [post_id for post_id in visible_ids if after_id is None or int(post_id) > int(after_id)]
-    if not fresh_ids:
-        return []
+    detail_client = session or requests.Session()
+    if session is None:
+        detail_client.trust_env = False
+        detail_client.proxies.clear()
+    try:
+        profile_response = _get(client, profile.profile_url)
+        visible_ids = _tweet_ids(profile_response.text, profile.handle)[: profile.max_items_per_poll]
+        if not visible_ids:
+            raise SourceFetchError("direct X profile returned no status links")
+        fresh_ids = [
+            post_id for post_id in visible_ids
+            if (after_id is None or int(post_id) > int(after_id)) and post_id not in (skip_ids or set())
+        ]
+        if not fresh_ids:
+            return []
 
-    payloads = {post_id: _payload(client, profile, post_id) for post_id in fresh_ids}
+        payloads = {post_id: _payload(detail_client, profile, post_id) for post_id in fresh_ids}
 
-    if after_id is None:
-        return [_source_post(profile, payloads[post_id]) for post_id in fresh_ids]
+        if after_id is None:
+            return [
+                _source_post(profile, payloads[post_id])
+                for post_id in fresh_ids if _same_author(payloads[post_id], profile)
+            ]
 
-    conversations: list[str] = []
-    for post_id in fresh_ids:
-        payload = payloads[post_id]
-        conversation_id = payload.get("conversationID")
-        if type(conversation_id) not in {str, int} or not str(conversation_id).isdigit():
-            conversation_id = post_id
-        conversation_id = str(conversation_id)
-        if conversation_id not in conversations:
-            conversations.append(conversation_id)
-
-    result: dict[str, SourcePost] = {}
-    for conversation_id in conversations:
-        response = _get(client, _post_url(profile.handle, conversation_id))
-        thread_ids = _tweet_ids(response.text, profile.handle) or [conversation_id]
-        for post_id in thread_ids:
-            payload = payloads.setdefault(post_id, _payload(client, profile, post_id))
-            author = payload.get("user_screen_name")
-            if type(author) is not str:
-                author = profile.handle
-            if author.lower() != profile.handle.lower():
+        conversations: list[str] = []
+        for post_id in fresh_ids:
+            payload = payloads[post_id]
+            if not _same_author(payload, profile):
                 continue
-            post = _source_post(profile, payload)
-            result[post.post_id] = post
-    return sorted(result.values(), key=lambda post: int(post.post_id))
+            conversation_id = payload.get("conversationID")
+            if type(conversation_id) not in {str, int} or not str(conversation_id).isdigit():
+                conversation_id = post_id
+            conversation_id = str(conversation_id)
+            if conversation_id not in conversations:
+                conversations.append(conversation_id)
+
+        result: dict[str, SourcePost] = {}
+        for conversation_id in conversations:
+            try:
+                response = _get(client, _post_url(profile.handle, conversation_id))
+                thread_ids = _tweet_ids(response.text, profile.handle) or [conversation_id]
+            except SourceFetchError as error:
+                if error.retry_after_seconds is not None:
+                    raise
+                thread_ids = [conversation_id]
+            thread_ids = list(dict.fromkeys(thread_ids + [
+                post_id for post_id in fresh_ids
+                if str(payloads[post_id].get("conversationID")) == conversation_id
+            ]))
+            seen = set(thread_ids)
+            for fresh_id in tuple(thread_ids):
+                current_id = fresh_id
+                for _ in range(profile.thread_handling.max_posts):
+                    current = payloads.get(current_id)
+                    if current is None:
+                        current = _payload(detail_client, profile, current_id)
+                        payloads[current_id] = current
+                    if not _same_author(current, profile):
+                        break
+                    parent_id = current.get("replyingToID")
+                    parent_author = current.get("replyingTo")
+                    if type(parent_id) not in {str, int} or not str(parent_id).isdigit():
+                        break
+                    if type(parent_author) is not str or parent_author.casefold() != profile.handle.casefold():
+                        break
+                    parent_id = str(parent_id)
+                    if parent_id in seen:
+                        break
+                    seen.add(parent_id)
+                    thread_ids.append(parent_id)
+                    current_id = parent_id
+            for post_id in thread_ids:
+                if post_id not in payloads:
+                    payloads[post_id] = _payload(detail_client, profile, post_id)
+                payload = payloads[post_id]
+                if not _same_author(payload, profile):
+                    continue
+                post_conversation = payload.get("conversationID")
+                if (
+                    type(post_conversation) in {str, int}
+                    and str(post_conversation).isdigit()
+                    and str(post_conversation) != conversation_id
+                ):
+                    continue
+                post = _source_post(profile, payload)
+                result[post.post_id] = post
+        return sorted(result.values(), key=lambda post: int(post.post_id))
+    finally:
+        if session is None:
+            detail_client.close()

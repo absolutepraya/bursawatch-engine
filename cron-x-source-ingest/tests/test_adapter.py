@@ -13,7 +13,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "cron-x-source-ingest" / "bin"))
 from adapter import endpoints, plan_legacy_cursor_seed, run_once
-from runner import process_pending
+from runner import format_fatal, format_heartbeat, process_pending
 
 sys.path.insert(0, str(ROOT / "cron-x-account-watch" / "bin"))
 from config import REVIEWED_PUBLISHERS, load_watch_config
@@ -22,6 +22,18 @@ import pipeline_owner
 import state
 
 NOW = datetime(2026, 9, 24, tzinfo=timezone.utc)
+
+
+def test_x_source_heartbeat_reports_empty_runs_and_warns_on_pending_work():
+    clean = format_heartbeat(NOW, {"source": [{"endpoint_id": "x:kutekians", "status": "empty", "accepted": 0}], "work": []})
+    assert clean == "🫀 bursawatch-x-source-ingest · 07:00 WIB · endpoints=1 accepted=0 work=0 pending=0"
+
+    degraded = format_heartbeat(NOW, {
+        "source": [{"endpoint_id": "x:kutekians", "status": "blocked", "accepted": 0}],
+        "work": [{"status": "retry"}],
+    })
+    assert degraded == "🫀 bursawatch-x-source-ingest · 07:00 WIB · endpoints=1 accepted=0 work=1 pending=1 ⚠️"
+    assert format_fatal(NOW) == "❌ bursawatch-x-source-ingest · 07:00 WIB · failed: source processing failed"
 
 
 class Inbox:
@@ -81,6 +93,34 @@ def test_x_parser_identity_and_future_only_ingest(tmp_path):
     assert run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)[0]["accepted"] == 1
     assert inbox.events[0]["payload"]["post"]["content_html"] == "<p>Market</p>"
     assert inbox.events[0]["provider_event_id"] == "11"
+
+
+def test_hybrid_source_passes_prior_anchor_to_shared_fetcher(tmp_path):
+    profile = replace(
+        load_watch_config(ROOT / "cron-x-account-watch" / "config" / "watches.json").profiles[0],
+        enabled=True, source="hybrid",
+    )
+    endpoint_id = f"x:{profile.handle.casefold()}"
+    snapshot = {"revision": 3, "subscriptions": [{
+        "platform": "x", "endpoint_id": endpoint_id, "publisher_id": "x-kutekians",
+        "address": profile.handle, "provider_id": None, "capability_id": "company_news",
+        "verification_status": "verified", "enabled": True,
+    }]}
+    calls = []
+    post = lambda identity: SourcePost(
+        profile.id, identity, f"https://x.com/{profile.handle}/status/{identity}",
+        NOW, "Market", PostKind.NORMAL, None, None, (), (),
+    )
+    def fetch(_profile, *, after_id):
+        calls.append(after_id)
+        return [post("10")] if after_id is None else [post("10"), post("11")]
+
+    inbox = Inbox()
+    run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=fetch)
+    run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=fetch)
+
+    assert calls == [None, "10"]
+    assert [event["provider_event_id"] for event in inbox.events] == ["11"]
 
 
 def test_x_legacy_seed_proves_numeric_boundary_even_when_anchor_left_page(tmp_path, monkeypatch):

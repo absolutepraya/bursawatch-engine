@@ -366,7 +366,7 @@ export function validateWatcherConfig(
             `Use https://${kind === "x" ? "x.com" : "instagram.com"}/${handle || "handle"} with no trailing slash.`,
           );
         }
-        choice(at("source"), kind === "x" ? ["rsshub", "direct_x"] : ["rsshub"], kind === "x");
+        choice(at("source"), kind === "x" ? ["rsshub", "hybrid", "direct_x"] : ["rsshub"], kind === "x");
         if (kind === "x") {
           if (get(at("show_quoted_post")) !== undefined) bool(at("show_quoted_post"));
           emoji(at("emoji"));

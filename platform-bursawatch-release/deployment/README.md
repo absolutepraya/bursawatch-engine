@@ -23,8 +23,8 @@ Market News, Phintraco Swing, and Kelas verification still polls Telegram, but
 uses temporary watcher and Telegram resilience state/log paths. It therefore
 does not write production cursors, delivery state, or shared resilience state.
 It makes no Discord posts. The Telegram polls still make network requests.
-The source-ingest pilot check below is synthetic and makes no network
-requests.
+The Telegram and X source-ingest pilot checks are synthetic and make no
+network requests.
 
 The Telegram source-ingest runtime is an unscheduled release unit. Its wrapper
 no-post check runs only `runner.py --verify-synthetic` with an in-memory source
@@ -33,6 +33,16 @@ wrapper skips `.env` and all credential files in this mode. It makes no network
 requests or pilot state writes; its verification log stays inside the
 release-agent temporary directory. Runtime installation does not register or
 enable a Hermes job.
+
+The X source-ingest runtime is also installable but unscheduled. Its wrapper
+uses the X watcher's live configuration and existing fetch/parser code, stores
+its own private source cursor, and submits accepted work to the existing X
+watcher owner. Its synthetic release check only validates in-memory source
+event construction. It does not load `.env`, contact X, RSSHub, the Control
+Plane, Source Media, or Discord, and does not create pilot state. Installing
+this runtime does not register or enable a Hermes job. Keep the existing X
+source and queue jobs authoritative until a separately reviewed state and
+scheduler transition is completed.
 
 The agent stores sanitized per-SHA records and durable state below
 `~/.local/share/bursawatch-release/records/`. It submits the existing concise
