@@ -1,4 +1,4 @@
-"""One scheduled Telegram boundary, without a registered production job."""
+"""Scheduled Telegram source intake for the Phintraco and Kelas pilot."""
 from __future__ import annotations
 
 import asyncio

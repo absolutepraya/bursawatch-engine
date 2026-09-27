@@ -129,6 +129,36 @@ def test_telegram_seed_validates_endpoint_tuple_and_pins_catalog_revision(tmp_pa
         asyncio.run(adapter_ingest_all(FakeTelegram([]), changed_snapshot, state_root, FakeInbox(), NOW))
 
 
+def test_blocked_endpoint_reports_stage_and_error_type_without_provider_text(tmp_path):
+    class FailingTelegram(FakeTelegram):
+        async def get_entity(self, address):
+            raise RuntimeError("private source details")
+
+    snapshot = {
+        "revision": 8,
+        "subscriptions": [{
+            "platform": "telegram",
+            "endpoint_id": "telegram:phintraprofits",
+            "publisher_id": "phintraco",
+            "address": "phintraprofits",
+            "provider_id": "1444713822",
+            "capability_id": "trading_plans",
+            "verification_status": "verified",
+            "enabled": True,
+        }],
+    }
+
+    result = asyncio.run(adapter_ingest_all(FailingTelegram([]), snapshot, tmp_path / "state", FakeInbox(), NOW))
+
+    assert result == [{
+        "endpoint_id": "telegram:phintraprofits",
+        "status": "blocked",
+        "stage": "resolve_entity",
+        "error_type": "RuntimeError",
+    }]
+    assert "private source details" not in json.dumps(result)
+
+
 def test_phintraco_news_cursor_seed_previews_market_news_provider_boundary(tmp_path):
     legacy_path = tmp_path / "synthetic-snapshot" / "market-news.json"
     legacy_path.parent.mkdir()

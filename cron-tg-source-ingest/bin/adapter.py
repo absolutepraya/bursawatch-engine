@@ -288,9 +288,14 @@ def envelope(endpoint: dict[str, Any], message: Any, observed_at: datetime, *, r
     return {"version": 1, "endpoint_id": endpoint["endpoint_id"], "publisher_id": endpoint["publisher_id"], "platform": "telegram", "provider_event_id": str(message_id), "published_at": _stamp(message.date), "observed_at": _stamp(observed_at), "source_url": f"https://t.me/{endpoint['address']}/{message_id}", "parser_version": "telegram-pilot-1", "content_hash": content_hash, "payload": body, "media_refs": media_refs, "media_required": bool(media_refs)}
 
 
-async def ingest_endpoint(client: Any, endpoint: dict[str, Any], state_root: Path, inbox: Any, observed_at: datetime, *, batch: int = MAX_BATCH, media_store: Any = None) -> dict[str, Any]:
+async def ingest_endpoint(client: Any, endpoint: dict[str, Any], state_root: Path, inbox: Any, observed_at: datetime, *, batch: int = MAX_BATCH, media_store: Any = None, stage_callback: Any = None) -> dict[str, Any]:
     if type(batch) is not int or not 1 <= batch <= MAX_BATCH:
         raise ValueError("Telegram batch must be between 1 and 20")
+    def set_stage(value: str) -> None:
+        if stage_callback is not None:
+            stage_callback(value)
+
+    set_stage("load_cursor")
     root = state_root / endpoint["endpoint_id"].replace(":", "-")
     cursor_path = root / "cursor.json"
     cursor_record = _read_cursor(cursor_path)
@@ -298,12 +303,15 @@ async def ingest_endpoint(client: Any, endpoint: dict[str, Any], state_root: Pat
     bootstrap_cursor = cursor_record.get("bootstrap_cursor") if cursor_record is not None else None
     if endpoint["endpoint_id"] == "telegram:kelasinvestasiid" and cursor_record is not None and bootstrap_cursor is None:
         raise IntakeBlocked("Kelas adapter bootstrap cursor is unavailable")
+    set_stage("resolve_entity")
     entity = await client.get_entity(endpoint["address"])
+    set_stage("validate_identity")
     if endpoint["provider_id"] is not None and str(getattr(entity, "id", "")) != endpoint["provider_id"]:
         raise IntakeBlocked("Telegram resolved identity does not match catalog")
     if endpoint["provider_id"] is None and str(getattr(entity, "username", "")).casefold() != endpoint["address"].casefold():
         raise IntakeBlocked("Telegram resolved handle does not match catalog")
     if cursor is None:
+        set_stage("bootstrap_cursor")
         newest = await client.get_messages(entity, limit=1)
         first = newest[0] if isinstance(newest, list) and newest else newest
         high = getattr(first, "id", 0) if first is not None else 0
@@ -317,6 +325,7 @@ async def ingest_endpoint(client: Any, endpoint: dict[str, Any], state_root: Pat
     handoff = SourceEventHandoff(root / "handoff", inbox)
     # A previously staged request must be acknowledged before this endpoint
     # reads further. Each endpoint has its own durable spool and cursor.
+    set_stage("reconcile_handoff")
     pending = handoff.spool.pending()
     if pending:
         if len(pending) != 1 or pending[0].endpoint != "/v1/source-events":
@@ -330,6 +339,7 @@ async def ingest_endpoint(client: Any, endpoint: dict[str, Any], state_root: Pat
             or staged.get("payload", {}).get("previous_provider_event_id") != cursor
         ):
             raise IntakeBlocked("Kelas endpoint handoff sequence is inconsistent")
+        set_stage("accept_staged_event")
         receipts = handoff.flush(limit=1)
         if len(receipts) != 1:
             raise IntakeBlocked("Telegram endpoint handoff was not acknowledged")
@@ -343,12 +353,14 @@ async def ingest_endpoint(client: Any, endpoint: dict[str, Any], state_root: Pat
             if type(blocked) is dict and blocked.get("message_id") == staged_id:
                 blocked_path.unlink(missing_ok=True)
         cursor = staged_id
+    set_stage("read_messages")
     messages = [message async for message in client.iter_messages(entity, min_id=cursor, reverse=True, limit=batch)]
     for message in sorted(messages, key=lambda item: item.id):
         if message.id <= cursor:
             continue
         media_refs: list[dict[str, Any]] = []
         if getattr(message, "media", None) is not None or getattr(message, "photo", None) is not None:
+            set_stage("upload_media")
             _write_json(root / "blocked-media.json", {"endpoint_id": endpoint["endpoint_id"], "message_id": message.id, "published_at": _stamp(message.date), "media_type": type(getattr(message, "media", None)).__name__})
             try:
                 media_refs = await _upload_message_media(client, endpoint, message, root, media_store)
@@ -357,14 +369,20 @@ async def ingest_endpoint(client: Any, endpoint: dict[str, Any], state_root: Pat
             except Exception:
                 raise IntakeBlocked("Telegram media upload to the Source Media Owner failed") from None
         reply_id = getattr(message, "reply_to_msg_id", None)
+        if reply_id is not None and endpoint["endpoint_id"] == "telegram:phintraprofits":
+            set_stage("resolve_reply_parent")
         parent = await client.get_messages(entity, ids=reply_id) if reply_id is not None and endpoint["endpoint_id"] == "telegram:phintraprofits" else None
         if reply_id is not None and endpoint["endpoint_id"] == "telegram:phintraprofits" and parent is None:
             raise IntakeBlocked("Telegram reply parent is unavailable")
+        set_stage("build_envelope")
         item = envelope(endpoint, message, observed_at, reply_parent=parent, media_refs=media_refs, previous_message_id=cursor, bootstrap_message_id=bootstrap_cursor)
+        set_stage("stage_handoff")
         handoff.stage(item)
+        set_stage("accept_event")
         receipts = handoff.flush(limit=1)
         if len(receipts) != 1:
             raise IntakeBlocked("Telegram source handoff was not acknowledged")
+        set_stage("advance_cursor")
         _save_cursor(cursor_path, message.id, bootstrap_cursor=bootstrap_cursor)
         (root / "blocked-media.json").unlink(missing_ok=True)
         cursor = message.id
@@ -378,9 +396,26 @@ async def ingest_all(client: Any, snapshot: dict[str, Any], state_root: Path, in
     bind_catalog_revision(state_root, snapshot["revision"])
     outcomes = []
     for endpoint in selected.values():
+        diagnostic = {"stage": "start"}
         try:
-            outcomes.append(await ingest_endpoint(client, endpoint, state_root, inbox, observed_at, media_store=media_store))
-        except Exception:
-            # Keep source text and provider errors out of routine run summaries.
-            outcomes.append({"endpoint_id": endpoint["endpoint_id"], "status": "blocked"})
+            outcomes.append(await ingest_endpoint(
+                client,
+                endpoint,
+                state_root,
+                inbox,
+                observed_at,
+                media_store=media_store,
+                stage_callback=lambda value: diagnostic.__setitem__("stage", value),
+            ))
+        except Exception as error:
+            # Keep source text and raw provider exception details out of summaries.
+            error_type = type(error).__name__
+            if not error_type.isascii() or not error_type.isidentifier():
+                error_type = "Error"
+            outcomes.append({
+                "endpoint_id": endpoint["endpoint_id"],
+                "status": "blocked",
+                "stage": diagnostic["stage"],
+                "error_type": error_type,
+            })
     return outcomes
