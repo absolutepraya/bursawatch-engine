@@ -37,6 +37,11 @@ def test_release_synthetic_verification_uses_only_in_memory_fixture(capsys, tmp_
     assert list(tmp_path.iterdir()) == []
 
 
+def test_runtime_wrapper_imports_source_media_read_token_path():
+    wrapper = ROOT / "cron-tg-source-ingest" / "bin" / "bursawatch-tg-source-ingest.sh"
+    assert "BURSAWATCH_SOURCE_MEDIA_READ_TOKEN_FILE=*" in wrapper.read_text()
+
+
 class FakeInbox:
     def __init__(self):
         self.accepted = []

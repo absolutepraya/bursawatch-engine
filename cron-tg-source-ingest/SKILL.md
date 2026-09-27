@@ -100,12 +100,14 @@ The deployable runtime wrapper is
 `bin/bursawatch-tg-source-ingest.sh`. Its normal entry point reads only the
 documented `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`,
 `POLYCOP_SESSION_STRING`, `BURSAWATCH_TG_SOURCE_CONTROL_PLANE_URL`,
-`BURSAWATCH_TG_SOURCE_CONTROL_PLANE_TOKEN_FILE`, optional
-`BURSAWATCH_SOURCE_MEDIA_URL` and `BURSAWATCH_SOURCE_MEDIA_UPLOAD_TOKEN_FILE`,
-and the two `BURSAWATCH_DISCORD_DELIVERY_*` settings from `~/.hermes/.env`.
+`BURSAWATCH_TG_SOURCE_CONTROL_PLANE_TOKEN_FILE`, and, when media is enabled,
+`BURSAWATCH_SOURCE_MEDIA_URL`, `BURSAWATCH_SOURCE_MEDIA_UPLOAD_TOKEN_FILE`,
+`BURSAWATCH_SOURCE_MEDIA_READ_TOKEN_FILE`, and the two
+`BURSAWATCH_DISCORD_DELIVERY_*` settings from `~/.hermes/.env`.
 It never logs credential values. The source inbox token file is
 permission-checked by the client; Source Media has a separate optional upload
-token file. Do not reuse the Control Plane service environment for either.
+token file and a read token file used by domain owners. Do not reuse the
+Control Plane service environment for either.
 The release agent invokes the wrapper with `BURSAWATCH_RELEASE_NO_POST=1` and
 an isolated temporary directory. That path does not read `.env`, load secrets,
 make network requests, or write state, and it runs only the in-memory synthetic
