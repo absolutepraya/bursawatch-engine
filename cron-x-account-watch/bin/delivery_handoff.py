@@ -263,7 +263,7 @@ def apply_x_handoff(plan_path: Path, adapter: XAccountWatchHandoffAdapter, clien
 
 
 def _state_path() -> Path:
-    return Path(os.environ.get("X_POST_WATCH_STATE_PATH", str(_ROOT / "state/state.json"))).expanduser()
+    return state.state_path()
 
 
 def _client(*, include_admin: bool) -> DeliveryClient:

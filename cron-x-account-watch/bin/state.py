@@ -13,6 +13,14 @@ STATE_VERSION = 3
 BOARD_PENDING = "pending"
 
 
+def state_path() -> Path:
+    """Return the one canonical X watcher state file for every owner process."""
+    configured = os.environ.get("X_POST_WATCH_STATE_PATH")
+    if configured:
+        return Path(configured).expanduser()
+    return Path(__file__).resolve().parent.parent / "state" / "state.json"
+
+
 def new_state() -> dict:
     return {
         "version": STATE_VERSION,

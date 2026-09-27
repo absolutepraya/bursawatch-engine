@@ -66,3 +66,9 @@ that marker and the ascending numeric IDs before comparing a seed boundary
 that has fallen off the page. Other adapters cannot infer numeric ordering
 from ID shape and block when their anchor is absent without another proven
 boundary. This is a synthetic migration aid, not production cutover approval.
+
+Accepted work is handed to the existing watcher through `pipeline_owner.py`,
+which resolves the same canonical `X_POST_WATCH_STATE_PATH` as the watcher
+scanner. If unset, both use `state/state.json` inside the deployed watcher
+package. Adapter cursors and its accepted-event index remain in the separate
+source-ingest state root.

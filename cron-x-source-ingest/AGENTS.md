@@ -27,6 +27,12 @@ context cannot be reconstructed. The current Board chart path supports one
 source image per event; multiple-image work remains unclaimed. This pilot has
 no production schedule or cutover.
 
+The X watcher owns one state file for scanning, accepted source work, and
+Delivery Owner handoff. All watcher processes resolve it through
+`state.state_path()`: `X_POST_WATCH_STATE_PATH` when configured, otherwise
+`state/state.json` inside the deployed watcher package. The source adapter's
+endpoint cursors and accepted-event index remain under its separate state root.
+
 Run `../../../.venv/bin/python -m pytest -q tests` from this package in the
 managed worktree. Tests use fakes and temporary state. Do not fetch live X
 history or post during development validation.

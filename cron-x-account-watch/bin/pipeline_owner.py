@@ -22,7 +22,7 @@ SOURCE_PUBLISHERS = config.REVIEWED_PUBLISHERS
 
 
 def _state_path() -> Path:
-    return Path(os.environ.get("X_POST_WATCH_STATE_PATH", str(Path.home() / ".hermes" / "state" / "x-post-watch.json")))
+    return state.state_path()
 
 
 def _check_no_post(path: Path, no_post: bool) -> None:

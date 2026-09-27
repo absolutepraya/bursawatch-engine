@@ -11,7 +11,7 @@ else
   export PYTHONPATH="$delivery_client_bin${PYTHONPATH:+:$PYTHONPATH}"
 fi
 if [[ -r "$HOME/.hermes/.env" ]]; then
-  for name in X_POST_WATCH_PROXY_PRIMARY X_POST_WATCH_PROXY_FALLBACK; do
+  for name in X_POST_WATCH_PROXY_PRIMARY X_POST_WATCH_PROXY_FALLBACK X_POST_WATCH_STATE_PATH; do
     value="$(grep -E "^${name}=" "$HOME/.hermes/.env" | head -1 | cut -d= -f2- || true)"
     [[ -n "$value" ]] && export "$name=$value"
   done

@@ -118,7 +118,7 @@ class RunStats:
 
 
 def state_path() -> Path:
-    return Path(os.environ.get("X_POST_WATCH_STATE_PATH", str(Path(__file__).resolve().parent.parent / "state" / "state.json")))
+    return state.state_path()
 
 
 def _sanitize_reason(reason: object) -> str:

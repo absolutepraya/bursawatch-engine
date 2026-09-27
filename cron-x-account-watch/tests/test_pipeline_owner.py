@@ -3,11 +3,13 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 import config
+import delivery_handoff
 import pipeline_owner
 import scan
 import state
@@ -19,6 +21,36 @@ from models import PostKind, SourcePost
 
 
 NOW = datetime(2026, 9, 25, 8, 0, tzinfo=UTC)
+
+
+def test_all_x_owner_paths_share_the_watcher_state_file(monkeypatch, tmp_path):
+    monkeypatch.delenv("X_POST_WATCH_STATE_PATH", raising=False)
+    expected = Path(__file__).resolve().parents[1] / "state" / "state.json"
+
+    assert state.state_path() == expected
+    assert scan.state_path() == expected
+    assert pipeline_owner._state_path() == expected
+    assert delivery_handoff._state_path() == expected
+
+    configured = tmp_path / "configured-x-state.json"
+    monkeypatch.setenv("X_POST_WATCH_STATE_PATH", str(configured))
+    assert state.state_path() == configured
+    assert scan.state_path() == configured
+    assert pipeline_owner._state_path() == configured
+    assert delivery_handoff._state_path() == configured
+
+
+def test_pipeline_owner_uses_the_same_state_for_source_acceptance(tmp_path, monkeypatch):
+    profile = _profile()
+    post = _post(profile, 101, "A market thesis")
+    storage = tmp_path / "watcher-state.json"
+    monkeypatch.setenv("X_POST_WATCH_STATE_PATH", str(storage))
+
+    assert pipeline_owner.accept_source_work(
+        _work(profile, [post]), profiles=(profile,), no_post=True, now=NOW,
+    ) == {"outcome": "accepted"}
+    assert storage.exists()
+    assert not (tmp_path / ".hermes" / "state" / "x-post-watch.json").exists()
 
 
 def _post(profile, number, text, *, kind=PostKind.NORMAL, parent=None, media_ref=None):
