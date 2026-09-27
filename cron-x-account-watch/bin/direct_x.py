@@ -230,6 +230,8 @@ def fetch_profile_items(profile: Profile, session: requests.Session | None = Non
         conversations: list[str] = []
         for post_id in fresh_ids:
             payload = payloads[post_id]
+            if not _same_author(payload, profile):
+                continue
             conversation_id = payload.get("conversationID")
             if type(conversation_id) not in {str, int} or not str(conversation_id).isdigit():
                 conversation_id = post_id
@@ -277,6 +279,13 @@ def fetch_profile_items(profile: Profile, session: requests.Session | None = Non
                     payloads[post_id] = _payload(detail_client, profile, post_id)
                 payload = payloads[post_id]
                 if not _same_author(payload, profile):
+                    continue
+                post_conversation = payload.get("conversationID")
+                if (
+                    type(post_conversation) in {str, int}
+                    and str(post_conversation).isdigit()
+                    and str(post_conversation) != conversation_id
+                ):
                     continue
                 post = _source_post(profile, payload)
                 result[post.post_id] = post

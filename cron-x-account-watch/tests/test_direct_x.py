@@ -207,6 +207,30 @@ def test_direct_x_keeps_fresh_reply_when_thread_page_is_partial(config_path):
     assert [post.post_id for post in posts] == ["101", "102", "103"]
 
 
+def test_direct_x_does_not_import_unrelated_same_author_posts_from_status_page(config_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+
+    class MixedThreadSession(Session):
+        def get(self, url, timeout, headers=None):
+            if url == profile.profile_url:
+                return Response(200, text='<a href="/Kutekians/status/101">new post</a>')
+            if url == "https://x.com/Kutekians/status/101":
+                return Response(200, text=(
+                    '<a href="/Kutekians/status/101">main post</a>'
+                    '<a href="/Kutekians/status/202">sidebar post</a>'
+                ))
+            post_id = url.rsplit("/", 1)[-1]
+            return Response(200, payload={
+                "tweetID": post_id, "conversationID": post_id,
+                "date_epoch": 1787137418, "text": "Separate post",
+                "user_screen_name": "Kutekians", "mediaURLs": [],
+            })
+
+    posts = direct_x.fetch_profile_items(profile, MixedThreadSession(), after_id="100")
+
+    assert [post.post_id for post in posts] == ["101"]
+
+
 def test_direct_x_bootstrap_excludes_other_authors_even_in_profile_markup(config_path):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
 
