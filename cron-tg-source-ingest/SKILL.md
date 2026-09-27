@@ -113,6 +113,7 @@ an isolated temporary directory. That path does not read `.env`, load secrets,
 make network requests, or write state, and it runs only the in-memory synthetic
 adapter contract check.
 
-No Hermes job is registered or enabled. Existing Telegram jobs remain the
-active readers until source-state parity, a reviewed cutover, and separate
-scheduler approval are complete.
+The active one-minute Hermes job owns Phintraco `trading_plans` and Kelas
+Investasi `swing_support`. Market News and Tuntun remain on their legacy
+readers. Do not expand subscription or schedule scope without an approved
+rollout.

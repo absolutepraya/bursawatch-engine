@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "lib-bursawatch-control" / "bin"))
 sys.path.insert(0, str(ROOT / "cron-tg-source-ingest" / "bin"))
 from adapter import IntakeBlocked, endpoints, ingest_all as adapter_ingest_all, ingest_endpoint, plan_legacy_cursor_seed, envelope as telegram_envelope
-from runner import AGENT_OWNERS, HEARTBEAT_CHANNEL_ID, PIPELINE_OWNERS, dispatch_agent, format_fatal, format_heartbeat, post_heartbeat, run_once
+from runner import AGENT_OWNERS, HEARTBEAT_CHANNEL_ID, HEARTBEAT_DELIVERY_WAIT_SECONDS, PIPELINE_OWNERS, dispatch_agent, format_fatal, format_heartbeat, post_heartbeat, run_once
 from runner import verify_synthetic
 
 
@@ -552,7 +552,7 @@ def test_heartbeat_is_compact_sanitized_and_uses_shared_delivery_owner():
     assert client.operation.target == {"channel_id": HEARTBEAT_CHANNEL_ID}
     assert client.operation.payload["content"] == content
     assert client.operation.payload["allowed_mentions"] == {"parse": []}
-    assert client.waited == [(client.operation.key, 0)]
+    assert client.waited == [(client.operation.key, HEARTBEAT_DELIVERY_WAIT_SECONDS)]
     assert format_fatal(now) == "❌ bursawatch-tg-source-ingest · 07:15 WIB · failed: source processing failed"
 
 

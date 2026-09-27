@@ -28,6 +28,7 @@ from bursawatch_discord_delivery import DeliveryClient, OperationIntent
 
 WATCHER = "bursawatch-tg-source-ingest"
 HEARTBEAT_CHANNEL_ID = "1505162000420835388"
+HEARTBEAT_DELIVERY_WAIT_SECONDS = 10
 DELIVERY_OWNER_URL = "http://127.0.0.1:9140"
 DELIVERY_CLIENT_TOKEN_FILE = ".hermes/secrets/bursawatch-discord-delivery-client-token"
 WIB = ZoneInfo("Asia/Jakarta")
@@ -284,7 +285,7 @@ def post_heartbeat(content: str, now: datetime, *, delivery_client: Any = None) 
     if receipt.key != operation.key or receipt.digest != operation.digest:
         raise RuntimeError("heartbeat receipt is invalid")
     if receipt.status in NON_TERMINAL_DELIVERY_STATUSES:
-        receipt = delivery_client.wait(operation.key, 0)
+        receipt = delivery_client.wait(operation.key, HEARTBEAT_DELIVERY_WAIT_SECONDS)
     if receipt.key != operation.key or receipt.digest != operation.digest or receipt.status != "delivered":
         raise RuntimeError("heartbeat delivery is incomplete")
 

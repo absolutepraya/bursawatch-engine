@@ -1,8 +1,10 @@
-# Telegram source ingest pilot
+# Telegram source ingest
 
-This package is an unscheduled development pilot with an automatic release
-unit and a deployable runtime wrapper. It has no Hermes job; the existing
-Telegram jobs remain the active readers.
+This package is the active Telegram source-intake pilot with an automatic
+release unit and deployable runtime wrapper. Hermes job
+`bursawatch-tg-source-ingest` runs every minute and owns only Phintraco Swing
+`trading_plans` and Kelas Investasi `swing_support`. Market News and Tuntun
+remain on their legacy readers.
 
 `bin/runner.py` reads one authenticated effective source catalog snapshot, then
 `bin/adapter.py` groups enabled verified subscriptions by canonical endpoint.
@@ -30,8 +32,7 @@ Preview and apply both block while any Phintraco candidate is in
 `pending_delivery`, or any stock-status event is in `pending_delivery`; those
 old domain effects need an event/receipt crosswalk first. Pending Tuntun News
 candidates do not block Phintraco seeding because Tuntun remains on its legacy
-reader. Production cutover remains separately approved. Tuntun has no seed
-mapping in this pilot.
+reader. Tuntun has no seed mapping in this pilot.
 
 The inbox owns source events and independent subscription work. The adapter
 never submits Discord or Board operations. `service-bursawatch-source-media`
@@ -55,13 +56,13 @@ blocked handoff; it is private state, never Git. If upload succeeds but inbox
 acceptance fails, the private handoff spool retains the opaque reference and
 retries it without reuploading or advancing the Telegram cursor.
 
-Do not register or invoke this package against live Telegram, inbox, or
-Discord under the development plan. It cannot replace the current readers
-until media and agent paths have exact output parity, an approved state
-cutover, and separate scheduler approval. No production cursor should be
-bootstrapped by this pilot. The source owner must emit a heartbeat to #hermes
-on every future scheduled run, including no-hit runs, using the shared Discord
-Delivery Owner and the package contract's fixed heartbeat format.
+Keep the live scope limited to Phintraco `trading_plans` and Kelas
+`swing_support`; Market News and Tuntun remain on their legacy readers. Do not
+enable other Telegram subscriptions or change the pilot schedule without an
+approved rollout. Seeded cursors are future-only; do not backfill or replay
+source history. The source owner must emit a heartbeat to #hermes on every
+scheduled run, including no-hit runs, using the shared Discord Delivery Owner
+and the package contract's fixed heartbeat format.
 
 The release wrapper is `bin/bursawatch-tg-source-ingest.sh`. Its normal entry
 point reads only `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`,
@@ -79,4 +80,4 @@ The source adapter uses the media upload token; domain owners use the read
 token to download accepted private media through Source Media.
 
 Run focused synthetic tests from the repository root with
-`../../.venv/bin/python -m pytest -q cron-tg-source-ingest/tests`.
+`.venv/bin/python -m pytest -q cron-tg-source-ingest/tests`.
