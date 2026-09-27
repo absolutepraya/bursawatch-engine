@@ -16,7 +16,7 @@ import scan
 from agent_protocol import agent_item, build_wake_payload
 from domain import Provider
 from news_source_work import candidate_keys, loaded_config_for, provenance, put_provenance
-from sources import PhintracoNewsAdapter
+from sources import PhintracoNewsAdapter, TuntunNewsAdapter
 from state import (
     StateBlockedError, claim_oldest_pending_analysis, enqueue_candidate,
     enqueue_stock_status, expire_agent_leases, has_stock_status_event,
@@ -29,6 +29,12 @@ class OwnerPending(RuntimeError):
     pass
 
 
+NEWS_ENDPOINTS = {
+    "telegram:phintasprofits": ("phintraco", "phintasprofits", Provider.PHINTRACO),
+    "telegram:tuntunsekuritas": ("tuntun", "tuntunsekuritas", Provider.TUNTUN),
+}
+
+
 def _check_no_post(no_post: bool) -> None:
     if no_post:
         isolated = os.environ.get("IDX_MARKET_NEWS_STATE_PATH")
@@ -39,7 +45,22 @@ def _check_no_post(no_post: bool) -> None:
 def _check_identity(work: dict[str, Any], capability: str) -> dict[str, Any]:
     envelope = work["envelope"]
     expected = hashlib.sha256(f'{work["event_key"]}:1:{capability}'.encode()).hexdigest()
-    if (work["pipeline_id"], work["capability_id"], work["version"], envelope["endpoint_id"], envelope["publisher_id"]) != (capability, capability, 1, "telegram:phintasprofits", "phintraco") or work["effect_key"] != expected or work["work_key"] != expected or type(envelope["media_refs"]) is not list or (envelope["media_required"] and not envelope["media_refs"]):
+    endpoint_id = envelope.get("endpoint_id")
+    if not isinstance(endpoint_id, str):
+        raise ValueError("News work source is not supported for this pipeline")
+    source = NEWS_ENDPOINTS.get(endpoint_id)
+    if (capability == "stock_status" and endpoint_id != "telegram:phintasprofits") or source is None:
+        raise ValueError("News work source is not supported for this pipeline")
+    identity = (work["pipeline_id"], work["capability_id"], work["version"], envelope["publisher_id"])
+    if identity != (capability, capability, 1, source[0]):
+        raise ValueError("News work identity or media contract is invalid")
+    if (
+        work["effect_key"] != expected
+        or work["work_key"] != expected
+        or type(envelope["media_refs"]) is not list
+        or type(envelope["media_required"]) is not bool
+        or (envelope["media_required"] and not envelope["media_refs"])
+    ):
         raise ValueError("News work identity or media contract is invalid")
     return envelope
 
@@ -110,51 +131,66 @@ def submit_news(work: dict[str, Any], *, no_post: bool = False, inbox: Any = Non
     if not isinstance(message_id_text, str) or not re.fullmatch(r"[1-9][0-9]*", message_id_text):
         raise ValueError("News source message ID is invalid")
     message_id = int(message_id_text)
-    if envelope.get("source_url") != f"https://t.me/phintasprofits/{message_id}":
+    source = NEWS_ENDPOINTS[envelope["endpoint_id"]]
+    _, handle, provider = source
+    if envelope.get("source_url") != f"https://t.me/{handle}/{message_id}":
         raise ValueError("News source URL is invalid")
-    text = envelope.get("payload", {}).get("text")
+    payload = envelope.get("payload")
+    if not isinstance(payload, dict):
+        raise ValueError("News source payload is invalid")
+    text = payload.get("text")
     if not isinstance(text, str):
         raise ValueError("News source text is invalid")
     published_at = datetime.fromisoformat(envelope["published_at"])
     if published_at.tzinfo is None:
         raise ValueError("News source time is not timezone-aware")
     keys = _news_siblings(work, inbox if inbox is not None else _inbox_client())
-    if is_stock_information(text):
+    if provider is Provider.PHINTRACO and is_stock_information(text):
         return "irrelevant"
-    extracted = PhintracoNewsAdapter().extract_candidates(
-        message_id, text, published_at,
-        any(ref.get("kind") == "image" for ref in envelope["media_refs"]),
-    )
+    direct_image = any(ref.get("kind") == "image" for ref in envelope["media_refs"])
+    if provider is Provider.TUNTUN:
+        topic_id = payload.get("topic_id")
+        if topic_id is not None and (type(topic_id) is not int or topic_id < 1):
+            raise ValueError("Tuntun topic identity is invalid")
+        extracted = TuntunNewsAdapter().extract_candidates(message_id, text, published_at, topic_id, direct_image)
+    else:
+        extracted = PhintracoNewsAdapter().extract_candidates(message_id, text, published_at, direct_image)
     if not extracted:
         return "irrelevant"
-    if len(extracted) != 1 or extracted[0].provider is not Provider.PHINTRACO:
-        raise ValueError("Phintraco News produced an unexpected candidate set")
-    candidate = extracted[0]
+    if (
+        any(candidate.provider is not provider for candidate in extracted)
+        or len({candidate.key for candidate in extracted}) != len(extracted)
+    ):
+        raise ValueError("News source produced an unexpected candidate set")
     with run_lock():
         state = load_state()
-        existing = provenance(state, candidate.key)
-        if existing is None and candidate.key in state["candidates"]:
-            raise StateBlockedError("News candidate already exists without source-work provenance")
-        if existing is None:
+        candidates = state["candidates"]
+        assert isinstance(candidates, dict)
+        loaded = None
+        for candidate in extracted:
+            existing = provenance(state, candidate.key)
+            if existing is None and candidate.key in candidates:
+                raise StateBlockedError("News candidate already exists without source-work provenance")
+            if existing is not None:
+                frozen = loaded_config_for(state, candidate.key)
+                assert frozen is not None
+                if loaded is not None and loaded != frozen:
+                    raise StateBlockedError("one News source event has conflicting frozen config snapshots")
+                loaded = frozen
+        if loaded is None:
             loaded = config.load_watch_config_for_run()
-            if loaded.config.phintraco_username != "phintasprofits":
-                raise ValueError("Market News provider config differs from source identity")
+        username = loaded.config.phintraco_username if provider is Provider.PHINTRACO else loaded.config.tuntun_username
+        if username != handle:
+            raise ValueError("Market News provider config differs from source identity")
+        enqueued_at = datetime.now(scan.WIB)
+        for candidate in extracted:
             put_provenance(
                 state, candidate.key, event_key=work["event_key"],
                 version=work["version"], content_hash=envelope["content_hash"],
                 source_url=envelope["source_url"], work_keys=keys,
                 loaded_config=loaded,
             )
-        else:
-            frozen = loaded_config_for(state, candidate.key)
-            assert frozen is not None
-            put_provenance(
-                state, candidate.key, event_key=work["event_key"],
-                version=work["version"], content_hash=envelope["content_hash"],
-                source_url=envelope["source_url"], work_keys=keys,
-                loaded_config=frozen,
-            )
-        enqueue_candidate(state, candidate, datetime.now(scan.WIB))
+            enqueue_candidate(state, candidate, enqueued_at)
     return "accepted"
 
 

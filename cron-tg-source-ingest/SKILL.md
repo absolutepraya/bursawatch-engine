@@ -113,7 +113,8 @@ an isolated temporary directory. That path does not read `.env`, load secrets,
 make network requests, or write state, and it runs only the in-memory synthetic
 adapter contract check.
 
-The active one-minute Hermes job owns Phintraco `trading_plans` and Kelas
-Investasi `swing_support`. Market News and Tuntun remain on their legacy
-readers. Do not expand subscription or schedule scope without an approved
-rollout.
+The active one-minute Hermes job currently owns Phintraco `trading_plans` and
+Kelas Investasi `swing_support`. The shared adapter supports Tuntun News
+intake, but Tuntun remains on the legacy Market News reader until a separately
+approved, coordinated cutover. Do not expand subscription or schedule scope
+without that rollout.

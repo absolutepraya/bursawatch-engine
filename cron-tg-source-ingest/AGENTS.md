@@ -2,37 +2,50 @@
 
 This package is the active Telegram source-intake pilot with an automatic
 release unit and deployable runtime wrapper. Hermes job
-`bursawatch-tg-source-ingest` runs every minute and owns only Phintraco Swing
-`trading_plans` and Kelas Investasi `swing_support`. Market News and Tuntun
-remain on their legacy readers.
+`bursawatch-tg-source-ingest` runs every minute. Its current live scope is
+Phintraco Swing `trading_plans` and Kelas Investasi `swing_support`; the shared
+adapter now also supports Tuntun News intake, while Tuntun remains on the
+legacy reader until its separately coordinated cutover.
 
 `bin/runner.py` reads one authenticated effective source catalog snapshot, then
 `bin/adapter.py` groups enabled verified subscriptions by canonical endpoint.
 It reads each supported endpoint in batches of at most 20, uses one private
 cursor and handoff spool per endpoint, and advances a cursor only after the
 source inbox confirms durable acceptance. First contact records the newest
-message ID without replaying source history. Tuntun is classified as an
-existing News reader and is deliberately outside this pilot. Unknown enabled
-Telegram identities or capabilities fail closed. Every canonical endpoint,
-including unmigrated Tuntun, is checked against its exact publisher before
-the pilot decides whether to poll it.
+message ID without replaying source history. Enabled Telegram identities and
+capabilities must match the exact publisher or intake fails closed. Tuntun
+events include their Telegram forum topic ID so the Market News owner can
+apply its existing thread-3743 parser without searching Telegram history.
 
-`adapter.plan_legacy_cursor_seed` previews a seed from an explicit Phintraco or
-Kelas JSON snapshot. It records the snapshot SHA-256, endpoint identity, and
-catalog revision. The Python function's `apply=True` argument is the explicit
+`adapter.plan_legacy_cursor_seed` previews a seed from an explicit Phintraco,
+Tuntun, or Kelas JSON snapshot. It records the snapshot SHA-256, endpoint
+identity, and catalog revision. The Python function's `apply=True` argument is the explicit
 apply interface and requires the unchanged preview plan plus
 `BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY=1`; it refuses initialized
 cursors or pending handoffs and blocks legacy pending domain work. Kelas maps
 its current cursor to both the new cursor and future-only bootstrap boundary.
-For `telegram:phintasprofits`, the Phintraco Market News provider cursor is
-previewable from the checked-in `providers.phintraco.observed_message_id`
-field in a version 1 snapshot. The preview fails closed on malformed state.
-Preview and apply both block while any Phintraco candidate is in
-`pending_analysis`, `awaiting_agent`, `pending_selection`, or
-`pending_delivery`, or any stock-status event is in `pending_delivery`; those
-old domain effects need an event/receipt crosswalk first. Pending Tuntun News
-candidates do not block Phintraco seeding because Tuntun remains on its legacy
-reader. Tuntun has no seed mapping in this pilot.
+For `telegram:phintasprofits` and `telegram:tuntunsekuritas`, the Market News
+provider cursor is previewable from `providers.phintraco.observed_message_id`
+or `providers.tuntun.observed_message_id` in a version 1 snapshot. The preview
+fails closed on malformed state. Preview and apply block while that provider
+has candidates in `pending_analysis`, `awaiting_agent`, `pending_selection`, or
+`pending_delivery`. Phintraco seeding also blocks on a stock-status event in
+`pending_delivery`. Pending work from the other provider does not block its
+cursor seed; reconcile each provider's old domain effects against inbox events
+and owner receipts before seeding it.
+
+The Market News legacy reader polls Phintraco News and Tuntun as one indivisible
+job. Its paired cutover uses `bin/catalog_transition.py`, which permits only
+activation of Phintraco `company_news`, `macro_news`, and `stock_status`, plus
+Tuntun `company_news` and `macro_news`. It requires unchanged identities and
+settings, one consecutive catalog revision, reconciled legacy work for both
+providers, and a fresh state snapshot. Pause the Market News job, its watchdog,
+and this source-ingest job before taking that snapshot or applying the cursor
+transition. Preview and apply require the same prior and target effective
+catalog snapshots and legacy state file. The tool journals the paired cursor
+creation and advances the state revision last, so an interrupted apply can
+resume from the exact preview. Keep its private plan outside the source state
+root. Never hand-edit `catalog-revision.json` or either cursor.
 
 The inbox owns source events and independent subscription work. The adapter
 never submits Discord or Board operations. `service-bursawatch-source-media`
@@ -42,9 +55,9 @@ adapter never receives Storage credentials or stores signed/public media URLs.
 `lib-bursawatch-pipeline-runtime`
 claims only registered handler pipelines. The pilot registers the existing
 Phintraco Swing owner for plans, Kelas Investasi for supporting setups, and
-Market News for Stock Information and Phintraco news. Each owner retains its
-own state and uses the Discord Delivery Owner. Market News and Kelas analysis
-use the existing owner lease and submission contracts. When both have ready
+Market News for Stock Information plus Phintraco and Tuntun news. Each owner
+retains its own state and uses the Discord Delivery Owner. Market News and
+Kelas analysis use the existing owner lease and submission contracts. When both have ready
 agent work, the runner claims at most one oldest candidate, using a persisted
 round-robin tie break for equal publication times. Kelas inbox work is claimed
 in Telegram message order; a failed earlier message blocks later messages
@@ -56,13 +69,14 @@ blocked handoff; it is private state, never Git. If upload succeeds but inbox
 acceptance fails, the private handoff spool retains the opaque reference and
 retries it without reuploading or advancing the Telegram cursor.
 
-Keep the live scope limited to Phintraco `trading_plans` and Kelas
-`swing_support`; Market News and Tuntun remain on their legacy readers. Do not
-enable other Telegram subscriptions or change the pilot schedule without an
-approved rollout. Seeded cursors are future-only; do not backfill or replay
-source history. The source owner must emit a heartbeat to #hermes on every
-scheduled run, including no-hit runs, using the shared Discord Delivery Owner
-and the package contract's fixed heartbeat format.
+Keep the current live scope limited to Phintraco `trading_plans` and Kelas
+`swing_support` until Tuntun is separately coordinated with the legacy Market
+News reader and its durable state. Do not enable other Telegram subscriptions
+or change the pilot schedule without an approved rollout. Seeded cursors are
+future-only; do not backfill or replay source history. The source owner must
+emit a heartbeat to #hermes on every scheduled run, including no-hit runs,
+using the shared Discord Delivery Owner and the package contract's fixed
+heartbeat format.
 
 The release wrapper is `bin/bursawatch-tg-source-ingest.sh`. Its normal entry
 point reads only `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`,

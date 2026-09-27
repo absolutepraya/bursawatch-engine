@@ -5,10 +5,10 @@ This file supplements the repository root `AGENTS.md`. It is the development and
 ## Runtime and deterministic boundary
 
 The Telegram source-ingest pilot adds `bin/pipeline_owner.py` for deterministic
-Phintraco Stock Information and agent-classified Phintraco News. News source
-work is accepted into this package's existing candidate ledger without a
-Telegram read or Discord post. The owner inspects same-version source work
-after the inbox execution fence, records the enabled Company and Macro
+Phintraco Stock Information and agent-classified Phintraco and Tuntun News.
+News source work is accepted into this package's existing candidate ledger
+without a Telegram read or Discord post. The owner inspects same-version source
+work after the inbox execution fence, records the enabled Company and Macro
 capabilities and a validated Market News config snapshot with the one source
 candidate, then settles source work on durable owner acceptance. Its
 `agent-status` command reads without claiming and exposes the next ready
@@ -17,8 +17,12 @@ candidate's event key and source publication time for shared arbitration;
 wake payload. The agent still submits through this package's
 `submit-classification` command;
 the existing validator, two-minute candidate lease, route selection, and
-Delivery Owner path remain authoritative. The legacy reader must stop polling
-Phintraco before a live source-ingest cutover. A stock-status work item may retain
+Delivery Owner path remain authoritative. Each provider's legacy reader must
+stop polling it before that provider's live source-ingest cutover. Tuntun
+source events carry their forum topic ID; the owner accepts only topic `3743`
+and preserves all deterministic candidates extracted from a multi-ticker
+publication under the same immutable source event and frozen config. A
+stock-status work item may retain
 Source Media Owner refs at the immutable event layer; this text-only capability
 continues to ignore attachments, matching its existing parser and output contract.
 

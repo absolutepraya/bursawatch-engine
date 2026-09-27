@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / "lib-bursawatch-control" / "bin"))
 sys.path.insert(0, str(ROOT / "lib-bursawatch-source-ingest" / "bin"))
 from source_ingest import IntakeBlocked, _write, bind_catalog_revision, envelope, ingest_all, ingest_endpoint, select_endpoints
 from source_event_client import SourceEventHandoff
-from legacy_cursor_seed import LegacySeedBlocked, plan_seed, read_legacy_snapshot
+from legacy_cursor_seed import LegacySeedBlocked, plan_catalog_revision_transition, plan_seed, read_legacy_snapshot
 
 NOW = datetime(2026, 9, 24, tzinfo=timezone.utc)
 ENDPOINT = {"endpoint_id": "x:alpha", "publisher_id": "alpha", "platform": "x", "address": "alpha", "provider_id": None, "catalog_revision": 5}
@@ -115,6 +115,78 @@ def test_legacy_seed_atomic_create_does_not_overwrite_concurrent_cursor(tmp_path
         plan_seed(legacy_state_path=source, state_root=state_root, endpoint=endpoint, snapshot_bytes=raw, catalog_revision=5, anchor="10", cursor_shape="generic", apply=True, expected_plan=preview)
     cursor_path = state_root / "x-alpha" / "cursor.json"
     assert cursor_path.read_text() == "concurrent-owner"
+
+
+def test_catalog_revision_transition_seeds_all_cursors_before_advancing_and_resumes(tmp_path, monkeypatch):
+    import legacy_cursor_seed
+
+    root = tmp_path / "state"
+    root.mkdir()
+    _write(root / "catalog-revision.json", {"revision": 2})
+    _write(root / "x-existing" / "cursor.json", {"initialized": True, "anchor": "20", "position": None})
+    sources = []
+    seeds = []
+    for endpoint_id, publisher, anchor in (("x:alpha", "alpha", "100"), ("x:beta", "beta", "200")):
+        source = tmp_path / f"{publisher}.json"
+        source.write_text(json.dumps({"anchor": anchor}))
+        raw, _ = read_legacy_snapshot(source)
+        endpoint = {"platform": "x", "endpoint_id": endpoint_id, "publisher_id": publisher, "address": publisher, "provider_id": None, "catalog_revision": 3}
+        seeds.append({"legacy_state_path": source, "endpoint": endpoint, "snapshot_bytes": raw, "anchor": anchor, "cursor_shape": "generic"})
+        sources.append(source)
+
+    preview = plan_catalog_revision_transition(state_root=root, from_revision=2, to_revision=3, seeds=seeds)
+    assert preview["status"] == "preview"
+    assert json.loads((root / "catalog-revision.json").read_text()) == {"revision": 2}
+    assert not (root / "x-alpha" / "cursor.json").exists()
+    assert not (root / "x-beta" / "cursor.json").exists()
+
+    monkeypatch.setenv("BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY", "1")
+    original_write = legacy_cursor_seed._write_cursor_exclusive
+    calls = 0
+
+    def interrupt_after_first(path, record):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("synthetic interruption")
+        original_write(path, record)
+
+    monkeypatch.setattr(legacy_cursor_seed, "_write_cursor_exclusive", interrupt_after_first)
+    with pytest.raises(OSError, match="synthetic interruption"):
+        plan_catalog_revision_transition(state_root=root, from_revision=2, to_revision=3, seeds=seeds, apply=True, expected_plan=preview)
+    assert json.loads((root / "catalog-revision.json").read_text()) == {"revision": 2}
+    assert (root / "x-alpha" / "cursor.json").is_file()
+    assert not (root / "x-beta" / "cursor.json").exists()
+
+    monkeypatch.setattr(legacy_cursor_seed, "_write_cursor_exclusive", original_write)
+    applied = plan_catalog_revision_transition(state_root=root, from_revision=2, to_revision=3, seeds=seeds, apply=True, expected_plan=preview)
+    assert applied["status"] == "applied"
+    assert json.loads((root / "catalog-revision.json").read_text()) == {"revision": 3}
+    assert cursor(root, "x:alpha")["anchor"] == "100"
+    assert cursor(root, "x:beta")["anchor"] == "200"
+    journal = json.loads((root / "catalog-transitions" / "2-to-3.json").read_text())
+    assert journal["status"] == "complete"
+    assert set(journal["seeded_endpoints"]) == {"x:alpha", "x:beta"}
+
+    repeated = plan_catalog_revision_transition(state_root=root, from_revision=2, to_revision=3, seeds=seeds, apply=True, expected_plan=preview)
+    assert repeated["status"] == "applied"
+
+
+def test_catalog_revision_transition_requires_unchanged_state_and_exact_seed_set(tmp_path, monkeypatch):
+    root = tmp_path / "state"
+    root.mkdir()
+    _write(root / "catalog-revision.json", {"revision": 2})
+    source = tmp_path / "legacy.json"
+    source.write_text(json.dumps({"anchor": "100"}))
+    raw, _ = read_legacy_snapshot(source)
+    endpoint = {"platform": "x", "endpoint_id": "x:alpha", "publisher_id": "alpha", "address": "alpha", "provider_id": None, "catalog_revision": 3}
+    seeds = [{"legacy_state_path": source, "endpoint": endpoint, "snapshot_bytes": raw, "anchor": "100", "cursor_shape": "generic"}]
+    preview = plan_catalog_revision_transition(state_root=root, from_revision=2, to_revision=3, seeds=seeds)
+    _write(root / "unrelated.json", {"changed": True})
+    monkeypatch.setenv("BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY", "1")
+    with pytest.raises(LegacySeedBlocked, match="unchanged catalog transition preview"):
+        plan_catalog_revision_transition(state_root=root, from_revision=2, to_revision=3, seeds=seeds, apply=True, expected_plan=preview)
+    assert json.loads((root / "catalog-revision.json").read_text()) == {"revision": 2}
 
 
 def test_acknowledged_handoff_recovery_preserves_staged_publication_time(tmp_path):

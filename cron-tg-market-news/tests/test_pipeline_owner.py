@@ -13,16 +13,29 @@ import config
 from state import load_state
 
 
-def _news_work(capability, *, enabled=("company_news", "macro_news")):
+def _news_work(
+    capability,
+    *,
+    enabled=("company_news", "macro_news"),
+    endpoint_id="telegram:phintasprofits",
+    publisher_id="phintraco",
+    source_handle="phintasprofits",
+    message_id="35390",
+    text="Notes: DEWA secures a Rp22 trillion contract.",
+    topic_id=None,
+):
     event_key = "a" * 64
+    payload = {"text": text}
+    if topic_id is not None:
+        payload["topic_id"] = topic_id
     envelope = {
-        "endpoint_id": "telegram:phintasprofits",
-        "publisher_id": "phintraco",
-        "provider_event_id": "35390",
+        "endpoint_id": endpoint_id,
+        "publisher_id": publisher_id,
+        "provider_event_id": message_id,
         "published_at": "2026-09-24T03:00:00+00:00",
-        "source_url": "https://t.me/phintasprofits/35390",
+        "source_url": f"https://t.me/{source_handle}/{message_id}",
         "content_hash": "c" * 64,
-        "payload": {"text": "Notes: DEWA secures a Rp22 trillion contract."},
+        "payload": payload,
         "media_required": False,
         "media_refs": [],
     }
@@ -100,6 +113,49 @@ def test_phintraco_news_sibling_work_claims_one_frozen_agent_item_and_renders_go
     )
     assert delivered["channel_id"] == "1531655369884045382"
     assert pipeline_owner.agent_status()["candidates"]["pending_analysis"] == 0
+
+
+def test_tuntun_corporate_source_work_accepts_all_ticker_candidates_once(tmp_path, monkeypatch):
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_path / "news.json"))
+    monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
+    corporate = (
+        "Corporate 🏢\n\n"
+        "DEWA (PT Darma Henwa Tbk): DEWA mendapat kontrak baru.\n\n"
+        "PTBA (PT Bukit Asam Tbk): PTBA meningkatkan volume produksi."
+    )
+    company, company_inspection = _news_work(
+        "company_news", endpoint_id="telegram:tuntunsekuritas", publisher_id="tuntun",
+        source_handle="tuntunsekuritas", message_id="14980", text=corporate, topic_id=3743,
+    )
+    macro, macro_inspection = _news_work(
+        "macro_news", endpoint_id="telegram:tuntunsekuritas", publisher_id="tuntun",
+        source_handle="tuntunsekuritas", message_id="14980", text=corporate, topic_id=3743,
+    )
+
+    assert pipeline_owner.submit(company, no_post=True, inbox=_Inbox(company_inspection)) == "accepted"
+    assert pipeline_owner.submit(macro, no_post=True, inbox=_Inbox(macro_inspection)) == "accepted"
+
+    state = load_state()
+    assert set(state["candidates"]) == {"tuntun:14980:DEWA", "tuntun:14980:PTBA"}
+    for candidate_key in state["candidates"]:
+        origin = state["stats"]["news_source_work"][candidate_key]
+        assert origin["event_key"] == company["event_key"]
+        assert origin["source_url"] == "https://t.me/tuntunsekuritas/14980"
+        assert origin["enabled_capabilities"] == ["company_news", "macro_news"]
+        assert origin["watch_config"]["providers"]["tuntun"]["telegram_username"] == "tuntunsekuritas"
+
+
+def test_tuntun_news_owner_ignores_posts_outside_configured_forum_topic(tmp_path, monkeypatch):
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_path / "news.json"))
+    monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
+    work, inspection = _news_work(
+        "company_news", endpoint_id="telegram:tuntunsekuritas", publisher_id="tuntun",
+        source_handle="tuntunsekuritas", message_id="14981",
+        text="Corporate 🏢\n\nDEWA: eligible-looking source entry.", topic_id=1234,
+    )
+
+    assert pipeline_owner.submit(work, no_post=True, inbox=_Inbox(inspection)) == "irrelevant"
+    assert not (tmp_path / "news.json").exists()
 
 
 def test_dead_lettered_news_sibling_keeps_enabled_route_and_stable_replay_provenance(tmp_path, monkeypatch):

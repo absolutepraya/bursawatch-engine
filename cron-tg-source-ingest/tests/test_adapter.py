@@ -14,7 +14,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "lib-bursawatch-control" / "bin"))
 sys.path.insert(0, str(ROOT / "cron-tg-source-ingest" / "bin"))
-from adapter import IntakeBlocked, endpoints, ingest_all as adapter_ingest_all, ingest_endpoint, plan_legacy_cursor_seed, envelope as telegram_envelope
+from adapter import IntakeBlocked, LegacySeedBlocked, endpoints, ingest_all as adapter_ingest_all, ingest_endpoint, plan_legacy_cursor_seed, plan_market_news_catalog_transition, envelope as telegram_envelope
 from runner import AGENT_OWNERS, HEARTBEAT_CHANNEL_ID, HEARTBEAT_DELIVERY_WAIT_SECONDS, PIPELINE_OWNERS, dispatch_agent, format_fatal, format_heartbeat, post_heartbeat, run_once
 from runner import verify_synthetic
 
@@ -22,6 +22,7 @@ from runner import verify_synthetic
 NOW = datetime(2026, 9, 24, tzinfo=timezone.utc)
 ENDPOINT = {"platform": "telegram", "endpoint_id": "telegram:phintraprofits", "publisher_id": "phintraco", "address": "phintraprofits", "provider_id": "1444713822", "catalog_revision": 7, "capabilities": {"trading_plans"}}
 NEWS_ENDPOINT = {"platform": "telegram", "endpoint_id": "telegram:phintasprofits", "publisher_id": "phintraco", "address": "phintasprofits", "provider_id": None, "catalog_revision": 7, "capabilities": {"company_news"}}
+TUNTUN_NEWS_ENDPOINT = {"platform": "telegram", "endpoint_id": "telegram:tuntunsekuritas", "publisher_id": "tuntun", "address": "tuntunsekuritas", "provider_id": None, "catalog_revision": 7, "capabilities": {"company_news", "macro_news"}}
 
 
 def test_release_synthetic_verification_uses_only_in_memory_fixture(capsys, tmp_path, monkeypatch):
@@ -216,6 +217,200 @@ def test_phintraco_news_cursor_seed_previews_market_news_provider_boundary(tmp_p
     assert preview["proposed_anchor"] == "35377"
     assert preview["legacy_state_sha256"] == hashlib.sha256(legacy_path.read_bytes()).hexdigest()
     assert not (state_root / "telegram-phintasprofits" / "cursor.json").exists()
+
+
+def test_tuntun_news_cursor_seed_is_independent_from_phintraco_pending_work(tmp_path):
+    legacy_path = tmp_path / "synthetic-snapshot" / "market-news.json"
+    legacy_path.parent.mkdir()
+    legacy_path.write_text(json.dumps({
+        "version": 1,
+        "providers": {
+            "phintraco": {"observed_message_id": 35377},
+            "tuntun": {"observed_message_id": 14978},
+        },
+        "candidates": {
+            "phintraco:35378:ABCD": {"candidate": {"provider": "phintraco"}, "phase": "pending_analysis"},
+        },
+    }))
+
+    preview = plan_legacy_cursor_seed(legacy_path, tmp_path / "new", TUNTUN_NEWS_ENDPOINT, 7)
+
+    assert preview["status"] == "preview"
+    assert preview["proposed_anchor"] == "14978"
+
+
+def test_tuntun_news_cursor_seed_blocks_its_own_pending_candidates(tmp_path):
+    legacy_path = tmp_path / "synthetic-snapshot" / "market-news.json"
+    legacy_path.parent.mkdir()
+    legacy_path.write_text(json.dumps({
+        "version": 1,
+        "providers": {"tuntun": {"observed_message_id": 14978}},
+        "candidates": {
+            "tuntun:14979:DEWA": {"candidate": {"provider": "tuntun"}, "phase": "pending_delivery"},
+        },
+    }))
+
+    with pytest.raises(LegacySeedBlocked, match="pending Tuntun Market News candidates"):
+        plan_legacy_cursor_seed(legacy_path, tmp_path / "new", TUNTUN_NEWS_ENDPOINT, 7)
+
+
+def _effective_news_cutover_catalogs():
+    def row(endpoint_id, publisher, address, provider_id, capability, *, enabled, source):
+        return {
+            "endpoint_id": endpoint_id,
+            "publisher_id": publisher,
+            "platform": "telegram",
+            "address": address,
+            "provider_id": provider_id,
+            "credential_ref": None,
+            "capability_id": capability,
+            "pipeline": capability,
+            "enabled": enabled,
+            "verification_status": "verified",
+            "settings": {},
+            "source": source,
+        }
+
+    rows = [
+        row("telegram:phintraprofits", "phintraco", "phintraprofits", "1444713822", "trading_plans", enabled=True, source="publisher_default"),
+        row("telegram:kelasinvestasiid", "kelas-investasi", "kelasinvestasiid", "2142109618", "swing_support", enabled=True, source="publisher_default"),
+        *[
+            row(endpoint, publisher, address, provider_id, capability, enabled=False, source="unset")
+            for endpoint, publisher, address, provider_id, capabilities in (
+                ("telegram:phintasprofits", "phintraco", "phintasprofits", None, ("company_news", "macro_news", "stock_status")),
+                ("telegram:tuntunsekuritas", "tuntun", "tuntunsekuritas", None, ("company_news", "macro_news")),
+            )
+            for capability in capabilities
+        ],
+    ]
+    old = {"revision": 2, "updated_at": "2026-09-27T04:00:00+00:00", "selected_securities": [], "subscriptions": rows}
+    target_rows = []
+    for item in rows:
+        changed = dict(item)
+        if changed["endpoint_id"] in {"telegram:phintasprofits", "telegram:tuntunsekuritas"}:
+            changed["enabled"] = True
+            changed["source"] = "endpoint_override"
+        target_rows.append(changed)
+    target = {"revision": 3, "updated_at": "2026-09-27T04:05:00+00:00", "selected_securities": [], "subscriptions": target_rows}
+    return old, target
+
+
+def test_market_news_catalog_transition_requires_only_complete_approved_activation(tmp_path):
+    prior, target = _effective_news_cutover_catalogs()
+    state_root = tmp_path / "source-state"
+    state_root.mkdir()
+    (state_root / "catalog-revision.json").write_text(json.dumps({"revision": 2}))
+    legacy_path = tmp_path / "legacy-market-news.json"
+    legacy_path.write_text(json.dumps({
+        "version": 1,
+        "providers": {"phintraco": {"observed_message_id": 440}, "tuntun": {"observed_message_id": 880}},
+        "candidates": {},
+        "stats": {"stock_status_events": {}},
+    }))
+
+    preview = plan_market_news_catalog_transition(prior, target, legacy_path, state_root)
+    assert preview["from_revision"] == 2
+    assert preview["to_revision"] == 3
+    assert {seed["endpoint"]["endpoint_id"]: seed["proposed_anchor"] for seed in preview["seeds"]} == {
+        "telegram:phintasprofits": "440",
+        "telegram:tuntunsekuritas": "880",
+    }
+    assert preview["metadata"]["prior_effective_catalog_sha256"]
+    assert preview["metadata"]["target_effective_catalog_sha256"]
+
+    unsafe = json.loads(json.dumps(target))
+    unsafe["subscriptions"][0]["enabled"] = False
+    with pytest.raises(LegacySeedBlocked, match="outside the approved News activation"):
+        plan_market_news_catalog_transition(prior, unsafe, legacy_path, state_root)
+
+
+def test_market_news_catalog_transition_blocks_if_either_provider_has_pending_work(tmp_path):
+    prior, target = _effective_news_cutover_catalogs()
+    state_root = tmp_path / "source-state"
+    state_root.mkdir()
+    (state_root / "catalog-revision.json").write_text(json.dumps({"revision": 2}))
+    legacy_path = tmp_path / "legacy-market-news.json"
+    legacy_path.write_text(json.dumps({
+        "version": 1,
+        "providers": {"phintraco": {"observed_message_id": 440}, "tuntun": {"observed_message_id": 880}},
+        "candidates": {"pending": {"candidate": {"provider": "phintraco"}, "phase": "pending_delivery"}},
+        "stats": {"stock_status_events": {}},
+    }))
+    with pytest.raises(LegacySeedBlocked, match="pending Phintraco Market News candidates"):
+        plan_market_news_catalog_transition(prior, target, legacy_path, state_root)
+
+
+def test_catalog_transition_cli_previews_to_private_file_then_applies(tmp_path, monkeypatch, capsys):
+    from catalog_transition import main
+
+    prior, target = _effective_news_cutover_catalogs()
+    prior_path = tmp_path / "prior.json"
+    target_path = tmp_path / "target.json"
+    prior_path.write_text(json.dumps(prior))
+    target_path.write_text(json.dumps(target))
+    legacy_path = tmp_path / "legacy.json"
+    legacy_path.write_text(json.dumps({
+        "version": 1,
+        "providers": {"phintraco": {"observed_message_id": 440}, "tuntun": {"observed_message_id": 880}},
+        "candidates": {},
+        "stats": {"stock_status_events": {}},
+    }))
+    state_root = tmp_path / "state"
+    state_root.mkdir()
+    (state_root / "catalog-revision.json").write_text(json.dumps({"revision": 2}))
+    plan_path = tmp_path / "private" / "plan.json"
+    common = [
+        "--prior-catalog", str(prior_path),
+        "--target-catalog", str(target_path),
+        "--legacy-news-state", str(legacy_path),
+        "--state-root", str(state_root),
+        "--plan-file", str(plan_path),
+    ]
+    assert main(["preview", *common]) == 0
+    assert plan_path.stat().st_mode & 0o777 == 0o600
+    assert json.loads(capsys.readouterr().out)["status"] == "preview"
+
+    monkeypatch.setenv("BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY", "1")
+    assert main(["apply", *common]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "applied"
+    assert json.loads((state_root / "catalog-revision.json").read_text()) == {"revision": 3}
+
+
+@pytest.mark.parametrize(
+    "reply_fields",
+    [
+        {"reply_to_top_id": 3743},
+        {"reply_to": SimpleNamespace(reply_to_top_id=3743)},
+        {"reply_to": SimpleNamespace(forum_topic=True, reply_to_msg_id=3743)},
+    ],
+)
+def test_tuntun_envelope_preserves_forum_topic_identity(reply_fields):
+    source_message = message(14979, "Corporate")
+    for field, value in reply_fields.items():
+        setattr(source_message, field, value)
+
+    event = telegram_envelope(TUNTUN_NEWS_ENDPOINT, source_message, NOW)
+
+    assert event["endpoint_id"] == "telegram:tuntunsekuritas"
+    assert event["source_url"] == "https://t.me/tuntunsekuritas/14979"
+    assert event["parser_version"] == "telegram-tuntun-1"
+    assert event["payload"]["topic_id"] == 3743
+
+
+def test_tuntun_ingest_stages_forum_topic_identity(tmp_path):
+    endpoint_root = tmp_path / "telegram-tuntunsekuritas"
+    endpoint_root.mkdir()
+    (endpoint_root / "cursor.json").write_text(json.dumps({"cursor": 14978}))
+    source_message = message(14979, "Corporate 🏢\n\nDEWA: source entry.")
+    source_message.reply_to_top_id = 3743
+    client = FakeTelegram([source_message], address="tuntunsekuritas", entity_id=582001)
+    inbox = FakeInbox()
+
+    result = asyncio.run(ingest_endpoint(client, TUNTUN_NEWS_ENDPOINT, tmp_path, inbox, NOW))
+
+    assert result["accepted"] == 1
+    assert inbox.accepted[0]["payload"]["topic_id"] == 3743
 
 
 @pytest.mark.parametrize(
@@ -425,7 +620,7 @@ def test_effective_catalog_rejects_unknown_enabled_endpoint():
     with pytest.raises(IntakeBlocked, match="identity is not verified"):
         endpoints({"revision": 5, "subscriptions": [{**row, "endpoint_id": "telegram:tuntunsekuritas", "address": "tuntunsekuritas", "capability_id": "company_news", "provider_id": None, "publisher_id": "phintraco"}]})
     tuntun = {**row, "endpoint_id": "telegram:tuntunsekuritas", "address": "tuntunsekuritas", "capability_id": "company_news", "provider_id": None, "publisher_id": "tuntun"}
-    assert endpoints({"revision": 5, "subscriptions": [tuntun]}) == {}
+    assert endpoints({"revision": 5, "subscriptions": [tuntun]})["telegram:tuntunsekuritas"]["capabilities"] == {"company_news"}
     with pytest.raises(IntakeBlocked, match="identity is not verified"):
         endpoints({"revision": 5, "subscriptions": [{**tuntun, "verification_status": "pending"}]})
     with pytest.raises(IntakeBlocked, match="not onboarded"):

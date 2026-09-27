@@ -12,6 +12,10 @@ from state import StateBlockedError
 
 _HEX = re.compile(r"[0-9a-f]{64}\Z")
 _CAPABILITIES = frozenset({"company_news", "macro_news"})
+_NEWS_SOURCE_HANDLES = {
+    "phintraco": "phintasprofits",
+    "tuntun": "tuntunsekuritas",
+}
 _STATS_KEY = "news_source_work"
 
 
@@ -63,8 +67,8 @@ def _validated(record: object, candidate_key: str) -> dict[str, Any]:
         not isinstance(keys, dict) or set(keys) != set(capabilities) or
         any(not isinstance(key, str) or not _HEX.fullmatch(key) for key in keys.values())):
         raise StateBlockedError("News source-work capabilities are invalid")
-    match = re.fullmatch(r"phintraco:([1-9][0-9]*):[A-Za-z0-9_-]+", candidate_key)
-    if match is None or record["source_url"] != f"https://t.me/phintasprofits/{match.group(1)}":
+    match = re.fullmatch(r"(phintraco|tuntun):([1-9][0-9]*):[A-Za-z0-9_-]+", candidate_key)
+    if match is None or record["source_url"] != f"https://t.me/{_NEWS_SOURCE_HANDLES[match.group(1)]}/{match.group(2)}":
         raise StateBlockedError("News source-work URL is invalid")
     revision = record["watch_config_revision"]
     if revision is not None and (type(revision) is not int or revision < 1):

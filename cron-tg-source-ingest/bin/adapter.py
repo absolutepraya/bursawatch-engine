@@ -22,7 +22,7 @@ for package in ("lib-bursawatch-control", "lib-bursawatch-source-ingest"):
     if str(candidate) not in sys.path:
         sys.path.insert(0, str(candidate))
 
-from legacy_cursor_seed import LegacySeedBlocked, plan_seed, read_legacy_snapshot
+from legacy_cursor_seed import LegacySeedBlocked, plan_catalog_revision_transition, plan_seed, read_legacy_snapshot
 from source_ingest import bind_catalog_revision
 from source_event_client import SourceEventHandoff
 
@@ -31,11 +31,20 @@ PILOT = {
     "telegram:phintraprofits": ("1444713822", "phintraco", frozenset({"trading_plans"})),
     "telegram:phintasprofits": (None, "phintraco", frozenset({"company_news", "macro_news", "stock_status"})),
     "telegram:kelasinvestasiid": ("2142109618", "kelas-investasi", frozenset({"swing_support"})),
-}
-# Classified from checked-in canonical IDs. Tuntun remains on the old News reader.
-KNOWN_UNMIGRATED = {
     "telegram:tuntunsekuritas": (None, "tuntun", frozenset({"company_news", "macro_news"})),
 }
+MARKET_NEWS_PHASES = frozenset({
+    "pending_analysis", "awaiting_agent", "pending_selection", "pending_delivery",
+    "suppressed_rank", "suppressed_duplicate", "suppressed_ineligible",
+    "delivered", "delivery_failed", "abandoned",
+})
+MARKET_NEWS_CUTOVER_CAPABILITIES = {
+    "telegram:phintasprofits": frozenset({"company_news", "macro_news", "stock_status"}),
+    "telegram:tuntunsekuritas": frozenset({"company_news", "macro_news"}),
+}
+ACTIVE_MARKET_NEWS_PHASES = frozenset({
+    "pending_analysis", "awaiting_agent", "pending_selection", "pending_delivery",
+})
 MAX_BATCH = 20
 MAX_MEDIA_OBJECT_BYTES = 8 * 1024 * 1024
 
@@ -44,13 +53,14 @@ class IntakeBlocked(RuntimeError):
     """A source message needs an operator-reviewed migration or durable media."""
 
 
-def plan_legacy_cursor_seed(legacy_state_path: Path, state_root: Path, endpoint: dict[str, Any], catalog_revision: int, *, apply: bool = False, expected_plan: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Preview or seed the exact Telegram message boundary from a snapshot."""
+def _legacy_cursor_seed_spec(legacy_state_path: Path, endpoint: dict[str, Any], catalog_revision: int) -> dict[str, Any]:
+    """Validate a Telegram legacy boundary and return immutable seed inputs."""
     if endpoint.get("endpoint_id") == "telegram:phintraprofits":
         field = "observed_message_id"
         pending_key = "outbox"
-    elif endpoint.get("endpoint_id") == "telegram:phintasprofits":
-        field = "providers.phintraco.observed_message_id"
+    elif endpoint.get("endpoint_id") in {"telegram:phintasprofits", "telegram:tuntunsekuritas"}:
+        provider_name = "phintraco" if endpoint["endpoint_id"] == "telegram:phintasprofits" else "tuntun"
+        field = f"providers.{provider_name}.observed_message_id"
         pending_key = None
     elif endpoint.get("endpoint_id") == "telegram:kelasinvestasiid":
         field = "cursor"
@@ -63,39 +73,36 @@ def plan_legacy_cursor_seed(legacy_state_path: Path, state_root: Path, endpoint:
     if observed != expected or endpoint.get("catalog_revision") != catalog_revision:
         raise LegacySeedBlocked("Telegram endpoint identity or catalog revision differs from the reviewed binding")
     raw, legacy = read_legacy_snapshot(legacy_state_path)
-    if endpoint["endpoint_id"] == "telegram:phintasprofits":
+    if endpoint["endpoint_id"] in {"telegram:phintasprofits", "telegram:tuntunsekuritas"}:
         if legacy.get("version") != 1:
-            raise LegacySeedBlocked("Market News state version is unsupported for Phintraco cursor seeding")
+            raise LegacySeedBlocked("Market News state version is unsupported for News cursor seeding")
         providers = legacy.get("providers")
-        lane = providers.get("phintraco") if type(providers) is dict else None
+        provider_name = "phintraco" if endpoint["endpoint_id"] == "telegram:phintasprofits" else "tuntun"
+        lane = providers.get(provider_name) if type(providers) is dict else None
         boundary = lane.get("observed_message_id") if type(lane) is dict else None
         candidates = legacy.get("candidates")
-        active_phintraco_phases = {"pending_analysis", "awaiting_agent", "pending_selection", "pending_delivery"}
         if type(candidates) is not dict:
-            raise LegacySeedBlocked("Market News candidate state is unavailable for Phintraco cursor seeding")
+            raise LegacySeedBlocked("Market News candidate state is unavailable for News cursor seeding")
         for record in candidates.values():
             candidate = record.get("candidate") if type(record) is dict else None
             if type(candidate) is not dict or type(record.get("phase")) is not str:
                 raise LegacySeedBlocked("Market News candidate state is malformed")
-            if candidate.get("provider") not in {"phintraco", "tuntun"} or record["phase"] not in {
-                "pending_analysis", "awaiting_agent", "pending_selection", "pending_delivery",
-                "suppressed_rank", "suppressed_duplicate", "suppressed_ineligible",
-                "delivered", "delivery_failed", "abandoned",
-            }:
+            if candidate.get("provider") not in {"phintraco", "tuntun"} or record["phase"] not in MARKET_NEWS_PHASES:
                 raise LegacySeedBlocked("Market News candidate state contains an unsupported outcome")
-            if candidate.get("provider") == "phintraco" and record["phase"] in active_phintraco_phases:
-                raise LegacySeedBlocked("pending Phintraco Market News candidates must be reconciled before cursor seeding")
-        stats = legacy.get("stats")
-        status_events = stats.get("stock_status_events", {}) if type(stats) is dict else None
-        if type(status_events) is not dict:
-            raise LegacySeedBlocked("Market News stock-status state is unavailable for Phintraco cursor seeding")
-        for event in status_events.values():
-            if type(event) is not dict or type(event.get("phase")) is not str:
-                raise LegacySeedBlocked("Market News stock-status state is malformed")
-            if event["phase"] not in {"pending_delivery", "delivered", "rejected"}:
-                raise LegacySeedBlocked("Market News stock-status state contains an unsupported outcome")
-            if event["phase"] == "pending_delivery":
-                raise LegacySeedBlocked("pending Phintraco stock-status deliveries must be reconciled before cursor seeding")
+            if candidate.get("provider") == provider_name and record["phase"] in ACTIVE_MARKET_NEWS_PHASES:
+                raise LegacySeedBlocked(f"pending {provider_name.title()} Market News candidates must be reconciled before cursor seeding")
+        if provider_name == "phintraco":
+            stats = legacy.get("stats")
+            status_events = stats.get("stock_status_events", {}) if type(stats) is dict else None
+            if type(status_events) is not dict:
+                raise LegacySeedBlocked("Market News stock-status state is unavailable for Phintraco cursor seeding")
+            for event in status_events.values():
+                if type(event) is not dict or type(event.get("phase")) is not str:
+                    raise LegacySeedBlocked("Market News stock-status state is malformed")
+                if event["phase"] not in {"pending_delivery", "delivered", "rejected"}:
+                    raise LegacySeedBlocked("Market News stock-status state contains an unsupported outcome")
+                if event["phase"] == "pending_delivery":
+                    raise LegacySeedBlocked("pending Phintraco stock-status deliveries must be reconciled before cursor seeding")
     else:
         boundary = legacy.get(field)
     if type(boundary) is not int or boundary < 0:
@@ -105,15 +112,138 @@ def plan_legacy_cursor_seed(legacy_state_path: Path, state_root: Path, endpoint:
         raise LegacySeedBlocked(f"Telegram legacy {pending_key} work must be reconciled before cursor seeding")
     if endpoint["endpoint_id"] == "telegram:kelasinvestasiid" and legacy.get("outbox"):
         raise LegacySeedBlocked("Kelas legacy outbox work must be reconciled before cursor seeding")
+    return {
+        "legacy_state_path": legacy_state_path,
+        "endpoint": endpoint,
+        "snapshot_bytes": raw,
+        "anchor": str(boundary),
+        "cursor_shape": "telegram",
+        "bootstrap_anchor": str(boundary) if endpoint["endpoint_id"] == "telegram:kelasinvestasiid" else None,
+    }
+
+
+def plan_legacy_cursor_seed(
+    legacy_state_path: Path,
+    state_root: Path,
+    endpoint: dict[str, Any],
+    catalog_revision: int,
+    *,
+    transition_from_revision: int | None = None,
+    allow_existing_matching_cursor: bool = False,
+    allow_target_revision_during_resume: bool = False,
+    apply: bool = False,
+    expected_plan: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Preview or seed the exact Telegram message boundary from a snapshot."""
+    spec = _legacy_cursor_seed_spec(legacy_state_path, endpoint, catalog_revision)
     return plan_seed(
-        legacy_state_path=legacy_state_path,
+        **spec,
         state_root=state_root,
-        endpoint=endpoint,
-        snapshot_bytes=raw,
         catalog_revision=catalog_revision,
-        anchor=str(boundary),
-        cursor_shape="telegram",
-        bootstrap_anchor=str(boundary) if endpoint["endpoint_id"] == "telegram:kelasinvestasiid" else None,
+        expected_current_catalog_revision=transition_from_revision,
+        allowed_current_catalog_revisions=(transition_from_revision, catalog_revision) if transition_from_revision is not None and allow_target_revision_during_resume else None,
+        allow_existing_matching_cursor=allow_existing_matching_cursor,
+        apply=apply,
+        expected_plan=expected_plan,
+    )
+
+
+def _validate_market_news_catalog_transition(prior: dict[str, Any], target: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Allow only activation of the reviewed legacy Market News endpoints."""
+    if (
+        type(prior) is not dict
+        or type(target) is not dict
+        or type(prior.get("revision")) is not int
+        or type(target.get("revision")) is not int
+        or target["revision"] != prior["revision"] + 1
+        or type(prior.get("subscriptions")) is not list
+        or type(target.get("subscriptions")) is not list
+        or prior.get("selected_securities") != target.get("selected_securities")
+    ):
+        raise LegacySeedBlocked("catalog snapshots do not describe one consecutive revision")
+
+    def keyed(snapshot: dict[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
+        result = {}
+        for row in snapshot["subscriptions"]:
+            if type(row) is not dict or type(row.get("endpoint_id")) is not str or type(row.get("capability_id")) is not str:
+                raise LegacySeedBlocked("catalog subscription identity is invalid")
+            key = (row["endpoint_id"], row["capability_id"])
+            if key in result:
+                raise LegacySeedBlocked("catalog contains duplicate endpoint capabilities")
+            result[key] = row
+        return result
+
+    old_rows, new_rows = keyed(prior), keyed(target)
+    if set(old_rows) != set(new_rows):
+        raise LegacySeedBlocked("catalog transition cannot add or remove endpoint capabilities")
+    allowed = {
+        (endpoint_id, capability)
+        for endpoint_id, capabilities in MARKET_NEWS_CUTOVER_CAPABILITIES.items()
+        for capability in capabilities
+    }
+    if not allowed <= set(old_rows):
+        raise LegacySeedBlocked("catalog is missing a reviewed Market News capability")
+    changed = set()
+    for key, old in old_rows.items():
+        new = new_rows[key]
+        if old == new:
+            continue
+        if key not in allowed or old.get("enabled") is not False or new.get("enabled") is not True:
+            raise LegacySeedBlocked("catalog transition changes work outside the approved News activation")
+        stable_old = {name: value for name, value in old.items() if name not in {"enabled", "source"}}
+        stable_new = {name: value for name, value in new.items() if name not in {"enabled", "source"}}
+        if stable_old != stable_new or new.get("verification_status") != "verified" or new.get("source") != "endpoint_override":
+            raise LegacySeedBlocked("Market News activation changes source identity or settings")
+        changed.add(key)
+    if changed != allowed:
+        raise LegacySeedBlocked("catalog transition must activate the complete legacy News scope")
+
+    result: dict[str, dict[str, Any]] = {}
+    for endpoint_id, capabilities in MARKET_NEWS_CUTOVER_CAPABILITIES.items():
+        rows = [new_rows[(endpoint_id, capability)] for capability in sorted(capabilities)]
+        if any(row.get("enabled") is not True or row.get("verification_status") != "verified" for row in rows):
+            raise LegacySeedBlocked("target Market News endpoint is not enabled and verified")
+        first = rows[0]
+        identity = (first.get("platform"), first.get("publisher_id"), first.get("address"), first.get("provider_id"))
+        if identity != ("telegram", PILOT[endpoint_id][1], endpoint_id.split(":", 1)[1], PILOT[endpoint_id][0]):
+            raise LegacySeedBlocked("target Market News endpoint identity differs from the adapter binding")
+        if any((row.get("platform"), row.get("publisher_id"), row.get("address"), row.get("provider_id")) != identity for row in rows):
+            raise LegacySeedBlocked("target Market News endpoint identity differs across capabilities")
+        result[endpoint_id] = {
+            "platform": "telegram",
+            "endpoint_id": endpoint_id,
+            "publisher_id": first["publisher_id"],
+            "address": first["address"],
+            "provider_id": first["provider_id"],
+            "catalog_revision": target["revision"],
+            "capabilities": set(capabilities),
+        }
+    return result
+
+
+def plan_market_news_catalog_transition(
+    prior_catalog: dict[str, Any],
+    target_catalog: dict[str, Any],
+    legacy_state_path: Path,
+    state_root: Path,
+    *,
+    apply: bool = False,
+    expected_plan: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Preview or apply the paired Phintraco News and Tuntun cutover seeds."""
+    targets = _validate_market_news_catalog_transition(prior_catalog, target_catalog)
+    seed_specs = [
+        _legacy_cursor_seed_spec(legacy_state_path, targets[endpoint_id], target_catalog["revision"])
+        for endpoint_id in sorted(MARKET_NEWS_CUTOVER_CAPABILITIES)
+    ]
+    prior_digest = hashlib.sha256(json.dumps(prior_catalog, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+    target_digest = hashlib.sha256(json.dumps(target_catalog, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+    return plan_catalog_revision_transition(
+        state_root=state_root,
+        from_revision=prior_catalog["revision"],
+        to_revision=target_catalog["revision"],
+        seeds=seed_specs,
+        metadata={"prior_effective_catalog_sha256": prior_digest, "target_effective_catalog_sha256": target_digest},
         apply=apply,
         expected_plan=expected_plan,
     )
@@ -128,13 +258,11 @@ def endpoints(snapshot: dict[str, Any]) -> dict[str, dict[str, Any]]:
         if row.get("platform") != "telegram" or row.get("enabled") is not True:
             continue
         endpoint_id = row.get("endpoint_id")
-        expected = PILOT.get(endpoint_id) or KNOWN_UNMIGRATED.get(endpoint_id)
+        expected = PILOT.get(endpoint_id)
         if expected is None or row.get("capability_id") not in expected[2]:
             raise IntakeBlocked("enabled Telegram endpoint or capability is not onboarded")
         if row.get("verification_status") != "verified" or row.get("provider_id") != expected[0] or row.get("address") != endpoint_id.split(":", 1)[1] or row.get("publisher_id") != expected[1]:
             raise IntakeBlocked("Telegram endpoint identity is not verified")
-        if endpoint_id in KNOWN_UNMIGRATED:
-            continue
         current = grouped.setdefault(endpoint_id, {"platform": "telegram", "endpoint_id": endpoint_id, "publisher_id": row["publisher_id"], "address": row["address"], "provider_id": row["provider_id"], "catalog_revision": snapshot["revision"], "capabilities": set()})
         if (current["publisher_id"], current["address"], current["provider_id"]) != (row["publisher_id"], row["address"], row["provider_id"]):
             raise IntakeBlocked("Telegram endpoint identity changed within snapshot")
@@ -206,6 +334,21 @@ def _stamp(value: datetime) -> str:
     if not isinstance(value, datetime) or value.tzinfo is None:
         raise IntakeBlocked("Telegram source timestamp is missing")
     return value.astimezone(timezone.utc).isoformat()
+
+
+def _message_topic_id(message: Any) -> int | None:
+    direct = getattr(message, "reply_to_top_id", None)
+    if type(direct) is int and direct > 0:
+        return direct
+    reply_to = getattr(message, "reply_to", None)
+    nested = getattr(reply_to, "reply_to_top_id", None)
+    if type(nested) is int and nested > 0:
+        return nested
+    if getattr(reply_to, "forum_topic", False):
+        root = getattr(reply_to, "reply_to_msg_id", None)
+        if type(root) is int and root > 0:
+            return root
+    return None
 
 
 async def _upload_message_media(client: Any, endpoint: dict[str, Any], message: Any, state_root: Path, media_store: Any) -> list[dict[str, Any]]:
@@ -281,6 +424,8 @@ def envelope(endpoint: dict[str, Any], message: Any, observed_at: datetime, *, r
     if reply is not None and (type(reply) is not int or reply <= 0):
         raise IntakeBlocked("Telegram reply identity is invalid")
     body = {"text": text, "reply_to_message_id": reply}
+    if endpoint["endpoint_id"] == "telegram:tuntunsekuritas":
+        body["topic_id"] = _message_topic_id(message)
     if endpoint["endpoint_id"] == "telegram:kelasinvestasiid":
         if type(previous_message_id) is not int or previous_message_id < 0 or previous_message_id >= message_id:
             raise IntakeBlocked("Kelas source predecessor is invalid")
@@ -297,7 +442,8 @@ def envelope(endpoint: dict[str, Any], message: Any, observed_at: datetime, *, r
         body["reply_parent"] = {"message_id": reply, "text": getattr(reply_parent, "raw_text", None) or getattr(reply_parent, "message", "") or "", "published_at": _stamp(reply_parent.date), "has_photo": getattr(reply_parent, "photo", None) is not None}
     identity = {"payload": body, "media_refs": media_refs}
     content_hash = hashlib.sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
-    return {"version": 1, "endpoint_id": endpoint["endpoint_id"], "publisher_id": endpoint["publisher_id"], "platform": "telegram", "provider_event_id": str(message_id), "published_at": _stamp(message.date), "observed_at": _stamp(observed_at), "source_url": f"https://t.me/{endpoint['address']}/{message_id}", "parser_version": "telegram-pilot-1", "content_hash": content_hash, "payload": body, "media_refs": media_refs, "media_required": bool(media_refs)}
+    parser_version = "telegram-tuntun-1" if endpoint["endpoint_id"] == "telegram:tuntunsekuritas" else "telegram-pilot-1"
+    return {"version": 1, "endpoint_id": endpoint["endpoint_id"], "publisher_id": endpoint["publisher_id"], "platform": "telegram", "provider_event_id": str(message_id), "published_at": _stamp(message.date), "observed_at": _stamp(observed_at), "source_url": f"https://t.me/{endpoint['address']}/{message_id}", "parser_version": parser_version, "content_hash": content_hash, "payload": body, "media_refs": media_refs, "media_required": bool(media_refs)}
 
 
 async def ingest_endpoint(client: Any, endpoint: dict[str, Any], state_root: Path, inbox: Any, observed_at: datetime, *, batch: int = MAX_BATCH, media_store: Any = None, stage_callback: Any = None) -> dict[str, Any]:
