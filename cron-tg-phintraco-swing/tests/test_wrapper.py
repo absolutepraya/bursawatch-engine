@@ -54,3 +54,12 @@ def test_wrapper_exposes_shared_source_media_upload_client_and_scope() -> None:
     assert "BURSAWATCH_SOURCE_MEDIA_UPLOAD_TOKEN_FILE" in wrapper
     assert "$HOME/.hermes/secrets/bursawatch-source-media-upload-token" in wrapper
     assert "http://127.0.0.1:9130" in wrapper
+
+
+def test_wrapper_loads_private_phintraco_pythonpath_without_replacing_runtime() -> None:
+    wrapper = (ROOT / "bin/bursawatch-tg-phintraco-swing.sh").read_text()
+
+    assert "for k in IDX_SWING_WATCH_PHINTRACO_DAILY_PYTHONPATH; do" in wrapper
+    assert '|| ! -d "$pythonpath_entry"' in wrapper
+    assert 'export PYTHONPATH="$IDX_SWING_WATCH_PHINTRACO_DAILY_PYTHONPATH:$PYTHONPATH"' in wrapper
+    assert 'PYTHON_BIN="${IDX_SWING_WATCH_PHINTRACO_DAILY_PY:-$HOME/.local/share/uv/tools/yahoo-finance-mcp/bin/python}"' in wrapper

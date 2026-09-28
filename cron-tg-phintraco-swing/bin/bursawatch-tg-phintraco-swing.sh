@@ -50,6 +50,10 @@ if [[ -r "$HOME/.hermes/.env" ]]; then
     v="$(grep -E "^${k}=" "$HOME/.hermes/.env" | head -1 | cut -d= -f2- || true)"
     [[ -n "${v:-}" ]] && export "${k}=${v}"
   done
+  for k in IDX_SWING_WATCH_PHINTRACO_DAILY_PYTHONPATH; do
+    v="$(grep -E "^${k}=" "$HOME/.hermes/.env" | head -1 | cut -d= -f2- || true)"
+    [[ -n "${v:-}" ]] && export "${k}=${v}"
+  done
   if [[ "${BURSAWATCH_RELEASE_NO_POST:-}" != "1" ]]; then
     for k in IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_URL \
       IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_WATCHER_ID \
@@ -60,6 +64,17 @@ if [[ -r "$HOME/.hermes/.env" ]]; then
       [[ -n "${v:-}" ]] && export "${k}=${v}"
     done
   fi
+fi
+
+if [[ -n "${IDX_SWING_WATCH_PHINTRACO_DAILY_PYTHONPATH:-}" ]]; then
+  IFS=: read -r -a PHINTRACO_EXTRA_PYTHONPATH_ENTRIES <<< "$IDX_SWING_WATCH_PHINTRACO_DAILY_PYTHONPATH"
+  for pythonpath_entry in "${PHINTRACO_EXTRA_PYTHONPATH_ENTRIES[@]}"; do
+    if [[ -z "$pythonpath_entry" || ! -d "$pythonpath_entry" ]]; then
+      printf '%s FATAL: configured Phintraco Python path is missing or invalid\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" >&2
+      exit 127
+    fi
+  done
+  export PYTHONPATH="$IDX_SWING_WATCH_PHINTRACO_DAILY_PYTHONPATH:$PYTHONPATH"
 fi
 
 export BURSAWATCH_DISCORD_DELIVERY_URL="${BURSAWATCH_DISCORD_DELIVERY_URL:-http://127.0.0.1:9140}"
