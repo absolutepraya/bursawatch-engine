@@ -1246,7 +1246,7 @@ def _sync_file(source: Path, target: Path, *, executable: bool) -> None:
     target.parent.mkdir(mode=0o750, parents=True, exist_ok=True)
     temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
     shutil.copyfile(source, temporary)
-    os.chmod(temporary, 0o750 if executable else 0o640)
+    os.chmod(temporary, 0o755 if executable else 0o640)
     os.replace(temporary, target)
 
 

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Keep temporary verification logs and runtime-created files private.
+umask 077
 
 export TZ="Asia/Jakarta"
 RUNTIME_HOME="$HOME/.agents/skills/bursawatch-rss-source-ingest"
