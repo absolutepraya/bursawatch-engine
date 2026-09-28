@@ -21,10 +21,30 @@
 - The X pilot remains unscheduled. No X schedule transition, production state
   handoff, or source-history replay has been performed. Verify release and
   runtime evidence separately before describing the published code as deployed.
-- Platform rollout order after X is WhatsApp, then RSS/Stockbit. Instagram is
+- Platform rollout order is Stockbit RSS, then X, then WhatsApp. Instagram is
   deferred until its source is online and its fetch path can be verified.
 - Telegram Market News natural-delivery confirmation is deferred until the
   next market weekday; the weekend provides no comparable new event.
+
+## Execution checkpoint, 2026-09-28
+
+- Stockbit RSS is the next approved production migration, ahead of X and
+  WhatsApp. Instagram remains deferred.
+- The RSS package now has a release-agent runtime mapping, wrapper, and
+  synthetic-only no-post verification in this worktree. The change is not yet
+  on `main` or deployed.
+- Its read-only four-lane preflight proves each legacy `(published_at, GUID)`
+  boundary against one ordered page of at most 20 items. The separate gated
+  handoff binds checksums for the owner snapshot, page bundle, receipt inventory,
+  and config context before creating only the new RSS cursor state.
+- The live transition still requires the existing Stockbit job to be paused
+  with no in-flight run, zero pending legacy article work or agent leases,
+  exact Delivery Owner receipt agreement, four 200 pages without media, and the
+  same four lanes enabled in the Source Catalog. Any unmet gate leaves the old
+  reader as the only reader.
+- Provisioning the RSS source Control Plane URL and dedicated private token
+  file remains a cutover prerequisite if no existing least-privilege credential
+  is available. Do not place the token value in the snapshot or reports.
 
 ## Goal
 
@@ -230,7 +250,7 @@ Discord Delivery Owner
 cron-rss-source-ingest, and later cron-ig-source-ingest; adapt the corresponding
 existing watcher packages
 
-- Migrate X first, then WhatsApp, then supported RSS endpoints behind one
+- Migrate Stockbit RSS first, then X, then WhatsApp behind one
   runtime boundary per platform. Keep platform-specific authentication,
   cursors, limits, and fetch behavior in that adapter. Defer Instagram until
   its source is online and its fetch path can be verified.
@@ -245,6 +265,11 @@ existing watcher packages
   These four feeds are the current RSS rollout scope. Preserve Stockbit's live
   config revision, article queue, frozen settings, routes, and future-only
   behavior. Do not permit arbitrary RSS URLs or replay old articles.
+- Before changing readers, bind all four cursors and validator pairs with the
+  RSS package's checksummed `handoff.py` plan, including a fresh page bundle,
+  Stockbit owner queue and frozen config audit, paused-reader proof, and exact
+  Delivery Owner receipts. Apply only to the new RSS state root; do not edit the
+  old owner state.
 - Use independent source cursor and event idempotency for each endpoint. Preserve
   pending delivery and handoff receipts through the shared Delivery Owner.
 - Retain existing parser/classifier behavior and output layouts during the first
