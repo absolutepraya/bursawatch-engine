@@ -16,6 +16,8 @@ and its caller contract is in
 The service and its initial host bootstrap remain manual rollout boundaries.
 The all-client Discord boundary is recorded in
 [`adr/0030-shared-discord-delivery-owner.md`](adr/0030-shared-discord-delivery-owner.md).
+The Swing Board inactivity and archive lifecycle is recorded in
+[`adr/0031-swing-board-inactivity-and-archive-lifecycle.md`](adr/0031-swing-board-inactivity-and-archive-lifecycle.md).
 
 The Bursawatch Source Media Owner is the only Supabase Storage path for private
 source media. Its service contract and shared client live in

@@ -29,6 +29,39 @@ def test_duplicate_source_event_is_recorded_once(tmp_path) -> None:
     assert store.count_rows("outbox") == 0
 
 
+def test_lifecycle_fields_persist_across_reopen_and_receipt_sets_archive_once(tmp_path) -> None:
+    path = tmp_path / "board.sqlite3"
+    store = BoardStore(path)
+    episode = store.create_episode("SCMA", "source", "SCMA", at())
+    from dataclasses import replace
+    with store.transaction() as tx:
+        tx.update_episode(replace(episode, lifecycle="resolved", lifecycle_tag="Resolved", closed_at=at(), resolution_reason="stale"))
+    assert BoardStore(path).episode(episode.id).resolution_reason == "stale"
+    operation = store.enqueue_outbox("patch_thread", episode.id, {"archived": True}, "archive:1", at())
+    claim = store.claim_due_outbox(at())
+    assert claim.id == operation.id
+    store.complete_outbox(claim.id, claim.claim_token, {}, at())
+    assert BoardStore(path).episode(episode.id).archived_at == at()
+    with pytest.raises(StoreBlockedError):
+        store.complete_outbox(claim.id, claim.claim_token, {}, at(6))
+
+
+def test_version_nine_lifecycle_migration_preserves_episode_and_outbox(tmp_path) -> None:
+    path = tmp_path / "board.sqlite3"
+    store = BoardStore(path)
+    episode = store.create_episode("SCMA", "source", "SCMA", at())
+    store.enqueue_outbox("create_thread", episode.id, {"content": "keep"}, "keep:1", at())
+    with sqlite3.connect(path) as connection:
+        for column in ("archived_at", "quiet_started_at", "resolution_reason"):
+            connection.execute(f"ALTER TABLE episodes DROP COLUMN {column}")
+        connection.execute("PRAGMA user_version = 9")
+    migrated = BoardStore(path)
+    assert migrated.schema_version == 10
+    assert migrated.episode(episode.id).resolution_reason is None
+    assert migrated.count_rows("outbox") == 1
+    assert migrated.operations_for_ticker("SCMA")[0].payload["content"] == "keep"
+
+
 def test_failed_operation_retries_without_second_operation(tmp_path) -> None:
     store = BoardStore(tmp_path / "board.sqlite3")
     episode = store.create_episode("SCMA", "source", "SCMA: source context", at())

@@ -65,6 +65,160 @@ def operations(engine):
     return engine.store.operations_for_ticker("KPIG")
 
 
+def test_lifecycle_resolves_source_only_after_twenty_sessions_and_waits_for_delivery(engine):
+    opened = at("2026-03-27T09:05:00+07:00")
+    engine.submit(social(published_at=opened), opened)
+    boundary = sessions_ago(at("2026-04-24T17:10:00+07:00").date(), 20)
+    assert boundary == opened.date()
+    before = at("2026-04-23T17:10:00+07:00")
+    assert engine.reconcile_lifecycle(before)["resolved"] == 0
+    now = at("2026-04-24T17:10:00+07:00")
+    assert engine.reconcile_lifecycle(now)["resolved"] == 1
+    episode = engine.store.episode(1)
+    assert (episode.lifecycle, episode.resolution_reason, episode.lifecycle_tag) == ("resolved", "stale", "Resolved")
+    assert episode.quiet_started_at is None
+    assert "no Phintraco close recorded" in [op.payload["content"] for op in operations(engine) if op.operation == "edit_starter"][-1]
+    assert [op.payload["tag_names"] for op in operations(engine) if op.operation == "patch_thread"][-1] == ["Resolved"]
+    engine.drain(now=now)
+    assert engine.store.episode(1).quiet_started_at == now
+    assert engine.reconcile_lifecycle(now + timedelta(hours=47))["archived"] == 0
+    assert engine.reconcile_lifecycle(now + timedelta(hours=48))["archived"] == 1
+    assert engine.store.episode(1).archived_at is None
+    engine.drain(now=now + timedelta(hours=48))
+    assert engine.store.episode(1).archived_at == now + timedelta(hours=48)
+    assert engine.reconcile_lifecycle(now + timedelta(hours=49))["archived"] == 0
+    assert len([op for op in operations(engine) if op.operation == "patch_thread" and op.payload.get("archived")]) == 1
+
+
+def test_lifecycle_does_not_start_quiet_period_while_delivery_is_pending(engine):
+    now = at("2026-04-24T17:10:00+07:00")
+    engine.submit(social(published_at=at("2026-03-25T09:05:00+07:00")), now)
+    engine.reconcile_lifecycle(now)
+    engine.client.execute.side_effect = RuntimeError("offline")
+    assert engine.drain(now=now) == 0
+    assert engine.store.episode(1).quiet_started_at is None
+    assert engine.reconcile_lifecycle(now + timedelta(hours=72))["archived"] == 0
+
+
+def test_stale_resolution_recovers_pre_link_source_starter_content(engine):
+    now = at("2026-04-24T17:10:00+07:00")
+    engine.submit(social(published_at=at("2026-03-25T09:05:00+07:00")), now)
+    with sqlite3.connect(engine.store.path) as connection:
+        connection.execute("UPDATE episodes SET starter_source_event_id = NULL WHERE id = 1")
+    assert engine.reconcile_lifecycle(now)["resolved"] == 1
+    card = [op.payload["content"] for op in operations(engine) if op.operation == "edit_starter"][-1]
+    assert "Wave IV" in card and "no Phintraco close recorded" in card
+
+
+def test_late_historical_source_reply_restarts_quiet_period_after_delivery(engine):
+    now = at("2026-04-24T17:10:00+07:00")
+    engine.submit(social(published_at=at("2026-03-25T09:05:00+07:00")), now)
+    engine.reconcile_lifecycle(now)
+    engine.drain(now=now)
+    late = social(event_key="x:marketwriter:late", published_at=at("2026-03-26T09:05:00+07:00"))
+    engine.submit(late, now + timedelta(hours=47))
+    assert engine.store.episode(1).quiet_started_at is None
+    assert engine.reconcile_lifecycle(now + timedelta(hours=48))["archived"] == 0
+    engine.drain(now=now + timedelta(hours=48))
+    assert engine.store.episode(1).quiet_started_at == now + timedelta(hours=48)
+    assert engine.reconcile_lifecycle(now + timedelta(hours=95))["archived"] == 0
+    assert engine.reconcile_lifecycle(now + timedelta(hours=96))["archived"] == 1
+
+
+def test_new_buy_supersedes_active_primary_with_resolution_intents(engine):
+    first = buy(published_at=at("2026-09-18T09:05:00+07:00"))
+    newer = buy(event_key="phintraco:buy:new", published_at=at("2026-09-21T09:05:00+07:00"))
+    engine.submit(first, at("2026-09-18T09:05:00+07:00"))
+    engine.store.record_checkpoint(1, Checkpoint.market(
+        session_date="2026-09-18", checked_at="2026-09-18T16:30:00+07:00",
+        close_price="215", state=MarketState.ABOVE_ENTRY,
+    ))
+    engine.submit(newer, at("2026-09-21T09:05:00+07:00"))
+    assert engine.store.episode(1).resolution_reason == "superseded"
+    assert engine.store.active_episode("KPIG").id == 2
+    assert engine.store.active_episode("KPIG").title == "KPIG - Mon, 21 Sep 2026"
+    card = [op.payload["content"] for op in operations(engine) if op.operation == "edit_starter"][-1]
+    assert "superseded" in card.lower()
+    assert "**Closing price:** Rp215" in card
+
+
+def test_older_buy_is_history_without_promoting_newer_source_episode(engine):
+    opening = at("2026-09-23T09:05:00+07:00")
+    engine.submit(social(published_at=opening), opening)
+    older = buy(event_key="phintraco:buy:older", published_at=at("2026-09-22T09:05:00+07:00"))
+
+    assert engine.submit(older, at("2026-09-24T09:05:00+07:00")) == "board_submitted"
+
+    episode = engine.store.active_episode("KPIG")
+    assert episode.lifecycle == "source"
+    assert episode.latest_material_at == opening
+    assert episode.title == "KPIG - Wed, 23 Sep 2026"
+    assert engine.store.active_plan(episode.id) is None
+    assert [op.operation for op in operations(engine)] == ["create_thread", "post_source_reply"]
+    assert "Historical source event" in operations(engine)[-1].payload["content"]
+
+
+def test_primary_inactivity_ignores_lower_tier_context_and_preserves_last_check(engine):
+    opened = at("2026-03-27T09:05:00+07:00")
+    now = at("2026-04-24T17:10:00+07:00")
+    engine.submit(buy(published_at=opened), opened)
+    episode = engine.store.active_episode("KPIG")
+    engine.store.record_checkpoint(episode.id, Checkpoint.market(
+        session_date="2026-04-23", checked_at="2026-04-23T16:30:00+07:00",
+        close_price="215", state=MarketState.ABOVE_ENTRY,
+    ))
+    engine.submit(social(published_at=at("2026-04-23T09:05:00+07:00")), now)
+    assert engine.reconcile_lifecycle(now)["resolved"] == 1
+    resolved = engine.store.episode(episode.id)
+    assert resolved.market_tag is None
+    card = [op.payload["content"] for op in operations(engine) if op.operation == "edit_starter"][-1]
+    assert "23 Apr 2026 16:30 WIB" in card and "Above entry" in card
+    assert "**Closing price:** Rp215" in card
+
+
+def test_material_phintraco_status_resets_primary_inactivity(engine):
+    opened = at("2026-03-27T09:05:00+07:00")
+    now = at("2026-04-24T17:10:00+07:00")
+    engine.submit(buy(published_at=opened), opened)
+    engine.submit(status("On track", published_at=at("2026-04-23T09:05:00+07:00")), now)
+    assert engine.reconcile_lifecycle(now)["resolved"] == 0
+
+
+def test_older_phintraco_reminder_is_history_without_rewinding_plan_or_timer(engine):
+    opened = at("2026-04-23T09:05:00+07:00")
+    engine.submit(buy(published_at=opened), opened)
+    older = status("First target achieved", kind="reminder",
+                   published_at=at("2026-04-22T09:05:00+07:00"))
+    engine.submit(older, at("2026-04-24T09:05:00+07:00"))
+    active = engine.store.active_episode("KPIG")
+    assert active.latest_material_at == opened
+    assert active.market_tag is None
+    assert engine.store.active_plan(active.id).event_key == buy().event_key
+    assert any("Historical source event" in op.payload.get("content", "") for op in operations(engine))
+
+
+def test_non_phintraco_status_is_context_and_cannot_set_market_tag(engine):
+    engine.submit(buy(), at())
+    context = status("Stop-loss hit", source="kelas-investasi", event_key="gtw:status:1")
+    engine.submit(context, at())
+    assert engine.store.active_episode("KPIG").market_tag is None
+
+
+def test_history_cancels_queued_archive_before_delivery(engine):
+    now = at("2026-04-24T17:10:00+07:00")
+    engine.submit(social(published_at=at("2026-03-25T09:05:00+07:00")), now)
+    engine.reconcile_lifecycle(now)
+    engine.drain(now=now)
+    assert engine.reconcile_lifecycle(now + timedelta(hours=48))["archived"] == 1
+    engine.submit(social(event_key="x:marketwriter:late2",
+                         published_at=at("2026-03-26T09:05:00+07:00")), now + timedelta(hours=48))
+    engine.drain(now=now + timedelta(hours=48))
+    assert engine.store.episode(1).archived_at is None
+    archive = [op for op in operations(engine) if op.payload.get("archived")]
+    assert len(archive) == 1 and archive[0].status == "complete"
+    assert engine.store.episode(1).quiet_started_at == now + timedelta(hours=48)
+
+
 def test_social_event_creates_source_episode_and_normal_reply(engine):
     event = social(media_urls=("https://pbs.twimg.com/media/chart.png",))
     assert engine.submit(event, at()) == "board_submitted"
@@ -175,6 +329,12 @@ def test_x_context_joins_kelas_source_episode_without_replacing_stronger_starter
     assert after.lifecycle_tag == SUPPORTING_SETUP
     assert after.starter_source_event_id == before.starter_source_event_id
     assert any(op.operation == "post_source_reply" for op in operations(engine))
+
+def test_episode_title_uses_opening_source_timestamp_in_wib(engine):
+    opened = at("2026-09-23T01:30:00+07:00")
+    engine.submit(social(published_at=opened), opened)
+    assert engine.store.active_episode("KPIG").title == "KPIG - Wed, 23 Sep 2026"
+    assert operations(engine)[0].payload["name"] == "KPIG - Wed, 23 Sep 2026"
 
 
 def test_kelas_source_reply_chunks_are_durable_ordered_and_preserve_media(engine):
@@ -434,7 +594,7 @@ def test_buy_promotes_without_reposting_non_gtw_social_reply(engine):
     assert engine.store.active_episode("KPIG").title == episode_title("KPIG", social().published_at)
 
 
-def test_buy_promotion_reconciles_prior_phintraco_status_history(engine):
+def test_older_buy_cannot_promote_newer_phintraco_source_history(engine):
     reminder = social(
         event_key="phintraco:1444713822:35197",
         source="phintraco",
@@ -461,16 +621,14 @@ def test_buy_promotion_reconciles_prior_phintraco_status_history(engine):
 
     episode = engine.store.episode(engine.store.episodes()[0].id)
     assert (episode.lifecycle, episode.lifecycle_tag, episode.market_tag) == (
-        "resolved",
-        "Resolved",
-        "TP1 reached",
+        "source", "Chart context", None,
     )
     assert engine.store.active_plan(episode.id) is None
     replies = [op for op in operations(engine) if op.operation == "post_source_reply"]
     assert len(replies) == 1
+    assert "Historical source event" in replies[0].payload["content"]
     edits = [op for op in operations(engine) if op.operation == "edit_starter"]
-    assert len(edits) == 2
-    assert "**Source status:** Second target 5000 achieved; All targets achieved" in edits[-1].payload["content"]
+    assert edits == []
 
 
 def test_buy_promotes_and_preserves_latest_source_starter_once(engine):
@@ -486,7 +644,8 @@ def test_buy_promotes_and_preserves_latest_source_starter_once(engine):
     engine.submit(newer_source, at("2026-09-20T09:06:00+07:00"))
     engine.drain(now=at())
 
-    promotion = buy(media_path="/tmp/phintraco-chart.png")
+    promotion = buy(media_path="/tmp/phintraco-chart.png",
+                    published_at=at("2026-09-22T09:05:00+07:00"))
     assert engine.submit(promotion, at("2026-09-22T09:05:00+07:00")) == "board_submitted"
 
     replies = [op for op in operations(engine) if op.operation == "post_source_reply"]
@@ -500,8 +659,8 @@ def test_buy_promotes_and_preserves_latest_source_starter_once(engine):
 
 
 @pytest.mark.parametrize("lifecycle", ["source", "primary"])
-@pytest.mark.parametrize("days_before, same_episode", [(0, True), (1, False)])
-def test_twenty_session_boundary_uses_event_date(engine, lifecycle, days_before, same_episode):
+@pytest.mark.parametrize("days_before", [0, 1])
+def test_twenty_session_boundary_uses_event_date(engine, lifecycle, days_before):
     incoming = at("2026-10-20T09:05:00+07:00")
     boundary = sessions_ago(incoming.date(), 20) - timedelta(days=days_before)
     first_time = datetime.combine(boundary, incoming.timetz())
@@ -510,22 +669,23 @@ def test_twenty_session_boundary_uses_event_date(engine, lifecycle, days_before,
     prior = engine.store.active_episode("KPIG")
     engine.submit(buy(event_key="new-buy", published_at=incoming), incoming + timedelta(days=100))
     active = engine.store.active_episode("KPIG")
-    assert (active.id == prior.id) is same_episode
+    assert active.id != prior.id
     assert active.lifecycle == "primary"
-    if not same_episode:
-        assert engine.store.episode(prior.id).closed_at is not None
-        assert not any(op.payload.get("archived") for op in operations(engine))
+    assert engine.store.episode(prior.id).closed_at is not None
+    assert engine.store.episode(prior.id).resolution_reason == ("stale" if lifecycle == "source" else "superseded")
+    assert not any(op.payload.get("archived") for op in operations(engine))
 
 
 def test_replacement_retains_replies_and_records_prior_url(engine):
     engine.submit(buy(media_path="/tmp/old.png"), at())
     engine.submit(social(), at())
-    engine.submit(buy(event_key="new-buy", source_url="https://t.me/phintraprofits/777", media_path="/tmp/new.png"), at())
+    engine.submit(buy(event_key="new-buy", source_url="https://t.me/phintraprofits/777", media_path="/tmp/new.png",
+                      published_at=at("2026-09-21T09:05:00+07:00")), at("2026-09-21T09:05:00+07:00"))
     ops = operations(engine)
-    assert [op.operation for op in ops] == ["create_thread", "post_source_reply", "edit_starter", "post_source_reply", "patch_thread"]
+    assert [op.operation for op in ops] == ["create_thread", "post_source_reply", "edit_starter", "patch_thread", "create_thread"]
     edit = next(op for op in ops if op.operation == "edit_starter")
     assert edit.payload["chart"] is None
-    assert not any("Replacement" in op.payload.get("content", "") for op in ops)
+    assert "superseded" in edit.payload["content"]
     assert engine.store.count_rows("plans") == 2
 
 
@@ -702,11 +862,12 @@ def test_long_source_status_is_chunked_without_synthetic_history(engine):
 def test_replacement_clears_factual_tag(engine):
     engine.submit(buy(plan=PlanLevels("208 to 212", "<200", ("230", "240"))), at())
     engine.submit(status("First target achieved"), at())
-    engine.submit(buy(event_key="replacement"), at())
+    engine.submit(buy(event_key="replacement", published_at=at("2026-09-21T09:05:00+07:00")), at("2026-09-21T09:05:00+07:00"))
     active = engine.store.active_episode("KPIG")
     assert active.market_tag is None
     patch = next(op for op in reversed(operations(engine)) if op.operation == "patch_thread")
-    assert patch.payload["tag_names"] == ["Primary plan"]
+    assert patch.payload["tag_names"] == ["Resolved"]
+    assert [op for op in operations(engine) if op.operation == "create_thread"][-1].payload["tag_names"] == ["Primary plan"]
 
 
 def test_replacement_status_does_not_restore_prior_plan_checkpoints(engine):
@@ -715,8 +876,8 @@ def test_replacement_status_does_not_restore_prior_plan_checkpoints(engine):
     engine.store.record_checkpoint(active.id, Checkpoint.market(
         session_date="2026-09-21", checked_at="2026-09-21T16:30:00+07:00",
         close_price="215", state=MarketState.ABOVE_ENTRY))
-    engine.submit(buy(event_key="replacement"), at("2026-09-22T09:00:00+07:00"))
-    engine.submit(status("HOLD"), at("2026-09-22T10:00:00+07:00"))
+    engine.submit(buy(event_key="replacement", published_at=at("2026-09-22T09:00:00+07:00")), at("2026-09-22T09:00:00+07:00"))
+    engine.submit(status("HOLD", published_at=at("2026-09-22T10:00:00+07:00")), at("2026-09-22T10:00:00+07:00"))
     card = next(op.payload["content"] for op in reversed(operations(engine)) if op.operation == "edit_starter")
     assert "**Closing price:**" not in card
 
@@ -731,23 +892,16 @@ def test_engine_intents_execute_through_real_client_in_no_post_mode(engine, monk
     assert not hasattr(discord_forum, "requests")
 
 
-def test_chartless_buy_replacement_persists_clear_attachment_mode(engine):
+def test_chartless_new_buy_creates_a_separate_thread_without_chart(engine):
     engine.submit(buy(), at())
     engine.drain(now=at())
-    engine.submit(buy(event_key="chartless-replacement", media_path=None), at())
+    engine.submit(buy(event_key="chartless-replacement", media_path=None,
+                      published_at=at("2026-09-21T09:05:00+07:00")), at("2026-09-21T09:05:00+07:00"))
     engine.client = DiscordForumClient(no_post=True)
-
-    assert engine.drain(now=at(), limit=1) == 1
-    edit = next(op for op in operations(engine) if op.operation == "edit_starter" and op.status == "complete")
-    episode = engine.store.episode(edit.episode_id)
-    prepared = engine.client.prepare_payload("edit_starter", {
-        **edit.payload,
-        "thread_id": episode.thread_id,
-        "message_id": episode.starter_message_id,
-        "_delivery_key": edit.dedupe_key,
-    })
-    intent = engine.client._intent("edit_starter", prepared, edit.dedupe_key)
-    assert intent.payload["attachments_mode"] == "clear"
+    engine.drain(now=at("2026-09-21T09:05:00+07:00"))
+    create = [op for op in operations(engine) if op.operation == "create_thread"][-1]
+    assert create.payload["chart"] is None
+    assert create.status == "complete"
 
 
 def test_six_target_all_targets_confirmation_resolves_with_tp6_tag(engine):

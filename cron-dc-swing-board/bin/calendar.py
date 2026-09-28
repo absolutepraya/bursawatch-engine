@@ -62,3 +62,16 @@ def sessions_ago(anchor: date, count: int) -> date:
         if is_idx_trading_day(current):
             remaining -= 1
     return current
+
+
+def trading_sessions_since(anchor: date, through: date) -> int:
+    """Count reviewed IDX sessions after the material date, through today."""
+    if through <= anchor:
+        return 0
+    current = anchor
+    count = 0
+    while current < through:
+        current += timedelta(days=1)
+        if is_idx_trading_day(current):
+            count += 1
+    return count

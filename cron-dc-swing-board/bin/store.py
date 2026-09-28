@@ -627,6 +627,13 @@ class BoardStore:
                     "UPDATE history_events SET deleted_at = ? WHERE id = ?",
                     (_timestamp(completed_at), payload.get("history_id")),
                 )
+            elif operation["operation"] == "patch_thread":
+                payload = json.loads(operation["payload_json"])
+                if payload.get("archived") is True and "cancelled" not in completion:
+                    connection.execute(
+                        "UPDATE episodes SET archived_at = COALESCE(archived_at, ?) WHERE id = ?",
+                        (_timestamp(completed_at), operation["episode_id"]),
+                    )
             connection.execute(
                 """
                 UPDATE outbox
@@ -635,6 +642,13 @@ class BoardStore:
                 WHERE id = ?
                 """,
                 (json.dumps(dict(completion), sort_keys=True), _timestamp(completed_at), operation_id),
+            )
+            connection.execute(
+                """UPDATE episodes SET quiet_started_at = ?
+                WHERE id = ? AND lifecycle = 'resolved' AND archived_at IS NULL
+                  AND quiet_started_at IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM outbox WHERE episode_id = ? AND status != 'complete')""",
+                (_timestamp(completed_at), operation["episode_id"], operation["episode_id"]),
             )
 
     def fail_outbox(
@@ -893,6 +907,38 @@ class BoardStoreTransaction:
         ).fetchone()
         return _episode_from_row(row) if row else None
 
+    def historical_episode(self, ticker: str, published_at: datetime) -> Episode | None:
+        """Find the newest resolution covering a late source event."""
+        row = self._connection.execute(
+            """SELECT * FROM episodes WHERE ticker = ? AND lifecycle = 'resolved'
+            AND julianday(opened_at) <= julianday(?)
+            AND julianday(closed_at) >= julianday(?)
+            ORDER BY julianday(closed_at) DESC, id DESC LIMIT 1""",
+            (ticker, _timestamp(published_at), _timestamp(published_at)),
+        ).fetchone()
+        return _episode_from_row(row) if row else None
+
+    def active_episodes(self) -> list[Episode]:
+        rows = self._connection.execute(
+            "SELECT * FROM episodes WHERE closed_at IS NULL ORDER BY id"
+        ).fetchall()
+        return [_episode_from_row(row) for row in rows]
+
+    def resolved_episodes(self) -> list[Episode]:
+        rows = self._connection.execute(
+            "SELECT * FROM episodes WHERE lifecycle = 'resolved' AND archived_at IS NULL ORDER BY id"
+        ).fetchall()
+        return [_episode_from_row(row) for row in rows]
+
+    def latest_plan_card(self, episode_id: int) -> PlanCard | None:
+        return next((card for card in self.latest_plan_cards() if card.episode.id == episode_id), None)
+
+    def has_pending_outbox(self, episode_id: int) -> bool:
+        return bool(self._connection.execute(
+            "SELECT 1 FROM outbox WHERE episode_id = ? AND status != 'complete' LIMIT 1",
+            (episode_id,),
+        ).fetchone())
+
     def episode_sources(self, episode_id: int) -> set[str]:
         """Resolve immutable source names through the board-owned reply intents."""
         return episode_sources_from_connection(self._connection, episode_id)
@@ -900,11 +946,16 @@ class BoardStoreTransaction:
     def update_episode(self, episode: Episode) -> None:
         self._connection.execute(
             """UPDATE episodes SET lifecycle = ?, title = ?, latest_material_at = ?,
-            closed_at = ?, starter_source_event_id = ?, lifecycle_tag = ?, market_tag = ?
+            closed_at = ?, starter_source_event_id = ?, lifecycle_tag = ?, market_tag = ?,
+            resolution_reason = ?, quiet_started_at = ?, archived_at = ?
             WHERE id = ?""",
             (episode.lifecycle, episode.title, _timestamp(episode.latest_material_at),
              _timestamp(episode.closed_at) if episode.closed_at else None,
-             episode.starter_source_event_id, episode.lifecycle_tag, episode.market_tag, episode.id),
+             episode.starter_source_event_id, episode.lifecycle_tag, episode.market_tag,
+             episode.resolution_reason,
+             _timestamp(episode.quiet_started_at) if episode.quiet_started_at else None,
+             _timestamp(episode.archived_at) if episode.archived_at else None,
+             episode.id),
         )
 
     def starter_source_event(self, episode_id: int) -> SourceEvent | None:
@@ -915,6 +966,19 @@ class BoardStoreTransaction:
             (episode_id,),
         ).fetchone()
         return _source_event_from_row(row) if row else None
+
+    def source_starter_content(self, episode_id: int) -> str | None:
+        """Recover managed source card text from pre-starter-link episodes."""
+        rows = self._connection.execute(
+            """SELECT payload_json FROM outbox WHERE episode_id = ?
+            AND operation IN ('create_thread', 'edit_starter') ORDER BY id DESC""",
+            (episode_id,),
+        ).fetchall()
+        for row in rows:
+            content = json.loads(row["payload_json"]).get("content")
+            if isinstance(content, str) and content:
+                return content
+        return None
 
     def active_plan(self, episode_id: int) -> SourceEvent | None:
         row = self._connection.execute(
@@ -1166,7 +1230,10 @@ def _create_non_event_tables(connection: sqlite3.Connection) -> None:
             starter_message_id TEXT,
             starter_source_event_id INTEGER REFERENCES source_events(id),
             lifecycle_tag TEXT,
-            market_tag TEXT
+            market_tag TEXT,
+            resolution_reason TEXT,
+            quiet_started_at TEXT,
+            archived_at TEXT
         );
         CREATE UNIQUE INDEX one_open_episode_per_ticker
             ON episodes(ticker) WHERE closed_at IS NULL;
@@ -1445,13 +1512,17 @@ def _migrate_v8_to_v9(connection: sqlite3.Connection) -> None:
 
 
 def _migrate_v9_to_v10(connection: sqlite3.Connection) -> None:
-    """Retain ordered private media paths without rewriting legacy events."""
+    """Add ordered media paths and lifecycle facts without rewriting events."""
     existing = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-    if "source_events" not in existing:
-        return
-    columns = {row[1] for row in connection.execute("PRAGMA table_info(source_events)")}
-    if "media_paths_json" not in columns:
-        connection.execute("ALTER TABLE source_events ADD COLUMN media_paths_json TEXT NOT NULL DEFAULT '[]'")
+    if "source_events" in existing:
+        event_columns = {row[1] for row in connection.execute("PRAGMA table_info(source_events)")}
+        if "media_paths_json" not in event_columns:
+            connection.execute("ALTER TABLE source_events ADD COLUMN media_paths_json TEXT NOT NULL DEFAULT '[]'")
+    if "episodes" in existing:
+        episode_columns = {row[1] for row in connection.execute("PRAGMA table_info(episodes)")}
+        for name in ("resolution_reason", "quiet_started_at", "archived_at"):
+            if name not in episode_columns:
+                connection.execute(f"ALTER TABLE episodes ADD COLUMN {name} TEXT")
 
 
 def _create_missing_tables(connection: sqlite3.Connection) -> None:
@@ -1541,6 +1612,9 @@ def _episode_from_row(row: sqlite3.Row) -> Episode:
         starter_source_event_id=row["starter_source_event_id"],
         lifecycle_tag=row["lifecycle_tag"],
         market_tag=row["market_tag"],
+        resolution_reason=row["resolution_reason"],
+        quiet_started_at=_parse_timestamp(row["quiet_started_at"]) if row["quiet_started_at"] else None,
+        archived_at=_parse_timestamp(row["archived_at"]) if row["archived_at"] else None,
     )
 
 

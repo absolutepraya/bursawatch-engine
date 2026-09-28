@@ -211,7 +211,8 @@
       "wrappers": [
         {"source": "bursawatch-dc-swing-board.sh", "destination": "bursawatch-dc-swing-board.sh"},
         {"source": "bursawatch-dc-swing-board-close.sh", "destination": "bursawatch-dc-swing-board-close.sh"},
-        {"source": "bursawatch-dc-swing-board-retry.sh", "destination": "bursawatch-dc-swing-board-retry.sh"}
+        {"source": "bursawatch-dc-swing-board-retry.sh", "destination": "bursawatch-dc-swing-board-retry.sh"},
+        {"source": "bursawatch-dc-swing-board-lifecycle.sh", "destination": "bursawatch-dc-swing-board-lifecycle.sh"}
       ],
       "verification": "swing-board-no-post"
     },

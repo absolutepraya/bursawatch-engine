@@ -19,9 +19,9 @@ from uuid import uuid4
 from calendar import CalendarCoverageError
 import config
 from discord_forum import DiscordForumClient, forum_thread_url
-from engine import BoardEngine, episode_title
+from engine import BoardEngine
 from models import SourceEvent
-from render import WIB
+from render import WIB, episode_title
 from store import BoardStore
 
 
@@ -62,6 +62,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         health = {"drained": engine.drain(), **engine.store.outbox_health()}
         print(json.dumps(health, separators=(",", ":")))
         return int(health["pending"] > 0 or health["failed"] > 0)
+    if arguments.command == "reconcile-lifecycle":
+        return _reconcile_lifecycle(engine, loaded_config)
     if arguments.command == "migrate-format":
         if not arguments.apply:
             print(json.dumps({
@@ -94,7 +96,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "apply_required": True,
                 "planned_episodes": sum(
                     1 for episode in engine.store.episodes()
-                    if episode.thread_id and episode.starter_message_id and episode.title != episode_title(episode.ticker, episode.opened_at)
+                    if episode.thread_id and episode.starter_message_id
+                    and episode.title != episode_title(episode.ticker, episode.opened_at)
                 ),
             }, separators=(",", ":")))
             return 0
@@ -129,6 +132,7 @@ def _parser() -> argparse.ArgumentParser:
     repair_media.add_argument("--expected-thread-id", required=True)
     repair_media.add_argument("--apply", action="store_true")
     subcommands.add_parser("drain")
+    subcommands.add_parser("reconcile-lifecycle")
     migrate = subcommands.add_parser("migrate-format")
     migrate.add_argument("--apply", action="store_true")
     cleanup = subcommands.add_parser("cleanup-history")
@@ -533,6 +537,37 @@ def _after_close(
             attributes={"config_revision": loaded_config.revision, "phase": phase, **result},
         )
         control_run.finish(outcome, failure)
+
+
+def _reconcile_lifecycle(engine: BoardEngine, loaded_config: config.LoadedBoardConfig) -> int:
+    """Run the daily inactivity and archive pass with a durable heartbeat."""
+    now = datetime.now(WIB)
+    try:
+        result = engine.reconcile_lifecycle(now)
+    except CalendarCoverageError:
+        engine.drain()
+        content = f"❌ swing-board-lifecycle · {now:%H:%M} WIB · failed: calendar coverage unavailable"
+        _queue_heartbeat(engine, loaded_config.config.heartbeat_discord_channel_id,
+                         content, "lifecycle")
+        print(content)
+        return 1
+    except Exception:
+        engine.drain()
+        content = f"❌ swing-board-lifecycle · {now:%H:%M} WIB · failed: reconciliation error"
+        _queue_heartbeat(engine, loaded_config.config.heartbeat_discord_channel_id,
+                         content, "lifecycle")
+        print(content)
+        return 1
+    drained = engine.drain()
+    health = engine.store.outbox_health()
+    warning = " ⚠️" if health["pending"] or health["failed"] else ""
+    content = (f"🫀 swing-board-lifecycle · {now:%H:%M} WIB · "
+               f"resolved={result['resolved']} quiet={result['quiet_started']} "
+               f"archive={result['archived']} drained={drained} pending={health['pending']}{warning}")
+    _queue_heartbeat(engine, loaded_config.config.heartbeat_discord_channel_id,
+                     content, "lifecycle")
+    print(content)
+    return 0
 
 
 def _queue_heartbeat(engine: BoardEngine, channel_id: str, content: str, phase: str) -> None:
