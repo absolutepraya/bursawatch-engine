@@ -300,7 +300,7 @@ def test_not_modified_feed_reuses_validators_without_advancing_cursor(tmp_path):
     assert {path: path.read_bytes() for path in cursor_paths} == before
 
 
-def test_blocked_media_page_does_not_advance_http_validators(tmp_path):
+def test_media_metadata_is_stripped_and_text_event_advances_cursor_without_replay(tmp_path):
     snapshot, loaded = snapshot_and_config()
     feed = FEEDS[0]
     old = Article(feed.lane, feed.label, "old", "https://snips.stockbit.com/old", "Old", "Old body", NOW)
@@ -316,6 +316,7 @@ def test_blocked_media_page_does_not_advance_http_validators(tmp_path):
         media_url="https://unreviewed.example.test/image.jpg",
     )
     pages = {lane.lane.value: [Article(lane.lane, lane.label, f"old-{lane.lane.value}", f"https://snips.stockbit.com/{lane.lane.value}", "Old", "Old body", NOW)] for lane in FEEDS}
+    pages[feed.lane.value] = [old]
 
     def first_page(selected_feed, **_kwargs):
         return FetchResult(selected_feed, tuple(reversed(pages[selected_feed.lane.value])), '"etag-v1"', "Mon, 28 Sep 2026 08:00:00 GMT", False)
@@ -327,19 +328,36 @@ def test_blocked_media_page_does_not_advance_http_validators(tmp_path):
     pages[feed.lane.value] = [old, text, media]
     seen = []
 
-    def blocked_page(selected_feed, **kwargs):
+    def media_page(selected_feed, **kwargs):
         seen.append(kwargs)
         if selected_feed.lane == feed.lane:
             return FetchResult(selected_feed, tuple(reversed(pages[selected_feed.lane.value])), '"etag-v2"', "Mon, 28 Sep 2026 08:01:00 GMT", False)
         return FetchResult(selected_feed, tuple(reversed(pages[selected_feed.lane.value])), '"etag-v1"', "Mon, 28 Sep 2026 08:00:00 GMT", False)
 
-    result = run_once(snapshot, loaded, state_root, Inbox(), NOW, fetch_feed=blocked_page)
+    inbox = Inbox()
+    result = run_once(snapshot, loaded, state_root, inbox, NOW, fetch_feed=media_page)
 
-    assert result[0]["status"] == "blocked"
-    assert json.loads(validator_path.read_text()) == {"version": 1, "etag": '"etag-v1"', "last_modified": "Mon, 28 Sep 2026 08:00:00 GMT"}
-    assert validator_path.read_bytes() == before
+    assert result[0]["status"] == "accepted"
+    assert result[0]["accepted"] == 2
+    assert len(inbox.events) == 2
+    media_event = inbox.events[-1]
+    assert media_event["provider_event_id"] == hashlib.sha256(b"media").hexdigest()
+    assert media_event["payload"]["article"]["guid"] == "media"
+    assert media_event["payload"]["article"]["source_text"] == "Media body"
+    assert "media_url" not in media_event["payload"]["article"]
+    assert media_event["media_required"] is False
+    assert media_event["media_refs"] == []
+    assert "unreviewed.example.test" not in json.dumps(media_event)
+    assert json.loads(validator_path.read_text()) == {"version": 1, "etag": '"etag-v2"', "last_modified": "Mon, 28 Sep 2026 08:01:00 GMT"}
+    assert validator_path.read_bytes() != before
     assert len(seen) == len(FEEDS)
     assert all(kwargs["etag"] == '"etag-v1"' for kwargs in seen)
+
+    replay = run_once(snapshot, loaded, state_root, inbox, NOW, fetch_feed=media_page)
+    assert replay[0]["accepted"] == 0
+    assert len(inbox.events) == 2
+    cursor = json.loads((state_root / f"rss-stockbit-{feed.lane.value}" / "cursor.json").read_text())
+    assert cursor["anchor"] == hashlib.sha256(b"media").hexdigest()
 
 
 def test_stockbit_rejects_unreviewed_lane_and_missing_live_revision():
@@ -356,37 +374,6 @@ def test_live_revision_change_blocks_reenable_without_history_replay(tmp_path):
     run_once(snapshot, loaded, tmp_path, Inbox(), NOW, fetch_feed=fetch)
     with pytest.raises(Exception, match="future-only transition"):
         run_once(snapshot, LoadedStockbitConfig(loaded.config, 8), tmp_path, Inbox(), NOW, fetch_feed=fetch)
-
-
-def test_media_url_blocks_without_entering_inbox_or_safe_marker(tmp_path):
-    snapshot, loaded = snapshot_and_config()
-    feed = FEEDS[0]
-    old = Article(feed.lane, feed.label, "old", "https://snips.stockbit.com/old", "Title", "Text", NOW)
-    media = Article(
-        feed.lane,
-        feed.label,
-        "media-guid",
-        "https://snips.stockbit.com/media",
-        "Media title",
-        "Media text",
-        NOW + timedelta(minutes=1),
-        media_url="https://unreviewed.example.test/image.jpg?signature=private",
-    )
-    pages = {lane.lane.value: [old] for lane in FEEDS}
-    fetch = lambda selected, **_kwargs: SimpleNamespace(not_modified=False, articles=list(reversed(pages[selected.lane.value])))
-    inbox = Inbox()
-    run_once(snapshot, loaded, tmp_path, inbox, NOW, fetch_feed=fetch)
-
-    pages[feed.lane.value].append(media)
-    result = run_once(snapshot, loaded, tmp_path, inbox, NOW, fetch_feed=fetch)
-    assert result[0] == {"endpoint_id": f"rss:stockbit:{feed.lane.value}", "status": "blocked", "reason": "media_blocked", "fetched": 2}
-    assert inbox.events == []
-    marker_path = tmp_path / f"rss-stockbit-{feed.lane.value}" / "blocked-media.json"
-    marker = json.loads(marker_path.read_text())
-    assert marker["payload"]["article"]["guid"] == "media-guid"
-    assert "media_url" not in marker["payload"]["article"]
-    assert "unreviewed.example.test" not in json.dumps(marker)
-    assert Article.from_payload(media.to_payload()).media_url == media.media_url
 
 
 def test_source_work_claim_enters_stockbit_owner_then_wakes_agent(tmp_path):

@@ -91,10 +91,16 @@ def _save_pages(bundle: Path, pages: dict[str, object]) -> None:
     (bundle / "rss-pages.json").write_text(json.dumps(pages, separators=(",", ":")))
 
 
-def test_preflight_reports_four_previews_without_state_writes_or_source_text(tmp_path):
+def test_preflight_reports_four_media_bearing_previews_without_state_writes_or_source_text(tmp_path):
     bundle, _pages = _bundle(tmp_path)
+    pages_path = bundle / "rss-pages.json"
+    pages = json.loads(pages_path.read_text())
+    for page in pages["lanes"].values():
+        for item in page["items"]:
+            item["media_present"] = True
+    _save_pages(bundle, pages)
     original_state = (bundle / "stockbit-state.json").read_bytes()
-    original_pages = (bundle / "rss-pages.json").read_bytes()
+    original_pages = pages_path.read_bytes()
 
     result = _run(bundle)
 
@@ -114,7 +120,7 @@ def test_preflight_reports_four_previews_without_state_writes_or_source_text(tmp
     assert PRIVATE_SOURCE_TEXT not in result.stdout
     assert "Private title marker" not in result.stdout
     assert (bundle / "stockbit-state.json").read_bytes() == original_state
-    assert (bundle / "rss-pages.json").read_bytes() == original_pages
+    assert pages_path.read_bytes() == original_pages
     assert not (bundle / ".rss-preflight-state").exists()
 
 
@@ -215,7 +221,11 @@ def test_preflight_treats_304_as_empty_without_cursor_advance_and_preserves_vali
     assert lane_report["legacy_http_validators"] == {"etag": '"legacy-0"', "last_modified": None}
 
 
-def test_preflight_keeps_media_bearing_lane_blocked(tmp_path):
+@pytest.mark.parametrize("field,value", [
+    ("source_text", PRIVATE_SOURCE_TEXT),
+    ("media_url", "https://cdn.example.test/private-thumbnail.jpg?token=hidden"),
+])
+def test_preflight_rejects_source_text_or_media_url_fields_without_echoing_them(tmp_path, field, value):
     bundle, pages = _bundle(tmp_path)
     lanes = pages["lanes"]
     assert isinstance(lanes, dict)
@@ -223,27 +233,7 @@ def test_preflight_keeps_media_bearing_lane_blocked(tmp_path):
     assert isinstance(page, dict)
     items = page["items"]
     assert isinstance(items, list)
-    items[0]["media_present"] = True
-    _save_pages(bundle, pages)
-
-    result = _run(bundle)
-
-    assert result.returncode == 1
-    lane_report = json.loads(result.stdout)["lanes"][0]
-    assert lane_report["status"] == "blocked"
-    assert lane_report["reason"] == "media_item_present"
-    assert lane_report["http_validators"] == {"etag": None, "last_modified": None}
-
-
-def test_preflight_rejects_source_text_fields_without_echoing_them(tmp_path):
-    bundle, pages = _bundle(tmp_path)
-    lanes = pages["lanes"]
-    assert isinstance(lanes, dict)
-    page = lanes[LANES[0]]
-    assert isinstance(page, dict)
-    items = page["items"]
-    assert isinstance(items, list)
-    items[0]["source_text"] = PRIVATE_SOURCE_TEXT
+    items[0][field] = value
     _save_pages(bundle, pages)
 
     result = _run(bundle)
@@ -252,8 +242,8 @@ def test_preflight_rejects_source_text_fields_without_echoing_them(tmp_path):
     assert result.stderr == ""
     report = json.loads(result.stdout)
     assert report["lanes"][0]["reason"] == "page_item_shape_invalid"
-    assert PRIVATE_SOURCE_TEXT not in result.stdout
-    assert PRIVATE_SOURCE_TEXT not in result.stderr
+    assert value not in result.stdout
+    assert value not in result.stderr
 
 
 @pytest.mark.parametrize("state_change,missing,extra", [("missing", 1, 0), ("extra", 0, 1)])
