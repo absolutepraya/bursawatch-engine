@@ -27,12 +27,15 @@ _EVENT_KEYS = frozenset(
         "plan",
         "media_path",
         "media_urls",
+        "matched_setup_event_key",
     }
 )
+_OPTIONAL_EVENT_KEYS = frozenset({"matched_setup_event_key"})
 _PLAN_KEYS = frozenset({"entry", "stop_loss", "targets"})
-_KINDS = frozenset({"buy", "status", "reminder", "social"})
+_KINDS = frozenset({"buy", "status", "reminder", "social", "context"})
 _PHINTRACO_SOURCE = "phintraco"
 _TICKER = re.compile(r"[A-Z]{1,10}")
+_WEEKLY_SETUP_KEY = re.compile(r"phintraco:\d+:weekly:\d+:(?P<ticker>[A-Z]{1,10})")
 
 
 class MarketState(StrEnum):
@@ -133,13 +136,14 @@ class SourceEvent:
     plan: PlanLevels | None
     media_path: str | None
     media_urls: tuple[str, ...]
+    matched_setup_event_key: str | None = None
 
     @classmethod
     def from_json(cls, payload: Mapping[str, Any]) -> SourceEvent:
         if not isinstance(payload, Mapping):
             raise ValueError("source event must be an object")
         unknown = set(payload) - _EVENT_KEYS
-        missing = _EVENT_KEYS - set(payload)
+        missing = (_EVENT_KEYS - _OPTIONAL_EVENT_KEYS) - set(payload)
         if unknown:
             raise ValueError(f"source event contains unknown keys: {sorted(unknown)}")
         if missing:
@@ -163,6 +167,18 @@ class SourceEvent:
         plan = _parse_plan(payload["plan"])
         media_path = _parse_media_path(payload["media_path"])
         media_urls = _parse_media_urls(payload["media_urls"])
+        matched_setup_event_key = payload.get("matched_setup_event_key")
+        if matched_setup_event_key is not None:
+            matched_setup_event_key = _required_string(
+                matched_setup_event_key, "matched_setup_event_key"
+            )
+            match = _WEEKLY_SETUP_KEY.fullmatch(matched_setup_event_key)
+            if match is None:
+                raise ValueError("matched_setup_event_key must identify a weekly Phintraco setup")
+            if source != _PHINTRACO_SOURCE or kind not in {"status", "reminder"}:
+                raise ValueError("matched_setup_event_key is valid only for Phintraco updates")
+            if match.group("ticker") != ticker:
+                raise ValueError("matched_setup_event_key ticker must match the source event")
 
         if kind == "buy":
             if source != _PHINTRACO_SOURCE:
@@ -184,6 +200,7 @@ class SourceEvent:
             plan=plan,
             media_path=media_path,
             media_urls=media_urls,
+            matched_setup_event_key=matched_setup_event_key,
         )
 
 

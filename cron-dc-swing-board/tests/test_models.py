@@ -73,6 +73,41 @@ def test_social_event_preserves_exact_source_title_and_cannot_have_a_plan() -> N
     with pytest.raises(ValueError):
         SourceEvent.from_json(invalid)
 
+
+def test_context_event_and_weekly_setup_reference_are_validated():
+    payload = {
+        "event_key": "phintraco:1444713822:35461",
+        "source": "phintraco",
+        "kind": "context",
+        "ticker": "KETR",
+        "published_at": "2026-09-28T11:01:00+07:00",
+        "source_url": "https://t.me/phintraprofits/35461",
+        "all_content": "KETR source context",
+        "source_title": "KETR: Source context",
+        "source_status": None,
+        "plan": None,
+        "media_path": None,
+        "media_urls": [],
+    }
+    context = SourceEvent.from_json(payload)
+    assert context.kind == "context"
+    assert context.matched_setup_event_key is None
+
+    payload["kind"] = "reminder"
+    payload["matched_setup_event_key"] = "phintraco:1444713822:weekly:35448:KETR"
+    linked = SourceEvent.from_json(payload)
+    assert linked.matched_setup_event_key == payload["matched_setup_event_key"]
+
+    for change in (
+        {"matched_setup_event_key": "phintraco:weekly:35448:KETR"},
+        {"matched_setup_event_key": "phintraco:1444713822:weekly:35448:BBRI"},
+        {"source": "x"},
+        {"kind": "context"},
+    ):
+        invalid = {**payload, **change}
+        with pytest.raises(ValueError):
+            SourceEvent.from_json(invalid)
+
     invalid["plan"] = None
     invalid["source_title"] = ""
     with pytest.raises(ValueError):

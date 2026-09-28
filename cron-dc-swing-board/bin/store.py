@@ -19,7 +19,7 @@ from uuid import uuid4
 from models import Checkpoint, Episode, MarketState, OutboxOperation, PlanLevels, SourceEvent, SubmittedEvent
 
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 _LEGAL_OPERATIONS = frozenset(
     {"create_thread", "edit_starter", "post_source_reply", "post_history_reply", "delete_message", "patch_thread"}
 )
@@ -110,8 +110,8 @@ class BoardStore:
                     event_key, source, kind, ticker, published_at, source_url,
                     all_content, source_title, source_status, plan_entry,
                     plan_stop_loss, plan_targets_json, media_path, media_urls_json,
-                    received_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    matched_setup_event_key, received_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(event_key) DO NOTHING
                 """,
                 (
@@ -129,6 +129,7 @@ class BoardStore:
                     json.dumps(event.plan.targets) if event.plan else None,
                     event.media_path,
                     json.dumps(event.media_urls),
+                    event.matched_setup_event_key,
                     _timestamp(received_at),
                 ),
         )
@@ -719,6 +720,8 @@ class BoardStore:
                         _migrate_v8_to_v9(connection)
                     if version in {1, 2, 3, 4, 5, 6, 7, 8, 9}:
                         _migrate_v9_to_v10(connection)
+                    if version in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}:
+                        _migrate_v10_to_v11(connection)
                     connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
                     connection.execute("COMMIT")
                 except BaseException:
@@ -981,17 +984,20 @@ class BoardStoreTransaction:
 
     def active_plan(self, episode_id: int) -> SourceEvent | None:
         row = self._connection.execute(
-            """SELECT s.*, p.source_status AS current_status FROM plans p
+            """SELECT s.*, p.source_status AS current_status,
+            p.entry AS active_plan_entry, p.stop_loss AS active_plan_stop_loss,
+            p.targets_json AS active_plan_targets_json FROM plans p
             JOIN source_events s ON s.id = p.source_event_id
             WHERE p.episode_id = ? AND p.terminal_at IS NULL ORDER BY p.id DESC LIMIT 1""",
             (episode_id,),
         ).fetchone()
-        return replace(_source_event_from_row(row), source_status=row["current_status"]) if row else None
+        return _projected_plan_from_row(row) if row else None
 
     def active_primary_plans(self) -> list[ActivePrimaryPlan]:
         rows = self._connection.execute(
             """SELECT e.*, p.id AS plan_id, s.*, p.source_status AS current_status,
-            p.source_status_at
+            p.source_status_at, p.entry AS active_plan_entry,
+            p.stop_loss AS active_plan_stop_loss, p.targets_json AS active_plan_targets_json
             FROM episodes e JOIN plans p ON p.episode_id = e.id
             JOIN source_events s ON s.id = p.source_event_id
             WHERE e.lifecycle = 'primary' AND e.closed_at IS NULL AND p.terminal_at IS NULL
@@ -1001,7 +1007,7 @@ class BoardStoreTransaction:
             ActivePrimaryPlan(
                 episode=_episode_from_row(row),
                 plan_id=int(row["plan_id"]),
-                event=replace(_source_event_from_row(row), source_status=row["current_status"]),
+                event=_projected_plan_from_row(row),
                 source_updated_at=_parse_timestamp(row["source_status_at"]),
             )
             for row in rows
@@ -1010,7 +1016,8 @@ class BoardStoreTransaction:
     def latest_plan_cards(self) -> list[PlanCard]:
         rows = self._connection.execute(
             """SELECT e.*, p.id AS plan_id, s.id AS source_event_id, s.*, p.source_status AS current_status,
-            p.source_status_at
+            p.source_status_at, p.entry AS active_plan_entry,
+            p.stop_loss AS active_plan_stop_loss, p.targets_json AS active_plan_targets_json
             FROM episodes e JOIN plans p ON p.episode_id = e.id
             JOIN source_events s ON s.id = p.source_event_id
             WHERE p.id = (SELECT MAX(latest.id) FROM plans latest WHERE latest.episode_id = e.id)
@@ -1021,7 +1028,7 @@ class BoardStoreTransaction:
                 episode=_episode_from_row(row),
                 plan_id=int(row["plan_id"]),
                 event_id=int(row["source_event_id"]),
-                event=replace(_source_event_from_row(row), source_status=row["current_status"]),
+                event=_projected_plan_from_row(row),
                 source_updated_at=_parse_timestamp(row["source_status_at"]),
             )
             for row in rows
@@ -1087,6 +1094,26 @@ class BoardStoreTransaction:
             (episode_id, event_id, event.plan.entry, event.plan.stop_loss,
              json.dumps(event.plan.targets), event.source_status or "New setup",
              _timestamp(event.published_at)),
+        )
+
+    def update_plan_targets(self, episode_id: int, targets: tuple[str, ...]) -> None:
+        """Update the current mutable target ladder without rewriting source facts."""
+        if type(targets) is not tuple:
+            raise ValueError("plan targets must be a tuple")
+        row = self._connection.execute(
+            """SELECT p.entry, p.stop_loss FROM plans p
+            JOIN episodes e ON e.id = p.episode_id
+            WHERE p.episode_id = ? AND p.terminal_at IS NULL
+            AND e.lifecycle = 'primary' AND e.closed_at IS NULL
+            ORDER BY p.id DESC LIMIT 1""",
+            (episode_id,),
+        ).fetchone()
+        if row is None:
+            raise StoreBlockedError("only an active primary plan may update targets")
+        PlanLevels(row["entry"], row["stop_loss"], targets)
+        self._connection.execute(
+            "UPDATE plans SET targets_json = ? WHERE episode_id = ? AND terminal_at IS NULL",
+            (json.dumps(targets), episode_id),
         )
 
     def finish_plan(self, episode_id: int, now: datetime) -> None:
@@ -1204,6 +1231,7 @@ def _create_schema(connection: sqlite3.Connection) -> None:
             plan_targets_json TEXT,
             media_path TEXT,
             media_urls_json TEXT NOT NULL,
+            matched_setup_event_key TEXT,
             received_at TEXT NOT NULL,
             board_processed_at TEXT
         );
@@ -1520,6 +1548,16 @@ def _migrate_v9_to_v10(connection: sqlite3.Connection) -> None:
             connection.execute(f"ALTER TABLE episodes ADD COLUMN {name} TEXT")
 
 
+def _migrate_v10_to_v11(connection: sqlite3.Connection) -> None:
+    """Persist an optional immutable link from an update to its weekly setup."""
+    existing = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "source_events" not in existing:
+        return
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(source_events)")}
+    if "matched_setup_event_key" not in columns:
+        connection.execute("ALTER TABLE source_events ADD COLUMN matched_setup_event_key TEXT")
+
+
 def _create_missing_tables(connection: sqlite3.Connection) -> None:
     existing = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     if "episodes" not in existing:
@@ -1634,7 +1672,18 @@ def _source_event_from_row(row: sqlite3.Row) -> SourceEvent:
         plan=PlanLevels(row["plan_entry"], row["plan_stop_loss"], tuple(json.loads(row["plan_targets_json"])))
         if row["plan_entry"] else None,
         media_path=row["media_path"], media_urls=tuple(json.loads(row["media_urls_json"])),
+        matched_setup_event_key=row["matched_setup_event_key"],
     )
+
+
+def _projected_plan_from_row(row: sqlite3.Row) -> SourceEvent:
+    event = _source_event_from_row(row)
+    plan = PlanLevels(
+        row["active_plan_entry"],
+        row["active_plan_stop_loss"],
+        tuple(json.loads(row["active_plan_targets_json"])),
+    )
+    return replace(event, plan=plan, source_status=row["current_status"])
 
 
 def _outbox_from_row(row: sqlite3.Row) -> OutboxOperation:

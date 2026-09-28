@@ -56,7 +56,7 @@ def test_version_nine_lifecycle_migration_preserves_episode_and_outbox(tmp_path)
             connection.execute(f"ALTER TABLE episodes DROP COLUMN {column}")
         connection.execute("PRAGMA user_version = 9")
     migrated = BoardStore(path)
-    assert migrated.schema_version == 10
+    assert migrated.schema_version == 11
     assert migrated.episode(episode.id).resolution_reason is None
     assert migrated.count_rows("outbox") == 1
     assert migrated.operations_for_ticker("SCMA")[0].payload["content"] == "keep"
@@ -237,7 +237,7 @@ def test_version_one_database_migrates_without_losing_source_rows(tmp_path) -> N
     store = BoardStore(path)
 
     assert store.count_rows("source_events") == 1
-    assert store.schema_version == 10
+    assert store.schema_version == 11
 
     connection = sqlite3.connect(path)
     assert connection.execute("SELECT event_key, ticker FROM source_events").fetchone() == (
@@ -278,7 +278,7 @@ def test_version_two_outbox_migrates_to_claim_tokens_without_reset(tmp_path) -> 
 
     store = BoardStore(path)
 
-    assert store.schema_version == 10
+    assert store.schema_version == 11
     connection = sqlite3.connect(path)
     assert connection.execute("SELECT dedupe_key, claim_token FROM outbox").fetchone() == (
         "existing",
@@ -323,12 +323,30 @@ def test_version_three_migration_preserves_event_plan_and_outbox(tmp_path) -> No
 
     upgraded = BoardStore(path)
 
-    assert upgraded.schema_version == 10
+    assert upgraded.schema_version == 11
     assert upgraded.count_rows("source_events") == 1
     assert upgraded.active_plan(episode.id) == event
     assert upgraded.operations_for_ticker("SCMA")[0].payload == {"content": "preserved"}
     with upgraded.transaction() as tx:
         assert tx.event_processed(submitted.id) is False
+
+
+def test_version_ten_migration_adds_match_reference_without_losing_source_event(tmp_path):
+    path = tmp_path / "board.sqlite3"
+    original = BoardStore(path)
+    event = example_buy_event()
+    original.submit_event(event, at())
+    with sqlite3.connect(path) as connection:
+        connection.execute("ALTER TABLE source_events DROP COLUMN matched_setup_event_key")
+        connection.execute("PRAGMA user_version = 10")
+
+    migrated = BoardStore(path)
+
+    assert migrated.schema_version == 11
+    with sqlite3.connect(path) as connection:
+        assert connection.execute(
+            "SELECT event_key, ticker, matched_setup_event_key FROM source_events"
+        ).fetchone() == (event.event_key, event.ticker, None)
 
 
 def test_version_five_history_migration_preserves_rows_and_adds_chunk_identity(tmp_path) -> None:
@@ -360,7 +378,7 @@ def test_version_five_history_migration_preserves_rows_and_adds_chunk_identity(t
 
     store = BoardStore(path)
 
-    assert store.schema_version == 10
+    assert store.schema_version == 11
     with sqlite3.connect(path) as connection:
         assert connection.execute(
             "SELECT material_payload, discord_message_id, history_key FROM history_events"
