@@ -17,6 +17,7 @@ The connected demo story is: scheduled morning brief -> complete broker setup ar
 5. **Source roles stay visible.** Separate broker setup, Sectors context, other source claims, and system observations. Show dates, links, conflicts, missing fields, and stale data. Do not silently reconcile conflicting facts.
 6. **Jev is optional and narrow.** If used, Jev classifies bounded questions such as relevance, source stance, or conflict. Deterministic code owns arithmetic, time ordering, freshness, and invariants. A generative model writes concise human-readable Indonesian text. Jev confidence is not the probability of an IHSG move.
 7. **Sentiment addition.** Include a compact X narrative pulse in the morning brief. Expand the selected X source panel beyond currently watched accounts, with a deliberate mix of market perspectives. Show main optimistic and cautious narratives, source links, timestamps, and disagreement with Sectors market evidence. One frequent poster must not dominate. This panel is curated commentary, not a representative poll of all traders. Stockbit is excluded from this sentiment section because the user considers it noise.
+8. **Rotation interpretation.** The user confirmed an RRG-style four-quadrant view: leading, improving, weakening, and lagging relative to IHSG. The exact measurement windows, group membership, and conglomerate mapping remain to be designed.
 
 ## Proposed morning brief content
 
@@ -39,6 +40,16 @@ Prioritize a working scheduled brief over filling every possible section. Global
 
 The expanded X panel provisionally leans toward active trader commentary because broker research already supplies analyst views. It should report distinct sourced narratives, not a numerical crowd-sentiment score. Account selection and minimum coverage remain open.
 
+## Sectors weekly email example and proposed insight layer
+
+The user shared Sectors Weekly Insights issue #39, received 28 September 2026 at 10:10 WIB and covering 21 to 25 September data. Its "What the Data Unearthed" section connects otherwise separate facts: four ASII insider purchases totaling about IDR 24.76 billion, ASII falling 2.70% during the week, and an IDR 8 trillion announced buyback. It also pairs KPIG's sharp decline with unusually high volume, and BNBR's volume spike with a major shareholder sale. The closing bull/bear reading and "what to watch next" turn those observations into conditional market context.
+
+A bounded Discord read found an existing ASII alert about two directors' purchases at 08:41 WIB on Sunday 27 September, roughly 25 hours 29 minutes before the newsletter. The alert is [Discord message 1553582250157670442](https://discord.com/channels/940285152335110204/1525102508714889257/1553582250157670442), citing an IHSG Journal X post. This establishes an early partial source signal; it does not prove all four filings or the full synthesis were available in the API before Monday's proposed brief cut-off. That availability must be checked with as-of records in a future implementation.
+
+Proposed reusable transformation for the daily brief's standout item and later high-signal news cards: source fact -> related same-issuer filings and market data -> specific observable pattern -> competing interpretation or materiality check -> what would confirm or weaken the interpretation. Keep original source, event time, filing time, publication time, ingestion time, and market-data as-of date separate. For ASII, describe insider buying *during* weakness and alongside a planned buyback; do not claim these purchases caused a price move or guarantee a rebound. Size the buying against market cap or turnover before calling it large.
+
+The delivered ASII summary says the stock "closed" on 26 September, a Saturday, while the Sectors email's market data is as of Friday 25 September. This illustrates why the synthesis must validate market dates against the trading calendar and dated market data. The local PDF filename also says "248B" while its email subject and body say about "24.8B" and IDR 24.76 billion; use the source values and explicit numeric checks rather than filenames. Do not copy the email's completed weekly conclusions into a retrospectively generated morning brief. Preserve what was knowable at each run's cut-off.
+
 ## Data and eligibility boundaries to preserve
 
 - Existing BursaWatch adapters, Discord output, and operational records help identify the problem and source formats. They are not the new hackathon project's execution evidence. The current control-plane source inbox was not a populated searchable research corpus when inspected, so the design must not depend on historical semantic retrieval being ready.
@@ -51,9 +62,10 @@ The expanded X panel provisionally leans toward active trader commentary because
 1. Define the expanded X panel: active trader chatter versus analyst/broker commentary, account selection criteria, source access, and minimum fresh independent voices before displaying a pulse. The current recommendation is to lean toward active trader chatter because broker research already covers the analyst view. The user has not selected the panel or individual accounts yet.
 2. Define the exact morning cut-off time, trading calendar, and late-data behavior.
 3. Choose reliable external feeds for global indices, events, UMA, and FCA. Verify licensing, timestamps, and coverage before promising them in the demo.
-4. Specify the four rotation quadrants and the permitted conglomerate mapping.
-5. Decide whether the after-close audit is a same-day follow-up message, a dashboard view, or both.
-6. Select one realistic demo day and broker setup with complete source provenance, then ensure the new project's scheduled and triggered runs can demonstrate them without replaying existing BursaWatch alerts.
+4. Specify relative-strength and momentum windows for the confirmed four rotation quadrants, plus the permitted conglomerate mapping.
+5. Decide whether a high-signal non-broker news event should create an insight follow-up immediately, or first appear in the next morning brief. Keep the hackathon demo scope small enough for complete unattended proof.
+6. Decide whether the after-close audit is a same-day follow-up message, a dashboard view, or both.
+7. Select one realistic demo day and broker setup with complete source provenance, then ensure the new project's scheduled and triggered runs can demonstrate them without replaying existing BursaWatch alerts.
 
 ## Reference starting points
 
@@ -61,4 +73,5 @@ The expanded X panel provisionally leans toward active trader commentary because
 - [Track 2: Automation & Workflows](https://hackathon.sectors.app/tracks/automation-workflows)
 - [Sectors API documentation index](https://docs.sectors.app/llms.txt)
 - [TypeSafe Jev documentation](https://docs.typesafe.ai/introduction)
+- User-provided local PDF: `/Users/absolutepraya/Downloads/bursawatch/ASII insiders buy IDR 248B amid market slide foreign net sell hits record.pdf` (Sectors Weekly Insights issue #39). This file is not part of the repository.
 - Current BursaWatch source contracts: `cron-tg-phintraco-swing/AGENTS.md`, `cron-x-account-watch/AGENTS.md`, and `cron-stockbit-snips/AGENTS.md`. These describe the existing system, not an approved reuse path for the competition entry.
