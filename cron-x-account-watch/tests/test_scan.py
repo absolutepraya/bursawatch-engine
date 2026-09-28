@@ -492,7 +492,7 @@ def test_x_board_event_requires_one_exact_ticker_led_source_title() -> None:
     board_event = scan.board_source_event(event, profile_fixture())
 
     assert board_event["source_title"] == "KPIG: Wave IV diproyeksikan menuju area 97 sampai 108"
-    assert board_event["media_urls"] == ["https://img.example/chart.png"]
+    assert board_event["media_urls"] == ["https://img.example/chart.png", "https://img.example/quoted.png"]
 
 
 def test_x_board_event_accepts_whitespace_ticker_title_and_normalizes_only_board_title() -> None:
@@ -578,23 +578,26 @@ def test_all_text_then_ordered_images_then_board_in_one_delivery(tmp_path, monke
     event["text_index"] = event["media_index"] = 0
     event["text_message_ids"] = []
     event["media_message_ids"] = []
-    event["post"]["media"] = [{"index": 0, "url": "https://pbs.twimg.com/media/a.jpg"},
-                              {"index": 1, "url": "https://pbs.twimg.com/media/b.jpg"}]
-    event["post"]["quoted_media"] = []
+    refs = [f"20000000-0000-4000-8000-{index:012d}" for index in range(1, 4)]
+    urls = [f"source-media-ref:{ref}" for ref in refs]
+    event["post"]["media"] = [{"index": index, "url": url} for index, url in enumerate(urls[:2])]
+    event["post"]["quoted_media"] = [{"index": 0, "url": urls[2]}]
     event["thread_posts"] = [event["post"]]
+    event["source_media_refs"] = {ref: {"ref": ref} for ref in refs}
+    event["source_media_paths"] = {ref: str(tmp_path / f"chart-{index}.jpg") for index, ref in enumerate(refs)}
     sequence = []
     monkeypatch.setattr(scan.discord, "post_text", lambda content, *_: sequence.append(("text", content)) or "text-1")
     monkeypatch.setattr(scan.discord, "post_media", lambda url, *_args, **_kwargs: sequence.append(("media", url)) or f"media-{len(sequence)}")
-    monkeypatch.setattr(scan, "submit_board_event", lambda payload, *_: sequence.append(("board", payload["media_urls"])) or False)
+    monkeypatch.setattr(scan, "submit_board_event", lambda payload, *_: sequence.append(("board", payload["media_paths"])) or False)
     storage = tmp_path / "state.json"
     assert scan._deliver(value, profiles(), 0, False, storage, stats(), now()) is False
-    assert [kind for kind, _ in sequence] == ["text", "media", "media", "board"]
-    assert [item[1] for item in sequence[1:3]] == ["https://pbs.twimg.com/media/a.jpg", "https://pbs.twimg.com/media/b.jpg"]
-    assert sequence[-1][1] == ["https://pbs.twimg.com/media/a.jpg", "https://pbs.twimg.com/media/b.jpg"]
+    assert [kind for kind, _ in sequence] == ["text", "media", "media", "media", "board"]
+    assert [item[1] for item in sequence[1:4]] == urls
+    assert sequence[-1][1] == [event["source_media_paths"][ref] for ref in refs]
     assert event["text_message_ids"] == ["text-1"]
-    assert len(event["media_message_ids"]) == 2
+    assert len(event["media_message_ids"]) == 3
     assert scan._deliver(value, profiles(), 0, False, storage, stats(), now() + timedelta(minutes=1)) is False
-    assert [kind for kind, _ in sequence] == ["text", "media", "media", "board", "board"]
+    assert [kind for kind, _ in sequence] == ["text", "media", "media", "media", "board", "board"]
 
 
 def test_permanent_missing_media_is_skipped_and_board_handoff_continues(tmp_path, monkeypatch) -> None:
@@ -690,7 +693,7 @@ def test_fatal_heartbeat_does_not_mention_owner():
     assert "<@" not in value
 
 
-def test_delivery_omits_quoted_media_when_each_quoting_post_has_media(tmp_path, monkeypatch, config_path):
+def test_delivery_includes_quoted_media_when_each_quoting_post_has_media(tmp_path, monkeypatch, config_path):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     root = SourcePost(profile.id, "101", "https://x.com/Kutekians/status/101", datetime.now(UTC), "Root", PostKind.QUOTE, "https://x.com/external/status/0", "Earlier external quote", (SourceMedia("https://img.example/root.jpg", 0),), (SourceMedia("https://img.example/root-quote.jpg", 0),))
     latest = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Latest", PostKind.QUOTE, "https://x.com/external/status/1", "External: Quote", (SourceMedia("https://img.example/latest.jpg", 0),), (SourceMedia("https://img.example/quote.jpg", 0),))
@@ -704,7 +707,8 @@ def test_delivery_omits_quoted_media_when_each_quoting_post_has_media(tmp_path, 
     storage = tmp_path / "state.json"
     while value["outbox"]:
         assert scan._deliver(value, {profile.id: profile}, 0, True, storage, scan.RunStats()) is True
-    assert delivered == ["https://img.example/root.jpg", "https://img.example/latest.jpg"]
+    assert delivered == ["https://img.example/root.jpg", "https://img.example/root-quote.jpg",
+                         "https://img.example/latest.jpg", "https://img.example/quote.jpg"]
 
 
 def test_delivery_uses_quoted_media_when_quoting_post_has_no_media(tmp_path, monkeypatch, config_path):
@@ -744,7 +748,8 @@ def test_delivery_omit_last_removes_only_final_unique_bundle_media(tmp_path, mon
     storage = tmp_path / "state.json"
     while value["outbox"]:
         assert scan._deliver(value, {profile.id: profile}, 0, True, storage, scan.RunStats()) is True
-    assert delivered == ["https://img.example/root.jpg"]
+    assert delivered == ["https://img.example/root.jpg", "https://img.example/root-quote.jpg",
+                         "https://img.example/latest.jpg"]
 
 
 def test_delivery_omit_last_drops_the_only_media_item(tmp_path, monkeypatch, config_path, profile_payload):

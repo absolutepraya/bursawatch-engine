@@ -299,8 +299,7 @@ def _delivery_media(profile, thread_posts):
 
     for thread_post in thread_posts:
         append_unique(thread_post.media)
-        if not thread_post.media:
-            append_unique(thread_post.quoted_media)
+        append_unique(thread_post.quoted_media)
     if profile.media_policy == "omit_last":
         return all_media[:-1]
     return all_media
@@ -319,17 +318,6 @@ def _board_retry_due(event: dict, now: datetime) -> bool:
     except ValueError:
         return True
     return (retry_at.tzinfo is None) == (now.tzinfo is None) and retry_at <= now
-
-
-def _direct_media_urls(thread_posts) -> list[str]:
-    urls: list[str] = []
-    seen: set[str] = set()
-    for thread_post in thread_posts:
-        for media in thread_post.media:
-            if media.url not in seen:
-                seen.add(media.url)
-                urls.append(media.url)
-    return urls
 
 
 def _ticker_led_clauses(value: str) -> list[str]:
@@ -416,8 +404,7 @@ def board_source_event(event: dict, profile, *, status_date: datetime | None = N
         "plan": None,
         "media_path": media_paths[0] if media_paths else None,
         "media_paths": media_paths,
-        "media_urls": [url for url in _direct_media_urls(thread_posts)
-                       if url not in skipped_media and reference_id(url) is None],
+        "media_urls": [url for url in usable_urls if reference_id(url) is None],
     }
 
 
