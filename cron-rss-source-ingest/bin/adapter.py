@@ -289,11 +289,9 @@ def endpoints(snapshot: dict[str, Any], loaded_config: Any) -> tuple[dict[str, d
 
 def _item(article: Any, loaded_config: Any) -> dict[str, Any]:
     payload = article.to_payload()
-    # The fixed RSS parser exposes arbitrary provider media URLs, but this
-    # adapter has no host-reviewed, bounded media byte fetcher. Such entries
-    # remain fail-closed in source-ingest, whose blocked record strips media
-    # locators. The parser output itself is left intact for that decision.
-    has_media = isinstance(article.media_url, str) and bool(article.media_url)
+    # Stockbit intake is text-only. Thumbnail/enclosure URLs are optional RSS
+    # metadata: never fetch or carry them into accepted source events.
+    payload.pop("media_url", None)
     watch = loaded_config.config
     frozen = {
         "revision": loaded_config.revision,
@@ -301,7 +299,7 @@ def _item(article: Any, loaded_config: Any) -> dict[str, Any]:
         "id_stocks_news_channel_id": watch.id_stocks_news_channel_id,
         "macro_news_channel_id": watch.macro_news_channel_id,
     }
-    return {"provider_event_id": hashlib.sha256(article.guid.encode("utf-8")).hexdigest(), "published_at": article.published_at.isoformat(), "source_url": article.url, "payload": {"article": payload, "watch_config_revision": loaded_config.revision, "watch_config_snapshot": frozen}, "media_required": has_media, "media_refs": []}
+    return {"provider_event_id": hashlib.sha256(article.guid.encode("utf-8")).hexdigest(), "published_at": article.published_at.isoformat(), "source_url": article.url, "payload": {"article": payload, "watch_config_revision": loaded_config.revision, "watch_config_snapshot": frozen}, "media_required": False, "media_refs": []}
 
 
 def _validate_live_page(articles: Any, feed: Any, cursor: dict[str, Any] | None) -> tuple[Any, ...]:

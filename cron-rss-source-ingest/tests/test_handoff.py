@@ -46,9 +46,9 @@ def _bundle(root: Path, *, pending: bool = False, delivered: bool = False) -> tu
             "etag": None if index == 0 else f'"page-{index}"',
             "last_modified": None if index % 2 == 0 else "Mon, 28 Sep 2026 04:00:00 GMT",
             "items": [
-                {"guid": f"newer-{lane}", "published_at": "2026-09-28T04:02:00+00:00", "media_present": False},
-                {"guid": guid, "published_at": NOW, "media_present": False},
-                {"guid": f"older-{lane}", "published_at": "2026-09-28T03:58:00+00:00", "media_present": False},
+                {"guid": f"newer-{lane}", "published_at": "2026-09-28T04:02:00+00:00", "media_present": True},
+                {"guid": guid, "published_at": NOW, "media_present": True},
+                {"guid": f"older-{lane}", "published_at": "2026-09-28T03:58:00+00:00", "media_present": True},
             ],
         }
     articles: dict[str, object] = {}
@@ -213,11 +213,10 @@ def test_handoff_refuses_pending_legacy_article_work_without_writes(tmp_path: Pa
     assert not state_root.exists()
 
 
-def test_handoff_refuses_media_and_304_without_writes(tmp_path: Path):
+def test_handoff_allows_media_metadata_but_304_stays_empty_without_cursor_advance(tmp_path: Path):
     bundle, state_root = _bundle(tmp_path)
     pages_path = bundle / "rss-pages.json"
     pages = json.loads(pages_path.read_text())
-    pages["lanes"][LANES[0]]["items"][0]["media_present"] = True
     pages["lanes"][LANES[1]] = {
         "status": 304, "etag": None, "last_modified": '"unchanged"', "items": [],
     }
@@ -228,7 +227,8 @@ def test_handoff_refuses_media_and_304_without_writes(tmp_path: Path):
     assert result.returncode == 1
     plan = json.loads(result.stdout)
     assert plan["aggregate"]["status"] == "blocked"
-    assert plan["lanes"][0]["reason"] == "media_item_present"
+    assert plan["lanes"][0]["status"] == "preview"
+    assert plan["lanes"][0]["cursor_advanced"] is False
     assert plan["lanes"][1]["poll_status"] == "empty"
     assert plan["lanes"][1]["cursor_advanced"] is False
     assert not state_root.exists()

@@ -31,11 +31,11 @@ GUID exactly once at the same publication timestamp. It hashes the GUID into
 the new anchor and records the bounded page digest and response validators.
 Missing, duplicate, or mismatched boundaries stay blocked; never initialize
 from the latest item.
-The preview does not apply a cursor or migrate live state.
-Articles with a parsed media URL remain fail-closed in this pilot. The feed
-parser exposes provider-controlled HTTP(S) URLs, and this package has no
-reviewed host allowlist or bounded, redirect-safe media downloader. Do not
-fetch those URLs or submit them as accepted source-event payloads.
+The preview does not apply a cursor or migrate live state. Stockbit remains
+text-only: thumbnail and enclosure URLs are optional feed metadata. The adapter
+strips `media_url` from accepted events, sets `media_required` to `false`, and
+uses no media refs. It never fetches media URLs, stores images, or provides
+images to the article agent.
 
 `../../../.venv/bin/python bin/preflight.py <bundle-directory>` is a
 deterministic, read-only four-lane preflight. It reads only
@@ -73,7 +73,7 @@ the legacy snapshot digest covers the complete file. The page bundle format is:
       "etag": null,
       "last_modified": null,
       "items": [
-        {"guid": "provider-id", "published_at": "2026-09-28T08:00:00+00:00", "media_present": false}
+        {"guid": "provider-id", "published_at": "2026-09-28T08:00:00+00:00", "media_present": true}
       ]
     }
   }
@@ -88,8 +88,10 @@ newest-first order. Each page status must be 200 or 304. Each page record
 supplies both `etag` and `last_modified`, as strings or `null`. Reports preserve
 these as `http_validators` and separately preserve the owner snapshot values as
 `legacy_http_validators`, including `null`. A 304 must have an empty `items`
-array; it reports an empty poll and cannot prove a cursor boundary. Any page
-item with `media_present: true` blocks that lane.
+array; it reports an empty poll and cannot prove a cursor boundary.
+`media_present` is a required boolean hint that a thumbnail or enclosure may
+exist. It is ignored for readiness and cursor planning. Actual media URLs never
+belong in this identity-only bundle or preflight report.
 
 `feed_page_sha256` covers only the ordered page identity pairs
 `(published_at.isoformat(), guid)`, serialized as compact UTF-8 JSON and hashed
@@ -136,7 +138,8 @@ The new cursor anchor is the SHA-256 hash of the exact legacy GUID. The cursor
 records the boundary timestamp and legacy snapshot provenance. The lane-local
 `http-validators.json` contains the page response ETag and Last-Modified,
 including `null`; the cutover receipt also retains the old legacy validators.
-The handoff cannot apply a 304 or a media-bearing page. The receipt covers each
+The handoff cannot apply a 304 because it has no boundary page. Media metadata
+does not block a 200 page and is not stored or fetched. The receipt covers each
 input file, page digest, config revision, frozen article revision counts, and
 both validator pairs without source text.
 

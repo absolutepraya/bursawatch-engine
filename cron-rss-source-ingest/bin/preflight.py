@@ -105,11 +105,10 @@ def _legacy_validators(record: Any) -> tuple[dict[str, str | None], str | None]:
     return validators, None
 
 
-def _parse_page_items(raw_items: Any, lane: FeedLane) -> tuple[tuple[_PageIdentity, ...], bool] | None:
+def _parse_page_items(raw_items: Any, lane: FeedLane) -> tuple[_PageIdentity, ...] | None:
     if type(raw_items) is not list:
         return None
     items: list[_PageIdentity] = []
-    has_media = False
     for raw_item in raw_items:
         if type(raw_item) is not dict or set(raw_item) != _ITEM_FIELDS:
             return None
@@ -126,8 +125,9 @@ def _parse_page_items(raw_items: Any, lane: FeedLane) -> tuple[tuple[_PageIdenti
         if published_at.tzinfo is None or published_at.utcoffset() is None:
             return None
         items.append(_PageIdentity(lane, guid, published_at))
-        has_media = has_media or media_present
-    return tuple(items), has_media
+        # media_present is validated as a boolean but is advisory only. The
+        # preflight hashes page identities and never fetches or reports URLs.
+    return tuple(items)
 
 
 def _plan_lane(
@@ -163,7 +163,7 @@ def _plan_lane(
     parsed = _parse_page_items(raw_items, feed.lane)
     if parsed is None:
         return _blocked_lane(lane, "page_item_shape_invalid", validators, legacy_validators)
-    items, has_media = parsed
+    items = parsed
     endpoint = {
         "platform": "rss",
         "endpoint_id": f"rss:stockbit:{lane}",
@@ -185,9 +185,6 @@ def _plan_lane(
         return _blocked_lane(lane, "cursor_preview_rejected", validators, legacy_validators)
     if plan.get("status") != "preview":
         return _blocked_lane(lane, str(plan.get("reason") or "cursor_boundary_unproven"), validators, legacy_validators)
-    if has_media:
-        return _blocked_lane(lane, "media_item_present", validators, legacy_validators)
-
     return {
         "lane": lane,
         "status": "preview",
