@@ -35,6 +35,26 @@ separately approved state migration must stop each writer and watchdog, prove
 integrity, move atomically, and verify the resumed runtime. Never hand-edit,
 reset, replay, or copy live state as source.
 
+## Migration and cutover policy
+
+Prefer forward-only cutovers for code, runtime, configuration, wrappers,
+services, schedules, and other deployment changes. Inventory every artifact
+and owner that must move together, then stage a compatible replacement while
+the existing path remains authoritative. At the switch, stop the old writer
+before starting the new one, record the source boundary, and use a fresh cursor
+or state root so only post-boundary work enters the new path. Do not replay or
+transfer historical state by default. Record any intentionally skipped
+backlog; preserve the old state and release artifacts unchanged for rollback.
+Keep the single-writer pause as short as practical, and verify health plus the
+first natural run without sending synthetic messages.
+
+Use a full snapshot and reconciliation only when preserving history is a
+requirement. Keep that path separately planned and approved; an incomplete
+history handoff must not block a forward-only cutover when history is not
+needed, and it must never be made to look ready by weakening validation.
+Existing approval rules for live scheduler, destination, and service changes
+still apply.
+
 VPS-only retained runtime material has one canonical backup tree:
 `~/backup/hermes/`. Store state-cutover rollback archives at
 `runtime-cutovers/<YYYY-MM-DD>/<runtime-identity>/` and release snapshots at
