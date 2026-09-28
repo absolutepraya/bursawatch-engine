@@ -396,19 +396,31 @@ def submit(
 
 def claim_agent(
     *, no_post: bool = False, config_path: Path | None = None, state_path: Path | None = None,
-    now: datetime | None = None,
+    archive_root: Path | None = None, now: datetime | None = None,
 ) -> dict[str, Any]:
     config_path = config_path or _config_path()
     state_path = state_path or _state_path()
-    _assert_no_post_isolated(no_post, (state_path,))
+    archive_root = archive_root or _archive_root()
+    _assert_no_post_isolated(no_post, (state_path, archive_root))
     if not state_path.is_absolute():
         raise ValueError("WhatsApp owner state path must be absolute")
+    if not archive_root.is_absolute():
+        raise ValueError("WhatsApp archive path must be absolute")
     loaded = config.load_for_run(config_path)
     observed = now or datetime.now(timezone.utc)
     with _state_lock(state_path):
         value = state.load(state_path)
-        state.expire_leases(value, observed)
+        expired = state.expire_leases(value, observed)
         profiles = {profile.id: profile for profile in loaded.config.profiles}
+        errors: list[str] = []
+        delivered = scan._deliver_ready(
+            value,
+            profiles,
+            dry_run=no_post,
+            state_path=state_path,
+            archive_dir=archive_root,
+            errors=errors,
+        )
         claimed = None
         for record in scan._active_records(value, profiles):
             if record.get("agent_phase") != "pending":
@@ -423,7 +435,12 @@ def claim_agent(
             claimed = agent_protocol.agent_item(profile, event, relevance_guard_required=route_override is not None)
             break
         state.save(state_path, value)
-    return agent_protocol.build_wake_payload(claimed)
+    return {
+        **agent_protocol.build_wake_payload(claimed),
+        "delivered": delivered,
+        "expired": expired,
+        "delivery_errors": len(errors),
+    }
 
 
 def main() -> int:

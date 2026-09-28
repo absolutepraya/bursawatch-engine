@@ -13,6 +13,9 @@ watcher configuration revisions. User endpoints remain pending until a
 reviewed verification path exists; pending endpoints cannot produce effective
 subscriptions. The supported securities table starts empty because no
 reviewed finite engine universe has been established in source.
+The system-owned BRI WhatsApp endpoint supports `company_news`, `macro_news`,
+and `swing_chart_context`; the channel watcher's route scope still decides
+which classified items can be delivered.
 
 It does not own watcher cursors, image bytes, media, delivery outboxes,
 domain retry state, Telegram resilience, Swing Board state, secrets, or scheduler

@@ -702,6 +702,8 @@ class ReleaseDeployer:
                 _verify_x_source_ingest_no_post(output)
             elif verification == "rss-source-ingest-no-post":
                 _verify_synthetic_source_ingest_no_post(output, "RSS")
+            elif verification == "whatsapp-source-ingest-no-post":
+                _verify_synthetic_source_ingest_no_post(output, "WhatsApp")
         except CommandFailure as exc:
             exc.add_details(
                 verification=verification,
@@ -897,6 +899,16 @@ def _no_post_specification(verification: str, state_root: Path) -> NoPostSpecifi
             "BURSAWATCH_RELEASE_NO_POST_TEMP": str(base),
         }
         command = (str(scripts / "bursawatch-rss-source-ingest.sh"),)
+    elif verification == "whatsapp-source-ingest-no-post":
+        environment = {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(home),
+            "TZ": "Asia/Jakarta",
+            "LANG": "C.UTF-8",
+            "BURSAWATCH_RELEASE_NO_POST": "1",
+            "BURSAWATCH_RELEASE_NO_POST_TEMP": str(base),
+        }
+        command = (str(scripts / "bursawatch-wa-source-ingest.sh"),)
     else:
         raise DeploymentError(f"release manifest references an unknown verification: {verification}")
     return NoPostSpecification(command=command, environment=environment, temporary_path=base)

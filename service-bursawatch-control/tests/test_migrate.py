@@ -116,6 +116,7 @@ def test_discover_migrations_uses_the_checked_legacy_eligibility_registry():
         "015_source_revision_identity.sql",
         "016_source_execution_fence.sql",
         "017_x_swing_route_groups.sql",
+        "018_bri_whatsapp_news_compatibility.sql",
     }
     assert {migration.release_eligibility for migration in migrations} == {"automatic", "manual"}
     assert next(

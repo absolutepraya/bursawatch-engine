@@ -131,7 +131,7 @@ def test_whatsapp_source_work_hands_verified_chart_to_existing_watcher_without_p
     assert media.downloads == [work["envelope"]["media_refs"][0]["ref"]]
 
     wake = pipeline_owner.claim_agent(
-        no_post=True, state_path=state_path,
+        no_post=True, state_path=state_path, archive_root=archive_root,
         config_path=ROOT / "cron-wa-channel-watch" / "config" / "watches.json", now=NOW,
     )
     assert wake["wakeAgent"] is True

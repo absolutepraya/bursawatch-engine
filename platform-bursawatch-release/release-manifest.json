@@ -294,8 +294,17 @@
     },
     {
       "id": "cron-wa-source-ingest-pilot",
+      "handler": "runtime",
+      "runtime": "bursawatch-wa-source-ingest",
+      "depends_on": ["lib-bursawatch-control", "lib-bursawatch-discord-delivery", "lib-bursawatch-pipeline-runtime", "lib-bursawatch-source-ingest-pilot", "lib-bursawatch-source-media", "cron-wa-channel-watch"],
+      "paths": ["cron-wa-source-ingest/bin/**", "cron-wa-source-ingest/SKILL.md"],
+      "wrappers": [{"source": "bursawatch-wa-source-ingest.sh", "destination": "bursawatch-wa-source-ingest.sh"}],
+      "verification": "whatsapp-source-ingest-no-post"
+    },
+    {
+      "id": "cron-wa-source-ingest-pilot-metadata",
       "handler": "metadata",
-      "paths": ["cron-wa-source-ingest/**"]
+      "paths": ["cron-wa-source-ingest/AGENTS.md", "cron-wa-source-ingest/tests/**"]
     },
     {
       "id": "cron-stockbit-snips",

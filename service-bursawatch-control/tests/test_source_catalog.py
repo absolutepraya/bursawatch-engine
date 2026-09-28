@@ -71,6 +71,22 @@ def test_x_route_compatibility_is_grouped_and_disabled_until_configured():
     assert all(item["dispatch_group"] is None for item in effective["subscriptions"] if item["endpoint_id"] not in x_ids)
 
 
+def test_bri_whatsapp_compatibility_preserves_news_and_swing_routes():
+    api, _, _ = client()
+    endpoint_id = "whatsapp:0029VbAjdnb60eBhwVdJxj1c"
+    catalog = api.get("/v1/source-catalog", headers=ADMIN).json()
+    effective = api.get("/v1/source-catalog/effective", headers=MACHINE).json()
+    compatibility = [row for row in catalog["compatibility"] if row["endpoint_id"] == endpoint_id]
+    assert {(row["capability_id"], row["dispatch_group"]) for row in compatibility} == {
+        ("company_news", None),
+        ("macro_news", None),
+        ("swing_chart_context", None),
+    }
+    subscriptions = [row for row in effective["subscriptions"] if row["endpoint_id"] == endpoint_id]
+    assert {row["capability_id"] for row in subscriptions} == {"company_news", "macro_news", "swing_chart_context"}
+    assert all(row["enabled"] is False and row["source"] == "unset" for row in subscriptions)
+
+
 def test_user_added_x_endpoint_gets_group_compatibility_but_stays_pending():
     api, _, _ = client()
     config = initial_config()

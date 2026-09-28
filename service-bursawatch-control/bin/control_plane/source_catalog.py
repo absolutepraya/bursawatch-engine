@@ -141,6 +141,8 @@ COMPATIBILITY = (
     ("telegram:tuntunsekuritas", "company_news"),
     ("telegram:tuntunsekuritas", "macro_news"),
     ("whatsapp:0029VbAjdnb60eBhwVdJxj1c", "swing_chart_context"),
+    ("whatsapp:0029VbAjdnb60eBhwVdJxj1c", "company_news"),
+    ("whatsapp:0029VbAjdnb60eBhwVdJxj1c", "macro_news"),
     *((f"rss:stockbit:{lane}", "stockbit_snips") for lane in ("stockbit_commentary", "unboxing", "unboxing_ipo", "ai_reports_stockbit")),
 )
 
