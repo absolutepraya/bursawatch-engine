@@ -18,14 +18,22 @@ adapter uploads bounded `pbs.twimg.com` images through the shared Source Media
 Owner before inbox acceptance. It stores only validated opaque refs in the
 event. Unsupported media and upload failures retain the endpoint cursor. The
 existing watcher remains the sole live source reader, queue owner, agent wake
-owner, renderer, Board handoff, and Discord Delivery Owner client. The pilot
-claims compatible `company_news` and `macro_news` subscription work through
-`PipelineRuntime` and passes it to the watcher owner. Events include ordered
-self-chain context and opaque image references. Same-ID source changes create
-durable SourceEvent corrections. The owner leaves work retriable when required
-context cannot be reconstructed. The current Board chart path supports one
-source image per event; multiple-image work remains unclaimed. This pilot has
-no production schedule or cutover.
+owner, renderer, Board handoff, and Discord Delivery Owner client. For verified
+X endpoints, `company_news`, `macro_news`, and `swing_chart_context` are
+compatible members of the exclusive `x_post_route` dispatch group; compatibility
+does not enable a subscription, and `swing_chart_context` is disabled by default.
+Any enabled group member creates one route-group work item per publication, which
+the existing watcher classifies once. Each item freezes the full enabled
+capability set, per-capability configuration source, and catalog revision for
+retries and corrections instead of re-evaluating current catalog settings.
+Existing legacy `company_news` and `macro_news` work remains compatible and
+drainable. Events include ordered self-chain context and opaque image references.
+Same-ID source changes create durable SourceEvent corrections. The owner leaves
+work retriable when required context cannot be reconstructed. Accepted source
+media is bounded to 16 refs per event, 8 MiB per object, and 25 MiB aggregate;
+the watcher makes up to 16 accepted images available to Vision and supports
+multi-image delivery through All and the Board. This pilot has no production
+schedule or cutover.
 
 The X watcher owns one state file for scanning, accepted source work, and
 Delivery Owner handoff. All watcher processes resolve it through
