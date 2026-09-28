@@ -7,6 +7,10 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+# Keep synthetic release verification from creating source-tree bytecode.
+sys.dont_write_bytecode = True
 
 ROOT = Path(__file__).resolve().parents[2]
 for package in ("lib-bursawatch-control", "lib-bursawatch-source-ingest", "lib-bursawatch-pipeline-runtime"):
@@ -18,10 +22,11 @@ owner = ROOT / "cron-stockbit-snips" / "bin"
 if not owner.exists():
     owner = Path.home() / ".agents" / "skills" / "bursawatch-stockbit-snips" / "bin"
 sys.path.insert(0, str(owner))
+import config as stockbit_config
 from source_runner import client, state_root
 from pipeline_runtime import PipelineRuntime
-from adapter import run_once as ingest_once
-from config import load_watch_config_for_run
+from adapter import require_legacy_cursor_seed, run_once as ingest_once
+from config import HEARTBEAT_CHANNEL_ID, WATCHER_NAME, FEEDS, load_watch_config_for_run
 from source_ingest import IntakeBlocked
 
 
@@ -53,9 +58,16 @@ def _owner_handler(item: dict) -> None:
         raise RuntimeError("Stockbit owner did not acknowledge source work")
 
 
-def run_once(snapshot: dict | None, loaded_config: object | None, root: Path, inbox: object, observed_at: datetime, *, fetch_feed=None, handler=None, owner_command=None) -> dict:
+def run_once(snapshot: dict | None, loaded_config: object | None, root: Path, inbox: object, observed_at: datetime, *, fetch_feed=None, handler=None, owner_command=None, require_legacy_seed: bool = False) -> dict:
     if snapshot is None or loaded_config is None:
         source = [{"endpoint_id": "rss:stockbit", "status": "blocked", "reason": "intake_config_unavailable"}]
+    elif require_legacy_seed:
+        try:
+            require_legacy_cursor_seed(root, snapshot["revision"], loaded_config.revision)
+        except IntakeBlocked:
+            source = [{"endpoint_id": "rss:stockbit", "status": "blocked", "reason": "migration_cursor_handoff_invalid"}]
+        else:
+            source = ingest_once(snapshot, loaded_config, root, inbox, observed_at, fetch_feed=fetch_feed)
     else:
         try:
             source = ingest_once(snapshot, loaded_config, root, inbox, observed_at, fetch_feed=fetch_feed)
@@ -78,6 +90,8 @@ def run_once(snapshot: dict | None, loaded_config: object | None, root: Path, in
 
 
 def main() -> int:
+    if sys.argv[1:] == ["--verify-synthetic"]:
+        return verify_synthetic()
     if os.environ.get("BURSAWATCH_RSS_SOURCE_NO_POST") == "1":
         raise RuntimeError("use injected feed and inbox fakes for no-post validation")
     inbox = client("BURSAWATCH_RSS_SOURCE")
@@ -89,8 +103,141 @@ def main() -> int:
         snapshot = inbox.get_effective()
     except Exception:
         snapshot = None
-    results = run_once(snapshot, loaded, state_root("BURSAWATCH_RSS_SOURCE", "bursawatch-rss-source-ingest"), inbox, datetime.now(timezone.utc))
+    observed_at = datetime.now(timezone.utc)
+    try:
+        results = run_once(
+            snapshot,
+            loaded,
+            state_root("BURSAWATCH_RSS_SOURCE", "bursawatch-rss-source-ingest"),
+            inbox,
+            observed_at,
+            require_legacy_seed=True,
+        )
+    except Exception:
+        try:
+            send_heartbeat({"source": [{"status": "blocked", "accepted": 0, "fetched": 0}], "work": [], "fatal": True}, observed_at)
+        except Exception:
+            pass
+        raise RuntimeError("RSS source ingest run failed") from None
+    try:
+        send_heartbeat(results, observed_at)
+    except Exception:
+        results["heartbeat_error"] = True
     print(json.dumps(results, separators=(",", ":")))
+    return 0
+
+
+def _owner_pending_count() -> int:
+    import state as stockbit_state
+
+    runtime = stockbit_config.runtime()
+    with stockbit_state.run_lock(runtime.state_path):
+        value = stockbit_state.load_state(runtime.state_path, FEEDS)
+    articles = value.get("articles")
+    if type(articles) is not dict:
+        raise RuntimeError("Stockbit owner state is invalid")
+    return sum(
+        1 for record in articles.values()
+        if type(record) is dict and record.get("phase") in {"awaiting_agent", "pending_delivery"}
+    )
+
+
+def send_heartbeat(result: dict, now: datetime, *, pending_count: int | None = None, post_text=None) -> None:
+    """Publish count-only run evidence through the existing Delivery Owner."""
+    source = result.get("source")
+    work = result.get("work")
+    if type(source) is not list or type(work) is not list:
+        raise RuntimeError("RSS heartbeat run summary is invalid")
+    if any(type(row) is not dict for row in source + work):
+        raise RuntimeError("RSS heartbeat run summary is invalid")
+    fetched = sum(row.get("fetched", 0) for row in source if type(row.get("fetched", 0)) is int and row.get("fetched", 0) >= 0)
+    queued = sum(row.get("accepted", 0) for row in source if type(row.get("accepted", 0)) is int and row.get("accepted", 0) >= 0)
+    errors = sum(row.get("status") == "blocked" for row in source)
+    errors += sum(row.get("status") != "done" for row in work)
+    errors += int(result.get("fatal") is True)
+    pending = _owner_pending_count() if pending_count is None else pending_count
+    if type(pending) is not int or pending < 0:
+        raise RuntimeError("RSS heartbeat pending count is invalid")
+    local = now.astimezone(ZoneInfo("Asia/Jakarta"))
+    warning = " ⚠️" if errors else ""
+    content = (
+        f"🫀 {WATCHER_NAME} · {local:%H:%M} WIB · {fetched} fetched · "
+        f"{queued} queued · 0 delivered · {errors} errors · {pending} pending{warning}"
+    )
+    sender = post_text
+    if sender is None:
+        from discord import post_text as sender
+    sender(
+        content,
+        HEARTBEAT_CHANNEL_ID,
+        dry_run=False,
+        event_key=f"heartbeat:{local:%Y%m%d%H%M}",
+        leg="heartbeat",
+    )
+
+
+def verify_synthetic() -> int:
+    """Exercise RSS endpoint binding and event serialization without side effects."""
+    from adapter import _item, endpoints
+    from config import FEEDS, ID_STOCKS_NEWS_CHANNEL_ID, MACRO_NEWS_CHANNEL_ID, LoadedStockbitConfig, load_watch_config_data
+    from models import Article
+    from source_ingest import envelope
+
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
+    loaded = LoadedStockbitConfig(
+        load_watch_config_data({
+            "version": 1,
+            "feeds": [{"id": feed.lane.value, "enabled": True} for feed in FEEDS],
+            "destinations": {
+                "id_stocks_news_channel_id": ID_STOCKS_NEWS_CHANNEL_ID,
+                "macro_news_channel_id": MACRO_NEWS_CHANNEL_ID,
+            },
+            "additional_prompt_instruction": "",
+        }),
+        revision=1,
+    )
+    snapshot = {
+        "revision": 1,
+        "subscriptions": [{
+            "platform": "rss",
+            "endpoint_id": f"rss:stockbit:{feed.lane.value}",
+            "publisher_id": "stockbit",
+            "address": feed.url,
+            "provider_id": feed.lane.value,
+            "capability_id": "stockbit_snips",
+            "verification_status": "verified",
+            "enabled": True,
+        } for feed in FEEDS],
+    }
+    selected, _ = endpoints(snapshot, loaded)
+    feed = FEEDS[0]
+    article = Article(
+        feed.lane,
+        feed.label,
+        "synthetic-rss-guid",
+        "https://snips.stockbit.com/synthetic",
+        "Synthetic title",
+        "Synthetic body",
+        now,
+    )
+    item = _item(article, loaded)
+    event = envelope(selected[f"rss:stockbit:{feed.lane.value}"], item, now, "stockbit-rss-parser-1")
+    if (
+        event["provider_event_id"] != item["provider_event_id"]
+        or event["media_required"] is not False
+        or event["media_refs"] != []
+        or event["payload"]["article"]["guid"] != article.guid
+        or loaded.config.additional_prompt_instruction != ""
+    ):
+        raise RuntimeError("synthetic RSS adapter verification failed")
+    print(json.dumps({
+        "outcome": "synthetic-ok",
+        "network": False,
+        "secrets": False,
+        "writes": False,
+        "events": 1,
+        "content_hash": event["content_hash"],
+    }, separators=(",", ":")))
     return 0
 
 
