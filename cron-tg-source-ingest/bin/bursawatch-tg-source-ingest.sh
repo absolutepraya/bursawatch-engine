@@ -47,6 +47,22 @@ if [[ -r "$ENV_FILE" ]]; then
   done < "$ENV_FILE"
 fi
 
+# The source runner invokes the Phintraco domain-owner Python entry point
+# directly, so it cannot rely on the Phintraco cron wrapper to expose the
+# private PyMuPDF installation. Add only the configured private parser path to
+# this process environment, after verifying every entry. This does not modify
+# the shared interpreter or install packages into its environment.
+if [[ -n "${IDX_SWING_WATCH_PHINTRACO_DAILY_PYTHONPATH:-}" ]]; then
+  IFS=: read -r -a PHINTRACO_PYTHONPATH_ENTRIES <<< "$IDX_SWING_WATCH_PHINTRACO_DAILY_PYTHONPATH"
+  for pythonpath_entry in "${PHINTRACO_PYTHONPATH_ENTRIES[@]}"; do
+    if [[ -z "$pythonpath_entry" || ! -d "$pythonpath_entry" ]]; then
+      printf '%s\n' "configured Phintraco parser path is unavailable" >&2
+      exit 2
+    fi
+  done
+  export PYTHONPATH="$IDX_SWING_WATCH_PHINTRACO_DAILY_PYTHONPATH:$PYTHONPATH"
+fi
+
 LOG_DIR="$HOME/.logs"
 install -d -m 700 "$LOG_DIR"
 LOG_FILE="$LOG_DIR/bursawatch-tg-source-ingest.log"

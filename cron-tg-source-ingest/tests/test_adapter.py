@@ -50,6 +50,9 @@ def test_runtime_wrapper_imports_source_media_and_phintraco_owner_config():
         "IDX_SWING_WATCH_PHINTRACO_DAILY_PYTHONPATH=*",
     ):
         assert key in content
+    assert 'IFS=: read -r -a PHINTRACO_PYTHONPATH_ENTRIES <<< "$IDX_SWING_WATCH_PHINTRACO_DAILY_PYTHONPATH"' in content
+    assert '[[ -z "$pythonpath_entry" || ! -d "$pythonpath_entry" ]]' in content
+    assert 'export PYTHONPATH="$IDX_SWING_WATCH_PHINTRACO_DAILY_PYTHONPATH:$PYTHONPATH"' in content
 
 
 class FakeInbox:
