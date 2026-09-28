@@ -2238,7 +2238,7 @@ def test_imported_pending_receipt_waits_without_resubmitting():
         "alert", scan.ALERT_CHANNEL_ID, False, "33655", client=owner
     ) == "90001"
     assert owner.submits == []
-    assert owner.waits == [(operation.key, 0)]
+    assert owner.waits == [(operation.key, scan.DELIVERY_RECEIPT_WAIT_SECONDS)]
 
 
 def test_unrecognized_existing_digest_is_rejected_without_resubmitting():

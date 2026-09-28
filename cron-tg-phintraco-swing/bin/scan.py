@@ -2144,6 +2144,7 @@ _DELIVERY_OWNER_PREFIX = "bursawatch-tg-phintraco-swing"
 _DELIVERY_OWNER_URL = "http://127.0.0.1:9140"
 _DELIVERY_CLIENT_TOKEN_FILE = ".hermes/secrets/bursawatch-discord-delivery-client-token"
 _NON_TERMINAL_DELIVERY_STATUSES = frozenset({"pending", "pending_reconciliation", "retrying", "delivering"})
+DELIVERY_RECEIPT_WAIT_SECONDS = 10
 
 
 def delivery_client_from_environment(*, include_admin: bool = False) -> DeliveryClient:
@@ -2222,7 +2223,7 @@ def _submit_or_lookup(
     if not isinstance(receipt, OperationReceipt) or receipt.key != operation.key or receipt.digest != expected_digest:
         raise DeliveryClientError("invalid_response")
     if receipt.status in _NON_TERMINAL_DELIVERY_STATUSES:
-        receipt = client.wait(operation.key, 0)  # type: ignore[attr-defined]
+        receipt = client.wait(operation.key, DELIVERY_RECEIPT_WAIT_SECONDS)  # type: ignore[attr-defined]
         if not isinstance(receipt, OperationReceipt) or receipt.key != operation.key or receipt.digest != expected_digest:
             raise DeliveryClientError("invalid_response")
     return receipt

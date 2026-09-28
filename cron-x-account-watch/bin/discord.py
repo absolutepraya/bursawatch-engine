@@ -30,6 +30,7 @@ DELIVERY_OWNER_URL = "http://127.0.0.1:9140"
 DELIVERY_CLIENT_TOKEN_FILE = ".hermes/secrets/bursawatch-discord-delivery-client-token"
 DELIVERY_OPERATION_PREFIX = "bursawatch-x-account-watch"
 NON_TERMINAL_DELIVERY_STATUSES = frozenset({"pending", "pending_reconciliation", "retrying", "delivering"})
+DELIVERY_RECEIPT_WAIT_SECONDS = 10
 
 
 class DiscordRetryAfter(RuntimeError):
@@ -133,7 +134,7 @@ def _submit_or_lookup(
     if not isinstance(receipt, OperationReceipt) or receipt.key != operation.key or receipt.digest != expected_digest:
         raise DeliveryOwnerError("Delivery Owner returned an invalid operation receipt")
     if receipt.status in NON_TERMINAL_DELIVERY_STATUSES:
-        receipt = client.wait(operation.key, 0)  # type: ignore[attr-defined]
+        receipt = client.wait(operation.key, DELIVERY_RECEIPT_WAIT_SECONDS)  # type: ignore[attr-defined]
         if not isinstance(receipt, OperationReceipt) or receipt.key != operation.key or receipt.digest != expected_digest:
             raise DeliveryOwnerError("Delivery Owner returned an invalid operation receipt")
     if receipt.status in NON_TERMINAL_DELIVERY_STATUSES:
