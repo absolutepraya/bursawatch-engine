@@ -52,10 +52,7 @@ def _source_message(envelope: dict[str, Any]) -> SimpleNamespace:
     refs = envelope.get("media_refs", [])
     if type(refs) is not list or any(type(ref) is not dict for ref in refs):
         raise ValueError("Phintraco source media mapping is invalid")
-    documents = [
-        ref for ref in refs
-        if ref.get("kind") == "document" and ref.get("ref") in media_ref_ids
-    ]
+    documents = [ref for ref in refs if ref.get("kind") == "document"]
     if len(documents) > 1:
         raise ValueError("Phintraco source event has multiple documents")
     document = None
@@ -126,7 +123,6 @@ def _download_source_pdf(envelope: dict[str, Any], media_store: Any = None) -> b
         ref for ref in refs
         if type(ref) is dict and ref.get("kind") == "document"
         and ref.get("content_type") == "application/pdf"
-        and ref.get("ref") in envelope["payload"].get("media_ref_ids", [])
     ]
     if len(matches) != 1:
         raise ValueError("Phintraco weekly PDF requires exactly one durable document ref")

@@ -94,7 +94,7 @@ def test_weekly_pdf_source_work_uses_durable_document_and_original_published_tim
         "envelope": {
             "endpoint_id": "telegram:phintraprofits", "publisher_id": "phintraco",
             "provider_event_id": "35448", "published_at": "2026-09-27T23:05:33+00:00",
-            "payload": {"text": "", "media_ref_ids": [reference["ref"]]}, "media_required": True,
+            "payload": {"text": "", "reply_to_message_id": 35447}, "media_required": True,
             "media_refs": [reference],
         },
     }
