@@ -404,6 +404,14 @@ def test_manifest_marks_host_bound_release_assets_manual():
         ]
 
 
+def test_phintraco_runtime_requirements_are_metadata_not_runtime_deployment():
+    units = manifest().matching_units(["cron-tg-phintraco-swing/requirements.txt"])
+
+    assert [(unit.identifier, unit.handler) for unit in units] == [
+        ("cron-tg-phintraco-swing-metadata", "metadata"),
+    ]
+
+
 def test_whatsapp_runtime_manifest_includes_archive_operator_wrapper():
     units = manifest().matching_units(["cron-wa-channel-watch/bin/bursawatch-wa-channel-archive.sh"])
 

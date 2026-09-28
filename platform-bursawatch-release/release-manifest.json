@@ -186,7 +186,7 @@
     {
       "id": "cron-tg-phintraco-swing-metadata",
       "handler": "metadata",
-      "paths": ["cron-tg-phintraco-swing/AGENTS.md", "cron-tg-phintraco-swing/tests/**"]
+      "paths": ["cron-tg-phintraco-swing/AGENTS.md", "cron-tg-phintraco-swing/requirements.txt", "cron-tg-phintraco-swing/tests/**"]
     },
     {
       "id": "cron-tg-kelas-investasi-gtw",
