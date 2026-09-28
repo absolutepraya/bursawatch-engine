@@ -182,7 +182,7 @@ class XAccountWatchHandoffAdapter:
                 receipt = {"channel_id": channel_id, "message_id": known_id} if known_id is not None else None
                 self._append(items, operation, receipt)
 
-            media_urls = [item.url for item in scan._delivery_media(profile, thread_posts)] if profile.forward_media else []
+            media_urls = [item.url for item in scan._delivery_media(profile, thread_posts, route=event.get("route"))] if profile.forward_media else []
             media_cursor = event.get("media_index")
             media_ids = event.get("media_message_ids", [])
             skipped = set(event.get("media_skipped_urls", []))

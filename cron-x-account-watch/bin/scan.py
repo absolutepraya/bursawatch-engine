@@ -287,7 +287,7 @@ def _event_source_ids(event: dict) -> set[str]:
     return {item.get("post_id") for item in event.get("thread_posts", [event.get("post", {})]) if item.get("post_id")}
 
 
-def _delivery_media(profile, thread_posts):
+def _delivery_media(profile, thread_posts, *, route: str | None = None):
     all_media = []
     seen_media: set[str] = set()
 
@@ -300,7 +300,7 @@ def _delivery_media(profile, thread_posts):
     for thread_post in thread_posts:
         append_unique(thread_post.media)
         append_unique(thread_post.quoted_media)
-    if profile.media_policy == "omit_last":
+    if profile.media_policy == "omit_last" and route != "id_stocks_swing":
         return all_media[:-1]
     return all_media
 
@@ -386,7 +386,7 @@ def board_source_event(event: dict, profile, *, status_date: datetime | None = N
     normalized_source_title = f"{ticker}: {source_match.group(2).strip()}"
     skipped_media = set(event.get("media_skipped_urls", []))
     source_paths = event.get("source_media_paths", {})
-    source_urls = [item.url for item in _delivery_media(profile, thread_posts)] if profile.forward_media else []
+    source_urls = [item.url for item in _delivery_media(profile, thread_posts, route=event.get("route"))] if profile.forward_media else []
     from source_media import reference_id
     usable_urls = [url for url in source_urls if url not in skipped_media]
     media_paths = [source_paths[ref] for url in usable_urls
@@ -619,7 +619,7 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
                 event["delivery_at"] = delivery_at.isoformat()
             state.save_state(storage, value)
             continue
-        all_media = _delivery_media(profile, thread_posts)
+        all_media = _delivery_media(profile, thread_posts, route=event.get("route"))
         while profile.forward_media and event["media_index"] < len(all_media):
             index = event["media_index"]
             media_url = all_media[index].url

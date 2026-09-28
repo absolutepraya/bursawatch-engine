@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 import json
 from types import SimpleNamespace
@@ -573,6 +574,7 @@ def test_board_retry_accepts_without_reposting_all_messages(tmp_path, monkeypatc
 
 
 def test_all_text_then_ordered_images_then_board_in_one_delivery(tmp_path, monkeypatch) -> None:
+    swing_profile = replace(profile_fixture(), media_policy="omit_last")
     value = ready_swing_state(tmp_path)
     event = value["outbox"][0]
     event["text_index"] = event["media_index"] = 0
@@ -590,13 +592,13 @@ def test_all_text_then_ordered_images_then_board_in_one_delivery(tmp_path, monke
     monkeypatch.setattr(scan.discord, "post_media", lambda url, *_args, **_kwargs: sequence.append(("media", url)) or f"media-{len(sequence)}")
     monkeypatch.setattr(scan, "submit_board_event", lambda payload, *_: sequence.append(("board", payload["media_paths"])) or False)
     storage = tmp_path / "state.json"
-    assert scan._deliver(value, profiles(), 0, False, storage, stats(), now()) is False
+    assert scan._deliver(value, {swing_profile.id: swing_profile}, 0, False, storage, stats(), now()) is False
     assert [kind for kind, _ in sequence] == ["text", "media", "media", "media", "board"]
     assert [item[1] for item in sequence[1:4]] == urls
     assert sequence[-1][1] == [event["source_media_paths"][ref] for ref in refs]
     assert event["text_message_ids"] == ["text-1"]
     assert len(event["media_message_ids"]) == 3
-    assert scan._deliver(value, profiles(), 0, False, storage, stats(), now() + timedelta(minutes=1)) is False
+    assert scan._deliver(value, {swing_profile.id: swing_profile}, 0, False, storage, stats(), now() + timedelta(minutes=1)) is False
     assert [kind for kind, _ in sequence] == ["text", "media", "media", "media", "board", "board"]
 
 
@@ -740,7 +742,7 @@ def test_delivery_omit_last_removes_only_final_unique_bundle_media(tmp_path, mon
     latest = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Latest", PostKind.QUOTE, "https://x.com/external/status/1", "External: Quote", (SourceMedia("https://img.example/latest.jpg", 0),), (SourceMedia("https://img.example/quote.jpg", 0),))
     value = state.new_state()
     value["outbox"].append({
-        "profile_id": profile.id, "post_id": latest.post_id, "text_index": 1, "media_index": 0,
+        "profile_id": profile.id, "post_id": latest.post_id, "route": "macro_news", "text_index": 1, "media_index": 0,
         "post": state.serialize_post(latest), "thread_posts": [state.serialize_post(root), state.serialize_post(latest)],
     })
     delivered = []
