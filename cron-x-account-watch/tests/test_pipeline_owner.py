@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -105,6 +106,8 @@ def test_group_work_creates_one_event_and_one_classifier_input(tmp_path):
     saved = state.load_state(storage)
     assert len(saved["outbox"]) == 1
     assert saved["outbox"][0]["enabled_capabilities"] == ["company_news", "macro_news", "swing_chart_context"]
+    assert saved["outbox"][0]["dispatch_context"] == work["dispatch_context"]
+    assert saved["source_events"][work["event_key"]]["dispatch_context"] == work["dispatch_context"]
     assert saved["outbox"][0]["source_catalog_revision"] == 17
     assert state.claim_oldest_agent(saved, {profile.id: profile}, NOW + timedelta(hours=1)) is saved["outbox"][0]
     assert state.claim_oldest_agent(saved, {profile.id: profile}, NOW + timedelta(hours=1)) is None
@@ -129,18 +132,47 @@ def test_group_correction_retains_original_capabilities(tmp_path):
     storage = tmp_path / "x.json"
     first = _group_work(profile, [_post(profile, 101, "First")], capabilities=("company_news",))
     correction = _group_work(profile, [_post(profile, 101, "Corrected")], capabilities=("company_news",), version=2, kind="correction")
+    for work in (first, correction):
+        work["dispatch_context"]["subscriptions"][0]["config_source"] = "endpoint_override"
+        work["config_source"] = "endpoint_override"
     pipeline_owner.accept_source_work(first, profiles=(profile,), storage=storage, no_post=True)
     pipeline_owner.accept_source_work(correction, profiles=(profile,), storage=storage, no_post=True)
     saved = state.load_state(storage)
     assert saved["outbox"][0]["enabled_capabilities"] == ["company_news"]
     assert saved["source_events"][first["event_key"]]["enabled_capabilities"] == ["company_news"]
+    assert saved["outbox"][0]["dispatch_context"] == first["dispatch_context"]
+    assert saved["source_events"][first["event_key"]]["dispatch_context"] == first["dispatch_context"]
     expanded = _group_work(profile, [_post(profile, 101, "Changed again")], capabilities=("company_news", "swing_chart_context"), version=3, kind="correction")
-    with pytest.raises(ValueError, match="capabilit"):
+    with pytest.raises(ValueError, match="dispatch context"):
         pipeline_owner.accept_source_work(expanded, profiles=(profile,), storage=storage, no_post=True)
     stale = _group_work(profile, [_post(profile, 101, "Changed again")], capabilities=("company_news",), version=3, kind="correction")
+    stale["dispatch_context"] = deepcopy(first["dispatch_context"])
+    stale["config_source"] = "endpoint_override"
     stale["catalog_revision"] = 18
     with pytest.raises(ValueError, match="catalog snapshot"):
         pipeline_owner.accept_source_work(stale, profiles=(profile,), storage=storage, no_post=True)
+
+
+def test_group_retry_rejects_changed_config_source_with_same_ids_and_revision(tmp_path):
+    profile = _profile("wavetiga")
+    storage = tmp_path / "x.json"
+    first = _group_work(profile, [_post(profile, 101, "First")], capabilities=("company_news", "macro_news"))
+    pipeline_owner.accept_source_work(first, profiles=(profile,), storage=storage, no_post=True)
+    changed = deepcopy(first)
+    changed["dispatch_context"]["subscriptions"][0]["config_source"] = "endpoint_override"
+    changed["config_source"] = "endpoint_override"
+    assert changed["catalog_revision"] == first["catalog_revision"]
+    assert [row["capability_id"] for row in changed["dispatch_context"]["subscriptions"]] == [row["capability_id"] for row in first["dispatch_context"]["subscriptions"]]
+    with pytest.raises(ValueError, match="dispatch context"):
+        pipeline_owner.accept_source_work(changed, profiles=(profile,), storage=storage, no_post=True)
+    changed_correction = _group_work(profile, [_post(profile, 101, "Corrected")], capabilities=("company_news", "macro_news"), version=2, kind="correction")
+    changed_correction["dispatch_context"] = deepcopy(changed["dispatch_context"])
+    changed_correction["config_source"] = "endpoint_override"
+    with pytest.raises(ValueError, match="dispatch context"):
+        pipeline_owner.accept_source_work(changed_correction, profiles=(profile,), storage=storage, no_post=True)
+    saved = state.load_state(storage)
+    assert saved["source_events"][first["event_key"]]["dispatch_context"] == first["dispatch_context"]
+    assert saved["outbox"][0]["dispatch_context"] == first["dispatch_context"]
 
 
 def test_legacy_work_still_accepts_during_group_drain(tmp_path):
