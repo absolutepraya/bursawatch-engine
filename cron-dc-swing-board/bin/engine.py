@@ -37,6 +37,13 @@ _TARGET = re.compile(
 # Keep the window bounded so a stale or manually delayed invocation is ignored.
 _PHASE_STARTS = {"initial": (16, 30), "retry": (17, 0)}
 _PHASE_LATE_GRACE = timedelta(minutes=5)
+_WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def episode_title(ticker: str, opened_at: datetime) -> str:
+    local = _wib(opened_at)
+    return f"{ticker} - {_WEEKDAYS[local.weekday()]}, {local.day:02d} {_MONTHS[local.month - 1]} {local.year}"
 
 
 def _source_confirmations(event: SourceEvent, active_plan: SourceEvent) -> tuple[bool, set[int]]:
@@ -238,7 +245,7 @@ class BoardEngine:
 
     def _social(self, tx, event, event_id, active, now):
         if active is None:
-            active = tx.create_episode(event.ticker, "source", event.ticker, event.published_at)
+            active = tx.create_episode(event.ticker, "source", episode_title(event.ticker, event.published_at), event.published_at)
             active = replace(
                 active,
                 lifecycle_tag=source_tier(event.source),
@@ -330,9 +337,8 @@ class BoardEngine:
             tx.finish_plan(active.id, now)
             tx.update_episode(replace(active, closed_at=now))
             active = None
-        # Keep the forum topic stable across source promotion.  The managed
-        # starter card carries the descriptive ``TICKER: Buy`` heading.
-        title = event.ticker
+        # Promotion keeps the source episode's opening title and timestamp.
+        title = active.title if active is not None and promoting_source else episode_title(event.ticker, event.published_at)
         if active is None:
             active = tx.create_episode(event.ticker, "primary", title, event.published_at)
             active = replace(active, lifecycle_tag=PRIMARY_PLAN, starter_source_event_id=event_id)
@@ -464,6 +470,15 @@ class BoardEngine:
                     "post_source_reply", active.id,
                     {**payload, "nonce_value": dedupe_key}, dedupe_key, now,
                 )
+        for index, path in enumerate(event.media_paths[1:], start=1):
+            payload = {"content": "", "media": _local_media(path)}
+            suffix = f":media-path:{index}"
+            if dedupe_scope is None:
+                self._enqueue(tx, event, active, "post_source_reply", payload, now, suffix=suffix)
+            else:
+                dedupe_key = f"{dedupe_scope}:{event.event_key}:post_source_reply{suffix}"
+                tx.enqueue_outbox("post_source_reply", active.id,
+                                  {**payload, "nonce_value": dedupe_key}, dedupe_key, now)
 
     def _source_history(self, tx, previous, active, replacement, now):
         """Preserve the previous starter card and first chart exactly once."""
@@ -521,13 +536,13 @@ class BoardEngine:
             return tx.schedule_history_deletes(now)
 
     def schedule_title_migration(self, now: datetime) -> dict[str, int]:
-        """Queue the stable ticker-only forum topic for every existing episode."""
+        """Repair forum titles from each episode's stored ticker and opening time."""
         scheduled = 0
         unchanged = 0
         for episode in self.store.episodes():
             if not episode.thread_id or not episode.starter_message_id:
                 continue
-            desired = episode.ticker
+            desired = episode_title(episode.ticker, episode.opened_at)
             if episode.title == desired:
                 unchanged += 1
                 continue

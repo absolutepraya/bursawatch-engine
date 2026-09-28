@@ -218,12 +218,18 @@ def _item(post: Any, endpoint_id: str, media_store: Any, *, upload_media: bool, 
             media_urls = {item.url for item in (*source_post.media, *source_post.quoted_media)}
             payload_post["content_html"] = _safe_html(payload_post.get("content_html"), media_urls)
             payload_post["quoted_content_html"] = _safe_html(payload_post.get("quoted_content_html"), media_urls)
-            payload_post["media"] = [{"index": item.index, "media_ref_id": url_to_ref[item.url]} for item in source_post.media]
-            payload_post["quoted_media"] = [{"index": item.index, "media_ref_id": url_to_ref[item.url]} for item in source_post.quoted_media]
+            seen_refs: set[str] = set()
+            for field, items in (("media", source_post.media), ("quoted_media", source_post.quoted_media)):
+                serialized_media = []
+                for item in items:
+                    ref = url_to_ref[item.url]
+                    if ref in seen_refs:
+                        continue
+                    seen_refs.add(ref)
+                    serialized_media.append({"index": item.index, "media_ref_id": ref})
+                payload_post[field] = serialized_media
         serialized.append(payload_post)
-    # The current X Board handoff has one local chart path. Hold a source
-    # event with more than one original before it creates subscription work.
-    if not complete or len(refs) > 1 or sum(ref["size_bytes"] for ref in refs) > 25 * 1024 * 1024:
+    if not complete or len(refs) > 16 or sum(ref["size_bytes"] for ref in refs) > 25 * 1024 * 1024:
         refs = []
     payload = {"post": serialized[-1], "thread_posts": serialized}
     if has_media and refs:

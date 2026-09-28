@@ -111,15 +111,18 @@ def _posts(profile: Any, envelope: dict[str, Any]) -> tuple[tuple[Any, ...], dic
     if type(raw_posts) is not list or not 1 <= len(raw_posts) <= profile.thread_handling.max_posts:
         raise ValueError("X source thread is incomplete")
     refs = envelope.get("media_refs")
-    if type(refs) is not list or len(refs) > 1:
-        # The Board's current source-event contract has one chart path. More
-        # images remain in Source Inbox for a later multi-chart owner contract.
-        raise ValueError("X source media exceeds the Board path contract")
+    if type(refs) is not list or len(refs) > 16:
+        raise ValueError("X source media exceeds the ordered media contract")
     by_ref = {ref["ref"]: ref for ref in refs if type(ref) is dict and type(ref.get("ref")) is str}
     if len(by_ref) != len(refs):
         raise ValueError("X source media references are invalid")
+    if any(type(ref.get("size_bytes")) is not int or not 1 <= ref["size_bytes"] <= 8 * 1024 * 1024 for ref in refs):
+        raise ValueError("X source image size is invalid")
+    if sum(ref["size_bytes"] for ref in refs) > 25 * 1024 * 1024:
+        raise ValueError("X source media exceeds the aggregate limit")
     converted = []
     used_refs: set[str] = set()
+    ordered_refs: list[str] = []
     for raw in raw_posts:
         if type(raw) is not dict or raw.get("profile_id") != profile.id:
             raise ValueError("X source post profile is invalid")
@@ -135,7 +138,10 @@ def _posts(profile: Any, envelope: dict[str, Any]) -> tuple[tuple[Any, ...], dic
                 ref = item["media_ref_id"]
                 if ref not in by_ref:
                     raise ValueError("X source image is not durable")
+                if ref in used_refs:
+                    raise ValueError("X source media reference is repeated")
                 used_refs.add(ref)
+                ordered_refs.append(ref)
                 converted_media.append({"index": item["index"], "url": reference_url(ref)})
             post[field] = converted_media
         try:
@@ -145,7 +151,7 @@ def _posts(profile: Any, envelope: dict[str, Any]) -> tuple[tuple[Any, ...], dic
         if parsed.post_id != str(int(parsed.post_id)) or parsed.url != f"https://x.com/{profile.handle}/status/{parsed.post_id}":
             raise ValueError("X source post identity is invalid")
         converted.append(parsed)
-    if used_refs != set(by_ref) or bool(refs) != envelope.get("media_required"):
+    if ordered_refs != [ref["ref"] for ref in refs] or bool(refs) != envelope.get("media_required"):
         raise ValueError("X source media completeness is invalid")
     latest = converted[-1]
     if (latest.post_id != envelope["provider_event_id"] or latest.url != envelope["source_url"]

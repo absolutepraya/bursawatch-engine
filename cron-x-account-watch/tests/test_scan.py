@@ -548,7 +548,7 @@ def test_swing_all_delivery_includes_board_link_before_view_on_x(tmp_path, monke
     sent = []
     monkeypatch.setattr(scan.discord, "post_text", lambda content, *_: sent.append(content) or "all-message")
 
-    assert scan._deliver(value, profiles(), 0, False, tmp_path / "state.json", stats(), now()) is True
+    assert scan._deliver(value, profiles(), 0, False, tmp_path / "state.json", stats(), now()) is False
     assert "**Board:** <#1548273399069933720>" in sent[0]
     assert "**Status date:** 15 Sep 2026 10:00 WIB" in sent[0]
     assert sent[0].index("**Board:**") < sent[0].index("[View on X]")
@@ -570,6 +570,31 @@ def test_board_retry_accepts_without_reposting_all_messages(tmp_path, monkeypatc
     assert value["outbox"] == []
     assert all_messages == []
     assert "**Status date:** 15 Sep 2026 10:00 WIB" in board_payloads[0]["all_content"]
+
+
+def test_all_text_then_ordered_images_then_board_in_one_delivery(tmp_path, monkeypatch) -> None:
+    value = ready_swing_state(tmp_path)
+    event = value["outbox"][0]
+    event["text_index"] = event["media_index"] = 0
+    event["text_message_ids"] = []
+    event["media_message_ids"] = []
+    event["post"]["media"] = [{"index": 0, "url": "https://pbs.twimg.com/media/a.jpg"},
+                              {"index": 1, "url": "https://pbs.twimg.com/media/b.jpg"}]
+    event["post"]["quoted_media"] = []
+    event["thread_posts"] = [event["post"]]
+    sequence = []
+    monkeypatch.setattr(scan.discord, "post_text", lambda content, *_: sequence.append(("text", content)) or "text-1")
+    monkeypatch.setattr(scan.discord, "post_media", lambda url, *_args, **_kwargs: sequence.append(("media", url)) or f"media-{len(sequence)}")
+    monkeypatch.setattr(scan, "submit_board_event", lambda payload, *_: sequence.append(("board", payload["media_urls"])) or False)
+    storage = tmp_path / "state.json"
+    assert scan._deliver(value, profiles(), 0, False, storage, stats(), now()) is False
+    assert [kind for kind, _ in sequence] == ["text", "media", "media", "board"]
+    assert [item[1] for item in sequence[1:3]] == ["https://pbs.twimg.com/media/a.jpg", "https://pbs.twimg.com/media/b.jpg"]
+    assert sequence[-1][1] == ["https://pbs.twimg.com/media/a.jpg", "https://pbs.twimg.com/media/b.jpg"]
+    assert event["text_message_ids"] == ["text-1"]
+    assert len(event["media_message_ids"]) == 2
+    assert scan._deliver(value, profiles(), 0, False, storage, stats(), now() + timedelta(minutes=1)) is False
+    assert [kind for kind, _ in sequence] == ["text", "media", "media", "board", "board"]
 
 
 def test_permanent_missing_media_is_skipped_and_board_handoff_continues(tmp_path, monkeypatch) -> None:
@@ -752,7 +777,6 @@ def test_delivery_persists_discord_message_id_in_ledger(tmp_path, monkeypatch, c
     storage = tmp_path / "state.json"
     stats = scan.RunStats()
 
-    assert scan._deliver(value, {profile.id: profile}, 0, False, storage, stats) is True
     assert scan._deliver(value, {profile.id: profile}, 0, False, storage, stats) is True
     assert value["deliveries"][0]["text_message_ids"] == ["new-text"]
 

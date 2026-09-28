@@ -19,7 +19,7 @@ from uuid import uuid4
 from calendar import CalendarCoverageError
 import config
 from discord_forum import DiscordForumClient, forum_thread_url
-from engine import BoardEngine
+from engine import BoardEngine, episode_title
 from models import SourceEvent
 from render import WIB
 from store import BoardStore
@@ -94,7 +94,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "apply_required": True,
                 "planned_episodes": sum(
                     1 for episode in engine.store.episodes()
-                    if episode.thread_id and episode.starter_message_id and episode.title != episode.ticker
+                    if episode.thread_id and episode.starter_message_id and episode.title != episode_title(episode.ticker, episode.opened_at)
                 ),
             }, separators=(",", ":")))
             return 0
@@ -547,33 +547,35 @@ def _failure_reason(error: object) -> str:
 
 
 def _own_media(event: SourceEvent) -> SourceEvent:
-    if event.media_path is None:
+    if not event.media_paths:
         return event
-    source = Path(event.media_path)
-    if not source.is_file():
+    sources = tuple(Path(path) for path in event.media_paths)
+    if any(not source.is_file() for source in sources):
         raise ValueError("source media is unavailable")
     root = _media_root()
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    suffix = _media_suffix(source)
     digest = hashlib.sha256(event.event_key.encode("utf-8")).hexdigest()
-    destination = root / f"{digest}{suffix}"
-    if destination.is_file():
-        return replace(event, media_path=str(destination))
-    descriptor, temporary = tempfile.mkstemp(prefix=f".{digest}.", dir=root)
+    destinations = []
+    for index, source in enumerate(sources):
+        suffix = _media_suffix(source)
+        destination = root / f"{digest}-{index}{suffix}"
+        if not destination.is_file():
+            descriptor, temporary = tempfile.mkstemp(prefix=f".{digest}-{index}.", dir=root)
+            try:
+                with os.fdopen(descriptor, "wb") as target, source.open("rb") as incoming:
+                    shutil.copyfileobj(incoming, target)
+                    target.flush()
+                    os.fsync(target.fileno())
+                os.replace(temporary, destination)
+            finally:
+                Path(temporary).unlink(missing_ok=True)
+        destinations.append(str(destination))
+    directory = os.open(root, os.O_RDONLY)
     try:
-        with os.fdopen(descriptor, "wb") as target, source.open("rb") as incoming:
-            shutil.copyfileobj(incoming, target)
-            target.flush()
-            os.fsync(target.fileno())
-        os.replace(temporary, destination)
-        directory = os.open(root, os.O_RDONLY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        os.fsync(directory)
     finally:
-        Path(temporary).unlink(missing_ok=True)
-    return replace(event, media_path=str(destination))
+        os.close(directory)
+    return replace(event, media_path=destinations[0], media_paths=tuple(destinations))
 
 
 def _media_suffix(source: Path) -> str:

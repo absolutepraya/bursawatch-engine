@@ -12,7 +12,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "cron-x-source-ingest" / "bin"))
-from adapter import endpoints, plan_legacy_cursor_seed, run_once
+from adapter import _item, endpoints, plan_legacy_cursor_seed, run_once
 import runner
 from runner import format_fatal, format_heartbeat, process_pending
 
@@ -291,7 +291,7 @@ def test_unsupported_x_video_media_holds_cursor(tmp_path):
     assert store.uploads == []
 
 
-def test_two_x_images_hold_cursor_before_unrepresentable_board_work(tmp_path):
+def test_two_x_images_are_accepted_in_source_order(tmp_path):
     profile = replace(load_watch_config(ROOT / "cron-x-account-watch" / "config" / "watches.json").profiles[0], enabled=True)
     endpoint_id = f"x:{profile.handle.casefold()}"
     snapshot = {"revision": 3, "subscriptions": [{"platform": "x", "endpoint_id": endpoint_id, "publisher_id": "x-kutekians", "address": profile.handle, "provider_id": None, "capability_id": "company_news", "verification_status": "verified", "enabled": True}]}
@@ -300,12 +300,54 @@ def test_two_x_images_hold_cursor_before_unrepresentable_board_work(tmp_path):
     inbox = Inbox()
     run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
     posts.append(post("101", (SourceMedia("https://pbs.twimg.com/media/a.jpg", 0), SourceMedia("https://pbs.twimg.com/media/b.jpg", 1))))
+    class OrderedMediaStore(MediaStore):
+        def upload(self, key, data, *, kind, content_type, filename):
+            result = super().upload(key, data, kind=kind, content_type=content_type, filename=filename)
+            result["ref"] = f"20000000-0000-4000-8000-{len(self.uploads):012d}"
+            return result
+
     result = run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts,
-                      media_store=MediaStore(), media_preparer=fake_image_prepare)
-    assert result[0]["status"] == "blocked"
-    assert result[0]["reason"] == "media_blocked"
-    assert inbox.events == []
-    assert json.loads((tmp_path / endpoint_id.replace(":", "-") / "cursor.json").read_text())["anchor"] == "100"
+                      media_store=OrderedMediaStore(), media_preparer=fake_image_prepare)
+    assert result[0]["status"] == "accepted"
+    assert [item["media_ref_id"] for item in inbox.events[0]["payload"]["thread_posts"][-1]["media"]] == [item["ref"] for item in inbox.events[0]["media_refs"]]
+    assert len(inbox.events[0]["media_refs"]) == 2
+    assert json.loads((tmp_path / endpoint_id.replace(":", "-") / "cursor.json").read_text())["anchor"] == "101"
+
+
+def test_self_chain_images_keep_post_and_authored_quoted_order():
+    profile = replace(load_watch_config(ROOT / "cron-x-account-watch" / "config" / "watches.json").profiles[0], enabled=True)
+    url = lambda identity: f"https://x.com/{profile.handle}/status/{identity}"
+    root = SourcePost(profile.id, "100", url("100"), NOW, "Root", PostKind.NORMAL, None, None,
+                      (SourceMedia("https://pbs.twimg.com/media/root.jpg", 0),), ())
+    child = SourcePost(profile.id, "101", url("101"), NOW, "Child", PostKind.REPLY, None, None,
+                       (SourceMedia("https://pbs.twimg.com/media/child.jpg", 0),),
+                       (SourceMedia("https://pbs.twimg.com/media/quoted.jpg", 0),), root.url)
+
+    class OrderedMediaStore(MediaStore):
+        def upload(self, key, data, *, kind, content_type, filename):
+            result = super().upload(key, data, kind=kind, content_type=content_type, filename=filename)
+            result["ref"] = f"20000000-0000-4000-8000-{len(self.uploads):012d}"
+            return result
+
+    item = _item(child, f"x:{profile.handle.casefold()}", OrderedMediaStore(), upload_media=True,
+                 media_preparer=fake_image_prepare, thread_posts=(root, child))
+    refs = [metadata["ref"] for metadata in item["media_refs"]]
+    assert len(refs) == 3
+    assert item["payload"]["thread_posts"][0]["media"][0]["media_ref_id"] == refs[0]
+    assert item["payload"]["thread_posts"][1]["media"][0]["media_ref_id"] == refs[1]
+    assert item["payload"]["thread_posts"][1]["quoted_media"][0]["media_ref_id"] == refs[2]
+
+
+def test_repeated_source_image_url_uses_one_ref_and_one_thread_entry():
+    profile = replace(load_watch_config(ROOT / "cron-x-account-watch" / "config" / "watches.json").profiles[0], enabled=True)
+    media = SourceMedia("https://pbs.twimg.com/media/chart.jpg", 0)
+    post = SourcePost(profile.id, "101", f"https://x.com/{profile.handle}/status/101", NOW,
+                      "One chart", PostKind.NORMAL, None, None, (media,), (media,))
+    item = _item(post, f"x:{profile.handle.casefold()}", MediaStore(), upload_media=True,
+                 media_preparer=fake_image_prepare)
+    assert len(item["media_refs"]) == 1
+    assert len(item["payload"]["thread_posts"][0]["media"]) == 1
+    assert item["payload"]["thread_posts"][0]["quoted_media"] == []
 
 
 def test_same_provider_post_edit_becomes_durable_source_revision(tmp_path):

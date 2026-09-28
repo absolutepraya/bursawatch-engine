@@ -299,7 +299,6 @@ def _delivery_media(profile, thread_posts):
 
     for thread_post in thread_posts:
         append_unique(thread_post.media)
-    for thread_post in thread_posts:
         if not thread_post.media:
             append_unique(thread_post.quoted_media)
     if profile.media_policy == "omit_last":
@@ -399,9 +398,11 @@ def board_source_event(event: dict, profile, *, status_date: datetime | None = N
     normalized_source_title = f"{ticker}: {source_match.group(2).strip()}"
     skipped_media = set(event.get("media_skipped_urls", []))
     source_paths = event.get("source_media_paths", {})
-    source_urls = _direct_media_urls(thread_posts)
+    source_urls = [item.url for item in _delivery_media(profile, thread_posts)] if profile.forward_media else []
     from source_media import reference_id
-    first_ref = reference_id(source_urls[0]) if source_urls else None
+    usable_urls = [url for url in source_urls if url not in skipped_media]
+    media_paths = [source_paths[ref] for url in usable_urls
+                   if (ref := reference_id(url)) is not None and ref in source_paths]
     return {
         "event_key": f"x:{profile.id}:{post.post_id}",
         "source": "x",
@@ -413,8 +414,10 @@ def board_source_event(event: dict, profile, *, status_date: datetime | None = N
         "source_title": normalized_source_title,
         "source_status": None,
         "plan": None,
-        "media_path": source_paths.get(first_ref) if first_ref else None,
-        "media_urls": [] if first_ref else [url for url in source_urls if url not in skipped_media],
+        "media_path": media_paths[0] if media_paths else None,
+        "media_paths": media_paths,
+        "media_urls": [url for url in _direct_media_urls(thread_posts)
+                       if url not in skipped_media and reference_id(url) is None],
     }
 
 
@@ -619,7 +622,7 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
     )
     media_url: str | None = None
     try:
-        if event["text_index"] < len(messages):
+        while event["text_index"] < len(messages):
             index = event["text_index"]
             message_id = discord.post_text(messages[index], channel_id, dry_run, discord.nonce(f"{profile.id}:{post.post_id}", f"text:{index}"))
             if message_id is not None:
@@ -628,9 +631,9 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
             if event.get("route") == "id_stocks_swing" and event.get("delivery_at") is None:
                 event["delivery_at"] = delivery_at.isoformat()
             state.save_state(storage, value)
-            return True
+            continue
         all_media = _delivery_media(profile, thread_posts)
-        if profile.forward_media and event["media_index"] < len(all_media):
+        while profile.forward_media and event["media_index"] < len(all_media):
             index = event["media_index"]
             media_url = all_media[index].url
             from source_media import reference_id
@@ -642,7 +645,7 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
                 event.setdefault("media_message_ids", []).append(message_id)
             event["media_index"] += 1
             state.save_state(storage, value)
-            return True
+            continue
     except Exception as exc:
         if isinstance(exc, discord.DeliveryOwnerPending):
             stats.owner_pending += 1

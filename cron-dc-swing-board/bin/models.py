@@ -133,12 +133,17 @@ class SourceEvent:
     plan: PlanLevels | None
     media_path: str | None
     media_urls: tuple[str, ...]
+    media_paths: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.media_paths and self.media_path is not None:
+            object.__setattr__(self, "media_paths", (self.media_path,))
 
     @classmethod
     def from_json(cls, payload: Mapping[str, Any]) -> SourceEvent:
         if not isinstance(payload, Mapping):
             raise ValueError("source event must be an object")
-        unknown = set(payload) - _EVENT_KEYS
+        unknown = set(payload) - _EVENT_KEYS - {"media_paths"}
         missing = _EVENT_KEYS - set(payload)
         if unknown:
             raise ValueError(f"source event contains unknown keys: {sorted(unknown)}")
@@ -162,6 +167,7 @@ class SourceEvent:
             source_status = _required_string(source_status, "source_status")
         plan = _parse_plan(payload["plan"])
         media_path = _parse_media_path(payload["media_path"])
+        media_paths = _parse_media_paths(payload.get("media_paths"), media_path, "media_paths" in payload)
         media_urls = _parse_media_urls(payload["media_urls"])
 
         if kind == "buy":
@@ -184,6 +190,7 @@ class SourceEvent:
             plan=plan,
             media_path=media_path,
             media_urls=media_urls,
+            media_paths=media_paths,
         )
 
 
@@ -288,6 +295,19 @@ def _parse_media_path(value: object) -> str | None:
     if not Path(path).is_absolute():
         raise ValueError("media_path must be an absolute path")
     return path
+
+
+def _parse_media_paths(value: object, media_path: str | None, present: bool) -> tuple[str, ...]:
+    if not present:
+        return (media_path,) if media_path else ()
+    if type(value) is not list or len(value) > 16:
+        raise ValueError("media_paths must be a list of at most 16 paths")
+    paths = tuple(_parse_media_path(item) for item in value)
+    if any(path is None for path in paths) or len(set(paths)) != len(paths):
+        raise ValueError("media_paths must be unique absolute paths")
+    if (paths[0] if paths else None) != media_path:
+        raise ValueError("media_path must match the first media_paths entry")
+    return paths
 
 
 def _parse_media_urls(value: object) -> tuple[str, ...]:

@@ -308,13 +308,45 @@ def test_one_durable_image_keeps_opaque_ref_for_vision_and_board(tmp_path):
     assert board["media_urls"] == []
 
 
-def test_multiple_images_remain_unclaimed_until_board_supports_their_paths(tmp_path):
+def test_multiple_images_keep_order_for_vision_and_board(tmp_path):
     profile = _profile("kutekians")
-    refs = [{"ref": f"20000000-0000-4000-8000-{number:012d}"} for number in (1, 2)]
-    post = _post(profile, 101, "A market thesis")
-    with pytest.raises(ValueError, match="Board path contract"):
-        pipeline_owner.accept_source_work(_work(profile, [post], refs=refs), profiles=(profile,), storage=tmp_path / "x.json", no_post=True)
-    assert not (tmp_path / "x.json").exists()
+    blobs = [b"\xff\xd8\xfffirst", b"\xff\xd8\xffsecond"]
+    refs = [{"ref": f"20000000-0000-4000-8000-{number:012d}", "sha256": hashlib.sha256(blob).hexdigest(),
+             "kind": "image", "content_type": "image/jpeg", "size_bytes": len(blob),
+             "filename": f"chart-{number}.jpg", "durable": True}
+            for number, blob in enumerate(blobs, start=1)]
+    post = _post(profile, 101, "KPIG: Chart setup")
+    post["media"] = [{"index": index, "media_ref_id": metadata["ref"]} for index, metadata in enumerate(refs)]
+    by_ref = {metadata["ref"]: blob for metadata, blob in zip(refs, blobs)}
+
+    class MediaStore:
+        def download(self, requested):
+            data = by_ref[requested]
+            return SimpleNamespace(data=data, sha256=hashlib.sha256(data).hexdigest(), kind="image", content_type="image/jpeg")
+
+    storage = tmp_path / "x.json"
+    work = _work(profile, [post], refs=refs)
+    assert pipeline_owner.accept_source_work(work, profiles=(profile,), storage=storage,
+                                             media_client=MediaStore(), no_post=True)["outcome"] == "accepted"
+    event = state.load_state(storage)["outbox"][0]
+    assert event["source_media_refs"] == {item["ref"]: item for item in refs}
+    parsed = state.deserialize_post(event["post"])
+    vision = vision_media.prepare(parsed, tmp_path / "vision", thread_posts=(parsed,),
+                                  reference_meta=event["source_media_refs"], media_client=MediaStore())
+    assert [asset.path.read_bytes() for asset in vision.assets] == blobs
+    event.update(title="KPIG: Chart setup", summary="*(Ringkasan)* Chart context.", route="id_stocks_swing")
+    board = scan.board_source_event(event, profile, status_date=NOW)
+    expected_paths = [event["source_media_paths"][metadata["ref"]] for metadata in refs]
+    assert board["media_paths"] == expected_paths
+    assert board["media_path"] == board["media_paths"][0]
+    assert board["media_urls"] == []
+    repeated = _work(profile, [{**post, "media": [{"index": 0, "media_ref_id": refs[0]["ref"]},
+                                               {"index": 1, "media_ref_id": refs[0]["ref"]}]}], refs=refs)
+    with pytest.raises(ValueError, match="repeated"):
+        pipeline_owner.accept_source_work(repeated, profiles=(profile,), storage=tmp_path / "repeated.json", no_post=True)
+    reordered = _work(profile, [post], refs=list(reversed(refs)))
+    with pytest.raises(ValueError, match="completeness"):
+        pipeline_owner.accept_source_work(reordered, profiles=(profile,), storage=tmp_path / "reordered.json", no_post=True)
 
 
 def test_verified_new_x_edit_id_marks_old_delivery_for_owner_cleanup(tmp_path):

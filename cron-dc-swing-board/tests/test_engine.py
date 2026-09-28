@@ -1,16 +1,18 @@
 from dataclasses import replace
 from datetime import datetime, timedelta
 import json
+from pathlib import Path
 import sqlite3
 from unittest.mock import Mock
 
 import pytest
 
+import board
 from calendar import sessions_ago
 from conftest import example_buy_event, social_event
 import discord_forum
 from discord_forum import DiscordForumClient, DiscordForumError
-from engine import BoardEngine, source_outcome_state
+from engine import BoardEngine, episode_title, source_outcome_state
 from models import Checkpoint, MarketState, PlanLevels, SourceEvent
 from render import discord_length, render_source_replies, render_source_reply
 from store import BoardStore, StoreBlockedError
@@ -67,12 +69,112 @@ def test_social_event_creates_source_episode_and_normal_reply(engine):
     event = social(media_urls=("https://pbs.twimg.com/media/chart.png",))
     assert engine.submit(event, at()) == "board_submitted"
     episode = engine.store.active_episode("KPIG")
-    assert (episode.lifecycle, episode.title) == ("source", event.ticker)
+    assert (episode.lifecycle, episode.title) == ("source", episode_title(event.ticker, event.published_at))
     assert (episode.lifecycle_tag, episode.market_tag) == (CHART_CONTEXT, None)
     assert [op.operation for op in operations(engine)] == ["create_thread"]
     assert operations(engine)[0].payload["tag_names"] == [CHART_CONTEXT]
     assert operations(engine)[0].payload["media_url"] == event.media_urls[0]
     assert operations(engine)[0].payload["content"] == render_source_reply(event)
+
+
+def test_ordered_local_images_attach_first_to_starter_and_rest_as_replies(engine, tmp_path):
+    paths = []
+    for index in range(3):
+        path = tmp_path / f"chart-{index}.png"
+        path.write_bytes(b"\x89PNG\r\n\x1a\n" + bytes([index]))
+        paths.append(str(path))
+    event = social(media_path=paths[0], media_paths=tuple(paths))
+    assert engine.submit(event, at()) == "board_submitted"
+    with engine.store.transaction() as tx:
+        assert tx.source_event(1).media_paths == tuple(paths)
+    ops = operations(engine)
+    assert ops[0].payload["chart"] == paths[0]
+    assert [op.payload["media"] for op in ops[1:]] == paths[1:]
+    assert all(op.payload["content"] == "" for op in ops[1:])
+    assert len({op.payload["nonce_value"] for op in ops}) == len(ops)
+    assert engine.submit(event, at()) == "board_duplicate"
+    assert len(operations(engine)) == len(ops)
+    engine.drain(now=at())
+    promotion = buy(published_at=at("2026-09-22T09:05:00+07:00"))
+    engine.submit(promotion, promotion.published_at)
+    history = [op for op in operations(engine) if ":history:" in op.payload.get("nonce_value", "")]
+    assert len(history) == 1
+    assert history[0].payload["media"] == paths[0]
+    assert engine.store.active_episode("KPIG").title == episode_title("KPIG", event.published_at)
+
+
+def test_board_owns_every_ordered_image_with_stable_paths(tmp_path, monkeypatch):
+    sources = []
+    for index in range(2):
+        path = tmp_path / f"input-{index}.png"
+        path.write_bytes(b"\x89PNG\r\n\x1a\n" + bytes([index]))
+        sources.append(str(path))
+    monkeypatch.setattr(board, "_media_root", lambda: tmp_path / "private")
+    event = social(media_path=sources[0], media_paths=tuple(sources))
+    owned = board._own_media(event)
+    assert len(owned.media_paths) == 2
+    assert owned.media_path == owned.media_paths[0]
+    assert owned.media_paths[0] != owned.media_paths[1]
+    assert [Path(path).read_bytes() for path in owned.media_paths] == [
+        Path(path).read_bytes() for path in sources
+    ]
+    assert board._own_media(event).media_paths == owned.media_paths
+
+
+def test_v9_media_migration_preserves_existing_event_and_rows(tmp_path):
+    path = tmp_path / "legacy.sqlite3"
+    store = BoardStore(path)
+    event = social(media_path="/private/legacy.jpg")
+    BoardEngine(store, Mock(spec=DiscordForumClient)).submit(event, at())
+    before = {table: store.count_rows(table) for table in ("source_events", "episodes", "outbox")}
+    with sqlite3.connect(path) as connection:
+        connection.execute("ALTER TABLE source_events DROP COLUMN media_paths_json")
+        connection.execute("PRAGMA user_version=9")
+    migrated = BoardStore(path)
+    assert migrated.schema_version == 10
+    assert {table: migrated.count_rows(table) for table in before} == before
+    with migrated.transaction() as tx:
+        assert tx.source_event(1).media_paths == ("/private/legacy.jpg",)
+
+
+def test_episode_title_uses_fixed_wib_weekend_date():
+    assert episode_title("KPIG", at("2026-09-18T18:30:00+00:00")) == "KPIG - Sat, 19 Sep 2026"
+
+
+def test_x_context_joins_open_phintraco_plan_without_changing_plan_state(engine):
+    primary = buy()
+    engine.submit(primary, primary.published_at)
+    original = engine.store.active_episode("KPIG")
+    plan = engine.store.active_primary_plans()[0]
+    context = social(published_at=at("2026-09-20T09:05:00+07:00"),
+                     source_status="Target 1 achieved; stop-loss 190")
+    engine.submit(context, context.published_at)
+    current = engine.store.active_episode("KPIG")
+    assert current.id == original.id
+    assert current.title == original.title
+    assert current.lifecycle == original.lifecycle == "primary"
+    assert current.lifecycle_tag == original.lifecycle_tag
+    assert current.market_tag == original.market_tag
+    assert engine.store.active_primary_plans()[0].plan_id == plan.plan_id
+    assert engine.store.active_primary_plans()[0].event == plan.event
+    with engine.store.transaction() as tx:
+        assert tx.latest_checkpoints(current.id) == (None, None)
+    assert any(op.operation == "post_source_reply" and op.payload["content"]
+               for op in operations(engine))
+
+
+def test_x_context_joins_kelas_source_episode_without_replacing_stronger_starter(engine):
+    supporting = gtw(media_path=None)
+    engine.submit(supporting, supporting.published_at)
+    before = engine.store.active_episode("KPIG")
+    context = social(published_at=at("2026-09-20T09:05:00+07:00"))
+    engine.submit(context, context.published_at)
+    after = engine.store.active_episode("KPIG")
+    assert after.id == before.id
+    assert after.title == before.title
+    assert after.lifecycle_tag == SUPPORTING_SETUP
+    assert after.starter_source_event_id == before.starter_source_event_id
+    assert any(op.operation == "post_source_reply" for op in operations(engine))
 
 
 def test_kelas_source_reply_chunks_are_durable_ordered_and_preserve_media(engine):
@@ -148,7 +250,7 @@ def test_higher_tier_replaces_chart_starter_and_preserves_one_normal_history_rep
     assert ops[2].payload["content"] == render_source_reply(chart)
     assert not ops[2].payload["content"].startswith("> ")
     assert ":history:" in ops[2].payload["nonce_value"]
-    assert ops[3].payload["name"] == "KPIG"
+    assert ops[3].payload["name"] == episode_title("KPIG", chart.published_at)
 
 
 def test_newer_same_tier_source_keeps_stable_thread_title_and_updates_starter(engine):
@@ -162,9 +264,9 @@ def test_newer_same_tier_source_keeps_stable_thread_title_and_updates_starter(en
     engine.submit(newer, at("2026-09-20T09:05:00+07:00"))
 
     episode = engine.store.active_episode("KPIG")
-    assert episode.title == "KPIG"
+    assert episode.title == episode_title("KPIG", first.published_at)
     patch = [op for op in operations(engine) if op.operation == "patch_thread"][-1]
-    assert patch.payload["name"] == "KPIG"
+    assert patch.payload["name"] == episode_title("KPIG", first.published_at)
 
 
 def test_title_migration_renames_existing_topics_without_changing_tags(engine):
@@ -177,9 +279,9 @@ def test_title_migration_renames_existing_topics_without_changing_tags(engine):
     result = engine.schedule_title_migration(at("2026-09-20T09:00:00+07:00"))
 
     assert result == {"scheduled": 1, "unchanged": 0}
-    assert engine.store.active_episode("KPIG").title == "KPIG"
+    assert engine.store.active_episode("KPIG").title == episode_title("KPIG", social().published_at)
     patch = [op for op in operations(engine) if op.operation == "patch_thread"][-1]
-    assert patch.payload["name"] == "KPIG"
+    assert patch.payload["name"] == episode_title("KPIG", social().published_at)
     assert patch.payload["tag_names"] == ["Chart context"]
 
 
@@ -329,7 +431,7 @@ def test_buy_promotes_without_reposting_non_gtw_social_reply(engine):
     ]
     assert operations(engine)[1].payload["chart"] is None
     assert operations(engine)[3].payload["tag_names"] == ["Primary plan"]
-    assert engine.store.active_episode("KPIG").title == "KPIG"
+    assert engine.store.active_episode("KPIG").title == episode_title("KPIG", social().published_at)
 
 
 def test_buy_promotion_reconciles_prior_phintraco_status_history(engine):

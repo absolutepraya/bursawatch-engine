@@ -27,6 +27,21 @@ def test_source_event_is_strict_and_normalizes_ticker() -> None:
     assert event.plan == PlanLevels("208 to 212", "<200", ("230",))
 
 
+def test_source_event_normalizes_legacy_and_ordered_media_paths() -> None:
+    payload = dict(social_event("x:writer:1", "KPIG", "KPIG: Chart").__dict__)
+    payload["published_at"] = payload["published_at"].isoformat()
+    payload["media_urls"] = []
+    payload.pop("media_paths")
+    payload["media_path"] = "/private/first.jpg"
+    assert SourceEvent.from_json(payload).media_paths == ("/private/first.jpg",)
+    payload["media_paths"] = ["/private/first.jpg", "/private/second.png"]
+    assert SourceEvent.from_json(payload).media_paths == tuple(payload["media_paths"])
+    for paths in (["/private/first.jpg"] * 2, ["/private/first.jpg", "relative.jpg"],
+                  ["/private/first.jpg"] + [f"/private/{index}.jpg" for index in range(16)]):
+        with pytest.raises(ValueError):
+            SourceEvent.from_json({**payload, "media_paths": paths})
+
+
 @pytest.mark.parametrize(
     "change",
     [

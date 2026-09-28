@@ -19,7 +19,7 @@ from uuid import uuid4
 from models import Checkpoint, Episode, MarketState, OutboxOperation, PlanLevels, SourceEvent, SubmittedEvent
 
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 _LEGAL_OPERATIONS = frozenset(
     {"create_thread", "edit_starter", "post_source_reply", "post_history_reply", "delete_message", "patch_thread"}
 )
@@ -110,8 +110,8 @@ class BoardStore:
                     event_key, source, kind, ticker, published_at, source_url,
                     all_content, source_title, source_status, plan_entry,
                     plan_stop_loss, plan_targets_json, media_path, media_urls_json,
-                    received_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    media_paths_json, received_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(event_key) DO NOTHING
                 """,
                 (
@@ -129,6 +129,7 @@ class BoardStore:
                     json.dumps(event.plan.targets) if event.plan else None,
                     event.media_path,
                     json.dumps(event.media_urls),
+                    json.dumps(event.media_paths),
                     _timestamp(received_at),
                 ),
         )
@@ -703,6 +704,8 @@ class BoardStore:
                         _migrate_v7_to_v8(connection)
                     if version in {1, 2, 3, 4, 5, 6, 7, 8}:
                         _migrate_v8_to_v9(connection)
+                    if version in {1, 2, 3, 4, 5, 6, 7, 8, 9}:
+                        _migrate_v9_to_v10(connection)
                     connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
                     connection.execute("COMMIT")
                 except BaseException:
@@ -1138,6 +1141,7 @@ def _create_schema(connection: sqlite3.Connection) -> None:
             plan_targets_json TEXT,
             media_path TEXT,
             media_urls_json TEXT NOT NULL,
+            media_paths_json TEXT NOT NULL DEFAULT '[]',
             received_at TEXT NOT NULL,
             board_processed_at TEXT
         );
@@ -1440,6 +1444,16 @@ def _migrate_v8_to_v9(connection: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v9_to_v10(connection: sqlite3.Connection) -> None:
+    """Retain ordered private media paths without rewriting legacy events."""
+    existing = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "source_events" not in existing:
+        return
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(source_events)")}
+    if "media_paths_json" not in columns:
+        connection.execute("ALTER TABLE source_events ADD COLUMN media_paths_json TEXT NOT NULL DEFAULT '[]'")
+
+
 def _create_missing_tables(connection: sqlite3.Connection) -> None:
     existing = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     if "episodes" not in existing:
@@ -1543,6 +1557,9 @@ def _channel_outbox_from_row(row: sqlite3.Row) -> ChannelOutboxOperation:
 
 
 def _source_event_from_row(row: sqlite3.Row) -> SourceEvent:
+    paths = tuple(json.loads(row["media_paths_json"]))
+    if not paths and row["media_path"]:
+        paths = (row["media_path"],)
     return SourceEvent(
         event_key=row["event_key"], source=row["source"], kind=row["kind"], ticker=row["ticker"],
         published_at=_parse_timestamp(row["published_at"]), source_url=row["source_url"],
@@ -1551,6 +1568,7 @@ def _source_event_from_row(row: sqlite3.Row) -> SourceEvent:
         plan=PlanLevels(row["plan_entry"], row["plan_stop_loss"], tuple(json.loads(row["plan_targets_json"])))
         if row["plan_entry"] else None,
         media_path=row["media_path"], media_urls=tuple(json.loads(row["media_urls_json"])),
+        media_paths=paths,
     )
 
 
