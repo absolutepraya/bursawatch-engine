@@ -60,6 +60,20 @@ def test_manifest_maps_every_current_tracked_path_exactly_once():
     assert ambiguous == []
 
 
+def test_sync_file_installs_executable_wrappers_with_world_execute_permission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    source = tmp_path / "source.sh"
+    target = tmp_path / "runtime" / "wrapper.sh"
+    source.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    monkeypatch.setattr(release_agent, "_ensure_safe_directory", lambda path: None)
+
+    release_agent._sync_file(source, target, executable=True)
+
+    assert target.read_text(encoding="utf-8") == "#!/bin/sh\nexit 0\n"
+    assert target.stat().st_mode & 0o777 == 0o755
+
+
 def test_manifest_orders_dependencies_before_the_x_runtime_unit():
     units = manifest().matching_units(["cron-x-account-watch/bin/scan.py"])
 
