@@ -71,6 +71,12 @@ blocked handoff; it is private state, never Git. If upload succeeds but inbox
 acceptance fails, the private handoff spool retains the opaque reference and
 retries it without reuploading or advancing the Telegram cursor.
 
+Phintraco weekly PDF documents enter `swing_plan` work through their durable
+Source Media reference. The Phintraco domain owner verifies and downloads that
+reference, ignores the attachment caption, parses the accepted PDF, and uses its
+existing outbox for ordered plan and chart delivery. The adapter does not parse
+PDF contents or submit Discord or Board operations.
+
 Keep live subscriptions within the reviewed catalog scope above. Do not enable
 other Telegram subscriptions or change the pilot schedule without an approved
 rollout. News cursors were seeded from the legacy high-water marks and are

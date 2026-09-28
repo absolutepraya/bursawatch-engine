@@ -132,12 +132,15 @@ git commit -m "feat(phintraco): persist weekly PDF events"
 
 **Files:**
 - Modify: `cron-tg-phintraco-swing/bin/scan.py`
+- Modify: `cron-tg-phintraco-swing/bin/pipeline_owner.py`
 - Modify: `cron-tg-phintraco-swing/bin/bursawatch-tg-phintraco-swing.sh`
 - Modify: `cron-tg-phintraco-swing/tests/test_scan.py`
+- Modify: `cron-tg-phintraco-swing/tests/test_pipeline_owner.py`
 - Modify: `cron-tg-phintraco-swing/tests/test_wrapper.py`
 
 **Interfaces:**
 - Adds outbox phase `pending_source_media` for PDF plans.
+- The active source-ingest owner downloads and verifies the PDF's durable media ref, then submits the batch through the same state and outbox path.
 - `match_source_plan(call: SwingCall, state: dict, reply_parent_id: int | None) -> str | None` returns exactly one matched source-plan key or `None`.
 - PDF Board event keys are `phintraco:<channel-id>:weekly:<document-message-id>:<ticker>`.
 - A matched update includes `matched_setup_event_key`; an unmatched status or reminder becomes Board `context` with no plan reference.
@@ -270,12 +273,62 @@ git add cron-tg-phintraco-swing/AGENTS.md cron-tg-phintraco-swing/CRON.md cron-d
 git commit -m "docs(phintraco): define weekly PDF intake contract"
 ```
 
+### Task 6: Connect the active owner and complete standalone On support calls
+
+The initial PDF work connected the legacy Telegram polling path but did not
+connect the active `cron-tg-source-ingest` Phintraco owner. Complete this task
+before calling the PDF rule live end to end.
+
+**Files:**
+- Modify: `cron-tg-phintraco-swing/bin/scan.py`
+- Modify: `cron-tg-phintraco-swing/bin/pipeline_owner.py`
+- Modify: `cron-tg-phintraco-swing/tests/test_scan.py`
+- Modify: `cron-tg-phintraco-swing/tests/test_pipeline_owner.py`
+- Modify: `cron-tg-phintraco-swing/AGENTS.md`
+- Modify: `cron-tg-phintraco-swing/CRON.md`
+- Modify: `cron-tg-source-ingest/AGENTS.md`
+
+**Rules:**
+- A complete standalone `On support` call is a Primary setup; an incomplete
+  one remains a status event.
+- The active owner verifies the durable document reference, ignores the PDF
+  caption, parses only the exact weekly attachment, and drains its children in
+  page order. It acknowledges source work only after every child is delivered.
+  Quarantined or retryable work remains degraded and durable.
+- Direct PDF replies resolve only against that document's same-ticker plan.
+  Replies to companion text use the strict unique-plan matcher. An unmatched
+  update carries Board `context` and no setup reference.
+
+- [x] Add complete and incomplete `On support` parser coverage.
+- [x] Add active-owner coverage for verified PDF refs, caption exclusion,
+  idempotent batches, strict update linkage, direct reply status, and unmatched
+  context.
+- [x] Keep the active owner on the existing watcher state, media clients,
+  source order, and Board handoff.
+- [x] Align the package contracts and this plan with the active ownership path.
+- [x] Run the focused Phintraco parser and active-owner tests, Board package
+  tests, and repository suite.
+
+### Production source-ingest health follow-up
+
+The active runner's saved fatal output replaces its original exception with
+`source processing failed`. Read-only checks on 2026-09-28 found recent
+authenticated Telegram connections and no pending, executing, or dead-letter
+source work, but did not identify why `_run_live()` raised. Do not claim
+production intake is healthy until a later naturally scheduled run completes
+successfully and its cause is either explained or the failure is cleared.
+
 ## Final Acceptance
 
 - Both supplied PDFs each parse into six ordered setups and six matching chart JPEGs.
 - A new PDF creates one independently retryable ticker event per setup, with stable idempotency across restart.
 - The original PDF and each chart receive durable Source Media refs before All delivery.
+- The active source-ingest owner consumes the durable PDF ref and sends every
+  validated plan through the ordered All-before-Board path without reading its
+  caption as plan data.
 - Each ticker's All plan and chart succeed before its Board event is submitted.
 - KETR's setup from PDF message `35448` can be uniquely linked to its matching reminder and target 3 amendment, while TP1 remains recorded and the original PDF event remains unchanged.
 - Unmatched status or reminder content is retained as context and cannot start or mutate a Primary episode.
+- A complete standalone `On support` call is a Primary setup, while incomplete
+  `On support` content remains a status event.
 - Local tests pass. No VPS, Control Plane, Discord, schedule, cursor, or production state changed.

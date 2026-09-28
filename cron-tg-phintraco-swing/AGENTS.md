@@ -22,7 +22,7 @@ the URL, source defaults preserve the existing deployment behavior.
 
 ## Deterministic behavior and invariants
 
-Accept individual `Trading Buy`, `Hold/Trading Buy`, `Buy on Support`, and `Speculative Buy` calls with the required source fields, qualifying source-marked outcomes and status updates, and validated same-ticker reply updates. `Hold/Trading Buy` is a BUY subtype. Also accept the exact Phintraco weekly Swing Ideas PDF attachment described below. Exclude sell calls, the PDF's separate companion text post, market reviews, media-only posts, and nearby inferred charts.
+Accept individual `Trading Buy`, `Hold/Trading Buy`, `Buy on Support`, `On support`, and `Speculative Buy` calls with the required source fields, qualifying source-marked outcomes and status updates, and validated same-ticker reply updates. `Hold/Trading Buy` is a BUY subtype. A standalone `On support` call is a Primary setup only when it has one ticker, entry, stop-loss, at least one target, and a source timestamp; incomplete messages retain status behavior. Also accept the exact Phintraco weekly Swing Ideas PDF attachment described below. Exclude sell calls, the PDF's separate companion text post, market reviews, media-only posts, and nearby inferred charts.
 
 ### Weekly Swing Ideas PDF batches
 
@@ -88,7 +88,12 @@ must still match the canonical pilot endpoint; there is no default-config
 fallback in this path. When a Swing event has a source chart, the owner retrieves
 its opaque ref through `lib-bursawatch-source-media`, verifies the digest, and
 places the bytes into the existing private source-chart handoff so All and Board
-delivery keep their established text-then-chart behavior. The existing scheduled
-reader stays active; this handler is not a cutover signal.
+delivery keep their established text-then-chart behavior. For the exact weekly
+PDF attachment, it retrieves and verifies the document ref, parses the PDF
+bytes, and sends each validated plan through the same ordered durable outbox.
+The attachment caption is not plan data. Status and reminder events use reply
+lineage or the strict unique-plan matcher before the owner sets a Board setup
+reference; unmatched updates use `context`. The existing scheduled reader stays
+active; this handler is not a cutover signal.
 
 This is a Phintraco-specific parser. Future providers require independent source validation. Root `AGENTS.md` and `lib-telegram-resilience/README.md` define the shared session and control-plane contract.

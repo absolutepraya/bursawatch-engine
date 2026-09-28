@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-28
 
-**Status:** Implemented and verified locally. Production dependency provisioning, deployment, and historical intake remain separate operations.
+**Status:** Implemented and verified locally, including the active source-ingest owner. Production dependency provisioning, deployment, and historical intake remain separate operations. Production source-ingest health is unverified because the saved runner output suppresses the underlying exception.
 
 ## Goal
 
@@ -81,4 +81,4 @@ For the September 28 KETR case, extract and deliver the KETR plan and chart from
 
 ## Implementation boundary
 
-The implementation plan is `docs/superpowers/plans/2026-09-28-swing-board-phintraco-pdf-intake.md`. The local implementation covers deterministic extraction, durable per-ticker events, media storage, All-before-Board ordering, strict KETR matching, the Board target-amendment contract, documentation, and regression coverage. PyMuPDF requires a separate host provisioning step before release because the current release agent does not install cron package dependencies. Production dependency installation, historical event intake, scheduler changes, and deployment remain distinct operations.
+The implementation plan is `docs/superpowers/plans/2026-09-28-swing-board-phintraco-pdf-intake.md`. The local implementation covers deterministic extraction, durable per-ticker events, media storage, All-before-Board ordering, the active source-ingest owner's verified PDF-reference path, strict KETR matching, the Board target-amendment contract, standalone `On support` setup parsing, documentation, and regression coverage. PyMuPDF requires a separate host provisioning step before release because the current release agent does not install cron package dependencies. Production dependency installation, investigation of the source-ingest runner failure, historical event intake, scheduler changes, and deployment remain distinct operations.

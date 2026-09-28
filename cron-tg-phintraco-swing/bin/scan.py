@@ -91,6 +91,7 @@ ALLOWED_SUBTYPES = (
     "Trading Buy",
     "Hold/Trading Buy",
     "Buy on Support",
+    "On support",
     "Speculative Buy",
 )
 WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -905,7 +906,10 @@ def run_lock():
 
 HEADER_RE = re.compile(
     r"^(?P<ticker>[A-Z][A-Z0-9]{1,9})\s*-\s*"
+    r"(?:"
     r"(?P<subtype>Trading Buy|Hold/Trading Buy|Buy on Support|Speculative Buy)\s*:\s*"
+    r"|(?P<support_subtype>On support)(?:\s*:\s*)?"
+    r")"
     r"(?P<rationale>.*)$",
     re.IGNORECASE,
 )
@@ -1075,7 +1079,9 @@ def parse_swing_call(
         source_message_id=message_id,
         provider=PROVIDER,
         ticker=header.group("ticker").upper(),
-        call_subtype=canonical_subtype(header.group("subtype")),
+        call_subtype=canonical_subtype(
+            header.group("subtype") or header.group("support_subtype")
+        ),
         entry=entry,
         stop_loss=stop_loss,
         targets=tuple(targets),
@@ -1803,6 +1809,40 @@ async def _ingest_weekly_pdf_document(
         return True, 0, 0
     mime_type = getattr(document, "mime_type", None)
     mime_type = mime_type if isinstance(mime_type, str) else ""
+    if mime_type.casefold() != "application/pdf":
+        return ingest_weekly_pdf_bytes(
+            message, state, now, None, filename=filename, mime_type=mime_type
+        )
+    content = await client.download_media(message, bytes)
+    return ingest_weekly_pdf_bytes(
+        message, state, now, content, filename=filename, mime_type=mime_type
+    )
+
+
+def ingest_weekly_pdf_bytes(
+    message,
+    state: dict,
+    now: dt.datetime,
+    content: bytes | None,
+    *,
+    filename: str | None = None,
+    mime_type: str | None = None,
+    size_hint: int | None = None,
+) -> tuple[bool, int, int]:
+    """Persist and enqueue one attachment event using already obtained bytes."""
+    document = getattr(message, "document", None)
+    if document is None:
+        return False, 0, 0
+    filename = filename if filename is not None else (_weekly_document_filename(message) or "")
+    if not filename.startswith(WEEKLY_PDF_PREFIX):
+        return False, 0, 0
+    source_message_id = int(message.id)
+    batch_id = str(source_message_id)
+    if batch_id in state["pdf_batches"] or batch_id in state["quarantined_documents"]:
+        return True, 0, 0
+    if mime_type is None:
+        raw_mime_type = getattr(document, "mime_type", None)
+        mime_type = raw_mime_type if isinstance(raw_mime_type, str) else ""
     if not WEEKLY_PDF_FILENAME_RE.fullmatch(filename):
         created = _record_quarantined_document(
             state, source_message_id, filename, mime_type,
@@ -1815,8 +1855,12 @@ async def _ingest_weekly_pdf_document(
             "weekly attachment is not an application/pdf document", now,
         )
         return True, 0, int(created)
-
-    content = await client.download_media(message, bytes)
+    if type(size_hint) is int and size_hint > MAX_WEEKLY_PDF_BYTES:
+        created = _record_quarantined_document(
+            state, source_message_id, filename, mime_type,
+            "weekly PDF exceeds the 8 MiB size limit", now,
+        )
+        return True, 0, int(created)
     if not isinstance(content, bytes) or not content:
         created = _record_quarantined_document(
             state, source_message_id, filename, mime_type,
@@ -1946,6 +1990,28 @@ async def _ingest_weekly_pdf_document(
     return True, new_calls, int(bool(quarantined_pages))
 
 
+def source_plan_call(plan: dict) -> SwingCall:
+    """Project one indexed PDF plan into the parent shape used by reply parsing."""
+    return SwingCall(
+        source_message_id=int(plan["document_message_id"]),
+        provider=PROVIDER,
+        ticker=plan["ticker"],
+        call_subtype="Trading Buy",
+        entry=plan["entry"],
+        stop_loss=plan["stop_loss"],
+        targets=tuple(
+            PriceTarget(item["number"], item["value"])
+            for item in plan["targets"]
+        ),
+        signal_datetime=dt.datetime.fromisoformat(plan["signal_datetime"]),
+        rationale=plan["descriptor"],
+        advisor_name="Investment Advisory Team",
+        advisor_role="Investment Advisory Team",
+        has_source_chart=True,
+        source_text="",
+    )
+
+
 async def parse_reply_status_event(client, entity, message, state: dict | None = None) -> SwingCall | None:
     reply_to_message_id = getattr(message, "reply_to_msg_id", None)
     if not isinstance(reply_to_message_id, int) or reply_to_message_id <= 0:
@@ -1968,25 +2034,7 @@ async def parse_reply_status_event(client, entity, message, state: dict | None =
                 and plan.get("ticker") == reply.group("ticker").upper()
             ]
             if len(matching_plans) == 1:
-                plan = matching_plans[0]
-                parent_call = SwingCall(
-                    source_message_id=reply_to_message_id,
-                    provider=PROVIDER,
-                    ticker=plan["ticker"],
-                    call_subtype="Trading Buy",
-                    entry=plan["entry"],
-                    stop_loss=plan["stop_loss"],
-                    targets=tuple(
-                        PriceTarget(item["number"], item["value"])
-                        for item in plan["targets"]
-                    ),
-                    signal_datetime=dt.datetime.fromisoformat(plan["signal_datetime"]),
-                    rationale=plan["descriptor"],
-                    advisor_name="Investment Advisory Team",
-                    advisor_role="Investment Advisory Team",
-                    has_source_chart=True,
-                    source_text="",
-                )
+                parent_call = source_plan_call(matching_plans[0])
     return parse_reply_status(
         int(message.id),
         message.message or "",

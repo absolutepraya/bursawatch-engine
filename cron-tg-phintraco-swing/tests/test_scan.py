@@ -375,7 +375,7 @@ def test_source_timestamp_overrides_embedded_phintraco_date():
     assert event.signal_datetime == dt.datetime(2026, 7, 17, 10, 11, tzinfo=scan.WIB)
 
 
-def test_on_support_update_uses_common_status_format_and_source_timestamp():
+def test_complete_on_support_is_a_primary_setup_with_source_timestamp():
     text = (
         "BRMS - On support\n\n"
         "Re-test support area 530-540 dengan penipisan volume menjadi indikasi pembentukan base.\n\n"
@@ -398,9 +398,10 @@ def test_on_support_update_uses_common_status_format_and_source_timestamp():
     )
 
     assert event is not None
-    assert event.event_kind == "STATUS"
+    assert event.event_kind == "BUY"
+    assert event.call_subtype == "On support"
     assert event.has_source_chart is True
-    assert event.status == "On support"
+    assert event.status is None
     assert event.entry == ">=540"
     assert event.stop_loss == "<520"
     assert [(target.number, target.value) for target in event.targets] == [
@@ -408,17 +409,46 @@ def test_on_support_update_uses_common_status_format_and_source_timestamp():
         (2, "640"),
     ]
     assert scan.format_swing_alert(event) == (
-        "### <:phintraco:1531272488645038091> BRMS: On support\n"
+        "### <:phintraco:1531272488645038091> BRMS: Buy\n"
         "-# Alrich Paskalis T, Phintraco Sekuritas\n\n"
+        "**Type:** On support <:up:1531285100346740766>\n"
         "**Entry:** >=540\n"
         "**Stop-loss:** <520\n"
         "**Target 1:** 590 to 600\n"
         "**Target 2:** 640\n"
-        "\n**Source status:** On support <:hold:1531284248235868333>\n"
+        "**Signal date:** 17 Jul 2026 10:11 WIB\n\n"
+        "**Reasons:** Re-test support area 530-540 dengan penipisan volume menjadi indikasi pembentukan base.\n\n"
+        "**Source status:** New setup <:grey:1531279158913536182>\n"
         "**Last updated:** 17 Jul 2026 10:11 WIB\n"
         "**Board:** <#1548273399069933720>\n\n"
         "[View in Telegram](<https://t.me/phintraprofits/33801>)"
     )
+
+
+def test_incomplete_on_support_remains_a_status():
+    text = (
+        "BRMS - On support\n\n"
+        "Entry : >=540\n"
+        "Stoploss : <520\n\n"
+        "By PHINTRACO SEKURITAS\n"
+        "7/07/2026 10.11 WIB\n"
+        "Alrich Paskalis T| Investment Advisor"
+    )
+
+    event = scan.parse_source_event(
+        FakeMessage(
+            33802,
+            text,
+            date=dt.datetime(2026, 7, 17, 3, 11, tzinfo=dt.timezone.utc),
+        )
+    )
+
+    assert event is not None
+    assert event.event_kind == "STATUS"
+    assert event.status == "On support"
+    assert event.entry == ">=540"
+    assert event.stop_loss == "<520"
+    assert event.targets == ()
 
 
 def test_reply_status_requires_matching_parent_swing_plan():
