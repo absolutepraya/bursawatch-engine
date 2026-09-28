@@ -40,9 +40,9 @@ Before remote mutation, the Board persists the desired operation, payload, and s
 `drain` reports `drained`, `pending`, and `failed` counts and exits nonzero while any work remains. Pending includes retained backoff work; failed counts pending operations with a recorded delivery failure.
 
 The daily `reconcile-lifecycle` owner pass uses the 17:10 WIB schedule through
-`bursawatch-dc-swing-board-lifecycle.sh`; its Hermes registration is a separate
-reviewed operation. It counts reviewed IDX trading
-sessions strictly after the last material source date. At 20 sessions it
+`bursawatch-dc-swing-board-lifecycle.sh`; its registered Hermes job is
+`f2b6c4f0995b`. It counts reviewed IDX trading sessions strictly after the
+last material source date. At 20 sessions it
 resolves an open Primary or source-only episode as `stale`, including when no
 new source arrives. A distinct newer Phintraco BUY resolves an active Primary
 as `superseded` and starts a new thread. The resolved card states the reason
@@ -167,4 +167,4 @@ Run the package suite from the repository root with the shared virtual environme
 ../../.venv/bin/python -m pytest -q cron-dc-swing-board/tests
 ```
 
-Deploy only a clean published commit after an approved VPS write, then compare changed checksums and use isolated no-post verification. Copy the generic wrapper, both phase wrappers, and the lifecycle wrapper to the same Hermes scripts directory after approval. The close and retry jobs use 16:30 and 17:00 WIB weekday schedules. The lifecycle job uses 17:10 WIB daily; its separate reviewed Hermes registration is not yet recorded, so no job ID is assumed here. Never hand-edit the Hermes registry; use the supported CLI and verify the returned job records. Bootstrap has no scheduler entry.
+Deploy only a clean published commit after an approved VPS write, then compare changed checksums and use isolated no-post verification. Copy the generic wrapper, both phase wrappers, and the lifecycle wrapper to the same Hermes scripts directory after approval. The close and retry jobs use 16:30 and 17:00 WIB weekday schedules. The lifecycle job uses 17:10 WIB daily and is registered as Hermes job `f2b6c4f0995b`. Never hand-edit the Hermes registry; use the supported CLI and verify the returned job records. Bootstrap has no scheduler entry.

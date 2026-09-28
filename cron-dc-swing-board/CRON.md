@@ -55,11 +55,11 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
   topology is durable-state owned and not web-editable. The explicit `bootstrap` command additionally reads the
   Telegram credentials and imports only the shared resilience library and
   Phintraco parser it needs. The owner CLI has no database-path option.
-- **Scheduler executables:** the no-argument `bursawatch-dc-swing-board-close.sh` invokes `after-close --phase initial`; `bursawatch-dc-swing-board-retry.sh` invokes `after-close --phase retry`; `bursawatch-dc-swing-board-lifecycle.sh` invokes `reconcile-lifecycle`. All require the generic wrapper beside them. The close and retry weekday schedules are `30 16 * * 1-5` and `0 17 * * 1-5` in WIB. The lifecycle schedule is `10 17 * * *` in WIB. Its Hermes registration is a separate reviewed operation; record its live job ID after approval and deployment.
-- **Registered Hermes jobs:** the recorded close and retry job IDs are
-  `5c0b79e08fae` and `71c4f9a32acd`. Verify their current enabled state in the
-  live registry before an operational change. No lifecycle job ID is recorded
-  yet; register it only after the owner release and separate schedule approval.
+- **Scheduler executables:** the no-argument `bursawatch-dc-swing-board-close.sh` invokes `after-close --phase initial`; `bursawatch-dc-swing-board-retry.sh` invokes `after-close --phase retry`; `bursawatch-dc-swing-board-lifecycle.sh` invokes `reconcile-lifecycle`. All require the generic wrapper beside them. The close and retry weekday schedules are `30 16 * * 1-5` and `0 17 * * 1-5` in WIB. The lifecycle schedule is `10 17 * * *` in WIB.
+- **Registered Hermes jobs:** the close, retry, and lifecycle job IDs are
+  `5c0b79e08fae`, `71c4f9a32acd`, and `f2b6c4f0995b`, respectively. Verify
+  their current enabled state in the live registry before an operational
+  change.
 - **Forum defaults:** `#id-stocks-swing-board` uses List View, Latest Activity
   ordering, and Discord's three-day inactivity archive. New episode titles
   are generated as `TICKER - Ddd, DD Mon YYYY` from the first accepted source
