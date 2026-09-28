@@ -92,6 +92,35 @@ def test_agent_item_includes_labeled_local_tweet_and_quote_images(config_path, t
     assert "read every listed local image with vision" in item["instruction"]
 
 
+def test_vision_asset_limit_serializes_and_validates_sixteen_and_rejects_seventeen(config_path, tmp_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Author text", PostKind.NORMAL, None, None, (), ())
+    root = tmp_path / "vision-limit"
+    root.mkdir()
+    paths = []
+    assets = []
+    for index in range(17):
+        image = root / f"image-{index}.jpg"
+        image.write_bytes(b"image")
+        paths.append(image)
+        assets.append(VisionAsset("tweet", post.post_id, index, image))
+
+    bundle = VisionBundle(root, tuple(assets[:16]), 0)
+    item = agent_protocol.agent_item(profile, post, vision_bundle=bundle)
+    payload = agent_protocol.build_wake_payload(item)
+
+    assert len(payload["item"]["vision_asset_paths"]) == 16
+    assert payload["item"]["vision_asset_paths"] == [str(path.resolve()) for path in paths[:16]]
+
+    oversized_bundle = VisionBundle(root, tuple(assets), 0)
+    with pytest.raises(ValueError, match="bundle is invalid"):
+        agent_protocol.agent_item(profile, post, vision_bundle=oversized_bundle)
+
+    oversized_item = {**item, "vision_asset_paths": [str(path.resolve()) for path in paths]}
+    with pytest.raises(ValueError, match="vision paths are invalid"):
+        agent_protocol.build_wake_payload(oversized_item)
+
+
 def test_agent_item_includes_retrieved_article_context_without_allowing_model_browsing(config_path):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Read https://example.com/article", PostKind.NORMAL, None, None, (), ())

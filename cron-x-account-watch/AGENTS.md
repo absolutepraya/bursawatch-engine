@@ -171,7 +171,7 @@ override preserves the images used as analysis context; for every non-Swing
 route, `omit_last` continues to remove the final unique item from the
 authored-then-quoted delivery bundle. Source media acceptance remains bounded
 to 16 refs per event, 8 MiB per object, and 25 MiB aggregate; Vision remains
-capped at eight downloaded images.
+capped at 16 downloaded images.
 
 The worker persists each All text and media receipt before advancing its
 cursor, then submits exactly one Board event after all usable All media has
