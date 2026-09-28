@@ -3,10 +3,28 @@ from pathlib import Path
 import pytest
 
 import agent_protocol
+import scan
 import config as config_module
 from article_context import ArticleBundle, ArticleSource
 from models import PostKind, SourcePost
 from vision_media import VisionAsset, VisionBundle
+
+
+@pytest.mark.parametrize(("route_key", "capability"), [
+    ("id_stocks_news", "company_news"),
+    ("us_stocks_news", "company_news"),
+    ("macro_news", "macro_news"),
+    ("id_stocks_swing", "swing_chart_context"),
+])
+def test_route_maps_to_its_source_capability(route_key, capability):
+    assert scan.capability_for_route(route_key) == capability
+    assert scan.eligible_capability_for_route(route_key, frozenset({capability})) == capability
+
+
+def test_disabled_swing_candidate_has_no_eligible_capability():
+    enabled = frozenset({"company_news", "macro_news"})
+    assert scan.eligible_capability_for_route("id_stocks_swing", enabled) is None
+    assert scan.eligible_capability_for_route("unknown", enabled) is None
 
 
 def test_agent_item_supplies_only_bounded_post_context(config_path, profile_payload):

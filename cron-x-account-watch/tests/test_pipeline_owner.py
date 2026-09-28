@@ -79,6 +79,85 @@ def _work(profile, posts, *, capability="company_news", version=1, kind="origina
                          "media_required": bool(refs), "content_hash": hashlib.sha256(encoded).hexdigest()}}
 
 
+def _group_work(profile, posts, capabilities=("company_news", "macro_news", "swing_chart_context"), **kwargs):
+    work = _work(profile, posts, capability="x_post_route_group", **kwargs)
+    work["pipeline_id"] = "x_post_route"
+    work["capability_version"] = 1
+    work["catalog_revision"] = 17
+    work["settings"] = {}
+    work["config_source"] = "publisher_default"
+    work["dispatch_context"] = {
+        "dispatch_group": "x_post_route",
+        "subscriptions": [
+            {"capability_id": capability, "capability_version": 1, "settings": {}, "config_source": "publisher_default"}
+            for capability in sorted(capabilities)
+        ],
+    }
+    return work
+
+
+def test_group_work_creates_one_event_and_one_classifier_input(tmp_path):
+    profile = _profile("wavetiga")
+    storage = tmp_path / "x.json"
+    work = _group_work(profile, [_post(profile, 101, "IHSG chart and market outlook")])
+    assert pipeline_owner.accept_source_work(work, profiles=(profile,), storage=storage, no_post=True, now=NOW) == {"outcome": "accepted"}
+    assert pipeline_owner.accept_source_work(work, profiles=(profile,), storage=storage, no_post=True, now=NOW) == {"outcome": "accepted"}
+    saved = state.load_state(storage)
+    assert len(saved["outbox"]) == 1
+    assert saved["outbox"][0]["enabled_capabilities"] == ["company_news", "macro_news", "swing_chart_context"]
+    assert saved["outbox"][0]["source_catalog_revision"] == 17
+    assert state.claim_oldest_agent(saved, {profile.id: profile}, NOW + timedelta(hours=1)) is saved["outbox"][0]
+    assert state.claim_oldest_agent(saved, {profile.id: profile}, NOW + timedelta(hours=1)) is None
+
+
+def test_group_identity_rejects_changed_or_unknown_frozen_context(tmp_path):
+    profile = _profile("wavetiga")
+    work = _group_work(profile, [_post(profile, 101, "Company update")])
+    bad = [
+        {**work, "dispatch_context": {**work["dispatch_context"], "dispatch_group": "other"}},
+        {**work, "dispatch_context": {**work["dispatch_context"], "subscriptions": [{"capability_id": "unknown", "capability_version": 1, "settings": {}, "config_source": "publisher_default"}]}},
+        {**work, "catalog_revision": "17"},
+        {**work, "capability_id": "company_news"},
+    ]
+    for index, item in enumerate(bad):
+        with pytest.raises(ValueError):
+            pipeline_owner.accept_source_work(item, profiles=(profile,), storage=tmp_path / f"bad-{index}.json", no_post=True)
+
+
+def test_group_correction_retains_original_capabilities(tmp_path):
+    profile = _profile("wavetiga")
+    storage = tmp_path / "x.json"
+    first = _group_work(profile, [_post(profile, 101, "First")], capabilities=("company_news",))
+    correction = _group_work(profile, [_post(profile, 101, "Corrected")], capabilities=("company_news",), version=2, kind="correction")
+    pipeline_owner.accept_source_work(first, profiles=(profile,), storage=storage, no_post=True)
+    pipeline_owner.accept_source_work(correction, profiles=(profile,), storage=storage, no_post=True)
+    saved = state.load_state(storage)
+    assert saved["outbox"][0]["enabled_capabilities"] == ["company_news"]
+    assert saved["source_events"][first["event_key"]]["enabled_capabilities"] == ["company_news"]
+    expanded = _group_work(profile, [_post(profile, 101, "Changed again")], capabilities=("company_news", "swing_chart_context"), version=3, kind="correction")
+    with pytest.raises(ValueError, match="capabilit"):
+        pipeline_owner.accept_source_work(expanded, profiles=(profile,), storage=storage, no_post=True)
+    stale = _group_work(profile, [_post(profile, 101, "Changed again")], capabilities=("company_news",), version=3, kind="correction")
+    stale["catalog_revision"] = 18
+    with pytest.raises(ValueError, match="catalog snapshot"):
+        pipeline_owner.accept_source_work(stale, profiles=(profile,), storage=storage, no_post=True)
+
+
+def test_legacy_work_still_accepts_during_group_drain(tmp_path):
+    profile = _profile("writingtorch")
+    storage = tmp_path / "x.json"
+    post = _post(profile, 101, "Legacy publication")
+    assert pipeline_owner.accept_source_work(_work(profile, [post], capability="company_news"), profiles=(profile,), storage=storage, no_post=True)["outcome"] == "accepted"
+    assert len(state.load_state(storage)["outbox"]) == 1
+    # The sibling legacy claim may arrive after the watcher has completed its
+    # single queued delivery. It must settle from the source ledger alone.
+    delivered = state.load_state(storage)
+    delivered["outbox"].clear()
+    state.save_state(storage, delivered)
+    assert pipeline_owner.accept_source_work(_work(profile, [post], capability="macro_news"), profiles=(profile,), storage=storage, no_post=True)["outcome"] == "accepted"
+    assert state.load_state(storage)["outbox"] == []
+
+
 def _profile(profile_id="writingtorch"):
     return next(item for item in config.load_watch_config(pipeline_owner.Path(__file__).resolve().parents[1] / "config" / "watches.json").profiles if item.id == profile_id)
 

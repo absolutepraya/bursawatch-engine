@@ -399,6 +399,14 @@ def submit_analysis(value: dict, event_key: str, analysis: dict[str, str]) -> di
     return event
 
 
+def suppress_ineligible(value: dict, event: dict) -> None:
+    source_key = event.get("source_event_key")
+    if source_key is None or source_key not in value["source_events"]:
+        raise ValueError("X source event is missing its durable identity")
+    value["source_events"][source_key]["outcome"] = "suppressed_ineligible"
+    value["outbox"].remove(event)
+
+
 def awaiting_analysis_event(value: dict, event_key: str) -> dict:
     profile_id, separator, post_id = event_key.partition(":")
     if not separator or not profile_id or not post_id:

@@ -60,12 +60,12 @@ def _owner_handler(work: dict) -> None:
         receipt = json.loads(result.stdout.strip())
     except ValueError as error:
         raise RuntimeError("X owner receipt is invalid") from error
-    if type(receipt) is not dict or receipt.get("outcome") not in {"accepted", "irrelevant"}:
+    if type(receipt) is not dict or receipt.get("outcome") not in {"accepted", "irrelevant", "suppressed_ineligible"}:
         raise RuntimeError("X owner receipt is invalid")
 
 
 def process_pending(inbox, *, handler=_owner_handler) -> list[dict[str, str]]:
-    return PipelineRuntime(inbox, {"company_news": handler, "macro_news": handler}).run_once(limit=20)
+    return PipelineRuntime(inbox, {"x_post_route": handler, "company_news": handler, "macro_news": handler}).run_once(limit=20)
 
 
 def format_heartbeat(now: datetime, result: dict) -> str:

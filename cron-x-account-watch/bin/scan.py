@@ -39,6 +39,12 @@ BOARD_PENDING = "pending"
 BOARD_UNAVAILABLE = "unavailable"
 BOARD_RETRY_INITIAL_SECONDS = 60
 BOARD_RETRY_CAP_SECONDS = 15 * 60
+ROUTE_CAPABILITIES = {
+    "id_stocks_news": "company_news",
+    "us_stocks_news": "company_news",
+    "macro_news": "macro_news",
+    "id_stocks_swing": "swing_chart_context",
+}
 _TICKER_TOKEN = r"[A-Z][A-Z0-9]{1,9}"
 _TICKER_COLON_CLAUSE = re.compile(rf"(?<![A-Z0-9])({_TICKER_TOKEN})\s*:\s+\S")
 _TICKER_SPACE_CLAUSE = re.compile(rf"^\s*({_TICKER_TOKEN})\s+\S")
@@ -258,6 +264,23 @@ def _target_channel(profile, event: dict) -> str:
     if not profile.enable_llm_routing:
         return profile.discord_channels[0].channel_id
     return profile.channel_for(normalize_route(profile, event["route"])).channel_id
+
+
+def capability_for_route(route_key: str) -> str | None:
+    return ROUTE_CAPABILITIES.get(route_key)
+
+
+def eligible_capability_for_route(route_key: str, enabled_capabilities: frozenset[str]) -> str | None:
+    capability = capability_for_route(route_key)
+    return capability if capability in enabled_capabilities else None
+
+
+def _event_route_is_eligible(profile, event: dict) -> bool:
+    enabled = event.get("enabled_capabilities")
+    if enabled is None:
+        return True
+    route = event.get("route") if profile.enable_llm_routing else profile.discord_channels[0].key
+    return eligible_capability_for_route(route, frozenset(enabled)) is not None
 
 
 def _event_source_ids(event: dict) -> set[str]:
@@ -567,13 +590,17 @@ def _delivery_at(event: dict, now: datetime | None) -> datetime:
 
 def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, storage: Path, stats: RunStats, now: datetime | None = None) -> bool:
     event = value["outbox"][event_index]
+    profile = profiles[event["profile_id"]]
+    if not _event_route_is_eligible(profile, event):
+        state.suppress_ineligible(value, event)
+        state.save_state(storage, value)
+        return True
     event.setdefault("board_phase", BOARD_PENDING)
     event.setdefault("board_attempts", 0)
     event.setdefault("board_next_attempt_at", None)
     event.setdefault("board_last_error", None)
     event.setdefault("media_skipped_urls", [])
     event.setdefault("media_errors", [])
-    profile = profiles[event["profile_id"]]
     post = state.deserialize_post(event["post"])
     thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]]))
     channel_id = _target_channel(profile, event)
@@ -1000,6 +1027,18 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
             route_override = deterministic_route(profile, post, thread_posts)
             if route_override is not None:
                 analysis["route"] = route_override
+            candidate_route = analysis.get("route") if profile.enable_llm_routing else profile.discord_channels[0].key
+            if event.get("enabled_capabilities") is not None and eligible_capability_for_route(candidate_route, frozenset(event["enabled_capabilities"])) is None:
+                state.suppress_ineligible(value, event)
+                state.save_state(storage, value)
+                _cleanup_agent_vision(storage, event)
+                _report_control_event(
+                    reporter, run_id, "agent-submission-accepted", level="info", phase="agent",
+                    event_type="agent.submission.accepted", message="X agent submission suppressed by frozen source capability",
+                    attributes={"is_relevant": True, "delivered": 0, "outcome": "suppressed_ineligible"},
+                )
+                _finish_control_run(reporter, run_id, "ok")
+                return {"submitted": True, "suppressed": "suppressed_ineligible", "delivered": 0}
             state.submit_analysis(value, analysis["event_key"], {key: item for key, item in analysis.items() if key not in {"event_key", "is_relevant"}})
             state.save_state(storage, value)
             _cleanup_agent_vision(storage, event)

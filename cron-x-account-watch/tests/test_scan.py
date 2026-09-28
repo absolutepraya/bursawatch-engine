@@ -94,6 +94,50 @@ def ready_swing_state(tmp_path) -> dict:
     return value
 
 
+@pytest.mark.parametrize(("source_text", "candidate", "capabilities", "expected_outcome"), [
+    ("KPIG: wave count points to support at 90", "id_stocks_swing", ["company_news", "macro_news"], "suppressed_ineligible"),
+    ("IHSG technical chart shows broad market support", "id_stocks_swing", ["macro_news", "swing_chart_context"], "macro_news"),
+])
+def test_group_route_uses_one_candidate_and_frozen_capability_gate(tmp_path, monkeypatch, source_text, candidate, capabilities, expected_outcome):
+    profile = profile_fixture()
+    post = SourcePost(profile.id, "101", f"https://x.com/{profile.handle}/status/101", now(), source_text, PostKind.NORMAL, None, None, (), ())
+    storage = tmp_path / "state.json"
+    value = state.new_state()
+    state._event_for_thread(value, profile, (post,), now(), 0)
+    event = value["outbox"][0]
+    event.update(source_event_key="source-event", enabled_capabilities=capabilities, source_catalog_revision=17,
+                 agent_phase="awaiting_agent", agent_lease_until=(now() + timedelta(minutes=15)).isoformat())
+    value["source_events"]["source-event"] = {"version": 1, "outcome": "accepted", "enabled_capabilities": capabilities, "source_catalog_revision": 17}
+    state.save_state(storage, value)
+    monkeypatch.setattr(scan, "state_path", lambda: storage)
+    monkeypatch.setattr(scan, "config_path", lambda: tmp_path / "watches.json")
+    monkeypatch.setattr(scan.config, "load_watch_config_for_run", lambda path: SimpleNamespace(config=SimpleNamespace(profiles=(profile,)), revision=None))
+    classifier_calls = []
+    classify = scan.deterministic_route
+    def classify_once(*args):
+        classifier_calls.append(args)
+        return classify(*args)
+    monkeypatch.setattr(scan, "deterministic_route", classify_once)
+    deliveries = []
+    monkeypatch.setattr(scan, "_deliver", lambda value, profiles, index, dry_run, storage, stats, now: deliveries.append(value["outbox"][index]["route"]) or value["outbox"].pop(index) or True)
+    monkeypatch.setattr(scan, "submit_board_event", lambda *args, **kwargs: pytest.fail("Board handoff after ineligible route"))
+    monkeypatch.setattr(scan.discord, "post_text", lambda *args, **kwargs: pytest.fail("Discord post after ineligible route"))
+
+    result = scan.submit_analysis_payload({"event_key": f"{profile.id}:101", "is_relevant": True,
+                                           "title": "KPIG: Analisis teknikal", "summary": "*(Ringkasan)* Analisis pasar.",
+                                           "route": candidate}, dry_run=True)
+    saved = state.load_state(storage)
+    assert len(classifier_calls) == 1
+    if expected_outcome == "suppressed_ineligible":
+        assert result["suppressed"] == "suppressed_ineligible"
+        assert saved["source_events"]["source-event"]["outcome"] == "suppressed_ineligible"
+        assert saved["outbox"] == []
+        assert deliveries == []
+    else:
+        assert deliveries == [expected_outcome]
+        assert saved["source_events"]["source-event"]["outcome"] == "accepted"
+
+
 def test_run_skips_a_profile_during_source_retry_cooldown(tmp_path, monkeypatch, config_path):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     now = datetime(2026, 8, 24, 10, 0, tzinfo=scan.WIB)

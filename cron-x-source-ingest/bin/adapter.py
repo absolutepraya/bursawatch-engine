@@ -31,7 +31,7 @@ from source_ingest import IntakeBlocked, _write, bind_catalog_revision, envelope
 from source_event_client import SourceEventHandoff
 from config import REVIEWED_PUBLISHERS
 
-ALLOWED = {"company_news", "macro_news"}
+ALLOWED = {"company_news", "macro_news", "swing_chart_context"}
 
 
 def plan_legacy_cursor_seed(legacy_state_path: Path, state_root: Path, endpoint: dict[str, Any], profile: Any, catalog_revision: int, *, apply: bool = False, expected_plan: dict[str, Any] | None = None) -> dict[str, Any]:

@@ -13,6 +13,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "cron-x-source-ingest" / "bin"))
 from adapter import endpoints, plan_legacy_cursor_seed, run_once
+import runner
 from runner import format_fatal, format_heartbeat, process_pending
 
 sys.path.insert(0, str(ROOT / "cron-x-account-watch" / "bin"))
@@ -34,6 +35,50 @@ def test_x_source_heartbeat_reports_empty_runs_and_warns_on_pending_work():
     })
     assert degraded == "🫀 bursawatch-x-source-ingest · 07:00 WIB · endpoints=1 accepted=0 work=1 pending=1 ⚠️"
     assert format_fatal(NOW) == "❌ bursawatch-x-source-ingest · 07:00 WIB · failed: source processing failed"
+
+
+def test_group_capabilities_select_one_reviewed_x_endpoint():
+    profile = replace(next(item for item in load_watch_config(ROOT / "cron-x-account-watch" / "config" / "watches.json").profiles if item.id == "wavetiga"), enabled=True)
+    endpoint_id = f"x:{profile.handle.casefold()}"
+    publisher_id = REVIEWED_PUBLISHERS[profile.id]
+    snapshot = {"revision": 17, "subscriptions": [
+        {"platform": "x", "endpoint_id": endpoint_id, "publisher_id": publisher_id,
+         "address": profile.handle, "provider_id": None, "capability_id": capability,
+         "verification_status": "verified", "enabled": True}
+        for capability in ("company_news", "macro_news", "swing_chart_context")
+    ]}
+    selected, by_endpoint = endpoints(snapshot, (profile,))
+    assert set(selected) == {endpoint_id}
+    assert selected[endpoint_id]["capabilities"] == {"company_news", "macro_news", "swing_chart_context"}
+    assert selected[endpoint_id]["publisher_id"] == publisher_id
+    assert by_endpoint[endpoint_id].id == profile.id
+
+
+def test_group_and_legacy_work_are_claimed_by_one_x_owner_handler():
+    class WorkInbox:
+        def claim(self, pipelines, limit):
+            assert set(pipelines) == {"x_post_route", "company_news", "macro_news"}
+            return [{"work_key": name, "lease_token": name, "pipeline_id": name} for name in pipelines]
+        def begin(self, key, token):
+            return True
+        def settle(self, key, token, success, error_code=None):
+            assert success and error_code is None
+            return {"status": "done"}
+
+    seen = []
+    results = process_pending(WorkInbox(), handler=lambda item: seen.append(item["pipeline_id"]))
+    assert set(seen) == {"x_post_route", "company_news", "macro_news"}
+    assert all(item["status"] == "done" for item in results)
+
+
+def test_owner_handler_acknowledges_previously_suppressed_group_work(monkeypatch):
+    calls = []
+    def fake_run(argv, **kwargs):
+        calls.append(kwargs["input"])
+        return SimpleNamespace(returncode=0, stdout='{"outcome":"suppressed_ineligible"}')
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    runner._owner_handler({"pipeline_id": "x_post_route"})
+    assert len(calls) == 1
 
 
 class Inbox:
@@ -325,7 +370,7 @@ def test_x_subscriptions_settle_independently_through_pipeline_runtime():
                          {"work_key": "macro", "lease_token": "b", "pipeline_id": "macro_news"}]
             self.settled = {}
         def claim(self, pipelines, limit):
-            assert set(pipelines) == {"company_news", "macro_news"}
+            assert set(pipelines) == {"x_post_route", "company_news", "macro_news"}
             return self.work[:limit]
         def begin(self, key, token):
             return True
