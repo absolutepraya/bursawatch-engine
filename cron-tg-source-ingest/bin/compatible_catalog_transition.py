@@ -11,6 +11,17 @@ import sys
 import tempfile
 from typing import Any
 
+ROOT = Path(__file__).resolve().parents[2]
+for local_name, runtime_name in (
+    ("lib-bursawatch-control", "lib-bursawatch-control"),
+    ("lib-bursawatch-source-ingest", "lib-bursawatch-source-ingest-pilot"),
+):
+    support_bin = ROOT / local_name / "bin"
+    if not support_bin.exists():
+        support_bin = Path.home() / ".agents" / "skills" / runtime_name / "bin"
+    if support_bin.is_dir() and str(support_bin) not in sys.path:
+        sys.path.insert(0, str(support_bin))
+
 from adapter import IntakeBlocked, endpoints
 
 
