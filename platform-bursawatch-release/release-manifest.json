@@ -186,7 +186,7 @@
     {
       "id": "cron-tg-phintraco-swing-metadata",
       "handler": "metadata",
-      "paths": ["cron-tg-phintraco-swing/AGENTS.md", "cron-tg-phintraco-swing/tests/**"]
+      "paths": ["cron-tg-phintraco-swing/AGENTS.md", "cron-tg-phintraco-swing/requirements.txt", "cron-tg-phintraco-swing/tests/**"]
     },
     {
       "id": "cron-tg-kelas-investasi-gtw",
@@ -313,8 +313,17 @@
     },
     {
       "id": "cron-rss-source-ingest-pilot",
+      "handler": "runtime",
+      "runtime": "bursawatch-rss-source-ingest",
+      "depends_on": ["lib-bursawatch-control", "lib-bursawatch-discord-delivery", "lib-bursawatch-pipeline-runtime", "lib-bursawatch-source-ingest-pilot", "cron-stockbit-snips"],
+      "paths": ["cron-rss-source-ingest/bin/**", "cron-rss-source-ingest/SKILL.md"],
+      "wrappers": [{"source": "bursawatch-rss-source-ingest.sh", "destination": "bursawatch-rss-source-ingest.sh"}],
+      "verification": "rss-source-ingest-no-post"
+    },
+    {
+      "id": "cron-rss-source-ingest-pilot-metadata",
       "handler": "metadata",
-      "paths": ["cron-rss-source-ingest/**"]
+      "paths": ["cron-rss-source-ingest/AGENTS.md", "cron-rss-source-ingest/tests/**"]
     },
     {
       "id": "manual-schedule-reconciler",

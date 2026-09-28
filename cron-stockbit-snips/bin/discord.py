@@ -134,7 +134,9 @@ def post_text(
     owner = client if client is not None else delivery_client_from_environment()
     receipt = _submit_or_lookup(operation, owner, legacy_nonce=nonce_value)
     value = receipt.receipt
-    if not isinstance(value, dict) or value.get("channel_id") != channel_id:
+    if not isinstance(value, dict):
+        raise DeliveryClientError("invalid_response")
+    if "channel_id" in value and value["channel_id"] != channel_id:
         raise DeliveryClientError("invalid_response")
     message_id = value.get("message_id")
     if not isinstance(message_id, str) or not message_id.isdigit():

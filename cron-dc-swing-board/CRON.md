@@ -4,6 +4,7 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
 
 - **Owner:** Board Engine is the sole writer of canonical SQLite episode/domain state, intent outboxes, and private media. The Delivery Owner service is the only Discord API writer. Board sends reads and writes through the typed shared client, persists each intent and stable key first, then applies accepted receipts and Discord IDs once. It accepts only validated internal watcher events after All Swing delivery.
 - **Boundary:** deterministic and read-only. No LLM, inferred plan, trading advice, market order, or watcher-state write is allowed. Only active cash-equity source events are eligible.
+- **Phintraco setup linkage:** weekly PDF plan events use one immutable source event per ticker and the PDF Telegram publication time. A matched Phintraco reminder carries the exact immutable setup event key; the Board accepts it only for that active plan. Explicit numbered target amendments update the current plan projection and rerender the card, while the original setup source event remains immutable. The watcher labels unmatched updates as `context`; context is retained as an episode reply without changing plan, lifecycle, tags, milestones, or staleness. Context with no applicable episode is stored and processed without opening a thread.
 - **Source-only events:** Kelas Investasi GTW events use the `Supporting setup`
   lifecycle tier. X and other social/chart events use `Chart context`. A single
   source-only episode keeps the strongest tier present, with `Supporting setup`

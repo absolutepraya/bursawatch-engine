@@ -13,16 +13,26 @@
 ## Current status, 2026-09-28
 
 The X route-group, adapter, ordered multi-image, Board handoff, tests, and
-package contracts are implemented in this worktree. The shared Board lifecycle
-runtime was separately released at `d33f5828de11812d7def1ee9ceb5be85bb39cef8`.
-Its existing close and retry jobs are active, and daily lifecycle job
-`f2b6c4f0995b` is registered for 17:10 WIB. The first scheduled production run
-has not happened yet. The live Board database is still schema version 9, so
-verify its version 10 migration and first lifecycle result before any X source
-cutover.
+package contracts are implemented in this worktree. This branch was based on
+`d33f5828` and is being integrated with current `main`, which added Phintraco
+weekly-plan linkage and Board schema version 11. The combined X Board storage
+contract is schema version 12: v9-to-v10 adds lifecycle fields,
+v10-to-v11 adds weekly-plan linkage, and v11-to-v12 adds ordered media paths.
+
+The shared Board lifecycle runtime was released at
+`d33f5828de11812d7def1ee9ceb5be85bb39cef8`; close/retry jobs and daily job
+`f2b6c4f0995b` are registered. Its first production run happened on 2026-09-28
+at 17:11 WIB. It resolved one stale episode, but its Discord edit and heartbeat
+receipts were not yet applied back to the Board outbox, and the following tag
+patch remained pending. Reconcile that durable work on a normal owner run and
+confirm both Board outboxes are clear before any X cutover.
 
 The new X source-ingest adapter remains unscheduled. The current X watcher and
 queue remain authoritative, and no X source state or capability was changed.
+The next production transition follows the repository's forward-only policy:
+keep old state for rollback, start the new path at a fresh provider-head
+boundary, and intentionally skip pre-boundary history instead of doing a full
+state snapshot or cursor crosswalk.
 
 ## Global Constraints
 
@@ -274,13 +284,13 @@ git commit -m "feat: dispatch X Swing through the source owner"
 - X source envelopes continue to carry the accepted `thread_posts` snapshot and durable ordered media refs. Include supported authored and quoted images in post order, with authored images before quoted images within each post, even when both are present. Accept up to 16 refs, 8 MiB per object, and 25 MiB aggregate. Preserve explicit blocked/terminal-skip outcomes for unsupported, unavailable, and failed media; never silently omit or reorder accepted refs.
 - `SourceEvent.from_json()` keeps the existing required `media_path` and `media_urls` fields. It accepts optional `media_paths: list[str]` for a new ordered local-path list. When present, `media_paths[0]` equals the compatibility `media_path`; an absent list normalizes a legacy non-null `media_path` to a one-item ordered list. Reject duplicate paths, non-absolute paths, and lists over 16.
 - `SourceEvent.media_paths` is the normalized ordered tuple. Persist it in additive SQLite column `source_events.media_paths_json`; old rows read as `()` or their existing single `media_path` without changing event identity.
-- Bump the Board store from schema version 9 to 10 and add `_migrate_v9_to_v10()` to append `media_paths_json` with an empty-list default. When reading a v9 row, use `(media_path,)` if that old column is non-null and the new JSON list is empty. Preserve all existing event, episode, history, and outbox rows.
+- Bump the Board store from schema version 11 to 12 and add `_migrate_v11_to_v12()` to append `media_paths_json` with an empty-list default. Keep the existing v9 lifecycle migration and v10 setup-link migration in their original versions. When reading a legacy row, use `(media_path,)` if the old column is non-null and the new JSON list is empty. Preserve all existing event, episode, history, and outbox rows.
 - Add `episode_title(ticker: str, opened_at: datetime) -> str` in the Board engine. It returns `TICKER - Ddd, DD Mon YYYY`, with fixed English three-letter weekday/month names and `opened_at` converted to WIB. New source-only and Primary episodes use it; promotion and later replies keep the episode's original title. The existing title-repair command recalculates only from stored ticker and opening time.
 - The Board owner atomically copies every path into its private media directory with stable per-event and per-index names. The first available image attaches to the starter; remaining images become ordered media-only replies with stable operation keys. Existing `media_urls` behavior remains for legacy events.
 - The same queued X event is drained through successful text and media legs in one worker invocation. Each leg keeps its receipt and nonce. Board submission waits for all text/media success or explicit terminal media skips; Board retries never repost successful All legs.
 - Do not implement episode, resolution, price, or archive logic in the X watcher. Tests exercise these outcomes through the existing shared Board engine, which remains the owner of Phintraco and source-only lifecycle decisions.
 
-- [x] **Step 1: Add failing adapter, owner, protocol, Board-model, and store-migration tests.** Assert two or more self-chain images, including authored and quoted images on the same post, produce one ordered durable ref per accepted image; owner validation resolves every ref exactly once; the complete 16-image Vision bundle passes agent payload serialization and validation while 17 is rejected; Vision, All, and Board retain images in authored-then-quoted order; and legacy one-image `SourceEvent` payloads still parse. Reject duplicate or over-bound path lists. Update schema-version and synthetic old-schema fixtures to prove the v9-to-v10 migration and v9 row fallback preserve existing data.
+- [x] **Step 1: Add failing adapter, owner, protocol, Board-model, and store-migration tests.** Assert two or more self-chain images, including authored and quoted images on the same post, produce one ordered durable ref per accepted image; owner validation resolves every ref exactly once; the complete 16-image Vision bundle passes agent payload serialization and validation while 17 is rejected; Vision, All, and Board retain images in authored-then-quoted order; and legacy one-image `SourceEvent` payloads still parse. Reject duplicate or over-bound path lists. Update schema-version and synthetic old-schema fixtures to prove the v11-to-v12 migration and legacy single-path fallback preserve existing data.
 
 ```python
 def test_source_event_normalizes_legacy_and_ordered_media_paths(source_event_json):
@@ -358,14 +368,14 @@ git commit -m "feat: preserve ordered X thread images on Swing Board"
 **Interfaces:**
 - Documentation describes the X-specific `x_post_route` contract, supported but disabled-by-default `swing_chart_context`, frozen event capabilities, existing-route compatibility, media limits, LLM image coverage, same-invocation ordered delivery, Board handoff order, the Swing-only `omit_last` override, and explicit retry behavior.
 - Documentation states that all sources use the existing Board owner and its Phintraco lifecycle rules: X is level 3 source context; one ticker has one configured forum and at most one open episode; source context never modifies a Primary plan; source-only promotion, supersession, late history, resolution, and archive remain Board-owned. Episode titles stay `TICKER - Ddd, DD Mon YYYY`, with fixed English abbreviations and the first accepted source timestamp in WIB, even when that date is Saturday or Sunday.
-- Rollout evidence is read-only until a separate cutover approval. It records sanitized revisions, endpoint and publisher bindings, current X routes, cursor/outbox/media counts and hashes, registered Board routes/open episodes, pending Delivery Owner effects, package SHA, and health. It never exposes credentials or source bodies.
-- The approved shared Board design requires owner-driven 20-trading-session inactivity resolution and 48-hour quiet archival. The Board lifecycle runtime is now released and its daily owner job is registered. Do not recreate this lifecycle in X. Verify the live SQLite schema migration and first owner run before X cutover.
+- Read-only rollout evidence records sanitized revisions, endpoint and publisher bindings, current X routes, counts of old queued work, registered Board routes/open episodes, pending Delivery Owner effects, package SHA, and health. Forward-only rollout does not require a complete state snapshot, cursor crosswalk, or history replay. Record the new poll's provider-head boundary and intentionally skipped old backlog without exposing credentials or source bodies.
+- The approved shared Board design requires owner-driven 20-trading-session inactivity resolution and 48-hour quiet archival. Do not recreate this lifecycle in X. Verify the current Board schema and clear its pending durable outbox work before X cutover.
 
 - [x] **Step 1: Update active package contracts and the accepted ADR.** Remove the obsolete statement that multi-image X Board work must remain unclaimed; update the X source-ingest route-group contract; and correct stale X watcher `AGENTS.md` media-order rules. Document the ordered multi-image path: all accepted images reach Vision; every accepted X Swing image reaches All and Board even when the profile uses `omit_last`; non-Swing routes retain that profile policy. Retain the approved 0021 ordering, strict gate, terminal-skip, and promotion decisions. Replace the old ticker-only forum-title wording with the current Board rule: generated `TICKER - Ddd, DD Mon YYYY` using fixed English abbreviations, fixed from the first accepted source timestamp converted to WIB. Update Control Plane and X package docs to distinguish capability compatibility from enabled state.
 - [x] **Step 2: Add or extend fake-client integration coverage.** Extend `cron-x-source-ingest/tests/test_adapter.py` to assert the one route-group handoff is acknowledged once, and `cron-x-account-watch/tests/test_scan.py` to assert All text/media delivery precedes exactly one Board submission. Assert stable operation keys on retry and no live Discord/Storage client use. Update the Kelas integration expectation in `cron-tg-kelas-investasi-gtw/tests/test_discord.py` to use the approved generated episode title from the fixture's published timestamp.
 - [x] **Step 3: Run the focused checks and complete suite.** Re-run the focused commands from Tasks 1 to 3, run `bash scripts/test-all` from the repository root, and run `git diff --check`. Do not poll or wait for GitHub CI. When its result is needed, inspect the completed run and act on its observed result.
-- [x] **Step 4: Perform a read-only migration preflight after implementation is approved.** Read `GET /v1/source-catalog/effective` and `GET /v1/watchers/bursawatch-x-account-watch/config`. Match each configured profile ID and handle against the reviewed publisher binding in `REVIEWED_PUBLISHERS`; do not infer identity from a handle. Reconcile which legacy routes are active with the newly frozen capability set. Compare current X cursor, pending source work, thread/media state, All outbox, Board receipts/routes/open episodes, and Delivery Owner pending effects. Verify that the shared Board owner has the agreed 20-session inactivity and 48-hour quiet-archive schedule. Record sanitized evidence below. The live SQLite migration is still pending; do not cut over X until version 10 and the first lifecycle result are verified.
-- [x] **Step 5: Document the release sequence and stop before X cutover.** Record, but do not execute, this sequence: release the Control Plane migration/API, verify schema and health, release the approved X packages through the exact-main release process, and verify package parity. Check the independent Vercel deployment of `web-config` using its documented build, alias/domain, and HTTP evidence. Leave the X adapter unscheduled and the current reader authoritative. A separate approval is required before enabling X capabilities, pausing the old X writer, seeding or handing off X cursors/state, replaying X history, changing an X Hermes schedule, deploying X packages, or sending an X production message. The separate Board runtime release and lifecycle schedule registration are complete.
+- [x] **Step 4: Perform a read-only migration preflight after implementation is approved.** Read `GET /v1/source-catalog/effective` and `GET /v1/watchers/bursawatch-x-account-watch/config`. Match each configured profile ID and handle against the reviewed publisher binding in `REVIEWED_PUBLISHERS`; do not infer identity from a handle. Reconcile active legacy routes with the frozen capability set. Record counts for X cursor, pending source work, thread/media state, All outbox, Board routes/open episodes, and pending Delivery Owner effects. For forward-only cutover, do not require importing or proving legacy cursor history; record that pre-boundary backlog will be skipped. Verify the Board lifecycle schedule and clear its pending durable outbox work before switching writers.
+- [x] **Step 5: Document the forward-only release and cutover gate.** Release the Control Plane migration/API, verify schema and health, release the Board v12 and approved X packages through the exact-main release process, and verify package parity plus the independent Vercel `web-config` deployment. At cutover, pause the old X poller and finish its in-flight run, then let already-accepted queue work drain before stopping that queue. Start the new reader with a fresh state root; its first successful poll establishes the latest provider ID as the boundary and delivers no earlier history. Record skipped backlog counts, retain old state unchanged, and process only new work after that boundary. Keep the current reader authoritative until a separately approved cutover. A separate approval is required before enabling capabilities, pausing live jobs, changing schedules, deploying X packages, or sending a production X message.
 - [x] **Step 6: Commit this task after the documentation, fake-client test, and release checklist agree with the implementation.** Preserve the feature worktree and branch for review; do not create a pull request, merge, deploy, or clean up the worktree unless separately requested.
 
 ```bash
@@ -390,7 +400,8 @@ git commit -m "docs: align X Swing rollout and Board contracts"
 - [x] Board retries do not duplicate successful All output, Board replies, or source images.
 - [x] X obeys the shared Phintraco/level-2/level-3 episode rules, and cannot mutate a Phintraco plan or lifecycle.
 - [x] Existing data remains readable after both Postgres and SQLite migrations; legacy X work remains drainable.
-- [ ] The shared Board lifecycle prerequisite is verified before cutover. The runtime and schedule are live, but the first production schema migration and owner run remain unverified.
+- [ ] The Board lifecycle prerequisite is complete: the first run is verified, but reconcile its delivered edit/heartbeat receipts and pending tag patch on a normal owner run, then confirm both Board outboxes are clear.
+- [ ] The X branch is integrated with current `main`; SQLite migrations remain ordered as v9-to-v10 lifecycle, v10-to-v11 weekly setup link, and v11-to-v12 ordered media paths.
 - [x] Package docs, API schema, tests, and rollout checklist describe the same contract.
 - [x] The new X adapter remains unscheduled. No X capability was enabled, old X writer was paused, X state was imported or replayed, or X production message was sent. The separate Board lifecycle scheduler was registered as an approved prerequisite.
 
@@ -412,13 +423,30 @@ git commit -m "docs: align X Swing rollout and Board contracts"
   10-profile config; retain them as state history. One legacy `macro_news`
   outbox row drained naturally during the read-only checks. The current X
   outbox is now empty. No state was edited or replayed.
-- The Board database has 69 episodes, 24 open episodes, and 567 outbox rows,
+- The Board database had 69 episodes, 24 open episodes, and 567 outbox rows,
   all complete at the time of the initial check. The Delivery Owner health
   check reported zero pending, blocked, or ambiguous operations.
-- Board runtime checksums match the published main source. The existing close
+- Board runtime checksums matched the published main source. The existing close
   and retry jobs are active at 16:30 and 17:00 WIB on weekdays. Lifecycle job
-  `f2b6c4f0995b` is active at 17:10 WIB daily. The live Board database still
-  reports schema version 9 with no lifecycle columns; verify migration to
-  version 10 and the first lifecycle run before X cutover.
+  `f2b6c4f0995b` is active at 17:10 WIB daily. The live Board database reported
+  schema version 9 at this original preflight; see the later follow-up below.
 - No X catalog change, source-schedule change, state handoff, replay, or
   production X message was performed.
+
+## Read-only lifecycle follow-up, 2026-09-28 21:53 WIB
+
+- The live Board SQLite database reports schema version 10 and has the lifecycle
+  fields. Current `main` has schema version 11, and the integrated X Board code
+  uses schema version 12 to preserve both main's Phintraco setup-link migration
+  and X's ordered-media migration.
+- The first daily lifecycle run completed at 17:11 WIB with
+  `resolved=1`, `quiet=44`, `archive=0`, and `pending=2`. It emitted a degraded
+  heartbeat because durable work remained.
+- The Delivery Owner is healthy. Its ledger shows the resolved-card edit and
+  lifecycle heartbeat as delivered, but Board has not applied those receipts
+  locally. The dependent forum-tag patch is still pending and has not reached
+  the Delivery Owner. The next ordinary Board drain should reconcile the two
+  delivered receipts and submit the patch. Do not run a manual retry or X
+  cutover while this is unresolved.
+- No Board message, cursor, schedule, catalog setting, or X state was changed
+  during this inspection.

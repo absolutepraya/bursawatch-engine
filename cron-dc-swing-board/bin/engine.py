@@ -34,6 +34,12 @@ _TARGET = re.compile(
     r"(first|second|third|fourth|fifth|sixth|[0-9]+(?:st|nd|rd|th)) target"
     r"(?: [0-9][0-9.,]*)? (?:achieved|hit|reached)", re.IGNORECASE
 )
+_FORMATTED_TARGET_AMENDMENT = re.compile(
+    r"^\s*\*\*Target ([1-6]):\*\*\s*(.+?)\s*$", re.IGNORECASE
+)
+_PLAIN_TARGET_AMENDMENT = re.compile(
+    r"^\s*Target ([1-6])\s*:\s*(.+?)\s*$", re.IGNORECASE
+)
 # Hermes can claim a scheduled job while another built-in job is still running.
 # Keep the window bounded so a stale or manually delayed invocation is ignored.
 _PHASE_STARTS = {"initial": (16, 30), "retry": (17, 0)}
@@ -71,6 +77,50 @@ def source_outcome_state(event: SourceEvent, active_plan: SourceEvent) -> Market
     return MarketState.from_target_number(min(max(reached), 6)) if reached else None
 
 
+def _target_amendments(event: SourceEvent) -> dict[int, str] | None:
+    """Read only explicit numbered target fields from canonical source content."""
+    if event.kind != "reminder" or event.source.casefold() != "phintraco":
+        return {}
+    amendments: dict[int, str] = {}
+    fragments = event.all_content.splitlines()
+    fragments.extend((event.source_status or "").split(";"))
+    for fragment in fragments:
+        match = (
+            _FORMATTED_TARGET_AMENDMENT.fullmatch(fragment)
+            or _PLAIN_TARGET_AMENDMENT.fullmatch(fragment)
+        )
+        if match is None:
+            continue
+        number = int(match.group(1))
+        value = match.group(2).strip()
+        if not value or (number in amendments and amendments[number] != value):
+            return None
+        amendments[number] = value
+    return amendments
+
+
+def _updated_target_ladder(plan: SourceEvent, event: SourceEvent) -> tuple[str, ...] | None:
+    """Validate replacements and contiguous appends before changing the plan projection."""
+    if plan.plan is None:
+        return None
+    amendments = _target_amendments(event)
+    if amendments is None:
+        return None
+    targets = list(plan.plan.targets)
+    for number, value in sorted(amendments.items()):
+        if number <= len(targets):
+            targets[number - 1] = value
+        elif number == len(targets) + 1:
+            targets.append(value)
+        else:
+            return None
+    try:
+        parse_plan_levels(plan.plan.entry, plan.plan.stop_loss, targets)
+    except ValueError:
+        return None
+    return tuple(targets)
+
+
 class BoardEngine:
     def __init__(self, store: BoardStore, client: DiscordForumClient) -> None:
         self.store = store
@@ -100,9 +150,60 @@ class BoardEngine:
                 else:
                     self._social(tx, event, submitted.id, active, now)
                     result = "board_submitted"
+            elif event.kind == "context":
+                historical = tx.historical_episode(event.ticker, event.published_at)
+                if historical is not None:
+                    if historical.archived_at is None:
+                        self._historical_source(tx, event, historical, now)
+                        result = "board_submitted"
+                    else:
+                        result = "board_ignored"
+                elif active is not None:
+                    self._context_reply(tx, event, active, now)
+                    result = "board_submitted"
+                else:
+                    result = "board_ignored"
             elif event.kind == "buy":
                 self._buy(tx, event, submitted.id, active, now)
                 result = "board_submitted"
+            elif event.source.casefold() == "phintraco" and event.kind in {"status", "reminder"}:
+                historical = (
+                    tx.historical_episode(event.ticker, event.published_at)
+                    if event.matched_setup_event_key is not None else None
+                )
+                if historical is not None:
+                    if historical.archived_at is None:
+                        self._historical_source(tx, event, historical, now)
+                        result = "board_submitted"
+                    else:
+                        result = "board_ignored"
+                elif active is not None and active.lifecycle == "primary":
+                    if event.published_at < active.latest_material_at:
+                        self._historical_source(tx, event, active, now)
+                    else:
+                        plan = tx.active_plan(active.id)
+                        if (
+                            event.matched_setup_event_key is not None
+                            and (plan is None or event.matched_setup_event_key != plan.event_key)
+                        ):
+                            self._context_reply(tx, event, active, now)
+                        elif event.matched_setup_event_key is not None:
+                            target_ladder = _updated_target_ladder(plan, event)
+                            if target_ladder is None:
+                                self._context_reply(tx, event, active, now)
+                            else:
+                                self._status(
+                                    tx, event, submitted.id, active, now,
+                                    target_ladder=target_ladder,
+                                )
+                        else:
+                            self._status(tx, event, submitted.id, active, now)
+                    result = "board_submitted"
+                elif event.matched_setup_event_key is not None and active is not None:
+                    self._context_reply(tx, event, active, now)
+                    result = "board_submitted"
+                else:
+                    result = "board_ignored"
             elif active is not None and active.lifecycle == "primary":
                 if event.source.casefold() != "phintraco":
                     self._social(tx, event, submitted.id, active, now)
@@ -115,6 +216,13 @@ class BoardEngine:
                 result = "board_ignored"
             tx.mark_event_processed(submitted.id, now)
             return result
+
+    def _context_reply(self, tx, event, episode, now) -> None:
+        """Retain source context without changing the episode or its plan projection."""
+        if episode.lifecycle == "resolved":
+            self._historical_source(tx, event, episode, now)
+        else:
+            self._source_reply(tx, event, episode, now)
 
     def after_close(self, phase: str, now: datetime) -> dict[str, int]:
         """Reconcile active primary plans at the one reviewed close-phase instant.
@@ -519,10 +627,15 @@ class BoardEngine:
                 replay=True,
             )
 
-    def _status(self, tx, event, event_id, active, now, *, replay=False):
+    def _status(self, tx, event, event_id, active, now, *, replay=False, target_ladder=None):
         plan = tx.active_plan(active.id)
         if plan is None:
             raise StoreBlockedError("active primary episode is missing its plan")
+        if target_ladder is not None and target_ladder != plan.plan.targets:
+            tx.update_plan_targets(active.id, target_ladder)
+            plan = tx.active_plan(active.id)
+            if plan is None:
+                raise StoreBlockedError("active primary plan disappeared after target update")
         current = event.source_status or plan.source_status or "New setup"
         state = source_outcome_state(event, plan)
         stopped, reached = _source_confirmations(event, plan)

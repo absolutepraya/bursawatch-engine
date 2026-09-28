@@ -29,6 +29,31 @@ source promotion, status updates, and starter replacement. Descriptive source
 and plan titles remain in the starter card. `migrate-titles --apply` repairs an
 existing topic from its canonical ticker and stored opening timestamp.
 
+### Linked Phintraco updates and source context
+
+Phintraco status/reminder events may include `matched_setup_event_key` only
+after the watcher proves one source setup. For weekly PDF setups, the key is
+`phintraco:<channel-id>:weekly:<pdf-message-id>:<ticker>`. The Board verifies
+that the key names the active Primary plan and that its ticker matches the
+update. A missing or different key cannot amend that plan. Legacy producers
+may omit the optional key and retain their existing behavior.
+
+An explicitly matched update may replace a numbered target or append the next
+contiguous target after validating the complete ladder. The current plan
+projection is updated and the starter is rerendered with the existing Primary
+card layout; the immutable setup
+`source_events` record remains unchanged, and the update itself remains a
+separate immutable source event. Source-confirmed milestones remain recorded
+even if later market position changes.
+
+The `context` event kind retains source material without claiming it updates a
+plan. With an open episode, it creates a source reply; with a resolved but
+unarchived episode, an event published before resolution may be retained as a
+historical reply. With no applicable episode, the owner persists and marks the
+event processed without creating a topic. Context does not alter lifecycle,
+tier, plan levels, market tags, milestones, or the inactivity timer. A
+reminder that has no unique setup match must use this path.
+
 ## Commands and safety
 
 `submit-source-event --stdin` validates one event, copies supplied local media into the owner media root, atomically commits the immutable event plus its owner intents, then performs one best-effort drain. It may not calculate a close and does not post a heartbeat. Its JSON acknowledgement is `{"accepted":true,"board_url":"https://discord.com/channels/940285152335110204/<thread-id>"}` when the exact topic is materialized, or `board_url:null,"board_pending":true` while that topic is still retryable. A durable accepted event with no applicable topic omits `board_pending`; a durable accepted event remains accepted when Discord work is retryable.

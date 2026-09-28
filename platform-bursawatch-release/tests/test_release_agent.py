@@ -60,6 +60,20 @@ def test_manifest_maps_every_current_tracked_path_exactly_once():
     assert ambiguous == []
 
 
+def test_sync_file_installs_executable_wrappers_with_world_execute_permission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    source = tmp_path / "source.sh"
+    target = tmp_path / "runtime" / "wrapper.sh"
+    source.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    monkeypatch.setattr(release_agent, "_ensure_safe_directory", lambda path: None)
+
+    release_agent._sync_file(source, target, executable=True)
+
+    assert target.read_text(encoding="utf-8") == "#!/bin/sh\nexit 0\n"
+    assert target.stat().st_mode & 0o777 == 0o755
+
+
 def test_manifest_orders_dependencies_before_the_x_runtime_unit():
     units = manifest().matching_units(["cron-x-account-watch/bin/scan.py"])
 
@@ -115,12 +129,30 @@ def test_x_source_ingest_resolves_as_an_installable_runtime():
     } <= set(by_id)
 
 
-def test_instagram_whatsapp_and_rss_source_ingest_pilots_remain_metadata_only():
+def test_instagram_and_whatsapp_source_ingest_pilots_remain_metadata_only():
     result = manifest()
-    for platform in ("ig", "wa", "rss"):
+    for platform in ("ig", "wa"):
         units = result.matching_units([f"cron-{platform}-source-ingest/bin/runner.py"])
         assert [unit.identifier for unit in units] == [f"cron-{platform}-source-ingest-pilot"]
         assert [unit.handler for unit in units] == ["metadata"]
+
+
+def test_rss_source_ingest_resolves_as_an_installable_runtime():
+    units = manifest().matching_units(["cron-rss-source-ingest/bin/runner.py"])
+    by_id = {unit.identifier: unit for unit in units}
+    runtime = by_id["cron-rss-source-ingest-pilot"]
+
+    assert runtime.handler == "runtime"
+    assert runtime.runtime == "bursawatch-rss-source-ingest"
+    assert runtime.verification == "rss-source-ingest-no-post"
+    assert ("bursawatch-rss-source-ingest.sh", "bursawatch-rss-source-ingest.sh") in runtime.wrappers
+    assert {
+        "lib-bursawatch-control",
+        "lib-bursawatch-discord-delivery",
+        "lib-bursawatch-pipeline-runtime",
+        "lib-bursawatch-source-ingest-pilot",
+        "cron-stockbit-snips",
+    } <= set(by_id)
 
 
 def test_telegram_source_ingest_no_post_is_synthetic_and_has_no_secret_environment(tmp_path: Path):
@@ -168,6 +200,41 @@ def test_x_source_ingest_verification_rejects_non_synthetic_success():
     release_agent._verify_x_source_ingest_no_post(
         '{"outcome":"synthetic-ok","network":false,"secrets":false,"writes":false,"events":1,"content_hash":"' + "b" * 64 + '"}'
     )
+
+
+def test_rss_source_ingest_no_post_is_synthetic_and_has_no_secret_environment(tmp_path: Path):
+    specification = release_agent._no_post_specification("rss-source-ingest-no-post", tmp_path)
+
+    assert specification.command == (str(Path.home() / ".hermes/scripts/bursawatch-rss-source-ingest.sh"),)
+    assert specification.environment == {
+        "PATH": "/usr/bin:/bin",
+        "HOME": str(Path.home()),
+        "TZ": "Asia/Jakarta",
+        "LANG": "C.UTF-8",
+        "BURSAWATCH_RELEASE_NO_POST": "1",
+        "BURSAWATCH_RELEASE_NO_POST_TEMP": str(specification.temporary_path),
+    }
+    assert specification.temporary_path.is_relative_to(tmp_path)
+
+
+def test_rss_source_ingest_verification_requires_synthetic_isolation():
+    with pytest.raises(release_agent.DeploymentError, match="RSS source-ingest synthetic verification"):
+        release_agent._verify_synthetic_source_ingest_no_post('{"outcome":"ok"}', "RSS")
+
+    release_agent._verify_synthetic_source_ingest_no_post(
+        '{"outcome":"synthetic-ok","network":false,"secrets":false,"writes":false,"events":1,"content_hash":"' + "c" * 64 + '"}',
+        "RSS",
+    )
+
+
+def test_rss_source_ingest_release_dispatch_rejects_non_synthetic_output(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(release_agent, "_run_command", lambda *_args, **_kwargs: '{"outcome":"ok"}')
+    deployer = release_agent.ReleaseDeployer(
+        settings=make_settings(tmp_path), release_sha="a" * 40, checkout=tmp_path / "checkout"
+    )
+
+    with pytest.raises(release_agent.DeploymentError, match="RSS source-ingest synthetic verification"):
+        deployer._run_verification("rss-source-ingest-no-post")
 
 
 def test_telegram_wrapper_runs_synthetic_check_without_reading_environment_files(tmp_path: Path):
@@ -253,6 +320,44 @@ def test_x_wrapper_runs_synthetic_check_without_reading_environment_files(tmp_pa
     assert [path.name for path in temporary.iterdir()] == ["x-source-ingest.log"]
 
 
+def test_rss_wrapper_runs_synthetic_check_without_reading_environment_files(tmp_path: Path):
+    home = tmp_path / "home"
+    skills = home / ".agents/skills"
+    skills.mkdir(parents=True)
+    for package, runtime in (
+        ("cron-rss-source-ingest", "bursawatch-rss-source-ingest"),
+        ("cron-stockbit-snips", "bursawatch-stockbit-snips"),
+        ("lib-bursawatch-control", "lib-bursawatch-control"),
+        ("lib-bursawatch-pipeline-runtime", "lib-bursawatch-pipeline-runtime"),
+        ("lib-bursawatch-source-ingest", "lib-bursawatch-source-ingest-pilot"),
+        ("lib-bursawatch-discord-delivery", "lib-bursawatch-discord-delivery"),
+    ):
+        (skills / runtime).symlink_to(REPOSITORY_ROOT / package, target_is_directory=True)
+    python = home / ".local/share/uv/tools/yahoo-finance-mcp/bin/python"
+    python.parent.mkdir(parents=True)
+    python.symlink_to(sys.executable)
+    (home / ".hermes/.env").mkdir(parents=True)
+    temporary = tmp_path / "release-agent-temporary"
+    temporary.mkdir()
+    wrapper = REPOSITORY_ROOT / "cron-rss-source-ingest/bin/bursawatch-rss-source-ingest.sh"
+    environment = {
+        "HOME": str(home),
+        "PATH": "/usr/bin:/bin",
+        "BURSAWATCH_RELEASE_NO_POST": "1",
+        "BURSAWATCH_RELEASE_NO_POST_TEMP": str(temporary),
+        "BURSAWATCH_RSS_SOURCE_CONTROL_PLANE_TOKEN_FILE": "must-not-be-passed",
+        "STOCKBIT_SNIPS_CONTROL_PLANE_TOKEN": "must-not-be-passed",
+        "BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE": "must-not-be-passed",
+    }
+
+    result = subprocess.run([str(wrapper)], env=environment, text=True, capture_output=True, check=False)
+
+    assert result.returncode == 0, result.stderr
+    assert "must-not-be-passed" not in result.stdout + result.stderr
+    release_agent._verify_synthetic_source_ingest_no_post(result.stdout, "RSS")
+    assert [path.name for path in temporary.iterdir()] == ["rss-source-ingest.log"]
+
+
 def test_delivery_library_precedes_every_migrated_discord_runtime():
     sources = (
         "cron-tg-market-news/bin/scan.py",
@@ -263,12 +368,13 @@ def test_delivery_library_precedes_every_migrated_discord_runtime():
         "cron-ig-account-watch/bin/scan.py",
         "cron-wa-channel-watch/bin/scan.py",
         "cron-stockbit-snips/bin/scan.py",
+        "cron-rss-source-ingest/bin/runner.py",
     )
     for source in sources:
         package = source.split("/", 1)[0]
         units = manifest().matching_units([source])
         identifiers = [unit.identifier for unit in units]
-        runtime_id = package
+        runtime_id = "cron-rss-source-ingest-pilot" if package == "cron-rss-source-ingest" else package
         assert runtime_id in identifiers
         assert identifiers.index("lib-bursawatch-discord-delivery") < identifiers.index(runtime_id)
 
@@ -310,6 +416,14 @@ def test_manifest_marks_host_bound_release_assets_manual():
         assert [(unit.identifier, unit.handler) for unit in units] == [
             ("manual-release-agent-bootstrap", "manual"),
         ]
+
+
+def test_phintraco_runtime_requirements_are_metadata_not_runtime_deployment():
+    units = manifest().matching_units(["cron-tg-phintraco-swing/requirements.txt"])
+
+    assert [(unit.identifier, unit.handler) for unit in units] == [
+        ("cron-tg-phintraco-swing-metadata", "metadata"),
+    ]
 
 
 def test_whatsapp_runtime_manifest_includes_archive_operator_wrapper():
@@ -601,6 +715,7 @@ def test_explicit_manual_release_applies_reviewed_manual_migrations(
         "swing-board-no-post",
         "x-no-post",
         "x-source-ingest-no-post",
+        "rss-source-ingest-no-post",
         "instagram-no-post",
         "whatsapp-no-post",
         "stockbit-snips-no-post",

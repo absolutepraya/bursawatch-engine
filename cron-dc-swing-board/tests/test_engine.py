@@ -23,6 +23,10 @@ def at(value="2026-09-19T09:05:00+07:00") -> datetime:
     return datetime.fromisoformat(value)
 
 
+def weekly_time(hour: int, minute: int) -> datetime:
+    return datetime(2026, 9, 28, hour, minute, tzinfo=at().tzinfo)
+
+
 @pytest.fixture
 def engine(tmp_path):
     client = Mock(spec=DiscordForumClient)
@@ -59,6 +63,52 @@ def buy(**changes):
 
 def status(value, **changes):
     return replace(buy(), **{"kind": "status", "plan": None, "event_key": "phintraco:status:1", "source_status": value, **changes})
+
+
+def weekly_buy_event():
+    return SourceEvent.from_json(
+        {
+            "event_key": "phintraco:1444713822:weekly:35448:KETR",
+            "source": "phintraco",
+            "kind": "buy",
+            "ticker": "KETR",
+            "published_at": "2026-09-28T06:05:33+07:00",
+            "source_url": "https://t.me/phintraprofits/35448",
+            "all_content": "KETR weekly setup from PDF",
+            "source_title": "KETR: Trading Buy",
+            "source_status": "New setup",
+            "plan": {
+                "entry": ">=940",
+                "stop_loss": "<900",
+                "targets": ["1000", "1050"],
+            },
+            "media_path": None,
+            "media_urls": [],
+        }
+    )
+
+
+def weekly_reminder(*, matched_setup_event_key=None):
+    payload = {
+        "event_key": "phintraco:1444713822:35461",
+        "source": "phintraco",
+        "kind": "reminder",
+        "ticker": "KETR",
+        "published_at": "2026-09-28T11:01:00+07:00",
+        "source_url": "https://t.me/phintraprofits/35461",
+        "all_content": (
+            "### KETR: First target 1000 achieved\n"
+            "**Target 2:** 1050\n**Target 3:** 1100"
+        ),
+        "source_title": "KETR: First target 1000 achieved",
+        "source_status": "First target 1000 achieved; Target 3: 1100",
+        "plan": None,
+        "media_path": None,
+        "media_urls": [],
+    }
+    if matched_setup_event_key is not None:
+        payload["matched_setup_event_key"] = matched_setup_event_key
+    return SourceEvent.from_json(payload)
 
 
 def operations(engine):
@@ -204,6 +254,192 @@ def test_non_phintraco_status_is_context_and_cannot_set_market_tag(engine):
     assert engine.store.active_episode("KPIG").market_tag is None
 
 
+def test_context_without_episode_is_persisted_and_processed_without_opening_thread(engine):
+    event = replace(
+        social(),
+        event_key="phintraco:context:1",
+        source="phintraco",
+        kind="context",
+        source_status="On support",
+    )
+
+    assert engine.submit(event, at()) == "board_ignored"
+
+    assert engine.store.active_episode("KPIG") is None
+    assert engine.store.count_rows("source_events") == 1
+    assert engine.store.count_rows("episodes") == 0
+    assert engine.store.count_rows("outbox") == 0
+    with engine.store._connection() as connection:
+        assert connection.execute(
+            "SELECT board_processed_at FROM source_events WHERE event_key = ?",
+            (event.event_key,),
+        ).fetchone()[0] is not None
+
+
+def test_context_on_open_episode_adds_source_reply_without_changing_plan_or_lifecycle(engine):
+    setup = weekly_buy_event()
+    engine.submit(setup, setup.published_at)
+    before_episode = engine.store.active_episode("KETR")
+    before_plan = engine.store.active_plan(before_episode.id)
+    with engine.store.transaction() as tx:
+        tx.update_episode(replace(before_episode, market_tag="Entry zone"))
+    before_episode = engine.store.active_episode("KETR")
+    operations_before = len(engine.store.operations_for_ticker("KETR"))
+    context = replace(
+        social(),
+        event_key="phintraco:context:2",
+        source="phintraco",
+        ticker="KETR",
+        kind="context",
+        source_status="Unmatched reminder",
+        published_at=weekly_time(11, 3),
+        all_content="KETR: unmatched source context",
+        source_title="KETR: Source context",
+    )
+
+    assert engine.submit(context, weekly_time(11, 4)) == "board_submitted"
+
+    after_episode = engine.store.active_episode("KETR")
+    assert after_episode == before_episode
+    assert engine.store.active_plan(after_episode.id).plan == before_plan.plan
+    new_operations = engine.store.operations_for_ticker("KETR")[operations_before:]
+    assert [operation.operation for operation in new_operations] == ["post_source_reply"]
+    assert new_operations[0].payload["content"] == render_source_reply(context)
+
+
+def test_context_before_resolution_attaches_to_history_but_after_resolution_stays_unrouted(engine):
+    setup = buy(published_at=at("2026-09-19T09:05:00+07:00"))
+    engine.submit(setup, setup.published_at)
+    resolution = status(
+        "All targets achieved",
+        kind="reminder",
+        event_key="phintraco:resolution:1",
+        published_at=at("2026-09-19T10:00:00+07:00"),
+    )
+    engine.submit(resolution, resolution.published_at)
+    historical = replace(
+        social(event_key="phintraco:context:before-close"),
+        source="phintraco",
+        kind="context",
+        ticker="KPIG",
+        published_at=at("2026-09-19T09:45:00+07:00"),
+        all_content="KPIG: source context before resolution",
+        source_title="KPIG: Source context",
+    )
+
+    assert engine.submit(historical, at("2026-09-19T10:02:00+07:00")) == "board_submitted"
+
+    history_reply = engine.store.operations_for_ticker("KPIG")[-1]
+    assert history_reply.operation == "post_source_reply"
+    assert "Historical source event" in history_reply.payload["content"]
+    operation_count = len(engine.store.operations_for_ticker("KPIG"))
+    after_close = replace(
+        historical,
+        event_key="phintraco:context:after-close",
+        published_at=at("2026-09-19T10:01:00+07:00"),
+        all_content="KPIG: source context after resolution",
+    )
+    assert engine.submit(after_close, at("2026-09-19T10:03:00+07:00")) == "board_ignored"
+    assert len(engine.store.operations_for_ticker("KPIG")) == operation_count
+    assert engine.store.episodes()[0].lifecycle == "resolved"
+
+
+def test_matched_weekly_reminder_appends_target_and_keeps_setup_source_immutable(engine):
+    setup = weekly_buy_event()
+    engine.submit(setup, setup.published_at)
+
+    assert engine.submit(weekly_reminder(
+        matched_setup_event_key=setup.event_key,
+    ), weekly_time(11, 2)) == "board_submitted"
+
+    episode = engine.store.active_episode("KETR")
+    plan = engine.store.active_plan(episode.id)
+    assert plan.event_key == setup.event_key
+    assert plan.plan.targets == ("1000", "1050", "1100")
+    assert engine.store.active_primary_plans()[0].event.plan.targets == (
+        "1000", "1050", "1100"
+    )
+    assert engine.store.latest_plan_cards()[0].event.plan.targets == (
+        "1000", "1050", "1100"
+    )
+    assert episode.market_tag == "TP1 reached"
+    assert episode.lifecycle == "primary"
+    edit = [
+        operation for operation in engine.store.operations_for_ticker("KETR")
+        if operation.operation == "edit_starter"
+    ][-1]
+    assert "**Target 3:** 1100" in edit.payload["content"]
+    with sqlite3.connect(engine.store.path) as connection:
+        original_targets = connection.execute(
+            "SELECT plan_targets_json FROM source_events WHERE event_key = ?",
+            (setup.event_key,),
+        ).fetchone()[0]
+        stored_match = connection.execute(
+            "SELECT matched_setup_event_key FROM source_events WHERE event_key = ?",
+            ("phintraco:1444713822:35461",),
+        ).fetchone()[0]
+    assert json.loads(original_targets) == ["1000", "1050"]
+    assert stored_match == setup.event_key
+
+
+@pytest.mark.parametrize(
+    "matched_setup_event_key",
+    ["phintraco:1444713822:weekly:35449:KETR", None],
+    ids=("wrong-setup-reference", "missing-setup-reference"),
+)
+def test_unverified_weekly_reminder_cannot_amend_active_plan_targets(engine, matched_setup_event_key):
+    setup = weekly_buy_event()
+    engine.submit(setup, setup.published_at)
+    before_episode = engine.store.active_episode("KETR")
+    before_plan = engine.store.active_plan(before_episode.id)
+    reminder = weekly_reminder(matched_setup_event_key=matched_setup_event_key)
+
+    assert engine.submit(reminder, weekly_time(11, 2)) == "board_submitted"
+
+    episode = engine.store.active_episode("KETR")
+    plan = engine.store.active_plan(episode.id)
+    assert plan.plan.targets == ("1000", "1050")
+    operations = engine.store.operations_for_ticker("KETR")
+    assert episode.market_tag == (
+        "TP1 reached" if matched_setup_event_key is None else None
+    )
+    if matched_setup_event_key is not None:
+        assert episode.latest_material_at == before_episode.latest_material_at
+        assert plan.source_status == before_plan.source_status
+    assert not any(
+        operation.operation == "edit_starter" and "**Target 3:** 1100" in operation.payload.get("content", "")
+        for operation in operations
+    )
+    if matched_setup_event_key is not None:
+        assert not any(operation.operation == "edit_starter" for operation in operations)
+
+
+def test_noncontiguous_target_update_is_retained_as_context_without_plan_mutation(engine):
+    setup = weekly_buy_event()
+    engine.submit(setup, setup.published_at)
+    before_episode = engine.store.active_episode("KETR")
+    before_plan = engine.store.active_plan(before_episode.id)
+    invalid_amendment = replace(
+        weekly_reminder(matched_setup_event_key=setup.event_key),
+        all_content=(
+            "### KETR: First target 1000 achieved\n"
+            "**Target 4:** 1200"
+        ),
+        source_status="First target 1000 achieved; Target 4: 1200",
+    )
+
+    assert engine.submit(invalid_amendment, weekly_time(11, 2)) == "board_submitted"
+
+    episode = engine.store.active_episode("KETR")
+    plan = engine.store.active_plan(episode.id)
+    assert episode.latest_material_at == before_episode.latest_material_at
+    assert episode.market_tag is None
+    assert plan.source_status == before_plan.source_status
+    assert plan.plan.targets == before_plan.plan.targets
+    new_operations = engine.store.operations_for_ticker("KETR")[1:]
+    assert [operation.operation for operation in new_operations] == ["post_source_reply"]
+
+
 def test_history_cancels_queued_archive_before_delivery(engine):
     now = at("2026-04-24T17:10:00+07:00")
     engine.submit(social(published_at=at("2026-03-25T09:05:00+07:00")), now)
@@ -285,7 +521,7 @@ def test_v9_media_migration_preserves_existing_event_and_rows(tmp_path):
         connection.execute("ALTER TABLE source_events DROP COLUMN media_paths_json")
         connection.execute("PRAGMA user_version=9")
     migrated = BoardStore(path)
-    assert migrated.schema_version == 10
+    assert migrated.schema_version == 12
     assert {table: migrated.count_rows(table) for table in before} == before
     with migrated.transaction() as tx:
         assert tx.source_event(1).media_paths == ("/private/legacy.jpg",)
