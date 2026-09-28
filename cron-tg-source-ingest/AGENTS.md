@@ -49,6 +49,20 @@ creation and advances the state revision last, so an interrupted apply can
 resume from the exact preview. Keep its private plan outside the source state
 root. Never hand-edit `catalog-revision.json` or either cursor.
 
+When a catalog revision changes only non-Telegram configuration, a separate
+cursor-preserving transition is allowed only if selected securities and every
+enabled Telegram subscription row is identical after canonical JSON
+normalization, including identity, capability, settings, credentials, and
+dispatch metadata. Pause this source-ingest writer first. Capture the prior and
+target effective catalog snapshots, then use
+`bin/compatible_catalog_transition.py preview` and `apply`
+with a private plan outside the state root. Apply requires
+`BURSAWATCH_ALLOW_COMPATIBLE_CATALOG_TRANSITION_APPLY=1`; it fingerprints all
+other state files and journals before advancing only the revision marker. It
+never creates, resets, or moves cursors. Any Telegram row or selected-security
+change requires a separately reviewed transition. This is not a News backfill
+path; keep News future-only and do not replay source history.
+
 The inbox owns source events and independent subscription work. The adapter
 never submits Discord or Board operations. `service-bursawatch-source-media`
 owns private Supabase Storage access; `lib-bursawatch-source-media` uploads

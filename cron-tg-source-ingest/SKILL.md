@@ -122,3 +122,14 @@ Market News scanner and watchdog stay paused, and its desired schedule is
 disabled. Do not resume them alongside shared source ingest or replay source
 history. Do not expand subscription or schedule scope without an approved
 rollout.
+
+If a later global catalog revision changes only non-Telegram rows, the
+operator may use `bin/compatible_catalog_transition.py` only after proving
+selected securities and all enabled Telegram subscription rows are unchanged
+after canonical JSON normalization.
+The preview and apply require exact effective catalog snapshots, an unchanged
+fingerprinted source state, and the explicit
+`BURSAWATCH_ALLOW_COMPATIBLE_CATALOG_TRANSITION_APPLY=1` guard. The tool only
+advances the catalog revision marker; it does not seed or alter cursors, replay
+News, or change source capabilities. Keep the source-ingest writer paused
+until the transition is complete.
