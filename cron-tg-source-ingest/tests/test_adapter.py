@@ -38,9 +38,17 @@ def test_release_synthetic_verification_uses_only_in_memory_fixture(capsys, tmp_
     assert list(tmp_path.iterdir()) == []
 
 
-def test_runtime_wrapper_imports_source_media_read_token_path():
+def test_runtime_wrapper_imports_source_media_and_phintraco_owner_config():
     wrapper = ROOT / "cron-tg-source-ingest" / "bin" / "bursawatch-tg-source-ingest.sh"
-    assert "BURSAWATCH_SOURCE_MEDIA_READ_TOKEN_FILE=*" in wrapper.read_text()
+    content = wrapper.read_text()
+    assert "BURSAWATCH_SOURCE_MEDIA_READ_TOKEN_FILE=*" in content
+    for key in (
+        "IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_URL=*",
+        "IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_WATCHER_ID=*",
+        "IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_TOKEN=*",
+        "IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_TIMEOUT_SECONDS=*",
+    ):
+        assert key in content
 
 
 class FakeInbox:

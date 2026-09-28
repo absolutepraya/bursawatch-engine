@@ -102,7 +102,10 @@ point reads only `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`,
 `BURSAWATCH_SOURCE_MEDIA_URL`, `BURSAWATCH_SOURCE_MEDIA_UPLOAD_TOKEN_FILE`,
 and `BURSAWATCH_SOURCE_MEDIA_READ_TOKEN_FILE`, plus the two
 `BURSAWATCH_DISCORD_DELIVERY_*` settings from
-`~/.hermes/.env`. Credential contents stay in their existing private files and
+`~/.hermes/.env`. It also passes the Phintraco Swing owner's
+`IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_URL`, `_WATCHER_ID`, `_TOKEN`,
+and `_TIMEOUT_SECONDS` settings so the owner subprocess can load its revisioned
+live config. Credential contents stay in their existing private files and
 never enter logs. The release-agent `BURSAWATCH_RELEASE_NO_POST=1`
 path does not open `.env` or credential files. It invokes only the synthetic
 in-memory contract check, passes a scrubbed environment, and keeps its log in
