@@ -41,3 +41,16 @@ def test_wrapper_exposes_board_owner_command_without_loading_credentials() -> No
     assert "IDX_SWING_PLAN_BOARD" not in "\n".join(
         line for line in wrapper.splitlines() if "grep -E" in line
     )
+
+
+def test_wrapper_exposes_shared_source_media_upload_client_and_scope() -> None:
+    wrapper = (ROOT / "bin/bursawatch-tg-phintraco-swing.sh").read_text()
+
+    assert 'SOURCE_MEDIA_BIN="$HOME/.agents/skills/lib-bursawatch-source-media/bin"' in wrapper
+    assert "$SOURCE_MEDIA_BIN" in "\n".join(
+        line for line in wrapper.splitlines() if "PYTHONPATH=" in line
+    )
+    assert "BURSAWATCH_SOURCE_MEDIA_URL" in wrapper
+    assert "BURSAWATCH_SOURCE_MEDIA_UPLOAD_TOKEN_FILE" in wrapper
+    assert "$HOME/.hermes/secrets/bursawatch-source-media-upload-token" in wrapper
+    assert "http://127.0.0.1:9130" in wrapper

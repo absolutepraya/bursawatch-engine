@@ -486,7 +486,7 @@ def sample_call(has_photo=True):
 
 def test_missing_state_returns_empty_state(tmp_state):
     state = scan.load_state()
-    assert state["version"] == 3
+    assert state["version"] == 4
     assert state["observed_message_id"] == 0
     assert state["outbox"] == {}
     assert state["pdf_batches"] == {}
@@ -551,7 +551,7 @@ def test_state_v2_migration_preserves_delivery_progress_and_adds_pdf_indexes(tmp
 
     migrated = scan.load_state()
 
-    assert migrated["version"] == 3
+    assert migrated["version"] == 4
     migrated_event = migrated["outbox"]["33655"]
     assert migrated_event["phase"] == scan.PHASE_PENDING_CHART
     assert migrated_event["text_discord_id"] == "all-message-1"
@@ -923,6 +923,396 @@ def weekly_pdf_result(*, with_quarantine=False):
     )
 
 
+def _ingest_test_weekly_pdf(monkeypatch, state, *, with_quarantine=False):
+    attachment = FakeMessage(
+        35448,
+        "caption must not replace PDF content",
+        date=dt.datetime(2026, 9, 27, 23, 5, 33, tzinfo=dt.timezone.utc),
+        document_filename="PHINTAS Weekly Swing Trading Ideas_20260928.pdf",
+        document_mime_type="application/pdf",
+    )
+    client = FakeTelegramClient([attachment])
+    state["observed_message_id"] = 35447
+    monkeypatch.setattr(
+        scan,
+        "parse_weekly_pdf",
+        lambda filename, payload: weekly_pdf_result(with_quarantine=with_quarantine),
+        raising=False,
+    )
+    entity = asyncio.run(scan.resolve_source(client))
+    result = asyncio.run(scan.ingest_unseen_messages(client, entity, state, now()))
+    assert result[1] == len(state["outbox"])
+    return client
+
+
+def _source_plan(
+    event_key="pdf:35448:KETR",
+    *,
+    ticker="KETR",
+    document_message_id=35448,
+    signal_datetime="2026-09-28T06:05:33+07:00",
+    entry=">=940",
+    stop_loss="<900",
+    targets=None,
+):
+    return {
+        "event_key": event_key,
+        "ticker": ticker,
+        "descriptor": "On support",
+        "trend": "Uptrend",
+        "ma_indicator": "Below, Bull tendency",
+        "potential_upside": "6%-11%",
+        "potential_downside": "-4%",
+        "entry": entry,
+        "stop_loss": stop_loss,
+        "targets": targets or [
+            {"number": 1, "value": "1000"},
+            {"number": 2, "value": "1050"},
+        ],
+        "signal_datetime": signal_datetime,
+        "document_message_id": document_message_id,
+        "page_number": 1,
+        "section_number": 5,
+        "pdf_sha256": "a" * 64,
+        "pdf_path": "/tmp/weekly.pdf",
+        "chart_path": "/tmp/ketr.jpg",
+        "report_date": "2026-09-28",
+    }
+
+
+def _source_update(
+    *,
+    ticker="KETR",
+    signal_datetime=dt.datetime(2026, 9, 28, 11, 1, tzinfo=scan.WIB),
+    entry="",
+    stop_loss="",
+    targets=(scan.PriceTarget(2, "1050"), scan.PriceTarget(3, "1100")),
+    outcomes=("First target 1000 achieved",),
+):
+    call = sample_call(has_photo=False)
+    return scan.SwingCall(
+        **{
+            **call.__dict__,
+            "source_message_id": 35461,
+            "ticker": ticker,
+            "call_subtype": "",
+            "entry": entry,
+            "stop_loss": stop_loss,
+            "targets": targets,
+            "signal_datetime": signal_datetime,
+            "event_kind": "REMINDER",
+            "status": None,
+            "outcomes": outcomes,
+        }
+    )
+
+
+def test_source_media_pdf_uploads_are_durable_before_adjacent_all_and_board_delivery(
+    tmp_state, monkeypatch
+):
+    state = scan.empty_state()
+    _ingest_test_weekly_pdf(monkeypatch, state)
+    operations = []
+    upload_refs = (
+        "11111111-1111-4111-8111-111111111111",
+        "22222222-2222-4222-8222-222222222222",
+        "33333333-3333-4333-8333-333333333333",
+    )
+
+    class FakeSourceMediaClient:
+        def upload(self, key, data, *, kind, content_type, filename):
+            operations.append(("upload", key, data, kind, content_type, filename))
+            reference = upload_refs[len([item for item in operations if item[0] == "upload"]) - 1]
+            return {
+                "ref": reference,
+                "sha256": scan.hashlib.sha256(data).hexdigest(),
+                "kind": kind,
+                "content_type": content_type,
+                "size_bytes": len(data),
+                "filename": filename,
+                "durable": True,
+            }
+
+    monkeypatch.setattr(scan, "source_media_client", FakeSourceMediaClient, raising=False)
+    monkeypatch.setattr(
+        scan,
+        "post_discord_text",
+        lambda content, channel_id, dry_run, event_key: operations.append(
+            ("text", event_key, content)
+        ) or f"text-{event_key}",
+    )
+    monkeypatch.setattr(
+        scan,
+        "post_discord_file",
+        lambda path, channel_id, dry_run, event_key: operations.append(
+            ("chart", event_key, Path(path).read_bytes())
+        ) or f"chart-{event_key}",
+    )
+    monkeypatch.setattr(
+        scan,
+        "submit_board_event",
+        lambda payload, chart, dry_run: operations.append(
+            ("board", payload["event_key"], payload)
+        ) or True,
+    )
+
+    assert scan.drain_outbox(state, dt.datetime(2026, 9, 28, 12, tzinfo=scan.WIB)) == 2
+
+    uploads = [item for item in operations if item[0] == "upload"]
+    assert [item[1] for item in uploads] == [
+        "telegram:channel:1444713822:message:35448:weekly-pdf",
+        "telegram:channel:1444713822:message:35448:weekly-chart:AADI",
+        "telegram:channel:1444713822:message:35448:weekly-chart:ITMG",
+    ]
+    assert [item[2] for item in uploads] == [
+        b"weekly-pdf-bytes",
+        b"\xff\xd8\xffaadi-chart",
+        b"\xff\xd8\xffitmg-chart",
+    ]
+    assert [(item[0], item[1]) for item in operations if item[0] in {"text", "chart"}] == [
+        ("text", "pdf:35448:AADI"),
+        ("chart", "pdf:35448:AADI"),
+        ("text", "pdf:35448:ITMG"),
+        ("chart", "pdf:35448:ITMG"),
+    ]
+    positions = {
+        (item[0], item[1]): index for index, item in enumerate(operations)
+        if item[0] in {"upload", "text", "chart"}
+    }
+    assert positions[("upload", uploads[0][1])] < positions[("text", "pdf:35448:AADI")]
+    assert positions[("upload", uploads[1][1])] < positions[("text", "pdf:35448:AADI")]
+    assert positions[("upload", uploads[2][1])] < positions[("text", "pdf:35448:ITMG")]
+    assert "Report date: 28 Sep 2026" in next(
+        item[2] for item in operations if item[:2] == ("text", "pdf:35448:AADI")
+    )
+    assert [(item[0], item[1]) for item in operations if item[0] == "board"] == [
+        ("board", "phintraco:1444713822:weekly:35448:AADI"),
+        ("board", "phintraco:1444713822:weekly:35448:ITMG"),
+    ]
+    batch = state["pdf_batches"]["35448"]
+    assert batch["source_media"]["ref"] == upload_refs[0]
+    assert state["source_plans"]["pdf:35448:AADI"]["source_media"]["ref"] == upload_refs[1]
+    assert state["source_plans"]["pdf:35448:ITMG"]["source_media"]["ref"] == upload_refs[2]
+    assert state["source_plans"]["pdf:35448:AADI"]["chart_sha256"] == scan.hashlib.sha256(
+        b"\xff\xd8\xffaadi-chart"
+    ).hexdigest()
+
+
+def test_source_media_pdf_ambiguous_retry_reuses_same_key_and_bytes(tmp_state, monkeypatch):
+    state = scan.empty_state()
+    _ingest_test_weekly_pdf(monkeypatch, state, with_quarantine=True)
+    uploads = []
+
+    class FakeSourceMediaClient:
+        def upload(self, key, data, *, kind, content_type, filename):
+            uploads.append((key, data, kind, content_type, filename))
+            if len(uploads) == 1:
+                raise RuntimeError("connection dropped after durable upload")
+            return {
+                "ref": "11111111-1111-4111-8111-111111111111" if kind == "document" else "22222222-2222-4222-8222-222222222222",
+                "sha256": scan.hashlib.sha256(data).hexdigest(),
+                "kind": kind,
+                "content_type": content_type,
+                "size_bytes": len(data),
+                "filename": filename,
+                "durable": True,
+            }
+
+    monkeypatch.setattr(scan, "source_media_client", FakeSourceMediaClient, raising=False)
+    sent = []
+    monkeypatch.setattr(scan, "post_discord_text", lambda *args: sent.append("text") or "text")
+    monkeypatch.setattr(scan, "post_discord_file", lambda *args: sent.append("chart") or "chart")
+    monkeypatch.setattr(scan, "submit_board_event", lambda *args: True)
+
+    assert scan.drain_outbox(state, dt.datetime(2026, 9, 28, 12, tzinfo=scan.WIB)) == 0
+    event = state["outbox"]["pdf:35448:AADI"]
+    assert event["phase"] == scan.PHASE_PENDING_SOURCE_MEDIA
+    assert sent == []
+
+    event["next_attempt_at"] = None
+    assert scan.drain_outbox(state, dt.datetime(2026, 9, 28, 12, 2, tzinfo=scan.WIB)) == 1
+    assert uploads[0] == uploads[1]
+    assert uploads[0][0] == "telegram:channel:1444713822:message:35448:weekly-pdf"
+    assert uploads[2][0] == "telegram:channel:1444713822:message:35448:weekly-chart:AADI"
+    assert sent == ["text", "chart"]
+
+
+def test_strict_range_match_accepts_only_explicit_source_ranges():
+    state = scan.empty_state()
+    key = "pdf:35448:KETR"
+    board_key = "phintraco:1444713822:weekly:35448:KETR"
+    state["source_plans"][key] = _source_plan(
+        targets=[{"number": 1, "value": "1000 to 1050"}]
+    )
+
+    in_range = _source_update(
+        targets=(scan.PriceTarget(1, "1040"),),
+        outcomes=("First target 1040 achieved",),
+    )
+    outside_range = _source_update(
+        targets=(scan.PriceTarget(1, "1051"),),
+        outcomes=("First target 1051 achieved",),
+    )
+
+    assert scan.match_source_plan(in_range, state, None) == board_key
+    state["source_plans"][key] = _source_plan(
+        targets=[{"number": 1, "value": "1000"}]
+    )
+    exact_single = _source_update(
+        targets=(scan.PriceTarget(1, "1000"),),
+        outcomes=("First target 1000 achieved",),
+    )
+    assert scan.match_source_plan(exact_single, state, None) == board_key
+    assert scan.match_source_plan(outside_range, state, None) is None
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        _source_update(ticker="INDF"),
+        _source_update(outcomes=("Second target 1000 achieved",)),
+        _source_update(outcomes=("First target 999 achieved",)),
+        _source_update(entry="970"),
+        _source_update(stop_loss="<880"),
+        _source_update(signal_datetime=dt.datetime(2026, 9, 27, 12, tzinfo=scan.WIB)),
+    ],
+    ids=("wrong-ticker", "wrong-target-ordinal", "wrong-target-value", "entry-mismatch", "stop-mismatch", "stale-chronology"),
+)
+def test_matched_setup_rejects_conflicting_or_stale_plan_updates(call):
+    state = scan.empty_state()
+    state["source_plans"]["pdf:35448:KETR"] = _source_plan()
+    assert scan.match_source_plan(call, state, None) is None
+
+
+def test_matched_setup_uses_direct_pdf_reply_then_requires_unique_fallback():
+    state = scan.empty_state()
+    first_key = "pdf:35448:KETR"
+    second_key = "pdf:35449:KETR"
+    first_board_key = "phintraco:1444713822:weekly:35448:KETR"
+    state["source_plans"][first_key] = _source_plan()
+    state["source_plans"][second_key] = _source_plan(
+        event_key=second_key,
+        document_message_id=35449,
+        signal_datetime="2026-09-28T07:05:33+07:00",
+    )
+    call = _source_update(signal_datetime=dt.datetime(2026, 9, 28, 11, 1, tzinfo=scan.WIB))
+
+    assert scan.match_source_plan(call, state, 35448) == first_board_key
+    assert scan.match_source_plan(call, state, None) is None
+
+
+def test_matched_setup_allows_only_the_next_target_as_an_amendment():
+    state = scan.empty_state()
+    key = "pdf:35448:KETR"
+    board_key = "phintraco:1444713822:weekly:35448:KETR"
+    state["source_plans"][key] = _source_plan()
+    call = _source_update(
+        targets=(scan.PriceTarget(2, "1050"), scan.PriceTarget(3, "1100")),
+        outcomes=("First target 1000 achieved",),
+    )
+
+    assert scan.match_source_plan(call, state, None) == board_key
+
+
+def test_unmatched_pdf_update_is_source_context_without_plan_mutation(tmp_state, monkeypatch):
+    state = scan.empty_state()
+    key = "pdf:35448:KETR"
+    state["source_plans"][key] = _source_plan()
+    state["observed_message_id"] = 35460
+    source_text = (
+        "Reminder\n\nKETR - First target 999 achieved\n\nTarget 2: 1051\n"
+        "Target 3: 1100\n\nBy PHINTRACO SEKURITAS\n"
+        "28/09/2026 11.01 WIB\nNauval Maulana| Investment Advisor"
+    )
+    companion = FakeMessage(
+        35447,
+        "Phintraco Sekuritas | Weekly Swing Trading Ideas",
+        date=dt.datetime(2026, 9, 27, 23, 5, tzinfo=dt.timezone.utc),
+    )
+    reminder = FakeMessage(
+        35461,
+        source_text,
+        reply_to_msg_id=35447,
+        date=dt.datetime(2026, 9, 28, 4, 1, tzinfo=dt.timezone.utc),
+    )
+    client = FakeTelegramClient([companion, reminder])
+    entity = asyncio.run(scan.resolve_source(client))
+
+    assert asyncio.run(scan.ingest_unseen_messages(client, entity, state, now())) == (1, 1, 0)
+    event = state["outbox"]["35461"]
+    call = scan.deserialize_call(event["call"])
+    payload, chart = scan.board_event_payload(event, call)
+
+    assert event["matched_setup_event_key"] is None
+    assert event["board_kind_override"] == "context"
+    assert payload["kind"] == "context"
+    assert "matched_setup_event_key" not in payload
+    assert payload["plan"] is None
+    assert "KETR - First target 999 achieved" in payload["all_content"]
+    assert "Nauval Maulana" in payload["all_content"]
+    assert chart is None
+
+
+def test_matched_setup_event_key_links_companion_reply_to_ketr_pdf_plan(tmp_state, monkeypatch):
+    state = scan.empty_state()
+    setup_key = "pdf:35448:KETR"
+    board_setup_key = "phintraco:1444713822:weekly:35448:KETR"
+    state["source_plans"][setup_key] = _source_plan()
+    state["observed_message_id"] = 35460
+    source_text = (
+        "Reminder\n\nKETR - First target 1000 achieved\n\nTarget 2: 1050\n"
+        "Target 3: 1100\n\nBy PHINTRACO SEKURITAS\n"
+        "28/09/2026 11.01 WIB\nNauval Maulana| Investment Advisor"
+    )
+    companion = FakeMessage(
+        35447,
+        "Phintraco Sekuritas | Weekly Swing Trading Ideas",
+        date=dt.datetime(2026, 9, 27, 23, 5, tzinfo=dt.timezone.utc),
+    )
+    reminder = FakeMessage(
+        35461,
+        source_text,
+        reply_to_msg_id=35447,
+        date=dt.datetime(2026, 9, 28, 4, 1, tzinfo=dt.timezone.utc),
+    )
+    client = FakeTelegramClient([companion, reminder])
+    entity = asyncio.run(scan.resolve_source(client))
+
+    assert asyncio.run(scan.ingest_unseen_messages(client, entity, state, now())) == (1, 1, 0)
+    event = state["outbox"]["35461"]
+    payload, _ = scan.board_event_payload(event, scan.deserialize_call(event["call"]))
+
+    assert event["matched_setup_event_key"] == board_setup_key
+    assert event["board_kind_override"] is None
+    assert payload["kind"] == "reminder"
+    assert payload["matched_setup_event_key"] == board_setup_key
+    assert payload["plan"] is None
+
+
+def test_state_v3_pdf_pending_event_migrates_to_durable_media_contract(tmp_state, monkeypatch):
+    state = scan.empty_state()
+    _ingest_test_weekly_pdf(monkeypatch, state, with_quarantine=True)
+    state["version"] = 3
+    for event in state["outbox"].values():
+        event.pop("matched_setup_event_key")
+        event.pop("board_kind_override")
+        event["call"].pop("source_text")
+        event["phase"] = scan.PHASE_PENDING_TEXT
+    for batch in state["pdf_batches"].values():
+        batch.pop("source_media")
+    for plan in state["source_plans"].values():
+        plan.pop("source_media")
+    tmp_state.write_text(json.dumps(state))
+
+    migrated = scan.load_state()
+
+    assert migrated["version"] == 4
+    assert migrated["outbox"]["pdf:35448:AADI"]["phase"] == scan.PHASE_PENDING_TEXT
+    assert migrated["outbox"]["pdf:35448:AADI"]["call"]["source_text"] == ""
+    assert migrated["pdf_batches"]["35448"]["source_media"] is None
+    assert migrated["source_plans"]["pdf:35448:AADI"]["source_media"] is None
+
+
 def test_weekly_pdf_batch_persists_all_children_before_advancing_cursor(tmp_state, monkeypatch):
     published = dt.datetime(2026, 9, 27, 23, 5, 33, tzinfo=dt.timezone.utc)
     companion = FakeMessage(
@@ -984,7 +1374,7 @@ def test_weekly_pdf_batch_persists_all_children_before_advancing_cursor(tmp_stat
     assert [
         state["source_plans"][key]["signal_datetime"] for key in state["source_plans"]
     ] == ["2026-09-28T06:05:33+07:00", "2026-09-28T06:05:33+07:00"]
-    assert all(state["outbox"][key]["phase"] == scan.PHASE_PENDING_TEXT for key in state["outbox"])
+    assert all(state["outbox"][key]["phase"] == scan.PHASE_PENDING_SOURCE_MEDIA for key in state["outbox"])
     state["outbox"] = dict(reversed(list(state["outbox"].items())))
     assert scan.oldest_outbox_event(state)["event_key"] == "pdf:35448:AADI"
     assert len(scan.load_state()["source_plans"]) == 2
