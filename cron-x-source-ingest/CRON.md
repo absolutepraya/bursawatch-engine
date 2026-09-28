@@ -42,8 +42,17 @@ types, unavailable media, and upload failures remain fail-closed in
 `blocked-media.json` with the cursor held. The current safe fetch path does
 not support X video downloads.
 The runner reads one live watcher config revision and the effective catalog.
-It claims `company_news` and `macro_news` work independently through
-`PipelineRuntime` and hands each item to the existing X watcher owner.
+Verified X endpoints are compatible with `company_news`, `macro_news`, and
+`swing_chart_context`; compatibility does not enable a subscription.
+`swing_chart_context` is disabled by default, while its effective enabled
+state and catalog revision are explicit in the snapshot. The three X
+capabilities share the frozen `x_post_route` dispatch group: one publication
+with any enabled group members creates one route-group work item, and the
+existing X watcher classifies it once. Existing legacy `company_news` and
+`macro_news` work remains drainable. Each work item freezes the complete
+enabled capability set and per-capability configuration source for retries and
+corrections; it does not re-evaluate current catalog settings.
+
 Accepted source events carry an ordered self-chain snapshot. A private
 accepted-event index detects same-ID source changes and stages durable
 corrections with stable revision IDs. The Source Media Owner uses
@@ -51,9 +60,10 @@ corrections with stable revision IDs. The Source Media Owner uses
 `BURSAWATCH_SOURCE_MEDIA_UPLOAD_TOKEN_FILE`, and an owner read token file
 `BURSAWATCH_SOURCE_MEDIA_READ_TOKEN_FILE`. If upload access is absent, media
 events remain blocked. If owner read access or a required thread original is
-absent, its subscription work retries. The Board chart path currently allows
-one image; multi-image source work stays unclaimed. These settings do not
-change the live X watcher.
+absent, its subscription work retries. Accepted media remains bounded to 16
+refs per event, 8 MiB per object, and 25 MiB aggregate. The adapter remains
+unscheduled until a separate cutover approval; this package contract does not
+enable a capability or change the live X watcher.
 
 The existing X watcher retains its self-chain, edit/supersession, classifier,
 rendering, outbox, Board, Delivery Owner, and heartbeat behavior. Do not

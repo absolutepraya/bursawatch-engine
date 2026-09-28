@@ -81,6 +81,55 @@ def test_owner_handler_acknowledges_previously_suppressed_group_work(monkeypatch
     assert len(calls) == 1
 
 
+def test_route_group_handoff_is_acknowledged_once_with_fake_owner(monkeypatch):
+    class WorkInbox:
+        def __init__(self):
+            self.begins = []
+            self.settles = []
+
+        def claim(self, pipelines, limit):
+            assert set(pipelines) == {"x_post_route", "company_news", "macro_news"}
+            assert limit == 20
+            return [{
+                "work_key": "stable-work-key",
+                "effect_key": "stable-work-key",
+                "lease_token": "fake-lease",
+                "pipeline_id": "x_post_route",
+                "dispatch_context": {
+                    "dispatch_group": "x_post_route",
+                    "subscriptions": [
+                        {"capability_id": "company_news"},
+                        {"capability_id": "macro_news"},
+                        {"capability_id": "swing_chart_context"},
+                    ],
+                },
+            }]
+
+        def begin(self, key, token):
+            self.begins.append((key, token))
+            return True
+
+        def settle(self, key, token, success, error_code=None):
+            self.settles.append((key, token, success, error_code))
+            return {"status": "done"}
+
+    owner_inputs = []
+
+    def fake_run(argv, **kwargs):
+        owner_inputs.append(json.loads(kwargs["input"]))
+        return SimpleNamespace(returncode=0, stdout='{"outcome":"accepted"}')
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    inbox = WorkInbox()
+    results = process_pending(inbox, handler=runner._owner_handler)
+
+    assert results == [{"work_key": "stable-work-key", "status": "done"}]
+    assert inbox.begins == [("stable-work-key", "fake-lease")]
+    assert inbox.settles == [("stable-work-key", "fake-lease", True, None)]
+    assert len(owner_inputs) == 1
+    assert owner_inputs[0]["pipeline_id"] == "x_post_route"
+
+
 class Inbox:
     def __init__(self):
         self.events = []

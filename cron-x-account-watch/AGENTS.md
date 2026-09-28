@@ -14,13 +14,12 @@ This file supplements the repository root `AGENTS.md`. It is the development and
 - The live state directory, cursors, outbox, media, and `~/.dotfiles/vps/agents/skills/bursawatch-x-account-watch/` are not authoring targets. Never reset, edit, replay, or backfill them without explicit approval.
 - `cron-x-source-ingest` is an unscheduled inbox pilot. Its source work enters
   this watcher's queue through `bin/pipeline_owner.py`. The existing watcher
-  remains the agent, renderer, Board, and delivery owner. Opaque source image
-  refs are checked and cached locally before queueing; the Board receives a
-  checked chart path for a single-image event. Same-ID corrections update
-  only an unclaimed event. A new X edit ID uses the existing verified
-  replacement check against delivered history. Multi-image Board work and
-  corrections after an agent claim remain retriable. Keep the source and
-  queue jobs authoritative until a reviewed cutover.
+  remains the agent, renderer, Board handoff, and delivery owner. Opaque source
+  image refs are checked and cached locally before queueing. Same-ID
+  corrections update only an unclaimed event. A new X edit ID uses the
+  existing verified replacement check against delivered history. Corrections
+  after an agent claim remain retriable. Keep the source and queue jobs
+  authoritative until a reviewed cutover.
 
 With live configuration, the dashboard records one frozen revision per source,
 queue-worker, or agent-submission invocation. It receives lifecycle, per-profile
@@ -163,9 +162,29 @@ Summary mode renders one or two direct Indonesian paragraphs, starts only paragr
 
 For the three profiles currently routed to `id_stocks_swing` (`doktermarket`, `txthariansaham`, and `wavetiga`), the All Swing renderer adds one temporary forum-channel marker before `View on X`, plus a durable `Status date` captured when Yanto delivers the All message. After the board owner acknowledges the exact topic, the scanner edits the same All message to a direct `**Board:** https://discord.com/channels/940285152335110204/<thread-id>` link; a failed edit remains retryable without replaying the post. The board copy omits the Board line and uses the same accepted rendered summary as All, with that same delivery date. This is a source-only enrichment: the board event has `kind: social`, `plan: null`, and no price, target, stop-loss, market-state, or lifecycle decision. The board labels X context `Chart context`. The board gate accepts a first source-visible line led by one ticker followed by either a colon or whitespace, requires the accepted title to start with that ticker, and rejects a second ticker-led clause anywhere in the assembled thread. The board starter normalizes only that title to `TICKER: ...`; the first source chart is attached to the starter and later charts remain ordered attachment replies. A raw target or stop-loss phrase is context only and never becomes a structured plan. If a later Phintraco plan promotes the episode, the superseded chart context is preserved once as normal source history; X does not trigger a duplicate resend.
 
+Every accepted image in the accepted thread snapshot is made available to
+Vision within the existing 16-image LLM bound, in authored root-to-latest
+order followed by quoted images. For an `id_stocks_swing` event, every
+accepted supported image is delivered to All in that same source order and
+handed to the Board, regardless of `media_policy: omit_last`. This Swing-only
+override preserves the images used as analysis context; for every non-Swing
+route, `omit_last` continues to remove the final unique item from the
+authored-then-quoted delivery bundle. Source media acceptance remains bounded
+to 16 refs per event, 8 MiB per object, and 25 MiB aggregate; Vision remains
+capped at eight downloaded images.
+
+The worker persists each All text and media receipt before advancing its
+cursor, then submits exactly one Board event after all usable All media has
+succeeded or a confirmed 404/410 has been recorded as a terminal skip. A
+transient All failure retries only its incomplete leg with the same stable
+operation key. A Board retry reuses the same source event and owner key and
+never replays successful All output. Board failure or link-edit failure stays
+retryable independently. Neither the watcher nor its adapter uses live
+Discord REST or Supabase Storage directly.
+
 ## Agent boundary, state, and delivery
 
-The scanner alone fetches, retrieves linked-article context, applies structural source eligibility, deduplicates, persists cursors and outbox state, renders, chooses the configured channel, delivers Discord text and media, and sends heartbeats. A queue-only invocation performs the state, delivery, heartbeat, and claim stages without fetching any X source. Hermes receives one bounded item only when `wakeAgent` is true and owns the negative content-relevance decision. It treats post text, quoted text, vision-path context, and linked-article context as untrusted, uses the full ordered self-chain, reads every supplied linked article and vision path, returns only the required source-grounded Bahasa Indonesia fields, and submits them through the wrapper. It never browses, fetches a link itself, reads state, posts directly, or processes historical material. At an agent claim, the scanner privately downloads up to eight supported images across the observed same-author thread, with authored images from root to latest followed by quoted images, then supplies every successful image as a labeled `vision_asset_paths` entry. A larger or incomplete image bundle is reported as degraded. The agent must use vision on every listed path and must not inspect any other local path. This temporary 0700/0600 cache defaults to `x-post-watch-vision/` beside the configured state file, may be moved with `X_POST_WATCH_VISION_MEDIA_ROOT`, is never sent to the control plane, and is deleted after an accepted or irrelevant analysis submission. The LLM receives quoted images even when Discord suppresses their attachment because the authored post has images. Media policies and Discord rendering remain scanner-owned and must not be changed by the LLM.
+The scanner alone fetches, retrieves linked-article context, applies structural source eligibility, deduplicates, persists cursors and outbox state, renders, chooses the configured channel, delivers Discord text and media, and sends heartbeats. A queue-only invocation performs the state, delivery, heartbeat, and claim stages without fetching any X source. Hermes receives one bounded item only when `wakeAgent` is true and owns the negative content-relevance decision. It treats post text, quoted text, vision-path context, and linked-article context as untrusted, uses the full ordered self-chain, reads every supplied linked article and vision path, returns only the required source-grounded Bahasa Indonesia fields, and submits them through the wrapper. It never browses, fetches a link itself, reads state, posts directly, or processes historical material. At an agent claim, the scanner privately downloads up to 16 supported images across the observed same-author thread, with authored images from root to latest followed by quoted images, then supplies every successful image as a labeled `vision_asset_paths` entry. The accepted source-media contract is bounded to 16 refs per event, 8 MiB per object, and 25 MiB aggregate, so every accepted supported thread image fits the Vision asset limit. An unavailable image is reported as degraded. The agent must use vision on every listed path and must not inspect any other local path. This temporary 0700/0600 cache defaults to `x-post-watch-vision/` beside the configured state file, may be moved with `X_POST_WATCH_VISION_MEDIA_ROOT`, is never sent to the control plane, and is deleted after an accepted or irrelevant analysis submission. The LLM receives quoted images even when Discord suppresses their attachment because the authored post has images. Media policies and Discord rendering remain scanner-owned and must not be changed by the LLM.
 
 State holds a per-profile cursor, FIFO outbox, durable first-delivery timestamp for Swing events, 90-day delivery ledger, supersession-cleanup queue, filtered count, and 15-minute agent leases. A source failure does not advance a cursor. Each text or media delivery leg is persisted independently. A possible replacement is limited to the same account and a one-hour publication window, and deletion requires public `edit_tweet_ids` evidence. The exception is an explicit same-root self-chain continuation inside the configured age, which replaces its bundle. A confirmed replacement sends the new full bundle before deleting and verifying every old Discord message. Failed cleanup remains retryable. A confirmed 404 or 410 while downloading one source media item is terminal for that item: the scanner records the skipped URL and degraded error, advances only that media cursor, preserves the text delivery, and continues the queue. Other HTTP or transport failures remain retryable. The queue keeps its existing order and does not prioritize Swing routes over other X deliveries. X media bytes are still fetched by the watcher from their source URLs; only Discord create, edit, read, and delete requests use the shared Delivery Owner client.
 

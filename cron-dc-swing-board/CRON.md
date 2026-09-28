@@ -14,6 +14,20 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
   or its market tags. A Phintraco BUY may promote an open source-only episode
   in place; it preserves the previous source starter once as history, without
   a separate GTW resend or All Swing replay.
+- **Shared episode lifecycle:** all sources use the same owner, one configured
+  forum per ticker, and at most one open episode per ticker. A source event
+  never modifies a Phintraco Primary plan. Phintraco BUY promotion,
+  source-only tier promotion and supersession, dated late history, resolution,
+  and archive timing remain Board-owned. Primary inactivity resets only on a
+  new Phintraco BUY or material Phintraco progress/status; source-only
+  inactivity resets only on a qualifying new source event. Both resolve after
+  20 trading sessions inactive. After the resolved update and queued messages
+  finish, the owner archives the Discord thread after 48 quiet hours without
+  adding an `Archived` tag. X cutover requires verified owner-driven
+  inactivity resolution and quiet-archive scheduling; do not implement these
+  timers in an X watcher. As of 2026-09-28, the Board code has no owner timer
+  or archive sweep and Hermes has no corresponding scheduled jobs, so these
+  lifecycle requirements are not live and block X cutover.
 - **Source submission:** `submit-source-event --stdin` first copies supplied local media into the owner directory, then atomically persists the validated event and owner intents and runs one best-effort drain. Its acknowledgement includes `accepted:true` plus the direct forum-topic `board_url` when the topic is materialized, or `board_url:null,"board_pending":true` while that topic is retryable. An accepted board-unavailable event omits `board_pending`. It may not calculate a close or post a heartbeat.
 - **Scheduled reconciliation:** `after-close --phase initial` is scheduled for 16:30 WIB and `--phase retry` for 17:00 WIB. Each phase accepts a start within the following five minutes to tolerate Hermes scheduler lateness, while earlier or later invocations are ignored. The retry runs only for a current-session unavailable initial attempt on the same active plan. Both phases use the reviewed IDX calendar. Missing coverage makes no board mutation, drains safely, and persists one fatal `#hermes` heartbeat intent; covered phases persist exactly one normal or degraded heartbeat intent. All heartbeat intents use the typed Delivery Owner channel operation and remain durable for retry. A second unavailable result changes only the card to `Market check unavailable`; it preserves prior valid price/time and tags and adds no history reply.
 - **Runtime wrapper:** `bin/bursawatch-dc-swing-board.sh` reads only
@@ -34,12 +48,18 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
   Telegram credentials and imports only the shared resilience library and
   Phintraco parser it needs. The owner CLI has no database-path option.
 - **Scheduler executables:** the no-argument `bursawatch-dc-swing-board-close.sh` invokes `after-close --phase initial`; `bursawatch-dc-swing-board-retry.sh` invokes `after-close --phase retry`. Both require the generic wrapper beside them. The approved weekday schedules are `30 16 * * 1-5` and `0 17 * * 1-5` in WIB, respectively. Register them with the supported Hermes CLI and record the live job IDs after deployment.
-- **Live Hermes jobs:** `bursawatch-dc-swing-board-close` is `5c0b79e08fae`, and
-  `bursawatch-dc-swing-board-retry` is `71c4f9a32acd` after cutover. Both are active no-agent
-  jobs with `local` delivery and `/home/praya` as their working directory.
+- **Registered Hermes jobs:** `bursawatch-dc-swing-board-close` is
+  `5c0b79e08fae`, and `bursawatch-dc-swing-board-retry` is `71c4f9a32acd`.
+  Both are currently paused no-agent jobs with `local` delivery and
+  `/home/praya` as their working directory. They cover close reconciliation
+  only, not inactivity resolution or quiet archival.
 - **Forum defaults:** `#id-stocks-swing-board` uses List View, Latest Activity
-  ordering, and Discord's three-day inactivity archive. Discord has no
-  tag-first or nested tag/date sort; tags remain filters.
+  ordering, and Discord's three-day inactivity archive. New episode titles
+  are generated as `TICKER - Ddd, DD Mon YYYY` from the first accepted source
+  timestamp converted to WIB, using fixed English three-letter weekday and
+  month abbreviations. The date can fall on a weekend and remains fixed when
+  an episode is promoted or receives later context. Discord has no tag-first
+  or nested tag/date sort; tags remain filters.
 - **Delivery health:** `drain` returns JSON counts `drained`, `pending`, and `failed`, with a nonzero exit while work remains, including backoff. Board persists each desired operation and stable key before submission. The Delivery Owner stores create snapshots and does bounded read-back; Board retries status lookup by the same key and never submits a new create for an ambiguous outcome. Accepted receipts and IDs apply once to Board state. Nonce reuse alone is not durable idempotency.
 - **Media and size:** the owner downloads ordered public direct X media into private storage and retries each attachment independently. Source text is split losslessly into ordered replies within 2,000 UTF-16 units; managed cards stay within the same limit with complete source replies when compacted. Retired quoted history is deletion-only maintenance, never new delivery. Unsupported or oversized media stays pending, never silently dropped.
 - **Close outcomes:** stop-loss or the actual final target resolves the plan, including target ladders beyond TP6 whose factual tag clamps at TP6. The owner updates the card and tags without generating quoted history replies. Unclassifiable plans preserve prior facts, increment `invalid`, and do not block other tickers. Invalid, unavailable, and pending work degrade the heartbeat; unexpected failures emit a sanitized fatal heartbeat.
@@ -48,9 +68,11 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
   rewrites existing starter cards and completed source replies through the
   shared cash-Swing renderer, moving recoverable legacy source starters and
   first charts into the starter card. `cleanup-history --apply` deletes the retired
-  quoted history replies recorded by the owner. `migrate-titles --apply` makes
-  every existing forum topic title ticker-only. Future source replacements keep
-  that topic title stable; descriptive titles remain in starter cards.
+  quoted history replies recorded by the owner. `migrate-titles --apply`
+  previews and repairs existing forum topic titles to the generated
+  `TICKER - Ddd, DD Mon YYYY` form using each episode's first accepted source
+  timestamp converted to WIB. Future source replacements keep that title
+  stable; descriptive titles remain in starter cards.
 - **Image filename repair:** `repair-starter-media --event-key <key>
   --expected-thread-id <id>` previews one active source card repair. Add
   `--apply` to replace its attachment in place through the durable owner outbox;

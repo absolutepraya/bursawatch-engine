@@ -17,6 +17,14 @@ secrets are managed credential references. New People & Org endpoints stay
 pending and cannot activate a pipeline until a reviewed identity verification
 path is added.
 
+For verified X endpoints, `company_news`, `macro_news`, and
+`swing_chart_context` are compatible members of the exclusive `x_post_route`
+dispatch group. Compatibility says a capability may be selected; it does not
+enable it. Effective `enabled` state is still resolved from publisher defaults
+and endpoint overrides, and `swing_chart_context` is disabled by default.
+Catalog compatibility and effective enablement are returned separately with
+the catalog revision.
+
 Migration `013_source_catalog.sql` adds a private engine registry and independent
 catalog revision/audit tables. It seeds canonical IDs from checked-in watcher
 configs and the fixed Stockbit `FEEDS` definition without copying, converting,
@@ -248,12 +256,28 @@ fixed and read-only.
 is `(platform, endpoint_id, provider_event_id)`; repeating the same original returns
 its durable receipt and a conflicting original returns 409. Acceptance validates
 publisher and endpoint identity against the Source Catalog, then writes the source
-version and one work item per enabled, compatible subscription in one Postgres
-transaction. Work freezes the catalog revision, capability version, resolved settings,
-and the configuration source. A later disable prevents new work but leaves accepted
-items pending. Corrections and tombstones append audited versions targeted at the
-original subscription set, even if those subscriptions were later disabled. Tombstones
-are terminal. No legacy cursor or watcher state is moved by this migration.
+version and work in one Postgres transaction. An X publication with one or more
+enabled members of `x_post_route` creates exactly one route-group work item.
+It freezes the complete enabled capability set, per-capability source metadata,
+and catalog revision. Non-X subscriptions and existing legacy X `company_news`
+or `macro_news` work remain independently claimable during migration. A later
+disable prevents new work but leaves accepted items pending. Corrections and
+tombstones append audited versions targeted at the original frozen subscription
+set, even if those subscriptions were later disabled. Retries use the stored
+dispatch context and stable effect key rather than reevaluating current settings.
+Tombstones are terminal. No legacy cursor or watcher state is moved by this
+migration.
+
+The route group is consumed by the existing X watcher, which runs its
+X-specific classifier once and retains existing route precedence and output.
+Accepted thread images are Vision context and ordered delivery inputs. X Swing
+events deliver All text and media in the same queue invocation before one
+source-only handoff to the existing Board owner; transient legs retain their
+stable effect identity for retry, while confirmed missing media is a terminal
+skip for that item. The X route's `omit_last` profile setting does not remove
+accepted Swing images from All or Board delivery; non-Swing routes retain the
+profile policy. Source catalog support does not itself schedule or cut over the
+X adapter.
 
 Worker machine clients may claim work, settle a current lease, and inspect events or work.
 Claims require a nonempty list of supported pipeline IDs and use
@@ -302,3 +326,27 @@ This code path uses fake providers in tests; it does not authorize a bucket, Sup
 change, or production replay. Operator inspection can contain source payload and should
 be restricted to the authenticated API, never copied into routine logs or heartbeats.
 The in-memory inbox is for local contract testing only.
+
+## X Swing migration and release evidence
+
+The route-group and capability changes are compatibility contracts, not a live
+source cutover. Before any separately approved cutover, collect a read-only,
+sanitized preflight: Control Plane catalog and watcher-config revisions;
+configured endpoint IDs matched to reviewed publisher bindings; effective X
+routes; X cursor, pending work, thread/media and All-outbox counts and hashes;
+Board routes, open episodes and receipt summaries; pending Delivery Owner
+effects; package revisions and health; and confirmation of owner-driven
+20-trading-session inactivity resolution plus 48-hour quiet archival.
+Never include credentials, source text, attachment bytes, or private media
+paths. Ambiguous identity, route, pending effect, or absent Board lifecycle
+scheduling is a cutover blocker.
+
+The release sequence is: release the reviewed Control Plane schema/API,
+verify migration state and health, release the approved X packages through the
+exact-current-`main` release process, and verify installed package parity.
+Check `web-config` separately using `DEPLOYMENT.md`'s build, alias/domain,
+and live HTTP evidence; Vercel deployment is not proven by the backend release.
+Until a separate cutover approval, keep the X adapter unscheduled and the
+current X reader authoritative. Enabling capabilities, pausing the old writer,
+transferring cursors or state, replaying work, changing Hermes schedules,
+deploying, or posting production messages are separate approved actions.

@@ -602,6 +602,58 @@ def test_all_text_then_ordered_images_then_board_in_one_delivery(tmp_path, monke
     assert [kind for kind, _ in sequence] == ["text", "media", "media", "media", "board", "board"]
 
 
+def test_swing_transient_retry_reuses_delivery_and_board_keys_without_live_clients(tmp_path, monkeypatch) -> None:
+    value = ready_swing_state(tmp_path)
+    event = value["outbox"][0]
+    event["text_index"] = event["media_index"] = 0
+    event["text_message_ids"] = []
+    event["media_message_ids"] = []
+    event["post"]["quoted_media"] = []
+    event["thread_posts"][0]["quoted_media"] = []
+    sequence = []
+    text_nonces = []
+    media_nonces = []
+    board_keys = []
+    attempts = {"media": 0}
+
+    def fake_text(content, channel_id, dry_run, nonce):
+        text_nonces.append(nonce)
+        sequence.append("all-text")
+        return "all-message"
+
+    def fake_media(url, channel_id, dry_run, nonce, *_args, **_kwargs):
+        media_nonces.append(nonce)
+        attempts["media"] += 1
+        sequence.append("all-media")
+        if attempts["media"] == 1:
+            raise scan.discord.DeliveryOwnerPending("fake pending media")
+        return "media-message"
+
+    def fake_board(payload, *_args):
+        board_keys.append(payload["event_key"])
+        sequence.append("board")
+        return len(board_keys) > 1
+
+    monkeypatch.setattr(scan.discord, "post_text", fake_text)
+    monkeypatch.setattr(scan.discord, "post_media", fake_media)
+    monkeypatch.setattr(scan, "submit_board_event", fake_board)
+    monkeypatch.setattr(scan.discord, "delivery_client_from_environment", lambda **_kwargs: pytest.fail("live Delivery Owner client used"))
+    import source_media
+    monkeypatch.setattr(source_media, "client_from_environment", lambda: pytest.fail("live Source Media Owner client used"))
+
+    storage = tmp_path / "state.json"
+    assert scan._deliver(value, profiles(), 0, False, storage, stats(), now()) is False
+    assert scan._deliver(value, profiles(), 0, False, storage, stats(), now() + timedelta(minutes=1)) is False
+    assert scan._deliver(value, profiles(), 0, False, storage, stats(), now() + timedelta(minutes=2)) is True
+
+    assert sequence == ["all-text", "all-media", "all-media", "board", "board"]
+    assert len(text_nonces) == 1
+    assert len(media_nonces) == 2 and media_nonces[0] == media_nonces[1]
+    assert scan.discord.operation_key_for_nonce(media_nonces[0]) == scan.discord.operation_key_for_nonce(media_nonces[1])
+    assert len(board_keys) == 2 and board_keys[0] == board_keys[1]
+    assert value["outbox"] == []
+
+
 def test_permanent_missing_media_is_skipped_and_board_handoff_continues(tmp_path, monkeypatch) -> None:
     value = ready_swing_state(tmp_path)
     event = value["outbox"][0]

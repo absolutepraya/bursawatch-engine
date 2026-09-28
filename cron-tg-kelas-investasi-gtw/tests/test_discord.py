@@ -159,7 +159,7 @@ def test_gtw_board_adapter_creates_a_no_post_supporting_episode_with_current_for
         assert (episode.lifecycle, episode.lifecycle_tag, episode.title) == (
             "source",
             "Supporting setup",
-            "RAJA",
+            "RAJA - Tue, 11 Aug 2026",
         )
         operations = owner.store.operations_for_ticker("RAJA")
         create = next(operation for operation in operations if operation.operation == "create_thread")
