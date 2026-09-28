@@ -421,6 +421,58 @@ def test_on_support_update_uses_common_status_format_and_source_timestamp():
     )
 
 
+def test_complete_on_support_status_becomes_a_primary_board_setup():
+    text = (
+        "BMRI - On support\n\n"
+        "Memasuki support area 4000-4050 menjadi indikasi awal rebound.\n\n"
+        "Entry : 4020-4060\n"
+        "Target : 4230\n"
+        "Stoploss :<3940\n\n"
+        "By PHINTRACO SEKURITAS\n"
+        "28/09/2026 9.33 WIB\n"
+        "Alrich Paskalis T| Investment Advisor"
+    )
+    call = scan.parse_swing_reminder(
+        35459,
+        text,
+        has_photo=True,
+        source_posted_at=dt.datetime(2026, 9, 28, 2, 34, tzinfo=dt.timezone.utc),
+    )
+
+    assert call is not None
+    assert call.event_kind == "STATUS"
+    assert call.status == "On support"
+    payload, chart = scan.board_event_payload({"board_kind_override": None}, call)
+
+    assert payload["kind"] == "buy"
+    assert payload["source_status"] == "New setup"
+    assert payload["source_title"] == "BMRI: On support"
+    assert payload["plan"] == {
+        "entry": "4020 to 4060",
+        "stop_loss": "<3940",
+        "targets": ["4230"],
+    }
+    assert chart is None
+
+
+def test_incomplete_on_support_status_remains_status_only():
+    call = scan.parse_swing_reminder(
+        35460,
+        "BRMS - On support\n\n"
+        "Entry : >=540\n"
+        "Target : 590\n\n"
+        "By PHINTRACO SEKURITAS\n"
+        "28/09/2026 9.33 WIB\n"
+        "Alrich Paskalis T| Investment Advisor",
+        has_photo=False,
+        source_posted_at=dt.datetime(2026, 9, 28, 2, 41, tzinfo=dt.timezone.utc),
+    )
+    assert call is not None
+    payload, _ = scan.board_event_payload({"board_kind_override": None}, call)
+    assert payload["kind"] == "status"
+    assert payload["plan"] is None
+
+
 def test_reply_status_requires_matching_parent_swing_plan():
     parent = scan.parse_swing_call(
         33722,

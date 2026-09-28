@@ -97,7 +97,10 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
   externally visible backfill. A reviewed JSON manifest may instead select
   exact source message IDs with `--manifest <path>`; this preserves individual
   same-ticker events and can represent a status/reminder without its complete
-  original BUY as source-only context. Manifest dry-run remains read-only.
+  original BUY as source-only context. Version 2 manifests also support a
+  bounded recovery event-key suffix, complete standalone `On support` setup
+  conversion, and explicit weekly setup links for matching reminders. Manifest
+  dry-run remains read-only.
   Manifest apply creates only Board owner work. Capturing each direct topic URL
   and editing the separately reviewed Yanto-owned All Swing messages are
   distinct, explicitly approved operations.

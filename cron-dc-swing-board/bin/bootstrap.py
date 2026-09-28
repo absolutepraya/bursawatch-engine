@@ -14,7 +14,7 @@ from typing import Any, Iterable, Mapping
 from zoneinfo import ZoneInfo
 
 from calendar import sessions_ago
-from models import SourceEvent
+from models import PlanLevels, SourceEvent
 
 
 SOURCE_CHANNEL_ID = 1444713822
@@ -76,6 +76,8 @@ class BootstrapManifestEvent:
     source_event_kind: str
     board_kind: str
     target_all_message_id: str | None
+    event_key_suffix: str | None = None
+    matched_setup_event_key: str | None = None
 
     def as_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -322,7 +324,12 @@ def load_manifest(path: Path) -> tuple[BootstrapManifestEvent, ...]:
         raise BootstrapError(f"bootstrap manifest cannot be read: {path}") from exc
     if not isinstance(raw, dict) or set(raw) != {"version", "source_channel_id", "events"}:
         raise BootstrapError("bootstrap manifest has an unsupported shape")
-    if raw["version"] != 1 or raw["source_channel_id"] != SOURCE_CHANNEL_ID:
+    version = raw["version"]
+    if (
+        type(version) is not int
+        or version not in {1, 2}
+        or raw["source_channel_id"] != SOURCE_CHANNEL_ID
+    ):
         raise BootstrapError("bootstrap manifest targets the wrong source")
     entries = raw["events"]
     if not isinstance(entries, list) or not entries:
@@ -331,17 +338,24 @@ def load_manifest(path: Path) -> tuple[BootstrapManifestEvent, ...]:
     selected: list[BootstrapManifestEvent] = []
     seen: set[int] = set()
     for raw_entry in entries:
-        if not isinstance(raw_entry, dict) or set(raw_entry) != {
+        base_fields = {
             "source_message_id",
             "source_event_kind",
             "board_kind",
             "target_all_message_id",
-        }:
+        }
+        expected_fields = base_fields if version == 1 else base_fields | {
+            "event_key_suffix",
+            "matched_setup_event_key",
+        }
+        if not isinstance(raw_entry, dict) or set(raw_entry) != expected_fields:
             raise BootstrapError("bootstrap manifest event has an unsupported shape")
         source_message_id = raw_entry["source_message_id"]
         source_event_kind = raw_entry["source_event_kind"]
         board_kind = raw_entry["board_kind"]
         target_all_message_id = raw_entry["target_all_message_id"]
+        event_key_suffix = raw_entry.get("event_key_suffix")
+        matched_setup_event_key = raw_entry.get("matched_setup_event_key")
         if (
             type(source_message_id) is not int
             or source_message_id < 1
@@ -352,12 +366,33 @@ def load_manifest(path: Path) -> tuple[BootstrapManifestEvent, ...]:
             raise BootstrapError("bootstrap manifest source event kind is unsupported")
         if board_kind not in {"buy", "status", "reminder", "social"}:
             raise BootstrapError("bootstrap manifest Board event kind is unsupported")
-        if board_kind != "social" and board_kind != source_event_kind.casefold():
+        status_setup_conversion = (
+            version == 2
+            and source_event_kind == "STATUS"
+            and board_kind == "buy"
+        )
+        if board_kind != "social" and board_kind != source_event_kind.casefold() and not status_setup_conversion:
             raise BootstrapError("bootstrap manifest Board kind must match its source event kind")
         if target_all_message_id is not None and (
             type(target_all_message_id) is not str or not target_all_message_id.isdigit()
         ):
             raise BootstrapError("bootstrap manifest target All message ID is invalid")
+        if version == 2:
+            if (
+                type(event_key_suffix) is not str
+                or re.fullmatch(r"[a-z0-9][a-z0-9-]{0,31}", event_key_suffix) is None
+            ):
+                raise BootstrapError("bootstrap manifest recovery event key suffix is invalid")
+            if matched_setup_event_key is not None and (
+                type(matched_setup_event_key) is not str
+                or re.fullmatch(
+                    r"phintraco:\d+:weekly:\d+:[A-Z]{1,10}",
+                    matched_setup_event_key,
+                ) is None
+                or source_event_kind not in {"STATUS", "REMINDER"}
+                or board_kind not in {"status", "reminder"}
+            ):
+                raise BootstrapError("bootstrap manifest matched weekly setup key is invalid")
         seen.add(source_message_id)
         selected.append(
             BootstrapManifestEvent(
@@ -365,6 +400,8 @@ def load_manifest(path: Path) -> tuple[BootstrapManifestEvent, ...]:
                 source_event_kind=source_event_kind,
                 board_kind=board_kind,
                 target_all_message_id=target_all_message_id,
+                event_key_suffix=event_key_suffix,
+                matched_setup_event_key=matched_setup_event_key,
             )
         )
     return tuple(selected)
@@ -399,10 +436,53 @@ def _source_event_for_manifest(
     watcher_module: object,
     media_path: str | None = None,
 ) -> SourceEvent:
-    """Preserve an orphan status as source-only context without inventing a plan."""
+    """Build only the explicitly reviewed Board event from source history."""
     source_event = _source_event_from_history(event, watcher_module, media_path)
     if item.board_kind == "social":
-        return replace(source_event, kind="social", plan=None)
+        source_event = replace(source_event, kind="social", plan=None)
+    elif source_event.kind == "status" and item.board_kind == "buy":
+        call = event.call
+        if (
+            str(getattr(call, "status", "")).strip().casefold() != "on support"
+            or not str(getattr(call, "entry", "")).strip()
+            or not str(getattr(call, "stop_loss", "")).strip()
+            or not tuple(getattr(call, "targets", ()))
+        ):
+            raise BootstrapError(
+                f"manifest source message {item.source_message_id} is not a complete On support setup"
+            )
+        source_event = replace(
+            source_event,
+            kind="buy",
+            source_title=f"{source_event.ticker}: On support",
+            source_status="New setup",
+            plan=PlanLevels(
+                entry=str(call.entry),
+                stop_loss=str(call.stop_loss),
+                targets=tuple(str(target.value) for target in call.targets),
+            ),
+        )
+    elif source_event.kind != item.board_kind:
+        raise BootstrapError(
+            f"manifest source message {item.source_message_id} cannot become {item.board_kind}"
+        )
+    if item.matched_setup_event_key is not None:
+        if re.fullmatch(
+            rf"phintraco:\d+:weekly:\d+:{re.escape(source_event.ticker)}",
+            item.matched_setup_event_key,
+        ) is None:
+            raise BootstrapError(
+                f"manifest source message {item.source_message_id} links a different ticker"
+            )
+        source_event = replace(
+            source_event,
+            matched_setup_event_key=item.matched_setup_event_key,
+        )
+    if item.event_key_suffix is not None:
+        source_event = replace(
+            source_event,
+            event_key=f"{source_event.event_key}:recovery:{item.event_key_suffix}",
+        )
     if source_event.kind != item.board_kind:
         raise BootstrapError(
             f"manifest source message {item.source_message_id} cannot become {item.board_kind}"

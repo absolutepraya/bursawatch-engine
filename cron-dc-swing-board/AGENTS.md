@@ -156,6 +156,14 @@ send an All Swing alert or edit an existing All message. Capture each resulting
 forum-topic URL, then separately patch only the reviewed Yanto-owned All
 message IDs to the raw direct Discord URL.
 
+Manifest version 2 can give a recovered Board event a bounded recovery suffix
+so an audited correction does not reuse an already-processed source identity.
+It may promote a standalone Phintraco `On support` STATUS to a Primary setup
+only when entry, stop-loss, targets, and the original source timestamp are all
+present. It may also attach a Phintraco status/reminder to an exact weekly PDF
+setup key after source matching. These events still create Board work only;
+version 1 manifests retain their original shape and behavior.
+
 The one-time tag migration is `migrate-tags --apply`; it converts legacy
 `Source plan` episodes to their source-specific tier and rewrites existing
 forum tag applications. The one-time presentation migration is

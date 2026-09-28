@@ -2393,6 +2393,21 @@ def board_event_payload(event: dict, call: SwingCall) -> tuple[dict, Path | None
             "stop_loss": call.stop_loss,
             "targets": [target.value for target in call.targets],
         }
+    elif (
+        call.event_kind == "STATUS"
+        and (call.status or "").strip().casefold() == "on support"
+        and call.entry.strip()
+        and call.stop_loss.strip()
+        and call.targets
+    ):
+        kind = "buy"
+        source_status = "New setup"
+        source_title = f"{call.ticker}: {call.status.strip()}"
+        plan = {
+            "entry": call.entry,
+            "stop_loss": call.stop_loss,
+            "targets": [target.value for target in call.targets],
+        }
     elif call.event_kind == "STATUS":
         kind = "status"
         source_status = call.status or "Source status update"
