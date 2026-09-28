@@ -47,6 +47,7 @@ def test_runtime_wrapper_imports_source_media_and_phintraco_owner_config():
         "IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_WATCHER_ID=*",
         "IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_TOKEN=*",
         "IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_TIMEOUT_SECONDS=*",
+        "IDX_SWING_WATCH_PHINTRACO_DAILY_PYTHONPATH=*",
     ):
         assert key in content
 

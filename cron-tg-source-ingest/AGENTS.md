@@ -105,8 +105,11 @@ and `BURSAWATCH_SOURCE_MEDIA_READ_TOKEN_FILE`, plus the two
 `~/.hermes/.env`. It also passes the Phintraco Swing owner's
 `IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_URL`, `_WATCHER_ID`, `_TOKEN`,
 and `_TIMEOUT_SECONDS` settings so the owner subprocess can load its revisioned
-live config. Credential contents stay in their existing private files and
-never enter logs. The release-agent `BURSAWATCH_RELEASE_NO_POST=1`
+live config, plus `IDX_SWING_WATCH_PHINTRACO_DAILY_PYTHONPATH` so the owner can
+import its privately provisioned pinned PDF parser. That path is not added to
+the shared Yahoo Finance environment. Credential contents stay in their
+existing private files and never enter logs. The release-agent
+`BURSAWATCH_RELEASE_NO_POST=1`
 path does not open `.env` or credential files. It invokes only the synthetic
 in-memory contract check, passes a scrubbed environment, and keeps its log in
 the release agent's disposable `BURSAWATCH_RELEASE_NO_POST_TEMP` directory.

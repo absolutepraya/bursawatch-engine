@@ -106,8 +106,10 @@ documented `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`,
 `BURSAWATCH_DISCORD_DELIVERY_*` settings from `~/.hermes/.env`. It also passes
 the Phintraco Swing owner's `IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_URL`,
 `_WATCHER_ID`, `_TOKEN`, and `_TIMEOUT_SECONDS` settings to its domain-owner
-subprocess so it can validate the live config revision. It never logs credential
-values. The source inbox token file is
+subprocess so it can validate the live config revision, and passes
+`IDX_SWING_WATCH_PHINTRACO_DAILY_PYTHONPATH` so that subprocess can import its
+privately provisioned pinned PyMuPDF package. It never changes the shared
+interpreter or logs credential values. The source inbox token file is
 permission-checked by the client; Source Media has a separate optional upload
 token file and a read token file used by domain owners. Do not reuse the
 Control Plane service environment for either.
