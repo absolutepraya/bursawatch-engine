@@ -7,7 +7,9 @@ reviewed IDX trading sessions after the last material source date and resolves
 each open episode at 20 sessions of inactivity. A newer distinct Phintraco
 BUY supersedes its active Primary episode and opens a new thread. Stale and
 superseded closures use the existing `Resolved` tag, clear the market tag,
-and add a factual resolution and last-check line to the managed card. A
+and add a factual resolution, last close price, check time, and state to the
+managed card. A BUY older than the latest material in an open source-only
+episode is a labeled historical reply and cannot promote it. A
 source-only card explicitly says no Phintraco close was recorded. Stop-loss
 and final-target resolutions retain their terminal market tag.
 

@@ -11,9 +11,10 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
   and its first chart. A newer higher-tier or same-tier source replaces that
   starter, and the superseded starter card and first chart become one normal
   source-context history reply. Neither tier alters a Phintraco Primary Plan
-  or its market tags. A Phintraco BUY may promote an open source-only episode
-  in place; it preserves the previous source starter once as history, without
-  a separate GTW resend or All Swing replay.
+  or its market tags. A Phintraco BUY newer than the latest source-only
+  material may promote that episode in place; it preserves the previous
+  source starter once as history, without a separate GTW resend or All Swing
+  replay. An older BUY is a labeled historical reply and does not promote.
 - **Topic identity:** a new episode title uses its first accepted source
   timestamp in WIB, for example `CPIN - Wed, 23 Sep 2026`. Its weekday follows
   the actual date, including weekends. Promotion and source updates keep that
@@ -26,8 +27,8 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
   sessions after their last material source date. Only a Phintraco BUY or
   material Phintraco status resets a Primary timer; qualifying source events
   reset a source-only timer. It states `stale` or `superseded` in the card,
-  removes the market tag for those reasons, and retains the last valid market
-  checkpoint or explicitly reports that none exists. Terminal stop-loss and
+  removes the market tag for those reasons, and retains the last valid close
+  price, check time, and state or explicitly reports that none exists. Terminal stop-loss and
   final-target resolutions retain their factual market tag. Once resolution
   changes and all earlier episode messages are delivered or tombstoned, a
   48-hour quiet timer starts. Late historical replies restart it on delivery.

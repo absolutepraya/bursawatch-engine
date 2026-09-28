@@ -127,11 +127,33 @@ def test_new_buy_supersedes_active_primary_with_resolution_intents(engine):
     first = buy(published_at=at("2026-09-18T09:05:00+07:00"))
     newer = buy(event_key="phintraco:buy:new", published_at=at("2026-09-21T09:05:00+07:00"))
     engine.submit(first, at("2026-09-18T09:05:00+07:00"))
+    engine.store.record_checkpoint(1, Checkpoint.market(
+        session_date="2026-09-18", checked_at="2026-09-18T16:30:00+07:00",
+        close_price="215", state=MarketState.ABOVE_ENTRY,
+    ))
     engine.submit(newer, at("2026-09-21T09:05:00+07:00"))
     assert engine.store.episode(1).resolution_reason == "superseded"
     assert engine.store.active_episode("KPIG").id == 2
     assert engine.store.active_episode("KPIG").title == "KPIG - Mon, 21 Sep 2026"
-    assert "superseded" in [op.payload["content"] for op in operations(engine) if op.operation == "edit_starter"][-1].lower()
+    card = [op.payload["content"] for op in operations(engine) if op.operation == "edit_starter"][-1]
+    assert "superseded" in card.lower()
+    assert "**Closing price:** Rp215" in card
+
+
+def test_older_buy_is_history_without_promoting_newer_source_episode(engine):
+    opening = at("2026-09-23T09:05:00+07:00")
+    engine.submit(social(published_at=opening), opening)
+    older = buy(event_key="phintraco:buy:older", published_at=at("2026-09-22T09:05:00+07:00"))
+
+    assert engine.submit(older, at("2026-09-24T09:05:00+07:00")) == "board_submitted"
+
+    episode = engine.store.active_episode("KPIG")
+    assert episode.lifecycle == "source"
+    assert episode.latest_material_at == opening
+    assert episode.title == "KPIG - Wed, 23 Sep 2026"
+    assert engine.store.active_plan(episode.id) is None
+    assert [op.operation for op in operations(engine)] == ["create_thread", "post_source_reply"]
+    assert "Historical source event" in operations(engine)[-1].payload["content"]
 
 
 def test_primary_inactivity_ignores_lower_tier_context_and_preserves_last_check(engine):
@@ -149,6 +171,7 @@ def test_primary_inactivity_ignores_lower_tier_context_and_preserves_last_check(
     assert resolved.market_tag is None
     card = [op.payload["content"] for op in operations(engine) if op.operation == "edit_starter"][-1]
     assert "23 Apr 2026 16:30 WIB" in card and "Above entry" in card
+    assert "**Closing price:** Rp215" in card
 
 
 def test_material_phintraco_status_resets_primary_inactivity(engine):
@@ -470,7 +493,7 @@ def test_buy_promotes_without_reposting_non_gtw_social_reply(engine):
     assert engine.store.active_episode("KPIG").title == "KPIG - Sat, 19 Sep 2026"
 
 
-def test_buy_promotion_reconciles_prior_phintraco_status_history(engine):
+def test_older_buy_cannot_promote_newer_phintraco_source_history(engine):
     reminder = social(
         event_key="phintraco:1444713822:35197",
         source="phintraco",
@@ -497,16 +520,14 @@ def test_buy_promotion_reconciles_prior_phintraco_status_history(engine):
 
     episode = engine.store.episode(engine.store.episodes()[0].id)
     assert (episode.lifecycle, episode.lifecycle_tag, episode.market_tag) == (
-        "resolved",
-        "Resolved",
-        "TP1 reached",
+        "source", "Chart context", None,
     )
     assert engine.store.active_plan(episode.id) is None
     replies = [op for op in operations(engine) if op.operation == "post_source_reply"]
     assert len(replies) == 1
+    assert "Historical source event" in replies[0].payload["content"]
     edits = [op for op in operations(engine) if op.operation == "edit_starter"]
-    assert len(edits) == 2
-    assert "**Source status:** Second target 5000 achieved; All targets achieved" in edits[-1].payload["content"]
+    assert edits == []
 
 
 def test_buy_promotes_and_preserves_latest_source_starter_once(engine):
@@ -522,7 +543,8 @@ def test_buy_promotes_and_preserves_latest_source_starter_once(engine):
     engine.submit(newer_source, at("2026-09-20T09:06:00+07:00"))
     engine.drain(now=at())
 
-    promotion = buy(media_path="/tmp/phintraco-chart.png")
+    promotion = buy(media_path="/tmp/phintraco-chart.png",
+                    published_at=at("2026-09-22T09:05:00+07:00"))
     assert engine.submit(promotion, at("2026-09-22T09:05:00+07:00")) == "board_submitted"
 
     replies = [op for op in operations(engine) if op.operation == "post_source_reply"]

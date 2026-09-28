@@ -6,7 +6,7 @@ This file supplements the repository root `AGENTS.md`. It is the canonical devel
 
 The Board Engine alone mutates canonical episode/domain state, its SQLite intent outbox, and private media. The Delivery Owner service is the only Discord API writer. Board code sends forum/channel reads and writes through the typed shared client, and applies accepted receipts and Discord IDs back to SQLite exactly once. The Board accepts only validated internal watcher events after their All Swing delivery. It never imports a watcher store or writes watcher state.
 
-The board is read-only and factual. It has no LLM, does not infer a plan or a price state, does not give trading advice, and does not place orders. Only a complete Phintraco Daily cash-equity BUY creates or replaces a Primary Plan. Only active cash-equity source events may reach the board. When a complete BUY promotes an open source-only episode, already-recorded Phintraco status or reminder context after that BUY is reconciled against the new plan before the transition completes.
+The board is read-only and factual. It has no LLM, does not infer a plan or a price state, does not give trading advice, and does not place orders. Only a complete Phintraco Daily cash-equity BUY creates or replaces a Primary Plan. Only active cash-equity source events may reach the board. A BUY published before the latest material in an open source-only episode becomes a labeled historical reply; it cannot promote or rewind that episode.
 
 Kelas Investasi GTW is a qualifying source-only cash-Swing input. It may open
 or append to a `Supporting setup` episode, but it never becomes the Primary Plan
@@ -45,7 +45,8 @@ sessions strictly after the last material source date. At 20 sessions it
 resolves an open Primary or source-only episode as `stale`, including when no
 new source arrives. A distinct newer Phintraco BUY resolves an active Primary
 as `superseded` and starts a new thread. The resolved card states the reason
-and last valid Phintraco close, or explicitly says no close was recorded.
+and last valid Phintraco close price, time, and state, or explicitly says no
+close was recorded.
 Stale and superseded resolutions clear the market tag; terminal resolutions
 retain it. All card, tag, source-history, and archive changes use the durable
 outbox and shared Delivery Owner.

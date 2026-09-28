@@ -169,6 +169,8 @@ def render_primary_card(
         lines.append(f"**Resolution:** {escape(resolution_reason)}")
         if resolution_reason in {"stale", "superseded"}:
             checked = last_valid_checkpoint or (checkpoint if checkpoint and not checkpoint.unavailable else None)
+            if checked and checked.state and checked.close_price:
+                lines.append(f"**Closing price:** Rp{escape(checked.close_price)}")
             lines.append(
                 f"**Last checked:** {format_wib(datetime.fromisoformat(checked.checked_at))} · {escape(checked.state.value)}"
                 if checked and checked.state else "**Last checked:** no Phintraco close recorded"

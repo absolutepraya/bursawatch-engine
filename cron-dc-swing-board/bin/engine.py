@@ -436,6 +436,9 @@ class BoardEngine:
                 return
             self._resolve_episode(tx, active, "superseded", now)
             active = None
+        elif active is not None and event.published_at < active.latest_material_at:
+            self._historical_source(tx, event, active, now)
+            return
         elif active is not None and trading_sessions_since(
             active.latest_material_at.astimezone(WIB).date(), event.published_at.astimezone(WIB).date()
         ) >= 20:
