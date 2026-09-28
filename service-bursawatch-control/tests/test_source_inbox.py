@@ -40,6 +40,106 @@ def kelas_envelope(provider: str):
     return result
 
 
+def x_envelope(provider="42"):
+    result = envelope(provider)
+    result.update(endpoint_id="x:writingtorch", publisher_id="x-writingtorch", platform="x", source_url=f"https://x.com/writingtorch/status/{provider}")
+    return result
+
+
+def test_x_subscriptions_share_one_frozen_route_group():
+    catalog = MemoryCatalogStore()
+    config = initial_config()
+    config["endpoint_overrides"] = [
+        {"endpoint_id": "x:writingtorch", "capability_id": capability, "enabled": True, "settings": {}}
+        for capability in ("company_news", "macro_news", "swing_chart_context")
+    ]
+    catalog.put(1, config, "test")
+    inbox = MemoryInboxStore(catalog)
+    receipt = inbox.accept(x_envelope())
+    assert len(receipt["work_keys"]) == 1
+    work = inbox.claim(["x_post_route"], limit=10)
+    assert len(work) == 1
+    assert work[0]["capability_id"] == "x_post_route_group"
+    assert work[0]["capability_version"] == 1
+    assert work[0]["settings"] == {}
+    assert work[0]["catalog_revision"] == 2
+    assert work[0]["dispatch_context"] == {
+        "dispatch_group": "x_post_route",
+        "subscriptions": [
+            {"capability_id": capability, "capability_version": 1, "settings": {}, "config_source": "endpoint_override"}
+            for capability in ("company_news", "macro_news", "swing_chart_context")
+        ],
+    }
+    config["endpoint_overrides"] = []
+    catalog.put(2, config, "test")
+    assert inbox.begin(work[0]["work_key"], work[0]["lease_token"]) is True
+    inbox.settle(work[0]["work_key"], work[0]["lease_token"], success=True)
+    corrected = x_envelope()
+    corrected["content_hash"] = hashlib.sha256(b"updated").hexdigest()
+    corrected["payload"] = {"text": "updated"}
+    revision = inbox.revise(receipt["event_key"], corrected, "correction", "edit-1", "test", "edit")
+    assert inbox.work[revision["work_keys"][0]]["dispatch_context"] == work[0]["dispatch_context"]
+    tombstone = deepcopy(corrected)
+    tombstone["payload"] = {}
+    tombstone["content_hash"] = hashlib.sha256(b"deleted").hexdigest()
+    deletion = inbox.revise(receipt["event_key"], tombstone, "tombstone", "delete-1", "test", "delete")
+    assert inbox.work[deletion["work_keys"][0]]["dispatch_context"] == work[0]["dispatch_context"]
+
+
+def test_one_enabled_x_capability_creates_one_group_work():
+    catalog = MemoryCatalogStore()
+    config = initial_config()
+    config["publisher_defaults"] = [{"publisher_id": "x-writingtorch", "capability_id": "swing_chart_context", "enabled": True, "settings": {}}]
+    catalog.put(1, config, "test")
+    inbox = MemoryInboxStore(catalog)
+    receipt = inbox.accept(x_envelope())
+    assert len(receipt["work_keys"]) == 1
+    item = inbox.claim(["x_post_route"])[0]
+    assert item["dispatch_context"]["subscriptions"] == [{"capability_id": "swing_chart_context", "capability_version": 1, "settings": {}, "config_source": "publisher_default"}]
+    assert item["config_source"] == "publisher_default"
+
+
+def test_x_group_keeps_each_setting_source_and_uses_override_precedence():
+    catalog = MemoryCatalogStore()
+    config = initial_config()
+    config["publisher_defaults"] = [
+        {"publisher_id": "x-writingtorch", "capability_id": capability, "enabled": True, "settings": {}}
+        for capability in ("company_news", "macro_news")
+    ]
+    config["endpoint_overrides"] = [{"endpoint_id": "x:writingtorch", "capability_id": "company_news", "enabled": True, "settings": {}}]
+    catalog.put(1, config, "test")
+    inbox = MemoryInboxStore(catalog)
+    receipt = inbox.accept(x_envelope("mixed"))
+    assert len(receipt["work_keys"]) == 1
+    item = inbox.claim(["x_post_route"])[0]
+    assert item["config_source"] == "endpoint_override"
+    assert [(sub["capability_id"], sub["config_source"]) for sub in item["dispatch_context"]["subscriptions"]] == [
+        ("company_news", "endpoint_override"), ("macro_news", "publisher_default")
+    ]
+
+
+def test_unrelated_enabled_subscriptions_remain_independent():
+    api, _, inbox = setup()
+    receipt = inbox.accept(envelope("independent"))
+    assert len(receipt["work_keys"]) == 2
+    items = inbox.claim(["company_news", "macro_news"])
+    assert {item["pipeline_id"] for item in items} == {"company_news", "macro_news"}
+    assert all(item["dispatch_context"] == {} for item in items)
+
+
+def test_legacy_x_work_remains_claimable_by_its_original_pipeline():
+    catalog = MemoryCatalogStore()
+    inbox = MemoryInboxStore(catalog)
+    receipt = inbox.accept(x_envelope("legacy"))
+    for capability in ("company_news", "macro_news"):
+        inbox._create_work(receipt["event_key"], 1, {
+            "capability_id": capability, "pipeline": capability, "capability_version": 1,
+            "catalog_revision": 1, "settings": {}, "config_source": "publisher_default", "dispatch_context": {},
+        })
+    claimed = inbox.claim(["company_news", "macro_news"])
+    assert {item["pipeline_id"] for item in claimed} == {"company_news", "macro_news"}
+
+
 def setup_kelas():
     api, catalog, _inbox = setup()
     config = catalog.get()["config"]

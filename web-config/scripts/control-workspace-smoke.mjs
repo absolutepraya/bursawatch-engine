@@ -152,11 +152,11 @@ async function scenario(role) {
     institutions: [{ id: "phintraco", name: "Phintraco Sekuritas", tier: 1, asset_ref: null }],
     people_org: [{ id: "x-ricky", name: "Ricky Ho", kind: null, tier: 3, asset_ref: null }],
     endpoints: [{ id: "x:ricky", publisher_id: "x-ricky", platform: "x", address: "rickyho", provider_id: null, credential_ref: null, system_owned: true, verified: true }],
-    capabilities: [{ id: "company_news", label: "Company News", pipeline: "company_news", version: 1 }, { id: "trading_plans", label: "Trading Plans", pipeline: "swing_plan", version: 1 }],
-    compatibility: [{ endpoint_id: "x:ricky", capability_id: "company_news" }],
+    capabilities: [{ id: "company_news", label: "Company News", pipeline: "company_news", version: 1 }, { id: "macro_news", label: "Macro News", pipeline: "macro_news", version: 1 }, { id: "swing_chart_context", label: "Swing Chart Context", pipeline: "swing_chart_context", version: 1 }, { id: "trading_plans", label: "Trading Plans", pipeline: "swing_plan", version: 1 }],
+    compatibility: [{ endpoint_id: "x:ricky", capability_id: "company_news", dispatch_group: "x_post_route" }, { endpoint_id: "x:ricky", capability_id: "macro_news", dispatch_group: "x_post_route" }, { endpoint_id: "x:ricky", capability_id: "swing_chart_context", dispatch_group: "x_post_route" }],
     config: { revision: 1, config: sourceConfig, sha256: "a".repeat(64), actor_id: "baseline", updated_at: new Date().toISOString() },
   };
-  const effectiveCatalog = () => ({ revision: sourceCatalog.config.revision, updated_at: sourceCatalog.config.updated_at, selected_securities: [], subscriptions: [{ endpoint_id: "x:ricky", publisher_id: "x-ricky", platform: "x", address: "rickyho", provider_id: null, credential_ref: null, capability_id: "company_news", pipeline: "company_news", enabled: false, verification_status: "verified", settings: {}, source: "unset" }] });
+  const effectiveCatalog = () => ({ revision: sourceCatalog.config.revision, updated_at: sourceCatalog.config.updated_at, selected_securities: [], subscriptions: [{ endpoint_id: "x:ricky", publisher_id: "x-ricky", platform: "x", address: "rickyho", provider_id: null, credential_ref: null, capability_id: "company_news", pipeline: "company_news", dispatch_group: "x_post_route", enabled: false, verification_status: "verified", settings: {}, source: "unset" }, { endpoint_id: "x:ricky", publisher_id: "x-ricky", platform: "x", address: "rickyho", provider_id: null, credential_ref: null, capability_id: "macro_news", pipeline: "macro_news", dispatch_group: "x_post_route", enabled: false, verification_status: "verified", settings: {}, source: "unset" }, { endpoint_id: "x:ricky", publisher_id: "x-ricky", platform: "x", address: "rickyho", provider_id: null, credential_ref: null, capability_id: "swing_chart_context", pipeline: "swing_chart_context", dispatch_group: "x_post_route", enabled: false, verification_status: "verified", settings: {}, source: "unset" }] });
   const writes = [];
   const attempts = [];
   const failures = { config: [], schedule: [] };
@@ -285,7 +285,7 @@ async function scenario(role) {
           sourceCatalog.config = { ...sourceCatalog.config, revision: sourceCatalog.config.revision + 1, config: payload.config, updated_at: new Date().toISOString() };
           sourceCatalog.people_org.push(...payload.config.people_org.map((item) => ({ ...item, tier: 3 })));
           sourceCatalog.endpoints.push(...payload.config.endpoints.map((item) => ({ ...item, provider_id: null, verified: false, system_owned: false })));
-          sourceCatalog.compatibility.push(...payload.config.endpoints.flatMap((item) => ["company_news", "macro_news"].map((capability_id) => ({ endpoint_id: item.id, capability_id }))));
+          sourceCatalog.compatibility.push(...payload.config.endpoints.flatMap((item) => ["company_news", "macro_news", "swing_chart_context"].map((capability_id) => ({ endpoint_id: item.id, capability_id, dispatch_group: item.platform === "x" ? "x_post_route" : null }))));
           return json(sourceCatalog.config);
         }
         if (method === "GET" && path === "watchers") return json(state.watchers);
@@ -644,6 +644,9 @@ async function scenario(role) {
       assert.equal(await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(1).locator("option").count(), 1, "Unsaved endpoints have no backend compatibility yet.");
       await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(0).selectOption("x:ricky");
       assert.equal(await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(1).getByRole("option", { name: "Trading Plans" }).count(), 0);
+      assert.equal(await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(1).getByRole("option", { name: "Swing Chart Context" }).count(), 1);
+      await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(1).selectOption("swing_chart_context");
+      assert.equal(await page.getByRole("group", { name: "Capability setting" }).getByLabel("Enabled intent").isChecked(), false);
       await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(1).selectOption("company_news");
       await page.getByRole("group", { name: "Capability setting" }).getByLabel("Enabled intent").check();
       await page.getByRole("button", { name: "Apply setting to draft" }).click();

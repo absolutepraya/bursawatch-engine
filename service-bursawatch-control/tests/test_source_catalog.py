@@ -52,6 +52,40 @@ def test_registry_lists_canonical_ids_and_engine_owned_capabilities_without_clai
     assert bri["credential_ref"] is None
 
 
+def test_x_route_compatibility_is_grouped_and_disabled_until_configured():
+    api, _, _ = client()
+    catalog = api.get("/v1/source-catalog", headers=ADMIN).json()
+    effective = api.get("/v1/source-catalog/effective", headers=MACHINE).json()
+    x_ids = {item["id"] for item in catalog["endpoints"] if item["platform"] == "x"}
+    assert len(x_ids) == 10
+    grouped = [item for item in catalog["compatibility"] if item["endpoint_id"] in x_ids]
+    assert {(item["endpoint_id"], item["capability_id"], item["dispatch_group"]) for item in grouped} == {
+        (endpoint_id, capability, "x_post_route")
+        for endpoint_id in x_ids
+        for capability in ("company_news", "macro_news", "swing_chart_context")
+    }
+    assert all(item["dispatch_group"] is None for item in catalog["compatibility"] if item["endpoint_id"] not in x_ids)
+    x_subs = [item for item in effective["subscriptions"] if item["endpoint_id"] in x_ids]
+    assert len(x_subs) == 30
+    assert all(item["dispatch_group"] == "x_post_route" and item["enabled"] is False and item["source"] == "unset" for item in x_subs)
+    assert all(item["dispatch_group"] is None for item in effective["subscriptions"] if item["endpoint_id"] not in x_ids)
+
+
+def test_user_added_x_endpoint_gets_group_compatibility_but_stays_pending():
+    api, _, _ = client()
+    config = initial_config()
+    config["people_org"] = [{"id": "new-analyst", "name": "New Analyst", "kind": "person", "asset_ref": None}]
+    config["endpoints"] = [{"id": "new-analyst-x", "publisher_id": "new-analyst", "platform": "x", "address": "new_analyst", "credential_ref": None}]
+    assert put(api, config).status_code == 200
+    catalog = api.get("/v1/source-catalog", headers=ADMIN).json()
+    compatibility = [item for item in catalog["compatibility"] if item["endpoint_id"] == "new-analyst-x"]
+    assert {(item["capability_id"], item["dispatch_group"]) for item in compatibility} == {
+        (capability, "x_post_route") for capability in ("company_news", "macro_news", "swing_chart_context")
+    }
+    subscriptions = [item for item in api.get("/v1/source-catalog/effective", headers=MACHINE).json()["subscriptions"] if item["endpoint_id"] == "new-analyst-x"]
+    assert all(item["dispatch_group"] == "x_post_route" and item["enabled"] is False and item["verification_status"] == "pending" for item in subscriptions)
+
+
 def test_catalog_edit_permission_comes_from_authenticated_backend_principal():
     class ViewerAuth:
         def authenticate(self, authorization):
@@ -198,3 +232,14 @@ def test_catalog_migration_is_additive_and_private():
     for table in ("supported_securities", "source_publishers", "source_endpoints", "source_capabilities", "source_compatibility", "source_catalog_revisions", "source_selections", "source_people_org_revisions", "source_endpoint_revisions", "source_publisher_defaults", "source_endpoint_overrides", "source_catalog_audit", "source_asset_refs"):
         assert f"alter table bursawatch_{table} enable row level security;" in sql
         assert f"revoke all privileges on table bursawatch_{table} from public;" in sql
+
+
+def test_x_route_migration_preserves_existing_subscription_intent_and_work():
+    sql = (Path(__file__).resolve().parents[1] / "migrations/017_x_swing_route_groups.sql").read_text()
+    assert sql.startswith("-- bursawatch-release: automatic\n")
+    assert "add column dispatch_group text" in sql
+    assert "add column dispatch_context jsonb not null default '{}'::jsonb" in sql
+    assert "where platform = 'x'" in sql
+    assert "compatibility.capability_id in ('company_news', 'macro_news', 'swing_chart_context')" in sql
+    assert "publisher_defaults" not in sql and "endpoint_overrides" not in sql
+    assert "delete from" not in sql and "truncate " not in sql and "drop " not in sql

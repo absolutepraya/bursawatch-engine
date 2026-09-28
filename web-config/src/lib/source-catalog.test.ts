@@ -3,6 +3,8 @@ import {
   catalogWrite,
   compatibleCapabilities,
   effectiveChoice,
+  effectiveCatalog,
+  sourceCatalog,
   type SourceCatalog,
 } from "./source-catalog";
 
@@ -38,7 +40,7 @@ const catalog = {
     { id: "company_news", label: "Company news", pipeline: "company_news", version: 1 },
     { id: "trading_plans", label: "Trading plans", pipeline: "swing_plan", version: 1 },
   ],
-  compatibility: [{ endpoint_id: "x:firm", capability_id: "company_news" }],
+  compatibility: [{ endpoint_id: "x:firm", capability_id: "company_news", dispatch_group: "x_post_route" }],
   config: {
     revision: 1,
     config,
@@ -52,6 +54,24 @@ describe("catalog settings", () => {
     expect(compatibleCapabilities(catalog, "x:firm").map((item) => item.id)).toEqual([
       "company_news",
     ]));
+  it("accepts grouped X Swing compatibility and an unset effective subscription", () => {
+    const xCatalog = {
+      ...catalog,
+      capabilities: [...catalog.capabilities, { id: "swing_chart_context", label: "Swing Chart Context", pipeline: "swing_chart_context", version: 1 }],
+      compatibility: [
+        { endpoint_id: "x:firm", capability_id: "company_news", dispatch_group: "x_post_route" },
+        { endpoint_id: "x:firm", capability_id: "swing_chart_context", dispatch_group: "x_post_route" },
+      ],
+    };
+    expect(sourceCatalog.parse(xCatalog).compatibility[1].dispatch_group).toBe("x_post_route");
+    expect(compatibleCapabilities(xCatalog, "x:firm").map((item) => item.id)).toEqual(["company_news", "swing_chart_context"]);
+    expect(effectiveCatalog.parse({
+      revision: 1, updated_at: "2026-09-24T00:00:00Z", selected_securities: [],
+      subscriptions: [{ endpoint_id: "x:firm", publisher_id: "firm", platform: "x", address: "firm", provider_id: null, credential_ref: null, capability_id: "swing_chart_context", pipeline: "swing_chart_context", dispatch_group: "x_post_route", enabled: false, verification_status: "verified", settings: {}, source: "unset" }],
+    }).subscriptions[0].dispatch_group).toBe("x_post_route");
+    expect(effectiveChoice(config, "firm", "x:firm", "swing_chart_context")).toEqual({ source: "Unset", enabled: false });
+    expect(sourceCatalog.safeParse({ ...xCatalog, compatibility: [{ ...xCatalog.compatibility[0], dispatch_group: "Invalid Group" }] }).success).toBe(false);
+  });
   it("resolves endpoint overrides before publisher defaults", () => {
     expect(effectiveChoice(config, "firm", "x:firm", "company_news")).toEqual({
       source: "Endpoint override",

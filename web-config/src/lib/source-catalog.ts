@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 const id = z.string().regex(/^[a-z0-9][a-z0-9-]{1,63}$/);
+const dispatchGroup = z.string().regex(/^[a-z][a-z0-9_]{0,63}$/).nullable();
 const asset = z
   .object({
     url: z.url().startsWith("https://"),
@@ -81,7 +82,7 @@ export const sourceCatalog = z.object({
     )
     .max(100),
   compatibility: z
-    .array(z.object({ endpoint_id: z.string(), capability_id: z.string() }))
+    .array(z.object({ endpoint_id: z.string(), capability_id: z.string(), dispatch_group: dispatchGroup }))
     .max(5000),
   config: catalogRevision,
 });
@@ -100,6 +101,7 @@ export const effectiveCatalog = z.object({
         credential_ref: z.string().nullable(),
         capability_id: z.string(),
         pipeline: z.string(),
+        dispatch_group: dispatchGroup,
         enabled: z.boolean(),
         verification_status: z.enum(["verified", "pending"]),
         settings: z.record(z.string(), z.unknown()),
