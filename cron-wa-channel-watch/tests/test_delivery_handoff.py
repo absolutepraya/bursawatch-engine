@@ -204,6 +204,91 @@ def test_handoff_plan_keeps_existing_text_receipt_and_does_not_replay_it(tmp_pat
     assert snapshot.items[0].operation.payload["content"]
 
 
+def test_handoff_plan_reconstructs_patched_board_link_edit_receipt(tmp_path):
+    import delivery_handoff
+    import json
+    import render
+
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    chart = staging / "chart.jpg"
+    chart.write_bytes(b"synthetic chart")
+    profile_data = {
+        "id": "bri-danareksa-sekuritas", "enabled": True, "mode": "forward",
+        "channel_jid": "120363419226413141@newsletter",
+        "channel_url": "https://whatsapp.com/channel/example",
+        "display_name": "BRI", "emoji": "<:bri:12345678901234567>",
+        "status_emojis": {"up": None, "down": None, "hold": None},
+        "discord_channels": [
+            {"key": "id_stocks_swing", "channel_id": "1525102508714889257", "description": "All Swing"},
+        ],
+        "forward_media": True, "enable_llm_title": True, "enable_llm_summary": True,
+        "enable_llm_routing": True, "enable_llm_relevance_filter": True,
+        "relevance_scope": "financial_market", "additional_prompt_instruction": "", "max_items_per_poll": 5,
+    }
+    profile = config.load_data({"version": 2, "profiles": [profile_data]}).profiles[0]
+    event = normalize_bridge_event({
+        "channel_jid": profile.channel_jid, "message_id": "wa-board-edit",
+        "published_at": "2026-09-22T04:26:00Z",
+        "text": "#TechnicalReview TINS breakout with one archived chart.",
+        "media": [{"kind": "image", "mime": "image/jpeg", "path": str(chart)}],
+    })
+    archive_root = tmp_path / "archive"
+    archive.ensure(archive_root, profile.id, event, 1, staging_root=staging)
+    item = {
+        "title": "TINS: Breakout",
+        "summary": "TINS confirms a bullish breakout.",
+        "route": "id_stocks_swing",
+        "ticker": "TINS",
+        "sentiment": "Bullish",
+    }
+    channel_id = "1525102508714889257"
+    text_message_id = "123456789012345678"
+    media_message_id = "123456789012345679"
+    board_url = "https://discord.com/channels/940285152335110204/1548273399069933720/999"
+    original_text = render.render_post(
+        profile, event, title=item["title"], summary=item["summary"],
+        route=item["route"], sentiment=item["sentiment"], board_url=None,
+    )[0]
+    expected_edit = discord.board_link_edit_operation(
+        channel_id, text_message_id, original_text, board_url,
+    )
+    state_path = tmp_path / "state.json"
+    state_path.write_text(json.dumps({"version": 1, "profiles": {}, "outbox": [{
+        "event_key": event.event_key,
+        "profile_id": profile.id,
+        "event": serialize_event(event),
+        "agent_phase": "delivered",
+        "items": [item],
+        "item_index": 1,
+        "text_index": 0,
+        "text_message_ids": [text_message_id],
+        "media_index": 1,
+        "media_message_ids": [media_message_id],
+        "media_skipped_indexes": [],
+        "media_delivery_status": "delivered",
+        "board_phase": "accepted",
+        "board_link_phase": "patched",
+        "board_acknowledgement": {"board_url": board_url, "board_pending": False},
+        "delivered_at": "2026-09-22T04:27:00+00:00",
+    }]}), encoding="utf-8")
+    adapter = delivery_handoff.WhatsAppChannelWatchHandoffAdapter(
+        state_path, tmp_path / "handoff.json", archive_root=archive_root, profiles={profile.id: profile},
+    )
+
+    snapshot = adapter.build_handoff_snapshot()
+
+    assert [entry.operation.kind for entry in snapshot.items] == [
+        "channel_message_create", "channel_message_create", "channel_message_edit",
+    ]
+    edit = snapshot.items[-1]
+    assert expected_edit is not None
+    assert edit.operation.key == expected_edit.key
+    assert edit.operation.digest == expected_edit.digest
+    assert edit.operation.payload["content"] == discord._replace_board_topic_link(original_text, board_url)
+    assert edit.receipt == {"channel_id": channel_id, "message_id": text_message_id}
+
+
 def _legacy_bri_profile():
     profile_data = {
         "id": "bri-danareksa-sekuritas", "enabled": True, "mode": "forward",

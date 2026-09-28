@@ -361,6 +361,35 @@ class WhatsAppChannelWatchHandoffAdapter:
                 known_id = media_ids[ordinal] if complete and ordinal < len(media_ids) else None
                 self._append(items, operation if known_id is None else replace(operation, reconcile_before_first_create=False, legacy_nonce=None), known_id)
 
+            board_phase = record.get("board_phase")
+            board_link_phase = record.get("board_link_phase")
+            if board_link_phase == "patched" and board_phase != "accepted":
+                raise HandoffError("WhatsApp Channel Board-link state is inconsistent")
+            if board_phase == "accepted" and board_link_phase == "patched":
+                acknowledgement = record.get("board_acknowledgement")
+                board_url = acknowledgement.get("board_url") if isinstance(acknowledgement, dict) else None
+                if (
+                    not isinstance(board_url, str)
+                    or not technical_review
+                    or len(raw_items) != 1
+                    or raw_items[0].get("route") != "id_stocks_swing"
+                ):
+                    raise HandoffError("WhatsApp Channel patched Board link cannot be reconstructed")
+                rendered_texts = [
+                    (channel_id, content)
+                    for channel_id, messages in messages_by_item
+                    for content in messages
+                ]
+                if len(text_ids) != len(rendered_texts):
+                    raise HandoffError("WhatsApp Channel Board-link message identities are incomplete")
+                for (channel_id, content), message_id in zip(rendered_texts, text_ids):
+                    operation = discord.board_link_edit_operation(
+                        channel_id, message_id, content, board_url,
+                    )
+                    if operation is None:
+                        raise HandoffError("WhatsApp Channel Board-link marker cannot be reconstructed")
+                    self._append(items, operation, message_id)
+
         acknowledgments = self._acks()
         for index, item in enumerate(items):
             stored = acknowledgments.get(item.operation.key)

@@ -220,6 +220,11 @@ the defaults (`http://127.0.0.1:9140` and
 The Delivery Owner owns retries after accepting an operation. Watcher state
 keeps its existing text/media cursors and saved message IDs, with the additive
 `media_message_ids` list recording successful media receipts.
+For an accepted and patched BRI Board link, the Delivery Handoff planner also
+reconstructs the exact `channel_message_edit` operation from canonical rendered
+text, the saved Board URL, and ordered text message IDs. It includes that edit
+in the private operation plan so its Delivery Owner receipt can be reconciled.
+If any part of the edit cannot be reconstructed exactly, planning fails closed.
 
 An operator can make a private, payload-free delivery-state plan through the
 archive wrapper. Planning reads watcher state and verified archive bytes but

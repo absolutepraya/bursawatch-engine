@@ -61,16 +61,20 @@ def test_post_media_preserves_archive_bytes_and_presentation_filename(tmp_path, 
 
 
 def test_edit_board_link_uses_bounded_read_then_owner_edit_without_reposting(monkeypatch):
+    original = "**Board:** <#1548273399069933720>"
+    board_url = "https://discord.com/channels/940285152335110204/999"
+    message_id = "123456789012345678"
     owner = Owner([{
-        "id": "123456789012345678",
-        "content": "**Board:** <#1548273399069933720>",
+        "id": message_id,
+        "content": original,
     }])
+    expected = discord.board_link_edit_operation("42", message_id, original, board_url)
     monkeypatch.setenv("DISCORD_BOT_TOKEN", "ignored-legacy-token")
 
     assert discord.edit_board_link(
         "42",
-        ["123456789012345678"],
-        "https://discord.com/channels/940285152335110204/999",
+        [message_id],
+        board_url,
         False,
         discord.nonce("event", "board-link"),
         client=owner,
@@ -82,6 +86,9 @@ def test_edit_board_link_uses_bounded_read_then_owner_edit_without_reposting(mon
     assert owner.queries[0].limit == 1
     assert len(owner.submitted) == 1
     assert owner.submitted[0].kind == "channel_message_edit"
+    assert expected is not None
+    assert owner.submitted[0].key == expected.key
+    assert owner.submitted[0].digest == expected.digest
     assert owner.submitted[0].target == {
         "channel_id": "42", "message_id": "123456789012345678"
     }

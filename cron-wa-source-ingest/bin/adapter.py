@@ -25,6 +25,7 @@ sys.path.insert(0, str(owner))
 
 from source_ingest import IntakeBlocked, bind_catalog_revision, ingest_all, select_endpoints
 from legacy_cursor_seed import blocked_seed_plan
+from migration_preflight import plan_migration_preflight
 
 ALLOWED = {"company_news", "macro_news", "swing_chart_context"}
 PUBLISHERS = {"whatsapp:0029VbAjdnb60eBhwVdJxj1c": "bri-danareksa"}

@@ -280,6 +280,19 @@ def _replace_board_topic_link(content: str, board_url: str) -> str:
     return "\n".join(lines) if changed else content
 
 
+def board_link_edit_operation(
+    channel_id: str,
+    message_id: str,
+    content: str,
+    board_url: str,
+) -> OperationIntent | None:
+    """Build the deterministic edit intent used to replace the Board marker."""
+    if not isinstance(content, str):
+        raise ValueError("Discord message content is invalid")
+    updated = _replace_board_topic_link(content, board_url)
+    return None if updated == content else _edit_operation(channel_id, message_id, updated)
+
+
 def edit_board_link(
     channel_id: str,
     message_ids: list[str] | tuple[str, ...],
@@ -301,10 +314,9 @@ def edit_board_link(
         content = current.get("content") if current else None
         if not isinstance(content, str):
             return False
-        updated = _replace_board_topic_link(content, board_url)
-        if updated == content:
+        operation = board_link_edit_operation(channel_id, str(message_id), content, board_url)
+        if operation is None:
             continue
-        operation = _edit_operation(channel_id, str(message_id), updated)
         receipt = _receipt_for_operation(operation, owner)
         if receipt.receipt is None or receipt.receipt.get("message_id") != str(message_id):
             raise DeliveryClientError("invalid_response")
