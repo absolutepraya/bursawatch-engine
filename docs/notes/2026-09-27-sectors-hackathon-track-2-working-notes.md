@@ -31,6 +31,14 @@ The connected demo story is: scheduled morning brief -> complete broker setup ar
 
 The brief should say when a source is unavailable. It should not fill gaps by presenting old commentary as today's view. The proposed suppression of separate morning macro-news posts is still only an idea; changing an existing production destination or cadence would need its own later review and approval.
 
+## Proposed first demo shape, pending review
+
+Publish one concise, dated Discord morning readout. Put the IHSG scenario first, followed by the strongest Sectors market evidence, a small number of today's catalysts, the X narrative pulse, and the main counterevidence. Keep source links and as-of timestamps in a saved run record so the reader and demo can inspect how the call was formed. A later after-close run compares the original scenario with Sectors' observed close without rewriting the morning record.
+
+Prioritize a working scheduled brief over filling every possible section. Global indices, corporate actions, UMA/FCA status, conglomerate mapping, and broker technical commentary can appear when their feeds are verified and fresh. If optional evidence is absent, identify that gap. If required Sectors market evidence is absent, do not present an ordinary IHSG scenario as though the full analysis ran.
+
+The expanded X panel provisionally leans toward active trader commentary because broker research already supplies analyst views. It should report distinct sourced narratives, not a numerical crowd-sentiment score. Account selection and minimum coverage remain open.
+
 ## Data and eligibility boundaries to preserve
 
 - Existing BursaWatch adapters, Discord output, and operational records help identify the problem and source formats. They are not the new hackathon project's execution evidence. The current control-plane source inbox was not a populated searchable research corpus when inspected, so the design must not depend on historical semantic retrieval being ready.
