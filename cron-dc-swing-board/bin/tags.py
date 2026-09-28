@@ -10,6 +10,7 @@ SUPPORTING_SETUP = "Supporting setup"
 CHART_CONTEXT = "Chart context"
 RESOLVED = "Resolved"
 LEGACY_SOURCE_PLAN = "Source plan"
+RESOLUTION_REASONS = frozenset({"stale", "superseded", "stop loss", "all targets"})
 
 BELOW_ENTRY = "Below entry"
 ENTRY_ZONE = "Entry zone"
@@ -21,6 +22,18 @@ _SOURCE_TIER_RANK = {
     CHART_CONTEXT: 1,
     SUPPORTING_SETUP: 2,
 }
+
+
+def episode_tag_names(lifecycle_tag: str, market_tag: str | None,
+                      resolution_reason: str | None = None) -> list[str]:
+    """Use existing catalog tags and hide market state on nonmarket closure."""
+    if resolution_reason is not None and resolution_reason not in RESOLUTION_REASONS:
+        raise ValueError(f"unsupported resolution reason: {resolution_reason}")
+    if resolution_reason is not None and lifecycle_tag != RESOLVED:
+        raise ValueError("a resolved episode requires the Resolved tag")
+    return [lifecycle_tag] + (
+        [market_tag] if market_tag and resolution_reason not in {"stale", "superseded"} else []
+    )
 
 
 def source_tier(source: str) -> str:

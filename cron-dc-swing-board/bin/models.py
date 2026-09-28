@@ -211,6 +211,9 @@ class Episode:
     starter_source_event_id: int | None = None
     lifecycle_tag: str | None = None
     market_tag: str | None = None
+    resolution_reason: str | None = None
+    quiet_started_at: datetime | None = None
+    archived_at: datetime | None = None
 
 
 @dataclass(frozen=True)

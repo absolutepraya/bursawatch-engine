@@ -53,6 +53,18 @@ def test_initial_close_is_durable_without_synthetic_history(owner, monkeypatch):
     assert not edit.payload.get("clear_attachments", False)
 
 
+def test_lifecycle_command_queues_noop_heartbeat_and_drains(owner, monkeypatch, capsys):
+    monkeypatch.setenv("IDX_SWING_PLAN_BOARD_NO_POST", "1")
+    monkeypatch.setenv("IDX_SWING_PLAN_BOARD_STATE_PATH", str(owner.store.path))
+    monkeypatch.setenv("IDX_SWING_PLAN_BOARD_MEDIA_ROOT", str(owner.store.path.parent / "media"))
+    assert board.main(["reconcile-lifecycle"]) == 0
+    output = capsys.readouterr().out
+    assert "swing-board-lifecycle" in output
+    assert "resolved=0" in output
+    assert owner.store.count_rows("channel_outbox") == 1
+    assert owner.store.pending_heartbeat_count() == 0
+
+
 def test_retry_unavailable_keeps_last_facts_tags_and_no_history(owner, monkeypatch):
     monkeypatch.setattr("engine.fetch_session_close", lambda *args: Decimal("210"))
     owner.after_close("initial", at())

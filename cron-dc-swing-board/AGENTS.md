@@ -22,10 +22,12 @@ preserves the previous source starter once as history. The board never creates
 a separate GTW resend and never replays the All Swing feed. An archived episode
 receives no later source event.
 
-Every forum topic title is the ticker only, for example `CPIN`. Descriptive
-source and plan titles remain in the starter card. Source promotion, status
-updates, and same-tier replacements never rename the topic. The one-time
-`migrate-titles --apply` command renames existing topics to this stable form.
+Every forum topic title is the ticker and the opening source date in WIB, for
+example `CPIN - Wed, 23 Sep 2026`. The timestamp comes from the first accepted
+source event, including on a Saturday or Sunday, and stays fixed through
+source promotion, status updates, and starter replacement. Descriptive source
+and plan titles remain in the starter card. `migrate-titles --apply` repairs an
+existing topic from its canonical ticker and stored opening timestamp.
 
 ## Commands and safety
 
@@ -36,6 +38,26 @@ Ordered X media URLs become separate durable attachment intents. Only public HTT
 Before remote mutation, the Board persists the desired operation, payload, and stable delivery key in its SQLite outbox. The Delivery Owner stores the exact create snapshot and bounded read-back boundary before its Discord request. On timeout or interruption, the service reconciles by that key and snapshot; Board retries look up the same key and never issue a new create for an ambiguous result. Accepted receipts and IDs are applied once to canonical Board state. The service owns Discord delivery locks, bounded recovery, and rate-limit handling.
 
 `drain` reports `drained`, `pending`, and `failed` counts and exits nonzero while any work remains. Pending includes retained backoff work; failed counts pending operations with a recorded delivery failure.
+
+The daily `reconcile-lifecycle` owner pass is scheduled at 17:10 WIB through
+`bursawatch-dc-swing-board-lifecycle.sh`. It counts reviewed IDX trading
+sessions strictly after the last material source date. At 20 sessions it
+resolves an open Primary or source-only episode as `stale`, including when no
+new source arrives. A distinct newer Phintraco BUY resolves an active Primary
+as `superseded` and starts a new thread. The resolved card states the reason
+and last valid Phintraco close, or explicitly says no close was recorded.
+Stale and superseded resolutions clear the market tag; terminal resolutions
+retain it. All card, tag, source-history, and archive changes use the durable
+outbox and shared Delivery Owner.
+
+The 48-hour archive timer starts only after the resolution edit, tag patch,
+and all earlier episode outbox messages have completed or been tombstoned.
+Late historical source replies to a resolved, unarchived episode reset the
+timer after their delivery. An archived episode receives no later source
+events. The daily pass schedules an archive only after the full 48 hours; a
+daily cadence can leave a thread visible for up to one further day. Archive
+completion is recorded only from the accepted delivery receipt. The daily
+pass emits its own durable `#hermes` heartbeat, including no-op runs.
 
 Only scheduled `after-close --phase initial` at 16:30 WIB and `after-close --phase retry` at 17:00 WIB evaluate a valid current IDX session close. Each phase accepts a start within the following five minutes to tolerate Hermes scheduler lateness, while later or early invocations are ignored. The zero-argument scheduler executables are `bursawatch-dc-swing-board-close.sh` and `bursawatch-dc-swing-board-retry.sh`, respectively. The retry is eligible only when that exact active plan recorded an unavailable initial attempt for the current reviewed IDX session. A second unavailable result edits only the card to `Market check unavailable`, retaining the latest valid price/time and tags, without a history reply. A valid close updates the card and factual tags on an exact market-state or terminal-lifecycle transition, with operation identity scoped to plan and session. Stop-loss or the actual final target resolves and finishes the plan; target tags clamp at TP6 without shortening the target ladder. The owner does not generate quoted history replies. An unclassifiable plan preserves its facts, increments `invalid`, and does not block other tickers. Missing calendar coverage fails closed without a board mutation, drains safely, and emits one fatal `#hermes` heartbeat. Other unexpected reconciliation failures emit a sanitized fatal heartbeat. Every covered scheduled phase persists one normal or degraded `#hermes` heartbeat intent in `channel_outbox` before draining it through the typed Delivery Owner operation, warning on unavailable, invalid, or pending work.
 
@@ -120,8 +142,8 @@ titles, dates, field spacing, source status, and footer links. The approved reti
 `history_events` and must run against live Discord, never with the no-post
 control.
 
-The one-time `migrate-titles --apply` command renames existing forum topics to
-their ticker-only names without changing starter content or tags.
+The one-time `migrate-titles --apply` command repairs existing forum topics to
+their canonical dated names without changing starter content or tags.
 
 `repair-starter-media --event-key <key> --expected-thread-id <id>` previews a
 single open source starter whose image lost its filename type extension. It
@@ -143,4 +165,4 @@ Run the package suite from the repository root with the shared virtual environme
 ../../.venv/bin/python -m pytest -q cron-dc-swing-board/tests
 ```
 
-Deploy only a clean published commit after an approved VPS write, then compare changed checksums and use isolated no-post verification. Copy the generic wrapper plus both phase wrappers to the same Hermes scripts directory after approval. The two cutover target Hermes jobs are `bursawatch-dc-swing-board-close` at 16:30 WIB and `bursawatch-dc-swing-board-retry` at 17:00 WIB on weekdays. Never hand-edit the Hermes registry; use the supported CLI and verify the returned job records. Bootstrap has no scheduler entry.
+Deploy only a clean published commit after an approved VPS write, then compare changed checksums and use isolated no-post verification. Copy the generic wrapper, both phase wrappers, and the lifecycle wrapper to the same Hermes scripts directory after approval. The close and retry jobs run at 16:30 and 17:00 WIB on weekdays. The lifecycle job is proposed for 17:10 WIB daily and requires a separate reviewed Hermes registration; no job ID is assumed here. Never hand-edit the Hermes registry; use the supported CLI and verify the returned job records. Bootstrap has no scheduler entry.

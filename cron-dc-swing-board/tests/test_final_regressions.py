@@ -263,6 +263,9 @@ def test_watcher_reminder_payload_is_interpreted_by_owner(owner, outcomes, expec
     payload, _ = adapter.board_event_payload({}, call)
     incoming = SourceEvent.from_json(payload)
     plan = replace(example_buy_event("original-buy"), plan=PlanLevels("208 to 212", "<200", ("230", "240", "250")))
+    # This case exercises a current reminder. The source fixture predates the
+    # synthetic BUY above; set its published time after that BUY explicitly.
+    incoming = replace(incoming, published_at=plan.published_at + timedelta(hours=1))
     assert source_outcome_state(incoming, plan).value == expected
     owner.submit(plan, at(hour=9, minute=0))
     owner.submit(incoming, at(hour=10, minute=0))

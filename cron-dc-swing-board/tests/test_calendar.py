@@ -3,7 +3,7 @@ import sys
 
 import pytest
 
-from calendar import CalendarCoverageError, is_idx_trading_day, sessions_ago
+from calendar import CalendarCoverageError, is_idx_trading_day, sessions_ago, trading_sessions_since
 from models import MarketState
 
 
@@ -28,3 +28,11 @@ def test_calendar_fails_closed_for_uncovered_weekday_years() -> None:
 def test_sessions_ago_rejects_negative_counts() -> None:
     with pytest.raises(ValueError, match="non-negative"):
         sessions_ago(date(2026, 3, 25), -1)
+
+
+def test_trading_sessions_since_excludes_anchor_and_counts_reviewed_sessions() -> None:
+    assert trading_sessions_since(date(2026, 3, 17), date(2026, 3, 25)) == 1
+    assert trading_sessions_since(date(2026, 3, 25), date(2026, 3, 25)) == 0
+    assert trading_sessions_since(date(2026, 3, 25), date(2026, 3, 24)) == 0
+    with pytest.raises(CalendarCoverageError):
+        trading_sessions_since(date(2026, 12, 31), date(2027, 1, 4))
