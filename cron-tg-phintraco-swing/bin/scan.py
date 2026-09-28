@@ -95,12 +95,22 @@ ALLOWED_SUBTYPES = (
 WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
-STATE_VERSION = 2
+STATE_VERSION = 3
 PHASE_PENDING_MEDIA_CAPTURE = "pending_media_capture"
 PHASE_PENDING_TEXT = "pending_text"
 PHASE_PENDING_CHART = "pending_chart"
 PHASE_PENDING_BOARD = "pending_board"
 PHASE_DELIVERED = "delivered"
+MAX_WEEKLY_PDF_BYTES = 8 * 1024 * 1024
+WEEKLY_PDF_PREFIX = "PHINTAS Weekly Swing Trading Ideas_"
+WEEKLY_PDF_FILENAME_RE = re.compile(
+    r"^PHINTAS Weekly Swing Trading Ideas_\d{8}\.pdf$"
+)
+WEEKLY_TEXT_COMPANION_RE = re.compile(
+    r"\bweekly\s+swing(?:\s+trading)?\s+ideas?\b",
+    re.IGNORECASE,
+)
+PDF_EVENT_KEY_RE = re.compile(r"^pdf:(\d+):([A-Z]{4})$")
 MAX_FATAL_FINGERPRINTS_PER_HOUR = 64
 MAX_RETRY_SECONDS = 15 * 60
 WATCHER_NAME = "bursawatch-tg-phintraco-swing"
@@ -113,6 +123,9 @@ _REQUIRED_STATE_FIELDS = (
     "block_reason",
     "observed_message_id",
     "outbox",
+    "pdf_batches",
+    "source_plans",
+    "quarantined_documents",
     "last_poll_success",
     "last_delivery_success",
     "last_heartbeat_hour",
@@ -129,6 +142,13 @@ _REQUIRED_STATS_FIELDS = ("runs", "messages", "calls", "delivered")
 _REQUIRED_EVENT_FIELDS = (
     "event_key",
     "source_message_id",
+    "delivery_order",
+    "pdf_batch_id",
+    "source_page",
+    "source_section",
+    "pdf_sha256",
+    "pdf_path",
+    "chart_path",
     "call",
     "phase",
     "chart_status",
@@ -215,6 +235,9 @@ def empty_state() -> dict:
         "block_reason": None,
         "observed_message_id": 0,
         "outbox": {},
+        "pdf_batches": {},
+        "source_plans": {},
+        "quarantined_documents": {},
         "last_poll_success": None,
         "last_delivery_success": None,
         "last_heartbeat_hour": None,
@@ -307,16 +330,52 @@ def _validate_call_payload(payload: object, source_message_id: int) -> None:
 
 
 def _validate_outbox_event(key: object, payload: object) -> None:
-    if type(key) is not str or not key.isascii() or not key.isdigit():
-        raise ValueError("outbox keys must be decimal source message IDs")
+    if type(key) is not str:
+        raise ValueError("outbox keys must be strings")
+    is_legacy = key.isascii() and key.isdigit()
+    pdf_key = PDF_EVENT_KEY_RE.fullmatch(key)
+    if not is_legacy and pdf_key is None:
+        raise ValueError("outbox keys must be decimal IDs or PDF ticker event keys")
     event = _require_fields(payload, _REQUIRED_EVENT_FIELDS, f"outbox event {key}")
+    _validate_call_payload(event["call"], event["source_message_id"] if type(event["source_message_id"]) is int else -1)
     if type(event["event_key"]) is not str or event["event_key"] != key:
         raise ValueError(f"outbox event {key} event_key must match its key")
     if type(event["source_message_id"]) is not int or event["source_message_id"] <= 0:
         raise ValueError(f"outbox event {key} source_message_id must be a positive integer")
-    if str(event["source_message_id"]) != key:
+    if is_legacy and str(event["source_message_id"]) != key:
         raise ValueError(f"outbox event {key} source_message_id must match its key")
-    _validate_call_payload(event["call"], event["source_message_id"])
+    if type(event["delivery_order"]) is not int or event["delivery_order"] < 0:
+        raise ValueError(f"outbox event {key} delivery_order must be a non-negative integer")
+    if event["pdf_batch_id"] is not None and type(event["pdf_batch_id"]) is not str:
+        raise ValueError(f"outbox event {key} pdf_batch_id must be a string or null")
+    for field in ("source_page", "source_section"):
+        if event[field] is not None and (type(event[field]) is not int or event[field] <= 0):
+            raise ValueError(f"outbox event {key} {field} must be a positive integer or null")
+    for field in ("pdf_sha256", "pdf_path", "chart_path"):
+        if event[field] is not None and type(event[field]) is not str:
+            raise ValueError(f"outbox event {key} {field} must be a string or null")
+    if is_legacy:
+        if any(event[field] is not None for field in ("pdf_batch_id", "source_page", "source_section", "pdf_sha256", "pdf_path", "chart_path")):
+            raise ValueError(f"outbox event {key} has unexpected PDF metadata")
+        if event["delivery_order"] != 0:
+            raise ValueError(f"outbox event {key} legacy delivery_order must be zero")
+    else:
+        pdf_message_id, ticker = pdf_key.groups()
+        if (
+            event["source_message_id"] != int(pdf_message_id)
+            or event["pdf_batch_id"] != pdf_message_id
+            or event["source_page"] is None
+            or event["source_section"] is None
+            or not isinstance(event["pdf_sha256"], str)
+            or re.fullmatch(r"[0-9a-f]{64}", event["pdf_sha256"]) is None
+            or not event["pdf_path"]
+            or not event["chart_path"]
+            or type(event["delivery_order"]) is not int
+            or event["delivery_order"] <= 0
+        ):
+            raise ValueError(f"outbox event {key} has incomplete PDF metadata")
+        if event["call"].get("ticker") != ticker:
+            raise ValueError(f"outbox event {key} ticker must match its call")
     if type(event["phase"]) is not str or event["phase"] not in _EVENT_PHASES:
         raise ValueError(f"outbox event {key} has an invalid phase")
     if type(event["chart_status"]) is not str or event["chart_status"] not in _CHART_STATUSES:
@@ -343,6 +402,166 @@ def _validate_outbox_event(key: object, payload: object) -> None:
         raise ValueError(f"outbox event {key} created_at must be a string")
 
 
+def _validate_target_list(payload: object, label: str) -> None:
+    if type(payload) is not list:
+        raise ValueError(f"{label} must be a list")
+    for target in payload:
+        target = _require_fields(target, ("number", "value"), label + " target")
+        if target["number"] is not None and (type(target["number"]) is not int or not 1 <= target["number"] <= 6):
+            raise ValueError(f"{label} target number must be between 1 and 6 or null")
+        if type(target["value"]) is not str or not target["value"]:
+            raise ValueError(f"{label} target value must be a non-empty string")
+
+
+def _validate_pdf_indexes(state: dict) -> None:
+    batches = state["pdf_batches"]
+    plans = state["source_plans"]
+    quarantined = state["quarantined_documents"]
+    for label, collection in (
+        ("pdf_batches", batches),
+        ("source_plans", plans),
+        ("quarantined_documents", quarantined),
+    ):
+        if type(collection) is not dict:
+            raise ValueError(f"state {label} must be an object")
+
+    batch_fields = (
+        "source_message_id",
+        "filename",
+        "mime_type",
+        "published_at",
+        "report_date",
+        "pdf_sha256",
+        "pdf_path",
+        "event_keys",
+        "quarantined_pages",
+        "status",
+    )
+    for key, raw in batches.items():
+        if type(key) is not str or not key.isascii() or not key.isdigit():
+            raise ValueError("PDF batch keys must be decimal source message IDs")
+        batch = _require_fields(raw, batch_fields, f"PDF batch {key}")
+        if type(batch["source_message_id"]) is not int or str(batch["source_message_id"]) != key:
+            raise ValueError(f"PDF batch {key} source ID must match its key")
+        if any(type(batch[field]) is not str or not batch[field] for field in ("filename", "mime_type", "pdf_path")):
+            raise ValueError(f"PDF batch {key} filename, MIME type, and path must be non-empty strings")
+        _parse_aware_datetime(batch["published_at"], f"PDF batch {key} published_at")
+        try:
+            dt.date.fromisoformat(batch["report_date"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"PDF batch {key} report_date is invalid") from exc
+        if type(batch["pdf_sha256"]) is not str or re.fullmatch(r"[0-9a-f]{64}", batch["pdf_sha256"]) is None:
+            raise ValueError(f"PDF batch {key} digest is invalid")
+        event_keys = batch["event_keys"]
+        if type(event_keys) is not list or len(set(event_keys)) != len(event_keys):
+            raise ValueError(f"PDF batch {key} event_keys must be a unique list")
+        for event_key in event_keys:
+            match = PDF_EVENT_KEY_RE.fullmatch(event_key) if type(event_key) is str else None
+            if match is None or match.group(1) != key:
+                raise ValueError(f"PDF batch {key} has an invalid child event key")
+        pages = batch["quarantined_pages"]
+        if type(pages) is not list:
+            raise ValueError(f"PDF batch {key} quarantined_pages must be a list")
+        for page in pages:
+            page = _require_fields(page, ("page_number", "reason"), f"PDF batch {key} quarantined page")
+            if type(page["page_number"]) is not int or page["page_number"] <= 0:
+                raise ValueError(f"PDF batch {key} quarantine page number is invalid")
+            if type(page["reason"]) is not str or not page["reason"] or len(page["reason"]) > 200:
+                raise ValueError(f"PDF batch {key} quarantine reason is invalid")
+        if batch["status"] not in {"ready", "degraded"}:
+            raise ValueError(f"PDF batch {key} status is invalid")
+        if bool(pages) != (batch["status"] == "degraded"):
+            raise ValueError(f"PDF batch {key} status does not match its page quarantine list")
+
+    plan_fields = (
+        "event_key", "ticker", "descriptor", "trend", "ma_indicator",
+        "potential_upside", "potential_downside", "entry", "stop_loss", "targets",
+        "signal_datetime", "document_message_id", "page_number", "section_number",
+        "pdf_sha256", "pdf_path", "chart_path", "report_date",
+    )
+    for key, raw in plans.items():
+        match = PDF_EVENT_KEY_RE.fullmatch(key) if type(key) is str else None
+        if match is None:
+            raise ValueError("source plan keys must be PDF ticker event keys")
+        plan = _require_fields(raw, plan_fields, f"source plan {key}")
+        if (
+            plan["event_key"] != key
+            or type(plan["ticker"]) is not str
+            or plan["ticker"] != match.group(2)
+        ):
+            raise ValueError(f"source plan {key} identity fields do not match its key")
+        for field in ("descriptor", "trend", "ma_indicator", "potential_upside", "potential_downside", "entry", "stop_loss", "pdf_path", "chart_path"):
+            if type(plan[field]) is not str:
+                raise ValueError(f"source plan {key} {field} must be a string")
+        _validate_target_list(plan["targets"], f"source plan {key} targets")
+        _parse_aware_datetime(plan["signal_datetime"], f"source plan {key} signal_datetime")
+        if type(plan["document_message_id"]) is not int or plan["document_message_id"] != int(match.group(1)):
+            raise ValueError(f"source plan {key} document ID does not match its key")
+        for field in ("page_number", "section_number"):
+            if type(plan[field]) is not int or plan[field] <= 0:
+                raise ValueError(f"source plan {key} {field} must be positive")
+        if type(plan["pdf_sha256"]) is not str or re.fullmatch(r"[0-9a-f]{64}", plan["pdf_sha256"]) is None:
+            raise ValueError(f"source plan {key} PDF digest is invalid")
+        try:
+            dt.date.fromisoformat(plan["report_date"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"source plan {key} report_date is invalid") from exc
+
+    quarantine_fields = ("source_message_id", "filename", "mime_type", "reason", "observed_at", "pdf_sha256", "pdf_path")
+    for key, raw in quarantined.items():
+        if type(key) is not str or not key.isascii() or not key.isdigit():
+            raise ValueError("quarantined document keys must be decimal source message IDs")
+        item = _require_fields(raw, quarantine_fields, f"quarantined document {key}")
+        if type(item["source_message_id"]) is not int or str(item["source_message_id"]) != key:
+            raise ValueError(f"quarantined document {key} source ID must match its key")
+        for field in ("filename", "mime_type", "reason"):
+            if type(item[field]) is not str or len(item[field]) > 240:
+                raise ValueError(f"quarantined document {key} {field} is invalid")
+        if not item["reason"]:
+            raise ValueError(f"quarantined document {key} reason must not be empty")
+        _parse_aware_datetime(item["observed_at"], f"quarantined document {key} observed_at")
+        if item["pdf_sha256"] is not None and (
+            type(item["pdf_sha256"]) is not str
+            or re.fullmatch(r"[0-9a-f]{64}", item["pdf_sha256"]) is None
+        ):
+            raise ValueError(f"quarantined document {key} digest is invalid")
+        if item["pdf_path"] is not None and type(item["pdf_path"]) is not str:
+            raise ValueError(f"quarantined document {key} path must be a string or null")
+
+    if set(batches).intersection(quarantined):
+        raise ValueError("a source message cannot be both a PDF batch and quarantined document")
+    event_to_batch: dict[str, str] = {}
+    for batch_id, batch in batches.items():
+        for event_key in batch["event_keys"]:
+            if event_key in event_to_batch:
+                raise ValueError(f"PDF event {event_key} belongs to multiple batches")
+            event_to_batch[event_key] = batch_id
+            plan = plans.get(event_key)
+            if plan is None:
+                raise ValueError(f"PDF batch {batch_id} is missing source plan {event_key}")
+            if (
+                plan["document_message_id"] != batch["source_message_id"]
+                or plan["pdf_sha256"] != batch["pdf_sha256"]
+                or plan["pdf_path"] != batch["pdf_path"]
+                or plan["report_date"] != batch["report_date"]
+            ):
+                raise ValueError(f"PDF source plan {event_key} does not match its batch")
+    if set(plans) != set(event_to_batch):
+        raise ValueError("source plans and PDF batch child keys do not match")
+    for event_key, batch_id in event_to_batch.items():
+        event = state["outbox"].get(event_key)
+        if event is not None and (
+            event["pdf_batch_id"] != batch_id
+            or event["pdf_sha256"] != batches[batch_id]["pdf_sha256"]
+            or event["pdf_path"] != batches[batch_id]["pdf_path"]
+            or event["chart_path"] != plans[event_key]["chart_path"]
+        ):
+            raise ValueError(f"PDF outbox event {event_key} does not match its source plan")
+    for event_key in state["outbox"]:
+        if PDF_EVENT_KEY_RE.fullmatch(event_key) and event_key not in event_to_batch:
+            raise ValueError(f"PDF outbox event {event_key} has no source plan")
+
+
 def _validate_state(payload: object) -> dict:
     state = _require_fields(payload, _REQUIRED_STATE_FIELDS, "state")
     if type(state["version"]) is not int or state["version"] != STATE_VERSION:
@@ -360,6 +579,7 @@ def _validate_state(payload: object) -> dict:
         raise ValueError("state outbox must be an object")
     for key, event in outbox.items():
         _validate_outbox_event(key, event)
+    _validate_pdf_indexes(state)
     stats = _require_fields(state["stats"], _REQUIRED_STATS_FIELDS, "state stats")
     for field in _REQUIRED_STATS_FIELDS:
         if type(stats[field]) is not int or stats[field] < 0:
@@ -375,23 +595,38 @@ def _migrate_state(payload: object) -> tuple[dict, bool]:
         raise ValueError(f"unsupported state version: {version}")
     if version == STATE_VERSION:
         return payload, False
-    if version != 1:
+    if version not in {1, 2}:
         raise ValueError(f"unsupported state version: {version}")
 
     outbox = payload.get("outbox")
     if type(outbox) is not dict:
         raise ValueError("state outbox must be an object")
+    if version == 1:
+        for event in outbox.values():
+            if type(event) is not dict:
+                raise ValueError("outbox event must be an object")
+            # Version 1 considered this phase final. It is now the handoff point,
+            # so preserve any retained source media and continue with the owner.
+            if event.get("phase") == PHASE_DELIVERED:
+                event["phase"] = PHASE_PENDING_BOARD
+            event.setdefault("board_submitted", False)
+            event.setdefault("board_attempts", 0)
+            event.setdefault("board_next_attempt_at", None)
+            event.setdefault("board_last_error", None)
+        payload["version"] = 2
+
+    for field in ("pdf_batches", "source_plans", "quarantined_documents"):
+        payload.setdefault(field, {})
     for event in outbox.values():
         if type(event) is not dict:
             raise ValueError("outbox event must be an object")
-        # Version 1 considered this phase final. It is now the handoff point,
-        # so preserve any retained source media and continue with the owner.
-        if event.get("phase") == PHASE_DELIVERED:
-            event["phase"] = PHASE_PENDING_BOARD
-        event.setdefault("board_submitted", False)
-        event.setdefault("board_attempts", 0)
-        event.setdefault("board_next_attempt_at", None)
-        event.setdefault("board_last_error", None)
+        event.setdefault("delivery_order", 0)
+        event.setdefault("pdf_batch_id", None)
+        event.setdefault("source_page", None)
+        event.setdefault("source_section", None)
+        event.setdefault("pdf_sha256", None)
+        event.setdefault("pdf_path", None)
+        event.setdefault("chart_path", None)
     payload["version"] = STATE_VERSION
     return payload, True
 
@@ -449,8 +684,16 @@ def current_time() -> dt.datetime:
     return dt.datetime.now(WIB)
 
 
-def enqueue_call(state: dict, call: SwingCall, now: dt.datetime) -> dict:
-    key = str(call.source_message_id)
+def enqueue_call(
+    state: dict,
+    call: SwingCall,
+    now: dt.datetime,
+    *,
+    event_key: str | None = None,
+    delivery_order: int = 0,
+    pdf_batch_id: str | None = None,
+) -> dict:
+    key = event_key or str(call.source_message_id)
     existing = state.setdefault("outbox", {}).get(key)
     if existing is not None:
         return existing
@@ -458,6 +701,13 @@ def enqueue_call(state: dict, call: SwingCall, now: dt.datetime) -> dict:
     event = {
         "event_key": key,
         "source_message_id": call.source_message_id,
+        "delivery_order": delivery_order,
+        "pdf_batch_id": pdf_batch_id,
+        "source_page": None,
+        "source_section": None,
+        "pdf_sha256": None,
+        "pdf_path": None,
+        "chart_path": None,
         "call": serialize_call(call),
         "phase": PHASE_PENDING_MEDIA_CAPTURE if has_chart else PHASE_PENDING_TEXT,
         "chart_status": "expected" if has_chart else "absent",
@@ -483,7 +733,14 @@ def oldest_outbox_event(state: dict) -> dict | None:
               if event["phase"] not in {PHASE_PENDING_BOARD, PHASE_DELIVERED}}
     if not outbox:
         return None
-    key = min(outbox, key=lambda value: int(value))
+    key = min(
+        outbox,
+        key=lambda value: (
+            outbox[value]["source_message_id"],
+            outbox[value]["delivery_order"],
+            outbox[value]["event_key"],
+        ),
+    )
     return outbox[key]
 
 
@@ -1097,6 +1354,242 @@ def parse_source_event(message) -> SwingCall | None:
     return event
 
 
+def parse_weekly_pdf(filename: str, pdf_bytes: bytes):
+    """Load the optional PDF parser only when a weekly attachment is received."""
+    try:
+        from weekly_pdf import parse_weekly_pdf as parse
+    except ImportError as exc:
+        raise RuntimeError("PyMuPDF weekly PDF parser dependency is unavailable") from exc
+    return parse(filename, pdf_bytes)
+
+
+def _weekly_document_filename(message) -> str | None:
+    file_info = getattr(message, "file", None)
+    filename = getattr(file_info, "name", None)
+    if isinstance(filename, str) and filename:
+        return filename
+    document = getattr(message, "document", None)
+    for attribute in getattr(document, "attributes", ()) or ():
+        filename = getattr(attribute, "file_name", None)
+        if isinstance(filename, str) and filename:
+            return filename
+    return None
+
+
+def _is_weekly_text_companion(message) -> bool:
+    text = normalize_text(getattr(message, "message", "") or "")
+    heading_lines = [line for line in text.splitlines() if line][:2]
+    return any(WEEKLY_TEXT_COMPANION_RE.search(line) for line in heading_lines)
+
+
+def _record_quarantined_document(
+    state: dict,
+    source_message_id: int,
+    filename: str,
+    mime_type: str,
+    reason: str,
+    observed_at: dt.datetime,
+    *,
+    pdf_sha256: str | None = None,
+    pdf_path: str | None = None,
+) -> bool:
+    key = str(source_message_id)
+    if key in state["quarantined_documents"] or key in state["pdf_batches"]:
+        return False
+    state["quarantined_documents"][key] = {
+        "source_message_id": source_message_id,
+        "filename": filename[:240],
+        "mime_type": mime_type[:240],
+        "reason": re.sub(r"\s+", " ", reason).strip()[:240],
+        "observed_at": observed_at.isoformat(),
+        "pdf_sha256": pdf_sha256,
+        "pdf_path": pdf_path,
+    }
+    return True
+
+
+def _weekly_setup_call(setup, message_id: int, published_at: dt.datetime) -> SwingCall:
+    context = ["Weekly Swing Trading Ideas", setup.descriptor]
+    if setup.trend:
+        context.append(f"Trend: {setup.trend}")
+    if setup.ma_indicator:
+        context.append(f"MA indicator: {setup.ma_indicator}")
+    if setup.potential_upside:
+        context.append(f"Potential upside: {setup.potential_upside}")
+    if setup.potential_downside:
+        context.append(f"Potential downside: {setup.potential_downside}")
+    return SwingCall(
+        source_message_id=message_id,
+        provider=PROVIDER,
+        ticker=setup.ticker,
+        call_subtype="Trading Buy",
+        entry=setup.entry,
+        stop_loss=setup.stop_loss,
+        targets=tuple(PriceTarget(target.number, target.value) for target in setup.targets),
+        signal_datetime=published_at,
+        rationale=". ".join(context),
+        advisor_name="Investment Advisory Team",
+        advisor_role="Investment Advisory Team",
+        has_source_chart=True,
+    )
+
+
+async def _ingest_weekly_pdf_document(
+    client, message, state: dict, now: dt.datetime
+) -> tuple[bool, int, int]:
+    document = getattr(message, "document", None)
+    if document is None:
+        return False, 0, 0
+    filename = _weekly_document_filename(message) or ""
+    if not filename.startswith(WEEKLY_PDF_PREFIX):
+        return False, 0, 0
+
+    source_message_id = int(message.id)
+    batch_id = str(source_message_id)
+    if batch_id in state["pdf_batches"] or batch_id in state["quarantined_documents"]:
+        return True, 0, 0
+    mime_type = getattr(document, "mime_type", None)
+    mime_type = mime_type if isinstance(mime_type, str) else ""
+    if not WEEKLY_PDF_FILENAME_RE.fullmatch(filename):
+        created = _record_quarantined_document(
+            state, source_message_id, filename, mime_type,
+            "weekly PDF filename is outside the supported format", now,
+        )
+        return True, 0, int(created)
+    if mime_type.casefold() != "application/pdf":
+        created = _record_quarantined_document(
+            state, source_message_id, filename, mime_type,
+            "weekly attachment is not an application/pdf document", now,
+        )
+        return True, 0, int(created)
+
+    content = await client.download_media(message, bytes)
+    if not isinstance(content, bytes) or not content:
+        created = _record_quarantined_document(
+            state, source_message_id, filename, mime_type,
+            "weekly PDF download returned no bytes", now,
+        )
+        return True, 0, int(created)
+    pdf_digest = hashlib.sha256(content).hexdigest()
+    if len(content) > MAX_WEEKLY_PDF_BYTES:
+        created = _record_quarantined_document(
+            state, source_message_id, filename, mime_type,
+            "weekly PDF exceeds the 8 MiB size limit", now, pdf_sha256=pdf_digest,
+        )
+        return True, 0, int(created)
+
+    directory = media_dir()
+    _ensure_durable_directory(directory)
+    pdf_path = directory / f"phintraco-weekly-{source_message_id}.pdf"
+    _write_durable_media(pdf_path, content)
+    raw_published_at = getattr(message, "date", None)
+    if (
+        not isinstance(raw_published_at, dt.datetime)
+        or raw_published_at.tzinfo is None
+        or raw_published_at.utcoffset() is None
+    ):
+        created = _record_quarantined_document(
+            state, source_message_id, filename, mime_type,
+            "weekly PDF has no timezone-aware Telegram publication time", now,
+            pdf_sha256=pdf_digest, pdf_path=str(pdf_path),
+        )
+        return True, 0, int(created)
+    published_at = raw_published_at.astimezone(WIB)
+
+    try:
+        parsed = parse_weekly_pdf(filename, content)
+    except ValueError as exc:
+        created = _record_quarantined_document(
+            state, source_message_id, filename, mime_type,
+            str(exc) or "weekly PDF could not be parsed", now,
+            pdf_sha256=pdf_digest, pdf_path=str(pdf_path),
+        )
+        return True, 0, int(created)
+
+    setups = tuple(parsed.setups)
+    quarantined_pages = [
+        {"page_number": page.page_number, "reason": page.reason}
+        for page in parsed.quarantined_pages
+    ]
+    if len(setups) > 24 or len({setup.ticker for setup in setups}) != len(setups):
+        created = _record_quarantined_document(
+            state, source_message_id, filename, mime_type,
+            "weekly PDF parser returned duplicate or excessive ticker plans", now,
+            pdf_sha256=pdf_digest, pdf_path=str(pdf_path),
+        )
+        return True, 0, int(created)
+    if not setups and not quarantined_pages:
+        created = _record_quarantined_document(
+            state, source_message_id, filename, mime_type,
+            "weekly PDF contains no validated ticker plans", now,
+            pdf_sha256=pdf_digest, pdf_path=str(pdf_path),
+        )
+        return True, 0, int(created)
+
+    event_keys: list[str] = []
+    new_calls = 0
+    for delivery_order, setup in enumerate(setups, start=1):
+        event_key = f"pdf:{source_message_id}:{setup.ticker}"
+        chart_path = directory / f"phintraco-weekly-{source_message_id}-{setup.ticker}.jpg"
+        _write_durable_media(chart_path, setup.chart_bytes)
+        call = _weekly_setup_call(setup, source_message_id, published_at)
+        event = enqueue_call(
+            state,
+            call,
+            now,
+            event_key=event_key,
+            delivery_order=delivery_order,
+            pdf_batch_id=batch_id,
+        )
+        event.update(
+            source_page=setup.page_number,
+            source_section=setup.section_number,
+            pdf_sha256=pdf_digest,
+            pdf_path=str(pdf_path),
+            chart_path=str(chart_path),
+            media_path=str(chart_path),
+            chart_status="captured",
+            phase=PHASE_PENDING_TEXT,
+        )
+        targets = [{"number": target.number, "value": target.value} for target in setup.targets]
+        state["source_plans"][event_key] = {
+            "event_key": event_key,
+            "ticker": setup.ticker,
+            "descriptor": setup.descriptor,
+            "trend": setup.trend,
+            "ma_indicator": setup.ma_indicator,
+            "potential_upside": setup.potential_upside,
+            "potential_downside": setup.potential_downside,
+            "entry": setup.entry,
+            "stop_loss": setup.stop_loss,
+            "targets": targets,
+            "signal_datetime": published_at.isoformat(),
+            "document_message_id": source_message_id,
+            "page_number": setup.page_number,
+            "section_number": setup.section_number,
+            "pdf_sha256": pdf_digest,
+            "pdf_path": str(pdf_path),
+            "chart_path": str(chart_path),
+            "report_date": parsed.report_date.isoformat(),
+        }
+        event_keys.append(event_key)
+        new_calls += 1
+
+    state["pdf_batches"][batch_id] = {
+        "source_message_id": source_message_id,
+        "filename": filename,
+        "mime_type": mime_type,
+        "published_at": published_at.isoformat(),
+        "report_date": parsed.report_date.isoformat(),
+        "pdf_sha256": pdf_digest,
+        "pdf_path": str(pdf_path),
+        "event_keys": event_keys,
+        "quarantined_pages": quarantined_pages,
+        "status": "degraded" if quarantined_pages else "ready",
+    }
+    return True, new_calls, int(bool(quarantined_pages))
+
+
 async def parse_reply_status_event(client, entity, message) -> SwingCall | None:
     reply_to_message_id = getattr(message, "reply_to_msg_id", None)
     if not isinstance(reply_to_message_id, int) or reply_to_message_id <= 0:
@@ -1132,15 +1625,29 @@ async def ingest_unseen_messages(client, entity, state: dict, now: dt.datetime) 
     for message in messages:
         source_id = int(message.id)
         source_text = message.message or ""
-        call = parse_source_event(message)
-        if call is None:
-            call = await parse_reply_status_event(client, entity, message)
-        if call is not None:
-            enqueue_call(state, call, now)
-            call_count += 1
-            state["stats"]["calls"] = int(state["stats"].get("calls", 0)) + 1
-        elif looks_like_swing_call(source_text):
-            malformed_count += 1
+        handled_pdf, pdf_calls, pdf_malformed = await _ingest_weekly_pdf_document(
+            client, message, state, now
+        )
+        if handled_pdf:
+            message_calls = pdf_calls
+            message_malformed = pdf_malformed
+        elif _is_weekly_text_companion(message):
+            message_calls = 0
+            message_malformed = 0
+        else:
+            call = parse_source_event(message)
+            if call is None:
+                call = await parse_reply_status_event(client, entity, message)
+            if call is not None:
+                enqueue_call(state, call, now)
+                message_calls = 1
+                message_malformed = 0
+            else:
+                message_calls = 0
+                message_malformed = int(looks_like_swing_call(source_text))
+        call_count += message_calls
+        malformed_count += message_malformed
+        state["stats"]["calls"] = int(state["stats"].get("calls", 0)) + message_calls
         state["observed_message_id"] = source_id
         state["stats"]["messages"] = int(state["stats"].get("messages", 0)) + 1
         save_state(state)
@@ -1493,9 +2000,14 @@ def board_event_payload(event: dict, call: SwingCall) -> tuple[dict, Path | None
         raise ValueError(f"unsupported board source event kind: {call.event_kind}")
 
     chart = _cached_media_path(event) if call.has_source_chart else None
+    channel_id = config.active_watch_config().telegram_channel_id
+    if event.get("pdf_batch_id") is not None:
+        board_event_key = f"phintraco:{channel_id}:weekly:{call.source_message_id}:{call.ticker}"
+    else:
+        board_event_key = f"phintraco:{channel_id}:{call.source_message_id}"
     return (
         {
-            "event_key": f"phintraco:{config.active_watch_config().telegram_channel_id}:{call.source_message_id}",
+            "event_key": board_event_key,
             "source": "phintraco",
             "kind": kind,
             "ticker": call.ticker,
@@ -1699,7 +2211,15 @@ def _drain_all_outbox(state: dict, now: dt.datetime, dry_run: bool) -> int:
 
 def _drain_board_outbox(state: dict, now: dt.datetime, dry_run: bool) -> int:
     delivered = 0
-    for key in sorted(list(state["outbox"]), key=int):
+    ordered_keys = sorted(
+        list(state["outbox"]),
+        key=lambda key: (
+            state["outbox"][key]["source_message_id"],
+            state["outbox"][key]["delivery_order"],
+            state["outbox"][key]["event_key"],
+        ),
+    )
+    for key in ordered_keys:
         event = state["outbox"][key]
         # Preserve source handoff order, without blocking the All queue.
         if event["phase"] not in {PHASE_PENDING_BOARD, PHASE_DELIVERED}:

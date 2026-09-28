@@ -3,6 +3,7 @@ import datetime as dt
 import json
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -485,9 +486,12 @@ def sample_call(has_photo=True):
 
 def test_missing_state_returns_empty_state(tmp_state):
     state = scan.load_state()
-    assert state["version"] == 2
+    assert state["version"] == 3
     assert state["observed_message_id"] == 0
     assert state["outbox"] == {}
+    assert state["pdf_batches"] == {}
+    assert state["source_plans"] == {}
+    assert state["quarantined_documents"] == {}
     assert state["blocked"] is False
 
 
@@ -518,6 +522,44 @@ def test_version_one_state_migrates_completed_all_delivery_to_pending_board(tmp_
     assert migrated["version"] == scan.STATE_VERSION
     assert migrated["outbox"]["33655"]["phase"] == scan.PHASE_PENDING_BOARD
     assert migrated["outbox"]["33655"]["board_submitted"] is False
+
+
+def test_state_v2_migration_preserves_delivery_progress_and_adds_pdf_indexes(tmp_state):
+    state = scan.empty_state()
+    state.update(pdf_batches={}, source_plans={}, quarantined_documents={})
+    event = scan.enqueue_call(state, sample_call(), now())
+    event.update(
+        phase=scan.PHASE_PENDING_CHART,
+        text_discord_id="all-message-1",
+        attempts=3,
+        media_path="/private/state/chart.jpg",
+    )
+    state["version"] = 2
+    for field in ("pdf_batches", "source_plans", "quarantined_documents"):
+        state.pop(field)
+    for field in (
+        "delivery_order",
+        "pdf_batch_id",
+        "source_page",
+        "source_section",
+        "pdf_sha256",
+        "pdf_path",
+        "chart_path",
+    ):
+        event.pop(field)
+    tmp_state.write_text(json.dumps(state))
+
+    migrated = scan.load_state()
+
+    assert migrated["version"] == 3
+    migrated_event = migrated["outbox"]["33655"]
+    assert migrated_event["phase"] == scan.PHASE_PENDING_CHART
+    assert migrated_event["text_discord_id"] == "all-message-1"
+    assert migrated_event["attempts"] == 3
+    assert migrated_event["media_path"] == "/private/state/chart.jpg"
+    assert migrated["pdf_batches"] == {}
+    assert migrated["source_plans"] == {}
+    assert migrated["quarantined_documents"] == {}
 
 
 def test_enqueue_call_uses_source_id_and_media_phase(tmp_state):
@@ -773,12 +815,30 @@ def test_invalid_persisted_retry_timestamp_blocks_state(tmp_state, next_attempt_
 # Telegram observation and media capture
 
 class FakeMessage:
-    def __init__(self, message_id, text, photo=False, *, reply_to_msg_id=None, date=None):
+    def __init__(
+        self,
+        message_id,
+        text,
+        photo=False,
+        *,
+        reply_to_msg_id=None,
+        date=None,
+        document_filename=None,
+        document_mime_type=None,
+        document_bytes=b"weekly-pdf-bytes",
+    ):
         self.id = message_id
         self.message = text
         self.photo = object() if photo else None
         self.reply_to_msg_id = reply_to_msg_id
         self.date = date or dt.datetime(2026, 7, 10, tzinfo=dt.timezone.utc)
+        self.document = (
+            SimpleNamespace(mime_type=document_mime_type)
+            if document_filename is not None
+            else None
+        )
+        self.file = SimpleNamespace(name=document_filename) if document_filename else None
+        self.document_bytes = document_bytes
 
 
 class FakeDialog:
@@ -815,7 +875,178 @@ class FakeTelegramClient:
     async def download_media(self, message, target_type):
         assert target_type is bytes
         self.download_calls.append(message.id)
+        if message.document is not None:
+            return message.document_bytes
         return b"\xff\xd8\xffsource-chart"
+
+
+def weekly_pdf_result(*, with_quarantine=False):
+    setups = (
+        SimpleNamespace(
+            ticker="AADI",
+            descriptor="Base Formation Indication",
+            trend="Uptrend",
+            ma_indicator="Above, Bear tendency",
+            potential_upside="5%-11%",
+            potential_downside="-3%",
+            entry=">=11000",
+            stop_loss="<10600",
+            targets=(scan.PriceTarget(1, "11600"), scan.PriceTarget(2, "12200")),
+            page_number=1,
+            section_number=1,
+            chart_bytes=b"\xff\xd8\xffaadi-chart",
+        ),
+        SimpleNamespace(
+            ticker="ITMG",
+            descriptor="On support",
+            trend="Bullish",
+            ma_indicator="Above, Bear Tendency",
+            potential_upside="4%",
+            potential_downside="-2%",
+            entry=">=25000",
+            stop_loss="<24400",
+            targets=(scan.PriceTarget(None, "26050"),),
+            page_number=1,
+            section_number=2,
+            chart_bytes=b"\xff\xd8\xffitmg-chart",
+        ),
+    )
+    quarantined_pages = (
+        (SimpleNamespace(page_number=2, reason="weekly plan page has an ambiguous chart association"),)
+        if with_quarantine
+        else ()
+    )
+    return SimpleNamespace(
+        report_date=dt.date(2026, 9, 28),
+        setups=setups[:1] if with_quarantine else setups,
+        quarantined_pages=quarantined_pages,
+    )
+
+
+def test_weekly_pdf_batch_persists_all_children_before_advancing_cursor(tmp_state, monkeypatch):
+    published = dt.datetime(2026, 9, 27, 23, 5, 33, tzinfo=dt.timezone.utc)
+    companion = FakeMessage(
+        35447,
+        "Phintraco Sekuritas | Weekly Swing Trading Ideas: source text companion, excluded from PDF intake",
+        date=published - dt.timedelta(seconds=4),
+    )
+    attachment = FakeMessage(
+        35448,
+        "caption must not replace PDF content",
+        date=published,
+        document_filename="PHINTAS Weekly Swing Trading Ideas_20260928.pdf",
+        document_mime_type="application/pdf",
+    )
+    client = FakeTelegramClient([companion, attachment])
+    state = scan.empty_state()
+    state["observed_message_id"] = 35446
+    parsed_inputs = []
+
+    def parse_pdf(filename, payload):
+        parsed_inputs.append((filename, payload))
+        return weekly_pdf_result()
+
+    monkeypatch.setattr(scan, "parse_weekly_pdf", parse_pdf, raising=False)
+    parsed_text_ids = []
+    original_parse_source_event = scan.parse_source_event
+
+    def track_source_text(message):
+        parsed_text_ids.append(message.id)
+        return original_parse_source_event(message)
+
+    monkeypatch.setattr(scan, "parse_source_event", track_source_text)
+    original_save_state = scan.save_state
+    saved_after_cursor_advance = []
+
+    def save_with_durability_assertion(candidate):
+        if candidate["observed_message_id"] == 35448:
+            batch = candidate["pdf_batches"]["35448"]
+            assert Path(batch["pdf_path"]).is_file()
+            assert batch["event_keys"] == ["pdf:35448:AADI", "pdf:35448:ITMG"]
+            assert all(Path(candidate["outbox"][key]["chart_path"]).is_file() for key in batch["event_keys"])
+            assert all(key in candidate["source_plans"] for key in batch["event_keys"])
+            saved_after_cursor_advance.append(True)
+        original_save_state(candidate)
+
+    monkeypatch.setattr(scan, "save_state", save_with_durability_assertion)
+    entity = asyncio.run(scan.resolve_source(client))
+
+    assert asyncio.run(scan.ingest_unseen_messages(client, entity, state, now())) == (2, 2, 0)
+    assert parsed_inputs == [
+        ("PHINTAS Weekly Swing Trading Ideas_20260928.pdf", b"weekly-pdf-bytes")
+    ]
+    assert saved_after_cursor_advance and all(saved_after_cursor_advance)
+    assert parsed_text_ids == []
+    assert client.download_calls == [35448]
+    assert state["observed_message_id"] == 35448
+    assert list(state["outbox"]) == ["pdf:35448:AADI", "pdf:35448:ITMG"]
+    assert [state["outbox"][key]["delivery_order"] for key in state["outbox"]] == [1, 2]
+    assert [
+        state["source_plans"][key]["signal_datetime"] for key in state["source_plans"]
+    ] == ["2026-09-28T06:05:33+07:00", "2026-09-28T06:05:33+07:00"]
+    assert all(state["outbox"][key]["phase"] == scan.PHASE_PENDING_TEXT for key in state["outbox"])
+    state["outbox"] = dict(reversed(list(state["outbox"].items())))
+    assert scan.oldest_outbox_event(state)["event_key"] == "pdf:35448:AADI"
+    assert len(scan.load_state()["source_plans"]) == 2
+
+
+def test_weekly_pdf_page_quarantine_is_durable_and_retries_do_not_duplicate_children(
+    tmp_state, monkeypatch
+):
+    attachment = FakeMessage(
+        35448,
+        "",
+        date=dt.datetime(2026, 9, 27, 23, 5, 33, tzinfo=dt.timezone.utc),
+        document_filename="PHINTAS Weekly Swing Trading Ideas_20260928.pdf",
+        document_mime_type="application/pdf",
+    )
+    client = FakeTelegramClient([attachment])
+    state = scan.empty_state()
+    state["observed_message_id"] = 35447
+    parser_calls = []
+    monkeypatch.setattr(
+        scan,
+        "parse_weekly_pdf",
+        lambda filename, payload: parser_calls.append((filename, payload)) or weekly_pdf_result(with_quarantine=True),
+        raising=False,
+    )
+    entity = asyncio.run(scan.resolve_source(client))
+
+    assert asyncio.run(scan.ingest_unseen_messages(client, entity, state, now())) == (1, 1, 1)
+    assert state["pdf_batches"]["35448"]["status"] == "degraded"
+    assert state["pdf_batches"]["35448"]["quarantined_pages"] == [
+        {"page_number": 2, "reason": "weekly plan page has an ambiguous chart association"}
+    ]
+    assert list(state["outbox"]) == ["pdf:35448:AADI"]
+
+    state["observed_message_id"] = 35447
+    assert asyncio.run(scan.ingest_unseen_messages(client, entity, state, now())) == (1, 0, 0)
+    assert len(state["outbox"]) == 1
+    assert len(state["source_plans"]) == 1
+    assert len(parser_calls) == 1
+
+
+def test_weekly_pdf_named_non_pdf_attachment_is_quarantined_without_download_or_cursor_loss(
+    tmp_state,
+):
+    attachment = FakeMessage(
+        35448,
+        "",
+        document_filename="PHINTAS Weekly Swing Trading Ideas_20260928.pdf",
+        document_mime_type="image/jpeg",
+    )
+    client = FakeTelegramClient([attachment])
+    state = scan.empty_state()
+    state["observed_message_id"] = 35447
+    entity = asyncio.run(scan.resolve_source(client))
+
+    assert asyncio.run(scan.ingest_unseen_messages(client, entity, state, now())) == (1, 0, 1)
+    assert client.download_calls == []
+    assert state["observed_message_id"] == 35448
+    assert state["quarantined_documents"]["35448"]["reason"] == (
+        "weekly attachment is not an application/pdf document"
+    )
+    assert scan.load_state()["quarantined_documents"]["35448"]
 
 
 def test_ingest_accepts_verified_reply_status_with_source_timestamp(tmp_state):
