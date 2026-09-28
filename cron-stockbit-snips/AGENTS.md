@@ -89,3 +89,7 @@ Run the focused package tests, then the repository package suite and
 `bursawatch-stockbit-snips`; the deployed skill directory is
 `~/.agents/skills/bursawatch-stockbit-snips/`; and the wrapper is
 `~/.hermes/scripts/bursawatch-stockbit-snips.sh`.
+
+## Discord delivery receipt wait
+
+After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.

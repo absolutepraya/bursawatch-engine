@@ -87,3 +87,7 @@ Discord bot token. Delivery-state migration is an explicit operator action via
 `bursawatch-stockbit-snips.sh delivery-handoff --plan <private-path>` and a
 separately gated `--apply <private-path>`. Handoff uses each article's frozen
 live destination snapshot and does not load static destinations.
+
+## Discord delivery receipt wait
+
+After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.

@@ -154,3 +154,7 @@ Run focused intake, selection, delivery, state, wrapper, and agent-submission te
 
 - [Market News implementation plan](../docs/superpowers/plans/2026-07-14-idx-market-news-watch.md) records the initial rollout.
 - [PolyCop Telegram resilience plan](../docs/superpowers/plans/2026-08-09-polyclop-telegram-resilience.md) records the shared control-plane migration.
+
+## Discord delivery receipt wait
+
+After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.

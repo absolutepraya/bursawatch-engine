@@ -127,3 +127,7 @@ Run focused scanner, state, delivery, and skill-contract tests, then `../.venv/b
 ## Historical references
 
 - [Kelas Investasi GTW Watch plan](../docs/superpowers/plans/2026-08-11-kelas-investasi-gtw-watch.md) records the original implementation.
+
+## Discord delivery receipt wait
+
+After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.

@@ -25,7 +25,13 @@ from state import (
 )
 
 try:
-    from bursawatch_discord_delivery import Attachment, DeliveryClient, OperationIntent, OperationReceipt
+    from bursawatch_discord_delivery import (
+        DELIVERY_RECEIPT_WAIT_SECONDS,
+        Attachment,
+        DeliveryClient,
+        OperationIntent,
+        OperationReceipt,
+    )
     from bursawatch_discord_delivery.client import DeliveryClientError
 except ModuleNotFoundError:
     # Development checkout fallback. Runtime wrappers add the installed shared
@@ -34,7 +40,13 @@ except ModuleNotFoundError:
     _shared_library = _repository_root / "lib-bursawatch-discord-delivery" / "bin"
     if _shared_library.is_dir():
         sys.path.insert(0, str(_shared_library))
-    from bursawatch_discord_delivery import Attachment, DeliveryClient, OperationIntent, OperationReceipt
+    from bursawatch_discord_delivery import (
+        DELIVERY_RECEIPT_WAIT_SECONDS,
+        Attachment,
+        DeliveryClient,
+        OperationIntent,
+        OperationReceipt,
+    )
     from bursawatch_discord_delivery.client import DeliveryClientError
 
 _DISCORD_MESSAGE_LIMIT = 2_000
@@ -321,7 +333,10 @@ def _submit_or_lookup(
         receipt = client.submit(operation)  # type: ignore[attr-defined]
     accepted = _require_matching_receipt(operation, receipt)
     if accepted.status in {"pending", "pending_reconciliation", "retrying", "delivering"}:
-        accepted = _require_matching_receipt(operation, client.wait(operation.key, 0))  # type: ignore[attr-defined]
+        accepted = _require_matching_receipt(
+            operation,
+            client.wait(operation.key, DELIVERY_RECEIPT_WAIT_SECONDS),  # type: ignore[attr-defined]
+        )
     return accepted
 
 
@@ -647,7 +662,8 @@ async def deliver_event(
             accepted_state = True
         if latest.status in {"pending", "pending_reconciliation", "retrying", "delivering"}:
             latest = _require_matching_receipt(
-                operation, owner.wait(operation.key, 0)  # type: ignore[attr-defined]
+                operation,
+                owner.wait(operation.key, DELIVERY_RECEIPT_WAIT_SECONDS),  # type: ignore[attr-defined]
             )
             _store_handoff_receipt(state, item, latest)
         message_id = _delivered_message_id(latest, channel_id)
@@ -739,7 +755,8 @@ async def deliver_stock_status_event(
             accepted_state = True
         if latest.status in {"pending", "pending_reconciliation", "retrying", "delivering"}:
             latest = _require_matching_receipt(
-                operation, owner.wait(operation.key, 0)  # type: ignore[attr-defined]
+                operation,
+                owner.wait(operation.key, DELIVERY_RECEIPT_WAIT_SECONDS),  # type: ignore[attr-defined]
             )
             _store_stock_status_handoff(event, latest)
             save_state(state)

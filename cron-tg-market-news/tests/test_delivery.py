@@ -56,7 +56,7 @@ class DeliveredOwner:
         return receipt
 
     def wait(self, operation_key, timeout_seconds):
-        assert timeout_seconds == 0
+        assert timeout_seconds == delivery.DELIVERY_RECEIPT_WAIT_SECONDS
         return self.operations[operation_key]
 
 
@@ -826,7 +826,7 @@ def test_delivery_recovers_lost_acceptance_ack_with_same_operation_key_without_d
             return previous
 
         def wait(self, operation_key, timeout_seconds):
-            assert timeout_seconds == 0
+            assert timeout_seconds == delivery.DELIVERY_RECEIPT_WAIT_SECONDS
             return self.operations[operation_key]
 
     owner = Owner()
@@ -883,7 +883,7 @@ def test_accepted_service_retry_stays_with_owner_without_local_delivery_backoff(
             return receipt
 
         def wait(self, operation_key, timeout_seconds):
-            assert timeout_seconds == 0
+            assert timeout_seconds == delivery.DELIVERY_RECEIPT_WAIT_SECONDS
             return self.operations[operation_key]
 
     owner = Owner()
@@ -965,7 +965,7 @@ def test_status_delivery_transient_failure_keeps_same_owner_operation_for_retry(
             return receipt
 
         def wait(self, operation_key, timeout_seconds):
-            assert timeout_seconds == 0
+            assert timeout_seconds == delivery.DELIVERY_RECEIPT_WAIT_SECONDS
             return self.operations[operation_key]
 
     owner = Owner()
@@ -1020,7 +1020,7 @@ def test_accepted_status_retry_stays_with_owner_without_local_backoff(status_eve
             return receipt
 
         def wait(self, operation_key, timeout_seconds):
-            assert timeout_seconds == 0
+            assert timeout_seconds == delivery.DELIVERY_RECEIPT_WAIT_SECONDS
             return self.operations[operation_key]
 
     owner = Owner()

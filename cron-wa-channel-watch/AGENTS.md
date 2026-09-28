@@ -364,3 +364,7 @@ Tests must use isolated temporary queue and state paths. No test may pair
 WhatsApp, contact the live bridge, post to Discord, mutate live state, or
 download source media. The eventual no-post control must exercise rendering,
 queue processing, and heartbeat construction without external messages.
+
+## Discord delivery receipt wait
+
+After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.

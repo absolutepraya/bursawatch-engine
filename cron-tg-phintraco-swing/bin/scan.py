@@ -52,7 +52,14 @@ from swing_format import (
     render_message_unbounded,
     replace_board_topic_link,
 )
-from bursawatch_discord_delivery import Attachment, DeliveryClient, DiscordQuery, OperationIntent, OperationReceipt
+from bursawatch_discord_delivery import (
+    DELIVERY_RECEIPT_WAIT_SECONDS,
+    Attachment,
+    DeliveryClient,
+    DiscordQuery,
+    OperationIntent,
+    OperationReceipt,
+)
 from bursawatch_discord_delivery.client import DeliveryClientError
 
 from telegram_resilience import (
@@ -2144,7 +2151,6 @@ _DELIVERY_OWNER_PREFIX = "bursawatch-tg-phintraco-swing"
 _DELIVERY_OWNER_URL = "http://127.0.0.1:9140"
 _DELIVERY_CLIENT_TOKEN_FILE = ".hermes/secrets/bursawatch-discord-delivery-client-token"
 _NON_TERMINAL_DELIVERY_STATUSES = frozenset({"pending", "pending_reconciliation", "retrying", "delivering"})
-DELIVERY_RECEIPT_WAIT_SECONDS = 10
 
 
 def delivery_client_from_environment(*, include_admin: bool = False) -> DeliveryClient:

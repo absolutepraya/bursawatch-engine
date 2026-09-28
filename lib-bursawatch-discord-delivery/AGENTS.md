@@ -6,4 +6,5 @@
 - Keep credentials and operation payloads out of exceptions, logs, documentation examples, and test output. Token files must be regular files with mode `0600`.
 - Preserve the operation, query, receipt, digest, and status contract in `service-bursawatch-discord-delivery/bin/discord_delivery/models.py` and `api.py`. A pending `legacy_nonce` is part of its digest and is only for admin pending adoption, never a new submit.
 - Use loopback fake HTTP servers in tests. Tests must not call Discord or use any bot credential.
+- `DELIVERY_RECEIPT_WAIT_SECONDS` is the shared sender-side wait for a nonterminal accepted receipt. Callers wait on the same operation key and retain their durable retry behavior if it remains pending.
 - Keep handoff plan summaries free of operation payloads, attachment bytes, secrets, and absolute private paths. Source acknowledgement follows a matching durable receipt.

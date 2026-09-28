@@ -21,7 +21,14 @@ if not _DELIVERY_BIN.exists():
 if str(_DELIVERY_BIN) not in sys.path:
     sys.path.insert(0, str(_DELIVERY_BIN))
 
-from bursawatch_discord_delivery import Attachment, DeliveryClient, DiscordQuery, OperationIntent, OperationReceipt
+from bursawatch_discord_delivery import (
+    DELIVERY_RECEIPT_WAIT_SECONDS,
+    Attachment,
+    DeliveryClient,
+    DiscordQuery,
+    OperationIntent,
+    OperationReceipt,
+)
 from bursawatch_discord_delivery.client import DeliveryClientError
 from swing_format import replace_board_topic_link
 
@@ -30,7 +37,6 @@ DELIVERY_OWNER_URL = "http://127.0.0.1:9140"
 DELIVERY_CLIENT_TOKEN_FILE = ".hermes/secrets/bursawatch-discord-delivery-client-token"
 DELIVERY_OPERATION_PREFIX = "bursawatch-x-account-watch"
 NON_TERMINAL_DELIVERY_STATUSES = frozenset({"pending", "pending_reconciliation", "retrying", "delivering"})
-DELIVERY_RECEIPT_WAIT_SECONDS = 10
 
 
 class DiscordRetryAfter(RuntimeError):

@@ -59,3 +59,7 @@ replay the All Swing feed. Archived episodes do not accept later GTW events.
 Set `KELAS_INVESTASI_GTW_NO_POST=1` for deterministic verification. It prints intended Discord operations and the heartbeat without Discord writes or delivery-cursor changes. It does not authorize state resets, Telegram writes, or a manual Hermes cron trigger.
 
 The source is future-only: on first successful observation the scanner records the current highest Telegram message ID and exits. It must not turn historical messages into events.
+
+## Discord delivery receipt wait
+
+After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.

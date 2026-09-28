@@ -330,7 +330,7 @@ def test_imported_pending_receipt_waits_without_resubmitting() -> None:
         owner,
     ) == "90001"
     assert owner.submits == []
-    assert owner.waits == [(operation.key, 0)]
+    assert owner.waits == [(operation.key, discord.DELIVERY_RECEIPT_WAIT_SECONDS)]
 
 
 def test_unrecognized_existing_digest_is_rejected_without_resubmitting() -> None:

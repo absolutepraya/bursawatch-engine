@@ -15,6 +15,7 @@ from discord_forum import (
     operation_key,
     operation_key_for,
     stable_nonce,
+    DELIVERY_RECEIPT_WAIT_SECONDS,
 )
 
 _DELIVERY_BIN = Path(__file__).resolve().parents[2] / "lib-bursawatch-discord-delivery" / "bin"
@@ -54,7 +55,7 @@ class RecordingOwner:
         return receipt
 
     def wait(self, key, _timeout):
-        self.wait_calls.append(key)
+        self.wait_calls.append((key, _timeout))
         return self.wait_responses.get(key, self.statuses[key])
 
     def query(self, query):
@@ -136,6 +137,35 @@ def test_create_and_update_use_shared_typed_forum_operations():
         assert update.kind == "forum_thread_update"
         assert update.payload["applied_tags"] == ["100000000000000002", "100000000000000003"]
         assert update.payload["archived"] is archived
+
+
+def test_pending_forum_create_waits_for_delivery_receipt_before_returning():
+    owner = RecordingOwner()
+    owner.submit_status = "pending"
+    client = DiscordForumClient(delivery_client=owner, no_post=False)
+    payload = {
+        "name": "SCMA",
+        "content": "Primary card",
+        "tag_names": [],
+        "applied_tag_ids": [],
+        "_delivery_key": "event:pending:create_thread",
+    }
+    intent = client._intent("create_thread", payload, payload["_delivery_key"])
+    owner.wait_responses[intent.key] = OperationReceipt(
+        id="delivered-forum-create",
+        key=intent.key,
+        digest=intent.digest,
+        status="delivered",
+        receipt={"thread_id": "1550000000000000001", "message_id": "1550000000000000001"},
+    )
+
+    result = client.execute("create_thread", payload)
+
+    assert result == {
+        "thread_id": "1550000000000000001",
+        "starter_message_id": "1550000000000000001",
+    }
+    assert owner.wait_calls == [(intent.key, DELIVERY_RECEIPT_WAIT_SECONDS)]
 
 
 def test_typed_forum_and_message_reads_preserve_existing_remote_ids():
@@ -254,7 +284,7 @@ def test_heartbeat_wait_validates_the_existing_imported_digest():
 
     assert result == {"message_id": "1550000000000000003"}
     assert owner.submitted == []
-    assert owner.wait_calls == [stable_key]
+    assert owner.wait_calls == [(stable_key, DELIVERY_RECEIPT_WAIT_SECONDS)]
 
 
 def test_imported_digest_is_rejected_when_status_is_absent_or_digest_is_arbitrary():

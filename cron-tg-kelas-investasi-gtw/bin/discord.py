@@ -26,7 +26,14 @@ if not _DISCORD_DELIVERY_BIN.exists():
 if str(_DISCORD_DELIVERY_BIN) not in sys.path:
     sys.path.insert(0, str(_DISCORD_DELIVERY_BIN))
 
-from bursawatch_discord_delivery import Attachment, DeliveryClient, DiscordQuery, OperationIntent, OperationReceipt
+from bursawatch_discord_delivery import (
+    DELIVERY_RECEIPT_WAIT_SECONDS,
+    Attachment,
+    DeliveryClient,
+    DiscordQuery,
+    OperationIntent,
+    OperationReceipt,
+)
 from bursawatch_discord_delivery.client import DeliveryClientError
 from render import GTW_SOURCE_STATUS, MAX_DISCORD_CHARACTERS, render_event
 from swing_format import replace_board_topic_link
@@ -135,7 +142,7 @@ def _submit_or_lookup(
     if not isinstance(receipt, OperationReceipt) or receipt.key != operation.key or receipt.digest != expected_digest:
         raise DeliveryClientError("invalid_response")
     if receipt.status in NON_TERMINAL_DELIVERY_STATUSES:
-        receipt = client.wait(operation.key, 0)  # type: ignore[attr-defined]
+        receipt = client.wait(operation.key, DELIVERY_RECEIPT_WAIT_SECONDS)  # type: ignore[attr-defined]
         if not isinstance(receipt, OperationReceipt) or receipt.key != operation.key or receipt.digest != expected_digest:
             raise DeliveryClientError("invalid_response")
     return receipt

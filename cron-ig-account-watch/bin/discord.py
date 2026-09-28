@@ -20,7 +20,13 @@ if not _DELIVERY_BIN.exists():
 if str(_DELIVERY_BIN) not in sys.path:
     sys.path.insert(0, str(_DELIVERY_BIN))
 
-from bursawatch_discord_delivery import Attachment, DeliveryClient, OperationIntent, OperationReceipt
+from bursawatch_discord_delivery import (
+    DELIVERY_RECEIPT_WAIT_SECONDS,
+    Attachment,
+    DeliveryClient,
+    OperationIntent,
+    OperationReceipt,
+)
 from bursawatch_discord_delivery.client import DeliveryClientError
 
 
@@ -148,7 +154,7 @@ def _submit_or_lookup(
     if not isinstance(receipt, OperationReceipt) or receipt.key != operation.key or receipt.digest != expected_digest:
         raise DeliveryClientError("invalid_response")
     if receipt.status in NON_TERMINAL_DELIVERY_STATUSES:
-        receipt = client.wait(operation.key, 0)  # type: ignore[attr-defined]
+        receipt = client.wait(operation.key, DELIVERY_RECEIPT_WAIT_SECONDS)  # type: ignore[attr-defined]
         if not isinstance(receipt, OperationReceipt) or receipt.key != operation.key or receipt.digest != expected_digest:
             raise DeliveryClientError("invalid_response")
     if receipt.status in NON_TERMINAL_DELIVERY_STATUSES:

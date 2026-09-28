@@ -217,7 +217,9 @@ rendered Discord channel links do not make API calls.
 The service owns operation keys, payload digests, delivery retries and
 reconciliation, receipts, and staged media. Its service and first host
 bootstrap are manual rollout boundaries. See the service and client package
-documentation before changing either contract.
+documentation before changing either contract. Every sender imports the shared
+`DELIVERY_RECEIPT_WAIT_SECONDS` setting and waits up to 10 seconds on the same
+stable operation when its receipt is still nonterminal.
 
 `service-bursawatch-source-media` owns source media object operations in private
 Supabase Storage, including its privileged Storage credential and upload/read

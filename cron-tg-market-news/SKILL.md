@@ -47,3 +47,7 @@ IDX_MARKET_NEWS_NO_POST=1
 IDX_MARKET_NEWS_STATE_PATH=/tmp/idx-market-news-state.json
 IDX_MARKET_NEWS_FORCE_HEARTBEAT=1
 ```
+
+## Discord delivery receipt wait
+
+After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.

@@ -10,7 +10,14 @@ import sys
 from typing import Any
 
 try:
-    from bursawatch_discord_delivery import Attachment, DeliveryClient, DiscordQuery, OperationIntent, OperationReceipt
+    from bursawatch_discord_delivery import (
+        DELIVERY_RECEIPT_WAIT_SECONDS,
+        Attachment,
+        DeliveryClient,
+        DiscordQuery,
+        OperationIntent,
+        OperationReceipt,
+    )
     from bursawatch_discord_delivery.client import DeliveryClientError
 except ModuleNotFoundError:
     _ROOT = Path(__file__).resolve().parents[2]
@@ -19,7 +26,14 @@ except ModuleNotFoundError:
         _SHARED_BIN = Path.home() / ".agents/skills/lib-bursawatch-discord-delivery/bin"
     if str(_SHARED_BIN) not in sys.path:
         sys.path.insert(0, str(_SHARED_BIN))
-    from bursawatch_discord_delivery import Attachment, DeliveryClient, DiscordQuery, OperationIntent, OperationReceipt
+    from bursawatch_discord_delivery import (
+        DELIVERY_RECEIPT_WAIT_SECONDS,
+        Attachment,
+        DeliveryClient,
+        DiscordQuery,
+        OperationIntent,
+        OperationReceipt,
+    )
     from bursawatch_discord_delivery.client import DeliveryClientError
 
 
@@ -134,7 +148,7 @@ def _receipt_for_operation(
     ):
         raise DeliveryClientError("invalid_response")
     if receipt.status in NON_TERMINAL_STATUSES:
-        receipt = owner.wait(operation.key, 0)  # type: ignore[attr-defined]
+        receipt = owner.wait(operation.key, DELIVERY_RECEIPT_WAIT_SECONDS)  # type: ignore[attr-defined]
         if (
             not isinstance(receipt, OperationReceipt)
             or receipt.key != operation.key

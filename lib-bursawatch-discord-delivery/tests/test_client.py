@@ -11,6 +11,7 @@ from urllib.parse import unquote
 import pytest
 
 from bursawatch_discord_delivery import (
+    DELIVERY_RECEIPT_WAIT_SECONDS,
     Attachment,
     DeliveryClient,
     DeliveryClientError,
@@ -28,6 +29,10 @@ from bursawatch_discord_delivery.handoff import (
 )
 from bursawatch_discord_delivery import models as client_models
 from bursawatch_discord_delivery import client as client_module
+
+
+def test_delivery_receipt_wait_interval_is_shared_and_bounded():
+    assert DELIVERY_RECEIPT_WAIT_SECONDS == 10
 
 
 def make_operation(

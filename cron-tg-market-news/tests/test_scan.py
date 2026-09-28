@@ -100,7 +100,7 @@ class FakeDeliveryOwner:
         return receipt
 
     def wait(self, operation_key, timeout_seconds):
-        assert timeout_seconds == 0
+        assert timeout_seconds == delivery.DELIVERY_RECEIPT_WAIT_SECONDS
         return self.operations[operation_key]
 
 

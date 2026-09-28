@@ -125,3 +125,7 @@ deploy before the complete batch is approved.
 - `INSTAGRAM_POST_WATCH_NO_POST=1` suppresses Discord heartbeat delivery and agent claiming. No-post verification must use isolated `INSTAGRAM_POST_WATCH_STATE_PATH` and `INSTAGRAM_POST_WATCH_MEDIA_ROOT` paths, must not mutate live state, and must not create external messages.
 - Commit and publish a clean reviewed source before deployment. `./deploy.sh cron-ig-account-watch` copies `bin/` only. After exact file comparison and explicit approval for the first VPS write, sync the reviewed `config/watches.json` separately to `vps:~/.agents/skills/bursawatch-ig-account-watch/config/watches.json` and the reviewed `SKILL.md` separately to `vps:~/.agents/skills/bursawatch-ig-account-watch/SKILL.md`. Verify SHA-256 checksums for every changed file.
 - Never author in `~/.dotfiles/vps/agents/skills/instagram-post-watch/`; it is a VPS-to-Mac backup mirror. Never edit deployed live state, reset cursors, replay events, or alter media state as source. Obtain approval for the first VPS write and for every operational schedule or destination change.
+
+## Discord delivery receipt wait
+
+After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.

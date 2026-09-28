@@ -8,7 +8,12 @@ import re
 import sys
 
 try:
-    from bursawatch_discord_delivery import DeliveryClient, OperationIntent, OperationReceipt
+    from bursawatch_discord_delivery import (
+        DELIVERY_RECEIPT_WAIT_SECONDS,
+        DeliveryClient,
+        OperationIntent,
+        OperationReceipt,
+    )
     from bursawatch_discord_delivery.client import DeliveryClientError
 except ModuleNotFoundError:
     _ROOT = Path(__file__).resolve().parents[2]
@@ -17,7 +22,12 @@ except ModuleNotFoundError:
         _SHARED_BIN = Path.home() / ".agents/skills/lib-bursawatch-discord-delivery/bin"
     if str(_SHARED_BIN) not in sys.path:
         sys.path.insert(0, str(_SHARED_BIN))
-    from bursawatch_discord_delivery import DeliveryClient, OperationIntent, OperationReceipt
+    from bursawatch_discord_delivery import (
+        DELIVERY_RECEIPT_WAIT_SECONDS,
+        DeliveryClient,
+        OperationIntent,
+        OperationReceipt,
+    )
     from bursawatch_discord_delivery.client import DeliveryClientError
 
 
@@ -102,7 +112,7 @@ def _submit_or_lookup(operation: OperationIntent, client: object, *, legacy_nonc
     ):
         raise DeliveryClientError("invalid_response")
     if receipt.status in NON_TERMINAL_STATUSES:
-        receipt = client.wait(operation.key, 0)  # type: ignore[attr-defined]
+        receipt = client.wait(operation.key, DELIVERY_RECEIPT_WAIT_SECONDS)  # type: ignore[attr-defined]
         if (
             not isinstance(receipt, OperationReceipt)
             or receipt.key != operation.key
