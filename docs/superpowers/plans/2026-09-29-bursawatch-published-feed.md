@@ -40,7 +40,9 @@ The backend read contract lands before owner writers. Owner writers may be deplo
 
 ## Fast execution path
 
-Implement this plan in the same managed integration branch as the operator-workspace plan, after its migration `019` and shared component/job API shapes are fixed. The task numbers below are a coverage checklist, not 14 serial agent handoffs or deployments. The primary implementer owns Control Plane, shared client, API security, and final integration; any subagents work in isolated package scopes and use GPT-6 Luna as requested.
+**Model assignment:** The primary agent remains GPT-6 Sol and owns shared contracts, integration decisions, and final verification. Every spawned subagent, including implementers and reviewers, must use GPT-6 Luna.
+
+Implement this plan in the same managed integration branch as the operator-workspace plan, after its migration `019` and shared component/job API shapes are fixed. The task numbers below are a coverage checklist, not 14 serial agent handoffs or deployments. The primary implementer owns Control Plane, shared client, API security, and final integration; subagents work in isolated package scopes.
 
 1. **Freeze the shared contract:** Complete Tasks 1 to 4 first. One record schema, receipt rule, idempotent store, owner credential contract, cutover/checkpoint model, and projection client support all eight owners. Run focused Control Plane and library tests. Do not start owner edits until the record and client interfaces are stable.
 2. **Integrate owners in parallel:** Split Tasks 5 to 12 into three independent package groups: Telegram Market News, Stockbit, X; Instagram, WhatsApp; Phintraco, Kelas, Swing Board. Each group adds durable receipt-bound projection intents and checkpoints only within its packages. Use separate managed worktrees or nonoverlapping file scopes, merge each group into the integration branch, and have the primary implementer review receipt recovery, no repost, exact output, and checkpoint behavior. Do not ask for a separate human decision between owners.
