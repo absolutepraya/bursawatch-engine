@@ -22,7 +22,11 @@ the URL, source defaults preserve the existing deployment behavior.
 
 ## Deterministic behavior and invariants
 
-Accept individual `Trading Buy`, `Hold/Trading Buy`, `Buy on Support`, and `Speculative Buy` calls with the required source fields, qualifying source-marked outcomes and status updates, and validated same-ticker reply updates. `Hold/Trading Buy` is a BUY subtype. Also accept the exact Phintraco weekly Swing Ideas PDF attachment described below. Exclude sell calls, the PDF's separate companion text post, market reviews, media-only posts, and nearby inferred charts.
+Accept individual `Trading Buy`, `Hold/Trading Buy`, `Buy on Support`, and `Speculative Buy` calls with the required source fields, qualifying source-marked outcomes and status updates, and validated same-ticker reply updates. `Hold/Trading Buy` is a BUY subtype.
+
+Parse a standalone `On support` message as a status event. Route it to the Board as a Primary setup only when it identifies exactly one ticker, has a source timestamp, and includes an entry, stop-loss, and at least one target. Incomplete parsed messages remain status events, and the Discord notice retains the source status.
+
+Also accept the exact Phintraco weekly Swing Ideas PDF attachment described below. Exclude sell calls, the PDF's separate companion text post, market reviews, media-only posts, and nearby inferred charts.
 
 ### Weekly Swing Ideas PDF batches
 
