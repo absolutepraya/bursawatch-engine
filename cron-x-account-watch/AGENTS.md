@@ -11,16 +11,17 @@ This file supplements the repository root `AGENTS.md`. It is the development and
 - `bin/` owns source adapters, linked-article retrieval, structural source eligibility, cursor and outbox state transitions, rendering, media preparation, heartbeat accounting, and the wrappers. Discord operations use `lib-bursawatch-discord-delivery`; the service owns Discord REST. Negative content relevance is decided by the LLM.
 - When a channel message or media operation is accepted with a nonterminal receipt, wait for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) for that same operation to settle before advancing its durable delivery state. This keeps a healthy text-plus-image bundle together in one queue run while preserving stable-key retries when Discord is slow.
 - `bin/state.py` owns the canonical watcher-state path used by scanning, source acceptance, and Delivery Owner handoff. The default is `state/state.json` inside the deployed watcher package; `X_POST_WATCH_STATE_PATH` overrides it for every process. Never give a source or queue owner a separate state file.
-- Development source is this directory. The deployed runtime is `~/.agents/skills/bursawatch-x-account-watch/`; its source-polling wrapper is `~/.hermes/scripts/bursawatch-x-account-watch.sh` and its queue-worker wrapper is `~/.hermes/scripts/bursawatch-x-account-watch-queue.sh`.
+- Development source is this directory. The deployed runtime is `~/.agents/skills/bursawatch-x-account-watch/`; its legacy source wrapper is `~/.hermes/scripts/bursawatch-x-account-watch.sh` and its queue-worker wrapper is `~/.hermes/scripts/bursawatch-x-account-watch-queue.sh`. Production source polling uses the separate `cron-x-source-ingest` wrapper.
 - The live state directory, cursors, outbox, media, and `~/.dotfiles/vps/agents/skills/bursawatch-x-account-watch/` are not authoring targets. Never reset, edit, replay, or backfill them without explicit approval.
-- `cron-x-source-ingest` is an unscheduled inbox pilot. Its source work enters
-  this watcher's queue through `bin/pipeline_owner.py`. The existing watcher
-  remains the agent, renderer, Board handoff, and delivery owner. Opaque source
-  image refs are checked and cached locally before queueing. Same-ID
-  corrections update only an unclaimed event. A new X edit ID uses the
+- `cron-x-source-ingest` is the production source reader. Its accepted source
+  work enters this watcher's queue through `bin/pipeline_owner.py`. This
+  watcher remains the agent, renderer, Board handoff, and delivery owner.
+  Opaque source image refs are checked and cached locally before queueing.
+  Same-ID corrections update only an unclaimed event. A new X edit ID uses the
   existing verified replacement check against delivered history. Corrections
-  after an agent claim remain retriable. Keep the source and queue jobs
-  authoritative until a reviewed cutover.
+  after an agent claim remain retriable. Keep the source reader and queue
+  worker as separate jobs; do not run the legacy source wrapper beside the
+  source-ingest reader.
 
 With live configuration, the dashboard records one frozen revision per source,
 queue-worker, or agent-submission invocation. It receives lifecycle, per-profile
@@ -29,7 +30,24 @@ profile IDs, counts, modes, and sanitized reasons. It never receives X text,
 quoted text, source URLs, linked-article text, media paths, state payloads, or
 credentials.
 
-The source-polling job currently runs every 10 minutes, while the registered `x-post-queue-worker` runs every minute. Keep source polling cadence independent from queue servicing: `bin/x-post-watch-queue.sh` sets `X_POST_WATCH_QUEUE_ONLY=1`, skips source polling, and still delivers ready events, claims one LLM event, and sends the standard heartbeat. Do not increase source polling to reduce queue latency. RSSHub is the default source. A `direct_x` profile reads a public X profile, expands same-author threads through public X status pages, and uses VxTwitter for details. `hybrid` combines the RSSHub page with missing IDs from that public profile before the cursor advances; RSSHub content wins for duplicate IDs. Public detail requests bypass the configured X page proxy and validate the returned ID and author. When a thread page is blocked, the fetcher follows bounded same-author parent links for context. A failure of either hybrid source holds the cursor. The first HTTP 429 starts an automatic three-hour cooldown for all profile fetching. The public profile exposes only a bounded visible window, so hybrid improves coverage but cannot prove that every X post was seen.
+The production source reader runs every 10 minutes, while the registered
+`x-post-queue-worker` runs every minute. Keep source polling cadence
+independent from queue servicing: `bin/x-post-watch-queue.sh` sets
+`X_POST_WATCH_QUEUE_ONLY=1`, skips source polling, and still delivers ready
+events, claims one LLM event, and sends the standard heartbeat. Do not increase
+source polling to reduce queue latency. RSSHub is the default source. A
+`direct_x` profile reads a public X profile, expands same-author threads
+through public X status pages, and uses VxTwitter for details. Its first source
+adapter poll records the newest own-post ID only, so old visible posts are not
+replayed. Later polls fetch new posts after that boundary. `hybrid` combines the
+RSSHub page with missing IDs from that public profile before the cursor
+advances; RSSHub content wins for duplicate IDs. Public detail requests bypass
+the configured X page proxy and validate the returned ID and author. When a
+thread page is blocked, the fetcher follows bounded same-author parent links
+for context. A failure of either hybrid source holds the cursor. The first
+HTTP 429 starts an automatic three-hour cooldown for all profile fetching.
+The public profile exposes only a bounded visible window, so hybrid improves
+coverage but cannot prove that every X post was seen.
 
 ## Profile schema and safe configuration
 

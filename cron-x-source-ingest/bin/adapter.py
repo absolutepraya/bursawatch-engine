@@ -237,7 +237,7 @@ def _item(post: Any, endpoint_id: str, media_store: Any, *, upload_media: bool, 
     return {"provider_event_id": post.post_id, "published_at": post.published_at.isoformat(), "source_url": post.url, "payload": payload, "media_refs": refs, "blocked_payload": {"profile_id": post.profile_id, "kind": post.kind.value, "source_text": source_visible_text(post.content_html), "quoted_text": source_visible_text(post.quoted_content_html or "")}, "media_required": has_media}
 
 
-def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Path, inbox: Any, observed_at: datetime, *, fetch_profile: Any = None, media_store: Any = None, media_preparer: Any = None) -> list[dict[str, Any]]:
+def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Path, inbox: Any, observed_at: datetime, *, fetch_profile: Any = None, fetch_direct_x_head: Any = None, media_store: Any = None, media_preparer: Any = None) -> list[dict[str, Any]]:
     selected, by_endpoint = endpoints(snapshot, profiles)
     bind_catalog_revision(state_root, snapshot["revision"])
     tracked = _TrackedInbox(inbox, state_root)
@@ -245,12 +245,28 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Pa
     if fetch_profile is None:
         from rsshub import fetch_profile_items
         fetch_profile = fetch_profile_items
+    if fetch_direct_x_head is None:
+        from direct_x import fetch_profile_head_id
+        fetch_direct_x_head = fetch_profile_head_id
     def fetch(cursor: dict[str, Any] | None, profile: Any, endpoint_id: str) -> dict[str, Any]:
         from state import _self_chain, _within_thread_age
         from rsshub import is_self_thread_post
         # RSSHub returns a whole visible page. Direct X takes an after-id and
         # expands threads; a full result without the old anchor remains
         # ambiguous and must block rather than skip unseen posts.
+        if cursor is None and profile.source == "direct_x":
+            # Establish a future-only boundary without downloading every
+            # visible status. Direct-X detail requests are slow and can be
+            # rate limited during this one-time initialization.
+            head_id = str(fetch_direct_x_head(profile))
+            if not head_id.isdigit():
+                raise IntakeBlocked("direct X profile head ID is invalid")
+            return {
+                "items": [{"provider_event_id": head_id}],
+                "truncated": False,
+                "contiguous": False,
+                "id_order": "numeric_provider_event_id",
+            }
         after_id = cursor["anchor"] if cursor and profile.source in {"direct_x", "hybrid"} else None
         posts = fetch_profile(profile, after_id=after_id)
         ordered = sorted(posts, key=lambda post: int(post.post_id))

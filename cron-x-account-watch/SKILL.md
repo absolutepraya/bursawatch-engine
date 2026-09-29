@@ -6,7 +6,7 @@ user-invocable: false
 
 # X Post Watch
 
-This is a cron-only support skill. The scanner is authoritative for source fetching, linked-article retrieval, structural source eligibility, cursors, durable outbox state, rendering, media, heartbeats, and Discord delivery through the shared Delivery Owner client. X source media retrieval remains watcher-owned. The source-polling wrapper may be paired with a queue-only wrapper that skips source fetching while servicing the durable outbox. Hermes creates only the requested source-grounded Bahasa Indonesia fields and the content-relevance decision for the single `item` emitted when `wakeAgent` is `true`.
+This is a cron-only support skill. The separate X source-ingest adapter fetches configured accounts and owns per-endpoint source cursors. This watcher processes accepted source work, retrieves linked articles, applies structural eligibility, owns durable outbox state, rendering, source media retrieval, heartbeats, and Discord delivery through the shared Delivery Owner client. The queue-worker wrapper services this work without polling X. Hermes creates only the requested source-grounded Bahasa Indonesia fields and the content-relevance decision for the single `item` emitted when `wakeAgent` is `true`.
 
 When `wakeAgent` is `false`, do nothing and do not reply in natural language. Do not inspect state, fetch X, open links, browse, process historical posts, or post to Discord.
 

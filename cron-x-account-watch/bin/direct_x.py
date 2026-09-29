@@ -93,6 +93,26 @@ def _tweet_ids(document: str, handle: str | None = None) -> list[str]:
     return list(dict.fromkeys(ids))
 
 
+def fetch_profile_head_id(profile: Profile, session: requests.Session | None = None) -> str:
+    """Read only the newest visible own-post ID for a future-only bootstrap."""
+    client = session or _configured_session()
+    try:
+        response = _get(client, profile.profile_url)
+        # Profile markup can contain quoted/reposted IDs in data attributes.
+        # Only a status URL whose author is this profile proves ownership.
+        own_ids = [
+            post_id
+            for author, post_id in STATUS_URL_RE.findall(response.text)
+            if author.casefold() == profile.handle.casefold()
+        ]
+        if not own_ids:
+            raise SourceFetchError("direct X profile returned no own status links")
+        return max(own_ids, key=int)
+    finally:
+        if session is None:
+            client.close()
+
+
 def _get(session: requests.Session, url: str) -> requests.Response:
     try:
         response = session.get(url, timeout=30, headers={"User-Agent": USER_AGENT})

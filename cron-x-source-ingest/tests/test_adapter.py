@@ -189,6 +189,53 @@ def test_x_parser_identity_and_future_only_ingest(tmp_path):
     assert inbox.events[0]["provider_event_id"] == "11"
 
 
+def test_direct_x_bootstrap_records_profile_head_without_fetching_visible_posts(tmp_path):
+    profile = replace(
+        load_watch_config(ROOT / "cron-x-account-watch" / "config" / "watches.json").profiles[0],
+        enabled=True,
+        source="direct_x",
+    )
+    endpoint_id = f"x:{profile.handle.casefold()}"
+    row = {
+        "platform": "x",
+        "endpoint_id": endpoint_id,
+        "publisher_id": REVIEWED_PUBLISHERS[profile.id],
+        "address": profile.handle,
+        "provider_id": None,
+        "capability_id": "company_news",
+        "verification_status": "verified",
+        "enabled": True,
+    }
+    snapshot = {"revision": 3, "subscriptions": [row]}
+    fetched_after = []
+    head_reads = []
+    post = lambda identity: SourcePost(
+        profile.id, identity, f"https://x.com/{profile.handle}/status/{identity}",
+        NOW, "Market", PostKind.NORMAL, None, None, (), (),
+    )
+
+    def fetch_profile(_profile, *, after_id):
+        fetched_after.append(after_id)
+        return [post("100"), post("101")] if after_id == "99" else [post("101")]
+
+    def fetch_head(_profile):
+        head_reads.append(_profile.id)
+        return "100"
+
+    inbox = Inbox()
+    first = run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=fetch_profile, fetch_direct_x_head=fetch_head)
+    cursor = json.loads((tmp_path / endpoint_id.replace(":", "-") / "cursor.json").read_text())
+    assert first == [{"endpoint_id": endpoint_id, "status": "bootstrapped", "accepted": 0}]
+    assert cursor["anchor"] == "100"
+    assert fetched_after == []
+
+    second = run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=fetch_profile, fetch_direct_x_head=fetch_head)
+    assert second[0]["accepted"] == 1
+    assert head_reads == [profile.id]
+    assert fetched_after == ["100"]
+    assert [event["provider_event_id"] for event in inbox.events] == ["101"]
+
+
 def test_hybrid_source_passes_prior_anchor_to_shared_fetcher(tmp_path):
     profile = replace(
         load_watch_config(ROOT / "cron-x-account-watch" / "config" / "watches.json").profiles[0],

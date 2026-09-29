@@ -2,18 +2,20 @@
 
 Runtime identity: `bursawatch-x-source-ingest`. Entry point:
 `bin/runner.py`, installed by the release agent with
-`bin/bursawatch-x-source-ingest.sh`. No Hermes job is registered. Do not
-invoke this runtime beside the current X source polling job; production
-cutover requires a separate reviewed one-reader scheduler transition.
+`bin/bursawatch-x-source-ingest.sh`. The existing Hermes X source-polling job
+invokes this runtime. It is the sole production X source reader. The separate
+X account-watch queue worker processes accepted work and must remain active.
+Do not enable the legacy account-watch source-polling wrapper beside this
+reader.
 
-Before scheduling, configure the private Source Event API URL and token file
+For deployment, configure the private Source Event API URL and token file
 as `BURSAWATCH_X_SOURCE_CONTROL_PLANE_URL` and
 `BURSAWATCH_X_SOURCE_CONTROL_PLANE_TOKEN_FILE`. Every enabled X endpoint must
 also have a reviewed publisher binding; unknown bindings block intake rather
 than being inferred from a handle. Keep credentials out of logs and source
 control.
 
-When separately scheduled, every run sends a heartbeat through the shared
+Every run sends a heartbeat through the shared
 Discord Delivery Owner to `#hermes`, including empty polls. The format is
 `🫀 bursawatch-x-source-ingest · HH:MM WIB · endpoints=N accepted=N work=N pending=N`
 with `⚠️` for blocked source endpoints or pending work. Fatal runs use
@@ -61,14 +63,21 @@ corrections with stable revision IDs. The Source Media Owner uses
 `BURSAWATCH_SOURCE_MEDIA_READ_TOKEN_FILE`. If upload access is absent, media
 events remain blocked. If owner read access or a required thread original is
 absent, its subscription work retries. Accepted media remains bounded to 16
-refs per event, 8 MiB per object, and 25 MiB aggregate. The adapter remains
-unscheduled until a separate cutover approval; this package contract does not
-enable a capability or change the live X watcher.
+refs per event, 8 MiB per object, and 25 MiB aggregate. The adapter does not
+enable a capability or change the effective X watcher configuration.
+
+For a cursorless `direct_x` endpoint, the first poll reads the public profile
+page and records the largest own-author status ID as a future-only boundary.
+It does not download or publish posts already visible at setup time. If the
+page has no verifiable own-author status link, the endpoint stays blocked and
+no cursor is written. Later polls use the stored ID and normal post/thread
+fetching. The bootstrap deliberately does not transfer or backfill legacy
+history.
 
 The existing X watcher retains its self-chain, edit/supersession, classifier,
 rendering, outbox, Board, Delivery Owner, and heartbeat behavior. Do not
-remove its source job or queue worker before a reviewed state and scheduler
-transition proves parity and accounts for pending output.
+remove its queue worker; it processes accepted source work and may also have
+pending deliveries from before the source-reader transition.
 
 `adapter.plan_legacy_cursor_seed` previews a per-profile seed from an explicit
 legacy JSON snapshot. The Python API defaults to preview. Applying uses its

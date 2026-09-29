@@ -1,9 +1,10 @@
-# X source ingest pilot
+# X source ingest
 
 This package supplements the repository `AGENTS.md`. It is an installable,
-unscheduled Task 5 source adapter. The release agent may install it and its
-wrapper, but this package has no Hermes job or production cutover. Read
-`CRON.md` before changing its intake.
+scheduled source adapter. The existing Hermes X polling job invokes its
+wrapper; this package owns source polling and per-endpoint cursors. The
+separate X account-watch queue worker owns accepted work and Discord delivery.
+Read `CRON.md` before changing its intake or schedule contract.
 
 `bin/adapter.py` uses the existing X watcher's RSSHub, hybrid, or direct X fetcher and
 parser. The reviewed current endpoint to publisher bindings are fixed here;
@@ -17,8 +18,8 @@ without a separately approved cutover. When media storage is configured, the
 adapter uploads bounded `pbs.twimg.com` images through the shared Source Media
 Owner before inbox acceptance. It stores only validated opaque refs in the
 event. Unsupported media and upload failures retain the endpoint cursor. The
-existing watcher remains the sole live source reader, queue owner, agent wake
-owner, renderer, Board handoff, and Discord Delivery Owner client. For verified
+existing watcher remains the queue owner, agent wake owner, renderer, Board
+handoff, and Discord Delivery Owner client. For verified
 X endpoints, `company_news`, `macro_news`, and `swing_chart_context` are
 compatible members of the exclusive `x_post_route` dispatch group; compatibility
 does not enable a subscription, and `swing_chart_context` is disabled by default.
@@ -32,8 +33,13 @@ Same-ID source changes create durable SourceEvent corrections. The owner leaves
 work retriable when required context cannot be reconstructed. Accepted source
 media is bounded to 16 refs per event, 8 MiB per object, and 25 MiB aggregate;
 the watcher makes up to 16 accepted images available to Vision and supports
-multi-image delivery through All and the Board. This pilot has no production
-schedule or cutover.
+multi-image delivery through All and the Board.
+
+The first poll for a direct-X endpoint reads only the account page and stores
+the newest own-post ID as a future-only boundary. It does not fetch or publish
+visible history. Later polls fetch new posts after that boundary. If the page
+does not expose a verifiable own-post link, intake fails closed and does not
+write a cursor.
 
 The X watcher owns one state file for scanning, accepted source work, and
 Delivery Owner handoff. All watcher processes resolve it through
