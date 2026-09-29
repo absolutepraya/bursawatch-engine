@@ -22,6 +22,7 @@ from .profile_metadata import (
     normalize_manual_avatar_url,
     validate_profile_id,
 )
+from .operator_inventory import list_components
 
 
 @dataclass(frozen=True)
@@ -60,7 +61,8 @@ class WatcherSummary:
 @dataclass(frozen=True)
 class SchedulerJobRecord:
     job_id: str
-    watcher_id: str
+    watcher_id: str | None
+    component_ids: tuple[str, ...]
     display_name: str
     runtime_job_key: str
     schedule_kind: str
@@ -143,6 +145,8 @@ class Store(Protocol):
 
     def list_jobs(self, watcher_id: str) -> list[SchedulerJobRecord]: ...
 
+    def list_all_jobs(self) -> list[SchedulerJobRecord]: ...
+
     def get_job(self, job_id: str) -> SchedulerJobRecord: ...
 
     def list_reconcilable_jobs(self) -> list[SchedulerJobRecord]: ...
@@ -186,6 +190,17 @@ class Store(Protocol):
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _component_ids_for_job(job_id: str) -> tuple[str, ...]:
+    related = {
+        component.component_id
+        for component in list_components()
+        if job_id in component.job_ids
+    }
+    if job_id == "bursawatch-tg-market-news-watchdog":
+        related.add("bursawatch-tg-market-news")
+    return tuple(sorted(related))
 
 
 def _validate_run_id(value: object) -> str:
@@ -429,7 +444,7 @@ class InMemoryStore:
         self,
         *,
         job_id: str,
-        watcher_id: str,
+        watcher_id: str | None,
         display_name: str,
         runtime_job_key: str,
         schedule_kind: str,
@@ -440,7 +455,8 @@ class InMemoryStore:
         timezone: str | None = None,
     ) -> SchedulerJobRecord:
         validate_job_id(job_id)
-        validate_watcher_id(watcher_id)
+        if watcher_id is not None:
+            validate_watcher_id(watcher_id)
         if schedule_kind not in {"interval", "fixed"}:
             raise ValueError("schedule_kind must be interval or fixed")
         if schedule_kind == "interval":
@@ -473,6 +489,7 @@ class InMemoryStore:
         record = SchedulerJobRecord(
             job_id=job_id,
             watcher_id=watcher_id,
+            component_ids=_component_ids_for_job(job_id),
             display_name=display_name,
             runtime_job_key=runtime_job_key,
             schedule_kind=schedule_kind,
@@ -492,6 +509,9 @@ class InMemoryStore:
             (job for job in self._jobs.values() if job.watcher_id == watcher_id),
             key=lambda job: job.job_id,
         )
+
+    def list_all_jobs(self) -> list[SchedulerJobRecord]:
+        return sorted(self._jobs.values(), key=lambda job: job.job_id)
 
     def get_job(self, job_id: str) -> SchedulerJobRecord:
         validate_job_id(job_id)
@@ -544,6 +564,7 @@ class InMemoryStore:
         updated = SchedulerJobRecord(
             job_id=job.job_id,
             watcher_id=job.watcher_id,
+            component_ids=job.component_ids,
             display_name=job.display_name,
             runtime_job_key=job.runtime_job_key,
             schedule_kind=job.schedule_kind,
@@ -583,6 +604,7 @@ class InMemoryStore:
         updated = SchedulerJobRecord(
             job_id=job.job_id,
             watcher_id=job.watcher_id,
+            component_ids=job.component_ids,
             display_name=job.display_name,
             runtime_job_key=job.runtime_job_key,
             schedule_kind=job.schedule_kind,
@@ -775,6 +797,7 @@ class PostgresStore:
         return SchedulerJobRecord(
             job_id=row["job_id"],
             watcher_id=row["watcher_id"],
+            component_ids=tuple(row.get("component_ids") or ()),
             display_name=row["display_name"],
             runtime_job_key=row["runtime_job_key"],
             schedule_kind=row["schedule_kind"],
@@ -811,6 +834,7 @@ class PostgresStore:
                    j.schedule_kind, j.min_interval_seconds, j.max_interval_seconds,
                    j.reconciliation_status, j.applied_schedule_revision,
                    j.reconciliation_error,
+                   coalesce(component_links.component_ids, array[]::text[]) as component_ids,
                    r.revision as schedule_revision,
                    r.enabled as schedule_enabled,
                    r.interval_seconds as schedule_interval_seconds,
@@ -821,6 +845,11 @@ class PostgresStore:
               left join bursawatch_schedule_revisions r
                 on r.job_id = j.job_id
                and r.revision = j.current_schedule_revision
+              left join lateral (
+                  select array_agg(component_id order by component_id) as component_ids
+                    from bursawatch_component_jobs
+                   where job_id = j.job_id
+              ) component_links on true
         """
 
     def get_config(self, watcher_id: str) -> ConfigSnapshot:
@@ -868,6 +897,12 @@ class PostgresStore:
                 self._job_select() + " where j.watcher_id = %s order by j.job_id",
                 (watcher_id,),
             )
+            rows = cursor.fetchall()
+        return [self._job(row) for row in rows]
+
+    def list_all_jobs(self) -> list[SchedulerJobRecord]:
+        with self._connect() as connection, connection.cursor() as cursor:
+            cursor.execute(self._job_select() + " order by j.job_id")
             rows = cursor.fetchall()
         return [self._job(row) for row in rows]
 

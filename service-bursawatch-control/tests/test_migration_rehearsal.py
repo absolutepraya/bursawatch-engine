@@ -187,3 +187,28 @@ def test_synthetic_cutover_and_rollback_keep_source_work_and_delivery_receipt(tm
     assert uncertain is not None and uncertain.status == "ambiguous" and uncertain.receipt is None
     assert effects == operation_keys
     reopened_delivery.db.close()
+
+
+def test_operator_inventory_migration_keeps_existing_schedule_rows_authoritative() -> None:
+    migration = (
+        ROOT
+        / "service-bursawatch-control/migrations/019_operator_inventory.sql"
+    ).read_text(encoding="utf-8")
+    schedule_seed = migration.split(
+        "insert into bursawatch_schedule_revisions", maxsplit=1
+    )[1].split("update bursawatch_scheduler_jobs", maxsplit=1)[0]
+    schedule_pointer_update = migration.split(
+        "update bursawatch_scheduler_jobs", maxsplit=1
+    )[1].split("-- These are exactly", maxsplit=1)[0]
+
+    preserved = {
+        "bursawatch-x-account-watch-source",
+        "bursawatch-wa-channel-watch",
+        "bursawatch-stockbit-snips",
+    }
+    assert all(job_id not in schedule_seed for job_id in preserved)
+    assert "bursawatch-tg-source-ingest" in schedule_seed
+    assert "where job_id = 'bursawatch-tg-source-ingest'" in schedule_pointer_update
+    assert "current_schedule_revision is null" in schedule_pointer_update
+    assert "update bursawatch_schedule_revisions" not in migration.lower()
+    assert "delete from bursawatch_scheduler_jobs" not in migration.lower()

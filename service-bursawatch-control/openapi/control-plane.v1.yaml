@@ -377,6 +377,34 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/SchedulerJob'
+  /v1/jobs:
+    get:
+      summary: List the global declared scheduler job inventory.
+      description: Signed-in viewer or admin only. Each shared job appears once and links to every declared component that uses it.
+      responses:
+        '200':
+          description: Scheduler jobs in stable job-ID order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SchedulerJob'
+  /v1/jobs/{job_id}:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    get:
+      summary: Read one global scheduler job record.
+      description: Signed-in viewer or admin only. Desired, reconciled, and observed state remain separate.
+      responses:
+        '200':
+          description: Scheduler job state and component relationships.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchedulerJob'
+        '404':
+          description: Scheduler job does not exist.
   /v1/jobs/{job_id}/schedule:
     parameters:
       - $ref: '#/components/parameters/JobId'
@@ -407,10 +435,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SchedulerJob'
-        '409':
-          description: The job has a fixed source-defined schedule.
         '422':
-          description: The cadence is outside the job's approved policy.
+          description: The job has a fixed source-defined schedule or the cadence is outside its approved policy.
   /v1/internal/schedules:
     get:
       summary: Read every desired interval schedule for the trusted VPS reconciler.
@@ -1013,12 +1039,16 @@ components:
     SchedulerJob:
       type: object
       additionalProperties: false
-      required: [job_id, watcher_id, display_name, runtime_job_key, schedule_kind, min_interval_seconds, max_interval_seconds, schedule, reconciliation]
+      required: [job_id, watcher_id, component_ids, display_name, runtime_job_key, schedule_kind, min_interval_seconds, max_interval_seconds, schedule, reconciliation]
       properties:
         job_id:
           type: string
         watcher_id:
-          type: string
+          type: [string, 'null']
+        component_ids:
+          type: array
+          items:
+            type: string
         display_name:
           type: string
         runtime_job_key:

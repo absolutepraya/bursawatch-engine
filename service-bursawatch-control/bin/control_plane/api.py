@@ -224,6 +224,7 @@ def _job_response(job: SchedulerJobRecord) -> dict[str, Any]:
     return {
         "job_id": job.job_id,
         "watcher_id": job.watcher_id,
+        "component_ids": list(job.component_ids),
         "display_name": job.display_name,
         "runtime_job_key": job.runtime_job_key,
         "schedule_kind": job.schedule_kind,
@@ -582,6 +583,17 @@ def create_app(
         except ContractError as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
+    @app.get("/v1/jobs")
+    def list_all_jobs(_current: Principal = Depends(human_reader)) -> list[dict[str, Any]]:
+        return [_job_response(job) for job in store.list_all_jobs()]
+
+    @app.get("/v1/jobs/{job_id}")
+    def get_job(job_id: str, _current: Principal = Depends(human_reader)) -> dict[str, Any]:
+        try:
+            return _job_response(store.get_job(job_id))
+        except (ContractError, KeyError) as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="scheduler job not found") from exc
+
     @app.get("/v1/jobs/{job_id}/schedule")
     def get_schedule(job_id: str, _current: Principal = Depends(human_reader)) -> dict[str, Any]:
         try:
@@ -700,7 +712,7 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="scheduler job not found") from exc
         except PermissionError as exc:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
         except (ContractError, ValueError) as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 

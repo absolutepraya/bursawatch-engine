@@ -405,7 +405,7 @@ def test_machine_cannot_change_schedule_and_fixed_jobs_reject_changes():
     )
 
     assert machine.status_code == 403
-    assert fixed.status_code == 409
+    assert fixed.status_code == 422
 
 
 def test_schedule_rejects_values_outside_the_job_policy():

@@ -183,3 +183,27 @@ def test_stockbit_scheduler_job_key_migration_targets_exact_hermes_job_name():
     assert "'cron-stockbit-snips'" in migration
     assert "set runtime_job_key = 'cron-stockbit-snips'" in migration
     assert "set current_schedule_revision" not in migration
+
+
+def test_operator_inventory_migration_is_manual_additive_and_guards_job_identity():
+    migration = (
+        Path(__file__).resolve().parents[1]
+        / "migrations/019_operator_inventory.sql"
+    ).read_text(encoding="utf-8")
+
+    assert migration.startswith("-- bursawatch-release: manual\n")
+    assert "alter column watcher_id drop not null" in migration
+    assert "create table bursawatch_component_jobs" in migration
+    assert "alter table bursawatch_component_jobs enable row level security" in migration
+    assert "revoke all privileges on table public.bursawatch_component_jobs from public" in migration
+    assert "create table bursawatch_operator_observations" in migration
+    assert "(endpoint_id, created_at desc)" in migration
+    assert "(pipeline_id, created_at desc)" in migration
+    assert "bursawatch-tg-market-news-watchdog" in migration
+    assert "bursawatch-dc-swing-board-lifecycle" in migration
+    assert "bursawatch-tg-source-ingest" in migration
+    assert "bursawatch-x-account-watch-queue" in migration
+    assert "on conflict (job_id, revision) do nothing" in migration
+    assert "where job_id = 'bursawatch-tg-source-ingest'" in migration
+    assert "current_schedule_revision is null" in migration
+    assert "update bursawatch_schedule_revisions" not in migration.lower()
