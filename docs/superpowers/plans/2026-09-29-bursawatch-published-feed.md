@@ -38,6 +38,16 @@
 
 The backend read contract lands before owner writers. Owner writers may be deployed before the explicit cutover with projection disabled. The web can then display an empty forward-only state, and coverage becomes complete only as each required owner reports a successful checkpoint. The operator-workspace plan updates shared navigation separately, so the Published page must coexist with its eventual Jobs page.
 
+## Fast execution path
+
+Implement this plan in the same managed integration branch as the operator-workspace plan, after its migration `019` and shared component/job API shapes are fixed. The task numbers below are a coverage checklist, not 14 serial agent handoffs or deployments. The primary implementer owns Control Plane, shared client, API security, and final integration; any subagents work in isolated package scopes and use GPT-6 Luna as requested.
+
+1. **Freeze the shared contract:** Complete Tasks 1 to 4 first. One record schema, receipt rule, idempotent store, owner credential contract, cutover/checkpoint model, and projection client support all eight owners. Run focused Control Plane and library tests. Do not start owner edits until the record and client interfaces are stable.
+2. **Integrate owners in parallel:** Split Tasks 5 to 12 into three independent package groups: Telegram Market News, Stockbit, X; Instagram, WhatsApp; Phintraco, Kelas, Swing Board. Each group adds durable receipt-bound projection intents and checkpoints only within its packages. Use separate managed worktrees or nonoverlapping file scopes, merge each group into the integration branch, and have the primary implementer review receipt recovery, no repost, exact output, and checkpoint behavior. Do not ask for a separate human decision between owners.
+3. **Finish the operator experience:** Complete Task 13 against the final API and the operator plan's navigation. Complete Task 14 after all owner groups land. Run focused tests during each group, each affected owner package suite once when its group stabilizes, then one `bash scripts/test-all` and one check per web package after integration. Rerun only suites affected by fixes.
+
+The per-task commit steps preserve rollback points without creating a review gate per commit. Keep all eight owners, every approved publication type, multi-leg receipt proof, authorization, forward-only eligibility, coverage checkpoints, and exact delivered snapshots. Production activation and deployment remain separate reviewed gates; faster implementation never substitutes a replay or test post for natural delivery evidence.
+
 ### Task 1: Validated record and durable read model
 
 **Focused command:** `cd service-bursawatch-control && uv run --with 'fastapi>=0.115,<1' --with 'httpx>=0.27,<1' --with 'psycopg[binary,pool]>=3.2,<4' pytest -q tests/test_publication_model.py tests/test_publication_store.py tests/test_migrations.py`
