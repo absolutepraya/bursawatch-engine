@@ -553,6 +553,29 @@ def test_media_keeps_cursor_at_previous_ack(tmp_path):
     asyncio.run(_media_keeps_cursor_at_previous_ack(tmp_path))
 
 
+def test_webpage_link_preview_is_text_not_an_unhandled_attachment(tmp_path):
+    asyncio.run(_webpage_link_preview_is_text_not_an_unhandled_attachment(tmp_path))
+
+
+async def _webpage_link_preview_is_text_not_an_unhandled_attachment(tmp_path):
+    inbox = FakeInbox()
+    client = FakeTelegram([message(10)])
+    await ingest_endpoint(client, ENDPOINT, tmp_path, inbox, NOW)
+    preview = message(11, "CA reminder https://example.test", media=object())
+    preview.photo = None
+    client.messages.append(preview)
+
+    result = await ingest_endpoint(client, ENDPOINT, tmp_path, inbox, NOW)
+
+    cursor = tmp_path / "telegram-phintraprofits" / "cursor.json"
+    assert result["accepted"] == 1
+    assert json.loads(cursor.read_text())["cursor"] == 11
+    assert inbox.accepted[-1]["payload"]["text"] == "CA reminder https://example.test"
+    assert inbox.accepted[-1]["media_required"] is False
+    assert inbox.accepted[-1]["media_refs"] == []
+    assert not (cursor.parent / "blocked-media.json").exists()
+
+
 async def _media_keeps_cursor_at_previous_ack(tmp_path):
     inbox = FakeInbox()
     client = FakeTelegram([message(10)])

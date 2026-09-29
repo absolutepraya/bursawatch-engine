@@ -410,6 +410,10 @@ async def _upload_message_media(client: Any, endpoint: dict[str, Any], message: 
     return [reference]
 
 
+def _has_media_attachment(message: Any) -> bool:
+    return getattr(message, "photo", None) is not None or getattr(message, "document", None) is not None
+
+
 def envelope(endpoint: dict[str, Any], message: Any, observed_at: datetime, *, reply_parent: Any = None, media_refs: list[dict[str, Any]] | None = None, previous_message_id: int | None = None, bootstrap_message_id: int | None = None) -> dict[str, Any]:
     message_id = getattr(message, "id", None)
     if type(message_id) is not int or message_id <= 0:
@@ -418,7 +422,7 @@ def envelope(endpoint: dict[str, Any], message: Any, observed_at: datetime, *, r
     if type(text) is not str:
         raise IntakeBlocked("Telegram message text is invalid")
     media_refs = list(media_refs or [])
-    if (getattr(message, "media", None) is not None or getattr(message, "photo", None) is not None) and not media_refs:
+    if _has_media_attachment(message) and not media_refs:
         raise IntakeBlocked("Telegram media requires a durable media reference")
     reply = getattr(message, "reply_to_msg_id", None)
     if reply is not None and (type(reply) is not int or reply <= 0):
@@ -517,7 +521,7 @@ async def ingest_endpoint(client: Any, endpoint: dict[str, Any], state_root: Pat
         if message.id <= cursor:
             continue
         media_refs: list[dict[str, Any]] = []
-        if getattr(message, "media", None) is not None or getattr(message, "photo", None) is not None:
+        if _has_media_attachment(message):
             set_stage("upload_media")
             _write_json(root / "blocked-media.json", {"endpoint_id": endpoint["endpoint_id"], "message_id": message.id, "published_at": _stamp(message.date), "media_type": type(getattr(message, "media", None)).__name__})
             try:

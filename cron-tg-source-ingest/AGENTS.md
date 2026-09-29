@@ -78,8 +78,11 @@ agent work, the runner claims at most one oldest candidate, using a persisted
 round-robin tie break for equal publication times. Kelas inbox work is claimed
 in Telegram message order; a failed earlier message blocks later messages
 until it succeeds or an admin explicitly suppresses it. Telegram media
-blocks the endpoint before cursor advancement only when its type is unsupported,
-the media service is unavailable, or durable upload fails. A local
+blocks the endpoint before cursor advancement only for an actual photo or
+document attachment when its type is unsupported, the media service is
+unavailable, or durable upload fails. Web-page link previews
+(`MessageMediaWebPage`) remain part of the text event and are not treated as
+file attachments. A local
 `blocked-media.json` records only source identity and media type to diagnose a
 blocked handoff; it is private state, never Git. If upload succeeds but inbox
 acceptance fails, the private handoff spool retains the opaque reference and
