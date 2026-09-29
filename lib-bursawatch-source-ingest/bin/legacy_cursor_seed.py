@@ -281,6 +281,7 @@ def plan_catalog_revision_transition(
     to_revision: int,
     seeds: list[dict[str, Any]],
     metadata: dict[str, Any] | None = None,
+    allow_empty_seeds: bool = False,
     apply: bool = False,
     expected_plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -294,8 +295,16 @@ def plan_catalog_revision_transition(
     root = Path(state_root).expanduser().resolve(strict=True)
     if type(from_revision) is not int or type(to_revision) is not int or to_revision <= from_revision:
         raise LegacySeedBlocked("catalog revision transition must move forward")
-    if type(seeds) is not list or not seeds:
-        raise LegacySeedBlocked("catalog revision transition needs at least one cursor seed")
+    if type(allow_empty_seeds) is not bool:
+        raise LegacySeedBlocked("empty cursor seed opt-in is invalid")
+    if type(seeds) is not list or (not seeds and not allow_empty_seeds):
+        raise LegacySeedBlocked("catalog revision transition needs cursor seeds unless an explicit revision-only transition is allowed")
+    if not seeds and (
+        type(metadata) is not dict
+        or type(metadata.get("reason")) is not str
+        or len(metadata["reason"].strip()) < 20
+    ):
+        raise LegacySeedBlocked("revision-only transition requires a reviewed reason")
     transition_path = root / "catalog-transitions" / f"{from_revision}-to-{to_revision}.json"
     revision_path = root / "catalog-revision.json"
     try:
@@ -361,6 +370,8 @@ def plan_catalog_revision_transition(
         "seeds": seed_plans,
         "metadata": metadata or {},
     }
+    if not seed_plans:
+        plan["revision_only"] = True
     if journal_exists and journal["plan"] != plan:
         raise LegacySeedBlocked("catalog transition inputs differ from the durable apply journal")
     if journal_exists:

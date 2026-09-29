@@ -47,6 +47,13 @@ resumes only when the durable journal and any partially created cursor files
 match the original preview. It rejects changed state, a conflicting cursor,
 pending handoff, or an unexpected revision.
 
+A compatible revision-only transition may pass `seeds=[]` and
+`allow_empty_seeds=True` with a reviewed `metadata.reason`. It fingerprints all
+existing state files, writes the same durable journal, and advances only the
+revision marker. It never edits or initializes a cursor. Use it only after
+proving the source catalog change is compatible with the active endpoint set
+and pausing that source writer.
+
 The Telegram News adapter exposes the paired rollout via
 `cron-tg-source-ingest/bin/catalog_transition.py`. Its preview accepts only the
 consecutive effective catalog change that activates all three Phintraco News

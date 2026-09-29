@@ -189,6 +189,43 @@ def test_catalog_revision_transition_requires_unchanged_state_and_exact_seed_set
     assert json.loads((root / "catalog-revision.json").read_text()) == {"revision": 2}
 
 
+def test_catalog_revision_only_transition_preserves_all_cursor_files(tmp_path, monkeypatch):
+    root = tmp_path / "state"
+    root.mkdir()
+    _write(root / "catalog-revision.json", {"revision": 5})
+    cursor_path = root / "x-alpha" / "cursor.json"
+    _write(cursor_path, {"initialized": True, "anchor": "123", "position": None})
+    original_cursor = cursor_path.read_bytes()
+    metadata = {"reason": "Only unrelated source subscriptions changed; X cursors remain valid."}
+
+    with pytest.raises(LegacySeedBlocked, match="cursor seeds unless"):
+        plan_catalog_revision_transition(
+            state_root=root, from_revision=5, to_revision=7, seeds=[], metadata=metadata
+        )
+
+    preview = plan_catalog_revision_transition(
+        state_root=root, from_revision=5, to_revision=7, seeds=[], metadata=metadata,
+        allow_empty_seeds=True,
+    )
+    assert preview["status"] == "preview"
+    assert preview["revision_only"] is True
+    assert preview["seeds"] == []
+    assert json.loads((root / "catalog-revision.json").read_text()) == {"revision": 5}
+    assert cursor_path.read_bytes() == original_cursor
+
+    monkeypatch.setenv("BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY", "1")
+    applied = plan_catalog_revision_transition(
+        state_root=root, from_revision=5, to_revision=7, seeds=[], metadata=metadata,
+        allow_empty_seeds=True, apply=True, expected_plan=preview,
+    )
+    assert applied["status"] == "applied"
+    assert json.loads((root / "catalog-revision.json").read_text()) == {"revision": 7}
+    assert cursor_path.read_bytes() == original_cursor
+    journal = json.loads((root / "catalog-transitions" / "5-to-7.json").read_text())
+    assert journal["status"] == "complete"
+    assert journal["seeded_endpoints"] == []
+
+
 def test_acknowledged_handoff_recovery_preserves_staged_publication_time(tmp_path):
     inbox = Inbox()
     endpoint = dict(ENDPOINT)
