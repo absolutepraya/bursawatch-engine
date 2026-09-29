@@ -21,6 +21,7 @@ from .profile_metadata import (
     profile_inputs_from_config,
     validate_profile_id,
 )
+from .operator_inventory import component_view, list_components
 from .postgres_pool import create_postgres_pool
 from .store import (
     EventRecord,
@@ -369,6 +370,54 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="insufficient role")
         current = catalog_store.get()
         return effective_snapshot(current["config"], catalog_view(current["config"], catalog_store.registry()), current["revision"], current["updated_at"])
+
+    def component_inventory_view(component_id: str) -> dict[str, Any]:
+        try:
+            result = component_view(component_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="unknown component") from exc
+        platform = {
+            "bursawatch-tg-source-ingest": "telegram",
+            "bursawatch-x-source-ingest": "x",
+            "bursawatch-ig-source-ingest": "instagram",
+            "bursawatch-wa-source-ingest": "whatsapp",
+            "bursawatch-rss-source-ingest": "rss",
+        }.get(component_id)
+        if platform is not None:
+            current = catalog_store.get()
+            resolved = effective_snapshot(
+                current["config"],
+                catalog_view(current["config"], catalog_store.registry()),
+                current["revision"],
+                current["updated_at"],
+            )
+            subscriptions = [row for row in resolved["subscriptions"] if row["platform"] == platform]
+            capability_ids = sorted({row["capability_id"] for row in subscriptions})
+            result["source_gate"] = {
+                "catalog_revision": current["revision"],
+                "capabilities": [
+                    {
+                        "capability_id": capability_id,
+                        "endpoint_count": sum(row["capability_id"] == capability_id for row in subscriptions),
+                        "enabled_endpoint_count": sum(
+                            row["capability_id"] == capability_id and row["enabled"] for row in subscriptions
+                        ),
+                    }
+                    for capability_id in capability_ids
+                ],
+            }
+        return result
+
+    @app.get("/v1/components")
+    def get_components(_current: Principal = Depends(human_reader)) -> dict[str, Any]:
+        return {
+            "inventory_version": 1,
+            "components": [component_inventory_view(item.component_id) for item in list_components()],
+        }
+
+    @app.get("/v1/components/{component_id}")
+    def get_component(component_id: str, _current: Principal = Depends(human_reader)) -> dict[str, Any]:
+        return component_inventory_view(component_id)
 
     @app.put("/v1/source-catalog/config")
     def put_source_catalog(payload: CatalogWrite, current: Principal = Depends(admin_only)) -> dict[str, Any]:

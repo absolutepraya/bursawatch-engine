@@ -8,6 +8,41 @@ servers:
 security:
   - bearerAuth: []
 paths:
+  /v1/components:
+    get:
+      summary: List the versioned declared component inventory.
+      description: Signed-in viewer or admin only. Adapter source gates are summarized from the current effective Source Catalog; publisher and endpoint settings are not duplicated in this inventory.
+      responses:
+        '200':
+          description: Versioned components, stable relationships, and catalog-derived source gate summaries.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComponentInventory'
+        '403':
+          description: Machine and other non-human principals are denied.
+  /v1/components/{component_id}:
+    parameters:
+      - name: component_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9-]*$'
+    get:
+      summary: Read one declared component.
+      description: Signed-in viewer or admin only. Adapter source gates are summarized from the current effective Source Catalog.
+      responses:
+        '200':
+          description: Component declaration and optional catalog-derived source gate summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Component'
+        '403':
+          description: Machine and other non-human principals are denied.
+        '404':
+          description: Component is not declared in this inventory version.
   /v1/source-events:
     post:
       summary: Accept a version 1 normalized source event durably.
@@ -515,6 +550,75 @@ components:
         maximum: 1000
         default: 500
   schemas:
+    ComponentInventory:
+      type: object
+      additionalProperties: false
+      required: [inventory_version, components]
+      properties:
+        inventory_version:
+          type: integer
+          const: 1
+        components:
+          type: array
+          items:
+            $ref: '#/components/schemas/Component'
+    Component:
+      type: object
+      additionalProperties: false
+      required: [inventory_version, component_id, kind, display_name, capabilities, pipeline_ids, config_resource_ids, related_component_ids, job_ids]
+      properties:
+        inventory_version:
+          type: integer
+          const: 1
+        component_id:
+          type: string
+        kind:
+          type: string
+          enum: [source_adapter, domain_owner, delivery_service]
+        display_name:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        pipeline_ids:
+          type: array
+          items:
+            type: string
+        config_resource_ids:
+          type: array
+          items:
+            type: string
+        related_component_ids:
+          type: array
+          items:
+            type: string
+        job_ids:
+          type: array
+          items:
+            type: string
+        source_gate:
+          type: object
+          additionalProperties: false
+          required: [catalog_revision, capabilities]
+          properties:
+            catalog_revision:
+              type: integer
+            capabilities:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [capability_id, endpoint_count, enabled_endpoint_count]
+                properties:
+                  capability_id:
+                    type: string
+                  endpoint_count:
+                    type: integer
+                    minimum: 0
+                  enabled_endpoint_count:
+                    type: integer
+                    minimum: 0
     SourceEventEnvelope:
       type: object
       additionalProperties: false
