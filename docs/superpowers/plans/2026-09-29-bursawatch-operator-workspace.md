@@ -41,6 +41,8 @@ The operator inventory/backend API and web UI can ship additively. The Telegram 
 
 ## Fast execution path
 
+**Model assignment:** The primary agent remains GPT-6 Sol and owns shared contracts, integration decisions, and final verification. Every spawned subagent, including implementers and reviewers, must use GPT-6 Luna.
+
 Use one managed implementation worktree for the shared Control Plane and web-config changes. Bring both approved specs and plans into that branch before product edits, so `api.py`, OpenAPI, migration numbering, proxy routes, and navigation have one integration owner. The task numbers below remain a coverage checklist, not a sequence of 11 reviews or deployments.
 
 1. **Engine truth:** Complete Tasks 1 to 4 together. Freeze component IDs, job relationships, activity response shapes, and migration `019` before frontend or publication work consumes them. Run the focused Control Plane tests as each contract lands; rehearse the migration once after the complete `019` change.
