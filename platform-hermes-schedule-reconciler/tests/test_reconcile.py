@@ -293,6 +293,73 @@ def test_contract_rejects_schedule_checksum_or_wrong_timezone():
         reconcile.parse_desired_schedule(wrong_timezone)
 
 
+def test_telegram_source_existing_legacy_cron_matches_without_edit(tmp_path: Path):
+    registry = tmp_path / "jobs.json"
+    registry.write_text(json.dumps({"jobs": [{
+        "id": "source-job-id",
+        "name": "bursawatch-tg-source-ingest",
+        "enabled": True,
+        "schedule": {"kind": "cron", "expr": "* * * * *"},
+    }]}), encoding="utf-8")
+    job = desired_job()
+    job["job_id"] = "bursawatch-tg-source-ingest"
+    job["watcher_id"] = None
+    job["runtime_job_key"] = "bursawatch-tg-source-ingest"
+    job["schedule"]["job_id"] = "bursawatch-tg-source-ingest"
+    api = FakeControlPlane([job])
+    client = reconcile.ControlPlaneClient("https://control.example.test", "reconciler-token", 15, opener=api)
+
+    outcomes = reconcile.reconcile_all(
+        settings(registry), client,
+        command_runner=lambda *_args, **_kwargs: pytest.fail("matching schedule invoked Hermes CLI"),
+    )
+
+    assert outcomes == [reconcile.Outcome("bursawatch-tg-source-ingest", 1, "applied", [])]
+    assert api.reports == [{"revision": 1, "status": "applied"}]
+
+
+def test_unexpected_runtime_key_refuses_edit(tmp_path: Path):
+    registry = tmp_path / "jobs.json"
+    registry.write_text(json.dumps({"jobs": [{
+        "id": "unrelated-id",
+        "name": "unrelated-job",
+        "enabled": True,
+        "schedule": {"kind": "interval", "minutes": 2},
+    }]}), encoding="utf-8")
+    job = desired_job(interval_seconds=120)
+    job["runtime_job_key"] = "unrelated-job"
+    api = FakeControlPlane([job])
+    client = reconcile.ControlPlaneClient("https://control.example.test", "reconciler-token", 15, opener=api)
+    commands: list[list[str]] = []
+
+    with pytest.raises(reconcile.ContractError, match="runtime job key"):
+        reconcile.reconcile_all(
+            settings(registry), client,
+            command_runner=lambda command, _timeout: commands.append(command),
+        )
+    assert commands == []
+    assert api.reports == []
+
+
+def test_declared_job_bounds_and_fixed_job_are_enforced():
+    telegram = desired_job(interval_seconds=7200)
+    telegram["job_id"] = "bursawatch-tg-source-ingest"
+    telegram["watcher_id"] = None
+    telegram["runtime_job_key"] = "bursawatch-tg-source-ingest"
+    telegram["schedule"]["job_id"] = "bursawatch-tg-source-ingest"
+    telegram["schedule"]["schedule_sha256"] = reconcile.schedule_checksum(True, 7200, "Asia/Jakarta")
+    with pytest.raises(reconcile.ContractError, match="interval bounds"):
+        reconcile.parse_desired_schedule(telegram)
+
+    fixed = desired_job()
+    fixed["job_id"] = "bursawatch-dc-swing-board-close"
+    fixed["runtime_job_key"] = "bursawatch-dc-swing-board-close"
+    fixed["schedule_kind"] = "fixed"
+    fixed["schedule"]["job_id"] = "bursawatch-dc-swing-board-close"
+    with pytest.raises(reconcile.ContractError, match="non-interval"):
+        reconcile.parse_desired_schedule(fixed)
+
+
 def test_wrapper_has_valid_bash_syntax():
     wrapper = Path(__file__).resolve().parents[1] / "bin/bursawatch-hermes-schedule-reconciler.sh"
     completed = subprocess.run(["bash", "-n", str(wrapper)], capture_output=True, text=True)

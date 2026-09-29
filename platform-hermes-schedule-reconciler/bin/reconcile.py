@@ -27,6 +27,19 @@ LEGACY_INTERVAL_CRON_EXPRESSIONS = {
     10: "*/10 * * * *",
     60: "0 * * * *",
 }
+# The control plane may propose revisions, but it cannot select a different
+# Hermes job or widen the locally reviewed interval limits for this worker.
+# These identities mirror the Control Plane's declared interval job rows.
+SUPPORTED_INTERVAL_JOBS: dict[str, tuple[str, str | None, int, int]] = {
+    "bursawatch-x-account-watch-source": ("bursawatch-x-account-watch", "bursawatch-x-account-watch", 600, 86_400),
+    "bursawatch-ig-account-watch-source": ("bursawatch-ig-account-watch", "bursawatch-ig-account-watch", 3_600, 86_400),
+    "bursawatch-tg-phintraco-swing": ("bursawatch-tg-phintraco-swing", "bursawatch-tg-phintraco-swing", 60, 3_600),
+    "bursawatch-tg-market-news": ("bursawatch-tg-market-news", "bursawatch-tg-market-news", 60, 3_600),
+    "bursawatch-tg-kelas-investasi-gtw": ("bursawatch-tg-kelas-investasi-gtw", "bursawatch-tg-kelas-investasi-gtw", 300, 21_600),
+    "bursawatch-wa-channel-watch": ("bursawatch-wa-channel-watch", "bursawatch-wa-channel-watch", 60, 21_600),
+    "bursawatch-stockbit-snips": ("cron-stockbit-snips", "bursawatch-stockbit-snips", 300, 3_600),
+    "bursawatch-tg-source-ingest": ("bursawatch-tg-source-ingest", None, 60, 3_600),
+}
 JOB_ID_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
 SECRET_RE = re.compile(
     r"(?i)\b(authorization|bearer|token|secret|password|cookie|session)(?:\s*[:=]\s*|\s+)([^\s,;]+)"
@@ -210,6 +223,21 @@ def parse_desired_schedule(payload: object) -> DesiredSchedule:
         raise ContractError("reconciler received a non-interval job")
     job_id = _validate_job_id(payload["job_id"], "job_id")
     runtime_job_key = _validate_job_id(payload["runtime_job_key"], "runtime_job_key")
+    reviewed = SUPPORTED_INTERVAL_JOBS.get(job_id)
+    if reviewed is None:
+        raise ContractError("scheduler job is not a reviewed interval job")
+    expected_runtime_key, expected_watcher_id, expected_minimum, expected_maximum = reviewed
+    if runtime_job_key != expected_runtime_key:
+        raise ContractError("scheduler runtime job key is not the reviewed identity")
+    if payload["watcher_id"] != expected_watcher_id:
+        raise ContractError("scheduler watcher identity is not the reviewed mapping")
+    if (
+        type(payload["min_interval_seconds"]) is not int
+        or type(payload["max_interval_seconds"]) is not int
+        or payload["min_interval_seconds"] != expected_minimum
+        or payload["max_interval_seconds"] != expected_maximum
+    ):
+        raise ContractError("scheduler interval bounds differ from the reviewed mapping")
     snapshot = payload["schedule"]
     if type(snapshot) is not dict:
         raise ContractError("interval scheduler job has no schedule")
@@ -240,6 +268,8 @@ def parse_desired_schedule(payload: object) -> DesiredSchedule:
         raise ContractError("schedule enabled is invalid")
     if type(interval_seconds) is not int or not 60 <= interval_seconds <= 86_400 or interval_seconds % 60:
         raise ContractError("schedule interval_seconds is invalid")
+    if not expected_minimum <= interval_seconds <= expected_maximum:
+        raise ContractError("schedule interval_seconds is outside reviewed interval bounds")
     if type(timezone) is not str or not timezone.strip():
         raise ContractError("schedule timezone is invalid")
     try:
