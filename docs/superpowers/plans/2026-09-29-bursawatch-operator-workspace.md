@@ -39,6 +39,17 @@
 
 The operator inventory/backend API and web UI can ship additively. The Telegram schedule row and observer timer require separate reviewed production activation. The Published feed plan reserves migration `020_publications.sql` and can later add confirmed-delivery evidence to Overview. Until then, the delivery summary must say `not instrumented` unless a source of confirmed receipts exists. Both plans agree on the eventual navigation: Overview, Sources, Workflows, Jobs, History, Published, Account.
 
+## Fast execution path
+
+Use one managed implementation worktree for the shared Control Plane and web-config changes. Bring both approved specs and plans into that branch before product edits, so `api.py`, OpenAPI, migration numbering, proxy routes, and navigation have one integration owner. The task numbers below remain a coverage checklist, not a sequence of 11 reviews or deployments.
+
+1. **Engine truth:** Complete Tasks 1 to 4 together. Freeze component IDs, job relationships, activity response shapes, and migration `019` before frontend or publication work consumes them. Run the focused Control Plane tests as each contract lands; rehearse the migration once after the complete `019` change.
+2. **Runtime and controls:** Complete Tasks 5 to 7 against those contracts. The observer and reconciler can be implemented independently in separate packages, with one integration review of exact Hermes identity, credential separation, and revision behavior. Inventory every editable field once in Task 6; fix only proven editor, validator, or consumer gaps.
+3. **Visible workspace:** Complete Tasks 8 to 10 as one frontend pass using the frozen reads. Reuse current editors, loaders, and controls. Do not rebuild a component merely to change its status wording or navigation. The Jobs page and honest Overview/Sources/History become the first reviewable operator experience.
+4. **Integration gate:** Complete Task 11 after the frontend and backend are assembled. Run focused tests during each pass, each affected package suite once when its slice stabilizes, then one `bash scripts/test-all` and one check per web package. Rerun only suites affected by subsequent fixes. Read-only production inspection can inform the final rollout record, but implementation does not install the observer or edit live jobs.
+
+The per-task commit steps keep changes recoverable; they do not require a separate human approval or fresh reviewer for every commit. Keep the live schedule, reporter credential, service installation, and deployment approvals as distinct final rollout gates. This ordering preserves every operator-safe control and every status/evidence distinction in the spec.
+
 ### Task 1: Declared component inventory and relationships
 
 **Focused command:** `cd service-bursawatch-control && uv run --with 'fastapi>=0.115,<1' --with 'httpx>=0.27,<1' --with 'psycopg[binary,pool]>=3.2,<4' pytest -q tests/test_operator_inventory.py`
