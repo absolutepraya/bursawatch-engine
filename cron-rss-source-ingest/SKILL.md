@@ -7,13 +7,16 @@ user-invocable: false
 # Fixed Stockbit RSS source boundary
 
 Runtime identity: `bursawatch-rss-source-ingest`. Entry point:
-`bin/runner.py`. Until the reviewed cutover retargets the existing Hermes job,
-this source adapter must not run beside the live Stockbit source job. The four lane IDs and feed URLs remain
-system-owned. The live Stockbit configuration selects enabled lanes and
+`bin/runner.py`. This is the active source adapter under the existing
+`cron-stockbit-snips` Hermes job, which runs every 15 minutes as of the
+2026-09-29 live check. Do not re-enable the legacy direct RSS poller beside
+this reader. The four lane IDs and feed URLs remain system-owned. The live
+Stockbit configuration selects enabled lanes and
 supplies the frozen instruction and destination snapshot for accepted events.
 Source work is admitted to the existing Stockbit article ledger by the
 `stockbit_snips` pipeline handler. The source reader keeps its own future-only
-cursor. A production cutover needs an exact queue and receipt inventory.
+cursor. Any future state transfer or rollback needs an exact queue and receipt
+inventory.
 `adapter.plan_legacy_cursor_seed` returns a preview only when a fresh non-304
 page response of at most 20 ordered items contains the legacy GUID exactly once
 at the same publication timestamp. It hashes that GUID into the new anchor and

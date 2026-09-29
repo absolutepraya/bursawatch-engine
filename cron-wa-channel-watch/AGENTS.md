@@ -83,8 +83,9 @@ watcher's scope.
   owner materializes the topic, the watcher patches the existing All Swing
   message to the direct topic URL. A pending topic or failed patch keeps the
   record retryable and cannot create a duplicate All message.
-- The unscheduled WhatsApp platform adapter may accept BRI source work into
-  this watcher's canonical outbox only after verifying the Source Inbox work
+- The WhatsApp platform adapter runs through this watcher's existing Hermes
+  job (one-minute cadence at the 2026-09-29 live check). It may accept BRI
+  source work into this watcher's canonical outbox only after verifying the Source Inbox work
   identity, frozen sibling capabilities, and all durable media originals.
   `pipeline_owner.py` first writes and verifies the immutable archive, then
   records the source event plus its frozen route scope. Its retry key is the
@@ -115,11 +116,12 @@ a proposal, not permission to enable it, pair an account, backfill history, or
 deploy.
 
 The control-plane catalog records a separate desired cadence for the registered
-Hermes job `bursawatch-wa-channel-watch`. Its verified baseline is paused at a
-one-minute interval, and an administrator may request a one-minute to six-hour
-interval or paused state. That request remains pending until the future trusted
-VPS reconciler applies it through the Hermes CLI. It cannot pair WhatsApp,
-change a Channel subscription, or alter queue retention.
+Hermes job `bursawatch-wa-channel-watch`. At the 2026-09-29 live check, schedule
+revision 8 was enabled at one minute, marked applied, and matched the active
+Hermes job. An administrator may request a one-minute to six-hour interval or
+paused state; each new request stays pending until the trusted VPS reconciler
+applies it through the Hermes CLI. It cannot pair WhatsApp, change a Channel
+subscription, or alter queue retention.
 
 When live configuration is enabled, the control plane records one frozen
 revision per scheduled or agent-submission invocation. The dashboard receives

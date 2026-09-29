@@ -6,6 +6,10 @@ and domain source of truth for the agent-backed `cron-ig-account-watch` package.
 
 ## Source and authentication
 
+The legacy `bursawatch-ig-account-watch` Hermes job was paused at the
+2026-09-29 live check. Its source-ingest adapter is also unscheduled, so this
+watcher is not currently polling Instagram in production.
+
 - Development source is `cron-ig-account-watch/bin/`; `config/watches.json` is the reviewed watched-profile and OCR policy. The deployed runtime is `~/.agents/skills/bursawatch-ig-account-watch/`, with the wrapper at `~/.hermes/scripts/bursawatch-ig-account-watch.sh`.
 - The watcher reads public posts and reels only through the universal RSSHub instance `rsshub-rsshub-1` at `http://127.0.0.1:1200/instagram/2/user/<handle>?format=json`. The same instance serves other feeds, including `cron-x-account-watch`. The watcher does not directly scrape Instagram and has no Meta Graph, Picuki, Picnob, or Cobalt fallback. The universal RSSHub Instagram route owns its cookie-backed source request and response shaping.
 - The universal RSSHub compose passes the VPS-local `IG_COOKIE` and Instagram-specific `IG_PROXY` to that container. `IG_PROXY` is route-specific and must not be replaced by the global `PROXY_URI`, which would affect unrelated feeds. The legacy private route uses `IG_USERNAME` and `IG_PASSWORD`, but this watcher does not use that route because its login flow does not support 2FA. Credential and cookie values never enter source, logs, wake payloads, state, commits, or Discord content. The watcher must not receive or print them.
@@ -28,7 +32,8 @@ and domain source of truth for the agent-backed `cron-ig-account-watch` package.
   through the shared Source Media Owner; source route records freeze the
   accepted company and macro capabilities. A relevant publication classified
   to an unsubscribed route is audited as `route_not_subscribed` and gets no
-  Discord delivery. Live source polling stays here until approved cutover.
+  Discord delivery. If the legacy watcher is resumed, source polling stays
+  here until an approved cutover moves it to the adapter.
 
 ## Media, OCR, and vision
 

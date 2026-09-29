@@ -8,6 +8,14 @@ Current operating guidance is deliberately kept close to the source it governs:
 - A reusable service or skill: its local `AGENTS.md`, `README.md`, or
   `SKILL.md` as applicable.
 
+Before documenting current VPS schedules or release status, run
+[`scripts/production_snapshot.py`](../scripts/production_snapshot.py) with
+`--production`. The helper is read-only, reports gateway health, filters the
+Hermes listing to Bursawatch jobs, compares desired interval schedules with
+the live registry, and compares the release-agent SHA with published `main`.
+Its scheduler results do not prove runtime checksums or a natural
+source-to-delivery event.
+
 The Bursawatch Discord Delivery Owner is the only Discord REST path. Its
 service contract and deployment gates are in
 [`service-bursawatch-discord-delivery/README.md`](../service-bursawatch-discord-delivery/README.md)

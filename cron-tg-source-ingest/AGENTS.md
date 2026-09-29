@@ -1,6 +1,6 @@
 # Telegram source ingest
 
-This package is the active Telegram source-intake pilot with an automatic
+This package owns active Telegram source intake with an automatic
 release unit and deployable runtime wrapper. Hermes job
 `bursawatch-tg-source-ingest` runs every minute. Its live scope includes
 Phintraco Swing `trading_plans`, Kelas Investasi `swing_support`, Phintraco News
@@ -69,7 +69,7 @@ owns private Supabase Storage access; `lib-bursawatch-source-media` uploads
 bounded media before event acceptance and returns opaque durable refs. The
 adapter never receives Storage credentials or stores signed/public media URLs.
 `lib-bursawatch-pipeline-runtime`
-claims only registered handler pipelines. The pilot registers the existing
+claims only registered handler pipelines. The active runner dispatches the
 Phintraco Swing owner for plans, Kelas Investasi for supporting setups, and
 Market News for Stock Information plus Phintraco and Tuntun news. Each owner
 retains its own state and uses the Discord Delivery Owner. Market News and
@@ -89,8 +89,8 @@ acceptance fails, the private handoff spool retains the opaque reference and
 retries it without reuploading or advancing the Telegram cursor.
 
 Keep live subscriptions within the reviewed catalog scope above. Do not enable
-other Telegram subscriptions or change the pilot schedule without an approved
-rollout. News cursors were seeded from the legacy high-water marks and are
+other Telegram subscriptions or change the shared source-ingest schedule
+without an approved rollout. News cursors were seeded from the legacy high-water marks and are
 future-only; do not backfill or replay source history. The legacy Market News
 scanner and watchdog remain paused, and the legacy scanner's desired schedule
 is disabled. Do not resume either while shared source ingest polls these

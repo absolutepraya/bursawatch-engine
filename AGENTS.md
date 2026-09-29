@@ -15,19 +15,22 @@ Hermes Personal is a separate repository at
 
 Packages use these names:
 
-- `cron-<surface>-<purpose>` is a scheduled development package.
+- `cron-<surface>-<purpose>` is a cron-oriented development package; it may
+  own an independent job or provide an adapter called by an existing job.
 - `bursawatch-<surface>-<purpose>` is its VPS runtime identity.
 - `lib-<purpose>` is shared imported code.
 - `skill-<purpose>` is a reusable non-scheduled skill.
 - `service-<purpose>` is a deployable daemon or service definition.
 - `platform-<purpose>` is host-bound supporting code.
 
-The current scheduled packages are `cron-tg-market-news`,
-`cron-tg-phintraco-swing`, `cron-tg-kelas-investasi-gtw`,
-`cron-dc-swing-board`, `cron-x-account-watch`, `cron-ig-account-watch`,
-`cron-wa-channel-watch`, and `cron-stockbit-snips`. `idx-ca-watch` and
-`yanto-gateway-voice` are retired
-and must not be recreated.
+The package inventory and its current production roles are in `README.md`.
+The production schedule is not one job per package: the active Telegram
+source-ingest job owns Telegram intake, while the X, WhatsApp, and Stockbit
+adapters run through their existing watcher jobs. The Instagram source adapter
+has no registered job. The standalone Telegram News, Phintraco Swing, Kelas
+Investasi, and Instagram watcher jobs are paused as of the 2026-09-29 live
+check. `idx-ca-watch` and `yanto-gateway-voice` are retired and must not be
+recreated.
 
 The first production cutover changes source, runtime, wrapper, and scheduler
 identities while retaining established production state locations. A later,
@@ -79,6 +82,8 @@ this contract:
 - `cron-ig-source-ingest/AGENTS.md`
 - `cron-wa-source-ingest/AGENTS.md`
 - `cron-rss-source-ingest/AGENTS.md`
+- `lib-bursawatch-discord-delivery/AGENTS.md`
+- `lib-bursawatch-source-media/AGENTS.md`
 - `cron-dc-swing-board/AGENTS.md`
 - `cron-tg-phintraco-swing/AGENTS.md`
 - `cron-ig-account-watch/AGENTS.md`
@@ -89,6 +94,7 @@ this contract:
 - `cron-x-account-watch/AGENTS.md`
 - `cron-stockbit-snips/AGENTS.md`
 - `platform-bursawatch-release/AGENTS.md`
+- `platform-hermes-schedule-reconciler/AGENTS.md`
 - `web-config/AGENTS.md`
 - `web-landing/AGENTS.md`
 
@@ -99,6 +105,14 @@ Each scheduled package has `AGENTS.md` and exactly one root contract:
 agent-backed package. Reusable skills retain their own `SKILL.md`. Keep
 documentation aligned with the code, runtime identity, wrapper, scheduler,
 tests, and deployment instructions in the same change.
+
+Before writing or updating documentation that makes current production
+claims, run `python3 scripts/production_snapshot.py --production`. It compares
+published `main` with the VPS release SHA, checks Hermes gateway health, and
+compares Bursawatch desired interval schedules with the live registry. The
+read-only schedule query uses the VPS's reconciler credential without printing
+it. The helper does not verify runtime checksums or prove a natural
+source-to-delivery event.
 
 [`docs/README.md`](docs/README.md) distinguishes active operating guidance
 from retained design and implementation history. A historical record may name
@@ -142,8 +156,9 @@ explicitly approved action after review.
    `~/.agents/skills/bursawatch-<slug>/bin/`. It supports a deliberate single
    file deployment as `./deploy.sh cron-<slug> <file>`.
 5. Contract files, scheduler wrappers, services, and skill runtime prompts are
-   separate deploy inputs. Compare every changed file against the VPS before
-   the first write, receive current-session approval, then compare checksums.
+   separate deploy inputs. For manual deployment, compare every changed file
+   against the VPS before the first write, receive current-session approval,
+   then compare checksums.
    A scheduler wrapper under `~/.hermes/scripts/` must retain mode `0755` and
    pass a direct executability check before a cron is retargeted to it.
 6. GitHub Actions has no VPS credential or access. The narrowly scoped

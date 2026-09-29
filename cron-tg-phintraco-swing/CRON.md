@@ -2,7 +2,10 @@
 
 See `AGENTS.md` for the source policy, state transitions, and shared-resilience details.
 
-- **Scheduler:** cutover renames active Hermes no-agent job `2b5c0a128652` to `bursawatch-tg-phintraco-swing`, retaining `* * * * *` (WIB) and raw output to `#hermes`.
+- **Scheduler:** legacy no-agent direct-reader job `2b5c0a128652` is registered but
+  paused as of the 2026-09-29 live check. The active source reader is shared
+  job `bursawatch-tg-source-ingest` (`262b25371e83`, every minute), which sends
+  accepted work to this package's `pipeline_owner.py`.
 - **Executable:** `bursawatch-tg-phintraco-swing.sh`, sourced from `bin/`, runs deterministic `scan.py` against its established private production state and media directory.
 - **Boundary:** read only the configured Phintraco Telegram source (baseline `1444713822`), parse only qualifying individual source calls, and post source-faithful alert text followed by the same-message source chart. Text, charts, Board-link reads and edits, scanner and fatal heartbeats, and watchdog heartbeats use typed operations through the shared Discord Delivery Owner client with stable event and leg keys. A nonterminal send waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) for its stable operation receipt before the watcher advances to the next leg; an operation that remains pending is retried without creating a new message. After All delivery, submit a normalized source event through the board wrapper. Separate ordered board retries never block later All pairs. Every normal run requests one owner drain regardless of earlier degradation; pending, failed, malformed health, or nonzero exit degrades the heartbeat. This watcher never reads the board database, updates forum tags, posts forum content, calculates prices, uses an LLM, infers a chart, or writes to Telegram.
 - **Standalone `On support`:** Parse the source message as a status event. Route it to the Board as a Primary setup only when it identifies exactly one ticker, has a source timestamp, and includes an entry, stop-loss, and at least one target. Incomplete parsed messages remain status events, and the Discord notice retains the source status.
@@ -12,7 +15,7 @@ See `AGENTS.md` for the source policy, state transitions, and shared-resilience 
 - **Shared session:** use only `POLYCOP_SESSION_STRING` through `lib-telegram-resilience` and `~/.hermes/state/telegram-resilience-polyclop.json`. A safe probe or hold must not advance the Telegram cursor or mutate the outbox.
 - **Check:** set `IDX_SWING_WATCH_PHINTRACO_DAILY_NO_POST=1`, an isolated state path, and optional forced heartbeat for no-post verification. The scanner retains a cached source chart and its `pending_board` event until the owner acknowledges exactly `{"accepted": true}`; a board retry must never repeat an All text or chart. Do not replay state or manually trigger the scheduled job.
 - **Deployment:** after a clean published commit and approved VPS write, deploy `bin/`, synchronize this contract and the wrapper separately, compare checksums, and verify through an isolated no-post run followed by the natural scheduler record.
-- **Pilot handler:** `bin/pipeline_owner.py` accepts Phintraco source work using
+- **Shared source handler:** `bin/pipeline_owner.py` accepts Phintraco source work using
   this watcher's existing parser, outbox, renderer, and Board handoff, including
   durable chart and weekly PDF refs. It requires a validated live watch-config
   revision whose source matches the canonical endpoint, then activates that

@@ -6,8 +6,9 @@ user-invocable: false
 
 # WhatsApp source boundary
 
-The source runner reads the already durable bridge queue and returns the
-existing WhatsApp watcher's agent wake. On its first live poll, its fresh
+The active source runner, invoked by the existing
+`bursawatch-wa-channel-watch` job, reads the already durable bridge queue and
+returns the existing WhatsApp watcher's agent wake. On its first live poll, its fresh
 cursor records the queue high-water mark without reading old payloads. Later
 polls accept only arrivals after that boundary. It does not connect to
 WhatsApp, follow Channels, fetch history, or post source messages directly.
@@ -31,7 +32,7 @@ Keep all source event details and delivery behavior inside that watcher.
 INS and Samuel remain observe-only and never produce agent work.
 
 The old `(published_at, event_key)` cursor has no proven order-preserving
-mapping to the bridge queue's `(mtime_ns, filename)` position, so the live
+mapping to the bridge queue's `(mtime_ns, filename)` position, so the active
 reader starts forward-only and preserves the old state for rollback.
-`adapter.plan_legacy_cursor_seed` remains blocked. Do not run this adapter
-beside the legacy watcher source reader or replay retained queue history.
+`adapter.plan_legacy_cursor_seed` remains blocked. Do not start a second source
+poller or replay retained queue history.

@@ -1,26 +1,29 @@
-# RSS source ingest pilot
+# RSS source ingest
 
-This package supplements the repository `AGENTS.md`. It is an unscheduled,
-agent-backed Task 5 source adapter. Read `SKILL.md` before changing intake.
+This package supplements the repository `AGENTS.md`. It is the active,
+agent-backed Stockbit RSS source adapter. The existing Hermes job
+`cron-stockbit-snips` (job `0c6b17e4c944`, every 15 minutes at the 2026-09-29
+live check) runs its deployed wrapper. It does not have a second independent
+schedule. Read `SKILL.md` before changing intake.
 
 The only supported feeds are the four system-owned `config.FEEDS` Stockbit
 lanes. The adapter requires the existing Stockbit watcher's validated live
 configuration revision and exact catalog agreement for enabled lanes. It
 cannot accept an arbitrary RSS URL, new lane, or stale watcher config.
 
-The current Stockbit watcher remains the live source reader and owner of its
-versioned feed state, article queue, frozen settings, agent wake, rendering,
-routes, Delivery Owner handoff, and heartbeat. The RSS runner claims only
-`stockbit_snips` work and submits text-only articles through the existing
-Stockbit article owner. The owner binds the validated live configuration
-snapshot included when the source event was accepted. A retry with the same
-effect is idempotent; a legacy article collision or mismatched revision fails
-closed. The runner claims at most one Stockbit agent item per run and emits the
-existing bounded payload. This pilot has no production job. Do not reuse or
-rewrite live cursors or article state; a future cutover needs an exact queue
-and receipt inventory. A later intake revision mismatch does not prevent
-already accepted work from settling against its frozen snapshot. Never run the
-new reader beside the live source job.
+The RSS runner is the live source reader and owns endpoint polling, conditional
+validators, source cursors, and inbox acceptance. The Stockbit domain owner
+retains its article queue, frozen settings, agent wake, rendering, routes,
+Delivery Owner handoff, and heartbeat. The RSS runner claims only
+`stockbit_snips` work and submits text-only articles through that owner. The
+owner binds the validated live configuration snapshot included when the
+source event was accepted. A retry with the same effect is idempotent; a
+legacy article collision or mismatched revision fails closed. The runner
+claims at most one Stockbit agent item per run and emits the existing bounded
+payload. Do not re-enable a legacy RSS poller beside this active reader or
+reuse and rewrite live cursors or article state. A later intake revision
+mismatch does not prevent already accepted work from settling against its
+frozen snapshot.
 
 The adapter stores its own conditional HTTP validators per endpoint in
 `http-validators.json`. A 304 is an empty poll and does not move the source

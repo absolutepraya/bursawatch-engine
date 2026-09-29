@@ -3,15 +3,16 @@
 This package supplements the repository `AGENTS.md` and owns the development
 source for the agent-backed `cron-stockbit-snips` watcher.
 
-`cron-rss-source-ingest` is an unscheduled source and pipeline pilot for the
-same four fixed lanes. Its accepted source events carry a validated frozen
-snapshot of the live configuration. `bin/pipeline_owner.py` admits text-only
-articles to this watcher's existing article queue with durable source-work
-provenance. It rejects a conflicting legacy article or revision and claims
-only source-backed articles for the RSS runner's agent wake. This watcher
-retains the live source job, routes, rendering, Delivery Owner path, and
-heartbeat. The pilot cannot replace the live source job before a reviewed
-state inventory and exact output parity are proven.
+`cron-rss-source-ingest` is the active source adapter for the same four fixed
+lanes. The existing Hermes job `cron-stockbit-snips` (job `0c6b17e4c944`,
+every 15 minutes at the 2026-09-29 live check) runs that adapter's wrapper.
+There is no second RSS schedule. Accepted source events carry a validated
+frozen configuration snapshot. `bin/pipeline_owner.py` admits text-only
+articles to this watcher's article queue with durable source-work provenance.
+It rejects a conflicting legacy article or revision and claims only
+source-backed articles for the RSS runner's agent wake. This package retains
+the domain queue, routes, rendering, Delivery Owner path, and heartbeat. Do not
+re-enable the legacy direct RSS poller beside the active adapter.
 
 ## Boundary
 

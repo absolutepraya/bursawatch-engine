@@ -8,7 +8,12 @@ The watcher forwards individual Phintraco IDX buy recommendations, qualifying ou
 
 ## Runtime, scheduler, and ownership
 
-The cutover renames active no-agent job `2b5c0a128652` to `bursawatch-tg-phintraco-swing`, retaining `* * * * *` (WIB). Hermes then runs `bursawatch-tg-phintraco-swing.sh` and delivers raw output to `#hermes` (`1505162000420835388`).
+The standalone no-agent job `2b5c0a128652` remains registered but was paused
+at the 2026-09-29 live check. The active reader is shared Telegram source job
+`bursawatch-tg-source-ingest` (`262b25371e83`, every minute), which passes
+accepted Phintraco work to this package's `pipeline_owner.py`. Do not resume
+the direct scanner beside that source reader. The standalone wrapper and its
+`CRON.md` describe the retained deterministic scanner contract.
 
 The source is Phintraco Sekuritas Official Telegram channel `1444713822`. Alerts go directly to `#id-stocks-swing` (`1525102458253217803`); the channel is also a destination for `cron-x-account-watch`'s `id_stock_swing` route, which delivers source-grounded X technical analyses in its own format. Operational heartbeats and fatal notices go directly to `#hermes`. Production state, media, lock, and watchdog notices retain their established locations through the first cutover.
 
@@ -84,18 +89,18 @@ Deploy only a clean published commit with `./deploy.sh cron-tg-phintraco-swing`,
 
 ## Historical references and related projects
 
-The Telegram source-ingest pilot adds `bin/pipeline_owner.py` for source work. It
-reuses this watcher's parser, outbox, renderer, and Board handoff. The owner
-requires a validated live watch-config revision and activates that frozen source
-and route snapshot before opening its ledger or delivering. Its source identity
-must still match the canonical pilot endpoint; there is no default-config
-fallback in this path. For individual charts and weekly PDF documents, the owner
-retrieves opaque refs through `lib-bursawatch-source-media`, verifies size and
-digest, and places the bytes into the existing private source-media handoff.
-Weekly PDF work uses the attachment's original publication timestamp and the
-existing adjacent All text/chart and accepted Board delivery sequence. Durable
-effect receipts are written only after the relevant All and Board work is
-complete. The existing scheduled reader stays active; this handler is not a
-cutover signal.
+The active Telegram source runner uses `bin/pipeline_owner.py` for accepted
+Phintraco work. It reuses this watcher's parser, outbox, renderer, and Board
+handoff. The owner requires a validated live watch-config revision and
+activates that frozen source and route snapshot before opening its ledger or
+delivering. Its source identity must still match the canonical endpoint; there
+is no default-config fallback in this path. For individual charts and weekly
+PDF documents, the owner retrieves opaque refs through
+`lib-bursawatch-source-media`, verifies size and digest, and places the bytes
+into the existing private source-media handoff. Weekly PDF work uses the
+attachment's original publication timestamp and the existing adjacent All
+text/chart and accepted Board delivery sequence. Durable effect receipts are
+written only after the relevant All and Board work is complete. This handler
+is part of the shared source runtime, not a separately scheduled reader.
 
 This is a Phintraco-specific parser. Future providers require independent source validation. Root `AGENTS.md` and `lib-telegram-resilience/README.md` define the shared session and control-plane contract.

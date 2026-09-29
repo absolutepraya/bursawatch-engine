@@ -6,10 +6,19 @@ This file supplements the repository root `AGENTS.md`. It is the development and
 
 The watcher is a future-only intake for completed `#GTW` bundles from public Telegram channel `@kelasinvestasiid` (source ID `2142109618`). Development source is this directory; the deployed runtime is `~/.agents/skills/bursawatch-tg-kelas-investasi-gtw/` and the wrapper is `~/.hermes/scripts/bursawatch-tg-kelas-investasi-gtw.sh`. Those values are reviewed static defaults until the opt-in live control plane is enabled.
 
-The deterministic scanner owns source filtering, ascending message-ID cursoring, bundle closure, image capture, retry state, and Discord delivery. Hermes receives only one completed bundle and returns a validated Indonesian title and summary. It never posts to Telegram or Discord directly, trades, evaluates a source thesis, forwards promotions, or backfills historical signals.
+The legacy standalone scanner owns direct Telegram polling and retains the
+package's original bundle-processing path. Production Telegram intake now
+comes from the shared source runner, which passes accepted work to this
+package's `pipeline_owner.py`. That owner uses the existing bundle parser,
+media checks, agent lease, Delivery Owner, and Board handoff. Hermes receives
+only one completed bundle and returns a validated Indonesian title and
+summary. It never posts to Telegram or Discord directly, trades, evaluates a
+source thesis, forwards promotions, or backfills historical signals.
 
-`bin/pipeline_owner.py` is the development-only `swing_support` entry point for
-the shared Telegram source pilot. It accepts only inbox-acknowledged work from
+`bin/pipeline_owner.py` is the `swing_support` entry point used by the active
+shared Telegram source job `bursawatch-tg-source-ingest` (job
+`262b25371e83`, every minute at the 2026-09-29 live check). It accepts only
+inbox-acknowledged work from
 the verified Kelas endpoint. The adapter includes the previous accepted
 Telegram message ID and the original bootstrap high-water mark in each event.
 An empty owner state initializes only from that original mark, and every
@@ -24,7 +33,7 @@ local image for its existing delivery and Board contracts.
 The owner checks the exact inbox event key, version-one effect key, and work
 key on every call, including retries. The existing watcher state has no
 per-message revision ledger, so source-event corrections require a separate
-reviewed design and are outside this pilot.
+reviewed design outside the current source pipeline contract.
 
 The pipeline interface is one source work object on stdin, read-only
 `--agent-status` for a single ready key and source timestamp, `--claim-agent`
@@ -32,11 +41,10 @@ for at most one `{wakeAgent,item}` response, and `--submit-analysis <JSON>`
 for a matching claimed bundle. The platform runner can compare ready owners
 before claiming exactly one agent item. These operations require one live,
 frozen Kelas watch configuration revision. They use
-`KELAS_INVESTASI_GTW_STATE_PATH` as the
-only Kelas domain ledger. The pilot has no Hermes job and must not run against
-the live watcher while the old source reader is active. A reviewed cutover must
-align the adapter's bootstrap cursor with the existing watcher state before
-claiming Kelas work. No-post pipeline verification requires an isolated state
+`KELAS_INVESTASI_GTW_STATE_PATH` as the only Kelas domain ledger. The old
+standalone Kelas job `c5844b3c21a0` is registered but paused at the live check.
+Do not resume its direct reader beside shared source intake or reset/reseed its
+production ledger. No-post pipeline verification requires an isolated state
 and media root and `BURSAWATCH_TG_SOURCE_NO_POST=1`.
 
 ## Source and bundle boundary
@@ -57,12 +65,13 @@ The Hermes wrapper is `~/.hermes/scripts/bursawatch-tg-kelas-investasi-gtw.sh`. 
 
 The typed control-plane payload has only `source.telegram_channel_id`, `source.telegram_username`, `destinations.alert_discord_channel_id`, `destinations.heartbeat_discord_channel_id`, and an `additional_prompt_instruction` capped at 800 normalized characters. Each run reads one snapshot before it opens Telegram or mutates local state. A live-mode fetch or validation failure fails closed and never silently reuses a local copy. Cursors, leases, pending bundles, outbox phases, retry/backoff, media, board wrapper paths, parser grammar, agent schema, and shared resilience state are not web configuration.
 
-The separate desired-schedule catalog identifies the registered Hermes job as
-`bursawatch-tg-kelas-investasi-gtw`. Its verified hourly baseline may be changed
-by an administrator to any five-minute to six-hour interval, or paused, as
-durable intent only. It remains pending until the future trusted VPS reconciler
-uses the Hermes CLI and reports the applied revision. A stored request cannot
-change Telegram credentials, shared resilience behavior, or Board delivery.
+The desired-schedule catalog currently records
+`bursawatch-tg-kelas-investasi-gtw` as disabled at a 60-minute interval,
+revision 4. Reconciliation is marked applied, matching the paused standalone
+Hermes job at the 2026-09-29 live check. New schedule requests remain pending
+until the trusted VPS reconciler applies them through the Hermes CLI. They
+cannot change Telegram credentials, shared resilience behavior, or Board
+delivery.
 
 ## Agent submission and delivery
 

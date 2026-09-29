@@ -5,21 +5,15 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 NO_AGENT_CRONS = {
-    "cron-dc-swing-board", "cron-tg-phintraco-swing",
-}
-UNSCHEDULED_NO_AGENT_CRONS = {
-    "cron-x-source-ingest",
-}
-UNSCHEDULED_AGENT_BACKED_CRONS = {
-    "cron-tg-source-ingest", "cron-ig-source-ingest",
-    "cron-wa-source-ingest", "cron-rss-source-ingest",
+    "cron-dc-swing-board", "cron-tg-phintraco-swing", "cron-x-source-ingest",
 }
 AGENT_BACKED_CRONS = {
     "cron-tg-market-news", "cron-tg-kelas-investasi-gtw",
     "cron-ig-account-watch", "cron-wa-channel-watch", "cron-x-account-watch",
-    "cron-stockbit-snips",
+    "cron-stockbit-snips", "cron-tg-source-ingest", "cron-ig-source-ingest",
+    "cron-wa-source-ingest", "cron-rss-source-ingest",
 }
-ALL_CRONS = NO_AGENT_CRONS | UNSCHEDULED_NO_AGENT_CRONS | UNSCHEDULED_AGENT_BACKED_CRONS | AGENT_BACKED_CRONS
+ALL_CRONS = NO_AGENT_CRONS | AGENT_BACKED_CRONS
 REDUNDANT_ROOT_DOCS = {
     "README.md", "SPEC.md", "DEPLOY.md", "DESIGN.md", "PLAN.md",
     "PROFILE_CONFIGURATION.md", "CRON_PROMPT.md",
@@ -38,7 +32,7 @@ DEPLOYMENT_ONLY_SCHEDULER_PATTERNS = (
     re.compile(r"\b(?:create|add|enable|reschedule|retarget)\s+(?:an?\s+)?(?:Hermes\s+)?(?:cron|schedule)\b", re.I),
     re.compile(r"\bHermes starts an interval\b", re.I),
 )
-README_CRON_TABLE_HEADER = "| Development package | Runtime identity | What it is |"
+README_CRON_TABLE_HEADER = "| Development package | Runtime identity | What it is | Production schedule state |"
 
 
 def root_markdown_names(cron: str) -> set[str]:
@@ -78,7 +72,7 @@ def readme_cron_inventory() -> set[str]:
 def test_cron_classification_is_complete_and_disjoint() -> None:
     assert NO_AGENT_CRONS.isdisjoint(AGENT_BACKED_CRONS), "cron classes overlap"
     assert "cron-dc-swing-board" in NO_AGENT_CRONS
-    assert len(NO_AGENT_CRONS | AGENT_BACKED_CRONS) == 8, "update the scheduled cron classification"
+    assert len(NO_AGENT_CRONS) == 3, "update the deterministic package classification"
     assert len(ALL_CRONS) == 13, "update the reviewed cron package classification"
     assert all((ROOT / cron).is_dir() for cron in ALL_CRONS), "missing cron source directory"
     assert readme_cron_inventory() == ALL_CRONS, (
@@ -91,7 +85,7 @@ def test_cron_root_document_shape() -> None:
         markdown_names = root_markdown_names(cron)
         assert "AGENTS.md" in markdown_names, f"{cron}: missing AGENTS.md"
 
-        if cron in NO_AGENT_CRONS | UNSCHEDULED_NO_AGENT_CRONS:
+        if cron in NO_AGENT_CRONS:
             assert "CRON.md" in markdown_names, f"{cron}: missing no-agent CRON.md"
             assert "SKILL.md" not in markdown_names, f"{cron}: no-agent cron has SKILL.md"
         else:
@@ -150,12 +144,29 @@ def test_agent_backed_agents_documents_keep_reviewed_governance_anchors() -> Non
 
 
 def test_agent_backed_skills_exclude_deployment_only_scheduler_instructions() -> None:
-    for cron in AGENT_BACKED_CRONS | UNSCHEDULED_AGENT_BACKED_CRONS:
+    for cron in AGENT_BACKED_CRONS:
         text = (ROOT / cron / "SKILL.md").read_text(encoding="utf-8")
         for pattern in DEPLOYMENT_ONLY_SCHEDULER_PATTERNS:
             assert not pattern.search(text), (
                 f"{cron}: SKILL.md contains deployment-only scheduler instruction {pattern.pattern!r}"
             )
+
+
+def test_repository_child_instruction_index_matches_tracked_guides() -> None:
+    root_text = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    section = root_text.split("## Child instructions", 1)[1].split("\n## ", 1)[0]
+    listed = set(re.findall(r"^- `([^`]+/AGENTS\.md)`$", section, re.M))
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z", "**/AGENTS.md"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+    ).stdout.decode().split("\0")
+    expected = {path for path in tracked if path and path != "AGENTS.md"}
+    assert listed == expected, (
+        f"root AGENTS.md child index differs: missing={sorted(expected - listed)}, "
+        f"stale={sorted(listed - expected)}"
+    )
 
 
 def test_bursawatch_presentation_spelling_is_canonical() -> None:

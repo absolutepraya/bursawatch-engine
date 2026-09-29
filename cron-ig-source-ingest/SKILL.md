@@ -28,8 +28,10 @@ through the existing watcher wrapper:
 ```
 
 Do not fetch Instagram, inspect history, access watcher state, or post to
-Discord directly. This package has no registered production job or wrapper;
-the existing watcher remains the active source reader until cutover.
+Discord directly. This adapter has no registered production job. The legacy
+`bursawatch-ig-account-watch` job is paused as of the 2026-09-29 live check;
+do not describe either package as active source intake until a reviewed
+schedule change is applied.
 
 `adapter.plan_legacy_cursor_seed` previews a per-profile cursor seed from an
 explicit legacy JSON snapshot. The Python API defaults to preview. Applying
