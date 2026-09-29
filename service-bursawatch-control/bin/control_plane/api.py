@@ -371,7 +371,10 @@ def create_app(
         current = catalog_store.get()
         return effective_snapshot(current["config"], catalog_view(current["config"], catalog_store.registry()), current["revision"], current["updated_at"])
 
-    def component_inventory_view(component_id: str) -> dict[str, Any]:
+    def component_inventory_view(
+        component_id: str,
+        catalog_gate_state: tuple[int, list[dict[str, Any]]] | None = None,
+    ) -> dict[str, Any]:
         try:
             result = component_view(component_id)
         except KeyError as exc:
@@ -384,17 +387,20 @@ def create_app(
             "bursawatch-rss-source-ingest": "rss",
         }.get(component_id)
         if platform is not None:
-            current = catalog_store.get()
-            resolved = effective_snapshot(
-                current["config"],
-                catalog_view(current["config"], catalog_store.registry()),
-                current["revision"],
-                current["updated_at"],
-            )
-            subscriptions = [row for row in resolved["subscriptions"] if row["platform"] == platform]
+            if catalog_gate_state is None:
+                current = catalog_store.get()
+                resolved = effective_snapshot(
+                    current["config"],
+                    catalog_view(current["config"], catalog_store.registry()),
+                    current["revision"],
+                    current["updated_at"],
+                )
+                catalog_gate_state = (current["revision"], resolved["subscriptions"])
+            catalog_revision, all_subscriptions = catalog_gate_state
+            subscriptions = [row for row in all_subscriptions if row["platform"] == platform]
             capability_ids = sorted({row["capability_id"] for row in subscriptions})
             result["source_gate"] = {
-                "catalog_revision": current["revision"],
+                "catalog_revision": catalog_revision,
                 "capabilities": [
                     {
                         "capability_id": capability_id,
@@ -410,9 +416,20 @@ def create_app(
 
     @app.get("/v1/components")
     def get_components(_current: Principal = Depends(human_reader)) -> dict[str, Any]:
+        current = catalog_store.get()
+        resolved = effective_snapshot(
+            current["config"],
+            catalog_view(current["config"], catalog_store.registry()),
+            current["revision"],
+            current["updated_at"],
+        )
+        catalog_gate_state = (current["revision"], resolved["subscriptions"])
         return {
             "inventory_version": 1,
-            "components": [component_inventory_view(item.component_id) for item in list_components()],
+            "components": [
+                component_inventory_view(item.component_id, catalog_gate_state)
+                for item in list_components()
+            ],
         }
 
     @app.get("/v1/components/{component_id}")
