@@ -463,6 +463,7 @@ def _persist_text_payload(
             "nonce": nonce,
             "enforce_nonce": True,
             "channel_id": channel_id,
+            "required_operation_keys": [_operation_key(event_key, "text")],
             "text_discord_id": None,
             "image_discord_id": None,
             "image_error": None,
@@ -674,6 +675,9 @@ async def deliver_event(
     if message_id is None:
         return False
     _store_handoff_receipt(state, item, latest)
+    from publication_projection import record_news_intent
+
+    record_news_intent(state, item, now)
     _mark_text_delivered(state, items, message_id, now)
     return True
 
@@ -771,6 +775,9 @@ async def deliver_stock_status_event(
         return False
 
     _store_stock_status_handoff(event, latest)
+    from publication_projection import record_stock_status_intent
+
+    record_stock_status_intent(state, event_key, now)
     mark_stock_status_delivered(state, event_key, message_id, now)
     state["last_delivery_success"] = now.isoformat()
     save_state(state)

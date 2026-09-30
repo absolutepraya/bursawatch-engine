@@ -158,3 +158,26 @@ Run focused intake, selection, delivery, state, wrapper, and agent-submission te
 ## Discord delivery receipt wait
 
 After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.
+
+## Published Feed projection contract
+
+The Market News owner records a publication only after every required
+Delivery Owner leg has a durable `delivered` receipt matching its operation
+key, payload digest, destination, and Discord message ID. Persist the exact
+rendered output, stable owner key, source event identity, and pending
+projection intent in the existing owner state before marking the candidate or
+stock-status event delivered. The text leg's operation key is retained in the
+delivery payload's `required_operation_keys`; a future additional leg must be
+added to that owner-owned list and have its own confirmed receipt before the
+snapshot can be accepted.
+
+Projection drains use the shared `PublicationClient` and retry only the frozen
+snapshot until the Control Plane acknowledges its publication ID, version,
+and digest. Projection failure leaves the intent pending and must not submit a
+new Discord operation. Each acknowledged intent stays in the owner ledger so
+the checkpoint can report the latest confirmed boundary, contiguous accepted
+boundary, and outstanding count. The writer stays disabled unless
+`BURSAWATCH_TG_MARKET_NEWS_PUBLICATION_ENABLED=1`; enabling it is paired with
+the recorded forward-only feed cutover. Its URL and scoped token file use
+`BURSAWATCH_PUBLICATION_CONTROL_PLANE_URL` and
+`BURSAWATCH_TG_MARKET_NEWS_PUBLICATION_TOKEN_FILE`.

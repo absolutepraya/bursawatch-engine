@@ -269,9 +269,15 @@ def submit_stock_status(work: dict[str, Any], *, no_post: bool = False) -> str:
                     reject_stock_status(state, message_id, envelope["source_url"], code, now)
                     save_state(state)
                     return "rejected"
-                enqueue_stock_status(state, parsed, envelope["source_url"], loaded.config.id_stocks_news_channel_id, content, now)
+                enqueue_stock_status(
+                    state, parsed, envelope["source_url"],
+                    loaded.config.id_stocks_news_channel_id, content, now,
+                    source_event_key=work["event_key"],
+                    config_revision=loaded.revision,
+                )
                 save_state(state)
             asyncio.run(scan._drain_stock_status_events(state, now, no_post))
+            scan._drain_publications(state, now, dry_run=no_post)
             key = f"phintraco-stock-status:{message_id}"
             record = state["stats"]["stock_status_events"][key]
             if record["phase"] == "pending_delivery":
