@@ -159,6 +159,12 @@ def test_rss_source_ingest_resolves_as_an_installable_runtime():
     units = manifest().matching_units(["cron-rss-source-ingest/bin/runner.py"])
     by_id = {unit.identifier: unit for unit in units}
     runtime = by_id["cron-rss-source-ingest-pilot"]
+    transition_units = manifest().matching_units([
+        "cron-rss-source-ingest/bin/compatible_catalog_transition.py",
+    ])
+    source_library_units = manifest().matching_units([
+        "lib-bursawatch-source-ingest/bin/legacy_cursor_seed.py",
+    ])
 
     assert runtime.handler == "runtime"
     assert runtime.runtime == "bursawatch-rss-source-ingest"
@@ -171,6 +177,12 @@ def test_rss_source_ingest_resolves_as_an_installable_runtime():
         "lib-bursawatch-source-ingest-pilot",
         "cron-stockbit-snips",
     } <= set(by_id)
+    assert "cron-rss-source-ingest-pilot" in {
+        unit.identifier for unit in transition_units
+    }
+    assert "lib-bursawatch-source-ingest-pilot" in {
+        unit.identifier for unit in source_library_units
+    }
 
 
 def test_telegram_source_ingest_no_post_is_synthetic_and_has_no_secret_environment(tmp_path: Path):

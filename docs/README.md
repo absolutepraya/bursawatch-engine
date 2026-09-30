@@ -43,6 +43,12 @@ source media. Its service contract and shared client live in
 and [`lib-bursawatch-source-media/README.md`](../lib-bursawatch-source-media/README.md).
 The service and its initial host bootstrap remain manual rollout boundaries.
 
+The current Stockbit RSS reader and catalog-transition contract is maintained
+in [`cron-rss-source-ingest/AGENTS.md`](../cron-rss-source-ingest/AGENTS.md)
+and [`cron-rss-source-ingest/SKILL.md`](../cron-rss-source-ingest/SKILL.md).
+The approved design and implementation sequence below preserve rationale and
+scope; refresh the production snapshot and state before any live transition.
+
 The platform source migration inventory documents checked-in endpoint and state
 ownership contracts, plus the read-only evidence needed before a production
 cutover. It is not a live inventory; exact cursors, queues, receipts, and Hermes
