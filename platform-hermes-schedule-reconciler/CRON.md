@@ -3,9 +3,11 @@
 ## Purpose
 
 The reconciler makes an approved Bursawatch desired interval schedule effective
-on the VPS. It is a host-bound maintenance runner intended for a future,
-separately reviewed systemd timer. The timer must run independently of Hermes
-cron, so the reconciler does not depend on, or modify, its own scheduler.
+on the VPS. It runs from a host-bound systemd timer, independently of Hermes
+cron. The timer was enabled and active in a production read at 2026-10-01
+00:35 WIB, with its last trigger at 00:35:23 WIB. Its one-shot service was
+inactive with `Result=success`. The production snapshot at 00:35:38 WIB showed
+all eight desired interval schedules matching the live registry.
 
 ## Controlled data flow
 
@@ -34,7 +36,7 @@ state.
 
 ## Environment
 
-The future VPS wrapper loads only these values from `~/.hermes/.env`:
+The VPS wrapper loads only these values from `~/.hermes/.env`:
 
 ```text
 BURSAWATCH_SCHEDULE_RECONCILER_CONTROL_PLANE_URL=https://<control-plane-host>
@@ -52,15 +54,16 @@ or this repository. The service-side environment name is
 `CONTROL_PLANE_RECONCILER_TOKEN`; it is intentionally distinct from the cron
 machine credential.
 
-## Planned timer
+## Live timer
 
-The reviewed future systemd templates are under `deployment/systemd/`. The
-timer runs at most once per minute with a small randomized delay. It must not
-be installed until the control-plane API has passed local and public health
-checks, and its first invocation must set
-`BURSAWATCH_SCHEDULE_RECONCILER_DRY_RUN=1`. The systemd timer removes no state
-when disabled or removed; removing its worktree only removes the deployment
-source, not a live unit.
+The source templates are under `deployment/systemd/`. The active timer runs
+independently of Hermes cron and applies current desired revisions through the
+supported Hermes CLI. A Hermes-only pause can be undone when desired state
+still says enabled. Temporary pauses must update desired state at the same
+interval through the authenticated admin schedule interface; restore the
+original enabled state after maintenance and verify the applied revision.
+Do not start the service or timer manually as a smoke test. A natural timer
+pass is the accepted verification.
 
 ## Safe operation
 
@@ -70,8 +73,8 @@ Run the package tests before any deployment review:
 ../.venv/bin/python -m pytest -q platform-hermes-schedule-reconciler/tests
 ```
 
-The first VPS check must use dry-run mode. It reads the API and registry, shows
-the planned actions, does not invoke Hermes CLI, and does not report an outcome:
+The dry-run mode reads the API and registry, shows planned actions, does not
+invoke Hermes CLI, and does not report an outcome:
 
 ```bash
 BURSAWATCH_SCHEDULE_RECONCILER_DRY_RUN=1 \
@@ -80,5 +83,5 @@ BURSAWATCH_SCHEDULE_RECONCILER_DRY_RUN=1 \
 
 Do not deploy this package, create or enable a timer, manually run it without
 dry-run mode, pause or resume a live job, or change a schedule without explicit
-current-chat approval. A natural timer pass after approved deployment is the
-only accepted scheduler smoke test.
+current-chat approval. A natural timer pass after an approved desired-schedule
+change is the only accepted scheduler smoke test.

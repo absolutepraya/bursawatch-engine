@@ -8,7 +8,7 @@
 
 **Architecture:** Keep Telegram's existing one-edge compatibility command unchanged and apply it for 5 to 6 and 6 to 7. Add an RSS-owned one-edge preview/apply command that proves the complete enabled Stockbit projection is unchanged, uses the shared source-state planner in revision-only mode, and validates each legacy seed's immutable revision-4 origin through a complete journal chain before polling.
 
-**Tech Stack:** Python 3, pytest, JSON catalog snapshots and state, the shared Bursawatch source-ingest library, Hermes scheduler CLI, and the VPS Bursawatch release agent.
+**Tech Stack:** Python 3, pytest, JSON catalog snapshots and state, the shared Bursawatch source-ingest library, Control Plane desired-schedule revisions, the VPS Hermes schedule reconciler, and the Bursawatch release agent.
 
 **Spec:** [docs/superpowers/specs/2026-09-30-bursawatch-catalog-transition-recovery-design.md](../specs/2026-09-30-bursawatch-catalog-transition-recovery-design.md)
 
@@ -246,7 +246,7 @@ git commit -m "docs: record catalog transition runtime contract"
 - RSS transition owner: `cron-rss-source-ingest/bin/compatible_catalog_transition.py`, one edge per preview/apply, RSS guard `BURSAWATCH_RSS_CATALOG_TRANSITION_ALLOW_APPLY=1`.
 - The current recorded production marker observations are Telegram 5 and RSS 4 against catalog 7. They are historical evidence only. The latest snapshot at 21:19 WIB on 2026-09-30 showed both jobs active, desired schedules matched, and the release agent blocked with CI pending; all must be refreshed before rollout.
 
-- [ ] **Step 1: Run focused tests and synthetic release verification**
+- [x] **Step 1: Run focused tests and synthetic release verification**
 
 Run:
 
@@ -261,25 +261,45 @@ bash scripts/test-all
 
 Expected: all checks pass; synthetic RSS verification reports `network=false`, `secrets=false`, and `writes=false`. Do not poll or wait for GitHub CI; inspect its exact result only when needed for the chosen release path.
 
-- [ ] **Step 2: Prepare the implementation branch for publication**
+- [x] **Step 2: Prepare the implementation branch for publication**
 
 Commit the reviewed source and documentation changes and push the worktree branch with `git push -u origin absolutepraya/bug-squashing`. Carry the branch through the repository's normal reviewed publication path, but do not make it eligible for automatic production release yet. Do not edit `main` directly or bypass the exact-current-main-SHA CI and release-agent checks.
 
-- [ ] **Step 3: Refresh production evidence and verify the reviewed boundary**
+- [x] **Step 3: Refresh production evidence and verify the reviewed boundary**
 
-Before the production window, run `python3 scripts/production_snapshot.py --production`. Read current catalog revisions 4 through 7 and confirm the exact unchanged Telegram and Stockbit projections. Read the current state markers, RSS watch-config revision, all four RSS cursor seeds, validators, and transition journals. Record accepted owner-work and lease counts so apply can prove it left them unchanged; they do not need to be empty. Stop if any projection, state marker, provenance, or job identity differs from the reviewed design.
+Before the production window, run `python3 scripts/production_snapshot.py --production`. Read current catalog revisions 4 through 7 and confirm the exact unchanged Telegram and Stockbit projections. Read the current state markers, RSS watch-config revision, all four RSS cursor seeds, validators, and transition journals. Record accepted owner-work and lease counts so apply can prove it left them unchanged; they do not need to be empty. Also inspect `bursawatch-schedule-reconciler.timer` and the desired schedule revisions. Stop if any projection, state marker, provenance, job identity, cadence, or destination differs from the reviewed design.
 
-- [ ] **Step 4: Archive both reader state roots**
+**Verified 2026-10-01 00:53 to 00:54 WIB:** catalog revision 7 remains current. Revisions 4 through 7 have identical enabled Telegram projection SHA-256
+`b77cec55af0baf547c3cd65027abbee14e8c0c05ed28700463fdcb02757be810`, identical four-row RSS projection SHA-256
+`307835c8f98403433a024e136101392be01c1a66a5fe13670dfe70815cd2550d`, and selected-security SHA-256
+`4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945`. Telegram has 212 accepted work
+rows, all done, and no active lease; RSS has no accepted work rows. State markers remain Telegram 5, RSS 4,
+and Stockbit watcher config 1. The four RSS seeds remain at immutable origin revision 4 with a shared
+legacy-state digest; all four validator files parse, and no RSS transition journals exist.
 
-Before any live state write, archive both complete reader state roots with SHA-256 inventories under `~/backup/hermes/runtime-cutovers/<YYYY-MM-DD>/bursawatch-tg-source-ingest/` and `.../bursawatch-rss-source-ingest/`. Verify the archive checksums against the live trees. Keep the archives private and for at least 30 days.
+- [x] **Step 4: Pause both writers through desired schedule state**
 
-- [ ] **Step 5: Pause the writers before the exact-main release**
+The VPS schedule-reconciler timer was active in the 2026-10-01 00:35 WIB snapshot. Before pausing, refresh that status. For Telegram job `bursawatch-tg-source-ingest` and Stockbit Control Plane job `bursawatch-stockbit-snips` (Hermes name `cron-stockbit-snips`), use the authenticated admin schedule interface to store `enabled=false` at each existing interval and timezone. This temporary desired-state change is authorized for this rollout. Let the natural reconciler pass apply each revision, then verify `applied_revision`, paused Hermes state, unchanged interval and delivery configuration, and no run in flight. A direct `hermes cron pause` while desired state remains enabled can be undone by the next timer pass.
 
-Using the supported Hermes CLI, temporarily pause the current Telegram source-ingest and Stockbit RSS jobs before the reviewed change becomes an eligible `main` SHA. Verify both report paused and have no run in flight. Keep their existing cadence and destinations unchanged. Do not alter scheduler registry entries outside the temporary pause and resume.
+**Verified 2026-10-01 00:53 WIB:** Telegram desired revision 2 and Stockbit desired revision 6 are applied and
+effective, both disabled at their original 60-second and 900-second intervals in `Asia/Jakarta`. The
+production snapshot reports 6 active and 7 paused Hermes jobs, with all eight desired schedules matching.
+No source-reader process was found, and the last runs were `ok`.
+
+- [x] **Step 5: Archive both quiescent reader state roots**
+
+After both writers are paused and no run is in flight, archive their complete source-state roots with SHA-256 inventories under `~/backup/hermes/runtime-cutovers/<YYYY-MM-DD>/bursawatch-tg-source-ingest/` and `.../bursawatch-rss-source-ingest/`. Verify the archive checksums against the quiescent live trees before any catalog marker or journal write. Keep the archives private for at least 30 days.
+
+**Verified 2026-10-01 00:54 WIB:** private archives and SHA-256 inventories are stored under
+`~/backup/hermes/runtime-cutovers/2026-10-01/`. The Telegram archive contains 13 files and has archive
+SHA-256 `c04df46e07d0ff179c7527493d506534f72046e38da66a22c0fed2836edd7ee9`; the RSS archive contains
+11 files and has archive SHA-256 `ec3a31b1e8d1d912a04600d51b7515e3155a303afda0e55cc34dadc6777e9fb0`.
+Both archive members matched the complete live-tree SHA-256 inventories. Archive directories are mode
+`0700`; files are mode `0600`. No catalog marker or transition journal was changed.
 
 - [ ] **Step 6: Publish and verify the exact-main release**
 
-Carry the branch through the normal reviewed main publication path. Let CI and the release agent process the exact current main SHA, then verify the shared source-ingest library and RSS source-ingest runtime checksums plus each isolated no-post result before applying state. Do not poll or wait on a pending CI run; continue independent read-only preparation or end the turn, leaving jobs paused until the result is ready. If CI or release fails before state apply, resume both jobs through the supported scheduler path and stop without changing source state.
+Carry the branch through the normal reviewed main publication path. Let CI and the release agent process the exact current main SHA, then verify the shared source-ingest library and RSS source-ingest runtime checksums plus each isolated no-post result before applying state. Do not poll or wait on a pending CI run; continue independent read-only preparation or end the turn, leaving jobs paused until the result is ready. If CI or release fails before state apply, restore both desired schedules to enabled at their original intervals and timezones, verify natural reconciliation, then stop without changing source state.
 
 - [ ] **Step 7: Apply the package-owned catalog transitions**
 
@@ -289,7 +309,7 @@ If an apply is interrupted, resume only with its exact plan and complete journal
 
 - [ ] **Step 8: Resume schedules and observe natural runs**
 
-Resume the two existing jobs through the supported Hermes CLI after both transition chains are complete. Confirm desired cadence and destinations are unchanged. Observe their next natural scheduled runs without manually triggering either job or sending a test message. Verify the readers pass their catalog gates and record fetched/accepted counts, owner work progress, and Delivery Owner receipts where new work exists.
+After both transition chains are complete, restore the two existing desired schedules to enabled at their original intervals and timezones through the authenticated admin schedule interface. Let the natural reconciler pass apply each revision and verify the paused state clears while cadence and delivery configuration remain unchanged. Observe the next natural scheduled runs without manually triggering either job or sending a test message. Verify the readers pass their catalog gates and record fetched/accepted counts, owner work progress, and Delivery Owner receipts where new work exists.
 
 For Telegram, observe whether due owner work drains naturally. If it remains due after compatibility is restored, keep runner order out of scope and open the separate lease/model/owner-state diagnosis agreed in the design. A clean schedule heartbeat without new source content is not proof of a new source-to-delivery event; report that limit explicitly.
 

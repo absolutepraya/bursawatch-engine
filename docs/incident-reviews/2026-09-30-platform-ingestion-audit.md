@@ -9,6 +9,14 @@
 
 Recheck live state before acting. The original source-state observations were collected mainly between 16:20 and 17:03 WIB. Adjacent-service checks ran between 17:35 and 17:40 WIB. Read-only production snapshots ran at 17:22:56 and 17:40:17 WIB. Runtime state may have changed since then.
 
+## Follow-up: temporary schedule control
+
+- A production snapshot at 00:35:38 WIB on 2026-10-01 showed both source writers active and all eight desired schedules matching. A direct systemd read found `bursawatch-schedule-reconciler.timer` enabled and active, last triggered at 00:35:23 WIB, with its one-shot service inactive and `Result=success`.
+- A Hermes CLI pause alone did not remain in effect because the desired Control Plane schedules still had `enabled=true`. The reconciler resumes an allowlisted job when its live enabled state differs from that desired value. Both jobs were active again in the refreshed snapshot. Temporary maintenance pauses must be recorded as disabled desired revisions at the same interval, then restored to enabled through the authenticated schedule interface and verified after natural reconciliation.
+- The catalog transition plan now pauses through desired schedule revisions, verifies no run is in flight, and archives reader state only after both writers are quiescent.
+- At 00:53 WIB on 2026-10-01, desired revisions 2 and 6 were applied for Telegram and Stockbit, respectively. Both jobs are paused at their existing one-minute and fifteen-minute intervals. A fresh production snapshot showed 6 active and 7 paused jobs, all eight desired schedules matching, and the release agent still blocked on pending CI. No source-reader process was present. The paused-state read found 212 Telegram inbox work rows, all done with no active lease, and no RSS work rows.
+- Complete Telegram and RSS reader-state archives with SHA-256 inventories were verified under `~/backup/hermes/runtime-cutovers/2026-10-01/`. Their directories are private and the archives are retained for at least 30 days. No catalog marker or transition journal has been changed; application remains gated on the exact-main release.
+
 ## Executive summary
 
 The four reported symptoms do not share one cause. Confirmed current issues at the time of inspection were:
