@@ -40,7 +40,7 @@ The backend read contract lands before owner writers. Owner writers may be deplo
 
 ## Fast execution path
 
-**Model assignment:** The primary agent remains GPT-6 Sol and owns shared contracts, integration decisions, and final verification. Every spawned subagent, including implementers and reviewers, must use GPT-6 Luna.
+**Model assignment:** The primary agent uses GPT-6 Luna and owns shared contracts, integration decisions, and final verification. Every spawned subagent, including implementers and reviewers, must also use GPT-6 Luna.
 
 Implement this plan in the same managed integration branch as the operator-workspace plan, after its migration `019` and shared component/job API shapes are fixed. The task numbers below are a coverage checklist, not 14 serial agent handoffs or deployments. The primary implementer owns Control Plane, shared client, API security, and final integration; subagents work in isolated package scopes.
 
