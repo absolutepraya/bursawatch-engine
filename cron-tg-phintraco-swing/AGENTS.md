@@ -43,7 +43,7 @@ Each accepted ticker from one document is a distinct immutable event with key `p
 
 Match a status or reminder that replies directly to a known PDF attachment only against that document's same-ticker plan. Otherwise require one unique candidate using ticker, source chronology, reported target ordinal/value, and every other supplied plan level. A value may match a source range only when that range is explicitly present; a single source value requires exact equality. No ticker-only match or invented tolerance is allowed. A unique match carries its immutable setup event key. Zero or multiple matches, conflicting levels, stale chronology, or an invalid target amendment become labeled source context and cannot change the active plan. The Board owner alone validates and applies an explicitly matched target amendment to its active plan projection.
 
-Watcher state version 4 preserves existing state and stores per-ticker PDF event identity and retry state. Re-fetches do not duplicate a batch. Never rewind the live cursor or replay a historical PDF as part of ordinary polling.
+Watcher state version 5 preserves existing state and stores per-ticker PDF event identity, retry state, confirmed receipt evidence, and the Published projection ledger. Re-fetches do not duplicate a batch. Never rewind the live cursor or replay a historical PDF as part of ordinary polling.
 
 On first successful activation, bootstrap from the newest Telegram message ID and forward no history. Only later calls are eligible. A message ID is a one-time event, so Telegram edits are ignored and changed captions, targets, advisor names, or charts are never revisited.
 
@@ -56,6 +56,12 @@ After the All text and, when present, its same-message chart succeed, the watche
 ## State, data, and credential ownership
 
 State owns the observation cursor, outbox, cached source media, retry metadata, liveness, and rate-limited fatal fingerprints. Atomic writes and a nonblocking run lock prevent overlap. Corrupt state fails closed and must not be cleared as a recovery shortcut.
+
+### Published Feed projection
+
+Projection is disabled unless `IDX_SWING_WATCH_PHINTRACO_DAILY_PUBLICATION_ENABLED=1`. After a separately approved forward-only boundary, configure the shared `BURSAWATCH_PUBLICATION_CONTROL_PLANE_URL` and the owner-scoped `IDX_SWING_WATCH_PHINTRACO_DAILY_PUBLICATION_TOKEN_FILE` path in VPS `~/.hermes/.env`. The wrapper reads only these named values. The token file stays outside Git and the web app.
+
+The outbox stores each confirmed Delivery Owner receipt with its exact rendered text or chart metadata before advancing. A complete Phintraco setup is projected only when all required text and chart legs have matching delivered receipts. A matched source update is a `broker_swing_update` linked to the already known plan and carries no invented complete plan levels. Projection submission and checkpoint retries run independently of Discord delivery; an API outage preserves the same immutable projection intent and never calls the Discord sender again. No-post and dry-run modes skip projection writes.
 
 The wrapper loads `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `POLYCOP_SESSION_STRING`, the shared Discord Delivery Owner URL and client-token file path, and the narrowly named Phintraco control-plane values from VPS `~/.hermes/.env`; it exports the board wrapper path without loading board credentials. It adds `lib-bursawatch-discord-delivery/bin` to `PYTHONPATH` and defaults the client to `http://127.0.0.1:9140` with the private token file `~/.hermes/secrets/bursawatch-discord-delivery-client-token`. The scanner and watchdog use typed DeliveryClient operations for text, charts, message reads and Board-link edits, and heartbeats. Stable source event and leg keys are persisted before local delivery progress advances. Runtime paths do not load a Discord bot token or call Discord REST directly. The shared control-plane library remains optional until live mode is deliberately enabled. Source PDFs, charts, logs, and credentials stay private.
 

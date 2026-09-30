@@ -159,7 +159,7 @@ def submit(work: dict[str, Any], *, no_post: bool = False, media_store: Any = No
         raise ValueError("Phintraco pipeline requires an effective live watch config")
     if (loaded.config.telegram_channel_id, loaded.config.telegram_username) != (1444713822, "phintraprofits"):
         raise ValueError("Phintraco pipeline source does not match canonical endpoint")
-    with scan.config.activate_watch_config(loaded.config):
+    with scan.config.activate_watch_config(loaded.config, loaded.revision):
         return _submit_with_config(work, no_post=no_post, media_store=media_store)
 
 

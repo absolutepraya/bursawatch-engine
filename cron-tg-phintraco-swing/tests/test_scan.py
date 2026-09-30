@@ -538,7 +538,7 @@ def sample_call(has_photo=True):
 
 def test_missing_state_returns_empty_state(tmp_state):
     state = scan.load_state()
-    assert state["version"] == 4
+    assert state["version"] == scan.STATE_VERSION
     assert state["observed_message_id"] == 0
     assert state["outbox"] == {}
     assert state["pdf_batches"] == {}
@@ -603,7 +603,7 @@ def test_state_v2_migration_preserves_delivery_progress_and_adds_pdf_indexes(tmp
 
     migrated = scan.load_state()
 
-    assert migrated["version"] == 4
+    assert migrated["version"] == scan.STATE_VERSION
     migrated_event = migrated["outbox"]["33655"]
     assert migrated_event["phase"] == scan.PHASE_PENDING_CHART
     assert migrated_event["text_discord_id"] == "all-message-1"
@@ -1358,11 +1358,35 @@ def test_state_v3_pdf_pending_event_migrates_to_durable_media_contract(tmp_state
 
     migrated = scan.load_state()
 
-    assert migrated["version"] == 4
+    assert migrated["version"] == scan.STATE_VERSION
     assert migrated["outbox"]["pdf:35448:AADI"]["phase"] == scan.PHASE_PENDING_TEXT
     assert migrated["outbox"]["pdf:35448:AADI"]["call"]["source_text"] == ""
     assert migrated["pdf_batches"]["35448"]["source_media"] is None
     assert migrated["source_plans"]["pdf:35448:AADI"]["source_media"] is None
+
+
+def test_state_v4_migration_adds_publication_receipt_fields_without_replaying(tmp_state):
+    state = scan.empty_state()
+    event = scan.enqueue_call(state, sample_call(has_photo=False), now())
+    event.update(phase=scan.PHASE_PENDING_BOARD, text_discord_id="111111111111111111")
+    for field in (
+        "text_receipt", "chart_receipt", "text_output", "text_destination",
+        "chart_filename", "chart_content_type", "chart_destination", "source_url", "config_revision",
+    ):
+        event.pop(field)
+    state.pop("publication_projection")
+    state["version"] = 4
+    tmp_state.write_text(json.dumps(state))
+
+    migrated = scan.load_state()
+
+    migrated_event = migrated["outbox"]["33655"]
+    assert migrated["version"] == scan.STATE_VERSION
+    assert migrated_event["phase"] == scan.PHASE_PENDING_BOARD
+    assert migrated_event["text_discord_id"] == "111111111111111111"
+    assert migrated_event["text_receipt"] is None
+    assert migrated_event["source_url"] is None
+    assert migrated["publication_projection"] == {"records": {}}
 
 
 def test_weekly_pdf_batch_persists_all_children_before_advancing_cursor(tmp_state, monkeypatch):

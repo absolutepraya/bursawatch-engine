@@ -9,6 +9,7 @@ import importlib.util
 import shutil
 import datetime as dt
 import html
+import inspect
 import json
 import math
 import os
@@ -103,7 +104,7 @@ ALLOWED_SUBTYPES = (
 WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
-STATE_VERSION = 4
+STATE_VERSION = 5
 PHASE_PENDING_MEDIA_CAPTURE = "pending_media_capture"
 PHASE_PENDING_SOURCE_MEDIA = "pending_source_media"
 PHASE_PENDING_TEXT = "pending_text"
@@ -136,6 +137,7 @@ _REQUIRED_STATE_FIELDS = (
     "pdf_batches",
     "source_plans",
     "quarantined_documents",
+    "publication_projection",
     "last_poll_success",
     "last_delivery_success",
     "last_heartbeat_hour",
@@ -164,6 +166,15 @@ _REQUIRED_EVENT_FIELDS = (
     "chart_status",
     "media_path",
     "text_discord_id",
+    "text_receipt",
+    "chart_receipt",
+    "text_output",
+    "text_destination",
+    "chart_filename",
+    "chart_content_type",
+    "chart_destination",
+    "source_url",
+    "config_revision",
     "attempts",
     "next_attempt_at",
     "last_error",
@@ -253,6 +264,7 @@ def empty_state() -> dict:
         "pdf_batches": {},
         "source_plans": {},
         "quarantined_documents": {},
+        "publication_projection": {"records": {}},
         "last_poll_success": None,
         "last_delivery_success": None,
         "last_heartbeat_hour": None,
@@ -398,6 +410,25 @@ def _validate_outbox_event(key: object, payload: object) -> None:
     for field in ("media_path", "text_discord_id", "last_error"):
         if event[field] is not None and type(event[field]) is not str:
             raise ValueError(f"outbox event {key} {field} must be a string or null")
+    for field in ("text_output", "text_destination", "chart_filename", "chart_content_type", "chart_destination", "source_url"):
+        if event[field] is not None and type(event[field]) is not str:
+            raise ValueError(f"outbox event {key} {field} must be a string or null")
+    if event["config_revision"] is not None and (type(event["config_revision"]) is not int or event["config_revision"] < 1):
+        raise ValueError(f"outbox event {key} config_revision must be a positive integer or null")
+    for field in ("text_receipt", "chart_receipt"):
+        receipt = event[field]
+        if receipt is not None:
+            receipt = _require_fields(receipt, ("id", "key", "digest", "status", "receipt"), f"outbox event {key} {field}")
+            if (
+                set(receipt) != {"id", "key", "digest", "status", "receipt"}
+                or type(receipt["id"]) is not str or not receipt["id"] or len(receipt["id"]) > 128
+                or type(receipt["key"]) is not str or not receipt["key"]
+                or type(receipt["digest"]) is not str or re.fullmatch(r"[0-9a-f]{64}", receipt["digest"]) is None
+                or receipt["status"] != "delivered"
+                or type(receipt["receipt"]) is not dict
+                or any(type(k) is not str or type(v) is not str for k, v in receipt["receipt"].items())
+            ):
+                raise ValueError(f"outbox event {key} {field} is invalid")
     if type(event["attempts"]) is not int or event["attempts"] < 0:
         raise ValueError(f"outbox event {key} attempts must be a non-negative integer")
     if event["next_attempt_at"] is not None:
@@ -653,6 +684,26 @@ def _validate_state(payload: object) -> dict:
     for key, event in outbox.items():
         _validate_outbox_event(key, event)
     _validate_pdf_indexes(state)
+    projection = _require_fields(state["publication_projection"], ("records",), "publication projection")
+    if set(projection) != {"records"} or type(projection["records"]) is not dict:
+        raise ValueError("publication projection records must be an object")
+    for owner_key, record in projection["records"].items():
+        record = _require_fields(record, ("snapshot", "ack"), f"publication projection record {owner_key}")
+        if (
+            type(owner_key) is not str or not owner_key or set(record) != {"snapshot", "ack"}
+            or type(record["snapshot"]) is not dict or record["snapshot"].get("owner_key") != owner_key
+        ):
+            raise ValueError("publication projection record identity is invalid")
+        if record["ack"] is not None:
+            ack = _require_fields(record["ack"], ("publication_id", "version", "digest"), "publication acknowledgment")
+            if (
+                set(ack) != {"publication_id", "version", "digest"}
+                or type(ack["publication_id"]) is not str
+                or re.fullmatch(r"[0-9a-f]{64}", ack["publication_id"]) is None
+                or type(ack["version"]) is not int or ack["version"] != record["snapshot"].get("version")
+                or type(ack["digest"]) is not str or re.fullmatch(r"[0-9a-f]{64}", ack["digest"]) is None
+            ):
+                raise ValueError("publication acknowledgment is invalid")
     stats = _require_fields(state["stats"], _REQUIRED_STATS_FIELDS, "state stats")
     for field in _REQUIRED_STATS_FIELDS:
         if type(stats[field]) is not int or stats[field] < 0:
@@ -668,7 +719,7 @@ def _migrate_state(payload: object) -> tuple[dict, bool]:
         raise ValueError(f"unsupported state version: {version}")
     if version == STATE_VERSION:
         return payload, False
-    if version not in {1, 2, 3}:
+    if version not in {1, 2, 3, 4}:
         raise ValueError(f"unsupported state version: {version}")
 
     outbox = payload.get("outbox")
@@ -690,6 +741,7 @@ def _migrate_state(payload: object) -> tuple[dict, bool]:
 
     for field in ("pdf_batches", "source_plans", "quarantined_documents"):
         payload.setdefault(field, {})
+    payload.setdefault("publication_projection", {"records": {}})
     for event in outbox.values():
         if type(event) is not dict:
             raise ValueError("outbox event must be an object")
@@ -702,6 +754,15 @@ def _migrate_state(payload: object) -> tuple[dict, bool]:
         event.setdefault("chart_path", None)
         event.setdefault("matched_setup_event_key", None)
         event.setdefault("board_kind_override", None)
+        event.setdefault("text_receipt", None)
+        event.setdefault("chart_receipt", None)
+        event.setdefault("text_output", None)
+        event.setdefault("text_destination", None)
+        event.setdefault("chart_filename", None)
+        event.setdefault("chart_content_type", None)
+        event.setdefault("chart_destination", None)
+        event.setdefault("source_url", None)
+        event.setdefault("config_revision", None)
         call = event.get("call")
         if type(call) is not dict:
             raise ValueError("outbox call must be an object")
@@ -801,6 +862,15 @@ def enqueue_call(
         "chart_status": "expected" if has_chart else "absent",
         "media_path": None,
         "text_discord_id": None,
+        "text_receipt": None,
+        "chart_receipt": None,
+        "text_output": None,
+        "text_destination": None,
+        "chart_filename": None,
+        "chart_content_type": None,
+        "chart_destination": None,
+        "source_url": source_message_url(call.source_message_id),
+        "config_revision": config.active_watch_config_revision(),
         "attempts": 0,
         "next_attempt_at": None,
         "last_error": None,
@@ -2251,6 +2321,7 @@ def post_discord_text(
     event_key: str,
     *,
     client: object | None = None,
+    receipt_sink: object | None = None,
 ) -> str | None:
     if len(content) > 2000:
         raise ValueError("Swing Alert exceeds Discord message limit")
@@ -2269,7 +2340,10 @@ def post_discord_text(
         if error.category == "rate_limited":
             raise DiscordRetryAfter(60.0) from None
         raise
-    return _delivered_message_id(receipt, operation)
+    message_id = _delivered_message_id(receipt, operation)
+    if message_id is not None and callable(receipt_sink):
+        receipt_sink(operation, _receipt_document(receipt))
+    return message_id
 
 
 def _read_channel_message_content(client: object, channel_id: str, message_id: str) -> str | None:
@@ -2352,6 +2426,7 @@ def post_discord_file(
     event_key: str,
     *,
     client: object | None = None,
+    receipt_sink: object | None = None,
 ) -> str | None:
     file_path = Path(path)
     try:
@@ -2381,7 +2456,46 @@ def post_discord_file(
         if error.category == "rate_limited":
             raise DiscordRetryAfter(60.0) from None
         raise
-    return _delivered_message_id(receipt, operation)
+    message_id = _delivered_message_id(receipt, operation)
+    if message_id is not None and callable(receipt_sink):
+        receipt_sink(operation, _receipt_document(receipt))
+    return message_id
+
+
+def _receipt_document(receipt: OperationReceipt) -> dict[str, object]:
+    return {
+        "id": receipt.id,
+        "key": receipt.key,
+        "digest": receipt.digest,
+        "status": receipt.status,
+        "receipt": dict(receipt.receipt) if receipt.receipt is not None else None,
+    }
+
+
+def _record_event_receipt(
+    state: dict,
+    event: dict,
+    field: str,
+    operation: OperationIntent,
+    receipt: dict[str, object],
+) -> None:
+    if field not in {"text_receipt", "chart_receipt"}:
+        raise ValueError("unsupported Phintraco delivery receipt field")
+    existing = event.get(field)
+    if existing is not None and existing != receipt:
+        raise ValueError("Phintraco delivery receipt changed for one stable operation")
+    if existing is None:
+        event[field] = receipt
+        if field == "text_receipt":
+            event["text_output"] = operation.payload.get("content")
+            event["text_destination"] = operation.target["channel_id"]
+        else:
+            if len(operation.attachments) != 1:
+                raise ValueError("Phintraco chart receipt does not match one chart attachment")
+            event["chart_filename"] = operation.attachments[0].filename
+            event["chart_content_type"] = operation.attachments[0].mime_type
+            event["chart_destination"] = operation.target["channel_id"]
+        save_state(state)
 
 
 def board_event_payload(event: dict, call: SwingCall) -> tuple[dict, Path | None]:
@@ -2528,8 +2642,14 @@ def drain_board(dry_run: bool) -> bool:
 
 
 def drain_outbox(state: dict, now: dt.datetime, dry_run: bool = False) -> int:
+    from publication_projection import record_confirmed_outbox, drain as drain_publications
+
+    record_confirmed_outbox(state, now)
     _drain_all_outbox(state, now, dry_run)
-    return _drain_board_outbox(state, now, dry_run)
+    record_confirmed_outbox(state, now)
+    delivered = _drain_board_outbox(state, now, dry_run)
+    drain_publications(state, now, dry_run=dry_run)
+    return delivered
 
 
 def _drain_all_outbox(state: dict, now: dt.datetime, dry_run: bool) -> int:
@@ -2578,11 +2698,15 @@ def _drain_all_outbox(state: dict, now: dt.datetime, dry_run: bool) -> int:
 
         if phase == PHASE_PENDING_TEXT:
             try:
-                text_id = post_discord_text(
+                text_id = _post_with_receipt_sink(
+                    post_discord_text,
                     format_swing_alert(call, include_board=True),
                     config.active_watch_config().alert_discord_channel_id,
                     dry_run,
                     event["event_key"],
+                    receipt_sink=lambda operation, receipt: _record_event_receipt(
+                        state, event, "text_receipt", operation, receipt
+                    ),
                 )
             except DiscordRetryAfter as exc:
                 schedule_retry(
@@ -2625,11 +2749,15 @@ def _drain_all_outbox(state: dict, now: dt.datetime, dry_run: bool) -> int:
                 save_state(state)
                 return delivered
             try:
-                chart_id = post_discord_file(
+                chart_id = _post_with_receipt_sink(
+                    post_discord_file,
                     str(media_path),
                     config.active_watch_config().alert_discord_channel_id,
                     dry_run,
                     event["event_key"],
+                    receipt_sink=lambda operation, receipt: _record_event_receipt(
+                        state, event, "chart_receipt", operation, receipt
+                    ),
                 )
             except DiscordRetryAfter as exc:
                 schedule_retry(
@@ -2770,6 +2898,22 @@ def post_heartbeat_if_due(state: dict, now: dt.datetime, stats: RunStats, dry_ru
     return True
 
 
+def _post_with_receipt_sink(sender, *args, receipt_sink):
+    """Pass receipt capture when supported, preserving simple sender test doubles."""
+    try:
+        parameters = inspect.signature(sender).parameters.values()
+        supports_sink = any(
+            parameter.name == "receipt_sink"
+            or parameter.kind is inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters
+        )
+    except (TypeError, ValueError):
+        supports_sink = True
+    if supports_sink:
+        return sender(*args, receipt_sink=receipt_sink)
+    return sender(*args)
+
+
 def error_fingerprint(reason: str) -> str:
     clean = re.sub(r"\s+", " ", reason).strip()
     return hashlib.sha256(clean.encode()).hexdigest()[:16]
@@ -2821,7 +2965,7 @@ async def run(now: dt.datetime | None = None, dry_run: bool = False) -> dict:
     """Run once against one frozen operator configuration snapshot."""
     now = now or dt.datetime.now(WIB)
     loaded_config = config.load_watch_config_for_run()
-    with config.activate_watch_config(loaded_config.config):
+    with config.activate_watch_config(loaded_config.config, loaded_config.revision):
         return await _run_loaded_config(now, dry_run, loaded_config)
 
 
