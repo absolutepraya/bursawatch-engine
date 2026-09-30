@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { catalogWrite } from "@/lib/source-catalog";
+import { publicationFilters } from "@/lib/publications";
 import {
   avatarInput,
   ControlPlaneError,
@@ -69,6 +70,22 @@ export async function handleControlRequest(
       if (path.length === 2 && path[0] === "jobs") return json(await api.getOperatorJob(path[1]));
       if (path.length === 1 && path[0] === "observations")
         return json(await api.listObservations());
+      if (path.length === 1 && path[0] === "publications") {
+        const search = new URL(request.url).searchParams;
+        if ([...search.keys()].some((key) => search.getAll(key).length !== 1))
+          throw new ControlPlaneError("validation");
+        const raw = Object.fromEntries(search);
+        const parsed = publicationFilters.safeParse({
+          ...raw,
+          ...(raw.limit === undefined ? {} : { limit: Number(raw.limit) }),
+        });
+        if (!parsed.success) throw new ControlPlaneError("validation");
+        return json(await api.listPublications(parsed.data));
+      }
+      if (path.length === 2 && path[0] === "publications" && path[1] === "coverage")
+        return json(await api.getPublicationCoverage());
+      if (path.length === 2 && path[0] === "publications")
+        return json(await api.getPublication(path[1]));
       if (path.length === 3 && path[0] === "watchers") {
         if (path[2] === "jobs") return json(await api.listJobs(path[1]));
         if (path[2] === "runs") return json(await api.listRuns(path[1]));

@@ -16,6 +16,13 @@ import {
   observation,
   operatorJob,
 } from "@/lib/operator-inventory";
+import {
+  publicationCoverage,
+  publicationDetail,
+  publicationFilters,
+  publicationPage,
+  type PublicationFilters,
+} from "@/lib/publications";
 
 // Reviewed against absolutepraya/bursawatch-engine at a343ec4d. The API remains the
 // authority for user identity, admin permissions and watcher validation.
@@ -497,6 +504,24 @@ export function createControlPlaneReader(options: {
       )
         throw new ControlPlaneError("invalid-response");
       return rows;
+    },
+    async listPublications(filters: PublicationFilters = {}) {
+      const parsed = publicationFilters.safeParse(filters);
+      if (!parsed.success) throw new ControlPlaneError("validation");
+      const query = new URLSearchParams();
+      for (const [key, value] of Object.entries(parsed.data)) {
+        if (value !== undefined) query.set(key, String(value));
+      }
+      return read(`/v1/publications${query.size ? `?${query.toString()}` : ""}`, publicationPage);
+    },
+    async getPublication(publicationId: string) {
+      if (!/^[0-9a-f]{64}$/.test(publicationId)) throw new ControlPlaneError("validation");
+      const result = await read(`/v1/publications/${publicationId}`, publicationDetail);
+      if (result.publication_id !== publicationId) throw new ControlPlaneError("invalid-response");
+      return result;
+    },
+    async getPublicationCoverage() {
+      return read("/v1/publications/coverage", publicationCoverage);
     },
     async listRuns(watcherId: string) {
       const rows = await read(`${watcherPath(watcherId)}/runs?limit=50`, z.array(run).max(50));

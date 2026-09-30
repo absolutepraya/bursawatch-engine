@@ -151,6 +151,21 @@ export const publicationPage = z
     next_cursor: z.string().min(1).max(2048).nullable(),
   })
   .strict();
+export const publicationFilters = z
+  .object({
+    limit: z.number().int().min(1).max(100).optional(),
+    cursor: z.string().min(1).max(2048).optional(),
+    type: type.optional(),
+    route: route.optional(),
+    date_from: awareTime.optional(),
+    date_to: awareTime.optional(),
+    source: z.string().min(1).max(200).optional(),
+    ticker: z
+      .string()
+      .regex(/^[A-Z0-9][A-Z0-9.\-]{0,19}$/)
+      .optional(),
+  })
+  .strict();
 export const publicationDetail = z
   .object({
     publication_id: hexId,
@@ -214,6 +229,7 @@ export type Publication = z.infer<typeof publication>;
 export type PublicationPage = z.infer<typeof publicationPage>;
 export type PublicationDetail = z.infer<typeof publicationDetail>;
 export type PublicationCoverage = z.infer<typeof publicationCoverage>;
+export type PublicationFilters = z.infer<typeof publicationFilters>;
 
 export const publicationTypeLabels: Record<Publication["type"], string> = {
   idx_company_news: "IDX company news",
