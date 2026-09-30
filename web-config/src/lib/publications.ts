@@ -129,8 +129,8 @@ export const publication = z
     config_revision: z.number().int().positive().nullable(),
     renderer_version: z.string().min(1).max(100),
     source_version: z.string().max(100).nullable(),
-    required_operation_keys: z.array(z.string().min(1).max(256)).min(1).max(10),
-    legs: z.array(leg).min(1).max(10),
+    required_operation_keys: z.array(z.string().min(1).max(256)).min(1).max(64),
+    legs: z.array(leg).min(1).max(64),
     digest: hexId,
   })
   .strict()

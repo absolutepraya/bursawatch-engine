@@ -98,6 +98,28 @@ describe("published read contract", () => {
     expect(publication.safeParse(value).success).toBe(false);
   });
 
+  it("keeps X publications with more than ten confirmed delivery legs intact", () => {
+    const value = sample();
+    const legs = Array.from({ length: 17 }, (_, index) => {
+      const receiptId = `9876543210987654${String(index).padStart(2, "0")}`;
+      const operationKey = `synthetic-op-${index}`;
+      return {
+        ...value.legs[0],
+        operation_key: operationKey,
+        receipt_id: receiptId,
+        message_url: `https://discord.com/channels/123456789012345678/123456789012345678/${receiptId}`,
+      };
+    });
+
+    expect(
+      publication.parse({
+        ...value,
+        legs,
+        required_operation_keys: legs.map((item) => item.operation_key),
+      }).legs,
+    ).toHaveLength(17);
+  });
+
   it("retains unique cursor pages with tied confirmation times", () => {
     const first = publicationPage.parse({
       items: [sample("a".repeat(64))],

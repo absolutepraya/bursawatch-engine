@@ -72,6 +72,29 @@ def test_omitted_required_leg_and_unbound_receipt_link_fail():
         validate_publication(value, OWNER)
 
 
+def test_publication_preserves_more_than_ten_exact_delivery_legs():
+    value = publication()
+    legs = []
+    for index in range(17):
+        receipt_id = f"{987654321098765432 + index:018d}"
+        key = f"synthetic-delivery-{index}"
+        legs.append({
+            **value["legs"][0],
+            "operation_key": key,
+            "operation_digest": f"{index + 1:064x}",
+            "receipt_id": receipt_id,
+            "message_url": f"https://discord.com/channels/123456789012345678/123456789012345678/{receipt_id}",
+        })
+    value["legs"] = legs
+    value["required_operation_keys"] = [leg["operation_key"] for leg in legs]
+
+    record = validate_publication(value, OWNER)
+
+    assert len(record["legs"]) == 17
+    with pytest.raises(ValueError, match="bounded delivery legs"):
+        validate_publication({**value, "legs": legs * 4 + legs[:1]}, OWNER)
+
+
 @pytest.mark.parametrize("owner_id,kind,route", [
     ("bursawatch-tg-market-news", "idx_company_news", "id_stocks_news"),
     ("bursawatch-tg-market-news", "industry_news", "id_industry_news"),

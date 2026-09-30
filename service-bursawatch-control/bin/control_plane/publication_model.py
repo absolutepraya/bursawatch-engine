@@ -62,6 +62,7 @@ LEVEL_FIELDS = {"entry", "stop", "targets", "units", "attribution"}
 DISCORD_ID = re.compile(r"[0-9]{17,20}\Z")
 TICKER = re.compile(r"[A-Z0-9][A-Z0-9.\-]{0,19}\Z")
 HEX_ID = re.compile(r"[0-9a-f]{64}\Z")
+MAX_PUBLICATION_LEGS = 64
 
 
 def _canonical(value: object) -> bytes:
@@ -215,14 +216,14 @@ def validate_publication(payload: object, owner_id: str) -> dict[str, Any]:
     if config_revision is not None and (type(config_revision) is not int or config_revision < 1):
         raise ValueError("config_revision is invalid")
     legs = payload["legs"]
-    if type(legs) is not list or not 1 <= len(legs) <= 10:
+    if type(legs) is not list or not 1 <= len(legs) <= MAX_PUBLICATION_LEGS:
         raise ValueError("publication requires bounded delivery legs")
     safe_legs = [_leg(item) for item in legs]
     operation_keys = [item["operation_key"] for item in safe_legs]
     if len(operation_keys) != len(set(operation_keys)):
         raise ValueError("publication has duplicate delivery legs")
     required = payload["required_operation_keys"]
-    if type(required) is not list or not 1 <= len(required) <= 10 or any(
+    if type(required) is not list or not 1 <= len(required) <= MAX_PUBLICATION_LEGS or any(
         type(key) is not str or not 1 <= len(key) <= 256 for key in required
     ) or len(required) != len(set(required)) or required != operation_keys:
         raise ValueError("publication required delivery legs are incomplete")
