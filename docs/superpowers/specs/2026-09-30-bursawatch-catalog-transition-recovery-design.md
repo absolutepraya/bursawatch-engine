@@ -2,9 +2,23 @@
 
 **Date:** 2026-09-30
 
-**Status:** Conversational design approved; written spec pending user review
+**Status:** Written design approved by the user on 2026-09-30; implementation plan drafted and pending review
 
 **Owner:** Bursawatch Telegram and Stockbit source ingestion packages
+
+## Approval and operational authorization
+
+The user approved this written design on 2026-09-30 and authorized implementation
+and the production steps in this workstream, including temporarily pausing and
+resuming the existing Telegram and Stockbit jobs, applying the package-owned
+catalog transitions, and deploying eligible source-ingest code. Use the
+repository's supported scheduler and release paths, and refresh production
+evidence before acting. This authorization does not waive the exact-main-SHA CI
+and release-agent gates, permit a cadence or destination change, or permit a
+manual job run, replay, backfill, cursor reset, or test post.
+Implementation begins after the user reviews the implementation plan and
+selects an execution approach; this review does not request a new production
+authorization.
 
 ## Goal
 
@@ -16,6 +30,7 @@ This design covers the first repair workstream only. Phintas `trading_plans` rou
 
 - A read-only catalog history comparison at 20:32 WIB on 2026-09-30 found the same seven enabled and verified Telegram endpoint-capability rows at revisions 5, 6, and 7, the same four enabled and verified Stockbit RSS rows, and an empty `selected_securities` list. Catalog hashes differed because configuration outside those source projections changed.
 - A follow-up read-only comparison completed at 21:10 WIB found the four enabled, verified Stockbit RSS rows and empty `selected_securities` unchanged across revisions 4 and 5. The enabled Telegram projection was also unchanged across that edge. The RSS cutover receipt and all four lane seed records identify revision 4 as the immutable origin. This supports the proposed adjacent RSS path but does not replace refreshing history and state before a production transition.
+- The read-only production snapshot at 21:19 WIB again found 13 Hermes jobs, eight active and five paused, with all eight desired interval schedules matching the live registry. Telegram source ingest and Stockbit RSS were active. The release agent was blocked and its CI state was pending for the then-current `origin/main`; recheck before rollout. The snapshot does not verify runtime checksums or prove a natural source-to-delivery event.
 - At the same read-only check, the Telegram source-state marker was revision 5 and the RSS source-state marker was revision 4, while the effective Source Catalog was revision 7. These marker observations are time bounded and must be refreshed before any production transition.
 - The read-only production snapshot at 20:57 WIB reported 13 Hermes jobs, eight active and five paused, with all eight desired interval schedules matching the live registry. Telegram source ingest and Stockbit RSS were active. A matching schedule and `last=ok` do not prove that a source was polled or an event delivered.
 - The [incident audit](../../incident-reviews/2026-09-30-platform-ingestion-audit.md) contains the broader source findings and their evidence limits.
@@ -91,7 +106,7 @@ This design does not reorder Telegram `run_once()`. After the RSS and Telegram t
 
 Preview blocks without writing source state when a source-owned row, watcher revision, marker, cursor, validator, seed origin, state file, or prior journal does not match the reviewed inputs. Apply blocks on a changed plan or state fingerprint. An interrupted apply remains non-runnable until the same plan resumes and completes. A new or changed catalog edge requires a fresh review; the tool must not skip it or infer compatibility from matching first and last snapshots alone.
 
-The package emits bounded, sanitized error reasons. Plans and journals stay private and never include article text, URLs, credentials, or delivery content. There is no automatic rollback, cursor reset, replay, backfill, direct Discord resend, schedule change, or destination change in this design.
+The package emits bounded, sanitized error reasons. Plans and journals stay private and never include article text, URLs, credentials, or delivery content. There is no automatic rollback, cursor reset, replay, backfill, direct Discord resend, permanent cadence change, or destination change in this design. The user authorized a temporary pause and resume of the existing source jobs for the reviewed rollout.
 
 ## Regression coverage
 
@@ -110,6 +125,6 @@ The implementation plan will sequence focused RSS and shared planner tests, the 
 
 ## Production and release boundary
 
-This spec authorizes writing the design artifact only. It does not authorize code implementation, production state application, scheduler pauses or resumes, manual job runs, service restarts, replay, or deployment. The future implementation plan must identify package release inputs and exact approval gates before any live action.
+The approved design authorizes the implementation and bounded production actions described above. The implementation plan must sequence package release, fresh production checks, rollback preservation, temporary job pauses, state application, schedule restoration, and natural-run observation. Do not bypass the existing CI and release-agent gates.
 
-Before a separately approved production transition, refresh the production snapshot and catalog history, verify both package projections and state markers, preserve the required rollback archive under `~/backup/hermes/`, and pause each active writer with no in-flight run. Apply the Telegram and RSS edges through their package commands, verify the completed marker and journal chain, then restore schedules only through the approved scheduler path. Validation of the first natural runs is separate from schedule or service health. No synthetic message or manual cron trigger is allowed.
+Before the authorized production transition, refresh the production snapshot and catalog history, verify both package projections and state markers, preserve the required rollback archive under `~/backup/hermes/`, and pause each active writer with no in-flight run. Apply the Telegram and RSS edges through their package commands, verify the completed marker and journal chain, then restore schedules only through the approved scheduler path. Validation of the first natural runs is separate from schedule or service health. No synthetic message or manual cron trigger is allowed.

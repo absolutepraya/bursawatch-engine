@@ -57,7 +57,13 @@ package contracts and take a fresh production snapshot before acting. The
 
 The first proposed reader-state repair is described in the
 [`catalog transition recovery design`](superpowers/specs/2026-09-30-bursawatch-catalog-transition-recovery-design.md).
-The design is pending review and is not an operating contract.
+The user approved the design on 2026-09-30; it authorizes planning and the
+scoped work described there, subject to the release and live-state checks in
+the document. It is not an operating contract.
+
+The implementation sequence is in the
+[`catalog transition recovery plan`](superpowers/plans/2026-09-30-bursawatch-catalog-transition-recovery.md).
+The plan is pending review before implementation.
 
 For collaboration, `.wt/config.toml` defines managed feature worktrees and the
 repository-local `finish-workflow` skill ends with a pull request. It does not
