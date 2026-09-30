@@ -13,7 +13,7 @@ from control_plane_client import ControlPlaneContractError, ControlPlaneUnavaila
 
 
 _HEX_64 = re.compile(r"[0-9a-f]{64}")
-_MAX_REQUEST_BYTES = 128 * 1024
+_MAX_REQUEST_BYTES = 512 * 1024
 
 
 class PublicationConflict(ControlPlaneUnavailable):
@@ -137,4 +137,3 @@ class PublicationClient:
 
 def _transient_status(status: int) -> bool:
     return status in {408, 425, 429} or 500 <= status <= 599
-

@@ -147,3 +147,35 @@ def test_checkpoint_posts_owner_ledger_comparison():
     }
     assert client.checkpoint(comparison) == {"accepted": True}
     assert requests == [("http://127.0.0.1:9120/v1/publications/checkpoints", comparison)]
+
+
+def test_client_accepts_maximum_bounded_snapshot_size():
+    payload = snapshot()
+    legs = []
+    for index in range(10):
+        legs.append({
+            "operation_key": f"operation-{index}",
+            "operation_digest": "b" * 64,
+            "receipt_operation_id": f"receipt-op-{index}",
+            "destination": "12345678901234567",
+            "receipt_id": "23456789012345678",
+            "status": "delivered",
+            "message_url": None,
+            "text": "x" * 16_000,
+            "attachments": [{
+                "filename": "f" * 255,
+                "content_type": "x" * 100,
+                "discord_url": "https://cdn.discordapp.com/attachments/" + "x" * 1980,
+            } for _ in range(10)],
+        })
+    payload["required_operation_keys"] = [leg["operation_key"] for leg in legs]
+    payload["legs"] = legs
+    sent = []
+
+    def opener(request, timeout):
+        sent.append(request.data)
+        return Response(ack())
+
+    client = PublicationClient("http://127.0.0.1:9120", "owner-secret", opener=opener)
+    assert client.submit(payload) == ack()
+    assert len(sent) == 1 and len(sent[0]) < 512 * 1024
