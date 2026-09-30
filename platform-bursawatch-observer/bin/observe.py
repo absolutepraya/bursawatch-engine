@@ -74,7 +74,7 @@ def _safe_schedule(value: object) -> dict[str, Any]:
 
 def _safe_last_execution(job: dict[str, Any]) -> dict[str, str | None]:
     at = job.get("last_run_at")
-    status = job.get("last_run_status")
+    status = job.get("last_status")
     if at is None and status is None:
         return {"at": None, "status": None}
     if type(at) is not str or not 1 <= len(at) <= 64:
@@ -154,7 +154,7 @@ def _observation_for(row: dict[str, Any], observed_at: str) -> dict[str, Any]:
     last_execution = row["last_execution"]
     if type(last_execution) is not dict or set(last_execution) != {"at", "status"}:
         raise ObserverError("observation last execution is invalid")
-    last_execution = _safe_last_execution({"last_run_at": last_execution["at"], "last_run_status": last_execution["status"]})
+    last_execution = _safe_last_execution({"last_run_at": last_execution["at"], "last_status": last_execution["status"]})
     return {
         "api_version": 1,
         "identity_kind": "job",
