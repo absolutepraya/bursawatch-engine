@@ -134,7 +134,8 @@ def post_text(
     event_key: str,
     leg: str,
     client: object | None = None,
-) -> str | None:
+    return_receipt: bool = False,
+) -> str | OperationReceipt | None:
     if len(content) > 2_000:
         raise ValueError("Discord text exceeds 2,000 characters")
     if dry_run:
@@ -143,6 +144,8 @@ def post_text(
     operation, nonce_value = _operation(content, channel_id, event_key, leg)
     owner = client if client is not None else delivery_client_from_environment()
     receipt = _submit_or_lookup(operation, owner, legacy_nonce=nonce_value)
+    if return_receipt:
+        return receipt
     value = receipt.receipt
     if not isinstance(value, dict):
         raise DeliveryClientError("invalid_response")

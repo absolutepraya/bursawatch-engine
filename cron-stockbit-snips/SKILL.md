@@ -91,3 +91,12 @@ live destination snapshot and does not load static destinations.
 ## Discord delivery receipt wait
 
 After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.
+
+After a confirmed article send, the owner saves its exact rendered output,
+source event identity, frozen config revision, and matching Delivery Owner
+receipt with a pending Published Feed intent before marking the article
+delivered. Excluded articles and articles without shared-source provenance are
+not projected. Projection retries submit only the saved snapshot to the
+Control Plane and never create a Discord operation. The writer is disabled
+unless `BURSAWATCH_STOCKBIT_SNIPS_PUBLICATION_ENABLED=1` after the forward-only
+feed cutover.

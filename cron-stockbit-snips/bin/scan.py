@@ -33,6 +33,18 @@ def _reason(error: object) -> str:
     return value[:300]
 
 
+def _drain_publications(
+    value: dict[str, object], path: Path, now: datetime, client: object | None = None,
+) -> dict[str, int]:
+    """Retry publication intents without affecting Discord delivery or RSS intake."""
+    import publication_projection
+
+    try:
+        return publication_projection.drain(value, path, now, client)
+    except Exception:
+        return {"accepted": 0, "pending": len(state.pending_publication_intents(value))}
+
+
 def _report_attributes(stats: Mapping[str, object], no_post: bool) -> dict[str, object]:
     attributes: dict[str, object] = {key: int(stats.get(key, 0)) for key in REPORT_COUNTS}
     attributes["no_post"] = no_post
@@ -240,19 +252,50 @@ def _drain_delivery(
             if runtime.no_post:
                 continue
             channel_id = _channel(record, analysis.route)
-            message_id = discord.post_text(
+            receipt = discord.post_text(
                 content,
                 channel_id,
                 dry_run=False,
                 event_key=key,
                 leg="news",
+                return_receipt=True,
             )
-            record["phase"] = "delivered"
+            from bursawatch_discord_delivery import OperationReceipt
+
+            if not isinstance(receipt, OperationReceipt) or not isinstance(receipt.receipt, dict):
+                raise RuntimeError("Delivery Owner returned an invalid Stockbit receipt")
+            message_id = receipt.receipt.get("message_id")
+            receipt_channel = receipt.receipt.get("channel_id")
+            if not isinstance(message_id, str) or not message_id.isdigit() or receipt_channel != channel_id:
+                raise RuntimeError("Delivery Owner returned a mismatched Stockbit receipt")
+            saved_delivery = record.get("delivery")
+            delivered_at = now.isoformat()
+            if isinstance(saved_delivery, dict):
+                if any(saved_delivery.get(field) != expected for field, expected in (
+                    ("message_id", message_id), ("channel_id", channel_id),
+                    ("operation_key", receipt.key), ("operation_digest", receipt.digest),
+                )):
+                    raise RuntimeError("Stockbit delivery receipt conflicts with saved owner state")
+                delivered_at = str(saved_delivery.get("delivered_at", delivered_at))
             record["delivery"] = {
                 "message_id": message_id,
                 "channel_id": channel_id,
-                "delivered_at": now.isoformat(),
+                "delivered_at": delivered_at,
+                "operation_key": receipt.key,
+                "operation_digest": receipt.digest,
+                "receipt": {
+                    "id": receipt.id,
+                    "key": receipt.key,
+                    "digest": receipt.digest,
+                    "status": receipt.status,
+                    "receipt": dict(receipt.receipt),
+                },
             }
+            import publication_projection
+
+            publication_projection.record_intent(value, key, now)
+            state.save_state(runtime.state_path, value)
+            record["phase"] = "delivered"
             delivered += 1
         except discord.DeliveryOwnerPending:
             # The service accepted this operation. Its durable retry schedule
@@ -340,6 +383,8 @@ def _run_once(
     with state.run_lock(runtime.state_path):
         value = state.load_state(runtime.state_path, config.FEEDS)
         _preflight_pending_delivery(value)
+        if not runtime.no_post:
+            _drain_publications(value, runtime.state_path, now)
         if loaded is None:
             stats: dict[str, object] = {
                 "fetched": 0, "queued": 0, "bootstrapped": 0, "not_modified": 0,
@@ -389,6 +434,8 @@ def _run_once(
             state.save_state(runtime.state_path, value)
         elif json.dumps(value, sort_keys=True) != previous_state:
             state.save_state(runtime.state_path, value)
+        if not runtime.no_post:
+            _drain_publications(value, runtime.state_path, now)
         try:
             _heartbeat(runtime, now, stats)
         except Exception:
@@ -439,6 +486,8 @@ def submit_analysis(payload: object) -> dict[str, object]:
         delivery_errors: list[str] = []
         try:
             result = _submit_bound_analysis(value, record, article, analysis, runtime, now, delivery_errors)
+            if not runtime.no_post:
+                _drain_publications(value, runtime.state_path, now)
         except Exception:
             if control_run is not None:
                 control_run.event(
