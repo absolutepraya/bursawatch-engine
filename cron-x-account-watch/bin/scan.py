@@ -21,6 +21,7 @@ import supersession
 import article_context
 import vision_media
 import recovery
+import publication_projection
 from agent_protocol import (
     normalize_route,
     agent_item,
@@ -578,6 +579,19 @@ def _delivery_at(event: dict, now: datetime | None) -> datetime:
     return current
 
 
+def _drain_publications(value: dict, dry_run: bool, storage: Path, stats: RunStats, now: datetime) -> None:
+    if not publication_projection.enabled():
+        return
+    result = publication_projection.drain(
+        value,
+        now,
+        dry_run=dry_run,
+        persist=lambda: state.save_state(storage, value),
+    )
+    if result["pending"]:
+        stats.note_source_error("Published projection pending")
+
+
 def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, storage: Path, stats: RunStats, now: datetime | None = None) -> bool:
     event = value["outbox"][event_index]
     profile = profiles[event["profile_id"]]
@@ -611,7 +625,17 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
     try:
         while event["text_index"] < len(messages):
             index = event["text_index"]
-            message_id = discord.post_text(messages[index], channel_id, dry_run, discord.nonce(f"{profile.id}:{post.post_id}", f"text:{index}"))
+            nonce_value = discord.nonce(f"{profile.id}:{post.post_id}", f"text:{index}")
+            if publication_projection.enabled():
+                message_id, operation, receipt = discord.post_text_with_receipt(
+                    messages[index], channel_id, dry_run, nonce_value,
+                )
+                if operation is not None and receipt is not None:
+                    event.setdefault("publication_legs", []).append(
+                        publication_projection.confirmed_leg(operation, receipt, text=messages[index])
+                    )
+            else:
+                message_id = discord.post_text(messages[index], channel_id, dry_run, nonce_value)
             if message_id is not None:
                 event.setdefault("text_message_ids", []).append(message_id)
             event["text_index"] += 1
@@ -627,7 +651,19 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
             ref = reference_id(media_url)
             reference = event.get("source_media_refs", {}).get(ref) if ref else None
             media_arguments = {"source_reference": reference} if ref else {}
-            message_id = discord.post_media(media_url, channel_id, dry_run, discord.nonce(f"{profile.id}:{post.post_id}", f"media:{index}"), storage.parent / "media", **media_arguments)
+            nonce_value = discord.nonce(f"{profile.id}:{post.post_id}", f"media:{index}")
+            if publication_projection.enabled():
+                message_id, operation, receipt = discord.post_media_with_receipt(
+                    media_url, channel_id, dry_run, nonce_value, storage.parent / "media", **media_arguments,
+                )
+                if operation is not None and receipt is not None:
+                    event.setdefault("publication_legs", []).append(
+                        publication_projection.confirmed_leg(operation, receipt, text=None)
+                    )
+            else:
+                message_id = discord.post_media(
+                    media_url, channel_id, dry_run, nonce_value, storage.parent / "media", **media_arguments,
+                )
             if message_id is not None:
                 event.setdefault("media_message_ids", []).append(message_id)
             event["media_index"] += 1
@@ -662,6 +698,17 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
     record = state.record_delivery(value, event, channel_id, delivered_at, dry_run)
     if record is not None:
         state.queue_replacement_cleanup(value, record)
+    if not dry_run and publication_projection.enabled():
+        confirmed_at = event.get("publication_delivery_confirmed_at")
+        if not isinstance(confirmed_at, str):
+            confirmed_at = datetime.now().astimezone().isoformat()
+            event["publication_delivery_confirmed_at"] = confirmed_at
+        publication_projection.record_confirmed_event(
+            value,
+            event,
+            profile,
+            datetime.fromisoformat(confirmed_at),
+        )
     # The All delivery is durable before the owner sees a source event. A
     # retry below must therefore never revisit text, media, routing, or agent
     # work.
@@ -822,6 +869,7 @@ def run(
             while (event_index := _next_deliverable_index(value, profiles, now)) is not None:
                 if not _deliver(value, profiles, event_index, dry_run, storage, stats, now): break
             _retry_cleanup(value, dry_run, storage, stats)
+            _drain_publications(value, dry_run, storage, stats, now)
             stats.pending, stats.oldest_pending_minutes = _queue_metrics(value, profiles, now)
             _report_control_event(
                 reporter,
@@ -1038,6 +1086,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 if not _deliver(value, profiles, event_index, dry_run, storage, stats, now):
                     break
             _retry_cleanup(value, dry_run, storage, stats)
+            _drain_publications(value, dry_run, storage, stats, now)
             _report_control_event(
                 reporter,
                 run_id,

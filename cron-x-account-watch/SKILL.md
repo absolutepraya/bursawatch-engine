@@ -55,6 +55,13 @@ Use the wrapper below exactly. It selects the managed VPS interpreter. Never inv
 
 The scanner validates the exact event key, requested field shapes, and active 15-minute agent lease. It then persists the result, handles Discord text and ordered media, and owns heartbeat and failure reporting. Do not compensate for a rejected, expired, or invalid submission.
 
+When the X owner's optional Published projection is enabled, the scanner
+records the exact output only after every required Discord Delivery Owner
+receipt is confirmed. This projection is scanner-owned, disabled by default,
+and retries never send Discord messages. X swing analysis is published as
+source context, not as a broker trading plan. Do not change this classification
+or attempt to submit a publication yourself.
+
 ## Swing board handoff
 
 An accepted `id_stocks_swing` post is delivered to All Swing first. The scanner then may submit exactly one source-only context event to the Swing Plan Board. The board event is `kind: social` with `plan: null`, and it never turns X wording about targets or stop-losses into structured plan levels or market status. The board labels this source-only event `Chart context`. The gate requires one ticker-led first source line, with either a colon or whitespace after the ticker, matching the accepted title ticker and no second ticker-led clause in the complete assembled thread. Every accepted supported thread image reaches Vision within its 16-image bound. All accepted Swing images reach All and Board in source order even when the profile uses `omit_last`; non-Swing routes retain that media policy. All text and usable images are durably delivered in the same queue invocation before the Board submission; after a nonterminal Delivery Owner receipt, wait for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) for that stable operation before advancing to the next leg. If an operation remains pending, retry it with its same key. Confirmed 404/410 media skips are terminal for that item. A Board retry never replays successful All output. The board starter title is normalized to `TICKER: ...`, uses the same accepted rendered summary and durable delivery date as All, and attaches the first chart when available with later images as ordered replies. All Swing initially receives the forum-channel marker, then the scanner edits the same message to the direct topic URL returned by the board owner. A failed link edit is retried without replaying the X delivery. The board copy does not include that line.
