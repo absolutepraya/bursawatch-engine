@@ -215,6 +215,7 @@ describe("operator inventory read proxy", () => {
             : path === "jobs/global-reader"
               ? {
                   job_id: "global-reader",
+                  can_edit: false,
                   watcher_id: null,
                   component_ids: [],
                   display_name: "Reader",

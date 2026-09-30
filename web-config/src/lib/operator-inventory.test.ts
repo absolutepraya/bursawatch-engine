@@ -5,6 +5,7 @@ import {
   componentList,
   observation,
   operatorJob,
+  operatorJobList,
 } from "./operator-inventory";
 
 const time = "2026-09-29T00:00:00Z";
@@ -54,8 +55,9 @@ describe("operator inventory response contracts", () => {
   });
 
   it("accepts a global job without watcher ownership and projects raw error text", () => {
-    const parsed = operatorJob.parse({
+    const row = {
       job_id: "global-reader",
+      can_edit: false,
       watcher_id: null,
       component_ids: [componentRow.component_id],
       display_name: "Shared reader",
@@ -70,7 +72,8 @@ describe("operator inventory response contracts", () => {
         last_error: "private detail",
         effective: false,
       },
-    });
+    };
+    const parsed = operatorJob.parse(row);
     expect(parsed.watcher_id).toBeNull();
     expect(parsed.reconciliation).toEqual({
       status: "error",
@@ -78,6 +81,7 @@ describe("operator inventory response contracts", () => {
       effective: false,
       has_error: true,
     });
+    expect(operatorJobList.safeParse([row, row]).success).toBe(false);
   });
 
   it("rejects stale or malformed observations and unknown observation fields", () => {

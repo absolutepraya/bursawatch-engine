@@ -2,9 +2,13 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { Publication, PublicationCoverage } from "@/lib/publications";
-import { PublishedList } from "./published-list";
+import { isSwing, PublishedList } from "./published-list";
 
 afterEach(cleanup);
+
+it("groups broker-authored updates with Swing publications", () => {
+  expect(isSwing("broker_swing_update")).toBe(true);
+});
 
 const item = {
   publication_id: "a".repeat(64),
@@ -35,7 +39,7 @@ it("labels context separately and warns when a publisher checkpoint is unknown",
       onSelect={vi.fn()}
     />,
   );
-  expect(screen.getAllByText("Swing context")).toHaveLength(2);
+  expect(screen.getByText("Swing context")).toBeTruthy();
   expect(screen.getByText(/Coverage is incomplete or unverified/)).toBeTruthy();
   fireEvent.click(screen.getByText("Publisher coverage"));
   expect(screen.getByText("unknown")).toBeTruthy();

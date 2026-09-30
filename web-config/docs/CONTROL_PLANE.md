@@ -111,8 +111,9 @@ raw provider errors, secrets or config.
 
 ## Implemented surface
 
-The desktop sidebar and mobile bottom navigation expose the same five
-destinations: Overview, Sources, Workflows, History and Account. They reuse
+The desktop sidebar and mobile bottom navigation expose the same seven
+destinations: Overview, Sources, Workflows, Jobs, History, Published and
+Account. They reuse
 the sample workspace's visual language while keeping authenticated API records
 and sample browser preferences separate.
 
@@ -138,6 +139,16 @@ and sample browser preferences separate.
   excluded. Missing counts are not zero; run totals and simulated dry-run counts
   cannot establish per-post/channel receipt. An `ok` run is not proof of message
   delivery or Sectors use.
+- Jobs: declared jobs appear once with their component relationships, desired
+  schedule, reconciler state, fresh observation and last execution evidence.
+  Backend `can_edit` gates interval controls; fixed jobs and viewer sessions
+  have no save action. `/workspace/schedules` redirects here.
+- Published: cursor-paginated confirmed News and Swing deliveries since the
+  recorded forward-only boundary. Date, source, type, route, ticker and group
+  filters are sent to the authenticated read API before pagination. Detail
+  shows exact delivered legs and safe source or related-publication links.
+  Publisher coverage is shown separately; an incomplete or unknown checkpoint
+  keeps an empty result explicitly bounded.
 - Account: current identity, copyable UUID for owner-managed access and sign-out.
 
 The Sources page (`/workspace/sources`) reads the versioned Source Catalog and

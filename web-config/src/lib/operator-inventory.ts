@@ -106,6 +106,7 @@ const schedule = z
 export const operatorJob = z
   .object({
     job_id: id,
+    can_edit: z.boolean(),
     watcher_id: id.nullable(),
     component_ids: z.array(id).max(100),
     display_name: z.string().min(1).max(200),
@@ -135,6 +136,11 @@ export const operatorJob = z
     )
       ctx.addIssue({ code: "custom", message: "Invalid interval bounds" });
   });
+
+export const operatorJobList = z.array(operatorJob).max(500).superRefine((rows, ctx) => {
+  if (new Set(rows.map((row) => row.job_id)).size !== rows.length)
+    ctx.addIssue({ code: "custom", message: "Duplicate operator job IDs" });
+});
 
 const observationSchedule = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("interval"), minutes: z.number().int().min(1).max(1440) }).strict(),

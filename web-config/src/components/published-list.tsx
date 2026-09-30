@@ -83,22 +83,6 @@ export function PublishedList({
           ))}
         </div>
         <label>
-          Type
-          <select
-            value={filter.type}
-            onChange={(event) =>
-              onFilter({ ...filter, type: event.target.value as PublishedFilter["type"] })
-            }
-          >
-            <option value="all">All types</option>
-            {Object.entries(publicationTypeLabels).map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
           Ticker
           <input
             value={filter.ticker}
@@ -162,9 +146,13 @@ export function PublishedList({
 }
 
 export function isSwing(type: Publication["type"]): boolean {
-  return ["broker_swing_plan", "swing_context", "swing_bundle", "swing_board_update"].includes(
-    type,
-  );
+  return [
+    "broker_swing_plan",
+    "broker_swing_update",
+    "swing_context",
+    "swing_bundle",
+    "swing_board_update",
+  ].includes(type);
 }
 
 function dateTime(value: string): string {

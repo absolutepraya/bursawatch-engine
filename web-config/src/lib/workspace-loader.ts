@@ -8,7 +8,8 @@ import type {
   OperatorObservation,
 } from "@/lib/operator-inventory";
 
-export type WorkspaceView = "overview" | "sources" | "workflows" | "history" | "settings";
+export type WorkspaceView =
+  "overview" | "sources" | "workflows" | "jobs" | "history" | "published" | "settings";
 export type WorkspaceIssue = {
   watcherId: string;
   resource: "jobs" | "runs";
@@ -118,15 +119,18 @@ export async function loadWorkspaceRecords(
       updatedAt: new Date().toISOString(),
       issues: [] as WorkspaceIssue[],
     });
-    if ((options.view === "history" && options.runId) || options.view === "settings")
+    if (
+      (options.view === "history" && options.runId) ||
+      options.view === "settings" ||
+      options.view === "published"
+    )
       return emptyRecords();
     progress("catalog");
-    const watchers =
-      options.view === "sources"
-        ? []
-        : await request<ControlWatcher[]>("watchers", undefined, {
-            signal: controller.signal,
-          });
+    const watchers = ["overview", "workflows", "history"].includes(options.view)
+      ? await request<ControlWatcher[]>("watchers", undefined, {
+          signal: controller.signal,
+        })
+      : [];
     checkCancelled();
     options.onCatalog?.(watchers);
     const relevant =
@@ -211,12 +215,12 @@ export async function loadWorkspaceRecords(
       kind: "components" | "component-activity" | "operator-jobs" | "observations";
       componentId?: string;
     }> = [];
-    if (["overview", "sources", "workflows", "history"].includes(options.view)) {
+    if (["overview", "sources", "workflows", "history", "jobs"].includes(options.view)) {
       supplemental.push({ path: "components", kind: "components" });
       if (options.view === "overview" || options.view === "sources") {
         // Component IDs are filled after the inventory read below.
       }
-      if (options.view !== "sources") {
+      if (!["sources"].includes(options.view)) {
         supplemental.push(
           { path: "jobs", kind: "operator-jobs" },
           { path: "observations", kind: "observations" },

@@ -4,6 +4,7 @@ import {
   publication,
   publicationCoverage,
   publicationPage,
+  publicationFilters,
 } from "./publications";
 
 function sample(id = "a".repeat(64)) {
@@ -63,6 +64,25 @@ describe("published read contract", () => {
         legs: [{ ...withPrivateMedia.legs[0], private_media_ref: "secret://object" }],
       }).success,
     ).toBe(false);
+  });
+
+  it("accepts a linked broker update without presenting it as a complete plan", () => {
+    const parsed = publication.parse({ ...sample(), type: "broker_swing_update" });
+    expect(parsed.type).toBe("broker_swing_update");
+    expect(parsed.broker_levels).toBeNull();
+  });
+
+  it("validates server-side group, date, source, route, ticker and type filters", () => {
+    expect(publicationFilters.parse({
+      group: "swing",
+      date_from: "2026-09-29T00:00:00+07:00",
+      date_to: "2026-09-30T23:59:59+07:00",
+      source: "Synthetic source",
+      route: "swing_board",
+      ticker: "TEST",
+      type: "broker_swing_update",
+    })).toMatchObject({ group: "swing", route: "swing_board", ticker: "TEST", type: "broker_swing_update" });
+    expect(publicationFilters.safeParse({ route: "arbitrary" }).success).toBe(false);
   });
 
   it("rejects omitted required legs and mismatched Discord receipt links", () => {

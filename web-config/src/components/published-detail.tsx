@@ -107,8 +107,8 @@ export function PublishedDetail({
       <section aria-label="Confirmed deliveries">
         <h2>Confirmed deliveries</h2>
         <p className="control-muted">
-          These are the exact rendered output legs accepted from the publisher&apos;s confirmed delivery
-          receipts.
+          These are the exact rendered output legs accepted from the publisher&apos;s confirmed
+          delivery receipts.
         </p>
         <ol className="published-legs">
           {current.legs.map((leg) => (

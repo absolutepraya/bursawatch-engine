@@ -15,6 +15,7 @@ import {
   componentList,
   observation,
   operatorJob,
+  operatorJobList,
 } from "@/lib/operator-inventory";
 import {
   publicationCoverage,
@@ -489,7 +490,7 @@ export function createControlPlaneReader(options: {
       return result;
     },
     async listOperatorJobs() {
-      return read("/v1/jobs", z.array(operatorJob).max(500));
+      return read("/v1/jobs", operatorJobList);
     },
     async getOperatorJob(jobId: string) {
       if (!id.safeParse(jobId).success) throw new ControlPlaneError("setup");

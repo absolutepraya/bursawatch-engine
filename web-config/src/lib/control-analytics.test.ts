@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  currentObservedFailures,
   controlRunDuration,
+  isEffectiveSubscription,
   latestControlRuns,
+  observedJobState,
+  observedJobSummary,
+  ownerConfigEvidence,
   summarizeControlRuns,
   summarizeControlSchedules,
 } from "@/lib/control-analytics";
+import type { OperatorJob, OperatorObservation } from "@/lib/operator-inventory";
 import type { ControlJob, ControlRun, ControlWatcher } from "@/server/control-plane";
 
 const asOf = "2026-09-20T09:15:00Z";
@@ -188,5 +194,39 @@ describe("latest watcher run", () => {
     );
     expect(controlRunDuration(run(asOf, { finished_at: "2026-09-20T09:16:12Z" }))).toBe("1m 12s");
     expect(controlRunDuration(run(asOf, { finished_at: "2026-09-20T10:30:00Z" }))).toBe("1h 15m");
+  });
+});
+
+describe("operator evidence", () => {
+  const operatorJob: OperatorJob = {
+    job_id: "source-poller", can_edit: true, watcher_id: null, component_ids: ["telegram-adapter"], display_name: "Source poller",
+    runtime_job_key: "source-poller", schedule_kind: "interval", min_interval_seconds: 60, max_interval_seconds: 86400,
+    schedule: { api_version: 1, job_id: "source-poller", revision: 2, enabled: true, interval_seconds: 600, timezone: "Asia/Jakarta", schedule_sha256: "a".repeat(64), updated_at: asOf },
+    reconciliation: { status: "applied", applied_revision: 2, effective: true, has_error: false },
+  };
+  const observed: OperatorObservation = {
+    api_version: 1, identity_kind: "job", identity_id: "source-poller", observer_id: "observer", observed_at: asOf,
+    received_at: asOf, status: "enabled", freshness: "fresh",
+    evidence: { runtime_job_key: "source-poller", enabled: true, schedule: { kind: "interval", minutes: 10 }, last_execution: { at: asOf, status: "failed" } },
+    comparison: "match", desired: operatorJob.schedule,
+    reconciliation: { status: "applied", applied_revision: 2 },
+  };
+  it("keeps a paused historical failure out of current observed failures", () => {
+    const paused = { ...observed, status: "disabled" as const, evidence: { ...observed.evidence, enabled: false } };
+    expect(currentObservedFailures([operatorJob], [paused])).toEqual([]);
+    expect(observedJobState(operatorJob, { ...observed, freshness: "stale", status: "stale" })).toBe("stale");
+  });
+  it("does not treat an enabled but unverified endpoint as effective", () => {
+    expect(isEffectiveSubscription({ enabled: true, verification_status: "pending" })).toBe(false);
+    expect(isEffectiveSubscription({ enabled: true, verification_status: "verified" })).toBe(true);
+  });
+  it("distinguishes saved configuration from the revision used by recorded runs", () => {
+    expect(ownerConfigEvidence(3, [])).toEqual({ label: "Saved, use unverified", loadedRevision: null });
+    expect(ownerConfigEvidence(3, [run(asOf, { config_revision: 2 })])).toEqual({ label: "Saved v3, use unverified; last run used v2", loadedRevision: 2 });
+    expect(ownerConfigEvidence(3, [run(asOf, { config_revision: 3 })])).toEqual({ label: "Last run used saved v3", loadedRevision: 3 });
+  });
+  it("counts failures only from fresh active observations and preserves missing job coverage", () => {
+    expect(currentObservedFailures([operatorJob], [observed])).toHaveLength(1);
+    expect(observedJobSummary([operatorJob, { ...operatorJob, job_id: "unobserved", schedule: null }], [observed])).toMatchObject({ active: 1, unknown: 1, total: 2 });
   });
 });

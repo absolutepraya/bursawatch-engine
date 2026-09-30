@@ -16,6 +16,7 @@ const schedule = {
 };
 const job = {
   job_id: "x-poller",
+  can_edit: true,
   watcher_id: "x-watch",
   display_name: "X source poller",
   runtime_job_key: "private-runtime-key",
@@ -249,6 +250,7 @@ describe("operator inventory reads", () => {
       [
         {
           job_id: "global-reader",
+          can_edit: false,
           watcher_id: null,
           component_ids: [],
           display_name: "Global reader",
@@ -267,6 +269,7 @@ describe("operator inventory reads", () => {
       ],
       {
         job_id: "global-reader",
+        can_edit: false,
         watcher_id: null,
         component_ids: [],
         display_name: "Global reader",

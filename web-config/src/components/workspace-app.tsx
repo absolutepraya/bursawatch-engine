@@ -18,10 +18,9 @@ import type {
   ControlConfigSnapshot,
   ControlEvent,
   ControlJob,
-  ControlRun,
-  ControlWatcher,
   ScheduleInput,
 } from "@/server/control-plane";
+import type { WorkspaceRecords } from "@/lib/workspace-loader";
 import { BrandMark } from "@/components/brand";
 import { ToastProvider, useToast } from "@/components/toast-provider";
 import { ControlDashboard } from "@/components/control-dashboard";
@@ -34,6 +33,8 @@ import { ConnectedWorkflowSummary } from "@/components/connected-workflow-summar
 import { WorkspaceLoading } from "@/components/workspace-loading";
 import { XDeliveryStatus } from "@/components/x-delivery-status";
 import { SourceProfiles } from "@/components/source-profiles";
+import { OperatorJobs } from "@/components/operator-jobs";
+import { PublishedWorkspace } from "@/components/published-workspace";
 import { xWatcherId } from "@/lib/x-delivery-status";
 import { loadWorkspaceRecords, type WorkspaceProgress } from "@/lib/workspace-loader";
 import "@/app/workspace.css";
@@ -51,14 +52,7 @@ function authClient(settings: WebAuthSettings) {
   if (typeof window !== "undefined") browserClients.set(key, client);
   return client;
 }
-type Issue = { watcherId: string; resource: "jobs" | "runs"; message: string };
-type Records = {
-  watchers: ControlWatcher[];
-  jobs: ControlJob[];
-  runs: ControlRun[];
-  updatedAt: string;
-  issues: Issue[];
-};
+type Records = WorkspaceRecords;
 
 export function WorkspaceApp(props: { settings: WebAuthSettings | null; view: View }) {
   return (
@@ -315,7 +309,7 @@ function SignedInWorkspace({
     readController.current?.abort();
     const controller = new AbortController();
     readController.current = controller;
-    if (view === "settings" || view === "sources") {
+    if (view === "settings" || view === "published") {
       setRefreshing(false);
       setError("");
       return;
@@ -339,6 +333,11 @@ function SignedInWorkspace({
             watchers,
             jobs: [],
             runs: [],
+            components: [],
+            componentActivity: [],
+            operatorJobs: [],
+            observations: [],
+            operatorIssues: [],
             issues: [],
             updatedAt: new Date().toISOString(),
           });
@@ -428,6 +427,7 @@ function SignedInWorkspace({
         ) : null}
         {view !== "settings" &&
         view !== "sources" &&
+        view !== "published" &&
         !(view === "history" && runId) &&
         !error &&
         (!records || refreshing) ? (
@@ -468,6 +468,21 @@ function SignedInWorkspace({
             </button>
           </div>
         ) : null}
+        {records && records.operatorIssues.length > 0 && view !== "overview" ? (
+          <div className="control-alert" role="status">
+            <p>
+              Operator evidence is incomplete. A missing row means unavailable data, not an empty
+              result.
+            </p>
+            <ul>
+              {records.operatorIssues.map((issue, index) => (
+                <li key={`${issue.resource}:${issue.componentId ?? "inventory"}:${index}`}>
+                  {issue.message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {records && view === "overview" ? (
           <ControlDashboard
             {...records}
@@ -483,7 +498,18 @@ function SignedInWorkspace({
               title="Sources"
               description="Review supported sources and their saved catalog settings."
             />
-            <SourceCatalogView request={request} onDirtyChange={onDirtyChange} />
+            <SourceCatalogView
+              request={request}
+              onDirtyChange={onDirtyChange}
+              components={records?.components ?? []}
+              activity={records?.componentActivity ?? []}
+              activityUnavailable={
+                records?.operatorIssues.some(
+                  (issue) =>
+                    issue.resource === "components" || issue.resource === "component-activity",
+                ) ?? false
+              }
+            />
           </>
         ) : null}
         {records && view === "workflows" ? (
@@ -504,8 +530,16 @@ function SignedInWorkspace({
               />
               <SearchableWorkflowList
                 {...records}
+                components={records.components}
+                operatorJobs={records.operatorJobs}
+                observations={records.observations}
                 onSelectWatcher={selectWatcher}
-                statusLoaded={false}
+                statusLoaded={
+                  !records.operatorIssues.some(
+                    (issue) =>
+                      issue.resource === "operator-jobs" || issue.resource === "observations",
+                  )
+                }
               />
             </>
           )
@@ -524,6 +558,10 @@ function SignedInWorkspace({
               title="Run history"
               description="Up to 50 recent checks per workflow. A completed check may have nothing new to deliver."
             />
+            <p className="control-data-note">
+              Source-adapter run telemetry is unavailable here. This page shows bounded workflow run
+              records, not a count of source polls or deliveries.
+            </p>
             <SearchableRunHistory
               runs={records.runs}
               watchers={records.watchers}
@@ -531,6 +569,17 @@ function SignedInWorkspace({
             />
           </>
         ) : null}
+        {records && view === "jobs" ? (
+          <OperatorJobs
+            jobs={records.operatorJobs}
+            components={records.components}
+            observations={records.observations}
+            request={request}
+            onDirtyChange={onDirtyChange}
+            unavailable={records.operatorIssues.some((issue) => issue.resource === "operator-jobs")}
+          />
+        ) : null}
+        {view === "published" ? <PublishedWorkspace request={request} /> : null}
         {view === "settings" ? (
           <>
             <WorkspaceHeading

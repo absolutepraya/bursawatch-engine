@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Activity, CircleDashed, Search } from "lucide-react";
 import type { ControlJob, ControlRun, ControlWatcher } from "@/server/control-plane";
 import type { ControlCoverageIssue } from "@/lib/control-analytics";
+import type { OperatorComponent, OperatorJob, OperatorObservation } from "@/lib/operator-inventory";
 import { controlStatusLabels, controlStatuses } from "@/lib/control-analytics";
 import {
   filterWorkspaceRuns,
@@ -36,6 +37,9 @@ export function SearchableWorkflowList({
   onSelectWatcher,
   issues = [],
   statusLoaded = false,
+  components = [],
+  operatorJobs = [],
+  observations = [],
 }: {
   watchers: ControlWatcher[];
   runs: ControlRun[];
@@ -44,6 +48,9 @@ export function SearchableWorkflowList({
   onSelectWatcher: (watcherId: string) => void;
   issues?: ControlCoverageIssue[];
   statusLoaded?: boolean;
+  components?: OperatorComponent[];
+  operatorJobs?: OperatorJob[];
+  observations?: OperatorObservation[];
 }) {
   const [query, setQuery] = useState("");
   const [configuration, setConfiguration] = useState<WorkflowConfigurationFilter>("all");
@@ -110,6 +117,9 @@ export function SearchableWorkflowList({
           onSelectWatcher={onSelectWatcher}
           issues={issues}
           statusLoaded={statusLoaded}
+          components={components}
+          operatorJobs={operatorJobs}
+          observations={observations}
         />
       )}
     </section>
