@@ -89,6 +89,10 @@ or run the operator-only `delivery-handoff` plan/apply command while processing
 an event. A service-accepted operation remains under the owner's retry
 lifecycle while the watcher keeps its source cursor unchanged.
 
+Published Feed projection is scanner-owned and includes only forwarded output
+after every required Discord leg has a confirmed Delivery Owner receipt. Do
+not submit, retry, or edit Published Feed records from the agent response.
+
 Submit through the watcher wrapper:
 
 ```text

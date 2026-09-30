@@ -373,3 +373,21 @@ queue processing, and heartbeat construction without external messages.
 ## Discord delivery receipt wait
 
 After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.
+
+## Published Feed projection
+
+The watcher owns WhatsApp Channel Published Feed projections. It projects only
+forwarded `macro_news`, `id_stocks_news`, `id_industry_news`, and
+`id_stocks_swing` outputs, mapped to `macro_news`, `idx_company_news`,
+`industry_news`, and `swing_context`. Observe-only profiles, filtered items,
+and candidates without completed text and available forwarded-media legs do
+not produce a publication. Each saved intent contains the exact rendered text,
+public Channel link and identity, and confirmed Delivery Owner receipt data.
+Projection retry and contiguous checkpoint reporting do not submit Discord
+operations and do not alter the bridge cursor.
+
+Projection is disabled unless `BURSAWATCH_WA_CHANNEL_WATCH_PUBLICATION_ENABLED=1`.
+After a separately approved forward-only cutover, configure
+`BURSAWATCH_PUBLICATION_CONTROL_PLANE_URL` and the owner-scoped
+`BURSAWATCH_WA_CHANNEL_WATCH_PUBLICATION_TOKEN_FILE`. An unavailable read model
+leaves its durable intent pending without resending delivered Discord legs.

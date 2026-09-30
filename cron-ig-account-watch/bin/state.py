@@ -72,6 +72,7 @@ _ROOT_KEYS = {
     "deliveries",
     "cleanup",
     "filtered_since_last_heartbeat",
+    "publication_ledger",
 }
 _PROFILE_KEYS = {"cursor", "cursor_published_at"}
 _EVENT_KEYS = {
@@ -127,6 +128,7 @@ def new_state() -> dict:
         "deliveries": [],
         "cleanup": [],
         "filtered_since_last_heartbeat": 0,
+        "publication_ledger": {},
     }
 
 
@@ -773,7 +775,8 @@ def _validate_cleanup(value: object) -> dict[str, object]:
 
 def _validate_state(value: object) -> dict[str, object]:
     root = _require_object(value)
-    if set(root) != _ROOT_KEYS or root["version"] != STATE_VERSION or type(root["version"]) is not int:
+    legacy_keys = _ROOT_KEYS - {"publication_ledger"}
+    if set(root) not in (legacy_keys, _ROOT_KEYS) or root["version"] != STATE_VERSION or type(root["version"]) is not int:
         raise _invalid()
     profiles = root["profiles"]
     if type(profiles) is not dict or len(profiles) > MAX_PROFILES:
@@ -817,7 +820,88 @@ def _validate_state(value: object) -> dict[str, object]:
     filtered = root["filtered_since_last_heartbeat"]
     if type(filtered) is not int or not 0 <= filtered <= MAX_DELIVERIES:
         raise _invalid()
+    ledger = root.get("publication_ledger", {})
+    if type(ledger) is not dict or len(ledger) > MAX_DELIVERIES:
+        raise _invalid()
+    for owner_key, entry in ledger.items():
+        if (type(owner_key) is not str or not owner_key or type(entry) is not dict
+                or set(entry) != {"snapshot", "ack"}):
+            raise _invalid()
+        snapshot, ack = entry["snapshot"], entry["ack"]
+        if type(snapshot) is not dict or snapshot.get("owner_key") != owner_key:
+            raise _invalid()
+        if _parse_aware_datetime(snapshot.get("delivery_confirmed_at")) is None:
+            raise _invalid()
+        if ack is not None and (
+            type(ack) is not dict or set(ack) != {"publication_id", "version", "digest"}
+            or type(ack.get("publication_id")) is not str or not _SAFE_HASH.fullmatch(ack["publication_id"])
+            or type(ack.get("version")) is not int or ack["version"] != snapshot.get("version")
+            or type(ack.get("digest")) is not str or not _SAFE_HASH.fullmatch(ack["digest"])
+        ):
+            raise _invalid()
     return root
+
+
+def record_publication_intent(value: dict, snapshot: dict) -> bool:
+    _validate_state(value)
+    owner_key = snapshot.get("owner_key") if isinstance(snapshot, dict) else None
+    if not isinstance(owner_key, str) or not owner_key:
+        raise ValueError("publication owner key is invalid")
+    ledger = value.setdefault("publication_ledger", {})
+    existing = ledger.get(owner_key)
+    if existing is not None:
+        if existing.get("snapshot") != snapshot:
+            raise ValueError("publication owner key conflicts with its saved intent")
+        return False
+    ledger[owner_key] = {"snapshot": snapshot, "ack": None}
+    _validate_state(value)
+    return True
+
+
+def pending_publication_intents(value: dict) -> list[tuple[str, dict]]:
+    _validate_state(value)
+    return sorted(
+        ((key, item["snapshot"]) for key, item in value.get("publication_ledger", {}).items() if item["ack"] is None),
+        key=lambda row: (row[1]["delivery_confirmed_at"], row[0]),
+    )
+
+
+def acknowledge_publication_intent(value: dict, owner_key: str, ack: dict) -> bool:
+    _validate_state(value)
+    ledger = value.get("publication_ledger", {})
+    entry = ledger.get(owner_key) if isinstance(ledger, dict) else None
+    if entry is None:
+        raise ValueError("publication acknowledgment has no saved intent")
+    if entry["ack"] is not None:
+        if entry["ack"] != ack:
+            raise ValueError("publication acknowledgment changed")
+        return False
+    entry["ack"] = ack
+    _validate_state(value)
+    return True
+
+
+def publication_checkpoint_comparison(value: dict, compared_at: datetime) -> dict:
+    _validate_state(value)
+    _aware_datetime(compared_at)
+    entries = sorted(
+        value.get("publication_ledger", {}).items(),
+        key=lambda pair: (pair[1]["snapshot"]["delivery_confirmed_at"], pair[0]),
+    )
+    confirmed = max((entry["snapshot"]["delivery_confirmed_at"] for _, entry in entries), default=None)
+    accepted = None
+    for _, entry in entries:
+        if entry["ack"] is None:
+            break
+        accepted = entry["snapshot"]["delivery_confirmed_at"]
+    if confirmed is not None and all(entry["ack"] is not None for _, entry in entries):
+        accepted = confirmed
+    return {
+        "compared_at": compared_at.isoformat(),
+        "confirmed_through_at": confirmed,
+        "accepted_through_at": accepted,
+        "outstanding_count": sum(entry["ack"] is None for _, entry in entries),
+    }
 
 
 def _absolute_path(path: Path) -> Path:

@@ -89,6 +89,7 @@ def test_new_state_has_version_two_and_empty_delivery_ledgers():
         "deliveries": [],
         "cleanup": [],
         "filtered_since_last_heartbeat": 0,
+        "publication_ledger": {},
     }
 
 

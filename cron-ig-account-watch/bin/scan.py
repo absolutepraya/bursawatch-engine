@@ -19,6 +19,7 @@ import config
 import discord
 import media
 import ocr
+import publication_projection
 import render
 import rsshub
 import source_work_routes
@@ -390,6 +391,7 @@ def _finalize_delivery(
     storage: Path,
     stats: RunStats,
     now: datetime,
+    profile: Profile,
 ) -> bool:
     event = value["outbox"][event_index]
     if source_work_routes.read(storage, event["event_key"]) is not None:
@@ -403,6 +405,11 @@ def _finalize_delivery(
         media_message_ids=event["media_message_ids"],
         cleanup_pending=media_root is not None,
     )
+    try:
+        publication_projection.record_intent(value, event, profile, now)
+    except Exception:
+        # Preserve an explicit coverage gap without repeating confirmed sends.
+        publication_projection.record_blocked(value, event, now)
     if media_root is not None:
         state.queue_media_cleanup(
             value,
@@ -476,7 +483,7 @@ def _deliver(
             state.save_state(storage, value)
             return True
 
-        return _finalize_delivery(value, event_index, storage, stats, now)
+        return _finalize_delivery(value, event_index, storage, stats, now, profile)
     except Exception as error:
         if isinstance(error, discord.DeliveryOwnerPending):
             event["last_error"] = "Delivery Owner accepted pending work"
@@ -964,6 +971,10 @@ def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, o
 
             if not no_post:
                 _drain_deliveries(value, profiles, storage, stats, now)
+                projection = publication_projection.drain(value, now)
+                if projection["pending"]:
+                    stats.note_error("Published Feed projection pending")
+                state.save_state(storage, value)
                 _retry_media_cleanup(value, storage, stats, no_post=False)
                 _note_reclaimed_agent_leases(value, now, stats)
                 _post_heartbeat(now, stats)

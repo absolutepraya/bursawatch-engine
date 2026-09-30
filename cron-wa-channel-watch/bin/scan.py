@@ -15,6 +15,7 @@ import config
 import discord
 import event_queue
 from normalize import deserialize_queue_event
+import publication_projection
 import render
 import state
 import source_work_routes
@@ -636,6 +637,16 @@ def _run(
         archive_dir=archive_dir,
         errors=errors,
     )
+    if not no_post:
+        try:
+            publication_projection.record_intents(value, profiles, archive_dir, now)
+            state.save(state_path, value)
+            projection = publication_projection.drain(value, now)
+            if projection["pending"]:
+                errors.append(f"Published Feed projection pending: {projection['pending']}")
+        except Exception:
+            # A read-model outage cannot alter already-confirmed Discord delivery.
+            errors.append("Published Feed projection unavailable")
     claimed_item: dict[str, object] | None = None
     for record in _active_records(value, profiles):
         if record.get("agent_phase") != "pending":
