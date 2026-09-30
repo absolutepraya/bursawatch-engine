@@ -30,7 +30,7 @@ if not owner.exists():
 if str(owner) not in sys.path:
     sys.path.insert(0, str(owner))
 
-from adapter import IntakeBlocked, _load_validators, endpoints
+from adapter import IntakeBlocked, _load_validators, _require_rss_transition_chain, endpoints
 from config import FEEDS, load_watch_config_for_run
 from legacy_cursor_seed import LegacySeedBlocked, plan_catalog_revision_transition
 
@@ -235,82 +235,6 @@ def _seed_origin(root: Path, through_revision: int) -> tuple[int, str, dict[str,
     return next(iter(origins)), next(iter(legacy_digests)), checked_hashes
 
 
-def _read_journal(path: Path) -> dict[str, Any]:
-    journal, _raw = _read_object(path, "RSS catalog transition journal", private=True)
-    if (
-        set(journal) != {"version", "status", "plan", "seeded_endpoints"}
-        or type(journal.get("version")) is not int
-        or journal["version"] != 1
-        or type(journal.get("status")) is not str
-        or journal["status"] not in {"applying", "complete"}
-        or type(journal.get("plan")) is not dict
-        or journal.get("seeded_endpoints") != []
-    ):
-        raise TransitionBlocked("RSS catalog transition journal is malformed")
-    return journal
-
-
-def _metadata_matches(
-    metadata: Any,
-    *,
-    projection_sha256: str,
-    watch_config_revision: int,
-    seed_origin_revision: int,
-) -> bool:
-    return (
-        type(metadata) is dict
-        and metadata.get("transition_type") == _TRANSITION_TYPE
-        and metadata.get("projection_sha256") == projection_sha256
-        and type(metadata.get("watch_config_revision")) is int
-        and metadata.get("watch_config_revision") == watch_config_revision
-        and type(metadata.get("seed_origin_revision")) is int
-        and metadata.get("seed_origin_revision") == seed_origin_revision
-        and _valid_digest(metadata.get("prior_catalog_sha256"))
-        and _valid_digest(metadata.get("target_catalog_sha256"))
-        and type(metadata.get("reason")) is str
-    )
-
-
-def _validate_completed_edge(
-    root: Path,
-    path: Path,
-    from_revision: int,
-    to_revision: int,
-    *,
-    projection_sha256: str,
-    watch_config_revision: int,
-    seed_origin_revision: int,
-) -> None:
-    journal = _read_journal(path)
-    plan = journal["plan"]
-    expected_path = root / "catalog-transitions" / f"{from_revision}-to-{to_revision}.json"
-    if (
-        type(plan.get("version")) is not int
-        or journal["status"] != "complete"
-        or plan.get("version") != 1
-        or plan.get("status") != "preview"
-        or plan.get("apply") is not False
-        or plan.get("revision_only") is not True
-        or type(plan.get("from_revision")) is not int
-        or plan.get("from_revision") != from_revision
-        or type(plan.get("to_revision")) is not int
-        or plan.get("to_revision") != to_revision
-        or plan.get("state_root") != str(root)
-        or plan.get("transition_path") != str(expected_path)
-        or plan.get("seeds") != []
-        or not _metadata_matches(
-            plan.get("metadata"),
-            projection_sha256=projection_sha256,
-            watch_config_revision=watch_config_revision,
-            seed_origin_revision=seed_origin_revision,
-        )
-    ):
-        raise TransitionBlocked("RSS catalog transition journal does not prove this compatible edge")
-    state_files = plan.get("state_files")
-    if type(state_files) is not dict or any(type(key) is not str or not _valid_digest(value) for key, value in state_files.items()):
-        raise TransitionBlocked("RSS catalog transition journal state fingerprint is invalid")
-
-
 def _validate_prior_chain(
     root: Path,
     origin_revision: int,
@@ -318,46 +242,18 @@ def _validate_prior_chain(
     *,
     projection_sha256: str,
     watch_config_revision: int,
-    current_transition_path: Path,
 ) -> None:
-    directory = root / "catalog-transitions"
-    if directory.is_symlink():
-        raise TransitionBlocked("RSS catalog transition directory cannot be a symlink")
-    expected_paths = {
-        directory / f"{revision}-to-{revision + 1}.json"
-        for revision in range(origin_revision, prior_revision)
-    }
-    allowed = set(expected_paths)
-    if current_transition_path.exists() or current_transition_path.is_symlink():
-        allowed.add(current_transition_path)
-        if current_transition_path.is_symlink() or not current_transition_path.is_file():
-            raise TransitionBlocked("current RSS catalog transition journal is unsafe")
-        _read_journal(current_transition_path)
-    if directory.exists():
-        if not directory.is_dir():
-            raise TransitionBlocked("RSS catalog transition path is invalid")
-        if stat.S_IMODE(directory.stat().st_mode) & 0o077:
-            raise TransitionBlocked("RSS catalog transition directory must be private")
-        try:
-            entries = set(directory.iterdir())
-        except OSError as error:
-            raise TransitionBlocked("RSS catalog transition directory is unreadable") from error
-        if entries != allowed:
-            raise TransitionBlocked("RSS catalog transition history has a gap or unexpected entry")
-    elif expected_paths:
-        raise TransitionBlocked("RSS catalog transition history is incomplete")
-
-    for edge_path in sorted(expected_paths):
-        from_revision = int(edge_path.stem.split("-to-")[0])
-        _validate_completed_edge(
+    try:
+        _require_rss_transition_chain(
             root,
-            edge_path,
-            from_revision,
-            from_revision + 1,
-            projection_sha256=projection_sha256,
-            watch_config_revision=watch_config_revision,
-            seed_origin_revision=origin_revision,
+            origin_revision,
+            prior_revision,
+            projection_sha256,
+            watch_config_revision,
+            allow_pending_edge=(prior_revision, prior_revision + 1),
         )
+    except IntakeBlocked as error:
+        raise TransitionBlocked("RSS catalog transition history is incomplete or changed") from error
 
 
 def _state_plan(
@@ -423,12 +319,15 @@ def _package_plan(
         prior_revision,
         projection_sha256=projection_sha256,
         watch_config_revision=config_revision,
-        current_transition_path=current_transition_path,
     )
     if marker_revision == target_revision and not current_transition_path.exists():
         raise TransitionBlocked("target source marker has no current-edge journal")
     if current_transition_path.exists():
-        current_journal = _read_journal(current_transition_path)
+        current_journal, _current_journal_raw = _read_object(
+            current_transition_path,
+            "current RSS catalog transition journal",
+            private=True,
+        )
         if marker_revision == prior_revision and current_journal["status"] == "complete":
             raise TransitionBlocked("completed RSS journal is ahead of its source marker")
 
