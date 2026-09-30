@@ -336,6 +336,11 @@
       "paths": ["cron-rss-source-ingest/AGENTS.md", "cron-rss-source-ingest/tests/**"]
     },
     {
+      "id": "platform-bursawatch-observer",
+      "handler": "manual",
+      "paths": ["platform-bursawatch-observer/**"]
+    },
+    {
       "id": "manual-schedule-reconciler",
       "handler": "manual",
       "paths": ["platform-hermes-schedule-reconciler/**"]
