@@ -291,9 +291,10 @@ cutover owner to report a current successful comparison. A fresh checkpoint
 does not override a last-known disabled owner job, which remains paused or
 unverified.
 
-The Control Plane API is released from production `main`
-`b1297c269bd42fb7d56624c362e0e0e1fe059144`, and the Published page is live in
-the web workspace. At the 2026-09-30 production workspace check, the feed
+The deployed Control Plane API release SHA was
+`b1297c269bd42fb7d56624c362e0e0e1fe059144`, then-current `main` on
+2026-09-30, and the Published page is live in the web workspace. At the
+2026-09-30 production workspace check, the feed
 showed no confirmed publications after its boundary and marked publisher
 coverage incomplete or unverified. This does not prove that no delivery
 occurred. Natural delivery coverage remains unverified until owners submit

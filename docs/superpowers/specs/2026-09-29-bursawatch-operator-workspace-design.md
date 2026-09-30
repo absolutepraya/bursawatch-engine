@@ -24,7 +24,7 @@ The source securities registry is intentionally empty pending an authoritative s
 
 ## Production rollout verification (2026-09-30)
 
-The workspace implementation shipped in PR #28. PR #29 corrected the reconciler schedule response contract. PRs #30 and #31 corrected the observer's Hermes status field and made approved legacy cron observations compare correctly with desired intervals. All four PRs are merged. Production `main` is `b1297c269bd42fb7d56624c362e0e0e1fe059144`; its exact CI run passed, and the VPS release agent reports that same SHA as released.
+The workspace implementation shipped in PR #28. PR #29 corrected the reconciler schedule response contract. PRs #30 and #31 corrected the observer's Hermes status field and made approved legacy cron observations compare correctly with desired intervals. All four PRs are merged. The rollout release SHA was `b1297c269bd42fb7d56624c362e0e0e1fe059144`, then-current `main`; its exact CI run passed, and the VPS release agent reported that SHA as released.
 
 The observer service and timer were installed and enabled through a separate manual VPS operation. A natural timer run reported all 13 Hermes jobs to the Control Plane. The authenticated Jobs page showed 8 observed active jobs, 5 observed paused jobs, no unknown observations, and no attention state. The 2026-09-30 production snapshot also confirmed that all 8 desired interval schedules matched the Hermes registry. The rollout did not change live schedules.
 

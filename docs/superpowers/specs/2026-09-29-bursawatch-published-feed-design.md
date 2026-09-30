@@ -104,7 +104,7 @@ Production service, scheduler, destination, credential, and release changes requ
 
 ## Production rollout verification (2026-09-30)
 
-The Control Plane API and Published page shipped with PR #28; follow-up PRs #29 to #31 completed the reconciler and observer integration. Production `main` `b1297c269bd42fb7d56624c362e0e0e1fe059144` passed its exact CI gate and was released by the VPS release agent.
+The Control Plane API and Published page shipped with PR #28; follow-up PRs #29 to #31 completed the reconciler and observer integration. The 2026-09-30 rollout SHA was `b1297c269bd42fb7d56624c362e0e0e1fe059144`, then-current `main`; it passed its exact CI gate and was released by the VPS release agent.
 
 The authenticated Published page records its boundary as 30 September 2026, 14:15 WIB. At the latest production page check, it showed no confirmed publications since that boundary and marked publisher coverage incomplete or unverified. This is an honest empty read model, not evidence that no upstream delivery occurred. A supported publisher's record appears after its required Discord delivery receipts are confirmed and the owner submits the projection. The feed does not backfill earlier publications.
 

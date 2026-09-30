@@ -283,9 +283,10 @@ they cannot establish that a real user is allowed to access production.
 
 The operator workspace and Published feed shipped in PR #28. PR #29 corrected
 the reconciler schedule contract; PRs #30 and #31 corrected Hermes observer
-status and legacy cron handling. All four PRs are merged. Production `main`
-`b1297c269bd42fb7d56624c362e0e0e1fe059144` passed its exact CI gate and the VPS
-release agent reports that SHA as released. The Control Plane health route,
+status and legacy cron handling. All four PRs are merged. The rollout release
+SHA `b1297c269bd42fb7d56624c362e0e0e1fe059144` was then-current `main`, passed
+its exact CI gate, and the VPS release agent reported that SHA as released. The
+Control Plane health route,
 public landing page, and authenticated workspace view returned successfully.
 
 The production snapshot on 2026-09-30 found 13 Hermes jobs, 8 active and 5

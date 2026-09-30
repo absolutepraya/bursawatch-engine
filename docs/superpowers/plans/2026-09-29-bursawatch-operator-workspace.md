@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-29-bursawatch-operator-workspace-design.md`
 
-**Implementation and rollout status:** Complete. PRs #28 to #31 are merged. Production `main` `b1297c269bd42fb7d56624c362e0e0e1fe059144` passed its exact CI gate and was released by the VPS release agent. Validation passed with `bash scripts/test-all`, both web package checks, and synthetic admin/viewer browser checks. Production evidence is recorded below and in the active [workspace contract](../../../web-config/docs/CONTROL_PLANE.md).
+**Implementation and rollout status:** Complete. PRs #28 through #31 are merged. The 2026-09-30 rollout SHA `b1297c269bd42fb7d56624c362e0e0e1fe059144` was then-current `main`, passed its exact CI gate, and was released by the VPS release agent. Validation passed with `bash scripts/test-all`, both web package checks, and synthetic admin/viewer browser checks. Production evidence is recorded below and in the active [workspace contract](../../../web-config/docs/CONTROL_PLANE.md).
 
 ## Global Constraints
 
@@ -214,7 +214,7 @@ This plan documented implementation work and did not itself authorize a VPS serv
 
 ## Production handoff (2026-09-30)
 
-- The VPS release agent reports production SHA `b1297c269bd42fb7d56624c362e0e0e1fe059144`, matching `main`; CI passed, with no release block or transient error.
+- The VPS release agent reports production SHA `b1297c269bd42fb7d56624c362e0e0e1fe059144`, matching the then-current `main`; CI passed, with no release block or transient error.
 - The production snapshot found 13 Hermes jobs, 8 active and 5 paused. All 8 desired interval schedules matched the live registry.
 - A natural observer timer run reported all 13 job observations. The Jobs page showed 8 active and 5 paused observations, with no unknown or attention state.
 - The Published boundary is 30 September 2026, 14:15 WIB. The page currently reports no confirmed publications and incomplete or unverified publisher coverage. This does not establish that no delivery occurred. Natural source-to-delivery evidence remains unverified until receipt-backed records and owner checkpoints appear.

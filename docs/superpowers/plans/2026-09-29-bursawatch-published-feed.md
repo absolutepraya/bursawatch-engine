@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-29-bursawatch-published-feed-design.md`
 
-**Implementation and rollout status:** Complete. PRs #28 to #31 are merged. Production `main` `b1297c269bd42fb7d56624c362e0e0e1fe059144` passed its exact CI gate and was released by the VPS release agent. Validation passed with `bash scripts/test-all`, both web package checks, and synthetic admin/viewer browser checks. The forward-only boundary and current coverage state are recorded below and in the active [publication contract](../../../service-bursawatch-control/README.md#published-feed-projection-contract).
+**Implementation and rollout status:** Complete. PRs #28 through #31 are merged. The 2026-09-30 rollout SHA `b1297c269bd42fb7d56624c362e0e0e1fe059144` was then-current `main`, passed its exact CI gate, and was released by the VPS release agent. Validation passed with `bash scripts/test-all`, both web package checks, and synthetic admin/viewer browser checks. The forward-only boundary and current coverage state are recorded below and in the active [publication contract](../../../service-bursawatch-control/README.md#published-feed-projection-contract).
 
 ## Global Constraints
 
@@ -254,7 +254,7 @@ This plan documented implementation work and did not itself authorize a producti
 
 ## Production handoff (2026-09-30)
 
-- The VPS release agent reports production SHA `b1297c269bd42fb7d56624c362e0e0e1fe059144`, matching `main`; CI passed, with no release block or transient error.
+- The VPS release agent reports production SHA `b1297c269bd42fb7d56624c362e0e0e1fe059144`, matching the then-current `main`; CI passed, with no release block or transient error.
 - The forward-only Published boundary is 30 September 2026, 14:15 WIB. No historical publications were backfilled.
 - The authenticated Published page currently shows no confirmed publications since the boundary and marks publisher coverage incomplete or unverified. That state does not prove that no delivery occurred. Each visible item requires a supported owner projection backed by confirmed Delivery Owner receipts.
 - A natural observer timer run reported all 13 Hermes jobs. The production snapshot found 13 jobs, 8 active and 5 paused, with all 8 desired interval schedules matching.
