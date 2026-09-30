@@ -189,3 +189,26 @@ def test_environment_auth_loads_observer_separately(monkeypatch):
     monkeypatch.delenv("CONTROL_PLANE_ADMIN_TOKEN", raising=False)
     monkeypatch.delenv("CONTROL_PLANE_SUPABASE_URL", raising=False)
     assert auth_from_environment().authenticate("Bearer observer-token").kind == "observer"
+
+
+def test_publication_owner_token_is_scoped_and_distinct():
+    token = "p" * 32
+    auth = StaticTokenAuth(
+        machine_token="m" * 32,
+        admin_token=None,
+        publication_owner_tokens={"bursawatch-tg-market-news": token},
+    )
+    principal = auth.authenticate(f"Bearer {token}")
+    assert (principal.kind, principal.subject) == ("publication_owner", "bursawatch-tg-market-news")
+    with pytest.raises(ValueError, match="distinct"):
+        StaticTokenAuth(machine_token=token, admin_token=None, publication_owner_tokens={"bursawatch-tg-market-news": token})
+    with pytest.raises(ValueError, match="publication owner"):
+        StaticTokenAuth(machine_token=None, admin_token=None, publication_owner_tokens={"unknown-owner": token})
+
+
+def test_environment_auth_loads_publication_owner_without_human_access(monkeypatch):
+    monkeypatch.setenv("CONTROL_PLANE_PUBLICATION_OWNER_TOKENS", '{"bursawatch-tg-market-news":"' + "p" * 32 + '"}')
+    monkeypatch.delenv("CONTROL_PLANE_SUPABASE_URL", raising=False)
+    monkeypatch.delenv("CONTROL_PLANE_ADMIN_TOKEN", raising=False)
+    auth = auth_from_environment()
+    assert auth.authenticate("Bearer " + "p" * 32).kind == "publication_owner"

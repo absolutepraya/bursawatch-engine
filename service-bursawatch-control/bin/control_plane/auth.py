@@ -33,8 +33,15 @@ class StaticTokenAuth:
         reconciler_token: str | None = None,
         source_endpoint_tokens: dict[str, str] | None = None,
         observer_token: str | None = None,
+        publication_owner_tokens: dict[str, str] | None = None,
     ) -> None:
         source_endpoint_tokens = source_endpoint_tokens or {}
+        publication_owner_tokens = publication_owner_tokens or {}
+        from .publication_model import OWNER_ROUTES
+        if set(publication_owner_tokens) - set(OWNER_ROUTES) or any(
+            type(token) is not str or len(token) < 32 for token in publication_owner_tokens.values()
+        ):
+            raise ValueError("publication owner credentials are invalid")
         if len(source_endpoint_tokens) > 500 or any(
             type(endpoint) is not str or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9:._/@-]{0,255}", endpoint)
             or type(token) is not str or len(token) < 32
@@ -45,7 +52,7 @@ class StaticTokenAuth:
             token
             for token in (machine_token, admin_token, reconciler_token, observer_token)
             if token is not None and token.strip()
-        ] + list(source_endpoint_tokens.values())
+        ] + list(source_endpoint_tokens.values()) + list(publication_owner_tokens.values())
         if len(configured_tokens) != len(set(configured_tokens)):
             raise ValueError("control-plane static credentials must use distinct token values")
         self.machine_token = machine_token
@@ -53,6 +60,7 @@ class StaticTokenAuth:
         self.reconciler_token = reconciler_token
         self.observer_token = observer_token
         self.source_endpoint_tokens = dict(source_endpoint_tokens)
+        self.publication_owner_tokens = dict(publication_owner_tokens)
 
     @classmethod
     def from_environment(cls) -> "StaticTokenAuth":
@@ -62,6 +70,7 @@ class StaticTokenAuth:
             reconciler_token=os.environ.get("CONTROL_PLANE_RECONCILER_TOKEN"),
             observer_token=os.environ.get("CONTROL_PLANE_OBSERVER_TOKEN"),
             source_endpoint_tokens=_source_endpoint_tokens_from_environment(),
+            publication_owner_tokens=_publication_owner_tokens_from_environment(),
         )
 
     def authenticate(self, authorization: str | None) -> Principal:
@@ -75,6 +84,9 @@ class StaticTokenAuth:
         for endpoint, endpoint_token in self.source_endpoint_tokens.items():
             if secrets_equal(token, endpoint_token):
                 return Principal(subject=endpoint, kind="source_machine")
+        for owner_id, owner_token in self.publication_owner_tokens.items():
+            if secrets_equal(token, owner_token):
+                return Principal(subject=owner_id, kind="publication_owner")
         if self.reconciler_token and secrets_equal(token, self.reconciler_token):
             return Principal(subject="schedule-reconciler", kind="reconciler")
         if self.observer_token and secrets_equal(token, self.observer_token):
@@ -179,6 +191,7 @@ def auth_from_environment() -> Authenticator:
     reconciler_token = os.environ.get("CONTROL_PLANE_RECONCILER_TOKEN")
     observer_token = os.environ.get("CONTROL_PLANE_OBSERVER_TOKEN")
     source_endpoint_tokens = _source_endpoint_tokens_from_environment()
+    publication_owner_tokens = _publication_owner_tokens_from_environment()
     supabase_url = os.environ.get("CONTROL_PLANE_SUPABASE_URL", "").strip()
     if not supabase_url:
         return StaticTokenAuth(
@@ -187,13 +200,14 @@ def auth_from_environment() -> Authenticator:
             reconciler_token=reconciler_token,
             observer_token=observer_token,
             source_endpoint_tokens=source_endpoint_tokens,
+            publication_owner_tokens=publication_owner_tokens,
         )
     if static_admin_token:
         raise RuntimeError("CONTROL_PLANE_ADMIN_TOKEN must be unset when Supabase Auth is enabled")
     authenticators: list[Authenticator] = [
         SupabaseJwtAuth(supabase_url, parse_admin_user_ids(os.environ.get("CONTROL_PLANE_ADMIN_USER_IDS")))
     ]
-    if machine_token or reconciler_token or observer_token or source_endpoint_tokens:
+    if machine_token or reconciler_token or observer_token or source_endpoint_tokens or publication_owner_tokens:
         authenticators.insert(
             0,
             StaticTokenAuth(
@@ -202,6 +216,7 @@ def auth_from_environment() -> Authenticator:
                 reconciler_token=reconciler_token,
                 observer_token=observer_token,
                 source_endpoint_tokens=source_endpoint_tokens,
+                publication_owner_tokens=publication_owner_tokens,
             ),
         )
     return CompositeAuth(authenticators)
@@ -217,6 +232,19 @@ def _source_endpoint_tokens_from_environment() -> dict[str, str]:
         raise ValueError("source endpoint credential mapping is invalid") from exc
     if type(value) is not dict:
         raise ValueError("source endpoint credential mapping must be an object")
+    return value
+
+
+def _publication_owner_tokens_from_environment() -> dict[str, str]:
+    raw = os.environ.get("CONTROL_PLANE_PUBLICATION_OWNER_TOKENS", "").strip()
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("publication owner credential mapping is invalid") from exc
+    if type(value) is not dict:
+        raise ValueError("publication owner credential mapping must be an object")
     return value
 
 

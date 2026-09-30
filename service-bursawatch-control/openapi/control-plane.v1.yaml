@@ -64,6 +64,90 @@ paths:
           description: Machine and other non-human principals are denied.
         '404':
           description: Component is not declared in this inventory version.
+  /v1/publications:
+    get:
+      summary: List confirmed publications after the recorded cutover.
+      description: Signed-in viewer or admin only. Results are ordered by delivery confirmation time, opaque publication ID, and version, all descending. Filters are applied before cursor advancement. An empty page does not prove coverage.
+      parameters:
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+        - {name: cursor, in: query, schema: {type: string, maxLength: 2048}}
+        - {name: type, in: query, schema: {type: string, maxLength: 200}}
+        - {name: route, in: query, schema: {type: string, maxLength: 200}}
+        - {name: date_from, in: query, schema: {type: string, format: date-time}}
+        - {name: date_to, in: query, schema: {type: string, format: date-time}}
+        - {name: source, in: query, schema: {type: string, maxLength: 200}}
+        - {name: ticker, in: query, schema: {type: string, maxLength: 200}}
+      responses:
+        '200':
+          description: Bounded page of sanitized published snapshots.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PublicationPage'}
+        '403': {description: Machine principals are denied.}
+        '422': {description: Invalid query or cursor.}
+    post:
+      summary: Accept one confirmed owner publication snapshot.
+      description: Publication owner credential only. Owner identity comes from the bearer token, never the body. Same key and digest are idempotent; conflicting versions are refused. The Control Plane does not send to Discord.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PublicationWrite'}
+      responses:
+        '202':
+          description: Immutable publication version accepted or already present.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PublicationAck'}
+        '403': {description: Caller is not a publication owner.}
+        '409': {description: Cutover inactive or publication key/version conflict.}
+        '422': {description: Invalid, incomplete, or pre-cutover snapshot.}
+  /v1/publications/checkpoints:
+    post:
+      summary: Record one owner's bounded projection comparison.
+      description: Publication owner credential only. An older comparison cannot replace a newer one. Reporting a checkpoint never resends Discord output.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PublicationCheckpoint'}
+      responses:
+        '202':
+          description: Accepted or previously stored monotonic checkpoint.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PublicationCheckpoint'}
+        '403': {description: Caller is not a publication owner.}
+        '409': {description: Cutover inactive or same-time comparison conflict.}
+        '422': {description: Invalid comparison or owner is outside cutover.}
+  /v1/publications/coverage:
+    get:
+      summary: Read cutover and per-owner projection coverage.
+      description: Signed-in viewer or admin only. Missing or stale checkpoints are unknown, and all-publisher completion requires every cutover owner. Fresh disabled-job observations may mark an owner paused or unverified.
+      responses:
+        '200':
+          description: Forward-only cutover and owner coverage.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PublicationCoverage'}
+        '403': {description: Machine principals are denied.}
+  /v1/publications/{publication_id}:
+    parameters:
+      - name: publication_id
+        in: path
+        required: true
+        schema: {type: string, pattern: '^[0-9a-f]{64}$'}
+    get:
+      summary: Read immutable versions and linked publications.
+      description: Signed-in viewer or admin only.
+      responses:
+        '200':
+          description: Exact confirmed output snapshots for this publication.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PublicationDetail'}
+        '403': {description: Machine principals are denied.}
+        '404': {description: Publication is missing.}
   /v1/source-events:
     post:
       summary: Accept a version 1 normalized source event durably.
@@ -633,6 +717,166 @@ components:
         maximum: 1000
         default: 500
   schemas:
+    PublicationLeg:
+      type: object
+      additionalProperties: false
+      required: [operation_key, operation_digest, receipt_operation_id, destination, receipt_id, status, message_url, text, attachments]
+      properties:
+        operation_key: {type: string, minLength: 1, maxLength: 256}
+        operation_digest: {type: string, pattern: '^[0-9a-f]{64}$'}
+        receipt_operation_id: {type: string, minLength: 1, maxLength: 128}
+        destination: {type: string, pattern: '^[0-9]{17,20}$'}
+        receipt_id: {type: string, pattern: '^[0-9]{17,20}$'}
+        status: {type: string, const: delivered}
+        message_url: {type: [string, 'null'], format: uri}
+        text: {type: [string, 'null'], maxLength: 16000}
+        attachments:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            additionalProperties: false
+            required: [filename, content_type, discord_url]
+            properties:
+              filename: {type: string, maxLength: 255}
+              content_type: {type: string, maxLength: 100}
+              discord_url: {type: [string, 'null'], format: uri}
+    PublicationWrite:
+      type: object
+      additionalProperties: false
+      required: [api_version, owner_key, version, supersedes_version, type, route, source_event_key, source_name, source_url, source_published_at, market_data_as_of, delivery_confirmed_at, title, ticker, broker_levels, parent_publication_id, board_episode_id, config_revision, renderer_version, source_version, required_operation_keys, legs]
+      properties:
+        api_version: {type: integer, const: 1}
+        owner_key: {type: string, minLength: 1, maxLength: 256}
+        version: {type: integer, minimum: 1, maximum: 1000000}
+        supersedes_version: {type: [integer, 'null']}
+        type: {type: string, enum: [idx_company_news, us_company_news, industry_news, macro_news, stock_status, broker_swing_plan, swing_context, swing_bundle, swing_board_update]}
+        route: {type: string, enum: [id_stocks_news, id_industry_news, macro_news, us_stocks_news, id_stocks_swing, swing_board]}
+        source_event_key: {type: [string, 'null'], maxLength: 256}
+        source_name: {type: string, minLength: 1, maxLength: 200}
+        source_url: {type: [string, 'null'], format: uri}
+        source_published_at: {type: [string, 'null'], format: date-time}
+        market_data_as_of: {type: [string, 'null'], format: date-time}
+        delivery_confirmed_at: {type: string, format: date-time}
+        title: {type: string, minLength: 1, maxLength: 300}
+        ticker: {type: [string, 'null']}
+        broker_levels:
+          oneOf:
+            - {type: 'null'}
+            - type: object
+              additionalProperties: false
+              required: [entry, stop, targets, units, attribution]
+              properties:
+                entry: {type: string}
+                stop: {type: string}
+                targets: {type: array, minItems: 1, maxItems: 10, items: {type: string}}
+                units: {type: string}
+                attribution: {type: string}
+        parent_publication_id: {type: [string, 'null']}
+        board_episode_id: {type: [string, 'null']}
+        config_revision: {type: [integer, 'null']}
+        renderer_version: {type: string, minLength: 1, maxLength: 100}
+        source_version: {type: [string, 'null'], maxLength: 100}
+        required_operation_keys: {type: array, minItems: 1, maxItems: 10, items: {type: string}}
+        legs: {type: array, minItems: 1, maxItems: 10, items: {$ref: '#/components/schemas/PublicationLeg'}}
+    Publication:
+      type: object
+      additionalProperties: false
+      required: [api_version, publication_id, owner_id, owner_key, version, supersedes_version, type, route, source_event_key, source_name, source_url, source_published_at, market_data_as_of, delivery_confirmed_at, title, ticker, broker_levels, parent_publication_id, board_episode_id, config_revision, renderer_version, source_version, required_operation_keys, legs, digest]
+      properties:
+        api_version: {type: integer, const: 1}
+        publication_id: {type: string, pattern: '^[0-9a-f]{64}$'}
+        owner_id: {type: string}
+        owner_key: {type: string}
+        version: {type: integer}
+        supersedes_version: {type: [integer, 'null']}
+        type: {type: string, enum: [idx_company_news, us_company_news, industry_news, macro_news, stock_status, broker_swing_plan, swing_context, swing_bundle, swing_board_update]}
+        route: {type: string, enum: [id_stocks_news, id_industry_news, macro_news, us_stocks_news, id_stocks_swing, swing_board]}
+        source_event_key: {type: [string, 'null']}
+        source_name: {type: string}
+        source_url: {type: [string, 'null'], format: uri}
+        source_published_at: {type: [string, 'null'], format: date-time}
+        market_data_as_of: {type: [string, 'null'], format: date-time}
+        delivery_confirmed_at: {type: string, format: date-time}
+        title: {type: string}
+        ticker: {type: [string, 'null']}
+        broker_levels: {type: [object, 'null']}
+        parent_publication_id: {type: [string, 'null']}
+        board_episode_id: {type: [string, 'null']}
+        config_revision: {type: [integer, 'null']}
+        renderer_version: {type: string}
+        source_version: {type: [string, 'null']}
+        required_operation_keys: {type: array, items: {type: string}}
+        legs: {type: array, items: {$ref: '#/components/schemas/PublicationLeg'}}
+        digest: {type: string, pattern: '^[0-9a-f]{64}$'}
+    PublicationAck:
+      type: object
+      additionalProperties: false
+      required: [publication_id, version, digest]
+      properties:
+        publication_id: {type: string, pattern: '^[0-9a-f]{64}$'}
+        version: {type: integer, minimum: 1}
+        digest: {type: string, pattern: '^[0-9a-f]{64}$'}
+    PublicationPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/Publication'}}
+        next_cursor: {type: [string, 'null']}
+    PublicationDetail:
+      type: object
+      additionalProperties: false
+      required: [publication_id, versions, linked]
+      properties:
+        publication_id: {type: string, pattern: '^[0-9a-f]{64}$'}
+        versions: {type: array, minItems: 1, items: {$ref: '#/components/schemas/Publication'}}
+        linked:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [publication_id, type, delivery_confirmed_at]
+            properties:
+              publication_id: {type: string}
+              type: {type: string}
+              delivery_confirmed_at: {type: string, format: date-time}
+    PublicationCheckpoint:
+      type: object
+      additionalProperties: false
+      required: [compared_at, confirmed_through_at, accepted_through_at, outstanding_count]
+      properties:
+        compared_at: {type: string, format: date-time}
+        confirmed_through_at: {type: [string, 'null'], format: date-time}
+        accepted_through_at: {type: [string, 'null'], format: date-time}
+        outstanding_count: {type: integer, minimum: 0, maximum: 1000000}
+    PublicationCoverage:
+      type: object
+      additionalProperties: false
+      required: [cutover, overall_status, owners]
+      properties:
+        cutover:
+          oneOf:
+            - {type: 'null'}
+            - type: object
+              required: [boundary, owner_ids]
+              properties:
+                boundary: {type: string, format: date-time}
+                owner_ids: {type: array, items: {type: string}}
+        overall_status: {type: string, enum: [not_started, complete, incomplete]}
+        owners:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [owner_id, status, checkpoint]
+            properties:
+              owner_id: {type: string}
+              status: {type: string, enum: [complete, lagging, unknown, paused/unverified]}
+              checkpoint:
+                oneOf:
+                  - {type: 'null'}
+                  - {$ref: '#/components/schemas/PublicationCheckpoint'}
     ComponentActivity:
       type: object
       additionalProperties: false

@@ -10,6 +10,7 @@ import json
 from typing import Any
 
 from .publication_model import OWNER_ROUTES, validate_publication
+from .publication_coverage import validate_checkpoint
 
 
 class PublicationConflict(ValueError):
@@ -97,6 +98,7 @@ class MemoryPublicationStore:
     def __init__(self) -> None:
         self._cutover: dict[str, Any] | None = None
         self._rows: dict[tuple[str, int], dict[str, Any]] = {}
+        self._checkpoints: dict[str, dict[str, Any]] = {}
 
     def activate(self, boundary: str, owner_ids: tuple[str, ...]) -> None:
         if self._cutover is not None:
@@ -113,6 +115,23 @@ class MemoryPublicationStore:
 
     def cutover(self) -> dict[str, Any] | None:
         return deepcopy(self._cutover)
+
+    def checkpoint(self, owner_id: str, comparison: dict[str, Any]) -> dict[str, Any]:
+        if self._cutover is None:
+            raise PublicationConflict("publication cutover is not active")
+        if owner_id not in self._cutover["owner_ids"]:
+            raise ValueError("publication owner is outside the cutover set")
+        safe = validate_checkpoint(comparison, self._cutover["boundary"])
+        previous = self._checkpoints.get(owner_id)
+        if previous is not None and safe["compared_at"] < previous["compared_at"]:
+            return deepcopy(previous)
+        if previous is not None and safe["compared_at"] == previous["compared_at"] and safe != previous:
+            raise PublicationConflict("publication checkpoint comparison conflicts")
+        self._checkpoints[owner_id] = deepcopy(safe)
+        return deepcopy(safe)
+
+    def checkpoints(self) -> dict[str, dict[str, Any]]:
+        return deepcopy(self._checkpoints)
 
     def accept(self, owner_id: str, snapshot: dict[str, Any]) -> dict[str, Any]:
         if self._cutover is None:
@@ -224,6 +243,53 @@ class PostgresPublicationStore:
         if type(owner_ids) is str:
             owner_ids = json.loads(owner_ids)
         return {"boundary": row["boundary_at"].isoformat(), "owner_ids": tuple(owner_ids)}
+
+    def checkpoint(self, owner_id: str, comparison: dict[str, Any]) -> dict[str, Any]:
+        cutover = self.cutover()
+        if cutover is None:
+            raise PublicationConflict("publication cutover is not active")
+        if owner_id not in cutover["owner_ids"]:
+            raise ValueError("publication owner is outside the cutover set")
+        safe = validate_checkpoint(comparison, cutover["boundary"])
+        with self._connect() as conn:
+            row = conn.execute(
+                "insert into bursawatch_publication_checkpoints "
+                "(owner_id, compared_at, confirmed_through_at, accepted_through_at, outstanding_count) "
+                "values (%s, %s::timestamptz, %s::timestamptz, %s::timestamptz, %s) "
+                "on conflict (owner_id) do update set compared_at=excluded.compared_at, "
+                "confirmed_through_at=excluded.confirmed_through_at, "
+                "accepted_through_at=excluded.accepted_through_at, "
+                "outstanding_count=excluded.outstanding_count, received_at=now() "
+                "where bursawatch_publication_checkpoints.compared_at < excluded.compared_at "
+                "returning compared_at, confirmed_through_at, accepted_through_at, outstanding_count",
+                (owner_id, safe["compared_at"], safe["confirmed_through_at"], safe["accepted_through_at"], safe["outstanding_count"]),
+            ).fetchone()
+            if row is None:
+                row = conn.execute(
+                    "select compared_at, confirmed_through_at, accepted_through_at, outstanding_count "
+                    "from bursawatch_publication_checkpoints where owner_id=%s", (owner_id,),
+                ).fetchone()
+        result = self._checkpoint_row(row)
+        if result["compared_at"] == safe["compared_at"] and result != safe:
+            raise PublicationConflict("publication checkpoint comparison conflicts")
+        return result
+
+    @staticmethod
+    def _checkpoint_row(row: Any) -> dict[str, Any]:
+        return {
+            "compared_at": row["compared_at"].isoformat(),
+            "confirmed_through_at": row["confirmed_through_at"].isoformat() if row["confirmed_through_at"] else None,
+            "accepted_through_at": row["accepted_through_at"].isoformat() if row["accepted_through_at"] else None,
+            "outstanding_count": row["outstanding_count"],
+        }
+
+    def checkpoints(self) -> dict[str, dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "select owner_id, compared_at, confirmed_through_at, accepted_through_at, outstanding_count "
+                "from bursawatch_publication_checkpoints"
+            ).fetchall()
+        return {row["owner_id"]: self._checkpoint_row(row) for row in rows}
 
     def accept(self, owner_id: str, snapshot: dict[str, Any]) -> dict[str, Any]:
         record = validate_publication(snapshot, owner_id)

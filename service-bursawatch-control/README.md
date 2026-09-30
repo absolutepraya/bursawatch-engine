@@ -250,6 +250,41 @@ Market News, and five minutes to six hours for Kelas Investasi. WhatsApp is one 
 to six hours. The two Swing Board calendar jobs and the X queue worker remain
 fixed and read-only.
 
+## Published feed projection contract
+
+The separate publication read model accepts only confirmed, post-cutover
+Discord output. Its migration `020_publications.sql` is additive and leaves the
+feed unstarted until the host records one explicit boundary with
+`bin/activate_publication_feed.py --boundary <aware-ISO-time>`. Activation is a
+separate reviewed production step, not part of migration or service startup.
+It fixes the eight owner identities declared in `publication_model.py` and
+refuses a second activation. It neither replays old events nor sends a message.
+
+Each owner receives a distinct private credential in the
+`CONTROL_PLANE_PUBLICATION_OWNER_TOKENS` JSON mapping. The service derives the
+owner ID from that credential for `POST /v1/publications` and
+`POST /v1/publications/checkpoints`; browser JWTs and the shared machine token
+cannot submit. Viewer and admin JWTs may read the paginated list, immutable
+detail, and per-owner coverage. The web proxy must allow only those GET paths.
+
+An owner must persist its complete required-operation manifest and exact
+rendered snapshot in its own durable state before acknowledging confirmed
+delivery. Every required leg needs a confirmed Discord Delivery Owner receipt,
+including its stable operation key, digest, operation ID, destination, and
+message ID. The Control Plane validates the owner's submitted manifest and
+safe output but cannot infer an omitted leg from another owner's state. On an
+API outage, the owner retries that stored projection only. It must not repeat
+the Discord send to repair the feed. A checkpoint attests to the owner's
+comparison time, confirmed and accepted boundaries, and outstanding count.
+Missing or stale checkpoints are unknown. A complete feed claim requires every
+cutover owner to report a current successful comparison. A fresh checkpoint
+does not override a last-known disabled owner job, which remains paused or
+unverified.
+
+This contract has synthetic tests but has not been activated or verified with
+natural production deliveries. A database-backed checkpoint and list path
+also requires a reviewed live verification after deployment.
+
 ## Source inbox (development contract, not yet live)
 
 `POST /v1/source-events` accepts a bounded version 1 envelope. Its provider identity

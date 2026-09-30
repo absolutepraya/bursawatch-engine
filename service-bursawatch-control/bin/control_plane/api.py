@@ -23,6 +23,8 @@ from .profile_metadata import (
 )
 from .operator_inventory import component_view, list_components
 from .operator_activity import get_endpoint_activity, get_pipeline_activity
+from .publication_store import MemoryPublicationStore, PostgresPublicationStore, PublicationConflict
+from .publication_coverage import coverage_view
 from .operator_observations import (
     MemoryObservationStore,
     ObservationError,
@@ -258,6 +260,7 @@ def create_app(
     catalog_store: MemoryCatalogStore | PostgresCatalogStore | None = None,
     inbox_store: MemoryInboxStore | PostgresInboxStore | None = None,
     observation_store: ObservationStore | None = None,
+    publication_store: MemoryPublicationStore | PostgresPublicationStore | None = None,
 ) -> FastAPI:
     store = store or InMemoryStore()
     auth = auth or StaticTokenAuth.from_environment()
@@ -266,6 +269,9 @@ def create_app(
     catalog_store = catalog_store or (PostgresCatalogStore(store.dsn, pool=pool) if isinstance(store, PostgresStore) else MemoryCatalogStore())
     inbox_store = inbox_store or (PostgresInboxStore(store.dsn, catalog_store, pool=pool) if isinstance(store, PostgresStore) else MemoryInboxStore(catalog_store))
     observation_store = observation_store or (PostgresObservationStore(pool) if pool is not None else MemoryObservationStore())
+    publication_store = publication_store or (
+        PostgresPublicationStore(store.dsn, pool=pool) if isinstance(store, PostgresStore) else MemoryPublicationStore()
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -326,6 +332,11 @@ def create_app(
     def observer_only(current: Principal = Depends(principal)) -> Principal:
         if current.kind != "observer":
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="observer role required")
+        return current
+
+    def publication_owner_only(current: Principal = Depends(principal)) -> Principal:
+        if current.kind != "publication_owner":
+            raise HTTPException(status_code=403, detail="publication owner role required")
         return current
 
     def current_profile_metadata(watcher_id: str) -> list[ProfileAvatarRecord]:
@@ -476,6 +487,72 @@ def create_app(
                           for pipeline_id in component["pipeline_ids"]],
             "delivery_status": "not instrumented",
         }
+
+    @app.post("/v1/publications", status_code=status.HTTP_202_ACCEPTED)
+    def submit_publication(payload: dict[str, Any], current: Principal = Depends(publication_owner_only)) -> dict[str, Any]:
+        try:
+            return publication_store.accept(current.subject, payload)
+        except PublicationConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (ValueError, TypeError, KeyError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/v1/publications")
+    def list_publications(
+        limit: int = Query(default=20, ge=1, le=100),
+        cursor: str | None = Query(default=None, max_length=2048),
+        type: str | None = None,
+        route: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        source: str | None = None,
+        ticker: str | None = None,
+        _current: Principal = Depends(human_reader),
+    ) -> dict[str, Any]:
+        filters = {key: value for key, value in {
+            "type": type, "route": route, "date_from": date_from, "date_to": date_to,
+            "source": source, "ticker": ticker,
+        }.items() if value is not None}
+        try:
+            return publication_store.list_page(limit=limit, cursor=cursor, filters=filters)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/v1/publications/checkpoints", status_code=status.HTTP_202_ACCEPTED)
+    def submit_publication_checkpoint(
+        payload: dict[str, Any], current: Principal = Depends(publication_owner_only),
+    ) -> dict[str, Any]:
+        try:
+            return publication_store.checkpoint(current.subject, payload)
+        except PublicationConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (ValueError, TypeError, KeyError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/v1/publications/coverage")
+    def get_publication_coverage(_current: Principal = Depends(human_reader)) -> dict[str, Any]:
+        jobs = store.list_all_jobs()
+        observations = {item.identity_id: item for item in observation_store.list_latest()}
+        paused_owners = set()
+        cutover = publication_store.cutover()
+        if cutover is not None:
+            for owner_id in cutover["owner_ids"]:
+                owner_jobs = [job for job in jobs if job.watcher_id == owner_id]
+                observed = [observations.get(job.job_id) for job in owner_jobs]
+                # A stale last-known disabled job is still paused or unverified;
+                # it must never turn a fresh owner checkpoint into a complete claim.
+                if observed and all(item is not None and item.status == "disabled" for item in observed):
+                    paused_owners.add(owner_id)
+        return coverage_view(cutover, publication_store.checkpoints(), paused_owner_ids=paused_owners)
+
+    @app.get("/v1/publications/{publication_id}")
+    def get_publication(publication_id: str, _current: Principal = Depends(human_reader)) -> dict[str, Any]:
+        if len(publication_id) != 64 or any(char not in "0123456789abcdef" for char in publication_id):
+            raise HTTPException(status_code=404, detail="publication not found")
+        try:
+            return publication_store.get(publication_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="publication not found") from exc
 
     @app.put("/v1/source-catalog/config")
     def put_source_catalog(payload: CatalogWrite, current: Principal = Depends(admin_only)) -> dict[str, Any]:
