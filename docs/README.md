@@ -49,6 +49,16 @@ cutover. It is not a live inventory; exact cursors, queues, receipts, and Hermes
 job IDs require a separate approved VPS read:
 [`source-pipeline migration inventory`](superpowers/specs/2026-09-25-bursawatch-source-pipeline-migration-inventory.md).
 
+Dated incident reviews preserve time-bounded runtime findings and unresolved
+causes. They are investigation records, not operating contracts; check current
+package contracts and take a fresh production snapshot before acting. The
+2026-09-30 platform ingestion audit is in
+[`incident-reviews/2026-09-30-platform-ingestion-audit.md`](incident-reviews/2026-09-30-platform-ingestion-audit.md).
+
+The first proposed reader-state repair is described in the
+[`catalog transition recovery design`](superpowers/specs/2026-09-30-bursawatch-catalog-transition-recovery-design.md).
+The design is pending review and is not an operating contract.
+
 For collaboration, `.wt/config.toml` defines managed feature worktrees and the
 repository-local `finish-workflow` skill ends with a pull request. It does not
 deploy, merge, or remove the review workspace.
