@@ -162,6 +162,23 @@ def test_build_plan_rejects_changed_enabled_projection_rows(transition_case, mut
         build_plan(prior, changed, state_root, loaded_config)
 
 
+@pytest.mark.parametrize(
+    "changed_version", [True, 1.0], ids=["integer-to-boolean", "integer-to-float"]
+)
+def test_build_plan_rejects_json_numeric_type_changes_in_projection(
+    transition_case, changed_version
+):
+    prior, target, state_root, loaded_config = transition_case
+    changed = copy.deepcopy(target)
+    changed["subscriptions"][0]["dispatch"]["version"] = changed_version
+    before = _files(state_root)
+
+    with pytest.raises(TransitionBlocked):
+        build_plan(prior, changed, state_root, loaded_config)
+
+    assert _files(state_root) == before
+
+
 @pytest.mark.parametrize("case", ["missing", "extra"])
 def test_build_plan_rejects_missing_or_extra_enabled_stockbit_lane(transition_case, case):
     prior, target, state_root, loaded_config = transition_case

@@ -298,9 +298,11 @@ def _package_plan(
 
     prior_projection = _effective_projection(prior, loaded_config, "prior catalog")
     target_projection = _effective_projection(target, loaded_config, "target catalog")
-    if prior_projection != target_projection:
+    prior_projection_raw = _canonical(prior_projection)
+    target_projection_raw = _canonical(target_projection)
+    if prior_projection_raw != target_projection_raw:
         raise TransitionBlocked("enabled Stockbit RSS projection changed across catalog revisions")
-    projection_sha256 = _sha256(_canonical(prior_projection))
+    projection_sha256 = _sha256(prior_projection_raw)
     prior_catalog_sha256 = _sha256(_canonical(prior))
     target_catalog_sha256 = _sha256(_canonical(target))
 
