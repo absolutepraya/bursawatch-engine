@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -284,6 +285,7 @@ def plan_catalog_revision_transition(
     allow_empty_seeds: bool = False,
     apply: bool = False,
     expected_plan: dict[str, Any] | None = None,
+    apply_guard_env: str = "BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY",
 ) -> dict[str, Any]:
     """Preview or apply a resumable, future-only catalog revision transition.
 
@@ -292,6 +294,8 @@ def plan_catalog_revision_transition(
     baseline, creates only absent endpoint cursors, then advances the revision
     marker last. An apply can resume after a process interruption.
     """
+    if type(apply_guard_env) is not str or re.fullmatch(r"[A-Z][A-Z0-9_]*", apply_guard_env) is None:
+        raise LegacySeedBlocked("catalog transition apply guard name is invalid")
     root = Path(state_root).expanduser().resolve(strict=True)
     if type(from_revision) is not int or type(to_revision) is not int or to_revision <= from_revision:
         raise LegacySeedBlocked("catalog revision transition must move forward")
@@ -396,8 +400,8 @@ def plan_catalog_revision_transition(
         or expected_plan != plan
     ):
         raise LegacySeedBlocked("apply requires the unchanged catalog transition preview")
-    if os.environ.get("BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY") != "1":
-        raise LegacySeedBlocked("apply requires BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY=1")
+    if os.environ.get(apply_guard_env) != "1":
+        raise LegacySeedBlocked(f"apply requires {apply_guard_env}=1")
     current_files = _state_file_hashes(root, excluded)
     if current_files != state_files:
         raise LegacySeedBlocked("source state changed after the catalog transition preview")
