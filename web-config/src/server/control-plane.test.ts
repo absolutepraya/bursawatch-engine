@@ -319,6 +319,40 @@ describe("operator inventory reads", () => {
       ),
     ).toBe(true);
   });
+
+  it("filters shared jobs and observations to the requested workflow", async () => {
+    const operatorJob = {
+      job_id: "shared-reader",
+      can_edit: false,
+      watcher_id: null,
+      component_ids: ["bursawatch-tg-market-news"],
+      display_name: "Shared Telegram reader",
+      runtime_job_key: "bursawatch-tg-source-ingest",
+      schedule_kind: "fixed",
+      min_interval_seconds: null,
+      max_interval_seconds: null,
+      schedule: null,
+      reconciliation: {
+        status: "not_connected",
+        applied_revision: null,
+        last_error: null,
+        effective: false,
+      },
+    };
+    const { reader, fetchImpl } = setup([operatorJob]);
+    fetchImpl
+      .mockImplementationOnce(async () => new Response(JSON.stringify([operatorJob])))
+      .mockImplementationOnce(async () => new Response(JSON.stringify([])));
+
+    expect((await reader.listOperatorJobs("bursawatch-tg-market-news"))[0].job_id).toBe(
+      "shared-reader",
+    );
+    expect(await reader.listObservations(["shared-reader"])).toEqual([]);
+    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
+      "https://control.example.test/v1/jobs?component_id=bursawatch-tg-market-news",
+      "https://control.example.test/v1/observations?job_id=shared-reader",
+    ]);
+  });
 });
 
 describe("control-plane read adapter", () => {

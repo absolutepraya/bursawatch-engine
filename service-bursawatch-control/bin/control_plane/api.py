@@ -703,8 +703,19 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
     @app.get("/v1/jobs")
-    def list_all_jobs(current: Principal = Depends(human_reader)) -> list[dict[str, Any]]:
-        return [_job_response(job, can_edit=current.kind == "admin") for job in store.list_all_jobs()]
+    def list_all_jobs(
+        component_id: str | None = Query(default=None),
+        current: Principal = Depends(human_reader),
+    ) -> list[dict[str, Any]]:
+        jobs = store.list_all_jobs()
+        if component_id is not None:
+            if component_id not in {item.component_id for item in list_components()}:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="unknown component_id",
+                )
+            jobs = [job for job in jobs if component_id in job.component_ids]
+        return [_job_response(job, can_edit=current.kind == "admin") for job in jobs]
 
     @app.get("/v1/jobs/{job_id}")
     def get_job(job_id: str, current: Principal = Depends(human_reader)) -> dict[str, Any]:
@@ -730,10 +741,24 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
     @app.get("/v1/observations")
-    def list_observations(_current: Principal = Depends(human_reader)) -> list[dict[str, Any]]:
-        by_id = {job.job_id: job for job in store.list_all_jobs()}
+    def list_observations(
+        job_id: list[str] = Query(default=[]),
+        _current: Principal = Depends(human_reader),
+    ) -> list[dict[str, Any]]:
+        jobs = store.list_all_jobs()
+        by_id = {job.job_id: job for job in jobs}
+        if len(job_id) > 100 or len(set(job_id)) != len(job_id) or any(item not in by_id for item in job_id):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="job_id filters must be unique declared jobs, up to 100 values",
+            )
+        selected = set(job_id)
         result: list[dict[str, Any]] = []
         for observation in observation_store.list_latest():
+            if selected and (
+                observation.identity_kind != "job" or observation.identity_id not in selected
+            ):
+                continue
             row = observation_view(observation)
             job = by_id.get(observation.identity_id)
             if job is not None:

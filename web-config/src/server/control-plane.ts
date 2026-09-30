@@ -489,8 +489,13 @@ export function createControlPlaneReader(options: {
       if (result.component_id !== componentId) throw new ControlPlaneError("invalid-response");
       return result;
     },
-    async listOperatorJobs() {
-      return read("/v1/jobs", operatorJobList);
+    async listOperatorJobs(componentId?: string) {
+      const query = new URLSearchParams();
+      if (componentId !== undefined) {
+        if (!id.safeParse(componentId).success) throw new ControlPlaneError("validation");
+        query.set("component_id", componentId);
+      }
+      return read(`/v1/jobs${query.size ? `?${query.toString()}` : ""}`, operatorJobList);
     },
     async getOperatorJob(jobId: string) {
       if (!id.safeParse(jobId).success) throw new ControlPlaneError("setup");
@@ -498,8 +503,21 @@ export function createControlPlaneReader(options: {
       if (result.job_id !== jobId) throw new ControlPlaneError("invalid-response");
       return result;
     },
-    async listObservations() {
-      const rows = await read("/v1/observations", z.array(observation).max(500));
+    async listObservations(jobIds?: string[]) {
+      const query = new URLSearchParams();
+      if (jobIds !== undefined) {
+        if (
+          jobIds.length > 100 ||
+          new Set(jobIds).size !== jobIds.length ||
+          jobIds.some((jobId) => !id.safeParse(jobId).success)
+        )
+          throw new ControlPlaneError("validation");
+        for (const jobId of jobIds) query.append("job_id", jobId);
+      }
+      const rows = await read(
+        `/v1/observations${query.size ? `?${query.toString()}` : ""}`,
+        z.array(observation).max(500),
+      );
       if (
         new Set(rows.map((row) => `${row.identity_kind}:${row.identity_id}`)).size !== rows.length
       )

@@ -250,6 +250,13 @@ Market News, and five minutes to six hours for Kelas Investasi. WhatsApp is one 
 to six hours. The two Swing Board calendar jobs and the X queue worker remain
 fixed and read-only.
 
+`GET /v1/jobs` returns the global job inventory once per shared job. Supplying
+`component_id` filters it to jobs linked to that declared component, so a
+workflow detail can load its own shared jobs without reading unrelated job
+records. `GET /v1/observations` similarly accepts repeated `job_id` filters;
+the unfiltered form is reserved for the global Jobs view. Unknown, duplicate,
+or excessive filter values are rejected rather than returned as empty data.
+
 ## Published feed projection contract
 
 The separate publication read model accepts only confirmed, post-cutover

@@ -153,6 +153,52 @@ def test_observer_can_post_and_viewer_cannot_post_observation():
     assert human_read.json()[0]["comparison"] == "match"
 
 
+def test_job_filter_returns_only_selected_job_observations():
+    client = TestClient(
+        create_app(
+            store=_store(),
+            auth=StaticTokenAuth(
+                machine_token="machine-token", admin_token="admin-token", observer_token=OBSERVER
+            ),
+        )
+    )
+    headers = {"Authorization": f"Bearer {OBSERVER}"}
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    source = _payload(now)
+    queue = _payload(now, runtime="bursawatch-x-account-watch-queue")
+    queue["identity_id"] = "bursawatch-x-account-watch-queue-worker"
+    queue["evidence"]["schedule"] = {"kind": "cron", "expr": "*/5 * * * *"}
+    for payload in (source, queue):
+        assert client.post("/v1/internal/observations", headers=headers, json=payload).status_code == 202
+
+    filtered = client.get(
+        "/v1/observations",
+        params={"job_id": "bursawatch-tg-source-ingest"},
+        headers={"Authorization": "Bearer admin-token"},
+    )
+
+    assert filtered.status_code == 200
+    assert [row["identity_id"] for row in filtered.json()] == ["bursawatch-tg-source-ingest"]
+
+
+def test_job_filter_rejects_unknown_or_duplicate_ids():
+    client = TestClient(
+        create_app(
+            store=_store(),
+            auth=StaticTokenAuth(
+                machine_token="machine-token", admin_token="admin-token", observer_token=OBSERVER
+            ),
+        )
+    )
+    headers = {"Authorization": "Bearer admin-token"}
+
+    assert client.get("/v1/observations?job_id=missing", headers=headers).status_code == 422
+    assert client.get(
+        "/v1/observations?job_id=bursawatch-tg-source-ingest&job_id=bursawatch-tg-source-ingest",
+        headers=headers,
+    ).status_code == 422
+
+
 def test_fixed_job_observation_has_no_desired_schedule_comparison():
     client = TestClient(create_app(
         store=_store(),

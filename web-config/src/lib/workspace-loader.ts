@@ -215,30 +215,37 @@ export async function loadWorkspaceRecords(
       kind: "components" | "component-activity" | "operator-jobs" | "observations";
       componentId?: string;
     }> = [];
-    if (["overview", "sources", "workflows", "history", "jobs"].includes(options.view)) {
+    if (["overview", "sources", "jobs"].includes(options.view)) {
       supplemental.push({ path: "components", kind: "components" });
-      if (options.view === "overview" || options.view === "sources") {
-        // Component IDs are filled after the inventory read below.
-      }
-      if (!["sources"].includes(options.view)) {
+      if (options.view === "overview" || options.view === "jobs") {
         supplemental.push(
           { path: "jobs", kind: "operator-jobs" },
           { path: "observations", kind: "observations" },
         );
       }
     }
-    const componentResponse = await request<{ components: OperatorComponent[] }>(
-      "components",
-      undefined,
-      { signal: controller.signal },
-    ).catch((failure) => {
-      if (failure instanceof WorkspaceError && failure.code === "auth") throw failure;
-      supplementalIssues.push({
-        resource: "components",
-        message: issueMessage("components", failure),
+    if (options.view === "workflows" && options.watcherId && relevant.length) {
+      supplemental.push({
+        path: `jobs?component_id=${encodeURIComponent(options.watcherId)}`,
+        kind: "operator-jobs",
+        componentId: options.watcherId,
       });
-      return null;
-    });
+    }
+    let componentResponse: { components: OperatorComponent[] } | null = null;
+    if (supplemental.some((item) => item.kind === "components")) {
+      componentResponse = await request<{ components: OperatorComponent[] }>(
+        "components",
+        undefined,
+        { signal: controller.signal },
+      ).catch((failure) => {
+        if (failure instanceof WorkspaceError && failure.code === "auth") throw failure;
+        supplementalIssues.push({
+          resource: "components",
+          message: issueMessage("components", failure),
+        });
+        return null;
+      });
+    }
     checkCancelled();
     if (componentResponse) componentRows.push(...componentResponse.components);
     if (componentResponse && (options.view === "overview" || options.view === "sources")) {
@@ -291,6 +298,23 @@ export async function loadWorkspaceRecords(
     } catch (failure) {
       if (failure instanceof WorkspaceError && failure.code === "auth") throw failure;
       throw failure;
+    }
+    if (options.view === "workflows" && options.watcherId && operatorJobs.length) {
+      const query = operatorJobs.map((job) => `job_id=${encodeURIComponent(job.job_id)}`).join("&");
+      try {
+        observations.push(
+          ...(await request<OperatorObservation[]>(`observations?${query}`, undefined, {
+            signal: controller.signal,
+          })),
+        );
+      } catch (failure) {
+        if (failure instanceof WorkspaceError && failure.code === "auth") throw failure;
+        supplementalIssues.push({
+          componentId: options.watcherId,
+          resource: "observations",
+          message: issueMessage("observations", failure),
+        });
+      }
     }
     checkCancelled();
     const ordered = <T>(rows: Map<number, T[]>) =>

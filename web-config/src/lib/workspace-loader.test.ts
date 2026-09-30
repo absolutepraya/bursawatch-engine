@@ -15,6 +15,36 @@ const watchers: ControlWatcher[] = Array.from({ length: 5 }, (_, index) => ({
   updated_at: "2026-09-21T00:00:00Z",
 }));
 type Requester = ReturnType<typeof controlBrowser>;
+function operatorJobFor(componentId: string) {
+  const jobId = `shared-job-${componentId}`;
+  return {
+    job_id: jobId,
+    can_edit: false,
+    watcher_id: null,
+    component_ids: [componentId],
+    display_name: `Shared ${componentId} job`,
+    runtime_job_key: jobId,
+    schedule_kind: "interval" as const,
+    min_interval_seconds: 60,
+    max_interval_seconds: 3600,
+    schedule: {
+      api_version: 1 as const,
+      job_id: jobId,
+      revision: 1,
+      enabled: true,
+      interval_seconds: 60,
+      timezone: "Asia/Jakarta" as const,
+      schedule_sha256: "a".repeat(64),
+      updated_at: "2026-09-21T00:00:00Z",
+    },
+    reconciliation: {
+      status: "applied" as const,
+      applied_revision: 1,
+      last_error: null,
+      effective: true,
+    },
+  };
+}
 function requester(
   fn: (path: string, payload?: unknown, options?: { signal?: AbortSignal }) => Promise<unknown>,
 ): Requester {
@@ -37,11 +67,12 @@ describe("scoped workspace loading", () => {
   it.each([
     ["overview", null, 16, ["jobs", "runs"]],
     ["sources", null, 1, []],
-    ["workflows", null, 4, []],
-    ["workflows", "source-2", 5, ["jobs"]],
-    ["workflows", xWatcherId, 6, ["jobs", "runs"]],
-    ["workflows", "unlisted", 4, []],
-    ["history", null, 10, ["runs"]],
+    ["jobs", null, 3, []],
+    ["workflows", null, 1, []],
+    ["workflows", "source-2", 4, ["jobs", "jobs", "observations"]],
+    ["workflows", xWatcherId, 5, ["jobs", "jobs", "observations", "runs"]],
+    ["workflows", "unlisted", 1, []],
+    ["history", null, 7, ["runs"]],
     ["settings", null, 0, []],
   ] as const)(
     "loads only needed records for %s with selection %s",
@@ -52,22 +83,39 @@ describe("scoped workspace loading", () => {
           ? catalog
           : path === "components"
             ? { inventory_version: 1, components: [] }
-            : [],
+            : path.startsWith("jobs?component_id=")
+              ? [operatorJobFor(decodeURIComponent(path.split("=")[1]))]
+              : [],
       );
       const records = await loadWorkspaceRecords(requester(read), {
         view: view as WorkspaceView,
         watcherId,
       });
       expect(read).toHaveBeenCalledTimes(count);
-      if (view !== "sources" && view !== "settings") expect(read.mock.calls[0][0]).toBe("watchers");
+      if (["overview", "workflows", "history"].includes(view))
+        expect(read.mock.calls[0][0]).toBe("watchers");
+      const globalPaths =
+        view === "overview"
+          ? ["components", "jobs", "observations"]
+          : view === "sources"
+            ? ["components"]
+            : view === "jobs"
+              ? ["components", "jobs", "observations"]
+              : [];
+      const scopedWorkflowPaths =
+        view === "workflows" && watcherId
+          ? [
+              `jobs?component_id=${encodeURIComponent(watcherId)}`,
+              `observations?job_id=shared-job-${encodeURIComponent(watcherId)}`,
+            ]
+          : [];
       expect(
         read.mock.calls
           .slice(1)
           .every(
             ([path]) =>
-              path === "components" ||
-              path === "jobs" ||
-              path === "observations" ||
+              globalPaths.includes(path) ||
+              scopedWorkflowPaths.includes(path) ||
               resources.some((resource) => path.endsWith(`/${resource}`)),
           ),
       ).toBe(true);
@@ -78,7 +126,9 @@ describe("scoped workspace loading", () => {
             .filter(([path]) => String(path).startsWith("watchers/"))
             .every(([path]) => path.startsWith(`watchers/${watcherId}/`)),
         ).toBe(true);
-      expect(records.watchers).toEqual(view === "sources" || view === "settings" ? [] : catalog);
+      expect(records.watchers).toEqual(
+        ["overview", "workflows", "history"].includes(view) ? catalog : [],
+      );
       expect(records.issues).toEqual([]);
     },
   );
@@ -119,16 +169,28 @@ describe("scoped workspace loading", () => {
         ? catalog
         : path === "components"
           ? { inventory_version: 1, components: [] }
-          : [],
+          : path.startsWith("jobs?component_id=")
+            ? [operatorJobFor(watcherId)]
+            : [],
     );
     const records = await loadWorkspaceRecords(requester(read), {
       view: "workflows",
       watcherId,
     });
-    expect(read).toHaveBeenCalledTimes(5);
+    expect(read).toHaveBeenCalledTimes(4);
     expect(read.mock.calls[0]).toEqual(["watchers", undefined, expect.any(Object)]);
     expect(read.mock.calls[1]).toEqual([
       `watchers/${watcherId}/jobs`,
+      undefined,
+      expect.any(Object),
+    ]);
+    expect(read.mock.calls[2]).toEqual([
+      `jobs?component_id=${encodeURIComponent(watcherId)}`,
+      undefined,
+      expect.any(Object),
+    ]);
+    expect(read.mock.calls[3]).toEqual([
+      `observations?job_id=shared-job-${encodeURIComponent(watcherId)}`,
       undefined,
       expect.any(Object),
     ]);
@@ -137,7 +199,7 @@ describe("scoped workspace loading", () => {
       jobs: [],
       runs: [],
       components: [],
-      operatorJobs: [],
+      operatorJobs: [operatorJobFor(watcherId)],
       observations: [],
       issues: [],
     });

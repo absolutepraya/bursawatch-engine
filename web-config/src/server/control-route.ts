@@ -66,10 +66,22 @@ export async function handleControlRequest(
         return json(await api.getComponent(path[1]));
       if (path.length === 3 && path[0] === "components" && path[2] === "activity")
         return json(await api.getComponentActivity(path[1]));
-      if (path.length === 1 && path[0] === "jobs") return json(await api.listOperatorJobs());
+      if (path.length === 1 && path[0] === "jobs") {
+        const search = new URL(request.url).searchParams;
+        if (
+          [...search.keys()].some((key) => key !== "component_id") ||
+          search.getAll("component_id").length > 1
+        )
+          throw new ControlPlaneError("validation");
+        return json(await api.listOperatorJobs(search.get("component_id") ?? undefined));
+      }
       if (path.length === 2 && path[0] === "jobs") return json(await api.getOperatorJob(path[1]));
-      if (path.length === 1 && path[0] === "observations")
-        return json(await api.listObservations());
+      if (path.length === 1 && path[0] === "observations") {
+        const search = new URL(request.url).searchParams;
+        if ([...search.keys()].some((key) => key !== "job_id"))
+          throw new ControlPlaneError("validation");
+        return json(await api.listObservations(search.getAll("job_id")));
+      }
       if (path.length === 1 && path[0] === "publications") {
         const search = new URL(request.url).searchParams;
         if ([...search.keys()].some((key) => search.getAll(key).length !== 1))

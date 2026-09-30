@@ -1,7 +1,17 @@
 import { ArrowRight, Inbox, Send, SlidersHorizontal } from "lucide-react";
 import Link from "next/link";
-import type { OperatorComponent, OperatorJob, OperatorObservation } from "@/lib/operator-inventory";
-import { observedJobState } from "@/lib/control-analytics";
+import type { OperatorJob, OperatorObservation } from "@/lib/operator-inventory";
+import { latestOperatorObservations, observedJobState } from "@/lib/control-analytics";
+
+const stateLabels = {
+  active: "Observed active",
+  paused: "Observed paused",
+  pending: "Pending reconciliation",
+  error: "Reconciliation error",
+  mismatch: "Observed schedule mismatch",
+  stale: "Stale observation",
+  unknown: "Unknown",
+} as const;
 
 const workflows: Record<string, { input: string; processing: string; output: string }> = {
   "bursawatch-x-account-watch": {
@@ -48,25 +58,20 @@ const workflows: Record<string, { input: string; processing: string; output: str
 
 export function ConnectedWorkflowSummary({
   watcherId,
-  components = [],
   jobs = [],
   observations = [],
+  jobsUnavailable = false,
+  observationsUnavailable = false,
 }: {
   watcherId: string;
-  components?: OperatorComponent[];
   jobs?: OperatorJob[];
   observations?: OperatorObservation[];
+  jobsUnavailable?: boolean;
+  observationsUnavailable?: boolean;
 }) {
   const workflow = workflows[watcherId];
   if (!workflow) return null;
-  const owner = components.find((item) => item.component_id === watcherId);
-  const componentById = new Map(components.map((item) => [item.component_id, item]));
-  const jobById = new Map(jobs.map((item) => [item.job_id, item]));
-  const observationById = new Map(observations.map((item) => [item.identity_id, item]));
-  const inputs =
-    owner?.related_component_ids
-      .map((id) => componentById.get(id))
-      .filter((item) => item?.kind === "source_adapter") ?? [];
+  const observationById = latestOperatorObservations(observations);
   return (
     <>
       <section className="control-workflow-flow" aria-label="Workflow capabilities">
@@ -96,37 +101,26 @@ export function ConnectedWorkflowSummary({
       </section>
       <section className="control-workflow-runtime" aria-label="Runtime relationships">
         <div>
-          <strong>Input owners</strong>
-          <span>
-            {inputs.length
-              ? inputs.map((item) => item!.display_name).join(", ")
-              : "Input relationship unavailable"}
-          </span>
-        </div>
-        <div>
           <strong>Shared jobs</strong>
-          {owner?.job_ids.length ? (
+          {jobsUnavailable ? (
+            <span>Job records unavailable. Reload to check their status.</span>
+          ) : jobs.length ? (
             <ul>
-              {owner.job_ids.map((jobId) => {
-                const job = jobById.get(jobId);
-                const observation = observationById.get(jobId);
-                const state = job
-                  ? observedJobState(job, observation)
-                  : observation
-                    ? observation.freshness === "stale"
-                      ? "stale"
-                      : observation.status
-                    : "unknown";
+              {jobs.map((job) => {
+                const observation = observationById.get(`job:${job.job_id}`);
+                const state = observationsUnavailable
+                  ? "Observation unavailable"
+                  : stateLabels[observedJobState(job, observation)];
                 return (
-                  <li key={jobId}>
-                    <Link href={`/workspace/jobs#job-${jobId}`}>{job?.display_name ?? jobId}</Link>
+                  <li key={job.job_id}>
+                    <Link href={`/workspace/jobs#job-${job.job_id}`}>{job.display_name}</Link>
                     <span>{state}</span>
                   </li>
                 );
               })}
             </ul>
           ) : (
-            <span>No declared jobs</span>
+            <span>No linked jobs</span>
           )}
         </div>
       </section>

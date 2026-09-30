@@ -339,8 +339,18 @@ async function scenario(role) {
         const path = url.pathname.slice("/api/control/".length);
         if (method === "GET" && path === "components")
           return json({ inventory_version: 1, components: state.components });
-        if (method === "GET" && path === "jobs") return json(state.operatorJobs);
-        if (method === "GET" && path === "observations") return json(state.observations);
+        if (method === "GET" && path === "jobs") {
+          const componentId = url.searchParams.get("component_id");
+          return json(componentId
+            ? state.operatorJobs.filter((job) => job.component_ids.includes(componentId))
+            : state.operatorJobs);
+        }
+        if (method === "GET" && path === "observations") {
+          const jobIds = url.searchParams.getAll("job_id");
+          return json(jobIds.length
+            ? state.observations.filter((item) => jobIds.includes(item.identity_id))
+            : state.observations);
+        }
         const activityMatch = method === "GET" && path.match(/^components\/([^/]+)\/activity$/);
         if (activityMatch)
           return json({

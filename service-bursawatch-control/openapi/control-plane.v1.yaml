@@ -486,7 +486,14 @@ paths:
   /v1/jobs:
     get:
       summary: List the global declared scheduler job inventory.
-      description: Signed-in viewer or admin only. Each shared job appears once and links to every declared component that uses it.
+      description: Signed-in viewer or admin only. Each shared job appears once and links to every declared component that uses it. An optional component_id filter returns only jobs linked to that component.
+      parameters:
+        - name: component_id
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: '^[a-z0-9][a-z0-9-]*$'
       responses:
         '200':
           description: Scheduler jobs in stable job-ID order.
@@ -496,6 +503,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/SchedulerJob'
+        '422':
+          description: Unknown component filter.
   /v1/internal/observations:
     post:
       summary: Submit a bounded Hermes job observation.
@@ -520,7 +529,20 @@ paths:
   /v1/observations:
     get:
       summary: Read bounded latest job observations.
-      description: Signed-in viewer or admin only. Each record keeps received time, freshness, desired state, reconciliation state, and live schedule comparison separate.
+      description: Signed-in viewer or admin only. Each record keeps received time, freshness, desired state, reconciliation state, and live schedule comparison separate. Repeated job_id filters return only selected declared jobs; omitting the filter returns all observations.
+      parameters:
+        - name: job_id
+          in: query
+          required: false
+          style: form
+          explode: true
+          schema:
+            type: array
+            maxItems: 100
+            uniqueItems: true
+            items:
+              type: string
+              pattern: '^[a-z0-9][a-z0-9-]*$'
       responses:
         '200':
           description: Latest safe observation summaries.
@@ -530,6 +552,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Observation'
+        '422':
+          description: Unknown, duplicate, or excessive job filters.
         '403':
           description: Machine principals are denied.
   /v1/jobs/{job_id}:

@@ -64,10 +64,11 @@ Do not trigger a real run or delivery in smoke tests.
 Load only the current view's records: Sources reads the source catalog, Jobs
 reads components, jobs and observations, workflow lists read watchers, History
 lists read runs, and Account makes no control reads. Published reads its
-filtered forward-only publication page and coverage. Selected
-workflow configuration opens after the catalog and loads only its jobs; only X
-also loads source-poll run status. Do not show a failed jobs read as an empty
-schedule list.
+filtered forward-only publication page and coverage. Selected workflow
+configuration opens after the catalog and loads its watcher-scoped jobs plus
+component-linked operator jobs, then observations only for those operator job
+IDs. It never loads the global job inventory. Only X also loads source-poll run
+status. Do not show a failed jobs read as an empty schedule list.
 Run timelines request events directly instead of waiting for unrelated watcher
 histories. Reuse existing run metadata only within the current signed-in component;
 do not add a persistent private-record cache.

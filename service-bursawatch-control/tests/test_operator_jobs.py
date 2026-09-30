@@ -98,6 +98,33 @@ def test_telegram_job_is_one_global_row():
     }
 
 
+def test_component_filter_returns_only_jobs_linked_to_that_workflow():
+    component_id = "bursawatch-tg-phintraco-swing"
+    client = _client()
+
+    response = client.get(
+        "/v1/jobs",
+        params={"component_id": component_id},
+        headers={"Authorization": f"Bearer {VIEWER}"},
+    )
+
+    assert response.status_code == 200
+    assert {job["job_id"] for job in response.json()} == set(
+        next(item for item in list_components() if item.component_id == component_id).job_ids
+    )
+    assert "bursawatch-tg-source-ingest" in {job["job_id"] for job in response.json()}
+
+
+def test_component_filter_rejects_an_unknown_component():
+    response = _client().get(
+        "/v1/jobs",
+        params={"component_id": "not-a-component"},
+        headers={"Authorization": f"Bearer {VIEWER}"},
+    )
+
+    assert response.status_code == 422
+
+
 def test_global_inventory_includes_paused_readers_watchdog_and_board_lifecycle_once():
     client = _client()
     rows = client.get("/v1/jobs", headers={"Authorization": f"Bearer {VIEWER}"}).json()

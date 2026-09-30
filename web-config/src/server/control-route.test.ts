@@ -57,7 +57,10 @@ async function invoke(
   body?: unknown,
   headers?: Record<string, string>,
 ) {
-  return handleControlRequest(request(path, body, headers), path.split("/"), { origin, fetchImpl });
+  return handleControlRequest(request(path, body, headers), path.split("?")[0].split("/"), {
+    origin,
+    fetchImpl,
+  });
 }
 const configWrite = { expectedRevision: 2, config_version: 1, config: { profiles: [] } };
 const scheduleWrite = {
@@ -203,14 +206,16 @@ describe("operator inventory read proxy", () => {
       "components/bursawatch-tg-source-ingest",
       "components/bursawatch-tg-source-ingest/activity",
       "jobs",
+      "jobs?component_id=bursawatch-tg-market-news",
       "jobs/global-reader",
       "observations",
+      "observations?job_id=global-reader",
     ];
     for (const path of paths) {
       const fetchImpl = fake([
         path === "components"
           ? { inventory_version: 1, components: [] }
-          : path === "jobs" || path === "observations"
+          : ["jobs", "observations"].includes(path.split("?")[0])
             ? []
             : path === "jobs/global-reader"
               ? {
@@ -258,6 +263,14 @@ describe("operator inventory read proxy", () => {
         headers: { Authorization: "Bearer e30.e30.signature" },
       });
     }
+  });
+
+  it("rejects unrecognized inventory filters before contacting the API", async () => {
+    const fetchImpl = fake();
+    const response = await invoke("jobs?unbounded=true", fetchImpl);
+
+    expect(response.status).toBe(422);
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("does not expose the internal observation POST through the browser proxy", async () => {

@@ -81,10 +81,10 @@ endpoint without requesting unrelated watcher histories:
   snapshot. The workflow list reads the separate watcher catalog. Neither
   presents unloaded schedules or history as empty results.
 - A selected workflow starts its admin configuration read after catalog
-  membership is confirmed. It uses the shared job inventory to link related
-  jobs and show observed state; schedule controls live only on Jobs. X also
-  loads source-poll runs for its delivery checks; other editors do not fetch
-  unrelated run histories.
+  membership is confirmed. It requests only component-linked operator jobs,
+  then observations for those job IDs, to link related jobs and show observed
+  state; schedule controls live only on Jobs. X also loads source-poll runs for
+  its delivery checks; other editors do not fetch unrelated run histories.
 - A run timeline reads events directly; it does not wait for all workflows'
   histories. Metadata already present in the same signed-in component can be
   shown; direct links do not invent missing run metadata.

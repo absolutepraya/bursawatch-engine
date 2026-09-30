@@ -2,10 +2,11 @@
 import { afterEach, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { ConnectedWorkflowSummary } from "./connected-workflow-summary";
-import type { OperatorComponent, OperatorJob } from "@/lib/operator-inventory";
+import type { OperatorJob, OperatorObservation } from "@/lib/operator-inventory";
 
 afterEach(cleanup);
 
+const observedAt = "2026-09-30T04:00:00Z";
 const job: OperatorJob = {
   job_id: "shared-reader",
   can_edit: true,
@@ -14,53 +15,70 @@ const job: OperatorJob = {
   display_name: "Shared Telegram reader",
   runtime_job_key: "bursawatch-tg-source-ingest",
   schedule_kind: "interval",
-  min_interval_seconds: 300,
+  min_interval_seconds: 60,
   max_interval_seconds: 3600,
-  schedule: null,
-  reconciliation: {
-    status: "pending",
-    applied_revision: null,
-    effective: false,
-    has_error: false,
+  schedule: {
+    api_version: 1,
+    job_id: "shared-reader",
+    revision: 1,
+    enabled: true,
+    interval_seconds: 60,
+    timezone: "Asia/Jakarta",
+    schedule_sha256: "a".repeat(64),
+    updated_at: observedAt,
   },
+  reconciliation: { status: "applied", applied_revision: 1, effective: true, has_error: false },
+};
+const observation: OperatorObservation = {
+  api_version: 1,
+  identity_kind: "job",
+  identity_id: job.job_id,
+  observer_id: "vps-hermes-observer",
+  observed_at: observedAt,
+  received_at: observedAt,
+  status: "enabled",
+  freshness: "fresh",
+  evidence: {
+    runtime_job_key: job.runtime_job_key,
+    enabled: true,
+    schedule: { kind: "interval", minutes: 1 },
+    last_execution: { at: observedAt, status: "success" },
+  },
+  comparison: "match",
+  desired: job.schedule,
+  reconciliation: { status: "applied", applied_revision: 1 },
 };
 
-const components: OperatorComponent[] = [
-  {
-    inventory_version: 1,
-    component_id: "bursawatch-tg-market-news",
-    kind: "domain_owner",
-    display_name: "Market News",
-    capabilities: [],
-    pipeline_ids: [],
-    config_resource_ids: ["bursawatch-tg-market-news"],
-    related_component_ids: ["bursawatch-tg-source-ingest"],
-    job_ids: [job.job_id],
-  },
-  {
-    inventory_version: 1,
-    component_id: "bursawatch-tg-source-ingest",
-    kind: "source_adapter",
-    display_name: "Telegram Source Inbox",
-    capabilities: [],
-    pipeline_ids: [],
-    config_resource_ids: [],
-    related_component_ids: [],
-    job_ids: [job.job_id],
-  },
-];
-
-it("links a workflow's shared job to its single Jobs entry", () => {
+it("links the component-scoped shared job and shows its observed state", () => {
   render(
     <ConnectedWorkflowSummary
       watcherId="bursawatch-tg-market-news"
-      components={components}
       jobs={[job]}
+      observations={[observation]}
     />,
   );
 
   expect(screen.getByRole("link", { name: "Shared Telegram reader" }).getAttribute("href")).toBe(
     "/workspace/jobs#job-shared-reader",
   );
-  expect(screen.getByText("Telegram Source Inbox")).toBeTruthy();
+  expect(screen.getByText("Observed active")).toBeTruthy();
+});
+
+it("does not present a failed job read as an empty relationship", () => {
+  render(<ConnectedWorkflowSummary watcherId="bursawatch-tg-market-news" jobsUnavailable />);
+
+  expect(screen.getByText("Job records unavailable. Reload to check their status.")).toBeTruthy();
+  expect(screen.queryByText("No linked jobs")).toBeNull();
+});
+
+it("labels observation read failures separately from reconciled schedule state", () => {
+  render(
+    <ConnectedWorkflowSummary
+      watcherId="bursawatch-tg-market-news"
+      jobs={[job]}
+      observationsUnavailable
+    />,
+  );
+
+  expect(screen.getByText("Observation unavailable")).toBeTruthy();
 });

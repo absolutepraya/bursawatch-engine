@@ -725,9 +725,14 @@ function WatcherDetail({
       />
       <ConnectedWorkflowSummary
         watcherId={watcherId}
-        components={records.components}
         jobs={records.operatorJobs}
         observations={records.observations}
+        jobsUnavailable={records.operatorIssues.some(
+          (issue) => issue.componentId === watcherId && issue.resource === "operator-jobs",
+        )}
+        observationsUnavailable={records.operatorIssues.some(
+          (issue) => issue.componentId === watcherId && issue.resource === "observations",
+        )}
       />
       <SourceProfiles
         key={watcherId}
