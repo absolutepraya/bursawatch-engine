@@ -80,13 +80,17 @@ def test_omitted_required_leg_and_unbound_receipt_link_fail():
     ("bursawatch-stockbit-snips", "idx_company_news", "id_stocks_news"),
     ("bursawatch-x-account-watch", "us_company_news", "us_stocks_news"),
     ("bursawatch-x-account-watch", "swing_context", "id_stocks_swing"),
+    ("bursawatch-tg-phintraco-swing", "broker_swing_update", "id_stocks_swing"),
     ("bursawatch-ig-account-watch", "macro_news", "macro_news"),
     ("bursawatch-wa-channel-watch", "industry_news", "id_industry_news"),
     ("bursawatch-tg-kelas-investasi-gtw", "swing_bundle", "id_stocks_swing"),
     ("bursawatch-dc-swing-board", "swing_board_update", "swing_board"),
 ])
 def test_approved_owner_type_and_route_are_distinct(owner_id, kind, route):
-    record = validate_publication(publication(type=kind, route=route), owner_id)
+    changes = {"type": kind, "route": route}
+    if kind == "broker_swing_update":
+        changes["parent_publication_id"] = "a" * 64
+    record = validate_publication(publication(**changes), owner_id)
     assert record["type"] == kind
     assert record["route"] == route
     assert record["owner_id"] == owner_id
@@ -107,6 +111,31 @@ def test_broker_plan_requires_phintraco_and_complete_source_levels():
     del levels["stop"]
     with pytest.raises(ValueError, match="broker levels"):
         validate_publication(value, "bursawatch-tg-phintraco-swing")
+
+
+def test_broker_update_requires_phintraco_parent_and_cannot_claim_plan_levels():
+    original = validate_publication(
+        publication(type="broker_swing_plan", route="id_stocks_swing", broker_levels={
+            "entry": "100", "stop": "95", "targets": ["110"],
+            "units": "IDR per share", "attribution": "Synthetic broker",
+        }),
+        "bursawatch-tg-phintraco-swing",
+    )
+    update = publication(
+        type="broker_swing_update", route="id_stocks_swing",
+        parent_publication_id=original["publication_id"], broker_levels=None,
+    )
+    result = validate_publication(update, "bursawatch-tg-phintraco-swing")
+    assert result["type"] == "broker_swing_update"
+    assert result["parent_publication_id"] == original["publication_id"]
+    assert result["broker_levels"] is None
+    with pytest.raises(ValueError, match="link to a known original"):
+        validate_publication({**update, "parent_publication_id": None}, "bursawatch-tg-phintraco-swing")
+    with pytest.raises(ValueError, match="complete plan levels"):
+        validate_publication({**update, "broker_levels": {
+            "entry": "100", "stop": "95", "targets": ["110"],
+            "units": "IDR per share", "attribution": "Synthetic broker",
+        }}, "bursawatch-tg-phintraco-swing")
 
 
 def test_unsafe_urls_private_media_and_unaware_times_fail_closed():

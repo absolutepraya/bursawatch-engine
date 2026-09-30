@@ -39,7 +39,10 @@ OWNER_ROUTES: dict[str, dict[str, set[str]]] = {
         "macro_news": {"macro_news"},
         "swing_context": {"id_stocks_swing"},
     },
-    "bursawatch-tg-phintraco-swing": {"broker_swing_plan": {"id_stocks_swing"}},
+    "bursawatch-tg-phintraco-swing": {
+        "broker_swing_plan": {"id_stocks_swing"},
+        "broker_swing_update": {"id_stocks_swing"},
+    },
     "bursawatch-tg-kelas-investasi-gtw": {"swing_bundle": {"id_stocks_swing"}},
     "bursawatch-dc-swing-board": {"swing_board_update": {"swing_board"}},
 }
@@ -193,6 +196,11 @@ def validate_publication(payload: object, owner_id: str) -> dict[str, Any]:
         if owner_id != "bursawatch-tg-phintraco-swing":
             raise ValueError("broker plan owner is unsupported")
         levels = _broker_levels(levels)
+    elif kind == "broker_swing_update":
+        if owner_id != "bursawatch-tg-phintraco-swing":
+            raise ValueError("broker update owner is unsupported")
+        if levels is not None:
+            raise ValueError("broker updates cannot claim complete plan levels")
     elif levels is not None:
         raise ValueError("broker levels are only for validated broker plans")
     ticker = payload["ticker"]
@@ -201,6 +209,8 @@ def validate_publication(payload: object, owner_id: str) -> dict[str, Any]:
     parent = payload["parent_publication_id"]
     if parent is not None and (type(parent) is not str or not HEX_ID.fullmatch(parent)):
         raise ValueError("parent_publication_id is invalid")
+    if kind == "broker_swing_update" and parent is None:
+        raise ValueError("broker updates must link to a known original publication")
     config_revision = payload["config_revision"]
     if config_revision is not None and (type(config_revision) is not int or config_revision < 1):
         raise ValueError("config_revision is invalid")

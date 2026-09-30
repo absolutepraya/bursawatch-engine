@@ -97,18 +97,25 @@ def default_watch_config() -> WatchConfig:
 
 
 _ACTIVE_CONFIG: ContextVar[WatchConfig | None] = ContextVar("phintraco_watch_config", default=None)
+_ACTIVE_REVISION: ContextVar[int | None] = ContextVar("phintraco_watch_config_revision", default=None)
 
 
 def active_watch_config() -> WatchConfig:
     return _ACTIVE_CONFIG.get() or default_watch_config()
 
 
+def active_watch_config_revision() -> int | None:
+    return _ACTIVE_REVISION.get()
+
+
 @contextmanager
-def activate_watch_config(watch_config: WatchConfig) -> Iterator[None]:
+def activate_watch_config(watch_config: WatchConfig, revision: int | None = None) -> Iterator[None]:
     token = _ACTIVE_CONFIG.set(watch_config)
+    revision_token = _ACTIVE_REVISION.set(revision)
     try:
         yield
     finally:
+        _ACTIVE_REVISION.reset(revision_token)
         _ACTIVE_CONFIG.reset(token)
 
 

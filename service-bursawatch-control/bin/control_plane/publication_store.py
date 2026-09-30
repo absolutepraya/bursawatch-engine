@@ -18,7 +18,7 @@ class PublicationConflict(ValueError):
 
 
 FILTER_KEYS = {"group", "type", "route", "date_from", "date_to", "source", "ticker"}
-SWING_TYPES = {"broker_swing_plan", "swing_context", "swing_bundle", "swing_board_update"}
+SWING_TYPES = {"broker_swing_plan", "broker_swing_update", "swing_context", "swing_bundle", "swing_board_update"}
 NEWS_TYPES = {kind for routes in OWNER_ROUTES.values() for kind in routes} - SWING_TYPES
 
 

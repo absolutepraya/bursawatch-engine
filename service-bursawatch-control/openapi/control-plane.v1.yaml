@@ -751,7 +751,7 @@ components:
         owner_key: {type: string, minLength: 1, maxLength: 256}
         version: {type: integer, minimum: 1, maximum: 1000000}
         supersedes_version: {type: [integer, 'null']}
-        type: {type: string, enum: [idx_company_news, us_company_news, industry_news, macro_news, stock_status, broker_swing_plan, swing_context, swing_bundle, swing_board_update]}
+        type: {type: string, enum: [idx_company_news, us_company_news, industry_news, macro_news, stock_status, broker_swing_plan, broker_swing_update, swing_context, swing_bundle, swing_board_update]}
         route: {type: string, enum: [id_stocks_news, id_industry_news, macro_news, us_stocks_news, id_stocks_swing, swing_board]}
         source_event_key: {type: [string, 'null'], maxLength: 256}
         source_name: {type: string, minLength: 1, maxLength: 200}
@@ -791,7 +791,7 @@ components:
         owner_key: {type: string}
         version: {type: integer}
         supersedes_version: {type: [integer, 'null']}
-        type: {type: string, enum: [idx_company_news, us_company_news, industry_news, macro_news, stock_status, broker_swing_plan, swing_context, swing_bundle, swing_board_update]}
+        type: {type: string, enum: [idx_company_news, us_company_news, industry_news, macro_news, stock_status, broker_swing_plan, broker_swing_update, swing_context, swing_bundle, swing_board_update]}
         route: {type: string, enum: [id_stocks_news, id_industry_news, macro_news, us_stocks_news, id_stocks_swing, swing_board]}
         source_event_key: {type: [string, 'null']}
         source_name: {type: string}
@@ -1371,7 +1371,7 @@ components:
     SchedulerJob:
       type: object
       additionalProperties: false
-      required: [job_id, watcher_id, component_ids, display_name, runtime_job_key, schedule_kind, min_interval_seconds, max_interval_seconds, schedule, reconciliation]
+      required: [job_id, watcher_id, component_ids, display_name, runtime_job_key, schedule_kind, min_interval_seconds, max_interval_seconds, schedule, can_edit, reconciliation]
       properties:
         job_id:
           type: string
@@ -1396,6 +1396,9 @@ components:
           oneOf:
             - $ref: '#/components/schemas/ScheduleSnapshot'
             - type: 'null'
+        can_edit:
+          type: boolean
+          description: True only for an administrator and an interval job whose safe cadence controls are supported.
         reconciliation:
           $ref: '#/components/schemas/SchedulerReconciliation'
     ObservationWrite:

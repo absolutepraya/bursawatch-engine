@@ -109,6 +109,19 @@ def test_global_inventory_includes_paused_readers_watchdog_and_board_lifecycle_o
     assert by_id["bursawatch-tg-market-news-watchdog"]["schedule_kind"] == "fixed"
     assert by_id["bursawatch-dc-swing-board-lifecycle"]["runtime_job_key"] == "bursawatch-dc-swing-board-lifecycle"
     assert by_id["bursawatch-x-account-watch-queue-worker"]["runtime_job_key"] == "bursawatch-x-account-watch-queue"
+    assert by_id["bursawatch-tg-source-ingest"]["can_edit"] is False
+    assert by_id["bursawatch-dc-swing-board-lifecycle"]["can_edit"] is False
+
+
+def test_job_inventory_exposes_server_derived_safe_edit_entitlement():
+    client = _client()
+    admin = client.get("/v1/jobs", headers={"Authorization": f"Bearer {ADMIN}"}).json()
+    viewer = client.get("/v1/jobs", headers={"Authorization": f"Bearer {VIEWER}"}).json()
+    admin_by_id = {job["job_id"]: job for job in admin}
+    viewer_by_id = {job["job_id"]: job for job in viewer}
+    assert admin_by_id["bursawatch-tg-source-ingest"]["can_edit"] is True
+    assert admin_by_id["bursawatch-dc-swing-board-lifecycle"]["can_edit"] is False
+    assert viewer_by_id["bursawatch-tg-source-ingest"]["can_edit"] is False
 
 
 def test_existing_revisions_are_unchanged():

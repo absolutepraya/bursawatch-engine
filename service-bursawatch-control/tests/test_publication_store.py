@@ -92,3 +92,21 @@ def test_news_and_swing_groups_filter_before_cursor_advance():
     assert len(store.list_page(limit=10, filters={"group": "news"})["items"]) == 3
     with pytest.raises(ValueError, match="group"):
         store.list_page(filters={"group": "unknown"})
+
+
+def test_linked_broker_update_is_in_swing_group():
+    owner = "bursawatch-tg-phintraco-swing"
+    store = MemoryPublicationStore()
+    store.activate(BOUNDARY, (owner,))
+    update = publication(
+        owner_key="phintraco:update:33656",
+        type="broker_swing_update",
+        route="id_stocks_swing",
+        broker_levels=None,
+        parent_publication_id="b" * 64,
+    )
+    store.accept(owner, update)
+
+    page = store.list_page(limit=10, filters={"group": "swing"})
+
+    assert [item["type"] for item in page["items"]] == ["broker_swing_update"]

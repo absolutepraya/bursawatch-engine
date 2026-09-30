@@ -225,7 +225,7 @@ def _profile_avatar_response(record: ProfileAvatarRecord) -> dict[str, Any]:
     }
 
 
-def _job_response(job: SchedulerJobRecord) -> dict[str, Any]:
+def _job_response(job: SchedulerJobRecord, *, can_edit: bool = False) -> dict[str, Any]:
     schedule = job.schedule.to_dict() if job.schedule else None
     effective = bool(
         job.schedule
@@ -242,6 +242,7 @@ def _job_response(job: SchedulerJobRecord) -> dict[str, Any]:
         "min_interval_seconds": job.min_interval_seconds,
         "max_interval_seconds": job.max_interval_seconds,
         "schedule": schedule,
+        "can_edit": can_edit and job.schedule_kind == "interval",
         "reconciliation": {
             "status": job.reconciliation_status,
             "applied_revision": job.applied_revision,
@@ -693,29 +694,29 @@ def create_app(
     @app.get("/v1/watchers/{watcher_id}/jobs")
     def list_jobs(
         watcher_id: str,
-        _current: Principal = Depends(human_reader),
+        current: Principal = Depends(human_reader),
     ) -> list[dict[str, Any]]:
         try:
             validate_watcher_id(watcher_id)
-            return [_job_response(job) for job in store.list_jobs(watcher_id)]
+            return [_job_response(job, can_edit=current.kind == "admin") for job in store.list_jobs(watcher_id)]
         except ContractError as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
     @app.get("/v1/jobs")
-    def list_all_jobs(_current: Principal = Depends(human_reader)) -> list[dict[str, Any]]:
-        return [_job_response(job) for job in store.list_all_jobs()]
+    def list_all_jobs(current: Principal = Depends(human_reader)) -> list[dict[str, Any]]:
+        return [_job_response(job, can_edit=current.kind == "admin") for job in store.list_all_jobs()]
 
     @app.get("/v1/jobs/{job_id}")
-    def get_job(job_id: str, _current: Principal = Depends(human_reader)) -> dict[str, Any]:
+    def get_job(job_id: str, current: Principal = Depends(human_reader)) -> dict[str, Any]:
         try:
-            return _job_response(store.get_job(job_id))
+            return _job_response(store.get_job(job_id), can_edit=current.kind == "admin")
         except (ContractError, KeyError) as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="scheduler job not found") from exc
 
     @app.get("/v1/jobs/{job_id}/schedule")
-    def get_schedule(job_id: str, _current: Principal = Depends(human_reader)) -> dict[str, Any]:
+    def get_schedule(job_id: str, current: Principal = Depends(human_reader)) -> dict[str, Any]:
         try:
-            return _job_response(store.get_job(job_id))
+            return _job_response(store.get_job(job_id), can_edit=current.kind == "admin")
         except (ContractError, KeyError) as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="scheduler job not found") from exc
 
@@ -861,7 +862,8 @@ def create_app(
                     payload.interval_seconds,
                     payload.timezone,
                     current.subject,
-                )
+                ),
+                can_edit=True,
             )
         except KeyError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="scheduler job not found") from exc
