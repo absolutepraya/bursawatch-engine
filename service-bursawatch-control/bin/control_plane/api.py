@@ -252,6 +252,25 @@ def _job_response(job: SchedulerJobRecord, *, can_edit: bool = False) -> dict[st
     }
 
 
+def _reconciler_job_response(job: SchedulerJobRecord) -> dict[str, Any]:
+    """Return only the strict machine contract consumed by the VPS worker."""
+    response = _job_response(job)
+    return {
+        key: response[key]
+        for key in (
+            "job_id",
+            "watcher_id",
+            "display_name",
+            "runtime_job_key",
+            "schedule_kind",
+            "min_interval_seconds",
+            "max_interval_seconds",
+            "schedule",
+            "reconciliation",
+        )
+    }
+
+
 def create_app(
     store: Store | None = None,
     auth: Authenticator | None = None,
@@ -783,7 +802,7 @@ def create_app(
 
     @app.get("/v1/internal/schedules")
     def list_reconcilable_schedules(_current: Principal = Depends(reconciler_only)) -> list[dict[str, Any]]:
-        return [_job_response(job) for job in store.list_reconcilable_jobs()]
+        return [_reconciler_job_response(job) for job in store.list_reconcilable_jobs()]
 
     @app.get("/v1/watchers/{watcher_id}/events")
     def list_watcher_events(

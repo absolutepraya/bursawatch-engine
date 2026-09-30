@@ -312,13 +312,41 @@ def test_admin_can_store_an_interval_schedule_without_claiming_it_is_live():
 
 
 def test_reconciler_only_endpoints_expose_interval_jobs_and_record_verified_outcomes():
-    client, _store = build_client()
+    client, store = build_client()
+    store.seed_job(
+        job_id="bursawatch-tg-source-ingest",
+        watcher_id=None,
+        display_name="Telegram Source Intake",
+        runtime_job_key="bursawatch-tg-source-ingest",
+        schedule_kind="interval",
+        min_interval_seconds=60,
+        max_interval_seconds=3_600,
+        enabled=True,
+        interval_seconds=60,
+        timezone="Asia/Jakarta",
+    )
     headers = {"Authorization": f"Bearer {RECONCILER}"}
 
     schedules = client.get("/v1/internal/schedules", headers=headers)
 
     assert schedules.status_code == 200
-    assert [job["job_id"] for job in schedules.json()] == ["bursawatch-x-account-watch-source"]
+    rows = {job["job_id"]: job for job in schedules.json()}
+    assert set(rows) == {"bursawatch-tg-source-ingest", "bursawatch-x-account-watch-source"}
+    shared_job = rows["bursawatch-tg-source-ingest"]
+    assert shared_job["watcher_id"] is None
+    assert set(shared_job) == {
+        "job_id",
+        "watcher_id",
+        "display_name",
+        "runtime_job_key",
+        "schedule_kind",
+        "min_interval_seconds",
+        "max_interval_seconds",
+        "schedule",
+        "reconciliation",
+    }
+    assert "component_ids" not in shared_job
+    assert "can_edit" not in shared_job
     applied = client.post(
         "/v1/internal/jobs/bursawatch-x-account-watch-source/reconciliation",
         headers=headers,

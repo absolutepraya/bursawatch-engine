@@ -615,7 +615,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/SchedulerJob'
+                  $ref: '#/components/schemas/ReconcilerSchedulerJob'
   /v1/internal/jobs/{job_id}/reconciliation:
     parameters:
       - $ref: '#/components/parameters/JobId'
@@ -1423,6 +1423,34 @@ components:
         can_edit:
           type: boolean
           description: True only for an administrator and an interval job whose safe cadence controls are supported.
+        reconciliation:
+          $ref: '#/components/schemas/SchedulerReconciliation'
+    ReconcilerSchedulerJob:
+      type: object
+      additionalProperties: false
+      required: [job_id, watcher_id, display_name, runtime_job_key, schedule_kind, min_interval_seconds, max_interval_seconds, schedule, reconciliation]
+      properties:
+        job_id:
+          type: string
+        watcher_id:
+          type: [string, 'null']
+        display_name:
+          type: string
+        runtime_job_key:
+          type: string
+        schedule_kind:
+          type: string
+          const: interval
+        min_interval_seconds:
+          type: integer
+          minimum: 60
+          maximum: 86400
+        max_interval_seconds:
+          type: integer
+          minimum: 60
+          maximum: 86400
+        schedule:
+          $ref: '#/components/schemas/ScheduleSnapshot'
         reconciliation:
           $ref: '#/components/schemas/SchedulerReconciliation'
     ObservationWrite:
