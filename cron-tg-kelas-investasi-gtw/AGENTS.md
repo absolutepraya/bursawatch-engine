@@ -111,6 +111,22 @@ replay the All feed. An archived episode never receives a later GTW event.
 
 Successful runs send `🫀 bursawatch-tg-kelas-investasi-gtw · HH:MM WIB · scanned=N pending=N delivered=N` to the configured heartbeat destination, whose reviewed default is `#hermes` (`1505162000420835388`). Fatal errors use `❌ bursawatch-tg-kelas-investasi-gtw · HH:MM WIB · failed: <sanitized reason>`. Accepted output is delivered to the configured chronological All feed, whose reviewed default is `#id-stocks-swing` (`1525102458253217803`), only by the scanner. The registered agent-backed Hermes job uses `local` delivery because scanner stdout is control protocol, not a Discord heartbeat; only the scanner's explicit heartbeat and fatal posts belong in `#hermes`.
 
+## Published Feed projection
+
+The opt-in reporter is disabled unless
+`BURSAWATCH_TG_KELAS_INVESTASI_GTW_PUBLICATION_ENABLED=1`. It records an
+immutable `swing_bundle` intent in the existing owner state only after every
+All Swing text and image delivery cursor is complete. The intent preserves
+the validated Kelas title and rendered legs, confirms each stable Delivery
+Owner operation by exact key and digest, and always sets `broker_levels` to
+`null`. A separate API drain retries only the same publication identity and
+reports the contiguous receipt-backed checkpoint. API outages never reopen
+Discord delivery. The machine URL is `BURSAWATCH_PUBLICATION_CONTROL_PLANE_URL`
+and the scoped credential path is
+`BURSAWATCH_TG_KELAS_INVESTASI_GTW_PUBLICATION_TOKEN_FILE`; the feature remains
+off until an approved forward-only cutover configures these values. Existing
+state upgrades preserve the source cursor and delivery ledger.
+
 Board-pending events retain source order in a separate logical queue: a failed or backed-off handoff never blocks subsequent All text/image delivery. Migrated legacy bundles without a source publication time remain board-unavailable when they close and reload; no observation time is substituted for missing source evidence.
 
 `bin/delivery_handoff.py --plan <private-plan-path>` creates a read-only plan

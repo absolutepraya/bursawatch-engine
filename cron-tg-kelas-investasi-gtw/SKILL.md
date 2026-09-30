@@ -47,6 +47,13 @@ context omits that line. A failed link edit is retried without replaying All.
 Do not
 create a separate quoted status message.
 
+The opt-in Published Feed reporter is disabled until its explicit owner flag
+and scoped Control Plane credentials are configured after an approved
+forward-only cutover. When enabled, it records `swing_bundle` only after all
+All text and image receipts are confirmed. It preserves exact rendered legs,
+sets broker levels to `null`, and retries only the read-model submission. An
+API outage never repeats a Discord send.
+
 GTW is source-only Swing context. The board may create or append a `Supporting
 setup` episode, but GTW never becomes the Primary Plan or changes Phintraco's
 status and market tags. When an open GTW-only episode is promoted by a complete

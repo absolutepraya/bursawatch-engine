@@ -335,6 +335,9 @@ def deliver_oldest_ready_event(
     _clear_failure(event)
     _persist(persist)
     if _complete(event, chunks):
+        if event.get("all_delivery_completed_at") is None:
+            event["all_delivery_completed_at"] = now.isoformat()
+            _persist(persist)
         return _submit_board_context(state, event, now, dry_run, persist, media_root, channel_id, client)
     return True
 
