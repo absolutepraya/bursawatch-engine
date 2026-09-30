@@ -521,7 +521,7 @@ def test_v9_media_migration_preserves_existing_event_and_rows(tmp_path):
         connection.execute("ALTER TABLE source_events DROP COLUMN media_paths_json")
         connection.execute("PRAGMA user_version=9")
     migrated = BoardStore(path)
-    assert migrated.schema_version == 12
+    assert migrated.schema_version == 13
     assert {table: migrated.count_rows(table) for table in before} == before
     with migrated.transaction() as tx:
         assert tx.source_event(1).media_paths == ("/private/legacy.jpg",)

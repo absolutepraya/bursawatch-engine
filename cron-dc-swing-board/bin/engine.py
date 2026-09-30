@@ -934,7 +934,13 @@ class BoardEngine:
         if limit < 1:
             raise ValueError("drain limit must be positive")
         with self.store.delivery_lock() as acquired:
-            return self._drain_owned(now, limit) if acquired else 0
+            if not acquired:
+                return 0
+            completed = self._drain_owned(now, limit)
+            from board_publication_projection import drain as drain_publications
+
+            drain_publications(self.store, now or datetime.now(timezone.utc))
+            return completed
 
     def enqueue_heartbeat(self, channel_id: str, content: str, dedupe_key: str, now: datetime):
         """Persist one scheduled channel intent before the owner can submit it."""
