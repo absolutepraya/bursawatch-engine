@@ -30,6 +30,7 @@ from .operator_observations import (
     ObservationError,
     ObservationStore,
     PostgresObservationStore,
+    observed_interval_matches,
     observation_view,
     validate_observation,
 )
@@ -788,7 +789,7 @@ def create_app(
                     row["comparison"] = "not_comparable"
                 else:
                     schedule_match = (
-                        observed_schedule == {"kind": "interval", "minutes": desired["interval_seconds"] // 60}
+                        observed_interval_matches(observed_schedule, desired["interval_seconds"] // 60)
                         and observation.evidence.get("enabled") == desired["enabled"]
                     )
                     row["comparison"] = "match" if schedule_match else "mismatch"

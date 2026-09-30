@@ -97,8 +97,8 @@ def test_unknown_ids_future_times_oversized_fields_secrets_and_schedule_mismatch
     wrong_runtime = _payload("2026-09-30T09:59:00Z", runtime="x-post-queue-worker")
     wrong_runtime["identity_id"] = "bursawatch-x-account-watch-queue-worker"
     cases.append(wrong_runtime)
-    wrong_schedule = _payload("2026-09-30T09:59:00Z")
-    wrong_schedule["evidence"]["schedule"] = {"kind": "cron", "expr": "* * * * *"}
+    wrong_schedule = _payload("2026-09-30T09:59:00Z", runtime="bursawatch-x-account-watch-queue")
+    wrong_schedule["identity_id"] = "bursawatch-x-account-watch-queue-worker"
     cases.append(wrong_schedule)
 
     for payload in cases:
@@ -113,6 +113,55 @@ def test_x_queue_logical_id_accepts_only_exact_hermes_runtime_key():
     result = validate_observation(payload, "hermes-observer", _store().list_all_jobs(), now=NOW)
     assert result.identity_id == "bursawatch-x-account-watch-queue-worker"
     assert result.evidence["runtime_job_key"] == "bursawatch-x-account-watch-queue"
+
+
+@pytest.mark.parametrize(
+    ("minutes", "expr"),
+    [(1, "* * * * *"), (10, "*/10 * * * *"), (60, "0 * * * *")],
+)
+def test_exact_legacy_cron_observation_matches_desired_interval(minutes: int, expr: str):
+    store = _store()
+    if minutes != 1:
+        store.seed_job(
+            job_id="bursawatch-tg-source-ingest",
+            watcher_id=None,
+            display_name="Telegram Source Intake",
+            runtime_job_key="bursawatch-tg-source-ingest",
+            schedule_kind="interval",
+            min_interval_seconds=60,
+            max_interval_seconds=3600,
+            enabled=True,
+            interval_seconds=minutes * 60,
+            timezone="Asia/Jakarta",
+        )
+    client = TestClient(create_app(
+        store=store,
+        auth=StaticTokenAuth(machine_token="machine-token", admin_token="admin-token", observer_token=OBSERVER),
+    ))
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    body = _payload(now)
+    body["evidence"]["schedule"] = {"kind": "cron", "expr": expr}
+    posted = client.post("/v1/internal/observations", headers={"Authorization": f"Bearer {OBSERVER}"}, json=body)
+    assert posted.status_code == 202, posted.text
+    read = client.get("/v1/observations", headers={"Authorization": "Bearer admin-token"})
+    assert read.status_code == 200
+    assert read.json()[0]["evidence"]["schedule"] == {"kind": "cron", "expr": expr}
+    assert read.json()[0]["comparison"] == "match"
+
+
+def test_other_cron_observation_is_accepted_as_mismatch():
+    client = TestClient(create_app(
+        store=_store(),
+        auth=StaticTokenAuth(machine_token="machine-token", admin_token="admin-token", observer_token=OBSERVER),
+    ))
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    body = _payload(now)
+    body["evidence"]["schedule"] = {"kind": "cron", "expr": "*/5 * * * *"}
+    posted = client.post("/v1/internal/observations", headers={"Authorization": f"Bearer {OBSERVER}"}, json=body)
+    assert posted.status_code == 202, posted.text
+    read = client.get("/v1/observations", headers={"Authorization": "Bearer admin-token"})
+    assert read.status_code == 200
+    assert read.json()[0]["comparison"] == "mismatch"
 
 
 def test_postgres_dict_row_projects_observation_fields():

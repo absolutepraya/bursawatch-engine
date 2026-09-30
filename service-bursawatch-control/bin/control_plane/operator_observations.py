@@ -14,6 +14,20 @@ class ObservationError(ValueError):
     pass
 
 
+LEGACY_INTERVAL_CRON_EXPRESSIONS = {
+    1: "* * * * *",
+    10: "*/10 * * * *",
+    60: "0 * * * *",
+}
+
+
+def observed_interval_matches(schedule: object, interval_minutes: int) -> bool:
+    if schedule == {"kind": "interval", "minutes": interval_minutes}:
+        return True
+    legacy_expr = LEGACY_INTERVAL_CRON_EXPRESSIONS.get(interval_minutes)
+    return legacy_expr is not None and schedule == {"kind": "cron", "expr": legacy_expr}
+
+
 @dataclass(frozen=True)
 class Observation:
     identity_kind: str
@@ -100,8 +114,6 @@ def validate_observation(
         expr = schedule["expr"]
         if type(expr) is not str or len(expr) > 100 or not re.fullmatch(r"[0-9*/?,\- ]+", expr):
             raise ObservationError("schedule.expr is invalid")
-        if job.schedule_kind == "interval":
-            raise ObservationError("observed schedule kind does not match declared job")
     else:
         raise ObservationError("schedule is invalid")
     last = evidence["last_execution"]
