@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import {
   Activity,
   ArrowUpRight,
@@ -14,13 +15,24 @@ import {
   XCircle,
 } from "lucide-react";
 import type { ControlJob, ControlRun, ControlWatcher } from "@/server/control-plane";
+import type {
+  OperatorComponent,
+  OperatorComponentActivity,
+  OperatorJob,
+  OperatorObservation,
+} from "@/lib/operator-inventory";
 import {
   controlRunDuration,
   controlStatusLabels,
   controlStatuses,
   latestControlRuns,
+  ownerConfigEvidence,
   summarizeControlRuns,
   summarizeControlSchedules,
+  currentObservedFailures,
+  latestOperatorObservations,
+  observedJobState,
+  observedJobSummary,
   type ControlCoverageIssue,
   type ControlRange,
 } from "@/lib/control-analytics";
@@ -82,6 +94,11 @@ export type ControlDashboardProps = {
   onSelectWatcher: (watcherId: string) => void;
   onSelectRun: (runId: string) => void;
   issues?: ControlCoverageIssue[];
+  components?: OperatorComponent[];
+  componentActivity?: OperatorComponentActivity[];
+  operatorJobs?: OperatorJob[];
+  observations?: OperatorObservation[];
+  operatorIssues?: { resource: string; message: string }[];
 };
 
 export function ControlDashboard({
@@ -94,6 +111,11 @@ export function ControlDashboard({
   onSelectWatcher,
   onSelectRun,
   issues = [],
+  components = [],
+  componentActivity = [],
+  operatorJobs = [],
+  observations = [],
+  operatorIssues = [],
 }: ControlDashboardProps) {
   const [range, setRange] = useState<ControlRange>("7d");
   const report = useMemo(
@@ -101,6 +123,18 @@ export function ControlDashboard({
     [runs, range, updatedAt],
   );
   const schedules = useMemo(() => summarizeControlSchedules(jobs), [jobs]);
+  const observedJobs = useMemo(
+    () => observedJobSummary(operatorJobs, observations),
+    [operatorJobs, observations],
+  );
+  const observationById = useMemo(() => latestOperatorObservations(observations), [observations]);
+  const currentFailures = useMemo(
+    () => currentObservedFailures(operatorJobs, observations),
+    [operatorJobs, observations],
+  );
+  const operatorJobsUnavailable = operatorIssues.some(
+    (issue) => issue.resource === "operator-jobs" || issue.resource === "observations",
+  );
   const scheduleSegments = [
     { label: "Active", count: schedules.active, tone: "ok" },
     { label: "Paused", count: schedules.paused, tone: "muted" },
@@ -157,19 +191,33 @@ export function ControlDashboard({
           <small>{range === "7d" ? "Last 7 calendar days" : "Last 24 hours"} · WIB</small>
         </div>
         <div className={`control-metric${report.attention ? " control-metric-attention" : ""}`}>
-          <span>Runs needing attention</span>
+          <span>Historical runs needing attention</span>
           <strong>{number.format(report.attention)}</strong>
-          <small>Degraded, failed or blocked</small>
+          <small>
+            {range === "7d" ? "Last 7 calendar days" : "Last 24 hours"}, not a current incident
+            count
+          </small>
         </div>
         <div className="control-metric">
-          <span>Active schedules</span>
+          <span>Observed active jobs</span>
           <strong>
-            {number.format(schedules.active)}
-            <span> / {number.format(schedules.total)}</span>
+            {operatorJobsUnavailable ? "Unavailable" : number.format(observedJobs.active)}
+            {!operatorJobsUnavailable ? <span> / {number.format(observedJobs.total)}</span> : null}
           </strong>
-          <small>Enabled and applied by the scheduler</small>
+          <small>
+            {number.format(observedJobs.stale)} stale · {number.format(observedJobs.unknown)}{" "}
+            unknown · {number.format(currentFailures.length)} fresh failed executions
+          </small>
         </div>
       </section>
+
+      <OperatorEvidencePanel
+        components={components}
+        activity={componentActivity}
+        jobs={operatorJobs}
+        observations={observationById}
+        issues={operatorIssues}
+      />
 
       <div className="control-chart-grid">
         <section
@@ -341,7 +389,7 @@ export function ControlDashboard({
           <div className="control-section-heading">
             <div>
               <h2 id="control-schedules-title">Schedule status</h2>
-              <p>Saved and applied schedules</p>
+              <p>Legacy watcher schedule reconciliation, not live registry proof</p>
             </div>
             <Clock3 size={19} aria-hidden="true" />
           </div>
@@ -427,10 +475,135 @@ export function ControlDashboard({
         />
       </section>
       <p className="control-data-note">
-        A completed run does not confirm message delivery. Gaps in returned history do not establish
-        uptime.
+        A completed run does not confirm message delivery. Run samples are bounded history; gaps do
+        not establish uptime.
       </p>
     </div>
+  );
+}
+
+function OperatorEvidencePanel({
+  components,
+  activity,
+  jobs,
+  observations,
+  issues,
+}: {
+  components: OperatorComponent[];
+  activity: OperatorComponentActivity[];
+  jobs: OperatorJob[];
+  observations: Map<string, OperatorObservation>;
+  issues: { resource: string; message: string }[];
+}) {
+  const activityById = new Map(activity.map((row) => [row.component_id, row]));
+  const states: Record<string, string> = {
+    active: "Observed active",
+    paused: "Observed paused",
+    pending: "Pending application",
+    error: "Reconciliation error",
+    mismatch: "Schedule mismatch",
+    stale: "Stale observation",
+    unknown: "Unknown",
+  };
+  return (
+    <section
+      className="control-panel control-operator-evidence"
+      aria-labelledby="control-operator-evidence-title"
+    >
+      <div className="control-section-heading">
+        <div>
+          <h2 id="control-operator-evidence-title">Current engine evidence</h2>
+          <p>
+            Source Inbox intake, pipeline work and job observations are separate from run history.
+          </p>
+        </div>
+      </div>
+      {issues.length ? (
+        <p className="control-evidence-warning" role="status">
+          Some operator evidence is unavailable. Its missing row does not mean no activity occurred.
+        </p>
+      ) : null}
+      {!components.length && !jobs.length ? (
+        <p className="control-muted">Component and job inventory is unavailable.</p>
+      ) : null}
+      <div className="control-evidence-grid">
+        <section aria-labelledby="control-component-evidence-title">
+          <h3 id="control-component-evidence-title">Components</h3>
+          {components.map((component) => {
+            const row = activityById.get(component.component_id);
+            const accepted =
+              row?.endpoints
+                .map((endpoint) => endpoint.accepted_at)
+                .filter((value): value is string => value !== null) ?? [];
+            const lastAccepted = accepted.sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
+            const pipelineTime =
+              row?.pipelines
+                .map((pipeline) => pipeline.work_created_at)
+                .filter((value): value is string => value !== null)
+                .sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
+            return (
+              <article key={component.component_id}>
+                <strong>{component.display_name}</strong>
+                <span>
+                  Last accepted input:{" "}
+                  {lastAccepted ? (
+                    <time dateTime={lastAccepted}>{formatTime(lastAccepted)} WIB</time>
+                  ) : row ? (
+                    "No accepted input recorded"
+                  ) : (
+                    "Unavailable"
+                  )}
+                </span>
+                <span>
+                  Last pipeline work:{" "}
+                  {row?.pipelines.length ? (
+                    pipelineTime ? (
+                      <time dateTime={pipelineTime}>{formatTime(pipelineTime)} WIB</time>
+                    ) : (
+                      "Not recorded"
+                    )
+                  ) : component.pipeline_ids.length ? (
+                    "Unknown"
+                  ) : (
+                    "Not applicable"
+                  )}
+                </span>
+                <span>Delivery: {row?.delivery_status ?? "Not instrumented"}</span>
+              </article>
+            );
+          })}
+        </section>
+        <section aria-labelledby="control-job-evidence-title">
+          <h3 id="control-job-evidence-title">Jobs</h3>
+          {jobs.map((job) => {
+            const observation = observations.get(`job:${job.job_id}`);
+            const state = observedJobState(job, observation);
+            const last = observation?.evidence.last_execution;
+            return (
+              <article key={job.job_id}>
+                <strong>{job.display_name}</strong>
+                <span>
+                  {states[state]} · {job.job_id}
+                </span>
+                <span>
+                  Observed:{" "}
+                  {observation ? `${formatTime(observation.observed_at)} WIB` : "No observation"}
+                </span>
+                <span>
+                  Last execution:{" "}
+                  {last?.at
+                    ? `${last.status ?? "Status unavailable"}, ${formatTime(last.at)} WIB`
+                    : "Not reported"}
+                </span>
+              </article>
+            );
+          })}
+        </section>
+      </div>
+      <p className="control-panel-note">
+        Input means accepted into Source Inbox. Pipeline work does not confirm Discord delivery.
+      </p>
+    </section>
   );
 }
 
@@ -443,6 +616,9 @@ export function ControlWatcherList({
   issues = [],
   limit,
   statusLoaded = true,
+  components = [],
+  operatorJobs = [],
+  observations = [],
 }: {
   watchers: ControlWatcher[];
   runs: ControlRun[];
@@ -452,6 +628,9 @@ export function ControlWatcherList({
   issues?: ControlCoverageIssue[];
   limit?: number;
   statusLoaded?: boolean;
+  components?: OperatorComponent[];
+  operatorJobs?: OperatorJob[];
+  observations?: OperatorObservation[];
 }) {
   const latest = useMemo(
     () => latestControlRuns(watchers, runs, updatedAt),
@@ -475,9 +654,22 @@ export function ControlWatcherList({
         const jobsUnavailable = issues.some(
           (issue) => issue.watcherId === watcher.watcher_id && issue.resource === "jobs",
         );
+        const configEvidence = ownerConfigEvidence(
+          watcher.current_revision,
+          runs.filter((run) => run.watcher_id === watcher.watcher_id),
+        );
         const schedules = summarizeControlSchedules(
           jobs.filter((job) => job.watcher_id === watcher.watcher_id),
         );
+        const ownerComponents = components.filter(
+          (component) =>
+            component.kind === "domain_owner" &&
+            (component.component_id === watcher.watcher_id ||
+              component.config_resource_ids.includes(watcher.watcher_id)),
+        );
+        const ownerJobIds = new Set(ownerComponents.flatMap((component) => component.job_ids));
+        const ownerJobs = operatorJobs.filter((job) => ownerJobIds.has(job.job_id));
+        const observationById = latestOperatorObservations(observations);
         return (
           <li key={watcher.watcher_id}>
             <button
@@ -523,11 +715,46 @@ export function ControlWatcherList({
               </span>
               <ArrowUpRight size={18} className="control-row-arrow" aria-hidden="true" />
             </button>
+            <div className="control-watcher-operator-evidence">
+              <span>{configEvidence.label}</span>
+              {ownerJobs.length ? (
+                <span>
+                  Shared jobs:{" "}
+                  {ownerJobs.map((job, index) => {
+                    const state = observedJobState(job, observationById.get(`job:${job.job_id}`));
+                    return (
+                      <span key={job.job_id}>
+                        {index ? ", " : ""}
+                        {job.display_name} ({formatObservedJobState(state)})
+                      </span>
+                    );
+                  })}{" "}
+                  <Link href="/workspace/jobs">View Jobs</Link>
+                </span>
+              ) : statusLoaded ? (
+                <span>Shared job relationship unavailable</span>
+              ) : (
+                <span>Shared job status unavailable</span>
+              )}
+            </div>
           </li>
         );
       })}
     </ul>
   );
+}
+
+function formatObservedJobState(state: ReturnType<typeof observedJobState>) {
+  const labels: Record<ReturnType<typeof observedJobState>, string> = {
+    active: "active",
+    paused: "paused",
+    pending: "pending",
+    error: "reconciliation error",
+    mismatch: "mismatch",
+    stale: "stale",
+    unknown: "unknown",
+  };
+  return labels[state];
 }
 
 export function ControlRunList({

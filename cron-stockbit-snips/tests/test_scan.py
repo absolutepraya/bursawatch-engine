@@ -10,6 +10,7 @@ import pytest
 import scan
 import state
 from agent_protocol import analysis_payload
+from bursawatch_discord_delivery import OperationReceipt
 from models import Article, FeedLane, Route, StockbitFeedSetting, StockbitWatchConfig
 from rss import FetchResult
 
@@ -38,6 +39,14 @@ def watch_config(*disabled: FeedLane) -> StockbitWatchConfig:
 def set_live_config(monkeypatch, *disabled: FeedLane) -> None:
     loaded = config.LoadedStockbitConfig(config=watch_config(*disabled), revision=7)
     monkeypatch.setattr(config, "load_watch_config_for_run", lambda: loaded)
+
+
+def delivered_receipt(content: str, channel_id: str, *, event_key: str, leg: str) -> OperationReceipt:
+    operation, _nonce = scan.discord._operation(content, channel_id, event_key, leg)
+    return OperationReceipt(
+        id=f"receipt:{event_key}", key=operation.key, digest=operation.digest,
+        status="delivered", receipt={"channel_id": channel_id, "message_id": "345678901234567890"},
+    )
 
 
 def suppress_run_reporting(monkeypatch) -> None:
@@ -457,7 +466,7 @@ def test_frozen_config_survives_submission_and_delivery_retry(monkeypatch, tmp_p
         posted_channel_ids.append(channel_id)
         if len(posted_channel_ids) == 1:
             raise RuntimeError("temporary delivery failure")
-        return "message-id"
+        return delivered_receipt(content, channel_id, event_key=kwargs["event_key"], leg=kwargs["leg"])
 
     monkeypatch.setattr(scan.discord, "post_text", post_then_retry)
     scan.submit_analysis(_issuer_payload(item))
@@ -525,7 +534,7 @@ def test_run_reporting_uses_only_safe_lifecycle_fields(monkeypatch, tmp_path) ->
     monkeypatch.setattr(config, "load_watch_config_for_run", lambda: loaded)
     monkeypatch.setattr(scan, "fetch_feed", lambda feed, **kwargs: FetchResult(feed, (), None, None, True))
     monkeypatch.setattr(scan, "get_market_snapshot", lambda ticker: None)
-    monkeypatch.setattr(scan.discord, "post_text", lambda *args, **kwargs: "message-id")
+    monkeypatch.setattr(scan.discord, "post_text", lambda content, channel_id, **kwargs: delivered_receipt(content, channel_id, event_key=kwargs["event_key"], leg=kwargs["leg"]))
     calls = []
 
     class RecordedRun:
@@ -632,7 +641,7 @@ def test_config_outage_drains_bound_delivery_and_attempts_fixed_heartbeat(monkey
     monkeypatch.setattr(config, "load_watch_config_for_run", lambda: (_ for _ in ()).throw(ValueError("secret /local/path")))
     monkeypatch.setattr(scan, "fetch_feed", lambda *args, **kwargs: pytest.fail("outage polled source"))
     calls = []
-    monkeypatch.setattr(scan.discord, "post_text", lambda content, channel_id, **kwargs: calls.append((content, channel_id)) or "message-id")
+    monkeypatch.setattr(scan.discord, "post_text", lambda content, channel_id, **kwargs: calls.append((content, channel_id)) or delivered_receipt(content, channel_id, event_key=kwargs["event_key"], leg=kwargs["leg"]))
 
     class ForbiddenRun:
         @classmethod
@@ -793,7 +802,7 @@ def test_legacy_delivery_snapshot_is_durable_before_first_send(monkeypatch, tmp_
     )
     clock[0] += timedelta(minutes=2)
     channels = []
-    monkeypatch.setattr(scan.discord, "post_text", lambda content, channel_id, **kwargs: channels.append(channel_id) or "message-id")
+    monkeypatch.setattr(scan.discord, "post_text", lambda content, channel_id, **kwargs: channels.append(channel_id) or delivered_receipt(content, channel_id, event_key=kwargs["event_key"], leg=kwargs["leg"]))
     scan.run()
     assert channels == ["123456789012345678"]
     assert state.load_state(path, config.FEEDS)["articles"][item.key]["config_snapshot"]["revision"] == 7
@@ -978,7 +987,7 @@ def test_submission_degrades_when_another_due_delivery_fails(monkeypatch, tmp_pa
         sent.append(event_key)
         if event_key == due.key:
             raise RuntimeError("credential /private/path")
-        return "message-id"
+        return delivered_receipt(content, channel_id, event_key=event_key, leg=kwargs["leg"])
 
     monkeypatch.setattr(scan.discord, "post_text", post_text)
     calls = []

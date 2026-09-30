@@ -925,7 +925,25 @@ async def _route_and_deliver(
     news_delivered = await _drain_delivery(
         state, runtime, now, dry_run, delivery_client=delivery_client
     )
+    _drain_publications(state, now, dry_run=dry_run)
     return classified, news_delivered
+
+
+def _drain_publications(
+    state: dict[str, object],
+    now: datetime,
+    *,
+    dry_run: bool = False,
+    client: object | None = None,
+) -> dict[str, int]:
+    """Drain owner read-model intents without touching the Discord outbox."""
+    from publication_projection import drain as drain_publications
+
+    if dry_run:
+        from state import pending_publication_intents
+
+        return {"accepted": 0, "pending": len(pending_publication_intents(state))}
+    return drain_publications(state, now, client)
 
 
 async def run(now: datetime | None = None, clients: object | None = None) -> dict[str, object]:
@@ -963,6 +981,8 @@ async def _run_loaded_config(
         outcome = "failed"
         failure: str | None = None
         try:
+            state = load_state()
+            _drain_publications(state, now, dry_run=dry_run)
             if clients is None:
                 resilience_control = resilience()
                 decision = await acquire_probe_after_active_lease(
@@ -1026,7 +1046,6 @@ async def _run_loaded_config(
                         return {"wakeAgent": False, "_telegram_resilience_handled": True}
                     raise
 
-            state = load_state()
             _migrate_scheduled_delivery_backlog(state, now)
             runtime: RuntimeClients | None = None
             if clients is None:
@@ -1061,6 +1080,7 @@ async def _run_loaded_config(
                 dry_run,
                 delivery_client=shared_delivery_client,
             )
+            _drain_publications(state, now, dry_run=dry_run)
             news_delivered += stock_status_delivered
             provider_errored, retrying, delivery_pending = _health_and_warning(state)
             control_run.event(
@@ -1252,6 +1272,7 @@ async def _submit_classification_payload_loaded(
         failure: str | None = None
         try:
             state = load_state()
+            _drain_publications(state, now, dry_run=_dry_run())
             _migrate_scheduled_delivery_backlog(state, now)
             candidate = _candidate_for_submission(state, payload.get("candidate_key"))
             classification = submit_agent_classification(state, candidate, payload, now)

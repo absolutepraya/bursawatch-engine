@@ -18,8 +18,9 @@ Control-plane desired revision
   -> guarded applied or error report for the same desired revision
 ```
 
-The reconciler sees only interval jobs. It converts an API-approved whole
-minute interval to `every <minutes>m`; it never accepts arbitrary cron text.
+The reconciler accepts only the exact interval job names and bounds listed in
+`README.md`, in addition to Control Plane validation. It converts an approved
+whole minute interval to `every <minutes>m`; it never accepts arbitrary cron text.
 For the first preserved baseline only, it also recognizes the exact existing
 Hermes cron forms `* * * * *`, `*/10 * * * *`, and `0 * * * *` as equivalent
 to one, 10, and 60 minute intervals. This prevents the initial reconciliation

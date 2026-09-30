@@ -117,6 +117,13 @@ _STOCK_STATUS_EVENT_KEYS = frozenset(
     }
 )
 _STOCK_STATUS_DELIVERY_HANDOFF_KEYS = _STOCK_STATUS_EVENT_KEYS | {"delivery_handoff"}
+_STOCK_STATUS_SOURCE_EVENT_KEYS = _STOCK_STATUS_EVENT_KEYS | {"source_event_key"}
+_STOCK_STATUS_SOURCE_EVENT_HANDOFF_KEYS = _STOCK_STATUS_SOURCE_EVENT_KEYS | {"delivery_handoff"}
+_STOCK_STATUS_CONFIG_KEYS = _STOCK_STATUS_EVENT_KEYS | {"config_revision"}
+_STOCK_STATUS_CONFIG_HANDOFF_KEYS = _STOCK_STATUS_CONFIG_KEYS | {"delivery_handoff"}
+_STOCK_STATUS_SOURCE_CONFIG_KEYS = _STOCK_STATUS_SOURCE_EVENT_KEYS | {"config_revision"}
+_STOCK_STATUS_SOURCE_CONFIG_HANDOFF_KEYS = _STOCK_STATUS_SOURCE_CONFIG_KEYS | {"delivery_handoff"}
+_PUBLICATION_LEDGER_KEY = "publication_projection"
 _REJECTED_STOCK_STATUS_EVENT_KEYS = frozenset(
     {"source_message_id", "source_url", "phase", "rejected_at", "rejection_code"}
 )
@@ -299,11 +306,29 @@ def _validate_stock_status_event(key: object, event: object) -> None:
         if not isinstance(event["rejection_code"], str) or event["rejection_code"] not in _STOCK_STATUS_REASON_CODES:
             raise StateBlockedError(f"malformed state: {key}.rejection_code is invalid")
     else:
-        if frozenset(event) not in {_STOCK_STATUS_EVENT_KEYS, _STOCK_STATUS_DELIVERY_HANDOFF_KEYS}:
+        if frozenset(event) not in {
+            _STOCK_STATUS_EVENT_KEYS,
+            _STOCK_STATUS_DELIVERY_HANDOFF_KEYS,
+            _STOCK_STATUS_SOURCE_EVENT_KEYS,
+            _STOCK_STATUS_SOURCE_EVENT_HANDOFF_KEYS,
+            _STOCK_STATUS_CONFIG_KEYS,
+            _STOCK_STATUS_CONFIG_HANDOFF_KEYS,
+            _STOCK_STATUS_SOURCE_CONFIG_KEYS,
+            _STOCK_STATUS_SOURCE_CONFIG_HANDOFF_KEYS,
+        }:
             raise StateBlockedError(f"malformed state: {key} has invalid event fields")
         source_message_id = _validate_stock_status_source(
             event["source_message_id"], event["source_url"], key
         )
+        if "source_event_key" in event and (
+            not isinstance(event["source_event_key"], str)
+            or not re.fullmatch(r"[0-9a-f]{64}", event["source_event_key"])
+        ):
+            raise StateBlockedError(f"malformed state: {key}.source_event_key is invalid")
+        if "config_revision" in event and (
+            not _is_plain_int(event["config_revision"]) or event["config_revision"] < 1
+        ):
+            raise StateBlockedError(f"malformed state: {key}.config_revision is invalid")
         if phase not in {"pending_delivery", "delivered"}:
             raise StateBlockedError(f"malformed state: {key} has invalid phase")
         if not isinstance(event["effective_date"], str):
@@ -479,6 +504,8 @@ def _validate_state(state: object) -> None:
             raise StateBlockedError("malformed state: stats.stock_status_events must be an object")
         for key, event in status_events.items():
             _validate_stock_status_event(key, event)
+    if _PUBLICATION_LEDGER_KEY in state["stats"]:
+        _validate_publication_ledger(state["stats"][_PUBLICATION_LEDGER_KEY])
     _validate_timestamp_or_none(state["last_poll_success"], "last_poll_success")
     _validate_timestamp_or_none(state["last_delivery_success"], "last_delivery_success")
     _validate_timestamp_or_none(state["last_heartbeat_hour"], "last_heartbeat_hour")
@@ -669,6 +696,8 @@ def _status_event_key(source_message_id: int) -> str:
 
 def _status_identity_fields(event: dict[str, object]) -> tuple[object, ...]:
     return (
+        event.get("source_event_key"),
+        event.get("config_revision"),
         event.get("source_message_id"),
         event.get("source_url"),
         event.get("effective_date"),
@@ -685,6 +714,9 @@ def enqueue_stock_status(
     channel_id: str,
     content: str,
     now: datetime,
+    *,
+    source_event_key: str | None = None,
+    config_revision: int | None = None,
 ) -> bool:
     _validate_state(state)
     _require_aware_timestamp(now, "now")
@@ -698,6 +730,13 @@ def enqueue_stock_status(
         raise ValueError("content must be nonempty and at most 2,000 characters")
     if not isinstance(status.effective_date, date):
         raise ValueError("status effective_date must be a date")
+    if source_event_key is not None and (
+        not isinstance(source_event_key, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", source_event_key)
+    ):
+        raise ValueError("source_event_key must be a lowercase SHA-256 identity")
+    if config_revision is not None and (not _is_plain_int(config_revision) or config_revision < 1):
+        raise ValueError("config_revision must be a positive integer")
     event: dict[str, object] = {
         "source_message_id": status.source_message_id,
         "source_url": source_url,
@@ -712,6 +751,10 @@ def enqueue_stock_status(
         "delivered_at": None,
         "rejection_code": None,
     }
+    if source_event_key is not None:
+        event["source_event_key"] = source_event_key
+    if config_revision is not None:
+        event["config_revision"] = config_revision
     events = _stock_status_events(state, create=True)
     existing = events.get(key)
     if existing is not None:
@@ -721,10 +764,146 @@ def enqueue_stock_status(
             and _status_identity_fields(existing) == _status_identity_fields(event)
         ):
             return False
+        if (
+            isinstance(existing, dict)
+            and existing.get("source_event_key") is None
+            and source_event_key is not None
+            and existing.get("config_revision") is None
+            and _status_identity_fields(existing)[2:] == _status_identity_fields(event)[2:]
+        ):
+            existing["source_event_key"] = source_event_key
+            if config_revision is not None:
+                existing["config_revision"] = config_revision
+            save_state(state)
+            return False
         raise StateBlockedError(f"status event {key!r} collides with different durable content")
     events[key] = event
     save_state(state)
     return True
+
+
+def _validate_publication_ledger(value: object) -> None:
+    if not isinstance(value, dict):
+        raise StateBlockedError("malformed state: publication projection ledger must be an object")
+    for owner_key, record in value.items():
+        if not isinstance(owner_key, str) or not owner_key or not isinstance(record, dict) or set(record) != {"snapshot", "ack"}:
+            raise StateBlockedError("malformed state: publication projection entry is invalid")
+        snapshot = record["snapshot"]
+        if not isinstance(snapshot, dict) or snapshot.get("owner_key") != owner_key:
+            raise StateBlockedError("malformed state: publication projection snapshot identity is invalid")
+        confirmed = snapshot.get("delivery_confirmed_at")
+        _parse_timestamp(confirmed, "publication_projection.delivery_confirmed_at")
+        required = snapshot.get("required_operation_keys")
+        legs = snapshot.get("legs")
+        if (
+            not isinstance(required, list)
+            or not required
+            or any(not isinstance(key, str) or not key for key in required)
+            or not isinstance(legs, list)
+            or [leg.get("operation_key") for leg in legs if isinstance(leg, dict)] != required
+            or len(legs) != len(required)
+            or any(not isinstance(leg, dict) or leg.get("status") != "delivered" for leg in legs)
+        ):
+            raise StateBlockedError("malformed state: publication projection legs are incomplete")
+        ack = record["ack"]
+        if ack is not None and (
+            not isinstance(ack, dict)
+            or set(ack) != {"publication_id", "version", "digest"}
+            or not isinstance(ack.get("publication_id"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", ack["publication_id"])
+            or type(ack.get("version")) is not int
+            or ack["version"] != snapshot.get("version")
+            or not isinstance(ack.get("digest"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", ack["digest"])
+        ):
+            raise StateBlockedError("malformed state: publication projection acknowledgment is invalid")
+
+
+def record_publication_intent(state: dict[str, object], snapshot: dict[str, object]) -> bool:
+    """Persist one exact confirmed snapshot before acknowledging owner delivery."""
+    _validate_state(state)
+    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("owner_key"), str):
+        raise ValueError("publication snapshot identity is invalid")
+    owner_key = snapshot["owner_key"]
+    stats = state["stats"]
+    assert isinstance(stats, dict)
+    ledger = stats.setdefault(_PUBLICATION_LEDGER_KEY, {})
+    if not isinstance(ledger, dict):
+        raise StateBlockedError("malformed state: publication projection ledger must be an object")
+    existing = ledger.get(owner_key)
+    if existing is not None:
+        if not isinstance(existing, dict) or existing.get("snapshot") != snapshot:
+            raise StateBlockedError("publication identity conflicts with its durable projection intent")
+        return False
+    ledger[owner_key] = {"snapshot": snapshot, "ack": None}
+    save_state(state)
+    return True
+
+
+def pending_publication_intents(state: dict[str, object]) -> list[tuple[str, dict[str, object]]]:
+    _validate_state(state)
+    stats = state["stats"]
+    assert isinstance(stats, dict)
+    ledger = stats.get(_PUBLICATION_LEDGER_KEY, {})
+    assert isinstance(ledger, dict)
+    pending = [
+        (key, record["snapshot"])
+        for key, record in ledger.items()
+        if isinstance(record, dict) and record.get("ack") is None
+    ]
+    return sorted(pending, key=lambda item: (item[1]["delivery_confirmed_at"], item[0]))
+
+
+def acknowledge_publication_intent(
+    state: dict[str, object], owner_key: str, ack: dict[str, object]
+) -> bool:
+    _validate_state(state)
+    stats = state["stats"]
+    assert isinstance(stats, dict)
+    ledger = stats.get(_PUBLICATION_LEDGER_KEY)
+    record = ledger.get(owner_key) if isinstance(ledger, dict) else None
+    if not isinstance(record, dict):
+        raise StateBlockedError("publication acknowledgment has no durable intent")
+    if record["ack"] is not None:
+        if record["ack"] != ack:
+            raise StateBlockedError("publication acknowledgment changed after acceptance")
+        return False
+    record["ack"] = ack
+    save_state(state)
+    return True
+
+
+def publication_checkpoint_comparison(
+    state: dict[str, object], compared_at: datetime
+) -> dict[str, object]:
+    _validate_state(state)
+    _require_aware_timestamp(compared_at, "compared_at")
+    stats = state["stats"]
+    assert isinstance(stats, dict)
+    ledger = stats.get(_PUBLICATION_LEDGER_KEY, {})
+    assert isinstance(ledger, dict)
+    ordered = sorted(
+        ledger.items(),
+        key=lambda item: (item[1]["snapshot"]["delivery_confirmed_at"], item[0]),
+    )
+    confirmed = max(
+        (record["snapshot"]["delivery_confirmed_at"] for record in ledger.values()),
+        default=None,
+    )
+    accepted = None
+    for _owner_key, record in ordered:
+        snapshot = record["snapshot"]
+        if record["ack"] is None:
+            break
+        accepted = snapshot["delivery_confirmed_at"]
+    if confirmed is not None and not any(record["ack"] is None for record in ledger.values()):
+        accepted = confirmed
+    return {
+        "compared_at": compared_at.isoformat(),
+        "confirmed_through_at": confirmed,
+        "accepted_through_at": accepted,
+        "outstanding_count": sum(1 for record in ledger.values() if record["ack"] is None),
+    }
 
 
 def reject_stock_status(

@@ -55,6 +55,14 @@ if [[ -r "$HOME/.hermes/.env" ]]; then
     [[ -n "${v:-}" ]] && export "${k}=${v}"
   done
   if [[ "${BURSAWATCH_RELEASE_NO_POST:-}" != "1" ]]; then
+    for k in BURSAWATCH_PUBLICATION_CONTROL_PLANE_URL \
+      IDX_SWING_WATCH_PHINTRACO_DAILY_PUBLICATION_ENABLED \
+      IDX_SWING_WATCH_PHINTRACO_DAILY_PUBLICATION_TOKEN_FILE; do
+      v="$(grep -E "^${k}=" "$HOME/.hermes/.env" | head -1 | cut -d= -f2- || true)"
+      [[ -n "${v:-}" ]] && export "${k}=${v}"
+    done
+  fi
+  if [[ "${BURSAWATCH_RELEASE_NO_POST:-}" != "1" ]]; then
     for k in IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_URL \
       IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_WATCHER_ID \
       IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_TOKEN \

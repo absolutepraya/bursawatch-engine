@@ -6,7 +6,7 @@ assert.ok(!target.username && !target.password);
 
 // Public HTML may be cached; user-authorized API responses must never be.
 // No credentials or live provider requests are used by these checks.
-for (const path of ["", "/overview", "/sources", "/workflows", "/history", "/settings"]) {
+for (const path of ["", "/overview", "/sources", "/workflows", "/jobs", "/history", "/settings"]) {
   const response = await fetch(`${target.origin}/workspace${path}`);
   assert.equal(response.status, 200, `Public shell ${path || "/"} must be available.`);
   assert.match(response.headers.get("cache-control") ?? "", /s-maxage=/);
@@ -21,7 +21,7 @@ const legacySchedules = await fetch(`${target.origin}/workspace/schedules`, {
 assert.ok([307, 308].includes(legacySchedules.status), "Old Schedules URL must redirect.");
 const scheduleDestination = new URL(legacySchedules.headers.get("location") ?? "", target.origin);
 assert.equal(scheduleDestination.origin, target.origin);
-assert.equal(scheduleDestination.pathname, "/workspace/workflows");
+assert.equal(scheduleDestination.pathname, "/workspace/jobs");
 for (const path of [
   "/workspace/not-a-view",
   "/workspace/workflows/private-extra",
@@ -35,5 +35,5 @@ for (const path of ["watchers", "watchers/bursawatch-x-account-watch/config"]) {
   assert.match(response.headers.get("cache-control") ?? "", /no-store/);
 }
 console.log(
-  "PASS: six cacheable public shells, legacy Schedules redirect, unknown-route rejection and uncached authenticated API boundary.",
+  "PASS: seven cacheable public shells, legacy Schedules redirect, unknown-route rejection and uncached authenticated API boundary.",
 );

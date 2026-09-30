@@ -57,6 +57,9 @@ apply that intent to Hermes.
 
 `skill-guess-stock` and `skill-profile-emoji` are reusable, non-scheduled
 market skills. `service-cobalt` is the tracked media-download service.
+`platform-bursawatch-observer` contains read-only VPS job-observation code; its
+first host install, credential, and timer activation remain a separate manual
+operation.
 `service-rsshub` records the VPS-owned shared RSSHub boundary without copying
 its compose files, credentials, cookies, proxy configuration, or runtime data
 into source control.

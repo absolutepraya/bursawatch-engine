@@ -7,6 +7,19 @@ API contract consumed by the separate web repository.
 It also owns durable normalized source-event acceptance and independent leased
 pipeline work. These are separate from structured run events and their retry
 state is held in Postgres.
+The publication read model in `publication_model.py`, `publication_store.py`,
+and migration `020_publications.sql` is a separate forward-only projection of
+confirmed Discord output. An owner submits only after all required Delivery
+Owner receipts are confirmed. The Control Plane keeps immutable versions,
+cutover, and owner checkpoints; it does not send to Discord, replay source
+events, or own the durable owner outboxes. The feed is empty until an explicitly
+recorded cutover, and missing checkpoints cannot establish completeness.
+Distinct `CONTROL_PLANE_PUBLICATION_OWNER_TOKENS` scope each owner to its own
+submission and checkpoint. Human viewer/admin JWTs alone may read the feed.
+Activation uses the host-local `bin/activate_publication_feed.py` after separate
+approval. The complete required-operation manifest and exact output snapshot
+must be persisted in owner state before the owner acknowledges confirmed
+delivery; projection retry never reissues a Discord operation.
 It also owns the Source Catalog registry, capability compatibility, and
 versioned source configuration. Source catalog revisions are separate from
 watcher configuration revisions. User endpoints remain pending until a

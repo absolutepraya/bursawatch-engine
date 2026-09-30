@@ -19,7 +19,7 @@ AGENT_LEASE = timedelta(minutes=15)
 DELIVERY_PHASE = "delivering"
 BOARD_PENDING = "pending"
 BOARD_UNAVAILABLE = "unavailable"
-STATE_VERSION = 3
+STATE_VERSION = 5
 
 
 class CorruptStateError(RuntimeError):
@@ -31,7 +31,7 @@ class RunLockBusyError(RuntimeError):
 
 
 def new_state() -> dict[str, object]:
-    return {"version": STATE_VERSION, "cursor": None, "pending": [], "outbox": [], "stats": {"observed": 0}}
+    return {"version": STATE_VERSION, "cursor": None, "pending": [], "outbox": [], "stats": {"observed": 0}, "publication_projection": {"records": {}, "checkpoint_ack": None}}
 
 
 def load_state(path: Path) -> dict[str, object]:
@@ -204,6 +204,7 @@ def _close_pending(value: dict[str, object]) -> None:
             "board_attempts": 0,
             "board_next_attempt_at": None,
             "board_last_error": None,
+            "all_delivery_completed_at": None,
         }
     )
 
@@ -262,7 +263,7 @@ def _fsync_directory(path: Path) -> None:
 
 
 def _is_state(value: object, media_root: Path | None = None) -> bool:
-    if not isinstance(value, dict) or set(value) != {"version", "cursor", "pending", "outbox", "stats"}:
+    if not isinstance(value, dict) or set(value) != {"version", "cursor", "pending", "outbox", "stats", "publication_projection"}:
         return False
     if value["version"] != STATE_VERSION or not _optional_id(value["cursor"]):
         return False
@@ -278,6 +279,7 @@ def _is_state(value: object, media_root: Path | None = None) -> bool:
         and isinstance(outbox, list)
         and all(_is_outbox(item, media_root) for item in outbox)
         and len({item["event_key"] for item in outbox}) == len(outbox)
+        and _is_publication_projection(value["publication_projection"])
     )
 
 
@@ -302,7 +304,8 @@ def _is_outbox(value: object, media_root: Path | None = None) -> bool:
     if not isinstance(value, dict) or set(value) != {
         "event_key", "ticker", "header_message_id", "source_message_ids", "source_text", "source_published_at", "plan", "media", "title", "summary", "text_message_ids",
         "agent_phase", "agent_lease_until", "text_index", "next_media_index", "attempts", "next_attempt_at", "last_error",
-        "board_phase", "board_attempts", "board_next_attempt_at", "board_last_error"
+        "board_phase", "board_attempts", "board_next_attempt_at", "board_last_error",
+        "all_delivery_completed_at",
     }:
         return False
     plan = value["plan"]
@@ -328,11 +331,12 @@ def _is_outbox(value: object, media_root: Path | None = None) -> bool:
         and _optional_timestamp(value["next_attempt_at"])
         and _optional_string(value["last_error"])
         and _valid_board_context(value)
+        and _optional_timestamp(value["all_delivery_completed_at"])
     )
 
 
 def _migrate_state(value: object) -> dict[str, object]:
-    if not isinstance(value, dict) or value.get("version") not in {1, 2}:
+    if not isinstance(value, dict) or value.get("version") not in {1, 2, 3, 4}:
         return value  # type: ignore[return-value]
     pending = value.get("pending")
     outbox = value.get("outbox")
@@ -353,8 +357,27 @@ def _migrate_state(value: object) -> dict[str, object]:
         event.setdefault("board_attempts", 0)
         event.setdefault("board_next_attempt_at", None)
         event.setdefault("board_last_error", None)
+        event.setdefault("all_delivery_completed_at", None)
     value["version"] = STATE_VERSION
+    value.setdefault("publication_projection", {"records": {}, "checkpoint_ack": None})
     return value
+
+
+def _is_publication_projection(value: object) -> bool:
+    return (
+        isinstance(value, dict)
+        and set(value) == {"records", "checkpoint_ack"}
+        and isinstance(value["records"], dict)
+        and all(
+            isinstance(key, str)
+            and isinstance(record, dict)
+            and set(record) == {"snapshot", "ack"}
+            and isinstance(record["snapshot"], dict)
+            and (record["ack"] is None or isinstance(record["ack"], dict))
+            for key, record in value["records"].items()
+        )
+        and (value["checkpoint_ack"] is None or isinstance(value["checkpoint_ack"], dict))
+    )
 
 
 def _valid_board_context(value: dict[object, object]) -> bool:

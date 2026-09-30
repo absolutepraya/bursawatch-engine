@@ -189,7 +189,7 @@ def test_version_one_state_migrates_without_resetting_cursor(tmp_path: Path) -> 
 
     migrated = load_state(path)
 
-    assert migrated["version"] == 3
+    assert migrated["version"] == 5
     assert migrated["cursor"] == 102
     event = migrated["outbox"][0]
     assert event["source_published_at"] is None

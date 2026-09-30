@@ -183,3 +183,61 @@ def test_stockbit_scheduler_job_key_migration_targets_exact_hermes_job_name():
     assert "'cron-stockbit-snips'" in migration
     assert "set runtime_job_key = 'cron-stockbit-snips'" in migration
     assert "set current_schedule_revision" not in migration
+
+
+def test_operator_inventory_migration_is_manual_additive_and_guards_job_identity():
+    migration = (
+        Path(__file__).resolve().parents[1]
+        / "migrations/019_operator_inventory.sql"
+    ).read_text(encoding="utf-8")
+
+    assert migration.startswith("-- bursawatch-release: manual\n")
+    assert "alter column watcher_id drop not null" in migration
+    assert "create table bursawatch_component_jobs" in migration
+    assert "alter table bursawatch_component_jobs enable row level security" in migration
+    assert "revoke all privileges on table public.bursawatch_component_jobs from public" in migration
+    assert "create table bursawatch_operator_observations" in migration
+    assert "(endpoint_id, created_at desc)" in migration
+    assert "(pipeline_id, created_at desc)" in migration
+    assert "bursawatch-tg-market-news-watchdog" in migration
+    assert "bursawatch-dc-swing-board-lifecycle" in migration
+    assert "bursawatch-tg-source-ingest" in migration
+    assert "bursawatch-x-account-watch-queue" in migration
+    assert "on conflict (job_id, revision) do nothing" in migration
+    revision_guard = migration.split("$telegram_revision_guard$")
+    assert len(revision_guard) == 3
+    assert "enabled is distinct from true" in revision_guard[1]
+    assert "interval_seconds is distinct from 60" in revision_guard[1]
+    assert "timezone is distinct from 'Asia/Jakarta'" in revision_guard[1]
+    assert "schedule_sha256 is distinct from" in revision_guard[1]
+    assert "93bc1ebe79de7f5d1d1fa598dddaa4e8c88cd9d5e5b629e2a9d0779633165c57" in revision_guard[1]
+    assert "actor_id is distinct from 'source-baseline'" in revision_guard[1]
+    assert migration.index("$telegram_revision_guard$") < migration.index(
+        "insert into bursawatch_schedule_revisions"
+    )
+    assert "where job_id = 'bursawatch-tg-source-ingest'" in migration
+    assert "current_schedule_revision is null" in migration
+    assert "update bursawatch_schedule_revisions" not in migration.lower()
+
+
+def test_publications_migration_is_forward_only_private_and_immutable():
+    migration = (
+        Path(__file__).resolve().parents[1]
+        / "migrations/020_publications.sql"
+    ).read_text(encoding="utf-8")
+
+    assert migration.startswith("-- bursawatch-release: automatic\n")
+    for table in (
+        "bursawatch_publication_cutover",
+        "bursawatch_publications",
+        "bursawatch_publication_checkpoints",
+    ):
+        assert f"create table {table}" in migration
+        assert f"alter table {table} enable row level security" in migration
+        assert f"revoke all privileges on table public.{table} from public" in migration
+    assert "primary key (publication_id, version)" in migration
+    assert "unique (owner_id, owner_key, version)" in migration
+    assert "bursawatch_publications_immutable" in migration
+    assert "bursawatch_publication_cutover_immutable" in migration
+    assert "bursawatch_source_events" not in migration
+    assert "bursawatch_runs" not in migration

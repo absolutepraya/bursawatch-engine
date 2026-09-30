@@ -66,7 +66,8 @@ re-enable the legacy direct RSS poller beside the active adapter.
   cannot submit an article for agent analysis.
 - The wrapper imports the Stockbit control-plane URL, watcher ID, token, and
   timeout plus the Delivery Owner URL and client/admin token-file paths from
-  Hermes's `.env`. It unsets `DISCORD_BOT_TOKEN`, requires the deployed
+  Hermes's `.env`. It also imports the optional Published Feed URL, enable
+  switch, and owner token-file path. It unsets `DISCORD_BOT_TOKEN`, requires the deployed
   `lib-bursawatch-control` client and the shared Discord delivery client, and
   never sets an event spool path. It imports the live Stockbit configuration
   settings even in release no-post mode; missing or invalid live configuration
@@ -94,3 +95,23 @@ Run the focused package tests, then the repository package suite and
 ## Discord delivery receipt wait
 
 After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.
+
+## Published Feed projection
+
+Eligible articles accepted from the shared RSS source adapter create one
+Published Feed record only after the Stockbit text operation has a durable
+Delivery Owner receipt with matching operation key and payload digest, delivered
+status, destination, and Discord message ID. The article owner stores the exact
+rendered text, source event identity, frozen config revision, receipt, and
+pending projection intent before changing the article to `delivered`. Excluded
+articles and articles without shared-source provenance do not enter the feed.
+
+The projection drain retries only the saved snapshot through the shared
+`PublicationClient`, then persists the accepted publication ID, version, and
+digest. It never calls Discord. Outstanding intents remain in the owner ledger,
+which reports the latest confirmed boundary, contiguous accepted boundary, and
+outstanding count. Projection writes stay disabled unless
+`BURSAWATCH_STOCKBIT_SNIPS_PUBLICATION_ENABLED=1`; the shared URL and this
+owner's private token file are `BURSAWATCH_PUBLICATION_CONTROL_PLANE_URL` and
+`BURSAWATCH_STOCKBIT_SNIPS_PUBLICATION_TOKEN_FILE`. The forward-only feed
+cutover is a separate activation boundary.

@@ -121,6 +121,21 @@ changing the forum through the web would need a separately reviewed state and
 forum migration. The close and retry schedules are fixed market-calendar jobs,
 not web-editable interval schedules.
 
+## Published Feed projection
+
+Board publication reporting is disabled unless
+`IDX_SWING_PLAN_BOARD_PUBLICATION_ENABLED=1` and the shared
+`BURSAWATCH_PUBLICATION_CUTOVER_AT` is set. On a post-boundary successful
+outbox completion, the Board transaction inserts a private projection intent
+linked to that exact completed outbox row. A separate drain reconstructs the
+same Delivery Owner operation and requires a matching delivered receipt before
+submitting `swing_board_update`. Starters link to their source publication;
+replies and later lifecycle actions link to the episode starter publication.
+The durable retry ledger and contiguous checkpoint live in Board SQLite.
+Projection failures never reopen an outbox operation or create a Discord post.
+The API URL is `BURSAWATCH_PUBLICATION_CONTROL_PLANE_URL`, and the scoped
+credential path is `IDX_SWING_PLAN_BOARD_PUBLICATION_TOKEN_FILE`.
+
 Set `IDX_SWING_PLAN_BOARD_NO_POST=1` with isolated `IDX_SWING_PLAN_BOARD_STATE_PATH` and `IDX_SWING_PLAN_BOARD_MEDIA_ROOT` paths for every smoke test. This selects a local fake before any Delivery Owner client configuration is read, so no-post tests never contact the service. Never reset, hand-edit, initialize, or replay production state.
 
 `bin/delivery_handoff.py --plan <private-plan-path>` captures a payload-free,

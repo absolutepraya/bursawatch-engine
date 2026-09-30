@@ -154,6 +154,7 @@ async function fixture() {
   page.setDefaultTimeout(15000);
   const state = {
     calls: [],
+    queries: [],
     errors: [],
     unexpected: [],
     pending: [],
@@ -215,6 +216,34 @@ async function fixture() {
         assert.equal(method, "GET", "Loading checks must never write configuration.");
         const path = url.pathname.slice("/api/control/".length);
         state.calls.push(path);
+        if (url.search) state.queries.push(`${path}${url.search}`);
+        if (path === "components") return json({ inventory_version: 1, components: [] });
+        if (path === "jobs") {
+          const componentId = url.searchParams.get("component_id");
+          if (!componentId) return json([]);
+          const jobId = `${componentId}-job`;
+          return json([
+            {
+              job_id: jobId,
+              can_edit: false,
+              watcher_id: null,
+              component_ids: [componentId],
+              display_name: `Synthetic ${componentId} job`,
+              runtime_job_key: jobId,
+              schedule_kind: "fixed",
+              min_interval_seconds: null,
+              max_interval_seconds: null,
+              schedule: null,
+              reconciliation: {
+                status: "not_connected",
+                applied_revision: null,
+                last_error: null,
+                effective: false,
+              },
+            },
+          ]);
+        }
+        if (path === "observations") return json([]);
         if (path === "watchers") return json(watchers);
         if (path === `watchers/${xId}/config`) return json(snapshot);
         if (path === `watchers/${instagramId}/config`) return json(instagramSnapshot);
@@ -399,6 +428,7 @@ async function demandDrivenReads() {
     assert.deepEqual(state.calls, ["watchers"], "The workflow list needs only its catalog.");
 
     state.calls.length = 0;
+    state.queries.length = 0;
     state.holdDetails = true;
     await page.getByRole("button", { name: /Open watcher details: Synthetic workflow 1/ }).click();
     await page.getByRole("heading", { name: "Watcher configuration", exact: true }).waitFor();
@@ -410,15 +440,35 @@ async function demandDrivenReads() {
     assert.deepEqual(
       [...state.calls].sort(),
       ["watchers", `watchers/${instagramId}/config`, `watchers/${instagramId}/jobs`].sort(),
-      "A non-X editor needs catalog membership, configuration and its own jobs.",
+      "A non-X editor starts with catalog membership, configuration and its watcher job read.",
     );
+    assert.deepEqual(state.queries, [], "Scoped operator reads wait for selected detail reads.");
     assert.equal(state.active, 1, "Non-X detail must not request unrelated run history.");
     for (const item of state.pending.splice(0)) await item.release();
     state.holdDetails = false;
+    await waitUntil(
+      () => state.queries.length === 2,
+      "Selected workflow shared jobs and observations were not requested.",
+    );
+    assert.deepEqual(state.queries, [
+      `jobs?component_id=${instagramId}`,
+      `observations?job_id=${instagramId}-job`,
+    ]);
+    assert.deepEqual(
+      [...state.calls].sort(),
+      [
+        "watchers",
+        `watchers/${instagramId}/config`,
+        `watchers/${instagramId}/jobs`,
+        "jobs",
+        "observations",
+      ].sort(),
+    );
     await page.locator(".control-back").click();
     await page.getByRole("heading", { name: "Workflows", exact: true }).waitFor();
     await fixtureState.settle();
     state.calls.length = 0;
+    state.queries.length = 0;
     state.holdDetails = true;
     await page.getByRole("button", { name: /Open watcher details: Synthetic X accounts/ }).click();
     await page.getByRole("heading", { name: "Watcher configuration", exact: true }).waitFor();
@@ -436,10 +486,16 @@ async function demandDrivenReads() {
       ["watchers", `watchers/${xId}/config`, `watchers/${xId}/jobs`, `watchers/${xId}/runs`].sort(),
       "Selecting X must not fetch other workflows' details.",
     );
+    assert.deepEqual(state.queries, [], "Scoped operator reads wait for selected detail reads.");
     const diagnostic = page.getByRole("region", { name: "X → Discord checks", exact: true });
     await diagnostic.waitFor();
     assert.equal(await diagnostic.getByText("Checking…", { exact: true }).count(), 2);
     for (const item of state.pending.splice(0)) await item.release();
+    await waitUntil(
+      () => state.queries.length === 2,
+      "X workflow shared jobs and observations were not requested.",
+    );
+    assert.deepEqual(state.queries, [`jobs?component_id=${xId}`, `observations?job_id=${xId}-job`]);
     await diagnostic.getByText("Every 10 minutes", { exact: true }).waitFor();
     await diagnostic.getByText(/No source-poll run using revision 4 is visible yet/).waitFor();
     const latest = diagnostic

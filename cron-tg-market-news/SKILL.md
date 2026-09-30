@@ -51,3 +51,5 @@ IDX_MARKET_NEWS_FORCE_HEARTBEAT=1
 ## Discord delivery receipt wait
 
 After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.
+
+After every required delivery receipt is durably confirmed, the Market News owner stores the exact output and a pending Published Feed projection intent. The owner retries that projection through the Control Plane without submitting another Discord operation. Projection reporting is enabled only with `BURSAWATCH_TG_MARKET_NEWS_PUBLICATION_ENABLED=1` after the forward-only feed cutover; the agent never submits feed records itself.

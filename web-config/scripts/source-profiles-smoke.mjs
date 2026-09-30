@@ -132,6 +132,12 @@ async function scenario(role) {
           return role === "admin" ? json(snapshot) : json({ code: "forbidden", message: "Configuration is restricted to administrators." }, 403);
         }
         if (method === "GET" && path === `watchers/${watcherId}/jobs`) return json([]);
+        if (method === "GET" && path === "jobs") {
+          assert.equal(url.searchParams.get("component_id"), watcherId,
+            "Workflow profile checks request only their component-linked jobs.");
+          return json([]);
+        }
+        if (method === "GET" && path === "observations") return json([]);
         if (method === "GET" && path === profilePath) {
           return readFailure ? json({ code: "auth", message: "Your session has expired. Sign in again." }, 401) : json([profile]);
         }

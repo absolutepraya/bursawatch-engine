@@ -11,6 +11,7 @@
         ".gitignore",
         ".wt/**",
         "AGENTS.md",
+        "bursawatch.png",
         "DEPLOYMENT.md",
         "README.md",
         "deploy.sh",
@@ -333,6 +334,11 @@
       "id": "cron-rss-source-ingest-pilot-metadata",
       "handler": "metadata",
       "paths": ["cron-rss-source-ingest/AGENTS.md", "cron-rss-source-ingest/tests/**"]
+    },
+    {
+      "id": "platform-bursawatch-observer",
+      "handler": "manual",
+      "paths": ["platform-bursawatch-observer/**"]
     },
     {
       "id": "manual-schedule-reconciler",

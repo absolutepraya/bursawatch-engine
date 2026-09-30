@@ -217,6 +217,9 @@ await context.route("**/*", async (route) => {
       assert.equal(signedIn, true);
       assert.equal(request.headers().authorization, `Bearer ${token}`);
       const path = url.pathname.slice("/api/control/".length);
+      if (method === "GET" && path === "components")
+        return json({ inventory_version: 1, components: [] });
+      if (method === "GET" && (path === "jobs" || path === "observations")) return json([]);
       if (method === "GET" && path === "watchers") return json(watchers);
       const match = /^watchers\/([^/]+)\/(jobs|runs|config)$/.exec(path);
       if (match && snapshots.has(match[1])) {
@@ -581,13 +584,12 @@ try {
     await page.getByLabel("Heartbeat channel ID", { exact: true }).fill(updatedChannel);
     expected.destinations.heartbeat_discord_channel_id = updatedChannel;
     if (kind === "gtw") {
-      await page.getByLabel("Channel username", { exact: true }).fill("fixture_gtw_updated");
+      assert.equal(await page.getByLabel("Legacy channel username", { exact: true }).isEditable(), false);
       await page
         .getByLabel("Additional instructions", { exact: true })
         .fill("Updated synthetic GTW guidance.");
-      expected.source.telegram_username = "fixture_gtw_updated";
       expected.additional_prompt_instruction = "Updated synthetic GTW guidance.";
-    } else assert.equal(await page.getByLabel("Channel username", { exact: true }).count(), 0);
+    } else assert.equal(await page.getByLabel("Legacy channel username", { exact: true }).count(), 0);
     await save(kind, expected);
   }
   assert.equal(writes.length, 14);

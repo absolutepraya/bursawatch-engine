@@ -14,26 +14,21 @@ import {
   hasWorkspaceDrafts,
   getDraftOwner,
 } from "@/lib/workspace-drafts";
-import type {
-  ControlConfigSnapshot,
-  ControlEvent,
-  ControlJob,
-  ControlRun,
-  ControlWatcher,
-  ScheduleInput,
-} from "@/server/control-plane";
+import type { ControlConfigSnapshot, ControlEvent } from "@/server/control-plane";
+import type { WorkspaceRecords } from "@/lib/workspace-loader";
 import { BrandMark } from "@/components/brand";
 import { ToastProvider, useToast } from "@/components/toast-provider";
 import { ControlDashboard } from "@/components/control-dashboard";
 import { SearchableRunHistory, SearchableWorkflowList } from "@/components/workspace-list-filters";
 import { WatcherConfigEditor } from "@/components/watcher-config-editor";
-import { ScheduleEditor } from "@/components/schedule-editor";
 import { WorkspaceNavigation, type WorkspaceView } from "@/components/workspace-navigation";
 import { SourceCatalogView } from "@/components/source-catalog";
 import { ConnectedWorkflowSummary } from "@/components/connected-workflow-summary";
 import { WorkspaceLoading } from "@/components/workspace-loading";
 import { XDeliveryStatus } from "@/components/x-delivery-status";
 import { SourceProfiles } from "@/components/source-profiles";
+import { OperatorJobs } from "@/components/operator-jobs";
+import { PublishedWorkspace } from "@/components/published-workspace";
 import { xWatcherId } from "@/lib/x-delivery-status";
 import { loadWorkspaceRecords, type WorkspaceProgress } from "@/lib/workspace-loader";
 import "@/app/workspace.css";
@@ -51,14 +46,7 @@ function authClient(settings: WebAuthSettings) {
   if (typeof window !== "undefined") browserClients.set(key, client);
   return client;
 }
-type Issue = { watcherId: string; resource: "jobs" | "runs"; message: string };
-type Records = {
-  watchers: ControlWatcher[];
-  jobs: ControlJob[];
-  runs: ControlRun[];
-  updatedAt: string;
-  issues: Issue[];
-};
+type Records = WorkspaceRecords;
 
 export function WorkspaceApp(props: { settings: WebAuthSettings | null; view: View }) {
   return (
@@ -315,7 +303,7 @@ function SignedInWorkspace({
     readController.current?.abort();
     const controller = new AbortController();
     readController.current = controller;
-    if (view === "settings" || view === "sources") {
+    if (view === "settings" || view === "published") {
       setRefreshing(false);
       setError("");
       return;
@@ -339,6 +327,11 @@ function SignedInWorkspace({
             watchers,
             jobs: [],
             runs: [],
+            components: [],
+            componentActivity: [],
+            operatorJobs: [],
+            observations: [],
+            operatorIssues: [],
             issues: [],
             updatedAt: new Date().toISOString(),
           });
@@ -428,6 +421,7 @@ function SignedInWorkspace({
         ) : null}
         {view !== "settings" &&
         view !== "sources" &&
+        view !== "published" &&
         !(view === "history" && runId) &&
         !error &&
         (!records || refreshing) ? (
@@ -468,6 +462,21 @@ function SignedInWorkspace({
             </button>
           </div>
         ) : null}
+        {records && records.operatorIssues.length > 0 && view !== "overview" ? (
+          <div className="control-alert" role="status">
+            <p>
+              Operator evidence is incomplete. A missing row means unavailable data, not an empty
+              result.
+            </p>
+            <ul>
+              {records.operatorIssues.map((issue, index) => (
+                <li key={`${issue.resource}:${issue.componentId ?? "inventory"}:${index}`}>
+                  {issue.message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {records && view === "overview" ? (
           <ControlDashboard
             {...records}
@@ -483,7 +492,18 @@ function SignedInWorkspace({
               title="Sources"
               description="Review supported sources and their saved catalog settings."
             />
-            <SourceCatalogView request={request} onDirtyChange={onDirtyChange} />
+            <SourceCatalogView
+              request={request}
+              onDirtyChange={onDirtyChange}
+              components={records?.components ?? []}
+              activity={records?.componentActivity ?? []}
+              activityUnavailable={
+                records?.operatorIssues.some(
+                  (issue) =>
+                    issue.resource === "components" || issue.resource === "component-activity",
+                ) ?? false
+              }
+            />
           </>
         ) : null}
         {records && view === "workflows" ? (
@@ -504,8 +524,16 @@ function SignedInWorkspace({
               />
               <SearchableWorkflowList
                 {...records}
+                components={records.components}
+                operatorJobs={records.operatorJobs}
+                observations={records.observations}
                 onSelectWatcher={selectWatcher}
-                statusLoaded={false}
+                statusLoaded={
+                  !records.operatorIssues.some(
+                    (issue) =>
+                      issue.resource === "operator-jobs" || issue.resource === "observations",
+                  )
+                }
               />
             </>
           )
@@ -524,6 +552,10 @@ function SignedInWorkspace({
               title="Run history"
               description="Up to 50 recent checks per workflow. A completed check may have nothing new to deliver."
             />
+            <p className="control-data-note">
+              Source-adapter run telemetry is unavailable here. This page shows bounded workflow run
+              records, not a count of source polls or deliveries.
+            </p>
             <SearchableRunHistory
               runs={records.runs}
               watchers={records.watchers}
@@ -531,6 +563,17 @@ function SignedInWorkspace({
             />
           </>
         ) : null}
+        {records && view === "jobs" ? (
+          <OperatorJobs
+            jobs={records.operatorJobs}
+            components={records.components}
+            observations={records.observations}
+            request={request}
+            onDirtyChange={onDirtyChange}
+            unavailable={records.operatorIssues.some((issue) => issue.resource === "operator-jobs")}
+          />
+        ) : null}
+        {view === "published" ? <PublishedWorkspace request={request} /> : null}
         {view === "settings" ? (
           <>
             <WorkspaceHeading
@@ -614,11 +657,10 @@ function WatcherDetail({
   const dirty = useRef(false);
   const configDirty = useRef(false);
   const photoDirty = useRef(false);
-  const scheduleDirty = useRef(false);
   const updateDirty = useCallback(
     (value: boolean) => {
       configDirty.current = value;
-      dirty.current = value || photoDirty.current || scheduleDirty.current;
+      dirty.current = value || photoDirty.current;
       onDirtyChange(dirty.current);
     },
     [onDirtyChange],
@@ -626,15 +668,7 @@ function WatcherDetail({
   const updatePhotoDirty = useCallback(
     (value: boolean) => {
       photoDirty.current = value;
-      dirty.current = value || configDirty.current || scheduleDirty.current;
-      onDirtyChange(dirty.current);
-    },
-    [onDirtyChange],
-  );
-  const updateScheduleDirty = useCallback(
-    (value: boolean) => {
-      scheduleDirty.current = value;
-      dirty.current = value || configDirty.current || photoDirty.current;
+      dirty.current = value || configDirty.current;
       onDirtyChange(dirty.current);
     },
     [onDirtyChange],
@@ -689,7 +723,17 @@ function WatcherDetail({
         title={watcher.display_name}
         description={`Configuration revision ${snapshot?.revision ?? watcher.current_revision ?? "not available"}`}
       />
-      <ConnectedWorkflowSummary watcherId={watcherId} />
+      <ConnectedWorkflowSummary
+        watcherId={watcherId}
+        jobs={records.operatorJobs}
+        observations={records.observations}
+        jobsUnavailable={records.operatorIssues.some(
+          (issue) => issue.componentId === watcherId && issue.resource === "operator-jobs",
+        )}
+        observationsUnavailable={records.operatorIssues.some(
+          (issue) => issue.componentId === watcherId && issue.resource === "observations",
+        )}
+      />
       <SourceProfiles
         key={watcherId}
         watcherId={watcherId}
@@ -704,8 +748,8 @@ function WatcherDetail({
           <div>
             <h2>View access</h2>
             <p>
-              You can review this workflow’s runs and schedules. Configuration editing is available
-              to workspace administrators.
+              You can review this workflow’s runs and related jobs. Configuration editing is
+              available to workspace administrators.
             </p>
             <Link className="button secondary small" href="/workspace/settings">
               View your account
@@ -751,17 +795,6 @@ function WatcherDetail({
           />
         </>
       ) : null}
-      <WorkflowSchedules
-        key={records.updatedAt}
-        initialJobs={records.jobs.filter((job) => job.watcher_id === watcherId)}
-        unavailable={records.issues.some(
-          (issue) => issue.watcherId === watcherId && issue.resource === "jobs",
-        )}
-        loading={loadingStatus}
-        permission={status}
-        request={request}
-        onDirtyChange={updateScheduleDirty}
-      />
       <div className="control-detail-actions">
         <button
           className="button ghost"
@@ -778,126 +811,6 @@ function WatcherDetail({
       </div>
     </>
   );
-}
-
-function WorkflowSchedules({
-  initialJobs,
-  unavailable,
-  loading,
-  permission,
-  request,
-  onDirtyChange,
-}: {
-  initialJobs: ControlJob[];
-  unavailable: boolean;
-  loading: boolean;
-  permission: string;
-  request: Requester;
-  onDirtyChange: (dirty: boolean) => void;
-}) {
-  const [jobs, setJobs] = useState(initialJobs);
-  const dirtyJobs = useRef(new Map<string, boolean>());
-  const updateDirty = useCallback(
-    (id: string, dirty: boolean) => {
-      dirtyJobs.current.set(id, dirty);
-      onDirtyChange([...dirtyJobs.current.values()].some(Boolean));
-    },
-    [onDirtyChange],
-  );
-  const updateJob = (job: ControlJob) => {
-    setJobs((previous) => previous.map((item) => (item.job_id === job.job_id ? job : item)));
-    return job;
-  };
-  return (
-    <section
-      id="workflow-schedules"
-      className="control-workflow-schedules"
-      aria-labelledby="workflow-schedules-title"
-    >
-      <div className="control-workflow-schedules-heading">
-        <h2 id="workflow-schedules-title">Schedules</h2>
-        <p>Changes take effect when the scheduler confirms them. Times use Jakarta time.</p>
-      </div>
-      {permission === "viewer" ? (
-        <p className="control-muted">
-          You have view access. An administrator can change these schedules.
-        </p>
-      ) : null}
-      {permission === "error" ? (
-        <p className="workspace-error" role="alert">
-          Editing access could not be verified. Reload the configuration to try again.
-        </p>
-      ) : null}
-      <div className="control-schedule-list">
-        {jobs.map((job) =>
-          permission === "ready" ? (
-            <GuardedScheduleEditor
-              key={job.job_id}
-              job={job}
-              updateDirty={updateDirty}
-              onSave={async (input: ScheduleInput) =>
-                updateJob(
-                  await request<ControlJob>(
-                    "jobs/" + encodeURIComponent(job.job_id) + "/schedule",
-                    {
-                      ...input,
-                      expectedRevision: job.schedule?.revision,
-                    },
-                  ),
-                )
-              }
-              onRefresh={async () =>
-                updateJob(
-                  await request<ControlJob>("jobs/" + encodeURIComponent(job.job_id) + "/schedule"),
-                )
-              }
-            />
-          ) : (
-            <section key={job.job_id} className="control-schedule-read">
-              <h3>{job.display_name}</h3>
-              <p>
-                {job.schedule_kind === "fixed"
-                  ? "Source-defined schedule"
-                  : job.schedule
-                    ? (job.schedule.enabled ? "Enabled" : "Paused") +
-                      " · every " +
-                      job.schedule.interval_seconds / 60 +
-                      " minutes"
-                    : "No interval configured"}
-              </p>
-              <span className="control-muted">
-                {job.reconciliation.effective
-                  ? "Effective"
-                  : job.reconciliation.status.replaceAll("_", " ")}
-              </span>
-            </section>
-          ),
-        )}
-      </div>
-      {!jobs.length ? (
-        <div className="control-empty">
-          {loading
-            ? "Loading schedules…"
-            : unavailable
-              ? "Schedules could not be loaded. Refresh the workspace to try again."
-              : "No schedules are available for this workflow."}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-function GuardedScheduleEditor({
-  updateDirty,
-  ...props
-}: React.ComponentProps<typeof ScheduleEditor> & {
-  updateDirty: (id: string, dirty: boolean) => void;
-}) {
-  const onDirtyChange = useCallback(
-    (dirty: boolean) => updateDirty(props.job.job_id, dirty),
-    [props.job.job_id, updateDirty],
-  );
-  return <ScheduleEditor {...props} onDirtyChange={onDirtyChange} />;
 }
 
 function EventDiagnostics({ event }: { event: ControlEvent }) {

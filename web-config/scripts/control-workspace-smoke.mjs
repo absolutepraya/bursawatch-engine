@@ -145,6 +145,70 @@ function fixtures() {
 
 async function scenario(role) {
   const state = fixtures();
+  const adapterId = "bursawatch-tg-source-ingest";
+  const component = (componentId, kind, displayName, relatedComponentIds, jobIds, configIds = []) => ({
+    inventory_version: 1,
+    component_id: componentId,
+    kind,
+    display_name: displayName,
+    capabilities: [],
+    pipeline_ids: [],
+    config_resource_ids: configIds,
+    related_component_ids: relatedComponentIds,
+    job_ids: jobIds,
+  });
+  state.components = [
+    component(adapterId, "source_adapter", "Telegram Source Inbox", [watcherId], [jobId]),
+    component(watcherId, "domain_owner", "Market News", [adapterId], [jobId], [`watcher:${watcherId}`]),
+    component(stockbitId, "domain_owner", "Stockbit Snips", [], [stockbitJobId], [`watcher:${stockbitId}`]),
+  ];
+  const operatorJob = (sourceJob, displayName, runtimeJobKey, componentIds, canEdit) => ({
+    job_id: sourceJob.job_id,
+    can_edit: canEdit,
+    watcher_id: null,
+    component_ids: componentIds,
+    display_name: displayName,
+    runtime_job_key: runtimeJobKey,
+    schedule_kind: "interval",
+    min_interval_seconds: sourceJob.min_interval_seconds,
+    max_interval_seconds: sourceJob.max_interval_seconds,
+    schedule: sourceJob.schedule,
+    reconciliation: { ...sourceJob.reconciliation, has_error: false },
+  });
+  state.operatorJobs = [
+    operatorJob(state.job, "Shared Telegram reader", "bursawatch-tg-source-ingest", [adapterId, watcherId], role === "admin"),
+    operatorJob(state.stockbitJob, "Stockbit Snips check", "bursawatch-stockbit-snips", [stockbitId], role === "admin"),
+  ];
+  const observationFor = (job) => ({
+    api_version: 1,
+    identity_kind: "job",
+    identity_id: job.job_id,
+    observer_id: "vps-hermes-observer",
+    observed_at: new Date().toISOString(),
+    received_at: new Date().toISOString(),
+    status: job.schedule.enabled ? "enabled" : "disabled",
+    freshness: "fresh",
+    evidence: {
+      runtime_job_key: job.runtime_job_key,
+      enabled: job.schedule.enabled,
+      schedule: { kind: "interval", minutes: job.schedule.interval_seconds / 60 },
+      last_execution: { at: new Date().toISOString(), status: "success" },
+    },
+    comparison: "match",
+    desired: job.schedule,
+    reconciliation: {
+      status: job.reconciliation.status,
+      applied_revision: job.reconciliation.applied_revision,
+    },
+  });
+  state.observations = state.operatorJobs.map(observationFor);
+  const syncOperatorJob = (id, sourceJob, observed = false) => {
+    const operator = state.operatorJobs.find((item) => item.job_id === id);
+    operator.schedule = sourceJob.schedule;
+    operator.reconciliation = { ...sourceJob.reconciliation, has_error: false };
+    const index = state.observations.findIndex((item) => item.identity_id === id);
+    if (observed && index >= 0) state.observations[index] = observationFor(operator);
+  };
   const sourceConfig = { selected_securities: [], people_org: [], endpoints: [], publisher_defaults: [], endpoint_overrides: [] };
   const sourceCatalog = {
     can_edit: role === "admin",
@@ -273,6 +337,28 @@ async function scenario(role) {
         );
         assert.equal(signedIn, true, "Control requests require a signed-in synthetic user.");
         const path = url.pathname.slice("/api/control/".length);
+        if (method === "GET" && path === "components")
+          return json({ inventory_version: 1, components: state.components });
+        if (method === "GET" && path === "jobs") {
+          const componentId = url.searchParams.get("component_id");
+          return json(componentId
+            ? state.operatorJobs.filter((job) => job.component_ids.includes(componentId))
+            : state.operatorJobs);
+        }
+        if (method === "GET" && path === "observations") {
+          const jobIds = url.searchParams.getAll("job_id");
+          return json(jobIds.length
+            ? state.observations.filter((item) => jobIds.includes(item.identity_id))
+            : state.observations);
+        }
+        const activityMatch = method === "GET" && path.match(/^components\/([^/]+)\/activity$/);
+        if (activityMatch)
+          return json({
+            component_id: decodeURIComponent(activityMatch[1]),
+            endpoints: [],
+            pipelines: [],
+            delivery_status: "not instrumented",
+          });
         if (method === "GET" && path === "source-catalog") return json(sourceCatalog);
         if (method === "GET" && path === "source-catalog/effective") return json(effectiveCatalog());
         if (method === "PUT" && path === "source-catalog/config") {
@@ -377,6 +463,7 @@ async function scenario(role) {
                 effective: false,
               },
             };
+            syncOperatorJob(jobId, state.job);
             return json(state.job);
           }
           if (method === "GET") {
@@ -386,6 +473,7 @@ async function scenario(role) {
               applied_revision: state.job.schedule.revision,
               effective: true,
             };
+            syncOperatorJob(jobId, state.job, true);
             return json(state.job);
           }
         }
@@ -411,6 +499,7 @@ async function scenario(role) {
                 effective: false,
               },
             };
+            syncOperatorJob(stockbitJobId, state.stockbitJob);
             return json(state.stockbitJob);
           }
           if (method === "GET") {
@@ -421,6 +510,7 @@ async function scenario(role) {
                 applied_revision: state.stockbitJob.schedule.revision,
                 effective: true,
               };
+            syncOperatorJob(stockbitJobId, state.stockbitJob, true);
             return json(state.stockbitJob);
           }
         }
@@ -557,7 +647,7 @@ async function scenario(role) {
     await page.getByRole("button", { name: "Hide password", exact: true }).click();
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await page.getByRole("heading", { name: "Overview", exact: true }).waitFor();
-    assert.equal(await navigation.getByRole("link").count(), 5);
+    assert.equal(await navigation.getByRole("link").count(), 7);
     await page
       .getByText("Up to 50 latest runs per watcher. This range may be incomplete.", { exact: true })
       .waitFor();
@@ -827,26 +917,30 @@ async function scenario(role) {
     await navigate("Workflows", "Workflows");
     await page.getByRole("button", { name: /^Open watcher details: Market news/ }).click();
     await page.getByRole("heading", { name: "Market news", exact: true }).waitFor();
-    await page.goto(`${target.origin}/workspace/schedules`);
-    await page.waitForURL(`${target.origin}/workspace/workflows`);
-    await page.getByRole("heading", { name: "Workflows", exact: true }).waitFor();
-    await page.getByRole("button", { name: /^Open watcher details: Market news/ }).click();
-    await page.getByRole("heading", { name: "Market news", exact: true }).waitFor();
-    await page.locator("#workflow-schedules").getByRole("heading", { name: "Schedules" }).waitFor();
-    await page.getByRole("heading", { name: "Market news check", exact: true }).waitFor();
+    assert.equal(await page.getByRole("button", { name: "Save schedule", exact: true }).count(), 0);
+    assert.equal(
+      await page.getByRole("link", { name: "Shared Telegram reader", exact: true }).getAttribute("href"),
+      "/workspace/jobs#job-fixture-market-news",
+    );
+    await page.getByRole("link", { name: "Shared Telegram reader", exact: true }).click();
+    await page.waitForURL(`${target.origin}/workspace/jobs#job-fixture-market-news`);
+    await page.getByRole("heading", { name: "Jobs", exact: true }).waitFor();
+    const marketJob = page.locator("#job-fixture-market-news");
+    await marketJob.getByRole("heading", { name: "Shared Telegram reader", exact: true, level: 2 }).waitFor();
     if (role === "viewer") {
       await page
-        .getByText("You have view access. An administrator can change these schedules.", {
+        .locator("#job-fixture-market-news")
+        .getByText("You have view access. An administrator can change this schedule.", {
           exact: true,
         })
         .waitFor();
       assert.equal(
-        await page.getByRole("button", { name: "Save schedule", exact: true }).count(),
+        await marketJob.getByRole("button", { name: "Save schedule", exact: true }).count(),
         0,
       );
     } else {
-      const interval = page.getByLabel("Check every (minutes)", { exact: true });
-      const saveSchedule = page.getByRole("button", { name: "Save schedule", exact: true });
+      const interval = marketJob.getByLabel("Check every (minutes)", { exact: true });
+      const saveSchedule = marketJob.getByRole("button", { name: "Save schedule", exact: true });
       await interval.fill("45");
       failNext("schedule", 422, "validation", ["interval_seconds"]);
       await saveSchedule.click();
@@ -856,21 +950,21 @@ async function scenario(role) {
         .waitFor();
       assert.equal(await interval.inputValue(), "45");
       assert.equal(await saveSchedule.isEnabled(), true);
-      await page.getByLabel("Check every (minutes)", { exact: true }).fill("30");
-      await page.getByRole("button", { name: "Save schedule", exact: true }).click();
+      await marketJob.getByLabel("Check every (minutes)", { exact: true }).fill("30");
+      await marketJob.getByRole("button", { name: "Save schedule", exact: true }).click();
       await page
-        .locator(".watcher-schedule .watcher-draft-status")
+        .locator("#job-fixture-market-news .watcher-schedule .watcher-draft-status")
         .getByText("Pending", { exact: true })
         .waitFor();
       assert.equal(
-        await page.getByRole("button", { name: "Save schedule", exact: true }).isDisabled(),
+        await marketJob.getByRole("button", { name: "Save schedule", exact: true }).isDisabled(),
         true,
       );
       await page
         .getByText("Revision 3 is applied. This job is enabled.", { exact: true })
         .waitFor();
       assert.equal(
-        await page.getByLabel("Check every (minutes)", { exact: true }).inputValue(),
+        await marketJob.getByLabel("Check every (minutes)", { exact: true }).inputValue(),
         "30",
       );
       assert.ok(scheduleChecks >= 1, "Applied status must follow a separate scheduler response.");
@@ -885,7 +979,7 @@ async function scenario(role) {
       assert.equal(await interval.inputValue(), "40");
       assert.equal(await interval.isDisabled(), true);
       assert.equal(await saveSchedule.isDisabled(), true);
-      await page.getByRole("button", { name: "Refresh status", exact: true }).click();
+      await marketJob.getByRole("button", { name: "Refresh status", exact: true }).click();
       await page
         .getByRole("alert")
         .filter({ hasText: "Status refreshed. Reload this editor" })
@@ -897,13 +991,14 @@ async function scenario(role) {
       );
       assert.equal(await saveSchedule.isDisabled(), true);
       await confirm(/Discard your draft and load/, false, () =>
-        page.getByRole("button", { name: "Reload schedule", exact: true }).click(),
+        marketJob.getByRole("button", { name: "Reload schedule", exact: true }).click(),
       );
       assert.equal(await interval.inputValue(), "40");
       await confirm(/Discard your draft and load/, true, () =>
-        page.getByRole("button", { name: "Reload schedule", exact: true }).click(),
+        marketJob.getByRole("button", { name: "Reload schedule", exact: true }).click(),
       );
       await page
+        .locator("#job-fixture-market-news")
         .getByRole("button", { name: "Reload schedule", exact: true })
         .waitFor({ state: "hidden" });
       await page.waitForFunction(() => {
@@ -917,9 +1012,10 @@ async function scenario(role) {
       await capture("schedules-desktop");
       await interval.fill("42");
       await page.goBack();
-      await page.getByRole("heading", { name: "Workflows", exact: true }).waitFor();
+      await page.getByRole("heading", { name: "Market news", exact: true }).waitFor();
       state.job.schedule.revision += 1;
       state.job.reconciliation.applied_revision = state.job.schedule.revision;
+      syncOperatorJob(jobId, state.job, true);
       await page.goForward();
       await interval.waitFor();
       assert.equal(
@@ -933,7 +1029,7 @@ async function scenario(role) {
         "Restored drafts based on an older revision must not save.",
       );
       await confirm(/Discard your draft and load/, true, () =>
-        page.getByRole("button", { name: "Reload schedule", exact: true }).click(),
+        marketJob.getByRole("button", { name: "Reload schedule", exact: true }).click(),
       );
       await page.waitForFunction(() => {
         const input = document.querySelector('.watcher-schedule input[type="number"]');
@@ -941,28 +1037,34 @@ async function scenario(role) {
       });
       await navigate("Workflows", "Workflows");
       await page.getByRole("button", { name: /^Open watcher details: Stockbit Snips/ }).click();
-      await page.getByRole("heading", { name: "Stockbit Snips check", exact: true }).waitFor();
-      await page.getByText("Revision 1 is applied. This job is enabled.", { exact: true }).waitFor();
-      const stockbitInterval = page.getByLabel("Check every (minutes)", { exact: true });
+      await page.getByRole("heading", { name: "Stockbit Snips", exact: true }).waitFor();
+      assert.equal(await page.getByRole("button", { name: "Save schedule", exact: true }).count(), 0);
+      await page.getByRole("link", { name: "Stockbit Snips check", exact: true }).click();
+      await page.getByRole("heading", { name: "Jobs", exact: true }).waitFor();
+      const stockbitJob = page.locator("#job-fixture-stockbit-snips");
+      await stockbitJob.getByRole("heading", { name: "Stockbit Snips check", exact: true, level: 2 }).waitFor();
+      await stockbitJob.getByText("Revision 1 is applied. This job is enabled.", { exact: true }).waitFor();
+      const stockbitInterval = stockbitJob.getByLabel("Check every (minutes)", { exact: true });
       assert.equal(await stockbitInterval.inputValue(), "15");
       await stockbitInterval.fill("4");
-      await page.getByRole("button", { name: "Save schedule", exact: true }).click();
+      await stockbitJob.getByRole("button", { name: "Save schedule", exact: true }).click();
       assert.equal(writes.filter((write) => write.resource === "stockbit-schedule").length, 0);
       await stockbitInterval.fill("20");
-      await page.getByRole("button", { name: "Save schedule", exact: true }).click();
-      await page.getByText("Revision 2 is applied. This job is enabled.", { exact: true }).waitFor();
+      await stockbitJob.getByRole("button", { name: "Save schedule", exact: true }).click();
+      await stockbitJob.getByText("Revision 2 is applied. This job is enabled.", { exact: true }).waitFor();
       assert.equal(writes.find((write) => write.resource === "stockbit-schedule").payload.interval_seconds, 1200);
       await navigate("Workflows", "Workflows");
       await page.getByRole("button", { name: /^Open watcher details: Market news/ }).click();
-      await page.getByRole("heading", { name: "Market news check", exact: true }).waitFor();
+      await page.getByRole("heading", { name: "Market news", exact: true }).waitFor();
     }
     for (const textSize of ["100%", "200%"]) {
       await page.setViewportSize({ width: 375, height: 900 });
       await page.evaluate((size) => {
         document.documentElement.style.fontSize = size;
       }, textSize);
-      await noOverflow(`${role} ${textSize} schedules`);
-      if (textSize === "100%") await capture("schedules-375");
+      await navigate("Jobs", "Jobs");
+      await noOverflow(`${role} ${textSize} jobs`);
+      if (textSize === "100%") await capture("jobs-375");
       await navigate("Overview", "Overview");
       await noOverflow(`${role} ${textSize} overview`);
       await capture(textSize === "100%" ? "overview-375" : "overview-375-text-200");
@@ -1070,31 +1172,36 @@ async function scenario(role) {
       await noOverflow(`${role} ${textSize} account`);
       await navigate("Workflows", "Workflows");
       await page.getByRole("button", { name: /^Open watcher details: Stockbit Snips/ }).click();
+      await page.getByRole("heading", { name: "Stockbit Snips", exact: true }).waitFor();
+      assert.equal(await page.getByRole("button", { name: "Save schedule", exact: true }).count(), 0);
+      await page.getByRole("link", { name: "Stockbit Snips check", exact: true }).click();
+      await page.getByRole("heading", { name: "Jobs", exact: true }).waitFor();
+      const mobileStockbitJob = page.locator("#job-fixture-stockbit-snips");
+      await mobileStockbitJob.getByRole("heading", { name: "Stockbit Snips check", exact: true, level: 2 }).waitFor();
       if (role === "admin") {
-        const mobileInterval = page.getByLabel("Check every (minutes)", { exact: true });
+        const mobileInterval = mobileStockbitJob.getByLabel("Check every (minutes)", { exact: true });
         const expectedRevision = textSize === "100%" ? 2 : 3;
-        await page.getByText(`Revision ${expectedRevision} is applied. This job is enabled.`, { exact: true }).waitFor();
+        await mobileStockbitJob.getByText(`Revision ${expectedRevision} is applied. This job is enabled.`, { exact: true }).waitFor();
         assert.equal(await mobileInterval.inputValue(), textSize === "100%" ? "20" : "25");
         assert.equal(await mobileInterval.getAttribute("min"), "5");
         assert.equal(await mobileInterval.getAttribute("max"), "60");
         if (textSize === "100%") {
           await mobileInterval.fill("25");
-          await page.getByRole("button", { name: "Save schedule", exact: true }).click();
+          await mobileStockbitJob.getByRole("button", { name: "Save schedule", exact: true }).click();
           await page.locator(".watcher-schedule .watcher-draft-status").getByText("Pending", { exact: true }).waitFor();
-          await page.getByText("Revision 3 is applied. This job is enabled.", { exact: true }).waitFor();
+          await mobileStockbitJob.getByText("Revision 3 is applied. This job is enabled.", { exact: true }).waitFor();
           const mobileScheduleWrite = writes.filter((write) => write.resource === "stockbit-schedule").at(-1);
           assert.equal(mobileScheduleWrite.payload.expectedRevision, 2);
           assert.equal(mobileScheduleWrite.payload.interval_seconds, 1500);
         }
         await noOverflow(`${role} ${textSize} Stockbit schedule`);
       } else {
-        await page.getByRole("heading", { name: "Stockbit Snips check", exact: true }).waitFor();
-        await page.getByText("Enabled · every 15 minutes", { exact: true }).waitFor();
-        await page.getByText("Effective", { exact: true }).waitFor();
+        assert.match(await mobileStockbitJob.locator(".operator-job-evidence").innerText(), /Enabled · every 15 minutes/);
+        assert.match(await mobileStockbitJob.locator(".operator-job-evidence").innerText(), /every 15 minutes/);
       }
       await navigate("Workflows", "Workflows");
       await page.getByRole("button", { name: /^Open watcher details: Market news/ }).click();
-      await page.getByRole("heading", { name: "Market news check", exact: true }).waitFor();
+      await page.getByRole("heading", { name: "Market news", exact: true }).waitFor();
     }
     const signOut = () =>
       page
@@ -1102,11 +1209,13 @@ async function scenario(role) {
         .getByRole("button", { name: "Sign out", exact: true })
         .click();
     if (role === "admin") {
-      await page.getByLabel("Check every (minutes)", { exact: true }).fill("45");
+      await navigate("Jobs", "Jobs");
+      const marketJob = page.locator("#job-fixture-market-news");
+      await marketJob.getByLabel("Check every (minutes)", { exact: true }).fill("45");
       await confirm(/Discard unsaved changes and sign out/, false, signOut);
       assert.equal(signouts, 0);
       assert.equal(
-        await page.getByLabel("Check every (minutes)", { exact: true }).inputValue(),
+        await marketJob.getByLabel("Check every (minutes)", { exact: true }).inputValue(),
         "45",
       );
       await confirm(/Discard unsaved changes and sign out/, true, signOut);

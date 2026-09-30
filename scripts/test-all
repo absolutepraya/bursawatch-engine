@@ -57,6 +57,7 @@ else
 fi
 run_suite service-bursawatch-control service-bursawatch-control tests
 run_suite service-bursawatch-source-media service-bursawatch-source-media tests
+run_suite platform-bursawatch-observer platform-bursawatch-observer tests
 run_suite platform-hermes-schedule-reconciler platform-hermes-schedule-reconciler tests
 run_suite platform-bursawatch-release platform-bursawatch-release tests
 if [[ "${SKIP_WHATSAPP_CHANNEL_WATCH:-0}" != "1" ]]; then

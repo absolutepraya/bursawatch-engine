@@ -169,7 +169,7 @@
     position: fixed;
     inset: auto 0 0;
     z-index: 20;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 3.7rem), 1fr));
+    grid-template-columns: repeat(7, minmax(44px, 1fr));
     align-items: stretch;
     gap: 8px;
     padding: 8px max(8px, env(safe-area-inset-right, 0px))

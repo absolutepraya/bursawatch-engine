@@ -37,3 +37,41 @@ Claims require explicit supported pipeline IDs. Claimed work includes a stable
 `effect_key` and event version. Domain handlers must send both to their owner to
 deduplicate effects and reject stale versions across retries, lease expiry, and
 audited replay.
+
+## Published Feed projection
+
+`bin/publication_client.py` provides `PublicationClient.submit(snapshot)` and
+`checkpoint(comparison)` for a domain owner's already-confirmed publication.
+The client sends the owner-scoped bearer token to the Control Plane's
+`POST /v1/publications` and `POST /v1/publications/checkpoints` endpoints. Keep
+the token in the owner's existing private runtime environment. The client has
+no Discord dependency and cannot create, edit, or retry delivery operations.
+
+The domain owner owns its durable projection intent and exact output snapshot.
+At the boundary where the Discord Delivery Owner confirms every required leg,
+persist the snapshot and a pending projection marker with the owner's receipt
+state. Include the stable owner key and version, `required_operation_keys`, and
+each leg's operation key, operation digest, receipt operation ID, confirmed
+receipt, destination, exact rendered text, and safe attachment metadata. Do not
+build an intent from a run summary, and do not create one while any required
+leg is pending or failed. When recovering a crash after a delivery receipt,
+reconcile the existing receipt and persist or recover the same intent; never
+submit another Discord operation to make projection succeed.
+
+Keep a pending snapshot until `submit` returns a valid durable acknowledgment
+containing its publication ID, version, and digest. Network errors, timeouts,
+HTTP 408/425/429, and server errors retry only the identical serialized
+snapshot. A 409 is an immutable identity or version conflict and is surfaced
+without retry. Other client errors also stop the attempt. The owner may retry a
+later drain using the retained snapshot, with the same key, version, and
+digest. The Control Plane acknowledgment is proof of read-model acceptance,
+not proof of a new delivery.
+
+Each owner also persists its own confirmed and accepted boundaries. Advance its
+accepted boundary only across a contiguous sequence of acknowledged intents;
+an unresolved earlier intent keeps later work from making the boundary appear
+complete. Send bounded comparisons with the owner's comparison time, confirmed
+boundary, accepted boundary, and outstanding count using `checkpoint`. Keep
+these ledgers owner-specific. A missing or stale checkpoint means coverage is
+unknown, not an empty complete feed. The client does not create a shared
+cross-owner state file.

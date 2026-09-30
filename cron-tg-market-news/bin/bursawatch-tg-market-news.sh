@@ -24,7 +24,10 @@ if [[ -r "$HOME/.hermes/.env" ]]; then
       export "${key}=${value}"
     fi
   done
-  for key in BURSAWATCH_DISCORD_DELIVERY_URL BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE; do
+  for key in BURSAWATCH_DISCORD_DELIVERY_URL BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE \
+    BURSAWATCH_PUBLICATION_CONTROL_PLANE_URL \
+    BURSAWATCH_TG_MARKET_NEWS_PUBLICATION_ENABLED \
+    BURSAWATCH_TG_MARKET_NEWS_PUBLICATION_TOKEN_FILE; do
     value="$(grep -E "^${key}=" "$HOME/.hermes/.env" | head -n 1 | cut -d= -f2- || true)"
     if [[ -n "$value" ]]; then
       export "${key}=${value}"

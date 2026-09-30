@@ -83,6 +83,22 @@ def test_health_is_public_and_config_requires_authentication():
     assert client.get(f"/v1/watchers/{WATCHER}/config").status_code == 401
 
 
+def test_operator_component_reads_are_human_only_and_source_gate_uses_catalog():
+    client, _store = build_client()
+    admin_headers = {"Authorization": f"Bearer {ADMIN}"}
+    machine_headers = {"Authorization": f"Bearer {TOKEN}"}
+
+    inventory = client.get("/v1/components", headers=admin_headers)
+    components = {item["component_id"]: item for item in inventory.json()["components"]}
+
+    assert inventory.status_code == 200
+    assert inventory.json()["inventory_version"] == 1
+    assert components["bursawatch-tg-source-ingest"]["source_gate"]["catalog_revision"] == 1
+    assert client.get("/v1/components/bursawatch-tg-source-ingest", headers=admin_headers).status_code == 200
+    assert client.get("/v1/components/unknown", headers=admin_headers).status_code == 404
+    assert client.get("/v1/components", headers=machine_headers).status_code == 403
+
+
 def test_cors_allowlist_supports_the_separate_web_origin():
     store = InMemoryStore()
     store.seed_config(WATCHER, 1, {"version": 1, "profiles": []})
@@ -389,7 +405,7 @@ def test_machine_cannot_change_schedule_and_fixed_jobs_reject_changes():
     )
 
     assert machine.status_code == 403
-    assert fixed.status_code == 409
+    assert fixed.status_code == 422
 
 
 def test_schedule_rejects_values_outside_the_job_policy():

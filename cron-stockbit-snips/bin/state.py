@@ -13,6 +13,7 @@ from models import Article, Feed, FeedLane
 
 
 STATE_VERSION = 2
+PUBLICATION_LEDGER_KEY = "publication_projection"
 AGENT_LEASE = timedelta(minutes=2)
 RETRY_MINUTES = (1, 2, 4, 8, 15, 30, 60)
 
@@ -96,11 +97,114 @@ def load_state(path: Path, feeds: tuple[Feed, ...]) -> dict[str, object]:
             raise RuntimeError(f"Stockbit Snips article retry {key} is invalid")
         if "config_snapshot" in record and not _valid_config_snapshot(record["config_snapshot"]):
             raise RuntimeError(f"Stockbit Snips article config snapshot {key} is invalid")
+    if PUBLICATION_LEDGER_KEY in value:
+        _validate_publication_ledger(value[PUBLICATION_LEDGER_KEY])
     if source_version == 1:
         value["version"] = STATE_VERSION
         for record in value["feeds"].values():
             record["enabled"] = True
     return value
+
+
+def _validate_publication_ledger(value: object) -> None:
+    if type(value) is not dict:
+        raise RuntimeError("Stockbit publication ledger is invalid")
+    for owner_key, record in value.items():
+        if (not isinstance(owner_key, str) or not owner_key or type(record) is not dict
+                or set(record) != {"snapshot", "ack"}):
+            raise RuntimeError("Stockbit publication entry is invalid")
+        snapshot = record["snapshot"]
+        if (type(snapshot) is not dict or snapshot.get("owner_key") != owner_key
+                or type(snapshot.get("version")) is not int or snapshot["version"] != 1
+                or not _valid_timestamp(snapshot.get("delivery_confirmed_at"))):
+            raise RuntimeError("Stockbit publication snapshot identity is invalid")
+        required = snapshot.get("required_operation_keys")
+        legs = snapshot.get("legs")
+        if (type(required) is not list or not required
+                or any(type(item) is not str or not item for item in required)
+                or len(required) != len(set(required)) or type(legs) is not list
+                or [leg.get("operation_key") for leg in legs if type(leg) is dict] != required
+                or len(legs) != len(required)
+                or any(type(leg) is not dict or leg.get("status") != "delivered" for leg in legs)):
+            raise RuntimeError("Stockbit publication legs are incomplete")
+        ack = record["ack"]
+        if ack is not None and (
+            type(ack) is not dict or set(ack) != {"publication_id", "version", "digest"}
+            or type(ack.get("publication_id")) is not str
+            or len(ack["publication_id"]) != 64
+            or any(char not in "0123456789abcdef" for char in ack["publication_id"])
+            or type(ack.get("version")) is not int or ack["version"] != snapshot["version"]
+            or type(ack.get("digest")) is not str or len(ack["digest"]) != 64
+            or any(char not in "0123456789abcdef" for char in ack["digest"])
+        ):
+            raise RuntimeError("Stockbit publication acknowledgment is invalid")
+
+
+def record_publication_intent(value: dict[str, object], snapshot: dict[str, object]) -> bool:
+    ledger = value.setdefault(PUBLICATION_LEDGER_KEY, {})
+    if type(ledger) is not dict:
+        raise RuntimeError("Stockbit publication ledger is invalid")
+    owner_key = snapshot.get("owner_key")
+    if type(owner_key) is not str or not owner_key:
+        raise ValueError("Stockbit publication identity is invalid")
+    existing = ledger.get(owner_key)
+    if existing is not None:
+        if type(existing) is not dict or existing.get("snapshot") != snapshot:
+            raise RuntimeError("Stockbit publication identity conflicts with its saved intent")
+        return False
+    ledger[owner_key] = {"snapshot": snapshot, "ack": None}
+    return True
+
+
+def pending_publication_intents(value: dict[str, object]) -> list[tuple[str, dict[str, object]]]:
+    ledger = value.get(PUBLICATION_LEDGER_KEY, {})
+    if type(ledger) is not dict:
+        raise RuntimeError("Stockbit publication ledger is invalid")
+    return sorted(
+        ((key, record["snapshot"]) for key, record in ledger.items()
+         if type(record) is dict and record.get("ack") is None),
+        key=lambda item: (item[1]["delivery_confirmed_at"], item[0]),
+    )
+
+
+def acknowledge_publication_intent(
+    value: dict[str, object], owner_key: str, ack: dict[str, object]
+) -> bool:
+    ledger = value.get(PUBLICATION_LEDGER_KEY)
+    record = ledger.get(owner_key) if type(ledger) is dict else None
+    if type(record) is not dict:
+        raise RuntimeError("Stockbit publication acknowledgment has no intent")
+    if record["ack"] is not None:
+        if record["ack"] != ack:
+            raise RuntimeError("Stockbit publication acknowledgment changed")
+        return False
+    record["ack"] = ack
+    return True
+
+
+def publication_checkpoint_comparison(value: dict[str, object], compared_at: datetime) -> dict[str, object]:
+    ledger = value.get(PUBLICATION_LEDGER_KEY, {})
+    if type(ledger) is not dict:
+        raise RuntimeError("Stockbit publication ledger is invalid")
+    ordered = sorted(
+        ledger.items(), key=lambda item: (item[1]["snapshot"]["delivery_confirmed_at"], item[0])
+    )
+    confirmed = max(
+        (record["snapshot"]["delivery_confirmed_at"] for record in ledger.values()), default=None
+    )
+    accepted = None
+    for _key, record in ordered:
+        if record["ack"] is None:
+            break
+        accepted = record["snapshot"]["delivery_confirmed_at"]
+    if confirmed is not None and not any(record["ack"] is None for record in ledger.values()):
+        accepted = confirmed
+    return {
+        "compared_at": compared_at.isoformat(),
+        "confirmed_through_at": confirmed,
+        "accepted_through_at": accepted,
+        "outstanding_count": sum(1 for record in ledger.values() if record["ack"] is None),
+    }
 
 
 def _valid_retry(value: object) -> bool:

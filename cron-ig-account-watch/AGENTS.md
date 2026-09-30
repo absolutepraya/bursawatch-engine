@@ -134,3 +134,21 @@ deploy before the complete batch is approved.
 ## Discord delivery receipt wait
 
 After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.
+
+## Published Feed projection
+
+The scanner owns Instagram's Published Feed projection. It creates a durable
+owner intent only for a relevant `macro_news` or `id_stocks_news` publication
+whose complete configured text and forwarded-media legs have confirmed
+Delivery Owner receipts. Irrelevant posts, incomplete media delivery, and
+unsubscribed routes create no publication. The intent retains the public
+source URL, source publication identity, exact rendered text, attachment
+presentation metadata, and receipt identities. Projection retries and the
+contiguous owner checkpoint never submit Discord operations.
+
+Projection is disabled unless `BURSAWATCH_IG_ACCOUNT_WATCH_PUBLICATION_ENABLED=1`.
+When enabled after a separately approved forward-only cutover, configure
+`BURSAWATCH_PUBLICATION_CONTROL_PLANE_URL` and the owner-scoped
+`BURSAWATCH_IG_ACCOUNT_WATCH_PUBLICATION_TOKEN_FILE`. Reporting failure keeps
+the durable intent pending and does not affect delivery retries. This source
+change makes no schedule registration or activation changes.

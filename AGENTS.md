@@ -94,6 +94,7 @@ this contract:
 - `cron-x-account-watch/AGENTS.md`
 - `cron-stockbit-snips/AGENTS.md`
 - `platform-bursawatch-release/AGENTS.md`
+- `platform-bursawatch-observer/AGENTS.md`
 - `platform-hermes-schedule-reconciler/AGENTS.md`
 - `web-config/AGENTS.md`
 - `web-landing/AGENTS.md`
@@ -202,6 +203,13 @@ recovery path and must never run concurrently with the release agent. The
 release agent itself is host-bound platform infrastructure: its code, token
 file, systemd assets, and sudo boundary change only through the explicit VPS
 bootstrap process, never through an ordinary automated release.
+
+`platform-bursawatch-observer` is separate host-bound, read-only reporting
+infrastructure. Its observer credential is distinct from the scheduler
+reconciler credential. The release manifest keeps its code and systemd assets
+manual; first installation, credential provisioning, and timer activation
+require a separately reviewed host operation. The observer reads the Hermes
+registry directly and never invokes the Hermes CLI or writes scheduler state.
 
 The dotfiles mirror is a scrubbed VPS backup, not an authoring or deployment
 target. Do not edit `~/.dotfiles/vps/agents/skills/`. After an approved runtime
