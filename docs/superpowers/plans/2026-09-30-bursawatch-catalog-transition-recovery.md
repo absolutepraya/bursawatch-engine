@@ -1,6 +1,6 @@
 # Bursawatch Catalog Transition Recovery Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `subagent-driven-development` or `executing-plans` to implement this plan task by task. Steps use checkbox syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `executing-plans` to implement this plan task by task. Steps use checkbox syntax for tracking.
 
 **Goal:** Restore future-only polling for Telegram and Stockbit RSS by proving their existing reader state remains compatible with each intervening Source Catalog revision.
 
