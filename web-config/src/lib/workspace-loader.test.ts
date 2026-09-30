@@ -35,35 +35,50 @@ async function flush() {
 
 describe("scoped workspace loading", () => {
   it.each([
-    ["overview", null, 13, ["jobs", "runs"]],
-    ["sources", null, 0, []],
-    ["workflows", null, 1, []],
-    ["workflows", "source-2", 2, ["jobs"]],
-    ["workflows", xWatcherId, 3, ["jobs", "runs"]],
-    ["workflows", "unlisted", 1, []],
-    ["history", null, 7, ["runs"]],
-    ["settings", null, 1, []],
+    ["overview", null, 16, ["jobs", "runs"]],
+    ["sources", null, 1, []],
+    ["workflows", null, 4, []],
+    ["workflows", "source-2", 5, ["jobs"]],
+    ["workflows", xWatcherId, 6, ["jobs", "runs"]],
+    ["workflows", "unlisted", 4, []],
+    ["history", null, 10, ["runs"]],
+    ["settings", null, 0, []],
   ] as const)(
     "loads only needed records for %s with selection %s",
     async (view, watcherId, count, resources) => {
       const catalog = [...watchers, { ...watchers[0], watcher_id: xWatcherId }];
-      const read = vi.fn(async (path: string) => (path === "watchers" ? catalog : []));
+      const read = vi.fn(async (path: string) =>
+        path === "watchers"
+          ? catalog
+          : path === "components"
+            ? { inventory_version: 1, components: [] }
+            : [],
+      );
       const records = await loadWorkspaceRecords(requester(read), {
         view: view as WorkspaceView,
         watcherId,
       });
       expect(read).toHaveBeenCalledTimes(count);
-      if (view !== "sources") expect(read.mock.calls[0][0]).toBe("watchers");
+      if (view !== "sources" && view !== "settings") expect(read.mock.calls[0][0]).toBe("watchers");
       expect(
         read.mock.calls
           .slice(1)
-          .every(([path]) => resources.some((resource) => path.endsWith(`/${resource}`))),
+          .every(
+            ([path]) =>
+              path === "components" ||
+              path === "jobs" ||
+              path === "observations" ||
+              resources.some((resource) => path.endsWith(`/${resource}`)),
+          ),
       ).toBe(true);
       if (watcherId)
         expect(
-          read.mock.calls.slice(1).every(([path]) => path.startsWith(`watchers/${watcherId}/`)),
+          read.mock.calls
+            .slice(1)
+            .filter(([path]) => String(path).startsWith("watchers/"))
+            .every(([path]) => path.startsWith(`watchers/${watcherId}/`)),
         ).toBe(true);
-      expect(records.watchers).toEqual(view === "sources" ? [] : catalog);
+      expect(records.watchers).toEqual(view === "sources" || view === "settings" ? [] : catalog);
       expect(records.issues).toEqual([]);
     },
   );
@@ -72,7 +87,13 @@ describe("scoped workspace loading", () => {
     const details = deferred<never[]>();
     const onCatalog = vi.fn();
     const catalog = [{ ...watchers[0], watcher_id: xWatcherId }];
-    const request = requester(async (path) => (path === "watchers" ? catalog : details.promise));
+    const request = requester(async (path) =>
+      path === "watchers"
+        ? catalog
+        : path === "components"
+          ? { inventory_version: 1, components: [] }
+          : details.promise,
+    );
     const result = loadWorkspaceRecords(request, {
       view: "workflows",
       watcherId: xWatcherId,
@@ -93,19 +114,33 @@ describe("scoped workspace loading", () => {
     "bursawatch-dc-swing-board",
   ])("loads schedules without unrelated run history for the %s editor", async (watcherId) => {
     const catalog = [{ ...watchers[0], watcher_id: watcherId }];
-    const read = vi.fn(async (path: string) => (path === "watchers" ? catalog : []));
+    const read = vi.fn(async (path: string) =>
+      path === "watchers"
+        ? catalog
+        : path === "components"
+          ? { inventory_version: 1, components: [] }
+          : [],
+    );
     const records = await loadWorkspaceRecords(requester(read), {
       view: "workflows",
       watcherId,
     });
-    expect(read).toHaveBeenCalledTimes(2);
+    expect(read).toHaveBeenCalledTimes(5);
     expect(read.mock.calls[0]).toEqual(["watchers", undefined, expect.any(Object)]);
     expect(read.mock.calls[1]).toEqual([
       `watchers/${watcherId}/jobs`,
       undefined,
       expect.any(Object),
     ]);
-    expect(records).toMatchObject({ watchers: catalog, jobs: [], runs: [], issues: [] });
+    expect(records).toMatchObject({
+      watchers: catalog,
+      jobs: [],
+      runs: [],
+      components: [],
+      operatorJobs: [],
+      observations: [],
+      issues: [],
+    });
   });
 
   it("does not scan the catalog or histories when opening a run timeline", async () => {
@@ -133,6 +168,8 @@ describe("scoped workspace loading", () => {
     const progress: WorkspaceProgress[] = [];
     const request = requester(async (path) => {
       if (path === "watchers") return watchers;
+      if (path === "components") return { inventory_version: 1, components: [] };
+      if (path === "jobs" || path === "observations") return [];
       active++;
       maximum = Math.max(maximum, active);
       const task = deferred<never[]>();
@@ -181,6 +218,7 @@ describe("scoped workspace loading", () => {
     });
     const request = requester(async (path) => {
       if (path === "watchers") return watchers;
+      if (path === "components") return { inventory_version: 1, components: [] };
       if (path.endsWith("source-0/runs"))
         throw new WorkspaceError("rate-limit", "private source account");
       if (path.endsWith("source-1/runs")) throw new Error("private provider response");
@@ -198,6 +236,7 @@ describe("scoped workspace loading", () => {
   it("preserves viewer access failures as partial records without granting access", async () => {
     const request = requester(async (path) => {
       if (path === "watchers") return [watchers[0]];
+      if (path === "components") return { inventory_version: 1, components: [] };
       throw new WorkspaceError("forbidden", "private raw denial");
     });
     const records = await loadWorkspaceRecords(request, {
@@ -214,6 +253,7 @@ describe("scoped workspace loading", () => {
     const request = requester(async (path, _payload, options) => {
       calls.push(path);
       if (path === "watchers") return watchers;
+      if (path === "components") return { inventory_version: 1, components: [] };
       if (path.endsWith("source-0/jobs")) return auth.promise;
       return new Promise((_, reject) =>
         options?.signal?.addEventListener(
