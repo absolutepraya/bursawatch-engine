@@ -50,6 +50,7 @@ def test_versions_require_contiguous_confirmed_edits():
     first_ack = store.accept(OWNER, publication())
     second["legs"][0]["text"] = "Edited text confirmed by another receipt"
     second["legs"][0]["receipt_id"] = "987654321098765433"
+    second["legs"][0]["message_url"] = "https://discord.com/channels/123456789012345678/123456789012345678/987654321098765433"
     store.accept(OWNER, second)
     detail = store.get(first_ack["publication_id"])
     assert [row["version"] for row in detail["versions"]] == [1, 2]

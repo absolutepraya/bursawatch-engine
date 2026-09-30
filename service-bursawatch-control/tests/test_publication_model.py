@@ -32,8 +32,11 @@ def publication(**changes):
         "config_revision": 2,
         "renderer_version": "news-renderer-v1",
         "source_version": "synthetic-source-v1",
+        "required_operation_keys": ["synthetic-delivery-1"],
         "legs": [{
             "operation_key": "synthetic-delivery-1",
+            "operation_digest": "a" * 64,
+            "receipt_operation_id": "synthetic-operation-id",
             "destination": "123456789012345678",
             "receipt_id": "987654321098765432",
             "status": "delivered",
@@ -51,8 +54,21 @@ def test_partial_leg_is_not_published():
     pending = deepcopy(value["legs"][0])
     pending["operation_key"] = "synthetic-delivery-2"
     pending["status"] = "pending"
+    value["required_operation_keys"].append("synthetic-delivery-2")
     value["legs"].append(pending)
     with pytest.raises(ValueError, match="delivery leg"):
+        validate_publication(value, OWNER)
+
+
+def test_omitted_required_leg_and_unbound_receipt_link_fail():
+    value = publication(required_operation_keys=["synthetic-delivery-1", "synthetic-delivery-2"])
+    with pytest.raises(ValueError, match="required delivery legs"):
+        validate_publication(value, OWNER)
+    value = publication()
+    value["legs"][0]["message_url"] = (
+        "https://discord.com/channels/123456789012345678/123456789012345678/987654321098765433"
+    )
+    with pytest.raises(ValueError, match="message URL"):
         validate_publication(value, OWNER)
 
 

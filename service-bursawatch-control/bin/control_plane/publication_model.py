@@ -48,10 +48,10 @@ SNAPSHOT_FIELDS = {
     "source_event_key", "source_name", "source_url", "source_published_at",
     "market_data_as_of", "delivery_confirmed_at", "title", "ticker",
     "broker_levels", "parent_publication_id", "board_episode_id", "config_revision",
-    "renderer_version", "source_version", "legs",
+    "renderer_version", "source_version", "required_operation_keys", "legs",
 }
 LEG_FIELDS = {
-    "operation_key", "destination", "receipt_id", "status", "message_url",
+    "operation_key", "operation_digest", "receipt_operation_id", "destination", "receipt_id", "status", "message_url",
     "text", "attachments",
 }
 ATTACHMENT_FIELDS = {"filename", "content_type", "discord_url"}
@@ -158,6 +158,8 @@ def _leg(value: object) -> dict[str, Any]:
         raise ValueError("delivery leg has no published output")
     return {
         "operation_key": _text(value["operation_key"], "delivery leg operation_key", 1, 256),
+        "operation_digest": _text(value["operation_digest"], "delivery leg operation_digest", 64, 64),
+        "receipt_operation_id": _text(value["receipt_operation_id"], "delivery leg receipt_operation_id", 1, 128),
         "destination": destination,
         "receipt_id": receipt_id,
         "status": "delivered",
@@ -209,6 +211,18 @@ def validate_publication(payload: object, owner_id: str) -> dict[str, Any]:
     operation_keys = [item["operation_key"] for item in safe_legs]
     if len(operation_keys) != len(set(operation_keys)):
         raise ValueError("publication has duplicate delivery legs")
+    required = payload["required_operation_keys"]
+    if type(required) is not list or not 1 <= len(required) <= 10 or any(
+        type(key) is not str or not 1 <= len(key) <= 256 for key in required
+    ) or len(required) != len(set(required)) or required != operation_keys:
+        raise ValueError("publication required delivery legs are incomplete")
+    if any(not HEX_ID.fullmatch(leg["operation_digest"]) for leg in safe_legs):
+        raise ValueError("delivery leg operation digest is invalid")
+    for leg in safe_legs:
+        if leg["message_url"] is not None:
+            path_parts = urlparse(leg["message_url"]).path.strip("/").split("/")
+            if len(path_parts) != 4 or path_parts[2] != leg["destination"] or path_parts[3] != leg["receipt_id"]:
+                raise ValueError("delivery leg message URL does not match receipt and destination")
     identity = hashlib.sha256(_canonical([owner_id, owner_key])).hexdigest()
     record = {
         "api_version": API_VERSION,
@@ -233,6 +247,7 @@ def validate_publication(payload: object, owner_id: str) -> dict[str, Any]:
         "config_revision": config_revision,
         "renderer_version": _text(payload["renderer_version"], "renderer_version", 1, 100),
         "source_version": _optional_text(payload["source_version"], "source_version", 100),
+        "required_operation_keys": list(required),
         "legs": safe_legs,
     }
     record["digest"] = hashlib.sha256(_canonical(record)).hexdigest()
