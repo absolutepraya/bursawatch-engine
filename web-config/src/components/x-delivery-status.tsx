@@ -89,8 +89,8 @@ export function XDeliveryStatus({
         </p>
       </details>
       <div className="x-delivery-links">
-        <Link href="/workspace/workflows?watcher=bursawatch-x-account-watch#workflow-schedules">
-          Review schedules <ArrowUpRight size={15} aria-hidden="true" />
+        <Link href="/workspace/jobs">
+          Review Jobs <ArrowUpRight size={15} aria-hidden="true" />
         </Link>
         {latest ? (
           <Link href={`/workspace/history?run=${encodeURIComponent(latest.run_id)}`}>

@@ -1,4 +1,4 @@
-"""Stable, read-only inventory of migrated BursaWatch components."""
+"""Stable, read-only inventory of migrated Bursawatch components."""
 
 from __future__ import annotations
 

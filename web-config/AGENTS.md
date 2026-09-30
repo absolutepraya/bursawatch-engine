@@ -51,13 +51,14 @@ never embed real config, destinations, sessions or runtime state in public
 bundles, fixtures, logs or snapshots. Tests use synthetic values. No silent
 retry of writes: ambiguous saves and stale drafts require a fresh read.
 Preflight revision checking is best effort, not an atomic backend lock.
-Global schedule controls live in Jobs; workflow detail retains related schedule
-controls. The old Schedules URL redirects to Jobs. Configuration and schedule
-saves use separate revisions and actions. Saved schedules remain pending until
-matching reconciliation is observed. Fixed jobs and viewer sessions have no
-save control. Job `can_edit` is backend-derived and never inferred from browser
-claims. Jobs and Published read only their current-view inventory or publication
-records; Published filters are sent to the authenticated API before paging.
+Global schedule controls live only in Jobs. Workflow details show linked job
+identity and observed state without a second schedule editor. The old Schedules
+URL redirects to Jobs. Configuration and schedule saves use separate revisions
+and actions. Saved schedules remain pending until matching reconciliation is
+observed. Fixed jobs and viewer sessions have no save control. Job `can_edit` is
+backend-derived and never inferred from browser claims. Jobs and Published read
+only their current-view inventory or publication records; Published filters are
+sent to the authenticated API before paging.
 Do not trigger a real run or delivery in smoke tests.
 
 Load only the current view's records: Sources reads the source catalog, Jobs

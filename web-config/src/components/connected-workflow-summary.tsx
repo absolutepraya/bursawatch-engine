@@ -119,9 +119,7 @@ export function ConnectedWorkflowSummary({
                     : "unknown";
                 return (
                   <li key={jobId}>
-                    <Link href={`/workspace/jobs?job=${encodeURIComponent(jobId)}`}>
-                      {job?.display_name ?? jobId}
-                    </Link>
+                    <Link href={`/workspace/jobs#job-${jobId}`}>{job?.display_name ?? jobId}</Link>
                     <span>{state}</span>
                   </li>
                 );

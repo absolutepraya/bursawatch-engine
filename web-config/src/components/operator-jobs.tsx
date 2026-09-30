@@ -92,7 +92,7 @@ export function OperatorJobs({
             );
             const lastExecution = observation?.evidence.last_execution;
             return (
-              <li key={job.job_id} className="operator-job-card">
+              <li key={job.job_id} id={`job-${job.job_id}`} className="operator-job-card">
                 <section aria-labelledby={`operator-job-${slug(job.job_id)}`}>
                   <div className="operator-job-heading">
                     <div>

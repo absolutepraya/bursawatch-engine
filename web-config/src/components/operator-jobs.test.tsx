@@ -94,6 +94,7 @@ it("names every affected component before the shared schedule control", () => {
     screen.getByText(/changing this schedule affects Telegram Source Inbox, Market News/),
   ).toBeTruthy();
   expect(screen.getByRole("button", { name: "Save schedule" })).toBeTruthy();
+  expect(document.getElementById("job-shared-reader")).toBeTruthy();
 });
 
 it("shows an observed mismatch and removes save controls for viewers", () => {

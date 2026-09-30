@@ -110,7 +110,11 @@ def _url(value: object, name: str, *, optional: bool = False, discord: bool = Fa
         raise ValueError(f"{name} must be a safe HTTPS URL") from exc
     if port not in {None, 443} or parsed.hostname in {"localhost", "127.0.0.1", "::1"}:
         raise ValueError(f"{name} must be a safe HTTPS URL")
-    if discord and (parsed.hostname not in {"discord.com", "www.discord.com"} or not parsed.path.startswith("/channels/")):
+    path_segments = parsed.path.split("/")
+    is_discord_message_path = path_segments[:2] == ["", "channels"] and len(path_segments) >= 3
+    if discord and (
+        parsed.hostname not in {"discord.com", "www.discord.com"} or not is_discord_message_path
+    ):
         raise ValueError(f"{name} must be a Discord message URL")
     if attachment and (
         parsed.hostname not in {"cdn.discordapp.com", "media.discordapp.net"}

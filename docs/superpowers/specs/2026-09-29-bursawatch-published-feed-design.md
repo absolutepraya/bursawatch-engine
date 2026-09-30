@@ -1,12 +1,12 @@
-# BursaWatch Published Feed for the Operator Workspace
+# Bursawatch Published Feed for the Operator Workspace
 
 **Date:** 2026-09-29
 
-**Status:** Conversation design approved; written spec pending user review. Implementation and production release are separate work.
+**Status:** Approved; implementation is complete on the feature branch. Production rollout and cutover remain separately gated.
 
 ## Intent and success criteria
 
-The signed-in `web-config` operator workspace should show every new BursaWatch item published to its news and swing destinations after a recorded cutover. Operators should be able to inspect what was published, its source and timing, and the confirmed Discord destination. A broker-authored plan must remain distinguishable from social chart context and from later Swing Board activity.
+The signed-in `web-config` operator workspace should show every new Bursawatch item published to its news and swing destinations after a recorded cutover. Operators should be able to inspect what was published, its source and timing, and the confirmed Discord destination. A broker-authored plan must remain distinguishable from social chart context and from later Swing Board activity.
 
 Success means that each eligible, confirmed delivery from every in-scope owner appears once in a read-only, paginated workspace feed, with any later published update linked to the original. An API or projection outage must not cause another Discord post, silently lose a published item, or make an incomplete feed appear complete. The feed starts forward-only; it does not claim to contain earlier publications.
 
@@ -29,7 +29,7 @@ The first release covers new eligible publications from all current owners and t
 
 The inclusion rule is the owner's validated route or domain publication type, not a hard-coded Discord channel ID or a guess from rendered text. The route set initially includes `id_stocks_news`, `id_industry_news`, `macro_news`, `us_stocks_news`, and `id_stocks_swing`, plus the Phintraco, GTW, and Board publication contracts. A future owner using one of these routes needs the same projection and coverage contract before the workspace can claim all-publisher coverage. Operational heartbeats, excluded candidates, unposted source events, failed delivery attempts, and private raw messages are outside this published feed.
 
-The public type is more precise than the route: `idx_company_news`, `us_company_news`, `industry_news`, `macro_news`, `stock_status`, `broker_swing_plan`, `swing_context`, `swing_bundle`, or `swing_board_update`. X and WhatsApp swing posts are `swing_context` even when their text mentions levels; they do not become structured broker plans. A GTW bundle preserves its validated source fields and does not become a broker plan merely because it was sent to All Swing. Only the Phintraco owner may submit `broker_swing_plan` under its validated complete-setup contract. The original route is also retained, so the type does not erase the owner's routing decision.
+The public type is more precise than the route: `idx_company_news`, `us_company_news`, `industry_news`, `macro_news`, `stock_status`, `broker_swing_plan`, `broker_swing_update`, `swing_context`, `swing_bundle`, or `swing_board_update`. X and WhatsApp swing posts are `swing_context` even when their text mentions levels; they do not become structured broker plans. A GTW bundle preserves its validated source fields and does not become a broker plan merely because it was sent to All Swing. Only the Phintraco owner may submit `broker_swing_plan` under its validated complete-setup contract. A Phintraco update is `broker_swing_update` only when its source update is linked to a known original publication; it carries no newly inferred complete plan levels. The original route is also retained, so the type does not erase the owner's routing decision.
 
 This design is for the shared operator workspace. It does not create a public consumer API, a personal brokerage-preference API, a Sectors integration, or the independent Sectors hackathon submission. It does not change source eligibility, classification, delivery destinations, cadence, or the authority of the existing domain owners.
 
@@ -57,6 +57,8 @@ Every accepted publication version contains:
 Unknown or unavailable timestamps are nullable and must be labeled as such. `delivery_confirmed_at` is the time the owner verified a receipt; it must not be displayed as the source's publication time or a market-data as-of time. The API never invents missing plan levels, source links, proof of delivery, or media URLs. Private media references, credentials, raw source payloads, and arbitrary LLM diagnostics are excluded. A chart or other attachment may show safe metadata and its confirmed Discord link; browsing private bytes requires a separately designed authorized media path.
 
 One logical publication can contain multiple required Discord legs with different content. It becomes visible as published only after every required leg for that act is confirmed. A later Board action is its own publication linked to the original plan or context record. Existing text or message edits are represented by an explicit new version after the edited output is confirmed; earlier versions remain available to operators. No API write from the browser can alter these records.
+
+Each publication may retain up to 64 exact delivery legs. This accommodates X posts with up to 16 media operations plus split text messages. Owners must preserve every required operation and leave the projection pending if an act exceeds the contract bound; they cannot truncate or merge receipts.
 
 ## API and authorization
 
@@ -88,7 +90,7 @@ Add **Published** as a read-only destination beside Workflows and History. The l
 
 The page displays source publication, delivery confirmation, and market-data as-of times separately. Its empty state explains the forward-only cutover. Partial API responses, missing owner checkpoints, or projection gaps show a coverage warning and the last verified time instead of an empty-success or completeness claim. The page never treats an execution run marked `ok` as publication proof. The current Workflows configuration and History run-event views retain their distinct purposes.
 
-The Overview and configuration-coverage corrections identified in the audit are a separate web-config project. In particular, watcher-config counts, API schedule rows, live source-ingest jobs, and historical run outcomes need distinct labels and coverage. This published-feed spec does not relabel those screens or make every runtime setting editable.
+The companion operator-workspace spec covers configuration editors, the shared Jobs page, and the Overview, Sources, Workflows, and History evidence model. This feed spec leaves those screens to that plan while defining Published records and coverage. Overview may later link to confirmed publication evidence; a successful run remains insufficient proof of delivery.
 
 ## Delivery sequence and verification
 

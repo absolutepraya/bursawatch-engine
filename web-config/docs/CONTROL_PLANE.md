@@ -81,9 +81,10 @@ endpoint without requesting unrelated watcher histories:
   snapshot. The workflow list reads the separate watcher catalog. Neither
   presents unloaded schedules or history as empty results.
 - A selected workflow starts its admin configuration read after catalog
-  membership is confirmed and loads only that workflow's jobs for its schedule
-  controls. X also loads source-poll runs for its delivery checks; other editors
-  do not fetch unrelated run histories.
+  membership is confirmed. It uses the shared job inventory to link related
+  jobs and show observed state; schedule controls live only on Jobs. X also
+  loads source-poll runs for its delivery checks; other editors do not fetch
+  unrelated run histories.
 - A run timeline reads events directly; it does not wait for all workflows'
   histories. Metadata already present in the same signed-in component can be
   shown; direct links do not invent missing run metadata.
@@ -129,10 +130,8 @@ and sample browser preferences separate.
   GTW investment classes, the swing board and Stockbit Snips. Each supported workflow explains
   its input, processing and output. All existing editor fields remain available;
   unknown keys are preserved when a known field changes. No private config is
-  bundled as defaults. Each selected workflow also shows its own jobs. Interval
-  schedules use API bounds, the WIB timezone and pending/effective status;
-  fixed jobs are read-only. Configuration and schedule saves have independent
-  revisions and actions.
+  bundled as defaults. Each selected workflow links to its related jobs and
+  shows their observed state. Schedules are edited only from Jobs.
 - History: recorded timestamps, config revisions, outcomes and event metadata.
   A server-side event-specific projection exposes bounded source IDs, validated
   counts and execution flags only. Raw messages and arbitrary attributes remain
@@ -237,9 +236,10 @@ system-owned. A disabled lane stops new intake; on resumption, its first
 successful fetch establishes a future-only baseline without replaying paused
 items. Articles already queued keep their frozen dispatch settings. A saved
 config revision applies to future work after a valid runtime read and is not
-delivery proof. The workflow's schedule section uses the generic API-provided job bounds,
-desired revision and reconciler status. A saved interval or enabled change is
-pending until that exact schedule revision is reported applied and effective.
+delivery proof. Jobs is the single schedule editor and uses the API-provided
+bounds. Workflow details link back to the shared jobs that serve their adapters
+and owners. A saved interval or enabled change stays pending until that exact
+schedule revision is reported applied and effective.
 
 ## X source and delivery evidence
 

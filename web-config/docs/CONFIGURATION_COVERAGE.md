@@ -124,35 +124,24 @@ or `tone` configuration, or outbound WhatsApp/Telegram delivery controls.
 Sample preferences remain browser-local. All editable delivery fields above
 target Discord; credentials and provider connection setup remain backend-owned.
 
-## Schedules within workflow configuration
+## Jobs page and schedule controls
 
-The selected workflow's detail loads only its own jobs. Interval jobs expose
-`enabled` and `interval_seconds` as whole minutes within
-each job's server bounds. `timezone` remains `Asia/Jakarta`. Fixed job schedules
-are read-only. Saved schedules are only labelled applied when the saved and
-applied revisions match and the service confirms effectiveness. Pending checks
-pause in hidden tabs, stop after a bounded number of attempts, and can be
-refreshed. Another save is disabled while reconciliation is pending. Schedule
-and watcher-config saves remain independent, with separate revisions and
-unsaved drafts. The old `/workspace/schedules` URL remains a compatibility
-entry point to workflow configuration.
-Stockbit uses this same schedule editor and the bounds returned for its job;
-its initial desired cadence is 15 minutes. A saved schedule revision remains
-pending until the reconciler reports that exact revision as effective.
+The Jobs page is the single home for declared jobs, desired schedules,
+reconciliation state and fresh Hermes observations. An interval job exposes
+`enabled` and `interval_seconds` as whole minutes within the server-provided
+bounds. `timezone` remains `Asia/Jakarta`; fixed schedules are read-only.
+Workflow details link to their shared jobs and show observed state, without a
+duplicate schedule editor. Sources and Workflows remain separate views of the
+adapter and owner configuration that those jobs serve.
 
-## Checked operator field map
-
-`src/lib/operator-control-coverage.ts` is the machine-readable inventory used by
-the focused coverage tests. It records each JSON field path (with `[]` for
-repeated rows), editor, validation boundary, API, migrated consumer, and effect
-limit. It includes Source Catalog defaults and overrides, all eight watcher
-editors, interval job `enabled` and `interval_seconds`, and the read-only
-Phintraco/GTW legacy Telegram fields. Profile coverage includes shared identity,
-route, media, processing, prompt and poll-limit fields plus platform-specific X,
-Instagram and WhatsApp fields. Stockbit covers its four fixed feed switches,
-both routes and additive instruction. Schedule timezone, config versions,
-revisions, preserved unknown keys, and empty Source Catalog `settings` are not
-editable fields.
+The Jobs editor labels desired, applied and observed state separately. A
+schedule is active only when the fresh observation matches the desired revision
+and the reconciler reports that revision applied. Pending checks pause in
+hidden tabs, stop after a bounded number of attempts, and can be refreshed.
+Another save is disabled while reconciliation is pending. Config and schedule
+saves use separate revisions and retain separate drafts. The old
+`/workspace/schedules` URL redirects to Jobs. Stockbit uses the same editor and
+the bounds returned for its job; its initial desired cadence is 15 minutes.
 
 ## Checked operator field map
 

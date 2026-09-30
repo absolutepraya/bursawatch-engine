@@ -26,6 +26,7 @@ import {
   controlStatusLabels,
   controlStatuses,
   latestControlRuns,
+  ownerConfigEvidence,
   summarizeControlRuns,
   summarizeControlSchedules,
   currentObservedFailures,
@@ -653,6 +654,10 @@ export function ControlWatcherList({
         const jobsUnavailable = issues.some(
           (issue) => issue.watcherId === watcher.watcher_id && issue.resource === "jobs",
         );
+        const configEvidence = ownerConfigEvidence(
+          watcher.current_revision,
+          runs.filter((run) => run.watcher_id === watcher.watcher_id),
+        );
         const schedules = summarizeControlSchedules(
           jobs.filter((job) => job.watcher_id === watcher.watcher_id),
         );
@@ -711,11 +716,7 @@ export function ControlWatcherList({
               <ArrowUpRight size={18} className="control-row-arrow" aria-hidden="true" />
             </button>
             <div className="control-watcher-operator-evidence">
-              <span>
-                {watcher.current_revision === null
-                  ? "No saved configuration"
-                  : `Saved v${watcher.current_revision}, use unverified`}
-              </span>
+              <span>{configEvidence.label}</span>
               {ownerJobs.length ? (
                 <span>
                   Shared jobs:{" "}

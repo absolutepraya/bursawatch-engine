@@ -1,14 +1,16 @@
-# BursaWatch Published Feed Implementation Plan
+# Bursawatch Published Feed Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Show every eligible new, confirmed BursaWatch news and swing publication in the authenticated operator workspace, with per-owner coverage and no delivery replay.
+**Goal:** Show every eligible new, confirmed Bursawatch news and swing publication in the authenticated operator workspace, with per-owner coverage and no delivery replay.
 
 **Architecture:** Domain owners keep their durable publication and delivery state. A new Control Plane publication read model accepts owner-scoped, idempotent snapshots only after required Discord Delivery Owner receipts are confirmed. The web reads sanitized, cursor-paginated records and coverage through its existing authenticated proxy.
 
 **Tech Stack:** Python 3, FastAPI, Pydantic, Psycopg/Postgres, existing owner state stores and `lib-bursawatch-control`, Next.js/TypeScript/Zod, Supabase user JWT.
 
 **Spec:** `docs/superpowers/specs/2026-09-29-bursawatch-published-feed-design.md`
+
+**Implementation status:** Complete on the feature branch. Validation passed with `bash scripts/test-all`, `npm run check` in both web packages, and a synthetic admin/viewer browser smoke. Production activation and deployment remain separately gated.
 
 ## Global Constraints
 
@@ -17,7 +19,7 @@
 - Feed scope is all eligible publications whose required delivery is confirmed after one recorded forward-only cutover boundary, from Telegram Market News, Stockbit Snips, X, Instagram, WhatsApp, Phintraco Swing, Kelas Investasi GTW, and Discord Swing Board. Source publication time does not decide eligibility. There is no historical backfill.
 - Integrate the operator-workspace plan first, reserving `019_operator_inventory.sql`; this plan uses `020_publications.sql` and adds Published to the same navigation. Resolve branch overlap before implementing its web task.
 - A publication becomes visible only after every required delivery leg is confirmed by the Discord Delivery Owner. A Control Plane projection retry must never create a Discord operation.
-- Distinguish `broker_swing_plan`, `swing_context`, `swing_bundle`, `swing_board_update`, `stock_status`, IDX and US company news, industry news, and macro news. Retain the validated route and source attribution.
+- Distinguish `broker_swing_plan`, linked `broker_swing_update`, `swing_context`, `swing_bundle`, `swing_board_update`, `stock_status`, IDX and US company news, industry news, and macro news. Retain the validated route and source attribution.
 - Owner machine writes are scoped to their own namespace. Human viewer/admin JWTs may read but cannot write publications. The web never receives machine credentials, raw source payloads, or private media bytes.
 - Preserve current source cursors, existing owner state, delivery destinations, schedules, and paused jobs. Production deployment and cutover need their existing separate approvals. No synthetic production posts or manual cron runs.
 - Read each affected package's `AGENTS.md` and root `CRON.md` or `SKILL.md` before editing it. Update those contracts and OpenAPI in the same change. Run focused package tests, then `bash scripts/test-all` and both web package checks before handoff.
@@ -40,7 +42,7 @@ The backend read contract lands before owner writers. Owner writers may be deplo
 
 ## Fast execution path
 
-**Model assignment:** The primary agent uses GPT-6 Luna and owns shared contracts, integration decisions, and final verification. Every spawned subagent, including implementers and reviewers, must also use GPT-6 Luna.
+**Model assignment:** The primary agent uses GPT-6 Luna Max and owns shared contracts, integration decisions, and final verification. Every spawned subagent, including implementers and reviewers, must also use GPT-6 Luna.
 
 Implement this plan in the same managed integration branch as the operator-workspace plan, after its migration `019` and shared component/job API shapes are fixed. The task numbers below are a coverage checklist, not 14 serial agent handoffs or deployments. The primary implementer owns Control Plane, shared client, API security, and final integration; subagents work in isolated package scopes.
 
@@ -56,13 +58,13 @@ The per-task commit steps preserve rollback points without creating a review gat
 
 **Files:** Create `service-bursawatch-control/bin/control_plane/publication_model.py`, `publication_store.py`, `service-bursawatch-control/migrations/020_publications.sql`, `service-bursawatch-control/tests/test_publication_model.py`, `tests/test_publication_store.py`; modify `tests/test_migrations.py`.
 
-**Interfaces:** `validate_publication(payload: object, owner_id: str) -> dict[str, Any]` returns a sanitized v1 snapshot containing type, validated route, source identity/key and safe URL, bounded title, nullable source time and market-data as-of time, delivery-confirmation time, config/renderer/schema versions, optional parent/Board link, and exact required delivery legs with receipt identity, destination, rendered text, and safe attachment metadata. Broker levels are present only for validated Phintraco plans. The public `publication_id` is a globally unique opaque ID derived from owner ID plus owner-local act key, so `GET /v1/publications/{publication_id}` is unambiguous. `publication_store.py` defines `PublicationConflict`, `MemoryPublicationStore`, and `PostgresPublicationStore`; both stores implement `accept(owner_id: str, snapshot: dict[str, Any]) -> dict[str, Any]`, inserting one immutable `(owner_id, publication_id, version)` or returning the same acknowledgment. `activate(boundary: str, owner_ids: tuple[str, ...]) -> None` records one immutable cutover; Postgres uses the existing process-local pool.
+**Interfaces:** `validate_publication(payload: object, owner_id: str) -> dict[str, Any]` returns a sanitized v1 snapshot containing type, validated route, source identity/key and safe URL, bounded title, nullable source time and market-data as-of time, delivery-confirmation time, config/renderer/schema versions, optional parent/Board link, and 1 to 64 exact required delivery legs with receipt identity, destination, rendered text, and safe attachment metadata. The 64-leg bound accommodates X posts with up to 16 media operations plus split text; no owner may truncate or merge required operations. Broker levels are present only for validated Phintraco plans. The public `publication_id` is a globally unique opaque ID derived from owner ID plus owner-local act key, so `GET /v1/publications/{publication_id}` is unambiguous. `publication_store.py` defines `PublicationConflict`, `MemoryPublicationStore`, and `PostgresPublicationStore`; both stores implement `accept(owner_id: str, snapshot: dict[str, Any]) -> dict[str, Any]`, inserting one immutable `(owner_id, publication_id, version)` or returning the same acknowledgment. `activate(boundary: str, owner_ids: tuple[str, ...]) -> None` records one immutable cutover; Postgres uses the existing process-local pool.
 
-- [ ] Write failing `test_partial_leg_is_not_published` (`assert accept(partial) raises ValueError`), `test_same_key_same_digest_is_idempotent` (`assert accept(twice) == first_ack`), and `test_same_key_changed_digest_conflicts` (`assert accept(changed) raises PublicationConflict`); cover all public types and routes, broker-only levels, distinct nullable times, unsafe URLs/text/media, and pre-cutover delivery time.
-- [ ] Run `cd service-bursawatch-control && uv run --with 'fastapi>=0.115,<1' --with 'httpx>=0.27,<1' --with 'psycopg[binary,pool]>=3.2,<4' pytest -q tests/test_publication_model.py tests/test_publication_store.py`; expect failure for missing model/store.
-- [ ] Implement the model and store. Give migration `020_publications.sql` the required `-- bursawatch-release: automatic` first line, immutable unique keys and indexes, and separate cutover/checkpoint tables. Do not modify old inbox/run tables.
-- [ ] Run the focused tests and migration tests; expect pass.
-- [ ] Commit the model, migration, and tests.
+- [x] Write failing `test_partial_leg_is_not_published` (`assert accept(partial) raises ValueError`), `test_same_key_same_digest_is_idempotent` (`assert accept(twice) == first_ack`), and `test_same_key_changed_digest_conflicts` (`assert accept(changed) raises PublicationConflict`); cover all public types and routes, broker-only levels, distinct nullable times, unsafe URLs/text/media, and pre-cutover delivery time.
+- [x] Run `cd service-bursawatch-control && uv run --with 'fastapi>=0.115,<1' --with 'httpx>=0.27,<1' --with 'psycopg[binary,pool]>=3.2,<4' pytest -q tests/test_publication_model.py tests/test_publication_store.py`; expect failure for missing model/store.
+- [x] Implement the model and store. Give migration `020_publications.sql` the required `-- bursawatch-release: automatic` first line, immutable unique keys and indexes, and separate cutover/checkpoint tables. Do not modify old inbox/run tables.
+- [x] Run the focused tests and migration tests; expect pass.
+- [x] Commit the model, migration, and tests.
 
 ### Task 2: Owner authorization and paginated publication API
 
@@ -72,11 +74,11 @@ The per-task commit steps preserve rollback points without creating a review gat
 
 **Interfaces:** `CONTROL_PLANE_PUBLICATION_OWNER_TOKENS` is a private owner-ID-to-token map; `Principal(kind="publication_owner", subject=<owner_id>)` comes only from a distinct configured owner token. `POST /v1/publications` derives `owner_id` from that principal. `GET /v1/publications` accepts bounded `limit`, opaque `cursor`, and type/route/date/source/ticker filters; `GET /v1/publications/{publication_id}` returns versions and links. Read queries order by `(delivery_confirmed_at, publication_id, version)` descending, with filters applied before cursor advance.
 
-- [ ] Write failing `test_owner_cannot_claim_other_namespace` (`assert status_code == 403`), `test_viewer_cannot_submit` (`assert status_code == 403`), and `test_cursor_keeps_tied_timestamps` (`assert page1_ids + page2_ids == expected_ids`); cover reader roles, version conflict, malformed evidence, query bounds, filters, and safe errors.
-- [ ] Run the new API tests; expect missing routes and auth failure.
-- [ ] Add owner token parsing with duplicate-token rejection, wire the publication store into `create_app` using the existing pool, implement the three routes, and update OpenAPI with exact schemas and response codes. Keep `/api/control` out of the machine submission path.
-- [ ] Run focused auth/API tests and `tests/test_postgres_pool_integration.py`; expect pass.
-- [ ] Commit the API, auth, contract, and tests.
+- [x] Write failing `test_owner_cannot_claim_other_namespace` (`assert status_code == 403`), `test_viewer_cannot_submit` (`assert status_code == 403`), and `test_cursor_keeps_tied_timestamps` (`assert page1_ids + page2_ids == expected_ids`); cover reader roles, version conflict, malformed evidence, query bounds, filters, and safe errors.
+- [x] Run the new API tests; expect missing routes and auth failure.
+- [x] Add owner token parsing with duplicate-token rejection, wire the publication store into `create_app` using the existing pool, implement the three routes, and update OpenAPI with exact schemas and response codes. Keep `/api/control` out of the machine submission path.
+- [x] Run focused auth/API tests and `tests/test_postgres_pool_integration.py`; expect pass.
+- [x] Commit the API, auth, contract, and tests.
 
 ### Task 3: Cutover and coverage checkpoints
 
@@ -86,11 +88,11 @@ The per-task commit steps preserve rollback points without creating a review gat
 
 **Interfaces:** The host-local activation CLI accepts one explicit aware boundary and fixed in-scope owner set, refuses second activation, and prints no credentials. `POST /v1/publications/checkpoints` accepts only the caller owner's bounded comparison time, confirmed boundary, accepted boundary, and outstanding count. `GET /v1/publications/coverage` returns cutover plus per-owner `complete`, `lagging`, `unknown`, or `paused/unverified` with timestamps; a missing or stale checkpoint is `unknown`.
 
-- [ ] Write failing `test_activation_is_immutable` (`assert second_activation raises Conflict`), `test_pre_cutover_delivery_rejected` (`assert status_code == 422`), and `test_stale_checkpoint_is_unknown` (`assert coverage[owner].status == "unknown"`); cover owner scope, outstanding count, and paused owners.
-- [ ] Run the focused tests; expect failure for missing activation/coverage behavior.
-- [ ] Implement the CLI and endpoints. Persist checkpoints separately from publications; never infer complete coverage from a zero-row list or successful scheduler run.
-- [ ] Run focused tests and migration rehearsal tests; expect pass.
-- [ ] Commit the cutover and coverage contract.
+- [x] Write failing `test_activation_is_immutable` (`assert second_activation raises Conflict`), `test_pre_cutover_delivery_rejected` (`assert status_code == 422`), and `test_stale_checkpoint_is_unknown` (`assert coverage[owner].status == "unknown"`); cover owner scope, outstanding count, and paused owners.
+- [x] Run the focused tests; expect failure for missing activation/coverage behavior.
+- [x] Implement the CLI and endpoints. Persist checkpoints separately from publications; never infer complete coverage from a zero-row list or successful scheduler run.
+- [x] Run focused tests and migration rehearsal tests; expect pass.
+- [x] Commit the cutover and coverage contract.
 
 ### Task 4: Shared projection client and owner integration contract
 
@@ -100,11 +102,11 @@ The per-task commit steps preserve rollback points without creating a review gat
 
 **Interfaces:** `PublicationClient.submit(snapshot: Mapping[str, Any]) -> dict[str, Any]` retries only the same publication key and digest, with bounded timeouts; `checkpoint(comparison: Mapping[str, Any]) -> dict[str, Any]` reports one owner ledger comparison. The caller supplies a scoped owner credential through its existing private runtime environment. Each owner must persist the exact rendered snapshot and pending projection status at its confirmed-receipt boundary, retain it until acknowledged, and advance a durable contiguous accepted boundary. The client cannot call the Discord Delivery Owner.
 
-- [ ] Write failing `test_timeout_retries_same_identity` (`assert second_request.body == first_request.body`), `test_conflict_is_not_retried` (`assert request_count == 1`), and `test_error_redacts_token` (`assert token not in str(error)`); cover malformed acknowledgment and no Discord transport dependency.
-- [ ] Run the focused library command; expect failure for the missing client.
-- [ ] Implement the narrow HTTP client and document the owner persistence protocol. Do not create a generic cross-owner state file or derive an intent from a run summary.
-- [ ] Run the library suite; expect pass.
-- [ ] Commit the client and tests.
+- [x] Write failing `test_timeout_retries_same_identity` (`assert second_request.body == first_request.body`), `test_conflict_is_not_retried` (`assert request_count == 1`), and `test_error_redacts_token` (`assert token not in str(error)`); cover malformed acknowledgment and no Discord transport dependency.
+- [x] Run the focused library command; expect failure for the missing client.
+- [x] Implement the narrow HTTP client and document the owner persistence protocol. Do not create a generic cross-owner state file or derive an intent from a run summary.
+- [x] Run the library suite; expect pass.
+- [x] Commit the client and tests.
 
 ### Task 5: Telegram Market News and stock-status publications
 
@@ -114,11 +116,11 @@ The per-task commit steps preserve rollback points without creating a review gat
 
 **Interfaces:** The owner stores one pending publication snapshot for each confirmed news or grouped stock-status act, with stable owner key, route, exact rendered legs and receipts. It drains projection pending independently of Discord delivery and checkpoints its contiguous accepted boundary. Company, industry, macro news, and `stock_status` retain distinct public types.
 
-- [ ] Write failing `test_confirmed_stock_status_creates_one_intent` (`assert pending_count == 1`), `test_missing_leg_creates_none` (`assert pending_count == 0`), and `test_projection_outage_does_not_repost` (`assert discord_operation_count == 1`); cover news route, crash recovery, and checkpoint advance.
-- [ ] Run the focused Telegram command; expect failure for absent projection behavior.
-- [ ] Add the receipt-boundary intent and retry drain without changing parser, destination, source cursor, or Discord operation key. Update package contracts.
-- [ ] Run the focused and full package suite; expect pass.
-- [ ] Commit this owner.
+- [x] Write failing `test_confirmed_stock_status_creates_one_intent` (`assert pending_count == 1`), `test_missing_leg_creates_none` (`assert pending_count == 0`), and `test_projection_outage_does_not_repost` (`assert discord_operation_count == 1`); cover news route, crash recovery, and checkpoint advance.
+- [x] Run the focused Telegram command; expect failure for absent projection behavior.
+- [x] Add the receipt-boundary intent and retry drain without changing parser, destination, source cursor, or Discord operation key. Update package contracts.
+- [x] Run the focused and full package suite; expect pass.
+- [x] Commit this owner.
 
 ### Task 6: Stockbit news publications
 
@@ -128,11 +130,11 @@ The per-task commit steps preserve rollback points without creating a review gat
 
 **Interfaces:** Stockbit reports confirmed `idx_company_news` and `macro_news` through its existing fixed feed routes, retaining the source article identity and exact output. A paused feed or excluded article produces no publication. Accepted records advance its own contiguous checkpoint.
 
-- [ ] Write failing `test_paused_or_excluded_article_has_no_publication` (`assert pending_count == 0`) and `test_confirmed_stockbit_article_retries_projection_only` (`assert discord_operation_count == 1`); cover both news routes, incomplete leg, receipt recovery, and checkpoint.
-- [ ] Run focused Stockbit state, delivery, and owner tests; expect failure for missing projection.
-- [ ] Persist and retry the owner projection at the confirmed-receipt boundary, preserving feed cursors and frozen config.
-- [ ] Run the Stockbit suite; expect pass.
-- [ ] Commit this owner.
+- [x] Write failing `test_paused_or_excluded_article_has_no_publication` (`assert pending_count == 0`) and `test_confirmed_stockbit_article_retries_projection_only` (`assert discord_operation_count == 1`); cover both news routes, incomplete leg, receipt recovery, and checkpoint.
+- [x] Run focused Stockbit state, delivery, and owner tests; expect failure for missing projection.
+- [x] Persist and retry the owner projection at the confirmed-receipt boundary, preserving feed cursors and frozen config.
+- [x] Run the Stockbit suite; expect pass.
+- [x] Commit this owner.
 
 ### Task 7: X publications and swing context
 
@@ -140,13 +142,13 @@ The per-task commit steps preserve rollback points without creating a review gat
 
 **Files:** Modify `cron-x-account-watch/bin/delivery_handoff.py`, `bin/state.py`, `bin/scan.py`, `bin/pipeline_owner.py`, `AGENTS.md`, `SKILL.md`; create `cron-x-account-watch/tests/test_publication_projection.py`.
 
-**Interfaces:** X route decisions produce distinct IDX news, US news, macro news, and `swing_context` types. Thread edits create explicit later versions only after the edit receipt confirms. Existing pruning cannot discard a projection-pending record or the contiguous checkpoint boundary.
+**Interfaces:** X route decisions produce distinct IDX news, US news, macro news, and `swing_context` types. Thread edits create explicit later versions only after the edit receipt confirms. Preserve up to 64 exact text/media delivery legs for one post, never truncate a large thread, and keep any unrepresentable record pending. Existing pruning cannot discard a projection-pending record or the contiguous checkpoint boundary.
 
-- [ ] Write failing `test_swing_route_is_context` (`assert publication.type == "swing_context"`), `test_confirmed_edit_adds_version` (`assert versions == [1, 2]`), and `test_pruning_keeps_pending_projection` (`assert pending_count == 1`); cover IDX/US news, quote/thread output, crash recovery, and no repost.
-- [ ] Run focused X delivery/state/owner tests; expect missing projection failures.
-- [ ] Add durable pending intents and version links at the receipt boundary, with exact rendered text and safe attachment metadata.
-- [ ] Run the X suite; expect pass.
-- [ ] Commit this owner.
+- [x] Write failing `test_swing_route_is_context` (`assert publication.type == "swing_context"`), `test_confirmed_edit_adds_version` (`assert versions == [1, 2]`), and `test_pruning_keeps_pending_projection` (`assert pending_count == 1`); cover IDX/US news, quote/thread output, crash recovery, and no repost.
+- [x] Run focused X delivery/state/owner tests; expect missing projection failures.
+- [x] Add durable pending intents and version links at the receipt boundary, with exact rendered text and safe attachment metadata.
+- [x] Run the X suite; expect pass.
+- [x] Commit this owner.
 
 ### Task 8: Instagram publications
 
@@ -156,11 +158,11 @@ The per-task commit steps preserve rollback points without creating a review gat
 
 **Interfaces:** Instagram reports only confirmed news routes, preserves post identity and public source link, and retains pending projection and checkpoint through delivery pruning. Its currently unscheduled source adapter does not become an active schedule through this change.
 
-- [ ] Write failing `test_irrelevant_instagram_post_has_no_publication` (`assert pending_count == 0`) and `test_media_leg_pending_is_not_visible` (`assert pending_count == 0`); cover confirmed news, pruning/recovery, API outage, and no active-schedule claim.
-- [ ] Run focused Instagram delivery/state/owner tests; expect missing projection failures.
-- [ ] Persist the exact confirmed output and drain it independently of Discord delivery.
-- [ ] Run the Instagram suite; expect pass.
-- [ ] Commit this owner.
+- [x] Write failing `test_irrelevant_instagram_post_has_no_publication` (`assert pending_count == 0`) and `test_media_leg_pending_is_not_visible` (`assert pending_count == 0`); cover confirmed news, pruning/recovery, API outage, and no active-schedule claim.
+- [x] Run focused Instagram delivery/state/owner tests; expect missing projection failures.
+- [x] Persist the exact confirmed output and drain it independently of Discord delivery.
+- [x] Run the Instagram suite; expect pass.
+- [x] Commit this owner.
 
 ### Task 9: WhatsApp news and swing-context publications
 
@@ -170,11 +172,11 @@ The per-task commit steps preserve rollback points without creating a review gat
 
 **Interfaces:** WhatsApp route decisions retain IDX company, industry, macro, and `swing_context` labels. Observe mode and nonforwarded candidates produce no publication. Existing bridge cursor and route settings remain untouched; accepted records advance the owner checkpoint.
 
-- [ ] Write failing `test_observe_mode_has_no_publication` (`assert pending_count == 0`) and `test_whatsapp_swing_is_context` (`assert publication.type == "swing_context"`); cover news routes, pending media, receipt recovery, API outage, and no resend.
-- [ ] Run focused WhatsApp delivery/queue/owner tests; expect missing projection failures.
-- [ ] Add owner-scoped projection intent and drain at confirmed delivery, without modifying source bridge or destination semantics.
-- [ ] Run the WhatsApp Python and JavaScript sink suites; expect pass.
-- [ ] Commit this owner.
+- [x] Write failing `test_observe_mode_has_no_publication` (`assert pending_count == 0`) and `test_whatsapp_swing_is_context` (`assert publication.type == "swing_context"`); cover news routes, pending media, receipt recovery, API outage, and no resend.
+- [x] Run focused WhatsApp delivery/queue/owner tests; expect missing projection failures.
+- [x] Add owner-scoped projection intent and drain at confirmed delivery, without modifying source bridge or destination semantics.
+- [x] Run the WhatsApp Python and JavaScript sink suites; expect pass.
+- [x] Commit this owner.
 
 ### Task 10: Phintraco broker plans and source updates
 
@@ -182,13 +184,13 @@ The per-task commit steps preserve rollback points without creating a review gat
 
 **Files:** Modify `cron-tg-phintraco-swing/bin/delivery_handoff.py`, `bin/scan.py`, `bin/pipeline_owner.py`, `AGENTS.md`, `CRON.md`; create `cron-tg-phintraco-swing/tests/test_publication_projection.py`.
 
-**Interfaces:** Only a validated complete Phintraco setup becomes `broker_swing_plan`; published corrections or source updates link to the original publication. Preserve entry, stop, target, units, attribution, and Board episode link when present. An unmatched update must not be invented as a complete plan. Its receipt-backed ledger advances a contiguous checkpoint.
+**Interfaces:** Only a validated complete Phintraco setup becomes `broker_swing_plan`; linked published corrections or source updates become `broker_swing_update` and carry no invented full-plan levels. Preserve entry, stop, target, units, attribution, and Board episode link when present on the original setup. An unmatched update is not published as a complete plan or a linked update. Its receipt-backed ledger advances a contiguous checkpoint.
 
-- [ ] Write failing `test_complete_setup_is_broker_plan` (`assert publication.type == "broker_swing_plan"`), `test_partial_chart_leg_is_not_published` (`assert pending_count == 0`), and `test_crash_after_intent_does_not_repost` (`assert discord_operation_count == 1`); cover update linkage and projection outage.
-- [ ] Run focused Phintraco delivery/owner/weekly PDF tests; expect missing projection failures.
-- [ ] Persist confirmed snapshots before effect acknowledgment, then submit/retry separately; reuse stable Discord keys on recovery.
-- [ ] Run the Phintraco suite; expect pass.
-- [ ] Commit this owner.
+- [x] Write failing `test_complete_setup_is_broker_plan` (`assert publication.type == "broker_swing_plan"`), `test_partial_chart_leg_is_not_published` (`assert pending_count == 0`), and `test_crash_after_intent_does_not_repost` (`assert discord_operation_count == 1`); cover update linkage and projection outage.
+- [x] Run focused Phintraco delivery/owner/weekly PDF tests; expect missing projection failures.
+- [x] Persist confirmed snapshots before effect acknowledgment, then submit/retry separately; reuse stable Discord keys on recovery.
+- [x] Run the Phintraco suite; expect pass.
+- [x] Commit this owner.
 
 ### Task 11: Kelas swing bundles
 
@@ -198,11 +200,11 @@ The per-task commit steps preserve rollback points without creating a review gat
 
 **Interfaces:** Kelas emits `swing_bundle` using validated source fields only, with exact confirmed rendered legs, source attribution, and a durable contiguous checkpoint. It does not manufacture broker plan levels.
 
-- [ ] Write failing `test_gtw_bundle_has_no_invented_broker_levels` (`assert publication.type == "swing_bundle" and publication.broker_levels is None`) and `test_gtw_api_outage_does_not_repost` (`assert discord_operation_count == 1`); cover missing fields, incomplete leg, and recovery.
-- [ ] Run focused Kelas delivery/state/owner tests; expect missing projection failures.
-- [ ] Persist owner projection intent at receipt acknowledgment and drain it separately, preserving the existing source and delivery rules.
-- [ ] Run the Kelas suite; expect pass.
-- [ ] Commit this owner.
+- [x] Write failing `test_gtw_bundle_has_no_invented_broker_levels` (`assert publication.type == "swing_bundle" and publication.broker_levels is None`) and `test_gtw_api_outage_does_not_repost` (`assert discord_operation_count == 1`); cover missing fields, incomplete leg, and recovery.
+- [x] Run focused Kelas delivery/state/owner tests; expect missing projection failures.
+- [x] Persist owner projection intent at receipt acknowledgment and drain it separately, preserving the existing source and delivery rules.
+- [x] Run the Kelas suite; expect pass.
+- [x] Commit this owner.
 
 ### Task 12: Swing Board published actions
 
@@ -212,11 +214,11 @@ The per-task commit steps preserve rollback points without creating a review gat
 
 **Interfaces:** Board emits its own `swing_board_update` acts for confirmed starters, replies, and lifecycle changes, preserving episode and parent-publication links. Its SQLite projection intent is transactional with completed outbox state; accepted records advance a contiguous Board checkpoint.
 
-- [ ] Write failing `test_board_reply_links_parent` (`assert reply.parent_publication_id == starter.publication_id`) and `test_board_projection_failure_does_not_repost` (`assert discord_operation_count == 1`); cover starter, lifecycle, incomplete operation, and SQLite recovery.
-- [ ] Run focused Board delivery/store/engine tests; expect missing projection failures.
-- [ ] Add transactional projection intents and a separate drain, preserving Board authority and fixed job schedules.
-- [ ] Run the Board suite; expect pass.
-- [ ] Commit this owner.
+- [x] Write failing `test_board_reply_links_parent` (`assert reply.parent_publication_id == starter.publication_id`) and `test_board_projection_failure_does_not_repost` (`assert discord_operation_count == 1`); cover starter, lifecycle, incomplete operation, and SQLite recovery.
+- [x] Run focused Board delivery/store/engine tests; expect missing projection failures.
+- [x] Add transactional projection intents and a separate drain, preserving Board authority and fixed job schedules.
+- [x] Run the Board suite; expect pass.
+- [x] Commit this owner.
 
 ### Task 13: Published workspace read path and UI
 
@@ -226,11 +228,11 @@ The per-task commit steps preserve rollback points without creating a review gat
 
 **Interfaces:** `publicationPage` and `publicationCoverage` Zod schemas reject malformed/private fields. The server reader adds `listPublications(filters, cursor)`, `getPublication(id)`, and `getPublicationCoverage()`; the same-origin proxy allowlists only their GET routes. `/workspace/published` renders forward-only, cursor-paginated News/Swing lists and a detail with exact delivered legs, source link, Board links, and coverage state.
 
-- [ ] Write failing `published list keeps cursor ties` (`expect(allIds).toEqual(expectedIds)`), `stale checkpoint warns without complete claim` (`expect(coverage).toBe("unknown")`), and `proxy rejects publication POST` (`expect(status).toBe(404)`); cover no-store auth, malformed records, date/source/type/route/ticker filters, context versus plan, forward-only empty state, and safe detail links.
-- [ ] Run `cd web-config && npm run check`; expect the new tests to fail before the reader and page exist.
-- [ ] Implement validated API reads and UI. Keep existing Workflows and History purposes intact; coordinate final nav order with the operator-workspace plan and preserve mobile/keyboard access.
-- [ ] Run `npm run check` in `web-config` and `web-landing`; expect pass.
-- [ ] Commit the web read path and docs.
+- [x] Write failing `published list keeps cursor ties` (`expect(allIds).toEqual(expectedIds)`), `stale checkpoint warns without complete claim` (`expect(coverage).toBe("unknown")`), and `proxy rejects publication POST` (`expect(status).toBe(404)`); cover no-store auth, malformed records, date/source/type/route/ticker filters, context versus plan, forward-only empty state, and safe detail links.
+- [x] Run `cd web-config && npm run check`; expect the new tests to fail before the reader and page exist.
+- [x] Implement validated API reads and UI. Keep existing Workflows and History purposes intact; coordinate final nav order with the operator-workspace plan and preserve mobile/keyboard access.
+- [x] Run `npm run check` in `web-config` and `web-landing`; expect pass.
+- [x] Commit the web read path and docs.
 
 ### Task 14: Coverage integration and release evidence
 
@@ -240,11 +242,11 @@ The per-task commit steps preserve rollback points without creating a review gat
 
 **Interfaces:** Each owner already has a receipt-backed checkpoint from Tasks 5 to 12. The workspace's all-publisher completeness claim requires every required owner checkpoint. The synthetic cross-package test exercises the published contract without a production read, write, or post.
 
-- [ ] Write failing `test_all_publisher_coverage_requires_every_owner` (`assert coverage.complete is False` while one owner is lagging, paused, or unreported) and `test_api_outage_repair_uses_projection_only` (`assert discord_operation_count == 1`); use synthetic owner fixtures only.
-- [ ] Run the focused coverage tests; expect failure until every owner supplies the checkpoint path.
-- [ ] Document the activation sequence: additive schema, scoped credentials, all owner reporters staged and checked with projection disabled, explicit cutover record, web release, natural receipt and checkpoint verification. Keep actual production mutations in separate approved rollout work.
-- [ ] Run all focused owner suites, `bash scripts/test-all`, `npm run check` in both web packages, and `python3 scripts/production_snapshot.py --production` before any current-production documentation claim; expect all local checks to pass and record the snapshot's stated limits.
-- [ ] Commit final documentation and contract corrections.
+- [x] Write failing `test_all_publisher_coverage_requires_every_owner` (`assert coverage.complete is False` while one owner is lagging, paused, or unreported) and `test_api_outage_repair_uses_projection_only` (`assert discord_operation_count == 1`); use synthetic owner fixtures only.
+- [x] Run the focused coverage tests; expect failure until every owner supplies the checkpoint path.
+- [x] Document the activation sequence: additive schema, scoped credentials, all owner reporters staged and checked with projection disabled, explicit cutover record, web release, natural receipt and checkpoint verification. Keep actual production mutations in separate approved rollout work.
+- [x] Run all focused owner suites, `bash scripts/test-all`, and `npm run check` in both web packages. Run `python3 scripts/production_snapshot.py --production` only before making current-production claims; this implementation adds none and makes no deployment claim.
+- [x] Commit final documentation and contract corrections.
 
 ## Execution handoff
 

@@ -1,18 +1,18 @@
-# BursaWatch Operator Workspace After Source Migration
+# Bursawatch Operator Workspace After Source Migration
 
 **Date:** 2026-09-29
 
-**Status:** Conversation design approved; written spec pending user review. Implementation and production release are separate work.
+**Status:** Approved; implementation is complete on the feature branch. Production rollout and cutover remain separately gated.
 
 ## Intent and success criteria
 
-Make the authenticated `web-config` workspace an accurate operator view of the migrated BursaWatch engine. Operators should see the actual source adapters, domain owners, schedules, configuration coverage, and recent outcomes without mistaking an old watcher run or a saved configuration for current source or delivery health. Every setting that the engine deliberately makes safe for an operator to change should have a supported, validated web control. Credentials, source cursors, runtime state, fixed system rules, and private infrastructure values remain backend-owned.
+Make the authenticated `web-config` workspace an accurate operator view of the migrated Bursawatch engine. Operators should see the actual source adapters, domain owners, schedules, configuration coverage, and recent outcomes without mistaking an old watcher run or a saved configuration for current source or delivery health. Every setting that the engine deliberately makes safe for an operator to change should have a supported, validated web control. Credentials, source cursors, runtime state, fixed system rules, and private infrastructure values remain backend-owned.
 
 The workspace should also allow authorized operators to pause and change the cadence of migrated source-ingest interval jobs through Control Plane desired revisions and the trusted Hermes schedule reconciler. The web app must not call the Hermes CLI or write its registry directly. Fixed calendar jobs remain read-only unless separately designed.
 
 Success means an operator can identify the actual source adapter, domain owner, and job for each supported path; edit every validated operator-safe setting through a working web control; and tell a saved intent from an observed effect. A shared source job must appear once, with clear links to every source and workflow it serves. Empty, paused, stale, and unknown states must remain distinguishable from current failures.
 
-This design is distinct from the Published feed design in `2026-09-29-bursawatch-published-feed-design.md`, committed on the sibling `absolutepraya/published-feed-spec` branch. That feed adds records of delivered news and swing output. This design covers operational truth and configuration of the existing engine. The two share workspace navigation and authentication but need separate implementation plans and release checks.
+This design is distinct from the Published feed design in `2026-09-29-bursawatch-published-feed-design.md`. That feed adds records of delivered news and swing output. This design covers operational truth and configuration of the existing engine. The two share workspace navigation and authentication, with separate implementation plans and release checks.
 
 ## Current evidence
 

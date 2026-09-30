@@ -87,6 +87,7 @@
 
 .operator-job-card {
   min-width: 0;
+  scroll-margin-top: 24px;
   padding: 22px;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -95,9 +96,15 @@
 
 .operator-job-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: start;
   justify-content: space-between;
   gap: 16px;
+}
+
+.operator-job-heading > div {
+  flex: 1 1 180px;
+  min-width: 0;
 }
 
 .operator-job-heading h2 {
@@ -112,12 +119,14 @@
 }
 
 .operator-job-state {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  max-width: 100%;
   padding: 6px 10px;
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--muted);
   font-size: 0.8rem;
+  overflow-wrap: anywhere;
 }
 
 .operator-job-state-active {
@@ -308,43 +317,6 @@
   flex-wrap: wrap;
   gap: 12px;
   margin: 24px 0;
-}
-.control-workflow-schedules {
-  margin-top: 32px;
-  scroll-margin-top: 32px;
-}
-.control-workflow-schedules-heading {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px 20px;
-  max-width: 900px;
-  margin-bottom: 18px;
-}
-.control-workflow-schedules-heading h2 {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 600;
-}
-.control-workflow-schedules-heading p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.8125rem;
-}
-.control-schedule-list {
-  display: grid;
-  gap: 20px;
-  max-width: 900px;
-}
-.control-schedule-read {
-  padding: 26px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface);
-}
-.control-schedule-read p {
-  margin: 8px 0;
 }
 .control-run-meta {
   display: flex;
