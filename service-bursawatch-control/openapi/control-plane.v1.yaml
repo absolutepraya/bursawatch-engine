@@ -390,6 +390,42 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/SchedulerJob'
+  /v1/internal/observations:
+    post:
+      summary: Submit a bounded Hermes job observation.
+      description: Dedicated observer principal only. The server derives observer identity from its credential. This role cannot write desired schedules, configurations, cursors, or publications.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ObservationWrite'
+      responses:
+        '202':
+          description: Accepted observation, or the newer stored observation when the report was out of order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObservationAccepted'
+        '403':
+          description: Credential is not scoped to the Hermes observer.
+        '422':
+          description: Unknown job, malformed evidence, or unsafe values.
+  /v1/observations:
+    get:
+      summary: Read bounded latest job observations.
+      description: Signed-in viewer or admin only. Each record keeps received time, freshness, desired state, reconciliation state, and live schedule comparison separate.
+      responses:
+        '200':
+          description: Latest safe observation summaries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Observation'
+        '403':
+          description: Machine principals are denied.
   /v1/jobs/{job_id}:
     parameters:
       - $ref: '#/components/parameters/JobId'
@@ -1066,6 +1102,82 @@ components:
             - type: 'null'
         reconciliation:
           $ref: '#/components/schemas/SchedulerReconciliation'
+    ObservationWrite:
+      type: object
+      additionalProperties: false
+      required: [api_version, identity_kind, identity_id, observed_at, status, evidence]
+      properties:
+        api_version:
+          type: integer
+          const: 1
+        identity_kind:
+          type: string
+          const: job
+        identity_id:
+          type: string
+          maxLength: 128
+          description: Logical Control Plane job ID, not necessarily the Hermes runtime name.
+        observed_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [enabled, disabled]
+        evidence:
+          type: object
+          additionalProperties: false
+          required: [runtime_job_key, enabled, schedule, last_execution]
+          properties:
+            runtime_job_key:
+              type: string
+              maxLength: 128
+            enabled:
+              type: boolean
+            schedule:
+              oneOf:
+                - type: object
+                  additionalProperties: false
+                  required: [kind, minutes]
+                  properties:
+                    kind: {type: string, const: interval}
+                    minutes: {type: integer, minimum: 1, maximum: 1440}
+                - type: object
+                  additionalProperties: false
+                  required: [kind, expr]
+                  properties:
+                    kind: {type: string, const: cron}
+                    expr: {type: string, maxLength: 100, pattern: '^[0-9*/?, -]+$'}
+            last_execution:
+              type: object
+              additionalProperties: false
+              required: [at, status]
+              properties:
+                at: {type: [string, 'null'], format: date-time}
+                status: {type: [string, 'null'], enum: [success, failed, running, skipped, null]}
+    Observation:
+      allOf:
+        - $ref: '#/components/schemas/ObservationWrite'
+        - type: object
+          required: [observer_id, received_at, freshness, comparison, desired, reconciliation]
+          properties:
+            observer_id: {type: string}
+            received_at: {type: string, format: date-time}
+            freshness: {type: string, enum: [fresh, stale]}
+            comparison: {type: string, enum: [match, mismatch]}
+            desired: {oneOf: [{'$ref': '#/components/schemas/ScheduleSnapshot'}, {type: 'null'}]}
+            reconciliation: {'$ref': '#/components/schemas/SchedulerReconciliation'}
+    ObservationAccepted:
+      type: object
+      required: [identity_kind, identity_id, observer_id, observed_at, received_at, status, evidence, freshness]
+      properties:
+        identity_kind: {type: string, const: job}
+        identity_id: {type: string}
+        observer_id: {type: string}
+        observed_at: {type: string, format: date-time}
+        received_at: {type: string, format: date-time}
+        status: {type: string, enum: [enabled, disabled, stale]}
+        evidence: {type: object}
+        freshness: {type: string, enum: [fresh, stale]}
     Run:
       type: object
       additionalProperties: false

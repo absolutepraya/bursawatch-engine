@@ -167,3 +167,25 @@ def test_supabase_mode_rejects_the_legacy_static_admin_token(monkeypatch):
 
     with pytest.raises(RuntimeError, match="must be unset"):
         auth_from_environment()
+
+
+def test_observer_token_is_a_distinct_trusted_principal():
+    auth = StaticTokenAuth(
+        machine_token="machine-token",
+        admin_token="admin-token",
+        reconciler_token="reconciler-token",
+        observer_token="observer-token",
+    )
+    assert auth.authenticate("Bearer observer-token").kind == "observer"
+    assert auth.authenticate("Bearer reconciler-token").kind == "reconciler"
+    with pytest.raises(ValueError, match="distinct"):
+        StaticTokenAuth(machine_token="shared-token", admin_token=None, observer_token="shared-token")
+
+
+def test_environment_auth_loads_observer_separately(monkeypatch):
+    monkeypatch.setenv("CONTROL_PLANE_OBSERVER_TOKEN", "observer-token")
+    monkeypatch.delenv("CONTROL_PLANE_MACHINE_TOKEN", raising=False)
+    monkeypatch.delenv("CONTROL_PLANE_RECONCILER_TOKEN", raising=False)
+    monkeypatch.delenv("CONTROL_PLANE_ADMIN_TOKEN", raising=False)
+    monkeypatch.delenv("CONTROL_PLANE_SUPABASE_URL", raising=False)
+    assert auth_from_environment().authenticate("Bearer observer-token").kind == "observer"

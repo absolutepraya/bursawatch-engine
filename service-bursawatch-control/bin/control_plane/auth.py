@@ -32,6 +32,7 @@ class StaticTokenAuth:
         admin_token: str | None,
         reconciler_token: str | None = None,
         source_endpoint_tokens: dict[str, str] | None = None,
+        observer_token: str | None = None,
     ) -> None:
         source_endpoint_tokens = source_endpoint_tokens or {}
         if len(source_endpoint_tokens) > 500 or any(
@@ -42,7 +43,7 @@ class StaticTokenAuth:
             raise ValueError("source endpoint credentials are invalid")
         configured_tokens = [
             token
-            for token in (machine_token, admin_token, reconciler_token)
+            for token in (machine_token, admin_token, reconciler_token, observer_token)
             if token is not None and token.strip()
         ] + list(source_endpoint_tokens.values())
         if len(configured_tokens) != len(set(configured_tokens)):
@@ -50,6 +51,7 @@ class StaticTokenAuth:
         self.machine_token = machine_token
         self.admin_token = admin_token
         self.reconciler_token = reconciler_token
+        self.observer_token = observer_token
         self.source_endpoint_tokens = dict(source_endpoint_tokens)
 
     @classmethod
@@ -58,6 +60,7 @@ class StaticTokenAuth:
             machine_token=os.environ.get("CONTROL_PLANE_MACHINE_TOKEN"),
             admin_token=os.environ.get("CONTROL_PLANE_ADMIN_TOKEN"),
             reconciler_token=os.environ.get("CONTROL_PLANE_RECONCILER_TOKEN"),
+            observer_token=os.environ.get("CONTROL_PLANE_OBSERVER_TOKEN"),
             source_endpoint_tokens=_source_endpoint_tokens_from_environment(),
         )
 
@@ -74,6 +77,8 @@ class StaticTokenAuth:
                 return Principal(subject=endpoint, kind="source_machine")
         if self.reconciler_token and secrets_equal(token, self.reconciler_token):
             return Principal(subject="schedule-reconciler", kind="reconciler")
+        if self.observer_token and secrets_equal(token, self.observer_token):
+            return Principal(subject="hermes-observer", kind="observer")
         if self.admin_token and secrets_equal(token, self.admin_token):
             return Principal(subject="static-admin", kind="admin")
         raise AuthenticationError("invalid bearer credential")
@@ -172,6 +177,7 @@ def auth_from_environment() -> Authenticator:
     machine_token = os.environ.get("CONTROL_PLANE_MACHINE_TOKEN")
     static_admin_token = os.environ.get("CONTROL_PLANE_ADMIN_TOKEN")
     reconciler_token = os.environ.get("CONTROL_PLANE_RECONCILER_TOKEN")
+    observer_token = os.environ.get("CONTROL_PLANE_OBSERVER_TOKEN")
     source_endpoint_tokens = _source_endpoint_tokens_from_environment()
     supabase_url = os.environ.get("CONTROL_PLANE_SUPABASE_URL", "").strip()
     if not supabase_url:
@@ -179,6 +185,7 @@ def auth_from_environment() -> Authenticator:
             machine_token=machine_token,
             admin_token=static_admin_token,
             reconciler_token=reconciler_token,
+            observer_token=observer_token,
             source_endpoint_tokens=source_endpoint_tokens,
         )
     if static_admin_token:
@@ -186,13 +193,14 @@ def auth_from_environment() -> Authenticator:
     authenticators: list[Authenticator] = [
         SupabaseJwtAuth(supabase_url, parse_admin_user_ids(os.environ.get("CONTROL_PLANE_ADMIN_USER_IDS")))
     ]
-    if machine_token or reconciler_token or source_endpoint_tokens:
+    if machine_token or reconciler_token or observer_token or source_endpoint_tokens:
         authenticators.insert(
             0,
             StaticTokenAuth(
                 machine_token=machine_token,
                 admin_token=None,
                 reconciler_token=reconciler_token,
+                observer_token=observer_token,
                 source_endpoint_tokens=source_endpoint_tokens,
             ),
         )

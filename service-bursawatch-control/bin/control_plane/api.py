@@ -22,6 +22,14 @@ from .profile_metadata import (
     validate_profile_id,
 )
 from .operator_inventory import component_view, list_components
+from .operator_observations import (
+    MemoryObservationStore,
+    ObservationError,
+    ObservationStore,
+    PostgresObservationStore,
+    observation_view,
+    validate_observation,
+)
 from .postgres_pool import create_postgres_pool
 from .store import (
     EventRecord,
@@ -248,6 +256,7 @@ def create_app(
     avatar_resolver: AvatarResolver | None = None,
     catalog_store: MemoryCatalogStore | PostgresCatalogStore | None = None,
     inbox_store: MemoryInboxStore | PostgresInboxStore | None = None,
+    observation_store: ObservationStore | None = None,
 ) -> FastAPI:
     store = store or InMemoryStore()
     auth = auth or StaticTokenAuth.from_environment()
@@ -255,6 +264,7 @@ def create_app(
     pool = store.pool if isinstance(store, PostgresStore) else None
     catalog_store = catalog_store or (PostgresCatalogStore(store.dsn, pool=pool) if isinstance(store, PostgresStore) else MemoryCatalogStore())
     inbox_store = inbox_store or (PostgresInboxStore(store.dsn, catalog_store, pool=pool) if isinstance(store, PostgresStore) else MemoryInboxStore(catalog_store))
+    observation_store = observation_store or (PostgresObservationStore(pool) if pool is not None else MemoryObservationStore())
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -310,6 +320,11 @@ def create_app(
     def reconciler_only(current: Principal = Depends(principal)) -> Principal:
         if current.kind != "reconciler":
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="schedule reconciler role required")
+        return current
+
+    def observer_only(current: Principal = Depends(principal)) -> Principal:
+        if current.kind != "observer":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="observer role required")
         return current
 
     def current_profile_metadata(watcher_id: str) -> list[ProfileAvatarRecord]:
@@ -600,6 +615,40 @@ def create_app(
             return _job_response(store.get_job(job_id))
         except (ContractError, KeyError) as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="scheduler job not found") from exc
+
+    @app.post("/v1/internal/observations", status_code=status.HTTP_202_ACCEPTED)
+    def accept_observation(payload: dict[str, Any], current: Principal = Depends(observer_only)) -> dict[str, Any]:
+        try:
+            observation = validate_observation(payload, current.subject, store.list_all_jobs())
+            accepted = observation_store.accept(observation)
+            return observation_view(accepted)
+        except ObservationError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    @app.get("/v1/observations")
+    def list_observations(_current: Principal = Depends(human_reader)) -> list[dict[str, Any]]:
+        by_id = {job.job_id: job for job in store.list_all_jobs()}
+        result: list[dict[str, Any]] = []
+        for observation in observation_store.list_latest():
+            row = observation_view(observation)
+            job = by_id.get(observation.identity_id)
+            if job is not None:
+                desired = job.schedule.to_dict() if job.schedule is not None else None
+                observed_schedule = observation.evidence.get("schedule")
+                schedule_match = (
+                    (desired is None and job.schedule_kind != "interval")
+                    or (desired is not None and observed_schedule == {
+                        "kind": "interval", "minutes": desired["interval_seconds"] // 60
+                    } and observation.evidence.get("enabled") == desired["enabled"])
+                )
+                row["comparison"] = "mismatch" if not schedule_match else "match"
+                row["desired"] = desired
+                row["reconciliation"] = {
+                    "status": job.reconciliation_status,
+                    "applied_revision": job.applied_revision,
+                }
+            result.append(row)
+        return result
 
     @app.get("/v1/internal/schedules")
     def list_reconcilable_schedules(_current: Principal = Depends(reconciler_only)) -> list[dict[str, Any]]:
