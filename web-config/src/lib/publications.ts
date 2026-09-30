@@ -155,6 +155,7 @@ export const publicationFilters = z
   .object({
     limit: z.number().int().min(1).max(100).optional(),
     cursor: z.string().min(1).max(2048).optional(),
+    group: z.enum(["news", "swing"]).optional(),
     type: type.optional(),
     route: route.optional(),
     date_from: awareTime.optional(),

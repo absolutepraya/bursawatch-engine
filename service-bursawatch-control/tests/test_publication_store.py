@@ -73,3 +73,22 @@ def test_cursor_keeps_tied_delivery_timestamps_and_filters_before_advance():
     assert [row["type"] for row in filtered["items"] + later["items"]] == ["macro_news", "macro_news"]
     with pytest.raises(ValueError, match="cursor"):
         store.list_page(limit=1, filters={"type": "idx_company_news"}, cursor=filtered["next_cursor"])
+
+
+def test_news_and_swing_groups_filter_before_cursor_advance():
+    owner = "bursawatch-x-account-watch"
+    store = MemoryPublicationStore()
+    store.activate(BOUNDARY, (owner,))
+    for number in range(6):
+        value = publication(owner_key=f"synthetic:x:{number}")
+        if number % 2:
+            value["type"] = "swing_context"
+            value["route"] = "id_stocks_swing"
+        store.accept(owner, value)
+    first = store.list_page(limit=2, filters={"group": "swing"})
+    second = store.list_page(limit=2, filters={"group": "swing"}, cursor=first["next_cursor"])
+    assert len(first["items"] + second["items"]) == 3
+    assert all(item["type"] == "swing_context" for item in first["items"] + second["items"])
+    assert len(store.list_page(limit=10, filters={"group": "news"})["items"]) == 3
+    with pytest.raises(ValueError, match="group"):
+        store.list_page(filters={"group": "unknown"})

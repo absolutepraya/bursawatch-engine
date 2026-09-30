@@ -15,14 +15,14 @@ describe("Published proxy", () => {
   it("forwards only bounded GET filters with the user's JWT and no-store", async () => {
     const fetchImpl = fetcher({ items: [], next_cursor: null });
     const request = new Request(
-      "https://web.example.test/api/control/publications?type=swing_context&limit=20",
+      "https://web.example.test/api/control/publications?group=swing&type=swing_context&limit=20",
       { headers },
     );
     const response = await handleControlRequest(request, ["publications"], { origin, fetchImpl });
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toContain("no-store");
     expect(fetchImpl.mock.calls[0][0]).toBe(
-      `${origin}/v1/publications?limit=20&type=swing_context`,
+      `${origin}/v1/publications?limit=20&group=swing&type=swing_context`,
     );
     expect(fetchImpl.mock.calls[0][1]).toMatchObject({
       method: "GET",

@@ -17,7 +17,9 @@ class PublicationConflict(ValueError):
     """A cutover, publication key, or version conflicts with accepted state."""
 
 
-FILTER_KEYS = {"type", "route", "date_from", "date_to", "source", "ticker"}
+FILTER_KEYS = {"group", "type", "route", "date_from", "date_to", "source", "ticker"}
+SWING_TYPES = {"broker_swing_plan", "swing_context", "swing_bundle", "swing_board_update"}
+NEWS_TYPES = {kind for routes in OWNER_ROUTES.values() for kind in routes} - SWING_TYPES
 
 
 def _canonical(value: object) -> bytes:
@@ -34,6 +36,8 @@ def _normalize_filters(filters: dict[str, str] | None) -> dict[str, str]:
         if type(value) is not str or not 1 <= len(value) <= 200:
             raise ValueError("publication filter is invalid")
         clean[key] = value
+    if "group" in clean and clean["group"] not in {"news", "swing"}:
+        raise ValueError("publication group filter is invalid")
     for key in ("date_from", "date_to"):
         if key in clean:
             try:
@@ -75,6 +79,10 @@ def _cursor_decode(value: str, filters: dict[str, str]) -> tuple[str, str, int]:
 
 
 def _matches(row: dict[str, Any], filters: dict[str, str]) -> bool:
+    if filters.get("group") == "news" and row["type"] not in NEWS_TYPES:
+        return False
+    if filters.get("group") == "swing" and row["type"] not in SWING_TYPES:
+        return False
     if "type" in filters and row["type"] != filters["type"]:
         return False
     if "route" in filters and row["route"] != filters["route"]:
@@ -371,6 +379,12 @@ class PostgresPublicationStore:
         cursor_key = _cursor_decode(cursor, clean_filters) if cursor is not None else None
         where: list[str] = []
         parameters: list[object] = []
+        if clean_filters.get("group") == "news":
+            where.append("publication_type = any(%s)")
+            parameters.append(sorted(NEWS_TYPES))
+        elif clean_filters.get("group") == "swing":
+            where.append("publication_type = any(%s)")
+            parameters.append(sorted(SWING_TYPES))
         for key, column in (("type", "publication_type"), ("route", "route"), ("ticker", "ticker")):
             if key in clean_filters:
                 where.append(f"{column} = %s")

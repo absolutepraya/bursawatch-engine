@@ -71,6 +71,7 @@ paths:
       parameters:
         - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
         - {name: cursor, in: query, schema: {type: string, maxLength: 2048}}
+        - {name: group, in: query, schema: {type: string, enum: [news, swing]}}
         - {name: type, in: query, schema: {type: string, maxLength: 200}}
         - {name: route, in: query, schema: {type: string, maxLength: 200}}
         - {name: date_from, in: query, schema: {type: string, format: date-time}}

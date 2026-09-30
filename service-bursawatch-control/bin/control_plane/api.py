@@ -501,6 +501,7 @@ def create_app(
     def list_publications(
         limit: int = Query(default=20, ge=1, le=100),
         cursor: str | None = Query(default=None, max_length=2048),
+        group: str | None = None,
         type: str | None = None,
         route: str | None = None,
         date_from: str | None = None,
@@ -510,7 +511,7 @@ def create_app(
         _current: Principal = Depends(human_reader),
     ) -> dict[str, Any]:
         filters = {key: value for key, value in {
-            "type": type, "route": route, "date_from": date_from, "date_to": date_to,
+            "group": group, "type": type, "route": route, "date_from": date_from, "date_to": date_to,
             "source": source, "ticker": ticker,
         }.items() if value is not None}
         try:
