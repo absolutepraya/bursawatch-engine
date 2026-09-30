@@ -22,6 +22,7 @@ from .profile_metadata import (
     validate_profile_id,
 )
 from .operator_inventory import component_view, list_components
+from .operator_activity import get_endpoint_activity, get_pipeline_activity
 from .operator_observations import (
     MemoryObservationStore,
     ObservationError,
@@ -452,6 +453,30 @@ def create_app(
     def get_component(component_id: str, _current: Principal = Depends(human_reader)) -> dict[str, Any]:
         return component_inventory_view(component_id)
 
+    @app.get("/v1/components/{component_id}/activity")
+    def get_component_activity(component_id: str, _current: Principal = Depends(human_reader)) -> dict[str, Any]:
+        component = component_inventory_view(component_id)
+        endpoints: list[dict[str, Any]] = []
+        if component["kind"] == "source_adapter":
+            platform = {
+                "bursawatch-tg-source-ingest": "telegram",
+                "bursawatch-x-source-ingest": "x",
+                "bursawatch-ig-source-ingest": "instagram",
+                "bursawatch-wa-source-ingest": "whatsapp",
+                "bursawatch-rss-source-ingest": "rss",
+            }[component_id]
+            current = catalog_store.get()
+            declared = catalog_store.registry()["endpoints"] + current["config"]["endpoints"]
+            endpoint_ids = sorted({row["id"] for row in declared if row["platform"] == platform})
+            endpoints = [get_endpoint_activity(inbox_store, endpoint_id).to_dict() for endpoint_id in endpoint_ids]
+        return {
+            "component_id": component_id,
+            "endpoints": endpoints,
+            "pipelines": [get_pipeline_activity(inbox_store, pipeline_id).to_dict()
+                          for pipeline_id in component["pipeline_ids"]],
+            "delivery_status": "not instrumented",
+        }
+
     @app.put("/v1/source-catalog/config")
     def put_source_catalog(payload: CatalogWrite, current: Principal = Depends(admin_only)) -> dict[str, Any]:
         try:
@@ -635,13 +660,15 @@ def create_app(
             if job is not None:
                 desired = job.schedule.to_dict() if job.schedule is not None else None
                 observed_schedule = observation.evidence.get("schedule")
-                schedule_match = (
-                    (desired is None and job.schedule_kind != "interval")
-                    or (desired is not None and observed_schedule == {
-                        "kind": "interval", "minutes": desired["interval_seconds"] // 60
-                    } and observation.evidence.get("enabled") == desired["enabled"])
-                )
-                row["comparison"] = "mismatch" if not schedule_match else "match"
+                if desired is None:
+                    # Fixed jobs have no Control Plane desired schedule to compare.
+                    row["comparison"] = "not_comparable"
+                else:
+                    schedule_match = (
+                        observed_schedule == {"kind": "interval", "minutes": desired["interval_seconds"] // 60}
+                        and observation.evidence.get("enabled") == desired["enabled"]
+                    )
+                    row["comparison"] = "match" if schedule_match else "mismatch"
                 row["desired"] = desired
                 row["reconciliation"] = {
                     "status": job.reconciliation_status,

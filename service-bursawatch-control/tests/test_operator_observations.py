@@ -151,3 +151,18 @@ def test_observer_can_post_and_viewer_cannot_post_observation():
     human_read = client.get("/v1/observations", headers={"Authorization": f"Bearer {VIEWER}"})
     assert human_read.status_code == 200
     assert human_read.json()[0]["comparison"] == "match"
+
+
+def test_fixed_job_observation_has_no_desired_schedule_comparison():
+    client = TestClient(create_app(
+        store=_store(),
+        auth=StaticTokenAuth(machine_token="machine-token", admin_token="admin-token", observer_token=OBSERVER),
+    ))
+    body = _payload(datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"), runtime="bursawatch-x-account-watch-queue")
+    body["identity_id"] = "bursawatch-x-account-watch-queue-worker"
+    body["evidence"]["schedule"] = {"kind": "cron", "expr": "*/5 * * * *"}
+    accepted = client.post("/v1/internal/observations", headers={"Authorization": f"Bearer {OBSERVER}"}, json=body)
+    assert accepted.status_code == 202, accepted.text
+    read = client.get("/v1/observations", headers={"Authorization": "Bearer admin-token"})
+    assert read.status_code == 200
+    assert read.json()[0]["comparison"] == "not_comparable"

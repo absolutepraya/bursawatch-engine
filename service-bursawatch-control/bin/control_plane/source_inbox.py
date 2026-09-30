@@ -236,7 +236,7 @@ class MemoryInboxStore:
                     raise InboxConflict("provider identity already accepted with different content; use correction")
                 return {"event_key": key, "version": 1, "duplicate": True, "work_keys": [k for k, w in self.work.items() if w["event_key"] == key and w["version"] == 1]}
             subs = _subscriptions(self.catalog.get(), self.catalog.registry(), envelope)
-            self.events[key] = {"event_key": key, "versions": [{"version": 1, "envelope": envelope, "kind": "original"}]}
+            self.events[key] = {"event_key": key, "created_at": _now().isoformat(), "versions": [{"version": 1, "envelope": envelope, "kind": "original"}]}
             keys = []
             for sub in subs:
                 item = self._create_work(key, 1, sub)
@@ -245,7 +245,8 @@ class MemoryInboxStore:
 
     def _create_work(self, key: str, version: int, sub: dict[str, Any]) -> dict[str, Any]:
         wid = work_key(key, version, sub["capability_id"])
-        item = {"work_key": wid, "event_key": key, "version": version, **deepcopy(sub), "pipeline_id": sub["pipeline"], "effect_key": wid, "status": "pending", "attempts": 0, "available_at": _now().isoformat(), "lease_token": None, "lease_until": None, "error_code": None}
+        created_at = _now().isoformat()
+        item = {"work_key": wid, "event_key": key, "version": version, **deepcopy(sub), "pipeline_id": sub["pipeline"], "effect_key": wid, "status": "pending", "attempts": 0, "created_at": created_at, "available_at": created_at, "lease_token": None, "lease_until": None, "error_code": None}
         self.work[wid] = item
         return item
 
@@ -313,6 +314,20 @@ class MemoryInboxStore:
             raise ValueError("invalid work filter")
         with self.lock:
             return [deepcopy(w) for w in self.work.values() if w["status"] == status][:limit]
+
+    def latest_endpoint_accepted_at(self, endpoint_id: str) -> str | None:
+        with self.lock:
+            times = [item["created_at"] for item in self.events.values()
+                     if item["versions"][0]["envelope"]["endpoint_id"] == endpoint_id]
+        return max(times) if times else None
+
+    def latest_pipeline_work(self, pipeline_id: str) -> tuple[str, str] | None:
+        with self.lock:
+            matches = [item for item in self.work.values() if item["pipeline_id"] == pipeline_id]
+            if not matches:
+                return None
+            latest = max(matches, key=lambda item: (item["created_at"], item["work_key"]))
+            return latest["created_at"], latest["status"]
 
     def suppress(self, wid: str, actor: str, reason: str) -> dict[str, Any]:
         with self.lock:
@@ -551,6 +566,24 @@ class PostgresInboxStore:
         with self._connect() as conn:
             rows = conn.execute("select * from bursawatch_source_work where status=%s order by available_at,work_key limit %s", (status, limit)).fetchall()
             return [self._work(row) for row in rows]
+
+    def latest_endpoint_accepted_at(self, endpoint_id: str) -> str | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "select created_at from bursawatch_source_events where endpoint_id=%s "
+                "order by created_at desc, event_key desc limit 1",
+                (endpoint_id,),
+            ).fetchone()
+        return row["created_at"].isoformat() if row else None
+
+    def latest_pipeline_work(self, pipeline_id: str) -> tuple[str, str] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "select created_at, status from bursawatch_source_work where pipeline_id=%s "
+                "order by created_at desc, work_key desc limit 1",
+                (pipeline_id,),
+            ).fetchone()
+        return (row["created_at"].isoformat(), row["status"]) if row else None
 
     def _operator_action(self, wid: str, actor: str, reason: str, action: str) -> dict[str, Any]:
         if not actor or type(reason) is not str or not 1 <= len(reason.strip()) <= 500:

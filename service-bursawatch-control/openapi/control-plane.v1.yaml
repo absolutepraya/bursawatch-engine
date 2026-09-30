@@ -43,6 +43,27 @@ paths:
           description: Machine and other non-human principals are denied.
         '404':
           description: Component is not declared in this inventory version.
+  /v1/components/{component_id}/activity:
+    parameters:
+      - name: component_id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Read bounded Source Inbox activity for one declared component.
+      description: Signed-in viewer or admin only. Acceptance and work timestamps do not establish fetch, owner success, or Discord delivery. Missing evidence is unknown.
+      responses:
+        '200':
+          description: Source endpoint and pipeline activity without raw payloads.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComponentActivity'
+        '403':
+          description: Machine and other non-human principals are denied.
+        '404':
+          description: Component is not declared in this inventory version.
   /v1/source-events:
     post:
       summary: Accept a version 1 normalized source event durably.
@@ -612,6 +633,36 @@ components:
         maximum: 1000
         default: 500
   schemas:
+    ComponentActivity:
+      type: object
+      additionalProperties: false
+      required: [component_id, endpoints, pipelines, delivery_status]
+      properties:
+        component_id: {type: string}
+        delivery_status: {type: string, const: not instrumented}
+        endpoints:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [endpoint_id, accepted_at, status, meaning]
+            properties:
+              endpoint_id: {type: string}
+              accepted_at: {type: [string, 'null'], format: date-time}
+              status: {type: string, enum: [unknown, stale, observed]}
+              meaning: {type: string, const: last accepted into Source Inbox}
+        pipelines:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [pipeline_id, work_created_at, work_status, status, meaning]
+            properties:
+              pipeline_id: {type: string}
+              work_created_at: {type: [string, 'null'], format: date-time}
+              work_status: {type: [string, 'null']}
+              status: {type: string, enum: [unknown, stale, observed]}
+              meaning: {type: string, const: last pipeline work}
     ComponentInventory:
       type: object
       additionalProperties: false
