@@ -279,21 +279,37 @@ Do not copy the backend's `.env` into this package. Use Node 24 and run
 Unit/browser regressions use synthetic contracts and intercepted authentication;
 they cannot establish that a real user is allowed to access production.
 
-Before deployment is declared complete:
+## Production rollout status (2026-09-30)
 
-1. Sign in with the owner's provided **Supabase Auth** account and verify real
-   watcher/job/run reads; verify a viewer cannot read or change admin config.
-2. Have the owner confirm an admin UUID and the intended shared audience.
-3. With explicit approval for a specific safe change, save/read back a revision,
-   observe matching schedule reconciliation and a later unattended run.
-4. Record actual Track 02 evidence. Sample runs and mocked tests do not qualify.
+The operator workspace and Published feed shipped in PR #28. PR #29 corrected
+the reconciler schedule contract; PRs #30 and #31 corrected Hermes observer
+status and legacy cron handling. All four PRs are merged. Production `main`
+`b1297c269bd42fb7d56624c362e0e0e1fe059144` passed its exact CI gate and the VPS
+release agent reports that SHA as released. The Control Plane health route,
+public landing page, and authenticated workspace view returned successfully.
 
-No production write, message delivery or live authenticated session was tested
-in this implementation pass. Do not use the database password as a login.
+The production snapshot on 2026-09-30 found 13 Hermes jobs, 8 active and 5
+paused, with all 8 desired interval schedules matching. The separately
+installed and enabled observer timer completed a natural run that reported all
+13 jobs. The authenticated Jobs page showed 8 observed active jobs, 5 observed
+paused jobs, and no unknown observations or attention state.
 
-Verified locally on 22 September 2026 after workspace visual unification and loading improvements:
-both production builds, formatting,
-lint and types passed; 275 configuration-app unit tests and 24 landing tests
+The Published page boundary is 30 September 2026, 14:15 WIB. At the production
+page check it showed no confirmed publications since the boundary and marked
+publisher coverage incomplete or unverified. This does not prove that no
+upstream delivery occurred. A published row requires a supported owner
+projection backed by confirmed Delivery Owner receipts and does not include
+historical backfill.
+
+No live configuration or schedule write, manual watcher run, or test post was
+used for this rollout verification. These checks do not establish natural
+source-to-delivery coverage or separate Track 02 evidence.
+
+## Historical local verification (2026-09-22)
+
+The original local check followed workspace visual unification and loading
+improvements. Both production builds, formatting, lint and types passed; 275
+configuration-app unit tests and 24 landing tests
 passed. Isolated browser suites passed for viewer/admin behavior, 422 field
 errors, 409/uncertain-save recovery, schedule pending-to-applied responses,
 same-document Back/Forward draft recovery, stale restored revisions, sign-out,

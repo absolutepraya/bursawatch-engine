@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-29-bursawatch-published-feed-design.md`
 
-**Implementation status:** Complete on the feature branch. Validation passed with `bash scripts/test-all`, `npm run check` in both web packages, and a synthetic admin/viewer browser smoke. Production activation and deployment remain separately gated.
+**Implementation and rollout status:** Complete. PRs #28 to #31 are merged. Production `main` `b1297c269bd42fb7d56624c362e0e0e1fe059144` passed its exact CI gate and was released by the VPS release agent. Validation passed with `bash scripts/test-all`, both web package checks, and synthetic admin/viewer browser checks. The forward-only boundary and current coverage state are recorded below and in the active [publication contract](../../../service-bursawatch-control/README.md#published-feed-projection-contract).
 
 ## Global Constraints
 
@@ -50,7 +50,7 @@ Implement this plan in the same managed integration branch as the operator-works
 2. **Integrate owners in parallel:** Split Tasks 5 to 12 into three independent package groups: Telegram Market News, Stockbit, X; Instagram, WhatsApp; Phintraco, Kelas, Swing Board. Each group adds durable receipt-bound projection intents and checkpoints only within its packages. Use separate managed worktrees or nonoverlapping file scopes, merge each group into the integration branch, and have the primary implementer review receipt recovery, no repost, exact output, and checkpoint behavior. Do not ask for a separate human decision between owners.
 3. **Finish the operator experience:** Complete Task 13 against the final API and the operator plan's navigation. Complete Task 14 after all owner groups land. Run focused tests during each group, each affected owner package suite once when its group stabilizes, then one `bash scripts/test-all` and one check per web package after integration. Rerun only suites affected by fixes.
 
-The per-task commit steps preserve rollback points without creating a review gate per commit. Keep all eight owners, every approved publication type, multi-leg receipt proof, authorization, forward-only eligibility, coverage checkpoints, and exact delivered snapshots. Production activation and deployment remain separate reviewed gates; faster implementation never substitutes a replay or test post for natural delivery evidence.
+The per-task commit steps preserve rollback points without creating a review gate per commit. Keep all eight owners, every approved publication type, multi-leg receipt proof, authorization, forward-only eligibility, coverage checkpoints, and exact delivered snapshots. Production activation and deployment were completed as separate reviewed gates on 2026-09-30. Future changes still require their applicable review; implementation checks do not substitute for natural delivery evidence.
 
 ### Task 1: Validated record and durable read model
 
@@ -248,6 +248,14 @@ The per-task commit steps preserve rollback points without creating a review gat
 - [x] Run all focused owner suites, `bash scripts/test-all`, and `npm run check` in both web packages. Run `python3 scripts/production_snapshot.py --production` only before making current-production claims; this implementation adds none and makes no deployment claim.
 - [x] Commit final documentation and contract corrections.
 
-## Execution handoff
+## Original implementation authorization
 
-This plan does not authorize deployment, service restart, scheduler change, destination change, production activation, replay, or test post. Keep each implementation task's branch reviewable and verify the exact owner receipt and read-model identity from a natural event only after a separately approved rollout. If a route has no natural publication during the verification window, report it as unverified.
+This plan documented implementation work and did not itself authorize a production release, service change, schedule change, destination change, replay, or test post. The user separately approved the 2026-09-30 rollout. The operator workspace and publication API were released through their reviewed paths; the observer host installation and timer activation were performed as a separate manual operation.
+
+## Production handoff (2026-09-30)
+
+- The VPS release agent reports production SHA `b1297c269bd42fb7d56624c362e0e0e1fe059144`, matching `main`; CI passed, with no release block or transient error.
+- The forward-only Published boundary is 30 September 2026, 14:15 WIB. No historical publications were backfilled.
+- The authenticated Published page currently shows no confirmed publications since the boundary and marks publisher coverage incomplete or unverified. That state does not prove that no delivery occurred. Each visible item requires a supported owner projection backed by confirmed Delivery Owner receipts.
+- A natural observer timer run reported all 13 Hermes jobs. The production snapshot found 13 jobs, 8 active and 5 paused, with all 8 desired interval schedules matching.
+- Current operating details are in [`service-bursawatch-control/README.md`](../../../service-bursawatch-control/README.md#published-feed-projection-contract) and [`web-config/docs/CONTROL_PLANE.md`](../../../web-config/docs/CONTROL_PLANE.md).

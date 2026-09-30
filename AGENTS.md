@@ -28,9 +28,10 @@ The production schedule is not one job per package: the active Telegram
 source-ingest job owns Telegram intake, while the X, WhatsApp, and Stockbit
 adapters run through their existing watcher jobs. The Instagram source adapter
 has no registered job. The standalone Telegram News, Phintraco Swing, Kelas
-Investasi, and Instagram watcher jobs are paused as of the 2026-09-29 live
-check. `idx-ca-watch` and `yanto-gateway-voice` are retired and must not be
-recreated.
+Investasi, and Instagram watcher jobs were paused in the 2026-09-30 production
+snapshot, which showed 13 Hermes jobs (8 active, 5 paused) and all 8 desired
+interval schedules matching the live registry. `idx-ca-watch` and
+`yanto-gateway-voice` are retired and must not be recreated.
 
 The first production cutover changes source, runtime, wrapper, and scheduler
 identities while retaining established production state locations. A later,

@@ -13,7 +13,9 @@ Every cron-oriented package has `AGENTS.md` and exactly one contract file:
 Some source-adapter packages run inside an existing Hermes job rather than
 owning a separate schedule.
 
-Production roles below were checked against the VPS on 2026-09-29. Run the
+Production roles below were checked against the VPS on 2026-09-30. That
+snapshot found 13 Hermes jobs, 8 active and 5 paused, with all 8 desired
+interval schedules matching the live registry. Run the
 [read-only production snapshot](scripts/production_snapshot.py) before relying
 on a current schedule or release claim.
 
@@ -57,9 +59,10 @@ apply that intent to Hermes.
 
 `skill-guess-stock` and `skill-profile-emoji` are reusable, non-scheduled
 market skills. `service-cobalt` is the tracked media-download service.
-`platform-bursawatch-observer` contains read-only VPS job-observation code; its
-first host install, credential, and timer activation remain a separate manual
-operation.
+`platform-bursawatch-observer` contains read-only VPS job-observation code.
+Its first host install, separate credential, and timer activation were
+completed as a manual VPS operation on 2026-09-30. The package remains outside
+automatic releases.
 `service-rsshub` records the VPS-owned shared RSSHub boundary without copying
 its compose files, credentials, cookies, proxy configuration, or runtime data
 into source control.
@@ -71,10 +74,9 @@ into source control.
 | `web-landing` | Public product site and sample market walkthrough | [Landing setup](web-landing/README.md) |
 | `web-config` | Signed-in operator workspace for configuration, schedules and run evidence | [Workspace setup](web-config/README.md) |
 
-The current sites are [the landing page](https://bursawatch-web-landing.vercel.app/)
-and [the workspace](https://bursawatch-web-config.vercel.app/workspace).
-These URLs are existing Vercel deployments. Source changes reach them through
-the separate Vercel web release path.
+The current sites are [the landing page](https://bursawatch.abhipraya.dev/)
+and [the workspace](https://dash.bursawatch.abhipraya.dev/workspace). Source
+changes reach them through the separate Vercel web release path.
 
 Each package installs and builds independently with Node 24. The workspace
 uses a signed-in user's Supabase token to call the control API through a

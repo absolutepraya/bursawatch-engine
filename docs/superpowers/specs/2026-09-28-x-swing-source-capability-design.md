@@ -2,8 +2,12 @@
 
 **Date:** 2026-09-28
 
-**Status:** Approved by user 2026-09-28. Implementation requires separate
-implementation-plan approval.
+**Status:** Approved by user 2026-09-28. The follow-on implementation plan is
+complete and the X source adapter wrapper is active through the existing
+production X schedule as of the 2026-09-30 snapshot. That snapshot confirms
+scheduler entries, not installed runtime checksums or effective capability
+settings. See the current [Control Plane contract](../../../service-bursawatch-control/README.md#x-swing-capability-and-state-transition-boundary)
+for operating boundaries.
 
 **Owner:** Bursawatch platform and Swing Board owners
 

@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-29
 
-**Status:** Approved; implementation is complete on the feature branch. Production rollout and cutover remain separately gated.
+**Status:** Approved; implementation and production rollout completed on 2026-09-30. See the rollout verification below and the active [workspace contract](../../../web-config/docs/CONTROL_PLANE.md).
 
 ## Intent and success criteria
 
@@ -14,13 +14,21 @@ Success means an operator can identify the actual source adapter, domain owner, 
 
 This design is distinct from the Published feed design in `2026-09-29-bursawatch-published-feed-design.md`. That feed adds records of delivered news and swing output. This design covers operational truth and configuration of the existing engine. The two share workspace navigation and authentication, with separate implementation plans and release checks.
 
-## Current evidence
+## Evidence at design start
 
 The authenticated workspace currently loads eight watcher catalog records, their API job rows, and up to 50 recent runs per watcher. Its Overview derives counts and latest statuses from those returned records. The Sources page separately reads the Source Catalog and effective subscription snapshot. The Control Plane and web proxy already support their respective configuration, schedule, catalog, profile, and run routes; they do not expose a complete migrated-runtime inventory or every source-ingest job as an operator-managed schedule.
 
 The read-only production snapshot taken at 2026-09-29 18:37 WIB found 13 Hermes jobs, with 8 active and 5 paused, while seven of seven Control Plane desired interval schedules matched the live registry. The last successful release SHA was `8f23d7137ce1c5b6af6304165326bfb9e7503b53` and `origin/main` was `d88e0c196f274b41823da70a4ae96b0eecb7586a`; release CI was pending, and the released SHA did not match `origin/main`. The snapshot does not verify runtime checksums, source-to-delivery events, or the completeness of workspace health data.
 
 The source securities registry is intentionally empty pending an authoritative supported universe. Saved Source Catalog intent can remain ineffective when an endpoint is unverified or lacks a supported adapter binding. A saved watcher revision applies to future owner work only when that owner successfully loads it; a desired schedule applies only after reconciliation confirms the exact revision. These states need distinct labels.
+
+## Production rollout verification (2026-09-30)
+
+The workspace implementation shipped in PR #28. PR #29 corrected the reconciler schedule response contract. PRs #30 and #31 corrected the observer's Hermes status field and made approved legacy cron observations compare correctly with desired intervals. All four PRs are merged. Production `main` is `b1297c269bd42fb7d56624c362e0e0e1fe059144`; its exact CI run passed, and the VPS release agent reports that same SHA as released.
+
+The observer service and timer were installed and enabled through a separate manual VPS operation. A natural timer run reported all 13 Hermes jobs to the Control Plane. The authenticated Jobs page showed 8 observed active jobs, 5 observed paused jobs, no unknown observations, and no attention state. The 2026-09-30 production snapshot also confirmed that all 8 desired interval schedules matched the Hermes registry. The rollout did not change live schedules.
+
+The Published page shares the workspace navigation and has its own forward-only contract. Its current boundary and publication evidence are recorded in the companion [Published Feed design](2026-09-29-bursawatch-published-feed-design.md). A successful job observation does not establish a natural publication or delivery.
 
 ## Decisions recorded
 

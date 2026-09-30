@@ -12,8 +12,9 @@ and migration `020_publications.sql` is a separate forward-only projection of
 confirmed Discord output. An owner submits only after all required Delivery
 Owner receipts are confirmed. The Control Plane keeps immutable versions,
 cutover, and owner checkpoints; it does not send to Discord, replay source
-events, or own the durable owner outboxes. The feed is empty until an explicitly
-recorded cutover, and missing checkpoints cannot establish completeness.
+events, or own the durable owner outboxes. Production recorded its forward-only
+cutover boundary on 2026-09-30 at 14:15 WIB. The feed may be empty after that
+boundary, and missing checkpoints cannot establish completeness.
 Distinct `CONTROL_PLANE_PUBLICATION_OWNER_TOKENS` scope each owner to its own
 submission and checkpoint. Human viewer/admin JWTs alone may read the feed.
 Activation uses the host-local `bin/activate_publication_feed.py` after separate

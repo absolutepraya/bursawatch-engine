@@ -10,7 +10,12 @@
 
 **Spec:** [2026-09-28 X Swing source capability design](../specs/2026-09-28-x-swing-source-capability-design.md)
 
-## Current status, 2026-09-28
+## Implementation status at handoff, 2026-09-28
+
+The statements in this section, the implementation constraints and completion
+checklist below, and the read-only preflight describe the implementation
+handoff on 2026-09-28. They are retained as historical evidence and do not
+describe the current schedule state.
 
 The X route-group, adapter, ordered multi-image, Board handoff, tests, and
 package contracts are implemented in this worktree. This branch was based on
@@ -34,7 +39,16 @@ keep old state for rollback, start the new path at a fresh provider-head
 boundary, and intentionally skip pre-boundary history instead of doing a full
 state snapshot or cursor crosswalk.
 
-## Global Constraints
+## Production status, 2026-09-30
+
+The production snapshot shows the X source adapter wrapper active through the
+existing `bursawatch-x-account-watch` schedule and the separate queue worker
+active. The snapshot confirms scheduler entries, not installed runtime
+checksums, effective capability settings, or a natural source-to-delivery
+event. Use the current [Control Plane contract](../../../service-bursawatch-control/README.md#x-swing-capability-and-state-transition-boundary)
+for operating boundaries.
+
+## Implementation Constraints at Handoff
 
 - Classification remains X-specific. Do not move X relevance, route precedence, or thread interpretation into a shared universal router.
 - For each X publication, assemble its accepted source thread once and run the existing X classifier once. It must not create one competing work item per matching X category.
@@ -390,7 +404,7 @@ git add service-bursawatch-control/README.md \
 git commit -m "docs: align X Swing rollout and Board contracts"
 ```
 
-## Completion Checklist
+## Implementation Completion Checklist at Handoff (2026-09-28)
 
 - [x] Control Plane returns `swing_chart_context` compatibility for verified X endpoints with explicit off-by-default effective state and revision.
 - [x] One accepted X publication creates one route-group work item regardless of how many matching X capabilities are enabled; retries and corrections retain and validate the full frozen dispatch context and revision.

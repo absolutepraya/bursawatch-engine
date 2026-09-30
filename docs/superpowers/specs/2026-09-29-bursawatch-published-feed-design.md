@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-29
 
-**Status:** Approved; implementation is complete on the feature branch. Production rollout and cutover remain separately gated.
+**Status:** Approved; implementation, production rollout, and forward-only activation completed on 2026-09-30. See the production verification below and the active [Control Plane publication contract](../../../service-bursawatch-control/README.md#published-feed-projection-contract).
 
 ## Intent and success criteria
 
@@ -101,6 +101,14 @@ The companion operator-workspace spec covers configuration editors, the shared J
 5. Release the schema/API, then owner reporters, then the web UI through their existing separate reviewed release paths. Record the forward-only cutover and required owner set. Verify service health, one actual natural publication per active route as events occur, matching receipt and read-model identity, and owner checkpoints. Absence of a natural event is reported as unverified, not substituted with a test post.
 
 Production service, scheduler, destination, credential, and release changes require their existing explicit review and approval. The production snapshot used while writing this design was taken at 2026-09-29 18:03 WIB: release `8f23d7137ce1c5b6af6304165326bfb9e7503b53`, `origin/main` `d88e0c196f274b41823da70a4ae96b0eecb7586a`, and seven of seven desired interval schedules matching the live registry. That snapshot does not verify runtime checksums or a natural source-to-delivery event.
+
+## Production rollout verification (2026-09-30)
+
+The Control Plane API and Published page shipped with PR #28; follow-up PRs #29 to #31 completed the reconciler and observer integration. Production `main` `b1297c269bd42fb7d56624c362e0e0e1fe059144` passed its exact CI gate and was released by the VPS release agent.
+
+The authenticated Published page records its boundary as 30 September 2026, 14:15 WIB. At the latest production page check, it showed no confirmed publications since that boundary and marked publisher coverage incomplete or unverified. This is an honest empty read model, not evidence that no upstream delivery occurred. A supported publisher's record appears after its required Discord delivery receipts are confirmed and the owner submits the projection. The feed does not backfill earlier publications.
+
+The active contracts are [`service-bursawatch-control/README.md`](../../../service-bursawatch-control/README.md#published-feed-projection-contract) and [`web-config/docs/CONTROL_PLANE.md`](../../../web-config/docs/CONTROL_PLANE.md).
 
 ## Source contracts informing this design
 

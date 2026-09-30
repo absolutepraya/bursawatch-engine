@@ -16,6 +16,16 @@ the live registry, and compares the release-agent SHA with published `main`.
 Its scheduler results do not prove runtime checksums or a natural
 source-to-delivery event.
 
+The current operator workspace contract and production verification are in
+[`web-config/docs/CONTROL_PLANE.md`](../web-config/docs/CONTROL_PLANE.md).
+The backend API and confirmed-publication contract are in
+[`service-bursawatch-control/README.md`](../service-bursawatch-control/README.md),
+and the read-only VPS job reporter and its host status are documented in
+[`platform-bursawatch-observer/README.md`](../platform-bursawatch-observer/README.md).
+The dated operator-workspace and Published-feed specs and plans below preserve
+design rationale and implementation history; their production status notes
+point to the current operating contracts.
+
 The Bursawatch Discord Delivery Owner is the only Discord REST path. Its
 service contract and deployment gates are in
 [`service-bursawatch-discord-delivery/README.md`](../service-bursawatch-discord-delivery/README.md)

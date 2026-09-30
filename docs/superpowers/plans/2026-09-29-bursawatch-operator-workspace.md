@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-29-bursawatch-operator-workspace-design.md`
 
-**Implementation status:** Complete on the feature branch. Validation passed with `bash scripts/test-all`, `npm run check` in both web packages, and a synthetic admin/viewer browser smoke. Production activation and deployment remain separately gated.
+**Implementation and rollout status:** Complete. PRs #28 to #31 are merged. Production `main` `b1297c269bd42fb7d56624c362e0e0e1fe059144` passed its exact CI gate and was released by the VPS release agent. Validation passed with `bash scripts/test-all`, both web package checks, and synthetic admin/viewer browser checks. Production evidence is recorded below and in the active [workspace contract](../../../web-config/docs/CONTROL_PLANE.md).
 
 ## Global Constraints
 
@@ -39,7 +39,7 @@
 
 `service-bursawatch-control/bin/control_plane/operator_inventory.py` declares stable component IDs, types, capabilities, configuration references, and component-to-job relationships. `operator_observations.py` validates and stores timestamped job/component evidence. `operator_activity.py` projects timestamped Source Inbox events and pipeline work without implying delivery. Migration `019_operator_inventory.sql` adds nullable job ownership, relationship and observation tables, and bounded Source Inbox query indexes without rewriting historical rows. `api.py` adds global human read views and a scoped machine observation write. `platform-bursawatch-observer/` is a separate read-only host package for bounded Hermes registry observations; `platform-hermes-schedule-reconciler/` remains the only live scheduler writer. `web-config/src/lib/operator-inventory.ts` validates the new reads, while the workspace loader and focused components render them.
 
-The operator inventory/backend API and web UI can ship additively. The Telegram schedule row and observer timer require separate reviewed production activation. The Published feed plan reserves migration `020_publications.sql` and can later add confirmed-delivery evidence to Overview. Until then, the delivery summary must say `not instrumented` unless a source of confirmed receipts exists. Both plans agree on the eventual navigation: Overview, Sources, Workflows, Jobs, History, Published, Account.
+The operator inventory, backend API, and web UI shipped additively. The observer timer was installed and enabled in a separate manual VPS operation. The `020_publications.sql` read model and Published page also shipped, with the one-time forward-only boundary recorded at 30 September 2026, 14:15 WIB. The live navigation is Overview, Sources, Workflows, Jobs, History, Published, and Account. Run evidence and confirmed-delivery evidence remain separate.
 
 ## Fast execution path
 
@@ -208,6 +208,14 @@ The per-task commit steps keep changes recoverable; they do not require a separa
 - [x] Run focused suites, `bash scripts/test-all`, and `npm run check` in both web packages. Run `python3 scripts/production_snapshot.py --production` only before making current-production claims; this implementation adds none and makes no deployment claim.
 - [x] Commit final docs and contract corrections.
 
-## Execution handoff
+## Original implementation authorization
 
-This plan does not authorize a VPS service install/restart, live scheduler edit, release-agent manifest bootstrap, production credential change, or web deployment. Those are distinct reviewed steps after implementation. Production verification must compare the deployed SHA and runtime artifacts, exact Hermes registry observations, owner-loaded config where reported, and natural source-to-delivery evidence; any missing link remains unverified.
+This plan documented implementation work and did not itself authorize a VPS service install, live scheduler edit, credential change, or web deployment. The user separately approved production rollout on 2026-09-30. The observer install and timer activation were performed manually; eligible Control Plane deployment and web deployment followed their reviewed release paths.
+
+## Production handoff (2026-09-30)
+
+- The VPS release agent reports production SHA `b1297c269bd42fb7d56624c362e0e0e1fe059144`, matching `main`; CI passed, with no release block or transient error.
+- The production snapshot found 13 Hermes jobs, 8 active and 5 paused. All 8 desired interval schedules matched the live registry.
+- A natural observer timer run reported all 13 job observations. The Jobs page showed 8 active and 5 paused observations, with no unknown or attention state.
+- The Published boundary is 30 September 2026, 14:15 WIB. The page currently reports no confirmed publications and incomplete or unverified publisher coverage. This does not establish that no delivery occurred. Natural source-to-delivery evidence remains unverified until receipt-backed records and owner checkpoints appear.
+- The active operating contract is [`web-config/docs/CONTROL_PLANE.md`](../../../web-config/docs/CONTROL_PLANE.md); API details are in [`service-bursawatch-control/README.md`](../../../service-bursawatch-control/README.md).

@@ -162,8 +162,11 @@ Each validator executes in a fresh, credential-free subprocess. This prevents
 Python module collisions between watcher packages and means the same strict
 schema used at cron startup guards web writes. Unconfigured watchers remain
 read-only through the API until their typed validator is added. Stockbit config
-PUTs remain unavailable until the reviewed Stockbit validator bundle path is
-configured in the dedicated API environment and the service is restarted.
+PUTs are no longer blocked by a missing validator bundle. The reviewed
+Stockbit bundle path is configured in the dedicated production API environment
+and is present on the VPS. The API restarted with release
+`b1297c269bd42fb7d56624c362e0e0e1fe059144` on 2026-09-30. Do not point the
+validator at the live cron directory.
 
 ## Profile avatar metadata
 
@@ -260,12 +263,12 @@ or excessive filter values are rejected rather than returned as empty data.
 ## Published feed projection contract
 
 The separate publication read model accepts only confirmed, post-cutover
-Discord output. Its migration `020_publications.sql` is additive and leaves the
-feed unstarted until the host records one explicit boundary with
-`bin/activate_publication_feed.py --boundary <aware-ISO-time>`. Activation is a
-separate reviewed production step, not part of migration or service startup.
-It fixes the eight owner identities declared in `publication_model.py` and
-refuses a second activation. It neither replays old events nor sends a message.
+Discord output. Its migration `020_publications.sql` is additive. Production
+activation recorded the one-time forward-only boundary as 30 September 2026,
+14:15 WIB with `bin/activate_publication_feed.py`; activation is separate from
+migration and service startup. It fixes the eight owner identities declared in
+`publication_model.py` and refuses a second activation. It neither replays old
+events nor sends a message.
 
 Each owner receives a distinct private credential in the
 `CONTROL_PLANE_PUBLICATION_OWNER_TOKENS` JSON mapping. The service derives the
@@ -288,11 +291,24 @@ cutover owner to report a current successful comparison. A fresh checkpoint
 does not override a last-known disabled owner job, which remains paused or
 unverified.
 
-This contract has synthetic tests but has not been activated or verified with
-natural production deliveries. A database-backed checkpoint and list path
-also requires a reviewed live verification after deployment.
+The Control Plane API is released from production `main`
+`b1297c269bd42fb7d56624c362e0e0e1fe059144`, and the Published page is live in
+the web workspace. At the 2026-09-30 production workspace check, the feed
+showed no confirmed publications after its boundary and marked publisher
+coverage incomplete or unverified. This does not prove that no delivery
+occurred. Natural delivery coverage remains unverified until owners submit
+receipt-backed publication records and current checkpoints.
 
-## Source inbox (development contract, not yet live)
+## Source Inbox API and adapter contract
+
+The version 1 Source Inbox API is part of the production Control Plane. The
+2026-09-30 production snapshot showed the standalone Telegram intake schedule
+active and the X, WhatsApp, and Stockbit adapter wrappers active through their
+existing watcher schedules. This verifies the scheduler entrypoints and
+Control Plane release SHA, not installed runtime checksums or a natural
+source-to-delivery outcome. Accepted events and pipeline work are intake
+evidence only; a Published record still requires the domain owner to report
+confirmed Delivery Owner receipts and current coverage checkpoints.
 
 `POST /v1/source-events` accepts a bounded version 1 envelope. Its provider identity
 is `(platform, endpoint_id, provider_event_id)`; repeating the same original returns
@@ -364,31 +380,26 @@ identities minted by the private Source Media Owner, with bounded digest, kind, 
 size, and filename metadata. The inbox validates those fields and the per-object and
 per-event byte limits, but does not resolve refs or access Storage. The media service
 owns Storage credentials and provides authenticated upload and download operations.
-This code path uses fake providers in tests; it does not authorize a bucket, Supabase
-change, or production replay. Operator inspection can contain source payload and should
-be restricted to the authenticated API, never copied into routine logs or heartbeats.
-The in-memory inbox is for local contract testing only.
+Synthetic tests use fake providers and do not validate live object storage,
+authorize a bucket or Supabase change, or authorize production replay. Operator
+inspection can contain source payload and should be restricted to the
+authenticated API, never copied into routine logs or heartbeats. The in-memory
+inbox is for local contract testing only.
 
-## X Swing migration and release evidence
+## X Swing capability and state-transition boundary
 
-The route-group and capability changes are compatibility contracts, not a live
-source cutover. Before any separately approved cutover, collect a read-only,
-sanitized preflight: Control Plane catalog and watcher-config revisions;
-configured endpoint IDs matched to reviewed publisher bindings; effective X
-routes; X cursor, pending work, thread/media and All-outbox counts and hashes;
-Board routes, open episodes and receipt summaries; pending Delivery Owner
-effects; package revisions and health; and confirmation of owner-driven
-20-trading-session inactivity resolution plus 48-hour quiet archival.
-Never include credentials, source text, attachment bytes, or private media
-paths. Ambiguous identity, route, pending effect, or absent Board lifecycle
-scheduling is a cutover blocker.
+The X source adapter is active through the existing
+`bursawatch-x-account-watch` schedule, and the separate X queue worker remains
+active. The 2026-09-30 production snapshot confirmed those scheduler entries;
+it did not verify installed runtime checksums or prove a natural delivery.
+Do not add a second X polling job or resume the legacy source-polling wrapper.
 
-The release sequence is: release the reviewed Control Plane schema/API,
-verify migration state and health, release the approved X packages through the
-exact-current-`main` release process, and verify installed package parity.
-Check `web-config` separately using `DEPLOYMENT.md`'s build, alias/domain,
-and live HTTP evidence; Vercel deployment is not proven by the backend release.
-Until a separate cutover approval, keep the X adapter unscheduled and the
-current X reader authoritative. Enabling capabilities, pausing the old writer,
-transferring cursors or state, replaying work, changing Hermes schedules,
-deploying, or posting production messages are separate approved actions.
+The route-group and capability contracts do not themselves enable a
+subscription. Do not infer that `swing_chart_context` or another capability is
+enabled from adapter compatibility. Future changes to effective capabilities,
+routes, state roots, Hermes schedules, or production delivery behavior still
+require their applicable reviewed and approved transition. Never transfer
+cursors or state, replay work, or post production messages as an implicit part
+of such a change. The original cutover preflight remains historical guidance;
+for a new state transition, collect its sanitized, read-only evidence before
+changing the live reader or its state.

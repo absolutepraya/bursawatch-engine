@@ -14,7 +14,8 @@ the user's token; same-origin `/api/control` forwards only allowlisted reads and
 config/schedule/avatar PUTs and explicit avatar-refresh POSTs to the configured HTTPS API. That backend verifies identity
 and admin authorization on every request. No public signup, machine/admin token,
 direct SQL, second scheduler or browser role flag may bypass that boundary.
-See `docs/CONTROL_PLANE.md` for the reviewed handoff and remaining live checks.
+See `docs/CONTROL_PLANE.md` for the current integration contract and production
+verification status.
 
 The live sidebar and mobile bottom navigation share Overview, Sources,
 Workflows, Jobs, History, Published and Account, in that order. Sources reads the authenticated
