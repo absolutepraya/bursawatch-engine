@@ -218,3 +218,26 @@ def test_operator_inventory_migration_is_manual_additive_and_guards_job_identity
     assert "where job_id = 'bursawatch-tg-source-ingest'" in migration
     assert "current_schedule_revision is null" in migration
     assert "update bursawatch_schedule_revisions" not in migration.lower()
+
+
+def test_publications_migration_is_forward_only_private_and_immutable():
+    migration = (
+        Path(__file__).resolve().parents[1]
+        / "migrations/020_publications.sql"
+    ).read_text(encoding="utf-8")
+
+    assert migration.startswith("-- bursawatch-release: automatic\n")
+    for table in (
+        "bursawatch_publication_cutover",
+        "bursawatch_publications",
+        "bursawatch_publication_checkpoints",
+    ):
+        assert f"create table {table}" in migration
+        assert f"alter table {table} enable row level security" in migration
+        assert f"revoke all privileges on table public.{table} from public" in migration
+    assert "primary key (publication_id, version)" in migration
+    assert "unique (owner_id, owner_key, version)" in migration
+    assert "bursawatch_publications_immutable" in migration
+    assert "bursawatch_publication_cutover_immutable" in migration
+    assert "bursawatch_source_events" not in migration
+    assert "bursawatch_runs" not in migration

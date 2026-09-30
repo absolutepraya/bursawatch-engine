@@ -1,0 +1,122 @@
+from __future__ import annotations
+
+from copy import deepcopy
+
+import pytest
+
+from control_plane.publication_model import validate_publication
+
+
+OWNER = "bursawatch-tg-market-news"
+
+
+def publication(**changes):
+    value = {
+        "api_version": 1,
+        "owner_key": "source:synthetic:1",
+        "version": 1,
+        "supersedes_version": None,
+        "type": "idx_company_news",
+        "route": "id_stocks_news",
+        "source_event_key": "synthetic-event-1",
+        "source_name": "Synthetic publisher",
+        "source_url": "https://example.test/story/1",
+        "source_published_at": "2026-09-29T07:00:00+00:00",
+        "market_data_as_of": None,
+        "delivery_confirmed_at": "2026-09-29T07:02:00+00:00",
+        "title": "Synthetic company update",
+        "ticker": "TEST",
+        "broker_levels": None,
+        "parent_publication_id": None,
+        "board_episode_id": None,
+        "config_revision": 2,
+        "renderer_version": "news-renderer-v1",
+        "source_version": "synthetic-source-v1",
+        "legs": [{
+            "operation_key": "synthetic-delivery-1",
+            "destination": "123456789012345678",
+            "receipt_id": "987654321098765432",
+            "status": "delivered",
+            "message_url": "https://discord.com/channels/123456789012345678/123456789012345678/987654321098765432",
+            "text": "Exact synthetic rendered text",
+            "attachments": [],
+        }],
+    }
+    value.update(changes)
+    return value
+
+
+def test_partial_leg_is_not_published():
+    value = publication()
+    pending = deepcopy(value["legs"][0])
+    pending["operation_key"] = "synthetic-delivery-2"
+    pending["status"] = "pending"
+    value["legs"].append(pending)
+    with pytest.raises(ValueError, match="delivery leg"):
+        validate_publication(value, OWNER)
+
+
+@pytest.mark.parametrize("owner_id,kind,route", [
+    ("bursawatch-tg-market-news", "idx_company_news", "id_stocks_news"),
+    ("bursawatch-tg-market-news", "industry_news", "id_industry_news"),
+    ("bursawatch-tg-market-news", "macro_news", "macro_news"),
+    ("bursawatch-tg-market-news", "stock_status", "id_stocks_news"),
+    ("bursawatch-stockbit-snips", "idx_company_news", "id_stocks_news"),
+    ("bursawatch-x-account-watch", "us_company_news", "us_stocks_news"),
+    ("bursawatch-x-account-watch", "swing_context", "id_stocks_swing"),
+    ("bursawatch-ig-account-watch", "macro_news", "macro_news"),
+    ("bursawatch-wa-channel-watch", "industry_news", "id_industry_news"),
+    ("bursawatch-tg-kelas-investasi-gtw", "swing_bundle", "id_stocks_swing"),
+    ("bursawatch-dc-swing-board", "swing_board_update", "swing_board"),
+])
+def test_approved_owner_type_and_route_are_distinct(owner_id, kind, route):
+    record = validate_publication(publication(type=kind, route=route), owner_id)
+    assert record["type"] == kind
+    assert record["route"] == route
+    assert record["owner_id"] == owner_id
+
+
+def test_broker_plan_requires_phintraco_and_complete_source_levels():
+    levels = {
+        "entry": "100 to 105",
+        "stop": "95",
+        "targets": ["120", "130"],
+        "units": "IDR per share",
+        "attribution": "Synthetic broker",
+    }
+    value = publication(type="broker_swing_plan", route="id_stocks_swing", broker_levels=levels)
+    with pytest.raises(ValueError, match="owner"):
+        validate_publication(value, OWNER)
+    assert validate_publication(value, "bursawatch-tg-phintraco-swing")["broker_levels"] == levels
+    del levels["stop"]
+    with pytest.raises(ValueError, match="broker levels"):
+        validate_publication(value, "bursawatch-tg-phintraco-swing")
+
+
+def test_unsafe_urls_private_media_and_unaware_times_fail_closed():
+    with pytest.raises(ValueError, match="source_url"):
+        validate_publication(publication(source_url="http://example.test/private"), OWNER)
+    with pytest.raises(ValueError, match="delivery_confirmed_at"):
+        validate_publication(publication(delivery_confirmed_at="2026-09-29T07:02:00"), OWNER)
+    value = publication()
+    value["legs"][0]["attachments"] = [{"private_media_ref": "secret://object"}]
+    with pytest.raises(ValueError, match="attachment"):
+        validate_publication(value, OWNER)
+    value["legs"][0]["attachments"] = [{
+        "filename": "chart.png",
+        "content_type": "image/png",
+        "discord_url": "https://storage.example.test/private/chart.png",
+    }]
+    with pytest.raises(ValueError, match="attachment discord_url"):
+        validate_publication(value, OWNER)
+
+
+def test_identity_is_owner_scoped_and_digest_changes_with_exact_output():
+    first = validate_publication(publication(), OWNER)
+    other = validate_publication(publication(), "bursawatch-stockbit-snips")
+    edited = publication()
+    edited["legs"][0]["text"] = "A different rendered text"
+    changed = validate_publication(edited, OWNER)
+    assert first["publication_id"] != other["publication_id"]
+    assert first["publication_id"] == changed["publication_id"]
+    assert first["digest"] != changed["digest"]

@@ -118,6 +118,7 @@ def test_discover_migrations_uses_the_checked_legacy_eligibility_registry():
         "017_x_swing_route_groups.sql",
         "018_bri_whatsapp_news_compatibility.sql",
         "019_operator_inventory.sql",
+        "020_publications.sql",
     }
     assert {migration.release_eligibility for migration in migrations} == {"automatic", "manual"}
     assert next(
@@ -135,6 +136,11 @@ def test_discover_migrations_uses_the_checked_legacy_eligibility_registry():
         for migration in migrations
         if migration.name == "019_operator_inventory.sql"
     ) == "manual"
+    assert next(
+        migration.release_eligibility
+        for migration in migrations
+        if migration.name == "020_publications.sql"
+    ) == "automatic"
 
 
 def test_apply_migrations_records_each_immutable_file_and_is_idempotent(tmp_path: Path):
