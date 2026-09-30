@@ -382,6 +382,7 @@ export function ScheduleEditor({
             <label className="watcher-toggle" htmlFor={`${id}-enabled`}>
               <input
                 id={`${id}-enabled`}
+                name="enabled"
                 type="checkbox"
                 checked={enabled}
                 onChange={(event) => setEnabled(event.target.checked)}
@@ -396,6 +397,7 @@ export function ScheduleEditor({
                 <label htmlFor={`${id}-minutes`}>Check every (minutes)</label>
                 <input
                   id={`${id}-minutes`}
+                  name="interval_seconds"
                   type="number"
                   inputMode="numeric"
                   step={1}

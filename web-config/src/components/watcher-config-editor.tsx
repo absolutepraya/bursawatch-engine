@@ -64,6 +64,7 @@ function Field({
   multiline = false,
   nullable = false,
   fallback,
+  readOnly = false,
 }: {
   path: ConfigPath;
   label: string;
@@ -76,6 +77,7 @@ function Field({
   multiline?: boolean;
   nullable?: boolean;
   fallback?: string;
+  readOnly?: boolean;
 }) {
   const { draft, errors, update, touch, prefix } = useEditor();
   const key = path.join(".");
@@ -125,6 +127,7 @@ function Field({
           step={step}
           autoComplete="off"
           spellCheck={false}
+          readOnly={readOnly}
           inputMode={
             type === "number" ? "decimal" : key.endsWith("channel_id") ? "numeric" : undefined
           }
@@ -160,6 +163,7 @@ function Toggle({ path, label, hint }: { path: ConfigPath; label: string; hint?:
     <label className="watcher-toggle" htmlFor={id}>
       <input
         id={id}
+        name={key}
         type="checkbox"
         checked={configValue(draft, path) === true}
         aria-invalid={Boolean(errors[key])}
@@ -523,6 +527,7 @@ function ProfileFields({ index, kind }: { index: number; kind: ProfileKind }) {
                   >
                     <input
                       id={`${prefix}-${index}-language-${value}`}
+                      name={at("ocr_languages").join(".")}
                       type="checkbox"
                       checked={languages.includes(value)}
                       aria-invalid={Boolean(errors[at("ocr_languages").join(".")])}
@@ -594,34 +599,39 @@ function TelegramFields({ watcherId }: { watcherId: string }) {
   return (
     <>
       {!board ? (
-        <Group title="Telegram sources">
+        <Group title={news ? "Telegram provider metadata" : "Legacy Telegram reader metadata"}>
           {news ? (
             <>
               <Field
                 path={["providers", "phintraco", "telegram_username"]}
-                label="Phintraco username"
-                hint="Without the @ symbol."
+                label="Phintraco provider username"
+                hint="Provider identity metadata. Shared Telegram intake selection is managed in Sources."
               />
               <Field
                 path={["providers", "tuntun", "telegram_username"]}
-                label="Tuntun username"
-                hint="Without the @ symbol."
+                label="Tuntun provider username"
+                hint="Provider identity metadata. Shared Telegram intake selection is managed in Sources."
               />
             </>
           ) : (
             <>
+              <p className="watcher-help">
+                Fixed legacy reader identity. The migrated owner pins this endpoint; choose active
+                Telegram intake sources in Sources.
+              </p>
               <Field
                 path={["source", "telegram_username"]}
-                label="Channel username"
-                hint="Without the @ symbol."
+                label="Legacy channel username"
+                readOnly
               />
               <Field
                 path={["source", "telegram_channel_id"]}
-                label="Telegram channel ID"
+                label="Legacy Telegram channel ID"
                 type="number"
                 min={1}
                 max={9_999_999_999}
                 step={1}
+                readOnly
               />
             </>
           )}
@@ -925,6 +935,12 @@ export function WatcherConfigEditor({
               </div>
             ) : null}
             <fieldset className="watcher-form-body" disabled={saving || blocked}>
+              {saved.watcher_id === "bursawatch-ig-account-watch" ? (
+                <p role="status" className="watcher-help">
+                  Instagram source settings are saved, but Instagram source ingest has no scheduled
+                  job and is not currently collected.
+                </p>
+              ) : null}
               {kind ? (
                 <>
                   <div className="watcher-source-intro">

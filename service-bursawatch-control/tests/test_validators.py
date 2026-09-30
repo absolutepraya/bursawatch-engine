@@ -74,20 +74,23 @@ def test_validator_reuses_the_kelas_investasi_strict_config_schema():
     validators = validators_from_directories(
         {KELAS_INVESTASI_WATCHER: ROOT / "cron-tg-kelas-investasi-gtw/bin"}
     )
-    validators[KELAS_INVESTASI_WATCHER](
-        {
-            "version": 1,
-            "source": {
-                "telegram_channel_id": 2142109618,
-                "telegram_username": "kelasinvestasiid",
-            },
-            "destinations": {
-                "alert_discord_channel_id": "1525102458253217803",
-                "heartbeat_discord_channel_id": "1505162000420835388",
-            },
-            "additional_prompt_instruction": "Utamakan ringkasan tesis yang sangat ringkas.",
-        }
-    )
+    config = {
+        "version": 1,
+        "source": {
+            "telegram_channel_id": 2142109618,
+            "telegram_username": "kelasinvestasiid",
+        },
+        "destinations": {
+            "alert_discord_channel_id": "1525102458253217803",
+            "heartbeat_discord_channel_id": "1505162000420835388",
+        },
+        "additional_prompt_instruction": "Utamakan ringkasan tesis yang sangat ringkas.",
+    }
+    validators[KELAS_INVESTASI_WATCHER](config)
+    missing_instruction = dict(config)
+    del missing_instruction["additional_prompt_instruction"]
+    with pytest.raises(ConfigValidationError):
+        validators[KELAS_INVESTASI_WATCHER](missing_instruction)
 
 
 def test_validator_reuses_the_market_news_strict_config_schema():

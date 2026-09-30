@@ -15,6 +15,21 @@ import observe
 
 
 RUNTIME_NAMES = {"bursawatch-tg-source-ingest", "bursawatch-x-account-watch"}
+EXPECTED_RUNTIME_JOB_IDS = {
+    "bursawatch-tg-source-ingest": "bursawatch-tg-source-ingest",
+    "bursawatch-tg-market-news-watchdog": "bursawatch-tg-market-news-watchdog",
+    "bursawatch-dc-swing-board-lifecycle": "bursawatch-dc-swing-board-lifecycle",
+    "bursawatch-x-account-watch": "bursawatch-x-account-watch-source",
+    "bursawatch-x-account-watch-queue": "bursawatch-x-account-watch-queue-worker",
+    "bursawatch-ig-account-watch": "bursawatch-ig-account-watch-source",
+    "bursawatch-tg-phintraco-swing": "bursawatch-tg-phintraco-swing",
+    "bursawatch-dc-swing-board-close": "bursawatch-dc-swing-board-close",
+    "bursawatch-dc-swing-board-retry": "bursawatch-dc-swing-board-retry",
+    "bursawatch-tg-market-news": "bursawatch-tg-market-news",
+    "bursawatch-tg-kelas-investasi-gtw": "bursawatch-tg-kelas-investasi-gtw",
+    "bursawatch-wa-channel-watch": "bursawatch-wa-channel-watch",
+    "cron-stockbit-snips": "bursawatch-stockbit-snips",
+}
 
 
 def write_registry(path: Path, jobs: list[dict[str, object]]) -> bytes:
@@ -59,6 +74,23 @@ def test_reads_exact_interval_and_fixed_job_schedules(tmp_path: Path):
             "last_execution": {"at": None, "status": None},
         },
     ]
+
+
+def test_full_runtime_job_map_matches_declared_job_ids_and_requires_every_name(tmp_path: Path):
+    assert observe.RUNTIME_JOB_IDS == EXPECTED_RUNTIME_JOB_IDS
+    registry = tmp_path / "jobs.json"
+    write_registry(
+        registry,
+        [
+            job(name, schedule={"kind": "interval", "minutes": 1})
+            for name in sorted(EXPECTED_RUNTIME_JOB_IDS)
+        ],
+    )
+
+    rows = observe.read_observed_jobs(registry, set(EXPECTED_RUNTIME_JOB_IDS))
+
+    assert {row["runtime_job_key"] for row in rows} == set(EXPECTED_RUNTIME_JOB_IDS)
+    assert observe.RUNTIME_JOB_IDS["cron-stockbit-snips"] == "bursawatch-stockbit-snips"
 
 
 def test_duplicate_runtime_name_blocks_report(tmp_path: Path):
