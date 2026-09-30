@@ -63,7 +63,9 @@ the document. It is not an operating contract.
 
 The implementation sequence is in the
 [`catalog transition recovery plan`](superpowers/plans/2026-09-30-bursawatch-catalog-transition-recovery.md).
-The plan is pending review before implementation.
+The user approved the plan on 2026-09-30, and implementation is underway in
+the `bug-squashing` worktree. Production observations remain time-bound; use a
+fresh production snapshot and state read before any live transition.
 
 For collaboration, `.wt/config.toml` defines managed feature worktrees and the
 repository-local `finish-workflow` skill ends with a pull request. It does not

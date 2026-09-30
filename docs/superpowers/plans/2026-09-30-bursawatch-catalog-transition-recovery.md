@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Choose `executing-plans` (recommended) or `subagent-driven-development` after plan review. Steps use checkbox syntax for tracking.
 
+**Status:** Approved by the user on 2026-09-30; implementation underway.
+
 **Goal:** Restore future-only polling for Telegram and Stockbit RSS by proving their existing reader state remains compatible with each intervening Source Catalog revision.
 
 **Architecture:** Keep Telegram's existing one-edge compatibility command unchanged and apply it for 5 to 6 and 6 to 7. Add an RSS-owned one-edge preview/apply command that proves the complete enabled Stockbit projection is unchanged, uses the shared source-state planner in revision-only mode, and validates each legacy seed's immutable revision-4 origin through a complete journal chain before polling.
@@ -34,6 +36,7 @@
 - Refresh the production snapshot and catalog history before rollout. Preserve the original runtime state under `~/backup/hermes/runtime-cutovers/<YYYY-MM-DD>/<runtime-identity>/` for at least 30 days.
 - Tests use synthetic catalog snapshots and temporary state, make no source or Discord requests, and send no messages. RSS runtime release verification remains `runner.py --verify-synthetic`.
 - Use the existing published-code, release manifest, and exact-main-SHA CI gates. Do not change delivery destinations or cadence, run a job manually, reset a cursor, replay, backfill, or send a test post.
+- Keep related Markdown aligned as implementation clarifies or changes behavior. Before each task commit, review affected package and repository contracts, including `README.md`, `AGENTS.md`, `CRON.md` or `SKILL.md`, release documentation, and `docs/README.md` as applicable. Update affected documents in the same task and commit. Leave unaffected documents untouched and record the documentation review in the execution ledger.
 - After apply, restore schedules through the supported scheduler path and observe natural scheduled runs. Scheduler health alone does not prove source-to-delivery.
 
 ## Review Focus
