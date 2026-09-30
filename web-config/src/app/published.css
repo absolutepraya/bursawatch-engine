@@ -1,0 +1,265 @@
+.published-feed,
+.published-detail {
+  display: grid;
+  gap: 28px;
+}
+
+.published-coverage {
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.published-coverage > p {
+  color: var(--muted);
+  margin: 8px 0 0;
+}
+
+.published-coverage details {
+  margin-top: 18px;
+  border-top: 1px solid var(--border-soft);
+  padding-top: 16px;
+}
+
+.published-coverage summary {
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.published-coverage ul,
+.published-rows,
+.published-legs,
+.published-related {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.published-coverage li {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 0;
+  border-top: 1px solid var(--border-soft);
+}
+
+.published-coverage li span {
+  flex: 1 1 180px;
+}
+
+.published-coverage li strong {
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.published-coverage li time {
+  color: var(--muted);
+}
+
+.published-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 16px;
+}
+
+.published-filters label {
+  display: grid;
+  gap: 8px;
+  min-width: 140px;
+  flex: 1 1 150px;
+  color: var(--muted);
+}
+
+.published-filters input,
+.published-filters select {
+  width: 100%;
+  min-height: 44px;
+  padding: 9px 12px;
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font: inherit;
+}
+
+.published-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+
+.published-group button {
+  min-height: 38px;
+  min-width: 58px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.published-group button[aria-pressed="true"] {
+  background: var(--border);
+  color: var(--ink);
+}
+
+.published-rows li {
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.published-rows li:first-child {
+  border-top: 1px solid var(--border-soft);
+}
+
+.published-rows button {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  min-height: 80px;
+  padding: 18px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.published-rows button:hover,
+.published-related button:hover {
+  color: var(--accent);
+}
+
+.published-row-top,
+.published-detail-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: start;
+}
+
+.published-row-top strong {
+  font-weight: 500;
+}
+
+.published-row-top span,
+.published-row-meta,
+.published-kind {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.published-detail-heading h1 {
+  margin: 4px 0 8px;
+}
+
+.published-detail-heading > span {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.published-metadata,
+.published-plan dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 20px;
+  margin: 0;
+}
+
+.published-metadata > div,
+.published-plan dl > div {
+  display: grid;
+  gap: 6px;
+}
+
+.published-metadata dt,
+.published-plan dt {
+  color: var(--muted);
+}
+
+.published-metadata dd,
+.published-plan dd {
+  margin: 0;
+}
+
+.published-detail section {
+  padding-top: 22px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.published-detail h2 {
+  margin: 0 0 14px;
+  font-size: 1.2rem;
+}
+
+.published-legs {
+  display: grid;
+  gap: 18px;
+}
+
+.published-legs > li {
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.published-legs > li > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.published-legs > li > div span {
+  color: var(--muted);
+}
+
+.published-legs pre {
+  margin: 16px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+
+.published-legs ul {
+  padding-left: 20px;
+}
+
+.published-related {
+  display: grid;
+  gap: 8px;
+}
+
+.published-related button {
+  min-height: 44px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.published-versions summary {
+  min-height: 44px;
+  cursor: pointer;
+}
+
+@media (max-width: 600px) {
+  .published-row-top,
+  .published-detail-heading {
+    display: grid;
+  }
+
+  .published-filters label {
+    flex-basis: calc(50% - 8px);
+  }
+}
