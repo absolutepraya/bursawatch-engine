@@ -124,6 +124,28 @@ update bursawatch_scheduler_jobs
  where job_id = 'bursawatch-x-account-watch-queue-worker'
    and runtime_job_key = 'x-post-queue-worker';
 
+-- A matching existing baseline is idempotent. Refuse to point the job at a
+-- conflicting revision 1 that ON CONFLICT DO NOTHING would otherwise hide.
+do $telegram_revision_guard$
+begin
+    if exists (
+        select 1
+          from bursawatch_schedule_revisions
+         where job_id = 'bursawatch-tg-source-ingest'
+           and revision = 1
+           and (
+               enabled is distinct from true
+               or interval_seconds is distinct from 60
+               or timezone is distinct from 'Asia/Jakarta'
+               or schedule_sha256 is distinct from '93bc1ebe79de7f5d1d1fa598dddaa4e8c88cd9d5e5b629e2a9d0779633165c57'
+               or actor_id is distinct from 'source-baseline'
+           )
+    ) then
+        raise exception 'Telegram source-ingest revision 1 conflicts with the expected baseline';
+    end if;
+end
+$telegram_revision_guard$;
+
 insert into bursawatch_schedule_revisions
     (job_id, revision, enabled, interval_seconds, timezone, schedule_sha256, actor_id)
 values

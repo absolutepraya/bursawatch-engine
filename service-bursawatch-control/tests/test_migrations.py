@@ -204,6 +204,17 @@ def test_operator_inventory_migration_is_manual_additive_and_guards_job_identity
     assert "bursawatch-tg-source-ingest" in migration
     assert "bursawatch-x-account-watch-queue" in migration
     assert "on conflict (job_id, revision) do nothing" in migration
+    revision_guard = migration.split("$telegram_revision_guard$")
+    assert len(revision_guard) == 3
+    assert "enabled is distinct from true" in revision_guard[1]
+    assert "interval_seconds is distinct from 60" in revision_guard[1]
+    assert "timezone is distinct from 'Asia/Jakarta'" in revision_guard[1]
+    assert "schedule_sha256 is distinct from" in revision_guard[1]
+    assert "93bc1ebe79de7f5d1d1fa598dddaa4e8c88cd9d5e5b629e2a9d0779633165c57" in revision_guard[1]
+    assert "actor_id is distinct from 'source-baseline'" in revision_guard[1]
+    assert migration.index("$telegram_revision_guard$") < migration.index(
+        "insert into bursawatch_schedule_revisions"
+    )
     assert "where job_id = 'bursawatch-tg-source-ingest'" in migration
     assert "current_schedule_revision is null" in migration
     assert "update bursawatch_schedule_revisions" not in migration.lower()
