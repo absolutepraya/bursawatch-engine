@@ -239,6 +239,104 @@ def _delivery_resolution_digest(resolutions: dict[str, dict[str, Any]]) -> str:
     )
 
 
+def _pending_candidate_operation(
+    candidate_key: str, payload: dict[str, Any]
+) -> tuple[
+    market_delivery.OperationIntent,
+    dict[str, Any] | None,
+    market_delivery.OperationReceipt | None,
+]:
+    content = payload.get("content")
+    channel_id = payload.get("channel_id")
+    if not isinstance(content, str) or not isinstance(channel_id, str):
+        raise owner_state.StateBlockedError(
+            "canonical pending candidate has incomplete delivery payload"
+        )
+    try:
+        operation = market_delivery._channel_message_operation(
+            content, channel_id, f"{candidate_key}:text"
+        )
+    except (TypeError, ValueError):
+        raise owner_state.StateBlockedError(
+            "canonical pending candidate delivery payload is invalid"
+        ) from None
+
+    handoff = payload.get("delivery_handoff")
+    if handoff is not None and (
+        not isinstance(handoff, dict)
+        or set(handoff) != {"state", "operation_key", "receipt"}
+        or handoff.get("state") not in {"unknown", "accepted"}
+        or handoff.get("operation_key") != operation.key
+        or handoff.get("state") == "unknown" and handoff.get("receipt") is not None
+    ):
+        raise owner_state.StateBlockedError(
+            "canonical pending candidate handoff is inconsistent with its payload"
+        )
+    required_keys = payload.get("required_operation_keys")
+    if required_keys is not None and required_keys != [operation.key]:
+        raise owner_state.StateBlockedError(
+            "canonical pending candidate operation manifest conflicts with its payload"
+        )
+
+    saved_receipt = None
+    if isinstance(handoff, dict) and handoff.get("state") == "accepted":
+        saved = handoff.get("receipt")
+        try:
+            saved_receipt = market_delivery.OperationReceipt.from_json(saved, operation)
+        except (TypeError, ValueError):
+            legacy_nonce = payload.get("nonce")
+            if not isinstance(legacy_nonce, str):
+                legacy_nonce = None
+            try:
+                legacy_operation = market_delivery._channel_message_operation(
+                    content,
+                    channel_id,
+                    f"{candidate_key}:text",
+                    reconcile_before_first_create=True,
+                    legacy_nonce=legacy_nonce,
+                )
+                saved_receipt = market_delivery.OperationReceipt.from_json(
+                    saved, legacy_operation
+                )
+            except (TypeError, ValueError):
+                raise owner_state.StateBlockedError(
+                    "canonical pending candidate saved receipt conflicts with its payload"
+                ) from None
+            operation = legacy_operation
+    return operation, handoff, saved_receipt
+
+
+def _confirmed_local_message_ids(
+    payload: dict[str, Any],
+    saved_receipt: market_delivery.OperationReceipt | None,
+    channel_id: str,
+) -> set[str]:
+    message_ids: set[str] = set()
+    text_id = payload.get("text_discord_id")
+    if text_id is not None:
+        if not isinstance(text_id, str) or not text_id.isdigit():
+            raise owner_state.StateBlockedError(
+                "canonical pending candidate has an invalid confirmed Discord message ID"
+            )
+        message_ids.add(text_id)
+
+    if saved_receipt is not None and saved_receipt.status == "delivered":
+        try:
+            saved_message_id = market_delivery._delivered_message_id(
+                saved_receipt, channel_id
+            )
+        except market_delivery.DeliveryClientError:
+            raise owner_state.StateBlockedError(
+                "canonical pending candidate saved delivered receipt is invalid"
+            ) from None
+        if saved_message_id is None:
+            raise owner_state.StateBlockedError(
+                "canonical pending candidate saved delivered receipt has no message ID"
+            )
+        message_ids.add(saved_message_id)
+    return message_ids
+
+
 def _observe_canonical_pending_deliveries(
     canonical: dict[str, Any], delivery_client: object | None = None
 ) -> dict[str, dict[str, Any]]:
@@ -270,52 +368,23 @@ def _observe_canonical_pending_deliveries(
         payload = payloads.get(candidate_key)
         expected_operation = None
         handoff = None
+        confirmed_message_ids: set[str] = set()
         if payload is not None:
             if not isinstance(payload, dict):
                 raise owner_state.StateBlockedError(
                     "canonical pending candidate has malformed delivery payload"
                 )
-            content = payload.get("content")
             channel_id = payload.get("channel_id")
-            if not isinstance(content, str) or not isinstance(channel_id, str):
+            if not isinstance(channel_id, str):
                 raise owner_state.StateBlockedError(
                     "canonical pending candidate has incomplete delivery payload"
                 )
-            try:
-                expected_operation = market_delivery._channel_message_operation(
-                    content, channel_id, f"{candidate_key}:text"
-                )
-            except (TypeError, ValueError):
-                raise owner_state.StateBlockedError(
-                    "canonical pending candidate delivery payload is invalid"
-                ) from None
-
-            handoff = payload.get("delivery_handoff")
-            if handoff is not None and (
-                not isinstance(handoff, dict)
-                or set(handoff) != {"state", "operation_key", "receipt"}
-                or handoff.get("state") not in {"unknown", "accepted"}
-                or handoff.get("operation_key") != expected_operation.key
-                or handoff.get("state") == "unknown" and handoff.get("receipt") is not None
-            ):
-                raise owner_state.StateBlockedError(
-                    "canonical pending candidate handoff is inconsistent with its payload"
-                )
-            required_keys = payload.get("required_operation_keys")
-            if required_keys is not None and required_keys != [expected_operation.key]:
-                raise owner_state.StateBlockedError(
-                    "canonical pending candidate operation manifest conflicts with its payload"
-                )
-            if isinstance(handoff, dict) and handoff.get("state") == "accepted":
-                saved = handoff.get("receipt")
-                if (
-                    not isinstance(saved, dict)
-                    or saved.get("key") != expected_operation.key
-                    or saved.get("digest") != expected_operation.digest
-                ):
-                    raise owner_state.StateBlockedError(
-                        "canonical pending candidate saved receipt conflicts with its payload"
-                    )
+            expected_operation, handoff, saved_receipt = _pending_candidate_operation(
+                candidate_key, payload
+            )
+            confirmed_message_ids = _confirmed_local_message_ids(
+                payload, saved_receipt, channel_id
+            )
             operation_key = expected_operation.key
         else:
             operation_key = market_delivery._operation_key(candidate_key, "text")
@@ -356,12 +425,21 @@ def _observe_canonical_pending_deliveries(
             raise owner_state.StateBlockedError(
                 "Delivery Owner operation is not terminally delivered for a pending candidate"
             )
-        message_id = market_delivery._delivered_message_id(
-            receipt, expected_operation.target["channel_id"]
-        )
+        try:
+            message_id = market_delivery._delivered_message_id(
+                receipt, expected_operation.target["channel_id"]
+            )
+        except market_delivery.DeliveryClientError:
+            raise owner_state.StateBlockedError(
+                "Delivery Owner delivered receipt has a conflicting destination"
+            ) from None
         if message_id is None or not isinstance(receipt.receipt, dict):
             raise owner_state.StateBlockedError(
                 "Delivery Owner delivered receipt is incomplete for a pending candidate"
+            )
+        if confirmed_message_ids and confirmed_message_ids != {message_id}:
+            raise owner_state.StateBlockedError(
+                "confirmed Discord message ID conflicts with Delivery Owner receipt"
             )
         resolutions[candidate_key] = {
             "operation_key": operation_key,
@@ -433,24 +511,29 @@ def merge_states(
             raise owner_state.StateBlockedError(
                 "pending candidate delivery is not safely resolved by the Delivery Owner"
             )
-        content = payload.get("content")
         channel_id = payload.get("channel_id")
         receipt = resolution["receipt"]
-        if not isinstance(content, str) or not isinstance(channel_id, str) or not isinstance(receipt, dict):
+        if not isinstance(channel_id, str) or not isinstance(receipt, dict):
             raise owner_state.StateBlockedError("delivered candidate resolution is incomplete")
         try:
-            expected = market_delivery._channel_message_operation(
-                content, channel_id, f"{key}:text"
+            expected, _handoff, saved_receipt = _pending_candidate_operation(
+                key, payload
             )
             message_id = market_delivery._delivered_message_id(
                 market_delivery.OperationReceipt.from_json(receipt, expected), channel_id
             )
-        except (TypeError, ValueError):
-            raise owner_state.StateBlockedError("delivered candidate resolution receipt is invalid") from None
+        except (TypeError, ValueError, market_delivery.DeliveryClientError):
+            raise owner_state.StateBlockedError(
+                "delivered candidate resolution receipt is invalid"
+            ) from None
+        confirmed_message_ids = _confirmed_local_message_ids(
+            payload, saved_receipt, channel_id
+        )
         if (
             expected.key != resolution["operation_key"]
             or expected.digest != resolution["digest"]
             or message_id is None
+            or confirmed_message_ids and confirmed_message_ids != {message_id}
         ):
             raise owner_state.StateBlockedError(
                 "delivered candidate resolution conflicts with its canonical payload"

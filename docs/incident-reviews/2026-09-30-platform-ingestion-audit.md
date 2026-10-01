@@ -341,10 +341,12 @@ A local reconciliation update now fingerprints status-only checks for
 canonical pending candidates. It permits only a matching delivered operation
 or `not_found` with no local accepted handoff or Discord message ID, repeats
 the checks during apply, and never submits or waits on Delivery Owner work.
-Canonical pending stock-status deliveries remain blocking. This code and its
-tests are not yet published or released. The Tuntun candidate's interruption
-point remains a separate diagnosis; no cause is inferred from the missing
-payload.
+Accepted legacy handoffs are reconstructed with their persisted nonce and
+`reconcile_before_first_create` operation setting. A confirmed local Discord
+message ID must match the owner's delivered receipt. Canonical pending
+stock-status deliveries remain blocking. This code and its tests are not yet
+published or released. The Tuntun candidate's interruption point remains a
+separate diagnosis; no cause is inferred from the missing payload.
 
 The next state-cutover steps are to publish and release this guarded change,
 then collect a fresh snapshot, archive and checksum both unchanged state
@@ -353,3 +355,16 @@ reader remains paused, and resume through the supported schedule interface.
 Do not replay or backfill any historical news. Natural runs after resume must
 prove future owner progress, and only confirmed Delivery Owner receipts prove
 delivery.
+
+### Adjacent RSS crash-recovery review
+
+A review flagged that an interrupted atomic journal write could leave a
+temporary file in `catalog-transitions/` and block retry of the same plan.
+Inspection of the repository state at `c955b7a` found that the shared planner
+already recognizes only its owner-owned, regular, mode-`0600`, exact-pattern
+temporary files, excludes them from the journal comparison, and removes them
+before resuming apply. The existing regression covers leftovers in both the
+state root and transition directory, and rejects malformed or unexpected
+entries. The focused check passed 4 tests with 32 deselected. This review item
+is closed against that code state and does not require a separate RSS change;
+it is not evidence of a production RSS run.

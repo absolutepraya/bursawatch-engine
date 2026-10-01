@@ -243,10 +243,16 @@ Pending canonical stock-status delivery remains a separate blocking condition.
 Review focus:
 
 - Exact operation key and digest reconstruction from the frozen payload.
+- Accepted legacy handoffs may use `reconcile_before_first_create` and the
+  persisted legacy nonce; preview and apply must reconstruct that exact
+  operation shape when its saved receipt proves it.
 - Missing payload plus `not_found` versus missing payload plus an existing
   owner operation.
 - Accepted local handoffs, mismatched receipts, pending remote receipts,
   failed lookups, and status changes between preview and apply.
+- Any confirmed local Discord message ID or delivered saved handoff receipt
+  must match the Delivery Owner's confirmed message ID before reconciliation
+  can replace or preserve that evidence.
 - Preservation of confirmed remote receipts before forward-only abandonment.
 - Idempotent reapply when the unchanged source file retains a pending phase
   that this same plan already abandoned canonically.
@@ -255,7 +261,8 @@ Review focus:
 Expected checks:
 
 - Focused reconciliation tests cover delivered, not-found, mismatch, changed
-  status, fail-closed behavior, idempotent reapply, and canonical stock-status
+  status, legacy accepted operations, confirmed message-ID conflicts,
+  fail-closed behavior, idempotent reapply, and canonical stock-status
   blocking.
 - The Market News package suite and `bash scripts/test-all` pass.
 - `git diff --check` passes.

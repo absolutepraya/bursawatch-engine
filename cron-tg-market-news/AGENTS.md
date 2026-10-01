@@ -128,8 +128,13 @@ news. For each canonical candidate in `pending_delivery`, preview performs a
 read-only Delivery Owner lookup by the deterministic operation key and
 validates the stored payload digest. It accepts only a matching delivered
 receipt, or `not_found` when local state has no accepted handoff or Discord
-message ID. Preview stores aggregate counts and a fingerprint of those
-outcomes, not operation keys or message content. Apply repeats the lookups and
+message ID. Reconstruct the operation from the persisted payload, including
+the supported legacy `reconcile_before_first_create` shape and nonce when an
+accepted saved receipt proves that digest. A saved confirmed message ID or
+delivered handoff receipt must agree with the current Delivery Owner receipt;
+conflicting IDs block the preview and apply. Preview stores aggregate counts
+and a fingerprint of those outcomes, not operation keys or message content.
+Apply repeats the lookups and
 fails closed if any result changed. This gate never submits or waits on a
 Delivery Owner operation. Canonical stock-status events still block when their
 delivery is pending; resolve those separately before making a new plan. The

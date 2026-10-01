@@ -342,6 +342,167 @@ def test_apply_rejects_delivery_owner_receipt_change_after_preview(
     assert canonical_path.read_bytes() == canonical_before
 
 
+def test_preview_and_apply_accept_saved_legacy_handoff_operation(
+    tmp_path, candidate, later_candidate
+):
+    source_state, source_path = _source_state(candidate, later_candidate, tmp_path)
+    canonical_state, canonical_path = _canonical_state(candidate, tmp_path)
+    ordinary_operation = _attach_pending_delivery_payload(canonical_state, candidate)
+    payload = canonical_state["stats"]["delivery_payloads"][candidate.key]
+    legacy_operation = delivery._channel_message_operation(
+        payload["content"],
+        payload["channel_id"],
+        f"{candidate.key}:text",
+        reconcile_before_first_create=True,
+        legacy_nonce=payload["nonce"],
+    )
+    assert legacy_operation.key == ordinary_operation.key
+    assert legacy_operation.digest != ordinary_operation.digest
+    saved_receipt = _owner_delivered_receipt(legacy_operation)
+    payload["delivery_handoff"] = {
+        "state": "accepted",
+        "operation_key": legacy_operation.key,
+        "receipt": {
+            "id": saved_receipt.id,
+            "key": saved_receipt.key,
+            "digest": saved_receipt.digest,
+            "status": saved_receipt.status,
+            "receipt": saved_receipt.receipt,
+        },
+    }
+    save_state(canonical_state, canonical_path)
+    client = _StatusOnlyDeliveryClient({legacy_operation.key: saved_receipt})
+    plan_path = tmp_path / "plans" / "market-news-merge.json"
+
+    plan = reconcile.preview(source_path, canonical_path, plan_path, delivery_client=client)
+    assert plan["canonical_pending_delivery_confirmed_count"] == 1
+    assert reconcile.apply(plan_path, delivery_client=client)["status"] == "applied"
+    assert client.status_calls == [legacy_operation.key, legacy_operation.key]
+
+
+@pytest.mark.parametrize("local_evidence", ["saved_receipt", "text_discord_id"])
+def test_preview_blocks_conflicting_confirmed_message_ids(
+    tmp_path, candidate, later_candidate, local_evidence
+):
+    source_state, source_path = _source_state(candidate, later_candidate, tmp_path)
+    canonical_state, canonical_path = _canonical_state(candidate, tmp_path)
+    operation = _attach_pending_delivery_payload(canonical_state, candidate)
+    payload = canonical_state["stats"]["delivery_payloads"][candidate.key]
+    if local_evidence == "saved_receipt":
+        local_receipt = _owner_delivered_receipt(operation, "456")
+        payload["delivery_handoff"]["state"] = "accepted"
+        payload["delivery_handoff"]["receipt"] = {
+            "id": local_receipt.id,
+            "key": local_receipt.key,
+            "digest": local_receipt.digest,
+            "status": local_receipt.status,
+            "receipt": local_receipt.receipt,
+        }
+    else:
+        pending_receipt = {
+            "id": "local-pending-receipt",
+            "key": operation.key,
+            "digest": operation.digest,
+            "status": "pending",
+            "receipt": None,
+        }
+        payload["delivery_handoff"]["state"] = "accepted"
+        payload["delivery_handoff"]["receipt"] = pending_receipt
+        payload["text_discord_id"] = "456"
+    save_state(canonical_state, canonical_path)
+    client = _StatusOnlyDeliveryClient(
+        {operation.key: _owner_delivered_receipt(operation, "789")}
+    )
+    plan_path = tmp_path / "plans" / "market-news-merge.json"
+
+    with pytest.raises(StateBlockedError, match="confirmed Discord message ID conflicts"):
+        reconcile.preview(source_path, canonical_path, plan_path, delivery_client=client)
+    assert not plan_path.exists()
+
+
+@pytest.mark.parametrize(
+    "owner_outcome",
+    ["not_found", "wrong_key", "wrong_digest", "wrong_channel", "pending", "lookup_error"],
+)
+def test_preview_fails_closed_for_unconfirmed_accepted_handoff(
+    tmp_path, candidate, later_candidate, owner_outcome
+):
+    source_state, source_path = _source_state(candidate, later_candidate, tmp_path)
+    canonical_state, canonical_path = _canonical_state(candidate, tmp_path)
+    operation = _attach_pending_delivery_payload(canonical_state, candidate)
+    payload = canonical_state["stats"]["delivery_payloads"][candidate.key]
+    saved_receipt = {
+        "id": "local-pending-receipt",
+        "key": operation.key,
+        "digest": operation.digest,
+        "status": "pending",
+        "receipt": None,
+    }
+    payload["delivery_handoff"] = {
+        "state": "accepted",
+        "operation_key": operation.key,
+        "receipt": saved_receipt,
+    }
+    save_state(canonical_state, canonical_path)
+
+    if owner_outcome == "not_found":
+        client = _StatusOnlyDeliveryClient({})
+    elif owner_outcome == "wrong_key":
+        other_operation = delivery._channel_message_operation(
+            payload["content"], payload["channel_id"], "different-candidate:text"
+        )
+        client = _StatusOnlyDeliveryClient(
+            {operation.key: _owner_delivered_receipt(other_operation)}
+        )
+    elif owner_outcome == "wrong_digest":
+        client = _StatusOnlyDeliveryClient(
+            {
+                operation.key: delivery.OperationReceipt(
+                    id="owner-receipt",
+                    key=operation.key,
+                    digest="a" * 64,
+                    status="delivered",
+                    receipt={"message_id": "789", "channel_id": "123"},
+                )
+            }
+        )
+    elif owner_outcome == "wrong_channel":
+        client = _StatusOnlyDeliveryClient(
+            {
+                operation.key: delivery.OperationReceipt(
+                    id="owner-receipt",
+                    key=operation.key,
+                    digest=operation.digest,
+                    status="delivered",
+                    receipt={"message_id": "789", "channel_id": "999"},
+                )
+            }
+        )
+    elif owner_outcome == "pending":
+        client = _StatusOnlyDeliveryClient(
+            {
+                operation.key: delivery.OperationReceipt(
+                    id="owner-receipt",
+                    key=operation.key,
+                    digest=operation.digest,
+                    status="pending",
+                    receipt=None,
+                )
+            }
+        )
+    else:
+        class FailingStatusClient(_StatusOnlyDeliveryClient):
+            def status(self, _operation_key):
+                raise RuntimeError("status unavailable")
+
+        client = FailingStatusClient({})
+
+    plan_path = tmp_path / "plans" / "market-news-merge.json"
+    with pytest.raises(StateBlockedError):
+        reconcile.preview(source_path, canonical_path, plan_path, delivery_client=client)
+    assert not plan_path.exists()
+
+
 def test_preview_blocks_owner_operation_without_payload_for_digest_validation(
     tmp_path, candidate, later_candidate
 ):
