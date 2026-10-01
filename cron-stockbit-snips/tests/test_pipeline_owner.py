@@ -90,3 +90,25 @@ def test_same_candidate_key_from_different_source_event_fails_closed(tmp_path):
     other["work_key"] = other["effect_key"] = hashlib.sha256(f'{other["event_key"]}:1:stockbit_snips'.encode()).hexdigest()
     with pytest.raises(ValueError):
         pipeline_owner.submit(other, path=path, no_post=True, now=NOW)
+
+
+def test_idle_delivery_drain_persists_owner_state_without_live_feed(tmp_path, monkeypatch):
+    import scan
+
+    path = tmp_path / "stockbit.json"
+    state.save_state(path, state.new_state(config.FEEDS))
+    monkeypatch.delenv("BURSAWATCH_RSS_SOURCE_NO_POST", raising=False)
+    monkeypatch.delenv("STOCKBIT_SNIPS_NO_POST", raising=False)
+    monkeypatch.setattr(scan, "_preflight_pending_delivery", lambda value: None)
+    monkeypatch.setattr(scan, "_drain_publications", lambda value, destination, now: {"accepted": 0, "pending": 0})
+
+    def delivered(value, runtime, now, *, limit):
+        assert runtime.state_path == path
+        assert limit == 3
+        value["last_heartbeat"] = now.isoformat()
+        return 1
+
+    monkeypatch.setattr(scan, "_drain_delivery", delivered)
+    result = pipeline_owner.drain_deliveries(path=path, now=NOW)
+    assert result == {"delivered": 1, "pending_delivery": 0}
+    assert state.load_state(path, config.FEEDS)["last_heartbeat"] == NOW.isoformat()
