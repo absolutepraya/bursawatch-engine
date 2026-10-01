@@ -412,16 +412,23 @@ PR #36 introduced a receipt schema that required delivery-resolution fields
 while retaining receipt version 1. Once its exact main SHA reached production,
 the state reader rejected the existing receipt as malformed. This is a
 backward-compatibility regression after a completed apply, not an incomplete
-initial merge. The latest production snapshot at 18:12 WIB shows
-`origin/main` and the successful release both at
-`32c7ccd158479bcf90dd33f2a7c587d0c32943ef`, all 8 desired schedules matching,
-and Telegram source-ingest paused at desired/applied revision 8 at its existing
-one-minute interval. The legacy Market News reader and watchdog remain
-paused. The snapshot proves release and schedule state only, not a natural
-source-to-delivery event.
+initial merge. PR #37 added the dual-schema validator and guarded legacy
+finalization, then merged at 18:23 WIB as
+`4e6db9ce97bd651926c7b6aaff1b936aa2e4d861`.
 
-The code follow-up accepts the exact version-1 and version-2 receipt schemas.
-Its version-3 `finalize_legacy` plan authenticates the original plan and
+The pre-release production snapshot at 18:24 WIB showed `origin/main` at that
+SHA, but the last successful release remained
+`32c7ccd158479bcf90dd33f2a7c587d0c32943ef`.
+The release agent is unblocked, Hermes is running, and all 8 desired schedules
+match. Telegram source-ingest remains paused at desired/applied revision 8 at
+its existing one-minute interval; the legacy Market News reader and watchdog
+also remain paused. PR-level `validate` and deterministic suite checks passed,
+while CodeRabbit was still pending. Neither the PR checks nor the snapshot
+prove the exact merged main SHA has passed its release gate or that a natural
+source-to-delivery event occurred.
+
+PR #37's code accepts the exact version-1 and version-2 receipt schemas. Its
+version-3 `finalize_legacy` plan authenticates the original plan and
 receipt, confirms the source import is complete, and fingerprints read-only
 Delivery Owner lookups. Phintraco message `35557` has a matching confirmed
 `delivered` receipt and message ID, so finalization will preserve it without a
@@ -432,3 +439,129 @@ unchanged. Only a fresh reviewed plan may be applied while the source reader,
 legacy reader, and watchdog remain paused. Afterward, resume source-ingest
 through the authenticated desired-schedule interface and use natural runs to
 check forward progress. Do not replay or backfill historical news.
+
+## 2026-10-01 production follow-up
+
+PR #37 is now deployed: the 18:57 WIB production snapshot showed `origin/main`
+and the successful VPS release both at
+`4e6db9ce97bd651926c7b6aaff1b936aa2e4d861`, exact-main release CI successful,
+and 8/8 desired schedules matching. The guarded version-3 finalization ran at
+18:39:38 WIB from a separately verified recovery archive. Its receipt records
+zero new imports, all 81 source candidates and provenance preserved, the
+confirmed Phintraco delivery for `35557`, and the unresolved Tuntun `15063`
+operation safely abandoned as not found. Telegram source-ingest resumed at
+revision 9 and is effective at its unchanged one-minute cadence; the legacy
+Market News reader and watchdog remain paused.
+
+The first resumed natural Telegram run accepted eight same-day events:
+Phintas `35559` and `35560`, Tuntun `15064` through `15067`, and Kelas `10905`
+and `10906`. Read-only Control Plane inspection found all 18 associated work
+rows `done`, with no error codes. The canonical Market News ledger received 14
+candidates from Tuntun `15065` and `15066`. At the 18:59 WIB check, five were
+pending selection, eight pending analysis, and one awaiting the agent; none
+had a matching confirmed publication receipt yet. Intake and owner acceptance
+are proven, but current-day classification and delivery acceptance remain in
+progress. No manual schedule run, replay, backfill, or test post occurred.
+
+The same 18:57 WIB schedule snapshot showed the X account watcher still
+`last=error` while its queue job was `last=ok`; WhatsApp and Stockbit were
+`last=ok`. The X error remains a separate adjacent diagnosis, and these
+scheduler labels do not establish source delivery for those routes.
+
+## 2026-10-01 Market News delivery receipt follow-up
+
+The 19:12 WIB production snapshot still showed the exact `main` SHA released,
+all 8 interval schedules matching, and Telegram source-ingest active at
+revision 9. The X watcher continued to report `last=error`; its queue job,
+WhatsApp, and Stockbit reported `last=ok`.
+
+The resumed natural Telegram run accepted eight same-day events and all 18
+associated source-work rows reached `done`. Fourteen candidates came from
+Tuntun messages `15065` and `15066`. By 19:12, eight candidates were
+`pending_delivery`, three `pending_analysis`, one `awaiting_agent`, and two
+`suppressed_rank`.
+
+One Industry candidate from message `15065` reached the Delivery Owner. Its
+operation key and digest match, its owner status is `delivered`, and the owner
+returned Discord message ID `1555188202858483763`. The local target is the
+Industry channel. The standard Delivery Owner receipt contains only
+`message_id`; the typed client validates that receipt against the frozen
+operation, and permits the destination field to be omitted. The deployed
+Market News projection instead required `channel_id` inside the receipt, so
+it rejected the valid owner receipt, left the candidate pending, and repeated
+the failure on later natural runs. The projection flag is enabled, and the
+deployed `publication_projection.py` hash matches the worktree, ruling out a
+configuration or stale-runtime difference.
+
+The narrow worktree fix derives the publication destination from the same
+validated operation target when the receipt omits it, while preserving the
+explicit mismatch rejection. A regression at the full delivery call site was
+red before the fix and green after it; the wrong-channel guard also passes and
+all 325 Market News tests pass. The fix has not reached production yet. The
+existing stable owner operation is already delivered, so post-release recovery
+must confirm that same operation and must not send a replacement. Current-day
+delivery acceptance remains open until natural runs persist matching owner
+receipts and publication records for the affected candidates.
+
+## 2026-10-01 19:15 natural-run follow-up
+
+Hermes reports the scheduled Market News source run
+`0b0b9c827ef442db964bc15c597781b4` completed at 19:15:37 WIB. A read-only
+owner-state inspection found 14 Tuntun candidates: 10 `pending_delivery`, 2
+`pending_analysis`, and 2 `suppressed_rank`. Only
+`tuntun:15065:industry-1` has an accepted Delivery Owner handoff among the
+pending deliveries. That same operation is already `delivered` with message
+ID `1555188202858483763`; the other nine pending candidates have no persisted
+handoff. None of these 14 candidates has a Published Feed projection entry.
+
+The fresh 19:19 WIB snapshot showed `origin/main` and the release still at
+`4e6db9ce97bd651926c7b6aaff1b936aa2e4d861`, exact-main CI successful, and
+8/8 desired schedules matching. Telegram source-ingest remains active at
+revision 9. The X watcher still reports `last=error`, while WhatsApp and
+Stockbit report `last=ok`. Those records establish scheduler state only. The
+message-only receipt correction remains in the development worktree and has
+not reached production; delivery acceptance remains open.
+
+## 2026-10-01 19:31 X source-reader follow-up
+
+The fresh 19:31 WIB snapshot still showed `origin/main` and the successful
+release at `4e6db9ce97bd651926c7b6aaff1b936aa2e4d861`, exact-main CI
+successful, and 8/8 desired schedules matching. The X source-ingest job
+remained active but `last=error`; its one-minute queue worker remained
+`last=ok`. Its latest three scheduled source runs at 19:10, 19:20, and 19:30
+WIB failed. Hermes retains only the generic wrapper traceback
+`RuntimeError: source processing failed`.
+
+Read-only live configuration inspection found X watcher revision 9 and
+effective Source Catalog revision 8. All eight enabled X profiles passed the
+adapter's current endpoint-binding and enabled-subscription selection check.
+Torch remains enabled with `source=rsshub`; its effective `company_news` and
+`macro_news` subscriptions are enabled, while `swing_chart_context` is
+disabled. The X source-ingest state root's `catalog-revision.json` is still
+revision 7. The package calls `bind_catalog_revision()` before endpoint
+polling, and that guard rejects a changed revision without a package-owned
+transition. The runner converts the resulting exception to the generic fatal
+message. This is a current X source-reader catalog gate, separate from the
+older account-feed omission.
+
+The current RSSHub user feed still returns HTTP 200, with eight items including
+Torch status `2105119182325252507` and newer status `2105222314002677829`, but
+not the reported `2105187407926809029`. Torch's source cursor is already at
+`2105222314002677829`; the missed status is absent from the accepted-event
+index. The watcher constructs its feed URL as
+`/twitter/user/writingtorch?format=json`, without an `includeReplies` route
+parameter. RSSHub's upstream [route issue](https://github.com/DIYgod/RSSHub/issues/20255)
+documents `includeReplies=true` as a route parameter, but requests to this
+instance with `includeReplies=true` and with `includeReplies=true&includeRts=true`
+both returned HTTP 200 with zero items. A direct status detail request also
+returned HTTP 403, so the missed post's kind and parent relationship remain
+unknown.
+
+The effective thread mode is `self_chain`, with a 20-post bound, 240-minute
+age bound, and 15-minute settle window. The watcher accepts a reply to the
+same author as a self-chain item even with `forward_reply=false`; that flag
+still excludes replies to other accounts. The available evidence therefore
+does not prove that the thread configuration caused this exact omission. Its
+cursor has passed the missed ID, and no recovery, replay, or backfill was
+attempted. Resolve the revision gate and RSSHub reply visibility in separate
+forward-only X follow-up work before claiming future account coverage.

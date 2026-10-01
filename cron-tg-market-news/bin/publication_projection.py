@@ -83,12 +83,18 @@ def _stored_receipt_leg(
     except (ImportError, TypeError, ValueError):
         raise IncompletePublication("stored delivery receipt is invalid") from None
     target_channel = operation.target.get("channel_id")
+    receipt_destination = (
+        receipt.receipt.get("channel_id", target_channel)
+        if receipt.receipt is not None else None
+    )
     if (
         receipt.status != "delivered"
         or receipt.key != operation.key
         or receipt.digest != operation.digest
         or receipt.receipt is None
-        or receipt.receipt.get("channel_id") != target_channel
+        or not isinstance(target_channel, str)
+        or not target_channel.isdigit()
+        or receipt_destination != target_channel
     ):
         raise IncompletePublication("delivery receipt is not a confirmed matching operation")
     message_id = receipt.receipt.get("message_id")
@@ -114,7 +120,7 @@ def _stored_receipt_leg(
         "attachments": attachments,
         "receipt_key": receipt.key,
         "receipt_digest": receipt.digest,
-        "receipt_destination": receipt.receipt.get("channel_id"),
+        "receipt_destination": receipt_destination,
         "receipt_message_id": message_id,
     }
 

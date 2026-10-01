@@ -242,6 +242,14 @@ delivery payload's `required_operation_keys`; a future additional leg must be
 added to that owner-owned list and have its own confirmed receipt before the
 snapshot can be accepted.
 
+For channel-message operations, the Delivery Owner receipt may contain only
+`message_id`. Validate it with `OperationReceipt.from_json(receipt,
+operation)`, which binds its key and digest to the operation and rejects any
+explicit destination mismatch. When the receipt omits `channel_id`, the
+publication leg destination comes from that same validated
+`operation.target["channel_id"]`; never infer it from the source or current
+operator configuration.
+
 Projection drains use the shared `PublicationClient` and retry only the frozen
 snapshot until the Control Plane acknowledges its publication ID, version,
 and digest. Projection failure leaves the intent pending and must not submit a
