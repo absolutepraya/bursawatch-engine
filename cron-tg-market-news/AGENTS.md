@@ -106,50 +106,67 @@ the deployed skill's package-local `state.json` is not a production state path.
 
 ### Source-ingest state reconciliation
 
-`bin/reconcile_source_ingest_state.py` owns the one-time merge of accepted
+`bin/reconcile_source_ingest_state.py` owns the one-time import of accepted
 source-work state from the deployed package-local file into the canonical
-Market News state. `preview` is read-only. It validates both `0600` state
-files with legacy migration disabled and writes a private plan containing
-hashes and aggregate candidate and status-event counts, never source text or
-URLs. Its default input paths are the deployed package-local `state.json` and
-`~/.hermes/state/idx-market-news.json`; the default private plan is
-`~/.hermes/maintenance-plans/market-news-state-reconciliation.json`.
+Market News state, and guarded finalization of a previously applied legacy
+receipt. `preview` is read-only. It validates both `0600` state files with
+legacy migration disabled and writes a private plan containing hashes and
+aggregate candidate and status-event counts, never source text or URLs. Its
+default inputs are the deployed package-local `state.json` and
+`~/.hermes/state/idx-market-news.json`. New version-3 plans use
+`~/.hermes/maintenance-plans/market-news-state-reconciliation-v3.json`; the
+original version-1 plan at
+`~/.hermes/maintenance-plans/market-news-state-reconciliation.json` is retained
+as immutable evidence when a legacy receipt exists.
 
-Run production `preview` and `apply` only in the approved state-reconciliation
-sequence: verify release and current paths, pause source-ingest, prove there is
-no active run, owner process, or state lock, resolve outstanding leases,
-archive and checksum both complete state files, and review a fresh preview.
-Apply must use that exact preview while the writer remains paused. The merge
-preserves terminal history, selections, delivery intents, handoffs, and
-receipts. It imports only validated source provenance and safe terminal
-source-only status events. It marks all pre-cutover active candidates
-`abandoned` with a recorded reason so the first resumed run cannot emit stale
-news. For each canonical candidate in `pending_delivery`, preview performs a
-read-only Delivery Owner lookup by the deterministic operation key and
-validates the stored payload digest. It accepts only a matching delivered
-receipt, or `not_found` when local state has no accepted handoff or Discord
-message ID. Reconstruct the operation from the persisted payload, including
-the supported legacy `reconcile_before_first_create` shape and nonce when an
-accepted saved receipt proves that digest. A saved confirmed message ID or
+With no receipt, the tool creates a `merge` plan. Run production `preview` and
+`apply` only after verifying the release and paths, pausing source-ingest,
+proving there is no active run, owner process, state lock, or live lease, and
+archiving and checksumming both complete state files. Review a fresh preview
+and apply that exact plan while the writer remains paused. The merge preserves
+terminal history, selections, delivery intents, handoffs, and receipts. It
+imports only validated source provenance and safe terminal source-only status
+events, then abandons every pre-cutover active candidate with a recorded
+reason so the first resumed run cannot emit stale news.
+
+When canonical state has the exact older version-1 reconciliation receipt,
+preview accepts it only if the original version-1 plan exists and its digest,
+paths, source hash, canonical base hash, and recorded counts all match the
+receipt. It then creates a separate version-3 `finalize_legacy` plan. This mode
+requires all source candidates and provenance to have already been imported,
+all matching canonical candidate records to be terminal, and no unrelated
+nonterminal work. It does not repeat the import or change package-local source
+phases. For every canonical candidate in `pending_delivery`,
+preview performs a read-only Delivery Owner lookup by the deterministic
+operation key and validates the stored payload digest. It accepts only a
+matching delivered receipt, or `not_found` when local state has no accepted
+handoff or Discord message ID. A delivered result preserves the confirmed
+receipt and message ID in canonical state; a not-found result is abandoned with
+the forward-only reason. Reconstruct operations from persisted payloads,
+including the supported legacy `reconcile_before_first_create` shape and nonce
+when a saved receipt proves that digest. A saved confirmed message ID or
 delivered handoff receipt must agree with the current Delivery Owner receipt;
-conflicting IDs block the preview and apply. Preview stores aggregate counts
-and a fingerprint of those outcomes, not operation keys or message content.
-Apply repeats the lookups and
-fails closed if any result changed. This gate never submits or waits on a
-Delivery Owner operation. Canonical stock-status events still block when their
-delivery is pending; resolve those separately before making a new plan. The
-same completed plan may be applied idempotently only when its receipt matches
-and all imported provenance remains present. The package-local file stays
-unchanged, so an old pending candidate phase is tolerated only when that same
-receipt proves the canonical candidate is already abandoned. Preserve the
-package-local source file in the verified archive. On any failure after
-pausing, keep the schedule paused and follow the approved plan before resuming
-it. Never run the scheduled job manually, replay state, or send a test post for
-this check.
+conflicting IDs block preview and apply. The plan stores aggregate counts and
+a fingerprint of status outcomes, not operation keys or message content.
+
+Apply rechecks both state hashes and repeats the read-only Delivery Owner
+lookups, failing closed if any result changed. It writes a version-2 receipt
+linked to the prior receipt and plan hashes. The receipt validator continues to
+accept the exact legacy version-1 schema and the current version-2 schema. This
+operation never submits or waits on a Delivery Owner operation. Canonical
+stock-status events still block when their delivery is pending; resolve those
+separately before making a plan. An already-applied version-3 plan is
+idempotent only when its receipt matches and all imported provenance remains
+present. Preserve both the original archive and package-local source file. On
+any failure, keep the schedule paused and follow the reviewed plan before
+resuming it. Never run the scheduled job manually, replay state, or send a test
+post for this check.
 
 ```bash
-python3 "$HOME/.agents/skills/bursawatch-tg-market-news/bin/reconcile_source_ingest_state.py" preview
-python3 "$HOME/.agents/skills/bursawatch-tg-market-news/bin/reconcile_source_ingest_state.py" apply
+python3 "$HOME/.agents/skills/bursawatch-tg-market-news/bin/reconcile_source_ingest_state.py" preview \
+  --legacy-plan-file "$HOME/.hermes/maintenance-plans/market-news-state-reconciliation.json"
+python3 "$HOME/.agents/skills/bursawatch-tg-market-news/bin/reconcile_source_ingest_state.py" apply \
+  --plan-file "$HOME/.hermes/maintenance-plans/market-news-state-reconciliation-v3.json"
 ```
 
 ### Live configuration schema

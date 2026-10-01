@@ -7,14 +7,19 @@
 the cutover forward-only. The source-runner canonical-path fix and original
 reconciliation shipped through
 [PR #33](https://github.com/absolutepraya/bursawatch-engine/pull/33). The
-Phintas route follow-up also merged. A fresh production snapshot at
-2026-10-01 16:08 WIB showed `origin/main` and the successful release at
-`c955b7a8da6f6d4f439035270dd0b2f1b9588261`, with the release agent unblocked.
-At that snapshot, the shared Telegram source reader was paused at desired
-revision 8, applied revision 8, at its existing one-minute interval. The state
-archive and state apply below have not been performed. A new package-owned
-Delivery Owner preflight repair is implemented locally but is not yet
-published or released.
+Phintas route follow-up also merged. PR #36, which adds the guarded
+Delivery Owner preflight repair, merged to `main` at 2026-10-01 16:47 WIB as
+`32c7ccd158479bcf90dd33f2a7c587d0c32943ef`.
+
+**Latest production snapshot at 2026-10-01 18:12 WIB:**
+`origin/main` and the last successful VPS release both equal
+`32c7ccd158479bcf90dd33f2a7c587d0c32943ef`. Release CI is successful, the
+release agent is unblocked, Hermes is running, and all 8 desired interval
+schedules match the live registry. There are 13 jobs (7 active, 6 paused).
+Telegram source-ingest remains paused at desired/applied revision 8 and its
+existing one-minute interval; the legacy Market News reader and watchdog are
+also paused. This snapshot proves release and schedule state, not a natural
+source-to-delivery event.
 
 **Workstream authorization:** The user has authorized the actions reasonably
 needed to complete this Bursawatch ingestion repair without requesting separate
@@ -60,6 +65,42 @@ nested parentheses. Phintraco message 35549 (Oct 1 08:21 WIB) was rejected as
 `invalid_status`: its effective date says `01 Oktober 2026`, while the parser
 accepted English month names only. These parser fixes are forward-only; the
 advanced source cursors will not replay those old posts.
+
+## Original production reconciliation and receipt regression
+
+The original version-1 reconciliation was applied at 2026-10-01 13:46:32 WIB,
+while Telegram source-ingest was paused. Its receipt records 81 source
+candidates/provenance records, 12 new candidates, 69 overlaps, four stock
+status events, two provenance additions, and 95 active candidates abandoned.
+The original private plan and version-1 receipt still match. The original
+archive under
+`~/backup/hermes/runtime-cutovers/2026-10-01/bursawatch-tg-market-news/`
+passes its SHA-256 manifest. The package-local source file remains byte-for-byte
+unchanged at digest
+`c9ed4604e89ccd5c5bce71b0a8d4477d3fcb554141134844f47e76162e25d27d`.
+
+PR #36 then introduced a stricter pending-delivery receipt schema but kept the
+receipt version at 1. The deployed state reader therefore rejected the
+already-applied legacy receipt as malformed. The first apply did happen; this
+is a later backward-compatibility regression. Do not repeat the original merge
+or overwrite its archive.
+
+The approved code follow-up accepts both exact old version-1 and new version-2
+receipt schemas. Plan version 3 has two explicit modes. `merge` is for state
+with no prior receipt. `finalize_legacy` requires the original version-1 plan
+and receipt to match, verifies every source candidate and provenance record is
+already imported and each matching canonical candidate is terminal, then
+resolves every canonical pending delivery with read-only Delivery Owner status
+checks. It preserves
+confirmed delivery evidence, abandons only verified `not_found` pending
+candidates, and stores the prior receipt and plan digests in the new receipt.
+It does not repeat the import or change the source file.
+
+The current pending outcomes are Phintraco message `35557`, confirmed
+`delivered` with a matching stored digest and message ID, and Tuntun message
+`15063`, `not_found` with no saved handoff or Discord ID. Finalization must
+reconfirm the exact outcomes during preview and apply. It must not post either
+item or any other pre-boundary candidate.
 
 **Observed at 2026-10-01 09:51 WIB:** The package-local file contained 69
 source-provenance candidates, 68 `pending_analysis` and 1 `awaiting_agent`.
@@ -272,52 +313,51 @@ Expected checks:
 The plan has no separate design spec; this plan contains the approved design
 and implementation contract.
 
-## Separately approved production operation
+## Guarded production finalization
 
-After the source and target paths are refreshed and the approved preview is
-reviewed:
+The original archive and version-1 plan/receipt are immutable evidence. Before
+the follow-up state write:
 
-1. Run a fresh production snapshot. Read both current state files using the
-   package-owned read-only preview and confirm their modes, hashes, candidate
-   counts, provenance counts, overlapping payloads, phase differences, lease
-   expiries, stock-status event identities, phases, receipts, and provenance.
-   Inspect the supported Hermes job definition for an explicit
-   `IDX_MARKET_NEWS_STATE_PATH` override. The earlier counts are expectations
-   only, not apply inputs.
-2. Pause the existing Telegram source-ingest schedule through the supported
-   scheduler interface. Prove no run is in flight and no Market News owner
-   process or state lock remains. Confirm the legacy Market News watchdog is
-   still paused. Wait for any outstanding two-minute agent lease to expire or
-   complete before applying. If the live job has an explicit noncanonical
-   path override, stop and review that exact config change before proceeding.
-3. Archive both complete state files and SHA-256 inventories under
-   `~/backup/hermes/runtime-cutovers/<YYYY-MM-DD>/bursawatch-tg-market-news/`.
-   Verify the archive against the quiescent files. Preserve it for at least 30
-   days.
-4. Produce and review a fresh merge preview. Confirm every package-local
-   source-provenance key is either a new canonical candidate or an identical
-   payload overlap, there are zero unresolved conflicts, and the preview's
-   `active_candidate_abandonment_count` covers every active candidate. Confirm
-   every canonical pending candidate has either a matching delivered receipt
-   or a not-found result with no local accepted handoff, and confirm there are
-   no unresolved canonical stock-status deliveries.
-5. Apply the reviewed plan while the writer remains paused. Verify all
-   source-work provenance is present in canonical state, every formerly active
-   candidate is `abandoned`, terminal canonical records and delivery receipts
-   are unchanged, source-only candidates were added exactly once and are also
-   abandoned, canonical status-event phases and receipts are unchanged, source
-   status-event provenance is complete, and the source file is unchanged.
-6. Resume the existing one-minute schedule through the supported scheduler
-   interface. Observe natural runs only. Confirm new source acceptance,
-   agent claims, and classification submissions use the canonical file. Only
-   source events accepted after this forward-only boundary may enter analysis
-   or delivery. Distinguish owner progress from confirmed Delivery Owner
-   receipts.
+1. Run a fresh production snapshot and verify the exact released SHA and
+   existing schedule revisions. Keep shared Telegram source-ingest, the legacy
+   Market News reader, and its watchdog paused.
+2. Prove there is no run in flight, Market News owner process, open state lock,
+   or live candidate lease. Confirm the scheduled job still has no explicit
+   `IDX_MARKET_NEWS_STATE_PATH` override.
+3. Archive the complete current source and canonical files with a new
+   SHA-256 manifest in a unique subdirectory beneath
+   `~/backup/hermes/runtime-cutovers/2026-10-01/bursawatch-tg-market-news/`.
+   Verify both archived files against the quiescent live files. Keep both this
+   recovery point and the original archive for at least 30 days.
+4. Run the deployed version-3 `preview` with the original version-1 plan named
+   explicitly. Review the private plan before apply. It must say
+   `mode=finalize_legacy`, show zero new imports or provenance additions,
+   confirm all 81 source candidates and provenance records are present in
+   canonical state, their canonical candidate records are terminal, and report
+   exactly two pending deliveries: one confirmed and one not found. Its
+   abandonment count must be one, and all other candidate work must already be
+   terminal.
+5. Apply that exact version-3 plan while every writer remains paused. Verify a
+   version-2 receipt linked to both the old receipt and plan hashes, message
+   `35557` in `delivered` with its confirmed message ID, message `15063` in
+   `abandoned` with the forward-only reason, all source candidate/provenance
+   data still present, the source state unchanged, and no other state changed
+   beyond the reviewed finalization.
+6. Run a fresh production snapshot and verify the release/checksum and paused
+   schedule state again. Then resume only `bursawatch-tg-source-ingest` through
+   the authenticated Control Plane desired-schedule interface, preserving its
+   existing one-minute cadence and timezone. Leave the legacy Market News
+   reader and watchdog paused.
+7. Observe natural runs only. Confirm source acceptance, owner work and
+   classification use the canonical state path. Distinguish accepted events,
+   pipeline work, agent execution, and confirmed Delivery Owner receipts. Do
+   not process pre-boundary candidates or send stale news.
 
-If preview, archive verification, deployment, or apply fails, keep the
-schedule paused after the pause step and stop before resuming. Do not restore
-an archive over a live writer. Resolve the failure from the recorded hashes
-and exact plan, then re-preview before retrying.
+If preview, archive verification, runtime checksum validation, or apply fails,
+keep the schedules paused and stop before resume. Never restore an archive over
+a live writer. Diagnose from the recorded hashes and exact plan, then make a
+fresh preview before retrying. Never run a production schedule manually, replay
+or backfill news, or post a test message.
 
 ## Acceptance evidence
 
@@ -326,6 +366,11 @@ and exact plan, then re-preview before retrying.
   overrides still work.
 - The package-local source state remains unchanged and archived.
 - All valid source-work provenance is present in the canonical owner ledger.
+- The canonical state has a valid version-2 reconciliation receipt, and the
+  state reader also accepts exact legacy version-1 receipts during the
+  compatibility window.
+- No canonical pending delivery remains unresolved at the finalization
+  boundary; each observed delivery outcome is confirmed or safely abandoned.
 - No pre-cutover active Market News candidate is sent; each is durably
   `abandoned` with a reason before the first resumed run.
 - No unresolved pending-delivery operation is hidden by abandonment or
