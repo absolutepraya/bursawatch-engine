@@ -521,3 +521,47 @@ revision 9. The X watcher still reports `last=error`, while WhatsApp and
 Stockbit report `last=ok`. Those records establish scheduler state only. The
 message-only receipt correction remains in the development worktree and has
 not reached production; delivery acceptance remains open.
+
+## 2026-10-01 19:31 X source-reader follow-up
+
+The fresh 19:31 WIB snapshot still showed `origin/main` and the successful
+release at `4e6db9ce97bd651926c7b6aaff1b936aa2e4d861`, exact-main CI
+successful, and 8/8 desired schedules matching. The X source-ingest job
+remained active but `last=error`; its one-minute queue worker remained
+`last=ok`. Its latest three scheduled source runs at 19:10, 19:20, and 19:30
+WIB failed. Hermes retains only the generic wrapper traceback
+`RuntimeError: source processing failed`.
+
+Read-only live configuration inspection found X watcher revision 9 and
+effective Source Catalog revision 8. All eight enabled X profiles passed the
+adapter's current endpoint-binding and enabled-subscription selection check.
+Torch remains enabled with `source=rsshub`; its effective `company_news` and
+`macro_news` subscriptions are enabled, while `swing_chart_context` is
+disabled. The X source-ingest state root's `catalog-revision.json` is still
+revision 7. The package calls `bind_catalog_revision()` before endpoint
+polling, and that guard rejects a changed revision without a package-owned
+transition. The runner converts the resulting exception to the generic fatal
+message. This is a current X source-reader catalog gate, separate from the
+older account-feed omission.
+
+The current RSSHub user feed still returns HTTP 200, with eight items including
+Torch status `2105119182325252507` and newer status `2105222314002677829`, but
+not the reported `2105187407926809029`. Torch's source cursor is already at
+`2105222314002677829`; the missed status is absent from the accepted-event
+index. The watcher constructs its feed URL as
+`/twitter/user/writingtorch?format=json`, without an `includeReplies` route
+parameter. RSSHub's upstream [route issue](https://github.com/DIYgod/RSSHub/issues/20255)
+documents `includeReplies=true` as a route parameter, but requests to this
+instance with `includeReplies=true` and with `includeReplies=true&includeRts=true`
+both returned HTTP 200 with zero items. A direct status detail request also
+returned HTTP 403, so the missed post's kind and parent relationship remain
+unknown.
+
+The effective thread mode is `self_chain`, with a 20-post bound, 240-minute
+age bound, and 15-minute settle window. The watcher accepts a reply to the
+same author as a self-chain item even with `forward_reply=false`; that flag
+still excludes replies to other accounts. The available evidence therefore
+does not prove that the thread configuration caused this exact omission. Its
+cursor has passed the missed ID, and no recovery, replay, or backfill was
+attempted. Resolve the revision gate and RSSHub reply visibility in separate
+forward-only X follow-up work before claiming future account coverage.
