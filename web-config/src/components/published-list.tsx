@@ -51,8 +51,8 @@ export function PublishedList({
             : "All required publishers reported a current comparison. Coverage ends at each publisher's last check."}
         </p>
         <p>
-          A confirmed record documents delivery at that time. Check Discord to
-          see whether it is still visible.
+          {"A confirmed record documents delivery at that time. "}
+          {"Check Discord to see whether it is still visible."}
         </p>
         {coverage?.owners.length ? (
           <details>
