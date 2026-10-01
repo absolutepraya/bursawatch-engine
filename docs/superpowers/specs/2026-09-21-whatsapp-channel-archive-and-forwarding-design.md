@@ -237,3 +237,21 @@ derived-News-Item protocol, BRI technical image and Board boundaries, testing,
 deployment, and explicit live approval requirements. The ADR records the
 durable architecture while this specification captures its implementable
 contract.
+
+## 2026-10-01 missing source image decision
+
+This decision supersedes the strict no-text fallback above for a BRI
+`#TechnicalReview` whose source chart was not captured. Keep the immutable
+archive's truthful `unavailable` result. Forward ordinary news text with
+an unavailable-image note. For an exact `#TechnicalReview`, forward the
+source-grounded All Swing text with `Source chart unavailable` when the
+verified chart cannot be captured. Omit the image leg and chart-dependent
+Swing Board context. Discord transport or upload failure remains retryable;
+only a known source-capture miss takes this text-only path.
+
+The current source adapter blocks missing archive bytes before the watcher
+can apply its ordinary-news fallback. Implement the change across that
+boundary while preserving event identity, cursor order, original publication
+time, archive record, and stable delivery operations. A queued item may
+arrive late after the fix. This decision is not yet implemented or deployed;
+the incident review does not establish a WhatsApp anti-bot cause.
