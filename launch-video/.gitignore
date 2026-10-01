@@ -10,3 +10,4 @@ node_modules/
 .media/cache/
 *.mp4
 !research/jkse.json
+assets/pain/x-sirkel-raw.png

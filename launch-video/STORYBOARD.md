@@ -17,14 +17,14 @@ version: v1
 - **Audience and arc:** Indonesian retail investors. Pain → everywhere → doubt → Bursawatch → proof → control → logo.
 - **Format:** 1920x1080, 60fps, 60s, no voiceover, music bed (user's Suno track, ~118 BPM) plus SFX. Times below are provisional until the beat grid is measured; the logo lockup lands on the drop.
 - **Spine:** the copper signal line. The B mark's horizontal inlets become a thin copper line that leads every seam (ref 4's collapse-to-line transition): sources flow in along it, scenes collapse into it and expand out of it.
-- **Brand:** frame.md (ground #111311, copper #DEA777, Hanken Grotesk / Geist Mono / Figtree for Discord).
+- **Brand:** frame.md (ground #111311, copper #DEA777, Hanken Grotesk for all our text, as web-config; Figtree only inside Discord frames).
 - **Bans:** no gradients across the ground, no glow on text, no particle bursts, no everything-fades-in, no fake Bursawatch UI, one focal point per frame. Motion failures to avoid: the slideshow (every beat a fresh card; we keep one continuous stage per scene) and the screensaver (ambient motion that says nothing).
 - **Held frame:** 09 lockup holds still (only a slow push) for ~1.5s after the drop.
 - **Truthfulness:** Discord messages, source names, logos, prices, charts, and macro numbers are real (#id-stocks-news, #macro-news, #id-industry-news, #id-stocks-swing, 16 Sep to 1 Oct 2026). Pain-point cards (02 to 05) are fictional, unbranded examples. The morning brief (15 to 18) and customization (19 to 22) are upcoming features, shown as previews built from real data and labeled "segera hadir".
 
 ## Frame 1 — Hook
 
-- scene: Ground, faint copper glow. Mono line rises word by word: "Nyari info saham yang cepet dan bener," then "di mana sih?"
+- scene: Ground, faint copper glow. Narrator line rises word by word: "Nyari info saham yang cepet dan bener," then "di mana sih?"
 - duration: 2.8s
 - start: 0.00
 - transition_in: cut
@@ -78,7 +78,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 
 ## Frame 6 — Everywhere
 
-- scene: Real Bursawatch source cards (Tuntun, Phintraco, BRI Danareksa, Samuel, Stockbit, X analysts with X badge, IG with IG badge, WhatsApp channel) pour in from the left in two bands; centre band holds the mono headline "Infonya ada di mana-mana." with a copper marker sweeping behind "di mana-mana".
+- scene: Real Bursawatch source cards (Tuntun, Phintraco, BRI Danareksa, Samuel, Stockbit, X analysts with X badge, IG with IG badge, WhatsApp channel) pour in from the left in two bands; centre band holds the headline "Infonya ada di mana-mana." with a copper marker sweeping behind "di mana-mana".
 - duration: 3.2s
 - start: 8.80
 - transition_in: pain cards join the wall (continuous stage)
@@ -101,7 +101,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 
 ## Frame 8 — Absorb
 
-- scene: Small mono label "Kenalin," above centre. Ghosted cards sharpen and stream right along three copper lines into the three inlets of the B; each inlet fills as cards arrive, building the mark.
+- scene: Small label "Kenalin," above centre. Ghosted cards sharpen and stream right along three copper lines into the three inlets of the B; each inlet fills as cards arrive, building the mark.
 - duration: 2.0s
 - start: 14.00
 - status: built
@@ -112,7 +112,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 
 ## Frame 9 — Lockup
 
-- scene: Drop. B mark + "Bursawatch" wordmark rise; subline (mono) "Semua info saham penting, langsung ke Discord kamu." Copper ripple rings expand from the mark. Held frame with slow push.
+- scene: Drop. B mark + "Bursawatch" wordmark rise; subline "Semua info saham penting, langsung ke Discord kamu." Copper ripple rings expand from the mark. Held frame with slow push.
 - duration: 3.5s
 - start: 16.00
 - status: built
@@ -258,7 +258,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 
 ## Frame 23 — Close
 
-- scene: Card collapses into the copper line. "Infonya, dan cara nyarinya," then "kamu yang atur." rise word by word; then the line folds into the B mark, wordmark lockup, URL "bursawatch.abhipraya.dev" in mono below. Held to the last frame.
+- scene: Card collapses into the copper line. "Infonya, dan cara nyarinya," then "kamu yang atur." rise word by word; then the line folds into the B mark, wordmark lockup, URL "bursawatch.abhipraya.dev" below. Held to the last frame.
 - duration: 4.0s
 - start: 56.00
 - status: built

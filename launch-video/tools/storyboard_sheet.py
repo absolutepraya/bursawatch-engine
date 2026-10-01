@@ -128,7 +128,7 @@ def candles():
     for lvl, lab, col, op in [(6257, "Resistance 6.257", "#DEA777", 1), (6071, "Support 6.071", "#DEA777", 1), (5825, "5.825", "#9C978E", .6)]:
         y = yy(lvl)
         lines += (f'<line x1="0" x2="{W}" y1="{y:.1f}" y2="{y:.1f}" stroke="{col}" stroke-width="3" stroke-dasharray="14 10" opacity="{op}"/>'
-                  f'<text x="{W - 8}" y="{y - 10:.1f}" text-anchor="end" fill="{col}" opacity="{op}" font-family="Geist Mono" font-size="26">{lab}</text>')
+                  f'<text x="{W - 8}" y="{y - 10:.1f}" text-anchor="end" fill="{col}" opacity="{op}" font-family="Hanken Grotesk" font-size="26">{lab}</text>')
     return (f'<svg viewBox="0 0 {W} {H}" class="chart">' + "".join(parts) + lines + "</svg>")
 
 
@@ -140,22 +140,26 @@ F[1] = f'''<div class="glow" style="left:50%;top:48%"></div>
 <div class="center voice lg">Nyari info saham yang <span class="cu">cepet</span> dan <span class="cu">bener</span>,<br>di mana sih?</div>'''
 
 
-def pain(n, total, card, q, a, stack):
+def pain(n, total, card, q, a, stack, staged=True):
     behind = "".join(
         f'<div class="pcard ghost" style="transform:translate({px(-40 * (k + 1))},0) scale({1 - .06 * (k + 1)});opacity:{.5 - .15 * k}"></div>'
         for k in range(stack))
     return (f'<div class="kicker">Nyari info saham yang cepet dan bener, di mana sih?</div>'
             f'<div class="count">{n:02d} / {total:02d}</div>'
-            f'<div class="pstage">{behind}{card}</div>'
+            + (f'<div class="pstage">{behind}{card}</div>' if staged else card) +
             f'<div class="pq voice">{q}</div><div class="pa">{a}</div>')
 
 
 def ig_card():
-    return (f'<div class="pcard"><div class="ph">{avatar(f"{E}/instagram.png", 56, None)}<span class="bars"><b></b><i></i></span>'
-            f'<span class="stamp">3 jam lalu</span></div>'
-            f'<div class="pimg"><span class="ptitle">BREAKING: saham XXXX terbang 25%!</span>'
-            f'<svg viewBox="0 0 300 90" class="spark"><polyline points="0,80 60,74 120,70 170,40 220,22 300,8" fill="none" stroke="#2EE65F" stroke-width="5"/></svg></div>'
-            f'<div class="pmeta">telat 3 jam, harga udah di pucuk</div></div>')
+    # real IG news posts supplied by the user, account branding already whited out
+    back = "".join(
+        f'<div class="igpost back" style="transform:rotate({r}deg) translateX({px(dx)})">'
+        f'<img class="igimg" src="assets/pain/{f}"></div>'
+        for f, r, dx in (("ig-4-ultj.jpg", -9, -120), ("ig-1-byan.jpg", 7, 130)))
+    front = (f'<div class="igpost"><div class="igh">{avatar(f"{E}/instagram.png", 40)}'
+             f'<span class="bars"><b></b></span><span class="stamp">3 jam lalu</span></div>'
+             f'<img class="igimg" src="assets/pain/ig-2-ketr.jpg"></div>')
+    return f'<div class="igstack">{back}{front}</div>'
 
 
 def tg_card():
@@ -176,7 +180,7 @@ def x_card():
             f'<svg viewBox="0 0 300 90" class="spark"><polyline points="0,20 70,28 130,24 180,50 240,70 300,86" fill="none" stroke="#F23F43" stroke-width="5"/></svg></div>')
 
 
-F[2] = pain(1, 4, ig_card(), "Berita IG?", "Udah telat.", 0)
+F[2] = pain(1, 4, ig_card(), "Berita IG?", "Udah telat.", 0, staged=False)
 F[3] = pain(2, 4, tg_card(), "Grup &lsquo;insider A1&rsquo;?", "Boncos.", 1)
 F[4] = pain(3, 4, kelas_card(), "Kelas sana-sini?", "Teori sama market-nya beda.", 2)
 F[5] = pain(4, 4, x_card(), "Stockpick di X?", "Rungkad.", 3)
@@ -347,7 +351,7 @@ def build():
                  '<div class="sw" style="background:#1C1F1D">raised #1C1F1D</div>'
                  '<div class="sw cu" style="background:#DEA777;color:#111311">copper #DEA777</div>'
                  '<div class="sw" style="background:#000">discord #000</div>'
-                 '<p class="t1">Hanken Grotesk 900</p><p class="t2">Geist Mono 500, the narrator</p>'
+                 '<p class="t1">Hanken Grotesk 900</p><p class="t2">Hanken Grotesk 500, the narrator</p>'
                  '<p class="t3">Figtree, Discord UI stand-in</p>'
                  '<p class="bans">No gradients across the ground · no glow on text · no particle bursts · no fake Bursawatch UI · one focal point</p>'
                  '</div></div><div class="lab"><span>TOKENS</span><span>frame.md</span></div></section>')

@@ -8,7 +8,7 @@ description: >
   Hanken Grotesk. Discord surfaces are rebuilt from the user's real Discord
   (AMOLED black theme) and keep Discord's own colours inside their frame only.
 unit: the frame, 1920x1080
-principle: one copper accent · narrator speaks in mono · product is real
+principle: one copper accent · one typeface (Hanken Grotesk, as web-config) · product is real
 
 colors:
   ground: "#111311"            # film background, tinted toward the brand dark
@@ -35,11 +35,11 @@ colors:
   price-flat: "#B5B9BF"
 
 typography:
-  # narrator voice (refs 1 and 4): mono, the "watcher" speaking
-  voice-xl:  { fontFamily: "Geist Mono", px: 76, weight: 500, lineHeight: 1.15, tracking: "-0.02em" }
-  voice-lg:  { fontFamily: "Geist Mono", px: 60, weight: 500, lineHeight: 1.2, tracking: "-0.02em" }
-  caption:   { fontFamily: "Geist Mono", px: 34, weight: 700, lineHeight: 1.35 }
-  label:     { fontFamily: "Geist Mono", px: 20, weight: 500, tracking: "0.08em" }
+  # narrator voice (refs 1 and 4): Hanken Grotesk, matching web-config (its only typeface)
+  voice-xl:  { fontFamily: "Hanken Grotesk", px: 76, weight: 500, lineHeight: 1.15, tracking: "-0.02em" }
+  voice-lg:  { fontFamily: "Hanken Grotesk", px: 60, weight: 500, lineHeight: 1.2, tracking: "-0.02em" }
+  caption:   { fontFamily: "Hanken Grotesk", px: 34, weight: 700, lineHeight: 1.35 }
+  label:     { fontFamily: "Hanken Grotesk", px: 20, weight: 500, tracking: "0.08em" }
   # brand and payoff: Hanken Grotesk (from the identity board)
   wordmark:  { fontFamily: "Hanken Grotesk", px: 132, weight: 700, tracking: "-0.035em" }
   display:   { fontFamily: "Hanken Grotesk", px: 120, weight: 900, lineHeight: 0.95, tracking: "-0.04em" }
@@ -52,7 +52,6 @@ typography:
 
 fonts:
   - assets/fonts/HankenGrotesk-*.woff2 (OFL, Google Fonts)
-  - assets/fonts/GeistMono-*.woff2 (OFL, Google Fonts)
   - assets/fonts/Figtree-*.woff2 (OFL, Google Fonts)
 
 spacing:
@@ -97,7 +96,7 @@ components:
 
 ## Overview
 
-The film is a narrator (mono, calm, a little cheeky) talking over real product.
+The film is a narrator (calm, a little cheeky) talking over real product.
 Dark, quiet ground; the copper accent appears once per frame on the focal
 element. Discord content sits on true black inside its own frame so it reads
 as the real app.
@@ -106,8 +105,9 @@ as the real app.
 
 - Real Discord messages, real source logos, real charts (assets/discord-media).
 - One focal point per frame; copper marks it.
-- Mono for everything the narrator says; Hanken Grotesk for the brand, BISA,
-  stats, and the verdict.
+- Hanken Grotesk for everything we say (web-config uses it as its only
+  typeface): medium weight for the narrator, heavy weights for the brand,
+  BISA, stats, and the verdict. Figtree appears only inside Discord frames.
 - Every news card carries the price block.
 
 ## Don't

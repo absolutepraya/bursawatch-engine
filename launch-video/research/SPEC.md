@@ -113,6 +113,6 @@ KEEP (timing and staging):
 CHANGE (ours):
 - Dark Bursawatch palette instead of light; copper #DEA777 replaces green,
   yellow, and orange accents. The ref 1 marker becomes a copper-tinted marker.
-- Hanken Grotesk / Geist Mono instead of the references' fonts.
+- Hanken Grotesk (web-config's typeface) instead of the references' mono fonts.
 - Real Bursawatch Discord content, source logos, and charts.
 - Casual Indonesian copy.
