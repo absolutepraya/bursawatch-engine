@@ -6,10 +6,18 @@ message: "Info saham yang cepat dan bisa dipercaya, semuanya langsung di Discord
 arc: Pain (4 bad sources) → Everywhere → Doubt → Bursawatch → Proof (channels, swing board, morning brief) → Control → Logo
 audience: Indonesian retail stock investors and traders (IHSG)
 mode: collaborative
-version: v1
+version: v2
 ---
 
-# Bursawatch launch film, storyboard v1
+# Bursawatch launch film, storyboard v2
+
+## Changes from v1
+
+- 02 uses the user's real IG posts.
+- 05 is our own fictional pump-style X post (style reference: a real tweet, not shown).
+- 06 and 07: realistic native-UI posts around the edges, like ref 1.
+- 19 to 22: one four-quadrant page; the active quadrant is lit, the rest muted.
+- All film text uses Hanken Grotesk, matching web-config.
 
 ## Decisions
 
@@ -20,7 +28,7 @@ version: v1
 - **Brand:** frame.md (ground #111311, copper #DEA777, Hanken Grotesk for all our text, as web-config; Figtree only inside Discord frames).
 - **Bans:** no gradients across the ground, no glow on text, no particle bursts, no everything-fades-in, no fake Bursawatch UI, one focal point per frame. Motion failures to avoid: the slideshow (every beat a fresh card; we keep one continuous stage per scene) and the screensaver (ambient motion that says nothing).
 - **Held frame:** 09 lockup holds still (only a slow push) for ~1.5s after the drop.
-- **Truthfulness:** Discord messages, source names, logos, prices, charts, and macro numbers are real (#id-stocks-news, #macro-news, #id-industry-news, #id-stocks-swing, 16 Sep to 1 Oct 2026). Pain-point cards (02 to 05) are fictional, unbranded examples. The morning brief (15 to 18) and customization (19 to 22) are upcoming features, shown as previews built from real data and labeled "segera hadir".
+- **Truthfulness:** Discord messages, source names, logos, prices, charts, and macro numbers are real (#id-stocks-news, #macro-news, #id-industry-news, #id-stocks-swing, 16 Sep to 1 Oct 2026). Pain-point cards (02 to 05) are unbranded: 02 uses user-supplied IG posts with branding removed; 03 to 05 are fictional, with any identity blurred. The morning brief (15 to 18) and customization (19 to 22) are upcoming features, shown as previews built from real data and labeled "segera hadir".
 
 ## Frame 1 — Hook
 
@@ -40,7 +48,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 
 ## Frame 2 — Pain: IG
 
-- scene: Fictional IG post card slides in from left (avatar dummy face + IG badge, "BREAKING: saham XXXX terbang!", stamp "3 jam lalu", mini chart already +25%). Right: "Berita IG?" then "Udah telat."
+- scene: Real IG news posts (user-supplied, account branding already removed): KETR post in front with a "3 jam lalu" stamp, ULTJ and BYAN fanned behind. Right: "Berita IG?" then "Udah telat."
 - duration: 1.5s
 - start: 2.80
 - transition_in: hook line lifts to top-left kicker
@@ -69,7 +77,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 
 ## Frame 5 — Pain: X
 
-- scene: X stockpick card (dummy account, X badge, "Target 2x minggu ini") slides in; its chart flips red. Right: "Stockpick di X?" then "Rungkad."
+- scene: Our own fictional X post in the usual "sirkel" pump style (name, handle, avatar blurred): "Artinya harga $XXXX udah masuk area spekulasi buat jualan di 300 sampai 400. Target akhirnya 610. Ko bisa? Jawabannya ada di Sirkel VIP." Its chart flips red. Right: "Stockpick di X?" then "Rungkad."
 - duration: 1.5s
 - start: 7.30
 - status: built
@@ -78,7 +86,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 
 ## Frame 6 — Everywhere
 
-- scene: Real Bursawatch source cards (Tuntun, Phintraco, BRI Danareksa, Samuel, Stockbit, X analysts with X badge, IG with IG badge, WhatsApp channel) pour in from the left in two bands; centre band holds the headline "Infonya ada di mana-mana." with a copper marker sweeping behind "di mana-mana".
+- scene: Real source posts rebuilt in their native dark UIs (X, Telegram channel, WhatsApp channel, IG, Stockbit Snips) placed around the edges like ref 1: four across the top, two down each side, four across the bottom, some dimmed for depth. Centre: "Infonya ada / di mana-mana." in large Hanken Grotesk with a copper marker sweeping behind "di mana-mana." Engagement counts are illustrative.
 - duration: 3.2s
 - start: 8.80
 - transition_in: pain cards join the wall (continuous stage)
@@ -91,7 +99,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 
 ## Frame 7 — Doubt
 
-- scene: Wall ghosts to ~15% and blurs. "Tapi mana yang bener?" rises word by word, centred.
+- scene: The same wall ghosts to ~15% and blurs. "Tapi mana / yang bener?" rises word by word, centred.
 - duration: 2.0s
 - start: 12.00
 - status: built
@@ -221,7 +229,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 
 ## Frame 19 — Mau: malem
 
-- scene: Ref 2 stage. Headline "Mau dirangkum tiap malem aja?" Card morphs from the brief into a schedule card; cursor flips "Ringkasan malam, 21.00" on. "BISA." stamps in copper.
+- scene: One page split into four quadrants (top-left to bottom-right), each with its question and card in its "before" state. The brief shrinks into the top-left quadrant; the other three stay muted. Top-left lights up: "Mau dirangkum tiap malem aja?", cursor flips "Ringkasan malam, 21.00" on, "BISA." stamps.
 - duration: 2.5s
 - start: 46.00
 - transition_in: card-morph (brief chart shrinks into the card)
@@ -233,7 +241,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 
 ## Frame 20 — Mau: sumber
 
-- scene: "Mau mantau analis favoritmu sendiri?" Card morphs into a source list; a new row "+ @analis_pilihanmu" (dummy face, X badge) drops in and checks. "BISA."
+- scene: Top-left mutes but keeps its BISA. Top-right lights up: "Mau mantau analis favoritmu?", a new source row "+ analis pilihanmu" (X badge) drops in and checks. "BISA."
 - duration: 2.5s
 - start: 48.50
 - status: built
@@ -241,7 +249,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 
 ## Frame 21 — Mau: jam
 
-- scene: "Mau ganti jam kirimnya?" Card morphs into a time picker; 08.00 rolls to 06.30. "BISA."
+- scene: Bottom-left lights up: "Mau ganti jam kirimnya?", 08.00 rolls to 06.30. "BISA."
 - duration: 2.5s
 - start: 51.00
 - status: built
@@ -250,7 +258,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 
 ## Frame 22 — Mau: mingguan
 
-- scene: "Males baca tiap hari?" Segmented control Harian / Mingguan slides to Mingguan; subline "Seminggu sekali aja." "BISA."
+- scene: Bottom-right lights up: "Males baca tiap hari?", the segment slides from Harian to Mingguan, "Seminggu sekali aja." "BISA." All four now show BISA.
 - duration: 2.5s
 - start: 53.50
 - status: built

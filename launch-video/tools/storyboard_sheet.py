@@ -6,12 +6,16 @@ Every cell is a 16:9 frame drawn in cqw units (1920px frame = 100cqw, so
 output; it opens from file://.
 """
 import json
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import social as S  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 E = "assets/sources/emoji"
 MEDIA = "assets/discord-media"
-VERSION = "v1"
+VERSION = "v2"
 
 
 def px(v):
@@ -100,6 +104,53 @@ def wall(opacity=1.0, blur=0):
     return f'<div class="wall" style="{style}">' + "".join(out) + "</div>"
 
 
+GREY = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Crect width='10' height='10' fill='%2355585c'/%3E%3C/svg%3E"
+UNTR_CHART = f'<img src="{MEDIA}/id-stocks-swing-1554787757468033167-0.jpg">'
+
+
+def place(html, x, y, dim=False):
+    cls = ' dim' if dim else ''
+    return html.replace('class="sp ', f'class="sp{cls} ', 1).replace(
+        'style="width:', f'style="left:{px(x)};top:{px(y)};width:', 1)
+
+
+def wall_real(opacity=1.0, blur=0):
+    cards = [
+        place(S.x_post(px, "DokterMarket", "@doktermarket", "1j",
+                       "Bursa AS bervariasi. Dow -0,86%, S&P 500 -0,25%, Nasdaq +0,24%. IHSG turun 0,83% ke 6.071, rupiah menguat ke Rp17.877.",
+                       ("24", "61", "412", "18 rb"), w=470, marks=["IHSG turun 0,83%"], avatar=f"{E}/doktermarket.png"), 22, 22),
+        place(S.tg_post(px, "Tuntun Sekuritas", f"{E}/tuntun.png",
+                        "TRUK: PT Pukul Rata Kanan mengajukan VTO maksimal 65,25 juta saham di harga Rp740 per saham.",
+                        "3,1 rb", "18.00", w=450), 512, 30, dim=True),
+        place(S.wa_post(px, "BRI Danareksa Sekuritas", f"{E}/bridanareksa.png",
+                        "Harga Brent tembus US$106 akibat ketegangan Selat Hormuz.", "08.43", "214", w=440), 990, 26, dim=True),
+        place(S.x_post(px, "The Kobeissi Letter", "@KobeissiLetter", "2j",
+                       "BREAKING: The 10-year note yield hits 5.30%, its highest level since 2002.",
+                       ("1,2 rb", "3,4 rb", "19 rb", "2,1 jt"), w=448, marks=["5.30%"], avatar=f"{E}/kobeissiletter.png"), 1452, 22),
+        place(S.ig_post(px, "assets/pain/ig-3-ahap.jpg", "Anthoni Salim siap tebus rights issue $AHAP", "5j", w=250), 30, 330),
+        place(S.tg_post(px, "Phintraco Sekuritas", f"{E}/phintraco.png",
+                        "PACK: Trading Buy\nEntry 498 to 510\nStop-loss &lt;480\nTarget 560 / 600",
+                        "5,8 rb", "05.43", w=300, marks=["Trading Buy"]), 300, 470),
+        place(S.sb_post(px, "MGLV", "Dua anak usaha dapat pinjaman hingga Rp10,7 triliun untuk data center.",
+                        "24 Sep", w=400, marks=["Rp10,7 triliun"]), 1492, 340),
+        place(S.x_post(px, "IHSG Journal", "@aldotjahjadi8", "7j",
+                       "Teknikal IHSG masih lemah. 6.071 sampai 6.257 jadi area penting buat jaga pantulan.",
+                       ("9", "27", "188", "6 rb"), w=400, avatar=f"{E}/aldotjahjadi.png"), 1492, 610),
+        place(S.tg_post(px, "Kelas Investasi", f"{E}/kelasinvestasi.png",
+                        "PWON mulai menguat, lagi uji area atas konsolidasi.", "1,4 rb", "02.04", w=440), 22, 850),
+        place(S.x_post(px, "DokterMarket", "@doktermarket", "1h",
+                       "UNTR berpeluang bentuk bullish triple bottom. Target 30.000, lalu 32.000.",
+                       ("41", "96", "803", "31 rb"), media=UNTR_CHART, w=470, avatar=f"{E}/doktermarket.png"), 500, 860, dim=True),
+        place(S.wa_post(px, "BRI Danareksa Sekuritas", f"{E}/bridanareksa.png",
+                        "BI tahan suku bunga, aktivitas ekonomi Indonesia tetap solid.", "09.06", "167", w=440), 1000, 880, dim=True),
+        place(S.x_post(px, "IHSG Journal", "@aldotjahjadi8", "3j",
+                       "Larangan afiliasi ESDM bakal alihkan pangsa pasar ke kontraktor independen. UNTR dan DOID diuntungkan.",
+                       ("12", "40", "256", "9 rb"), w=448, marks=["UNTR dan DOID"], avatar=f"{E}/aldotjahjadi.png"), 1452, 850),
+    ]
+    style = f"opacity:{opacity};" + (f"filter:blur({px(blur)})" if blur else "")
+    return f'<div class="wall wallbg" style="{style}">' + "".join(cards) + "</div>"
+
+
 B_MARK = ('<svg viewBox="0 0 96 96" class="bmark"><g fill="#DEA777" transform="translate(-2 -2)">'
           '<path d="M14 10H46C66 10 79 20 79 35C79 44 74 50 65 54L51 46C60 43 65 40 65 35C65 28 58 24 46 24H14V10Z"/>'
           '<path d="M14 33H35L74 56C82 61 86 67 86 74C86 84 73 90 51 90H14V76H50C64 76 71 74 71 70C71 67 66 64 60 60L14 33Z"/>'
@@ -175,9 +226,13 @@ def kelas_card():
 
 
 def x_card():
-    return (f'<div class="pcard"><div class="ph">{avatar(f"{E}/twitter.png", 56)}<span class="bars"><b></b><i></i></span></div>'
-            f'<div class="ptext">Beli XXXX sekarang. Target 2x minggu ini. Jangan sampai ketinggalan.</div>'
-            f'<svg viewBox="0 0 300 90" class="spark"><polyline points="0,20 70,28 130,24 180,50 240,70 300,86" fill="none" stroke="#F23F43" stroke-width="5"/></svg></div>')
+    # fictional post written in the usual "sirkel" pump style; identity blurred
+    chart = ('<svg viewBox="0 0 600 220" style="background:#0b0c0d"><polyline points="0,190 90,186 180,180 250,178 300,120 350,104 400,70 460,62 520,40 600,18" '
+             'fill="none" stroke="#2EE65F" stroke-width="6"/><line x1="0" x2="600" y1="150" y2="150" stroke="#555" stroke-dasharray="10 8"/></svg>')
+    post = S.x_post(px, "Sahabat Cuan", "@sahabatcuan", "28 Jun",
+                    "Artinya harga $XXXX udah masuk area spekulasi buat jualan di 300 sampai 400. Target akhirnya 610 &#128640;\n\nKo bisa? Jawabannya ada di Sirkel VIP &#128521;",
+                    ("86", "143", "1,1 rb", "48 rb"), media=chart, w=690, avatar=GREY, blur_id=True)
+    return post.replace('class="sp x"', 'class="sp x" style="left:0;top:-2cqw"', 1)
 
 
 F[2] = pain(1, 4, ig_card(), "Berita IG?", "Udah telat.", 0, staged=False)
@@ -185,8 +240,8 @@ F[3] = pain(2, 4, tg_card(), "Grup &lsquo;insider A1&rsquo;?", "Boncos.", 1)
 F[4] = pain(3, 4, kelas_card(), "Kelas sana-sini?", "Teori sama market-nya beda.", 2)
 F[5] = pain(4, 4, x_card(), "Stockpick di X?", "Rungkad.", 3)
 
-F[6] = wall() + '<div class="center voice lg">Infonya ada <span class="mark">di mana-mana.</span></div>'
-F[7] = wall(.15, 6) + '<div class="center voice lg">Tapi mana yang bener?</div>'
+F[6] = wall_real() + '<div class="headline-xl">Infonya ada<br><span class="mark">di mana-mana.</span></div>'
+F[7] = wall_real(.15, 6) + '<div class="headline-xl">Tapi mana<br>yang bener?</div>'
 
 F[8] = (wall(.0) + '<div class="label" style="left:50%;top:22%">Kenalin,</div>'
         + "".join(f'<div class="inlet" style="top:{px(y)};"></div>' for y in (430, 540, 650))
@@ -280,26 +335,56 @@ F[17] = brief('<div class="nl" style="margin-left:{0}">Kata trader di X</div>'.f
 F[18] = brief(f'<div class="chartwrap">{candles()}</div><div class="verdict">Sideways, rawan turun.</div>')
 
 
-def config(q, body, step):
-    return (f'<div class="cq">{q}</div><div class="ccard">{body}</div>'
-            f'<div class="bisa">BISA.</div><div class="count">{step:02d} / 04</div>')
-
-
 def toggle(label, on=True):
     return f'<div class="row"><span>{label}</span><span class="tog{" on" if on else ""}"><i></i></span></div>'
 
 
-F[19] = config("Mau dirangkum tiap malem aja?",
-               toggle("Morning brief, 08.00", True) + toggle("Ringkasan malam, 21.00", True)
-               + '<div class="cursor" style="left:82%;top:62%"></div>', 1)
-F[20] = config("Mau mantau analis favoritmu sendiri?",
-               "".join(f'<div class="row src">{avatar(f"{E}/{e}.png", 44, b)}<span>{n}</span><span class="ck">&#10003;</span></div>'
-                       for e, n, b in (("tuntun", "Tuntun Sekuritas", None), ("doktermarket", "DokterMarket", "twitter")))
-               + f'<div class="row src add">{avatar(f"{E}/rickyho1989.png", 44, "twitter")}<span>+ analis pilihanmu</span><span class="ck">&#10003;</span></div>', 2)
-F[21] = config("Mau ganti jam kirimnya?",
-               '<div class="time"><span class="old">08.00</span><span class="new">06.30</span></div><div class="tl">jam kirim morning brief</div>', 3)
-F[22] = config("Males baca tiap hari?",
-               '<div class="seg"><span>Harian</span><span class="sel">Mingguan</span></div><div class="tl">Seminggu sekali aja.</div>', 4)
+def sources(added):
+    rows = [("tuntun", "Tuntun Sekuritas", None, "")]
+    if added:
+        rows.append(("rickyho1989", "+ analis pilihanmu", "twitter", " add"))
+    else:
+        rows.append((None, "Tambah sumber", None, " ghostrow"))
+    out = ""
+    for e, n, b, cls in rows:
+        a = avatar(f"{E}/{e}.png", 38, b) if e else '<span class="plus">+</span>'
+        ck = '<span class="ck">&#10003;</span>' if e else ""
+        out += f'<div class="row src{cls}">{a}<span>{n}</span>{ck}</div>'
+    return out
+
+
+# (question, before state, after state)
+QUADS = [
+    ("Mau dirangkum tiap malem aja?",
+     toggle("Morning brief, 08.00", True) + toggle("Ringkasan malam, 21.00", False),
+     toggle("Morning brief, 08.00", True) + toggle("Ringkasan malam, 21.00", True)),
+    ("Mau mantau analis favoritmu?", sources(False), sources(True)),
+    ("Mau ganti jam kirimnya?",
+     '<div class="time"><span class="new">08.00</span></div><div class="tl">jam kirim morning brief</div>',
+     '<div class="time"><span class="old">08.00</span><span class="new">06.30</span></div><div class="tl">jam kirim morning brief</div>'),
+    ("Males baca tiap hari?",
+     '<div class="seg"><span class="sel">Harian</span><span>Mingguan</span></div><div class="tl">Tiap hari, jam 08.00.</div>',
+     '<div class="seg"><span>Harian</span><span class="sel">Mingguan</span></div><div class="tl">Seminggu sekali aja.</div>'),
+]
+
+
+def quad_page(active):
+    out = ['<div class="qline" style="left:50%;top:0;bottom:0;width:.1cqw"></div>',
+           '<div class="qline" style="top:50%;left:0;right:0;height:.1cqw"></div>']
+    for i, (q, before, after) in enumerate(QUADS):
+        x, y = (i % 2) * 50, (i // 2) * 28.125
+        body = after if i <= active else before
+        cls = "" if i == active else " muted"
+        stamp = '<div class="qbisa">BISA.</div>' if i <= active else ""
+        out.append(f'<div class="quad{cls}" style="left:{x}cqw;top:{y}cqw"><div class="qq">{q}</div>'
+                   f'<div class="qc">{body}</div>{stamp}</div>')
+    return "".join(out)
+
+
+F[19] = quad_page(0)
+F[20] = quad_page(1)
+F[21] = quad_page(2)
+F[22] = quad_page(3)
 
 F[23] = ('<div class="center voice lg" style="top:30%">Infonya, dan cara nyarinya,<br><span class="cu">kamu yang atur.</span></div>'
          f'<div class="lock small"><span class="lb">{B_MARK}</span><span class="wm">Bursawatch</span></div>'
@@ -312,8 +397,8 @@ META = [
     (2, "PAIN · IG", "2.8–4.3", "<b>Card slides in from the left</b> (12 frames, horizontal blur), then the answer drops in. Unbranded example.", "push"),
     (3, "PAIN · TELEGRAM", "4.3–5.8", "<b>New card pushes the old one back</b> (scale 0.94, dims). Answer lands on a beat.", "push"),
     (4, "PAIN · KELAS", "5.8–7.3", "<b>Stack grows</b>, three cards deep. Same stage, nothing resets.", "push"),
-    (5, "PAIN · X", "7.3–8.8", "<b>Chart flips red</b>, then Rungkad. Low thud. Seam: cards fly out to join the wall.", "scatter"),
-    (6, "EVERYWHERE", "8.8–12.0", "<b>Real source cards pour in</b> in two bands (ref 1), headline rises, copper marker sweeps behind di mana-mana.", "continuous"),
+    (5, "PAIN · X", "7.3–8.8", "<b>Fictional pump-style X post</b> (identity blurred); the chart flips red, then Rungkad. Seam: cards fly out to join the wall.", "scatter"),
+    (6, "EVERYWHERE", "8.8–12.0", "<b>Real posts in their native UI</b> (X, Telegram, WhatsApp, IG, Stockbit) slide in around the edges like ref 1; some sit dimmed for depth. Headline rises; copper marker sweeps behind di mana-mana.", "continuous"),
     (7, "DOUBT", "12.0–14.0", "<b>Wall ghosts to 15% and blurs.</b> Question rises word by word over the riser.", "continuous"),
     (8, "ABSORB", "14.0–16.2", "<b>Cards sharpen and stream right</b> along three copper lines into the B's inlets; the mark fills inlet by inlet.", "build"),
     (9, "LOCKUP", "16.2–19.5", "<b>Drop.</b> Mark lands, wordmark rises, rings ripple out. Held frame with a slow push.", "zoom-through"),
@@ -326,14 +411,14 @@ META = [
     (16, "BRIEF · OVERNIGHT", "37.0–40.0", "<b>Card morphs</b> into the overnight story; one line at a time.", "morph"),
     (17, "BRIEF · SENTIMENT", "40.0–43.0", "<b>Two real X takes</b> drop in; the balance tips toward hati-hati.", "morph"),
     (18, "BRIEF · IHSG", "43.0–46.0", "<b>Real ^JKSE candles draw</b>, then support and resistance; verdict ticks and lands.", "morph"),
-    (19, "MAU · MALEM", "46.0–48.5", "<b>Brief shrinks into the ref 2 card</b>; cursor flips the night toggle; BISA stamps.", "morph"),
-    (20, "MAU · SUMBER", "48.5–51.0", "<b>New source row drops in</b> and checks. BISA.", "morph"),
-    (21, "MAU · JAM", "51.0–53.5", "<b>08.00 rolls to 06.30.</b> BISA.", "morph"),
-    (22, "MAU · MINGGUAN", "53.5–56.0", "<b>Segment slides to Mingguan.</b> BISA. Seam: card collapses into the copper line.", "line"),
+    (19, "MAU · MALEM", "46.0–48.5", "<b>One page, four quadrants.</b> Brief shrinks into the top-left quadrant; the other three stay muted. Cursor flips the night toggle; BISA stamps.", "morph"),
+    (20, "MAU · SUMBER", "48.5–51.0", "<b>Top-right lights up</b>, top-left mutes but keeps its BISA. New source row drops in and checks.", "morph"),
+    (21, "MAU · JAM", "51.0–53.5", "<b>Bottom-left lights up.</b> 08.00 rolls to 06.30. BISA.", "morph"),
+    (22, "MAU · MINGGUAN", "53.5–56.0", "<b>Bottom-right lights up.</b> Segment slides to Mingguan. BISA. Seam: the page collapses into the copper line.", "line"),
     (23, "CLOSE", "56.0–60.0", "<b>Words rise</b>, the line folds into the B, lockup and URL. Held to the last frame.", "end"),
 ]
 
-CSS = (ROOT / "tools/storyboard_sheet.css").read_text()
+CSS = (ROOT / "tools/storyboard_sheet.css").read_text() + S.CSS
 
 
 def build():
@@ -367,3 +452,11 @@ def build():
 
 if __name__ == "__main__":
     build()
+
+
+def single(n, out):
+    """Write one frame at 1920 wide for close inspection."""
+    html = (f'<!doctype html><html><head><meta charset="utf-8"><base href="file://{ROOT}/"><style>{CSS}'
+            'body{padding:0;margin:0;background:#000}.cell .f{border-radius:0;outline:0}</style></head>'
+            f'<body><section class="cell" style="width:1920px"><div class="f">{F[n]}</div></section></body></html>')
+    Path(out).write_text(html)
