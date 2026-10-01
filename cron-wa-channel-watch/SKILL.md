@@ -81,7 +81,10 @@ make up an image status yourself. For ordinary macro and issuer-news items,
 delivery may complete text-only when the immutable archive record reports that
 source media is unavailable. The watcher records that degraded media result,
 does not retry the same unavailable source forever, and still retries a Discord
-transport or upload failure. Technical Swing remains image-strict.
+transport or upload failure. If a Technical Review chart is unavailable,
+delivery forwards the original source text with `Source chart unavailable`
+and skips the chart image and Board context. Do not infer chart facts from
+missing media.
 
 All Discord sends, bounded history reads, and existing-message edits use the
 shared Delivery Owner client. Do not read a bot token, call Discord directly,
