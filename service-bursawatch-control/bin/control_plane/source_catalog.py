@@ -134,6 +134,7 @@ COMPATIBILITY = (
     ('whatsapp:0029Vb6qi96ISTkJcDn4op2z', 'company_news'),
     ('whatsapp:0029Vb6qi96ISTkJcDn4op2z', 'macro_news'),
     ("telegram:phintraprofits", "trading_plans"),
+    ("telegram:phintasprofits", "trading_plans"),
     ("telegram:phintasprofits", "company_news"),
     ("telegram:phintasprofits", "macro_news"),
     ("telegram:phintasprofits", "stock_status"),

@@ -25,6 +25,13 @@ and endpoint overrides, and `swing_chart_context` is disabled by default.
 Catalog compatibility and effective enablement are returned separately with
 the catalog revision.
 
+Migration `021_phintas_swing_compatibility.sql` adds `trading_plans`
+compatibility for the canonical Phintraco endpoint `telegram:phintasprofits`.
+Compatibility alone leaves the effective subscription disabled. Enabling it
+and disabling the legacy `telegram:phintraprofits` alias requires the reviewed
+forward-only source-catalog transition; the compatibility migration does not
+change the active subscription or any watcher configuration.
+
 Migration `013_source_catalog.sql` adds a private engine registry and independent
 catalog revision/audit tables. It seeds canonical IDs from checked-in watcher
 configs and the fixed Stockbit `FEEDS` definition without copying, converting,

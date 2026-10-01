@@ -173,7 +173,7 @@ def test_format_chart_backed_alert_exact():
         "**Source status:** New setup <:grey:1531279158913536182>\n"
         "**Last updated:** 10 Jul 2026 07:00 WIB\n"
         "**Board:** <#1548273399069933720>\n\n"
-        "[View in Telegram](<https://t.me/phintraprofits/33655>)"
+        "[View in Telegram](<https://t.me/phintasprofits/33655>)"
     )
 
 
@@ -184,7 +184,7 @@ def test_buy_alert_is_ticker_first_with_byline_and_telegram_footer() -> None:
         "-# Alrich Paskalis T, Phintraco Sekuritas\n\n"
     )
     assert "**Signal date:** 10 Jul 2026 07:00 WIB" in output
-    assert output.endswith("[View in Telegram](<https://t.me/phintraprofits/33655>)")
+    assert output.endswith("[View in Telegram](<https://t.me/phintasprofits/33655>)")
 
 
 def test_format_multi_target_alert_exact():
@@ -208,7 +208,7 @@ def test_format_chartless_alert_exact_suffix():
     call = scan.parse_swing_call(33655, fixture("trading_buy.txt"), has_photo=False)
     output = scan.format_swing_alert(call)
     assert "**Chart:** Unavailable from source" in output
-    assert output.endswith("[View in Telegram](<https://t.me/phintraprofits/33655>)")
+    assert output.endswith("[View in Telegram](<https://t.me/phintasprofits/33655>)")
 
 
 def test_missing_advisor_falls_back_to_source_only():
@@ -235,7 +235,7 @@ def test_dynamic_source_markdown_is_escaped_without_changing_labels():
     )
     assert r"-# Al\\rich\*\_\*\~\*\`\*, Phintraco Sekuritas" in output
     assert "**Reasons:**" in output
-    assert "[View in Telegram](<https://t.me/phintraprofits/33655>)" in output
+    assert "[View in Telegram](<https://t.me/phintasprofits/33655>)" in output
 
 
 @pytest.mark.parametrize(
@@ -268,7 +268,7 @@ def test_canonical_fixture_output_is_unchanged_when_no_escape_is_needed():
         "**Source status:** New setup <:grey:1531279158913536182>\n"
         "**Last updated:** 10 Jul 2026 07:00 WIB\n"
         "**Board:** <#1548273399069933720>\n\n"
-        "[View in Telegram](<https://t.me/phintraprofits/33655>)"
+        "[View in Telegram](<https://t.me/phintasprofits/33655>)"
     )
 
 
@@ -292,7 +292,7 @@ def test_parse_target_reminder_and_format_source_link():
         "-# Nauval Maulana, Phintraco Sekuritas\n\n"
     )
     assert scan.format_swing_alert(event).endswith(
-        "[View in Telegram](<https://t.me/phintraprofits/33711>)"
+        "[View in Telegram](<https://t.me/phintasprofits/33711>)"
     )
 
 
@@ -417,7 +417,7 @@ def test_on_support_update_uses_common_status_format_and_source_timestamp():
         "\n**Source status:** On support <:hold:1531284248235868333>\n"
         "**Last updated:** 17 Jul 2026 10:11 WIB\n"
         "**Board:** <#1548273399069933720>\n\n"
-        "[View in Telegram](<https://t.me/phintraprofits/33801>)"
+        "[View in Telegram](<https://t.me/phintasprofits/33801>)"
     )
 
 
@@ -501,7 +501,7 @@ def test_reply_status_requires_matching_parent_swing_plan():
         "**Source status:** On track <:hold:1531284248235868333>\n"
         "**Last updated:** 15 Jul 2026 10:55 WIB\n"
         "**Board:** <#1548273399069933720>\n\n"
-        "[View in Telegram](<https://t.me/phintraprofits/33735>)"
+        "[View in Telegram](<https://t.me/phintasprofits/33735>)"
     )
     assert (
         scan.parse_reply_status(
@@ -2670,7 +2670,7 @@ def test_live_run_uses_one_config_revision_and_reports_structured_lifecycle(tmp_
         config=scan.config.load_watch_config_data(
             {
                 "version": 1,
-                "source": {"telegram_channel_id": scan.SOURCE_CHANNEL_ID, "telegram_username": "phintraprofits"},
+                "source": {"telegram_channel_id": scan.SOURCE_CHANNEL_ID, "telegram_username": "phintasprofits"},
                 "destinations": {
                     "alert_discord_channel_id": "1525102458253217804",
                     "heartbeat_discord_channel_id": "1505162000420835388",

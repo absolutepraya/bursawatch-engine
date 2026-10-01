@@ -226,3 +226,47 @@ These components are directly on the affected paths and are the next useful plac
 6. Recheck recent X and Stockbit logs after the stale records. Keep historical log counts separate from current queue or delivery state.
 
 No production state, schedules, destinations, or services were changed during this audit. No replay, manual schedule run, synthetic message, or test post was performed.
+
+## 2026-10-01 follow-up: Telegram recovery and Phintas reminder
+
+A read-only production snapshot at 14:09 WIB showed `origin/main` and the last
+successful release at `3ae575c48ceac79cc95e5625f92b0b19dc38bb44`, release CI
+successful, the Telegram source reader active at its existing one-minute
+cadence, and all eight desired interval schedules matching the Hermes
+registry. The source catalog and reader state were both at revision 7. This is
+the state after the catalog recovery and Market News owner-state reconciliation
+recorded in the 2026-10-01 plan; it does not prove a new News delivery.
+
+The Phintas finding is corrected by later evidence:
+
+- Telegram resolves `@phintasprofits` to channel ID `1444713822`; resolving the
+  old `@phintraprofits` username returned an error. The Source Catalog still had
+  `trading_plans` enabled on `telegram:phintraprofits`, whose verified provider
+  ID is the same numeric channel ID. Its adapter resolves that endpoint from
+  authenticated dialogs by ID. The Phintas-named endpoint had only the three
+  News capabilities. This is a stale alias and duplicate-cursor issue, not a
+  capability failure for message `35530`.
+- The source event existed under `telegram:phintraprofits`, with `swing_plan`
+  work marked `done` and a durable owner effect receipt. Its Delivery Owner
+  operation was `delivered` to `#id-stocks-swing` at 09:25 WIB on October 1,
+  roughly 20 hours after the source timestamp. This was stale work drained
+  after intake resumed, not a timely forwarding success.
+- The late All-channel message was deleted and its removal verified. The
+  Swing Board owner had also recorded the reply as dated `Source context` in
+  the existing INDF topic. That Board history remains with its owner; it is
+  not a current alert.
+- At the 14:09 WIB read, both Phintas endpoint cursor files were already at
+  `35556`, and Source Inbox had zero pending, leased, or executing work. The
+  future canonical-handle transition must preserve the already initialized
+  Phintas cursor. It must not seed or replay a cursor, or resend `35530`.
+- The event replied to companion post `35447`. The source adapter carried its
+  reply ID, and the Board received the item as source context. For future
+  replies, the Swing owner can link a reply only when the referenced plan is
+  already known in its state; otherwise the Board's context behavior remains
+  the source-faithful outcome.
+
+The approved future-only canonical route work is documented in
+[`Phintas Swing route design`](../superpowers/specs/2026-10-01-phintas-swing-route-design.md)
+and [`implementation plan`](../superpowers/plans/2026-10-01-phintas-swing-route.md).
+Other findings from this audit remain separate workstreams; do not treat the
+Telegram recovery as proof of X, RSS, WhatsApp, or Stockbit delivery.

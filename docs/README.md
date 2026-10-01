@@ -84,6 +84,16 @@ The plan now terminally abandons pre-cutover active candidates before resume,
 following the user's no-backfill requirement, and blocks unresolved delivery
 operations.
 
+The follow-up Phintas Swing route review found that the reported September 30
+reminder had entered the legacy endpoint and was delivered about 20 hours
+late after Telegram intake resumed. Its late All-channel message was removed;
+the dated Board context remains under the Board owner's history. The corrected
+diagnosis and future-only canonical handle transition are recorded in the
+[`Phintas Swing route design`](superpowers/specs/2026-10-01-phintas-swing-route-design.md)
+and [`implementation plan`](superpowers/plans/2026-10-01-phintas-swing-route.md).
+The route change retains the existing Phintas cursor and does not recover old
+posts.
+
 For collaboration, `.wt/config.toml` defines managed feature worktrees and the
 repository-local `finish-workflow` skill ends with a pull request. It does not
 deploy, merge, or remove the review workspace.

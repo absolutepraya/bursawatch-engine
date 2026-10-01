@@ -83,7 +83,7 @@ def test_watchdog_uses_the_live_heartbeat_destination_when_available(monkeypatch
         config=watchdog.scan.config.load_watch_config_data(
             {
                 "version": 1,
-                "source": {"telegram_channel_id": 1444713822, "telegram_username": "phintraprofits"},
+                "source": {"telegram_channel_id": 1444713822, "telegram_username": "phintasprofits"},
                 "destinations": {
                     "alert_discord_channel_id": "1525102458253217803",
                     "heartbeat_discord_channel_id": "1505162000420835389",

@@ -2,7 +2,7 @@
   "version": 1,
   "source": {
     "telegram_channel_id": 1444713822,
-    "telegram_username": "phintraprofits"
+    "telegram_username": "phintasprofits"
   },
   "destinations": {
     "alert_discord_channel_id": "1525102458253217803",

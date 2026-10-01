@@ -119,6 +119,7 @@ def test_discover_migrations_uses_the_checked_legacy_eligibility_registry():
         "018_bri_whatsapp_news_compatibility.sql",
         "019_operator_inventory.sql",
         "020_publications.sql",
+        "021_phintas_swing_compatibility.sql",
     }
     assert {migration.release_eligibility for migration in migrations} == {"automatic", "manual"}
     assert next(

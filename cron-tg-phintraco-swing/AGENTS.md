@@ -15,7 +15,7 @@ accepted Phintraco work to this package's `pipeline_owner.py`. Do not resume
 the direct scanner beside that source reader. The standalone wrapper and its
 `CRON.md` describe the retained deterministic scanner contract.
 
-The source is Phintraco Sekuritas Official Telegram channel `1444713822`. Alerts go directly to `#id-stocks-swing` (`1525102458253217803`); the channel is also a destination for `cron-x-account-watch`'s `id_stock_swing` route, which delivers source-grounded X technical analyses in its own format. Operational heartbeats and fatal notices go directly to `#hermes`. Production state, media, lock, and watchdog notices retain their established locations through the first cutover.
+The source is Phintraco Sekuritas Official Telegram channel `1444713822`, canonically addressed as `@phintasprofits`. Alerts go directly to `#id-stocks-swing` (`1525102458253217803`); the channel is also a destination for `cron-x-account-watch`'s `id_stock_swing` route, which delivers source-grounded X technical analyses in its own format. Operational heartbeats and fatal notices go directly to `#hermes`. Production state, media, lock, and watchdog notices retain their established locations through the first cutover.
 
 When `IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_URL` is set, each
 invocation fetches one validated, frozen control-plane snapshot before it
@@ -100,7 +100,11 @@ Phintraco work. It reuses this watcher's parser, outbox, renderer, and Board
 handoff. The owner requires a validated live watch-config revision and
 activates that frozen source and route snapshot before opening its ledger or
 delivering. Its source identity must still match the canonical endpoint; there
-is no default-config fallback in this path. For individual charts and weekly
+is no default-config fallback in this path. The owner also accepts durable
+work already accepted under the old `telegram:phintraprofits` endpoint while
+the forward-only catalog transition drains. During the compatible release
+window it accepts either verified handle for the same channel, while source
+links always use the canonical `@phintasprofits` address. For individual charts and weekly
 PDF documents, the owner retrieves opaque refs through
 `lib-bursawatch-source-media`, verifies size and digest, and places the bytes
 into the existing private source-media handoff. Weekly PDF work uses the

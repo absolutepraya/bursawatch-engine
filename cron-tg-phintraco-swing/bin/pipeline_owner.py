@@ -20,6 +20,9 @@ class OwnerPending(RuntimeError):
     """The existing durable owner has not acknowledged every delivery leg."""
 
 
+ACCEPTED_SWING_ENDPOINTS = frozenset({"telegram:phintasprofits", "telegram:phintraprofits"})
+
+
 def _receipt_path(effect_key: str) -> Path:
     return scan.state_path().parent / "pipeline-receipts" / f"{effect_key}.json"
 
@@ -157,8 +160,9 @@ def submit(work: dict[str, Any], *, no_post: bool = False, media_store: Any = No
     loaded = scan.config.load_watch_config_for_run()
     if loaded.revision is None:
         raise ValueError("Phintraco pipeline requires an effective live watch config")
-    if (loaded.config.telegram_channel_id, loaded.config.telegram_username) != (1444713822, "phintraprofits"):
-        raise ValueError("Phintraco pipeline source does not match canonical endpoint")
+    if (loaded.config.telegram_channel_id != scan.config.PHINTRACO_TELEGRAM_CHANNEL_ID
+            or loaded.config.telegram_username not in scan.config.ACCEPTED_TELEGRAM_USERNAMES):
+        raise ValueError("Phintraco pipeline source does not match the verified channel")
     with scan.config.activate_watch_config(loaded.config, loaded.revision):
         return _submit_with_config(work, no_post=no_post, media_store=media_store)
 
@@ -174,7 +178,7 @@ def _submit_with_config(work: dict[str, Any], *, no_post: bool, media_store: Any
         work["pipeline_id"] != "swing_plan"
         or work["capability_id"] != "trading_plans"
         or type(version) is not int or version < 1
-        or envelope["endpoint_id"] != "telegram:phintraprofits"
+        or envelope["endpoint_id"] not in ACCEPTED_SWING_ENDPOINTS
         or envelope["publisher_id"] != "phintraco"
     ):
         raise ValueError("unsupported Phintraco source work")
