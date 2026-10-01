@@ -61,8 +61,8 @@ The effective catalog and the X reader marker must agree before polling. The
 reader accepts revision 8 only when its private journal directory contains the
 completed historical 5 to 7 revision-only transition and the completed
 package-owned 7 to 8 transition. The 7 to 8 journal records the reviewed hash
-of the full enabled X projection. Missing, incomplete, malformed, or extra
-journal entries block the reader.
+of all 30 effective X subscription rows, including disabled capabilities.
+Missing, incomplete, malformed, or extra journal entries block the reader.
 
 Use `bin/compatible_catalog_transition.py preview` with the exact prior and
 target effective catalog JSON and the current source state root. Review and

@@ -569,8 +569,8 @@ forward-only X follow-up work before claiming future account coverage.
 ## 2026-10-01 20:10 X catalog-transition implementation
 
 The reviewed implementation adds an X-owned 7 to 8 catalog transition plan
-with a pinned hash for the complete enabled X projection. It delegates the
-marker and journal mutation to the shared source-state planner and preserves
+with a pinned hash for the complete effective X subscription projection. It
+delegates the marker and journal mutation to the shared source-state planner and preserves
 all endpoint cursors, accepted-event indexes, and handoff work. The reader
 requires the completed historical 5 to 7 journal and the new completed 7 to 8
 journal before accepting revision 8. The package contract documents preview,
@@ -584,3 +584,21 @@ matching. This implementation is in the isolated worktree and has not been
 released or applied to live state. It therefore does not yet establish that
 X polling resumes or that a new Torch event is delivered. Torch's RSSHub
 visibility and thread handling remain a separate follow-up.
+
+## 2026-10-01 20:44 X projection hash verification
+
+A manual pre-merge review found that the initial helper draft selected only
+enabled X rows and used an incorrectly copied digest. A read-only transaction
+over Source Catalog revisions 7 and 8 reconstructed the complete effective
+X subscription projection from each historical config and the effective
+registry. Both revisions contain 30 X rows and produce the same canonical
+SHA-256: `877e8fce0e374dc2c94e876455d10087298ff837071d82c19d059e0450bef3d3`.
+The implementation and tests now use all 30 effective rows, including
+disabled capabilities, and this verified digest.
+
+The fresh 20:44 WIB production snapshot still showed the X source job active
+at its existing 10-minute cadence with `last=error`, while the queue worker
+remained `last=ok`. `origin/main` and the VPS release still matched
+`1756f6f6567b0bc5a28fae2db21bd7187c43f168`, and all 8 desired schedules
+matched. The corrected implementation remains in PR #39; production state has
+not been changed.

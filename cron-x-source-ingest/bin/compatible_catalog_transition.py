@@ -25,10 +25,10 @@ sys.path.insert(0, str(owner))
 from legacy_cursor_seed import LegacySeedBlocked, plan_catalog_revision_transition
 from source_ingest import IntakeBlocked
 from adapter import endpoints
-from config import load_watch_config
+from config import load_watch_config_for_run
 
 APPLY_ENV = "BURSAWATCH_X_CATALOG_TRANSITION_ALLOW_APPLY"
-REVIEWED_PROJECTION_SHA256 = "877e8fce0e374dc2c94fa28e0e374dc2c94fa28e0e374dc2c94fa28e0e374dc3"
+REVIEWED_PROJECTION_SHA256 = "877e8fce0e374dc2c94e876455d10087298ff837071d82c19d059e0450bef3d3"
 TRANSITION_TYPE = "x-compatible-catalog-transition"
 
 
@@ -60,30 +60,39 @@ def _state_root(value: Path) -> Path:
     return resolved
 
 
-def _projection(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+def _projection(snapshot: dict[str, Any], profiles: tuple[Any, ...]) -> list[dict[str, Any]]:
     try:
-        config_path = ROOT / "cron-x-account-watch/config/watches.json"
-        if not config_path.is_file():
-            config_path = Path.home() / ".agents/skills/bursawatch-x-account-watch/config/watches.json"
-        profiles = tuple(p for p in load_watch_config(config_path).profiles if p.enabled)
-        selected, _ = endpoints(snapshot, profiles)
+        selected, _ = endpoints(snapshot, tuple(p for p in profiles if p.enabled))
     except (IntakeBlocked, OSError, ValueError, KeyError, TypeError) as error:
         raise TransitionBlocked("catalog does not match reviewed enabled X profiles") from error
     if len(selected) != 8:
         raise TransitionBlocked("reviewed X projection must contain exactly eight enabled profiles")
-    rows = [row for row in snapshot.get("subscriptions", []) if type(row) is dict and row.get("platform") == "x" and row.get("enabled") is True]
+    rows = [row for row in snapshot.get("subscriptions", []) if type(row) is dict and row.get("platform") == "x"]
     rows.sort(key=lambda row: (row.get("endpoint_id", ""), row.get("capability_id", "")))
     return rows
 
 
 def _transition_plan(prior: dict[str, Any], target: dict[str, Any], root: Path) -> dict[str, Any]:
     root = _state_root(root)
+    try:
+        _require_x_transition_chain(root, 7, allow_in_progress_edge=True)
+    except IntakeBlocked as error:
+        raise TransitionBlocked("existing X catalog transition history is incomplete or unsafe") from error
     if type(prior.get("revision")) is not int or type(target.get("revision")) is not int or target["revision"] != prior["revision"] + 1:
         raise TransitionBlocked("X transition requires adjacent catalog revisions")
-    prior_projection, target_projection = _projection(prior), _projection(target)
+    try:
+        loaded = load_watch_config_for_run()
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise TransitionBlocked("current X watcher configuration is unavailable") from error
+    watcher_revision = getattr(loaded, "revision", None)
+    watcher_config = getattr(loaded, "config", None)
+    profiles = getattr(watcher_config, "profiles", None)
+    if type(watcher_revision) is not int or watcher_revision < 1 or type(profiles) not in {tuple, list}:
+        raise TransitionBlocked("current X watcher config revision or profiles are invalid")
+    prior_projection, target_projection = _projection(prior, tuple(profiles)), _projection(target, tuple(profiles))
     raw = _canonical(prior_projection)
     if raw != _canonical(target_projection) or _sha(raw) != REVIEWED_PROJECTION_SHA256:
-        raise TransitionBlocked("enabled X projection differs from the reviewed revision 7 to 8 proof")
+        raise TransitionBlocked("full effective X projection differs from the reviewed revision 7 to 8 proof")
     if (prior["revision"], target["revision"]) != (7, 8):
         raise TransitionBlocked("this package release owns only the reviewed X 7 to 8 edge")
     metadata = {
@@ -91,7 +100,8 @@ def _transition_plan(prior: dict[str, Any], target: dict[str, Any], root: Path) 
         "projection_sha256": REVIEWED_PROJECTION_SHA256,
         "prior_catalog_sha256": _sha(_canonical(prior)),
         "target_catalog_sha256": _sha(_canonical(target)),
-        "reason": "The complete enabled X projection is unchanged across catalog revisions 7 and 8.",
+        "watch_config_revision": watcher_revision,
+        "reason": "The complete effective X subscription projection is unchanged across catalog revisions 7 and 8.",
     }
     try:
         state_plan = plan_catalog_revision_transition(
@@ -105,7 +115,7 @@ def _transition_plan(prior: dict[str, Any], target: dict[str, Any], root: Path) 
             "state_plan": state_plan}
 
 
-def _require_x_transition_chain(root: Path, revision: int) -> None:
+def _require_x_transition_chain(root: Path, revision: int, *, allow_in_progress_edge: bool = False) -> None:
     """Require the deployed 5→7 history and the package-owned 7→8 proof."""
     if type(revision) is not int or revision < 1:
         raise IntakeBlocked("X catalog revision is invalid")
@@ -119,10 +129,13 @@ def _require_x_transition_chain(root: Path, revision: int) -> None:
     if directory.is_symlink() or not directory.is_dir() or stat.S_IMODE(directory.stat().st_mode) & 0o077:
         raise IntakeBlocked("X catalog transition directory is unsafe")
     entries = {p.name for p in directory.iterdir() if not p.name.startswith(".catalog-transition-")}
-    if entries != expected:
+    allowed_entries = expected | ({"7-to-8.json"} if revision == 7 and allow_in_progress_edge else set())
+    if entries - allowed_entries or expected - entries:
         raise IntakeBlocked("X catalog transition history has a gap or unexpected entry")
-    edges = (("5-to-7.json", 5, 7),) if revision == 7 else (("5-to-7.json", 5, 7), ("7-to-8.json", 7, 8))
-    for name, source, target in edges:
+    edges = [("5-to-7.json", 5, 7, False)] if revision == 7 else [("5-to-7.json", 5, 7, False), ("7-to-8.json", 7, 8, False)]
+    if revision == 7 and allow_in_progress_edge and "7-to-8.json" in entries:
+        edges.append(("7-to-8.json", 7, 8, True))
+    for name, source, target, pending in edges:
         path = directory / name
         if path.is_symlink() or not path.is_file() or stat.S_IMODE(path.stat().st_mode) != 0o600:
             raise IntakeBlocked("X catalog transition journal is unsafe")
@@ -132,7 +145,8 @@ def _require_x_transition_chain(root: Path, revision: int) -> None:
         except (OSError, ValueError, KeyError, TypeError) as error:
             raise IntakeBlocked("X catalog transition journal is invalid") from error
         if (type(journal) is not dict or set(journal) != {"version", "status", "plan", "seeded_endpoints"}
-            or type(journal.get("version")) is not int or journal.get("version") != 1 or journal.get("status") != "complete"
+            or type(journal.get("version")) is not int or journal.get("version") != 1
+            or journal.get("status") not in ({"applying", "complete"} if pending else {"complete"})
             or journal.get("seeded_endpoints") != [] or type(plan) is not dict
             or set(plan) != {"version", "status", "apply", "state_root", "transition_path", "from_revision", "to_revision", "state_files", "seeds", "metadata", "revision_only"}
             or plan.get("version") != 1 or plan.get("status") != "preview"
@@ -148,10 +162,11 @@ def _require_x_transition_chain(root: Path, revision: int) -> None:
         if source == 7:
             metadata = plan.get("metadata")
             if (type(metadata) is not dict or metadata.get("transition_type") != TRANSITION_TYPE
-                or set(metadata) != {"transition_type", "projection_sha256", "prior_catalog_sha256", "target_catalog_sha256", "reason"}
+                or set(metadata) != {"transition_type", "projection_sha256", "prior_catalog_sha256", "target_catalog_sha256", "watch_config_revision", "reason"}
                 or metadata.get("projection_sha256") != REVIEWED_PROJECTION_SHA256
                 or any(type(metadata.get(key)) is not str or re.fullmatch(r"[0-9a-f]{64}", metadata[key]) is None
                        for key in ("prior_catalog_sha256", "target_catalog_sha256"))
+                or type(metadata.get("watch_config_revision")) is not int or metadata["watch_config_revision"] < 1
                 or type(metadata.get("reason")) is not str or len(metadata["reason"]) < 20):
                 raise IntakeBlocked("X 7 to 8 journal does not prove the reviewed projection")
 

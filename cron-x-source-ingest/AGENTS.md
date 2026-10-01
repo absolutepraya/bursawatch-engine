@@ -43,9 +43,10 @@ write a cursor.
 
 Catalog revision changes require the X package transition helper. For the
 reviewed 7 to 8 edge, `bin/compatible_catalog_transition.py preview` must prove
-the complete enabled X projection matches the pinned review hash, then create
-a private preview with the shared source-state planner. Apply requires that
-unchanged preview and `BURSAWATCH_X_CATALOG_TRANSITION_ALLOW_APPLY=1`. The
+the complete effective X subscription projection matches the pinned review
+hash, then create a private preview with the shared source-state planner.
+Apply requires that unchanged preview and
+`BURSAWATCH_X_CATALOG_TRANSITION_ALLOW_APPLY=1`. The
 transition changes only the catalog marker and journal. It does not seed or
 rewrite endpoint cursors, accepted-event indexes, or handoff work. Runtime at
 revision 8 requires the complete existing 5 to 7 journal followed by a
