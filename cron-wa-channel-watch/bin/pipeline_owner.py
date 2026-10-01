@@ -189,10 +189,16 @@ def _validate_work(work: dict[str, Any], profiles: tuple[Any, ...]) -> tuple[Any
     received_at = _timestamp(envelope.get("observed_at"), "observation timestamp")
     raw_manifest = payload.get("media_manifest")
     raw_ref_ids = payload.get("media_ref_ids")
+    unavailable_manifest = payload.get("unavailable_media_manifest", [])
     if type(raw_manifest) is not list or type(raw_ref_ids) is not list or len(refs) > 8 or len(raw_manifest) != len(refs) or raw_ref_ids != [item.get("ref") for item in refs if type(item) is dict]:
         raise ValueError("WhatsApp media manifest does not match Source Inbox references")
     if envelope.get("media_required") is not bool(refs):
         raise ValueError("WhatsApp media requirement does not match its references")
+    if (
+        type(unavailable_manifest) is not list or len(unavailable_manifest) > 8
+        or (unavailable_manifest and (refs or not payload["text"].strip()))
+    ):
+        raise ValueError("WhatsApp unavailable-media fallback is invalid")
 
     media_rows = []
     total = 0
@@ -230,13 +236,22 @@ def _validate_work(work: dict[str, Any], profiles: tuple[Any, ...]) -> tuple[Any
         media_rows.append({"kind": kind, "mime": content_type, "ref": reference})
     if len(raw_manifest) != len(set(row["ref"]["ref"] for row in media_rows)):
         raise ValueError("WhatsApp source media references repeat")
+    fallback_rows = []
+    for index, row in enumerate(unavailable_manifest):
+        if (
+            type(row) is not dict or set(row) != {"index", "kind", "mime"}
+            or row["index"] != index or row["kind"] not in _MEDIA_TYPES
+            or row["mime"] is not None and type(row["mime"]) is not str
+        ):
+            raise ValueError("WhatsApp unavailable-media manifest is invalid")
+        fallback_rows.append({"kind": row["kind"], "mime": row["mime"]})
 
     normalized = normalize_bridge_event({
         "channel_jid": profile.channel_jid,
         "message_id": provider_id,
         "published_at": published_at.isoformat(),
         "text": payload["text"],
-        "media": [{"kind": row["kind"], "mime": row["mime"]} for row in media_rows],
+        "media": [{"kind": row["kind"], "mime": row["mime"]} for row in media_rows] + fallback_rows,
     }, received_at=received_at)
     if list(normalized.links) != payload["links"]:
         raise ValueError("WhatsApp links do not match source text")
@@ -352,6 +367,8 @@ def submit(
         "source_pipeline_work_keys": work_keys,
         "source_pipeline_route_keys": route_keys,
     }
+    if work["envelope"]["payload"].get("unavailable_media_manifest"):
+        source_record["source_media_unavailable"] = True
 
     with _state_lock(state_path):
         value = state.load(state_path)
@@ -432,7 +449,8 @@ def claim_agent(
             record["agent_phase"] = "awaiting_agent"
             record["agent_lease_until"] = state.lease_until(observed)
             route_override = agent_protocol.deterministic_route(profile, event)
-            claimed = agent_protocol.agent_item(profile, event, relevance_guard_required=route_override is not None)
+            agent_event = replace(event, media=()) if record.get("source_media_unavailable") is True else event
+            claimed = agent_protocol.agent_item(profile, agent_event, relevance_guard_required=route_override is not None)
             break
         state.save(state_path, value)
     return {

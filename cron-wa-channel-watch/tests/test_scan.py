@@ -440,7 +440,7 @@ def test_technical_review_is_guarded_and_deterministically_delivered_to_swing(tm
     assert "1531655369884045382" not in output
 
 
-def test_technical_review_without_a_verified_archive_image_stays_pending(tmp_path, monkeypatch):
+def test_technical_review_without_archive_image_delivers_source_text_without_board(tmp_path, monkeypatch):
     queue_dir = tmp_path / "queue"
     config_path = write_config(tmp_path)
     state_path = tmp_path / "state.json"
@@ -451,7 +451,7 @@ def test_technical_review_without_a_verified_archive_image_stays_pending(tmp_pat
     claimed = scan.run(config_path=config_path, state_path=state_path, queue_dir=queue_dir, now=now + timedelta(minutes=1), no_post=True)
     monkeypatch.setattr(scan, "_archived_images", lambda _root, _event: ())
     posted: list[str] = []
-    monkeypatch.setattr(scan.discord, "post_text", lambda *_args, **_kwargs: posted.append("text"))
+    monkeypatch.setattr(scan.discord, "post_text", lambda content, *_args, **_kwargs: posted.append(content))
     monkeypatch.setattr(scan.discord, "post_media", lambda *_args, **_kwargs: posted.append("media"))
 
     submitted = scan.submit_analysis(
@@ -472,10 +472,15 @@ def test_technical_review_without_a_verified_archive_image_stays_pending(tmp_pat
         },
     )
 
-    assert submitted["agent_phase"] == "ready"
-    assert submitted["delivered"] == 0
-    assert posted == []
-    assert state.load(state_path)["outbox"][0]["last_error"] == "technical review requires exactly one archived image"
+    assert submitted["agent_phase"] == "delivered"
+    assert submitted["delivered"] == 1
+    assert len(posted) == 1
+    assert "#TechnicalReview\nTINS breakout resistance 4.600." in posted[0]
+    assert "Source chart unavailable" in posted[0]
+    assert "**Board:**" not in posted[0]
+    saved = state.load(state_path)["outbox"][0]
+    assert saved["media_delivery_status"] == "unavailable"
+    assert saved["board_phase"] == "not_eligible"
 
 
 def test_technical_review_always_forwards_its_verified_chart(tmp_path, monkeypatch):

@@ -294,6 +294,65 @@ def _upload_archive_media(item: dict[str, Any], profile: Any, archive_root: Path
         return None
 
 
+
+def _fallback_media_descriptors(
+    item: dict[str, Any], profile: Any, archive_root: Path | None,
+) -> list[dict[str, Any]] | None:
+    """Allow text intake only when the immutable archive matches the queue."""
+    descriptors = item.get("_source_media")
+    payload = item.get("payload")
+    if (
+        archive_root is None or type(descriptors) is not list or not descriptors
+        or type(payload) is not dict or not isinstance(payload.get("text"), str)
+        or not payload["text"].strip()
+    ):
+        return None
+    try:
+        import archive
+
+        provider_id = item["provider_event_id"]
+        event_key = f"{profile.channel_jid}:{provider_id}"
+        record_path = archive.record_path(
+            archive_root,
+            {"profile_id": profile.id, "published_at": item["published_at"], "event_key": event_key},
+        )
+        relative = record_path.relative_to(archive_root).as_posix()
+        _path, raw = _archive_path(archive_root, relative, MAX_ARCHIVE_RECORD_BYTES)
+        record = archive.validate_record(json.loads(raw.decode("utf-8")), path=record_path)
+        queue_published = datetime.fromisoformat(item["published_at"].replace("Z", "+00:00")).astimezone(timezone.utc)
+        archived_published = datetime.fromisoformat(str(record["published_at"]).replace("Z", "+00:00")).astimezone(timezone.utc)
+        if (
+            record["profile_id"] != profile.id
+            or record["channel_jid"] != profile.channel_jid
+            or record["message_id"] != provider_id
+            or record["event_key"] != event_key
+            or archived_published != queue_published
+            or record["text"] != payload["text"]
+            or record["links"] != payload["links"]
+            or len(record["media"]) != len(descriptors)
+            or len(descriptors) > 8
+        ):
+            return None
+        result = []
+        for index, (descriptor, metadata) in enumerate(zip(descriptors, record["media"], strict=True)):
+            if (
+                type(descriptor) is not dict or type(metadata) is not dict
+                or descriptor.get("index") != index
+                or descriptor.get("index") != metadata.get("index")
+                or descriptor.get("kind") != metadata.get("kind")
+                or descriptor.get("mime") != metadata.get("mime")
+                or descriptor.get("kind") not in _MEDIA_TYPES
+                or descriptor.get("mime") is not None and type(descriptor["mime"]) is not str
+            ):
+                return None
+            result.append({
+                "index": index, "kind": descriptor["kind"], "mime": descriptor["mime"],
+            })
+        return result
+    except Exception:
+        return None
+
+
 def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], queue_dir: Path, state_root: Path, inbox: Any, observed_at: datetime, *, scan_queue: Any = None, archive_root: Path | None = None, media_store: Any = None, owner_config_revision: int | None = None) -> list[dict[str, Any]]:
     selected, by_endpoint = endpoints(snapshot, profiles)
     bind_catalog_revision(state_root, snapshot["revision"])
@@ -317,14 +376,24 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], queue_dir: Pat
                 payload = dict(prepared.get("payload", {}))
                 payload["owner_config_revision"] = owner_config_revision
                 if descriptors is not None:
-                    prepared["media_refs"] = _upload_archive_media(prepared | {"_source_media": descriptors}, profile, archive_root, media_store) or []
-                    if prepared["media_refs"]:
-                        payload["media_ref_ids"] = [reference["ref"] for reference in prepared["media_refs"]]
+                    source_item = prepared | {"_source_media": descriptors}
+                    refs = _upload_archive_media(source_item, profile, archive_root, media_store)
+                    prepared["media_refs"] = refs or []
+                    if refs:
+                        payload["media_ref_ids"] = [reference["ref"] for reference in refs]
                         payload["media_manifest"] = [
                             {"index": descriptor["index"], "kind": descriptor["kind"], "mime": reference["content_type"], "ref_id": reference["ref"]}
-                            for descriptor, reference in zip(descriptors, prepared["media_refs"], strict=True)
+                            for descriptor, reference in zip(descriptors, refs, strict=True)
                         ]
                         prepared["payload"] = payload
+                    else:
+                        fallback = _fallback_media_descriptors(source_item, profile, archive_root)
+                        if fallback is not None:
+                            prepared["media_required"] = False
+                            payload["media_ref_ids"] = []
+                            payload["media_manifest"] = []
+                            payload["unavailable_media_manifest"] = fallback
+                            prepared["payload"] = payload
                 else:
                     payload["media_ref_ids"] = []
                     payload["media_manifest"] = []

@@ -25,10 +25,12 @@ capabilities frozen at source acceptance, the owner records
 material as irrelevant to force a route. The existing disclosure safeguard
 remains active.
 
-For `swing_chart_context`, the existing watcher still requires the exact
-leading `#TechnicalReview` marker and one verified archived chart image before
-it can post All Swing content or submit BRI Chart context to the Swing Board.
-Keep all source event details and delivery behavior inside that watcher.
+For `swing_chart_context`, the watcher requires the exact leading
+`#TechnicalReview` marker. A verified chart enables the usual All Swing image
+and Board path. When the archived source chart cannot be transferred, the
+watcher forwards the original source text with `Source chart unavailable`
+and skips Board chart context. Keep all source event details and delivery
+behavior inside that watcher.
 INS and Samuel remain observe-only and never produce agent work.
 
 The old `(published_at, event_key)` cursor has no proven order-preserving

@@ -26,9 +26,12 @@ claim also retries ready message and Board deliveries. The adapter sends its
 `#hermes` heartbeat through the shared Discord Delivery Owner. Do not run the
 legacy direct source reader beside this adapter. For media-bearing items, read only the
 watcher's immutable archive and use the Source Media Owner client. Never read
-the queue's disposable staging path or call Storage directly. Missing archive
-bytes, an unsupported MIME, absent Owner configuration, or an invalid upload
-response must leave the event blocked and its cursor unchanged.
+the queue's disposable staging path or call Storage directly. When media
+capture or transfer fails, a validated archive record with matching queue
+identity, text, and media descriptors permits a nonempty source text event
+without media refs. Preserve the original descriptors for the domain owner and
+advance the cursor only after Source Inbox acceptance. Missing or invalid
+archive records and media-only posts stay blocked with the cursor unchanged.
 
 Run `../../../.venv/bin/python -m pytest -q tests` in this worktree. Tests
 use a fake queue, isolated state, and no bridge or Discord calls.
