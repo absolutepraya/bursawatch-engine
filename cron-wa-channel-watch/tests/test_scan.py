@@ -475,7 +475,7 @@ def test_technical_review_without_archive_image_delivers_source_text_without_boa
     assert submitted["agent_phase"] == "delivered"
     assert submitted["delivered"] == 1
     assert len(posted) == 1
-    assert "#TechnicalReview\\nTINS breakout resistance 4.600." in posted[0]
+    assert "#TechnicalReview\nTINS breakout resistance 4.600." in posted[0]
     assert "Source chart unavailable" in posted[0]
     assert "**Board:**" not in posted[0]
     saved = state.load(state_path)["outbox"][0]
