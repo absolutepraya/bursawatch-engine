@@ -13,7 +13,7 @@ _IDX_TICKER = r"[A-Z]{4}"
 _TUNTUN_UPDATE_HEADER = re.compile(r"^(?:Midday|Evening) Update_Tuntun Sekuritas_\d{8}$", re.IGNORECASE)
 _TUNTUN_SOURCE_LINE = re.compile(r"^Sumber\s*:\s*.+?\s*$", re.IGNORECASE)
 _TICKER_LEAD = re.compile(
-    rf"^(?P<ticker>{_IDX_TICKER})\s*(?:\([^\r\n)]+\))?\s*:\s*\S.*$"
+    rf"^(?P<ticker>{_IDX_TICKER})\s*(?:\([^\r\n]*\))?\s*:\s*\S.*$"
 )
 _SPECIAL_TOPIC = re.compile(
     rf"^Special Topics?\s*:\s*(?P<ticker>{_IDX_TICKER})\s*(?:\([^\r\n)]+\))?\s*:\s*\S.*$"

@@ -44,6 +44,24 @@ def test_tuntun_corporate_post_with_emoji_header_splits_company_entries():
     assert [candidate.ticker for candidate in candidates] == ["TBIG", "AGAR"]
 
 
+def test_tuntun_corporate_entry_with_nested_parentheses_is_retained():
+    source_entry = (
+        "BRIS (PT Bank Syariah Indonesia (Persero) Tbk): "
+        "PMHMETD II direncanakan menerbitkan maksimal 6,8 miliar saham Seri B."
+    )
+
+    candidates = TuntunNewsAdapter().extract_candidates(
+        message_id=15054,
+        text=f"Corporate 🏢\n\n{source_entry}",
+        published_at=datetime(2026, 9, 30, 11, 26, 16, tzinfo=timezone.utc),
+        topic_id=3743,
+        direct_image=False,
+    )
+
+    assert [candidate.ticker for candidate in candidates] == ["BRIS"]
+    assert candidates[0].source_text == source_entry
+
+
 def test_tuntun_corporate_repeated_ticker_entries_keep_one_stable_candidate():
     first_plas = (
         "PLAS (PT Polaris Investama Tbk): PLAS menyiapkan sekitar Rp60,39 miliar "

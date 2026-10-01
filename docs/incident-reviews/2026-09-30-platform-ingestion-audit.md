@@ -32,6 +32,59 @@ Recheck live state before acting. The original source-state observations were co
 - The natural Stockbit run started at 09:09:05 WIB and completed. It created one `stockbit_snips` source-work item at 09:08:58 WIB, now `done`, proving that the RSS catalog gate passed and the owner accepted the work. The Stockbit article-owner submission finished `degraded` from 09:09:29 to 09:09:33 WIB, with one error and zero locally confirmed deliveries. A read-only Delivery Owner lookup and active-ledger inspection later showed the stable operation is `delivered`; its stored target and digest match the frozen route destination. Its receipt contains `message_id` but omits `channel_id`. The shared [gateway](../../service-bursawatch-discord-delivery/bin/discord_delivery/discord_gateway.py:207) intentionally returns only `message_id` for a channel-message create, and the shared [receipt validator](../../service-bursawatch-discord-delivery/bin/discord_delivery/models.py:230) permits that field to be absent. Stockbit's [delivery drain](../../cron-stockbit-snips/bin/scan.py:268) requires `channel_id`, so it records a local retry while the Delivery Owner has already delivered the operation. This is a receipt-shape contract mismatch, not evidence of a wrong-channel send. The local article remains `pending_delivery` after one retry and needs a separate safe reconciliation; do not replay or create a new operation.
 - The initial catalog blockers are repaired at the reader boundary, and natural runs passed both catalog gates. Telegram's Market News state-root split and Stockbit's local receipt mismatch remain separate unresolved work. The Phintas route gap, WhatsApp archive-capture failure, and Torch RSSHub omission from the original audit also remain open.
 
+## Follow-up: Telegram Market News source-to-channel gap
+
+**Verified:** 2026-10-01, 11:45 to 11:57 WIB. Read-only source, state, and
+channel inspection. No replay or post was performed.
+
+- Discord history since Sep 25 returned 62 `#id-stocks-news` messages, latest
+  at 10:44 WIB on Oct 1, and 8 `#id-industry-news` messages, latest at 14:21
+  WIB on Sep 29. The requested history window fit within the 100-message read
+  cap for both channels.
+- Telegram remained active. Tuntun published through message 15058 on Oct 1;
+  its newest messages were daily/promotion material outside the Market News
+  parser contract. Its Sep 30 evening update, message 15053, produced three
+  Industry candidates that remain `pending_analysis`. The Sep 30 Corporate
+  message 15054 produced four candidates, but the BRIS entry was omitted
+  because the legal-name parentheses are nested and the current ticker-line
+  expression rejects that shape.
+- Phintraco published Stock Information message 35549 at 08:21 WIB on Oct 1.
+  Its effective date was `01 Oktober 2026`; the parser's English-only month
+  conversion rejected it, and the owner ledger records `invalid_status`.
+  Messages 35484 and 35522 (effective Sep 29 and Sep 30) were delivered to
+  `#id-stocks-news` at about 10:43 WIB on Oct 1, confirming the late status
+  symptom. The new Oct 1 status was not delivered.
+- The source cursors were already at Tuntun 15058 and Phintraco 35552. The
+  package-local owner file had 69 source-provenance candidates, all 69 keys
+  also present in the canonical owner ledger. Two overlapping keys had phase
+  differences. Canonical state had 83 active candidates, all published before
+  Oct 1: 82 `pending_analysis` and one `awaiting_agent`, spanning Sep 28 to
+  Sep 30. No candidate was in `pending_delivery` at this read.
+- The state-root cause is confirmed: the source runner's direct Market News
+  subprocess and the classification wrapper selected different owner files.
+  Source-work retries and expired leases therefore accumulated while the
+  scheduled job and source cursors continued moving. The open `bug-squashing`
+  change passes the canonical path to direct owner subprocesses.
+- The existing state-reconciliation plan would otherwise leave old candidates
+  eligible after the path correction. Because the user explicitly requires
+  forward-only delivery with no stale sends, the plan now abandons pre-cutover
+  active candidates before resume and blocks unresolved Delivery Owner work.
+  This state operation has not been applied.
+- Worktree fixes also extend status parsing to Indonesian month names and allow
+  nested parentheses in Tuntun Corporate entries. Neither change replays the
+  inspected messages; future source messages use the corrected parsers after
+  the release. The focused changed-path checks passed 112 tests, the Market
+  News package suite passed 310 tests, and `bash scripts/test-all` passed all
+  repository checks with one existing skip and deprecation warnings. These
+  tests verify local contracts, not a live natural delivery.
+- A production snapshot at 11:57:06 WIB showed `origin/main` and last
+  successful release both at `925b894`, all 8 desired schedules matching,
+  the Telegram source-ingest job active, and the legacy Market News reader and
+  watchdog paused. It does not prove a natural source-to-delivery event.
+
+The X/RSSHub omission, Stockbit receipt-shape mismatch, and WhatsApp archive
+capture gap remain separate workstreams from this Telegram news-path diagnosis.
+
 ## Executive summary
 
 The four reported symptoms do not share one cause. Confirmed current issues at the time of inspection were:

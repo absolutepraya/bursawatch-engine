@@ -126,6 +126,7 @@ def test_merge_imports_source_only_candidate_and_provenance_without_changing_can
         "overlap_status_event_count": 0,
         "status_event_phase_difference_count": 0,
         "status_event_provenance_added_count": 0,
+        "active_candidate_abandonment_count": 2,
     }
     assert merged["candidates"][candidate.key] == overlapping_record
     assert merged["candidates"][later_candidate.key] == source_state["candidates"][later_candidate.key]
@@ -140,7 +141,7 @@ def test_merge_imports_source_only_candidate_and_provenance_without_changing_can
     assert canonical_state == canonical_before
 
 
-def test_merge_imports_stock_status_event_when_canonical_has_no_event_ledger(
+def test_merge_imports_terminal_stock_status_event_when_canonical_has_no_event_ledger(
     tmp_path, candidate, later_candidate
 ):
     source_state, _ = _source_state(candidate, later_candidate, tmp_path)
@@ -148,7 +149,7 @@ def test_merge_imports_stock_status_event_when_canonical_has_no_event_ledger(
     canonical_state["stats"].pop("stock_status_events", None)
     key = "phintraco-stock-status:35530"
     source_state["stats"]["stock_status_events"] = {
-        key: _stock_status_event(35530)
+        key: _stock_status_event(35530, phase="delivered")
     }
 
     merged, report = reconcile.merge_states(source_state, canonical_state)
@@ -157,6 +158,32 @@ def test_merge_imports_stock_status_event_when_canonical_has_no_event_ledger(
     assert report["source_status_event_count"] == 1
     assert report["new_status_event_count"] == 1
     assert report["overlap_status_event_count"] == 0
+
+
+def test_merge_blocks_source_only_pending_stock_status_event(
+    tmp_path, candidate, later_candidate
+):
+    source_state, _ = _source_state(candidate, later_candidate, tmp_path)
+    canonical_state, _ = _canonical_state(candidate, tmp_path)
+    key = "phintraco-stock-status:35530"
+    source_state["stats"]["stock_status_events"] = {
+        key: _stock_status_event(35530, phase="pending_delivery")
+    }
+
+    with pytest.raises(StateBlockedError, match="unresolved delivery outcome"):
+        reconcile.merge_states(source_state, canonical_state)
+
+
+def test_merge_blocks_unresolved_canonical_candidate_delivery(
+    tmp_path, candidate, later_candidate
+):
+    source_state, _ = _source_state(candidate, later_candidate, tmp_path)
+    canonical_state, _ = _canonical_state(candidate, tmp_path)
+    canonical_state["candidates"][candidate.key]["phase"] = "pending_delivery"
+    canonical_state["candidates"][candidate.key]["agent_lease_until"] = None
+
+    with pytest.raises(StateBlockedError, match="canonical candidate delivery is unresolved"):
+        reconcile.merge_states(source_state, canonical_state)
 
 
 def test_merge_preserves_canonical_delivered_status_and_adds_missing_provenance(
@@ -200,7 +227,9 @@ def test_merge_blocks_conflicting_stock_status_payload(tmp_path, candidate, late
     source_state["stats"]["stock_status_events"] = {
         key: _stock_status_event(35530)
     }
-    canonical_event = _stock_status_event(35530, provenance_fields=False)
+    canonical_event = _stock_status_event(
+        35530, phase="delivered", provenance_fields=False
+    )
     canonical_event["content"] = "Different source payload"
     canonical_state["stats"]["stock_status_events"] = {key: canonical_event}
 
@@ -280,6 +309,7 @@ def test_preview_is_read_only_private_and_omits_candidate_content(tmp_path, cand
     assert plan == saved_plan
     assert plan["new_candidate_count"] == 1
     assert plan["overlap_count"] == 1
+    assert plan["active_candidate_abandonment_count"] == 2
     assert plan_path.stat().st_mode & 0o777 == 0o600
     assert source_path.read_bytes() == source_before
     assert canonical_path.read_bytes() == canonical_before
@@ -309,7 +339,12 @@ def test_apply_merges_atomically_and_reapplying_same_plan_is_idempotent(
     assert second["status"] == "already_applied"
     assert canonical_path.read_bytes() == after_apply
     assert source_path.read_bytes() == source_before
-    assert merged["candidates"][candidate.key] == canonical_record_before
+    assert merged["candidates"][candidate.key]["candidate"] == canonical_record_before["candidate"]
+    assert merged["candidates"][candidate.key]["phase"] == "abandoned"
+    assert merged["candidates"][candidate.key]["retry"]["last_error"] == (
+        reconcile._FORWARD_ONLY_ABANDON_REASON
+    )
+    assert merged["candidates"][later_candidate.key]["phase"] == "abandoned"
     assert set(merged["stats"]["news_source_work"]) == {candidate.key, later_candidate.key}
     assert merged["stats"][reconcile.RECEIPT_KEY]["plan_sha256"] == plan["plan_sha256"]
 
@@ -320,7 +355,9 @@ def test_reapply_blocks_when_source_status_event_is_missing_after_receipt(
     source_state, source_path = _source_state(candidate, later_candidate, tmp_path)
     _, canonical_path = _canonical_state(candidate, tmp_path)
     key = "phintraco-stock-status:35530"
-    source_state["stats"]["stock_status_events"] = {key: _stock_status_event(35530)}
+    source_state["stats"]["stock_status_events"] = {
+        key: _stock_status_event(35530, phase="delivered")
+    }
     save_state(source_state, source_path)
     plan_path = tmp_path / "plans" / "market-news-merge.json"
     reconcile.preview(source_path, canonical_path, plan_path)

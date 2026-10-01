@@ -3,19 +3,46 @@
 > **For agentic workers:** Follow the package and repository production
 > release gates below. Do not run manual schedules or send test messages.
 
-**Status:** Approved by the user on 2026-10-01; implementation underway in the
-`bug-squashing` worktree. Production apply is authorized within the reviewed
-sequence below.
+**Status:** Approved by the user on 2026-10-01; amended on 2026-10-01 to keep
+the cutover forward-only. Implementation is underway in the `bug-squashing`
+worktree. Production apply is authorized within the reviewed sequence below.
 
 **Goal:** Put Telegram source-work acceptance, Market News agent leases, and
-classification submissions on one durable owner ledger while preserving the
-existing canonical candidate, dedupe, and delivery history.
+classification submissions on one durable owner ledger while preserving
+terminal history, dedupe, and confirmed delivery records. Do not deliver any
+pre-cutover pending Market News work. The cutover keeps future intake live
+without replaying stale news.
 
 **Trigger:** The natural runs after catalog recovery proved intake works, but
 Market News submissions still failed. The source runner launches
 `pipeline_owner.py` directly. Without `IDX_MARKET_NEWS_STATE_PATH`, that process
 uses the deployed skill's package-local `state.json`. The submission wrapper
 selects `~/.hermes/state/idx-market-news.json`.
+
+**Verified at 2026-10-01 11:45 WIB:** Both Telegram source cursors had advanced
+through the latest inspected messages (`tuntunsekuritas` 15058 and
+`phintasprofits` 35552). The package-local file contained 69
+source-provenance candidates; all 69 keys also existed in canonical state, and
+two overlapping keys had different phases. Canonical state contained 83
+active candidates, all published before 2026-10-01: 82 `pending_analysis` and
+one `awaiting_agent`, spanning 2026-09-28 to 2026-09-30. It had no candidate
+in `pending_delivery`. The package-local file had 69 active candidates. Any
+merge that leaves those phases runnable could deliver old news after the path
+fix, so the reviewed apply now marks every active candidate abandoned before
+the schedule resumes. It refuses unresolved candidate or stock-status
+delivery operations. The package-local source file remains untouched and
+archived.
+
+The read-only Discord history review covered 62 `#id-stocks-news` messages
+from Sep 25 through Oct 1 10:44 WIB and 8 `#id-industry-news` messages from
+Sep 25 through Sep 29 14:21 WIB. Telegram still had Oct 1 Tuntun and Phintraco
+posts. Tuntun message 15053 (Sep 30 18:26 WIB) produced three Industry
+candidates that remain `pending_analysis`; message 15054 produced four
+Corporate candidates but omitted its BRIS entry because the company name has
+nested parentheses. Phintraco message 35549 (Oct 1 08:21 WIB) was rejected as
+`invalid_status`: its effective date says `01 Oktober 2026`, while the parser
+accepted English month names only. These parser fixes are forward-only; the
+advanced source cursors will not replay those old posts.
 
 **Observed at 2026-10-01 09:51 WIB:** The package-local file contained 69
 source-provenance candidates, 68 `pending_analysis` and 1 `awaiting_agent`.
@@ -35,8 +62,9 @@ canonically. The canonical delivered records have owner receipts and remain
 authoritative. The local versions include `source_event_key` and
 `config_revision`, which the canonical versions lack. Refresh this comparison
 after writers are paused; the preview must report four overlaps and preserve
-canonical phases, delivery handoffs, and receipts while adding only matching
-source provenance that is absent.
+canonical delivery outcomes, handoffs, and receipts while adding only matching
+source provenance that is absent. The apply then abandons every nonterminal
+candidate so this migration cannot send pre-cutover news.
 
 ## Scope and ownership
 
@@ -50,6 +78,10 @@ source provenance that is absent.
 - Preserve both complete input files in the private runtime-cutover backup.
   Never delete, truncate, reset, replay, or copy the package-local file over
   the canonical file.
+- Keep the cutover forward-only: abandon all nonterminal candidates in the
+  merged canonical ledger before resuming source-ingest. Do not submit them to
+  the classifier or Delivery Owner. Preserve the complete package-local file
+  and the canonical terminal history in the verified archive/state.
 - Keep runner ordering, catalog routing, candidate classification policy,
   destinations, and delivery operation keys unchanged.
 - Do not manually trigger a production job or send a test post.
@@ -71,30 +103,44 @@ package-local file:
 2. If the candidate key is absent from canonical state, import the complete
    candidate record and its validated source-work provenance.
 3. If the key exists in canonical state, require the candidate payloads to be
-   identical. Preserve the complete canonical candidate record, including its
-   phase, lease, retries, classification, selection, and delivery history.
-   Add the source-work provenance only if canonical state has none. If
-   canonical provenance exists, require its immutable event identity,
-   version, content hash, source URL, enabled capabilities, and work keys to
-   match; preserve the canonical frozen config snapshot.
+   identical. Preserve the complete canonical candidate record while merging,
+   including its phase, lease, retries, classification, selection, and
+   delivery history. Add the source-work provenance only if canonical state
+   has none. If canonical provenance exists, require its immutable event
+   identity, version, content hash, source URL, enabled capabilities, and work
+   keys to match; preserve the canonical frozen config snapshot. The separate
+   forward-only apply step below then terminally abandons every nonterminal
+   candidate, keeping its content and classification history intact.
 4. Reject every payload or provenance conflict. Do not choose a winner by
    timestamp, retry count, or phase. The source-local overlap remains intact
    in the archived input for diagnosis.
 5. Preserve all other canonical top-level fields and stats, including provider
    cursors, `dedupe`, `digest_windows`, stock-status events, publication
-   intents, and existing source provenance.
+   intents, and existing source provenance. Candidate records change only
+   where the forward-only step clears an active lease and retry deadline,
+   records its reason, and sets the phase to `abandoned`.
 
 For `stock_status_events` in the package-local file, require valid owner-schema
-records. Import a source-only event with its complete record. For an overlapping
-event, require equal source message ID, URL, effective date, all five parsed
-categories, channel, content, and any shared rejection outcome. Preserve the
-canonical phase, retry state, delivery handoff, and receipt. Copy
+records. Import a source-only terminal event with its complete record. For an
+overlapping event, require equal source message ID, URL, effective date, all
+five parsed categories, channel, content, and any shared rejection outcome.
+Preserve the canonical phase, retry state, delivery handoff, and receipt. Copy
 `source_event_key` and `config_revision` only when canonical state lacks them;
-reject conflicting values. Count source, new, overlapping, phase-different,
-and provenance-enriched events in the private plan and apply receipt. An
-existing receipt proves idempotence only while every source candidate,
-provenance record, status event, and optional status-event provenance field is
-present in canonical state.
+reject conflicting values. Block if canonical state contains a pending stock
+status delivery or if an unresolved source-only delivery would be imported.
+Count source, new, overlapping, phase-different, and provenance-enriched
+events in the private plan and apply receipt. An existing receipt proves
+idempotence only while every source candidate, provenance record, status event,
+and optional status-event provenance field is present in canonical state.
+
+The apply step records `active_candidate_abandonment_count` in the exact plan.
+It marks every nonterminal candidate in the merged canonical state `abandoned`
+with the package-owned forward-only cutover reason before saving. This includes
+source-only candidates imported by the merge. Reject any candidate or status
+event with unresolved `pending_delivery`; those operations must be checked with
+the Delivery Owner and a fresh plan before this cutover. Reapplying the same
+plan is idempotent only when all imported provenance is present and no active
+candidate remains.
 
 The source file must contain only the reviewed source-work and status-event
 ledgers plus the exact completed immediate-delivery marker. Nonempty source
@@ -122,6 +168,12 @@ returning success. Leave the package-local input byte-for-byte unchanged.
   matching and conflicting candidate and status-event provenance, malformed
   or orphan records, unsupported source ledgers, changed preview inputs,
   atomic-write interruption, and complete idempotent re-apply.
+- Extend `cron-tg-market-news/bin/stock_status.py` to parse Indonesian and
+  English effective-month names, including `Oktober`; cover the live rejected
+  message shape without causing it to be replayed.
+- Extend the Tuntun Corporate ticker-line parser to accept nested parentheses
+  in legal names; cover the omitted BRIS candidate shape without replaying the
+  original message.
 - Retain the source-runner environment fix in
   `cron-tg-source-ingest/bin/runner.py`; it gives source acceptance,
   `agent-status`, and `claim-agent` the same default canonical path while
@@ -167,17 +219,21 @@ reviewed:
    days.
 4. Produce and review a fresh merge preview. Confirm every package-local
    source-provenance key is either a new canonical candidate or an identical
-   payload overlap, and there are zero unresolved conflicts.
+   payload overlap, there are zero unresolved conflicts, and the preview's
+   `active_candidate_abandonment_count` covers every active candidate. Confirm
+   there are no unresolved candidate or stock-status deliveries.
 5. Apply the reviewed plan while the writer remains paused. Verify all
-   source-work provenance is present in canonical state, canonical records
-   from before the merge retain their phases and delivery data, source-only
-   candidates were added exactly once, canonical status-event phases and
-   receipts are unchanged, source status-event provenance is complete, and the
-   source file is unchanged.
+   source-work provenance is present in canonical state, every formerly active
+   candidate is `abandoned`, terminal canonical records and delivery receipts
+   are unchanged, source-only candidates were added exactly once and are also
+   abandoned, canonical status-event phases and receipts are unchanged, source
+   status-event provenance is complete, and the source file is unchanged.
 6. Resume the existing one-minute schedule through the supported scheduler
-   interface. Observe natural runs only. Confirm source acceptance, agent
-   claims, and classification submissions use the canonical file, then
-   distinguish owner progress from confirmed Delivery Owner receipts.
+   interface. Observe natural runs only. Confirm new source acceptance,
+   agent claims, and classification submissions use the canonical file. Only
+   source events accepted after this forward-only boundary may enter analysis
+   or delivery. Distinguish owner progress from confirmed Delivery Owner
+   receipts.
 
 If preview, archive verification, deployment, or apply fails, keep the
 schedule paused after the pause step and stop before resuming. Do not restore
@@ -191,12 +247,17 @@ and exact plan, then re-preview before retrying.
   overrides still work.
 - The package-local source state remains unchanged and archived.
 - All valid source-work provenance is present in the canonical owner ledger.
+- No pre-cutover active Market News candidate is sent; each is durably
+  `abandoned` with a reason before the first resumed run.
+- No unresolved pending-delivery operation is hidden by abandonment or
+  reconciliation.
 - All package-local stock-status events are present or overlap canonically with
   matching payloads, canonical delivery outcomes remain intact, and missing
   source-event provenance is added where validated.
-- Existing canonical candidate phases, dedupe entries, delivery intents,
-  receipts, provider state, and unrelated stats are preserved.
+- Existing terminal candidate phases, dedupe entries, confirmed delivery
+  intents and receipts, provider state, and unrelated stats are preserved.
 - Natural runs complete the source acceptance and classification handoff
-  without candidate-not-in-durable-state or candidate-not-awaiting failures.
+  without candidate-not-in-durable-state or candidate-not-awaiting failures,
+  and do not process work from before the forward-only boundary.
 - A confirmed Discord receipt is required to claim delivery. Schedule health,
   a clean heartbeat, or an accepted source event alone is insufficient.

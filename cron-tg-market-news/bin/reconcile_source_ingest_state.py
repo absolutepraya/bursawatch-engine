@@ -39,6 +39,7 @@ _PLAN_FIELDS = frozenset(
         "overlap_status_event_count",
         "status_event_phase_difference_count",
         "status_event_provenance_added_count",
+        "active_candidate_abandonment_count",
         "created_at",
         "plan_sha256",
     }
@@ -55,6 +56,10 @@ _REPORT_FIELDS = (
     "overlap_status_event_count",
     "status_event_phase_difference_count",
     "status_event_provenance_added_count",
+    "active_candidate_abandonment_count",
+)
+_FORWARD_ONLY_ABANDON_REASON = (
+    "pre-cutover Market News work intentionally skipped at the forward-only source-ingest boundary"
 )
 _IMMUTABLE_PROVENANCE_FIELDS = (
     "candidate_key",
@@ -229,6 +234,10 @@ def merge_states(
     canonical_candidates = canonical["candidates"]
     assert isinstance(source_candidates, dict) and isinstance(canonical_candidates, dict)
     canonical_candidate_keys = set(canonical_candidates)
+    if any(record["phase"] == "pending_delivery" for record in canonical_candidates.values()):
+        raise owner_state.StateBlockedError(
+            "canonical candidate delivery is unresolved; verify its Delivery Owner operation before reconciliation"
+        )
 
     canonical_stats = canonical["stats"]
     assert isinstance(canonical_stats, dict)
@@ -253,6 +262,13 @@ def merge_states(
         source_origin = source_origins[key]
         if key in canonical_candidate_keys:
             canonical_record = canonical_candidates[key]
+            if (
+                source_record["phase"] == "pending_delivery"
+                and canonical_record["phase"] != "delivered"
+            ):
+                raise owner_state.StateBlockedError(
+                    f"source candidate {key} has an unresolved delivery outcome"
+                )
             if source_record["candidate"] != canonical_record["candidate"]:
                 raise owner_state.StateBlockedError(
                     f"candidate payload conflicts for shared key {key}"
@@ -261,6 +277,10 @@ def merge_states(
             if source_record["phase"] != canonical_record["phase"]:
                 phase_difference_count += 1
         else:
+            if source_record["phase"] == "pending_delivery":
+                raise owner_state.StateBlockedError(
+                    f"source-only candidate {key} has an unresolved delivery outcome"
+                )
             merged_candidates[key] = deepcopy(source_record)
             new_candidate_count += 1
 
@@ -279,6 +299,10 @@ def merge_states(
     canonical_status_events = canonical_stats.get("stock_status_events", {})
     if not isinstance(canonical_status_events, dict):
         raise owner_state.StateBlockedError("canonical stock-status event ledger is malformed")
+    if any(event["phase"] == "pending_delivery" for event in canonical_status_events.values()):
+        raise owner_state.StateBlockedError(
+            "canonical stock-status delivery is unresolved; verify its Delivery Owner operation before reconciliation"
+        )
     merged_status_events = (
         merged_stats.setdefault("stock_status_events", {})
         if source_status_events
@@ -293,9 +317,20 @@ def merge_states(
     for key, source_event in sorted(source_status_events.items()):
         canonical_event = canonical_status_events.get(key)
         if canonical_event is None:
+            if source_event["phase"] == "pending_delivery":
+                raise owner_state.StateBlockedError(
+                    f"source-only stock-status event {key} has an unresolved delivery outcome"
+                )
             merged_status_events[key] = deepcopy(source_event)
             new_status_event_count += 1
             continue
+        if (
+            source_event["phase"] == "pending_delivery"
+            and canonical_event["phase"] != "delivered"
+        ):
+            raise owner_state.StateBlockedError(
+                f"stock-status event {key} has an unresolved delivery outcome"
+            )
         if any(
             source_event.get(field) != canonical_event.get(field)
             for field in _STATUS_EVENT_IDENTITY_FIELDS
@@ -343,6 +378,11 @@ def merge_states(
         "overlap_status_event_count": overlap_status_event_count,
         "status_event_phase_difference_count": status_event_phase_difference_count,
         "status_event_provenance_added_count": status_event_provenance_added_count,
+        "active_candidate_abandonment_count": sum(
+            1
+            for record in merged_candidates.values()
+            if record["phase"] not in owner_state._TERMINAL_PHASES
+        ),
     }
     owner_state._validate_state(merged)
     return merged, report
@@ -520,6 +560,7 @@ def apply(plan_file: str | os.PathLike[str]) -> dict[str, Any]:
                 or report["provenance_added_count"] != 0
                 or report["new_status_event_count"] != 0
                 or report["status_event_provenance_added_count"] != 0
+                or report["active_candidate_abandonment_count"] != 0
             ):
                 raise owner_state.StateBlockedError(
                     "reconciliation receipt exists but source candidate or status-event data is incomplete"
@@ -532,6 +573,13 @@ def apply(plan_file: str | os.PathLike[str]) -> dict[str, Any]:
         merged, report = merge_states(source_state, canonical_state)
         if not _report_matches_plan(report, plan):
             raise owner_state.StateBlockedError("merge result changed since preview")
+        abandoned = owner_state.abandon_active_candidates(
+            merged, _FORWARD_ONLY_ABANDON_REASON
+        )
+        if abandoned != report["active_candidate_abandonment_count"]:
+            raise owner_state.StateBlockedError(
+                "active candidate count changed during forward-only reconciliation"
+            )
         merged_stats = merged["stats"]
         assert isinstance(merged_stats, dict)
         merged_stats[RECEIPT_KEY] = {

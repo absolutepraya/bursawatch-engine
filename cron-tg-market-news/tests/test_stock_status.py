@@ -36,6 +36,20 @@ def test_message_35326_preserves_source_lists(load_fixture):
     assert status.fca_out == ("CSMI",)
 
 
+def test_indonesian_effective_month_is_accepted():
+    text = (
+        "Stock Information\nEffective date : 01 Oktober 2026\n"
+        "Unusual Market Activity (UMA):\n>SRSN\n"
+        "Suspend:\n>BSWD\nUnsuspend:\n>-\nFCA In:\n>-\nFCA Out:\n>-\n"
+    )
+
+    status = parse_stock_information(35549, text)
+
+    assert status.effective_date == date(2026, 10, 1)
+    assert status.uma == ("SRSN",)
+    assert status.suspend_in == ("BSWD",)
+
+
 def test_only_exact_stock_information_header_selects_status_parser():
     assert is_stock_information("Stock Information\nEffective date : 23 September 2026")
     assert not is_stock_information("Stock Information: more text")

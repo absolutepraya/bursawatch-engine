@@ -142,6 +142,7 @@ _SOURCE_INGEST_RECONCILIATION_FIELDS = frozenset(
         "overlap_status_event_count",
         "status_event_phase_difference_count",
         "status_event_provenance_added_count",
+        "active_candidate_abandonment_count",
         "applied_at",
     }
 )
@@ -872,6 +873,7 @@ def _validate_source_ingest_reconciliation(value: object) -> None:
         "overlap_status_event_count",
         "status_event_phase_difference_count",
         "status_event_provenance_added_count",
+        "active_candidate_abandonment_count",
     )
     if any(not _is_plain_int(value[field]) or value[field] < 0 for field in count_fields):
         raise StateBlockedError("malformed state: source-ingest reconciliation counts are invalid")

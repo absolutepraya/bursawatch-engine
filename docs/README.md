@@ -80,6 +80,9 @@ wrapper. Its source-state reconciliation plan is in
 The user approved this follow-up on 2026-10-01. Implementation and any live
 state reconciliation are authorized within the exact sequence in the plan,
 subject to its fresh-state preview, archive, release, and natural-run gates.
+The plan now terminally abandons pre-cutover active candidates before resume,
+following the user's no-backfill requirement, and blocks unresolved delivery
+operations.
 
 For collaboration, `.wt/config.toml` defines managed feature worktrees and the
 repository-local `finish-workflow` skill ends with a pull request. It does not
