@@ -94,7 +94,14 @@ def render_post(
     route: str | None = None,
     sentiment: str | None = None,
     board_url: str | None = None,
+    source_chart_unavailable: bool = False,
 ) -> list[str]:
+    if source_chart_unavailable and is_technical_review(event.text):
+        heading = f"### {profile.emoji} {_safe_name(title or profile.display_name)}"
+        return _split(
+            f"{heading}\n\n{event.text.strip()}\n\nSource chart unavailable\n\n[View on WhatsApp Channel](<{profile.channel_url}>)",
+            DISCORD_LIMIT,
+        )
     if route == "id_stocks_swing" and is_technical_review(event.text):
         return _split(
             _swing_post(
