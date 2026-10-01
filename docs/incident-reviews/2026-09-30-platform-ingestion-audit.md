@@ -596,3 +596,52 @@ remained `last=ok`. `origin/main` and the VPS release still matched
 `1756f6f6567b0bc5a28fae2db21bd7187c43f168`, and all 8 desired schedules
 matched. The corrected implementation remains in PR #39; production state has
 not been changed.
+
+## 2026-10-01 23:02 follow-up decisions and release boundary
+
+PR #39 merged as `193f2d60d07d17591e0624e99e668b1dc144f008`. The
+23:02 WIB read-only snapshot showed this SHA as both `origin/main` and the
+last successful release, with exact-main CI successful and 8/8 desired
+schedules matching. X source polling still showed `last=error`. Releasing
+the helper did not apply its guarded catalog 7 to 8 state transition. The
+catalog mismatch identified at 19:31 remains the confirmed current X
+source-reader cause until the reviewed transition is applied and a natural
+run verifies recovery. The older Torch RSSHub omission is separate.
+
+The operator clarified these choices for follow-up work:
+
+- Distinguish Source Inbox acceptance, owner queueing, Discord Delivery Owner
+  receipts, and messages in the configured Discord room. Health notes,
+  heartbeats, and scheduler results do not prove an item reached a room.
+  Do not block unrelated fixes while waiting for each source's next natural
+  eligible post; the operator will watch for that final observation.
+- The missed Torch post need not be recovered if bounded recovery is
+  difficult. Focus on future coverage. The omission has no proven
+  authentication or rate-limit cause. Consider changing X polling from 10
+  to 30 minutes only if rate limiting is confirmed and the longer feed
+  interval is safe. No cadence change has been made.
+- Let already accepted durable work drain naturally even if its source time
+  is old. Show the source and delivery times separately. This does not
+  authorize manual insertion, cursor rewind, or revival of previously
+  abandoned cutover candidates.
+- For BRI WhatsApp news, forward source text with an unavailable-image note
+  when archive capture is known unavailable. For an exact
+  `#TechnicalReview`, forward source text with `Source chart unavailable`
+  and omit chart-dependent Board context. This fallback is not implemented
+  yet. The observed failure was before Source Media, at archive capture;
+  no WhatsApp anti-bot cause has been established.
+- CI can verify authenticated feed/grid contracts and honest coverage
+  labels with synthetic data. Read-only live checks must correlate each
+  source key with owner state, stable delivery operation and target, and
+  publication and Discord evidence. A healthy signed-in grid is not
+  end-to-end proof.
+
+At a 22:15 WIB read-only state check, 12 Market News candidates and one
+Stockbit article were `pending_delivery`. These are unsettled owner
+records, not 13 proven unsent Discord messages. The Telegram candidates
+already have classified routes. A message-only receipt mismatch was proven
+for one candidate with a delivered stable operation, not for all 12. The
+other handoffs need individual inspection. Stockbit likewise has a
+confirmed stable delivery operation but an unreconciled local article
+phase. Both receipt fixes are released; settle existing operations without
+creating duplicate Discord messages.

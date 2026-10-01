@@ -477,3 +477,19 @@ Discord create.
   and do not process work from before the forward-only boundary.
 - A confirmed Discord receipt is required to claim delivery. Schedule health,
   a clean heartbeat, or an accepted source event alone is insufficient.
+
+## 2026-10-01 pending-delivery follow-up
+
+A 22:15 WIB read-only check found 12 current-day Tuntun candidates in
+`pending_delivery` in the canonical Market News state. They have
+classified routes; this is not an unknown-destination problem. The
+message-only receipt fix from PR #38 is released, but the earlier handoff
+inspection proved a delivered stable operation for only one candidate.
+Inspect each remaining handoff and operation before assigning one cause.
+Reconcile any prior Discord create through the same operation key.
+
+The operator accepts natural draining of already accepted durable work
+even when its source time is old. Preserve source and delivery times.
+Previously abandoned pre-cutover candidates remain terminal; this does
+not authorize manual insertion or replay. A fresh eligible post in the
+right room is useful evidence but does not block unrelated fixes.

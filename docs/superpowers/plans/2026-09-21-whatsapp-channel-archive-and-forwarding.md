@@ -475,3 +475,27 @@ Do not stage, commit, push, create a pull request, deploy, follow a Channel, app
 ## Execution handoff
 
 This plan is intentionally source-only. Before any implementation starts, the executor must preserve the existing worktree isolation, use test-driven development for each task, and leave all production actions for a separately approved release phase.
+
+## 2026-10-01 missing-image follow-up
+
+The linked design spec now permits text-only All Swing delivery with
+`Source chart unavailable` for an exact BRI `#TechnicalReview` when
+immutable archive capture is unavailable. Earlier strict-image steps
+describe the original implementation, not this new behavior.
+
+- [ ] Trace the blocked event through bridge staging, immutable archive,
+  source adapter, owner state, and existing delivery operations using
+  sanitized metadata. Do not assume an anti-bot cause.
+- [ ] Allow the adapter to accept an event with a verified archive record
+  and an explicit unavailable-media result. Keep missing archive records
+  and ambiguous identities blocked. Preserve original publication time,
+  cursor order, and stable event key.
+- [ ] Deliver ordinary news text with an unavailable-image note. For an
+  exact technical review, deliver All Swing text with
+  `Source chart unavailable`, but no image or chart-dependent Board event.
+  Never repeat already delivered text.
+- [ ] Cover both routes, natural late queue draining, retryable Discord
+  failures, and no-Board behavior in isolated tests. Run focused suites and
+  `bash scripts/test-all`.
+- [ ] Review the exact live diff before release; verify source, owner,
+  receipt, and Discord room evidence on a natural eligible event.

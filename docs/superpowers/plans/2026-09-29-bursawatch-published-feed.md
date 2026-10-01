@@ -259,3 +259,15 @@ This plan documented implementation work and did not itself authorize a producti
 - The authenticated Published page currently shows no confirmed publications since the boundary and marks publisher coverage incomplete or unverified. That state does not prove that no delivery occurred. Each visible item requires a supported owner projection backed by confirmed Delivery Owner receipts.
 - A natural observer timer run reported all 13 Hermes jobs. The production snapshot found 13 jobs, 8 active and 5 paused, with all 8 desired interval schedules matching.
 - Current operating details are in [`service-bursawatch-control/README.md`](../../../service-bursawatch-control/README.md#published-feed-projection-contract) and [`web-config/docs/CONTROL_PLANE.md`](../../../web-config/docs/CONTROL_PLANE.md).
+
+## 2026-10-01 reliability follow-up
+
+- [ ] Cover authenticated Published and Jobs status labels, incomplete
+  coverage, delayed source time versus delivery time, and receipt-backed
+  publication visibility with synthetic CI cases.
+- [ ] Add read-only live correlation of source key, inbox acceptance, owner
+  phase, stable Discord operation and frozen target, publication record,
+  and room message. Mark missing links unverified.
+- [ ] Permit already accepted durable work to drain naturally with its
+  original source time. Do not manually insert history or revive abandoned
+  cutover candidates. Do not block unrelated fixes for every next post.
