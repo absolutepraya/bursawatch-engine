@@ -92,6 +92,12 @@ live destination snapshot and does not load static destinations.
 
 After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.
 
+For a channel-message receipt, require a valid `message_id`. The receipt may
+omit `channel_id`; the stable operation key and digest bind the operation to
+the article's frozen destination. If `channel_id` is present, it must match
+that destination. Keep the article pending unless the shared client confirms
+the operation is delivered.
+
 After a confirmed article send, the owner saves its exact rendered output,
 source event identity, frozen config revision, and matching Delivery Owner
 receipt with a pending Published Feed intent before marking the article

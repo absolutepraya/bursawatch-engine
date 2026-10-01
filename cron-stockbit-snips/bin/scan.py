@@ -266,7 +266,13 @@ def _drain_delivery(
                 raise RuntimeError("Delivery Owner returned an invalid Stockbit receipt")
             message_id = receipt.receipt.get("message_id")
             receipt_channel = receipt.receipt.get("channel_id")
-            if not isinstance(message_id, str) or not message_id.isdigit() or receipt_channel != channel_id:
+            # Channel-message receipts require a message ID; channel_id is
+            # optional. The stable operation digest binds the frozen target.
+            if (
+                not isinstance(message_id, str)
+                or not message_id.isdigit()
+                or (receipt_channel is not None and receipt_channel != channel_id)
+            ):
                 raise RuntimeError("Delivery Owner returned a mismatched Stockbit receipt")
             saved_delivery = record.get("delivery")
             delivered_at = now.isoformat()

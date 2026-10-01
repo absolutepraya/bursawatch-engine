@@ -692,6 +692,77 @@ def test_owner_accepted_pending_delivery_does_not_start_local_retry_clock(monkey
     assert saved["retry"] == {"attempts": 0, "next_attempt_at": None, "last_error": None}
 
 
+@pytest.mark.parametrize(
+    ("receipt_channel", "expected_delivered"),
+    [(None, True), ("999999999999999999", False)],
+)
+def test_delivery_receipt_channel_is_optional_but_mismatch_is_rejected(
+    monkeypatch, tmp_path, receipt_channel: str | None, expected_delivered: bool,
+) -> None:
+    path = tmp_path / "state.json"
+    value = state.new_state(config.FEEDS)
+    item = article(FeedLane.UNBOXING_IPO, suffix=f"receipt-{receipt_channel or 'omitted'}")
+    now = datetime(2026, 9, 24, 0, 0, tzinfo=UTC)
+    state.queue_article(value, item, now)
+    record = value["articles"][item.key]
+    record["phase"] = "pending_delivery"
+    record["analysis"] = _issuer_payload(item)
+    record["rendered"] = "Previously rendered content"
+    channel_id = "123456789012345678"
+    record["config_snapshot"] = {
+        "revision": 7, "additional_prompt_instruction": "instruction A",
+        "id_stocks_news_channel_id": channel_id,
+        "macro_news_channel_id": "234567890123456789",
+    }
+    runtime = config.RuntimeConfig(
+        state_path=path, no_post=False, request_timeout=20,
+        heartbeat_channel_id=config.HEARTBEAT_CHANNEL_ID,
+        id_stocks_news_channel_id=config.ID_STOCKS_NEWS_CHANNEL_ID,
+        macro_news_channel_id=config.MACRO_NEWS_CHANNEL_ID,
+    )
+    operation, _nonce = scan.discord._operation(record["rendered"], channel_id, item.key, "news")
+    receipt_value = {"message_id": "345678901234567890"}
+    if receipt_channel is not None:
+        receipt_value["channel_id"] = receipt_channel
+    receipt = OperationReceipt(
+        id="existing-delivered-operation",
+        key=operation.key,
+        digest=operation.digest,
+        status="delivered",
+        receipt=receipt_value,
+    )
+
+    class Owner:
+        def __init__(self) -> None:
+            self.status_keys: list[str] = []
+            self.submitted = []
+
+        def status(self, operation_key: str) -> OperationReceipt:
+            self.status_keys.append(operation_key)
+            return receipt
+
+        def submit(self, submitted_operation) -> OperationReceipt:
+            self.submitted.append(submitted_operation)
+            return receipt
+
+    owner = Owner()
+    monkeypatch.setattr(scan.discord, "delivery_client_from_environment", lambda: owner)
+
+    delivered = scan._drain_delivery(value, runtime, now)
+
+    saved = value["articles"][item.key]
+    assert owner.status_keys == [operation.key]
+    assert owner.submitted == []
+    if expected_delivered:
+        assert delivered == 1
+        assert saved["phase"] == "delivered"
+        assert saved["delivery"]["channel_id"] == channel_id
+        assert saved["delivery"]["receipt"]["receipt"] == {"message_id": "345678901234567890"}
+    else:
+        assert delivered == 0
+        assert saved["phase"] == "pending_delivery"
+
+
 def test_unbound_legacy_delivery_waits_for_config_then_uses_first_revision(monkeypatch, tmp_path) -> None:
     path = tmp_path / "state.json"
     value = state.new_state(config.FEEDS)

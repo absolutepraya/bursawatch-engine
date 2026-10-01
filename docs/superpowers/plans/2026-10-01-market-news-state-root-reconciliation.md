@@ -4,8 +4,12 @@
 > release gates below. Do not run manual schedules or send test messages.
 
 **Status:** Approved by the user on 2026-10-01; amended on 2026-10-01 to keep
-the cutover forward-only. Implementation is underway in the `bug-squashing`
-worktree. Production apply is authorized within the reviewed sequence below.
+the cutover forward-only. The implementation merged through
+[PR #33](https://github.com/absolutepraya/bursawatch-engine/pull/33) at main
+SHA `3ae575c48ceac79cc95e5625f92b0b19dc38bb44` on 2026-10-01. A 13:14 WIB
+production snapshot still showed the prior successful release at `925b894` and
+the release-agent status as pending. Production apply is authorized within the
+reviewed sequence below and has not been run.
 
 **Workstream authorization:** The user has authorized the actions reasonably
 needed to complete this Bursawatch ingestion repair without requesting separate
