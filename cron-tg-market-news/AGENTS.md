@@ -18,7 +18,12 @@ through this package's `submit-classification` command; the existing validator,
 two-minute candidate lease, route selection, and Delivery Owner path remain
 authoritative. The paired Phintraco and Tuntun News cutover completed on
 2026-09-27. The legacy Market News reader and watchdog are paused, and the
-Control Plane desired schedule for the legacy reader is disabled. Tuntun source
+Control Plane desired schedule for the legacy reader is disabled. The active
+Telegram source runner calls this owner's `drain-delivery` command on natural
+runs, including runs with no new candidate. It settles at most three due News
+messages and one stock-status event through their frozen destinations and
+stable Delivery Owner operations, then retries publication intents. It does
+not read Telegram or claim agent work. Tuntun source
 events carry their forum topic ID; the owner accepts only topic `3743` and
 preserves all deterministic candidates extracted from a multi-ticker
 publication under the same immutable source event and frozen config. A

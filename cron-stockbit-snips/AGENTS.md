@@ -10,9 +10,13 @@ There is no second RSS schedule. Accepted source events carry a validated
 frozen configuration snapshot. `bin/pipeline_owner.py` admits text-only
 articles to this watcher's article queue with durable source-work provenance.
 It rejects a conflicting legacy article or revision and claims only
-source-backed articles for the RSS runner's agent wake. This package retains
-the domain queue, routes, rendering, Delivery Owner path, and heartbeat. Do not
-re-enable the legacy direct RSS poller beside the active adapter.
+source-backed articles for the RSS runner's agent wake. Its `drain-delivery`
+command settles up to three due, already accepted articles without fetching
+RSS or claiming an agent item. It preserves the frozen target and stable
+Delivery Owner operation, persists the delivered or retry phase, and retries
+publication intents. This package retains the domain queue, routes, rendering,
+Delivery Owner path, and heartbeat. Do not re-enable the legacy direct RSS
+poller beside the active adapter.
 
 ## Boundary
 

@@ -758,6 +758,35 @@ def test_board_and_synthetic_news_settle_independently(tmp_path, monkeypatch, fa
     assert len(inbox.accepted) == 1
 
 
+
+def test_pending_work_drains_market_news_even_when_no_agent_is_ready(tmp_path, monkeypatch):
+    import runner as source_runner
+
+    class EmptyRuntime:
+        def __init__(self, inbox, handlers):
+            assert set(handlers) == set(PIPELINE_OWNERS)
+
+        def run_once(self, *, limit):
+            assert limit == 20
+            return []
+
+    monkeypatch.setattr(source_runner, "PipelineRuntime", EmptyRuntime)
+    calls = []
+
+    def owner_command(package, command):
+        calls.append((package, command))
+        return {"news_delivered": 2, "stock_status_delivered": 0, "pending": 10}
+
+    result = source_runner._process_pending(
+        object(), tmp_path, agent_dispatcher=None, owner_command=owner_command,
+    )
+    assert calls == [("cron-tg-market-news", "drain-delivery")]
+    assert result["owner_delivery"]["news_delivered"] == 2
+    assert result["owner_delivery_warning"] is False
+    assert result["wakeAgent"] is False
+
+
+
 def test_agent_dispatch_claims_one_oldest_ready_owner(tmp_path):
     calls = []
     statuses = {
