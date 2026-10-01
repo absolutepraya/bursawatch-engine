@@ -98,6 +98,39 @@ The shared source-ingest runner uses the shared `POLYCOP_SESSION_STRING` profile
 
 The Market News owner's durable state is `~/.hermes/state/idx-market-news.json`; it and the shared resilience control state are production data, not deploy inputs. The optional live Market News configuration is one frozen owner snapshot: provider usernames, three Discord news routes, the heartbeat route, and bounded additive agent context may change through the web application after deployment. Telegram source selection is owned separately by the Source Catalog. Neither configuration changes durable candidates, cursors, retry state, state paths, model protocol, or the watchdog schedule. The independent watchdog remains outside this config surface because it reads only existing durable state and uses the shared Delivery Owner client token. It is paused after the paired News cutover and must not be resumed while shared source ingest is polling these publishers.
 
+When `cron-tg-source-ingest` launches this owner's `pipeline_owner.py`
+directly, it must pass `IDX_MARKET_NEWS_STATE_PATH` with the same canonical
+default used by this wrapper. Source-work acceptance, `agent-status`,
+`claim-agent`, and wrapper classification submission must use this one ledger;
+the deployed skill's package-local `state.json` is not a production state path.
+
+### Source-ingest state reconciliation
+
+`bin/reconcile_source_ingest_state.py` owns the one-time merge of accepted
+source-work state from the deployed package-local file into the canonical
+Market News state. `preview` is read-only. It validates both `0600` state
+files with legacy migration disabled and writes a private plan containing
+hashes and aggregate candidate and status-event counts, never source text or
+URLs. Its default input paths are the deployed package-local `state.json` and
+`~/.hermes/state/idx-market-news.json`; the default private plan is
+`~/.hermes/maintenance-plans/market-news-state-reconciliation.json`.
+
+Run production `preview` and `apply` only in the approved state-reconciliation
+sequence: verify release and current paths, pause source-ingest, prove there is
+no active run, owner process, or state lock, resolve outstanding leases,
+archive and checksum both complete state files, and review a fresh preview.
+Apply must use that exact preview while the writer remains paused. The merge
+preserves canonical candidate and status-event phases, retries, selections,
+delivery intents, handoffs, and receipts. It imports only validated source
+provenance and any source-only event record. On any failure after pausing, keep
+the schedule paused and follow the approved plan before resuming it. Never run
+the scheduled job manually, replay state, or send a test post for this check.
+
+```bash
+python3 "$HOME/.agents/skills/bursawatch-tg-market-news/bin/reconcile_source_ingest_state.py" preview
+python3 "$HOME/.agents/skills/bursawatch-tg-market-news/bin/reconcile_source_ingest_state.py" apply
+```
+
 ### Live configuration schema
 
 The control plane accepts only this versioned shape. `additional_prompt_instruction`

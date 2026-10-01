@@ -67,6 +67,11 @@ variable must equal `1`. The planner validates the name and does not copy it
 into its plan, journal, or source state. Revision-only apply changes only the
 catalog revision marker and transition journal; the fingerprint binds all
 preexisting source-state files so changes between preview and apply block.
+Atomic journal and revision-marker writes use private temporary files. If a
+process stops before its rename or cleanup, a same-plan apply recognizes only
+the exact private regular-file temp-name pattern in the state root or
+`catalog-transitions/`, removes the leftover, and resumes. Other unexpected
+entries, symlinks, and unsafe temp permissions remain errors.
 
 The Telegram News adapter exposes the paired rollout via
 `cron-tg-source-ingest/bin/catalog_transition.py`. Its preview accepts only the

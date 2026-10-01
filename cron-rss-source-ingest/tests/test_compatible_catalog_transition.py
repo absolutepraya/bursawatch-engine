@@ -459,6 +459,64 @@ def test_apply_resumes_interrupted_edge_from_same_plan(transition_case, monkeypa
     assert {key: value for key, value in _files(state_root).items() if key not in {"catalog-revision.json", "catalog-transitions/4-to-5.json"}} == preserved
 
 
+@pytest.mark.parametrize("location", ["state_root", "transition_directory"])
+def test_apply_resumes_after_crash_left_private_atomic_write_temporary(
+    transition_case, monkeypatch, location
+):
+    prior, target, state_root, loaded_config = transition_case
+    expected = build_plan(prior, target, state_root, loaded_config)
+    temporary_directory = (
+        state_root
+        if location == "state_root"
+        else state_root / "catalog-transitions"
+    )
+    temporary_directory.mkdir(mode=0o700, exist_ok=True)
+    temporary = temporary_directory / ".catalog-transition-abcde123"
+    temporary.write_bytes(b'{"version":1')
+    temporary.chmod(0o600)
+    monkeypatch.setenv(RSS_GUARD, "1")
+
+    result = apply_plan(expected, prior, target, state_root, loaded_config)
+
+    assert result["status"] == "applied"
+    assert not temporary.exists()
+    assert json.loads(
+        (state_root / "catalog-transitions" / "4-to-5.json").read_text()
+    )["status"] == "complete"
+
+
+@pytest.mark.parametrize("name", ["unexpected.json", ".catalog-transition-short"])
+def test_build_plan_rejects_unrecognized_transition_directory_entry(
+    transition_case, name
+):
+    prior, target, state_root, loaded_config = transition_case
+    transition_directory = state_root / "catalog-transitions"
+    transition_directory.mkdir(mode=0o700)
+    (transition_directory / name).write_text("unexpected", encoding="utf-8")
+
+    with pytest.raises(TransitionBlocked):
+        build_plan(prior, target, state_root, loaded_config)
+
+
+@pytest.mark.parametrize("kind", ["wrong_mode", "symlink"])
+def test_build_plan_rejects_unsafe_catalog_transition_temporary(
+    transition_case, kind
+):
+    prior, target, state_root, loaded_config = transition_case
+    transition_directory = state_root / "catalog-transitions"
+    transition_directory.mkdir(mode=0o700)
+    temporary = transition_directory / ".catalog-transition-abcde123"
+    if kind == "symlink":
+        target_file = state_root / "watch-config-revision.json"
+        temporary.symlink_to(target_file)
+    else:
+        temporary.write_text("partial", encoding="utf-8")
+        temporary.chmod(0o644)
+
+    with pytest.raises(TransitionBlocked):
+        build_plan(prior, target, state_root, loaded_config)
+
+
 def test_build_plan_rejects_missing_or_foreign_prior_journal(transition_case):
     prior, target, state_root, loaded_config = transition_case
     _write(state_root / "catalog-revision.json", {"revision": 5})

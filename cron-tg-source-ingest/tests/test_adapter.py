@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT / "cron-tg-source-ingest" / "bin"))
 from adapter import IntakeBlocked, LegacySeedBlocked, endpoints, ingest_all as adapter_ingest_all, ingest_endpoint, plan_legacy_cursor_seed, plan_market_news_catalog_transition, envelope as telegram_envelope
 from runner import AGENT_OWNERS, HEARTBEAT_CHANNEL_ID, HEARTBEAT_DELIVERY_WAIT_SECONDS, PIPELINE_OWNERS, dispatch_agent, format_fatal, format_heartbeat, post_heartbeat, run_once
 from runner import verify_synthetic
+import runner as source_runner
 
 
 NOW = datetime(2026, 9, 24, tzinfo=timezone.utc)
@@ -816,6 +817,57 @@ def test_agent_dispatch_does_not_claim_when_no_owner_is_ready(tmp_path):
 
     assert dispatch_agent(tmp_path, owner_command=owner_command) == {"wakeAgent": False}
     assert len(calls) == len(AGENT_OWNERS)
+
+
+def test_market_news_work_owner_uses_the_shared_canonical_state_path(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("IDX_MARKET_NEWS_STATE_PATH", raising=False)
+    captured = {}
+
+    def run(_command, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(returncode=0, stdout='{"outcome":"accepted"}')
+
+    monkeypatch.setattr(source_runner.subprocess, "run", run)
+    handler = source_runner._owner_handler("cron-tg-market-news", no_post=False)
+    handler({"event_key": "synthetic-event"})
+
+    assert captured["env"]["IDX_MARKET_NEWS_STATE_PATH"] == str(
+        tmp_path / ".hermes" / "state" / "idx-market-news.json"
+    )
+
+
+def test_market_news_agent_commands_use_the_shared_canonical_state_path(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("IDX_MARKET_NEWS_STATE_PATH", raising=False)
+    captured = {}
+
+    def run(_command, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(returncode=0, stdout='{"ready":false}')
+
+    monkeypatch.setattr(source_runner.subprocess, "run", run)
+    result = source_runner._owner_command("cron-tg-market-news", "agent-status")
+
+    assert result == {"ready": False}
+    assert captured["env"]["IDX_MARKET_NEWS_STATE_PATH"] == str(
+        tmp_path / ".hermes" / "state" / "idx-market-news.json"
+    )
+
+
+def test_market_news_owner_environment_preserves_an_explicit_state_path(tmp_path, monkeypatch):
+    override = tmp_path / "isolated-state.json"
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(override))
+    captured = {}
+
+    def run(_command, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(returncode=0, stdout='{"ready":false}')
+
+    monkeypatch.setattr(source_runner.subprocess, "run", run)
+    source_runner._owner_command("cron-tg-market-news", "agent-status")
+
+    assert captured["env"]["IDX_MARKET_NEWS_STATE_PATH"] == str(override)
 
 
 def test_heartbeat_is_compact_sanitized_and_uses_shared_delivery_owner():

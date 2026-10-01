@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -257,10 +258,53 @@ def _write_private_json(path: Path, value: dict[str, Any]) -> None:
             os.unlink(temporary)
 
 
+def _catalog_transition_temporaries(directory: Path) -> set[Path]:
+    """Find only safe orphan temp files left by atomic transition writes."""
+    try:
+        directory_info = directory.lstat()
+    except FileNotFoundError:
+        return set()
+    except OSError as error:
+        raise LegacySeedBlocked("catalog transition temporary directory is unavailable") from error
+    try:
+        if (
+            not stat.S_ISDIR(directory_info.st_mode)
+            or directory_info.st_uid != os.geteuid()
+            or stat.S_IMODE(directory_info.st_mode) & 0o022
+        ):
+            raise LegacySeedBlocked("catalog transition temporary directory is unsafe")
+        paths = list(directory.iterdir())
+    except LegacySeedBlocked:
+        raise
+    except OSError as error:
+        raise LegacySeedBlocked("catalog transition temporary directory is unreadable") from error
+
+    result: set[Path] = set()
+    for path in paths:
+        if not path.name.startswith(".catalog-transition-"):
+            continue
+        try:
+            info = path.lstat()
+        except OSError as error:
+            raise LegacySeedBlocked("catalog transition temporary file is unavailable") from error
+        if (
+            re.fullmatch(r"\.catalog-transition-[a-z0-9_]{8}", path.name) is None
+            or not stat.S_ISREG(info.st_mode)
+            or stat.S_IMODE(info.st_mode) != 0o600
+            or info.st_uid != os.geteuid()
+            or info.st_nlink != 1
+        ):
+            raise LegacySeedBlocked("catalog transition temporary file is unsafe")
+        result.add(path)
+    return result
+
+
 def _state_file_hashes(root: Path, excluded: set[Path]) -> dict[str, str]:
     result: dict[str, str] = {}
+    temporary_paths = _catalog_transition_temporaries(root)
+    temporary_paths.update(_catalog_transition_temporaries(root / "catalog-transitions"))
     for path in root.rglob("*"):
-        if path in excluded:
+        if path in excluded or path in temporary_paths:
             continue
         if path.is_symlink():
             raise LegacySeedBlocked("source state contains an unsupported filesystem entry")
@@ -405,6 +449,18 @@ def plan_catalog_revision_transition(
     current_files = _state_file_hashes(root, excluded)
     if current_files != state_files:
         raise LegacySeedBlocked("source state changed after the catalog transition preview")
+    temporary_paths = _catalog_transition_temporaries(root)
+    temporary_paths.update(_catalog_transition_temporaries(root / "catalog-transitions"))
+    for temporary in temporary_paths:
+        try:
+            temporary.unlink()
+            directory_fd = os.open(temporary.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        except OSError as error:
+            raise LegacySeedBlocked("catalog transition temporary file could not be removed") from error
     if not journal_exists:
         if revision_record["revision"] != from_revision:
             raise LegacySeedBlocked("catalog revision changed before transition apply")

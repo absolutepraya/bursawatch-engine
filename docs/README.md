@@ -73,6 +73,14 @@ The user approved the plan on 2026-09-30, and implementation is underway in
 the `bug-squashing` worktree. Production observations remain time-bound; use a
 fresh production snapshot and state read before any live transition.
 
+Natural runs after catalog recovery exposed a separate Market News owner-state
+split between the direct source-runner subprocess and the classification
+wrapper. Its source-state reconciliation plan is in
+[`Market News state-root reconciliation`](superpowers/plans/2026-10-01-market-news-state-root-reconciliation.md).
+The user approved this follow-up on 2026-10-01. Implementation and any live
+state reconciliation are authorized within the exact sequence in the plan,
+subject to its fresh-state preview, archive, release, and natural-run gates.
+
 For collaboration, `.wt/config.toml` defines managed feature worktrees and the
 repository-local `finish-workflow` skill ends with a pull request. It does not
 deploy, merge, or remove the review workspace.

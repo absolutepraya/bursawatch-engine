@@ -31,6 +31,13 @@ missing or extra journals, incomplete edges, changed projections, and changed
 watcher-config revisions block new polling. Accepted inbox and Stockbit owner
 work can still settle while intake is blocked.
 
+An interrupted atomic journal or marker write may leave a private
+`.catalog-transition-<8 characters>` temporary in the state root or transition
+directory. Reapplying the unchanged reviewed plan recognizes and removes only
+the writer's exact private regular-file pattern before resuming. Unsafe modes,
+symlinks, malformed temporary names, and other unexpected entries still
+block.
+
 `bin/compatible_catalog_transition.py` handles one adjacent edge per preview
 and apply. Provide the prior and target effective catalog snapshot files, the
 RSS state root, and a fresh private plan file outside that root. The command

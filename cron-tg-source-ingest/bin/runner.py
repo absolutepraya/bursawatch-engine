@@ -64,11 +64,21 @@ def _owner_path(package: str) -> Path:
     return Path.home() / ".agents" / "skills" / runtime / "bin" / "pipeline_owner.py"
 
 
+def _owner_environment(package: str) -> dict[str, str]:
+    environment = os.environ.copy()
+    if package == "cron-tg-market-news" and not environment.get("IDX_MARKET_NEWS_STATE_PATH"):
+        # Direct owner calls bypass the wrapper that selects this canonical ledger.
+        environment["IDX_MARKET_NEWS_STATE_PATH"] = str(
+            Path.home() / ".hermes" / "state" / "idx-market-news.json"
+        )
+    return environment
+
+
 def _owner_handler(package: str, *, no_post: bool):
     path = _owner_path(package)
 
     def handle(item: dict[str, Any]) -> None:
-        environment = os.environ.copy()
+        environment = _owner_environment(package)
         if no_post:
             environment["BURSAWATCH_TG_SOURCE_NO_POST"] = "1"
         result = subprocess.run([sys.executable, str(path)], input=json.dumps(item, ensure_ascii=False, allow_nan=False), text=True, capture_output=True, timeout=60, env=environment, check=False)
@@ -90,7 +100,7 @@ def _owner_command(package: str, *arguments: str) -> dict[str, Any]:
         text=True,
         capture_output=True,
         timeout=60,
-        env=os.environ.copy(),
+        env=_owner_environment(package),
         check=False,
     )
     if result.returncode != 0:
