@@ -60,7 +60,10 @@ observed. Fixed jobs and viewer sessions have no save control. Job `can_edit` is
 backend-derived and never inferred from browser claims. Jobs and Published read
 only their current-view inventory or publication records; Published filters are
 sent to the authenticated API before paging.
-Do not trigger a real run or delivery in smoke tests.
+Do not trigger a real run or delivery in smoke tests. The signed-in
+browser smoke verifies Published records and coverage warnings plus the Jobs
+schedule-evidence note with intercepted synthetic auth and API responses.
+These fixture checks do not establish live Discord room visibility.
 
 Load only the current view's records: Sources reads the source catalog, Jobs
 reads components, jobs and observations, workflow lists read watchers, History

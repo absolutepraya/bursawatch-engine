@@ -98,6 +98,10 @@ forms, responsive routes, enlarged text and read-only API boundaries. It uses
 an isolated browser context and does not send messages or change live services.
 The source-editor suite also exercises full-config saves, profile add/remove,
 Discord routing, local avatar matching and preservation of unknown fields.
+The signed-in browser smoke checks Published records, incomplete publisher
+coverage, and the Jobs note that schedule observations do not confirm a
+Discord delivery. All auth and publication data in that check are synthetic;
+a live source-to-room correlation remains a separate read-only operation.
 
 See [integration](docs/INTEGRATION.md), [migration provenance](docs/MIGRATION.md),
 [design](DESIGN.md), and [brand philosophy](docs/BRAND_PHILOSOPHY.md).

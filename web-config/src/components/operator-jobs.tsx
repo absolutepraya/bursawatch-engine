@@ -77,7 +77,7 @@ export function OperatorJobs({
     <>
       <div className="control-page-heading">
         <h1>Jobs</h1>
-        <p>Declared jobs, schedule intent and current Hermes observations.</p>
+        <p>Schedule observations and last execution do not confirm a post reached Discord.</p>
       </div>
       {jobs.length ? (
         <ol className="operator-job-list">
