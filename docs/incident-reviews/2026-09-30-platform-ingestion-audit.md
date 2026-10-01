@@ -316,12 +316,10 @@ catalog moved from revision 7 to 8, the Swing owner config moved from revision
 followed the transition, but no new post-boundary Phintas source-to-Discord
 delivery has been observed. Message `35530` was not replayed.
 
-The current Market News state-root operation remains before archive and apply.
-After the reader pause, checks found no matching source or owner process, no
-active Market News agent lease, and both state locks available. The supported
-Hermes job configuration has no `IDX_MARKET_NEWS_STATE_PATH` override. Neither
-state file has been changed or archived, and the source schedule remains
-paused.
+The original forward-only state merge had already been applied at 13:46 WIB,
+after the checks described above. Its archive and application are corrected in
+the later follow-up below. The source schedule remained paused. The supported
+Hermes job configuration has no `IDX_MARKET_NEWS_STATE_PATH` override.
 
 The released reconciliation command stopped safely on canonical
 `pending_delivery` candidates. Read-only Delivery Owner lookups found:
@@ -337,24 +335,22 @@ The released reconciliation command stopped safely on canonical
   delivery operations are already delivered with matching digests. The
   canonical event records and receipts remain authoritative.
 
-A local reconciliation update now fingerprints status-only checks for
-canonical pending candidates. It permits only a matching delivered operation
-or `not_found` with no local accepted handoff or Discord message ID, repeats
-the checks during apply, and never submits or waits on Delivery Owner work.
-Accepted legacy handoffs are reconstructed with their persisted nonce and
-`reconcile_before_first_create` operation setting. A confirmed local Discord
-message ID must match the owner's delivered receipt. Canonical pending
-stock-status deliveries remain blocking. This code and its tests are not yet
-published or released. The Tuntun candidate's interruption point remains a
-separate diagnosis; no cause is inferred from the missing payload.
+At the 16:08 snapshot, a local reconciliation update fingerprinted
+status-only checks for canonical pending candidates. It permits only a
+matching delivered operation or `not_found` with no local accepted handoff or
+Discord message ID, repeats the checks during apply, and never submits or waits
+on Delivery Owner work. Accepted legacy handoffs are reconstructed with their
+persisted nonce and `reconcile_before_first_create` operation setting. A
+confirmed local Discord message ID must match the owner's delivered receipt.
+Canonical pending stock-status deliveries remain blocking. At that snapshot,
+this code and its tests were not yet published or released. The Tuntun
+candidate's interruption point remains a separate diagnosis; no cause is
+inferred from the missing payload.
 
-The next state-cutover steps are to publish and release this guarded change,
-then collect a fresh snapshot, archive and checksum both unchanged state
-files, create and review a new package-owned preview, apply it while the
-reader remains paused, and resume through the supported schedule interface.
-Do not replay or backfill any historical news. Natural runs after resume must
-prove future owner progress, and only confirmed Delivery Owner receipts prove
-delivery.
+The original version-1 plan had already been applied at 13:46:32 WIB, before
+this 16:08 snapshot. The archive, receipt, and later backward-compatibility
+regression are documented in the post-merge follow-up below. The source
+schedule remained paused.
 
 ### Adjacent RSS crash-recovery review
 
@@ -368,3 +364,71 @@ state root and transition directory, and rejects malformed or unexpected
 entries. The focused check passed 4 tests with 32 deselected. This review item
 is closed against that code state and does not require a separate RSS change;
 it is not evidence of a production RSS run.
+
+## 2026-10-01 follow-up: Market News PR merge and release gate
+
+PR #36 merged at 16:47 WIB as
+[`32c7ccd`](https://github.com/absolutepraya/bursawatch-engine/commit/32c7ccd158479bcf90dd33f2a7c587d0c32943ef).
+The merged change includes legacy accepted-operation reconstruction, confirmed
+Discord message-ID comparison, structured blocking for receipt destination
+mismatches, and the matching regression tests. Local Market News tests passed
+320 cases and `bash scripts/test-all` exited 0. The merge does not establish a
+production release or source-to-delivery success.
+
+The read-only production snapshot at 2026-10-01 16:48 WIB reported
+`origin/main=32c7ccd158479bcf90dd33f2a7c587d0c32943ef` and last successful
+release `c955b7a8da6f6d4f439035270dd0b2f1b9588261`; they did not match. The
+snapshot reported 13 Hermes jobs (7 active, 6 paused), with all 8 desired
+interval schedules matching. Telegram source ingest remained paused at desired
+and applied revision 8. The legacy Market News reader and watchdog also
+remained paused. X account watch showed `last=error`, its queue showed
+`last=ok`, while WhatsApp and Stockbit jobs showed `last=ok`; these scheduler
+records do not prove delivery. The original state archive and apply had
+already happened at 13:46 WIB; this 16:48 snapshot did not verify those state
+files.
+
+The GitHub PR check rollup still showed the CI validation and deterministic
+suite jobs in progress after the merge. The snapshot's release-CI `success`
+field did not prove that the merged SHA passed CI because the successful
+release remained at the older SHA. The archive and initial apply had already
+occurred. Keep the source reader paused until the receipt compatibility repair
+is released and the reviewed follow-up finalization is complete.
+
+## 2026-10-01 follow-up: legacy receipt compatibility repair
+
+The original forward-only state apply completed at 13:46:32 WIB with its
+version-1 receipt. It imported 81 source candidates and provenance records
+(12 new candidates, 69 overlaps), added two stock-status provenance records,
+and abandoned 95 active candidates. The retained archive at
+`~/backup/hermes/runtime-cutovers/2026-10-01/bursawatch-tg-market-news/`
+contains `source-state.json` and `canonical-state.json`; both pass the
+`SHA256SUMS` manifest. The original plan SHA-256 is
+`ee889308fd9f64eaf61181f1e0386e0b7045f17ffb2e907c602dcc4890b89134`, and the
+receipt references it. The unchanged source state matches the archived and
+receipted hash
+`c9ed4604e89ccd5c5bce71b0a8d4477d3fcb554141134844f47e76162e25d27d`.
+
+PR #36 introduced a receipt schema that required delivery-resolution fields
+while retaining receipt version 1. Once its exact main SHA reached production,
+the state reader rejected the existing receipt as malformed. This is a
+backward-compatibility regression after a completed apply, not an incomplete
+initial merge. The latest production snapshot at 18:12 WIB shows
+`origin/main` and the successful release both at
+`32c7ccd158479bcf90dd33f2a7c587d0c32943ef`, all 8 desired schedules matching,
+and Telegram source-ingest paused at desired/applied revision 8 at its existing
+one-minute interval. The legacy Market News reader and watchdog remain
+paused. The snapshot proves release and schedule state only, not a natural
+source-to-delivery event.
+
+The code follow-up accepts the exact version-1 and version-2 receipt schemas.
+Its version-3 `finalize_legacy` plan authenticates the original plan and
+receipt, confirms the source import is complete, and fingerprints read-only
+Delivery Owner lookups. Phintraco message `35557` has a matching confirmed
+`delivered` receipt and message ID, so finalization will preserve it without a
+send. Tuntun message `15063` has no saved handoff or Discord ID and its
+operation is `not_found`, so finalization will abandon it and prevent a stale
+send. The plan performs no second import and leaves package-local source state
+unchanged. Only a fresh reviewed plan may be applied while the source reader,
+legacy reader, and watchdog remain paused. Afterward, resume source-ingest
+through the authenticated desired-schedule interface and use natural runs to
+check forward progress. Do not replay or backfill historical news.

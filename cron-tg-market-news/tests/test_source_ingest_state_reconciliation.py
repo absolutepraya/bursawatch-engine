@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 from datetime import datetime
 import hashlib
 import json
@@ -113,21 +114,20 @@ def _attach_pending_delivery_payload(state, candidate, *, saved_receipt=None):
     operation = delivery._channel_message_operation(
         content, channel_id, f"{candidate.key}:text"
     )
-    state["stats"]["delivery_payloads"] = {
-        candidate.key: {
-            "content": content,
-            "nonce": "safe-test-nonce",
-            "enforce_nonce": True,
-            "channel_id": channel_id,
-            "required_operation_keys": [operation.key],
-            "text_discord_id": None,
-            "image_discord_id": None,
-            "image_error": None,
-            "delivery_handoff": {
-                "state": "accepted" if saved_receipt is not None else "unknown",
-                "operation_key": operation.key,
-                "receipt": saved_receipt,
-            },
+    delivery_payloads = state["stats"].setdefault("delivery_payloads", {})
+    delivery_payloads[candidate.key] = {
+        "content": content,
+        "nonce": "safe-test-nonce",
+        "enforce_nonce": True,
+        "channel_id": channel_id,
+        "required_operation_keys": [operation.key],
+        "text_discord_id": None,
+        "image_discord_id": None,
+        "image_error": None,
+        "delivery_handoff": {
+            "state": "accepted" if saved_receipt is not None else "unknown",
+            "operation_key": operation.key,
+            "receipt": saved_receipt,
         }
     }
     return operation
@@ -157,6 +157,39 @@ def _owner_delivered_receipt(operation, message_id="456"):
         status="delivered",
         receipt={"message_id": message_id, "channel_id": operation.target["channel_id"]},
     )
+
+
+def _write_legacy_applied_merge(source_state, source_path, canonical_state, canonical_path, plan_path):
+    source_sha256 = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    canonical_sha256 = hashlib.sha256(canonical_path.read_bytes()).hexdigest()
+    merged, report = reconcile.merge_states(source_state, canonical_state)
+    assert state_module.abandon_active_candidates(merged, reconcile._FORWARD_ONLY_ABANDON_REASON) == (
+        report["active_candidate_abandonment_count"]
+    )
+    legacy_plan = {
+        "version": 1,
+        "source_state_path": str(source_path),
+        "canonical_state_path": str(canonical_path),
+        "source_state_sha256": source_sha256,
+        "canonical_state_sha256": canonical_sha256,
+        **{field: report[field] for field in reconcile._LEGACY_REPORT_FIELDS_V1},
+        "created_at": NOW.isoformat(),
+    }
+    legacy_plan["plan_sha256"] = reconcile._plan_digest(legacy_plan)
+    plan_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    plan_path.write_text(json.dumps(legacy_plan), encoding="utf-8")
+    os.chmod(plan_path, 0o600)
+    receipt = {
+        "version": 1,
+        "plan_sha256": legacy_plan["plan_sha256"],
+        "source_state_sha256": source_sha256,
+        "canonical_base_sha256": canonical_sha256,
+        **{field: report[field] for field in reconcile._LEGACY_REPORT_FIELDS_V1},
+        "applied_at": NOW.isoformat(),
+    }
+    merged["stats"][reconcile.RECEIPT_KEY] = receipt
+    save_state(merged, canonical_path, migrate=False)
+    return receipt
 
 
 def test_merge_imports_source_only_candidate_and_provenance_without_changing_canonical(
@@ -303,8 +336,8 @@ def test_preview_and_apply_verify_delivered_and_missing_owner_operations_without
     persisted = state_module.load_state(canonical_path, migrate=False)
     delivered_record = persisted["stats"]["delivery_payloads"][candidate.key]
     assert applied["status"] == "applied"
-    assert applied["active_candidate_abandonment_count"] == 2
-    assert persisted["candidates"][candidate.key]["phase"] == "abandoned"
+    assert applied["active_candidate_abandonment_count"] == 1
+    assert persisted["candidates"][candidate.key]["phase"] == "delivered"
     assert persisted["candidates"][later_candidate.key]["phase"] == "abandoned"
     assert delivered_record["text_discord_id"] == "456"
     assert delivered_record["delivery_handoff"]["receipt"] == {
@@ -317,9 +350,83 @@ def test_preview_and_apply_verify_delivered_and_missing_owner_operations_without
     assert persisted["stats"][reconcile.RECEIPT_KEY]["delivery_resolution_sha256"] == plan[
         "delivery_resolution_sha256"
     ]
+    assert persisted["stats"][reconcile.RECEIPT_KEY]["version"] == 2
+    assert persisted["stats"][reconcile.RECEIPT_KEY]["prior_receipt_sha256"] is None
     assert source_path.read_bytes() == source_before
     assert reconcile.apply(plan_path, delivery_client=client)["status"] == "already_applied"
     assert len(client.status_calls) == 4
+
+
+def test_finalize_legacy_receipt_preserves_delivered_work_and_abandons_not_found_work(
+    tmp_path, candidate, later_candidate
+):
+    source_state, source_path = _source_state(candidate, later_candidate, tmp_path)
+    canonical_state, canonical_path = _canonical_state(candidate, tmp_path)
+    legacy_plan_path = tmp_path / "plans" / "market-news-state-reconciliation-v1.json"
+    legacy_receipt = _write_legacy_applied_merge(
+        source_state, source_path, canonical_state, canonical_path, legacy_plan_path
+    )
+
+    delivered_candidate = replace(
+        candidate, source_message_id=candidate.source_message_id + 1000, candidate_id=""
+    )
+    missing_candidate = replace(
+        later_candidate, source_message_id=later_candidate.source_message_id + 1000, candidate_id=""
+    )
+    canonical = state_module.load_state(canonical_path, migrate=False)
+    _add_candidate(canonical, delivered_candidate, phase="pending_delivery")
+    delivered_operation = _attach_pending_delivery_payload(canonical, delivered_candidate)
+    _add_candidate(canonical, missing_candidate, phase="pending_delivery")
+    missing_operation = _attach_pending_delivery_payload(canonical, missing_candidate)
+    save_state(canonical, canonical_path, migrate=False)
+
+    client = _StatusOnlyDeliveryClient(
+        {delivered_operation.key: _owner_delivered_receipt(delivered_operation, "456")}
+    )
+    plan_path = tmp_path / "plans" / "market-news-state-reconciliation-v3.json"
+    source_before = source_path.read_bytes()
+    canonical_before = canonical_path.read_bytes()
+
+    plan = reconcile.preview(
+        source_path,
+        canonical_path,
+        plan_path,
+        legacy_plan_file=legacy_plan_path,
+        delivery_client=client,
+    )
+
+    assert plan["mode"] == "finalize_legacy"
+    assert plan["prior_receipt_sha256"] == hashlib.sha256(
+        reconcile._json_bytes(legacy_receipt)
+    ).hexdigest()
+    assert plan["prior_plan_sha256"] == legacy_receipt["plan_sha256"]
+    assert plan["canonical_pending_delivery_count"] == 2
+    assert plan["canonical_pending_delivery_confirmed_count"] == 1
+    assert plan["canonical_pending_delivery_not_found_count"] == 1
+    assert plan["active_candidate_abandonment_count"] == 1
+    assert source_path.read_bytes() == source_before
+    assert canonical_path.read_bytes() == canonical_before
+
+    result = reconcile.apply(plan_path, delivery_client=client)
+    persisted = state_module.load_state(canonical_path, migrate=False)
+    assert result["status"] == "legacy_finalized"
+    assert persisted["candidates"][delivered_candidate.key]["phase"] == "delivered"
+    assert persisted["candidates"][missing_candidate.key]["phase"] == "abandoned"
+    assert persisted["candidates"][missing_candidate.key]["retry"]["last_error"] == (
+        reconcile._FORWARD_ONLY_ABANDON_REASON
+    )
+    assert persisted["candidates"][candidate.key]["phase"] == "abandoned"
+    assert persisted["candidates"][later_candidate.key]["phase"] == "abandoned"
+    assert persisted["stats"][reconcile.RECEIPT_KEY]["version"] == 2
+    assert persisted["stats"][reconcile.RECEIPT_KEY]["prior_receipt_sha256"] == plan[
+        "prior_receipt_sha256"
+    ]
+    assert source_path.read_bytes() == source_before
+    applied_state = canonical_path.read_bytes()
+    assert reconcile.apply(plan_path, delivery_client=client)["status"] == "already_applied"
+    assert canonical_path.read_bytes() == applied_state
+    assert len(client.status_calls) == 4
+    assert set(client.status_calls) == {delivered_operation.key, missing_operation.key}
 
 
 def test_apply_rejects_delivery_owner_receipt_change_after_preview(

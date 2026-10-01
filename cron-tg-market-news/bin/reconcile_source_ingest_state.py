@@ -20,15 +20,18 @@ import state as owner_state
 from news_source_work import candidate_keys, provenance
 
 
-PLAN_VERSION = 2
+PLAN_VERSION = 3
 RECEIPT_KEY = owner_state._SOURCE_INGEST_RECONCILIATION_KEY
 _PLAN_FIELDS = frozenset(
     {
         "version",
+        "mode",
         "source_state_path",
         "canonical_state_path",
         "source_state_sha256",
         "canonical_state_sha256",
+        "prior_receipt_sha256",
+        "prior_plan_sha256",
         "delivery_resolution_sha256",
         "source_candidate_count",
         "source_provenance_count",
@@ -48,6 +51,43 @@ _PLAN_FIELDS = frozenset(
         "created_at",
         "plan_sha256",
     }
+)
+_LEGACY_PLAN_V1_FIELDS = frozenset(
+    {
+        "version",
+        "source_state_path",
+        "canonical_state_path",
+        "source_state_sha256",
+        "canonical_state_sha256",
+        "source_candidate_count",
+        "source_provenance_count",
+        "new_candidate_count",
+        "overlap_count",
+        "phase_difference_count",
+        "provenance_added_count",
+        "source_status_event_count",
+        "new_status_event_count",
+        "overlap_status_event_count",
+        "status_event_phase_difference_count",
+        "status_event_provenance_added_count",
+        "active_candidate_abandonment_count",
+        "created_at",
+        "plan_sha256",
+    }
+)
+_LEGACY_REPORT_FIELDS_V1 = (
+    "source_candidate_count",
+    "source_provenance_count",
+    "new_candidate_count",
+    "overlap_count",
+    "phase_difference_count",
+    "provenance_added_count",
+    "source_status_event_count",
+    "new_status_event_count",
+    "overlap_status_event_count",
+    "status_event_phase_difference_count",
+    "status_event_provenance_added_count",
+    "active_candidate_abandonment_count",
 )
 _REPORT_FIELDS = (
     "source_candidate_count",
@@ -619,6 +659,12 @@ def merge_states(
             "receipt": deepcopy(receipt),
         }
         payload["text_discord_id"] = receipt_body["message_id"]
+        candidate_record = merged_candidates[key]
+        candidate_record["phase"] = "delivered"
+        candidate_record["agent_lease_until"] = None
+        retry = candidate_record["retry"]
+        assert isinstance(retry, dict)
+        retry["next_attempt_at"] = None
 
     canonical_status_events = canonical_stats.get("stock_status_events", {})
     if not isinstance(canonical_status_events, dict):
@@ -723,6 +769,131 @@ def _plan_digest(plan: dict[str, Any]) -> str:
     return _sha256(_json_bytes({key: value for key, value in plan.items() if key != "plan_sha256"}))
 
 
+def _legacy_plan_matches_receipt(
+    plan_file: str | os.PathLike[str],
+    source_path: Path,
+    canonical_path: Path,
+    source_state_sha256: str,
+    receipt: dict[str, Any],
+) -> str:
+    legacy_path = _plan_path(plan_file, source_path, canonical_path)
+    try:
+        metadata = legacy_path.lstat()
+    except OSError as error:
+        raise owner_state.StateBlockedError("legacy reconciliation plan is unavailable") from error
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+        raise owner_state.StateBlockedError("legacy reconciliation plan must be a regular file")
+    if stat.S_IMODE(metadata.st_mode) != 0o600:
+        raise owner_state.StateBlockedError("legacy reconciliation plan permissions must be 0600")
+    try:
+        legacy_plan = json.loads(legacy_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise owner_state.StateBlockedError("legacy reconciliation plan is unreadable") from error
+    if not isinstance(legacy_plan, dict) or set(legacy_plan) != _LEGACY_PLAN_V1_FIELDS:
+        raise owner_state.StateBlockedError("legacy reconciliation plan has an unsupported schema")
+    if legacy_plan.get("version") != 1 or type(legacy_plan.get("version")) is not int:
+        raise owner_state.StateBlockedError("legacy reconciliation plan version is unsupported")
+    for field in ("source_state_sha256", "canonical_state_sha256", "plan_sha256"):
+        if not isinstance(legacy_plan.get(field), str) or not _HEX.fullmatch(legacy_plan[field]):
+            raise owner_state.StateBlockedError(f"legacy reconciliation plan {field} is invalid")
+    for field in _LEGACY_REPORT_FIELDS_V1:
+        if type(legacy_plan.get(field)) is not int or legacy_plan[field] < 0:
+            raise owner_state.StateBlockedError(f"legacy reconciliation plan {field} is invalid")
+    if (
+        legacy_plan["source_candidate_count"] != legacy_plan["source_provenance_count"]
+        or legacy_plan["source_candidate_count"]
+        != legacy_plan["new_candidate_count"] + legacy_plan["overlap_count"]
+        or legacy_plan["phase_difference_count"] > legacy_plan["overlap_count"]
+        or legacy_plan["provenance_added_count"] > legacy_plan["source_provenance_count"]
+        or legacy_plan["source_status_event_count"]
+        != legacy_plan["new_status_event_count"] + legacy_plan["overlap_status_event_count"]
+        or legacy_plan["status_event_phase_difference_count"]
+        > legacy_plan["overlap_status_event_count"]
+        or legacy_plan["status_event_provenance_added_count"]
+        > legacy_plan["overlap_status_event_count"]
+    ):
+        raise owner_state.StateBlockedError("legacy reconciliation plan counts are inconsistent")
+    for field in ("source_state_path", "canonical_state_path", "created_at"):
+        if not isinstance(legacy_plan.get(field), str) or not legacy_plan[field]:
+            raise owner_state.StateBlockedError(f"legacy reconciliation plan {field} is invalid")
+    try:
+        created_at = datetime.fromisoformat(legacy_plan["created_at"])
+    except ValueError as error:
+        raise owner_state.StateBlockedError("legacy reconciliation plan created_at is invalid") from error
+    if created_at.tzinfo is None or created_at.utcoffset() is None:
+        raise owner_state.StateBlockedError("legacy reconciliation plan created_at must be timezone-aware")
+    if _plan_digest(legacy_plan) != legacy_plan["plan_sha256"]:
+        raise owner_state.StateBlockedError("legacy reconciliation plan digest does not match")
+    if (
+        _absolute_path(legacy_plan["source_state_path"]) != source_path
+        or _absolute_path(legacy_plan["canonical_state_path"]) != canonical_path
+        or legacy_plan["source_state_sha256"] != source_state_sha256
+        or legacy_plan["source_state_sha256"] != receipt["source_state_sha256"]
+        or legacy_plan["canonical_state_sha256"] != receipt["canonical_base_sha256"]
+        or legacy_plan["plan_sha256"] != receipt["plan_sha256"]
+        or any(receipt[field] != legacy_plan[field] for field in _LEGACY_REPORT_FIELDS_V1)
+    ):
+        raise owner_state.StateBlockedError("legacy reconciliation plan does not match its receipt")
+    return legacy_plan["plan_sha256"]
+
+
+def _require_legacy_merge_complete(
+    source: dict[str, Any],
+    canonical: dict[str, Any],
+    report: dict[str, int],
+    receipt: dict[str, Any],
+) -> None:
+    if (
+        report["source_candidate_count"] != receipt["source_candidate_count"]
+        or report["source_provenance_count"] != receipt["source_provenance_count"]
+        or report["source_status_event_count"] != receipt["source_status_event_count"]
+        or report["new_candidate_count"] != 0
+        or report["provenance_added_count"] != 0
+        or report["new_status_event_count"] != 0
+        or report["status_event_provenance_added_count"] != 0
+    ):
+        raise owner_state.StateBlockedError(
+            "legacy reconciliation receipt exists but imported source data is incomplete"
+        )
+    source_candidates = source["candidates"]
+    canonical_candidates = canonical["candidates"]
+    assert isinstance(source_candidates, dict) and isinstance(canonical_candidates, dict)
+    for key in source_candidates:
+        canonical_record = canonical_candidates.get(key)
+        if not isinstance(canonical_record, dict) or canonical_record["phase"] not in owner_state._TERMINAL_PHASES:
+            raise owner_state.StateBlockedError(
+                "legacy reconciliation left source candidate work nonterminal"
+            )
+
+
+def _abandon_verified_not_found_candidates(
+    state: dict[str, Any], resolutions: dict[str, dict[str, Any]], reason: str
+) -> int:
+    candidates = state["candidates"]
+    assert isinstance(candidates, dict)
+    abandoned = 0
+    for key, resolution in resolutions.items():
+        if resolution["status"] != "not_found":
+            continue
+        record = candidates.get(key)
+        if not isinstance(record, dict) or record["phase"] != "pending_delivery":
+            raise owner_state.StateBlockedError(
+                "not-found pending candidate changed before forward-only finalization"
+            )
+        record["phase"] = "abandoned"
+        record["agent_lease_until"] = None
+        retry = record["retry"]
+        assert isinstance(retry, dict)
+        retry["next_attempt_at"] = None
+        retry["last_error"] = reason
+        abandoned += 1
+    if any(record["phase"] not in owner_state._TERMINAL_PHASES for record in candidates.values()):
+        raise owner_state.StateBlockedError(
+            "legacy finalization found unrelated nonterminal Market News work"
+        )
+    return abandoned
+
+
 def _write_private_json(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     try:
@@ -765,6 +936,7 @@ def preview(
     canonical_state_path: str | os.PathLike[str],
     plan_file: str | os.PathLike[str],
     *,
+    legacy_plan_file: str | os.PathLike[str] | None = None,
     delivery_client: object | None = None,
 ) -> dict[str, Any]:
     source_path, source_raw, source_state = _state_file(source_state_path, "source state")
@@ -774,20 +946,63 @@ def preview(
     if source_path == canonical_path:
         raise owner_state.StateBlockedError("source and canonical state paths must differ")
     plan_path = _plan_path(plan_file, source_path, canonical_path)
+    prior_receipt = canonical_state["stats"].get(RECEIPT_KEY)
+    mode = "merge"
+    prior_receipt_sha256: str | None = None
+    prior_plan_sha256: str | None = None
+    if prior_receipt is not None:
+        if not isinstance(prior_receipt, dict) or prior_receipt.get("version") != 1:
+            raise owner_state.StateBlockedError(
+                "a current reconciliation receipt already exists; use its original plan for idempotency"
+            )
+        existing_legacy_plan = Path(legacy_plan_file) if legacy_plan_file is not None else _default_legacy_plan_path()
+        legacy_path = _plan_path(existing_legacy_plan, source_path, canonical_path)
+        if legacy_path == plan_path:
+            raise owner_state.StateBlockedError(
+                "legacy verification must preserve the original plan and use a separate follow-up plan"
+            )
+        prior_plan_sha256 = _legacy_plan_matches_receipt(
+            legacy_path,
+            source_path,
+            canonical_path,
+            _sha256(source_raw),
+            prior_receipt,
+        )
+        prior_receipt_sha256 = _sha256(_json_bytes(prior_receipt))
+        mode = "finalize_legacy"
     resolutions = _observe_canonical_pending_deliveries(canonical_state, delivery_client)
     resolution_digest = _delivery_resolution_digest(resolutions)
     merged, report = merge_states(
         source_state,
         canonical_state,
         canonical_delivery_resolutions=resolutions,
+        allow_forward_only_abandoned_pending_overlap=mode == "finalize_legacy",
     )
+    if mode == "finalize_legacy":
+        assert isinstance(prior_receipt, dict)
+        _require_legacy_merge_complete(source_state, canonical_state, report, prior_receipt)
+        candidates = merged["candidates"]
+        assert isinstance(candidates, dict)
+        expected_nonterminal = {
+            key for key, resolution in resolutions.items() if resolution["status"] == "not_found"
+        }
+        actual_nonterminal = {
+            key for key, record in candidates.items() if record["phase"] not in owner_state._TERMINAL_PHASES
+        }
+        if actual_nonterminal != expected_nonterminal:
+            raise owner_state.StateBlockedError(
+                "legacy finalization found unrelated nonterminal Market News work"
+            )
     del merged
     plan: dict[str, Any] = {
         "version": PLAN_VERSION,
+        "mode": mode,
         "source_state_path": str(source_path),
         "canonical_state_path": str(canonical_path),
         "source_state_sha256": _sha256(source_raw),
         "canonical_state_sha256": _sha256(canonical_raw),
+        "prior_receipt_sha256": prior_receipt_sha256,
+        "prior_plan_sha256": prior_plan_sha256,
         "delivery_resolution_sha256": resolution_digest,
         **report,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -823,6 +1038,20 @@ def _load_plan(plan_file: str | os.PathLike[str]) -> tuple[Path, dict[str, Any]]
     ):
         if not isinstance(plan.get(field), str) or not _HEX.fullmatch(plan[field]):
             raise owner_state.StateBlockedError(f"plan {field} is invalid")
+    if plan.get("mode") not in {"merge", "finalize_legacy"}:
+        raise owner_state.StateBlockedError("plan mode is invalid")
+    for field in ("prior_receipt_sha256", "prior_plan_sha256"):
+        value = plan.get(field)
+        if value is not None and (not isinstance(value, str) or not _HEX.fullmatch(value)):
+            raise owner_state.StateBlockedError(f"plan {field} is invalid")
+    if plan["mode"] == "merge" and (
+        plan["prior_receipt_sha256"] is not None or plan["prior_plan_sha256"] is not None
+    ):
+        raise owner_state.StateBlockedError("merge plan cannot name a previous receipt")
+    if plan["mode"] == "finalize_legacy" and (
+        plan["prior_receipt_sha256"] is None or plan["prior_plan_sha256"] is None
+    ):
+        raise owner_state.StateBlockedError("legacy finalization plan must name its prior receipt")
     for field in _REPORT_FIELDS:
         if type(plan.get(field)) is not int or plan[field] < 0:
             raise owner_state.StateBlockedError(f"plan {field} is invalid")
@@ -869,7 +1098,9 @@ def _receipt_matches_plan(
     if not isinstance(receipt, dict):
         return False
     return (
-        receipt.get("plan_sha256") == plan["plan_sha256"]
+        receipt.get("version") == 2
+        and receipt.get("prior_receipt_sha256") == plan["prior_receipt_sha256"]
+        and receipt.get("plan_sha256") == plan["plan_sha256"]
         and receipt.get("source_state_sha256") == plan["source_state_sha256"]
         and receipt.get("canonical_base_sha256") == plan["canonical_state_sha256"]
         and receipt.get("delivery_resolution_sha256")
@@ -901,14 +1132,11 @@ def apply(
         canonical_stats = canonical_state["stats"]
         assert isinstance(canonical_stats, dict)
         receipt = canonical_stats.get(RECEIPT_KEY)
-        if receipt is not None:
+        if isinstance(receipt, dict) and receipt.get("version") == 2:
             if not _receipt_matches_plan(receipt, plan):
                 raise owner_state.StateBlockedError(
                     "a different source-ingest reconciliation receipt already exists"
                 )
-            # A matching receipt proves this plan already abandoned active
-            # candidates, while the immutable source file may retain their
-            # earlier pending phase. Permit that overlap only for this retry.
             _, report = merge_states(
                 source_state,
                 canonical_state,
@@ -925,6 +1153,20 @@ def apply(
                     "reconciliation receipt exists but source candidate or status-event data is incomplete"
                 )
             return {"status": "already_applied", **{field: plan[field] for field in _REPORT_FIELDS}}
+        if receipt is None:
+            if plan["mode"] != "merge" or plan["prior_receipt_sha256"] is not None:
+                raise owner_state.StateBlockedError("legacy reconciliation receipt disappeared after preview")
+        elif (
+            not isinstance(receipt, dict)
+            or receipt.get("version") != 1
+            or plan["mode"] != "finalize_legacy"
+            or plan["prior_receipt_sha256"] != _sha256(_json_bytes(receipt))
+            or plan["prior_plan_sha256"] != receipt.get("plan_sha256")
+            or receipt.get("source_state_sha256") != plan["source_state_sha256"]
+        ):
+            raise owner_state.StateBlockedError(
+                "existing legacy reconciliation receipt does not match the reviewed finalization"
+            )
 
         if _sha256(canonical_raw) != plan["canonical_state_sha256"]:
             raise owner_state.StateBlockedError("canonical state changed since preview")
@@ -940,12 +1182,22 @@ def apply(
             source_state,
             canonical_state,
             canonical_delivery_resolutions=resolutions,
+            allow_forward_only_abandoned_pending_overlap=plan["mode"] == "finalize_legacy",
         )
         if not _report_matches_plan(report, plan):
             raise owner_state.StateBlockedError("merge result changed since preview")
-        abandoned = owner_state.abandon_active_candidates(
-            merged, _FORWARD_ONLY_ABANDON_REASON
-        )
+        if plan["mode"] == "finalize_legacy":
+            assert isinstance(receipt, dict)
+            _require_legacy_merge_complete(source_state, canonical_state, report, receipt)
+            abandoned = _abandon_verified_not_found_candidates(
+                merged, resolutions, _FORWARD_ONLY_ABANDON_REASON
+            )
+            result_status = "legacy_finalized"
+        else:
+            abandoned = owner_state.abandon_active_candidates(
+                merged, _FORWARD_ONLY_ABANDON_REASON
+            )
+            result_status = "applied"
         if abandoned != report["active_candidate_abandonment_count"]:
             raise owner_state.StateBlockedError(
                 "active candidate count changed during forward-only reconciliation"
@@ -953,11 +1205,12 @@ def apply(
         merged_stats = merged["stats"]
         assert isinstance(merged_stats, dict)
         merged_stats[RECEIPT_KEY] = {
-            "version": 1,
+            "version": 2,
             "plan_sha256": plan["plan_sha256"],
             "source_state_sha256": plan["source_state_sha256"],
             "canonical_base_sha256": plan["canonical_state_sha256"],
             "delivery_resolution_sha256": plan["delivery_resolution_sha256"],
+            "prior_receipt_sha256": plan["prior_receipt_sha256"],
             **report,
             "applied_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -966,7 +1219,7 @@ def apply(
         persisted = owner_state.load_state(canonical_path, migrate=False)
         if persisted != merged:
             raise owner_state.StateBlockedError("saved canonical state differs from the merge plan")
-        return {"status": "applied", **report}
+        return {"status": result_status, **report}
 
 
 def _default_source_path() -> Path:
@@ -978,6 +1231,10 @@ def _default_canonical_path() -> Path:
 
 
 def _default_plan_path() -> Path:
+    return Path.home() / ".hermes" / "maintenance-plans" / "market-news-state-reconciliation-v3.json"
+
+
+def _default_legacy_plan_path() -> Path:
     return Path.home() / ".hermes" / "maintenance-plans" / "market-news-state-reconciliation.json"
 
 
@@ -988,12 +1245,18 @@ def main(argv: list[str] | None = None) -> int:
     preview_parser.add_argument("--source-state", type=Path, default=_default_source_path())
     preview_parser.add_argument("--canonical-state", type=Path, default=_default_canonical_path())
     preview_parser.add_argument("--plan-file", type=Path, default=_default_plan_path())
+    preview_parser.add_argument("--legacy-plan-file", type=Path, default=_default_legacy_plan_path())
     apply_parser = subparsers.add_parser("apply")
     apply_parser.add_argument("--plan-file", type=Path, default=_default_plan_path())
     args = parser.parse_args(argv)
     try:
         result = (
-            preview(args.source_state, args.canonical_state, args.plan_file)
+            preview(
+                args.source_state,
+                args.canonical_state,
+                args.plan_file,
+                legacy_plan_file=getattr(args, "legacy_plan_file", None),
+            )
             if args.command == "preview"
             else apply(args.plan_file)
         )

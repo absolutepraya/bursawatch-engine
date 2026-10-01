@@ -125,13 +125,35 @@ _STOCK_STATUS_SOURCE_CONFIG_KEYS = _STOCK_STATUS_SOURCE_EVENT_KEYS | {"config_re
 _STOCK_STATUS_SOURCE_CONFIG_HANDOFF_KEYS = _STOCK_STATUS_SOURCE_CONFIG_KEYS | {"delivery_handoff"}
 _PUBLICATION_LEDGER_KEY = "publication_projection"
 _SOURCE_INGEST_RECONCILIATION_KEY = "source_ingest_state_reconciliation_v1"
-_SOURCE_INGEST_RECONCILIATION_FIELDS = frozenset(
+_SOURCE_INGEST_RECONCILIATION_V1_FIELDS = frozenset(
+    {
+        "version",
+        "plan_sha256",
+        "source_state_sha256",
+        "canonical_base_sha256",
+        "source_candidate_count",
+        "source_provenance_count",
+        "new_candidate_count",
+        "overlap_count",
+        "phase_difference_count",
+        "provenance_added_count",
+        "source_status_event_count",
+        "new_status_event_count",
+        "overlap_status_event_count",
+        "status_event_phase_difference_count",
+        "status_event_provenance_added_count",
+        "active_candidate_abandonment_count",
+        "applied_at",
+    }
+)
+_SOURCE_INGEST_RECONCILIATION_V2_FIELDS = frozenset(
     {
         "version",
         "plan_sha256",
         "source_state_sha256",
         "canonical_base_sha256",
         "delivery_resolution_sha256",
+        "prior_receipt_sha256",
         "source_candidate_count",
         "source_provenance_count",
         "new_candidate_count",
@@ -150,6 +172,7 @@ _SOURCE_INGEST_RECONCILIATION_FIELDS = frozenset(
         "applied_at",
     }
 )
+_SOURCE_INGEST_RECONCILIATION_FIELDS = _SOURCE_INGEST_RECONCILIATION_V2_FIELDS
 _REJECTED_STOCK_STATUS_EVENT_KEYS = frozenset(
     {"source_message_id", "source_url", "phase", "rejected_at", "rejection_code"}
 )
@@ -858,35 +881,60 @@ def _validate_publication_ledger(value: object) -> None:
 
 
 def _validate_source_ingest_reconciliation(value: object) -> None:
-    if not isinstance(value, dict) or set(value) != _SOURCE_INGEST_RECONCILIATION_FIELDS:
+    if not isinstance(value, dict):
         raise StateBlockedError("malformed state: source-ingest reconciliation receipt is invalid")
-    if value["version"] != 1 or not _is_plain_int(value["version"]):
+    receipt_fields = frozenset(value)
+    if receipt_fields == _SOURCE_INGEST_RECONCILIATION_V1_FIELDS:
+        receipt_version = 1
+        count_fields = (
+            "source_candidate_count",
+            "source_provenance_count",
+            "new_candidate_count",
+            "overlap_count",
+            "phase_difference_count",
+            "provenance_added_count",
+            "source_status_event_count",
+            "new_status_event_count",
+            "overlap_status_event_count",
+            "status_event_phase_difference_count",
+            "status_event_provenance_added_count",
+            "active_candidate_abandonment_count",
+        )
+    elif receipt_fields == _SOURCE_INGEST_RECONCILIATION_V2_FIELDS:
+        receipt_version = 2
+        count_fields = (
+            "source_candidate_count",
+            "source_provenance_count",
+            "new_candidate_count",
+            "overlap_count",
+            "phase_difference_count",
+            "provenance_added_count",
+            "source_status_event_count",
+            "new_status_event_count",
+            "overlap_status_event_count",
+            "status_event_phase_difference_count",
+            "status_event_provenance_added_count",
+            "canonical_pending_delivery_count",
+            "canonical_pending_delivery_confirmed_count",
+            "canonical_pending_delivery_not_found_count",
+            "active_candidate_abandonment_count",
+        )
+    else:
+        raise StateBlockedError("malformed state: source-ingest reconciliation receipt is invalid")
+    if value["version"] != receipt_version or not _is_plain_int(value["version"]):
         raise StateBlockedError("malformed state: source-ingest reconciliation version is invalid")
-    for field in (
-        "plan_sha256",
-        "source_state_sha256",
-        "canonical_base_sha256",
-        "delivery_resolution_sha256",
-    ):
+    hash_fields = ["plan_sha256", "source_state_sha256", "canonical_base_sha256"]
+    if receipt_version == 2:
+        hash_fields.append("delivery_resolution_sha256")
+    for field in hash_fields:
         if not isinstance(value[field], str) or not re.fullmatch(r"[0-9a-f]{64}", value[field]):
             raise StateBlockedError(f"malformed state: source-ingest reconciliation {field} is invalid")
-    count_fields = (
-        "source_candidate_count",
-        "source_provenance_count",
-        "new_candidate_count",
-        "overlap_count",
-        "phase_difference_count",
-        "provenance_added_count",
-        "source_status_event_count",
-        "new_status_event_count",
-        "overlap_status_event_count",
-        "status_event_phase_difference_count",
-        "status_event_provenance_added_count",
-        "canonical_pending_delivery_count",
-        "canonical_pending_delivery_confirmed_count",
-        "canonical_pending_delivery_not_found_count",
-        "active_candidate_abandonment_count",
-    )
+    prior_receipt_sha256 = value.get("prior_receipt_sha256")
+    if receipt_version == 2 and prior_receipt_sha256 is not None and (
+        not isinstance(prior_receipt_sha256, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", prior_receipt_sha256)
+    ):
+        raise StateBlockedError("malformed state: source-ingest reconciliation prior_receipt_sha256 is invalid")
     if any(not _is_plain_int(value[field]) or value[field] < 0 for field in count_fields):
         raise StateBlockedError("malformed state: source-ingest reconciliation counts are invalid")
     if (
@@ -898,7 +946,10 @@ def _validate_source_ingest_reconciliation(value: object) -> None:
         != value["new_status_event_count"] + value["overlap_status_event_count"]
         or value["status_event_phase_difference_count"] > value["overlap_status_event_count"]
         or value["status_event_provenance_added_count"] > value["overlap_status_event_count"]
-        or value["canonical_pending_delivery_count"]
+    ):
+        raise StateBlockedError("malformed state: source-ingest reconciliation counts are inconsistent")
+    if receipt_version == 2 and (
+        value["canonical_pending_delivery_count"]
         != value["canonical_pending_delivery_confirmed_count"]
         + value["canonical_pending_delivery_not_found_count"]
     ):
