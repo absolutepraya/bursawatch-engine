@@ -136,6 +136,8 @@ def test_runner_blocks_invalid_transition_chain_but_settles_existing_work(tmp_pa
 
     def owner_command(command):
         owner_calls.append(command)
+        if command == "drain-delivery":
+            return {"delivered": 1, "pending_delivery": 0}
         if command == "agent-status":
             return {
                 "ready": True,
@@ -174,7 +176,8 @@ def test_runner_blocks_invalid_transition_chain_but_settles_existing_work(tmp_pa
     }]
     assert result["work"] == [{"work_key": "accepted-work", "status": "done"}]
     assert handled == [work_item]
-    assert owner_calls == ["agent-status", "claim-agent"]
+    assert owner_calls == ["drain-delivery", "agent-status", "claim-agent"]
+    assert result["owner_delivery"] == {"delivered": 1, "pending_delivery": 0}
     assert [call[0] for call in calls] == ["claim", "begin", "settle"]
 
 
