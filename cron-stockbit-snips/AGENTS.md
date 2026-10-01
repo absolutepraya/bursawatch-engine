@@ -96,6 +96,13 @@ Run the focused package tests, then the repository package suite and
 
 After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.
 
+For `channel_message_create`, the shared receipt contract requires a valid
+`message_id`; `channel_id` may be omitted. The operation key and digest must
+match the stable operation for the article's frozen destination. If the receipt
+includes `channel_id`, it must match that frozen destination. Persist the local
+destination from the frozen configuration snapshot, and mark the article
+delivered only after the shared client returns a delivered receipt.
+
 ## Published Feed projection
 
 Eligible articles accepted from the shared RSS source adapter create one

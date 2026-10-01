@@ -43,6 +43,7 @@ Recheck live state before acting. The original source-state observations were co
 - A worktree-only fix now passes the canonical state path to both Market News source-work and agent-status/claim subprocesses, preserving any explicit environment override. The focused regression tests passed (6), the `cron-tg-source-ingest` package suite passed (50), and `bash scripts/test-all` passed with one skipped test and existing deprecation warnings. The fix is not published or deployed; neither live state file has been edited, copied, or removed. The [separate state-root reconciliation plan](../superpowers/plans/2026-10-01-market-news-state-root-reconciliation.md) accounts for the 69 accepted candidates before the active owner path changes.
 - A preliminary state comparison made while source-ingest was active also found four package-local stock-status events, all already present in canonical state. The rejected outcomes matched. Two locally pending events were already canonically delivered with Delivery Owner receipts. The approved merge therefore preserves canonical outcomes and receipts, adding only matching source-event provenance missing from canonical records. These counts and hashes still require a fresh preview after the writer is paused.
 - The natural Stockbit run started at 09:09:05 WIB and completed. It created one `stockbit_snips` source-work item at 09:08:58 WIB, now `done`, proving that the RSS catalog gate passed and the owner accepted the work. The Stockbit article-owner submission finished `degraded` from 09:09:29 to 09:09:33 WIB, with one error and zero locally confirmed deliveries. A read-only Delivery Owner lookup and active-ledger inspection later showed the stable operation is `delivered`; its stored target and digest match the frozen route destination. Its receipt contains `message_id` but omits `channel_id`. The shared [gateway](../../service-bursawatch-discord-delivery/bin/discord_delivery/discord_gateway.py:207) intentionally returns only `message_id` for a channel-message create, and the shared [receipt validator](../../service-bursawatch-discord-delivery/bin/discord_delivery/models.py:230) permits that field to be absent. Stockbit's [delivery drain](../../cron-stockbit-snips/bin/scan.py:268) requires `channel_id`, so it records a local retry while the Delivery Owner has already delivered the operation. This is a receipt-shape contract mismatch, not evidence of a wrong-channel send. The local article remains `pending_delivery` after one retry and needs a separate safe reconciliation; do not replay or create a new operation.
+- A follow-up code trace on 2026-10-01 confirmed the Stockbit shared sender checks the stable operation key and digest, and the digest includes the operation target. A normal retry looks up that same operation before submitting. The separate `stockbit-receipt-ack` worktree fix accepts a missing `channel_id` only with a valid `message_id` and matching stable delivered operation, while continuing to reject an explicit channel mismatch. The local destination comes from the article's frozen configuration snapshot. Its focused regression passed (2 tests), the Stockbit package suite passed (114 tests), and the repository suite passed with one skipped test and existing deprecation warnings. The fix is not yet in `main` or deployed. Re-read the live article and owner operation before rollout; do not replay it or create a replacement operation.
 - The initial catalog blockers are repaired at the reader boundary, and natural runs passed both catalog gates. Telegram's Market News state-root split and Stockbit's local receipt mismatch remain separate unresolved work. The Phintas route gap, WhatsApp archive-capture failure, and Torch RSSHub omission from the original audit also remain open.
 
 ## Follow-up: Telegram Market News source-to-channel gap
@@ -95,8 +96,29 @@ channel inspection. No replay or post was performed.
   the Telegram source-ingest job active, and the legacy Market News reader and
   watchdog paused. It does not prove a natural source-to-delivery event.
 
-The X/RSSHub omission, Stockbit receipt-shape mismatch, and WhatsApp archive
-capture gap remain separate workstreams from this Telegram news-path diagnosis.
+The X/RSSHub omission, WhatsApp archive-capture gap, and Phintas route question
+remain open and separate from this Telegram news-path diagnosis. Stockbit's
+receipt mismatch is handled by the separate worktree fix above; it is not yet
+published or deployed.
+
+## Follow-up: Telegram repair merged, production reconciliation pending
+
+**Verified:** 2026-10-01, 13:14 WIB.
+
+- PR #33 merged at 13:13 WIB as `3ae575c48ceac79cc95e5625f92b0b19dc38bb44`.
+  Its branch checks passed before merge. The post-merge production snapshot
+  showed `origin/main` at that SHA and the last successful production release
+  still at `925b894968a93005d3458167c38143c463877338`. The release-agent status
+  was pending, with no blocked release or transient error.
+- The snapshot showed a running Hermes gateway, 13 jobs (8 active and 5
+  paused), and all 8 desired interval schedules matching. Telegram
+  source-ingest remained active at one minute. The legacy Market News reader
+  and watchdog remained paused. These checks do not prove deployed runtime
+  checksums or a new source-to-delivery event.
+- The approved Market News state reconciliation has not been applied. Wait for
+  the merged code to pass its exact-main release gate, then verify the deployed
+  source-runner path and isolated no-post result before following the approved
+  pause, archive, fresh preview, apply, and resume sequence.
 
 ## Executive summary
 
@@ -216,7 +238,11 @@ These components are directly on the affected paths and are the next useful plac
 
 - Current Delivery Owner counters and the seven-day ledger show no shared Discord queue failure. Current Source Media health and warning logs show no broad outage; its success-only ledger leaves transient upload failures unproven. These services are lower-priority suspects for the present symptoms than the catalog transition, WhatsApp archive capture, and RSSHub feed coverage.
 
-## Safe continuation checklist
+## Safe continuation checklist from the initial audit
+
+The catalog transition work in item 1 was completed and verified in the
+2026-10-01 follow-ups above. The remaining items preserve the original audit
+leads; recheck current state before acting.
 
 1. Re-read current effective catalog, revisions 5 to 7, and exact deployed state markers. Identify and review package-owner future-only transition plans for Telegram 5 to 7 and RSS 4 to 7. Never hand-edit revision markers, reset cursors, or replay historical posts.
 2. Decide whether Phintas should receive `trading_plans` and parent-reply resolution. If yes, make that a separately reviewed catalog and adapter change after the catalog transition is understood.
