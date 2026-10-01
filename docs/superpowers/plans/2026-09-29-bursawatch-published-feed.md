@@ -271,3 +271,15 @@ This plan documented implementation work and did not itself authorize a producti
 - [ ] Permit already accepted durable work to drain naturally with its
   original source time. Do not manually insert history or revive abandoned
   cutover candidates. Do not block unrelated fixes for every next post.
+
+### 2026-10-02 source progress
+
+PR #43 merged after backend CI and both Web CI jobs passed. The existing
+signed-in browser smoke now uses synthetic authentication and publication
+responses to check a confirmed Published row, incomplete coverage wording,
+server-side ticker filtering, and the Jobs evidence warning. Its fixture has
+separate source and delivery times, but this smoke does not establish a live
+source-to-room link. Read-only correlation against owner state, stable
+operations, publication projection, and the configured Discord room remains
+open. Natural late delivery is allowed for already accepted durable work;
+previously abandoned cutover candidates remain terminal.

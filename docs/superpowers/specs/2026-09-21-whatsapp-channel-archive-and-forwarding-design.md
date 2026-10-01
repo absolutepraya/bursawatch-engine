@@ -255,3 +255,13 @@ boundary while preserving event identity, cursor order, original publication
 time, archive record, and stable delivery operations. A queued item may
 arrive late after the fix. This decision is not yet implemented or deployed;
 the incident review does not establish a WhatsApp anti-bot cause.
+
+## 2026-10-02 implementation handoff
+
+PR #42 merged the verified-archive, unavailable-media fallback into the
+canonical source. An exact BRI `#TechnicalReview` can retain its source text
+with `Source chart unavailable` and omit chart-dependent Board context when
+source capture is unavailable. CI passed for the merged pull request. The
+pre-merge statement above is historical; a natural source-to-Discord-room
+observation remains a separate proof. The cause of the original image miss
+has not been established as WhatsApp anti-bot behavior.

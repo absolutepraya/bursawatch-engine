@@ -493,3 +493,12 @@ even when its source time is old. Preserve source and delivery times.
 Previously abandoned pre-cutover candidates remain terminal; this does
 not authorize manual insertion or replay. A fresh eligible post in the
 right room is useful evidence but does not block unrelated fixes.
+
+### 2026-10-02 delivery-drain progress
+
+PR #41 merged after repository CI passed. The scheduled Telegram source run
+now asks the Market News owner to settle a bounded number of due deliveries
+even when fresh intake yields no work, using the existing stable delivery
+operations. This does not classify all 12 historical pending candidates as
+unsent or prove that they reached Discord. Audit each remaining candidate,
+its frozen target, operation, and receipt before assigning an outcome.

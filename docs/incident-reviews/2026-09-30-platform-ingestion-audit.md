@@ -645,3 +645,15 @@ other handoffs need individual inspection. Stockbit likewise has a
 confirmed stable delivery operation but an unreconciled local article
 phase. Both receipt fixes are released; settle existing operations without
 creating duplicate Discord messages.
+
+## 2026-10-02 source implementation update
+
+PR #41 merged bounded owner delivery drains for Market News and Stockbit;
+PR #42 merged the verified-archive WhatsApp text fallback; PR #43 merged
+signed-in Published and Jobs synthetic browser checks. Their pull-request
+CI checks passed. This records source implementation, not a current VPS
+snapshot or source-to-room proof. The X 7 to 8 state transition remains a
+separate guarded live operation. The known Torch feed omission still has no
+proven authentication or rate-limit cause, so the X polling interval was
+not changed. The 12 Telegram and one Stockbit pending records from the
+22:15 WIB snapshot require a new per-item live audit after natural drains.
