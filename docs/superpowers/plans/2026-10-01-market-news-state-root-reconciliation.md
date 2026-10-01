@@ -10,16 +10,25 @@ reconciliation shipped through
 Phintas route follow-up also merged. PR #36, which adds the guarded
 Delivery Owner preflight repair, merged to `main` at 2026-10-01 16:47 WIB as
 `32c7ccd158479bcf90dd33f2a7c587d0c32943ef`.
+PR #37, which restores legacy receipt compatibility and adds guarded
+`finalize_legacy` handling, merged at 2026-10-01 18:23 WIB as
+`4e6db9ce97bd651926c7b6aaff1b936aa2e4d861`.
 
-**Latest production snapshot at 2026-10-01 18:12 WIB:**
-`origin/main` and the last successful VPS release both equal
-`32c7ccd158479bcf90dd33f2a7c587d0c32943ef`. Release CI is successful, the
-release agent is unblocked, Hermes is running, and all 8 desired interval
-schedules match the live registry. There are 13 jobs (7 active, 6 paused).
-Telegram source-ingest remains paused at desired/applied revision 8 and its
-existing one-minute interval; the legacy Market News reader and watchdog are
-also paused. This snapshot proves release and schedule state, not a natural
-source-to-delivery event.
+**Pre-release snapshot at 2026-10-01 18:24 WIB:** `origin/main` was
+`4e6db9ce97bd651926c7b6aaff1b936aa2e4d861`, while the last successful VPS
+release was `32c7ccd158479bcf90dd33f2a7c587d0c32943ef`. Telegram source-ingest
+was paused at desired/applied revision 8. This was a pre-release observation.
+
+**Latest production snapshot at 2026-10-01 19:12 WIB:** `origin/main` and the
+successful VPS release both equal `4e6db9ce97bd651926c7b6aaff1b936aa2e4d861`;
+the exact-main release CI state is `success`, the release agent is unblocked,
+Hermes is running, and all 8 desired interval schedules match. There are 13
+jobs (8 active, 5 paused). Telegram source-ingest is active at desired/applied
+revision 9 and its existing one-minute interval. The legacy Market News reader
+and watchdog remain paused at revision 6. The X account watcher still reports
+`last=error`, while its queue job, WhatsApp, and Stockbit report `last=ok`; these
+labels do not establish delivery. This snapshot proves release and schedule
+state only, not source-to-delivery completion.
 
 **Workstream authorization:** The user has authorized the actions reasonably
 needed to complete this Bursawatch ingestion repair without requesting separate
@@ -358,6 +367,89 @@ keep the schedules paused and stop before resume. Never restore an archive over
 a live writer. Diagnose from the recorded hashes and exact plan, then make a
 fresh preview before retrying. Never run a production schedule manually, replay
 or backfill news, or post a test message.
+
+## Production execution and natural-run observation
+
+The release and guarded state finalization completed on 2026-10-01. Before
+resume, the released runtime hashes matched the reviewed files, the Telegram
+runner's isolated no-post synthetic check passed, and a fresh snapshot showed
+the exact release SHA with the affected schedules paused. A unique recovery
+archive was created at
+`~/backup/hermes/runtime-cutovers/2026-10-01/bursawatch-tg-market-news/pre-finalization-183759-wib/`;
+its source and canonical inputs matched the live files and its manifest
+verified. The version-3 preview at 18:38:44 WIB matched the reviewed
+`finalize_legacy` boundary, and the guarded apply completed at 18:39:38 WIB
+with `status=legacy_finalized`. It preserved all 81 source candidates and
+provenance records, made no new imports, abandoned the one unresolved legacy
+candidate, retained the confirmed Phintraco delivery for message `35557`, and
+abandoned Tuntun message `15063` because its Delivery Owner operation was
+confirmed not found. Post-apply checks confirmed all canonical candidates were
+terminal and no old pending delivery remained.
+
+Telegram source-ingest was resumed only through the authenticated desired-
+schedule API, retaining the one-minute cadence and Asia/Jakarta timezone. The
+fresh 18:57 WIB production snapshot showed revision 9 applied and effective,
+with the legacy Market News reader and watchdog still paused. The first
+resumed natural run (`d2f744eb48f546268dd04c6c9bd64375`, started at 18:48:35
+WIB) accepted same-day Telegram events `35559` and `35560` from Phintas,
+`15064` to `15067` from Tuntun, and `10905` and `10906` from Kelas. Read-only
+Control Plane inspections found the associated 18 pipeline-work rows in
+`done` with no error codes. No cursor was edited and no replay, backfill,
+manual schedule run, or test post was used.
+
+The first natural intake created 14 Market News candidates from Tuntun messages
+`15065` and `15066` in the canonical state file. At the read-only owner-state
+check after the 18:59 WIB scheduled run began, 5 were in `pending_selection`,
+8 in `pending_analysis`, and 1 in `awaiting_agent`. None yet had a matching
+confirmed publication receipt in the canonical publication ledger at that
+time. The flow had reached source and owner acceptance, but not the plan's
+natural-run delivery acceptance criterion. The later receipt failure and
+corrective work are recorded below. Do not mark this plan complete until the
+current-day classification and delivery handoff is resolved without
+candidate-state errors and each claimed delivery has a confirmed owner
+receipt; leave all pre-boundary candidate work abandoned.
+
+At the 19:12 WIB owner-state check, the same 14 candidates had progressed to 8
+`pending_delivery`, 3 `pending_analysis`, 1 `awaiting_agent`, and 2
+`suppressed_rank`. Tuntun message `15065` candidate `industry-1` has a matching
+Delivery Owner `delivered` status and digest, with Discord message ID
+`1555188202858483763`; its operation target is the frozen Industry channel
+`1549418098807930880`. The stored receipt contains only `message_id`, which is
+valid under the shared typed receipt contract. Because the Market News
+projection required `receipt.channel_id`, it rejected that delivery as
+`delivery receipt is not a confirmed matching operation`, left the candidate
+pending, and repeated the error on subsequent natural runs. The exact deployed
+`publication_projection.py` and `delivery.py` hashes matched this worktree,
+and the publication projection flag was enabled. The stable operation remains
+delivered, so the recovery must inspect that same operation and must not create
+another Discord message.
+
+The worktree regression now exercises the complete delivery call site with a
+valid message-only receipt. It failed on the original code and passed after
+the projection derived an omitted destination from the already-validated
+operation target; the explicit wrong-channel guard still passes. Focused and
+full Market News suites pass. Repository `bash scripts/test-all` also passed
+with exit 0, including 91 RSS tests and one existing skipped Control Plane
+test. This follow-up is not yet deployed. Keep the natural-run acceptance open
+until the fix reaches production and the existing pending deliveries settle
+through their stable operations with matching receipts and canonical
+publication records.
+
+The scheduled Market News source run `0b0b9c827ef442db964bc15c597781b4`
+completed at 19:15:37 WIB. A read-only owner-state check found the same 14
+candidates: 10 `pending_delivery`, 2 `pending_analysis`, and 2
+`suppressed_rank`. Only `tuntun:15065:industry-1` has an accepted Delivery
+Owner handoff among the pending deliveries; that operation is already
+`delivered` with message ID `1555188202858483763`. The other nine pending
+deliveries have no persisted handoff yet. None of the 14 has a Published Feed
+projection entry. The 19:19 WIB production snapshot still showed the exact
+`main` SHA released, exact-main CI success, and all 8 desired schedules
+matching, with source-ingest active at revision 9. It continued to show the X
+watcher at `last=error`, while WhatsApp and Stockbit were `last=ok`. These are
+separate scheduler observations, not proof of delivery. The receipt fix remains
+local; keep this plan open until it is deployed and natural runs confirm the
+existing stable operation and resulting publication records without a second
+Discord create.
 
 ## Acceptance evidence
 

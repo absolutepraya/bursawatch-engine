@@ -94,6 +94,19 @@ def test_stock_status_is_a_distinct_news_publication():
     assert snapshot["ticker"] is None
 
 
+def test_projection_rejects_a_receipt_that_names_a_different_channel():
+    item = _item()
+    content = delivery.format_news_item(item)
+    operation, receipt = _operation_and_receipt(content, f"{item.key}:text")
+    receipt["receipt"]["channel_id"] = "22345678901234567"
+
+    with pytest.raises(projection.IncompletePublication, match="stored delivery receipt is invalid"):
+        projection.news_snapshot(
+            _source(item), item, content, operation, receipt,
+            datetime(2026, 9, 30, 1, 1, tzinfo=timezone.utc), [operation.key],
+        )
+
+
 def test_incomplete_multi_leg_delivery_cannot_become_a_publication():
     operation, _receipt = _operation_and_receipt("confirmed text")
     leg = {
@@ -145,10 +158,7 @@ def test_projection_outage_retries_snapshot_without_reposting(tmp_path, monkeypa
             self.submissions.append(operation)
             return OperationReceipt(
                 id="delivery-operation-1", key=operation.key, digest=operation.digest,
-                status="delivered", receipt={
-                    "channel_id": operation.target["channel_id"],
-                    "message_id": "23456789012345678",
-                },
+                status="delivered", receipt={"message_id": "23456789012345678"},
             )
 
     owner = DeliveryOwner()
@@ -188,5 +198,6 @@ def test_projection_outage_retries_snapshot_without_reposting(tmp_path, monkeypa
     assert second == {"accepted": 1, "pending": 0}
     assert len(owner.submissions) == 1
     assert projection_client.submissions[0] == projection_client.submissions[1]
+    assert projection_client.submissions[0]["legs"][0]["destination"] == owner.submissions[0].target["channel_id"]
     assert projection_client.checkpoints[-1]["outstanding_count"] == 0
     assert projection_client.checkpoints[-1]["confirmed_through_at"] == projection_client.checkpoints[-1]["accepted_through_at"]
