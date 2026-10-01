@@ -778,13 +778,15 @@ async def _drain_delivery(
     dry_run: bool,
     *,
     delivery_client: object | None = None,
+    limit: int | None = None,
 ) -> int:
     delivered = 0
     entities = {} if runtime is None else {
         Provider.PHINTRACO: runtime.phintraco_entity,
         Provider.TUNTUN: runtime.tuntun_entity,
     }
-    for item in _pending_delivery(state, now):
+    due = _pending_delivery(state, now)
+    for item in (due[:limit] if limit is not None else due):
         frozen = loaded_config_for(state, item.key)
         with config.activate_watch_config(frozen.config if frozen is not None else config.active_watch_config()):
             channel_id = _delivery_channel(item)
