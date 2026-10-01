@@ -143,6 +143,44 @@ def test_bri_media_queue_item_is_durably_blocked_without_queue_mutation(tmp_path
     assert cursor(state_root, endpoint_id)["anchor"] is None
 
 
+
+def test_unavailable_archived_image_accepts_source_text_without_replay(tmp_path):
+    profiles, bri, snapshot, endpoint_id = context()
+    queue_dir = tmp_path / "queue"
+    state_root = tmp_path / "state"
+    archive_root = tmp_path / "archive"
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    old = ChannelEvent(bri.channel_jid, "old", NOW, "old", (), (), NOW)
+    queue_event(queue_dir, old, 1_000_000_000_000_000_000)
+    inbox = Inbox()
+    assert run_once(snapshot, profiles, queue_dir, state_root, inbox, NOW)[0]["status"] == "bootstrapped_empty"
+
+    missing = ChannelEvent(
+        bri.channel_jid, "missing-chart", NOW + timedelta(minutes=1),
+        "#TechnicalReview\nBRI chart source text", (),
+        (ChannelMedia("image", 0, "image/jpeg", str(staging / "missing.jpg")),), NOW,
+    )
+    import archive
+
+    archive.ensure(archive_root, bri.id, missing, 4, staging_root=staging)
+    queue_event(queue_dir, missing, 2_000_000_000_000_000_000)
+    result = run_once(
+        snapshot, profiles, queue_dir, state_root, inbox, NOW,
+        archive_root=archive_root, media_store=IdempotentMediaStore([]),
+    )
+    assert result[0]["accepted"] == 1
+    event = inbox.events[0]
+    assert event["media_required"] is False
+    assert event["media_refs"] == []
+    assert event["payload"]["text"] == missing.text
+    assert event["payload"]["unavailable_media_manifest"] == [
+        {"index": 0, "kind": "image", "mime": "image/jpeg"}
+    ]
+    assert cursor(state_root, endpoint_id)["anchor"] == "missing-chart"
+
+
+
 def test_archive_media_upload_precedes_acceptance_and_survives_retry(tmp_path):
     profiles, bri, snapshot, endpoint_id = context()
     queue_dir = tmp_path / "queue"
