@@ -1,7 +1,7 @@
 # Phintas Swing Route Canonicalization Plan
 
 **Design:** [`../specs/2026-10-01-phintas-swing-route-design.md`](../specs/2026-10-01-phintas-swing-route-design.md)
-**Status:** In progress
+**Status:** PR #35 open, merge pending required gates
 **Worktree:** `phintas-swing-route`
 
 ## Implementation
@@ -29,7 +29,8 @@
 - Focused suites passed: source ingest 58 tests, Phintraco Swing 201 tests,
   Control Plane 207 passed and 1 skipped. `bash scripts/test-all` passed across
   all package suites and repository policy checks.
-- [ ] Open a pull request and register it with the T3 thread. Do not wait on
+- [x] Open pull request [#35](https://github.com/absolutepraya/bursawatch-engine/pull/35)
+  and register it with the T3 thread. Do not wait on
   running CI. Request auto-merge only through the repository's required checks
   and review gates.
 
@@ -67,7 +68,8 @@
 
 ## Completion record
 
-- Code/tests: complete. PR: pending.
+- Code/tests: complete. PR #35 is open and linked to the T3 thread; merge is
+  pending the repository's required gates.
 - Catalog and owner-config transition: pending.
 - Natural source-to-delivery event: unobserved; this remains a separate
   evidence layer and is not required for an idle health claim.
