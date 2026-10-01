@@ -88,6 +88,12 @@ blocked handoff; it is private state, never Git. If upload succeeds but inbox
 acceptance fails, the private handoff spool retains the opaque reference and
 retries it without reuploading or advancing the Telegram cursor.
 
+The runner launches Market News owner processes directly. Source-work
+acceptance, `agent-status`, and `claim-agent` must all receive the same
+`IDX_MARKET_NEWS_STATE_PATH` used by the owner submission wrapper, defaulting
+to `~/.hermes/state/idx-market-news.json`. This keeps durable candidates,
+agent leases, and classification submissions in one ledger.
+
 Keep live subscriptions within the reviewed catalog scope above. Do not enable
 other Telegram subscriptions or change the shared source-ingest schedule
 without an approved rollout. News cursors were seeded from the legacy high-water marks and are

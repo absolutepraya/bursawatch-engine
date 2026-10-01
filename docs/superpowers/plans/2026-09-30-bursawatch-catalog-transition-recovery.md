@@ -297,21 +297,37 @@ SHA-256 `c04df46e07d0ff179c7527493d506534f72046e38da66a22c0fed2836edd7ee9`; the 
 Both archive members matched the complete live-tree SHA-256 inventories. Archive directories are mode
 `0700`; files are mode `0600`. No catalog marker or transition journal was changed.
 
-- [ ] **Step 6: Publish and verify the exact-main release**
+- [x] **Step 6: Publish and verify the exact-main release**
 
 Carry the branch through the normal reviewed main publication path. Let CI and the release agent process the exact current main SHA, then verify the shared source-ingest library and RSS source-ingest runtime checksums plus each isolated no-post result before applying state. Do not poll or wait on a pending CI run; continue independent read-only preparation or end the turn, leaving jobs paused until the result is ready. If CI or release fails before state apply, restore both desired schedules to enabled at their original intervals and timezones, verify natural reconciliation, then stop without changing source state.
 
-- [ ] **Step 7: Apply the package-owned catalog transitions**
+**Verified 2026-10-01 08:38 WIB:** exact `origin/main` SHA `925b894968a93005d3458167c38143c463877338` passed GitHub Actions CI. `validate`, deterministic package suites, and WhatsApp Channel Watch all completed successfully; the workflow ran from 07:29:50 to 07:31:27 WIB. The release agent then blocked on three host-owned manifest groups, with no manual migrations. The approved `--release-manual` operation released 11 eligible units, skipped the observer, release-agent-bootstrap, and schedule-reconciler host-owned units, and recorded the same SHA as successful. Its runtime checksum and isolated no-post gates passed.
+
+**Operator-reporting note:** `production_snapshot.py` labels the release agent's separate `bursawatch/release` commit status as `Release CI state`. That status was pending because the release agent required manual operator action, although GitHub Actions CI had passed. Treat the Actions workflow result and release-agent status as separate signals.
+
+- [x] **Step 7: Apply the package-owned catalog transitions**
 
 For Telegram, use the existing command to separately preview and apply 5 to 6, then 6 to 7. For RSS, use the new command to separately preview and apply 4 to 5, 5 to 6, then 6 to 7. Use the exact prior/target snapshots and state root for each edge. Require a fresh matching plan per edge. After each apply, verify the marker and complete journal. For RSS, verify all seed origins remain revision 4 and cursor, validator, owner, inbox, receipt, and prior-journal files remain byte-for-byte unchanged.
 
 If an apply is interrupted, resume only with its exact plan and complete journal. If source projection or state evidence changes, stop before the next edge. Do not reset markers, reseed, replay, or restore an archive over a state root with an active writer.
 
-- [ ] **Step 8: Resume schedules and observe natural runs**
+**Verified 2026-10-01:** all five adjacent applies completed from fresh previews. Telegram advanced 5 to 6 to 7 while preserving its four cursors and all other fingerprinted state. RSS advanced 4 to 5 to 6 to 7 through complete edge journals; its four seed origins remain revision 4 with their common legacy-state digest, watcher-config marker remains revision 1, and all four validators remain valid. Final markers are revision 7 for both readers. No cursor, validator, owner, inbox, receipt, or destination state was reseeded or replayed.
+
+- [x] **Step 8: Resume schedules and observe natural runs**
 
 After both transition chains are complete, restore the two existing desired schedules to enabled at their original intervals and timezones through the authenticated admin schedule interface. Let the natural reconciler pass apply each revision and verify the paused state clears while cadence and delivery configuration remain unchanged. Observe the next natural scheduled runs without manually triggering either job or sending a test message. Verify the readers pass their catalog gates and record fetched/accepted counts, owner work progress, and Delivery Owner receipts where new work exists.
 
 For Telegram, observe whether due owner work drains naturally. If it remains due after compatibility is restored, keep runner order out of scope and open the separate lease/model/owner-state diagnosis agreed in the design. A clean schedule heartbeat without new source content is not proof of a new source-to-delivery event; report that limit explicitly.
+
+**Verified 2026-10-01 09:15 WIB:** desired schedule revisions 3 (Telegram) and 7 (Stockbit) are applied at their original 60-second and 900-second intervals in `Asia/Jakarta`. The 09:15 production snapshot confirms exact-main release parity and 8/8 schedules matching. Natural runs passed both catalog gates: Telegram accepted source events after resume, and the Stockbit run at 09:09 completed with one new `stockbit_snips` work item in `done` status. This proves intake and handler acceptance, not delivery.
+
+The observation found separate follow-up work. A read-only source-work aggregate at 09:15:43 showed Telegram work created since resume still pending or leased across `company_news`, `macro_news`, `stock_status`, `swing_plan`, and `swing_support`. The earlier `agent-status` counts of 43 at 09:23 and 63 at 09:42 came from the source runner's direct Market News owner subprocess and described its package-local state file, not the canonical file used by the submission wrapper.
+
+A read-only comparison at 09:51 found 69 package-local source-provenance candidates (68 `pending_analysis`, 1 `awaiting_agent`) and 688 candidates in canonical `~/.hermes/state/idx-market-news.json` (30 `pending_analysis`, 1 `awaiting_agent`, zero source-work provenance records). The files shared 31 candidate keys whose payloads were identical but phases differed; 38 package-local keys were absent from canonical state. Source-run logs showed the runner requested one Market News item on each of the latest 12 runs without a dispatch warning. The owner log tail contained sanitized candidate-not-in-durable-state and candidate-not-awaiting rejections. Code tracing confirmed that the direct source-runner subprocess omitted `IDX_MARKET_NEWS_STATE_PATH`, while the Market News shell wrapper selected the canonical state file. This is a state-root split, not evidence that runner order caused the backlog. Keep runner order unchanged.
+
+A worktree-only environment fix passes the canonical Market News state path to source-work and agent-status/claim subprocesses. Its focused tests passed (6), the package suite passed (50), and `bash scripts/test-all` passed with one skipped test and existing deprecation warnings. The fix has not been published or deployed. Preserve both live state files until a separate, forward-only reconciliation is reviewed and approved. The post-transition natural-run observation is complete for this catalog-recovery plan; the owner-state reconciliation is a distinct follow-up.
+
+The Stockbit article owner reported a degraded submission at 09:09:29 to 09:09:33, with one error and zero locally confirmed deliveries. A read-only lookup found the stable operation status `delivered`; its digest and stored target match the frozen route destination. The receipt has `message_id` but no `channel_id`. The shared Delivery Owner contract permits that shape, while Stockbit's caller requires `channel_id`, so it left the local article `pending_delivery` after one retry. This is a confirmed receipt-shape contract mismatch, not evidence of a message sent to the wrong channel. The natural retry cannot reconcile this shape while the caller requires a field the owner omits; a separate caller fix must reuse the existing operation and must not create a new operation key. Do not weaken the catalog transition guard.
 
 ## Self-Review
 

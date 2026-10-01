@@ -105,6 +105,21 @@ def test_load_state_migrates_valid_legacy_provider_lanes(tmp_path, monkeypatch):
     assert persisted["providers"]["phintraco"]["bootstrap_complete"] is False
 
 
+def test_save_state_can_skip_legacy_auto_migration_for_owner_reconciliation(tmp_path):
+    path = tmp_path / "state.json"
+    legacy_state = empty_state()
+    for lane in legacy_state["providers"].values():
+        del lane["bootstrap_complete"]
+
+    save_state(legacy_state, path, migrate=False)
+    saved_without_migration = json.loads(path.read_text(encoding="utf-8"))
+    assert all("bootstrap_complete" not in lane for lane in saved_without_migration["providers"].values())
+
+    save_state(legacy_state, path)
+    saved_with_default_migration = json.loads(path.read_text(encoding="utf-8"))
+    assert all("bootstrap_complete" in lane for lane in saved_with_default_migration["providers"].values())
+
+
 def test_load_state_accepts_legacy_two_to_five_letter_candidate_tickers(tmp_path, monkeypatch):
     path = tmp_path / "state.json"
     monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(path))

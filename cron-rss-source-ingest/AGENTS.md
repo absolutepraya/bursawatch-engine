@@ -39,6 +39,13 @@ direct marker edit, missing or extra journal, incomplete edge, changed
 projection, or changed watcher-config revision blocks new intake. It does not
 discard work already accepted by the inbox or Stockbit owner.
 
+An interrupted atomic journal or marker write can leave a private
+`.catalog-transition-<8 characters>` temporary in the state root or transition
+directory. The planner ignores only the writer's exact private regular-file
+pattern when fingerprinting state; an apply with the unchanged reviewed plan
+removes those leftovers before resuming. Symlinks, unsafe modes, malformed
+temporary names, and other unexpected entries still block.
+
 `bin/compatible_catalog_transition.py` previews or applies exactly one
 adjacent edge. It takes `--prior-catalog`, `--target-catalog`, `--state-root`,
 and `--plan-file`; it loads and validates the current Stockbit watcher config

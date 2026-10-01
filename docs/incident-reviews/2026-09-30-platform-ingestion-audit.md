@@ -7,6 +7,19 @@
 
 **Worktree:** `.worktrees/bug-squashing`, branch `absolutepraya/bug-squashing`, based on `origin/main` at `680cc4520db6e0102dbcd55bfc62e7ee73de7cea`.
 
+## Workstream authorization
+
+**Recorded 2026-10-01:** The user has authorized agents working on this
+Bursawatch ingestion bug-squashing effort to carry out the actions reasonably
+needed to complete it without requesting separate approval for each action.
+This includes opening and merging pull requests, pausing and resuming the
+existing affected jobs through the supported scheduler interface, deploying
+reviewed fixes, and applying reviewed production state changes.
+
+This authorization remains subject to repository and package release gates and
+the reviewed plan's preconditions. The user's forward-only requirement remains
+in force: do not replay or backfill historical items or send stale news.
+
 Recheck live state before acting. The original source-state observations were collected mainly between 16:20 and 17:03 WIB. Adjacent-service checks ran between 17:35 and 17:40 WIB. Read-only production snapshots ran at 17:22:56 and 17:40:17 WIB. Runtime state may have changed since then.
 
 ## Follow-up: temporary schedule control
@@ -16,6 +29,74 @@ Recheck live state before acting. The original source-state observations were co
 - The catalog transition plan now pauses through desired schedule revisions, verifies no run is in flight, and archives reader state only after both writers are quiescent.
 - At 00:53 WIB on 2026-10-01, desired revisions 2 and 6 were applied for Telegram and Stockbit, respectively. Both jobs are paused at their existing one-minute and fifteen-minute intervals. A fresh production snapshot showed 6 active and 7 paused jobs, all eight desired schedules matching, and the release agent still blocked on pending CI. No source-reader process was present. The paused-state read found 212 Telegram inbox work rows, all done with no active lease, and no RSS work rows.
 - Complete Telegram and RSS reader-state archives with SHA-256 inventories were verified under `~/backup/hermes/runtime-cutovers/2026-10-01/`. Their directories are private and the archives are retained for at least 30 days. No catalog marker or transition journal has been changed; application remains gated on the exact-main release.
+
+## Follow-up: catalog transition recovery and natural runs
+
+**Verified:** 2026-10-01, 09:15 to 10:09 WIB
+
+- GitHub Actions run `36796468228` for `925b894968a93005d3458167c38143c463877338` completed successfully in 97 seconds. All three jobs passed: `validate`, `Deterministic package suites`, and `WhatsApp Channel Watch`. Both Vercel status checks passed. This is separate from the `bursawatch/release` commit status. The production snapshot's label `Release CI state` refers to that release-agent status, which had been pending on three operator-owned release groups; after the reviewed manual release operation it reports success, with 11 eligible units released and the three manual groups skipped.
+- Read-only production snapshots at 09:15:21, 09:39:26, 10:09:16, and 10:23:44 WIB confirmed `origin/main` and last successful release both at `925b894968a93005d3458167c38143c463877338`, no blocked release agent, no transient release error, a running Hermes gateway, and 8/8 desired interval schedules matching. Telegram and Stockbit are active at their original one-minute and fifteen-minute cadences. The latest snapshot again reports 13 Hermes jobs, 8 active and 5 paused.
+- A further read-only production snapshot at 10:57:03 WIB confirmed the same main and release SHA, successful release status, no blocked release agent, a running Hermes gateway, 13 jobs with 8 active and 5 paused, and 8/8 interval schedules matching. Telegram source-ingest is active at one minute; the legacy Market News reader and watchdog remain paused. This snapshot does not verify runtime checksums or prove source-to-delivery completion.
+- Telegram and RSS reader markers are now revision 7. Their package-owned transition chains were applied edge by edge while writers were paused. Telegram resumed and naturally accepted source events. A database aggregate at 09:15:43 WIB showed post-resume work counts: `company_news` 11 done / 75 pending; `macro_news` 12 done / 74 pending; `stock_status` 37 done / 1 leased / 25 pending; `swing_plan` 20 done / 11 leased / 32 pending; `swing_support` 5 done / 95 pending. These rows prove source-work acceptance and partial handler progress, not delivery. Whether this backlog drains under natural runs remains for a separate owner/pipeline diagnosis; runner order was not changed.
+- The earlier `agent-status` counts of 43 at 09:23 and 63 at 09:42 described a package-local Market News state file read by direct source-runner subprocesses, not the canonical state selected by the Market News wrapper. At 09:51, the package-local file held 69 source-provenance candidates: 68 `pending_analysis` and 1 `awaiting_agent`, with no selection or delivery records. The canonical `~/.hermes/state/idx-market-news.json` held 688 candidates, 30 `pending_analysis`, 1 `awaiting_agent`, and zero source-work provenance records. The two files shared 31 candidate keys with identical candidate payloads but differing phases; 38 package-local candidates had no canonical counterpart. The package-local file had an active lease and retry history through attempt 20; the canonical file had not changed since 2026-09-29 04:08 WIB.
+- This is a confirmed state-root split. `cron-tg-source-ingest/bin/runner.py` launches Market News `pipeline_owner.py` directly, while the runner environment omitted `IDX_MARKET_NEWS_STATE_PATH`; `state.py` therefore used `~/.agents/skills/bursawatch-tg-market-news/state.json`. Hermes receives that claimed item and submits through `bursawatch-tg-market-news.sh`, which selects `~/.hermes/state/idx-market-news.json`. The latest 12 source-run outputs all requested one Market News item without a dispatch warning. A sanitized owner-log tail contained candidate-not-in-durable-state and candidate-not-awaiting rejections, consistent with the split. Other validation and Delivery Owner errors also appeared in the untimestamped log tail, so those counts are not attributed to this root cause.
+- A worktree-only fix now passes the canonical state path to both Market News source-work and agent-status/claim subprocesses, preserving any explicit environment override. The focused regression tests passed (6), the `cron-tg-source-ingest` package suite passed (50), and `bash scripts/test-all` passed with one skipped test and existing deprecation warnings. The fix is not published or deployed; neither live state file has been edited, copied, or removed. The [separate state-root reconciliation plan](../superpowers/plans/2026-10-01-market-news-state-root-reconciliation.md) accounts for the 69 accepted candidates before the active owner path changes.
+- A preliminary state comparison made while source-ingest was active also found four package-local stock-status events, all already present in canonical state. The rejected outcomes matched. Two locally pending events were already canonically delivered with Delivery Owner receipts. The approved merge therefore preserves canonical outcomes and receipts, adding only matching source-event provenance missing from canonical records. These counts and hashes still require a fresh preview after the writer is paused.
+- The natural Stockbit run started at 09:09:05 WIB and completed. It created one `stockbit_snips` source-work item at 09:08:58 WIB, now `done`, proving that the RSS catalog gate passed and the owner accepted the work. The Stockbit article-owner submission finished `degraded` from 09:09:29 to 09:09:33 WIB, with one error and zero locally confirmed deliveries. A read-only Delivery Owner lookup and active-ledger inspection later showed the stable operation is `delivered`; its stored target and digest match the frozen route destination. Its receipt contains `message_id` but omits `channel_id`. The shared [gateway](../../service-bursawatch-discord-delivery/bin/discord_delivery/discord_gateway.py:207) intentionally returns only `message_id` for a channel-message create, and the shared [receipt validator](../../service-bursawatch-discord-delivery/bin/discord_delivery/models.py:230) permits that field to be absent. Stockbit's [delivery drain](../../cron-stockbit-snips/bin/scan.py:268) requires `channel_id`, so it records a local retry while the Delivery Owner has already delivered the operation. This is a receipt-shape contract mismatch, not evidence of a wrong-channel send. The local article remains `pending_delivery` after one retry and needs a separate safe reconciliation; do not replay or create a new operation.
+- The initial catalog blockers are repaired at the reader boundary, and natural runs passed both catalog gates. Telegram's Market News state-root split and Stockbit's local receipt mismatch remain separate unresolved work. The Phintas route gap, WhatsApp archive-capture failure, and Torch RSSHub omission from the original audit also remain open.
+
+## Follow-up: Telegram Market News source-to-channel gap
+
+**Verified:** 2026-10-01, 11:45 to 11:57 WIB. Read-only source, state, and
+channel inspection. No replay or post was performed.
+
+- Discord history since Sep 25 returned 62 `#id-stocks-news` messages, latest
+  at 10:44 WIB on Oct 1, and 8 `#id-industry-news` messages, latest at 14:21
+  WIB on Sep 29. The requested history window fit within the 100-message read
+  cap for both channels.
+- Telegram remained active. Tuntun published through message 15058 on Oct 1;
+  its newest messages were daily/promotion material outside the Market News
+  parser contract. Its Sep 30 evening update, message 15053, produced three
+  Industry candidates that remain `pending_analysis`. The Sep 30 Corporate
+  message 15054 produced four candidates, but the BRIS entry was omitted
+  because the legal-name parentheses are nested and the current ticker-line
+  expression rejects that shape.
+- Phintraco published Stock Information message 35549 at 08:21 WIB on Oct 1.
+  Its effective date was `01 Oktober 2026`; the parser's English-only month
+  conversion rejected it, and the owner ledger records `invalid_status`.
+  Messages 35484 and 35522 (effective Sep 29 and Sep 30) were delivered to
+  `#id-stocks-news` at about 10:43 WIB on Oct 1, confirming the late status
+  symptom. The new Oct 1 status was not delivered.
+- The source cursors were already at Tuntun 15058 and Phintraco 35552. The
+  package-local owner file had 69 source-provenance candidates, all 69 keys
+  also present in the canonical owner ledger. Two overlapping keys had phase
+  differences. Canonical state had 83 active candidates, all published before
+  Oct 1: 82 `pending_analysis` and one `awaiting_agent`, spanning Sep 28 to
+  Sep 30. No candidate was in `pending_delivery` at this read.
+- The state-root cause is confirmed: the source runner's direct Market News
+  subprocess and the classification wrapper selected different owner files.
+  Source-work retries and expired leases therefore accumulated while the
+  scheduled job and source cursors continued moving. The open `bug-squashing`
+  change passes the canonical path to direct owner subprocesses.
+- The existing state-reconciliation plan would otherwise leave old candidates
+  eligible after the path correction. Because the user explicitly requires
+  forward-only delivery with no stale sends, the plan now abandons pre-cutover
+  active candidates before resume and blocks unresolved Delivery Owner work.
+  This state operation has not been applied.
+- Worktree fixes also extend status parsing to Indonesian month names and allow
+  nested parentheses in Tuntun Corporate entries. Neither change replays the
+  inspected messages; future source messages use the corrected parsers after
+  the release. The focused changed-path checks passed 112 tests, the Market
+  News package suite passed 310 tests, and `bash scripts/test-all` passed all
+  repository checks with one existing skip and deprecation warnings. These
+  tests verify local contracts, not a live natural delivery.
+- A production snapshot at 11:57:06 WIB showed `origin/main` and last
+  successful release both at `925b894`, all 8 desired schedules matching,
+  the Telegram source-ingest job active, and the legacy Market News reader and
+  watchdog paused. It does not prove a natural source-to-delivery event.
+
+The X/RSSHub omission, Stockbit receipt-shape mismatch, and WhatsApp archive
+capture gap remain separate workstreams from this Telegram news-path diagnosis.
 
 ## Executive summary
 

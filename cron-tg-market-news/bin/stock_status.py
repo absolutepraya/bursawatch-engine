@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 import re
 
 
@@ -37,6 +37,27 @@ _MONTHS = (
     "Nov",
     "Dec",
 )
+_SOURCE_MONTHS = {
+    name.casefold(): index
+    for index, names in enumerate(
+        (
+            ("January", "Januari"),
+            ("February", "Februari"),
+            ("March", "Maret"),
+            ("April",),
+            ("May", "Mei"),
+            ("June", "Juni"),
+            ("July", "Juli"),
+            ("August", "Agustus"),
+            ("September",),
+            ("October", "Oktober"),
+            ("November",),
+            ("December", "Desember"),
+        ),
+        start=1,
+    )
+    for name in names
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,9 +103,11 @@ def parse_stock_information(source_message_id: int, text: str) -> StockStatus:
             if effective_dates or sections or footers_started:
                 raise StockStatusError("duplicate or misplaced effective date")
             try:
-                effective_dates.append(
-                    datetime.strptime(date_match.group(1), "%d %B %Y").date()
-                )
+                day, month_name, year = date_match.group(1).split()
+                month = _SOURCE_MONTHS.get(month_name.casefold())
+                if month is None:
+                    raise ValueError("unknown source month")
+                effective_dates.append(date(int(year), month, int(day)))
             except ValueError as exc:
                 raise StockStatusError("invalid effective date") from exc
             continue

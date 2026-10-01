@@ -28,9 +28,9 @@ matching its existing parser and output contract.
 
 - Development source: this directory. The Market News domain owner lives at `~/.agents/skills/bursawatch-tg-market-news/`; its wrapper is `~/.hermes/scripts/bursawatch-tg-market-news.sh`. The scheduled legacy reader using that wrapper remains paused after cutover.
 - `cron-tg-source-ingest` owns live Telegram polling, resilience, cursors, source inbox acceptance, and cross-owner dispatch. The Market News owner owns source-backed candidate state, deterministic parsing and validation, classification, deduplication, ranking, rendering, and delivery retries. Hermes receives exactly one bounded candidate only when `wakeAgent` is true and may classify only that supplied evidence.
-- Tuntun (`tuntunsekuritas`) accepts only thread `3743`: standalone `📰` news, issuer-specific ticker-led standalone news, explicit foreign-partner `<name> China-<IDX ticker>` headlines, explicitly issuer-named `Anak Usaha <TICKER>` headlines with one or two named issuers, individual company entries in Corporate posts, issuer-specific Special Topics, and bounded Midday or Evening Updates. A Corporate post creates at most one candidate per ticker and keeps the first entry when a ticker repeats, preserving the durable message-plus-ticker identity on retries. A decorated headline selects its first non-market, non-abbreviation ticker when present, otherwise it is a tickerless macro candidate. The deterministic reserved-acronym set covers market symbols plus verified government, regulatory, market-infrastructure, macro, and industry labels such as `APBN`, `BUMN`, `POJK`, `RKAB`, `SPBU`, and `TKDN`, so they cannot create an issuer price card. Each addition must first be checked against the current IDX Stock List because ambiguous acronyms may be live issuers. An update creates one lead plus one candidate per `Macro & Global` or `Industry` news paragraph. `Overview`, sector, movers, breadth, and foreign-flow tables are excluded. Daily, promotional, and customer-service material is excluded.
+- Tuntun (`tuntunsekuritas`) accepts only thread `3743`: standalone `📰` news, issuer-specific ticker-led standalone news, explicit foreign-partner `<name> China-<IDX ticker>` headlines, explicitly issuer-named `Anak Usaha <TICKER>` headlines with one or two named issuers, individual company entries in Corporate posts, issuer-specific Special Topics, and bounded Midday or Evening Updates. A Corporate post creates at most one candidate per ticker and keeps the first entry when a ticker repeats, preserving the durable message-plus-ticker identity on retries. Corporate ticker-led entries allow nested parentheses in issuer names. A decorated headline selects its first non-market, non-abbreviation ticker when present, otherwise it is a tickerless macro candidate. The deterministic reserved-acronym set covers market symbols plus verified government, regulatory, market-infrastructure, macro, and industry labels such as `APBN`, `BUMN`, `POJK`, `RKAB`, `SPBU`, and `TKDN`, so they cannot create an issuer price card. Each addition must first be checked against the current IDX Stock List because ambiguous acronyms may be live issuers. An update creates one lead plus one candidate per `Macro & Global` or `Industry` news paragraph. `Overview`, sector, movers, breadth, and foreign-flow tables are excluded. Daily, promotional, and customer-service material is excluded.
 - Phintraco (`phintasprofits`) accepts Notes, PHINTAS Quick Notes, Company Update, Company Flash, Company Notes, and Stock Information. Notes, Quick Notes, and Company Update create one candidate from the first non-empty headline. A ticker-led headline supplies that issuer; a PHINTAS Quick Notes headline beginning `Anak Usaha <TICKER>` also supplies its single listed parent issuer. Headlines naming multiple listed issuers remain tickerless so their impact is summarized once as macro. Company Flash and Company Notes require an identified issuer. Market Review, including a mixed review with appended top-pick material, is excluded.
-- Phintraco `Stock Information` arrives as `stock_status` source work and is handled by the deterministic Market News owner before agent wake. Each newly observed post becomes one grouped event to the existing `id_stocks_news` route (`#id-stocks-news`); it bypasses AI classification and Yahoo Finance market data. The effective date supplies the `Stock Status: Wed, 23 Sep 2026` header date. Source sections map as `Unusual Market Activity (UMA)` to `UMA`, `Suspend` to `Suspend In`, `Unsuspend` to `Suspend Out`, and `FCA In` and `FCA Out` to the same output labels. Every message contains all five sections in the fixed order `UMA`, `Suspend In`, `Suspend Out`, `FCA In`, `FCA Out`; tickers are bullet-listed in source order and an empty category is `(None)`. Missing or duplicate headings, an unknown heading, an invalid or duplicate effective date, or a malformed category entry rejects the entire message. The Discord content limit is 2,000 characters; longer content is rejected without truncation or splitting. The event or rejection is persisted before the Phintraco source cursor advances. This path processes new messages only, does not monitor edits, and does not backfill or replay history.
+- Phintraco `Stock Information` arrives as `stock_status` source work and is handled by the deterministic Market News owner before agent wake. Each newly observed post becomes one grouped event to the existing `id_stocks_news` route (`#id-stocks-news`); it bypasses AI classification and Yahoo Finance market data. The effective date accepts English and Indonesian month names and supplies the `Stock Status: Wed, 23 Sep 2026` header date. Source sections map as `Unusual Market Activity (UMA)` to `UMA`, `Suspend` to `Suspend In`, `Unsuspend` to `Suspend Out`, and `FCA In` and `FCA Out` to the same output labels. Every message contains all five sections in the fixed order `UMA`, `Suspend In`, `Suspend Out`, `FCA In`, `FCA Out`; tickers are bullet-listed in source order and an empty category is `(None)`. Missing or duplicate headings, an unknown heading, an invalid or duplicate effective date, or a malformed category entry rejects the entire message. The Discord content limit is 2,000 characters; longer content is rejected without truncation or splitting. The event or rejection is persisted before the Phintraco source cursor advances. This path processes new messages only, does not monitor edits, and does not backfill or replay history.
 - A fresh provider cursor is initialized at the current highest message. It creates no historical candidate or backfill.
 - A separate operator command may queue exactly one verified Phintraco Quick Note published today: `~/.hermes/scripts/bursawatch-tg-market-news.sh backfill-phintraco-quick-note --message-id <id>`. It fetches that exact message, verifies its format and Jakarta publication date, requires the provider cursor to be bootstrapped and already at or beyond the message, and leaves the cursor unchanged. It is idempotent and queues analysis only; the next natural shared source-ingest run handles classification and delivery. It cannot backfill older dates or other Phintraco formats.
 - The Control Plane schedule row `bursawatch-tg-market-news` describes only
@@ -97,6 +97,44 @@ The owner-specific `bin/delivery_handoff.py --plan <private-plan-path>` command 
 The shared source-ingest runner uses the shared `POLYCOP_SESSION_STRING` profile and `telegram-resilience` control plane at `~/.hermes/state/telegram-resilience-polyclop.json`. Before creating a Telegram client, it acquires `acquire_probe_after_active_lease`. A cooldown, peer probe lease, transport backoff, or authorization hold exits cleanly without advancing a provider cursor, candidate queue, delivery outbox, or other production state. Do not add a watcher-specific session, reset the shared state, replay candidates, or manually post an item. The legacy Market News scanner also uses this shared state if run for approved maintenance, but its scheduled reader stays paused.
 
 The Market News owner's durable state is `~/.hermes/state/idx-market-news.json`; it and the shared resilience control state are production data, not deploy inputs. The optional live Market News configuration is one frozen owner snapshot: provider usernames, three Discord news routes, the heartbeat route, and bounded additive agent context may change through the web application after deployment. Telegram source selection is owned separately by the Source Catalog. Neither configuration changes durable candidates, cursors, retry state, state paths, model protocol, or the watchdog schedule. The independent watchdog remains outside this config surface because it reads only existing durable state and uses the shared Delivery Owner client token. It is paused after the paired News cutover and must not be resumed while shared source ingest is polling these publishers.
+
+When `cron-tg-source-ingest` launches this owner's `pipeline_owner.py`
+directly, it must pass `IDX_MARKET_NEWS_STATE_PATH` with the same canonical
+default used by this wrapper. Source-work acceptance, `agent-status`,
+`claim-agent`, and wrapper classification submission must use this one ledger;
+the deployed skill's package-local `state.json` is not a production state path.
+
+### Source-ingest state reconciliation
+
+`bin/reconcile_source_ingest_state.py` owns the one-time merge of accepted
+source-work state from the deployed package-local file into the canonical
+Market News state. `preview` is read-only. It validates both `0600` state
+files with legacy migration disabled and writes a private plan containing
+hashes and aggregate candidate and status-event counts, never source text or
+URLs. Its default input paths are the deployed package-local `state.json` and
+`~/.hermes/state/idx-market-news.json`; the default private plan is
+`~/.hermes/maintenance-plans/market-news-state-reconciliation.json`.
+
+Run production `preview` and `apply` only in the approved state-reconciliation
+sequence: verify release and current paths, pause source-ingest, prove there is
+no active run, owner process, or state lock, resolve outstanding leases,
+archive and checksum both complete state files, and review a fresh preview.
+Apply must use that exact preview while the writer remains paused. The merge
+preserves terminal history, selections, delivery intents, handoffs, and
+receipts. It imports only validated source provenance and safe terminal
+source-only status events. It marks all pre-cutover active candidates
+`abandoned` with a recorded reason so the first resumed run cannot emit stale
+news. Preview and apply block on unresolved candidate or stock-status
+`pending_delivery` work; resolve its Delivery Owner operation before creating a
+new plan. The package-local source file remains unchanged for the verified
+archive. On any failure after pausing, keep the schedule paused and follow the
+approved plan before resuming it. Never run the scheduled job manually, replay
+state, or send a test post for this check.
+
+```bash
+python3 "$HOME/.agents/skills/bursawatch-tg-market-news/bin/reconcile_source_ingest_state.py" preview
+python3 "$HOME/.agents/skills/bursawatch-tg-market-news/bin/reconcile_source_ingest_state.py" apply
+```
 
 ### Live configuration schema
 

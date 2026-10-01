@@ -124,6 +124,28 @@ _STOCK_STATUS_CONFIG_HANDOFF_KEYS = _STOCK_STATUS_CONFIG_KEYS | {"delivery_hando
 _STOCK_STATUS_SOURCE_CONFIG_KEYS = _STOCK_STATUS_SOURCE_EVENT_KEYS | {"config_revision"}
 _STOCK_STATUS_SOURCE_CONFIG_HANDOFF_KEYS = _STOCK_STATUS_SOURCE_CONFIG_KEYS | {"delivery_handoff"}
 _PUBLICATION_LEDGER_KEY = "publication_projection"
+_SOURCE_INGEST_RECONCILIATION_KEY = "source_ingest_state_reconciliation_v1"
+_SOURCE_INGEST_RECONCILIATION_FIELDS = frozenset(
+    {
+        "version",
+        "plan_sha256",
+        "source_state_sha256",
+        "canonical_base_sha256",
+        "source_candidate_count",
+        "source_provenance_count",
+        "new_candidate_count",
+        "overlap_count",
+        "phase_difference_count",
+        "provenance_added_count",
+        "source_status_event_count",
+        "new_status_event_count",
+        "overlap_status_event_count",
+        "status_event_phase_difference_count",
+        "status_event_provenance_added_count",
+        "active_candidate_abandonment_count",
+        "applied_at",
+    }
+)
 _REJECTED_STOCK_STATUS_EVENT_KEYS = frozenset(
     {"source_message_id", "source_url", "phase", "rejected_at", "rejection_code"}
 )
@@ -506,6 +528,10 @@ def _validate_state(state: object) -> None:
             _validate_stock_status_event(key, event)
     if _PUBLICATION_LEDGER_KEY in state["stats"]:
         _validate_publication_ledger(state["stats"][_PUBLICATION_LEDGER_KEY])
+    if _SOURCE_INGEST_RECONCILIATION_KEY in state["stats"]:
+        _validate_source_ingest_reconciliation(
+            state["stats"][_SOURCE_INGEST_RECONCILIATION_KEY]
+        )
     _validate_timestamp_or_none(state["last_poll_success"], "last_poll_success")
     _validate_timestamp_or_none(state["last_delivery_success"], "last_delivery_success")
     _validate_timestamp_or_none(state["last_heartbeat_hour"], "last_heartbeat_hour")
@@ -615,12 +641,20 @@ def _fsync_directory(directory: Path) -> None:
         os.close(descriptor)
 
 
-def save_state(state: Mapping[str, object], path: str | os.PathLike[str] | None = None) -> None:
+def save_state(
+    state: Mapping[str, object],
+    path: str | os.PathLike[str] | None = None,
+    *,
+    migrate: bool = True,
+) -> None:
     if not isinstance(state, dict):
         raise StateBlockedError("malformed state: top-level state must be an object")
+    if type(migrate) is not bool:
+        raise ValueError("migrate must be a boolean")
     _validate_state(state)
-    _migrate_legacy_provider_lanes(state)
-    _migrate_legacy_candidate_records(state)
+    if migrate:
+        _migrate_legacy_provider_lanes(state)
+        _migrate_legacy_candidate_records(state)
     _validate_state(state)
     state_path = _state_path(path)
     state_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -817,6 +851,44 @@ def _validate_publication_ledger(value: object) -> None:
             or not re.fullmatch(r"[0-9a-f]{64}", ack["digest"])
         ):
             raise StateBlockedError("malformed state: publication projection acknowledgment is invalid")
+
+
+def _validate_source_ingest_reconciliation(value: object) -> None:
+    if not isinstance(value, dict) or set(value) != _SOURCE_INGEST_RECONCILIATION_FIELDS:
+        raise StateBlockedError("malformed state: source-ingest reconciliation receipt is invalid")
+    if value["version"] != 1 or not _is_plain_int(value["version"]):
+        raise StateBlockedError("malformed state: source-ingest reconciliation version is invalid")
+    for field in ("plan_sha256", "source_state_sha256", "canonical_base_sha256"):
+        if not isinstance(value[field], str) or not re.fullmatch(r"[0-9a-f]{64}", value[field]):
+            raise StateBlockedError(f"malformed state: source-ingest reconciliation {field} is invalid")
+    count_fields = (
+        "source_candidate_count",
+        "source_provenance_count",
+        "new_candidate_count",
+        "overlap_count",
+        "phase_difference_count",
+        "provenance_added_count",
+        "source_status_event_count",
+        "new_status_event_count",
+        "overlap_status_event_count",
+        "status_event_phase_difference_count",
+        "status_event_provenance_added_count",
+        "active_candidate_abandonment_count",
+    )
+    if any(not _is_plain_int(value[field]) or value[field] < 0 for field in count_fields):
+        raise StateBlockedError("malformed state: source-ingest reconciliation counts are invalid")
+    if (
+        value["source_candidate_count"] != value["source_provenance_count"]
+        or value["source_candidate_count"] != value["new_candidate_count"] + value["overlap_count"]
+        or value["phase_difference_count"] > value["overlap_count"]
+        or value["provenance_added_count"] > value["source_provenance_count"]
+        or value["source_status_event_count"]
+        != value["new_status_event_count"] + value["overlap_status_event_count"]
+        or value["status_event_phase_difference_count"] > value["overlap_status_event_count"]
+        or value["status_event_provenance_added_count"] > value["overlap_status_event_count"]
+    ):
+        raise StateBlockedError("malformed state: source-ingest reconciliation counts are inconsistent")
+    _parse_timestamp(value["applied_at"], "source-ingest reconciliation applied_at")
 
 
 def record_publication_intent(state: dict[str, object], snapshot: dict[str, object]) -> bool:

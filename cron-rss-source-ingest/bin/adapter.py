@@ -25,7 +25,13 @@ if not owner.exists():
 sys.path.insert(0, str(owner))
 
 from source_ingest import IntakeBlocked, _cursor as _load_cursor_record, _write, bind_catalog_revision, ingest_all, select_endpoints
-from legacy_cursor_seed import LegacySeedBlocked, blocked_seed_plan, plan_seed, read_legacy_snapshot
+from legacy_cursor_seed import (
+    LegacySeedBlocked,
+    _catalog_transition_temporaries,
+    blocked_seed_plan,
+    plan_seed,
+    read_legacy_snapshot,
+)
 from config import FEEDS
 from rss import FetchResult
 
@@ -240,7 +246,11 @@ def _require_rss_transition_chain(
             entries = set(directory.iterdir())
         except OSError as error:
             raise IntakeBlocked("RSS catalog transition directory is unreadable") from error
-        if entries != allowed_paths:
+        try:
+            temporary_paths = _catalog_transition_temporaries(directory)
+        except LegacySeedBlocked as error:
+            raise IntakeBlocked("RSS catalog transition temporary entry is unsafe") from error
+        if entries - temporary_paths != allowed_paths:
             raise IntakeBlocked("RSS catalog transition history has a gap or unexpected entry")
     elif expected_paths or (pending_path is not None and pending_path.exists()):
         raise IntakeBlocked("RSS catalog transition history is incomplete")
