@@ -499,3 +499,13 @@ describe the original implementation, not this new behavior.
   `bash scripts/test-all`.
 - [ ] Review the exact live diff before release; verify source, owner,
   receipt, and Discord room evidence on a natural eligible event.
+
+### 2026-10-02 source progress
+
+PR #42 merged the adapter, owner, and watcher fallback with focused tests and
+the repository CI gate passing. The source handles a verified immutable
+archive record with unavailable media; the technical-review path forwards
+source text with `Source chart unavailable` and suppresses chart-dependent
+Board context. The checklist above records the original work plan. Live
+source, receipt, and room correlation remains open until a natural eligible
+event can be inspected.
