@@ -73,11 +73,11 @@ one concise paragraph without a label prefix, and exactly one `sentiment`
 value: `Bullish`, `Bearish`, or `Sideways`. Preserve an explicit source stance
 when present, otherwise classify the dominant direction of the supplied
 technical evidence and use `Sideways` only for a genuinely balanced setup.
-Delivery logic, not this skill, verifies the required archive-owned chart
-image, renders `Sentiment`, `Sentiment date`, `Reasons`, `Last updated`, and
-`Board`, posts All Swing text then the image, and makes the Board
-`Chart context` handoff. Never attempt that handoff, inspect the archive, or
-make up an image status yourself. For ordinary macro and issuer-news items,
+Delivery logic, not this skill, verifies whether an archive-owned chart
+is available. With a chart, it renders `Sentiment`, `Sentiment date`,
+`Reasons`, `Last updated`, and `Board`, posts All Swing text then the image,
+and makes the Board `Chart context` handoff. Never attempt that handoff,
+inspect the archive, or make up an image status yourself. For ordinary macro and issuer-news items,
 delivery may complete text-only when the immutable archive record reports that
 source media is unavailable. The watcher records that degraded media result,
 does not retry the same unavailable source forever, and still retries a Discord
