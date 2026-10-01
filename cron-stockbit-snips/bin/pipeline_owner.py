@@ -167,7 +167,7 @@ def drain_deliveries(*, path: Path | None = None, now: datetime | None = None) -
         scan._drain_publications(value, destination, observed)
         from dataclasses import replace
         delivered = scan._drain_delivery(
-            value, replace(runtime, state_path=destination), observed
+            value, replace(runtime, state_path=destination), observed, limit=3
         )
         scan._drain_publications(value, destination, observed)
         articles = value["articles"]
