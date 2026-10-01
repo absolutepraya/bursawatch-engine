@@ -169,6 +169,7 @@ def drain_deliveries(*, path: Path | None = None, now: datetime | None = None) -
         delivered = scan._drain_delivery(
             value, replace(runtime, state_path=destination), observed, limit=3
         )
+        state.save_state(destination, value)
         scan._drain_publications(value, destination, observed)
         articles = value["articles"]
         pending = sum(
