@@ -256,10 +256,24 @@ path may reuse this owner after its API is designed. The bucket, policies,
 credentials, retention, and first service bootstrap remain separate deployment
 approvals.
 
+The VPS schedule-reconciler timer was enabled and active in a read-only
+production check at 2026-10-01 00:35 WIB. It reconciles Control Plane desired
+schedules by calling the supported Hermes CLI. A direct Hermes pause can be
+undone on the next timer pass while desired state remains enabled. For an
+approved maintenance pause, write `enabled=false` at the existing interval
+and timezone through the authenticated admin schedule interface, verify the
+applied revision and paused job, then restore `enabled=true` the same way after
+maintenance.
+
 ## Safety
 
 - Do not add, remove, rename, enable, disable, or reschedule a live Hermes job
-  without explicit current-chat approval and the supported Hermes CLI.
+  without explicit current-chat approval. For jobs managed by the active
+  schedule reconciler, record temporary pause and resume through the
+  authenticated desired-schedule interface at the existing interval and
+  timezone, then verify the applied revision; the reconciler uses the
+  supported Hermes CLI. A direct CLI pause can be undone by the next timer
+  pass.
 - Do not change delivery destinations or cadence without explicit approval.
 - Outside the approved release agent, do not restart services, manually
   trigger production schedules, post test messages, place orders, reset state,

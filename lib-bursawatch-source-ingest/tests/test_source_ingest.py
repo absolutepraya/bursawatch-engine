@@ -226,6 +226,149 @@ def test_catalog_revision_only_transition_preserves_all_cursor_files(tmp_path, m
     assert journal["seeded_endpoints"] == []
 
 
+def test_catalog_revision_transition_uses_caller_specific_apply_guard(tmp_path, monkeypatch):
+    root = tmp_path / "state"
+    root.mkdir()
+    _write(root / "catalog-revision.json", {"revision": 5})
+    guard = "BURSAWATCH_RSS_CATALOG_TRANSITION_ALLOW_APPLY"
+    metadata = {"reason": "Stockbit RSS projection is unchanged across this adjacent catalog edge."}
+    preview = plan_catalog_revision_transition(
+        state_root=root,
+        from_revision=5,
+        to_revision=6,
+        seeds=[],
+        metadata=metadata,
+        allow_empty_seeds=True,
+        apply_guard_env=guard,
+    )
+
+    monkeypatch.setenv("BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY", "1")
+    monkeypatch.delenv(guard, raising=False)
+    with pytest.raises(LegacySeedBlocked, match=f"{guard}=1"):
+        plan_catalog_revision_transition(
+            state_root=root,
+            from_revision=5,
+            to_revision=6,
+            seeds=[],
+            metadata=metadata,
+            allow_empty_seeds=True,
+            apply=True,
+            expected_plan=preview,
+            apply_guard_env=guard,
+        )
+
+    assert json.loads((root / "catalog-revision.json").read_text()) == {"revision": 5}
+    assert not (root / "catalog-transitions" / "5-to-6.json").exists()
+
+    monkeypatch.delenv("BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY", raising=False)
+    monkeypatch.setenv(guard, "1")
+    applied = plan_catalog_revision_transition(
+        state_root=root,
+        from_revision=5,
+        to_revision=6,
+        seeds=[],
+        metadata=metadata,
+        allow_empty_seeds=True,
+        apply=True,
+        expected_plan=preview,
+        apply_guard_env=guard,
+    )
+
+    assert applied["status"] == "applied"
+    assert json.loads((root / "catalog-revision.json").read_text()) == {"revision": 6}
+    journal = json.loads((root / "catalog-transitions" / "5-to-6.json").read_text())
+    assert journal["status"] == "complete"
+    assert guard not in json.dumps(journal)
+
+
+def test_catalog_revision_transition_rejects_invalid_apply_guard_name(tmp_path):
+    root = tmp_path / "state"
+    root.mkdir()
+    _write(root / "catalog-revision.json", {"revision": 5})
+
+    with pytest.raises(LegacySeedBlocked, match="apply guard name is invalid"):
+        plan_catalog_revision_transition(
+            state_root=root,
+            from_revision=5,
+            to_revision=6,
+            seeds=[],
+            metadata={"reason": "The unchanged Stockbit RSS projection accepts this catalog edge."},
+            allow_empty_seeds=True,
+            apply_guard_env="not-a-valid-name",
+        )
+
+
+def test_catalog_revision_only_transition_resumes_after_marker_update(tmp_path, monkeypatch):
+    import legacy_cursor_seed
+
+    root = tmp_path / "state"
+    root.mkdir()
+    _write(root / "catalog-revision.json", {"revision": 5})
+    preserved = {
+        root / "stockbit" / "cursor.json": {"initialized": True, "anchor": "item-17", "position": None},
+        root / "stockbit" / "validators.json": {"etag": "feed-v3", "last_modified": "Tue, 29 Sep 2026 10:00:00 GMT"},
+        root / "stockbit" / "legacy-seed.json": {"catalog_revision": 4, "legacy_state_sha256": "a" * 64},
+    }
+    for path, record in preserved.items():
+        _write(path, record)
+    original_bytes = {path: path.read_bytes() for path in preserved}
+    metadata = {"reason": "The reviewed Stockbit RSS projection is unchanged for this catalog edge."}
+    guard = "BURSAWATCH_RSS_CATALOG_TRANSITION_ALLOW_APPLY"
+    preview = plan_catalog_revision_transition(
+        state_root=root,
+        from_revision=5,
+        to_revision=6,
+        seeds=[],
+        metadata=metadata,
+        allow_empty_seeds=True,
+        apply_guard_env=guard,
+    )
+    transition_path = root / "catalog-transitions" / "5-to-6.json"
+    real_write = legacy_cursor_seed._write_private_json
+
+    def interrupt_completion(path, value):
+        if path == transition_path and value.get("status") == "complete":
+            raise OSError("synthetic final journal interruption")
+        real_write(path, value)
+
+    monkeypatch.setenv(guard, "1")
+    monkeypatch.setattr(legacy_cursor_seed, "_write_private_json", interrupt_completion)
+    with pytest.raises(OSError, match="synthetic final journal interruption"):
+        plan_catalog_revision_transition(
+            state_root=root,
+            from_revision=5,
+            to_revision=6,
+            seeds=[],
+            metadata=metadata,
+            allow_empty_seeds=True,
+            apply=True,
+            expected_plan=preview,
+            apply_guard_env=guard,
+        )
+
+    assert json.loads((root / "catalog-revision.json").read_text()) == {"revision": 6}
+    assert json.loads(transition_path.read_text())["status"] == "applying"
+    assert {path: path.read_bytes() for path in preserved} == original_bytes
+
+    monkeypatch.setattr(legacy_cursor_seed, "_write_private_json", real_write)
+    resumed = plan_catalog_revision_transition(
+        state_root=root,
+        from_revision=5,
+        to_revision=6,
+        seeds=[],
+        metadata=metadata,
+        allow_empty_seeds=True,
+        apply=True,
+        expected_plan=preview,
+        apply_guard_env=guard,
+    )
+
+    assert resumed["status"] == "applied"
+    assert json.loads((root / "catalog-revision.json").read_text()) == {"revision": 6}
+    assert json.loads(transition_path.read_text())["status"] == "complete"
+    assert {path: path.read_bytes() for path in preserved} == original_bytes
+
+
 def test_acknowledged_handoff_recovery_preserves_staged_publication_time(tmp_path):
     inbox = Inbox()
     endpoint = dict(ENDPOINT)

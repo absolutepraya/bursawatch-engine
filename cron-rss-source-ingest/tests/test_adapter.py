@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "cron-rss-source-ingest" / "bin"))
 from adapter import endpoints, plan_legacy_cursor_seed, require_legacy_cursor_seed, run_once
 from runner import run_once as run_pipeline
+from compatible_catalog_transition import apply_plan as apply_catalog_plan, build_plan as build_catalog_plan
 
 sys.path.insert(0, str(ROOT / "cron-stockbit-snips" / "bin"))
 from config import FEEDS, LoadedStockbitConfig, load_watch_config_data
@@ -190,22 +191,145 @@ def _seeded_rss_root(root: Path) -> dict[str, bytes]:
     return cursor_bytes
 
 
+def _catalog_snapshot(revision: int) -> dict:
+    return {
+        "revision": revision,
+        "subscriptions": [
+            {
+                "platform": "rss",
+                "endpoint_id": f"rss:stockbit:{feed.lane.value}",
+                "publisher_id": "stockbit",
+                "address": feed.url,
+                "provider_id": feed.lane.value,
+                "capability_id": "stockbit_snips",
+                "verification_status": "verified",
+                "enabled": True,
+            }
+            for feed in FEEDS
+        ],
+    }
+
+
+def _advance_catalog_to_seven(root: Path, loaded, monkeypatch) -> dict:
+    monkeypatch.setenv("BURSAWATCH_RSS_CATALOG_TRANSITION_ALLOW_APPLY", "1")
+    for revision in range(4, 7):
+        prior = _catalog_snapshot(revision)
+        target = _catalog_snapshot(revision + 1)
+        plan = build_catalog_plan(prior, target, root, loaded)
+        apply_catalog_plan(plan, prior, target, root, loaded)
+    return _catalog_snapshot(7)
+
+
 def test_production_seed_gate_requires_all_four_reviewed_cursors(tmp_path):
     root = tmp_path / "bursawatch-rss-source-ingest"
+    snapshot, loaded = snapshot_and_config()
 
     with pytest.raises(IntakeBlocked):
-        require_legacy_cursor_seed(root, 4, 7)
+        require_legacy_cursor_seed(root, snapshot, loaded)
 
     assert not root.exists()
     _seeded_rss_root(root)
-    require_legacy_cursor_seed(root, 4, 7)
+    require_legacy_cursor_seed(root, snapshot, loaded)
 
     cursor_path = root / "rss-stockbit-unboxing" / "cursor.json"
     cursor = json.loads(cursor_path.read_text())
     cursor["anchor"] = hashlib.sha256(b"post-cutover-item").hexdigest()
     cursor["boundary_published_at"] = (NOW + timedelta(minutes=1)).isoformat()
     cursor_path.write_text(json.dumps(cursor, sort_keys=True, separators=(",", ":")))
-    require_legacy_cursor_seed(root, 4, 7)
+    require_legacy_cursor_seed(root, snapshot, loaded)
+
+
+def test_production_seed_gate_accepts_complete_adjacent_transition_chain(tmp_path, monkeypatch):
+    root = tmp_path / "bursawatch-rss-source-ingest"
+    _seeded_rss_root(root)
+    _snapshot, loaded = snapshot_and_config()
+    original_cursors = {
+        path: path.read_bytes()
+        for path in sorted(root.glob("rss-stockbit-*/cursor.json"))
+    }
+
+    snapshot = _advance_catalog_to_seven(root, loaded, monkeypatch)
+
+    require_legacy_cursor_seed(root, snapshot, loaded)
+
+    assert json.loads((root / "catalog-revision.json").read_text()) == {"revision": 7}
+    assert {path: path.read_bytes() for path in original_cursors} == original_cursors
+    assert {
+        path.name for path in (root / "catalog-transitions").iterdir()
+    } == {"4-to-5.json", "5-to-6.json", "6-to-7.json"}
+
+
+def test_production_seed_gate_rejects_direct_marker_change_without_journals(tmp_path):
+    root = tmp_path / "bursawatch-rss-source-ingest"
+    _seeded_rss_root(root)
+    snapshot, loaded = snapshot_and_config()
+    (root / "catalog-revision.json").write_text('{"revision":7}', encoding="utf-8")
+
+    with pytest.raises(IntakeBlocked):
+        require_legacy_cursor_seed(root, _catalog_snapshot(7), loaded)
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    ["missing", "incomplete", "overlap", "symlink", "foreign_type", "projection", "watch_config"],
+)
+def test_production_seed_gate_rejects_tampered_transition_chain(tmp_path, monkeypatch, tamper):
+    root = tmp_path / "bursawatch-rss-source-ingest"
+    _seeded_rss_root(root)
+    _snapshot, loaded = snapshot_and_config()
+    snapshot = _advance_catalog_to_seven(root, loaded, monkeypatch)
+    directory = root / "catalog-transitions"
+    edge = directory / "5-to-6.json"
+
+    if tamper == "missing":
+        edge.unlink()
+    elif tamper == "incomplete":
+        journal = json.loads(edge.read_text())
+        journal["status"] = "applying"
+        edge.write_text(json.dumps(journal, sort_keys=True, separators=(",", ":")), encoding="utf-8")
+    elif tamper == "overlap":
+        (directory / "4-to-6.json").write_text("{}", encoding="utf-8")
+    elif tamper == "symlink":
+        edge.unlink()
+        edge.symlink_to(directory / "4-to-5.json")
+    else:
+        journal = json.loads(edge.read_text())
+        metadata = journal["plan"]["metadata"]
+        if tamper == "foreign_type":
+            metadata["transition_type"] = "foreign-source-transition"
+        elif tamper == "projection":
+            metadata["projection_sha256"] = "f" * 64
+        else:
+            metadata["watch_config_revision"] = 8
+        edge.write_text(json.dumps(journal, sort_keys=True, separators=(",", ":")), encoding="utf-8")
+
+    with pytest.raises(IntakeBlocked):
+        require_legacy_cursor_seed(root, snapshot, loaded)
+
+
+@pytest.mark.parametrize("provenance_field", ["catalog_revision", "legacy_state_sha256"])
+def test_production_seed_gate_rejects_mixed_seed_provenance(tmp_path, provenance_field):
+    root = tmp_path / "bursawatch-rss-source-ingest"
+    _seeded_rss_root(root)
+    snapshot, loaded = snapshot_and_config()
+    cursor_path = root / "rss-stockbit-ai_reports_stockbit" / "cursor.json"
+    cursor = json.loads(cursor_path.read_text())
+    cursor["legacy_seed"][provenance_field] = 3 if provenance_field == "catalog_revision" else "b" * 64
+    cursor_path.write_text(json.dumps(cursor, sort_keys=True, separators=(",", ":")), encoding="utf-8")
+
+    with pytest.raises(IntakeBlocked):
+        require_legacy_cursor_seed(root, snapshot, loaded)
+
+
+def test_production_seed_gate_rejects_malformed_validators(tmp_path):
+    root = tmp_path / "bursawatch-rss-source-ingest"
+    _seeded_rss_root(root)
+    snapshot, loaded = snapshot_and_config()
+    path = root / "rss-stockbit-unboxing" / "http-validators.json"
+    path.write_text('{"version":1,"etag":"invalid\\nheader","last_modified":null}', encoding="utf-8")
+
+    with pytest.raises(IntakeBlocked):
+        require_legacy_cursor_seed(root, snapshot, loaded)
 
 
 def test_production_runner_blocks_before_fetch_when_cursor_handoff_is_missing(tmp_path):

@@ -43,11 +43,35 @@ source media. Its service contract and shared client live in
 and [`lib-bursawatch-source-media/README.md`](../lib-bursawatch-source-media/README.md).
 The service and its initial host bootstrap remain manual rollout boundaries.
 
+The current Stockbit RSS reader and catalog-transition contract is maintained
+in [`cron-rss-source-ingest/AGENTS.md`](../cron-rss-source-ingest/AGENTS.md)
+and [`cron-rss-source-ingest/SKILL.md`](../cron-rss-source-ingest/SKILL.md).
+The approved design and implementation sequence below preserve rationale and
+scope; refresh the production snapshot and state before any live transition.
+
 The platform source migration inventory documents checked-in endpoint and state
 ownership contracts, plus the read-only evidence needed before a production
 cutover. It is not a live inventory; exact cursors, queues, receipts, and Hermes
 job IDs require a separate approved VPS read:
 [`source-pipeline migration inventory`](superpowers/specs/2026-09-25-bursawatch-source-pipeline-migration-inventory.md).
+
+Dated incident reviews preserve time-bounded runtime findings and unresolved
+causes. They are investigation records, not operating contracts; check current
+package contracts and take a fresh production snapshot before acting. The
+2026-09-30 platform ingestion audit is in
+[`incident-reviews/2026-09-30-platform-ingestion-audit.md`](incident-reviews/2026-09-30-platform-ingestion-audit.md).
+
+The first proposed reader-state repair is described in the
+[`catalog transition recovery design`](superpowers/specs/2026-09-30-bursawatch-catalog-transition-recovery-design.md).
+The user approved the design on 2026-09-30; it authorizes planning and the
+scoped work described there, subject to the release and live-state checks in
+the document. It is not an operating contract.
+
+The implementation sequence is in the
+[`catalog transition recovery plan`](superpowers/plans/2026-09-30-bursawatch-catalog-transition-recovery.md).
+The user approved the plan on 2026-09-30, and implementation is underway in
+the `bug-squashing` worktree. Production observations remain time-bound; use a
+fresh production snapshot and state read before any live transition.
 
 For collaboration, `.wt/config.toml` defines managed feature worktrees and the
 repository-local `finish-workflow` skill ends with a pull request. It does not

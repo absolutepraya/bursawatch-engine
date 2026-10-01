@@ -13,10 +13,14 @@ from zoneinfo import ZoneInfo
 sys.dont_write_bytecode = True
 
 ROOT = Path(__file__).resolve().parents[2]
-for package in ("lib-bursawatch-control", "lib-bursawatch-source-ingest", "lib-bursawatch-pipeline-runtime"):
-    candidate = ROOT / package / "bin"
+for local_name, runtime_name in (
+    ("lib-bursawatch-control", "lib-bursawatch-control"),
+    ("lib-bursawatch-source-ingest", "lib-bursawatch-source-ingest-pilot"),
+    ("lib-bursawatch-pipeline-runtime", "lib-bursawatch-pipeline-runtime"),
+):
+    candidate = ROOT / local_name / "bin"
     if not candidate.exists():
-        candidate = Path.home() / ".agents" / "skills" / package / "bin"
+        candidate = Path.home() / ".agents" / "skills" / runtime_name / "bin"
     sys.path.insert(0, str(candidate))
 owner = ROOT / "cron-stockbit-snips" / "bin"
 if not owner.exists():
@@ -63,7 +67,7 @@ def run_once(snapshot: dict | None, loaded_config: object | None, root: Path, in
         source = [{"endpoint_id": "rss:stockbit", "status": "blocked", "reason": "intake_config_unavailable"}]
     elif require_legacy_seed:
         try:
-            require_legacy_cursor_seed(root, snapshot["revision"], loaded_config.revision)
+            require_legacy_cursor_seed(root, snapshot, loaded_config)
         except IntakeBlocked:
             source = [{"endpoint_id": "rss:stockbit", "status": "blocked", "reason": "migration_cursor_handoff_invalid"}]
         else:

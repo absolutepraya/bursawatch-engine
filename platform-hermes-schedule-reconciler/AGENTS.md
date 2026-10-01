@@ -1,10 +1,21 @@
 # Hermes schedule reconciler instructions
 
-This host-bound platform package is the only planned bridge from Bursawatch
-desired interval schedules to the live Hermes scheduler. It reads the private
-control-plane API, resolves immutable runtime job names from the live Hermes
-registry, invokes only the supported Hermes CLI, reloads the registry to
-verify the result, then reports the revision outcome.
+This host-bound platform package is the only bridge from Bursawatch desired
+interval schedules to the live Hermes scheduler. The VPS systemd timer
+`bursawatch-schedule-reconciler.timer` was enabled and active in a production
+read at 2026-10-01 00:35 WIB, with its last trigger at 00:35:23. The reconciler
+reads the private Control Plane API, resolves immutable runtime job names from
+the live Hermes registry, invokes only the supported Hermes CLI, reloads the
+registry to verify the result, then reports the revision outcome.
+
+A direct Hermes pause does not persist while the Control Plane still says
+`enabled=true`; the next natural timer pass can resume that job. For an
+approved temporary pause, write a new desired schedule revision with
+`enabled=false` and the same interval and timezone through the authenticated
+admin schedule interface. Verify that the reconciler applied that revision
+and the live job is paused. Restore `enabled=true` with the same interval and
+timezone, then verify the next natural reconciliation. Do not hand-edit the
+Hermes registry or run the timer manually.
 
 It never edits `~/.hermes/cron/jobs.json`, writes a cron expression supplied by
 the web application, exposes its credential to the web application, or changes

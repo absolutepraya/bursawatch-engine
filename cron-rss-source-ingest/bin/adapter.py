@@ -4,16 +4,20 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import stat
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-for package in ("lib-bursawatch-control", "lib-bursawatch-source-ingest"):
-    candidate = ROOT / package / "bin"
+for local_name, runtime_name in (
+    ("lib-bursawatch-control", "lib-bursawatch-control"),
+    ("lib-bursawatch-source-ingest", "lib-bursawatch-source-ingest-pilot"),
+):
+    candidate = ROOT / local_name / "bin"
     if not candidate.exists():
-        candidate = Path.home() / ".agents" / "skills" / package / "bin"
+        candidate = Path.home() / ".agents" / "skills" / runtime_name / "bin"
     sys.path.insert(0, str(candidate))
 owner = ROOT / "cron-stockbit-snips" / "bin"
 if not owner.exists():
@@ -22,6 +26,7 @@ sys.path.insert(0, str(owner))
 
 from source_ingest import IntakeBlocked, _cursor as _load_cursor_record, _write, bind_catalog_revision, ingest_all, select_endpoints
 from legacy_cursor_seed import LegacySeedBlocked, blocked_seed_plan, plan_seed, read_legacy_snapshot
+from config import FEEDS
 from rss import FetchResult
 
 ALLOWED = {"stockbit_snips"}
@@ -58,6 +63,211 @@ def _load_validators(state_root: Path, endpoint_id: str) -> dict[str, str | None
         }
     except IntakeBlocked as error:
         raise IntakeBlocked("Stockbit RSS validators are invalid") from error
+
+
+def _rss_projection(snapshot: dict[str, Any], loaded_config: Any) -> tuple[list[dict[str, Any]], str]:
+    if type(snapshot) is not dict or type(snapshot.get("subscriptions")) is not list:
+        raise IntakeBlocked("effective Stockbit catalog is invalid")
+    if any(type(row) is not dict for row in snapshot["subscriptions"]):
+        raise IntakeBlocked("effective Stockbit catalog subscriptions are invalid")
+    try:
+        selected, _feeds = endpoints(snapshot, loaded_config)
+    except (AttributeError, KeyError, TypeError, ValueError) as error:
+        raise IntakeBlocked("effective Stockbit catalog does not match live watcher config") from error
+
+    expected = {(f"rss:stockbit:{feed.lane.value}", "stockbit_snips") for feed in FEEDS}
+    rows: list[dict[str, Any]] = []
+    identities: set[tuple[str, str]] = set()
+    for row in snapshot["subscriptions"]:
+        if row.get("platform") != "rss" or row.get("enabled") is not True:
+            continue
+        endpoint_id = row.get("endpoint_id")
+        capability_id = row.get("capability_id")
+        if type(endpoint_id) is not str or type(capability_id) is not str:
+            raise IntakeBlocked("effective Stockbit RSS identity is invalid")
+        identity = (endpoint_id, capability_id)
+        if identity in identities:
+            raise IntakeBlocked("effective Stockbit RSS identity is duplicated")
+        identities.add(identity)
+        rows.append(row)
+    if len(FEEDS) != 4 or identities != expected or set(selected) != {endpoint for endpoint, _capability in expected}:
+        raise IntakeBlocked("effective Stockbit catalog must contain exactly four enabled lanes")
+    rows.sort(key=lambda row: (row["endpoint_id"], row["capability_id"]))
+    try:
+        raw = json.dumps(rows, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError) as error:
+        raise IntakeBlocked("effective Stockbit RSS projection is invalid") from error
+    return rows, hashlib.sha256(raw).hexdigest()
+
+
+def _journal_digest(value: Any) -> bool:
+    return type(value) is str and _DIGEST.fullmatch(value) is not None
+
+
+def _validate_rss_journal(
+    root: Path,
+    path: Path,
+    from_revision: int,
+    to_revision: int,
+    *,
+    projection_sha256: str,
+    watch_config_revision: int,
+    origin_revision: int,
+    accepted_statuses: set[str],
+) -> dict[str, Any]:
+    if path.is_symlink() or not path.is_file() or stat.S_IMODE(path.stat().st_mode) != 0o600:
+        raise IntakeBlocked("RSS catalog transition journal is missing or not private")
+    try:
+        journal = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as error:
+        raise IntakeBlocked("RSS catalog transition journal is invalid") from error
+    if (
+        type(journal) is not dict
+        or set(journal) != {"version", "status", "plan", "seeded_endpoints"}
+        or type(journal.get("version")) is not int
+        or journal["version"] != 1
+        or type(journal.get("status")) is not str
+        or journal["status"] not in accepted_statuses
+        or type(journal.get("plan")) is not dict
+        or journal.get("seeded_endpoints") != []
+    ):
+        raise IntakeBlocked("RSS catalog transition journal has an unsupported shape")
+
+    plan = journal["plan"]
+    expected_plan_keys = {
+        "version", "status", "apply", "state_root", "transition_path", "from_revision",
+        "to_revision", "state_files", "seeds", "metadata", "revision_only",
+    }
+    expected_path = root / "catalog-transitions" / f"{from_revision}-to-{to_revision}.json"
+    metadata = plan.get("metadata")
+    if (
+        set(plan) != expected_plan_keys
+        or type(plan.get("version")) is not int
+        or plan["version"] != 1
+        or plan.get("status") != "preview"
+        or plan.get("apply") is not False
+        or plan.get("revision_only") is not True
+        or type(plan.get("from_revision")) is not int
+        or plan["from_revision"] != from_revision
+        or type(plan.get("to_revision")) is not int
+        or plan["to_revision"] != to_revision
+        or plan.get("state_root") != str(root)
+        or plan.get("transition_path") != str(expected_path)
+        or plan.get("seeds") != []
+        or type(metadata) is not dict
+        or set(metadata) != {
+            "transition_type", "projection_sha256", "watch_config_revision", "prior_catalog_sha256",
+            "target_catalog_sha256", "seed_origin_revision", "reason",
+        }
+        or metadata.get("transition_type") != "rss-compatible-catalog-transition"
+        or metadata.get("projection_sha256") != projection_sha256
+        or type(metadata.get("watch_config_revision")) is not int
+        or metadata["watch_config_revision"] != watch_config_revision
+        or type(metadata.get("seed_origin_revision")) is not int
+        or metadata["seed_origin_revision"] != origin_revision
+        or not _journal_digest(metadata.get("prior_catalog_sha256"))
+        or not _journal_digest(metadata.get("target_catalog_sha256"))
+        or type(metadata.get("reason")) is not str
+        or len(metadata["reason"]) < 20
+    ):
+        raise IntakeBlocked("RSS catalog transition journal does not prove this reader projection")
+    state_files = plan.get("state_files")
+    if type(state_files) is not dict or any(
+        type(name) is not str
+        or Path(name).is_absolute()
+        or ".." in Path(name).parts
+        or not _journal_digest(digest)
+        for name, digest in state_files.items()
+    ):
+        raise IntakeBlocked("RSS catalog transition journal fingerprint is invalid")
+    return journal
+
+
+def _require_rss_transition_chain(
+    state_root: Path,
+    origin_revision: int,
+    through_revision: int,
+    projection_sha256: str,
+    watch_config_revision: int,
+    *,
+    allow_pending_edge: tuple[int, int] | None = None,
+) -> None:
+    """Require complete adjacent RSS transition journals from seed origin."""
+    if (
+        type(origin_revision) is not int
+        or type(through_revision) is not int
+        or origin_revision < 1
+        or through_revision < origin_revision
+        or type(watch_config_revision) is not int
+        or watch_config_revision < 1
+        or not _journal_digest(projection_sha256)
+    ):
+        raise IntakeBlocked("RSS catalog transition chain inputs are invalid")
+    if allow_pending_edge is not None and (
+        type(allow_pending_edge) is not tuple
+        or len(allow_pending_edge) != 2
+        or type(allow_pending_edge[0]) is not int
+        or type(allow_pending_edge[1]) is not int
+        or allow_pending_edge != (through_revision, through_revision + 1)
+    ):
+        raise IntakeBlocked("RSS pending catalog edge is invalid")
+
+    root = Path(state_root).expanduser()
+    if root.is_symlink() or not root.is_dir():
+        raise IntakeBlocked("RSS catalog transition state root is invalid")
+    try:
+        root = root.resolve(strict=True)
+    except OSError as error:
+        raise IntakeBlocked("RSS catalog transition state root is unavailable") from error
+    directory = root / "catalog-transitions"
+    if directory.is_symlink():
+        raise IntakeBlocked("RSS catalog transition directory cannot be a symlink")
+    expected_paths = {
+        directory / f"{revision}-to-{revision + 1}.json"
+        for revision in range(origin_revision, through_revision)
+    }
+    pending_path: Path | None = None
+    if allow_pending_edge is not None:
+        pending_path = directory / f"{allow_pending_edge[0]}-to-{allow_pending_edge[1]}.json"
+    allowed_paths = set(expected_paths)
+    if pending_path is not None and (pending_path.exists() or pending_path.is_symlink()):
+        allowed_paths.add(pending_path)
+
+    if directory.exists():
+        if not directory.is_dir() or stat.S_IMODE(directory.stat().st_mode) & 0o077:
+            raise IntakeBlocked("RSS catalog transition directory is unsafe")
+        try:
+            entries = set(directory.iterdir())
+        except OSError as error:
+            raise IntakeBlocked("RSS catalog transition directory is unreadable") from error
+        if entries != allowed_paths:
+            raise IntakeBlocked("RSS catalog transition history has a gap or unexpected entry")
+    elif expected_paths or (pending_path is not None and pending_path.exists()):
+        raise IntakeBlocked("RSS catalog transition history is incomplete")
+
+    for path in sorted(expected_paths):
+        from_revision = int(path.stem.split("-to-")[0])
+        _validate_rss_journal(
+            root,
+            path,
+            from_revision,
+            from_revision + 1,
+            projection_sha256=projection_sha256,
+            watch_config_revision=watch_config_revision,
+            origin_revision=origin_revision,
+            accepted_statuses={"complete"},
+        )
+    if pending_path is not None and pending_path in allowed_paths:
+        _validate_rss_journal(
+            root,
+            pending_path,
+            allow_pending_edge[0],
+            allow_pending_edge[1],
+            projection_sha256=projection_sha256,
+            watch_config_revision=watch_config_revision,
+            origin_revision=origin_revision,
+            accepted_statuses={"applying", "complete"},
+        )
 
 
 def plan_legacy_cursor_seed(
@@ -193,13 +403,25 @@ def _bind_revision(state_root: Path, revision: int) -> None:
         raise IntakeBlocked("Stockbit live configuration revision changed; reviewed future-only transition required")
 
 
-def require_legacy_cursor_seed(state_root: Path, catalog_revision: int, watch_config_revision: int) -> None:
-    """Refuse production bootstrap unless all four lanes have reviewed seeds."""
-    root = Path(state_root)
+def require_legacy_cursor_seed(state_root: Path, snapshot: dict[str, Any], loaded_config: Any) -> None:
+    """Accept an immutable legacy seed only through a complete RSS journal chain."""
+    root = Path(state_root).expanduser()
     if root.is_symlink() or not root.is_dir():
         raise IntakeBlocked("RSS migration cursor handoff is missing")
-    if type(catalog_revision) is not int or catalog_revision < 1 or type(watch_config_revision) is not int or watch_config_revision < 1:
+    try:
+        root = root.resolve(strict=True)
+    except OSError as error:
+        raise IntakeBlocked("RSS migration cursor handoff is unavailable") from error
+    catalog_revision = snapshot.get("revision") if type(snapshot) is dict else None
+    watch_config_revision = getattr(loaded_config, "revision", None)
+    if (
+        type(catalog_revision) is not int
+        or catalog_revision < 1
+        or type(watch_config_revision) is not int
+        or watch_config_revision < 1
+    ):
         raise IntakeBlocked("RSS migration revisions are invalid")
+
     for filename, expected in (
         ("catalog-revision.json", catalog_revision),
         ("watch-config-revision.json", watch_config_revision),
@@ -211,16 +433,22 @@ def require_legacy_cursor_seed(state_root: Path, catalog_revision: int, watch_co
             value = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, ValueError):
             raise IntakeBlocked("RSS migration revision handoff is invalid") from None
-        if type(value) is not dict or set(value) != {"revision"} or value["revision"] != expected:
+        if (
+            type(value) is not dict
+            or set(value) != {"revision"}
+            or type(value.get("revision")) is not int
+            or value["revision"] != expected
+        ):
             raise IntakeBlocked("RSS migration revision handoff does not match live configuration")
 
-    from config import FEEDS
-
+    _projection, projection_sha256 = _rss_projection(snapshot, loaded_config)
     expected_lanes = {feed.lane.value for feed in FEEDS}
     lane_dirs = list(root.glob("rss-stockbit-*"))
     observed_lanes = {path.name.removeprefix("rss-stockbit-") for path in lane_dirs}
     if len(FEEDS) != 4 or observed_lanes != expected_lanes or len(lane_dirs) != 4 or any(path.is_symlink() or not path.is_dir() for path in lane_dirs):
         raise IntakeBlocked("RSS migration cursor handoff does not contain exactly four lanes")
+
+    seed_origins: set[int] = set()
     snapshot_digests: set[str] = set()
     for feed in FEEDS:
         endpoint_id = f"rss:stockbit:{feed.lane.value}"
@@ -244,7 +472,7 @@ def require_legacy_cursor_seed(state_root: Path, catalog_revision: int, watch_co
             or cursor.get("initialized") is not True
             or type(cursor.get("anchor")) is not str
             or not _DIGEST.fullmatch(cursor["anchor"])
-            or cursor.get("position") is not None
+            or type(cursor.get("position")) not in {str, type(None)}
             or type(cursor.get("boundary_published_at")) is not str
             or not isinstance(cursor.get("legacy_seed"), dict)
         ):
@@ -256,20 +484,42 @@ def require_legacy_cursor_seed(state_root: Path, catalog_revision: int, watch_co
         if boundary.tzinfo is None or boundary.utcoffset() is None:
             raise IntakeBlocked("RSS migration cursor boundary is invalid")
         seed = cursor["legacy_seed"]
+        origin = seed.get("catalog_revision")
+        digest = seed.get("legacy_state_sha256")
+        try:
+            seed_boundary = datetime.fromisoformat(seed["boundary_timestamp"].replace("Z", "+00:00"))
+        except (KeyError, AttributeError, TypeError, ValueError):
+            raise IntakeBlocked("RSS migration seed boundary is invalid") from None
+        if seed_boundary.tzinfo is None or seed_boundary.utcoffset() is None:
+            raise IntakeBlocked("RSS migration seed boundary is invalid")
         if (
-            seed.get("endpoint") != endpoint
-            or seed.get("catalog_revision") != catalog_revision
+            type(origin) is not int
+            or origin < 1
+            or origin > catalog_revision
+            or seed.get("endpoint") != endpoint
             or seed.get("cursor_shape") != "generic"
             or type(seed.get("proposed_anchor")) is not str
             or not _DIGEST.fullmatch(seed["proposed_anchor"])
-            or type(seed.get("legacy_state_sha256")) is not str
-            or not _DIGEST.fullmatch(seed["legacy_state_sha256"])
+            or type(digest) is not str
+            or not _DIGEST.fullmatch(digest)
         ):
             raise IntakeBlocked("RSS migration cursor provenance is invalid")
-        snapshot_digests.add(seed["legacy_state_sha256"])
-        _load_validators(root, endpoint_id)
-    if len(snapshot_digests) != 1:
-        raise IntakeBlocked("RSS migration cursors do not share one legacy snapshot")
+        seed_origins.add(origin)
+        snapshot_digests.add(digest)
+        try:
+            _load_validators(root, endpoint_id)
+        except (IntakeBlocked, OSError, ValueError):
+            raise IntakeBlocked("RSS migration validators are invalid") from None
+    if len(seed_origins) != 1 or len(snapshot_digests) != 1:
+        raise IntakeBlocked("RSS migration cursors do not share one legacy seed origin")
+
+    _require_rss_transition_chain(
+        root,
+        next(iter(seed_origins)),
+        catalog_revision,
+        projection_sha256,
+        watch_config_revision,
+    )
 
 
 def endpoints(snapshot: dict[str, Any], loaded_config: Any) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:

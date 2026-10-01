@@ -63,12 +63,18 @@ This branch adds:
   revision per invocation. Stockbit Snips requires live configuration for each
   invocation and has no static fallback.
 
-The Supabase Auth verifier and the reconciler-only control API are implemented
-and covered by local tests. A VPS reconciler service unit, real environment
-values, and an authenticated web client remain separate deployment work.
-The watcher validator bridge is implemented, but requires its deployed-source
-directory settings. A desired schedule revision also needs a separate trusted
-VPS scheduler reconciler before it changes a live Hermes job.
+The Supabase Auth verifier and reconciler-only control API are implemented
+and covered by local tests. The VPS schedule-reconciler systemd timer was
+enabled and active in a production read at 2026-10-01 00:35 WIB. It applies
+desired interval revisions through the supported Hermes CLI. For an approved
+temporary pause, the authenticated admin schedule route must store
+`enabled=false` while preserving the interval and timezone; verify the
+reconciler's `applied_revision` and paused Hermes state. A direct Hermes pause
+while desired state remains enabled can be undone by the next timer pass.
+Restore the original enabled desired schedule through the same admin route and
+verify natural reconciliation. The authenticated web application remains a
+separate Vercel deployment unit. The watcher validator bridge is implemented,
+but still requires its deployed-source directory settings.
 
 ## Runtime environment
 

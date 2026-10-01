@@ -8,15 +8,46 @@ user-invocable: false
 
 Runtime identity: `bursawatch-rss-source-ingest`. Entry point:
 `bin/runner.py`. This is the active source adapter under the existing
-`cron-stockbit-snips` Hermes job, which runs every 15 minutes as of the
-2026-09-29 live check. Do not re-enable the legacy direct RSS poller beside
-this reader. The four lane IDs and feed URLs remain system-owned. The live
-Stockbit configuration selects enabled lanes and
+`cron-stockbit-snips` Hermes job. The read-only production snapshot at
+2026-09-30 23:27 WIB recorded that job active every 15 minutes. Refresh the
+snapshot before relying on these scheduler facts. Do not re-enable the legacy
+direct RSS poller beside this reader. The four lane IDs and feed URLs remain
+system-owned. The live Stockbit configuration selects enabled lanes and
 supplies the frozen instruction and destination snapshot for accepted events.
 Source work is admitted to the existing Stockbit article ledger by the
 `stockbit_snips` pipeline handler. The source reader keeps its own future-only
 cursor. Any future state transfer or rollback needs an exact queue and receipt
 inventory.
+
+## Catalog revision transitions
+
+Each `legacy_seed.catalog_revision` is immutable cursor-boundary provenance.
+The four seeds must share one origin revision and one legacy-state digest. The
+runtime accepts a marker later than that origin only when every adjacent RSS
+journal from the origin through the marker is private, complete, and bound to
+the current enabled Stockbit projection and validated watcher-config revision.
+A marker equal to the seed origin has no transition edges. Direct marker edits,
+missing or extra journals, incomplete edges, changed projections, and changed
+watcher-config revisions block new polling. Accepted inbox and Stockbit owner
+work can still settle while intake is blocked.
+
+`bin/compatible_catalog_transition.py` handles one adjacent edge per preview
+and apply. Provide the prior and target effective catalog snapshot files, the
+RSS state root, and a fresh private plan file outside that root. The command
+loads the current validated Stockbit watcher config for both actions. The
+preview writes a mode `0600` plan into a private directory and never changes
+source state. Apply rechecks every input and requires
+`BURSAWATCH_RSS_CATALOG_TRANSITION_ALLOW_APPLY=1`. Use the same plan and inputs
+to resume an interrupted edge. Create a new plan for the next edge.
+
+The apply changes only `catalog-revision.json` and the edge journal under
+`catalog-transitions/`. It leaves cursors, validators, seed provenance, owner
+state, inbox work, receipts, and destinations unchanged. Before applying,
+pause the existing source writer through the supported Hermes interface and
+prove no run is in flight. The command cannot prove scheduler quiescence. Do
+not run the job manually, replay or backfill the feed, reset cursors, or send
+a test post. Resume through the approved scheduler path after verifying the
+complete chain.
 `adapter.plan_legacy_cursor_seed` returns a preview only when a fresh non-304
 page response of at most 20 ordered items contains the legacy GUID exactly once
 at the same publication timestamp. It hashes that GUID into the new anchor and
@@ -51,11 +82,12 @@ The adapter keeps ETag and Last-Modified values in its endpoint-local
 `http-validators.json`. Conditional requests reuse those values. A 304 produces
 an empty result without cursor movement, and validators from a new response
 are stored only after successful endpoint ingestion.
-The production runner requires all four reviewed legacy cursor seeds and
-matching source-catalog and Stockbit config revisions before it fetches. It
-never bootstraps from the latest item. Each live page is checked for the
-preflight ordering; if an untruncated page omits its cursor and contains an
-item tied at the cursor timestamp, hold that lane because the order is unclear.
+The production runner checks the effective Source Catalog and validated
+Stockbit config against their reader markers and validates the complete
+seed-origin-to-marker journal chain before fetching. It never bootstraps from
+the latest item. Each live page is checked for the preflight ordering; if an
+untruncated page omits its cursor and contains an item tied at the cursor
+timestamp, hold that lane because the order is unclear.
 Publication time remains event data. A missing or mismatched watcher revision
 blocks new RSS intake, while already accepted inbox work can still settle
 using its frozen configuration snapshot.

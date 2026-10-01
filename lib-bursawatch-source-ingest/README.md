@@ -1,8 +1,13 @@
 # Source ingest handoff
 
 `bin/source_ingest.py` provides an endpoint-local future-only cursor and the
-Task 3 durable source inbox handoff contract. It is used by the Telegram pilot
-and planned later platform adapters. A source event is staged in a private
+Task 3 durable source inbox handoff contract. The library is imported by the
+Telegram, X, WhatsApp, Stockbit RSS, and Instagram source adapters. The
+production snapshot on 2026-09-30 at 22:48 WIB showed Telegram source ingest
+as its own active job; X account watch, WhatsApp channel watch, and Stockbit
+Snips invoking their adapters through existing watcher jobs; and no registered
+job for the Instagram source adapter. Refresh the production snapshot before
+relying on those scheduler assignments. A source event is staged in a private
 spool before inbox acceptance; the cursor advances only after the receipt.
 An empty first poll persists an initialized cursor, so its first later event
 is accepted. Each staged event also has a durable position intent, allowing
@@ -53,6 +58,15 @@ existing state files, writes the same durable journal, and advances only the
 revision marker. It never edits or initializes a cursor. Use it only after
 proving the source catalog change is compatible with the active endpoint set
 and pausing that source writer.
+
+`plan_catalog_revision_transition` accepts an optional `apply_guard_env` name.
+It defaults to `BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY`, preserving existing
+callers. A caller-specific transition such as Stockbit RSS may pass
+`BURSAWATCH_RSS_CATALOG_TRANSITION_ALLOW_APPLY`; only the named environment
+variable must equal `1`. The planner validates the name and does not copy it
+into its plan, journal, or source state. Revision-only apply changes only the
+catalog revision marker and transition journal; the fingerprint binds all
+preexisting source-state files so changes between preview and apply block.
 
 The Telegram News adapter exposes the paired rollout via
 `cron-tg-source-ingest/bin/catalog_transition.py`. Its preview accepts only the
