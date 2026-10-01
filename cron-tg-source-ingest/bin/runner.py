@@ -314,7 +314,16 @@ def post_heartbeat(content: str, now: datetime, *, delivery_client: Any = None) 
 
 
 async def run_once(telegram: Any, snapshot: dict[str, Any], state_root: Path, inbox: Any, now: datetime, *, handlers: dict[str, Any] | None = None, media_store: Any = None, agent_dispatcher: Any = None) -> dict[str, Any]:
-    source = await ingest_all(telegram, snapshot, state_root, inbox, now, media_store=media_store)
+    try:
+        source = await ingest_all(telegram, snapshot, state_root, inbox, now, media_store=media_store)
+    except Exception:
+        # Existing owner deliveries are independent of a fresh source poll.
+        if handlers is None:
+            try:
+                _owner_command("cron-tg-market-news", "drain-delivery")
+            except Exception:
+                pass
+        raise
     dispatch = agent_dispatcher
     if dispatch is None and handlers is None:
         dispatch = dispatch_agent
