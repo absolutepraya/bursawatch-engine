@@ -50,6 +50,10 @@ export function PublishedList({
             ? "Coverage is incomplete or unverified. A missing item does not prove nothing was published."
             : "All required publishers reported a current comparison. Coverage ends at each publisher's last check."}
         </p>
+        <p>
+          A confirmed record documents delivery at that time. Check Discord to
+          see whether it is still visible.
+        </p>
         {coverage?.owners.length ? (
           <details>
             <summary>Publisher coverage</summary>
