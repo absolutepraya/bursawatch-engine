@@ -21,8 +21,86 @@ from config import REVIEWED_PUBLISHERS, load_watch_config
 from models import PostKind, SourceMedia, SourcePost
 import pipeline_owner
 import state
+from compatible_catalog_transition import _require_x_transition_chain
+import compatible_catalog_transition as x_transition
+from source_ingest import IntakeBlocked
 
 NOW = datetime(2026, 9, 24, tzinfo=timezone.utc)
+
+
+def test_x_revision_eight_requires_both_completed_journal_edges(tmp_path):
+    root = tmp_path / "source"
+    directory = root / "catalog-transitions"
+    directory.mkdir(parents=True, mode=0o700)
+    projection_hash = "877e8fce0e374dc2c94e876455d10087298ff837071d82c19d059e0450bef3d3"
+    for start, end in ((5, 7), (7, 8)):
+        metadata = {"reason": "Reviewed unchanged X reader projection."}
+        if start == 7:
+            metadata = {"transition_type": "x-compatible-catalog-transition", "projection_sha256": projection_hash,
+                        "prior_catalog_sha256": "a" * 64, "target_catalog_sha256": "b" * 64, "watch_config_revision": 9,
+                        "reason": "The complete effective X subscription projection is unchanged across catalog revisions 7 and 8."}
+        plan = {"version": 1, "status": "preview", "apply": False, "state_root": str(root),
+                "transition_path": str(directory / f"{start}-to-{end}.json"), "from_revision": start,
+                "to_revision": end, "state_files": {}, "seeds": [], "revision_only": True, "metadata": metadata}
+        path = directory / f"{start}-to-{end}.json"
+        path.write_text(json.dumps({"version": 1, "status": "complete", "plan": plan, "seeded_endpoints": []}))
+        path.chmod(0o600)
+    _require_x_transition_chain(root, 8)
+    path = directory / "7-to-8.json"
+    journal = json.loads(path.read_text())
+    journal["status"] = "applying"
+    path.write_text(json.dumps(journal))
+    with pytest.raises(IntakeBlocked):
+        _require_x_transition_chain(root, 8)
+    _require_x_transition_chain(root, 7, allow_in_progress_edge=True)
+
+
+def test_x_catalog_transition_preview_and_apply_preserve_cursor_bytes(tmp_path, monkeypatch):
+    root = tmp_path / "source"
+    directory = root / "catalog-transitions"
+    directory.mkdir(parents=True, mode=0o700)
+    root.chmod(0o700)
+    (root / "catalog-revision.json").write_text('{"revision":7}')
+    marker = root / "catalog-revision.json"
+    marker.chmod(0o600)
+    prior_path = directory / "5-to-7.json"
+    legacy_plan = {
+        "version": 1, "status": "preview", "apply": False, "state_root": str(root),
+        "transition_path": str(prior_path), "from_revision": 5, "to_revision": 7,
+        "state_files": {}, "seeds": [], "metadata": {"reason": "Reviewed unchanged X projection across catalog revisions."},
+        "revision_only": True,
+    }
+    prior_path.write_text(json.dumps({"version": 1, "status": "complete", "plan": legacy_plan, "seeded_endpoints": []}))
+    prior_path.chmod(0o600)
+    profile_config = load_watch_config(ROOT / "cron-x-account-watch/config/watches.json")
+    enabled_ids = {"kutekians", "rickyho1989", "writingtorch", "arvinhonami", "doktermarket", "txthariansaham", "aldotjahjadi8", "kobeissiletter"}
+    profiles = tuple(replace(profile, enabled=profile.id in enabled_ids) for profile in profile_config.profiles)
+    monkeypatch.setattr(x_transition, "load_watch_config_for_run", lambda: SimpleNamespace(revision=9, config=SimpleNamespace(profiles=profiles)))
+    rows = [{
+        "platform": "x", "endpoint_id": f"x:{profile.handle.casefold()}",
+        "publisher_id": REVIEWED_PUBLISHERS[profile.id], "address": profile.handle, "provider_id": None,
+        "capability_id": capability, "verification_status": "verified",
+        "enabled": profile.id in enabled_ids and capability in {"company_news", "macro_news"},
+    } for profile in profiles for capability in ("company_news", "macro_news", "swing_chart_context")]
+    rows.sort(key=lambda row: (row["endpoint_id"], row["capability_id"]))
+    projection_hash = hashlib.sha256(json.dumps(rows, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+    monkeypatch.setattr(x_transition, "REVIEWED_PROJECTION_SHA256", projection_hash)
+    prior = {"revision": 7, "subscriptions": rows}
+    target = {"revision": 8, "subscriptions": rows}
+    cursor = root / "x-writingtorch" / "cursor.json"
+    cursor.parent.mkdir(mode=0o700)
+    cursor_bytes = b'{"initialized":true,"anchor":"2105222314002677829","position":null}'
+    cursor.write_bytes(cursor_bytes)
+    cursor.chmod(0o600)
+
+    plan = x_transition.preview(prior, target, root)
+    assert plan["projection_sha256"] == projection_hash
+    assert cursor.read_bytes() == cursor_bytes
+    monkeypatch.setenv(x_transition.APPLY_ENV, "1")
+    assert x_transition.apply(plan, prior, target, root)["status"] == "applied"
+    assert json.loads(marker.read_text()) == {"revision": 8}
+    assert cursor.read_bytes() == cursor_bytes
+    x_transition.require_catalog_revision(root, 8, lambda *_args: None)
 
 
 def test_x_source_heartbeat_reports_empty_runs_and_warns_on_pending_work():

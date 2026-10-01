@@ -41,6 +41,18 @@ visible history. Later polls fetch new posts after that boundary. If the page
 does not expose a verifiable own-post link, intake fails closed and does not
 write a cursor.
 
+Catalog revision changes require the X package transition helper. For the
+reviewed 7 to 8 edge, `bin/compatible_catalog_transition.py preview` must prove
+the complete effective X subscription projection matches the pinned review
+hash, then create a private preview with the shared source-state planner.
+Apply requires that unchanged preview and
+`BURSAWATCH_X_CATALOG_TRANSITION_ALLOW_APPLY=1`. The
+transition changes only the catalog marker and journal. It does not seed or
+rewrite endpoint cursors, accepted-event indexes, or handoff work. Runtime at
+revision 8 requires the complete existing 5 to 7 journal followed by a
+completed package-owned 7 to 8 journal. A marker change without this chain
+blocks intake.
+
 The X watcher owns one state file for scanning, accepted source work, and
 Delivery Owner handoff. All watcher processes resolve it through
 `state.state_path()`: `X_POST_WATCH_STATE_PATH` when configured, otherwise
