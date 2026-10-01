@@ -79,6 +79,19 @@ def run_once(snapshot: dict | None, loaded_config: object | None, root: Path, in
             source = [{"endpoint_id": "rss:stockbit", "status": "blocked", "reason": "intake_config_mismatch"}]
     work = PipelineRuntime(inbox, {"stockbit_snips": handler or _owner_handler}).run_once(limit=20)
     command = owner_command or _owner_command
+    try:
+        delivery = command("drain-delivery")
+        if (
+            type(delivery.get("delivered")) is not int
+            or type(delivery.get("pending_delivery")) is not int
+            or delivery["delivered"] < 0
+            or delivery["pending_delivery"] < 0
+        ):
+            raise RuntimeError("Stockbit owner drain response is invalid")
+        delivery_error = False
+    except Exception:
+        delivery = {"delivered": 0}
+        delivery_error = True
     status = command("agent-status")
     if type(status.get("ready")) is not bool:
         raise RuntimeError("Stockbit owner status is invalid")
@@ -90,7 +103,7 @@ def run_once(snapshot: dict | None, loaded_config: object | None, root: Path, in
             raise RuntimeError("Stockbit owner claim is invalid")
     else:
         agent = {"wakeAgent": False, "items": []}
-    return {"source": source, "work": work, **agent}
+    return {"source": source, "work": work, "owner_delivery": delivery, "owner_delivery_error": delivery_error, **agent}
 
 
 def main() -> int:
@@ -159,6 +172,11 @@ def send_heartbeat(result: dict, now: datetime, *, pending_count: int | None = N
     errors = sum(row.get("status") == "blocked" for row in source)
     errors += sum(row.get("status") != "done" for row in work)
     errors += int(result.get("fatal") is True)
+    errors += int(result.get("owner_delivery_error") is True)
+    delivery = result.get("owner_delivery", {})
+    delivered = delivery.get("delivered", 0) if type(delivery) is dict else 0
+    if type(delivered) is not int or delivered < 0:
+        raise RuntimeError("RSS heartbeat delivered count is invalid")
     pending = _owner_pending_count() if pending_count is None else pending_count
     if type(pending) is not int or pending < 0:
         raise RuntimeError("RSS heartbeat pending count is invalid")
@@ -166,7 +184,7 @@ def send_heartbeat(result: dict, now: datetime, *, pending_count: int | None = N
     warning = " ⚠️" if errors else ""
     content = (
         f"🫀 {WATCHER_NAME} · {local:%H:%M} WIB · {fetched} fetched · "
-        f"{queued} queued · 0 delivered · {errors} errors · {pending} pending{warning}"
+        f"{queued} queued · {delivered} delivered · {errors} errors · {pending} pending{warning}"
     )
     sender = post_text
     if sender is None:
