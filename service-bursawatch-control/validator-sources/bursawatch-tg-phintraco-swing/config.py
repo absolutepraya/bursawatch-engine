@@ -10,6 +10,10 @@ from typing import Iterator
 
 CONFIG_VERSION = 1
 WATCHER_ID = "bursawatch-tg-phintraco-swing"
+PHINTRACO_TELEGRAM_CHANNEL_ID = 1444713822
+CANONICAL_TELEGRAM_USERNAME = "phintasprofits"
+LEGACY_TELEGRAM_USERNAME = "phintraprofits"
+ACCEPTED_TELEGRAM_USERNAMES = frozenset({CANONICAL_TELEGRAM_USERNAME, LEGACY_TELEGRAM_USERNAME})
 _DISCORD_ID_RE = re.compile(r"\d{17,20}")
 _TELEGRAM_USERNAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]{4,31}")
 
@@ -18,8 +22,8 @@ _DESTINATION_FIELDS = {"alert_discord_channel_id", "heartbeat_discord_channel_id
 _DEFAULT_CONFIG_DATA = {
     "version": CONFIG_VERSION,
     "source": {
-        "telegram_channel_id": 1444713822,
-        "telegram_username": "phintraprofits",
+        "telegram_channel_id": PHINTRACO_TELEGRAM_CHANNEL_ID,
+        "telegram_username": CANONICAL_TELEGRAM_USERNAME,
     },
     "destinations": {
         "alert_discord_channel_id": "1525102458253217803",

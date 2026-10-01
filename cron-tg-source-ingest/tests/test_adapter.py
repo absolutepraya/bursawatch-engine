@@ -23,6 +23,7 @@ import runner as source_runner
 NOW = datetime(2026, 9, 24, tzinfo=timezone.utc)
 ENDPOINT = {"platform": "telegram", "endpoint_id": "telegram:phintraprofits", "publisher_id": "phintraco", "address": "phintraprofits", "provider_id": "1444713822", "catalog_revision": 7, "capabilities": {"trading_plans"}}
 NEWS_ENDPOINT = {"platform": "telegram", "endpoint_id": "telegram:phintasprofits", "publisher_id": "phintraco", "address": "phintasprofits", "provider_id": None, "catalog_revision": 7, "capabilities": {"company_news"}}
+PHINTAS_SWING_ENDPOINT = {"platform": "telegram", "endpoint_id": "telegram:phintasprofits", "publisher_id": "phintraco", "address": "phintasprofits", "provider_id": None, "catalog_revision": 8, "capabilities": {"trading_plans"}}
 TUNTUN_NEWS_ENDPOINT = {"platform": "telegram", "endpoint_id": "telegram:tuntunsekuritas", "publisher_id": "tuntun", "address": "tuntunsekuritas", "provider_id": None, "catalog_revision": 7, "capabilities": {"company_news", "macro_news"}}
 
 
@@ -83,7 +84,9 @@ class FakeTelegram:
     async def get_dialogs(self):
         return [SimpleNamespace(entity=SimpleNamespace(id=self.entity_id, username=self.address))]
 
-    async def get_messages(self, entity, limit):
+    async def get_messages(self, entity, limit=None, ids=None):
+        if ids is not None:
+            return next((item for item in self.messages if item.id == ids), None)
         assert limit == 1
         return [self.messages[-1]] if self.messages else []
 
@@ -411,6 +414,27 @@ def test_tuntun_envelope_preserves_forum_topic_identity(reply_fields):
     assert event["payload"]["topic_id"] == 3743
 
 
+def test_phintas_swing_endpoint_preserves_reply_parent_and_message_id(tmp_path):
+    parent = message(35448, "PHINTAS Weekly Swing Trading Ideas_20260928")
+    update = message(35557, "Reminder\n\nINDF - First target 6900 achieved")
+    update.reply_to_msg_id = 35448
+    state_root = tmp_path / "state"
+    endpoint_root = state_root / "telegram-phintasprofits"
+    endpoint_root.mkdir(parents=True)
+    (endpoint_root / "cursor.json").write_text('{"cursor":35556}\n')
+    client = FakeTelegram([parent, update], address="phintasprofits", entity_id=1444713822)
+    inbox = FakeInbox()
+
+    result = asyncio.run(ingest_endpoint(client, PHINTAS_SWING_ENDPOINT, state_root, inbox, NOW))
+
+    assert result["accepted"] == 1
+    event = inbox.accepted[0]
+    assert event["endpoint_id"] == "telegram:phintasprofits"
+    assert event["payload"]["reply_to_message_id"] == 35448
+    assert event["payload"]["reply_parent"]["message_id"] == 35448
+    assert event["payload"]["reply_parent"]["text"] == parent.message
+
+
 def test_tuntun_ingest_stages_forum_topic_identity(tmp_path):
     endpoint_root = tmp_path / "telegram-tuntunsekuritas"
     endpoint_root.mkdir()
@@ -676,7 +700,7 @@ def test_board_and_synthetic_news_settle_independently(tmp_path, monkeypatch, fa
     swing_owner = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(swing_owner)
     monkeypatch.setenv("IDX_SWING_WATCH_PHINTRACO_DAILY_STATE_PATH", str(tmp_path / "swing.json"))
-    configured = swing_scan.config.WatchConfig(1444713822, "phintraprofits", "1525102458253217803", "1505162000420835388")
+    configured = swing_scan.config.WatchConfig(1444713822, "phintasprofits", "1525102458253217803", "1505162000420835388")
     monkeypatch.setattr(swing_scan.config, "load_watch_config_for_run", lambda: swing_scan.config.LoadedWatchConfig(configured, 5))
     monkeypatch.setattr(swing_scan, "post_discord_text", lambda *args: "dry-text-11")
     board_events = []
@@ -709,8 +733,8 @@ def test_board_and_synthetic_news_settle_independently(tmp_path, monkeypatch, fa
             return {"work_key": work_key, "status": "done" if success else "pending"}
 
     inbox = WorkInbox()
-    telegram = FakeTelegram([message(10)])
-    snapshot = {"revision": 5, "subscriptions": [{"platform": "telegram", "enabled": True, "endpoint_id": "telegram:phintraprofits", "capability_id": "trading_plans", "verification_status": "verified", "provider_id": "1444713822", "publisher_id": "phintraco", "address": "phintraprofits"}]}
+    telegram = FakeTelegram([message(10)], address="phintasprofits")
+    snapshot = {"revision": 5, "subscriptions": [{"platform": "telegram", "enabled": True, "endpoint_id": "telegram:phintasprofits", "capability_id": "trading_plans", "verification_status": "verified", "provider_id": None, "publisher_id": "phintraco", "address": "phintasprofits"}]}
     assert PIPELINE_OWNERS["company_news"] == "cron-tg-market-news"
     asyncio.run(run_once(telegram, snapshot, tmp_path, inbox, NOW, handlers={"swing_plan": lambda item: None}))
     text = (ROOT / "cron-tg-phintraco-swing" / "tests" / "fixtures" / "trading_buy.txt").read_text()

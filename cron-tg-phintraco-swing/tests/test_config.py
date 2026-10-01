@@ -12,7 +12,7 @@ def payload() -> dict[str, object]:
         "version": 1,
         "source": {
             "telegram_channel_id": 1444713822,
-            "telegram_username": "phintraprofits",
+            "telegram_username": "phintasprofits",
         },
         "destinations": {
             "alert_discord_channel_id": "1525102458253217803",
@@ -28,7 +28,7 @@ def test_default_config_matches_the_established_source_and_destinations(monkeypa
 
     assert loaded.revision is None
     assert loaded.config.telegram_channel_id == 1444713822
-    assert loaded.config.telegram_username == "phintraprofits"
+    assert loaded.config.telegram_username == "phintasprofits"
     assert loaded.config.alert_discord_channel_id == "1525102458253217803"
     assert loaded.config.heartbeat_discord_channel_id == "1505162000420835388"
 

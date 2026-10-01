@@ -1314,7 +1314,7 @@ def escape_discord_markdown(value: str) -> str:
 
 
 def source_message_url(source_message_id: int) -> str:
-    return f"https://t.me/{config.active_watch_config().telegram_username}/{source_message_id}"
+    return f"https://t.me/{config.CANONICAL_TELEGRAM_USERNAME}/{source_message_id}"
 
 
 def format_analyst_byline(call: SwingCall) -> str:

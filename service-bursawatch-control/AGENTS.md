@@ -27,6 +27,12 @@ watcher configuration revisions. User endpoints remain pending until a
 reviewed verification path exists; pending endpoints cannot produce effective
 subscriptions. The supported securities table starts empty because no
 reviewed finite engine universe has been established in source.
+The canonical Phintraco Sekuritas endpoint `telegram:phintasprofits` is
+compatible with `trading_plans` through migration
+`021_phintas_swing_compatibility.sql`. The migration adds compatibility only;
+effective source-catalog configuration must still enable the subscription.
+The legacy `telegram:phintraprofits` identity remains registered for accepted
+work and audit compatibility.
 The system-owned BRI WhatsApp endpoint supports `company_news`, `macro_news`,
 and `swing_chart_context`; the channel watcher's route scope still decides
 which classified items can be delivered.

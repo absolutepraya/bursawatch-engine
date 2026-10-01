@@ -2,12 +2,15 @@
 
 This package owns active Telegram source intake with an automatic
 release unit and deployable runtime wrapper. Hermes job
-`bursawatch-tg-source-ingest` runs every minute. Its live scope includes
-Phintraco Swing `trading_plans`, Kelas Investasi `swing_support`, Phintraco News
+`bursawatch-tg-source-ingest` runs every minute. Its scope includes Phintraco
+Swing `trading_plans`, Kelas Investasi `swing_support`, Phintraco News
 `company_news`, `macro_news`, and `stock_status`, plus Tuntun News
 `company_news` and `macro_news`. The paired Phintraco and Tuntun News cutover
 completed on 2026-09-27. Its production record is in
 [`docs/superpowers/plans/2026-09-27-tuntun-telegram-source-intake.md`](../docs/superpowers/plans/2026-09-27-tuntun-telegram-source-intake.md).
+The approved Phintraco route transition moves `trading_plans` from the current
+legacy endpoint to canonical `telegram:phintasprofits`; until that catalog
+transition is applied, production remains enabled on `telegram:phintraprofits`.
 
 `bin/runner.py` reads one authenticated effective source catalog snapshot, then
 `bin/adapter.py` groups enabled verified subscriptions by canonical endpoint.
@@ -62,6 +65,22 @@ other state files and journals before advancing only the revision marker. It
 never creates, resets, or moves cursors. Any Telegram row or selected-security
 change requires a separately reviewed transition. This is not a News backfill
 path; keep News future-only and do not replay source history.
+
+The Phintraco Swing route uses a separate revision-only transition when moving
+`trading_plans` from the legacy `telegram:phintraprofits` alias to
+`telegram:phintasprofits`. Both endpoint identities represent channel
+`1444713822`, but Telegram resolves the live publisher as `@phintasprofits`.
+Keep already accepted legacy work processable while the route moves. Pause this
+writer and drain its Swing work before taking exact consecutive effective
+catalog snapshots. `bin/phintas_swing_catalog_transition.py preview` and
+`apply` permit only disabling the legacy row and enabling the canonical row.
+The transition requires the pre-existing Phintas cursor, fingerprints every
+other state file, journals the move, and advances only the catalog revision
+marker. It does not create or seed cursors, move state, or replay history.
+Apply requires the unchanged private preview plan and
+`BURSAWATCH_ALLOW_PHINTAS_SWING_CATALOG_TRANSITION_APPLY=1`. Keep the plan
+outside the source state root. Never hand-edit the revision marker or either
+endpoint cursor.
 
 The inbox owns source events and independent subscription work. The adapter
 never submits Discord or Board operations. `service-bursawatch-source-media`

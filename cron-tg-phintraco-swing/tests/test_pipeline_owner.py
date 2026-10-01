@@ -35,7 +35,7 @@ def test_text_plan_uses_existing_owner_and_exact_render(tmp_state, monkeypatch):
         "**Source status:** New setup <:grey:1531279158913536182>\n"
         "**Last updated:** 10 Jul 2026 07:00 WIB\n"
         "**Board:** <#1548273399069933720>\n\n"
-        "[View in Telegram](<https://t.me/phintraprofits/40001>)",
+        "[View in Telegram](<https://t.me/phintasprofits/40001>)",
         route,
     )
     assert pipeline_owner.submit(work, no_post=True) == "accepted"
@@ -49,7 +49,7 @@ def test_chart_plan_downloads_durable_ref_into_existing_owner_path(tmp_state, mo
     chart = b"\xff\xd8\xffdurable-chart"
     ref = {"ref": "00000000-0000-4000-8000-000000000041", "sha256": hashlib.sha256(chart).hexdigest(), "kind": "image", "content_type": "image/jpeg", "size_bytes": len(chart), "filename": "chart.jpg", "durable": True}
     work = {"pipeline_id": "swing_plan", "capability_id": "trading_plans", "event_key": key, "version": 1, "effect_key": effect, "work_key": effect, "envelope": {"endpoint_id": "telegram:phintraprofits", "publisher_id": "phintraco", "provider_event_id": "40002", "published_at": "2026-07-10T00:00:00+00:00", "payload": {"text": text, "media_ref_ids": [ref["ref"]]}, "media_required": True, "media_refs": [ref]}}
-    configured = scan.config.WatchConfig(1444713822, "phintraprofits", "123456789012345678", "1505162000420835388")
+    configured = scan.config.WatchConfig(1444713822, "phintasprofits", "123456789012345678", "1505162000420835388")
     monkeypatch.setattr(scan.config, "load_watch_config_for_run", lambda: scan.config.LoadedWatchConfig(configured, 17))
 
     class MediaStore:
@@ -98,7 +98,7 @@ def test_weekly_pdf_source_work_uses_durable_document_and_original_published_tim
             "media_refs": [reference],
         },
     }
-    configured = scan.config.WatchConfig(1444713822, "phintraprofits", "123456789012345678", "1505162000420835388")
+    configured = scan.config.WatchConfig(1444713822, "phintasprofits", "123456789012345678", "1505162000420835388")
     monkeypatch.setattr(scan.config, "load_watch_config_for_run", lambda: scan.config.LoadedWatchConfig(configured, 17))
 
     class MediaStore:
@@ -128,9 +128,9 @@ def test_owner_rejects_missing_effective_live_config_before_state_or_delivery(tm
 
 
 def test_owner_rejects_source_mismatch_before_state_or_delivery(tmp_state, monkeypatch):
-    configured = scan.config.WatchConfig(1444713823, "phintraprofits", "123456789012345678", "1505162000420835388")
+    configured = scan.config.WatchConfig(1444713823, "phintasprofits", "123456789012345678", "1505162000420835388")
     monkeypatch.setattr(scan.config, "load_watch_config_for_run", lambda: scan.config.LoadedWatchConfig(configured, 17))
     monkeypatch.setattr(scan, "load_state", lambda: (_ for _ in ()).throw(AssertionError("state opened")))
     import pytest
-    with pytest.raises(ValueError, match="canonical endpoint"):
+    with pytest.raises(ValueError, match="verified channel"):
         pipeline_owner.submit({}, no_post=True)

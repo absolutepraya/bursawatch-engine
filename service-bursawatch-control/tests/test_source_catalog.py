@@ -38,6 +38,10 @@ def test_registry_lists_canonical_ids_and_engine_owned_capabilities_without_clai
     assert body["can_edit"] is True
     endpoints = {x["id"]: x for x in body["endpoints"]}
     assert endpoints["telegram:phintraprofits"]["provider_id"] == "1444713822"
+    assert ("telegram:phintasprofits", "trading_plans", None) in {
+        (item["endpoint_id"], item["capability_id"], item["dispatch_group"])
+        for item in body["compatibility"]
+    }
     assert endpoints["telegram:kelasinvestasiid"]["publisher_id"] == "kelas-investasi"
     assert endpoints["whatsapp:0029VbAjdnb60eBhwVdJxj1c"]["publisher_id"] == "bri-danareksa"
     assert len([x for x in endpoints if x.startswith("rss:stockbit:")]) == 4
@@ -149,6 +153,8 @@ def test_every_seeded_endpoint_matches_checked_in_source_identity_and_provider_i
         assert str(source["telegram_channel_id"]) in source_code
         assert source["telegram_username"] in source_code
 
+    expected["telegram:phintraprofits"] = ("phintraco", "phintraprofits", "1444713822")
+
     providers = json.loads((root / "service-bursawatch-control/baseline-configs/bursawatch-tg-market-news.json").read_text())["providers"]
     for publisher_id, source in providers.items():
         expected[f"telegram:{source['telegram_username']}"] = (publisher_id, source["telegram_username"], None)
@@ -175,6 +181,21 @@ def test_every_seeded_endpoint_matches_checked_in_source_identity_and_provider_i
         assert (row["publisher_id"], row["address"], row["provider_id"]) == (publisher_id, address, provider_id)
         literal_provider_id = f"'{provider_id}'" if provider_id is not None else "null"
         assert f"values ('{endpoint_id}', '{publisher_id}', '{row['platform']}', '{address}', {literal_provider_id});" in migration
+
+
+def test_phintas_swing_compatibility_is_migration_backed_and_not_enabled_by_default():
+    root = Path(__file__).resolve().parents[1]
+    compatible = {(item["endpoint_id"], item["capability_id"]) for item in registry()["compatibility"]}
+    assert ("telegram:phintasprofits", "trading_plans") in compatible
+    migration = (root / "migrations/021_phintas_swing_compatibility.sql").read_text()
+    assert migration.splitlines()[0] == "-- bursawatch-release: automatic"
+    assert "values ('telegram:phintasprofits', 'trading_plans');" in migration
+
+    api, _, _ = client()
+    effective = api.get("/v1/source-catalog/effective", headers=MACHINE).json()
+    swing = next(item for item in effective["subscriptions"]
+                 if item["endpoint_id"] == "telegram:phintasprofits" and item["capability_id"] == "trading_plans")
+    assert (swing["enabled"], swing["verification_status"], swing["source"]) == (False, "verified", "unset")
 
 
 def test_optimistic_write_audits_and_resolves_default_then_override_without_watcher_change():

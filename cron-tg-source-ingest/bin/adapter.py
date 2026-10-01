@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -29,10 +30,11 @@ from source_event_client import SourceEventHandoff
 
 PILOT = {
     "telegram:phintraprofits": ("1444713822", "phintraco", frozenset({"trading_plans"})),
-    "telegram:phintasprofits": (None, "phintraco", frozenset({"company_news", "macro_news", "stock_status"})),
+    "telegram:phintasprofits": (None, "phintraco", frozenset({"company_news", "macro_news", "stock_status", "trading_plans"})),
     "telegram:kelasinvestasiid": ("2142109618", "kelas-investasi", frozenset({"swing_support"})),
     "telegram:tuntunsekuritas": (None, "tuntun", frozenset({"company_news", "macro_news"})),
 }
+PHINTRACO_TELEGRAM_ENDPOINTS = frozenset({"telegram:phintraprofits", "telegram:phintasprofits"})
 MARKET_NEWS_PHASES = frozenset({
     "pending_analysis", "awaiting_agent", "pending_selection", "pending_delivery",
     "suppressed_rank", "suppressed_duplicate", "suppressed_ineligible",
@@ -246,6 +248,152 @@ def plan_market_news_catalog_transition(
         metadata={"prior_effective_catalog_sha256": prior_digest, "target_effective_catalog_sha256": target_digest},
         apply=apply,
         expected_plan=expected_plan,
+    )
+
+
+PHINTAS_SWING_CATALOG_APPLY_GUARD = "BURSAWATCH_ALLOW_PHINTAS_SWING_CATALOG_TRANSITION_APPLY"
+
+
+def _phintas_swing_catalog_rows(snapshot: dict[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
+    if type(snapshot) is not dict or type(snapshot.get("subscriptions")) is not list:
+        raise LegacySeedBlocked("effective catalog subscriptions are invalid")
+    result: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in snapshot["subscriptions"]:
+        if (type(row) is not dict or type(row.get("endpoint_id")) is not str
+                or type(row.get("capability_id")) is not str):
+            raise LegacySeedBlocked("effective catalog subscription identity is invalid")
+        key = (row["endpoint_id"], row["capability_id"])
+        if key in result:
+            raise LegacySeedBlocked("effective catalog contains duplicate subscriptions")
+        result[key] = row
+    return result
+
+
+def plan_phintas_swing_catalog_transition(
+    prior_catalog: dict[str, Any],
+    target_catalog: dict[str, Any],
+    state_root: Path,
+    *,
+    apply: bool = False,
+    expected_plan: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Move swing intake to the canonical Phintas handle without changing cursors."""
+    if (type(prior_catalog) is not dict or type(target_catalog) is not dict
+            or type(prior_catalog.get("revision")) is not int
+            or type(target_catalog.get("revision")) is not int
+            or target_catalog["revision"] != prior_catalog["revision"] + 1):
+        raise LegacySeedBlocked("Phintas swing transition requires consecutive catalog revisions")
+    securities = prior_catalog.get("selected_securities")
+    if (type(securities) is not list or any(type(value) is not str for value in securities)
+            or target_catalog.get("selected_securities") != securities):
+        raise LegacySeedBlocked("selected securities changed or are invalid")
+    try:
+        endpoints(prior_catalog)
+        endpoints(target_catalog)
+    except (IntakeBlocked, KeyError, TypeError, ValueError) as error:
+        raise LegacySeedBlocked("catalog snapshot is outside the reviewed Telegram pilot") from error
+
+    old_key = ("telegram:phintraprofits", "trading_plans")
+    new_key = ("telegram:phintasprofits", "trading_plans")
+    old_rows = _phintas_swing_catalog_rows(prior_catalog)
+    new_rows = _phintas_swing_catalog_rows(target_catalog)
+    if set(old_rows) != set(new_rows):
+        raise LegacySeedBlocked("catalog compatibility changed; capture both snapshots after the compatibility release")
+    changed = {key for key in old_rows if old_rows[key] != new_rows[key]}
+    if changed != {old_key, new_key}:
+        raise LegacySeedBlocked("catalog transition must change only the legacy and canonical trading_plans rows")
+
+    legacy_before, legacy_after = old_rows[old_key], new_rows[old_key]
+    canonical_before, canonical_after = old_rows[new_key], new_rows[new_key]
+    expected_legacy_identity = {
+        "platform": "telegram", "endpoint_id": old_key[0], "publisher_id": "phintraco",
+        "address": "phintraprofits", "provider_id": "1444713822",
+        "capability_id": "trading_plans", "pipeline": "swing_plan",
+        "verification_status": "verified", "settings": {},
+    }
+    expected_canonical_identity = {
+        "platform": "telegram", "endpoint_id": new_key[0], "publisher_id": "phintraco",
+        "address": "phintasprofits", "provider_id": None,
+        "capability_id": "trading_plans", "pipeline": "swing_plan",
+        "verification_status": "verified", "settings": {},
+    }
+    for label, row, identity in (
+        ("legacy prior", legacy_before, expected_legacy_identity),
+        ("legacy target", legacy_after, expected_legacy_identity),
+        ("canonical prior", canonical_before, expected_canonical_identity),
+        ("canonical target", canonical_after, expected_canonical_identity),
+    ):
+        if any(row.get(field) != value for field, value in identity.items()):
+            raise LegacySeedBlocked(f"{label} trading_plans identity or settings changed")
+    if (legacy_before.get("enabled") is not True or legacy_after.get("enabled") is not False
+            or legacy_before.get("source") != "endpoint_override"
+            or legacy_after.get("source") != "endpoint_override"):
+        raise LegacySeedBlocked("legacy trading_plans subscription must be disabled by its explicit endpoint override")
+    if (canonical_before.get("enabled") is not False or canonical_before.get("source") not in {"unset", "endpoint_override"}
+            or canonical_after.get("enabled") is not True
+            or canonical_after.get("source") != "endpoint_override"):
+        raise LegacySeedBlocked("canonical trading_plans subscription must be enabled by an explicit endpoint override")
+
+    target_capabilities = {
+        key[1] for key, row in new_rows.items()
+        if key[0] == "telegram:phintasprofits" and row.get("platform") == "telegram" and row.get("enabled") is True
+    }
+    if target_capabilities != {"company_news", "macro_news", "stock_status", "trading_plans"}:
+        raise LegacySeedBlocked("target Phintas subscriptions differ from the reviewed source scope")
+
+    state = Path(state_root).expanduser()
+    if state.is_symlink():
+        raise LegacySeedBlocked("source state root cannot be a symlink")
+    try:
+        root = state.resolve(strict=True)
+        root_info = root.stat()
+    except OSError as error:
+        raise LegacySeedBlocked("source state root is unavailable") from error
+    if not root.is_dir() or stat.S_IMODE(root_info.st_mode) & 0o077:
+        raise LegacySeedBlocked("source state root must be a private directory")
+    cursor_path = root / "telegram-phintasprofits" / "cursor.json"
+    if cursor_path.is_symlink() or not cursor_path.is_file():
+        raise LegacySeedBlocked("the initialized Phintas cursor is required; cursor seeding is not allowed")
+    if stat.S_IMODE(cursor_path.stat().st_mode) != 0o600:
+        raise LegacySeedBlocked("the Phintas cursor must have mode 0600")
+    try:
+        cursor = json.loads(cursor_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise LegacySeedBlocked("the initialized Phintas cursor is invalid") from error
+    if (type(cursor) is not dict or type(cursor.get("cursor")) is not int or cursor["cursor"] < 0
+            or ("bootstrap_cursor" in cursor and (type(cursor["bootstrap_cursor"]) is not int
+                                                    or not 0 <= cursor["bootstrap_cursor"] <= cursor["cursor"]))):
+        raise LegacySeedBlocked("the initialized Phintas cursor is invalid")
+
+    def catalog_digest(value: dict[str, Any]) -> str:
+        encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    metadata = {
+        "reason": "Move trading_plans from the stale Phintraprofits alias to the canonical Phintas endpoint without changing cursors or replaying backlog.",
+        "prior_effective_catalog_sha256": catalog_digest(prior_catalog),
+        "target_effective_catalog_sha256": catalog_digest(target_catalog),
+        "subscription_move": {
+            "disabled": {"endpoint_id": old_key[0], "capability_id": old_key[1]},
+            "enabled": {"endpoint_id": new_key[0], "capability_id": new_key[1]},
+        },
+        "preserved_cursor": {
+            "endpoint_id": "telegram:phintasprofits",
+            "path": str(cursor_path),
+            "message_id": cursor["cursor"],
+            "sha256": hashlib.sha256(cursor_path.read_bytes()).hexdigest(),
+        },
+    }
+    return plan_catalog_revision_transition(
+        state_root=root,
+        from_revision=prior_catalog["revision"],
+        to_revision=target_catalog["revision"],
+        seeds=[],
+        metadata=metadata,
+        allow_empty_seeds=True,
+        apply=apply,
+        expected_plan=expected_plan,
+        apply_guard_env=PHINTAS_SWING_CATALOG_APPLY_GUARD,
     )
 
 
@@ -531,10 +679,10 @@ async def ingest_endpoint(client: Any, endpoint: dict[str, Any], state_root: Pat
             except Exception:
                 raise IntakeBlocked("Telegram media upload to the Source Media Owner failed") from None
         reply_id = getattr(message, "reply_to_msg_id", None)
-        if reply_id is not None and endpoint["endpoint_id"] == "telegram:phintraprofits":
+        if reply_id is not None and endpoint["endpoint_id"] in PHINTRACO_TELEGRAM_ENDPOINTS:
             set_stage("resolve_reply_parent")
-        parent = await client.get_messages(entity, ids=reply_id) if reply_id is not None and endpoint["endpoint_id"] == "telegram:phintraprofits" else None
-        if reply_id is not None and endpoint["endpoint_id"] == "telegram:phintraprofits" and parent is None:
+        parent = await client.get_messages(entity, ids=reply_id) if reply_id is not None and endpoint["endpoint_id"] in PHINTRACO_TELEGRAM_ENDPOINTS else None
+        if reply_id is not None and endpoint["endpoint_id"] in PHINTRACO_TELEGRAM_ENDPOINTS and parent is None:
             raise IntakeBlocked("Telegram reply parent is unavailable")
         set_stage("build_envelope")
         item = envelope(endpoint, message, observed_at, reply_parent=parent, media_refs=media_refs, previous_message_id=cursor, bootstrap_message_id=bootstrap_cursor)

@@ -119,7 +119,9 @@ an isolated temporary directory. That path does not read `.env`, load secrets,
 make network requests, or write state, and it runs only the in-memory synthetic
 adapter contract check.
 
-The active one-minute Hermes job owns Phintraco Swing `trading_plans`, Kelas
+The active one-minute Hermes job currently reads Phintraco Swing
+`trading_plans` from `telegram:phintraprofits`; the approved route transition
+moves new work to canonical `telegram:phintasprofits`. The job also owns Kelas
 Investasi `swing_support`, Phintraco News `company_news`, `macro_news`, and
 `stock_status`, and Tuntun News `company_news` and `macro_news`. The paired News
 cutover is complete at source catalog revision 3. Its future-only Phintraco
@@ -139,3 +141,15 @@ fingerprinted source state, and the explicit
 advances the catalog revision marker; it does not seed or alter cursors, replay
 News, or change source capabilities. Keep the source-ingest writer paused
 until the transition is complete.
+
+To move the Phintraco Swing subscription from the legacy
+`telegram:phintraprofits` alias to canonical `telegram:phintasprofits`, use
+`bin/phintas_swing_catalog_transition.py` with consecutive effective catalog
+snapshots and the existing Phintas cursor. The guarded transition disables
+only the old `trading_plans` row, enables only the canonical row, fingerprints
+all source state, journals the change, and advances only the catalog revision
+marker. It never creates or moves cursors or replays old Telegram messages.
+Pause the source writer and drain Swing owner work before preview and apply.
+Apply requires the unchanged private preview plan and
+`BURSAWATCH_ALLOW_PHINTAS_SWING_CATALOG_TRANSITION_APPLY=1`; keep the plan
+outside the state root.
