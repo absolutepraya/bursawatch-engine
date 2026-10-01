@@ -28,7 +28,7 @@ version: v1
 - duration: 2.8s
 - start: 0.00
 - transition_in: cut
-- status: outline
+- status: built
 - src: compositions/s1-pains.html
 - poster: 2.4
 - blueprint: kinetic-type-beats (Hook)
@@ -44,7 +44,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 - duration: 1.5s
 - start: 2.80
 - transition_in: hook line lifts to top-left kicker
-- status: outline
+- status: built
 - src: compositions/s1-pains.html
 - blueprint: kinetic-type-beats (Problem)
 - rules: ref1 card entry (12 frames, horizontal motion blur), motion-blur-streak
@@ -55,7 +55,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 - scene: Telegram channel card "VIP INSIDER A1, Rp1,5 jt/bulan" slides in, pushing the IG card back. Right: "Grup 'insider A1'?" then "Boncos."
 - duration: 1.5s
 - start: 4.30
-- status: outline
+- status: built
 - src: compositions/s1-pains.html
 - rules: ref1 card entry, previous card scales to 0.92 and dims (accumulation)
 
@@ -64,7 +64,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 - scene: Class promo card "Kelas Saham Pasti Cuan" slides in. Right: "Kelas sana-sini?" then "Teori sama market-nya beda."
 - duration: 1.5s
 - start: 5.80
-- status: outline
+- status: built
 - src: compositions/s1-pains.html
 
 ## Frame 5 — Pain: X
@@ -72,7 +72,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 - scene: X stockpick card (dummy account, X badge, "Target 2x minggu ini") slides in; its chart flips red. Right: "Stockpick di X?" then "Rungkad."
 - duration: 1.5s
 - start: 7.30
-- status: outline
+- status: built
 - src: compositions/s1-pains.html
 - audio: low thud on "Rungkad."
 
@@ -82,7 +82,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 - duration: 3.2s
 - start: 8.80
 - transition_in: pain cards join the wall (continuous stage)
-- status: outline
+- status: built
 - src: compositions/s2-wall-logo.html
 - poster: 2.8
 - blueprint: grid-card-assemble (Problem, logo-wall variant)
@@ -94,7 +94,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 - scene: Wall ghosts to ~15% and blurs. "Tapi mana yang bener?" rises word by word, centred.
 - duration: 2.0s
 - start: 12.00
-- status: outline
+- status: built
 - src: compositions/s2-wall-logo.html
 - rules: depth-of-field-blur (wall), ref1 word rise
 - audio: riser into the drop
@@ -104,7 +104,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 - scene: Small mono label "Kenalin," above centre. Ghosted cards sharpen and stream right along three copper lines into the three inlets of the B; each inlet fills as cards arrive, building the mark.
 - duration: 2.0s
 - start: 14.00
-- status: outline
+- status: built
 - src: compositions/s2-wall-logo.html
 - blueprint: logo-assemble-lockup (Product_Intro, built from parts)
 - rules: svg-path-draw (mark fill), motion-blur-streak
@@ -115,7 +115,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 - scene: Drop. B mark + "Bursawatch" wordmark rise; subline (mono) "Semua info saham penting, langsung ke Discord kamu." Copper ripple rings expand from the mark. Held frame with slow push.
 - duration: 3.5s
 - start: 16.00
-- status: outline
+- status: built
 - src: compositions/s2-wall-logo.html
 - poster: 2.0
 - blueprint: logo-assemble-lockup + kinetic-type-beats (Product_Intro "Introducing")
@@ -128,7 +128,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 - duration: 3.5s
 - start: 19.50
 - transition_in: zoom-through from lockup
-- status: outline
+- status: built
 - src: compositions/s3-burst-proof.html
 - poster: 3.0
 - blueprint: constellation-hub (nodes spring around a center)
@@ -140,7 +140,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 - scene: Zoom through the centre into a real Discord channel: Bursawatch bot messages stack in (Tuntun TRUK VTO with price block, BRI Danareksa HRTA with photo, IHSG Journal on X with X badge). Discord ping on each arrival. Caption: "dipantau 24 jam. dirangkum AI."
 - duration: 3.0s
 - start: 23.00
-- status: outline
+- status: built
 - src: compositions/s3-burst-proof.html
 - blueprint: device-surface-showcase (cursorless stepwise flow)
 - rules: waterfall-entry (messages), ref4 caption typing
@@ -152,7 +152,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 - duration: 3.0s
 - start: 26.00
 - transition_in: copper line wipe
-- status: outline
+- status: built
 - src: compositions/s4-swing.html
 - blueprint: transcript-scroll-artifact-reveal
 - rules: 3d-page-scroll (flat variant)
@@ -162,7 +162,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 - scene: Scroll decelerates; search bar types "UNTR"; list filters to UNTR posts.
 - duration: 2.5s
 - start: 29.00
-- status: outline
+- status: built
 - src: compositions/s4-swing.html
 - blueprint: prompt-type-submit-generate (query → instant result surface)
 - rules: discrete-text-sequence (typing), context-sensitive-cursor
@@ -173,7 +173,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 - scene: UNTR thread opens: DokterMarket (X badge) "UNTR: Pola Triple Bottom Beri Peluang Penguatan" with its real chart, then BRI Danareksa "UNTR: Dividen Interim, Buyback, dan Kenaikan RKAB Jadi Katalis", then Tuntun "UNTR: RKAB batu bara 2026 direvisi naik menjadi 12,4 juta ton" with price block. Caption: "cek siapa aja yang udah bahas sahammu."
 - duration: 2.5s
 - start: 31.50
-- status: outline
+- status: built
 - src: compositions/s4-swing.html
 - poster: 2.0
 - rules: waterfall-entry, coordinate-target-zoom (punch to chart)
@@ -184,7 +184,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 - duration: 3.0s
 - start: 34.00
 - transition_in: copper line collapse and expand
-- status: outline
+- status: built
 - src: compositions/s5-brief.html
 - blueprint: dataviz-countup
 - rules: counting-dynamic-scale, ref4 caption typing
@@ -194,7 +194,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 - scene: "Semalam" card: "Inflasi AS melandai, peluang The Fed naikin bunga turun ke 37%." Second line: "Brent masih di atas US$100, Selat Hormuz masih panas."
 - duration: 3.0s
 - start: 37.00
-- status: outline
+- status: built
 - src: compositions/s5-brief.html
 - rules: card-morph-anchor
 
@@ -203,7 +203,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 - scene: Two real X takes (with X badges): IHSG Journal "IHSG masih lemah, belum ada sinyal pembalikan" (hati-hati) and "IHSG dinilai mulai terbebas dari tekanan MSCI" (optimis). A balance bar tips toward hati-hati. Label "Kata trader di X".
 - duration: 3.0s
 - start: 40.00
-- status: outline
+- status: built
 - src: compositions/s5-brief.html
 - rules: stat-bars-and-fills
 
@@ -212,7 +212,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 - scene: IHSG daily candles draw in (real ^JKSE history); dashed resistance 6.257 and support 6.071 draw across, downside 5.825 faint. Verdict chip cycles Hijau / Merah / Sideways and lands "Sideways, rawan turun."
 - duration: 3.0s
 - start: 43.00
-- status: outline
+- status: built
 - src: compositions/s5-brief.html
 - poster: 2.5
 - blueprint: dataviz-countup (chart hit)
@@ -225,7 +225,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 - duration: 2.5s
 - start: 46.00
 - transition_in: card-morph (brief chart shrinks into the card)
-- status: outline
+- status: built
 - src: compositions/s6-config.html
 - blueprint: fixed-anchor-cycle (in-place morphs) + cursor-ui-demo
 - rules: card-morph-anchor, press-release-spring, cursor-click-ripple
@@ -236,7 +236,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 - scene: "Mau mantau analis favoritmu sendiri?" Card morphs into a source list; a new row "+ @analis_pilihanmu" (dummy face, X badge) drops in and checks. "BISA."
 - duration: 2.5s
 - start: 48.50
-- status: outline
+- status: built
 - src: compositions/s6-config.html
 
 ## Frame 21 — Mau: jam
@@ -244,7 +244,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 - scene: "Mau ganti jam kirimnya?" Card morphs into a time picker; 08.00 rolls to 06.30. "BISA."
 - duration: 2.5s
 - start: 51.00
-- status: outline
+- status: built
 - src: compositions/s6-config.html
 - rules: vertical-spring-ticker
 
@@ -253,7 +253,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 - scene: "Males baca tiap hari?" Segmented control Harian / Mingguan slides to Mingguan; subline "Seminggu sekali aja." "BISA."
 - duration: 2.5s
 - start: 53.50
-- status: outline
+- status: built
 - src: compositions/s6-config.html
 
 ## Frame 23 — Close
@@ -261,7 +261,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 - scene: Card collapses into the copper line. "Infonya, dan cara nyarinya," then "kamu yang atur." rise word by word; then the line folds into the B mark, wordmark lockup, URL "bursawatch.abhipraya.dev" in mono below. Held to the last frame.
 - duration: 4.0s
 - start: 56.00
-- status: outline
+- status: built
 - src: compositions/s7-close.html
 - poster: 3.5
 - blueprint: kinetic-type-beats (CTA) → logo-assemble-lockup
