@@ -811,9 +811,11 @@ async def _drain_stock_status_events(
     dry_run: bool,
     *,
     delivery_client: object | None = None,
+    limit: int | None = None,
 ) -> int:
     delivered = 0
-    for event_key, _event in pending_stock_status_events(state, now):
+    due = pending_stock_status_events(state, now)
+    for event_key, _event in (due[:limit] if limit is not None else due):
         if await deliver_stock_status_event(
             state, event_key, now, dry_run=dry_run, delivery_client=delivery_client
         ):
