@@ -235,11 +235,24 @@ def dispatch_agent(state_root: Path, *, owner_command: Any = _owner_command) -> 
     return result
 
 
-def _process_pending(inbox: Any, state_root: Path, *, handlers: dict[str, Any] | None = None, agent_dispatcher: Any = dispatch_agent) -> dict[str, Any]:
+def _process_pending(inbox: Any, state_root: Path, *, handlers: dict[str, Any] | None = None, agent_dispatcher: Any = dispatch_agent, owner_command: Any = _owner_command) -> dict[str, Any]:
     selected = handlers if handlers is not None else {pipeline: _owner_handler(package, no_post=False) for pipeline, package in PIPELINE_OWNERS.items()}
     work = PipelineRuntime(inbox, selected).run_once(limit=20)
+    delivery: dict[str, Any] = {}
+    delivery_warning = False
+    if handlers is None:
+        try:
+            delivery = owner_command("cron-tg-market-news", "drain-delivery")
+            if (
+                type(delivery.get("news_delivered")) is not int
+                or type(delivery.get("stock_status_delivered")) is not int
+                or type(delivery.get("pending")) is not int
+            ):
+                raise RuntimeError("Market News owner drain response is invalid")
+        except Exception:
+            delivery_warning = True
     agent = agent_dispatcher(state_root) if agent_dispatcher is not None else {"wakeAgent": False}
-    return {"work": work, **agent}
+    return {"work": work, "owner_delivery": delivery, "owner_delivery_warning": delivery_warning, **agent}
 
 
 def format_heartbeat(now: datetime, result: dict[str, Any]) -> str:
@@ -255,7 +268,7 @@ def format_heartbeat(now: datetime, result: dict[str, Any]) -> str:
     target = result.get("agent_target", "none")
     if target not in {"none", *AGENT_OWNERS}:
         target = "invalid"
-    warning = bool(result.get("agent_dispatch_warning")) or pending > 0 or any(
+    warning = bool(result.get("agent_dispatch_warning") or result.get("owner_delivery_warning")) or pending > 0 or any(
         type(item) is dict and item.get("status") in {"resilience_blocked", "auth_required", "blocked"}
         for item in source
     )
