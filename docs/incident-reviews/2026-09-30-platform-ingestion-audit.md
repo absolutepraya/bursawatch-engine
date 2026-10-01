@@ -260,8 +260,9 @@ successful release at `3ae575c48ceac79cc95e5625f92b0b19dc38bb44`, release CI
 successful, the Telegram source reader active at its existing one-minute
 cadence, and all eight desired interval schedules matching the Hermes
 registry. The source catalog and reader state were both at revision 7. This is
-the state after the catalog recovery and Market News owner-state reconciliation
-recorded in the 2026-10-01 plan; it does not prove a new News delivery.
+the state after catalog recovery. The separate Market News state-root
+reconciliation was still pending; this snapshot does not prove a new News
+delivery.
 
 The Phintas finding is corrected by later evidence:
 
@@ -291,8 +292,64 @@ The Phintas finding is corrected by later evidence:
   already known in its state; otherwise the Board's context behavior remains
   the source-faithful outcome.
 
-The approved future-only canonical route work is documented in
+The completed future-only canonical route work is documented in
 [`Phintas Swing route design`](../superpowers/specs/2026-10-01-phintas-swing-route-design.md)
 and [`implementation plan`](../superpowers/plans/2026-10-01-phintas-swing-route.md).
 Other findings from this audit remain separate workstreams; do not treat the
 Telegram recovery as proof of X, RSS, WhatsApp, or Stockbit delivery.
+
+## 2026-10-01 follow-up: Phintas transition and Market News reconciliation gate
+
+A read-only production snapshot at 16:08 WIB showed `origin/main` and the
+successful release at `c955b7a8da6f6d4f439035270dd0b2f1b9588261`, release agent
+unblocked, Hermes gateway running, and all eight desired interval schedules
+matching the live registry. Seven of 13 Hermes jobs were active and six were
+paused. The shared Telegram source reader was paused at desired and applied
+revision 8 with its original one-minute interval. The snapshot reports
+scheduler and release state only, not runtime checksums or an exercised source
+to delivery event. The X account job still reported `last=error`; WhatsApp and
+Stockbit jobs reported `last=ok`.
+
+The Phintas route transition completed after PR #35 merged and released. The
+catalog moved from revision 7 to 8, the Swing owner config moved from revision
+1 to 2, and the existing Phintas cursor was preserved. Natural heartbeats
+followed the transition, but no new post-boundary Phintas source-to-Discord
+delivery has been observed. Message `35530` was not replayed.
+
+The current Market News state-root operation remains before archive and apply.
+After the reader pause, checks found no matching source or owner process, no
+active Market News agent lease, and both state locks available. The supported
+Hermes job configuration has no `IDX_MARKET_NEWS_STATE_PATH` override. Neither
+state file has been changed or archived, and the source schedule remains
+paused.
+
+The released reconciliation command stopped safely on canonical
+`pending_delivery` candidates. Read-only Delivery Owner lookups found:
+
+- Phintraco message `35557` has a persisted exact payload and accepted
+  handoff. Its deterministic operation is `delivered`, and the owner digest
+  matches the saved payload.
+- Tuntun message `15063` has no saved delivery payload or handoff. Its
+  deterministic owner operation lookup returned `not_found`. This means there
+  is no current owner operation to preserve, but it does not explain why the
+  candidate entered `pending_delivery` before the payload was persisted.
+- Two package-local Stock Information events overlap canonical events whose
+  delivery operations are already delivered with matching digests. The
+  canonical event records and receipts remain authoritative.
+
+A local reconciliation update now fingerprints status-only checks for
+canonical pending candidates. It permits only a matching delivered operation
+or `not_found` with no local accepted handoff or Discord message ID, repeats
+the checks during apply, and never submits or waits on Delivery Owner work.
+Canonical pending stock-status deliveries remain blocking. This code and its
+tests are not yet published or released. The Tuntun candidate's interruption
+point remains a separate diagnosis; no cause is inferred from the missing
+payload.
+
+The next state-cutover steps are to publish and release this guarded change,
+then collect a fresh snapshot, archive and checksum both unchanged state
+files, create and review a new package-owned preview, apply it while the
+reader remains paused, and resume through the supported schedule interface.
+Do not replay or backfill any historical news. Natural runs after resume must
+prove future owner progress, and only confirmed Delivery Owner receipts prove
+delivery.

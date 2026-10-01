@@ -124,12 +124,23 @@ preserves terminal history, selections, delivery intents, handoffs, and
 receipts. It imports only validated source provenance and safe terminal
 source-only status events. It marks all pre-cutover active candidates
 `abandoned` with a recorded reason so the first resumed run cannot emit stale
-news. Preview and apply block on unresolved candidate or stock-status
-`pending_delivery` work; resolve its Delivery Owner operation before creating a
-new plan. The package-local source file remains unchanged for the verified
-archive. On any failure after pausing, keep the schedule paused and follow the
-approved plan before resuming it. Never run the scheduled job manually, replay
-state, or send a test post for this check.
+news. For each canonical candidate in `pending_delivery`, preview performs a
+read-only Delivery Owner lookup by the deterministic operation key and
+validates the stored payload digest. It accepts only a matching delivered
+receipt, or `not_found` when local state has no accepted handoff or Discord
+message ID. Preview stores aggregate counts and a fingerprint of those
+outcomes, not operation keys or message content. Apply repeats the lookups and
+fails closed if any result changed. This gate never submits or waits on a
+Delivery Owner operation. Canonical stock-status events still block when their
+delivery is pending; resolve those separately before making a new plan. The
+same completed plan may be applied idempotently only when its receipt matches
+and all imported provenance remains present. The package-local file stays
+unchanged, so an old pending candidate phase is tolerated only when that same
+receipt proves the canonical candidate is already abandoned. Preserve the
+package-local source file in the verified archive. On any failure after
+pausing, keep the schedule paused and follow the approved plan before resuming
+it. Never run the scheduled job manually, replay state, or send a test post for
+this check.
 
 ```bash
 python3 "$HOME/.agents/skills/bursawatch-tg-market-news/bin/reconcile_source_ingest_state.py" preview

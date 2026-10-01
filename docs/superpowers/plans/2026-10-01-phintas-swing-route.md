@@ -1,8 +1,8 @@
 # Phintas Swing Route Canonicalization Plan
 
 **Design:** [`../specs/2026-10-01-phintas-swing-route-design.md`](../specs/2026-10-01-phintas-swing-route-design.md)
-**Status:** PR #35 open, merge pending required gates
-**Worktree:** `phintas-swing-route`
+**Status:** PR #35 merged and released; catalog transition complete
+**Worktree:** `.worktrees/phintas-route-ops`
 
 ## Implementation
 
@@ -30,46 +30,55 @@
   Control Plane 207 passed and 1 skipped. `bash scripts/test-all` passed across
   all package suites and repository policy checks.
 - [x] Open pull request [#35](https://github.com/absolutepraya/bursawatch-engine/pull/35)
-  and register it with the T3 thread. Do not wait on
-  running CI. Request auto-merge only through the repository's required checks
-  and review gates.
+  and register it with the T3 thread. It merged and released through the
+  normal required gates.
 
 ## Forward-only production transition
 
-- [ ] After merge and eligible release, run a fresh
+- [x] After merge and eligible release, run a fresh
   `python3 scripts/production_snapshot.py --production`. Confirm release SHA
   equals `origin/main`, the Control Plane migration is present, and the source
   reader is active at its existing one-minute cadence.
-- [ ] Re-read the effective catalog, Phintraco Swing config, source cursor,
+- [x] Re-read the effective catalog, Phintraco Swing config, source cursor,
   and source-work queue. Use the live values, not the earlier `35556` snapshot.
-- [ ] Pause the Telegram source reader by setting its desired Control Plane
+- [x] Pause the Telegram source reader by setting its desired Control Plane
   schedule disabled at the existing interval. Let the natural reconciler
   apply it. Prove no run is in flight and no source work is pending, leased,
   or executing for the Swing owner.
-- [ ] Capture the exact effective revision-N and revision-(N+1) catalog
+- [x] Capture the exact effective revision-N and revision-(N+1) catalog
   snapshots. Change only the `trading_plans` subscriptions: disable
   `telegram:phintraprofits`; enable `telegram:phintasprofits`.
-- [ ] Update the Swing watcher source username to `phintasprofits`, preserving
+- [x] Update the Swing watcher source username to `phintasprofits`, preserving
   its numeric channel ID and destinations. Validate the returned config
   revision without exposing credentials.
-- [ ] Preview the package-owned transition against the paused live source
+- [x] Preview the package-owned transition against the paused live source
   state. Confirm the Phintas cursor already exists and is unchanged, the old
   endpoint cursor remains untouched, and every other state hash matches.
   Archive no state and seed no cursor for this revision-only transition.
-- [ ] Apply only the unchanged preview with its explicit package guard. Verify
+- [x] Apply only the unchanged preview with its explicit package guard. Verify
   the journal and target revision marker, then restore the desired enabled
   schedule at the original cadence and let the natural reconciler apply it.
-- [ ] Verify a natural scheduled run and healthy heartbeat, the new effective
+- [x] Verify a natural scheduled run and healthy heartbeat, the new effective
   catalog binding, and unchanged future-only cursor semantics. Do not trigger
   the production job and do not send or recover message `35530`.
-- [ ] Refresh current-production documentation only after a fresh production
+- [x] Refresh current-production documentation only after a fresh production
   snapshot. State clearly that end-to-end delivery awaits a naturally arriving
   event after the boundary.
 
+The transition moved the catalog from revision 7 to 8 and the Swing owner
+configuration from revision 1 to 2. The existing Phintas cursor was preserved.
+Natural heartbeats followed the transition. The latest production snapshot at
+2026-10-01 16:08 WIB shows the shared Telegram source reader paused again at
+revision 8 for the separate Market News state reconciliation. That pause does
+not undo the Phintas route transition.
+
 ## Completion record
 
-- Code/tests: complete. PR #35 is open and linked to the T3 thread; merge is
-  pending the repository's required gates.
-- Catalog and owner-config transition: pending.
+- Code/tests: complete. PR #35 merged and released through the required gates.
+- Catalog transition: revision 7 to 8, complete. Swing owner configuration:
+  revision 1 to 2, complete. The existing cursor is unchanged.
+- The shared Telegram source reader is currently paused for Market News state
+  reconciliation. Its latest desired and applied schedule revision is 8 at the
+  existing one-minute interval.
 - Natural source-to-delivery event: unobserved; this remains a separate
   evidence layer and is not required for an idle health claim.

@@ -131,6 +131,7 @@ _SOURCE_INGEST_RECONCILIATION_FIELDS = frozenset(
         "plan_sha256",
         "source_state_sha256",
         "canonical_base_sha256",
+        "delivery_resolution_sha256",
         "source_candidate_count",
         "source_provenance_count",
         "new_candidate_count",
@@ -142,6 +143,9 @@ _SOURCE_INGEST_RECONCILIATION_FIELDS = frozenset(
         "overlap_status_event_count",
         "status_event_phase_difference_count",
         "status_event_provenance_added_count",
+        "canonical_pending_delivery_count",
+        "canonical_pending_delivery_confirmed_count",
+        "canonical_pending_delivery_not_found_count",
         "active_candidate_abandonment_count",
         "applied_at",
     }
@@ -858,7 +862,12 @@ def _validate_source_ingest_reconciliation(value: object) -> None:
         raise StateBlockedError("malformed state: source-ingest reconciliation receipt is invalid")
     if value["version"] != 1 or not _is_plain_int(value["version"]):
         raise StateBlockedError("malformed state: source-ingest reconciliation version is invalid")
-    for field in ("plan_sha256", "source_state_sha256", "canonical_base_sha256"):
+    for field in (
+        "plan_sha256",
+        "source_state_sha256",
+        "canonical_base_sha256",
+        "delivery_resolution_sha256",
+    ):
         if not isinstance(value[field], str) or not re.fullmatch(r"[0-9a-f]{64}", value[field]):
             raise StateBlockedError(f"malformed state: source-ingest reconciliation {field} is invalid")
     count_fields = (
@@ -873,6 +882,9 @@ def _validate_source_ingest_reconciliation(value: object) -> None:
         "overlap_status_event_count",
         "status_event_phase_difference_count",
         "status_event_provenance_added_count",
+        "canonical_pending_delivery_count",
+        "canonical_pending_delivery_confirmed_count",
+        "canonical_pending_delivery_not_found_count",
         "active_candidate_abandonment_count",
     )
     if any(not _is_plain_int(value[field]) or value[field] < 0 for field in count_fields):
@@ -886,6 +898,9 @@ def _validate_source_ingest_reconciliation(value: object) -> None:
         != value["new_status_event_count"] + value["overlap_status_event_count"]
         or value["status_event_phase_difference_count"] > value["overlap_status_event_count"]
         or value["status_event_provenance_added_count"] > value["overlap_status_event_count"]
+        or value["canonical_pending_delivery_count"]
+        != value["canonical_pending_delivery_confirmed_count"]
+        + value["canonical_pending_delivery_not_found_count"]
     ):
         raise StateBlockedError("malformed state: source-ingest reconciliation counts are inconsistent")
     _parse_timestamp(value["applied_at"], "source-ingest reconciliation applied_at")
