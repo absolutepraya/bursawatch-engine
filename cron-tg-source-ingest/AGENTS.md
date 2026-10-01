@@ -108,10 +108,14 @@ acceptance fails, the private handoff spool retains the opaque reference and
 retries it without reuploading or advancing the Telegram cursor.
 
 The runner launches Market News owner processes directly. Source-work
-acceptance, `agent-status`, and `claim-agent` must all receive the same
-`IDX_MARKET_NEWS_STATE_PATH` used by the owner submission wrapper, defaulting
-to `~/.hermes/state/idx-market-news.json`. This keeps durable candidates,
-agent leases, and classification submissions in one ledger.
+acceptance, `drain-delivery`, `agent-status`, and `claim-agent` must all
+receive the same `IDX_MARKET_NEWS_STATE_PATH` used by the owner submission
+wrapper, defaulting to `~/.hermes/state/idx-market-news.json`. This keeps
+durable candidates, delivery retries, agent leases, and classification
+submissions in one ledger. The drain runs on an idle natural poll and is
+attempted even if Telegram source intake raises. A drain failure is reported
+as an operational warning without discarding accepted inbox work or changing
+the source cursor.
 
 Keep live subscriptions within the reviewed catalog scope above. Do not enable
 other Telegram subscriptions or change the shared source-ingest schedule
