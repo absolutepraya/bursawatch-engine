@@ -1,0 +1,11 @@
+# Pulled Discord media, source logos, and raw message exports stay local
+assets/discord-media/
+assets/discord-ref/
+assets/sources/
+research/*.json
+# Build and render output
+renders/
+node_modules/
+.hyperframes/
+.media/cache/
+*.mp4
