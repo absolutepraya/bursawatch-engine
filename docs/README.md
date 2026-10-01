@@ -82,7 +82,10 @@ state reconciliation are authorized within the exact sequence in the plan,
 subject to its fresh-state preview, archive, release, and natural-run gates.
 The plan now terminally abandons pre-cutover active candidates before resume,
 following the user's no-backfill requirement, and blocks unresolved delivery
-operations.
+operations. Its candidate preflight uses read-only Delivery Owner lookups,
+requiring either a matching delivered receipt and digest or a confirmed
+not-found result with no locally accepted handoff. Apply repeats and
+fingerprints those results without submitting or waiting on operations.
 
 The follow-up Phintas Swing route review found that the reported September 30
 reminder had entered the legacy endpoint and was delivered about 20 hours

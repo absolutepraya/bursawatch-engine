@@ -4,12 +4,17 @@
 > release gates below. Do not run manual schedules or send test messages.
 
 **Status:** Approved by the user on 2026-10-01; amended on 2026-10-01 to keep
-the cutover forward-only. The implementation merged through
-[PR #33](https://github.com/absolutepraya/bursawatch-engine/pull/33) at main
-SHA `3ae575c48ceac79cc95e5625f92b0b19dc38bb44` on 2026-10-01. A 13:14 WIB
-production snapshot still showed the prior successful release at `925b894` and
-the release-agent status as pending. Production apply is authorized within the
-reviewed sequence below and has not been run.
+the cutover forward-only. The source-runner canonical-path fix and original
+reconciliation shipped through
+[PR #33](https://github.com/absolutepraya/bursawatch-engine/pull/33). The
+Phintas route follow-up also merged. A fresh production snapshot at
+2026-10-01 16:08 WIB showed `origin/main` and the successful release at
+`c955b7a8da6f6d4f439035270dd0b2f1b9588261`, with the release agent unblocked.
+At that snapshot, the shared Telegram source reader was paused at desired
+revision 8, applied revision 8, at its existing one-minute interval. The state
+archive and state apply below have not been performed. A new package-owned
+Delivery Owner preflight repair is implemented locally but is not yet
+published or released.
 
 **Workstream authorization:** The user has authorized the actions reasonably
 needed to complete this Bursawatch ingestion repair without requesting separate
@@ -151,8 +156,10 @@ with the package-owned forward-only cutover reason before saving. This includes
 source-only candidates imported by the merge. Reject any candidate or status
 event with unresolved `pending_delivery`; those operations must be checked with
 the Delivery Owner and a fresh plan before this cutover. Reapplying the same
-plan is idempotent only when all imported provenance is present and no active
-candidate remains.
+plan is idempotent only when its receipt matches, all imported provenance is
+present, and no active candidate remains. The immutable source file may retain
+a pending phase for an overlapping candidate that the matching receipt proves
+was already abandoned in canonical state.
 
 The source file must contain only the reviewed source-work and status-event
 ledgers plus the exact completed immediate-delivery marker. Nonempty source
@@ -207,6 +214,64 @@ returning success. Leave the package-local input byte-for-byte unchanged.
    deployed source-runner checksum and its isolated no-post result before any
    state operation.
 
+## Task 1: Resolve canonical pending candidate outcomes without sending
+
+The first live preview against the released reconciliation command failed
+closed because canonical state contains candidates in `pending_delivery`.
+Read-only Delivery Owner lookups found two cases:
+
+- Phintraco message `35557` has a persisted exact delivery payload and
+  accepted handoff. The deterministic operation is `delivered`, and the
+  returned digest matches the stored payload.
+- Tuntun message `15063` has no persisted delivery payload or handoff. Its
+  deterministic operation lookup returned `not_found`. This proves no current
+  Delivery Owner operation exists for that candidate, but it does not identify
+  why the candidate reached `pending_delivery` before the payload was saved.
+- Two package-local Stock Information records overlap canonical events whose
+  operations are already delivered with matching digests. The canonical
+  outcomes remain authoritative.
+
+Update the package-owned reconciliation preview and apply so they perform
+status-only lookups for canonical `pending_delivery` candidates. Require a
+matching terminal `delivered` receipt and digest when an operation exists. A
+`not_found` result is safe only when canonical state has no accepted handoff or
+Discord message ID. Persist only aggregate counts and a fingerprint of the
+status outcomes in the private plan. Apply must repeat the lookups and stop if
+any outcome changed. It must never submit, wait, or mutate the Delivery Owner.
+Pending canonical stock-status delivery remains a separate blocking condition.
+
+Review focus:
+
+- Exact operation key and digest reconstruction from the frozen payload.
+- Accepted legacy handoffs may use `reconcile_before_first_create` and the
+  persisted legacy nonce; preview and apply must reconstruct that exact
+  operation shape when its saved receipt proves it.
+- Missing payload plus `not_found` versus missing payload plus an existing
+  owner operation.
+- Accepted local handoffs, mismatched receipts, pending remote receipts,
+  failed lookups, and status changes between preview and apply.
+- Any confirmed local Discord message ID or delivered saved handoff receipt
+  must match the Delivery Owner's confirmed message ID before reconciliation
+  can replace or preserve that evidence.
+- Preservation of confirmed remote receipts before forward-only abandonment.
+- Idempotent reapply when the unchanged source file retains a pending phase
+  that this same plan already abandoned canonically.
+- No Delivery Owner submit or wait calls on the preview/apply path.
+
+Expected checks:
+
+- Focused reconciliation tests cover delivered, not-found, mismatch, changed
+  status, legacy accepted operations, confirmed message-ID conflicts,
+  fail-closed behavior, idempotent reapply, and canonical stock-status
+  blocking.
+- The Market News package suite and `bash scripts/test-all` pass.
+- `git diff --check` passes.
+- Documentation says that candidate outcomes are checked read-only, while
+  unresolved canonical stock-status deliveries remain blocking.
+
+The plan has no separate design spec; this plan contains the approved design
+and implementation contract.
+
 ## Separately approved production operation
 
 After the source and target paths are refreshed and the approved preview is
@@ -233,7 +298,9 @@ reviewed:
    source-provenance key is either a new canonical candidate or an identical
    payload overlap, there are zero unresolved conflicts, and the preview's
    `active_candidate_abandonment_count` covers every active candidate. Confirm
-   there are no unresolved candidate or stock-status deliveries.
+   every canonical pending candidate has either a matching delivered receipt
+   or a not-found result with no local accepted handoff, and confirm there are
+   no unresolved canonical stock-status deliveries.
 5. Apply the reviewed plan while the writer remains paused. Verify all
    source-work provenance is present in canonical state, every formerly active
    candidate is `abandoned`, terminal canonical records and delivery receipts
