@@ -243,10 +243,11 @@ def _pending_delivery(value: dict[str, object], now: datetime) -> list[tuple[str
 
 def _drain_delivery(
     value: dict[str, object], runtime: config.RuntimeConfig, now: datetime,
-    errors: list[str] | None = None,
+    errors: list[str] | None = None, *, limit: int | None = None,
 ) -> int:
     delivered = 0
-    for key, record, article, analysis in _pending_delivery(value, now):
+    due = _pending_delivery(value, now)
+    for key, record, article, analysis in due[:limit] if limit is not None else due:
         try:
             content = _render_record(record, article, analysis)
             if runtime.no_post:
