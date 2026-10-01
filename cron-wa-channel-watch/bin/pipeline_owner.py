@@ -449,7 +449,8 @@ def claim_agent(
             record["agent_phase"] = "awaiting_agent"
             record["agent_lease_until"] = state.lease_until(observed)
             route_override = agent_protocol.deterministic_route(profile, event)
-            claimed = agent_protocol.agent_item(profile, event, relevance_guard_required=route_override is not None)
+            agent_event = replace(event, media=()) if record.get("source_media_unavailable") is True else event
+            claimed = agent_protocol.agent_item(profile, agent_event, relevance_guard_required=route_override is not None)
             break
         state.save(state_path, value)
     return {
