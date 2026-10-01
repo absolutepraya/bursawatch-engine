@@ -7,6 +7,19 @@
 
 **Worktree:** `.worktrees/bug-squashing`, branch `absolutepraya/bug-squashing`, based on `origin/main` at `680cc4520db6e0102dbcd55bfc62e7ee73de7cea`.
 
+## Workstream authorization
+
+**Recorded 2026-10-01:** The user has authorized agents working on this
+Bursawatch ingestion bug-squashing effort to carry out the actions reasonably
+needed to complete it without requesting separate approval for each action.
+This includes opening and merging pull requests, pausing and resuming the
+existing affected jobs through the supported scheduler interface, deploying
+reviewed fixes, and applying reviewed production state changes.
+
+This authorization remains subject to repository and package release gates and
+the reviewed plan's preconditions. The user's forward-only requirement remains
+in force: do not replay or backfill historical items or send stale news.
+
 Recheck live state before acting. The original source-state observations were collected mainly between 16:20 and 17:03 WIB. Adjacent-service checks ran between 17:35 and 17:40 WIB. Read-only production snapshots ran at 17:22:56 and 17:40:17 WIB. Runtime state may have changed since then.
 
 ## Follow-up: temporary schedule control

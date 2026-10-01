@@ -7,6 +7,14 @@
 the cutover forward-only. Implementation is underway in the `bug-squashing`
 worktree. Production apply is authorized within the reviewed sequence below.
 
+**Workstream authorization:** The user has authorized the actions reasonably
+needed to complete this Bursawatch ingestion repair without requesting separate
+approval for each action. This includes opening and merging pull requests,
+deploying reviewed fixes, pausing and resuming the affected existing job through
+the supported scheduler interface, and applying the reviewed production state
+plan. Repository and package release gates and every plan precondition still
+apply. Do not replay or backfill historical items or send stale news.
+
 **Goal:** Put Telegram source-work acceptance, Market News agent leases, and
 classification submissions on one durable owner ledger while preserving
 terminal history, dedupe, and confirmed delivery records. Do not deliver any
