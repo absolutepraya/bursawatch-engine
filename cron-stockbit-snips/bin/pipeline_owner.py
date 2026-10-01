@@ -149,15 +149,46 @@ def claim_agent(*, path: Path | None = None, no_post: bool = False, now: datetim
         return build_wake_payload(article, snapshot["additional_prompt_instruction"])
 
 
+
+def drain_deliveries(*, path: Path | None = None, now: datetime | None = None) -> dict[str, int]:
+    """Settle due source-backed deliveries without fetching RSS or claiming work."""
+    if os.environ.get("BURSAWATCH_RSS_SOURCE_NO_POST") == "1":
+        raise ValueError("delivery drain is unavailable in source no-post mode")
+    runtime = config.runtime()
+    if runtime.no_post:
+        raise ValueError("delivery drain is unavailable in Stockbit no-post mode")
+    destination = path or runtime.state_path
+    observed = now or datetime.now().astimezone()
+    import scan
+
+    with state.run_lock(destination):
+        value = state.load_state(destination, config.FEEDS)
+        scan._preflight_pending_delivery(value)
+        scan._drain_publications(value, destination, observed)
+        from dataclasses import replace
+        delivered = scan._drain_delivery(
+            value, replace(runtime, state_path=destination), observed
+        )
+        scan._drain_publications(value, destination, observed)
+        articles = value["articles"]
+        pending = sum(
+            isinstance(record, dict) and record.get("phase") == "pending_delivery"
+            for record in articles.values()
+        )
+    return {"delivered": delivered, "pending_delivery": pending}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", nargs="?", choices=("agent-status", "claim-agent"))
+    parser.add_argument("command", nargs="?", choices=("agent-status", "claim-agent", "drain-delivery"))
     args = parser.parse_args(argv)
     no_post = os.environ.get("BURSAWATCH_RSS_SOURCE_NO_POST") == "1"
     if args.command == "agent-status":
         result = agent_status()
     elif args.command == "claim-agent":
         result = claim_agent(no_post=no_post)
+    elif args.command == "drain-delivery":
+        result = drain_deliveries()
     else:
         result = {"outcome": submit(json.load(sys.stdin), no_post=no_post)}
     print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
