@@ -342,7 +342,7 @@ def _fallback_media_descriptors(
                 or descriptor.get("kind") != metadata.get("kind")
                 or descriptor.get("mime") != metadata.get("mime")
                 or descriptor.get("kind") not in _MEDIA_TYPES
-                or not isinstance(descriptor.get("mime"), str)
+                or descriptor.get("mime") is not None and type(descriptor["mime"]) is not str
             ):
                 return None
             result.append({
