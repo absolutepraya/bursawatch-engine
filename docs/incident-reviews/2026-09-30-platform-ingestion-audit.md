@@ -565,3 +565,22 @@ does not prove that the thread configuration caused this exact omission. Its
 cursor has passed the missed ID, and no recovery, replay, or backfill was
 attempted. Resolve the revision gate and RSSHub reply visibility in separate
 forward-only X follow-up work before claiming future account coverage.
+
+## 2026-10-01 20:10 X catalog-transition implementation
+
+The reviewed implementation adds an X-owned 7 to 8 catalog transition plan
+with a pinned hash for the complete enabled X projection. It delegates the
+marker and journal mutation to the shared source-state planner and preserves
+all endpoint cursors, accepted-event indexes, and handoff work. The reader
+requires the completed historical 5 to 7 journal and the new completed 7 to 8
+journal before accepting revision 8. The package contract documents preview,
+apply guard, and the fail-closed runtime check.
+
+The fresh 20:10 WIB production snapshot still showed X source polling active
+at its existing 10-minute cadence with `last=error`; the queue worker remained
+`last=ok`. `origin/main` and the successful VPS release both remained at
+`1756f6f6567b0bc5a28fae2db21bd7187c43f168`, with 8/8 desired schedules
+matching. This implementation is in the isolated worktree and has not been
+released or applied to live state. It therefore does not yet establish that
+X polling resumes or that a new Torch event is delivered. Torch's RSSHub
+visibility and thread handling remain a separate follow-up.

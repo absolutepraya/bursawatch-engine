@@ -21,8 +21,36 @@ from config import REVIEWED_PUBLISHERS, load_watch_config
 from models import PostKind, SourceMedia, SourcePost
 import pipeline_owner
 import state
+from compatible_catalog_transition import _require_x_transition_chain
+from source_ingest import IntakeBlocked
 
 NOW = datetime(2026, 9, 24, tzinfo=timezone.utc)
+
+
+def test_x_revision_eight_requires_both_completed_journal_edges(tmp_path):
+    root = tmp_path / "source"
+    directory = root / "catalog-transitions"
+    directory.mkdir(parents=True, mode=0o700)
+    projection_hash = "877e8fce0e374dc2c94fa28e0e374dc2c94fa28e0e374dc2c94fa28e0e374dc3"
+    for start, end in ((5, 7), (7, 8)):
+        metadata = {"reason": "Reviewed unchanged X reader projection."}
+        if start == 7:
+            metadata = {"transition_type": "x-compatible-catalog-transition", "projection_sha256": projection_hash,
+                        "prior_catalog_sha256": "a" * 64, "target_catalog_sha256": "b" * 64,
+                        "reason": "The complete enabled X projection is unchanged across catalog revisions 7 and 8."}
+        plan = {"version": 1, "status": "preview", "apply": False, "state_root": str(root),
+                "transition_path": str(directory / f"{start}-to-{end}.json"), "from_revision": start,
+                "to_revision": end, "state_files": {}, "seeds": [], "revision_only": True, "metadata": metadata}
+        path = directory / f"{start}-to-{end}.json"
+        path.write_text(json.dumps({"version": 1, "status": "complete", "plan": plan, "seeded_endpoints": []}))
+        path.chmod(0o600)
+    _require_x_transition_chain(root, 8)
+    path = directory / "7-to-8.json"
+    journal = json.loads(path.read_text())
+    journal["status"] = "applying"
+    path.write_text(json.dumps(journal))
+    with pytest.raises(IntakeBlocked):
+        _require_x_transition_chain(root, 8)
 
 
 def test_x_source_heartbeat_reports_empty_runs_and_warns_on_pending_work():
