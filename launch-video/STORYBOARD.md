@@ -15,6 +15,15 @@ version: v3-build
 
 Layout confirmed by the user on 2026-10-01 (storyboard v2). Built in compositions/ from scenes-src/ via tools/build_scenes.py.
 
+## Changes from feedback round 3 (team review)
+
+- Burst: caption centred and larger than the chips. Proof and swing captions larger, vertically centred on the left; the 0:32 caption blink removed.
+- Swing board: search types ENRG; the real Phintraco plan (thread 1552442989455089786, entry 1220 to 1240, SL <1195, T1 1325 to 1350) with a made-up Target 2 (1400 to 1425), "TP2 reached" tag and "Target 1425 achieved" follow-up for the demo.
+- Brief: "segera hadir" chip and caption removed; left bullet list of all four parts lights up per part; sentiment from dedewizard (@dedewizard19, optimis) and Elliot Alderson (@senimemancing, hati-hati); parts run 2.5 / 2.0 / 2.5 / 3.0s.
+- Config: quadrants every 1.5s, then "dan konfigurasi lainnya" pill.
+- Close (52.33 to 60): the user's nine real Stockbit returns dealt into a fan, "Berita · Trading plan · Anotasi chart", "Dapet duluan, cuan duluan.", muted disclaimer "Hasil pribadi, bukan jaminan. Bukan ajakan jual/beli saham."; cards gather into the mark on the last kick (57.29).
+- Discord titles: source icon aligns with the first line when a title wraps.
+
 ## Changes from feedback round 2 (wall and logo)
 
 - Wall: 11 cards from 11 different accounts, no repeats; IHSG Journal removed. Real posts from the user's screenshots: Milo (@eskepalmilosatu, $ESSA dump screener), SIVENNN (@SIVENNN5s, $DEWI chart with quote), Samuel Sekuritas (WIFI, classic WhatsApp), BRI Danareksa (Daily Trade, classic WhatsApp), Phintraco Sekuritas Official (Telegram desktop with pinned bar). Plus DokterMarket, The Kobeissi Letter, Tuntun, Kelas Investasi, Stockbit Snips, and one IG feed post.

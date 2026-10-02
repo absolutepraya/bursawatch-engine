@@ -36,9 +36,9 @@
         #s4-thread { opacity: 0; padding: 26px 30px; }
         #s4-thread .dimg { width: 78%; }
         #s4-line { position: absolute; left: 760px; top: 538px; width: 1080px; height: 4px; background: #DEA777; transform-origin: 50% 50%; }
-        .cap2 { position: absolute; left: 116px; top: 830px; font-weight: 700; font-size: 40px; line-height: 1.35; max-width: 520px; color: #EEEAE3; }
+        .cap2 { position: absolute; left: 116px; top: 50%; transform: translateY(-50%); font-weight: 700; font-size: 64px; line-height: 1.22; letter-spacing: -0.02em; max-width: 590px; color: #EEEAE3; }
         .cap2 .c1 { color: #DEA777; }
-        .crt { display: inline-block; width: 18px; height: 40px; background: #DEA777; vertical-align: -6px; margin-left: 6px; }
+        .crt { display: inline-block; width: 0.28em; height: 0.92em; background: #DEA777; vertical-align: -0.12em; margin-left: 0.1em; }
         #s4-cursor { position: absolute; left: 0; top: 0; width: 34px; height: 46px; opacity: 0; }
       </style>
 
@@ -84,12 +84,12 @@
           tl.fromTo("#s4-list", { y: 0 }, { y: -1580, duration: 2.1, ease: "expo.out" }, 0.2);
           typeCaption("#s4-cap1", "#s4-crt1", 0.4, SEARCH);
 
-          // ---- search UNTR
+          // ---- search ENRG
           tl.to("#s4-cap1", { opacity: 0, duration: 0.12 }, SEARCH - 0.1);
           tl.to("#s4-search", { borderColor: "#DEA777", duration: 0.15 }, SEARCH);
           tl.set("#s4-ph", { display: "none" }, SEARCH + 0.08);
           tl.set("#s4-caret", { opacity: 1 }, SEARCH + 0.08);
-          ["U", "UN", "UNT", "UNTR"].forEach((q, i) => tl.set("#s4-q", { textContent: q }, SEARCH + 0.12 + i * 0.12));
+          ["E", "EN", "ENR", "ENRG"].forEach((q, i) => tl.set("#s4-q", { textContent: q }, SEARCH + 0.12 + i * 0.12));
           tl.set("#s4-q", { textContent: "" }, 0);
           for (let b = SEARCH + 0.7; b < OPEN; b += 0.5) { tl.set("#s4-caret", { opacity: 0 }, b); tl.set("#s4-caret", { opacity: 1 }, b + 0.25); }
           tl.to("#s4-list", { opacity: 0, y: "-=40", duration: 0.2, ease: "power2.in" }, SEARCH + 0.62);
@@ -100,7 +100,7 @@
           tl.fromTo("#s4-cursor", { x: 1500, y: 980, opacity: 0 }, { x: 1180, y: 330, opacity: 1, duration: 0.5, ease: "power3.out", immediateRender: false }, OPEN - 0.85);
           tl.to("#s4-cursor", { scale: 0.85, duration: 0.06, transformOrigin: "0 0" }, OPEN - 0.2);
           tl.to("#s4-cursor", { scale: 1, duration: 0.1 }, OPEN - 0.14);
-          tl.to("#s4-untr", { backgroundColor: "#16181b", duration: 0.1 }, OPEN - 0.2);
+          tl.to("#s4-hit", { backgroundColor: "#16181b", duration: 0.1 }, OPEN - 0.2);
           tl.to("#s4-cap2", { opacity: 0, duration: 0.12 }, OPEN - 0.05);
           tl.to("#s4-cursor", { opacity: 0, duration: 0.15 }, OPEN + 0.05);
           tl.to("#s4-forum", { x: -80, opacity: 0, duration: 0.3, ease: "power2.in" }, OPEN - 0.05);
@@ -111,8 +111,6 @@
           // ---- the kick returns: punch into the analyst's chart
           tl.to("#s4-cam", { scale: 1.32, x: 70, y: 0, duration: 0.5, ease: "expo.out" }, PUNCH);
           tl.to("#s4-cam", { scale: 1.37, duration: D - PUNCH - 0.5, ease: "none" }, PUNCH + 0.5);
-          tl.to("#s4-cap3", { opacity: 0.0, duration: 0.2 }, PUNCH - 0.05);
-          tl.to("#s4-cap3", { opacity: 1, duration: 0.2 }, PUNCH + 0.5);
 
           // ---- exit into the copper line
           tl.to("#s4-cam", { scaleY: 0.004, duration: 0.2, ease: "power4.in" }, D - 0.24);

@@ -35,6 +35,9 @@
         #s6-segpill { position: absolute; left: 8px; top: 8px; width: calc(50% - 8px); height: calc(100% - 16px); border-radius: 99px; background: #DEA777; }
         .bisa { position: absolute; right: 70px; bottom: 50px; font-weight: 900; font-size: 92px; letter-spacing: -0.045em; color: #DEA777; transform: rotate(-6deg); opacity: 0; }
         #s6-cursor { position: absolute; left: 0; top: 0; width: 34px; height: 46px; z-index: 5; }
+        #s6-more { position: absolute; left: 960px; top: 540px; margin: -64px 0 0 -460px; width: 920px; height: 128px; display: flex; align-items: center; justify-content: center; gap: 26px;
+          border-radius: 99px; background: #1C1F1D; border: 3px solid #DEA777; font-weight: 800; font-size: 60px; letter-spacing: -0.025em; color: #EEEAE3; box-shadow: 0 30px 80px rgba(0,0,0,.6); opacity: 0; }
+        #s6-more .dots { display: flex; gap: 10px; } #s6-more .dots i { width: 16px; height: 16px; border-radius: 50%; background: #DEA777; }
         #s6-line { position: absolute; left: 0; top: 538px; width: 1920px; height: 4px; background: #DEA777; transform-origin: 50% 50%; opacity: 0; }
       </style>
 
@@ -83,6 +86,7 @@
 
           <svg id="s6-cursor" viewBox="0 0 34 46"><path d="M2 2v38l10-9 7 14 7-3-7-14h13z" fill="#fff" stroke="#000" stroke-width="2"/></svg>
         </div>
+        <div id="s6-more" data-layout-allow-overlap><span class="dots"><i></i><i></i><i></i></span>dan konfigurasi lainnya</div>
         <div id="s6-line"></div>
       </div>
 
@@ -90,7 +94,7 @@
         (function () {
           const tl = gsap.timeline({ paused: true });
           const D = 8.04;
-          const Q = [0.0, 2.0, 4.0, 6.0]; // one bar each: 46.29 / 48.30 / 50.32 / 52.32
+          const Q = [0.0, 1.5, 3.0, 4.5]; // three beats each from 44.29; the closing pill holds from ~5.7
           const MUTE = { opacity: 0.26, filter: "saturate(0.2)" };
           const LIVE = { opacity: 1, filter: "saturate(1)" };
 
@@ -140,8 +144,10 @@
           tl.to("#s6-sl1", { opacity: 1, duration: 0.2 }, Q[3] + 0.7);
 
           // all four now say BISA: brief full-page glow, then collapse into the copper line
-          tl.to("#s6-cursor", { opacity: 0, duration: 0.2 }, Q[3] + 1.3);
-          tl.to("#s6-q0, #s6-q1, #s6-q2", { opacity: 0.6, filter: "saturate(1)", duration: 0.3 }, Q[3] + 1.35);
+          tl.to("#s6-cursor", { opacity: 0, duration: 0.2 }, Q[3] + 1.15);
+          tl.to("#s6-q0, #s6-q1, #s6-q2, #s6-q3", { opacity: 0.22, filter: "saturate(0.3) blur(2px)", duration: 0.35 }, Q[3] + 1.2);
+          tl.fromTo("#s6-more", { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 0.42, ease: "back.out(1.8)", immediateRender: false }, Q[3] + 1.25);
+          tl.fromTo("#s6-more .dots i", { opacity: 0.25 }, { opacity: 1, duration: 0.2, stagger: 0.12, repeat: 3, yoyo: true, immediateRender: false }, Q[3] + 1.6);
           tl.to("#s6-page", { scaleY: 0.004, duration: 0.22, ease: "power4.in" }, D - 0.26);
           tl.set("#s6-line", { opacity: 1 }, D - 0.06);
 

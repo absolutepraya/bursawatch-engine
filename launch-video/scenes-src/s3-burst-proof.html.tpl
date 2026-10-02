@@ -10,16 +10,17 @@
           --dbg:#000; --dcard:#121316; --dtext:#DBDEE1; --dmuted:#949BA4; --dlink:#4A9BF5; --blurple:#5865F2; --up:#2EE65F; --down:#F23F43; }
         #s3-box { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; container-type: inline-size; }
         {{DISCORD_CSS}}
-        #s3-glow { position: absolute; left: 960px; top: 520px; width: 1300px; height: 1300px; margin: -650px 0 0 -650px; border-radius: 50%; background: radial-gradient(closest-side, rgba(222,167,119,.16), rgba(222,167,119,0)); }
-        #s3-hub { position: absolute; left: 820px; top: 380px; width: 280px; height: 280px; }
+        #s3-glow { position: absolute; left: 960px; top: 470px; width: 1300px; height: 1300px; margin: -650px 0 0 -650px; border-radius: 50%; background: radial-gradient(closest-side, rgba(222,167,119,.16), rgba(222,167,119,0)); }
+        #s3-hub { position: absolute; left: 820px; top: 330px; width: 280px; height: 280px; }
         #s3-hub img { width: 100%; height: 100%; border-radius: 50%; display: block; box-shadow: 0 30px 80px rgba(0,0,0,.6); }
         .bchip { position: absolute; display: flex; align-items: center; gap: 16px; padding: 14px 34px 14px 14px; border-radius: 99px; background: #1C1F1D; border: 3px solid #34383a;
           font-weight: 700; font-size: 46px; letter-spacing: -0.02em; white-space: nowrap; box-shadow: 0 20px 44px rgba(0,0,0,.45); }
         .bchip img { width: 62px; height: 62px; border-radius: 50%; background: #fff; object-fit: cover; }
         .bchip .h { color: #DEA777; margin-right: -8px; }
-        .cap2 { position: absolute; left: 116px; top: 830px; font-weight: 700; font-size: 40px; line-height: 1.35; max-width: 640px; color: #EEEAE3; }
+        .cap2 { position: absolute; left: 116px; top: 50%; transform: translateY(-50%); font-weight: 700; font-size: 64px; line-height: 1.22; letter-spacing: -0.02em; max-width: 600px; color: #EEEAE3; }
+        #s3-cap1 { left: 0; right: 0; top: 850px; transform: none; max-width: none; text-align: center; font-size: 80px; letter-spacing: -0.03em; }
         .cap2 .c1 { color: #DEA777; }
-        .crt { display: inline-block; width: 18px; height: 40px; background: #DEA777; vertical-align: -6px; margin-left: 6px; }
+        .crt { display: inline-block; width: 0.28em; height: 0.92em; background: #DEA777; vertical-align: -0.12em; margin-left: 0.1em; }
         #s3-chan { opacity: 0; transform-origin: 50% 50%; }
         #s3-chan .dimg { width: 40%; }
         #s3-chan .dch { position: relative; z-index: 2; background: #000; margin-top: -1.4cqw; padding-top: 1.4cqw; }
@@ -32,9 +33,9 @@
           <div id="s3-glow"></div>
           <div class="bchip" id="s3-c0" style="left:300px;top:200px"><img src="assets/sources/emoji/phintraco.png"><span class="h">#</span>Trading ideas</div>
           <div class="bchip" id="s3-c1" style="left:1150px;top:170px"><img src="assets/sources/emoji/tuntun.png"><span class="h">#</span>Aksi korporasi</div>
-          <div class="bchip" id="s3-c2" style="left:1300px;top:540px"><img src="assets/sources/emoji/bridanareksa.png"><span class="h">#</span>Makro</div>
-          <div class="bchip" id="s3-c3" style="left:260px;top:520px"><img src="assets/sources/emoji/kobeissiletter.png"><span class="h">#</span>Komoditas</div>
-          <div class="bchip" id="s3-c4" style="left:1000px;top:800px"><img src="assets/sources/emoji/stockbit.png"><span class="h">#</span>Industri &amp; regulasi</div>
+          <div class="bchip" id="s3-c2" style="left:1340px;top:480px"><img src="assets/sources/emoji/bridanareksa.png"><span class="h">#</span>Makro</div>
+          <div class="bchip" id="s3-c3" style="left:220px;top:470px"><img src="assets/sources/emoji/kobeissiletter.png"><span class="h">#</span>Komoditas</div>
+          <div class="bchip" id="s3-c4" style="left:1060px;top:690px"><img src="assets/sources/emoji/stockbit.png"><span class="h">#</span>Industri &amp; regulasi</div>
           <div id="s3-hub"><img src="assets/brand/cropped_circle.png"></div>
         </div>
         <div class="cap2" id="s3-cap1"><span class="c1" data-t="udah dipilah."></span> <span class="c2" data-t="dari sumber kredibel."></span><span class="crt" id="s3-crt1"></span></div>
@@ -76,7 +77,7 @@
           // ---- burst (ref 3): hub pops with overshoot, chips launch from behind it on the half beats
           tl.fromTo("#s3-hub", { scale: 0.3, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.3, ease: "back.out(2.2)" }, 0.02);
           tl.fromTo("#s3-glow", { scale: 0.6, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.6, ease: "expo.out" }, 0);
-          const hubC = { x: 960, y: 520 };
+          const hubC = { x: 960, y: 470 };
           const tilts = [-7, 6, -5, 7, -3];
           for (let i = 0; i < 5; i++) {
             const el = document.getElementById("s3-c" + i);

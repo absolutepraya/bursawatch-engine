@@ -40,16 +40,19 @@ E += [(26.08, "whoosh-short", 0.28), (26.5, "whoosh", 0.25)]
 for i in range(4):
     E.append((28.86 + 0.12 * i, "key-press", 0.45))
 E += [(30.55, "click", 0.55), (30.8, "whoosh-short", 0.28), (32.26, "impact-bass-1", 0.42)]
-# s5: open, phase morphs, verdict
+# s5 (34.27): open, phase morphs (2.5 / 2.0 / 2.5 / 3.0s), verdict
 E += [(34.1, "whoosh-short", 0.28)]
-E += [(37.3, "whoosh-short", 0.18), (40.3, "whoosh-short", 0.18), (43.3, "whoosh-short", 0.18)]
-E += [(44.79, "key-press", 0.4), (45.05, "key-press", 0.4), (45.29, "pop", 0.4)]
-# s6: one click and one stamp per quadrant
-for q in [46.29, 48.30, 50.32, 52.32]:
+E += [(36.81, "whoosh-short", 0.18), (38.81, "whoosh-short", 0.18), (41.31, "whoosh-short", 0.18)]
+E += [(42.79, "key-press", 0.4), (43.05, "key-press", 0.4), (43.29, "pop", 0.4)]
+# s6 (44.29): one click and one stamp per quadrant, then the "lainnya" pill
+for q in [44.29, 45.79, 47.29, 48.79]:
     E.append((q + 0.5, "click", 0.5))
     E.append((q + 1.02, "impact-bass-1", 0.36))
-E += [(46.1, "whoosh-short", 0.25), (54.1, "whoosh-short", 0.25)]
-# s7: the mark lands on the last kick
+E += [(44.1, "whoosh-short", 0.25), (50.1, "pop", 0.35), (52.1, "whoosh-short", 0.25)]
+# s7 (52.33): gains cards dealt, payoff line, cards gather, the mark on the last kick
+for o in range(9):
+    E.append((52.33 + 0.4 + o * 0.13 + 0.12, "pop", 0.16))
+E += [(54.3, "sparkle", 0.14), (56.85, "whoosh", 0.3)]
 E += [(57.31, "impact-bass-2", 0.5)]
 
 

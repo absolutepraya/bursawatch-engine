@@ -45,18 +45,20 @@
         .cap2 { position: absolute; left: 116px; top: 830px; font-weight: 700; font-size: 40px; line-height: 1.35; max-width: 600px; color: #EEEAE3; }
         .cap2 .c1 { color: #DEA777; }
         .crt { display: inline-block; width: 18px; height: 40px; background: #DEA777; vertical-align: -6px; margin-left: 6px; }
-        #s5-soon { position: absolute; left: 116px; top: 760px; font-weight: 700; font-size: 24px; letter-spacing: .08em; color: #DEA777; border: 2px solid #DEA777; border-radius: 99px; padding: 6px 18px; }
+        #s5-list { position: absolute; left: 116px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 30px; }
+        .bi { display: flex; align-items: center; gap: 22px; font-weight: 700; font-size: 52px; letter-spacing: -0.02em; color: #6E6A63; }
+        .bi .dot { display: block; width: 18px; height: 18px; border-radius: 50%; background: #3A3D3A; flex: none; }
         #s5-line { position: absolute; left: 760px; top: 538px; width: 1080px; height: 4px; background: #DEA777; transform-origin: 50% 50%; }
       </style>
 
-      <div id="root" data-composition-id="s5-brief" data-width="1920" data-height="1080" data-duration="12.02">
+      <div id="root" data-composition-id="s5-brief" data-width="1920" data-height="1080" data-duration="10.02">
         <div id="s5-glow"></div>
         <div id="s5-box">
           <div id="s5-card">
             {{BOTHEAD}}
             <div id="s5-title">Morning brief</div>
             <div class="ph" id="s5-p0">
-              <div class="lab">Indeks global semalam</div>
+              <div class="lab">Indeks global semalam</span></div>
               <div class="tiles">
                 <div class="tile"><div class="tn">NASDAQ</div><div class="tv" id="s5-v0">0</div><div class="tc up">+0,24%</div></div>
                 <div class="tile"><div class="tn">NIKKEI</div><div class="tv" id="s5-v1">0</div><div class="tc up">+1,94%</div></div>
@@ -73,8 +75,8 @@
             </div>
             <div class="ph" id="s5-p2">
               <div class="lab">Kata trader di X</div>
-              <div class="take" id="s5-k0"><span class="avb"><img class="a" src="assets/sources/emoji/aldotjahjadi.png"><img class="b" src="assets/sources/emoji/twitter.png"></span><div><div class="who">IHSG Journal <span>@aldotjahjadi8</span></div><p>IHSG masih lemah, belum ada sinyal pembalikan.</p><span class="pill warn">hati-hati</span></div></div>
-              <div class="take" id="s5-k1"><span class="avb"><img class="a" src="assets/sources/emoji/aldotjahjadi.png"><img class="b" src="assets/sources/emoji/twitter.png"></span><div><div class="who">IHSG Journal <span>@aldotjahjadi8</span></div><p>IHSG dinilai mulai terbebas dari tekanan MSCI.</p><span class="pill ok">optimis</span></div></div>
+              <div class="take" id="s5-k0"><span class="avb"><img class="a" src="assets/brief/dedewizard-avatar.png"><img class="b" src="assets/sources/emoji/twitter.png"></span><div><div class="who">dedewizard <span>@dedewizard19</span></div><p>Support 5800-5900, RSI udah oversold. Sesi 2 mulai ada respon positif.</p><span class="pill ok">optimis</span></div></div>
+              <div class="take" id="s5-k1"><span class="avb"><img class="a" src="assets/brief/elliot-avatar.png"><img class="b" src="assets/sources/emoji/twitter.png"></span><div><div class="who">Elliot Alderson <span>@senimemancing</span></div><p>Mantul naik bikin wave 4, lalu lanjut breakdown prev low.</p><span class="pill warn">hati-hati</span></div></div>
               <div class="bal"><span>optimis</span><div class="track"><i id="s5-ok"></i><i id="s5-warn"></i></div><span>hati-hati</span></div>
             </div>
             <div class="ph" id="s5-p3">
@@ -85,15 +87,18 @@
           </div>
         </div>
         <div id="s5-line"></div>
-        <div id="s5-soon">SEGERA HADIR</div>
-        <div class="cap2" id="s5-cap"><span class="c1" data-t="08.00 WIB."></span> <span class="c2" data-t="morning brief."></span><span class="crt" id="s5-crt"></span></div>
+        <div id="s5-list">
+          <div class="bi" id="s5-b0"><span class="dot"></span><span>Indeks global semalam</span></div>
+          <div class="bi" id="s5-b1"><span class="dot"></span><span>Berita penting semalam</span></div>
+          <div class="bi" id="s5-b2"><span class="dot"></span><span>Sentimen trader di X</span></div>
+          <div class="bi" id="s5-b3"><span class="dot"></span><span>Proyeksi IHSG hari ini</span></div>
+        </div>
       </div>
 
       <script>
         (function () {
           const tl = gsap.timeline({ paused: true });
-          const D = 12.02;
-          const P = [0, 3.0, 6.0, 9.0]; // 34.27 / 37.27 / 40.27 / 43.27, on the beat
+          const D = 10.02;
 
           // ---- open out of the copper line
           tl.fromTo("#s5-card", { scaleY: 0.004 }, { scaleY: 1, duration: 0.34, ease: "expo.out" }, 0.02);
@@ -101,13 +106,14 @@
           tl.fromTo("#s5-glow", { opacity: 0 }, { opacity: 1, duration: 0.8 }, 0.1);
           tl.fromTo("#s5-box", { scale: 1 }, { scale: 1.03, duration: D, ease: "none" }, 0);
 
-          // caption + "segera hadir"
-          const parts = gsap.utils.toArray("#s5-cap [data-t]");
-          let t = 0.4;
-          tl.set("#s5-crt", { opacity: 1 }, 0);
-          parts.forEach((el) => { const f = el.dataset.t; tl.set(el, { textContent: "" }, 0); for (let i = 1; i <= f.length; i++) { tl.set(el, { textContent: f.slice(0, i) }, t); t += 1 / 30; } t += 0.08; });
-          for (let b = t + 0.1; b < D - 0.4; b += 0.5) { tl.set("#s5-crt", { opacity: 0 }, b + 0.25); tl.set("#s5-crt", { opacity: 1 }, b + 0.5); }
-          tl.fromTo("#s5-soon", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.3, ease: "expo.out" }, 1.2);
+          // left bullets: everything the brief covers, the active part lights up
+          const P = [0, 2.5, 4.5, 7.0]; // 34.27 / 36.77 / 38.77 / 41.27, on the beat
+          [0, 1, 2, 3].forEach((i) => tl.fromTo("#s5-b" + i, { opacity: 0, x: -24 }, { opacity: 1, x: 0, duration: 0.3, ease: "expo.out" }, 0.15 + i * 0.07));
+          P.forEach((p, i) => {
+            if (i > 0) { tl.to("#s5-b" + (i - 1) + " > span:last-child", { color: "#6E6A63", duration: 0.2 }, p); tl.to("#s5-b" + (i - 1) + " .dot", { backgroundColor: "#3A3D3A", scale: 1, duration: 0.2 }, p); }
+            tl.to("#s5-b" + i + " > span:last-child", { color: "#EEEAE3", duration: 0.2 }, p + 0.3);
+            tl.fromTo("#s5-b" + i + " .dot", { backgroundColor: "#3A3D3A", scale: 1 }, { backgroundColor: "#DEA777", scale: 1.4, duration: 0.3, ease: "back.out(3)", immediateRender: false }, p + 0.3);
+          });
 
           // phases morph in place (ref 2: blur-to-sharp, ~20 frames)
           [0, 1, 2, 3].forEach((i) => tl.set("#s5-p" + i, { opacity: 0 }, 0));
@@ -133,11 +139,11 @@
           tl.fromTo("#s5-warn", { scaleX: 0 }, { scaleX: 1, duration: 0.6, ease: "expo.out" }, P[2] + 0.9);
 
           // P4: candles draw left to right, levels draw, verdict ticks and lands on the beat
-          gsap.utils.toArray("#s5-p3 .cdl").forEach((c, i) => tl.fromTo(c, { opacity: 0, scaleY: 0.2, transformOrigin: "50% 50%" }, { opacity: 1, scaleY: 1, duration: 0.18, ease: "expo.out" }, P[3] + 0.15 + i * 0.016));
+          gsap.utils.toArray("#s5-p3 .cdl").forEach((c, i) => tl.fromTo(c, { opacity: 0, scaleY: 0.2, transformOrigin: "50% 50%" }, { opacity: 1, scaleY: 1, duration: 0.18, ease: "expo.out" }, P[3] + 0.12 + i * 0.012));
           [0, 1, 2].forEach((k) => {
-            tl.fromTo("#s5-lv" + k + " line", { strokeDashoffset: 1000, strokeDasharray: "1000 1000" }, { strokeDashoffset: 0, duration: 0.45, ease: "power2.out" }, P[3] + 1.0 + k * 0.15);
-            tl.fromTo("#s5-lv" + k + " text", { opacity: 0 }, { opacity: 1, duration: 0.2 }, P[3] + 1.3 + k * 0.15);
-            tl.set("#s5-lv" + k + " line", { strokeDasharray: "14 10" }, P[3] + 1.5 + k * 0.15);
+            tl.fromTo("#s5-lv" + k + " line", { strokeDashoffset: 1000, strokeDasharray: "1000 1000" }, { strokeDashoffset: 0, duration: 0.45, ease: "power2.out" }, P[3] + 0.7 + k * 0.12);
+            tl.fromTo("#s5-lv" + k + " text", { opacity: 0 }, { opacity: 1, duration: 0.2 }, P[3] + 0.95 + k * 0.12);
+            tl.set("#s5-lv" + k + " line", { strokeDasharray: "14 10" }, P[3] + 1.15 + k * 0.12);
           });
           tl.set(".vt", { yPercent: 100 }, 0);
           tl.fromTo("#s5-verdict", { opacity: 0, scale: 0.9 }, { opacity: 1, scale: 1, duration: 0.2, ease: "back.out(2)" }, P[3] + 1.45);
@@ -149,7 +155,7 @@
 
           // ---- exit: the brief shrinks into scene 6's top-left quadrant
           tl.to("#s5-card", { x: -580, y: -250, scale: 0.42, opacity: 0.0, duration: 0.3, ease: "power3.in" }, D - 0.3);
-          tl.to("#s5-cap, #s5-soon, #s5-glow", { opacity: 0, duration: 0.2 }, D - 0.3);
+          tl.to("#s5-list, #s5-glow", { opacity: 0, duration: 0.2 }, D - 0.3);
 
           window.__timelines["s5-brief"] = tl;
         })();

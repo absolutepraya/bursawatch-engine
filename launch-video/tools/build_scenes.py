@@ -62,7 +62,8 @@ TAG_ICON = {
     "stop": '<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="6" fill="#F23F43"/></svg>',
     "support2": '<svg viewBox="0 0 20 20"><rect x="4" y="4" width="12" height="12" fill="#F5D90A"/></svg>',
 }
-TAG_LABEL = {"primary": "Primary plan", "support": "Supporting setup", "below": "Below entry", "above": "Above entry",
+TAG_ICON["tp2"] = '<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" fill="#2EE65F"/><path d="M6.5 10.2l2.4 2.4 4.6-4.8" fill="none" stroke="#04210d" stroke-width="2"/></svg>'
+TAG_LABEL = {"tp2": "TP2 reached", "primary": "Primary plan", "support": "Supporting setup", "below": "Below entry", "above": "Above entry",
              "zone": "Entry zone", "resolved": "Resolved", "stop": "Stop-loss breached", "support2": "On support"}
 
 FORUM = [
@@ -74,7 +75,8 @@ FORUM = [
     ("JARR", "Fri, 25 Sep 2026", ("primary", "above"), "phintraco", "swing-JARR.jpg", "2", "6d ago"),
     ("AMMN", "Wed, 23 Sep 2026", ("support", "zone"), "bridanareksa", "swing-AMMN.jpg", "3", "8d ago"),
 ]
-UNTR_POST = ("UNTR", "Wed, 30 Sep 2026", ("support", "above"), "twitter", "untr-triple-bottom.jpg", "3", "1d ago")
+# demo: the real ENRG plan only had one target; Target 2 and its "TP2 reached" tag are made up for the film
+ENRG_POST = ("ENRG", "Thu, 24 Sep 2026", ("primary", "tp2"), "phintraco", "enrg-plan.jpg", "3", "1d ago")
 
 
 def forum_post(p, pid):
@@ -92,25 +94,24 @@ def forum():
     return (f'<div class="fhead"><div class="fsearch" id="s4-search"><span class="mag">&#9906;</span><span id="s4-q" class="fq"></span>'
             f'<span id="s4-ph" class="fph">Search or create a post...</span><span id="s4-caret" class="fcaret"></span></div>'
             f'<span class="fnew">New Post</span></div><div class="frow"><span class="fchip">Sort &amp; View</span>{filters}</div>'
-            f'<div class="flist"><div id="s4-list">{posts}</div><div id="s4-only">{forum_post(UNTR_POST, "s4-untr")}</div></div>')
+            f'<div class="flist"><div id="s4-list">{posts}</div><div id="s4-only">{forum_post(ENRG_POST, "s4-hit")}</div></div>')
 
 
 def thread():
+    """Real Phintraco ENRG plan (thread 1552442989455089786); Target 2 is made up for the demo."""
     E = SB.E
-    x = (f'<div class="dmsg" id="s4-t0">{SB.bot_header("", "Yesterday at 16:31")}<div class="dbody">'
-         f'<div class="dtitle"><img src="{E}/twitter.png">UNTR: Pola Triple Bottom Beri Peluang Penguatan</div>'
-         f'<div class="dauth">{SB.avatar(f"{E}/doktermarket.png", 30)} DokterMarket</div>'
-         f'<div class="dtext"><i>(Ringkasan)</i> UNTR berpeluang membentuk pola bullish triple bottom. Anotasi chart menunjukkan potensi ke 30.000, lalu 32.000.</div>'
-         f'<img class="dimg" id="s4-chart" src="assets/product/untr-triple-bottom.jpg"></div></div>')
-    b = SB.dmsg("bridanareksa", "UNTR: Dividen Interim, Buyback, dan Kenaikan RKAB Jadi Katalis", "",
-                "Kuota batu bara naik ke 12,4 juta ton, dividen interim Rp430 per saham, buyback hingga Rp2 triliun.", "9/29/26, 14:31")
-    t = SB.dmsg("tuntun", "UNTR: RKAB batu bara 2026 direvisi naik menjadi 12,4 juta ton", "",
-                "RKAB batu bara UNTR untuk 2026 direvisi naik dari 7,4 juta ton.", "9/24/26, 13:07",
-                SB.price_block("24.450", [("1D", "+50 (+0.20%)", "green"), ("1W", "-1.250 (-4.86%)", "red"),
-                                          ("1M", "+325 (+1.35%)", "green"), ("3M", "+1.950 (+8.67%)", "green")]))
-    b = b.replace('<div class="dmsg">', '<div class="dmsg" id="s4-t1">', 1)
-    t = t.replace('<div class="dmsg">', '<div class="dmsg" id="s4-t2">', 1)
-    return f'<div class="dch">&#128172; UNTR - Wed, 30 Sep 2026</div>{x}{b}{t}'
+    head = f'<div class="dauth">Alrich Paskalis T, Phintraco Sekuritas</div>'
+    plan = (f'<div class="dmsg" id="s4-t0">{SB.bot_header("", "9/24/26, 05:14")}<div class="dbody">'
+            f'<div class="dtitle"><img src="{E}/phintraco.png">ENRG: Buy</div>{head}'
+            f'<div class="plan"><span><b>Type:</b> Trading Buy <img src="{E}/up.png"></span><span><b>Entry:</b> 1220 to 1240</span>'
+            f'<span><b>Stop-loss:</b> &lt;1195</span><span><b>Target 1:</b> 1325 to 1350</span><span><b>Target 2:</b> 1400 to 1425</span></div>'
+            f'<img class="dimg" id="s4-chart" src="assets/product/enrg-plan.jpg"></div></div>')
+    tp1 = (f'<div class="dmsg" id="s4-t1">{SB.bot_header("", "9/25/26, 09:21")}<div class="dbody">'
+           f'<div class="dtitle"><img src="{E}/phintraco.png">ENRG: Target 1350 achieved <img class="em" src="{E}/green.png"></div>{head}</div></div>')
+    tp2 = (f'<div class="dmsg" id="s4-t2">{SB.bot_header("", "9/29/26, 10:05")}<div class="dbody">'
+           f'<div class="dtitle"><img src="{E}/phintraco.png">ENRG: Target 1425 achieved <img class="em" src="{E}/green.png"></div>{head}'
+           f'<div class="plan"><span><b>Market checkpoint:</b> TP2 reached</span></div></div></div>')
+    return f'<div class="dch">&#128172; ENRG - Thu, 24 Sep 2026</div>{plan}{tp1}{tp2}'
 
 
 def candles():
