@@ -373,6 +373,13 @@ queue processing, and heartbeat construction without external messages.
 
 After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.
 
+A delivered channel-message receipt requires a valid `message_id`; its
+`channel_id` may be omitted. Senders and publication projection accept the
+destination bound by the validated operation key and digest in that case.
+An explicit conflicting channel remains invalid. An already delivered operation
+is looked up by its stable key before any submission, so receipt finalization
+does not create another message.
+
 ## Published Feed projection
 
 The watcher owns WhatsApp Channel Published Feed projections. It projects only

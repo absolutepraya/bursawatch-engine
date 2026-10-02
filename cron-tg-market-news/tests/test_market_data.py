@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from types import SimpleNamespace
+import pandas as pd
 
 import market_data
 
@@ -18,7 +19,11 @@ class FakeQuote:
 
     def history(self, **kwargs):
         self.history_args = kwargs
-        return FakeHistory(Close=self.closes)
+        return pd.DataFrame({'Close': self.closes}, index=pd.bdate_range(end='2026-10-01', periods=len(self.closes), tz='Asia/Jakarta'))
+
+    def get_history_metadata(self):
+        return {'regularMarketTime': pd.Timestamp('2026-10-01T16:00:00+07:00').timestamp(),
+                'exchangeTimezoneName': 'Asia/Jakarta'}
 
     def get_info(self):
         return {"longName": "PT Rukun Raharja Tbk"}

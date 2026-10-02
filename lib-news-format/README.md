@@ -9,7 +9,12 @@ tracker. It never classifies relevance, selects destinations or sends messages.
 `get_market_snapshot` reads Yahoo daily unadjusted closes for one year. IDX
 symbols use `.JK` and IDR; US exchange class separators map to Yahoo's hyphen
 and prices use USD. 1D uses previous close when available, while 1W, 1M and 3M
-use 5, 22 and 66 prior trading sessions. Partial history preserves the latest
+use 5, 22 and 66 prior trading sessions only when the history's final session
+matches the quote's market date in the exchange timezone. Missing metadata or
+a stale history leaves those horizons unavailable while preserving the latest
+quote and an explicit previous-close 1D change. A history-only quote uses its
+own final session as the anchor. Missing closes retain their session positions.
+Partial history preserves the latest
 price and available horizons. Unknown or failed values use grey placeholders,
 never zero. Each quote waits at most three seconds with four daemon worker
 slots, and a batch stops optional quote lookup after nine seconds. A stalled

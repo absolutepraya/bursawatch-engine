@@ -86,6 +86,7 @@ this contract:
 - `cron-rss-source-ingest/AGENTS.md`
 - `lib-bursawatch-discord-delivery/AGENTS.md`
 - `lib-bursawatch-source-media/AGENTS.md`
+- `lib-news-format/AGENTS.md`
 - `cron-dc-swing-board/AGENTS.md`
 - `cron-tg-phintraco-swing/AGENTS.md`
 - `cron-ig-account-watch/AGENTS.md`

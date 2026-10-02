@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 import math
 import re
 import threading
@@ -98,6 +99,29 @@ def get_market_snapshot(ticker: str, route: str = "id_stocks_news") -> dict | No
     return _bounded_quote(_fetch_market_snapshot, ticker, route, 3.0)
 
 
+def _history_matches_quote_session(history, quote) -> bool:
+    """Only apply session offsets when the quote and final bar share a date."""
+    try:
+        metadata = quote.get_history_metadata()
+        exchange_timezone = ZoneInfo(metadata["exchangeTimezoneName"])
+        market_time = metadata.get("regularMarketTime")
+        if isinstance(market_time, datetime):
+            if market_time.tzinfo is None:
+                return False
+            quote_date = market_time.astimezone(exchange_timezone).date()
+        else:
+            market_time = _number(market_time)
+            if market_time is None or market_time <= 0:
+                return False
+            quote_date = datetime.fromtimestamp(market_time, exchange_timezone).date()
+        last_bar = history.index[-1]
+        if last_bar.tzinfo is not None:
+            last_bar = last_bar.astimezone(exchange_timezone)
+        return last_bar.date() == quote_date
+    except Exception:
+        return False
+
+
 def _fetch_market_snapshot(ticker: str, route: str) -> dict | None:
     """Bounded native-currency Yahoo snapshot. Every provider failure is optional."""
     if route not in {"id_stocks_news", "us_stocks_news"} or not re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,19}", ticker):
@@ -107,20 +131,27 @@ def _fetch_market_snapshot(ticker: str, route: str) -> dict | None:
         symbol = f"{ticker}.JK" if route == "id_stocks_news" else ticker.replace(".", "-")
         quote = yf.Ticker(symbol)
         history = quote.history(period="1y", interval="1d", auto_adjust=False, raise_errors=True, timeout=5)
-        closes = [n for n in map(_number, history.get("Close", [])) if n is not None and n > 0]
+        # Keep missing sessions in place so offsets cannot slide across gaps.
+        closes = [n if n is not None and n > 0 else None for n in map(_number, history.get("Close", []))]
         fast = quote.fast_info
         currency = "IDR" if route == "id_stocks_news" else "USD"
         actual_currency = fast.get("currency")
         if actual_currency is not None and actual_currency != currency:
             return None
-        latest = _number(fast.get("last_price")) or (closes[-1] if closes else None)
+        fast_latest = _number(fast.get("last_price"))
+        if fast_latest is not None and fast_latest <= 0:
+            fast_latest = None
+        latest = fast_latest if fast_latest is not None else (closes[-1] if closes else None)
         if latest is None or latest <= 0:
             return None
-        prior = _number(fast.get("previous_close")) or (closes[-2] if len(closes) >= 2 else None)
+        aligned = bool(closes) and (fast_latest is None or _history_matches_quote_session(history, quote))
+        prior = _number(fast.get("previous_close"))
+        if prior is None and aligned and len(closes) >= 2:
+            prior = closes[-2]
         result = {"latest_price": latest, "currency": currency, "as_of": datetime.now(timezone.utc).isoformat()}
-        for name, earlier in (("one_day", prior), ("one_week", closes[-6] if len(closes) >= 6 else None),
-                              ("one_month", closes[-23] if len(closes) >= 23 else None),
-                              ("three_month", closes[-67] if len(closes) >= 67 else None)):
+        for name, earlier in (("one_day", prior), ("one_week", closes[-6] if aligned and len(closes) >= 6 else None),
+                              ("one_month", closes[-23] if aligned and len(closes) >= 23 else None),
+                              ("three_month", closes[-67] if aligned and len(closes) >= 67 else None)):
             result[name + "_change"], result[name + "_percent"] = _delta(latest, earlier)
         return result
     except Exception:

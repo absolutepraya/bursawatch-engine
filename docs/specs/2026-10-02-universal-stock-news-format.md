@@ -82,11 +82,10 @@ source provenance and delivery ownership.
 1. Market scope, accepted: cover IDX and US stock-news routes, using IDR
    and USD respectively, without converting prices into another currency.
 2. Card heading, accepted: ticker-plus-headline heading with a
-   provider/account byline. The user requested concrete multi-company examples
-   before settling the item boundary.
-3. Multi-company stories, open: distinguish independent issuer developments
+   provider/account byline.
+3. Multi-company stories, accepted: distinguish independent issuer developments
    bundled in one publication from a single connected story with several
-   companies. Recommendation: the LLM emits one item per independently
+   companies. The LLM emits one item per independently
    supported issuer development. Each receives its own title, factual summary,
    deterministic tracker, and original source link. A connected transaction
    or broad thesis must not be multiplied just because it names other issuers.
@@ -97,10 +96,9 @@ source provenance and delivery ownership.
    excluded through the LLM's semantic judgment. Deterministic keyword or
    ticker matches must not force an education post to be relevant.
 
-After settling the independent-item boundary, review delivery bundle sizing,
-per-item identity, source-specific analysis compatibility, and forward-only
-queue adoption in the implementation plan. Confirm shared understanding
-before expanding implementation.
+The local implementation below covers delivery bundle sizing, per-item
+identity, source-specific analysis compatibility, and forward-only queue
+adoption. Production rollout remains separately approved.
 
 ## Source examples checked through RSSHub
 
@@ -209,14 +207,17 @@ production state, or credentials are changed by local development.
 
 ## Validation and rollback boundary
 
-The complete local `bash scripts/test-all` run passed with 2,804 Python tests
+The complete local `bash scripts/test-all` run after review corrections and
+integration of the latest main passed with 2,827 Python tests
 and 13 JavaScript sink tests. One optional PostgreSQL integration test was
 skipped because its existing database environment variable was absent.
 Focused consumer suites, release dependency ordering, repository policy and
 `git diff --check` also passed. Synthetic tests cover independent issuer
 cards, native currencies, unavailable and partial quotes, lossless bounded
 rendering, education decisions, frozen retry payloads, publication identities,
-source provenance, and X cleanup across destinations. They do not establish
+source provenance, X cleanup across destinations, frozen WhatsApp handoffs with
+partial receipts, and quote-session alignment with missing history values.
+The root child-instruction index includes the new shared library. These tests do not establish
 live model accuracy or a production source-to-delivery result.
 
 Compatibility is forward-only: the new owner readers accept old records and

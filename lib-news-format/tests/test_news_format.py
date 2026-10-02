@@ -3,14 +3,24 @@ from types import SimpleNamespace
 import sys
 
 import pytest
+import pandas as pd
 import news_format as news
+
+
+def fake_quote(closes, *, currency='USD', latest=None, previous=None, timezone='America/New_York'):
+    index = pd.bdate_range(end='2026-10-01', periods=len(closes), tz=timezone)
+    history = pd.DataFrame({'Close': closes}, index=index)
+    metadata = {'regularMarketTime': (index[-1] + pd.Timedelta(hours=20)).timestamp(),
+                'exchangeTimezoneName': timezone}
+    return SimpleNamespace(fast_info={'last_price':latest,'previous_close':previous,'currency':currency},
+                           history=lambda **kw: history, get_history_metadata=lambda: metadata)
 
 
 @pytest.mark.parametrize('route,currency,ticker,symbol', [('id_stocks_news','IDR','RAJA','RAJA.JK'), ('us_stocks_news','USD','BRK.B','BRK-B')])
 def test_native_currency_snapshot_and_all_horizons(monkeypatch, route, currency, ticker, symbol):
     calls = []
-    quote = SimpleNamespace(fast_info={'last_price':68,'previous_close':67,'currency':currency},
-                            history=lambda **kw: {'Close':list(range(1,68))})
+    quote = fake_quote(list(range(1,68)), currency=currency, latest=68, previous=67,
+                       timezone='Asia/Jakarta' if currency == 'IDR' else 'America/New_York')
     monkeypatch.setitem(sys.modules,'yfinance',SimpleNamespace(Ticker=lambda value: calls.append(value) or quote))
     result = news.get_market_snapshot(ticker,route)
     assert calls == [symbol]
@@ -23,12 +33,65 @@ def test_native_currency_snapshot_and_all_horizons(monkeypatch, route, currency,
 
 
 def test_partial_history_preserves_latest_and_available_horizons(monkeypatch):
-    quote = SimpleNamespace(fast_info={'last_price':10,'currency':'USD'},history=lambda **kw:{'Close':[9,10]})
+    quote = fake_quote([9,10], latest=10)
     monkeypatch.setitem(sys.modules,'yfinance',SimpleNamespace(Ticker=lambda value:quote))
     result = news.get_market_snapshot('META','us_stocks_news')
     assert result['one_day_change'] == 1
     assert result['one_week_change'] is None
     assert '1W: **-**' in news.market_block(result,'USD')
+
+
+@pytest.mark.parametrize('metadata_state', ['stale', 'missing', 'invalid_timezone', 'raises'])
+def test_unaligned_history_keeps_fast_quote_and_explicit_one_day_only(monkeypatch, metadata_state):
+    # Equal last prices do not prove that the market dates match.
+    quote = fake_quote(list(range(1,68)), latest=67, previous=66)
+    metadata = quote.get_history_metadata()
+    if metadata_state == 'stale':
+        metadata['regularMarketTime'] += 24 * 60 * 60
+    elif metadata_state == 'missing':
+        metadata.pop('regularMarketTime')
+    elif metadata_state == 'invalid_timezone':
+        metadata['exchangeTimezoneName'] = 'Unknown/Exchange'
+    else:
+        quote.get_history_metadata = lambda: (_ for _ in ()).throw(RuntimeError('metadata unavailable'))
+    monkeypatch.setitem(sys.modules,'yfinance',SimpleNamespace(Ticker=lambda value:quote))
+    result = news.get_market_snapshot('META','us_stocks_news')
+    assert result['latest_price'] == 67
+    assert result['one_day_change'] == 1
+    for key in ('one_week', 'one_month', 'three_month'):
+        assert result[key+'_change'] is None
+        assert result[key+'_percent'] is None
+    quote.fast_info.pop('previous_close')
+    assert news.get_market_snapshot('META','us_stocks_news')['one_day_change'] is None
+
+
+def test_history_only_quote_anchors_to_its_own_final_session(monkeypatch):
+    quote = fake_quote(list(range(1,68)))
+    quote.get_history_metadata = lambda: {}
+    monkeypatch.setitem(sys.modules,'yfinance',SimpleNamespace(Ticker=lambda value:quote))
+    result = news.get_market_snapshot('META','us_stocks_news')
+    assert result['latest_price'] == 67
+    assert [result[key+'_change'] for key in ('one_day','one_week','one_month','three_month')] == [1,5,22,66]
+
+
+def test_missing_closes_do_not_shift_other_horizon_sessions(monkeypatch):
+    closes = list(range(1,68))
+    closes[-6] = float('nan')
+    closes[-10] = float('nan')
+    quote = fake_quote(closes, latest=68, previous=67)
+    monkeypatch.setitem(sys.modules,'yfinance',SimpleNamespace(Ticker=lambda value:quote))
+    result = news.get_market_snapshot('META','us_stocks_news')
+    assert result['one_week_change'] is None
+    assert result['one_month_change'] == 23
+    assert result['three_month_change'] == 67
+
+
+def test_datetime_market_time_uses_exchange_date(monkeypatch):
+    quote = fake_quote(list(range(1,68)), latest=68, previous=67)
+    metadata = quote.get_history_metadata()
+    metadata['regularMarketTime'] = pd.Timestamp(metadata['regularMarketTime'], unit='s', tz='UTC')
+    monkeypatch.setitem(sys.modules,'yfinance',SimpleNamespace(Ticker=lambda value:quote))
+    assert news.get_market_snapshot('META','us_stocks_news')['one_month_change'] == 23
 
 
 def test_currency_mismatch_and_provider_failure_are_unavailable(monkeypatch):

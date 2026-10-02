@@ -164,7 +164,7 @@ def _receipt_for_operation(
 
 def _message_id(receipt: OperationReceipt, channel_id: str) -> str:
     value = receipt.receipt
-    if not isinstance(value, dict) or value.get("channel_id") != channel_id:
+    if not isinstance(value, dict) or value.get("channel_id", channel_id) != channel_id:
         raise DeliveryClientError("invalid_response")
     message_id = value.get("message_id")
     if not isinstance(message_id, str) or not message_id.isdigit():
