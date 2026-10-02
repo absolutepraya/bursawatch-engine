@@ -12,3 +12,5 @@ node_modules/
 !research/jkse.json
 assets/pain/x-sirkel-raw.png
 snapshots/
+.thumbnails/
+.waveform-cache/
