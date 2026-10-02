@@ -68,7 +68,7 @@ export const recommendedSources = [
   },
   {
     id: "doktermarket",
-    name: "DokterMarket",
+    name: "Dokter Market",
     handle: "@doktermarket",
     url: "https://x.com/doktermarket",
     image: "/sources/doktermarket.png",
@@ -113,7 +113,7 @@ export const recommendedSources = [
   },
   {
     id: "aldotjahjadi8",
-    name: "IHSG Journal",
+    name: "Aldo Tjahjadi",
     handle: "@aldotjahjadi8",
     url: "https://x.com/aldotjahjadi8",
     image: "/sources/aldotjahjadi8.png",

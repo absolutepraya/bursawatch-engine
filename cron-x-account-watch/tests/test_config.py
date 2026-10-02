@@ -136,7 +136,7 @@ def test_canonical_doktermarket_profile_is_routed_and_media_enabled():
     assert profile.source == "rsshub"
     assert profile.profile_url == "https://x.com/doktermarket"
     assert profile.handle == "doktermarket"
-    assert profile.display_name == "DokterMarket"
+    assert profile.display_name == "Dokter Market"
     assert profile.twitter_emoji == "<:twitter:1531672630602498129>"
     assert profile.emoji == "<:doktermarket:1540234049807720508>"
     assert [(channel.key, channel.channel_id, channel.description) for channel in profile.discord_channels] == [
@@ -184,7 +184,7 @@ def test_canonical_aldotjahjadi8_profile_is_routed_and_threaded():
     assert profile.source == "rsshub"
     assert profile.profile_url == "https://x.com/aldotjahjadi8"
     assert profile.handle == "aldotjahjadi8"
-    assert profile.display_name == "IHSG Journal 🍀🌞"
+    assert profile.display_name == "Aldo Tjahjadi"
     assert profile.twitter_emoji == "<:twitter:1531672630602498129>"
     assert profile.emoji == "<:aldotjahjadi:1541368062643798127>"
     assert [(channel.key, channel.channel_id) for channel in profile.discord_channels] == [

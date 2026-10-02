@@ -73,10 +73,13 @@ jobs:
           python service-bursawatch-control/bin/seed_baseline_configs.py
           python service-bursawatch-control/bin/migrate.py
 
-      - name: Verify API connection reuse on ephemeral PostgreSQL
+      - name: Verify integration behavior on ephemeral PostgreSQL
         env:
           BURSAWATCH_TEST_POSTGRES_URL: postgresql://postgres:postgres@localhost:5432/bursawatch
-        run: python -m pytest -q service-bursawatch-control/tests/test_postgres_pool_integration.py
+        run: >-
+          python -m pytest -q
+          service-bursawatch-control/tests/test_postgres_pool_integration.py
+          service-bursawatch-control/tests/test_source_rename_migration.py
 
   tests:
     name: Deterministic package suites

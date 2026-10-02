@@ -47,6 +47,11 @@ def test_registry_lists_canonical_ids_and_engine_owned_capabilities_without_clai
     assert len([x for x in endpoints if x.startswith("rss:stockbit:")]) == 4
     assert {x["id"]: x["tier"] for x in body["institutions"]}["phintraco"] == 1
     assert {x["id"]: x["tier"] for x in body["people_org"]}["kelas-investasi"] == 2
+    names = {item["id"]: item["name"] for item in body["people_org"]}
+    assert names["x-doktermarket"] == "Dokter Market"
+    assert names["x-aldotjahjadi8"] == "Aldo Tjahjadi"
+    assert endpoints["x:doktermarket"]["publisher_id"] == "x-doktermarket"
+    assert endpoints["x:aldotjahjadi8"]["publisher_id"] == "x-aldotjahjadi8"
     assert api.get("/v1/source-catalog", headers=MACHINE).status_code == 403
     effective = api.get("/v1/source-catalog/effective", headers=MACHINE)
     assert effective.status_code == 200

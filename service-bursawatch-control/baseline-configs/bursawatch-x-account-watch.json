@@ -217,7 +217,7 @@
       "enabled": false,
       "profile_url": "https://x.com/doktermarket",
       "handle": "doktermarket",
-      "display_name": "DokterMarket",
+      "display_name": "Dokter Market",
       "twitter_emoji": "<:twitter:1531672630602498129>",
       "emoji": "<:doktermarket:1540234049807720508>",
       "discord_channels": [
@@ -247,7 +247,7 @@
       "enable_llm_summary": true,
       "enable_llm_routing": true,
       "enable_llm_relevance_filter": true,
-      "additional_prompt_instruction": "DokterMarket frequently publishes Indonesian macro updates and IDX stock analysis, but also promotes paid or member-only research. Exclude promotional or sales posts, including Member Only or member-only teasers, premium or subscriber content, paid research, subscription or access invitations, signal-service marketing, and clickbait profit promises. For a direct IDX ticker, use id_stocks_swing only when the central thesis is technical charting or a trade setup, such as wave counts, support or resistance, breakouts, indicators, entry, target, or stop-loss; otherwise use id_stocks_news. Do not reject ordinary market news or substantive analysis merely because it links to doktermarket.com.",
+      "additional_prompt_instruction": "Dokter Market frequently publishes Indonesian macro updates and IDX stock analysis, but also promotes paid or member-only research. Exclude promotional or sales posts, including Member Only or member-only teasers, premium or subscriber content, paid research, subscription or access invitations, signal-service marketing, and clickbait profit promises. For a direct IDX ticker, use id_stocks_swing only when the central thesis is technical charting or a trade setup, such as wave counts, support or resistance, breakouts, indicators, entry, target, or stop-loss; otherwise use id_stocks_news. Do not reject ordinary market news or substantive analysis merely because it links to doktermarket.com.",
       "max_items_per_poll": 50,
       "thread_handling": {
         "mode": "disabled",
@@ -359,7 +359,7 @@
       "source": "rsshub",
       "profile_url": "https://x.com/aldotjahjadi8",
       "handle": "aldotjahjadi8",
-      "display_name": "IHSG Journal 🍀🌞",
+      "display_name": "Aldo Tjahjadi",
       "twitter_emoji": "<:twitter:1531672630602498129>",
       "emoji": "<:aldotjahjadi:1541368062643798127>",
       "discord_channels": [
