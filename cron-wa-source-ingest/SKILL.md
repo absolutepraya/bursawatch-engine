@@ -38,3 +38,12 @@ mapping to the bridge queue's `(mtime_ns, filename)` position, so the active
 reader starts forward-only and preserves the old state for rollback.
 `adapter.plan_legacy_cursor_seed` remains blocked. Do not start a second source
 poller or replay retained queue history.
+
+The wrapper may load an explicitly reviewed `BURSAWATCH_WA_SOURCE_STATE_ROOT`
+from `~/.hermes/.env` for forward-only recovery. A fresh root binds the current
+catalog at its first natural poll and records the observed queue high-water
+mark without reading old payloads. Keep the prior root for rollback and record
+the skipped backlog. Already-accepted Source Inbox and watcher owner work stays
+in its existing state and continues normally. This setting does not change the
+bridge, archive, destinations, or cadence, and it does not authorize a cursor
+reset or replay.
