@@ -29,7 +29,7 @@
         #s2-sub { position: absolute; left: 0; right: 0; top: 700px; text-align: center; font-weight: 500; font-size: 44px; color: #9C978E; letter-spacing: -0.01em; }
       </style>
 
-      <div id="root" data-composition-id="s2-wall-logo" data-width="1920" data-height="1080" data-duration="11">
+      <div id="root" data-composition-id="s2-wall-logo" data-width="1920" data-height="1080" data-duration="9.5">
         <div id="s2-cam">
           <div id="s2-wallbox" data-layout-allow-overlap data-layout-allow-overflow>{{WALL}}</div>
           <div class="hl" id="s2-h1" data-layout-allow-overlap><span class="w"><span class="wi">Infonya</span></span> <span class="w"><span class="wi">ada</span></span><br><span class="line2"><span id="s2-mk"></span><span class="w"><span class="wi cuw">di</span></span> <span class="w"><span class="wi cuw">mana-mana.</span></span></span></div>
@@ -74,7 +74,7 @@
         (function () {
           const tl = gsap.timeline({ paused: true });
           const N = {{WALL_N}};
-          const DROP = 7.49; // 16.22s in the film: the music drop
+          const DROP = 5.99; // 16.22s in the film: the music drop (scene starts at 10.23)
           const rise = (sel, t, step) => gsap.utils.toArray(sel).forEach((w, i) => {
             tl.fromTo(w, { yPercent: 108 }, { yPercent: 0, duration: 0.16, ease: "expo.out" }, Array.isArray(t) ? t[i] : t + i * (step || 0.07));
           });
@@ -92,38 +92,38 @@
             tl.fromTo(el, { x: -300, opacity: 0 }, { x: 0, opacity: target, duration: 0.22, ease: "expo.out" }, t);
             tl.fromTo(p, { v: 20 }, { v: 0, duration: 0.22, ease: "expo.out", onUpdate: write }, t);
           });
-          tl.fromTo("#s2-cam", { scale: 1 }, { scale: 1.045, duration: 5.4, ease: "none" }, 0);
+          tl.fromTo("#s2-cam", { scale: 1 }, { scale: 1.045, duration: 4.4, ease: "none" }, 0);
 
           // ---- headline + copper marker (ref 1 sweep ~16 frames)
           rise("#s2-h1 .wi", [0.28, 0.44, 0.98, 1.12]);
           tl.fromTo("#s2-mk", { scaleX: 0 }, { scaleX: 1, duration: 0.28, ease: "power2.out" }, 1.48);
 
           // ---- doubt: wall ghosts, question rises
-          tl.to("#s2-h1", { opacity: 0, filter: "blur(10px)", duration: 0.14, ease: "power2.in" }, 3.42);
-          tl.to("#s2-wall", { opacity: 0.15, filter: "blur(6px)", duration: 0.36, ease: "power2.out" }, 3.5);
+          tl.to("#s2-h1", { opacity: 0, filter: "blur(10px)", duration: 0.14, ease: "power2.in" }, 2.92);
+          tl.to("#s2-wall", { opacity: 0.15, filter: "blur(6px)", duration: 0.36, ease: "power2.out" }, 3.0);
           tl.set("#s2-h2", { opacity: 0 }, 0);
-          tl.set("#s2-h2", { opacity: 1 }, 3.55);
+          tl.set("#s2-h2", { opacity: 1 }, 3.05);
           gsap.utils.toArray("#s2-h2 .wi").forEach((w) => tl.set(w, { yPercent: 108 }, 0));
-          rise("#s2-h2 .wi", [3.6, 3.73, 3.98, 4.12]);
+          rise("#s2-h2 .wi", [3.1, 3.22, 3.44, 3.56]);
 
           // ---- absorb: sources stream along the B's inlets
-          tl.to("#s2-h2", { opacity: 0, filter: "blur(10px)", duration: 0.16, ease: "power2.in" }, 5.36);
-          tl.to("#s2-wall", { opacity: 0, duration: 0.4, ease: "power1.in" }, 5.4);
-          rise("#s2-kenalin .wi", 5.56);
-          [0, 1, 2].forEach((l) => tl.fromTo("#s2-l" + l, { scaleX: 0, opacity: 1 }, { scaleX: 1, duration: 0.36, ease: "expo.out", immediateRender: false }, 5.6 + l * 0.1));
+          tl.to("#s2-h2", { opacity: 0, filter: "blur(10px)", duration: 0.16, ease: "power2.in" }, 4.36);
+          tl.to("#s2-wall", { opacity: 0, duration: 0.36, ease: "power1.in" }, 4.4);
+          rise("#s2-kenalin .wi", 4.52);
+          [0, 1, 2].forEach((l) => tl.fromTo("#s2-l" + l, { scaleX: 0, opacity: 1 }, { scaleX: 1, duration: 0.36, ease: "expo.out", immediateRender: false }, 4.54 + l * 0.08));
           for (let i = 0; i < 9; i++) {
             const line = Math.floor(i / 3), slot = i % 3;
-            const t = 5.68 + line * 0.2 + slot * 0.2;
-            tl.fromTo("#s2-k" + i, { x: -420, opacity: 0, scale: 1 }, { x: 520, opacity: 1, scale: 0.55, duration: 0.62, ease: "power2.in" }, t);
-            tl.to("#s2-k" + i, { opacity: 0, duration: 0.08 }, t + 0.56);
+            const t = 4.6 + line * 0.14 + slot * 0.14;
+            tl.fromTo("#s2-k" + i, { x: -420, opacity: 0, scale: 1 }, { x: 520, opacity: 1, scale: 0.55, duration: 0.5, ease: "power2.in" }, t);
+            tl.to("#s2-k" + i, { opacity: 0, duration: 0.08 }, t + 0.45);
           }
           // the mark fills inlet by inlet as each line's last source lands
-          const fill = [6.3, 6.66, 7.02];
+          const fill = [5.1, 5.38, 5.66];
           ["#s2-cr0", "#s2-cr1", "#s2-cr2"].forEach((r, i) => {
             tl.fromTo(r, { attr: { width: 0 } }, { attr: { width: 96 }, duration: 0.42, ease: "expo.out" }, fill[i]);
           });
           tl.set("#s2-bwrap", { opacity: 0 }, 0);
-          tl.to("#s2-bwrap", { opacity: 1, duration: 0.1 }, 6.28);
+          tl.to("#s2-bwrap", { opacity: 1, duration: 0.1 }, 5.08);
 
           // ---- DROP: mark punches, slides into the lockup, rings ripple
           tl.to(".inlet", { opacity: 0, duration: 0.18, ease: "power2.in" }, DROP - 0.06);
@@ -133,17 +133,17 @@
           rise("#s2-wm .wi", DROP + 0.42);
           [0, 1, 2].forEach((r) => tl.fromTo("#s2-r" + r, { scale: 0.35, opacity: 0.6 }, { scale: 3.4, opacity: 0, duration: 1.3, ease: "power2.out", immediateRender: false }, DROP + 0.5 + r * 0.34));
           rise("#s2-sub .wi", DROP + 0.85, 0.05);
-          tl.fromTo("#s2-logo", { scale: 1 }, { scale: 1.03, duration: 11 - DROP, ease: "none" }, DROP);
+          tl.fromTo("#s2-logo", { scale: 1 }, { scale: 1.03, duration: 9.5 - DROP, ease: "none" }, DROP);
 
           // ---- exit: dive into the mark (zoom-through into scene 3's hub)
-          tl.to("#s2-kenalin, #s2-wm, #s2-sub", { opacity: 0, duration: 0.18, ease: "power2.in" }, 10.72);
-          tl.to("#s2-bwrap", { x: -400 + 400, scale: 4.5, opacity: 0, filter: "blur(12px)", duration: 0.28, ease: "power3.in" }, 10.72);
+          tl.to("#s2-kenalin, #s2-wm, #s2-sub", { opacity: 0, duration: 0.18, ease: "power2.in" }, 9.22);
+          tl.to("#s2-bwrap", { x: -400 + 400, scale: 4.5, opacity: 0, filter: "blur(12px)", duration: 0.28, ease: "power3.in" }, 9.22);
 
           // seed hidden states for later beats
           tl.set("#s2-kenalin .wi, #s2-wm .wi, #s2-sub .wi", { yPercent: 108 }, 0);
           tl.set(".inlet", { scaleX: 0 }, 0);
           tl.set(".chip", { opacity: 0 }, 0);
-          tl.set("#s2-kenalin", { opacity: 0 }, 0); tl.set("#s2-kenalin", { opacity: 1 }, 5.5);
+          tl.set("#s2-kenalin", { opacity: 0 }, 0); tl.set("#s2-kenalin", { opacity: 1 }, 4.48);
           tl.set("#s2-wm, #s2-sub", { opacity: 0 }, 0); tl.set("#s2-wm", { opacity: 1 }, DROP + 0.4); tl.set("#s2-sub", { opacity: 1 }, DROP + 0.8);
 
           window.__timelines["s2-wall-logo"] = tl;

@@ -13,15 +13,19 @@ DUR = {"whoosh-short": 0.57, "whoosh": 0.57, "click": 0.37, "click-soft": 0.37, 
        "pop": 0.72, "ping": 1.32, "impact-bass-1": 2.1, "impact-bass-2": 2.59, "sparkle": 1.8}
 
 E = []
-# s1: hook words, pain cards, answers
-for t in [0.3, 0.42, 0.56, 0.72, 0.86, 1.06, 1.2, 1.64, 1.76, 1.92]:
+# s1: hook words, pain cards (2.0s each on the grid), heroes, emphasis
+for t in [0.24, 0.35, 0.47, 0.61, 0.73, 0.9, 1.02, 1.4, 1.51, 1.64]:
     E.append((t + 0.04, "key-press", 0.16))
-for i, t0 in enumerate([2.73, 4.23, 5.73, 7.23]):
-    E.append((t0 + 0.06, "whoosh-short", 0.42))
+for i, t0 in enumerate([2.23, 4.23, 6.23, 8.23]):
+    E.append((t0 + 0.08, "whoosh-short", 0.42))
     E.append((t0 + 0.52, "impact-bass-1" if i == 3 else "pop", 0.5 if i == 3 else 0.3))
-# s2: wall, absorb, drop
-E += [(8.8, "whoosh", 0.32), (9.4, "whoosh-short", 0.22), (10.22, "sparkle", 0.12)]
-E += [(14.6, "whoosh-short", 0.22), (14.8, "whoosh-short", 0.2), (15.0, "whoosh-short", 0.2)]
+E += [(3.3, "pop", 0.26)]                      # KETR chip
+E += [(5.25, "key-press", 0.3), (5.45, "key-press", 0.25)]  # money ticking
+E += [(6.6, "whoosh", 0.22)]                   # kelas pan to Diamond
+E += [(8.6, "whoosh-short", 0.3)]              # TRUE candles crash in
+# s2 (starts 10.23): wall, marker, absorb, drop
+E += [(10.3, "whoosh", 0.32), (10.9, "whoosh-short", 0.22), (11.72, "sparkle", 0.12)]
+E += [(14.85, "whoosh-short", 0.22), (14.99, "whoosh-short", 0.2), (15.13, "whoosh-short", 0.2)]
 E += [(16.22, "impact-bass-2", 0.55)]
 E += [(19.6, "whoosh", 0.3)]
 # s3: hub pop, chips, dive, pings

@@ -15,6 +15,13 @@ version: v3-build
 
 Layout confirmed by the user on 2026-10-01 (storyboard v2). Built in compositions/ from scenes-src/ via tools/build_scenes.py.
 
+## Changes from v2 (feedback round 1, pain points)
+
+- Pains run 2.0s each (2.23 to 10.23); hook, wall, doubt, and absorb tightened so the drop stays at 16.22 and the film stays 60s.
+- Centred two-column layout; three-level copy per pain (setup, hero, tail) using the user's lines: "Beritanya telat... sahamnya keburu terbang duluan", "Boncos bro, balik modal? Boro-boro...", "Udah mehong, pas praktik ga sesuai yg dipelajari", "Adoh rungkaaddd!! Ga lagi coba-coba".
+- IG: real KETR chip (+11,0%, 15 to 28 Sep 2026) with the KETR logo. Telegram: genuine logo and dark mobile UI. Kelas: recreated pricing page (brand and mentor names removed) in a browser window with a pan to Diamond. X: fictional blurred post on $TRUE with real TRUE.JK candles; the post-peak crash (530 to 193) draws on the hero beat.
+- New motion: 3D card entrance, depth-of-field stack, hero camera hit, progress bar, scatter exit.
+
 ## Changes from v1
 
 - 02 uses the user's real IG posts.
@@ -37,7 +44,7 @@ Layout confirmed by the user on 2026-10-01 (storyboard v2). Built in composition
 ## Frame 1 — Hook
 
 - scene: Ground, faint copper glow. Narrator line rises word by word: "Nyari info saham yang cepet dan bener," then "di mana sih?"
-- duration: 2.73s
+- duration: 2.23s
 - start: 0.00
 - transition_in: cut
 - status: animated
@@ -53,8 +60,8 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 ## Frame 2 — Pain: IG
 
 - scene: Real IG news posts (user-supplied, account branding already removed): KETR post in front with a "3 jam lalu" stamp, ULTJ and BYAN fanned behind. Right: "Berita IG?" then "Udah telat."
-- duration: 1.50s
-- start: 2.73
+- duration: 2.00s
+- start: 2.23
 - transition_in: hook line lifts to top-left kicker
 - status: animated
 - src: compositions/s1-pains.html
@@ -65,7 +72,7 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 ## Frame 3 — Pain: Telegram
 
 - scene: Telegram channel card "VIP INSIDER A1, Rp1,5 jt/bulan" slides in, pushing the IG card back. Right: "Grup 'insider A1'?" then "Boncos."
-- duration: 1.50s
+- duration: 2.00s
 - start: 4.23
 - status: animated
 - src: compositions/s1-pains.html
@@ -74,16 +81,16 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 ## Frame 4 — Pain: Kelas
 
 - scene: Class promo card "Kelas Saham Pasti Cuan" slides in. Right: "Kelas sana-sini?" then "Teori sama market-nya beda."
-- duration: 1.50s
-- start: 5.73
+- duration: 2.00s
+- start: 6.23
 - status: animated
 - src: compositions/s1-pains.html
 
 ## Frame 5 — Pain: X
 
 - scene: Our own fictional X post in the usual "sirkel" pump style (name, handle, avatar blurred): "Artinya harga $XXXX udah masuk area spekulasi buat jualan di 300 sampai 400. Target akhirnya 610. Ko bisa? Jawabannya ada di Sirkel VIP." Its chart flips red. Right: "Stockpick di X?" then "Rungkad."
-- duration: 1.50s
-- start: 7.23
+- duration: 2.00s
+- start: 8.23
 - status: animated
 - src: compositions/s1-pains.html
 - audio: low thud on "Rungkad."
@@ -91,8 +98,8 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 ## Frame 6 — Everywhere
 
 - scene: Real source posts rebuilt in their native dark UIs (X, Telegram channel, WhatsApp channel, IG, Stockbit Snips) placed around the edges like ref 1: four across the top, two down each side, four across the bottom, some dimmed for depth. Centre: "Infonya ada / di mana-mana." in large Hanken Grotesk with a copper marker sweeping behind "di mana-mana." Engagement counts are illustrative.
-- duration: 3.50s
-- start: 8.73
+- duration: 3.00s
+- start: 10.23
 - transition_in: pain cards join the wall (continuous stage)
 - status: animated
 - src: compositions/s2-wall-logo.html
@@ -104,8 +111,8 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 ## Frame 7 — Doubt
 
 - scene: The same wall ghosts to ~15% and blurs. "Tapi mana / yang bener?" rises word by word, centred.
-- duration: 2.00s
-- start: 12.23
+- duration: 1.50s
+- start: 13.23
 - status: animated
 - src: compositions/s2-wall-logo.html
 - rules: depth-of-field-blur (wall), ref1 word rise
@@ -114,8 +121,8 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 ## Frame 8 — Absorb
 
 - scene: Small label "Kenalin," above centre. Ghosted cards sharpen and stream right along three copper lines into the three inlets of the B; each inlet fills as cards arrive, building the mark.
-- duration: 1.99s
-- start: 14.23
+- duration: 1.49s
+- start: 14.73
 - status: animated
 - src: compositions/s2-wall-logo.html
 - blueprint: logo-assemble-lockup (Product_Intro, built from parts)
