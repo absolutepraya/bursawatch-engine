@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from config import ChannelProfile, DiscordChannel, StatusEmojis
 from event_queue import serialize_event
 from normalize import normalize_bridge_event
@@ -10,6 +12,57 @@ import state
 
 
 NOW = datetime(2026, 9, 30, 4, 0, tzinfo=timezone.utc)
+
+
+def _pending_snapshot():
+    return {
+        "owner_key": "event:item:0", "required_operation_keys": ["operation-1"],
+        "_receipt_pending": True,
+        "_operation_descriptors": [{
+            "operation_key": "operation-1", "operation_digest": "a" * 64,
+            "destination": "42", "text": "news", "attachments": [],
+        }],
+    }
+
+
+class ReceiptOwner:
+    def __init__(self, document):
+        self.document = document
+
+    def status(self, key):
+        assert key == "operation-1"
+        return self.document
+
+
+def _receipt_document():
+    return {
+        "id": "receipt-1", "key": "operation-1", "digest": "a" * 64,
+        "status": "delivered", "receipt": {"message_id": "123456789012345678"},
+    }
+
+
+def test_message_only_receipt_resolves_publication_against_saved_operation():
+    result = projection._resolve(_pending_snapshot(), ReceiptOwner(_receipt_document()))
+
+    assert result is not None
+    assert result["legs"][0]["destination"] == "42"
+    assert result["legs"][0]["receipt_id"] == "123456789012345678"
+    assert result["legs"][0]["operation_digest"] == "a" * 64
+
+
+@pytest.mark.parametrize("field,replacement", [
+    ("channel_id", "99"), ("channel_id", None),
+    ("message_id", "invalid"), ("key", "wrong-operation"), ("digest", "f" * 64),
+    ("status", "retrying"),
+])
+def test_invalid_receipt_cannot_resolve_publication(field, replacement):
+    document = _receipt_document()
+    if field in {"channel_id", "message_id"}:
+        document["receipt"][field] = replacement
+    else:
+        document[field] = replacement
+
+    assert projection._resolve(_pending_snapshot(), ReceiptOwner(document)) is None
 
 
 def test_whatsapp_route_types_preserve_news_and_swing_context():

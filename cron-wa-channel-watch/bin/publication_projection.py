@@ -209,7 +209,7 @@ def _resolve(snapshot: dict[str, Any], owner: Any) -> dict[str, Any] | None:
                 or receipt.get("digest") != descriptor["operation_digest"] or receipt.get("status") != "delivered"):
             return None
         delivered = receipt.get("receipt")
-        if not isinstance(delivered, dict) or delivered.get("channel_id") != descriptor["destination"]:
+        if not isinstance(delivered, dict) or delivered.get("channel_id", descriptor["destination"]) != descriptor["destination"]:
             return None
         message_id = delivered.get("message_id")
         if not isinstance(message_id, str) or not message_id.isdigit() or not isinstance(receipt.get("id"), str):
