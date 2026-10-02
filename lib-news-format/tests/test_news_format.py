@@ -172,3 +172,31 @@ def test_emoji_length_uses_discord_utf16_units():
     assert all(news.discord_length(message)<=2000 for message in messages)
     assert '\n'.join(messages).count('📈')==800
     assert '\n'.join(messages).count('[View on X]')==1
+
+
+def test_duplicate_cards_keep_first_copy_and_distinct_stories_in_order():
+    first = {'title':'DADA: Pembagian dividen','summary':'DADA membagikan dividen.','route':'id_stocks_news'}
+    spacing = {**first, 'summary':'*(Ringkasan)* DADA  membagikan\n\ndividen.'}
+    other_story = {**first, 'summary':'DADA melakukan aksi korporasi lain.'}
+    other_issuer = {'title':'NICL: Pembagian dividen','summary':'NICL membagikan dividen.','route':'id_stocks_news'}
+    items = [first, spacing, other_story, other_issuer, dict(first)]
+    calls = []
+    cards = news.freeze_cards(items, lambda item:'### '+item['title'], 'https://example.test/news', 'X',
+                              fetch=lambda ticker,route:calls.append(ticker))
+    assert calls == ['DADA', 'DADA', 'NICL']
+    assert [card['summary'] for card in cards] == [first['summary'], other_story['summary'], other_issuer['summary']]
+    assert news.deduplicate_items(items)[0] is first
+    assert len(items) == 5
+    assert len(news.validate_cards(cards)) == 3
+
+
+def test_deduplication_is_per_submission_and_preserves_specialized_items():
+    item = {'title':'DADA: Dividen','summary':'DADA membagikan dividen.','route':'id_stocks_news'}
+    assert news.deduplicate_items([item]) == [item]
+    assert news.deduplicate_items([item]) == [item]
+    swing = {**item, 'route':'id_stocks_swing','sentiment':'Bullish'}
+    assert news.deduplicate_items([swing,dict(swing)]) == [swing,swing]
+    card = news.freeze_cards([item], lambda item:'### '+item['title'], 'https://example.test/news', 'X', fetch=lambda *args:None)[0]
+    saved = [card, dict(card)]
+    assert news.validate_cards(saved) is saved
+    assert len(saved) == 2

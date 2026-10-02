@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agent_protocol import agent_item, analysis_payload, build_wake_payload, validate_submission
+from agent_protocol import agent_item, analysis_payload, build_wake_payload, validate_submission, validate_submissions
 from models import Article, FeedLane, Route
 
 
@@ -65,6 +65,15 @@ def test_valid_issuer_submission_is_accepted(article: Article) -> None:
     result = validate_submission(article, valid_payload(article))
     assert result.route is Route.ID_STOCKS_NEWS
     assert result.ticker == "SWAP"
+
+
+def test_duplicate_split_analyses_are_removed_before_child_identity_assignment(article):
+    first = valid_payload(article)
+    first.pop('candidate_key')
+    other = {**first, 'summary':'SWAP mengumumkan perkembangan bisnis lain.'}
+    analyses = validate_submissions(article, {'candidate_key':article.key, 'items':[first,dict(first),other]})
+    assert len(analyses) == 2
+    assert [analysis.summary for analysis in analyses] == [first['summary'],other['summary']]
 
 
 def test_multi_issuer_macro_submission_has_no_ticker(article: Article) -> None:

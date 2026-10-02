@@ -1117,6 +1117,7 @@ def validate_submission(profile: Profile, payload: object) -> dict[str, str | bo
             if validated["route"] not in {"id_stocks_news", "us_stocks_news", "macro_news"}:
                 raise ValueError("multi-item schema supports news routes only")
             items.append({key: validated[key] for key in ("title", "summary", "route")})
+        items = news_format.deduplicate_items(items)
         return {"event_key": payload["event_key"], **({"is_relevant": True} if profile.enable_llm_relevance_filter else {}), **items[0], "news_items": items}
     expected = {"event_key"}
     if profile.enable_llm_relevance_filter:

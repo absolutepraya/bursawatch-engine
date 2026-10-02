@@ -513,16 +513,16 @@ def submit_analysis(payload: object) -> dict[str, object]:
                 control_run.finish("failed", "Stockbit agent submission failed")
             raise
         if control_run is not None:
-            delivery_failed = bool(delivery_errors) or (
-                analysis.route is not Route.EXCLUDE and record.get("phase") == "pending_delivery"
-            )
+            records = [value["articles"][key] for key in record["news_item_keys"]] if record.get("phase") == "split" else [record]
+            delivery_pending = any(child.get("phase") not in {"delivered", "excluded"} for child in records)
+            delivery_failed = bool(delivery_errors) or delivery_pending
             control_run.event(
                 "submission-completed", level="warning" if delivery_failed else "info",
                 phase="lifecycle", event_type="submission.completed",
                 message="Stockbit agent submission completed",
                 attributes={
                     "delivered": int(result.get("delivered", 0)), "no_post": False,
-                    **({"errors": delivery_errors or ["Stockbit delivery failed"]} if delivery_failed else {}),
+                    **({"errors": delivery_errors or ["Stockbit delivery pending"]} if delivery_failed else {}),
                 },
             )
             control_run.finish("degraded" if delivery_failed else "ok")

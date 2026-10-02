@@ -162,6 +162,23 @@ def _field(snapshot, key):
     return snapshot.get(key) if isinstance(snapshot, Mapping) else getattr(snapshot, key, None)
 
 
+def deduplicate_items(items):
+    """Keep the first identical news item in one new submission, in order."""
+    unique, seen = [], set()
+    for item in items:
+        route = _field(item, "route")
+        if route in {"id_stocks_news", "us_stocks_news", "macro_news", "id_industry_news"}:
+            title = _field(item, "title") or ""
+            key = (route, " ".join(title.split()),
+                   " ".join(normalize_summary(_field(item, "summary")).split()),
+                   _field(item, "ticker") or ticker_from_title(title, route), _field(item, "sentiment"))
+            if key in seen:
+                continue
+            seen.add(key)
+        unique.append(item)
+    return unique
+
+
 def market_block(snapshot, currency: str = "IDR") -> str:
     def amount(value, signed=False):
         prefix = "+" if signed and value > 0 else "-" if signed and value < 0 else ""
@@ -229,7 +246,7 @@ def freeze_cards(items: list[dict], heading_for, source_url: str, source_label: 
     fetch = fetch or get_market_snapshot
     cards = []
     quote_deadline = time.monotonic() + 9.0
-    for item in items:
+    for item in deduplicate_items(items):
         route, title = item.get("route"), item.get("title") or ""
         ticker = ticker_from_title(title, route)
         try:

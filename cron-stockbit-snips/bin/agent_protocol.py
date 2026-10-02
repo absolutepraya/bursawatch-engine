@@ -176,5 +176,5 @@ def validate_submissions(article: Article, payload: object) -> list[Analysis]:
             if type(item) is not dict or "candidate_key" in item:
                 raise ValueError("Stockbit item must omit candidate_key")
             analyses.append(validate_submission(article, {"candidate_key": article.key, **item}))
-        return analyses
+        return news_format.deduplicate_items(analyses)
     return [validate_submission(article, payload)]

@@ -152,6 +152,12 @@ macro and industry cards omit the tracker. Prices are renderer enrichment,
 never model-generated news facts. Forecasts and incomplete amounts must not
 be made certain or filled in.
 
+For new submissions, collapse identical news items after validation and before
+assigning delivery or child identities. Match route, headline, summary,
+ticker and sentiment, ignoring only whitespace and legacy summary markers.
+Keep the first copy and source order. Distinct stories for the same issuer
+remain separate. Do not deduplicate old frozen payloads or across sources.
+
 New generated cards freeze their rendered text and quote timestamp before
 Discord delivery. X, Instagram, and WhatsApp also freeze each card's selected
 destination. Retries and Published Feed projections use those saved cards and
@@ -170,3 +176,9 @@ Each item has the scalar fields except `candidate_key`. A split parent keeps
 its source cursor and child identity list; each child has a separate durable
 article record, frozen configuration, payload, receipt and publication key.
 The parent is `split`, while children retain normal delivery phases.
+
+Submission completion reporting aggregates the split parent's child phases.
+Any unfinished child keeps the run degraded, including an accepted Delivery
+Owner operation awaiting its terminal receipt. Report success only when all
+children are delivered or excluded. Keep accepted pending operations on the
+existing owner retry path without advancing a local retry clock.

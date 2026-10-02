@@ -254,5 +254,5 @@ def validate_submission(
             if serialized.get("sentiment") is None:
                 serialized.pop("sentiment", None)
             serialized_items.append(serialized)
-        result["items"] = serialized_items
+        result["items"] = news_format.deduplicate_items(serialized_items)
     return result

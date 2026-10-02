@@ -1127,3 +1127,92 @@ def test_split_stockbit_items_resume_without_changing_quotes_or_source(tmp_path,
         assert child['article']['published_at']==source.published_at.isoformat()
         assert child['source_work']['event_key']=='a'*64
         assert child['rendered'].count('Harga terakhir')==1
+
+
+@pytest.mark.parametrize('outcomes,expected_status', [
+    (('pending','pending'),'degraded'),
+    (('delivered','pending'),'degraded'),
+    (('excluded','pending'),'degraded'),
+    (('delivered','delivered'),'ok'),
+    (('excluded','delivered'),'ok'),
+    (('excluded','excluded'),'ok'),
+])
+def test_split_submission_reports_all_child_delivery_states(tmp_path, monkeypatch, outcomes, expected_status):
+    source = article(FeedLane.STOCKBIT_COMMENTARY)
+    value = state.new_state(config.FEEDS)
+    state.queue_article(value, source, source.published_at)
+    value['articles'][source.key]['config_snapshot'] = scan._snapshot(config.LoadedStockbitConfig(watch_config(), 7))
+    path = tmp_path/'state.json'
+    state.save_state(path, value)
+    runtime = config.RuntimeConfig(state_path=path, no_post=False, request_timeout=10,
+                                   heartbeat_channel_id='987654321098765432',
+                                   id_stocks_news_channel_id='123456789012345678', macro_news_channel_id='234567890123456789')
+    monkeypatch.setattr(config, 'runtime', lambda:runtime)
+    monkeypatch.setattr(scan, '_now', lambda:source.published_at)
+    monkeypatch.setattr(scan, 'get_market_snapshot', lambda *args:None)
+    monkeypatch.setattr(scan, '_drain_publications', lambda *args:None)
+    monkeypatch.delenv('BURSAWATCH_STOCKBIT_SNIPS_PUBLICATION_ENABLED', raising=False)
+    calls, finishes, reports = [], [], []
+    class RecordedRun:
+        @classmethod
+        def begin(cls, *args, **kwargs): return cls()
+        def event(self, name, **kwargs):
+            if name == 'submission-completed': reports.append(kwargs)
+        def finish(self, status, *args, **kwargs): finishes.append(status)
+    monkeypatch.setattr(scan, 'ControlPlaneRun', RecordedRun)
+    def send(content, channel_id, *, event_key, leg, **kwargs):
+        calls.append(event_key)
+        index = int(event_key.rsplit('.news-item-', 1)[1])
+        if outcomes[index] == 'pending':
+            raise scan.discord.DeliveryOwnerPending('synthetic pending receipt')
+        return delivered_receipt(content, channel_id, event_key=event_key, leg=leg)
+    monkeypatch.setattr(scan.discord, 'post_text', send)
+    def item(index, outcome):
+        ticker = ('DADA','NICL')[index]
+        return {'ticker':ticker if outcome != 'excluded' else '',
+                'title':ticker+': Pembagian dividen', 'summary':ticker+' akan membagikan dividen.',
+                'material_facts':[ticker+' dividen'], 'dedupe_facts':[ticker+' dividen'],
+                'eligible':outcome != 'excluded', 'route':'exclude' if outcome == 'excluded' else 'id_stocks_news',
+                'source_evidence':'Sumber menyebut dividen '+ticker+'.'}
+    result = scan.submit_analysis({'candidate_key':source.key,'items':[item(index,outcome) for index,outcome in enumerate(outcomes)]})
+    saved = state.load_state(path, config.FEEDS)
+    parent = saved['articles'][source.key]
+    assert parent['phase'] == 'split'
+    assert finishes == [expected_status]
+    assert reports[0]['level'] == ('warning' if expected_status == 'degraded' else 'info')
+    if expected_status == 'degraded':
+        assert reports[0]['attributes']['errors'] == ['Stockbit delivery pending']
+    else:
+        assert 'errors' not in reports[0]['attributes']
+    children = [saved['articles'][key] for key in result['news_item_keys']]
+    assert any(child['phase'] == 'pending_delivery' for child in children) == (expected_status == 'degraded')
+    assert all(child['retry']['attempts'] == 0 for child in children)
+
+
+def test_duplicate_stockbit_items_create_one_child_delivery(tmp_path, monkeypatch):
+    source = article(FeedLane.STOCKBIT_COMMENTARY)
+    value = state.new_state(config.FEEDS)
+    state.queue_article(value, source, source.published_at)
+    value['articles'][source.key]['config_snapshot'] = scan._snapshot(config.LoadedStockbitConfig(watch_config(), 7))
+    path = tmp_path/'state.json'
+    state.save_state(path, value)
+    monkeypatch.setenv('STOCKBIT_SNIPS_STATE_PATH', str(path))
+    monkeypatch.delenv('STOCKBIT_SNIPS_NO_POST', raising=False)
+    monkeypatch.delenv('BURSAWATCH_STOCKBIT_SNIPS_PUBLICATION_ENABLED', raising=False)
+    monkeypatch.setattr(scan, '_now', lambda:source.published_at)
+    monkeypatch.setattr(scan, 'get_market_snapshot', lambda *args:None)
+    monkeypatch.setattr(scan, '_drain_publications', lambda *args:None)
+    suppress_run_reporting(monkeypatch)
+    calls = []
+    def send(content, channel_id, *, event_key, leg, **kwargs):
+        calls.append(event_key)
+        return delivered_receipt(content, channel_id, event_key=event_key, leg=leg)
+    monkeypatch.setattr(scan.discord, 'post_text', send)
+    first = _issuer_payload(source)
+    first.pop('candidate_key')
+    result = scan.submit_analysis({'candidate_key':source.key,'items':[first,dict(first)]})
+    assert result['delivered'] == 1
+    assert len(result['news_item_keys']) == 1
+    assert calls == result['news_item_keys']
+    saved = state.load_state(path, config.FEEDS)
+    assert len(saved['articles']) == 2

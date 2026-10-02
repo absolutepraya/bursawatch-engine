@@ -91,6 +91,12 @@ macro and industry cards omit the tracker. Prices are renderer enrichment,
 never model-generated news facts. Forecasts and incomplete amounts must not
 be made certain or filled in.
 
+For new submissions, collapse identical news items after validation and before
+assigning delivery or child identities. Match route, headline, summary,
+ticker and sentiment, ignoring only whitespace and legacy summary markers.
+Keep the first copy and source order. Distinct stories for the same issuer
+remain separate. Do not deduplicate old frozen payloads or across sources.
+
 New generated cards freeze their rendered text and quote timestamp before
 Discord delivery. X, Instagram, and WhatsApp also freeze each card's selected
 destination. Retries and Published Feed projections use those saved cards and

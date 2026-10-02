@@ -201,6 +201,14 @@ preserved. Quote failures render placeholders and paragraph style never
 changes LLM relevance. X/Instagram/WhatsApp market-word guards are advisory;
 false LLM relevance decisions are accepted even with a positive lexical hint.
 
+Validated new submissions collapse identical news items before assigning
+delivery or child identities, preserving the first copy and source order.
+Only whitespace and legacy summary markers are ignored when comparing route,
+title, summary, ticker and sentiment. Distinct stories about the same issuer,
+old frozen records, and separate source events remain separate. Stockbit run
+completion checks every split child: pending receipts keep the run degraded
+until all children are delivered or excluded, without changing owner retries.
+
 The shared library is a checksum-verified runtime dependency in the release
 manifest, installed before its consumers. No scheduler, service, destination,
 production state, or credentials are changed by local development.
@@ -208,7 +216,7 @@ production state, or credentials are changed by local development.
 ## Validation and rollback boundary
 
 The complete local `bash scripts/test-all` run after review corrections and
-integration of the latest main passed with 2,827 Python tests
+integration of the latest main passed with 2,840 Python tests
 and 13 JavaScript sink tests. One optional PostgreSQL integration test was
 skipped because its existing database environment variable was absent.
 Focused consumer suites, release dependency ordering, repository policy and
@@ -217,6 +225,9 @@ cards, native currencies, unavailable and partial quotes, lossless bounded
 rendering, education decisions, frozen retry payloads, publication identities,
 source provenance, X cleanup across destinations, frozen WhatsApp handoffs with
 partial receipts, and quote-session alignment with missing history values.
+They also cover duplicate removal before child or card identities, preservation
+of distinct stories and old frozen cards, and split-child completion reporting
+for pending, delivered, and excluded outcomes.
 The root child-instruction index includes the new shared library. These tests do not establish
 live model accuracy or a production source-to-delivery result.
 

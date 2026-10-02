@@ -35,6 +35,15 @@ def _profile(config_path: Path):
     return config.load_watch_config(config_path).profiles[0]
 
 
+def test_duplicate_news_array_is_removed_before_cards_are_frozen(config_path):
+    profile = _profile(config_path)
+    first = {'title':'BBCA: Pembagian dividen','summary':'BBCA membagikan dividen.','route':'id_stocks_news'}
+    other = {**first, 'summary':'BBCA mengumumkan perkembangan bisnis lain.'}
+    result = agent_protocol.validate_submission(profile, {'event_key':profile.id+':ABC123','is_relevant':True,'items':[first,dict(first),other]})
+    assert len(result['news_items']) == 2
+    assert [agent_protocol.news_format.normalize_summary(item['summary']) for item in result['news_items']] == [first['summary'],other['summary']]
+
+
 def _post(
     profile,
     *,

@@ -65,6 +65,14 @@ def test_irrelevant_submission_is_exactly_minimal():
         validate_submission(profile(), {"event_key": event().event_key, "is_relevant": False, "title": "extra"})
 
 
+def test_duplicate_news_items_keep_one_item_without_losing_distinct_stories():
+    first = {'title':'BBCA: Pembagian dividen','summary':'BBCA membagikan dividen.','route':'id_stocks_news'}
+    other = {**first, 'summary':'BBCA mengumumkan perkembangan bisnis lain.'}
+    result = validate_submission(profile(), {'event_key':event().event_key, 'is_relevant':True, 'items':[first,dict(first),other]}, event=event())
+    assert len(result['items']) == 2
+    assert [item['summary'] for item in result['items']] == ['*(Ringkasan)* '+first['summary'],'*(Ringkasan)* '+other['summary']]
+
+
 def test_relevant_submission_validates_shared_contract():
     result = validate_submission(profile(), {
         "event_key": event().event_key,

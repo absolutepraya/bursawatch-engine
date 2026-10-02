@@ -27,6 +27,14 @@ before sending and reuse it for retries, handoff plans and feed projections.
 Raw-forwarding and specialized Swing/status output remain owner contracts.
 No model-generated quote tracker or style rejection is introduced.
 
+`deduplicate_items` keeps the first copy of an identical news item within one
+new submission. Its key is route, headline, summary, ticker and sentiment;
+only whitespace and legacy summary markers are ignored. It preserves order
+and distinct stories about the same issuer. Owners call it after validation,
+before assigning card or child delivery identities; `freeze_cards` also guards
+against duplicate input. Specialized Swing items, old frozen records and
+separate source events are not collapsed.
+
 Discord length uses UTF-16 code units, including emoji.
 The renderer keeps source anchors and tracker blocks intact. It first tries
 flattening summary paragraph spacing when that alone fits the card, then

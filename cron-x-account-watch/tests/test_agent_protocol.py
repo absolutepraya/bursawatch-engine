@@ -27,6 +27,18 @@ def test_disabled_swing_candidate_has_no_eligible_capability():
     assert scan.eligible_capability_for_route("unknown", enabled) is None
 
 
+def test_duplicate_news_array_is_removed_before_cards_are_frozen(config_path, profile_payload):
+    profile_payload.update(enable_llm_title=True, enable_llm_summary=True, enable_llm_routing=True)
+    profile_payload['discord_channels'].append({'key':'id_stocks_news','channel_id':'1525102508714889257','description':'Issuer news'})
+    config_path.write_text(__import__('json').dumps({'version':1,'profiles':[profile_payload]}), encoding='utf-8')
+    profile = config_module.load_watch_config(config_path).profiles[0]
+    first = {'title':'Inflasi tahunan menurun','summary':'Inflasi tahunan menurun.','route':'macro_news'}
+    other = {**first, 'summary':'Inflasi bulanan meningkat.'}
+    result = agent_protocol.validate_submission(profile, {'event_key':'kutekians:102','is_relevant':True,'items':[first,dict(first),other]})
+    assert len(result['news_items']) == 2
+    assert [agent_protocol.news_format.normalize_summary(item['summary']) for item in result['news_items']] == [first['summary'],other['summary']]
+
+
 def test_agent_item_supplies_only_bounded_post_context(config_path, profile_payload):
     profile_payload["enable_llm_title"] = True
     profile_payload["enable_llm_summary"] = True
