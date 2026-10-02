@@ -1,0 +1,153 @@
+<!doctype html>
+<html>
+  <body>
+    <template>
+      <style>
+        @font-face { font-family: "Hanken Grotesk"; src: url(assets/fonts/HankenGrotesk-900.woff2) format("woff2"); font-weight: 100 900; }
+        @font-face { font-family: "Figtree"; src: url(assets/fonts/Figtree-700.woff2) format("woff2"); font-weight: 300 900; }
+        #root { position: absolute; inset: 0; background: #111311; overflow: hidden; font-family: "Hanken Grotesk", sans-serif; color: #EEEAE3; }
+        #s6-page { position: absolute; inset: 0; transform-origin: 50% 50%; }
+        .qv, .qh { position: absolute; background: #2A2E2B; }
+        .qv { left: 959px; top: 0; width: 2px; height: 1080px; transform-origin: 50% 50%; }
+        .qh { left: 0; top: 539px; width: 1920px; height: 2px; transform-origin: 50% 50%; }
+        .quad { position: absolute; width: 960px; height: 540px; }
+        .qq { position: absolute; left: 0; right: 0; top: 74px; text-align: center; font-weight: 600; font-size: 46px; letter-spacing: -0.02em; }
+        .qc { position: absolute; left: 160px; top: 168px; width: 640px; background: #1C1F1D; border: 2px solid #2c302d; border-radius: 22px; padding: 22px 26px; font-family: "Figtree"; box-shadow: 0 30px 60px rgba(0,0,0,.45); }
+        .row { display: flex; align-items: center; justify-content: space-between; gap: 18px; font-size: 32px; font-weight: 600; padding: 20px 6px; color: #EEEAE3; }
+        .row + .row { border-top: 2px solid #2c302d; }
+        .tog { position: relative; width: 78px; height: 44px; border-radius: 99px; background: #3a3d3a; flex: none; }
+        .tog i { position: absolute; top: 6px; left: 6px; width: 32px; height: 32px; border-radius: 50%; background: #d8d4cc; }
+        .tog.on { background: #DEA777; } .tog.on i { left: 40px; background: #111311; }
+        .src img.a { width: 50px; height: 50px; border-radius: 50%; }
+        .src .nm { flex: 1; }
+        .ck { color: #DEA777; font-size: 34px; }
+        .avb { position: relative; flex: none; width: 50px; height: 50px; }
+        .avb img.b { position: absolute; right: -4px; bottom: -4px; width: 22px; height: 22px; border-radius: 5px; outline: 3px solid #1C1F1D; }
+        .plus { width: 50px; height: 50px; border-radius: 50%; border: 2px dashed #5F5B55; display: flex; align-items: center; justify-content: center; color: #5F5B55; font-size: 30px; flex: none; }
+        .ghost { color: #5F5B55; }
+        .stack { position: relative; height: 92px; }
+        .stack .row { position: absolute; left: 0; right: 0; top: 0; }
+        .time { position: relative; height: 130px; overflow: hidden; text-align: center; font-family: "Hanken Grotesk"; font-weight: 800; letter-spacing: -0.03em; }
+        .tm { position: absolute; left: 0; right: 0; top: 0; font-size: 116px; line-height: 130px; color: #EEEAE3; font-feature-settings: "tnum"; }
+        .tl { text-align: center; color: #9C978E; font-size: 28px; margin-top: 8px; }
+        .seg { position: relative; display: grid; grid-template-columns: 1fr 1fr; background: #141614; border-radius: 99px; padding: 8px; font-weight: 700; font-size: 36px; text-align: center; }
+        .seg span { position: relative; padding: 18px; border-radius: 99px; color: #9C978E; z-index: 1; }
+        #s6-segpill { position: absolute; left: 8px; top: 8px; width: calc(50% - 8px); height: calc(100% - 16px); border-radius: 99px; background: #DEA777; }
+        .bisa { position: absolute; right: 70px; bottom: 50px; font-weight: 900; font-size: 92px; letter-spacing: -0.045em; color: #DEA777; transform: rotate(-6deg); opacity: 0; }
+        #s6-cursor { position: absolute; left: 0; top: 0; width: 34px; height: 46px; z-index: 5; }
+        #s6-line { position: absolute; left: 0; top: 538px; width: 1920px; height: 4px; background: #DEA777; transform-origin: 50% 50%; opacity: 0; }
+      </style>
+
+      <div id="root" data-composition-id="s6-config" data-width="1920" data-height="1080" data-duration="8.04">
+        <div id="s6-page">
+          <div class="qv"></div><div class="qh"></div>
+
+          <div class="quad" id="s6-q0" style="left:0;top:0">
+            <div class="qq">Mau dirangkum tiap malem aja?</div>
+            <div class="qc">
+              <div class="row"><span>Morning brief, 08.00</span><span class="tog on"><i></i></span></div>
+              <div class="row"><span>Ringkasan malam, 21.00</span><span class="tog" id="s6-tog"><i id="s6-knob"></i></span></div>
+            </div>
+            <div class="bisa" id="s6-b0">BISA.</div>
+          </div>
+
+          <div class="quad" id="s6-q1" style="left:960px;top:0">
+            <div class="qq">Mau mantau analis favoritmu?</div>
+            <div class="qc">
+              <div class="row src"><img class="a" src="assets/sources/emoji/tuntun.png"><span class="nm">Tuntun Sekuritas</span><span class="ck">&#10003;</span></div>
+              <div class="stack">
+                <div class="row src ghost" id="s6-ghost"><span class="plus">+</span><span class="nm">Tambah sumber</span></div>
+                <div class="row src" id="s6-added"><span class="avb"><img class="a" src="assets/sources/emoji/rickyho1989.png"><img class="b" src="assets/sources/emoji/twitter.png"></span><span class="nm" style="color:#DEA777">+ analis pilihanmu</span><span class="ck">&#10003;</span></div>
+              </div>
+            </div>
+            <div class="bisa" id="s6-b1">BISA.</div>
+          </div>
+
+          <div class="quad" id="s6-q2" style="left:0;top:540px">
+            <div class="qq">Mau ganti jam kirimnya?</div>
+            <div class="qc">
+              <div class="time" data-layout-allow-overlap data-layout-allow-overflow><div class="tm" id="s6-t0">08.00</div><div class="tm" id="s6-t1">06.30</div></div>
+              <div class="tl">jam kirim morning brief</div>
+            </div>
+            <div class="bisa" id="s6-b2">BISA.</div>
+          </div>
+
+          <div class="quad" id="s6-q3" style="left:960px;top:540px">
+            <div class="qq">Males baca tiap hari?</div>
+            <div class="qc">
+              <div class="seg"><i id="s6-segpill"></i><span id="s6-h">Harian</span><span id="s6-m">Mingguan</span></div>
+              <div class="tl" style="position:relative;height:40px"><span id="s6-sl0" style="position:absolute;left:0;right:0">Tiap hari, jam 08.00.</span><span id="s6-sl1" style="position:absolute;left:0;right:0;opacity:0">Seminggu sekali aja.</span></div>
+            </div>
+            <div class="bisa" id="s6-b3">BISA.</div>
+          </div>
+
+          <svg id="s6-cursor" viewBox="0 0 34 46"><path d="M2 2v38l10-9 7 14 7-3-7-14h13z" fill="#fff" stroke="#000" stroke-width="2"/></svg>
+        </div>
+        <div id="s6-line"></div>
+      </div>
+
+      <script>
+        (function () {
+          const tl = gsap.timeline({ paused: true });
+          const D = 8.04;
+          const Q = [0.0, 2.0, 4.0, 6.0]; // one bar each: 46.29 / 48.30 / 50.32 / 52.32
+          const MUTE = { opacity: 0.26, filter: "saturate(0.2)" };
+          const LIVE = { opacity: 1, filter: "saturate(1)" };
+
+          // page arrives: the brief lands in the top-left quadrant, the rest fade in muted
+          tl.fromTo(".qv", { scaleY: 0 }, { scaleY: 1, duration: 0.4, ease: "expo.out" }, 0.05);
+          tl.fromTo(".qh", { scaleX: 0 }, { scaleX: 1, duration: 0.4, ease: "expo.out" }, 0.05);
+          tl.fromTo("#s6-q0", { scale: 1.25, x: 120, y: 60, opacity: 0, filter: "blur(10px)" }, { scale: 1, x: 0, y: 0, opacity: 1, filter: "blur(0px)", duration: 0.4, ease: "expo.out" }, 0);
+          [1, 2, 3].forEach((i) => tl.fromTo("#s6-q" + i, { opacity: 0, filter: "saturate(0.2)" }, { opacity: 0.26, duration: 0.4, ease: "power2.out" }, 0.1 + i * 0.06));
+          tl.fromTo("#s6-page", { scale: 1 }, { scale: 1.025, duration: D, ease: "none" }, 0);
+
+          // cursor path: one press per quadrant, on the beat
+          const press = [[690, 470], [1350, 470], [470, 940], [1580, 765]];
+          tl.set("#s6-cursor", { x: 820, y: 760, opacity: 0 }, 0);
+          tl.to("#s6-cursor", { opacity: 1, duration: 0.15 }, 0.2);
+
+          Q.forEach((t0, i) => {
+            if (i > 0) {
+              tl.to("#s6-q" + (i - 1), { ...MUTE, duration: 0.22, ease: "power2.out" }, t0);
+              tl.to("#s6-q" + i, { ...LIVE, duration: 0.22, ease: "power2.out" }, t0);
+            }
+            const [px, py] = press[i];
+            tl.to("#s6-cursor", { x: px, y: py, duration: 0.36, ease: "power3.inOut" }, t0 + 0.1);
+            tl.to("#s6-cursor", { scale: 0.85, duration: 0.05, transformOrigin: "0 0" }, t0 + 0.48);
+            tl.to("#s6-cursor", { scale: 1, duration: 0.1 }, t0 + 0.53);
+            tl.fromTo("#s6-b" + i, { opacity: 0, scale: 1.7, rotation: -14 }, { opacity: 1, scale: 1, rotation: -6, duration: 0.18, ease: "back.out(2.4)", immediateRender: false }, t0 + 1.0);
+          });
+
+          // q0: night toggle flips on
+          tl.to("#s6-knob", { x: 34, backgroundColor: "#111311", duration: 0.2, ease: "back.out(2)" }, Q[0] + 0.5);
+          tl.to("#s6-tog", { backgroundColor: "#DEA777", duration: 0.15 }, Q[0] + 0.5);
+          // q1: new analyst drops in over the empty slot
+          tl.set("#s6-added", { opacity: 0, y: -40 }, 0);
+          tl.to("#s6-ghost", { opacity: 0, duration: 0.12 }, Q[1] + 0.5);
+          tl.to("#s6-added", { opacity: 1, y: 0, duration: 0.32, ease: "back.out(1.8)" }, Q[1] + 0.5);
+          // q2: 08.00 rolls to 06.30
+          tl.set("#s6-t1", { yPercent: 100, opacity: 0 }, 0);
+          tl.set("#s6-t1", { opacity: 1 }, Q[2] + 0.48);
+          tl.set("#s6-t0", { opacity: 0 }, Q[2] + 0.82);
+          tl.to("#s6-t0", { yPercent: -100, duration: 0.3, ease: "expo.inOut" }, Q[2] + 0.5);
+          tl.to("#s6-t1", { yPercent: 0, duration: 0.3, ease: "expo.inOut" }, Q[2] + 0.5);
+          // q3: segment slides to Mingguan
+          tl.set("#s6-h", { color: "#111311" }, 0);
+          tl.to("#s6-segpill", { xPercent: 100, duration: 0.3, ease: "expo.inOut" }, Q[3] + 0.5);
+          tl.to("#s6-h", { color: "#9C978E", duration: 0.2 }, Q[3] + 0.55);
+          tl.to("#s6-m", { color: "#111311", duration: 0.2 }, Q[3] + 0.6);
+          tl.to("#s6-sl0", { opacity: 0, duration: 0.15 }, Q[3] + 0.6);
+          tl.to("#s6-sl1", { opacity: 1, duration: 0.2 }, Q[3] + 0.7);
+
+          // all four now say BISA: brief full-page glow, then collapse into the copper line
+          tl.to("#s6-cursor", { opacity: 0, duration: 0.2 }, Q[3] + 1.3);
+          tl.to("#s6-q0, #s6-q1, #s6-q2", { opacity: 0.6, filter: "saturate(1)", duration: 0.3 }, Q[3] + 1.35);
+          tl.to("#s6-page", { scaleY: 0.004, duration: 0.22, ease: "power4.in" }, D - 0.26);
+          tl.set("#s6-line", { opacity: 1 }, D - 0.06);
+
+          window.__timelines["s6-config"] = tl;
+        })();
+      </script>
+    </template>
+  </body>
+</html>

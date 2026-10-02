@@ -1,7 +1,7 @@
 # Pulled Discord media, source logos, and raw message exports stay local
 assets/discord-media/
 assets/discord-ref/
-assets/sources/
+assets/sources/ig-dummy/
 research/*.json
 # Build and render output
 renders/
@@ -11,3 +11,4 @@ node_modules/
 *.mp4
 !research/jkse.json
 assets/pain/x-sirkel-raw.png
+snapshots/

@@ -105,7 +105,7 @@ def wall(opacity=1.0, blur=0):
 
 
 GREY = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Crect width='10' height='10' fill='%2355585c'/%3E%3C/svg%3E"
-UNTR_CHART = f'<img src="{MEDIA}/id-stocks-swing-1554787757468033167-0.jpg">'
+UNTR_CHART = '<img src="assets/product/untr-triple-bottom.jpg">'
 
 
 def place(html, x, y, dim=False):
