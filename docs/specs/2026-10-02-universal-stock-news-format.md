@@ -213,10 +213,23 @@ The shared library is a checksum-verified runtime dependency in the release
 manifest, installed before its consumers. No scheduler, service, destination,
 production state, or credentials are changed by local development.
 
+### Tuntun format-change regression
+
+Retained source evidence for the 2026-10-02 update showed Corporate issuer
+entries incorrectly parsed as Industry paragraphs after an appended
+`CORPORATE` heading. Current Telegram messages `15078` and `15079` separate
+the update and Corporate entries. New parsing bounds each known section,
+supports uppercase and quoted headings, and accepts multiline Corporate
+issuer blocks as well as legacy ticker-colon entries. An explicit Headline
+section supplies the lead instead of the mixed update preface. Embedded
+Corporate items retain their original source message and independent issuer
+identities, route selection, price trackers, and company-feed classification.
+Existing accepted candidates and frozen payloads are not reclassified.
+
 ## Validation and rollback boundary
 
 The complete local `bash scripts/test-all` run after review corrections and
-integration of the latest main passed with 2,840 Python tests
+integration of the latest main and Tuntun parsing fixes passed with 2,849 Python tests
 and 13 JavaScript sink tests. One optional PostgreSQL integration test was
 skipped because its existing database environment variable was absent.
 Focused consumer suites, release dependency ordering, repository policy and
@@ -228,6 +241,10 @@ partial receipts, and quote-session alignment with missing history values.
 They also cover duplicate removal before child or card identities, preservation
 of distinct stories and old frozen cards, and split-child completion reporting
 for pending, delivered, and excluded outcomes.
+Tuntun regression fixtures cover the observed uppercase and multiline format,
+quoted headings, embedded Corporate boundaries, explicit Headline selection,
+truncated and repeated issuer headers, and independent Stocks routing with
+price trackers while update sections remain unclassified.
 The root child-instruction index includes the new shared library. These tests do not establish
 live model accuracy or a production source-to-delivery result.
 

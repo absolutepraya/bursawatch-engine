@@ -44,6 +44,93 @@ def test_tuntun_corporate_post_with_emoji_header_splits_company_entries():
     assert [candidate.ticker for candidate in candidates] == ["TBIG", "AGAR"]
 
 
+def test_tuntun_uppercase_multiline_corporate_preserves_each_issuer_evidence(load_fixture):
+    candidates = TuntunNewsAdapter().extract_candidates(
+        15079, load_fixture("tuntun-20261002-15079.txt"),
+        datetime(2026, 10, 2, 10, 45, 43, tzinfo=timezone.utc), 3743, False,
+    )
+    assert [item.ticker for item in candidates] == [
+        "BRNA", "GOTO", "AMMN", "WIKA", "DOOH", "BBRI", "NAYZ", "GIAA", "AADI", "BACH",
+    ]
+    assert all(item.source_kind is SourceKind.CORPORATE_ENTRY for item in candidates)
+    assert all(item.key == f"tuntun:15079:{item.ticker}" for item in candidates)
+    by_ticker = {item.ticker: item.source_text for item in candidates}
+    assert "Rp373 miliar" in by_ticker["BRNA"]
+    assert "14-21 Oktober" in by_ticker["BRNA"]
+    assert "Rp5,5 triliun" in by_ticker["WIKA"]
+    assert "Rp4,17 triliun" in by_ticker["WIKA"]
+    assert "AMMN: perkara" in by_ticker["AMMN"]
+    assert "BRNA" not in by_ticker["WIKA"]
+    assert all("Sumber:" not in item.source_text for item in candidates)
+
+
+@pytest.mark.parametrize("embedded_corporate", [False, True])
+def test_tuntun_actual_evening_update_bounds_industry_before_corporate(load_fixture, embedded_corporate):
+    text = load_fixture("tuntun-20261002-15078.txt")
+    if embedded_corporate:
+        text += "\n\n" + load_fixture("tuntun-20261002-15079.txt")
+    candidates = TuntunNewsAdapter().extract_candidates(
+        15078, text, datetime(2026, 10, 2, 10, 45, 42, tzinfo=timezone.utc), 3743, False,
+    )
+    lead = candidates[0]
+    assert lead.source_text.startswith("AS Pertimbangkan Kapal Induk Ketiga")
+    assert lead.ticker is None
+    assert "PNM" not in lead.source_text
+    industry = [item for item in candidates if item.source_kind is SourceKind.TUNTUN_UPDATE_INDUSTRY]
+    assert len(industry) == 3
+    assert all("CORPORATE" not in item.source_text and "BRNA" not in item.source_text for item in industry)
+    corporate = [item for item in candidates if item.source_kind is SourceKind.CORPORATE_ENTRY]
+    assert len(corporate) == (10 if embedded_corporate else 0)
+    if embedded_corporate:
+        assert {item.ticker for item in corporate}.issuperset({"BRNA", "WIKA"})
+    assert len([item for item in candidates if item.source_kind is SourceKind.TUNTUN_UPDATE_SECTION]) == 4
+    assert all("Gainers" not in item.source_text and "Top Volume" not in item.source_text for item in candidates)
+
+
+@pytest.mark.parametrize("header", ["CORPORATE", "> Corporate", "**Corporate 🏢**"])
+def test_tuntun_corporate_heading_variants_accept_bullet_entries(header):
+    candidates = TuntunNewsAdapter().extract_candidates(
+        15074, f"{header}\n\n- AADI: Divestasi rampung.\n- WIFI: Kontrak baru.",
+        datetime(2026, 10, 2, tzinfo=timezone.utc), 3743, False,
+    )
+    assert [item.ticker for item in candidates] == ["AADI", "WIFI"]
+
+
+def test_tuntun_quoted_update_sections_do_not_absorb_corporate_or_tables():
+    candidates = TuntunNewsAdapter().extract_candidates(
+        15074,
+        "Midday Update_Tuntun Sekuritas_20261002\nMixed PTPP title\n\n"
+        "> Headline\nOil supplies tighten\n- Prices increased.\n\n"
+        "> Overview\nIHSG: 6,000\n\n> Sector\nEnergy +2%\n\n"
+        "> Macro & Global\nInflation slows\n- Inflation was 2%.\n\n"
+        "> Industry\nIndustry demand expands\n- Demand rose 5%.\n\n"
+        "> Corporate\n- AADI: Divestasi rampung.\n- WIFI: Kontrak baru.\n\n"
+        "> Top Movers\nGOTO +5%",
+        datetime(2026, 10, 2, tzinfo=timezone.utc), 3743, False,
+    )
+    assert [(item.source_kind, item.ticker) for item in candidates] == [
+        (SourceKind.TUNTUN_UPDATE_LEAD, None),
+        (SourceKind.TUNTUN_UPDATE_SECTION, None),
+        (SourceKind.TUNTUN_UPDATE_INDUSTRY, None),
+        (SourceKind.CORPORATE_ENTRY, "AADI"),
+        (SourceKind.CORPORATE_ENTRY, "WIFI"),
+    ]
+    assert "Industry demand expands" in candidates[2].source_text
+    assert all("GOTO" not in item.source_text for item in candidates)
+
+
+def test_tuntun_truncated_or_repeated_multiline_header_does_not_mix_issuers():
+    candidates = TuntunNewsAdapter().extract_candidates(
+        15078, "CORPORATE\n\nDOOH (PT Era Media)\n- Akuisisi Rp2 triliun.\n\n"
+        "BBRI (PT\n\nBRNA (PT Berlina Tbk)\n- Rights issue Rp373 miliar.\n\n"
+        "BRNA (PT Berlina Tbk)\n- Repeated entry.",
+        datetime(2026, 10, 2, tzinfo=timezone.utc), 3743, False,
+    )
+    assert [item.ticker for item in candidates] == ["DOOH", "BRNA"]
+    assert "BBRI" not in candidates[0].source_text
+    assert candidates[1].source_text == "BRNA (PT Berlina Tbk)\n- Rights issue Rp373 miliar."
+
+
 def test_tuntun_corporate_entry_with_nested_parentheses_is_retained():
     source_entry = (
         "BRIS (PT Bank Syariah Indonesia (Persero) Tbk): "

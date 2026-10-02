@@ -13,6 +13,7 @@ import config
 import scan
 from domain import CompanyCandidate, Destination, EventClass, Provider, SourceKind
 from selection import SelectionCandidate
+from sources import TuntunNewsAdapter
 from state import (
     claim_oldest_pending_analysis,
     empty_state,
@@ -528,6 +529,50 @@ def test_completed_tuntun_update_keeps_its_lead_and_two_best_sections_per_channe
         ("macro-1", scan.MACRO_CHANNEL_ID),
         ("macro-3", scan.MACRO_CHANNEL_ID),
     ]
+
+
+def test_embedded_corporate_routes_independently_to_stocks_with_tracker(tmp_state, monkeypatch, load_fixture):
+    import publication_projection
+
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_state))
+    now = datetime(2026, 10, 2, 10, 45, 42, tzinfo=timezone.utc)
+    candidates = TuntunNewsAdapter().extract_candidates(
+        15078, load_fixture("tuntun-20261002-15078.txt") + "\n\n"
+        + load_fixture("tuntun-20261002-15079.txt"), now, 3743, False,
+    )
+    state = empty_state()
+    for candidate in candidates:
+        enqueue_candidate(state, candidate, now)
+        if candidate.ticker not in {"BRNA", "WIKA"} or candidate.source_kind is not SourceKind.CORPORATE_ENTRY:
+            continue
+        record = state["candidates"][candidate.key]
+        record["phase"] = "pending_selection"
+        record["classification"] = EventClass.CORPORATE_ACTION.value
+        record["selection"] = {
+            "summary": f"{candidate.ticker} mengumumkan aksi korporasi.",
+            "ranking_band": 1,
+            "material_facts": [candidate.source_text],
+            "dedupe_facts": [candidate.source_text],
+            "title": f"{candidate.ticker}: Aksi korporasi",
+            "route": "id_stocks_news",
+        }
+
+    # Corporate delivery does not wait for or consume the Industry card budget.
+    assert scan._route_pending(state) == 2
+    assert state["candidates"]["tuntun:15078:lead"]["phase"] == "pending_analysis"
+    posted = []
+
+    async def deliver(current_state, item, channel_id, *_args, **_kwargs):
+        assert publication_projection._publication_type(item) == ("idx_company_news", "id_stocks_news")
+        content = delivery.format_news_item(item)
+        assert all(label in content for label in ("1D:", "1W:", "1M:", "3M:"))
+        assert "https://t.me/tuntunsekuritas/15078" in content
+        posted.append((item.ticker, channel_id))
+        return True
+
+    monkeypatch.setattr(scan, "deliver_event", deliver)
+    assert asyncio.run(scan._drain_delivery(state, None, now, dry_run=True)) == 2
+    assert posted == [("BRNA", scan.ALERT_CHANNEL_ID), ("WIKA", scan.ALERT_CHANNEL_ID)]
 
 
 def test_run_delivers_every_eligible_event_immediately_as_standalone_news(tmp_state, monkeypatch):
