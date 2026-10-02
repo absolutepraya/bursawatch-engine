@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -203,7 +204,7 @@ def test_tuntun_entry_uses_generated_title_and_four_horizons(monkeypatch):
     alert = delivery.format_news_item(item)
 
     assert alert == (
-        "### <:tuntun:1531272430985937086> RAJA: Akuisisi Layar Nusantara Gas\n\n"
+        "### <:tuntun:1531272430985937086> RAJA: Akuisisi Layar Nusantara Gas\n-# Tuntun\n\n"
         "*(Ringkasan)* RAJA acquired a 5% stake.\n\n"
         "Harga terakhir (IDR): **820**\n"
         "<:green:1531274822221434911> 1D: **+5 (+0.61%)**, "
@@ -240,7 +241,7 @@ def test_phintraco_entry_uses_shared_issuer_layout_and_four_horizons(monkeypatch
     alert = delivery.format_news_item(item)
 
     assert alert == (
-        "### <:phintraco:1531272488645038091> FORU (PT Fortune Indonesia Tbk)\n\n"
+        "### <:phintraco:1531272488645038091> FORU: PT Fortune Indonesia Tbk\n-# Phintraco\n\n"
         "*(Ringkasan)* FORU akan melakukan rights issue hingga Rp27,1 triliun. "
         "Pemegang saham yang tidak mengeksekusi HMETD berpotensi terdilusi.\n\n"
         "Harga terakhir (IDR): **4.310**\n"
@@ -290,7 +291,7 @@ def test_phintraco_anak_usaha_quick_note_uses_the_issuer_market_card(monkeypatch
     alert = delivery.format_news_item(item)
 
     assert alert == (
-        "### <:phintraco:1531272488645038091> ARKO (PT Arkora Hydro Tbk)\n\n"
+        "### <:phintraco:1531272488645038091> ARKO: PT Arkora Hydro Tbk\n-# Phintraco\n\n"
         "*(Ringkasan)* Anak usaha ARKO memperoleh fasilitas pembiayaan US$9,8 juta untuk proyek PLTS.\n\n"
         "Harga terakhir (IDR): **1.234**\n"
         "<:green:1531274822221434911> 1D: **+24 (+1.98%)**, "
@@ -323,7 +324,7 @@ def test_phintraco_macro_entry_uses_brand_summary_and_link_without_issuer_data()
     alert = delivery.format_news_item(item)
 
     assert alert == (
-        "### <:phintraco:1531272488645038091> Phintraco Sekuritas\n\n"
+        "### <:phintraco:1531272488645038091> Phintraco Sekuritas\n-# Phintraco\n\n"
         "*(Ringkasan)* Perubahan kebijakan agraria dapat memengaruhi sejumlah pengembang properti.\n\n"
         "[View on Telegram](<https://t.me/phintasprofits/35378>)"
     )
@@ -355,7 +356,7 @@ def test_tuntun_macro_card_uses_the_telegram_link_without_market_data():
     alert = delivery.format_news_item(item)
 
     assert alert == (
-        "### <:tuntun:1531272430985937086> ECB naikkan suku bunga deposit 25 bps\n\n"
+        "### <:tuntun:1531272430985937086> ECB naikkan suku bunga deposit 25 bps\n-# Tuntun\n\n"
         "*(Ringkasan)* ECB menaikkan suku bunga deposit sebesar 25 basis poin.\n\n"
         "[View on Telegram](<https://t.me/tuntunsekuritas/14786>)"
     )
@@ -722,6 +723,31 @@ def test_unaccepted_owner_request_preserves_payload_and_uses_state_retry(
     assert datetime.fromisoformat(
         restored["candidates"][dewa_tier_one.key]["retry"]["next_attempt_at"]
     ) >= now + timedelta(minutes=1)
+
+
+@pytest.mark.parametrize("provider", list(Provider))
+def test_paragraph_upgrade_retries_an_existing_payload_verbatim(provider, monkeypatch, tmp_path):
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_path / "state.json"))
+    now = datetime(2026, 10, 2, tzinfo=timezone.utc)
+    summary = "DEWA memperoleh kontrak baru. Pendanaan disiapkan melalui fasilitas pinjaman."
+    old_item = replace(_item(provider, 42, "DEWA", EventClass.MATERIAL_CONTRACT, now), summary=summary)
+    state = empty_state()
+    enqueue_candidate(state, old_item.candidate, now)
+    state["candidates"][old_item.key]["phase"] = "pending_delivery"
+
+    class UnavailableOwner:
+        def status(self, operation_key):
+            raise delivery.DeliveryClientError("timeout")
+
+    assert not asyncio.run(delivery.deliver_event(state, old_item, "123", now, delivery_client=UnavailableOwner()))
+    frozen_content = state["stats"]["delivery_payloads"][old_item.key]["content"]
+    updated_item = replace(old_item, summary=summary.replace(". Pendanaan", ".\n\nPendanaan"))
+    monkeypatch.setattr(delivery, "get_market_snapshot", lambda *_args: pytest.fail("retry fetched prices again"))
+    restored = load_state()
+    owner = DeliveredOwner()
+    assert asyncio.run(delivery.deliver_event(restored, updated_item, "123", now + timedelta(minutes=10), delivery_client=owner))
+    assert owner.submissions[0].payload["content"] == frozen_content
+    assert f"*(Ringkasan)* {summary}\n\n" in frozen_content
 
 
 def test_text_only_immediate_delivery_never_attempts_source_image(

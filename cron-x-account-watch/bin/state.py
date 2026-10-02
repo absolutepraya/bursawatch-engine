@@ -38,6 +38,10 @@ def load_state(path: Path) -> dict:
     value = json.loads(path.read_text(encoding="utf-8"))
     if type(value) is not dict or value.get("version") not in {1, 2, STATE_VERSION} or type(value.get("profiles")) is not dict or type(value.get("outbox")) is not list:
         raise ValueError("x-post-watch state is invalid")
+    for event in value["outbox"]:
+        if isinstance(event, dict) and "news_cards" in event:
+            import render
+            render.news_format.validate_cards(event["news_cards"])
     if value.get("version") in {1, 2}:
         value["version"] = STATE_VERSION
     if "deliveries" not in value:
@@ -175,6 +179,8 @@ def record_delivery(value: dict, event: dict, channel_id: str, delivered_at: dat
         "replacement_of": list(event.get("replacement_of", [])),
         "replacement_pending": False,
     }
+    if event.get("news_cards") is not None:
+        record["text_destinations"] = [card["destination"] for card in event["news_cards"] for _ in card["messages"]]
     if event.get("recovery"):
         record["recovery"] = event["recovery"]
     value["deliveries"].append(record)
@@ -192,18 +198,24 @@ def queue_replacement_cleanup(value: dict, new_record: dict) -> None:
             old["superseded_by"] = new_record["delivery_id"]
             old["replacement_pending"] = False
             continue
-        value["cleanup"].append({
-            "old_delivery_id": old_id,
-            "replacement_delivery_id": new_record["delivery_id"],
-            "channel_id": old["channel_id"],
-            "message_ids": message_ids,
-            "attempts": 0,
-        })
+        groups = {}
+        text_ids = old.get("text_message_ids", [])
+        text_targets = old.get("text_destinations", [old["channel_id"]] * len(text_ids))
+        if len(text_targets) != len(text_ids):
+            raise ValueError("X delivery destinations do not match receipts")
+        for target, message in zip(text_targets, text_ids):
+            groups.setdefault(target, []).append(message)
+        for message in old.get("media_message_ids", []):
+            groups.setdefault(old["channel_id"], []).append(message)
+        for target, ids in groups.items():
+            value["cleanup"].append({"old_delivery_id": old_id, "replacement_delivery_id": new_record["delivery_id"],
+                                     "channel_id": target, "message_ids": ids, "attempts": 0})
 
 
 def finish_cleanup(value: dict, item: dict) -> None:
     old = delivery_by_id(value, item["old_delivery_id"])
-    if old is not None:
+    other_pending = any(entry is not item and entry["old_delivery_id"] == item["old_delivery_id"] for entry in value["cleanup"])
+    if old is not None and not other_pending:
         old["superseded_by"] = item["replacement_delivery_id"]
         old["replacement_pending"] = False
     value["cleanup"].remove(item)

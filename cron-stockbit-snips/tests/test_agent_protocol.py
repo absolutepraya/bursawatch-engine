@@ -93,5 +93,4 @@ def test_title_contract_is_enforced(article: Article, title: str) -> None:
 def test_ringkasan_marker_is_renderer_owned(article: Article) -> None:
     payload = valid_payload(article)
     payload["summary"] = "*(Ringkasan)* SWAP memiliki bisnis produk kesehatan."
-    with pytest.raises(ValueError, match="Ringkasan"):
-        validate_submission(article, payload)
+    assert validate_submission(article, payload).summary == "SWAP memiliki bisnis produk kesehatan."

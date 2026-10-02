@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path as _NewsPath
+import sys as _news_sys
+_news_bin = _NewsPath(__file__).resolve().parents[2] / "lib-news-format" / "bin"
+if not _news_bin.is_dir():
+    _news_bin = _NewsPath.home() / ".agents/skills/lib-news-format/bin"
+if str(_news_bin) not in _news_sys.path:
+    _news_sys.path.insert(0, str(_news_bin))
+import news_format
+
 import hashlib
 import math
 import mimetypes
@@ -154,44 +163,25 @@ def _issuer_entry(
     *,
     snapshot=None,
     load_market_data: bool = True,
+    market_metadata: dict | None = None,
 ) -> str:
     summary = _render_tuntun_summary(item)
     if _contains_investment_language(summary):
         raise ValueError("delivery facts must not contain investment language")
-    sections = [heading, summary]
-    if item.route is Destination.ID_STOCKS_NEWS and item.ticker is not None:
-        if load_market_data:
-            snapshot = get_market_snapshot(item.ticker, item.candidate.source_text)
-        changes = (
-            (
-                _tuntun_change(snapshot.one_day_change, snapshot.one_day_percent, "1D"),
-                _tuntun_change(snapshot.one_week_change, snapshot.one_week_percent, "1W"),
-                _tuntun_change(snapshot.one_month_change, snapshot.one_month_percent, "1M"),
-                _tuntun_change(snapshot.three_month_change, snapshot.three_month_percent, "3M"),
-            )
-            if snapshot is not None
-            else (
-                _tuntun_change(None, None, "1D"),
-                _tuntun_change(None, None, "1W"),
-                _tuntun_change(None, None, "1M"),
-                _tuntun_change(None, None, "3M"),
-            )
-        )
-        market_lines = [
-            f"Harga terakhir (IDR): **{_idr(snapshot.latest_price) if snapshot is not None else '-'}**",
-            f"{changes[0]}, {changes[1]},",
-            f"{changes[2]}, {changes[3]}",
-        ]
-        sections.append("\n".join(market_lines))
-    sections.append(f"[View on Telegram](<{source_message_url(item.candidate)}>)")
-    return "\n\n".join(sections)
+    if load_market_data and item.route is Destination.ID_STOCKS_NEWS and item.ticker is not None:
+        snapshot = get_market_snapshot(item.ticker, item.candidate.source_text)
+    if market_metadata is not None:
+        market_metadata.update(market_data_as_of=getattr(snapshot, "as_of", None), renderer_version=news_format.VERSION)
+    messages = news_format.render_card(heading, summary, source_message_url(item.candidate), "Telegram", route=item.route.value, snapshot=snapshot)
+    # This owner's historical contract remains one card per candidate.
+    return "\n\n".join(messages)
 
 
-def _tuntun_entry(item: SelectionCandidate) -> str:
-    return _issuer_entry(item, f"### {_PROVIDER_EMOJIS['Tuntun']} {item.title}")
+def _tuntun_entry(item: SelectionCandidate, market_metadata=None) -> str:
+    return _issuer_entry(item, f"### {_PROVIDER_EMOJIS['Tuntun']} {item.title}\n-# Tuntun", market_metadata=market_metadata)
 
 
-def _phintraco_entry(item: SelectionCandidate) -> str:
+def _phintraco_entry(item: SelectionCandidate, market_metadata=None) -> str:
     if item.route is not Destination.ID_STOCKS_NEWS or item.ticker is None:
         raise ValueError("Phintraco issuer entries require a ticker")
     snapshot = get_market_snapshot(item.ticker, item.candidate.source_text)
@@ -202,43 +192,45 @@ def _phintraco_entry(item: SelectionCandidate) -> str:
     )
     return _issuer_entry(
         item,
-        f"### {_PROVIDER_EMOJIS['Phintraco']} {item.ticker} ({company_name})",
+        f"### {_PROVIDER_EMOJIS['Phintraco']} {item.title or f'{item.ticker}: {company_name}'}\n-# Phintraco",
         snapshot=snapshot,
         load_market_data=False,
+        market_metadata=market_metadata,
     )
 
 
-def _phintraco_macro_entry(item: SelectionCandidate) -> str:
+def _phintraco_macro_entry(item: SelectionCandidate, market_metadata=None) -> str:
     if item.route is not Destination.MACRO_NEWS:
         raise ValueError("Phintraco macro entries require the macro_news route")
     return _issuer_entry(
         item,
-        f"### {_PROVIDER_EMOJIS['Phintraco']} Phintraco Sekuritas",
+        f"### {_PROVIDER_EMOJIS['Phintraco']} {item.title or 'Phintraco Sekuritas'}\n-# Phintraco",
         load_market_data=False,
+        market_metadata=market_metadata,
     )
 
 
-def _entry(item: SelectionCandidate) -> str:
+def _entry(item: SelectionCandidate, market_metadata=None) -> str:
     if item.provider is Provider.TUNTUN and item.title:
-        return _tuntun_entry(item)
+        return _tuntun_entry(item, market_metadata)
     if item.provider is Provider.PHINTRACO:
         if item.route is Destination.MACRO_NEWS:
-            return _phintraco_macro_entry(item)
+            return _phintraco_macro_entry(item, market_metadata)
         if item.route is Destination.ID_STOCKS_NEWS:
-            return _phintraco_entry(item)
+            return _phintraco_entry(item, market_metadata)
         raise ValueError("excluded Phintraco item cannot be delivered")
     return _legacy_entry(item)
 
 
 def _require_discord_length(content: str) -> None:
-    if len(content) > _DISCORD_MESSAGE_LIMIT:
+    if news_format.discord_length(content) > _DISCORD_MESSAGE_LIMIT:
         raise ValueError("Discord content exceeds the 2,000-character limit")
 
 
-def format_news_item(item: SelectionCandidate) -> str:
+def format_news_item(item: SelectionCandidate, *, market_metadata=None) -> str:
     """Render one factual company-news alert without delivery-window grouping."""
     item = _require_selection_candidate(item)
-    content = _entry(item)
+    content = _entry(item, market_metadata)
     _require_discord_length(content)
     return content
 
@@ -454,6 +446,7 @@ def _persist_text_payload(
     content: str,
     event_key: str,
     channel_id: str,
+    market_metadata=None,
 ) -> None:
     records = _delivery_records(state)
     nonce = discord_nonce(event_key, "text")
@@ -473,6 +466,8 @@ def _persist_text_payload(
                 "receipt": None,
             },
         }
+        if market_metadata is not None:
+            records[item.key].update(market_metadata)
     save_state(state)
 
 
@@ -584,8 +579,9 @@ async def deliver_event(
     event_key = f"{item.key}:text"
     content = _existing_text_payload(state, item)
     if content is None:
-        content = format_news_item(item)
-        _persist_text_payload(state, items, content, event_key, channel_id)
+        market_metadata = {}
+        content = format_news_item(item, market_metadata=market_metadata)
+        _persist_text_payload(state, items, content, event_key, channel_id, market_metadata)
     records = _delivery_records(state)
     record = records.get(item.key)
     if not isinstance(record, dict):

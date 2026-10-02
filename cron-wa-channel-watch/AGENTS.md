@@ -390,3 +390,37 @@ After a separately approved forward-only cutover, configure
 `BURSAWATCH_PUBLICATION_CONTROL_PLANE_URL` and the owner-scoped
 `BURSAWATCH_WA_CHANNEL_WATCH_PUBLICATION_TOKEN_FILE`. An unavailable read model
 leaves its durable intent pending without resending delivered Discord legs.
+
+## Shared generated-news format
+
+`lib-news-format` owns the common writing instruction, renderer, and
+optional deterministic quote lookup. Report directly in Indonesian and
+preserve research attribution, periods, units, and uncertainty. Prefer two
+short paragraphs for longer summaries; concise or cohesive items may use one.
+No fixed paragraph threshold or style-based relevance gate applies. Return
+plain summary text without a Ringkasan marker. The renderer adds it once and
+normalizes legacy markers. Existing structural, identity, capability, and
+source-specific safety checks remain mandatory.
+
+Split independent issuer developments into ordered items, including separate
+issuer dividends and suspension reopenings. Keep a connected transaction or
+one broad thesis as one story. Each generated issuer card has a ticker-led
+headline, source byline, latest native-currency price and 1D/1W/1M/3M absolute
+and percentage changes, plus the original source link. IDX uses IDR and US
+uses USD. Missing quotes or individual horizons use grey `-` placeholders;
+macro and industry cards omit the tracker. Prices are renderer enrichment,
+never model-generated news facts. Forecasts and incomplete amounts must not
+be made certain or filled in.
+
+New generated cards freeze their rendered text and quote timestamp before
+Discord delivery. X, Instagram, and WhatsApp also freeze each card's selected
+destination. Retries and Published Feed projections use those saved cards and
+stable operation identities. Existing pending records without new cards keep
+their legacy path. Profiles with generated summaries disabled retain their
+explicit raw-forwarding policy. Specialized Swing/Board and Stock Information
+contracts remain owner-specific.
+
+The LLM owns semantic relevance. Market-keyword signals are advisory and
+cannot veto `is_relevant: false`. Generic investing education remains
+excluded even when it mentions earnings, dividends, charting, or an issuer.
+There is no deterministic education denylist.

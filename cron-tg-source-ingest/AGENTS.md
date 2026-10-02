@@ -152,3 +152,11 @@ token to download accepted private media through Source Media.
 
 Run focused synthetic tests from the repository root with
 `.venv/bin/python -m pytest -q cron-tg-source-ingest/tests`.
+
+The News classification section of `SKILL.md` shares the Market News owner's
+direct reporting and flexible two-paragraph preference for both Phintraco and
+Tuntun. It retains meaningful research attribution and the one-to-five-sentence
+bound. Paragraph style does not introduce rejection, withholding, or another
+model call. The Market News owner preserves paragraph breaks and owns the
+single Ringkasan marker, deterministic tracker, and spacing-only fallback near
+Discord's content limit; this source runner does not format news cards.

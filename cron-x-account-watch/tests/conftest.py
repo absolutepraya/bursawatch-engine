@@ -50,3 +50,9 @@ def config_path(tmp_path: Path, profile_payload: dict) -> Path:
     path = tmp_path / "watches.json"
     path.write_text(json.dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
     return path
+
+
+@pytest.fixture(autouse=True)
+def isolated_news_quotes(monkeypatch):
+    import render
+    monkeypatch.setattr(render.news_format, "get_market_snapshot", lambda *args: None)

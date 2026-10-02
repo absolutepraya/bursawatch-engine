@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path as _NewsPath
+import sys as _news_sys
+_news_bin = _NewsPath(__file__).resolve().parents[2] / "lib-news-format" / "bin"
+if not _news_bin.is_dir():
+    _news_bin = _NewsPath.home() / ".agents/skills/lib-news-format/bin"
+if str(_news_bin) not in _news_sys.path:
+    _news_sys.path.insert(0, str(_news_bin))
+import news_format
+
 import re
 from html.parser import HTMLParser
 
@@ -209,3 +218,14 @@ def render_publication(
     if any(discord_length(message) > DISCORD_LIMIT for message in messages):
         raise ValueError("Instagram publication exceeds Discord message limit")
     return messages
+
+
+def freeze_news(profile, post, items):
+    byline = _escape_heading(profile.display_name, MAX_DISPLAY_NAME)
+    return news_format.validate_cards(news_format.freeze_cards(
+        items, lambda item: f"### {profile.platform_emoji} {_news_heading_title(post, item)}\n-# {profile.emoji} {byline}", post.url, "Instagram", target_for=lambda item: profile.channel_for(item["route"]).channel_id))
+
+
+def _news_heading_title(post, item):
+    title = _escape_heading(item["title"], MAX_TITLE)
+    return title + (" (Reel)" if _reel_marker_needed(post, body=item["summary"], title=item["title"]) else "")

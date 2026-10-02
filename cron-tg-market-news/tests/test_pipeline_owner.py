@@ -107,7 +107,7 @@ def test_phintraco_news_sibling_work_claims_one_frozen_agent_item_and_renders_go
     assert result["news_delivered"] == 1
     delivered = load_state()["stats"]["delivery_payloads"][item["candidate_key"]]
     assert delivered["content"] == (
-        "### <:phintraco:1531272488645038091> Phintraco Sekuritas\n\n"
+        "### <:phintraco:1531272488645038091> Phintraco Sekuritas\n-# Phintraco\n\n"
         "*(Ringkasan)* DEWA mendapat kontrak bernilai Rp22 triliun.\n\n"
         "[View on Telegram](<https://t.me/phintasprofits/35390>)"
     )

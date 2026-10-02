@@ -212,9 +212,10 @@ def test_agent_item_rejects_relative_or_symlinked_vision_roots(config_path, tmp_
         "*(Ringkasan)* One.\n\nTwo.\n\nThree.",
     ],
 )
-def test_summary_validation_rejects_wrong_shape(summary):
-    with pytest.raises(ValueError):
-        agent_protocol.validate_summary(summary)
+def test_summary_validation_accepts_flexible_style(summary):
+    normalized = agent_protocol.validate_summary(summary)
+    assert normalized.startswith("*(Ringkasan)* ")
+    assert normalized.count("*(Ringkasan)*") == 1
 
 
 def test_summary_validation_normalizes_one_or_two_paragraphs():
@@ -227,11 +228,8 @@ def test_summary_validation_normalizes_repeated_label_on_second_paragraph():
     ) == "*(Ringkasan)* Satu.\n\nDua."
 
 
-def test_summary_validation_rejects_repeated_label_inside_paragraph():
-    with pytest.raises(ValueError, match="exactly once"):
-        agent_protocol.validate_summary(
-            "*(Ringkasan)* Satu dengan *(Ringkasan)* label tambahan."
-        )
+def test_summary_validation_normalizes_repeated_label_inside_paragraph():
+    assert agent_protocol.validate_summary("*(Ringkasan)* Satu dengan *(Ringkasan)* label tambahan.") == "*(Ringkasan)* Satu dengan label tambahan."
 
 
 @pytest.mark.parametrize("title", ["A", "Judul dengan akhir titik.", "Lihat https://x.com/post"])
@@ -264,7 +262,7 @@ def test_relevance_filter_accepts_a_closed_irrelevant_decision(config_path, prof
         agent_protocol.validate_submission(profile, {"event_key": "kutekians:102", "is_relevant": False, "title": "Tidak boleh ada judul"})
 
 
-def test_direct_market_disclosure_requires_a_relevant_decision(config_path, profile_payload):
+def test_direct_market_disclosure_is_advisory_for_the_llm(config_path, profile_payload):
     profile_payload["enable_llm_title"] = True
     config_path.write_text(__import__("json").dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
     profile = __import__("config").load_watch_config(config_path).profiles[0]
@@ -274,7 +272,8 @@ def test_direct_market_disclosure_requires_a_relevant_decision(config_path, prof
 
     assert agent_protocol.requires_relevance(post) is True
     assert item["relevance_guard_required"] is True
-    assert "must be treated as relevant" in item["instruction"].lower()
+    assert "advisory context only" in item["instruction"].lower()
+    assert "never return is_relevant false" not in item["instruction"].lower()
 
 
 def test_promotion_like_disclosure_keeps_the_positive_relevance_safeguard(config_path, profile_payload):
@@ -489,10 +488,10 @@ def test_indonesia_economy_scope_uses_profile_guidance_for_source_exceptions(con
 
 def test_agent_instruction_requires_ticker_first_stock_titles_and_direct_summary_voice(config_path, profile_payload):
     instruction = agent_protocol.instruction_for(__import__("config").load_watch_config(config_path).profiles[0]).lower()
-    assert "id_stocks_news, id_stocks_swing, or us_stocks_news" in instruction
-    assert "first word of the title" in instruction
-    assert "never repeat that label in the second paragraph" in instruction
-    assert "do not describe ricky or the writer" in instruction
+    assert "exact exchange ticker followed by a colon" in instruction
+    assert "renderer adds it once" in instruction
+    assert "avoid generic writer narration" in instruction
+    assert "without a fixed length threshold" in instruction
 
 
 def test_agent_instruction_requires_managed_submission_wrapper(config_path, profile_payload):

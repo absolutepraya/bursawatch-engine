@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path as _NewsPath
+import sys as _news_sys
+_news_bin = _NewsPath(__file__).resolve().parents[2] / "lib-news-format" / "bin"
+if not _news_bin.is_dir():
+    _news_bin = _NewsPath.home() / ".agents/skills/lib-news-format/bin"
+if str(_news_bin) not in _news_sys.path:
+    _news_sys.path.insert(0, str(_news_bin))
+import news_format
+
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from datetime import datetime
@@ -20,6 +29,8 @@ INSTRUCTION = (
     "Write a factual summary without investment advice, BUY, SELL, entry, target, stop-loss, valuation, or price-direction language. "
     "Do not add the Ringkasan marker or an AI disclaimer."
 )
+
+INSTRUCTION += news_format.WRITING_INSTRUCTION + news_format.ITEMS_INSTRUCTION + "For independent stories submit candidate_key and items, with one to sixteen objects containing the usual fields except candidate_key. Keep a connected story as one ordinary scalar analysis. Exclude generic investing education through the LLM relevance decision. "
 
 ITEM_FIELDS = frozenset(
     {
@@ -68,7 +79,7 @@ def _text(payload: Mapping[str, object], key: str) -> str:
     value = payload.get(key)
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{key} must be nonempty text")
-    return " ".join(value.split())
+    return news_format.normalize_summary(value) if key == "summary" else " ".join(value.split())
 
 
 def _facts(payload: Mapping[str, object], key: str) -> tuple[str, ...]:
@@ -151,3 +162,19 @@ def analysis_payload(analysis: Analysis) -> dict[str, object]:
     value["material_facts"] = list(analysis.material_facts)
     value["dedupe_facts"] = list(analysis.dedupe_facts)
     return value
+
+
+def validate_submissions(article: Article, payload: object) -> list[Analysis]:
+    if isinstance(payload, Mapping) and "items" in payload:
+        if set(payload) != {"candidate_key", "items"} or payload["candidate_key"] != article.key:
+            raise ValueError("Stockbit item submission has an unexpected schema")
+        items = payload["items"]
+        if type(items) is not list or not 1 <= len(items) <= 16:
+            raise ValueError("Stockbit items must contain one to sixteen analyses")
+        analyses = []
+        for item in items:
+            if type(item) is not dict or "candidate_key" in item:
+                raise ValueError("Stockbit item must omit candidate_key")
+            analyses.append(validate_submission(article, {"candidate_key": article.key, **item}))
+        return analyses
+    return [validate_submission(article, payload)]

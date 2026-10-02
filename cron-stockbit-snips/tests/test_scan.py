@@ -1088,3 +1088,42 @@ def test_submission_degrades_when_another_due_delivery_fails(monkeypatch, tmp_pa
     assert completed[0][2]["attributes"]["errors"] == ["Stockbit delivery failed"]
     assert "credential" not in repr(calls)
     assert "/private/path" not in repr(calls)
+
+
+def test_split_stockbit_items_resume_without_changing_quotes_or_source(tmp_path,monkeypatch):
+    source=article(FeedLane.STOCKBIT_COMMENTARY)
+    value=state.new_state(config.FEEDS);state.queue_article(value,source,source.published_at)
+    record=value['articles'][source.key]
+    record['config_snapshot']={'revision':7,'additional_prompt_instruction':'','id_stocks_news_channel_id':'123456789012345678','macro_news_channel_id':'234567890123456789'}
+    record['source_work']={'event_key':'a'*64,'version':1}
+    from agent_protocol import validate_submissions
+    def item(ticker):
+        return {'ticker':ticker,'title':ticker+': Pembagian dividen','summary':ticker+' akan membagikan dividen.','material_facts':[ticker+' dividen'],'dedupe_facts':[ticker+' dividen'],'eligible':True,'route':'id_stocks_news','source_evidence':'Sumber menyebut dividen '+ticker+'.'}
+    analyses=validate_submissions(source,{'candidate_key':source.key,'items':[item('DADA'),item('NICL')]})
+    quotes=[]
+    monkeypatch.setattr(scan,'get_market_snapshot',lambda ticker:quotes.append(ticker))
+    calls=[]
+    def send(content,channel_id,*,dry_run,event_key,leg,return_receipt):
+        saved=state.load_state(runtime.state_path,config.FEEDS)
+        assert all(saved['articles'][key]['rendered'] for key in saved['articles'][source.key]['news_item_keys'])
+        calls.append((content,channel_id,event_key,leg))
+        if len(calls)==2:
+            raise scan.discord.DeliveryOwnerPending('pending')
+        return delivered_receipt(content,channel_id,event_key=event_key,leg=leg)
+    runtime=config.RuntimeConfig(state_path=tmp_path/'state.json',no_post=False,request_timeout=10,heartbeat_channel_id='987654321098765432',id_stocks_news_channel_id='123456789012345678',macro_news_channel_id='234567890123456789')
+    monkeypatch.setattr(scan.discord,'post_text',send)
+    result=scan._submit_split_analysis(value,record,source,analyses,runtime,source.published_at,[])
+    assert result['delivered']==1 and quotes==['DADA','NICL']
+    saved=state.load_state(runtime.state_path,config.FEEDS)
+    keys=saved['articles'][source.key]['news_item_keys']
+    assert saved['articles'][keys[0]]['phase']=='delivered'
+    assert saved['articles'][keys[1]]['phase']=='pending_delivery'
+    monkeypatch.setattr(scan,'get_market_snapshot',lambda *args:pytest.fail('retry fetched quotes'))
+    assert scan._drain_delivery(saved,runtime,source.published_at)==1
+    assert calls[1]==calls[2] and calls[0][2]!=calls[1][2]
+    for key in keys:
+        child=saved['articles'][key]
+        assert child['article']['url']==source.url
+        assert child['article']['published_at']==source.published_at.isoformat()
+        assert child['source_work']['event_key']=='a'*64
+        assert child['rendered'].count('Harga terakhir')==1

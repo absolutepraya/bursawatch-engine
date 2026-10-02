@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path as _NewsPath
+import sys as _news_sys
+_news_bin = _NewsPath(__file__).resolve().parents[2] / "lib-news-format" / "bin"
+if not _news_bin.is_dir():
+    _news_bin = _NewsPath.home() / ".agents/skills/lib-news-format/bin"
+if str(_news_bin) not in _news_sys.path:
+    _news_sys.path.insert(0, str(_news_bin))
+import news_format
+
 import re
 from datetime import datetime
 from html.parser import HTMLParser
@@ -191,3 +200,15 @@ def render_post(
         if post.quoted_article_url:
             _append_atomic(messages, _article_block(post.quoted_article_label, post.quoted_article_url), "\n")
     return messages
+
+
+def freeze_news(profile, post, items, *, updated_tweet=False):
+    byline = strip_emojis(profile.display_name) + (" (Updated Tweet)" if updated_tweet else "")
+    cards = news_format.freeze_cards(items, lambda item: f"### {profile.twitter_emoji} {item['title']}\n-# {profile.emoji} {byline}", post.url, "X", target_for=lambda item: profile.channel_for(item["route"]).channel_id)
+    if profile.show_quoted_post:
+        for card in cards:
+            if post.quoted_content_html:
+                _append_atomic(card["messages"], _quoted_block(post.quoted_content_html, post.quoted_url or post.url), "\n")
+            if post.quoted_article_url:
+                _append_atomic(card["messages"], _article_block(post.quoted_article_label, post.quoted_article_url), "\n")
+    return news_format.validate_cards(cards)

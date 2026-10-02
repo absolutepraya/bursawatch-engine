@@ -280,6 +280,10 @@ class WhatsAppChannelWatchHandoffAdapter:
                         # Board URL patch is a separate edit after initial message creation.
                         board_url=None,
                     )
+                    if record.get("news_cards") is not None:
+                        cards = render.news_format.validate_cards(record["news_cards"])
+                        messages = cards[item_index]["messages"]
+                        channel_id = cards[item_index]["destination"]
                 except (KeyError, TypeError, ValueError):
                     raise HandoffError("WhatsApp Channel rendered message is invalid") from None
                 messages_by_item.append((channel_id, messages))

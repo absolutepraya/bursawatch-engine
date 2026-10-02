@@ -107,6 +107,19 @@ pre-split directories, commands, or runtime identities, so they are evidence
 of how a decision was made, not current deployment instructions. Reconcile a
 historical record with the active package contract and source before acting.
 
+The Telegram summary style interview is recorded in the
+[`2026-10-02 design discussion`](specs/2026-10-02-telegram-news-summary-style.md),
+with its [news glossary](glossaries/telegram-news.md). The user approved the
+flexible style and spacing-only fallback; local implementation does not prove
+a production release or the format of a subsequent natural output.
+
+A proposed expansion to all platform news owners is in the
+[`universal stock-news format discussion`](specs/2026-10-02-universal-stock-news-format.md)
+and its [shared glossary](glossaries/stock-news.md). The user accepted IDX/US
+coverage, common headings, and preservation of raw-forwarding settings.
+Independent multi-company item handling remains under discussion. The design
+also records the education-filter conflict and its bounded source evidence.
+
 The split decision and the current Bursawatch to Hermes Personal boundary are
 recorded in [`adr/0024-separate-bursawatch-and-hermes-personal.md`](adr/0024-separate-bursawatch-and-hermes-personal.md).
 The physical state-cutover decision is recorded in

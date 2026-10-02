@@ -36,6 +36,7 @@ def test_market_snapshot_uses_one_year_history_and_22_66_session_horizons(monkey
         "interval": "1d",
         "auto_adjust": False,
         "raise_errors": True,
+        "timeout": 5,
     }
     assert snapshot.latest_price == 68
     assert snapshot.one_day_change == 1

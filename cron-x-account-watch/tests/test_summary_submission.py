@@ -290,11 +290,10 @@ def test_submit_irrelevant_disclosure_is_rejected_and_keeps_agent_event(tmp_path
     monkeypatch.setenv("X_POST_WATCH_STATE_PATH", str(storage))
     monkeypatch.setenv("X_POST_WATCH_CONFIG_PATH", str(config_path))
 
-    with pytest.raises(ValueError, match="must be relevant"):
-        scan.submit_analysis_payload({"event_key": "kutekians:102", "is_relevant": False})
-
-    event = state.load_state(storage)["outbox"][0]
-    assert event["agent_phase"] == "awaiting_agent"
+    monkeypatch.setattr(scan.discord, "post_text", lambda *args: pytest.fail("irrelevant content was forwarded"))
+    result = scan.submit_analysis_payload({"event_key": "kutekians:102", "is_relevant": False})
+    assert result["ignored"] is True
+    assert state.load_state(storage)["outbox"] == []
 
 
 def test_submit_ignores_kobeissi_publication_notice_without_posting(tmp_path, monkeypatch, config_path, profile_payload):
@@ -384,3 +383,63 @@ def test_submit_accepts_promotional_post_when_agent_marks_it_relevant(tmp_path, 
     assert sent
     assert state.load_state(storage)["outbox"] == []
     assert state.load_state(storage)["filtered_since_last_heartbeat"] == 0
+
+
+def test_independent_news_cards_freeze_quote_and_resume_after_second_card_pending(tmp_path, monkeypatch, config_path, profile_payload):
+    profile_payload.update(enable_llm_title=True, enable_llm_summary=True, enable_llm_routing=True)
+    profile_payload['discord_channels'] = [
+        {'key':'id_stocks_news','channel_id':'1525102508714889257','description':'IDX news'},
+        {'key':'macro_news','channel_id':'1531655369884045382','description':'Macro'},
+        {'key':'us_stocks_news','channel_id':'1525102508714889258','description':'US news'},
+    ]
+    config_path.write_text(json.dumps({'version':1,'profiles':[profile_payload]}))
+    profile=__import__('config').load_watch_config(config_path).profiles[0]
+    storage=tmp_path/'state.json'
+    post=SourcePost(profile.id,'102','https://x.com/Kutekians/status/102',datetime.now(UTC),'GIAA rights issue. UNTR buyback.',PostKind.NORMAL,None,None,(),())
+    value=state.new_state()
+    value['profiles'][profile.id]={'cursor':'101'}
+    state.observe_posts(value,profile,[post],lambda _:True)
+    state.claim_oldest_agent(value,{profile.id:profile},datetime.now(UTC))
+    state.save_state(storage,value)
+    monkeypatch.setenv('X_POST_WATCH_STATE_PATH',str(storage))
+    monkeypatch.setenv('X_POST_WATCH_CONFIG_PATH',str(config_path))
+    quotes=[]
+    monkeypatch.setattr(scan.render.news_format,'get_market_snapshot',lambda ticker,route:quotes.append(ticker))
+    attempts=[]
+    def send(content,channel,dry_run,nonce):
+        saved=state.load_state(storage)['outbox'][0]
+        assert len(saved['news_cards']) == 2
+        attempts.append((content,channel,nonce))
+        if len(attempts)==2:
+            raise scan.discord.DeliveryOwnerPending('pending')
+        return str(7000+len(attempts))
+    monkeypatch.setattr(scan.discord,'post_text',send)
+    result=scan.submit_analysis_payload({'event_key':'kutekians:102','is_relevant':True,'items':[
+        {'title':'GIAA: Rencana rights issue','summary':'GIAA akan melakukan rights issue.','route':'id_stocks_news'},
+        {'title':'UNTR: Rencana buyback saham','summary':'UNTR akan membeli kembali hingga 20% modalnya.','route':'id_stocks_news'},
+    ]})
+    assert result['delivered']==0 and quotes==['GIAA','UNTR']
+    saved=state.load_state(storage)
+    frozen=saved['outbox'][0]['news_cards']
+    assert saved['outbox'][0]['text_index']==1
+    monkeypatch.setattr(scan.render.news_format,'get_market_snapshot',lambda *args:pytest.fail('retry fetched quotes'))
+    assert scan._deliver(saved,{profile.id:profile},0,False,storage,scan.RunStats(),datetime.now(UTC))
+    assert len(attempts)==3 and attempts[1]==attempts[2]
+    assert all(card['messages'][0].count('Harga terakhir')==1 for card in frozen)
+    assert all('https://x.com/Kutekians/status/102' in card['messages'][0] for card in frozen)
+    assert state.load_state(storage)['outbox']==[]
+
+
+def test_education_with_earnings_and_dividend_terms_can_be_rejected(tmp_path,monkeypatch,config_path,profile_payload):
+    profile=__import__('config').load_watch_config(config_path).profiles[0]
+    post=SourcePost(profile.id,'102','https://x.com/Kutekians/status/102',datetime.now(UTC),
+                    'Cara analisis fundamental saham: belajar membaca earnings, laba bersih dan dividen dibandingkan chart.',PostKind.NORMAL,None,None,(),())
+    assert scan.requires_relevance(post,profile=profile)
+    storage=tmp_path/'state.json'
+    value=state.new_state();value['profiles'][profile.id]={'cursor':'101'}
+    state.observe_posts(value,profile,[post],lambda _:True)
+    state.claim_oldest_agent(value,{profile.id:profile},datetime.now(UTC));state.save_state(storage,value)
+    monkeypatch.setenv('X_POST_WATCH_STATE_PATH',str(storage));monkeypatch.setenv('X_POST_WATCH_CONFIG_PATH',str(config_path))
+    monkeypatch.setattr(scan.discord,'post_text',lambda *args:pytest.fail('education forwarded'))
+    assert scan.submit_analysis_payload({'event_key':'kutekians:102','is_relevant':False})['ignored']
+    assert state.load_state(storage)['outbox']==[]

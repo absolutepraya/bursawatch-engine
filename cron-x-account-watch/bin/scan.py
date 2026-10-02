@@ -621,21 +621,29 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
         include_status_date=event.get("route") == "id_stocks_swing",
         status_date=delivery_at if event.get("route") == "id_stocks_swing" else None,
     )
+    cards = event.get("news_cards")
+    targets = None
+    if cards is not None:
+        render.news_format.validate_cards(cards)
+        messages = [message for card in cards for message in card["messages"]]
+        targets = [card["destination"] for card in cards for message in card["messages"]]
+        channel_id = targets[0]
     media_url: str | None = None
     try:
         while event["text_index"] < len(messages):
             index = event["text_index"]
+            text_channel = targets[index] if targets else channel_id
             nonce_value = discord.nonce(f"{profile.id}:{post.post_id}", f"text:{index}")
             if publication_projection.enabled():
                 message_id, operation, receipt = discord.post_text_with_receipt(
-                    messages[index], channel_id, dry_run, nonce_value,
+                    messages[index], text_channel, dry_run, nonce_value,
                 )
                 if operation is not None and receipt is not None:
                     event.setdefault("publication_legs", []).append(
                         publication_projection.confirmed_leg(operation, receipt, text=messages[index])
                     )
             else:
-                message_id = discord.post_text(messages[index], channel_id, dry_run, nonce_value)
+                message_id = discord.post_text(messages[index], text_channel, dry_run, nonce_value)
             if message_id is not None:
                 event.setdefault("text_message_ids", []).append(message_id)
             event["text_index"] += 1
@@ -1045,8 +1053,6 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
             post = state.deserialize_post(event["post"])
             thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]]))
             if analysis.get("is_relevant") is False:
-                if requires_relevance(post, thread_posts, profile):
-                    raise ValueError("direct market disclosure must be relevant")
                 state.discard_analysis(value, analysis["event_key"])
                 state.save_state(storage, value)
                 _cleanup_agent_vision(storage, event)
@@ -1062,9 +1068,21 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 )
                 _finish_control_run(reporter, run_id, "ok")
                 return {"submitted": True, "ignored": True, "delivered": 0}
-            route_override = deterministic_route(profile, post, thread_posts)
+            news_items = analysis.pop("news_items", None)
+            route_override = deterministic_route(profile, post, thread_posts) if news_items is None else None
             if route_override is not None:
                 analysis["route"] = route_override
+            if news_items is not None:
+                allowed = event.get("enabled_capabilities")
+                news_items = [item for item in news_items if allowed is None or eligible_capability_for_route(item["route"], frozenset(allowed)) is not None]
+                if news_items:
+                    analysis.update(news_items[0])
+                else:
+                    state.suppress_ineligible(value, event)
+                    state.save_state(storage, value)
+                    _cleanup_agent_vision(storage, event)
+                    _finish_control_run(reporter, run_id, "ok")
+                    return {"submitted": True, "suppressed": "suppressed_ineligible", "delivered": 0}
             candidate_route = analysis.get("route") if profile.enable_llm_routing else profile.discord_channels[0].key
             if event.get("enabled_capabilities") is not None and eligible_capability_for_route(candidate_route, frozenset(event["enabled_capabilities"])) is None:
                 state.suppress_ineligible(value, event)
@@ -1077,6 +1095,8 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 )
                 _finish_control_run(reporter, run_id, "ok")
                 return {"submitted": True, "suppressed": "suppressed_ineligible", "delivered": 0}
+            if profile.enable_llm_summary and candidate_route in {"id_stocks_news", "us_stocks_news", "macro_news"}:
+                analysis["news_cards"] = render.freeze_news(profile, post, news_items or [{"title": analysis.get("title") or profile.display_name, "summary": analysis["summary"], "route": candidate_route}], updated_tweet=bool(event.get("updated_tweet")))
             state.submit_analysis(value, analysis["event_key"], {key: item for key, item in analysis.items() if key not in {"event_key", "is_relevant"}})
             state.save_state(storage, value)
             _cleanup_agent_vision(storage, event)

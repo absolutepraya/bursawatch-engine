@@ -78,7 +78,7 @@ def _confirmed_leg(operation: Any, receipt: object, text: str | None) -> dict[st
     }
 
 
-def _candidate(event: dict[str, Any], profile: Any, confirmed_at: datetime) -> tuple[dict[str, Any], list[tuple[Any, str | None]]]:
+def _candidate(event: dict[str, Any], profile: Any, confirmed_at: datetime, card_index: int | None = None) -> tuple[dict[str, Any], list[tuple[Any, str | None]]]:
     post = state.deserialize_post(event["post"])
     channel_id = scan._target_channel(profile, event)
     messages = render.render_publication(
@@ -86,14 +86,25 @@ def _candidate(event: dict[str, Any], profile: Any, confirmed_at: datetime) -> t
         event.get("summary") if profile.enable_llm_summary else None,
         event.get("title") if profile.enable_llm_title else None,
     )
+    cards = event.get("news_cards")
+    text_offset = 0
+    card = None
+    if cards is not None:
+        render.news_format.validate_cards(cards)
+        messages = [message for item in cards for message in item["messages"]]
     if (event.get("is_relevant") is False or event.get("text_index") != len(messages)
             or len(event.get("text_message_ids", [])) != len(messages)):
         raise ValueError("Instagram publication text delivery is incomplete")
+    if cards is not None and card_index is not None:
+        card = cards[card_index]
+        text_offset = sum(len(item["messages"]) for item in cards[:card_index])
+        messages = card["messages"]
+        channel_id = card["destination"]
     required: list[str] = []
     operations: list[tuple[Any, str | None]] = []
     descriptors = []
     for index, content in enumerate(messages):
-        leg = f"text:{index}"
+        leg = f"text:{text_offset + index}"
         key = discord.operation_key_for_nonce(discord.nonce(event["event_key"], leg))
         operation = replace(discord._message_operation(content, channel_id, event["event_key"], leg), key=key)
         required.append(key)
@@ -101,7 +112,7 @@ def _candidate(event: dict[str, Any], profile: Any, confirmed_at: datetime) -> t
         descriptors.append({"operation_key": key, "operation_digest": operation.digest, "destination": channel_id, "text": content,
                             "attachments": [{"filename": a.filename, "content_type": a.mime_type, "discord_url": None} for a in operation.attachments]})
     downloaded_raw = event.get("downloaded_publication")
-    if profile.forward_media and downloaded_raw is not None:
+    if profile.forward_media and downloaded_raw is not None and card_index in (None, 0):
         downloaded = state.deserialize_downloaded_publication(downloaded_raw)
         assets = scan._delivery_media(post, downloaded)
         if event.get("media_index") != len(assets) or len(event.get("media_message_ids", [])) != len(assets):
@@ -119,22 +130,22 @@ def _candidate(event: dict[str, Any], profile: Any, confirmed_at: datetime) -> t
                                 "attachments": [{"filename": a.filename, "content_type": a.mime_type, "discord_url": None} for a in operation.attachments]})
     if not messages or not required:
         raise ValueError("Instagram publication has no delivered output")
-    route = event.get("route")
+    route = card["route"] if card is not None else event.get("route")
     if route not in {"macro_news", "id_stocks_news"}:
         raise ValueError("Instagram publication route is not a Published Feed news route")
-    title = event.get("title") or messages[0].splitlines()[0].strip().lstrip("# ").strip()
+    title = (card["title"] if card is not None else event.get("title")) or messages[0].splitlines()[0].strip().lstrip("# ").strip()
     if not isinstance(title, str) or not title:
         raise ValueError("Instagram publication title is missing")
-    owner_key = f"{event['event_key']}"
+    owner_key = f"{event['event_key']}" + (f":item:{card_index}" if card_index is not None else "")
     kind = "macro_news" if route == "macro_news" else "idx_company_news"
     snapshot = {
         "api_version": 1, "owner_key": owner_key, "version": 1, "supersedes_version": None,
         "type": kind, "route": route, "source_event_key": event["event_key"],
         "source_name": profile.display_name, "source_url": post.url,
-        "source_published_at": post.published_at.isoformat(), "market_data_as_of": None,
-        "delivery_confirmed_at": confirmed_at.isoformat(), "title": title[:300], "ticker": None,
+        "source_published_at": post.published_at.isoformat(), "market_data_as_of": card["market_data_as_of"] if card else None,
+        "delivery_confirmed_at": confirmed_at.isoformat(), "title": title[:300], "ticker": card["ticker"] if card else None,
         "broker_levels": None, "parent_publication_id": None, "board_episode_id": None,
-        "config_revision": None, "renderer_version": RENDERER_VERSION,
+        "config_revision": None, "renderer_version": render.news_format.VERSION if card else RENDERER_VERSION,
         "source_version": post.publication_id, "required_operation_keys": required,
         "legs": [], "_receipt_pending": True, "_operation_descriptors": descriptors,
     }
@@ -146,6 +157,12 @@ def record_intent(value: dict, event: dict, profile: Any, confirmed_at: datetime
         return False
     if event.get("is_relevant") is False or event.get("route") not in {"macro_news", "id_stocks_news"}:
         return False
+    if event.get("news_cards") is not None:
+        changed = False
+        for index in range(len(event["news_cards"])):
+            snapshot, _operations = _candidate(event, profile, confirmed_at, index)
+            changed = state.record_publication_intent(value, snapshot) or changed
+        return changed
     snapshot, _operations = _candidate(event, profile, confirmed_at)
     return state.record_publication_intent(value, snapshot)
 

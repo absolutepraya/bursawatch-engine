@@ -170,7 +170,7 @@ def test_confirmed_receipt_intent_is_saved_before_article_terminal_state(tmp_pat
 
     monkeypatch.setattr(state, "save_state", record_save)
     assert scan._drain_delivery(value, runtime, NOW) == 1
-    assert saves == [("pending_delivery", True)]
+    assert saves == [("pending_delivery", False), ("pending_delivery", True)]
     assert value["articles"][article.key]["phase"] == "delivered"
 
 

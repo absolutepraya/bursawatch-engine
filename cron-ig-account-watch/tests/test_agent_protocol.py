@@ -958,7 +958,7 @@ def test_positive_disclosure_safeguard_includes_ocr_even_with_promotion_language
     "private placement with dilution",
     "#RangkumKeterbukaanInformasi",
 ])
-def test_disclosure_signal_from_caption_or_ocr_forces_relevance(config_path, tmp_path, signal):
+def test_disclosure_signal_from_caption_or_ocr_is_advisory_for_relevance(config_path, tmp_path, signal):
     profile = _profile(config_path)
     post = _post(profile, caption="Substantive market publication")
 
@@ -968,7 +968,7 @@ def test_disclosure_signal_from_caption_or_ocr_forces_relevance(config_path, tmp
         _event(profile, tmp_path, caption=f"Substantive market publication {signal}"),
     )
     assert item["relevance_guard_required"] is True
-    assert "must be relevant" in item["instruction"].lower()
+    assert "advisory context only" in item["instruction"].lower()
 
 
 def test_instruction_contains_exact_routes_and_no_untrusted_source_text(config_path):

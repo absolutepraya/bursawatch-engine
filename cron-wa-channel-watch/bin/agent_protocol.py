@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path as _NewsPath
+import sys as _news_sys
+_news_bin = _NewsPath(__file__).resolve().parents[2] / "lib-news-format" / "bin"
+if not _news_bin.is_dir():
+    _news_bin = _NewsPath.home() / ".agents/skills/lib-news-format/bin"
+if str(_news_bin) not in _news_sys.path:
+    _news_sys.path.insert(0, str(_news_bin))
+import news_format
+
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 import re
@@ -61,11 +70,11 @@ def instruction_for(profile: ChannelProfile, relevance_guard_required: bool = Fa
             "If it is not relevant, return exactly event_key and is_relevant false, with no title, summary, or route. If it is relevant, set is_relevant true and continue. "
         )
     if relevance_guard_required:
-        relevance += "The scanner detected a clear substantive market signal. Treat it as relevant and never return is_relevant false. "
+        relevance += "The market signal is advisory context only. The LLM may still exclude education or promotions. "
     routing = ""
     if profile.enable_llm_routing:
         routing = (
-            "When route_required is true, classify the central thesis and choose exactly one configured route. Never duplicate a post across routes. "
+            "When route_required is true, classify the central thesis and choose exactly one configured route. Never duplicate a single story across routes. "
             "Use id_industry_news for a story focused on one Indonesian industry or sector, including a policy, infrastructure, investment, or capacity story whose central subject is that industry. Use macro_news for cross-industry developments, economy-wide or market-wide theses, cross-asset factors, broad financial-market analysis, or a multi-sector roundup. A thesis spanning multiple sectors is broad: a broad sector thesis remains macro_news even when it names a top pick because its subject crosses industries. An equal-weighted multi-stock screen remains macro_news. "
             "Use id_stocks_news for direct IDX-listed issuer news or analysis, including earnings, dividends, corporate actions, fundamentals, valuation, and a multi-stock post with one clearly dominant lead issuer. "
             "Use id_stocks_swing only when the first meaningful token is the exact, case-sensitive #TechnicalReview tag after optional whitespace or Markdown wrapper characters. That tag is a deterministic route override to id_stocks_swing, including when the post contains a chart, support, resistance, breakout, indicator, entry, target, or stop-loss. A technical word, ticker, chart image, or trade setup appearing later without that leading tag must never route to id_stocks_swing. Choose id_stocks_news, id_industry_news, or macro_news for such a post according to its central thesis. "
@@ -74,9 +83,10 @@ def instruction_for(profile: ChannelProfile, relevance_guard_required: bool = Fa
         )
     title_summary = (
         "Write concise, source-grounded Bahasa Indonesia. For id_stocks_news and id_stocks_swing, start the first word of the title with the exact IDX ticker followed by a colon. For id_industry_news and macro_news, write a natural headline and do not invent a ticker. "
-        "Return one ordered items array with one to eight independently relevant News Items. Keep one shared-headline macro or market roundup as one item even when it has many bullets; split only clearly independent issuer stories or titled sections. Do not add a category prefix to a substantive macro title. Start only the first summary paragraph with *(Ringkasan)* and never repeat that label in the second paragraph. Summarize the source instead of copying its full bullet format or disclaimer. Preserve material source-supported numbers, price levels, named issuers, ratings, and implications without adding facts or advice. Do not describe the Channel or writer as a narrator. "
+        "Return one ordered items array with one to eight independently relevant News Items. Keep one shared-headline macro or market roundup as one item even when it has many bullets; split only clearly independent issuer stories or titled sections. Do not add a category prefix to a substantive macro title. Return plain summaries without a Ringkasan marker, which the renderer adds once. Summarize the source instead of copying its full bullet format or disclaimer. Preserve material source-supported numbers, price levels, named issuers, ratings, and implications without adding facts or advice. Do not describe the Channel or writer as a narrator. "
         "For an id_stocks_swing item, provide one concise Reasons paragraph without a Reasons or *(Ringkasan)* label, do not use a second paragraph, and provide a sentiment field containing exactly one of Bullish, Bearish, or Sideways. Preserve an explicit source stance when present; otherwise classify the dominant direction of the supplied technical evidence, using Sideways only for a genuinely balanced or explicitly sideways setup. "
     )
+    title_summary += news_format.WRITING_INSTRUCTION + news_format.ITEMS_INSTRUCTION
     profile_instruction = (
         f"Profile-specific instruction: {profile.additional_prompt_instruction.strip()} "
         if profile.additional_prompt_instruction.strip() else ""
@@ -136,17 +146,9 @@ def build_wake_payload(item: Mapping[str, object] | None) -> dict[str, object]:
 def validate_summary(value: object) -> str:
     if not isinstance(value, str):
         raise ValueError("summary must be text")
-    summary = value.strip()
-    if not summary.startswith(SUMMARY_PREFIX):
-        raise ValueError(f"summary must start with {SUMMARY_PREFIX!r}")
-    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", summary) if part.strip()]
-    if not 1 <= len(paragraphs) <= 2 or any("\n" in part for part in paragraphs):
-        raise ValueError("summary must contain one or two single-line paragraphs")
-    if len(paragraphs) == 2 and paragraphs[1].startswith(SUMMARY_PREFIX):
-        raise ValueError("summary label may appear only in the first paragraph")
-    summary = "\n\n".join(paragraphs)
-    if summary.count(SUMMARY_LABEL) != 1 or len(summary) > MAX_SUMMARY_CHARACTERS:
-        raise ValueError("summary must contain one label and fit the character limit")
+    summary = news_format.normalize_summary(value, marked=True)
+    if not news_format.normalize_summary(value) or len(summary) > MAX_SUMMARY_CHARACTERS:
+        raise ValueError("summary must contain bounded nonempty text")
     return summary
 
 

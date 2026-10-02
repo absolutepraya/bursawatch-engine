@@ -409,15 +409,6 @@ def test_technical_review_is_guarded_and_deterministically_delivered_to_swing(tm
     assert claimed["item"]["relevance_guard_required"] is True
     monkeypatch.setattr(scan, "_archived_images", lambda _root, _event: (image,))
 
-    with pytest.raises(ValueError, match="submitted as relevant"):
-        scan.submit_analysis(
-            config_path=config_path,
-            state_path=state_path,
-            now=now + timedelta(minutes=2),
-            no_post=True,
-            payload={"event_key": claimed["item"]["event_key"], "is_relevant": False},
-        )
-
     submitted = scan.submit_analysis(
         config_path=config_path,
         state_path=state_path,
@@ -1189,3 +1180,15 @@ def test_missing_or_ambiguous_technical_chart_never_creates_board_context(tmp_pa
     assert submitted["delivered"] == 1
     assert board == []
     assert state.load(state_path)["outbox"][0]["board_phase"] == "not_eligible"
+
+
+def test_llm_can_reject_technical_education_without_delivery(tmp_path,monkeypatch):
+    queue_dir=tmp_path/'queue';config_path=write_config(tmp_path);storage=tmp_path/'state.json'
+    now=datetime(2026,9,10,tzinfo=timezone.utc)
+    enqueue(queue_dir,event('baseline','2026-09-09T00:00:00Z'))
+    scan.run(config_path=config_path,state_path=storage,queue_dir=queue_dir,now=now,no_post=True)
+    enqueue(queue_dir,normalize_bridge_event({'channel_jid':'12345@newsletter','message_id':'education','published_at':'2026-09-10T00:01:00Z','text':'#TechnicalReview Cara belajar breakout saham.','media':[]}))
+    claimed=scan.run(config_path=config_path,state_path=storage,queue_dir=queue_dir,now=now+timedelta(minutes=1),no_post=True)
+    monkeypatch.setattr(scan.discord,'post_text',lambda *args:pytest.fail('education forwarded'))
+    result=scan.submit_analysis(config_path=config_path,state_path=storage,now=now+timedelta(minutes=2),no_post=True,payload={'event_key':claimed['item']['event_key'],'is_relevant':False})
+    assert result['agent_phase']=='filtered'
