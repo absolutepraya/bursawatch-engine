@@ -102,7 +102,10 @@ After a confirmed article send, the owner saves its exact rendered output,
 source event identity, frozen config revision, and matching Delivery Owner
 receipt with a pending Published Feed intent before marking the article
 delivered. Excluded articles and articles without shared-source provenance are
-not projected. Projection retries submit only the saved snapshot to the
+not projected. Published Feed projection uses the same message-only receipt
+contract, retaining key and digest validation and rejecting an explicit channel
+that conflicts with the frozen operation. Projection retries submit only the
+saved snapshot to the
 Control Plane and never create a Discord operation. The writer is disabled
 unless `BURSAWATCH_STOCKBIT_SNIPS_PUBLICATION_ENABLED=1` after the forward-only
 feed cutover.

@@ -43,7 +43,7 @@ def _receipt_leg(
         or receipt.key != operation.key
         or receipt.digest != operation.digest
         or not isinstance(receipt_value, dict)
-        or receipt_value.get("channel_id") != channel_id
+        or receipt_value.get("channel_id", operation.target["channel_id"]) != channel_id
         or not isinstance(receipt_value.get("message_id"), str)
         or not receipt_value["message_id"].isdigit()
     ):

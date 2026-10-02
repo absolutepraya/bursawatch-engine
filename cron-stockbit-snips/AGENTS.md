@@ -117,6 +117,10 @@ rendered text, source event identity, frozen config revision, receipt, and
 pending projection intent before changing the article to `delivered`. Excluded
 articles and articles without shared-source provenance do not enter the feed.
 
+The projection accepts a message-only delivered receipt after the shared client
+validates its key and digest against the operation for the frozen destination.
+An explicit receipt channel must match that destination.
+
 The projection drain retries only the saved snapshot through the shared
 `PublicationClient`, then persists the accepted publication ID, version, and
 digest. It never calls Discord. Outstanding intents remain in the owner ledger,
