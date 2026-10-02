@@ -81,7 +81,7 @@ def load_state(path: Path, feeds: tuple[Feed, ...]) -> dict[str, object]:
     for key, record in value["articles"].items():
         if not isinstance(key, str) or not isinstance(record, dict):
             raise RuntimeError("Stockbit Snips article state is invalid")
-        if record.get("phase") not in {"awaiting_agent", "pending_delivery", "delivered", "excluded"}:
+        if record.get("phase") not in {"awaiting_agent", "pending_delivery", "delivered", "excluded", "split"}:
             raise RuntimeError(f"Stockbit Snips article phase {key} is invalid")
         if not isinstance(record.get("article"), dict):
             raise RuntimeError(f"Stockbit Snips article payload {key} is invalid")
@@ -95,6 +95,14 @@ def load_state(path: Path, feeds: tuple[Feed, ...]) -> dict[str, object]:
             raise RuntimeError(f"Stockbit Snips agent lease {key} is invalid")
         if not _valid_retry(record.get("retry")):
             raise RuntimeError(f"Stockbit Snips article retry {key} is invalid")
+        if record.get("phase") == "split":
+            child_keys = record.get("news_item_keys")
+            if type(child_keys) is not list or not 1 <= len(child_keys) <= 16 or len(set(child_keys)) != len(child_keys):
+                raise RuntimeError("Stockbit split item keys are invalid")
+            for child_key in child_keys:
+                child_record = value["articles"].get(child_key)
+                if not isinstance(child_record, dict) or child_record.get("parent_candidate_key") != key:
+                    raise RuntimeError("Stockbit split item identity is invalid")
         if "config_snapshot" in record and not _valid_config_snapshot(record["config_snapshot"]):
             raise RuntimeError(f"Stockbit Snips article config snapshot {key} is invalid")
     if PUBLICATION_LEDGER_KEY in value:

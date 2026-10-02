@@ -82,6 +82,7 @@ def test_manifest_orders_dependencies_before_the_x_runtime_unit():
         "lib-bursawatch-discord-delivery",
         "lib-swing-format",
         "cron-dc-swing-board",
+        "lib-news-format",
         "cron-x-account-watch",
     ]
 
@@ -97,6 +98,7 @@ def test_telegram_source_ingest_resolves_runtime_dependencies_before_pilot():
         "lib-bursawatch-source-ingest-pilot",
         "lib-bursawatch-source-media",
         "lib-telegram-resilience",
+        "lib-news-format",
         "cron-tg-market-news",
         "lib-swing-format",
         "cron-dc-swing-board",

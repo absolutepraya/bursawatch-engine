@@ -222,6 +222,10 @@ def _deliver_ready(
                     board_url=board_url if isinstance(board_url, str) else None,
                     source_chart_unavailable=chart_unavailable,
                 )
+                if record.get("news_cards") is not None:
+                    render.news_format.validate_cards(record["news_cards"])
+                    messages = record["news_cards"][item_index]["messages"]
+                    target = record["news_cards"][item_index]["destination"]
                 text_index = int(record.get("text_index", 0))
                 while text_index < len(messages):
                     message_id = discord.post_text(
@@ -748,8 +752,6 @@ def submit_analysis(
         event = deserialize_queue_event(record["event"])
         route_override = agent_protocol.deterministic_route(profile, event)
         result = agent_protocol.validate_submission(profile, payload, event=event)
-        if result.get("is_relevant") is False and route_override is not None:
-            raise ValueError("TechnicalReview posts must be submitted as relevant")
         if profile.enable_llm_routing and result.get("is_relevant") is not False:
             items = result.get("items")
             if type(items) is not list or not items:
@@ -765,12 +767,15 @@ def submit_analysis(
                 record["pipeline_scope_dropped_routes"] = dropped
         elif source_work_routes.scoped_routes(record) is not None:
             record["pipeline_scope_outcome"] = "irrelevant"
+        if selected_items and profile.enable_llm_summary and all(item.get("route") != "id_stocks_swing" for item in selected_items):
+            record["news_cards"] = render.freeze_news(profile, event, selected_items)
         record["items"] = selected_items
         record["item_index"] = 0
         record["text_index"] = 0
         record["media_index"] = 0
         record["agent_lease_until"] = None
         record["agent_phase"] = "filtered" if result.get("is_relevant") is False or selected_items == [] else "ready"
+        state.save(state_path, value)
         errors: list[str] = []
         delivered = _deliver_ready(
             value,

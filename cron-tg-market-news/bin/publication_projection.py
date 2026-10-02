@@ -276,6 +276,8 @@ def record_news_intent(state_data: dict[str, object], item: SelectionCandidate, 
         source, item, content, operation, handoff.get("receipt"), confirmed_at,
         required if isinstance(required, list) else [],
     )
+    snapshot["market_data_as_of"] = record.get("market_data_as_of")
+    snapshot["renderer_version"] = record.get("renderer_version", snapshot["renderer_version"])
     return state.record_publication_intent(state_data, snapshot)
 
 

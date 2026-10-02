@@ -15,6 +15,18 @@ _TUNTUN_SOURCE_LINE = re.compile(r"^Sumber\s*:\s*.+?\s*$", re.IGNORECASE)
 _TICKER_LEAD = re.compile(
     rf"^(?P<ticker>{_IDX_TICKER})\s*(?:\([^\r\n]*\))?\s*:\s*\S.*$"
 )
+_CORPORATE_ISSUER_HEADER = re.compile(rf"^(?P<ticker>{_IDX_TICKER})\s+\([^\r\n]+\)\s*$")
+_TUNTUN_SECTIONS = (
+    "Headline",
+    "Overview",
+    "Sector",
+    "Top Movers",
+    "Net Foreign Buy (Value)",
+    "Net Foreign Sell (Value)",
+    "Macro & Global",
+    "Industry",
+    "Corporate",
+)
 _SPECIAL_TOPIC = re.compile(
     rf"^Special Topics?\s*:\s*(?P<ticker>{_IDX_TICKER})\s*(?:\([^\r\n)]+\))?\s*:\s*\S.*$"
 )
@@ -157,12 +169,30 @@ def _strip_source_footer(content: str) -> str:
     ).strip()
 
 
-def _section_index(lines: list[str], name: str) -> int | None:
-    expected = name.casefold()
+def _section_name(line: str) -> str | None:
+    heading = line.strip().lstrip("># ").strip("*_ ")
     return next(
-        (index for index, line in enumerate(lines) if line.strip().casefold().startswith(expected)),
+        (
+            name for name in _TUNTUN_SECTIONS
+            if re.fullmatch(re.escape(name) + r"[^\w]*", heading, re.IGNORECASE)
+        ),
         None,
     )
+
+
+def _section_index(lines: list[str], name: str) -> int | None:
+    return next(
+        (index for index, line in enumerate(lines) if _section_name(line) == name),
+        None,
+    )
+
+
+def _section_body(lines: list[str], start: int) -> list[str]:
+    end = next(
+        (index for index in range(start + 1, len(lines)) if _section_name(lines[index])),
+        len(lines),
+    )
+    return lines[start + 1 : end]
 
 
 def _paragraph_blocks(lines: list[str]) -> list[str]:
@@ -217,11 +247,11 @@ class TuntunNewsAdapter:
         if _TUNTUN_UPDATE_HEADER.fullmatch(lines[0].strip()):
             return self._extract_update(message_id, lines, published_at, direct_image)
 
+        if _section_name(lines[0]) == "Corporate":
+            return self._extract_corporate(message_id, _section_body(lines, 0), published_at, direct_image)
+
         if _TUNTUN_EXCLUDED_CONTENT.search(content):
             return []
-
-        if lines[0].strip() in {"Corporate", "Corporate 🏢"}:
-            return self._extract_corporate(message_id, lines[1:], published_at, direct_image)
 
         special_topic = _SPECIAL_TOPIC.match(lines[0].strip())
         if special_topic is not None:
@@ -339,7 +369,13 @@ class TuntunNewsAdapter:
         overview_index = _section_index(lines, "Overview")
         if overview_index is None:
             return []
-        lead = "\n".join(line.strip() for line in lines[1:overview_index] if line.strip())
+        headline_index = _section_index(lines, "Headline")
+        lead_lines = (
+            _section_body(lines, headline_index)
+            if headline_index is not None
+            else lines[1:overview_index]
+        )
+        lead = "\n".join(line.strip() for line in lead_lines if line.strip())
         candidates: list[CompanyCandidate] = []
         if lead:
             headline = lead.splitlines()[0]
@@ -360,12 +396,7 @@ class TuntunNewsAdapter:
         macro_start = _section_index(lines, "Macro & Global")
         industry_start = _section_index(lines, "Industry")
         if macro_start is not None:
-            macro_end = (
-                industry_start
-                if industry_start is not None and industry_start > macro_start
-                else len(lines)
-            )
-            for index, block in enumerate(_paragraph_blocks(lines[macro_start + 1 : macro_end]), start=1):
+            for index, block in enumerate(_paragraph_blocks(_section_body(lines, macro_start)), start=1):
                 headline = block.splitlines()[0]
                 candidates.append(
                     _candidate(
@@ -380,7 +411,7 @@ class TuntunNewsAdapter:
                     )
                 )
         if industry_start is not None:
-            for index, block in enumerate(_paragraph_blocks(lines[industry_start + 1 :]), start=1):
+            for index, block in enumerate(_paragraph_blocks(_section_body(lines, industry_start)), start=1):
                 headline = block.splitlines()[0]
                 candidates.append(
                     _candidate(
@@ -394,6 +425,11 @@ class TuntunNewsAdapter:
                         candidate_id=f"industry-{index}",
                     )
                 )
+        corporate_start = _section_index(lines, "Corporate")
+        if corporate_start is not None:
+            candidates.extend(self._extract_corporate(
+                message_id, _section_body(lines, corporate_start), published_at, direct_image,
+            ))
         return candidates
 
     def _extract_corporate(
@@ -404,17 +440,43 @@ class TuntunNewsAdapter:
         direct_image: bool,
     ) -> list[CompanyCandidate]:
         entries_by_ticker: dict[str, str] = {}
+        current_ticker: str | None = None
+        current_lines: list[str] = []
+
+        def flush() -> None:
+            if current_ticker is not None and len(current_lines) > 1:
+                entries_by_ticker.setdefault(current_ticker, "\n".join(current_lines).strip())
+
         for line in lines:
             entry = line.strip()
-            match = _TICKER_LEAD.match(entry)
-            if match is None:
+            normalized = re.sub(r"^[-•]\s+", "", entry)
+            header = _CORPORATE_ISSUER_HEADER.fullmatch(normalized)
+            if header is not None:
+                flush()
+                current_ticker = _ticker_from_match(header)
+                current_lines = [entry]
                 continue
-            ticker = _ticker_from_match(match)
-            if ticker is None:
+            match = _TICKER_LEAD.match(normalized)
+            if match is not None:
+                ticker = _ticker_from_match(match)
+                if current_ticker is not None and ticker == current_ticker:
+                    current_lines.append(entry)
+                    continue
+                flush()
+                current_ticker = None
+                current_lines = []
+                if ticker is not None:
+                    # Preserve the first legacy entry and message-plus-ticker key.
+                    entries_by_ticker.setdefault(ticker, entry)
                 continue
-            # The durable segment key is message ID plus ticker. Keep the first
-            # entry unchanged so retries match a candidate already in state.
-            entries_by_ticker.setdefault(ticker, entry)
+            if re.match(rf"^{_IDX_TICKER}\s+\(", normalized):
+                # An incomplete issuer header must not contaminate its predecessor.
+                flush()
+                current_ticker = None
+                current_lines = []
+            elif current_ticker is not None and entry:
+                current_lines.append(entry)
+        flush()
         return [
             _candidate(
                 self.provider,

@@ -167,7 +167,8 @@ class SelectionCandidate:
             "dedupe_facts",
             _normalize_fact_sequence(self.dedupe_facts, "dedupe_facts", _normalize_dedupe_fact),
         )
-        summary = " ".join(self.summary.split())
+        paragraphs = re.split(r"\n[^\S\n]*\n", self.summary.replace("\r\n", "\n").replace("\r", "\n"))
+        summary = "\n\n".join(" ".join(paragraph.split()) for paragraph in paragraphs if paragraph.strip())
         if not summary:
             summary = " ".join(self.material_facts)
         object.__setattr__(self, "summary", summary)

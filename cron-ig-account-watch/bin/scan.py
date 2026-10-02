@@ -451,12 +451,19 @@ def _deliver(
             event.get("summary") if profile.enable_llm_summary else None,
             event.get("title") if profile.enable_llm_title else None,
         )
+        cards = event.get("news_cards")
+        targets = None
+        if cards is not None:
+            render.news_format.validate_cards(cards)
+            messages = [message for card in cards for message in card["messages"]]
+            targets = [card["destination"] for card in cards for message in card["messages"]]
+            channel_id = targets[0]
         if event["text_index"] < len(messages):
             index = event["text_index"]
             stats.delivery_legs += 1
             message_id = discord.post_text(
                 messages[index],
-                channel_id,
+                targets[index] if targets else channel_id,
                 False,
                 discord.nonce(event["event_key"], f"text:{index}"),
             )
@@ -1119,8 +1126,6 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
             ocr_text = _analysis_ocr_text(event)
             irrelevant = analysis.get("is_relevant") is False
             if irrelevant:
-                if agent_protocol.requires_relevance(post, ocr_text):
-                    raise ValueError("direct market disclosure must be relevant")
                 if source_work_routes.read(storage, event_key) is not None:
                     source_work_routes.record_terminal(storage, event_key, "irrelevant")
                 state.discard_analysis(value, analysis["event_key"], now)
@@ -1144,7 +1149,14 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
             # usual relevance and route classification. A truthful relevant
             # publication for an unsubscribed route has its own no-match
             # outcome; it is never mislabeled irrelevant or delivered there.
+            news_items = analysis.pop("news_items", None)
             allowed_routes = source_work_routes.allowed_routes(storage, event_key)
+            if news_items is not None and allowed_routes is not None:
+                news_items = [item for item in news_items if item["route"] in allowed_routes]
+                if news_items:
+                    analysis.update(news_items[0])
+            if news_items == []:
+                analysis["route"] = "route_not_subscribed"
             if allowed_routes is not None and analysis.get("route") not in allowed_routes:
                 source_work_routes.record_terminal(storage, event_key, "route_not_subscribed", analysis["route"])
                 state.discard_analysis(value, analysis["event_key"], now)
@@ -1170,6 +1182,8 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 {key: item for key, item in analysis.items() if key != "event_key"},
                 now,
             )
+            if profile.enable_llm_summary:
+                event["news_cards"] = render.freeze_news(profile, post, news_items or [{"title": analysis.get("title") or profile.display_name, "summary": analysis["summary"], "route": analysis.get("route") or profile.discord_channels[0].key}])
             state.save_state(storage, value)
             stats = RunStats()
             if not no_post:

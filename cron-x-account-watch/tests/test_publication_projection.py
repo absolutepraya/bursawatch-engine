@@ -268,3 +268,25 @@ def test_scanner_persists_confirmed_receipt_before_removing_x_event(tmp_path, mo
     record = next(iter(saved["publication_projection"]["records"].values()))
     assert record["snapshot"]["legs"][0]["text"] == rendered[0]
     assert record["snapshot"]["required_operation_keys"] == [record["snapshot"]["legs"][0]["operation_key"]]
+
+
+def test_split_cards_have_distinct_feed_keys_and_keep_versions_on_source_edit(monkeypatch):
+    monkeypatch.setenv('BURSAWATCH_X_ACCOUNT_WATCH_PUBLICATION_ENABLED','1')
+    value=state.new_state()
+    event=_event()
+    import render
+    event['news_cards']=render.news_format.freeze_cards([
+        {'title':'GIAA: Rights issue','summary':'GIAA merencanakan rights issue.','route':'id_stocks_news'},
+        {'title':'UNTR: Buyback saham','summary':'UNTR merencanakan buyback.','route':'id_stocks_news'},
+    ],lambda item:'### '+item['title'],event['post']['url'],'X',fetch=lambda *args:None,target_for=lambda item:'1531655369884045382')
+    event['publication_legs']=[_leg(n+1,text=card['messages'][0]) for n,card in enumerate(event['news_cards'])]
+    assert projection.record_confirmed_event(value,event,_profile(),NOW)
+    originals=[r['snapshot'] for r in value['publication_projection']['records'].values()]
+    assert {x['ticker'] for x in originals}=={'GIAA','UNTR'}
+    assert len({x['owner_key'] for x in originals})==2
+    edited={**event,'post_id':'102','thread_root_id':'102','replacement_of':['marketwriter:101']}
+    assert projection.record_confirmed_event(value,edited,_profile(),NOW+timedelta(minutes=1))
+    latest=[r['snapshot'] for r in value['publication_projection']['records'].values() if r['snapshot']['version']==2]
+    assert len(latest)==2
+    assert {r['owner_key'] for r in latest}=={r['owner_key'] for r in originals}
+    assert all(r['supersedes_version']==1 for r in latest)

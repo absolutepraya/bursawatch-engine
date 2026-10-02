@@ -35,6 +35,15 @@ def _profile(config_path: Path):
     return config.load_watch_config(config_path).profiles[0]
 
 
+def test_duplicate_news_array_is_removed_before_cards_are_frozen(config_path):
+    profile = _profile(config_path)
+    first = {'title':'BBCA: Pembagian dividen','summary':'BBCA membagikan dividen.','route':'id_stocks_news'}
+    other = {**first, 'summary':'BBCA mengumumkan perkembangan bisnis lain.'}
+    result = agent_protocol.validate_submission(profile, {'event_key':profile.id+':ABC123','is_relevant':True,'items':[first,dict(first),other]})
+    assert len(result['news_items']) == 2
+    assert [agent_protocol.news_format.normalize_summary(item['summary']) for item in result['news_items']] == [first['summary'],other['summary']]
+
+
 def _post(
     profile,
     *,
@@ -958,7 +967,7 @@ def test_positive_disclosure_safeguard_includes_ocr_even_with_promotion_language
     "private placement with dilution",
     "#RangkumKeterbukaanInformasi",
 ])
-def test_disclosure_signal_from_caption_or_ocr_forces_relevance(config_path, tmp_path, signal):
+def test_disclosure_signal_from_caption_or_ocr_is_advisory_for_relevance(config_path, tmp_path, signal):
     profile = _profile(config_path)
     post = _post(profile, caption="Substantive market publication")
 
@@ -968,7 +977,7 @@ def test_disclosure_signal_from_caption_or_ocr_forces_relevance(config_path, tmp
         _event(profile, tmp_path, caption=f"Substantive market publication {signal}"),
     )
     assert item["relevance_guard_required"] is True
-    assert "must be relevant" in item["instruction"].lower()
+    assert "advisory context only" in item["instruction"].lower()
 
 
 def test_instruction_contains_exact_routes_and_no_untrusted_source_text(config_path):
