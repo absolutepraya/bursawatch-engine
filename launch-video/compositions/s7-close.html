@@ -13,12 +13,16 @@
         .wi { display: inline-block; }
         #s7-words { position: absolute; left: 0; right: 0; top: 380px; text-align: center; font-weight: 600; font-size: 96px; line-height: 1.16; letter-spacing: -0.035em; }
         .cu { color: #DEA777; }
-        #s7-lock { position: absolute; left: 0; right: 0; top: 440px; display: flex; justify-content: center; align-items: center; gap: 34px; }
-        #s7-b { width: 170px; height: 170px; }
+        #s7-lock { position: absolute; inset: 0; }
+        #s7-b { position: absolute; left: 310px; top: 438px; width: 204px; height: 204px; transform-origin: 50% 50%; }
         #s7-b svg { width: 100%; height: 100%; display: block; }
-        #s7-wm { font-weight: 700; font-size: 136px; line-height: 1; letter-spacing: -0.04em; }
-        #s7-url { position: absolute; left: 0; right: 0; top: 700px; text-align: center; font-weight: 600; font-size: 40px; letter-spacing: .01em; color: #DEA777; }
-        .ring { position: absolute; left: 590px; top: 525px; width: 400px; height: 400px; margin: -200px 0 0 -200px; border: 3px solid #DEA777; border-radius: 50%; opacity: 0; }
+        #s7-wm { position: absolute; left: 492px; top: 419px; font-weight: 700; font-size: 243px; line-height: 1; letter-spacing: -0.035em; white-space: nowrap; }
+        #s7-url { position: absolute; left: 0; right: 0; top: 694px; text-align: center; font-weight: 600; font-size: 40px; letter-spacing: .01em; color: #DEA777; }
+        .ring { position: absolute; left: 412px; top: 540px; width: 400px; height: 400px; margin: -200px 0 0 -200px; border-radius: 50%; opacity: 0;
+          border: 4px solid #F0BE91; box-shadow: 0 0 34px 10px rgba(222,167,119,.5), inset 0 0 26px 4px rgba(222,167,119,.35); }
+        #s7-sweep { position: absolute; left: 412px; top: 540px; width: 1700px; height: 1700px; margin: -850px 0 0 -850px; border-radius: 50%; opacity: 0;
+          background: conic-gradient(from 0deg, rgba(222,167,119,0) 0deg, rgba(222,167,119,0) 290deg, rgba(222,167,119,.16) 345deg, rgba(240,190,145,.42) 359deg, rgba(240,190,145,0) 360deg);
+          -webkit-mask-image: radial-gradient(circle, #000 0, #000 30%, transparent 62%); mask-image: radial-gradient(circle, #000 0, #000 30%, transparent 62%); }
       </style>
 
       <div id="root" data-composition-id="s7-close" data-width="1920" data-height="1080" data-duration="5.67">
@@ -26,13 +30,13 @@
           <div id="s7-glow"></div>
           <div id="s7-line"></div>
           <div id="s7-words" data-layout-allow-overlap><span class="w"><span class="wi">Infonya,</span></span> <span class="w"><span class="wi">dan</span></span> <span class="w"><span class="wi">cara</span></span> <span class="w"><span class="wi">nyarinya,</span></span><br><span class="w"><span class="wi cu">kamu</span></span> <span class="w"><span class="wi cu">yang</span></span> <span class="w"><span class="wi cu">atur.</span></span></div>
-          <div class="ring" id="s7-r0"></div><div class="ring" id="s7-r1"></div>
+          <div id="s7-sweep"></div><div class="ring" id="s7-r0"></div><div class="ring" id="s7-r1"></div><div class="ring" id="s7-r2"></div>
           <div id="s7-lock" data-layout-allow-overlap>
             <div id="s7-b"><svg viewBox="0 0 96 96"><g fill="#DEA777" transform="translate(-2 -2)">
               <path id="s7-p0" d="M14 10H46C66 10 79 20 79 35C79 44 74 50 65 54L51 46C60 43 65 40 65 35C65 28 58 24 46 24H14V10Z"/>
               <path id="s7-p1" d="M14 33H35L74 56C82 61 86 67 86 74C86 84 73 90 51 90H14V76H50C64 76 71 74 71 70C71 67 66 64 60 60L14 33Z"/>
               <path id="s7-p2" d="M14 54H31L53 67H14V54Z"/></g></svg></div>
-            <div id="s7-wm"><span class="w"><span class="wi">Bursawatch</span></span></div>
+            <div id="s7-wm"><span class="w"><span class="wi">ursawatch</span></span></div>
           </div>
           <div id="s7-url"><span class="w"><span class="wi">bursawatch.abhipraya.dev</span></span></div>
         </div>
@@ -63,7 +67,9 @@
           tl.fromTo("#s7-b", { scale: 1.12 }, { scale: 1, duration: 0.3, ease: "expo.out" }, HIT + 0.02);
           tl.fromTo("#s7-wm .wi", { yPercent: 108 }, { yPercent: 0, duration: 0.2, ease: "expo.out", immediateRender: false }, HIT + 0.16);
           tl.fromTo("#s7-url .wi", { yPercent: 108 }, { yPercent: 0, duration: 0.2, ease: "expo.out", immediateRender: false }, HIT + 0.46);
-          [0, 1].forEach((r) => tl.fromTo("#s7-r" + r, { scale: 0.4, opacity: 0.55 }, { scale: 3.2, opacity: 0, duration: 1.3, ease: "power2.out", immediateRender: false }, HIT + 0.05 + r * 0.36));
+          [0, 1, 2].forEach((r) => tl.fromTo("#s7-r" + r, { scale: 0.32, opacity: 1 }, { scale: 4.4, opacity: 0, duration: 1.7, ease: "power2.out", immediateRender: false }, HIT + 0.05 + r * 0.5));
+          tl.fromTo("#s7-sweep", { rotation: -40, opacity: 0 }, { rotation: 320, opacity: 1, duration: 2.4, ease: "none", immediateRender: false }, HIT + 0.05);
+          tl.to("#s7-sweep", { opacity: 0.35, duration: 0.6, ease: "power1.inOut" }, HIT + 1.9);
 
           window.__timelines["s7-close"] = tl;
         })();

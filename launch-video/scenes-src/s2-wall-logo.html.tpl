@@ -22,11 +22,17 @@
         .inlet { position: absolute; left: 0; height: 4px; width: 825px; transform-origin: 0% 50%; background: linear-gradient(90deg, rgba(222,167,119,0), rgba(222,167,119,.9) 70%, #DEA777); }
         .chip { position: absolute; left: 0; display: flex; align-items: center; gap: 14px; padding: 9px 24px 9px 9px; margin-top: -10px; border-radius: 99px; background: #1C1F1D; border: 2px solid #34383a; font-family: "Figtree"; font-weight: 700; font-size: 30px; color: #EEEAE3; white-space: nowrap; transform-origin: 100% 50%; }
         .chip img { width: 52px; height: 52px; border-radius: 50%; }
-        #s2-bwrap { position: absolute; left: 780px; top: 380px; width: 360px; height: 360px; transform-origin: 50% 50%; }
+        #s2-logo { position: absolute; inset: 0; transform-origin: 960px 540px; }
+        #s2-bwrap { position: absolute; left: 310px; top: 438px; width: 204px; height: 204px; transform-origin: 50% 50%; }
         #s2-bwrap svg { width: 100%; height: 100%; display: block; overflow: visible; }
-        .ring { position: absolute; left: 560px; top: 560px; width: 400px; height: 400px; margin: -200px 0 0 -200px; border: 3px solid #DEA777; border-radius: 50%; opacity: 0; }
-        #s2-wm { position: absolute; left: 688px; top: 470px; font-weight: 700; font-size: 150px; line-height: 1; letter-spacing: -0.04em; }
-        #s2-sub { position: absolute; left: 0; right: 0; top: 700px; text-align: center; font-weight: 500; font-size: 44px; color: #9C978E; letter-spacing: -0.01em; }
+        .ring { position: absolute; left: 412px; top: 540px; width: 400px; height: 400px; margin: -200px 0 0 -200px; border-radius: 50%; opacity: 0;
+          border: 4px solid #F0BE91; box-shadow: 0 0 34px 10px rgba(222,167,119,.5), inset 0 0 26px 4px rgba(222,167,119,.35); }
+        .range { position: absolute; left: 412px; top: 540px; border-radius: 50%; border: 2px solid rgba(222,167,119,.16); opacity: 0; }
+        #s2-sweep { position: absolute; left: 412px; top: 540px; width: 1700px; height: 1700px; margin: -850px 0 0 -850px; border-radius: 50%; opacity: 0;
+          background: conic-gradient(from 0deg, rgba(222,167,119,0) 0deg, rgba(222,167,119,0) 290deg, rgba(222,167,119,.16) 345deg, rgba(240,190,145,.42) 359deg, rgba(240,190,145,0) 360deg);
+          -webkit-mask-image: radial-gradient(circle, #000 0, #000 30%, transparent 62%); mask-image: radial-gradient(circle, #000 0, #000 30%, transparent 62%); }
+        #s2-wm { position: absolute; left: 492px; top: 419px; font-weight: 700; font-size: 243px; line-height: 1; letter-spacing: -0.035em; white-space: nowrap; }
+        #s2-sub { position: absolute; left: 0; right: 0; top: 694px; text-align: center; font-weight: 500; font-size: 44px; color: #9C978E; letter-spacing: -0.01em; }
       </style>
 
       <div id="root" data-composition-id="s2-wall-logo" data-width="1920" data-height="1080" data-duration="9.5">
@@ -50,6 +56,7 @@
           <div class="chip" id="s2-k6" style="top:573px"><img src="assets/sources/emoji/bridanareksa.png">BRI Danareksa</div>
           <div class="chip" id="s2-k7" style="top:573px"><img src="assets/sources/emoji/stockbit.png">Stockbit</div>
           <div class="chip" id="s2-k8" style="top:573px"><img src="assets/sources/emoji/kelasinvestasi.png" style="background:#fff">Kelas Investasi</div>
+          <div id="s2-sweep"></div><div class="range" style="width:600px;height:600px;margin:-300px 0 0 -300px"></div><div class="range" style="width:1040px;height:1040px;margin:-520px 0 0 -520px"></div><div class="range" style="width:1520px;height:1520px;margin:-760px 0 0 -760px"></div>
           <div class="ring" id="s2-r0"></div><div class="ring" id="s2-r1"></div><div class="ring" id="s2-r2"></div>
           <div id="s2-bwrap">
             <svg viewBox="0 0 96 96">
@@ -65,7 +72,7 @@
               </g>
             </svg>
           </div>
-          <div id="s2-wm" data-layout-allow-overlap data-layout-allow-overflow><span class="w"><span class="wi">Bursawatch</span></span></div>
+          <div id="s2-wm" data-layout-allow-overlap data-layout-allow-overflow><span class="w"><span class="wi">ursawatch</span></span></div>
           <div id="s2-sub" data-layout-allow-overlap><span class="w"><span class="wi">Semua</span></span> <span class="w"><span class="wi">info</span></span> <span class="w"><span class="wi">saham</span></span> <span class="w"><span class="wi">penting,</span></span> <span class="w"><span class="wi">langsung</span></span> <span class="w"><span class="wi">ke</span></span> <span class="w"><span class="wi">Discord</span></span> <span class="w"><span class="wi">kamu.</span></span></div>
         </div>
       </div>
@@ -80,7 +87,7 @@
           });
 
           // ---- wall: real posts arrive from the left (ref 1: 12 frames, horizontal streak)
-          const order = [0, 4, 8, 3, 7, 11, 1, 5, 9, 2, 6, 10];
+          const order = [0, 4, 8, 3, 7, 1, 5, 9, 2, 6, 10];
           order.forEach((idx, k) => {
             const el = document.getElementById("s2-card-" + idx);
             const node = document.getElementById("s2-b" + idx);
@@ -122,22 +129,27 @@
           ["#s2-cr0", "#s2-cr1", "#s2-cr2"].forEach((r, i) => {
             tl.fromTo(r, { attr: { width: 0 } }, { attr: { width: 96 }, duration: 0.42, ease: "expo.out" }, fill[i]);
           });
-          tl.set("#s2-bwrap", { opacity: 0 }, 0);
+          tl.set("#s2-bwrap", { opacity: 0, x: 548, y: 20, scale: 360 / 204 }, 0);
           tl.to("#s2-bwrap", { opacity: 1, duration: 0.1 }, 5.08);
 
           // ---- DROP: mark punches, slides into the lockup, rings ripple
           tl.to(".inlet", { opacity: 0, duration: 0.18, ease: "power2.in" }, DROP - 0.06);
-          tl.to("#s2-bwrap", { scale: 1.1, duration: 0.07, ease: "power2.out" }, DROP - 0.02);
-          tl.to("#s2-bwrap", { x: -400, scale: 190 / 360, duration: 0.55, ease: "expo.inOut" }, DROP + 0.08);
+          tl.to("#s2-bwrap", { scale: 1.1 * 360 / 204, duration: 0.07, ease: "power2.out" }, DROP - 0.02);
+          tl.to("#s2-bwrap", { x: 0, y: 0, scale: 1, duration: 0.55, ease: "expo.inOut" }, DROP + 0.08);
           tl.to("#s2-kenalin", { y: 40, duration: 0.55, ease: "expo.inOut" }, DROP + 0.08);
           rise("#s2-wm .wi", DROP + 0.42);
-          [0, 1, 2].forEach((r) => tl.fromTo("#s2-r" + r, { scale: 0.35, opacity: 0.6 }, { scale: 3.4, opacity: 0, duration: 1.3, ease: "power2.out", immediateRender: false }, DROP + 0.5 + r * 0.34));
+          // sonar: three glowing pings on the beats, faint range rings, one radar sweep
+          [0, 1, 2].forEach((r) => tl.fromTo("#s2-r" + r, { scale: 0.32, opacity: 1 }, { scale: 4.4, opacity: 0, duration: 1.7, ease: "power2.out", immediateRender: false }, DROP + 0.5 + r * 0.5));
+          tl.fromTo(".range", { opacity: 0, scale: 0.92 }, { opacity: 1, scale: 1, duration: 0.6, ease: "expo.out", immediateRender: false }, DROP + 0.45);
+          tl.to(".range", { opacity: 0, duration: 0.8, ease: "power1.in" }, DROP + 2.4);
+          tl.fromTo("#s2-sweep", { rotation: -40, opacity: 0 }, { rotation: 320, opacity: 1, duration: 2.6, ease: "none", immediateRender: false }, DROP + 0.45);
+          tl.to("#s2-sweep", { opacity: 0, duration: 0.5, ease: "power1.in" }, DROP + 2.55);
           rise("#s2-sub .wi", DROP + 0.85, 0.05);
           tl.fromTo("#s2-logo", { scale: 1 }, { scale: 1.03, duration: 9.5 - DROP, ease: "none" }, DROP);
 
           // ---- exit: dive into the mark (zoom-through into scene 3's hub)
           tl.to("#s2-kenalin, #s2-wm, #s2-sub", { opacity: 0, duration: 0.18, ease: "power2.in" }, 9.22);
-          tl.to("#s2-bwrap", { x: -400 + 400, scale: 4.5, opacity: 0, filter: "blur(12px)", duration: 0.28, ease: "power3.in" }, 9.22);
+          tl.to("#s2-bwrap", { x: 548, y: 0, scale: 8, opacity: 0, filter: "blur(12px)", duration: 0.28, ease: "power3.in" }, 9.22);
 
           // seed hidden states for later beats
           tl.set("#s2-kenalin .wi, #s2-wm .wi, #s2-sub .wi", { yPercent: 108 }, 0);

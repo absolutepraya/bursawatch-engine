@@ -15,6 +15,11 @@ version: v3-build
 
 Layout confirmed by the user on 2026-10-01 (storyboard v2). Built in compositions/ from scenes-src/ via tools/build_scenes.py.
 
+## Changes from feedback round 2 (wall and logo)
+
+- Wall: 11 cards from 11 different accounts, no repeats; IHSG Journal removed. Real posts from the user's screenshots: Milo (@eskepalmilosatu, $ESSA dump screener), SIVENNN (@SIVENNN5s, $DEWI chart with quote), Samuel Sekuritas (WIFI, classic WhatsApp), BRI Danareksa (Daily Trade, classic WhatsApp), Phintraco Sekuritas Official (Telegram desktop with pinned bar). Plus DokterMarket, The Kobeissi Letter, Tuntun, Kelas Investasi, Stockbit Snips, and one IG feed post.
+- Logo: the mark replaces the B ([B]ursawatch), "ursawatch" sized to the mark's cap height, lockup centred on the frame; on the drop three glowing sonar pings, range rings, and one radar sweep (visual only; sound stays the existing impact). Same lockup and sonar in the closing scene.
+
 ## Changes from v2 (feedback round 1, pain points)
 
 - Pains run 2.0s each (2.23 to 10.23); hook, wall, doubt, and absorb tightened so the drop stays at 16.22 and the film stays 60s.

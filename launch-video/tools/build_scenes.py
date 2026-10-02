@@ -203,10 +203,65 @@ def wall():
     return svg + html.replace('class="wall wallbg"', 'id="s2-wall" class="wall wallbg"', 1), n
 
 
+def wall2():
+    """The everywhere wall, round 2: 11 cards, 11 different accounts, native UIs."""
+    px, E, W = SB.px, SB.E, S.W
+    place = SB.place
+    cards = [
+        place(S.x_post2(px, "DokterMarket", "@doktermarket", "1j",
+                        "Bursa AS bervariasi. Dow -0,86%, S&P 500 -0,25%, Nasdaq +0,24%. IHSG turun 0,83% ke 6.071, rupiah menguat ke Rp17.877.",
+                        ("24", "61", "412", "18 rb"), f"{E}/doktermarket.png", w=470, marks=["IHSG turun 0,83%"]), 22, 22),
+        place(S.tg_desk(px, "Phintraco Sekuritas Official", f"{E}/phintraco.png", "23,053 subscribers",
+                        "<b>IHSG ditutup menguat di atas level 6,000 pada perdagangan Jumat (2/10)</b>IHSG ditutup menguat pada level 6,036.89 (+0.46%). Indeks cenderung bergerak konsolidasi di sekitar level 6,000.",
+                        w=470, h=360, pin=(f"{W}/phintraco-pin.png", "&#128226; NOMOR BARU CUSTOMER SERVICE PHINTRACO SEKURITAS Efektif 1 Oktober 20..."),
+                        img=f"{W}/phintraco-recap.png", name_color="#E8638C", views="1", when="16.30"), 512, 22),
+        place(S.wa_classic(px, "BRI Danareksa Sekuritas", f"{W}/bri-avatar.png", "Public channel", f"{W}/bri-daily-trade.png",
+                           "<b>Harga Minyak Kembali Melambung, Mampukah IHSG Lanjutkan Rebound?</b><br>SAPA MENTARI 24 September 2026",
+                           "07.12", "&#128077; &#10084;&#65039; 214", w=440, h=340), 1002, 22, dim=True),
+        place(S.x_post2(px, "The Kobeissi Letter", "@KobeissiLetter", "2j",
+                        "BREAKING: The 10-year note yield hits 5.30%, its highest level since 2002.",
+                        ("1,2 rb", "3,4 rb", "19 rb", "2,1 jt"), f"{E}/kobeissiletter.png", w=448, verified=True, marks=["5.30%"]), 1452, 22),
+        place(S.ig_post2(px, "assets/pain/ig-3-ahap.jpg", "Anthoni Salim siap tebus rights issue $AHAP", "5j", "2.341", w=280), 24, 300),
+        place(S.tg_desk(px, "Tuntun Sekuritas", f"{E}/tuntun.png", "channel",
+                        "<b>TRUK: VTO maksimal 65,25 juta saham</b>PT Pukul Rata Kanan mengajukan VTO di harga Rp740 per saham.",
+                        w=284, h=300, views="3,1 rb", when="18.00"), 318, 470),
+        place(S.sb_post(px, "MGLV", "Dua anak usaha dapat pinjaman hingga Rp10,7 triliun untuk data center.",
+                        "24 Sep", w=396, marks=["Rp10,7 triliun"]), 1500, 300),
+        place(S.x_post2(px, "Milo. | #InvestasiTenang", "@eskepalmilosatu", "3j",
+                        'Neng <span class="tag">$ESSA</span> udah masuk screener dump lagi.<br><br>Tawar semurah mungkin &#128013;',
+                        ("6", "4", "70", "3,5 rb"), f"{W}/milo-avatar.png", w=396, verified=True, media=f"{W}/milo-screener.png"), 1500, 520),
+        place(S.tg_desk(px, "Kelas Investasi", f"{E}/kelasinvestasi.png", "channel",
+                        "<b>PWON: Mulai Menguat</b>Lagi uji area atas konsolidasi.", w=440, h=300, views="1,4 rb", when="02.04"), 22, 840, dim=True),
+        place(S.x_post2(px, "SIVENNN", "@SIVENNN5s", "5j", '<span class="tag">$DEWI</span> &#129488;&#128556;&#129320;',
+                        ("", "", "2", ""), f"{W}/sivennn-avatar.png", w=480, verified=True, media=f"{W}/sivennn-dewi.png",
+                        quote=(f"{W}/sivennn-avatar.png", "SIVENNN", "@SIVENNN5s", "Sep 30", "Dari Chart nya sih ada kecelakan disana&#128514;", f"{W}/sivennn-quote-thumb.png")), 480, 770),
+        place(S.wa_classic(px, "Samuel Sekuritas Indonesia", f"{W}/samuel-avatar.png", "4K followers", f"{W}/samuel-wifi.png",
+                           "Hashim S. Djojohadikusumo mengajukan pengunduran diri dari posisi Komisaris Utama PT Solusi Sinergi Digital (WIFI) atau Surge. &#128563;&#129488;",
+                           "09.41", "&#128562; &#128077; 86", w=470, h=420, top=True), 980, 750),
+    ]
+    html = '<div class="wall wallbg" style="opacity:1;">' + "".join(cards) + "</div>"
+    n = 0
+
+    def tag(m):
+        nonlocal n
+        dim = m.group(1)
+        out = (f'<div id="s2-card-{n}" data-dim="{1 if dim else 0}" class="sp{dim} {m.group(2)}" '
+               f'style="filter:url(#s2-f{n});')
+        n += 1
+        return out
+
+    html = re.sub(r'<div class="sp((?: dim)?) ([a-z0-9 ]+)" style="', tag, html)
+    filters = "".join(
+        f'<filter id="s2-f{i}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur id="s2-b{i}" stdDeviation="0 0"/></filter>'
+        for i in range(n))
+    svg = f'<svg width="0" height="0" style="position:absolute" aria-hidden="true">{filters}</svg>'
+    return svg + html.replace('class="wall wallbg"', 'id="s2-wall" class="wall wallbg"', 1), n
+
+
 def main():
-    wall_html, n = wall()
+    wall_html, n = wall2()
     parts = {
-        "{{SOCIAL_CSS}}": BASE_CSS + S.CSS,
+        "{{SOCIAL_CSS}}": BASE_CSS + S.CSS + S.CSS2,
         "{{WALL}}": wall_html,
         "{{WALL_N}}": str(n),
         "{{DISCORD_CSS}}": sheet_css("avatars", "captions", "discord", "forum", "brief", "config"),

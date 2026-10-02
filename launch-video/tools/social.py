@@ -145,3 +145,129 @@ CSS = """
 .quad .qbisa { position: absolute; right: 3.4cqw; bottom: 2.4cqw; font-family: "Hanken Grotesk"; font-weight: 900; font-size: 4.4cqw; letter-spacing: -0.04em; color: var(--cu); transform: rotate(-6deg); }
 .ghostrow { color: var(--hint); } .plus { width: 2cqw; height: 2cqw; border-radius: 50%; border: .12cqw dashed var(--hint); display: inline-flex; align-items: center; justify-content: center; font-size: 1.3cqw; }
 """
+
+
+# ---------------------------------------------------------------------------
+# v2 wall components (feedback round 2): closer to the real apps.
+# Real posts and media come from the user's screenshots (assets/wall/).
+
+W = "assets/wall"
+VERIFIED = ('<svg class="vf" viewBox="0 0 22 22"><path fill="#1D9BF0" d="M20.4 11c0-1.3-.8-2.4-1.9-2.9.4-1.2.2-2.6-.7-3.5s-2.3-1.1-3.5-.7C13.8 2.8 12.6 2 11.4 2S9 2.8 8.5 3.9c-1.2-.4-2.6-.2-3.5.7s-1.1 2.3-.7 3.5C3.2 8.6 2.4 9.7 2.4 11s.8 2.4 1.9 2.9c-.4 1.2-.2 2.6.7 3.5s2.3 1.1 3.5.7c.5 1.1 1.7 1.9 2.9 1.9s2.4-.8 2.9-1.9c1.2.4 2.6.2 3.5-.7s1.1-2.3.7-3.5c1.1-.5 1.9-1.6 1.9-2.9z"/>'
+            '<path d="M7.2 11.3l2.5 2.5 5.3-5.6" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>')
+WA_TICK = ('<svg class="vf" viewBox="0 0 22 22"><circle cx="11" cy="11" r="10" fill="#25D366"/>'
+           '<path d="M6.8 11.3l2.8 2.8 5.6-5.8" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>')
+DOODLE = ("url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140' viewBox='0 0 140 140' fill='none' "
+          "stroke='%23ffffff' stroke-opacity='.06' stroke-width='2'%3E%3Ccircle cx='22' cy='24' r='9'/%3E%3Cpath d='M80 16l7 13 14 2-10 10 2 14-13-7-13 7 2-14-10-10 14-2z'/%3E"
+          "%3Crect x='16' y='84' width='26' height='18' rx='4'/%3E%3Cpath d='M86 100q12-20 24 0t24 0'/%3E%3Cpath d='M60 60h14v14h-14z'/%3E%3C/svg%3E\")")
+
+
+def av2(src, size, px, badge=None, ring=None):
+    b = (f'<img class="badge" src="{E}/{badge}.png" style="width:{px(size * .42)};height:{px(size * .42)}">' if badge else "")
+    r = f'outline:{px(3)} solid {ring};outline-offset:{px(2)};' if ring else ""
+    return (f'<span class="av" style="width:{px(size)};height:{px(size)}">'
+            f'<img src="{src}" style="border-radius:50%;object-fit:cover;{r}">{b}</span>')
+
+
+def x_post2(px, name, handle, when, text, counts, avatar, w=470, verified=False, media=None, quote=None, marks=()):
+    vf = VERIFIED if verified else ""
+    m = f'<div class="xmedia"><img src="{media}"></div>' if media else ""
+    q = ""
+    if quote:
+        qa, qn, qh, qw, qt, qimg = quote
+        q = (f'<div class="xquote"><div class="xqh">{av2(qa, 26, px)}<b>{qn}</b>{VERIFIED}<span>{qh} · {qw}</span></div>'
+             f'<div class="xqb"><img src="{qimg}"><span>{qt}</span></div></div>')
+    r, rp, lk, vw = counts
+    return (f'<div class="sp x" style="width:{px(w)}">'
+            f'<div class="xh">{av2(avatar, 46, px, "twitter")}<div class="xid"><b>{name}</b>{vf}<span>{handle} · {when}</span></div>'
+            f'<span class="xlogo"><img src="{E}/twitter.png"></span></div>'
+            f'<div class="xt">{hl(text, marks)}</div>{m}{q}'
+            f'<div class="xa"><span>{icon("reply", px)}{r}</span><span>{icon("repost", px)}{rp}</span>'
+            f'<span>{icon("like", px)}{lk}</span><span>{icon("views", px)}{vw}</span><span>{icon("share", px)}</span></div></div>')
+
+
+def wa_classic(px, channel, avatar, followers, img, text, when, reacts, w=460, h=330, top=False):
+    """Classic WhatsApp channel: green header, doodle wallpaper, bubble anchored to the bottom."""
+    return (f'<div class="sp wac{" tall" if top else ""}" style="width:{px(w)};height:{px(h)}">'
+            f'<div class="wach">{av2(avatar, 44, px)}<div class="wacn"><b>{channel} {WA_TICK}</b><span>{followers}</span></div>'
+            f'<span class="wacf">Mengikuti</span></div>'
+            f'<div class="wacw"><div class="wacb">'
+            + (f'<img src="{img}">' if img else "")
+            + f'<div class="wact">{text}</div><div class="wacm">{when}</div></div>'
+            f'<div class="wacr">{reacts}</div></div></div>')
+
+
+def tg_desk(px, channel, avatar, subs, body, w=470, h=340, pin=None, img=None, name_color="#6AB2F2", views="1,2 rb", when="16.30"):
+    """Telegram desktop channel: header, optional pinned bar, messages anchored to the bottom."""
+    p = ""
+    if pin:
+        pimg, ptxt = pin
+        p = (f'<div class="tdp"><img src="{pimg}"><div><b>Pinned message</b><span>{ptxt}</span></div></div>')
+    im = f'<div class="tdi"><img src="{img}"></div>' if img else ""
+    return (f'<div class="sp td" style="width:{px(w)};height:{px(h)}">'
+            f'<div class="tdh">{av2(avatar, 40, px) if avatar else ""}<div><b>{channel}</b><span>{subs}</span></div>'
+            f'<span class="tdlogo"><img src="{E}/telegram.png"></span></div>{p}'
+            f'<div class="tdw">{im}<div class="tdb"><div class="tdn" style="color:{name_color}">{channel}</div>'
+            f'<div class="tdt">{body}</div><div class="tdm">{icon("eye", px, 15)} {views} &nbsp;{when}</div></div></div></div>')
+
+
+def ig_post2(px, img, caption, when, likes, w=300):
+    heart = icon("like", px, 24)
+    return (f'<div class="sp ig2" style="width:{px(w)}">'
+            f'<div class="igh2">{av2(E + "/instagram.png", 34, px, ring="#d6249f")}<span class="bar2"></span>'
+            f'<span class="igw">&middot; {when}</span><span class="igdots">{icon("more", px, 22)}</span></div>'
+            f'<img class="igp" src="{img}">'
+            f'<div class="igact">{heart}{icon("comment", px, 24)}{icon("share", px, 24)}<span style="flex:1"></span>'
+            f'<svg viewBox="0 0 24 24" style="width:{px(24)};height:{px(24)};fill:none;stroke:currentColor;stroke-width:1.8"><path d="M6 3h12v18l-6-4-6 4z"/></svg></div>'
+            f'<div class="iglk">{likes} suka</div><div class="igc"><span class="bar2 sm"></span> {caption}</div></div>')
+
+
+CSS2_RAW = """
+.xt .tag { color: #1D9BF0; }
+.vf { width: 1.05cqw; height: 1.05cqw; flex: none; vertical-align: -.15cqw; }
+.x .xid { flex-wrap: nowrap; white-space: nowrap; overflow: hidden; }
+.x .xid b { display: inline-flex; align-items: center; gap: .3cqw; }
+.xmedia img { display: block; width: 100%; }
+.xquote { margin-top: .7cqw; border: .1cqw solid #2F3336; border-radius: .8cqw; padding: .7cqw .8cqw; }
+.xqh { display: flex; align-items: center; gap: .4cqw; font-size: .9cqw; color: #71767B; }
+.xqh b { color: #E7E9EA; }
+.xqb { display: flex; gap: .7cqw; margin-top: .5cqw; font-size: .95cqw; }
+.xqb img { width: 4.2cqw; height: 4.2cqw; border-radius: .5cqw; object-fit: cover; }
+.wac { background: #0B141A; border: .1cqw solid #1f2c33; color: #E9EDEF; display: flex; flex-direction: column; }
+.wach { display: flex; align-items: center; gap: .7cqw; padding: .75cqw 1cqw; background: #075E54; color: #fff; flex: none; }
+.wacn { flex: 1; min-width: 0; } .wacn b { display: flex; align-items: center; gap: .3cqw; font-size: 1.05cqw; white-space: nowrap; }
+.wacn span { display: block; font-size: .8cqw; color: #CFE9E4; }
+.wacf { font-size: .8cqw; font-weight: 700; border: .1cqw solid #8FD8C6; color: #DFF7F1; border-radius: 99px; padding: .2cqw .7cqw; }
+.wacw { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; padding: .8cqw; background-color: #0B141A; background-image: DOODLE_URL; }
+.wac.tall .wacw { justify-content: flex-start; }
+.wacb { background: #1F2C34; border-radius: .7cqw; padding: .4cqw; }
+.wacb img { display: block; width: 100%; max-height: 8.4cqw; object-fit: cover; object-position: top center; border-radius: .5cqw; }
+.wac.tall .wacb img { max-height: 11.5cqw; }
+.wact { font-size: 1cqw; line-height: 1.38; padding: .5cqw .4cqw 0; }
+.wact b { font-weight: 800; }
+.wacm { text-align: right; color: #8696A0; font-size: .75cqw; padding: 0 .4cqw .1cqw; }
+.wacr { align-self: flex-start; margin-top: .3cqw; background: #1F2C34; border-radius: 99px; padding: .15cqw .6cqw; font-size: .8cqw; color: #E9EDEF; }
+.td { background: #0E1621; border: .1cqw solid #1c2733; color: #F5F5F5; display: flex; flex-direction: column; }
+.tdh { display: flex; align-items: center; gap: .7cqw; padding: .7cqw 1cqw; background: #17212B; flex: none; font-size: 1.05cqw; }
+.tdh b { display: block; white-space: nowrap; } .tdh span { color: #6D7F8F; font-size: .8cqw; }
+.tdlogo { margin-left: auto; } .tdlogo img { width: 1.4cqw; height: 1.4cqw; border-radius: .3cqw; }
+.tdp { display: flex; gap: .6cqw; align-items: center; padding: .45cqw 1cqw; background: #17212B; border-top: .1cqw solid #0E1621; flex: none; }
+.tdp img { width: 2.2cqw; height: 2.2cqw; border-radius: .2cqw; object-fit: cover; border-left: .2cqw solid #6AB2F2; padding-left: .3cqw; }
+.tdp b { display: block; color: #6AB2F2; font-size: .85cqw; } .tdp span { display: block; font-size: .8cqw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 18cqw; }
+.tdw { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; padding: .7cqw .9cqw .9cqw; gap: .5cqw; }
+.tdi img { display: block; width: 88%; max-height: 8cqw; object-fit: cover; object-position: top center; border-radius: .6cqw; }
+.tdb { background: #182533; border-radius: .8cqw .8cqw .8cqw .25cqw; padding: .7cqw .9cqw .5cqw; max-width: 94%; }
+.tdn { font-weight: 800; font-size: .95cqw; }
+.tdt { font-size: 1cqw; line-height: 1.4; margin-top: .25cqw; }
+.tdt b { font-weight: 800; display: block; margin-bottom: .3cqw; }
+.tdm { display: flex; align-items: center; justify-content: flex-end; gap: .3cqw; color: #6D7F8F; font-size: .75cqw; margin-top: .3cqw; }
+.ig2 { background: #000; border: .1cqw solid #262626; color: #F5F5F5; }
+.ig2 .igh2 { display: flex; align-items: center; gap: .6cqw; padding: .6cqw .8cqw; }
+.igdots { margin-left: .4cqw; color: #ddd; }
+.ig2 .igw { margin-left: auto; color: #A8A8A8; font-size: .8cqw; }
+.igact { display: flex; align-items: center; gap: .9cqw; padding: .6cqw .8cqw .2cqw; color: #F5F5F5; }
+.iglk { font-weight: 700; font-size: .9cqw; padding: .2cqw .8cqw; }
+.ig2 .igc { font-size: .85cqw; padding: .1cqw .8cqw .8cqw; color: #DADADA; }
+.bar2.sm { display: inline-block; width: 4cqw; height: .5cqw; vertical-align: middle; }
+"""
+
+CSS2 = CSS2_RAW.replace("DOODLE_URL", DOODLE)
