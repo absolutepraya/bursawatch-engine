@@ -105,3 +105,8 @@ $HOME/.hermes/scripts/bursawatch-wa-channel-watch.sh submit-analysis --json '<pa
 ## Discord delivery receipt wait
 
 After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.
+
+The scanner accepts a delivered receipt containing only `message_id` when its
+key and digest match the stable operation. The operation binds the destination;
+an explicit conflicting receipt channel is rejected. Senders and Published Feed
+projection use this same contract.
