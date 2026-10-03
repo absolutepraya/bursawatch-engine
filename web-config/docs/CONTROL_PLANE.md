@@ -71,6 +71,32 @@ configuration. Deploy to a Node-capable Next.js host, not a static export.
 Never cache `/api/control` responses or protected records. Static `/workspace`
 HTML is a public shell only, not an authenticated server-rendered response.
 
+## Workflow and job evidence terminology
+
+A **workflow** is a catalogued configuration resource for a **domain owner**.
+The owner component links that resource to its **shared jobs**, using the
+component inventory's `job_ids`. A `watcher:<id>` configuration resource ref
+and a watcher ID identify the same workflow, but the ref is not a URL query ID.
+Jobs can support multiple components; a workflow is not itself a schedule.
+
+A **saved configuration revision** records settings accepted by the API. A
+**run-used revision** records which configuration a particular recorded owner
+run used. A matching revision establishes use by that run, without establishing
+that subsequent work used it or that a post was delivered.
+
+A **desired schedule** is the stored job setting. **Reconciled state** reports
+whether the scheduler applied its revision. **Observed state** is the latest
+observer evidence of the runtime job, including freshness and comparison.
+Active, paused, pending, stale, mismatch, unknown and unavailable remain
+separate states. An absent observation after a successful read is unknown;
+a failed observation read is unavailable. Neither establishes delivery.
+
+A **catalog-only read** intentionally omits runtime evidence. A successful read
+with no rows is **loaded empty**; an omitted resource is **not loaded**; a failed
+read is **unavailable**. Empty arrays alone do not prove that a read completed.
+Render runtime claims only in views that requested that evidence, and retain
+partial-read failures beside the relevant evidence.
+
 ## Loading and failure feedback
 
 The browser fetches only the current destination's data. Catalog-driven views
@@ -79,7 +105,12 @@ endpoint without requesting unrelated watcher histories:
 
 - Sources reads the authenticated Source Catalog and effective subscription
   snapshot. The workflow list reads the separate watcher catalog. Neither
-  presents unloaded schedules or history as empty results.
+  presents unloaded schedules or history as empty results. Workflow catalog
+  rows show the saved configuration revision and Configure action, without
+  schedule, run, configuration-use or shared-job claims. Overview passes its
+  loaded component, job and observation records into watcher rows. Failed
+  relationship reads remain unavailable; failed observation reads retain known
+  job identities with unavailable status.
 - A selected workflow starts its admin configuration read after catalog
   membership is confirmed. It requests only component-linked operator jobs,
   then observations for those job IDs, to link related jobs and show observed
