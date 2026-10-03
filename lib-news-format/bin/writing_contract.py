@@ -33,7 +33,18 @@ _CATEGORY_INSTRUCTIONS: dict[PresentationCategory, str] = {
         "eligible industry news. Company impact is optional; no mandatory field or block, external research, "
         "or automatic related-company discovery. "
     ),
-    "swing": "",
+    "swing": (
+        "For Swing source presentation, use Entry, Stop-loss and numbered Target n. "
+        "Entry, Stop-loss and Target 1 are base fields with - for unavailable levels; "
+        "show additional targets/stops only when explicitly supplied, retaining their numbers. "
+        "Interpret Watch on and Buy area as Entry. Support utama is the approved Stop-loss synonym: "
+        "bare Support utama 260 means <260; preserve an explicit comparator exactly. "
+        "Generic support is not a stop. Unnumbered Target is Target 1; TP2 remains Target 2 even without TP1. "
+        "Preserve exact source ranges, comparators, dates, status, conditions and raw wording/evidence. "
+        "Never calculate a midpoint or invent levels. Supply unchanged-source character spans for selected "
+        "whole level phrases, including the source label. Missing or invalid optional fields must not block "
+        "delivery. Presentation does not decide Board tiers, promotion, price comparisons or lifecycle. "
+    ),
 }
 
 

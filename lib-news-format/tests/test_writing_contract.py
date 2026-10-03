@@ -34,3 +34,10 @@ def test_industry_supported_summary_stays_deliverable(summary):
     cards = news_format.freeze_cards([{"title": "Pembangunan jaringan", "summary": summary, "route": "id_industry_news"}], lambda _: "### Jaringan", "https://example.com/news", "View source", target_for=lambda _: "industry")
     assert cards[0]["destination"] == "industry"
     assert summary in cards[0]["messages"][0]
+
+
+def test_swing_category_is_specific_and_common_rules_compose_once():
+    from writing_contract import COMMON_WRITING_INSTRUCTION, category_instruction
+    swing = category_instruction("swing")
+    assert swing and COMMON_WRITING_INSTRUCTION not in swing
+    assert "Support utama" in swing and "lifecycle" in swing
