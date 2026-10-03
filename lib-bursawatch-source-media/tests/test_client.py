@@ -173,3 +173,15 @@ def test_client_rejects_malformed_reference_before_network(clients):
     with pytest.raises(SourceMediaClientError) as error:
         reader.download("https://storage.example/public/object")
     assert error.value.category == "invalid_reference"
+
+
+def test_download_optional_bounds_preserve_existing_calls(clients):
+    base_url, upload_token, read_token = clients
+    uploader = SourceMediaClient(base_url, upload_token)
+    reader = SourceMediaClient(base_url, read_token)
+    data = b"\xff\xd8\xffbounded image bytes"
+    metadata = uploader.upload("bounded:1", data, kind="image", content_type="image/jpeg", filename="chart.jpg")
+    assert reader.download(metadata["ref"]).data == data
+    assert reader.download(metadata["ref"], max_bytes=len(data), timeout_seconds=1).data == data
+    with pytest.raises(SourceMediaClientError):
+        reader.download(metadata["ref"], max_bytes=len(data)-1)
