@@ -7,7 +7,7 @@
         @font-face { font-family: "Figtree"; src: url(assets/fonts/Figtree-700.woff2) format("woff2"); font-weight: 300 900; }
         #root { position: absolute; inset: 0; background: #111311; overflow: hidden; font-family: "Hanken Grotesk", sans-serif; color: #EEEAE3;
           --ground:#111311; --raised:#1C1F1D; --hair:#2A2E2B; --text:#EEEAE3; --muted:#9C978E; --hint:#5F5B55; --cu:#DEA777; --cu2:#F0BE91;
-          --dbg:#000; --dcard:#121316; --dtext:#DBDEE1; --dmuted:#949BA4; --dlink:#4A9BF5; --blurple:#5865F2; --up:#2EE65F; --down:#F23F43; }
+          --dbg:#1A1A1E; --dcard:#242429; --dtext:#DBDEE1; --dmuted:#949BA4; --dlink:#4A9BF5; --blurple:#5865F2; --up:#2EE65F; --down:#F23F43; }
         #s3-box { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; container-type: inline-size; }
         {{DISCORD_CSS}}
         #s3-glow { position: absolute; left: 960px; top: 470px; width: 1300px; height: 1300px; margin: -650px 0 0 -650px; border-radius: 50%; background: radial-gradient(closest-side, rgba(222,167,119,.16), rgba(222,167,119,0)); }
@@ -23,7 +23,7 @@
         .crt { display: inline-block; width: 0.28em; height: 0.92em; background: #DEA777; vertical-align: -0.12em; margin-left: 0.1em; }
         #s3-chan { opacity: 0; transform-origin: 50% 50%; }
         #s3-chan .dimg { width: 40%; }
-        #s3-chan .dch { position: relative; z-index: 2; background: #000; margin-top: -1.4cqw; padding-top: 1.4cqw; }
+        #s3-chan .dch { position: relative; z-index: 2; background: #1A1A1E; margin-top: -1.4cqw; padding-top: 1.4cqw; }
         #s3-feed { position: relative; z-index: 1; }
         #s3-line { position: absolute; left: 760px; top: 538px; width: 1080px; height: 4px; background: #DEA777; transform-origin: 50% 50%; opacity: 0; }
       </style>

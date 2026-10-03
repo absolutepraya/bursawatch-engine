@@ -7,25 +7,25 @@
         @font-face { font-family: "Figtree"; src: url(assets/fonts/Figtree-700.woff2) format("woff2"); font-weight: 300 900; }
         #root { position: absolute; inset: 0; background: #111311; overflow: hidden; font-family: "Hanken Grotesk", sans-serif; color: #EEEAE3;
           --ground:#111311; --raised:#1C1F1D; --hair:#2A2E2B; --text:#EEEAE3; --muted:#9C978E; --hint:#5F5B55; --cu:#DEA777; --cu2:#F0BE91;
-          --dbg:#000; --dcard:#121316; --dtext:#DBDEE1; --dmuted:#949BA4; --dlink:#4A9BF5; --blurple:#5865F2; --up:#2EE65F; --down:#F23F43; }
+          --dbg:#1A1A1E; --dcard:#242429; --dtext:#DBDEE1; --dmuted:#949BA4; --dlink:#4A9BF5; --blurple:#5865F2; --up:#2EE65F; --down:#F23F43; }
         #s5-box { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; container-type: inline-size; }
         {{DISCORD_CSS}}
         #s5-glow { position: absolute; left: 1300px; top: 540px; width: 1400px; height: 1100px; margin: -550px 0 0 -700px; border-radius: 50%; background: radial-gradient(closest-side, rgba(222,167,119,.12), rgba(222,167,119,0)); }
-        #s5-card { position: absolute; left: 780px; top: 100px; width: 1040px; height: 880px; background: #000; border: 2px solid #1e2023; border-radius: 18px; padding: 30px 34px; font-family: "Figtree"; color: #DBDEE1; box-shadow: 0 40px 90px rgba(0,0,0,.6); transform-origin: 50% 50%; overflow: hidden; }
+        #s5-card { position: absolute; left: 780px; top: 100px; width: 1040px; height: 880px; background: #1A1A1E; border: 2px solid #313137; border-radius: 18px; padding: 30px 34px; font-family: "Figtree"; color: #DBDEE1; box-shadow: 0 40px 90px rgba(0,0,0,.6); transform-origin: 50% 50%; overflow: hidden; }
         #s5-title { font-weight: 800; font-size: 46px; margin: 18px 0 0; letter-spacing: -0.01em; }
         .ph { position: absolute; left: 34px; right: 34px; top: 230px; bottom: 34px; }
         .lab { font-family: "Hanken Grotesk"; font-weight: 700; font-size: 24px; letter-spacing: .1em; color: #DEA777; text-transform: uppercase; }
         .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 22px; }
-        .tile { background: #121316; border-radius: 16px; padding: 30px 28px; }
+        .tile { background: #242429; border-radius: 16px; padding: 30px 28px; }
         .tn { font-family: "Hanken Grotesk"; font-weight: 700; font-size: 26px; letter-spacing: .08em; color: #949BA4; }
         .tv { font-family: "Hanken Grotesk"; font-weight: 800; font-size: 60px; letter-spacing: -0.03em; margin-top: 10px; font-feature-settings: "tnum"; }
         .tc { font-family: "Hanken Grotesk"; font-weight: 800; font-size: 48px; margin-top: 4px; font-feature-settings: "tnum"; }
         .up { color: #2EE65F; } .down { color: #F23F43; }
         .note { margin-top: 22px; font-size: 24px; color: #949BA4; }
-        .night { margin-top: 22px; background: #121316; border-radius: 18px; padding: 40px 40px; }
+        .night { margin-top: 22px; background: #242429; border-radius: 18px; padding: 40px 40px; }
         .nh { font-weight: 800; font-size: 54px; line-height: 1.16; letter-spacing: -0.01em; }
         .ns { margin-top: 26px; font-size: 34px; color: #b8bbc0; line-height: 1.3; }
-        .take { display: flex; gap: 22px; align-items: flex-start; background: #121316; border-radius: 16px; padding: 26px 28px; margin-top: 18px; }
+        .take { display: flex; gap: 22px; align-items: flex-start; background: #242429; border-radius: 16px; padding: 26px 28px; margin-top: 18px; }
         .take img.a { width: 70px; height: 70px; border-radius: 50%; }
         .take .who { font-weight: 800; font-size: 26px; color: #EEEAE3; }
         .take .who span { color: #949BA4; font-weight: 600; }
@@ -33,12 +33,12 @@
         .pill { display: inline-block; margin-top: 12px; font-family: "Hanken Grotesk"; font-weight: 700; font-size: 22px; border-radius: 99px; padding: 4px 16px; }
         .pill.warn { color: #DEA777; border: 2px solid #DEA777; } .pill.ok { color: #2EE65F; border: 2px solid #2EE65F; }
         .avb { position: relative; flex: none; }
-        .avb img.b { position: absolute; right: -4px; bottom: -4px; width: 28px; height: 28px; border-radius: 6px; outline: 3px solid #121316; }
+        .avb img.b { position: absolute; right: -4px; bottom: -4px; width: 28px; height: 28px; border-radius: 6px; outline: 3px solid #242429; }
         .bal { display: flex; align-items: center; gap: 20px; margin-top: 30px; font-family: "Hanken Grotesk"; font-weight: 700; font-size: 26px; color: #949BA4; }
-        .track { position: relative; flex: 1; height: 18px; background: #2a2c30; border-radius: 99px; overflow: hidden; }
+        .track { position: relative; flex: 1; height: 18px; background: #3a3a41; border-radius: 99px; overflow: hidden; }
         #s5-ok { position: absolute; left: 0; top: 0; bottom: 0; width: 36%; background: #2EE65F; transform-origin: 0 50%; }
         #s5-warn { position: absolute; right: 0; top: 0; bottom: 0; width: 64%; background: #DEA777; transform-origin: 100% 50%; }
-        .chartbox { margin-top: 18px; background: #121316; border-radius: 16px; padding: 26px 30px 20px; }
+        .chartbox { margin-top: 18px; background: #242429; border-radius: 16px; padding: 26px 30px 20px; }
         .s5chart { width: 100%; height: auto; display: block; }
         #s5-verdict { position: relative; margin-top: 24px; height: 84px; overflow: hidden; display: inline-block; border-radius: 14px; background: #DEA777; padding: 0 28px; min-width: 520px; }
         .vt { position: absolute; left: 28px; top: 0; height: 84px; line-height: 84px; font-family: "Hanken Grotesk"; font-weight: 900; font-size: 48px; letter-spacing: -0.03em; color: #111311; white-space: nowrap; }

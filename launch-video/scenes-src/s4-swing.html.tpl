@@ -7,26 +7,26 @@
         @font-face { font-family: "Figtree"; src: url(assets/fonts/Figtree-700.woff2) format("woff2"); font-weight: 300 900; }
         #root { position: absolute; inset: 0; background: #111311; overflow: hidden; font-family: "Hanken Grotesk", sans-serif; color: #EEEAE3;
           --ground:#111311; --raised:#1C1F1D; --hair:#2A2E2B; --text:#EEEAE3; --muted:#9C978E; --hint:#5F5B55; --cu:#DEA777; --cu2:#F0BE91;
-          --dbg:#000; --dcard:#121316; --dtext:#DBDEE1; --dmuted:#949BA4; --dlink:#4A9BF5; --blurple:#5865F2; --up:#2EE65F; --down:#F23F43; }
+          --dbg:#1A1A1E; --dcard:#242429; --dtext:#DBDEE1; --dmuted:#949BA4; --dlink:#4A9BF5; --blurple:#5865F2; --up:#2EE65F; --down:#F23F43; }
         #s4-box { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; container-type: inline-size; }
         {{DISCORD_CSS}}
         #s4-cam { position: absolute; inset: 0; transform-origin: 1300px 540px; }
-        .frame { position: absolute; left: 760px; top: 60px; width: 1080px; height: 960px; background: #000; border: 2px solid #1e2023; border-radius: 16px; overflow: hidden; font-family: "Figtree"; color: #DBDEE1; box-shadow: 0 40px 80px rgba(0,0,0,.55); }
+        .frame { position: absolute; left: 760px; top: 60px; width: 1080px; height: 960px; background: #1A1A1E; border: 2px solid #313137; border-radius: 16px; overflow: hidden; font-family: "Figtree"; color: #DBDEE1; box-shadow: 0 40px 80px rgba(0,0,0,.55); }
         #s4-forum { padding: 26px 28px; transform-origin: 50% 50%; }
         .fhead { display: flex; gap: 14px; align-items: center; }
-        .fsearch { flex: 1; display: flex; align-items: center; gap: 14px; height: 74px; padding: 0 22px; border: 2px solid #2a2c30; border-radius: 14px; background: #0B0C0E; font-size: 32px; }
+        .fsearch { flex: 1; display: flex; align-items: center; gap: 14px; height: 74px; padding: 0 22px; border: 2px solid #3a3a41; border-radius: 14px; background: #242429; font-size: 32px; }
         .mag { color: #6d7178; font-size: 30px; transform: rotate(-45deg); display: inline-block; }
         .fph { color: #6d7178; font-weight: 600; }
         .fq { color: #fff; font-weight: 800; letter-spacing: .02em; }
         .fcaret { width: 3px; height: 38px; background: #DBDEE1; opacity: 0; }
         .fnew { background: #5865F2; color: #fff; font-weight: 800; font-size: 26px; border-radius: 12px; padding: 20px 26px; }
         .frow { display: flex; gap: 12px; margin: 18px 0 18px; white-space: nowrap; }
-        .fchip { display: inline-flex; align-items: center; gap: 8px; border: 2px solid #2a2c30; border-radius: 99px; padding: 9px 18px; font-size: 21px; font-weight: 700; color: #c9ccd0; }
+        .fchip { display: inline-flex; align-items: center; gap: 8px; border: 2px solid #3a3a41; border-radius: 99px; padding: 9px 18px; font-size: 21px; font-weight: 700; color: #c9ccd0; }
         .fchip svg, .ftag2 svg { width: 22px; height: 22px; }
         .flist { position: relative; height: 760px; overflow: hidden; }
         #s4-only { position: absolute; left: 0; right: 0; top: 0; opacity: 0; }
-        .fpost { display: flex; justify-content: space-between; gap: 20px; border: 2px solid #1f2124; border-radius: 16px; padding: 20px 22px; margin-bottom: 14px; background: #050506; }
-        .ftag2 { display: inline-flex; align-items: center; gap: 8px; border: 2px solid #2a2c30; border-radius: 99px; padding: 5px 14px; font-size: 19px; font-weight: 700; color: #DBDEE1; margin-right: 8px; }
+        .fpost { display: flex; justify-content: space-between; gap: 20px; border: 2px solid #313137; border-radius: 16px; padding: 20px 22px; margin-bottom: 14px; background: #242429; }
+        .ftag2 { display: inline-flex; align-items: center; gap: 8px; border: 2px solid #3a3a41; border-radius: 99px; padding: 5px 14px; font-size: 19px; font-weight: 700; color: #DBDEE1; margin-right: 8px; }
         .ft { font-weight: 800; font-size: 38px; margin-top: 10px; letter-spacing: -0.01em; }
         .fby { display: flex; align-items: center; gap: 8px; font-size: 24px; font-weight: 700; margin-top: 4px; }
         .fby img { width: 26px; height: 26px; border-radius: 50%; }

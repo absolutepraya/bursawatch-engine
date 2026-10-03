@@ -271,3 +271,47 @@ CSS2_RAW = """
 """
 
 CSS2 = CSS2_RAW.replace("DOODLE_URL", DOODLE)
+
+
+# IDX Keterbukaan Informasi page (light theme), recreated from idx.co.id on 3 Oct 2026.
+CLIP = ('<svg class="clip" viewBox="0 0 24 24"><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9" '
+        'fill="none" stroke="#9F0E0F" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>')
+
+
+def idx_card(px, w=500, h=300):
+    entries = [
+        ("03 Oktober 2026 08:55:09", "Penyampaian Laporan Keuangan Interim (KOREKSI) [BSSB ]", "FinancialStatement-2026-II-BSSB.xlsx"),
+        ("02 Oktober 2026 23:07:52", "Informasi Tambahan Ringkas Penawaran Umum Berkelanjutan Obligasi Berkelanjutan I Energi Mega Persada Tahap V [ENRG ]",
+         "20261002_ENRG_Laporan Informasi dan Fakta Material_lamp1.pdf"),
+    ]
+    rows = "".join(f'<div class="idxe"><time>{t}</time><div class="idxet">{ti}</div><div class="idxa">{CLIP}{a}</div></div>'
+                   for t, ti, a in entries)
+    return (f'<div class="sp idx" style="width:{px(w)};height:{px(h)}">'
+            f'<div class="idxh"><img src="assets/idx/idx-logo.png"><span class="idxd">03 Oktober 2026 | 08:55 WIB</span>'
+            f'<span class="idxbtn o">MASUK</span><span class="idxbtn">DAFTAR</span></div>'
+            f'<div class="idxc"><div class="idxbc">&#8962; &rsaquo; Perusahaan Tercatat &rsaquo; <b>Keterbukaan Informasi</b></div>'
+            f'<div class="idxt">Keterbukaan Informasi<span class="live"><i></i>LIVE</span></div>'
+            f'<div class="idxtabs"><span class="on">Keterbukaan Informasi</span><span>Pengumuman</span><span>Laporan Keuangan</span></div>'
+            f'{rows}</div></div>')
+
+
+CSS_IDX = """
+.idx { background: #fff; border: .1cqw solid #e6e6e6; color: #656565; font-family: "Open Sans", sans-serif; display: flex; flex-direction: column; box-shadow: 0 1.4cqw 3cqw rgba(0,0,0,.55); }
+.idxh { display: flex; align-items: center; gap: .6cqw; padding: .45cqw .9cqw; border-bottom: .1cqw solid #ececec; flex: none; }
+.idxh img { width: 3.2cqw; height: auto; }
+.idxd { flex: 1; font-size: .62cqw; color: #8a8a8a; white-space: nowrap; }
+.idxbtn { font-size: .62cqw; font-weight: 700; background: #9F0E0F; color: #fff; border-radius: .2cqw; padding: .3cqw .7cqw; }
+.idxbtn.o { background: #fff; color: #9F0E0F; border: .08cqw solid #9F0E0F; }
+.idxc { padding: .6cqw .9cqw; overflow: hidden; flex: 1; min-height: 0; }
+.idxbc { font-size: .62cqw; color: #656565; } .idxbc b { color: #9F0E0F; font-weight: 400; }
+.idxt { display: flex; align-items: center; gap: .7cqw; margin-top: .35cqw; font-size: 1.45cqw; font-weight: 700; color: #4D4D4D; letter-spacing: -0.01em; }
+.live { display: inline-flex; align-items: center; gap: .3cqw; font-size: .6cqw; font-weight: 700; color: #9F0E0F; border: .08cqw solid #9F0E0F; border-radius: 99px; padding: .1cqw .45cqw; letter-spacing: .06em; }
+.live i { width: .45cqw; height: .45cqw; border-radius: 50%; background: #E0262A; box-shadow: 0 0 0 .2cqw rgba(224,38,42,.25); }
+.idxtabs { display: flex; gap: .9cqw; margin-top: .45cqw; border-bottom: .08cqw solid #e2e2e2; font-size: .62cqw; color: #656565; }
+.idxtabs span { padding-bottom: .3cqw; } .idxtabs .on { color: #9F0E0F; border-bottom: .14cqw solid #9F0E0F; }
+.idxe { padding: .55cqw 0 .45cqw; border-bottom: .06cqw solid #ececec; }
+.idxe time { display: block; font-size: .6cqw; color: #656565; }
+.idxet { font-size: .9cqw; font-weight: 600; color: #9F0E0F; line-height: 1.3; margin-top: .15cqw; }
+.idxa { display: flex; align-items: center; gap: .25cqw; font-size: .6cqw; color: #9F0E0F; margin-top: .25cqw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.idxa .clip { width: .75cqw; height: .75cqw; flex: none; }
+"""

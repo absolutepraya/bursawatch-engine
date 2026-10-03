@@ -231,8 +231,7 @@ def wall2():
         place(S.x_post2(px, "Milo. | #InvestasiTenang", "@eskepalmilosatu", "3j",
                         'Neng <span class="tag">$ESSA</span> udah masuk screener dump lagi.<br><br>Tawar semurah mungkin &#128013;',
                         ("6", "4", "70", "3,5 rb"), f"{W}/milo-avatar.png", w=396, verified=True, media=f"{W}/milo-screener.png"), 1535, 540),
-        place(S.tg_desk(px, "Kelas Investasi", f"{E}/kelasinvestasi.png", "channel",
-                        "<b>PWON: Mulai Menguat</b>Lagi uji area atas konsolidasi.", w=440, h=300, views="1,4 rb", when="02.04"), -24, 865, dim=True),
+        place(S.idx_card(px, w=430, h=330), 26, 800),
         place(S.x_post2(px, "SIVENNN", "@SIVENNN5s", "5j", '<span class="tag">$DEWI</span> &#129488;&#128556;&#129320;',
                         ("", "", "2", ""), f"{W}/sivennn-avatar.png", w=480, verified=True, media=f"{W}/sivennn-dewi.png",
                         quote=(f"{W}/sivennn-avatar.png", "SIVENNN", "@SIVENNN5s", "Sep 30", "Dari Chart nya sih ada kecelakan disana&#128514;", f"{W}/sivennn-quote-thumb.png")), 465, 852),
@@ -262,7 +261,7 @@ def wall2():
 def main():
     wall_html, n = wall2()
     parts = {
-        "{{SOCIAL_CSS}}": BASE_CSS + S.CSS + S.CSS2,
+        "{{SOCIAL_CSS}}": BASE_CSS + S.CSS + S.CSS2 + S.CSS_IDX,
         "{{WALL}}": wall_html,
         "{{WALL_N}}": str(n),
         "{{DISCORD_CSS}}": sheet_css("avatars", "captions", "discord", "forum", "brief", "config"),
