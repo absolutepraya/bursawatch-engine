@@ -122,6 +122,18 @@ issuer; connected stories remain together. The design records the local
 implementation, education-filter conflict, and bounded source evidence.
 Production rollout remains separate from design approval and local validation.
 
+The separate Macro, Industry, then Swing follow-up is consolidated in the
+[`shared category design`](specs/2026-10-03-shared-category-contracts.md),
+with its [`working discussion`](notes/2026-10-03-shared-category-contracts-working-notes.md),
+[category glossary](glossaries/category-news.md), and
+[boundary decision](adr/0032-shared-category-contract-boundaries.md).
+The user agreed the category rules, optional images after text eligibility,
+Swing synonym normalization, and preservation of deterministic Board tiers.
+The [implementation plan](superpowers/plans/2026-10-03-shared-category-contracts.md)
+is written for review and execution-method selection. Implementation and
+release remain separate steps. These documents make no current production
+claims.
+
 The split decision and the current Bursawatch to Hermes Personal boundary are
 recorded in [`adr/0024-separate-bursawatch-and-hermes-personal.md`](adr/0024-separate-bursawatch-and-hermes-personal.md).
 The physical state-cutover decision is recorded in
