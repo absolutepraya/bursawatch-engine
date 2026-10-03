@@ -68,3 +68,37 @@ def test_ready_context_keeps_bound_association(tmp_path):
     instruction = m.context_instruction(claim, "owner prepare-summary-images --json")
     assert m.claim_id(claim) in instruction
     assert str(tmp_path) not in instruction and "inspect" in instruction.lower()
+
+
+def test_finished_context_removes_only_its_binding(tmp_path):
+    m = api(); claim = context(m, tmp_path)
+    other = replace(claim, owner_event_key="other")
+    first = m.prepare_claim_context(request(m, claim), resolve_claim=lambda _: claim, client_factory=Reader, now=NOW)
+    second = m.prepare_claim_context(request(m, other), resolve_claim=lambda _: other, client_factory=Reader, now=NOW)
+    m.cleanup_claim_context(claim)
+    assert not Path(first["assets"][0]["path"]).exists()
+    assert Path(second["assets"][0]["path"]).is_file()
+
+
+def test_abandoned_context_expires_without_removing_active_bundle(tmp_path):
+    m = api(); claim = context(m, tmp_path)
+    result = m.prepare_claim_context(request(m, claim), resolve_claim=lambda _: claim, client_factory=Reader, now=NOW)
+    staged = Path(result["assets"][0]["path"])
+    m.expire_claim_context(claim.root, now=NOW + timedelta(minutes=1))
+    assert staged.is_file()
+    next_claim = replace(claim, owner_event_key="next", lease_until=(NOW + timedelta(minutes=5)).isoformat())
+    next_bundle = m.prepare_claim_context(request(m, next_claim), resolve_claim=lambda _: next_claim, client_factory=Reader, now=NOW + timedelta(minutes=3))
+    assert not staged.exists()
+    assert Path(next_bundle["assets"][0]["path"]).is_file()
+
+
+def test_expiry_cleanup_preserves_external_and_unmanaged_paths(tmp_path):
+    m = api(); root = tmp_path / "private"; root.mkdir(mode=0o700)
+    outside = tmp_path / "outside"; outside.mkdir()
+    (outside / ".expires-at").write_text("0")
+    (outside / "image.png").write_bytes(PNG)
+    (root / ("c" * 64)).symlink_to(outside, target_is_directory=True)
+    unmanaged = root / "required-delivery-media"; unmanaged.mkdir()
+    (unmanaged / ".expires-at").write_text("0")
+    m.expire_claim_context(root, now=NOW)
+    assert (outside / "image.png").is_file() and unmanaged.is_dir()

@@ -693,6 +693,7 @@ def test_discord_nonce_fits_discord_limit():
 
 
 def test_filtered_submission_cleans_owned_media(tmp_path, monkeypatch, config_path):
+    from test_summary_context import staged_claim
     profile = config.load_watch_config(config_path).profiles[0]
     storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
     baseline = _post(profile.id, "baseline", 0)
@@ -706,11 +707,13 @@ def test_filtered_submission_cleans_owned_media(tmp_path, monkeypatch, config_pa
     state.save_state(storage, value)
     cleaned: list[tuple[Path, str]] = []
     monkeypatch.setattr(scan.media, "cleanup_event_media", lambda root, event_id: cleaned.append((root, event_id)))
+    optional_asset = staged_claim(tmp_path, monkeypatch, event["event_key"])
 
     result = scan.submit_analysis_payload({"event_key": event["event_key"], "is_relevant": False})
 
     saved = state.load_state(storage)
     assert result == {"submitted": True, "ignored": True, "delivered": 0}
+    assert not optional_asset.exists()
     assert saved["outbox"] == []
     assert saved["filtered_since_last_heartbeat"] == 1
     assert cleaned == [(media_root, post.publication_id)]

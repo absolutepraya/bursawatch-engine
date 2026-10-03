@@ -55,3 +55,17 @@ def test_native_whatsapp_record_keeps_source_text(tmp_path):
     record = {"event_key":source.event_key,"event":serialize_event(source),"agent_phase":"awaiting_agent","agent_lease_until":(now+timedelta(minutes=10)).isoformat(),"source_event_key":"a"*64,"source_content_hash":"b"*64}
     claim = owner().claim_from_state({"outbox":[record]},source.event_key,tmp_path)
     assert claim is not None and claim.source_text == source.text and claim.source_version == 1
+
+
+def staged_claim(tmp_path, monkeypatch, key):
+    """A verified bundle's private path, isolated from required delivery media."""
+    import hashlib
+    module = owner()
+    from bursawatch_source_media import SummaryContextClaim, claim_id
+    claim = SummaryContextClaim(key, (datetime.now(timezone.utc)+timedelta(minutes=10)).isoformat(), "a"*64, 1, "b"*64, "Issuer disclosed results", (), tmp_path / "optional")
+    directory = claim.root / hashlib.sha256(claim_id(claim).encode()).hexdigest()
+    directory.mkdir(parents=True, mode=0o700)
+    asset = directory / "analysis.png"
+    asset.write_bytes(b"isolated analysis bytes")
+    monkeypatch.setattr(module, "claim_from_state", lambda *args: claim)
+    return asset

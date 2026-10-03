@@ -10,7 +10,8 @@ import time
 from typing import Callable, Mapping
 
 from .client import SourceMediaClient
-from .summary_images import SummaryImageRef, cleanup_summary_images, prepare_summary_images
+from .summary_images import (SummaryImageRef, cleanup_summary_images, expire_summary_images,
+                            prepare_summary_images, record_summary_expiry)
 
 PROTOCOL = "summary-images-v1"
 
@@ -46,6 +47,8 @@ def image_refs(metadata: object, *, association: str) -> tuple[SummaryImageRef, 
 
 
 def context_instruction(claim: SummaryContextClaim | None, command: str) -> str:
+    if claim is not None:
+        expire_claim_context(claim.root)
     if claim is None or not claim.refs:
         return ""
     request = {"protocol": PROTOCOL, "owner_event_key": claim.owner_event_key,
@@ -69,6 +72,19 @@ def _active(claim: SummaryContextClaim, now: datetime) -> bool:
     until = datetime.fromisoformat(claim.lease_until)
     return (bool(claim.source_text.strip()) and until.tzinfo is not None and now < until
             and type(claim.source_version) is int and claim.source_version >= 1)
+
+
+def cleanup_claim_context(claim: SummaryContextClaim | None) -> None:
+    """Call only after analysis acceptance is persisted; failures never gate delivery."""
+    try:
+        if claim is not None:
+            cleanup_summary_images(claim.root, claim_id(claim))
+    except Exception:
+        pass
+
+
+def expire_claim_context(root: Path, *, now: datetime | None = None) -> None:
+    expire_summary_images(root, (now or datetime.now(timezone.utc)).timestamp())
 
 
 def prepare_claim_context(
@@ -95,6 +111,7 @@ def prepare_claim_context(
         claim = resolve_claim(key)
         if claim is None or claim.owner_event_key != key or not _active(claim, current):
             return fallback
+        expire_claim_context(claim.root, now=current)
         binding = claim_id(claim)
         if request["claim_id"] != binding:
             return fallback
@@ -103,6 +120,8 @@ def prepare_claim_context(
             return fallback
         selected = tuple(ref for ref in claim.refs if ref.index in indexes)
         bundle = prepare_summary_images(selected, client=client_factory(), root=claim.root, binding=binding)
+        if bundle.assets:
+            record_summary_expiry(claim.root, binding, datetime.fromisoformat(claim.lease_until).timestamp())
         fresh = resolve_claim(key)
         checked_at = current + timedelta(seconds=time.monotonic() - started)
         if fresh is None or claim_id(fresh) != binding or not _active(fresh, checked_at):

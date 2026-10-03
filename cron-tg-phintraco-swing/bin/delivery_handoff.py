@@ -147,7 +147,6 @@ class PhintracoHandoffAdapter:
         acknowledgments = self._acks()
         items: list[HandoffItem] = []
         self._operations = {}
-        channel_id = scan.ALERT_CHANNEL_ID
         for event_key in sorted(outbox, key=int):
             event = outbox[event_key]
             if not isinstance(event, dict):
@@ -190,7 +189,7 @@ class PhintracoHandoffAdapter:
                         event_key,
                         "chart",
                         "",
-                        channel_id,
+                        event.get("chart_destination") or scan.event_destination(event),
                         completed_message_id=None,
                         attachment=attachment,
                     )

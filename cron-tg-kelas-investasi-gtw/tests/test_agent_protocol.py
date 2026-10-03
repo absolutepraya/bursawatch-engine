@@ -190,3 +190,39 @@ def test_two_paragraph_grounded_summary_and_harmless_style_are_deliverable():
     source = event(); payload = valid_payload()
     payload["summary"] = "*(Ringkasan)* Akumulasi kuat.\n\n**Buy area:** 605 sampai 630."
     assert "\n\n" in validate_submission(source,payload)["summary"]
+
+
+def test_bad_optional_field_does_not_reject_unchanged_canonical_summary():
+    source = pwon_event()
+    payload = pwon_payload(source["source_text"])
+    payload["plan_fields"][0]["value"] = "795"
+    result = validate_submission(source, payload)
+    assert result["summary"] == payload["summary"]
+    assert "Entry" not in [row["label"] for row in result["plan_fields"]]
+
+
+def test_bad_optional_value_keeps_grounded_prose_from_selected_inline_evidence():
+    source = pwon_event()
+    source["source_text"] = source["source_text"].replace("Watch on", "Thesis: Watch on")
+    payload = pwon_payload(source["source_text"])
+    payload["plan_fields"][0]["value"] = "795"
+    assert validate_submission(source, payload)["summary"] == payload["summary"]
+
+
+def test_optional_fallback_retains_additional_stop_number():
+    source = pwon_event()
+    source["source_text"] += "\nSL2 <250"
+    payload = pwon_payload(source["source_text"])
+    payload["plan_fields"] = []
+    payload["summary"] = "*(Ringkasan)* Stop-loss 2 <250."
+    assert validate_submission(source, payload)["summary"] == payload["summary"]
+
+
+@pytest.mark.parametrize("claim", ["Entry 270", "Entry 795", "Stop-loss >260", "Target 2 288"])
+def test_optional_fallback_keeps_range_comparator_and_number_grounding(claim):
+    source = pwon_event()
+    payload = pwon_payload(source["source_text"])
+    payload["plan_fields"] = []
+    payload["summary"] = "*(Ringkasan)* " + claim + "."
+    with pytest.raises(RetryableSubmissionError):
+        validate_submission(source, payload)

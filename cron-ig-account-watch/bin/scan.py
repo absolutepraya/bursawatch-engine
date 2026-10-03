@@ -1128,6 +1128,8 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
             if profile is None or not profile.uses_llm:
                 raise ValueError("analysis profile is not enabled")
             event = state.awaiting_analysis_event(value, event_key)
+            import summary_context
+            optional_context = summary_context.claim_from_state(value, event_key, storage.parent / "summary-context", source_work_routes.read(storage, event_key))
             analysis = agent_protocol.validate_submission(profile, payload)
             post = state.deserialize_post(event["post"])
             ocr_text = _analysis_ocr_text(event)
@@ -1137,6 +1139,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                     source_work_routes.record_terminal(storage, event_key, "irrelevant")
                 state.discard_analysis(value, analysis["event_key"], now)
                 state.save_state(storage, value)
+                summary_context.cleanup_claim_context(optional_context)
                 stats = RunStats()
                 _retry_media_cleanup(value, storage, stats, no_post=no_post)
                 if stats.degraded and not no_post:
@@ -1168,6 +1171,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 source_work_routes.record_terminal(storage, event_key, "route_not_subscribed", analysis["route"])
                 state.discard_analysis(value, analysis["event_key"], now)
                 state.save_state(storage, value)
+                summary_context.cleanup_claim_context(optional_context)
                 stats = RunStats()
                 _retry_media_cleanup(value, storage, stats, no_post=no_post)
                 if stats.degraded and not no_post:
@@ -1193,6 +1197,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 event["news_cards"] = render.freeze_news(profile, post, news_items or [{"title": analysis.get("title") or profile.display_name, "summary": analysis["summary"], "route": analysis.get("route") or profile.discord_channels[0].key}])
             state.save_state(storage, value)
             stats = RunStats()
+            summary_context.cleanup_claim_context(optional_context)
             if not no_post:
                 _drain_deliveries(value, profiles, storage, stats, now, limit=1)
                 _retry_media_cleanup(value, storage, stats, no_post=False)

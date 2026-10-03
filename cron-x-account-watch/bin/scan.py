@@ -1057,11 +1057,14 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 raise ValueError("analysis profile is not enabled")
             analysis = validate_submission(profile, payload)
             event = state.awaiting_analysis_event(value, analysis["event_key"])
+            import summary_context
+            optional_context = summary_context.claim_from_state(value, analysis["event_key"], storage.parent / "summary-context")
             post = state.deserialize_post(event["post"])
             thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]]))
             if analysis.get("is_relevant") is False:
                 state.discard_analysis(value, analysis["event_key"])
                 state.save_state(storage, value)
+                summary_context.cleanup_claim_context(optional_context)
                 _cleanup_agent_vision(storage, event)
                 _report_control_event(
                     reporter,
@@ -1087,6 +1090,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 else:
                     state.suppress_ineligible(value, event)
                     state.save_state(storage, value)
+                    summary_context.cleanup_claim_context(optional_context)
                     _cleanup_agent_vision(storage, event)
                     _finish_control_run(reporter, run_id, "ok")
                     return {"submitted": True, "suppressed": "suppressed_ineligible", "delivered": 0}
@@ -1094,6 +1098,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
             if event.get("enabled_capabilities") is not None and eligible_capability_for_route(candidate_route, frozenset(event["enabled_capabilities"])) is None:
                 state.suppress_ineligible(value, event)
                 state.save_state(storage, value)
+                summary_context.cleanup_claim_context(optional_context)
                 _cleanup_agent_vision(storage, event)
                 _report_control_event(
                     reporter, run_id, "agent-submission-accepted", level="info", phase="agent",
@@ -1106,6 +1111,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 analysis["news_cards"] = render.freeze_news(profile, post, news_items or [{"title": analysis.get("title") or profile.display_name, "summary": analysis["summary"], "route": candidate_route}], updated_tweet=bool(event.get("updated_tweet")))
             state.submit_analysis(value, analysis["event_key"], {key: item for key, item in analysis.items() if key not in {"event_key", "is_relevant"}})
             state.save_state(storage, value)
+            summary_context.cleanup_claim_context(optional_context)
             _cleanup_agent_vision(storage, event)
             stats = RunStats()
             now = datetime.now(WIB)

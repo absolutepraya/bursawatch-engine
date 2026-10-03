@@ -14,7 +14,7 @@ for _name in ("lib-news-format", "lib-swing-format"):
     if str(_path) not in sys.path:
         sys.path.insert(0,str(_path))
 from writing_contract import COMMON_WRITING_INSTRUCTION, category_instruction
-from source_plan import validate_source_plan_fields
+from source_plan import supports_source_plan_claim, validate_source_plan_fields
 
 from telegram_source import SOURCE_USERNAME
 
@@ -27,9 +27,9 @@ _SUBMISSION_FIELDS = frozenset({"event_key", "title", "summary"})
 _FORBIDDEN_LEAKAGE = re.compile(r"\b(?:abaikan\s+instruksi|ignore\s+(?:all\s+)?(?:previous\s+)?instructions?|system\s+prompt)\b", re.IGNORECASE)
 _FORBIDDEN_ADVICE = re.compile(r"\b(?:beli|jual|buy|sell)\s+sekarang\b|\b(?:rekomendasi|pasti|dijamin|cuan)\b", re.IGNORECASE)
 _PLAN_CLAIM = re.compile(
-    r"\b(?P<label>buy(?:\s+(?:area|price|harga))?|entry|target(?:\s+(?:price|harga))?(?:\s*\d+)?|tp(?:\s*\d+)?|stop[-\s]?loss)\b"
+    r"\b(?P<label>buy(?:\s+(?:area|price|harga))?|entry|target(?:\s+(?:price|harga))?(?:\s*\d+)?|tp(?:\s*\d+)?|stop[-\s]?loss(?:\s+\d+)?)\b"
     r"\s*(?::|=|\bdi\b|\bpada\b)?\s*"
-    r"(?P<value><?\s*\d+(?:[.,]\d+)*(?:\s*(?:sampai|[-\u2013\u2014])\s*<?\s*\d+(?:[.,]\d+)*)?(?:\s*(?:,|dan)\s*<?\s*\d+(?:[.,]\d+)*)*)",
+    r"(?P<value>(?:<=|>=|<|>|≤|≥)?\s*\d+(?:[.,]\d+)*(?:\s*(?:sampai|[-\u2013\u2014])\s*<?\s*\d+(?:[.,]\d+)*)?(?:\s*(?:,|dan)\s*<?\s*\d+(?:[.,]\d+)*)*)",
     re.IGNORECASE,
 )
 _TOKEN = re.compile(r"[a-zA-Z0-9]+")
@@ -117,7 +117,7 @@ def validate_submission(event: Mapping[str, object], payload: object) -> dict[st
         title = _title(value.get("title"), ticker)
         summary = _summary(value.get("summary"))
         normalized = validate_source_plan_fields(_text(event,"source_text"),value.get("plan_fields",[])) if version_two else None
-        _reject_unsafe_or_ungrounded(event, title, summary, normalized.fields if normalized else ())
+        _reject_unsafe_or_ungrounded(event, title, summary, normalized.fields if normalized else (), value.get("plan_fields", []) if version_two else ())
     except RetryableSubmissionError:
         raise
     except SubmissionValidationError as error:
@@ -166,7 +166,7 @@ def _summary(value: object) -> str:
     return SUMMARY_PREFIX + body
 
 
-def _reject_unsafe_or_ungrounded(event: Mapping[str, object], title: str, summary: str, fields=()) -> None:
+def _reject_unsafe_or_ungrounded(event: Mapping[str, object], title: str, summary: str, fields=(), source_spans=()) -> None:
     output = f"{title}\n{summary[len(SUMMARY_PREFIX):]}"
     if _FORBIDDEN_LEAKAGE.search(output):
         raise RetryableSubmissionError("source_instruction_leakage", "submission contains source instruction leakage")
@@ -178,11 +178,12 @@ def _reject_unsafe_or_ungrounded(event: Mapping[str, object], title: str, summar
     # Source text may contain stale historical prices, so token grounding alone
     # is not sufficient for a numerical claim in the generated title.
     approved = {field.label:field.value for field in fields}
-    _reject_noncanonical_plan_claims(title, plan, approved)
-    _reject_noncanonical_plan_claims(summary[len(SUMMARY_PREFIX):], plan, approved)
+    _reject_noncanonical_plan_claims(title, plan, approved, source, source_spans)
+    _reject_noncanonical_plan_claims(summary[len(SUMMARY_PREFIX):], plan, approved, source, source_spans)
     allowed = set(_TOKEN.findall(source.lower()))
     allowed.update(_TOKEN.findall(" ".join(plan.values()).lower()))
     allowed.update(_TOKEN.findall(" ".join(approved).lower()))
+    allowed.update(_TOKEN.findall("Entry Stop-loss Target".lower()))
     allowed.add(_ticker(event).lower())
     output_tokens = _TOKEN.findall(output.lower())
     unsupported = [token for token in output_tokens if token not in allowed and token not in _ALLOWED_CONNECTORS]
@@ -190,18 +191,24 @@ def _reject_unsafe_or_ungrounded(event: Mapping[str, object], title: str, summar
         raise RetryableSubmissionError("ungrounded_claims", "submission contains ungrounded claims")
 
 
-def _reject_noncanonical_plan_claims(summary: str, plan: Mapping[str, str], approved=None) -> None:
+def _reject_noncanonical_plan_claims(summary: str, plan: Mapping[str, str], approved=None, source="", source_spans=()) -> None:
     """Require visible numerical plan claims to repeat a normalized PlanSource value."""
     summary = re.sub(r"[*_`]", "", summary)
     for match in _PLAN_CLAIM.finditer(summary):
         field = _plan_field(match.group("label"))
         label = match.group("label").lower()
         number = re.search(r"\d+",label)
-        canonical = "Entry" if field == "buy_area" else (f"Target {int(number.group()) if number else 1}" if field == "targets" else "Stop-loss")
+        if field == "buy_area":
+            canonical = "Entry"
+        elif field == "targets":
+            canonical = f"Target {int(number.group()) if number else 1}"
+        else:
+            canonical = f"Stop-loss {int(number.group())}" if number and int(number.group()) >= 2 else "Stop-loss"
         permitted = [plan[field]]
         if approved and canonical in approved:
             permitted.append(approved[canonical])
-        if _normalize_plan_claim(match.group("value")) not in {_normalize_plan_claim(item) for item in permitted}:
+        if (_normalize_plan_claim(match.group("value")) not in {_normalize_plan_claim(item) for item in permitted}
+                and not supports_source_plan_claim(source, canonical, match.group("value"), source_spans)):
             raise RetryableSubmissionError("noncanonical_plan", "submission contains noncanonical source plan values")
 
 

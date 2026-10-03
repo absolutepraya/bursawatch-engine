@@ -755,6 +755,8 @@ def submit_analysis(
         if until <= now:
             raise ValueError("analysis lease expired")
         event = deserialize_queue_event(record["event"])
+        import summary_context
+        optional_context = summary_context.claim_from_state(value, event_key, state_path.parent / "summary-context")
         route_override = agent_protocol.deterministic_route(profile, event)
         result = agent_protocol.validate_submission(profile, payload, event=event)
         if profile.enable_llm_routing and result.get("is_relevant") is not False:
@@ -781,6 +783,7 @@ def submit_analysis(
         record["agent_lease_until"] = None
         record["agent_phase"] = "filtered" if result.get("is_relevant") is False or selected_items == [] else "ready"
         state.save(state_path, value)
+        summary_context.cleanup_claim_context(optional_context)
         errors: list[str] = []
         delivered = _deliver_ready(
             value,

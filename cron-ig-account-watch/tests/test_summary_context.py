@@ -56,3 +56,17 @@ def test_initial_news_claim_is_text_only(config_path, tmp_path, monkeypatch):
     item = agent_protocol.agent_item(profile,event,news_screening=True)
     assert item["ocr_assets"] == [] and item["vision_asset_paths"] == []
     assert "Slide" not in item["post_text"] and "Issuer disclosed its results" in item["post_text"]
+
+
+def staged_claim(tmp_path, monkeypatch, key):
+    """A verified bundle's private path, isolated from required delivery media."""
+    import hashlib
+    module = owner()
+    from bursawatch_source_media import SummaryContextClaim, claim_id
+    claim = SummaryContextClaim(key, (datetime.now(timezone.utc)+timedelta(minutes=10)).isoformat(), "a"*64, 1, "b"*64, "Issuer disclosed results", (), tmp_path / "optional")
+    directory = claim.root / hashlib.sha256(claim_id(claim).encode()).hexdigest()
+    directory.mkdir(parents=True, mode=0o700)
+    asset = directory / "analysis.png"
+    asset.write_bytes(b"isolated analysis bytes")
+    monkeypatch.setattr(module, "claim_from_state", lambda *args: claim)
+    return asset

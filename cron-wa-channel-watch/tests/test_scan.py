@@ -203,7 +203,8 @@ def test_expired_agent_lease_is_reclaimable(tmp_path):
     assert reclaimed["wakeAgent"] is True
 
 
-def test_submission_moves_event_to_ready_or_filtered(tmp_path):
+def test_submission_moves_event_to_ready_or_filtered(tmp_path, monkeypatch):
+    from test_summary_context import staged_claim
     queue_dir = tmp_path / "queue"
     config_path = write_config(tmp_path)
     state_path = tmp_path / "state.json"
@@ -214,6 +215,7 @@ def test_submission_moves_event_to_ready_or_filtered(tmp_path):
     enqueue(queue_dir, event("new", "2026-09-10T00:01:00Z"))
     result = scan.run(config_path=config_path, state_path=state_path, queue_dir=queue_dir, now=now + timedelta(minutes=1), no_post=True)
     key = result["item"]["event_key"]
+    optional_asset = staged_claim(tmp_path, monkeypatch, key)
     submitted = scan.submit_analysis(
         config_path=config_path,
         state_path=state_path,
@@ -222,6 +224,7 @@ def test_submission_moves_event_to_ready_or_filtered(tmp_path):
         no_post=True,
     )
     assert submitted["agent_phase"] == "filtered"
+    assert not optional_asset.exists()
 
     with pytest.raises(ValueError):
         scan.submit_analysis(config_path=config_path, state_path=state_path, now=now + timedelta(minutes=2), no_post=True, payload={"event_key": key, "is_relevant": False})

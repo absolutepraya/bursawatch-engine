@@ -10,7 +10,7 @@ if not _library.is_dir():
     _library = Path.home() / ".agents/skills/lib-bursawatch-source-media/bin"
 if str(_library) not in sys.path:
     sys.path.insert(0, str(_library))
-from bursawatch_source_media import SourceMediaClient, SummaryContextClaim, context_instruction, image_refs, prepare_claim_context
+from bursawatch_source_media import SourceMediaClient, SummaryContextClaim, cleanup_claim_context, context_instruction, image_refs, prepare_claim_context
 
 
 def _client():

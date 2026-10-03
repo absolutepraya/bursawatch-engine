@@ -63,3 +63,17 @@ def test_native_x_ledger_resolves_active_bound_source(tmp_path, monkeypatch):
     event["agent_phase"] = "ready"; event["agent_lease_until"] = None
     # Lookup is read-only and ignores inactive owner records.
     assert m.claim_from_state(value,f'{event["profile_id"]}:{event["post_id"]}',tmp_path) is None
+
+
+def staged_claim(tmp_path, monkeypatch, key):
+    """A verified bundle's private path, isolated from required delivery media."""
+    import hashlib
+    module = owner()
+    from bursawatch_source_media import SummaryContextClaim, claim_id
+    claim = SummaryContextClaim(key, (datetime.now(timezone.utc)+timedelta(minutes=10)).isoformat(), "a"*64, 1, "b"*64, "Issuer disclosed results", (), tmp_path / "optional")
+    directory = claim.root / hashlib.sha256(claim_id(claim).encode()).hexdigest()
+    directory.mkdir(parents=True, mode=0o700)
+    asset = directory / "analysis.png"
+    asset.write_bytes(b"isolated analysis bytes")
+    monkeypatch.setattr(module, "claim_from_state", lambda *args: claim)
+    return asset

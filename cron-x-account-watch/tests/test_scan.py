@@ -260,6 +260,7 @@ def test_control_plane_reason_sanitizes_source_secrets_urls_and_paths():
 
 
 def test_live_agent_submission_reports_structured_events(tmp_path, monkeypatch, config_path):
+    from test_summary_context import staged_claim
     profile_config = __import__("config").load_watch_config(config_path)
     profile = profile_config.profiles[0]
     storage = tmp_path / "state.json"
@@ -313,6 +314,11 @@ def test_live_agent_submission_reports_structured_events(tmp_path, monkeypatch, 
         lambda _path: SimpleNamespace(config=profile_config, revision=17),
     )
     monkeypatch.setattr(scan, "_control_plane_reporter", lambda: reporter)
+    optional_asset = staged_claim(tmp_path, monkeypatch, f"{profile.id}:101")
+    with pytest.raises(ValueError):
+        scan.submit_analysis_payload({"event_key": f"{profile.id}:101", "is_relevant": "invalid"}, dry_run=True)
+    assert optional_asset.is_file()
+    reporter.started.clear(); reporter.events.clear(); reporter.finished.clear()
 
     result = scan.submit_analysis_payload(
         {"event_key": f"{profile.id}:101", "is_relevant": False},
@@ -320,6 +326,7 @@ def test_live_agent_submission_reports_structured_events(tmp_path, monkeypatch, 
     )
 
     assert result == {"submitted": True, "ignored": True, "delivered": 0}
+    assert not optional_asset.exists()
     assert reporter.started == [(17, "x-post-source", "agent_submission")]
     assert [event[2]["event_type"] for event in reporter.events] == [
         "agent.submission.started",

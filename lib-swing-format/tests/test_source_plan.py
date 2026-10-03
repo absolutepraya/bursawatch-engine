@@ -63,3 +63,24 @@ def test_board_reader_only_reads_canonical_labels_and_preserves_target_number():
     fields = api().fields_from_canonical_message(message)
     assert [(f.label,f.value) for f in fields] == [("Entry",">=340"),("Stop-loss","<330"),("Target 2","380")]
     assert not api().fields_from_canonical_message("Watch on 340\nSupport utama 330")
+
+
+@pytest.mark.parametrize("source", ["Entry 7600", "Entry 760–825", "Entry 760 to 825", "Entry 760 sampai 825", "Entry 760,50"])
+def test_evidence_span_cannot_truncate_a_source_level(source):
+    result = api().validate_source_plan_fields(source, [field(source, "Entry 760", "Entry", "760")])
+    assert result.fields == ()
+
+
+def test_evidence_span_cannot_turn_target_number_into_its_level():
+    source = "Target 2 288"
+    assert api().validate_source_plan_fields(source, [field(source, "Target 2", "Target 1", "2")]).fields == ()
+
+
+@pytest.mark.parametrize(("source", "label", "value"), [
+    ("Stoploss 260", "Stop-loss", "260"), ("SL 260", "Stop-loss", "260"),
+    ("Target 288", "Target 1", "288"), ("TP 288", "Target 1", "288"),
+    ("Target 2: 298", "Target 2", "298"), ("SL 2: <250", "Stop-loss 2", "<250"),
+])
+def test_label_number_is_distinct_from_source_level(source, label, value):
+    result = api().validate_source_plan_fields(source, [field(source, source, label, value)])
+    assert result.rejected_count == 0 and result.fields[0].value == value

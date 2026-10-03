@@ -43,3 +43,8 @@ without model calls, OCR, source discovery or required-media delivery changes.
 `download` accepts optional `max_bytes` and `timeout_seconds` bounds; existing
 calls retain their behavior. Cleanup removes only the specified private
 analysis binding, without touching source media or delivery attachments.
+Owners call `cleanup_claim_context` after accepted analysis is saved, including
+irrelevant results. Rejected submissions retain their paths while inspection
+may continue. Preparation records the lease deadline privately; subsequent
+claims or preparation call `expire_claim_context` to prune abandoned expired
+bundles. No additional job or required-media cleanup is introduced.

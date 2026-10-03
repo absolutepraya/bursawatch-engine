@@ -45,3 +45,17 @@ def test_active_owner_claim_prepares_only_requested_original(tmp_path, monkeypat
     request["asset_indexes"] = [0]
     assert m.prepare_summary_context(request,now=now,no_post=True)["assets"] == []
     assert calls == ["opaque"]
+
+
+def staged_claim(tmp_path, monkeypatch, key):
+    """A verified bundle's private path, isolated from required delivery media."""
+    import hashlib
+    module = owner()
+    from bursawatch_source_media import SummaryContextClaim, claim_id
+    claim = SummaryContextClaim(key, (datetime.now(timezone.utc)+timedelta(minutes=10)).isoformat(), "a"*64, 1, "b"*64, "Issuer disclosed results", (), tmp_path / "optional")
+    directory = claim.root / hashlib.sha256(claim_id(claim).encode()).hexdigest()
+    directory.mkdir(parents=True, mode=0o700)
+    asset = directory / "analysis.png"
+    asset.write_bytes(b"isolated analysis bytes")
+    monkeypatch.setattr(module, "claim_from_state", lambda *args: claim)
+    return asset

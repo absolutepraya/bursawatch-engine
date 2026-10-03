@@ -56,6 +56,11 @@ uses at most four process-local download workers, verifies digest, size, MIME
 and signature, and writes atomic mode-0600 files under a mode-0700
 binding-derived directory. It accepts no provider URL or LLM-selected ref/path.
 Guarded cleanup acts only within the private binding root.
+Accepted analysis removes its own temporary bundle after persistence. Rejected
+analysis keeps its assets available until its lease expires. Expiry metadata
+lives beside the private assets; later claims/preparations prune abandoned
+expired bundles. This adds no scheduler or cleanup job and never touches
+required source delivery media.
 
 ## Compatible Swing records
 
@@ -68,6 +73,9 @@ Generic support cannot become a stop. Invalid/conflicting optional fields are
 omitted without discarding a supported summary. Base Entry, Stop-loss and
 Target 1 use `-` when absent; additional numbered fields exist only if supplied.
 No target renumbering or range midpoint is introduced.
+Evidence spans must cover complete levels, including every range endpoint and
+label number. Prose grounding is independent of optional field acceptance, so
+a discarded normalization does not reject a correctly supported summary.
 
 New version-2 Kelas presentations and new Phintraco BUY/SELL presentations save
 exact message chunks and destination before delivery. The optional closed

@@ -180,3 +180,42 @@ def cleanup_summary_images(root: Path, binding: str) -> None:
             shutil.rmtree(directory)
     except (OSError, ValueError):
         pass
+
+
+def record_summary_expiry(root: Path, binding: str, expires_at: float) -> None:
+    """Retain the claim's deadline beside its temporary assets, never in owner state."""
+    if not math.isfinite(expires_at):
+        raise ValueError("invalid optional image expiry")
+    directory = _directory(root, binding, create=False)
+    descriptor, temporary = tempfile.mkstemp(prefix=".expiry-", dir=directory)
+    try:
+        with os.fdopen(descriptor, "w") as output:
+            output.write(str(expires_at))
+        os.replace(temporary, directory / ".expires-at")
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def expire_summary_images(root: Path, now: float) -> None:
+    """Opportunistically discard expired private bundles, preserving active ones."""
+    try:
+        root = Path(root).absolute()
+        if root.is_symlink() or not root.is_dir() or root.stat().st_uid != os.getuid():
+            return
+        for directory in root.iterdir():
+            if (re.fullmatch(r"[0-9a-f]{64}", directory.name) is None
+                    or directory.is_symlink() or not directory.is_dir()
+                    or directory.stat().st_uid != os.getuid()):
+                continue
+            expiry = directory / ".expires-at"
+            if (expiry.is_symlink() or not expiry.is_file() or expiry.stat().st_size > 64
+                    or expiry.stat().st_uid != os.getuid()):
+                continue
+            try:
+                deadline = float(expiry.read_text())
+            except (OSError, ValueError):
+                continue
+            if math.isfinite(deadline) and deadline <= now:
+                shutil.rmtree(directory)
+    except (OSError, ValueError):
+        pass
