@@ -25,24 +25,27 @@
 .dframe { position: absolute; background: var(--dbg); border-radius: .8cqw; border: .1cqw solid #313137; padding: 1.4cqw 1.6cqw; font-family: "Figtree"; color: var(--dtext); overflow: hidden; box-shadow: 0 2cqw 4cqw rgba(0,0,0,.55); }
 .dch { font-weight: 800; font-size: 1.4cqw; color: var(--dmuted); padding-bottom: .9cqw; border-bottom: .1cqw solid #313137; margin-bottom: 1cqw; }
 .dmsg { margin-bottom: 1.2cqw; }
-.dhead { display: flex; align-items: center; gap: .9cqw; }
+.dhead { display: flex; align-items: flex-start; gap: .9cqw; }
+.dhead > div { line-height: 1.25; padding-top: .05cqw; }
 .dhead .av { width: 3.2cqw !important; height: 3.2cqw !important; }
 .botname { color: #E4892F; font-weight: 700; font-size: 1.6cqw; }
 .app { background: var(--blurple); color: #fff; font-size: .9cqw; font-weight: 800; border-radius: .25cqw; padding: .1cqw .35cqw; margin-left: .5cqw; vertical-align: .15cqw; }
 .dtime { color: var(--dmuted); font-size: 1.1cqw; margin-left: .6cqw; }
-.dbody { margin-left: 4.1cqw; margin-top: -.9cqw; }
+.dbody { margin-left: 4.1cqw; margin-top: -1.2cqw; }
 .dtitle { display: block; font-weight: 800; font-size: 1.6cqw; line-height: 1.3; }
 .dtitle img { display: inline-block; width: 1.75cqw; height: 1.75cqw; border-radius: .3cqw; vertical-align: -.33cqw; margin-right: .45cqw; }
-.dtitle img.em { width: 1.2cqw; height: 1.2cqw; vertical-align: -.12cqw; margin: 0 0 0 .3cqw; }
+.dtitle img.em, .plan img, .pr img { width: 1.7cqw; height: 1.7cqw; vertical-align: -.42cqw; margin: 0 0 0 .1cqw; border-radius: 0; }
 .plan { display: grid; grid-template-columns: 1fr 1fr; gap: .2cqw 1.2cqw; margin-top: .5cqw; font-size: 1.3cqw; color: #DBDEE1; }
 .plan b { font-weight: 800; }
-.plan img { width: 1.1cqw; height: 1.1cqw; vertical-align: -.1cqw; }
+.reason { margin-top: .4cqw; font-size: 1.3cqw; line-height: 1.4; color: #DBDEE1; }
+.reason b { font-weight: 800; }
+
 .dauth { display: flex; align-items: center; gap: .5cqw; color: var(--dmuted); font-size: 1.3cqw; margin-top: .3cqw; }
 .dtext { font-size: 1.35cqw; line-height: 1.45; margin-top: .4cqw; color: #c9ccd0; }
 .price { margin-top: .8cqw; font-size: 1.4cqw; }
 .prow { display: grid; grid-template-columns: 1fr 1fr; gap: .2cqw 1cqw; margin-top: .3cqw; }
 .pr { display: flex; align-items: center; gap: .4cqw; }
-.pr img { width: 1.2cqw; height: 1.2cqw; }
+.pr img { margin: 0 -.2cqw 0 -.3cqw; }
 .dimg { width: 70%; border-radius: .5cqw; margin-top: .7cqw; }
 
 /* forum */

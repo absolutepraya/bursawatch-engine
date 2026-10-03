@@ -36,7 +36,7 @@
         #s4-thread { opacity: 0; padding: 26px 30px; }
         #s4-thread .dimg { width: 78%; }
         #s4-line { position: absolute; left: 760px; top: 538px; width: 1080px; height: 4px; background: #DEA777; transform-origin: 50% 50%; }
-        .cap2 { position: absolute; left: 116px; top: 50%; transform: translateY(-50%); font-weight: 700; font-size: 64px; line-height: 1.22; letter-spacing: -0.02em; max-width: 590px; color: #EEEAE3; }
+        .cap2 { position: absolute; left: 116px; top: 50%; transform: translateY(-50%); font-weight: 700; font-size: 64px; line-height: 1.22; letter-spacing: -0.02em; max-width: 480px; color: #EEEAE3; }
         .cap2 .c1 { color: #DEA777; }
         .crt { display: inline-block; width: 0.28em; height: 0.92em; background: #DEA777; vertical-align: -0.12em; margin-left: 0.1em; }
         #s4-cursor { position: absolute; left: 0; top: 0; width: 34px; height: 46px; opacity: 0; }
@@ -109,8 +109,8 @@
           typeCaption("#s4-cap3", "#s4-crt3", OPEN + 0.3, D - 0.2);
 
           // ---- the kick returns: punch into the analyst's chart
-          tl.to("#s4-cam", { scale: 1.32, x: 70, y: 0, duration: 0.5, ease: "expo.out" }, PUNCH);
-          tl.to("#s4-cam", { scale: 1.37, duration: D - PUNCH - 0.5, ease: "none" }, PUNCH + 0.5);
+          tl.to("#s4-cam", { scale: 1.24, x: 20, y: 0, duration: 0.5, ease: "expo.out" }, PUNCH);
+          tl.to("#s4-cam", { scale: 1.28, duration: D - PUNCH - 0.5, ease: "none" }, PUNCH + 0.5);
 
           // ---- exit into the copper line
           tl.to("#s4-cam", { scaleY: 0.004, duration: 0.2, ease: "power4.in" }, D - 0.24);

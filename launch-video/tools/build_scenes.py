@@ -105,6 +105,7 @@ def thread():
             f'<div class="dtitle"><img src="{E}/phintraco.png">ENRG: Buy</div>{head}'
             f'<div class="plan"><span><b>Type:</b> Trading Buy <img src="{E}/up.png"></span><span><b>Entry:</b> 1220 to 1240</span>'
             f'<span><b>Stop-loss:</b> &lt;1195</span><span><b>Target 1:</b> 1325 to 1350</span><span><b>Target 2:</b> 1400 to 1425</span></div>'
+            f'<div class="reason"><b>Reasons:</b> Rebound pasca uji support area 1200 membuka peluang uji pivot area 1350. Golden cross pada Stochastic RSI sejalan dengan indikasi tersebut.</div>'
             f'<img class="dimg" id="s4-chart" src="assets/product/enrg-plan.jpg"></div></div>')
     tp1 = (f'<div class="dmsg" id="s4-t1">{SB.bot_header("", "9/25/26, 09:21")}<div class="dbody">'
            f'<div class="dtitle"><img src="{E}/phintraco.png">ENRG: Target 1350 achieved <img class="em" src="{E}/green.png"></div>{head}</div></div>')
