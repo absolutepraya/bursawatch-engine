@@ -301,9 +301,9 @@ def test_partial_source_failure_queues_event_ocr_and_keeps_successful_assets(tmp
     assert saved["profiles"][profile.id]["cursor"] == "asset-failure"
     assert [asset["source"]["index"] for asset in event["downloaded_publication"]["assets"]] == [1]
     assert [asset["source"]["index"] for asset in event["downloaded_publication"]["failed_assets"]] == [0]
-    assert ocr_calls == [1]
+    assert ocr_calls == []
     decision = state.deserialize_vision_decision(event["vision_decision"])
-    assert decision.mode is vision_gate.VisionMode.VISION_PARTIAL
+    assert decision.mode is vision_gate.VisionMode.TEXT_ONLY
 
 
 def test_retried_event_owns_media_before_stale_cleanup_runs(tmp_path, monkeypatch, config_path):
@@ -333,7 +333,7 @@ def test_retried_event_owns_media_before_stale_cleanup_runs(tmp_path, monkeypatc
     assert state.load_state(storage)["outbox"][0]["event_key"] == f"{profile.id}:{post.publication_id}"
 
 
-def test_carousel_is_one_event_and_every_image_is_ocrd(tmp_path, monkeypatch, config_path):
+def test_carousel_keeps_delivery_originals_without_upfront_ocr(tmp_path, monkeypatch, config_path):
     profile = config.load_watch_config(config_path).profiles[0]
     storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
     _initialize_cursor(storage, profile, _post(profile.id, "baseline", 0))
@@ -355,9 +355,9 @@ def test_carousel_is_one_event_and_every_image_is_ocrd(tmp_path, monkeypatch, co
     event = saved["outbox"][0]
     assert result["wakeAgent"] is False
     assert len(saved["outbox"]) == 1
-    assert calls == [0, 1]
+    assert calls == []
     assert len(event["downloaded_publication"]["assets"]) == 2
-    assert len(event["ocr_results"]) == 2
+    assert event["ocr_results"] == []
 
 
 @pytest.mark.parametrize(
@@ -373,7 +373,7 @@ def test_carousel_is_one_event_and_every_image_is_ocrd(tmp_path, monkeypatch, co
         ),
     ],
 )
-def test_ocr_context_reaches_llm_relevance_decision(
+def test_caption_alone_reaches_llm_relevance_decision(
     tmp_path,
     monkeypatch,
     config_path,
@@ -418,13 +418,13 @@ def test_ocr_context_reaches_llm_relevance_decision(
     assert result["wakeAgent"] is True
     assert result["item"]["event_key"].endswith(":education")
     assert len(saved["outbox"]) == 1
-    assert ocr_calls == [0, 1]
+    assert ocr_calls == []
     assert len(heartbeats) == 1
     assert "1 queued" in heartbeats[0]
     assert "filters:" not in heartbeats[0]
 
 
-def test_ocr_failure_chooses_partial_vision_and_sparse_text_chooses_full(tmp_path, monkeypatch, config_path):
+def test_optional_ocr_failure_and_sparse_caption_do_not_trigger_vision(tmp_path, monkeypatch, config_path):
     profile = config.load_watch_config(config_path).profiles[0]
     storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
     _initialize_cursor(storage, profile, _post(profile.id, "baseline", 0))
@@ -443,8 +443,8 @@ def test_ocr_failure_chooses_partial_vision_and_sparse_text_chooses_full(tmp_pat
     scan.run(now=NOW + timedelta(minutes=1), dry_run=True)
     saved = state.load_state(storage)
     decision = state.deserialize_vision_decision(saved["outbox"][0]["vision_decision"])
-    assert decision.mode is vision_gate.VisionMode.VISION_PARTIAL
-    assert decision.asset_ids == (1,)
+    assert decision.mode is vision_gate.VisionMode.TEXT_ONLY
+    assert decision.asset_ids == ()
 
     storage2, media_root2 = _install_paths(monkeypatch, tmp_path / "sparse", config_path)
     _initialize_cursor(storage2, profile, _post(profile.id, "baseline2", 0))
@@ -455,11 +455,11 @@ def test_ocr_failure_chooses_partial_vision_and_sparse_text_chooses_full(tmp_pat
     scan.run(now=NOW + timedelta(minutes=1), dry_run=True)
     sparse_state = state.load_state(storage2)
     sparse_decision = state.deserialize_vision_decision(sparse_state["outbox"][0]["vision_decision"])
-    assert sparse_decision.mode is vision_gate.VisionMode.VISION_FULL
-    assert sparse_decision.asset_ids == (0,)
+    assert sparse_decision.mode is vision_gate.VisionMode.TEXT_ONLY
+    assert sparse_decision.asset_ids == ()
 
 
-def test_reel_frames_are_ocrd_and_persisted_for_analysis(tmp_path, monkeypatch, config_path):
+def test_reel_originals_persist_without_analysis_sampling(tmp_path, monkeypatch, config_path):
     profile = config.load_watch_config(config_path).profiles[0]
     storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
     _initialize_cursor(storage, profile, _post(profile.id, "baseline", 0))
@@ -490,9 +490,9 @@ def test_reel_frames_are_ocrd_and_persisted_for_analysis(tmp_path, monkeypatch, 
 
     saved = state.load_state(storage)
     event = saved["outbox"][0]
-    assert ocr_calls == [1, 2]
-    assert [item["source"]["kind"] for item in event["downloaded_publication"]["assets"]] == ["video", "image", "image"]
-    assert [item["source"]["index"] for item in event["downloaded_publication"]["assets"]] == [0, 1, 2]
+    assert ocr_calls == []
+    assert [item["source"]["kind"] for item in event["downloaded_publication"]["assets"]] == ["video", "image"]
+    assert [item["source"]["index"] for item in event["downloaded_publication"]["assets"]] == [0, 1]
 
 
 def test_reel_delivery_sends_only_first_image_not_sampled_frames(tmp_path, monkeypatch, config_path):
@@ -854,7 +854,7 @@ def test_expired_agent_lease_is_reclaimed_by_next_non_no_post_run(tmp_path, monk
     monkeypatch.setattr(scan.rsshub, "fetch_profile_items", lambda *_args, **_kwargs: [])
     heartbeats: list[str] = []
     monkeypatch.setattr(scan.discord, "post_text", lambda content, *_args: heartbeats.append(content) or "heartbeat")
-    monkeypatch.setattr(scan.agent_protocol, "agent_item", lambda _profile, _event: {
+    monkeypatch.setattr(scan.agent_protocol, "agent_item", lambda _profile, _event, **_kwargs: {
         "event_key": event["event_key"],
         "profile_handle": profile.handle,
         "profile_name": profile.display_name,

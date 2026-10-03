@@ -1361,9 +1361,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="queue one verified Phintraco Quick Note published today without moving the source cursor",
     )
     backfill.add_argument("--message-id", required=True, type=int)
+    images = subparsers.add_parser("prepare-summary-images")
+    images.add_argument("--json", required=True, dest="payload")
     arguments = parser.parse_args(argv)
     try:
-        if arguments.command == "submit-classification":
+        if arguments.command == "prepare-summary-images":
+            import summary_context
+            result = summary_context.prepare_summary_context(json.loads(arguments.payload))
+        elif arguments.command == "submit-classification":
             payload = json.loads(arguments.payload)
             result = asyncio.run(submit_classification_payload(payload))
         elif arguments.command == "backfill-phintraco-quick-note":

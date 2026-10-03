@@ -354,8 +354,14 @@ def test_queue_only_run_skips_source_fetch_and_claims_oldest_agent(tmp_path, mon
     assert saved["outbox"][0]["agent_phase"] == "awaiting_agent"
 
 
-def test_queue_worker_passes_authored_and_quoted_vision_images_to_the_agent(tmp_path, monkeypatch, config_path):
+@pytest.mark.parametrize("swing_possible", [False, True])
+def test_queue_worker_keeps_upfront_vision_only_for_specialized_swing(tmp_path, monkeypatch, config_path, swing_possible):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
+    if swing_possible:
+        from dataclasses import replace
+        from models import DiscordChannel
+        profile = replace(profile, discord_channels=(*profile.discord_channels, DiscordChannel("id_stocks_swing","1525102458253217803","Swing")))
+        monkeypatch.setattr(scan.config, "load_watch_config_for_run", lambda *args: __import__("config").LoadedWatchConfig(__import__("models").WatchConfig(1,(profile,)),None))
     current = datetime(2026, 8, 24, 10, 0, tzinfo=scan.WIB)
     storage = tmp_path / "state.json"
     post = SourcePost(
@@ -419,11 +425,11 @@ def test_queue_worker_passes_authored_and_quoted_vision_images_to_the_agent(tmp_
 
     result = scan.run(now=current, dry_run=False)
 
-    assert prepared == [(post, storage, False, (post,))]
+    assert prepared == ([(post, storage, False, (post,))] if swing_possible else [])
     assert prepared_articles == [((post,), False)]
-    assert result["item"]["vision_asset_paths"] == [str(authored), str(quoted)]
-    assert "Authored X post image 1" in result["item"]["post_text"]
-    assert "Quoted X post image 1" in result["item"]["post_text"]
+    assert result["item"]["vision_asset_paths"] == ([str(authored),str(quoted)] if swing_possible else [])
+    assert ("Authored X post image 1" in result["item"]["post_text"]) is swing_possible
+    assert ("Quoted X post image 1" in result["item"]["post_text"]) is swing_possible
     assert "Article 1 title: Article context" in result["item"]["post_text"]
     assert flock_operations == [
         scan.fcntl.LOCK_EX | scan.fcntl.LOCK_NB,
@@ -462,7 +468,7 @@ def test_queue_worker_discards_context_when_the_claimed_lease_changes(tmp_path, 
     monkeypatch.setattr(scan, "state_path", lambda: storage)
     monkeypatch.setattr(scan, "config_path", lambda: config_path)
     monkeypatch.setattr(scan, "_prepare_agent_vision", change_lease)
-    monkeypatch.setattr(scan, "_prepare_article_context", lambda *_args: None)
+    monkeypatch.setattr(scan, "_prepare_article_context", change_lease)
     monkeypatch.setattr(scan.discord, "post_text", lambda *args: None)
     monkeypatch.setenv("X_POST_WATCH_QUEUE_ONLY", "1")
 

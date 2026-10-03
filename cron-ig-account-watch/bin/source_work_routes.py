@@ -21,7 +21,7 @@ def _path(storage: Path, owner_event_key: str) -> Path:
 def _validate(value: object, owner_event_key: str) -> dict:
     if (
         type(value) is not dict
-        or set(value) != {"owner_event_key", "source_event_key", "content_hash", "profile_id", "publication_id", "capabilities", "work_keys", "outcome"}
+        or set(value) - {"summary_media_refs"} != {"owner_event_key", "source_event_key", "content_hash", "profile_id", "publication_id", "capabilities", "work_keys", "outcome"}
         or value["owner_event_key"] != owner_event_key
         or type(value["source_event_key"]) is not str or not _HASH.fullmatch(value["source_event_key"])
         or type(value["content_hash"]) is not str or not _HASH.fullmatch(value["content_hash"])
@@ -63,7 +63,7 @@ def write(storage: Path, value: dict) -> None:
         raise ValueError("Instagram source route directory is unsafe")
     existing = read(storage, owner_event_key)
     if existing is not None:
-        if existing != value:
+        if {k:v for k,v in existing.items() if k != "summary_media_refs"} != {k:v for k,v in value.items() if k != "summary_media_refs"} or ("summary_media_refs" in existing and existing["summary_media_refs"] != value.get("summary_media_refs")):
             raise ValueError("Instagram source route record conflicts")
         return
     descriptor, temporary = tempfile.mkstemp(prefix=".source-work-", dir=path.parent)

@@ -913,7 +913,10 @@ def run(
                     fcntl.flock(lock, fcntl.LOCK_UN)
                     try:
                         try:
-                            if event.get("source_media_refs") and not dry_run:
+                            swing_possible = any(channel.key == "id_stocks_swing" for channel in profiles[event["profile_id"]].discord_channels) and (not event.get("enabled_capabilities") or "swing_chart_context" in event["enabled_capabilities"])
+                            if not swing_possible:
+                                vision_bundle = None
+                            elif event.get("source_media_refs") and not dry_run:
                                 vision_bundle = vision_media.prepare(
                                     post, vision_media.default_root(storage),
                                     reference_meta=event["source_media_refs"],
@@ -948,10 +951,14 @@ def run(
                     thread_posts = None
                     vision_bundle = None
                     article_bundle = None
-            wake_payload = build_wake_payload(
-                agent_item(profiles[event["profile_id"]], post, thread_posts, vision_bundle, article_bundle)
-                if event and post else None
-            )
+            item = agent_item(profiles[event["profile_id"]], post, thread_posts, vision_bundle, article_bundle) if event and post else None
+            if item is not None:
+                import summary_context
+                item["instruction"] += summary_context.context_instruction(
+                    summary_context.claim_from_state(value, item["event_key"], storage.parent / "summary-context"),
+                    "~/.hermes/scripts/bursawatch-x-account-watch.sh prepare-summary-images --json",
+                )
+            wake_payload = build_wake_payload(item)
             try:
                 discord.post_text(
                     format_heartbeat(now, stats),
@@ -1209,9 +1216,14 @@ if __name__ == "__main__":
     recover = subparsers.add_parser("recover-missing")
     recover.add_argument("--status-url", action="append", required=True, dest="urls")
     recover.add_argument("--apply", action="store_true")
+    images = subparsers.add_parser("prepare-summary-images")
+    images.add_argument("--json", required=True, dest="payload")
     arguments = parser.parse_args()
     try:
-        if arguments.command == "submit-analysis":
+        if arguments.command == "prepare-summary-images":
+            import summary_context
+            result = summary_context.prepare_summary_context(json.loads(arguments.payload))
+        elif arguments.command == "submit-analysis":
             result = submit_analysis_payload(json.loads(arguments.payload))
         elif arguments.command == "recover-missing":
             result = recover_missing_source(arguments.urls, apply=arguments.apply)
