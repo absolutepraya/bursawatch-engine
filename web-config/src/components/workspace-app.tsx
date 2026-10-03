@@ -528,12 +528,7 @@ function SignedInWorkspace({
                 operatorJobs={records.operatorJobs}
                 observations={records.observations}
                 onSelectWatcher={selectWatcher}
-                statusLoaded={
-                  !records.operatorIssues.some(
-                    (issue) =>
-                      issue.resource === "operator-jobs" || issue.resource === "observations",
-                  )
-                }
+                statusLoaded={false}
               />
             </>
           )

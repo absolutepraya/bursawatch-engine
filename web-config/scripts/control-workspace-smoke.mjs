@@ -689,6 +689,52 @@ async function scenario(role) {
     }));
     assert.ok(report.actual <= report.width, `${label}: ${JSON.stringify(report)}`);
   };
+  const readableMobileNavigation = async (textSize) => {
+    await page.evaluate(() => document.fonts.ready);
+    await page.waitForFunction(() => {
+      const bar = document.querySelector(".connected-navigation-links");
+      const workspace = document.querySelector(".has-connected-navigation");
+      return parseFloat(getComputedStyle(workspace).paddingBottom) >= bar.getBoundingClientRect().height;
+    });
+    const layout = await navigation.evaluate((bar) => {
+      const links = [...bar.querySelectorAll("a")];
+      return links.map((link) => {
+        const box = link.getBoundingClientRect();
+        const label = link.querySelector("span");
+        const range = document.createRange();
+        range.selectNodeContents(label);
+        return {
+          label: label.textContent,
+          width: box.width, height: box.height, top: box.top, bottom: box.bottom,
+          left: box.left, right: box.right,
+          textLines: range.getClientRects().length,
+        };
+      });
+    });
+    assert.deepEqual(layout.map((link) => link.label), ["Overview", "Sources", "Workflows", "Jobs", "History", "Published", "Account"]);
+    assert.equal(new Set(layout.map((link) => link.top)).size, textSize === "100%" ? 2 : 4);
+    for (const link of layout) {
+      assert.ok(link.width >= 44 && link.height >= 44, `${link.label}: target too small`);
+      assert.ok(link.top >= 0 && link.bottom <= 900 && link.left >= 0 && link.right <= 375, `${link.label}: target clipped`);
+      assert.equal(link.textLines, 1, `${link.label}: label split across lines`);
+    }
+    assert.equal(await navigation.getByRole("link", { name: "Overview", exact: true }).getAttribute("aria-current"), "page");
+    await navigation.getByRole("link", { name: "Overview", exact: true }).focus();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    for (const { label } of layout) {
+      assert.equal(await page.evaluate(() => document.activeElement.textContent), label);
+      assert.equal(await page.evaluate(() => getComputedStyle(document.activeElement).outlineStyle), "solid");
+      await page.keyboard.press("Tab");
+    }
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    assert.equal(await page.evaluate(() => {
+      const footer = document.querySelector(".control-footer").getBoundingClientRect();
+      const bar = document.querySelector(".connected-navigation-links").getBoundingClientRect();
+      return footer.bottom <= bar.top + 1;
+    }), true, "The footer must remain reachable above the navigation");
+    await page.evaluate(() => window.scrollTo(0, 0));
+  };
   try {
     const documentResponse = await page.goto(`${target.origin}/workspace`);
     assert.equal(documentResponse.headers()["x-frame-options"], "DENY");
@@ -711,6 +757,9 @@ async function scenario(role) {
     await page
       .getByText("Up to 50 latest runs per watcher. This range may be incomplete.", { exact: true })
       .waitFor();
+    const overviewEvidence = page.locator(".control-watcher-operator-evidence");
+    assert.match(await overviewEvidence.nth(0).innerText(), /Shared Telegram reader \(active\)/);
+    assert.match(await overviewEvidence.nth(2).innerText(), /Stockbit Snips check \(active\)/);
     await noOverflow(`${role} desktop overview`);
     await capture("overview-desktop");
     await page.getByRole("radio", { name: "7 days", exact: true }).focus();
@@ -832,6 +881,9 @@ async function scenario(role) {
     await page.waitForURL(`${target.origin}/workspace/sources`);
     await page.getByRole("heading", { name: "Source Catalog", exact: true }).waitFor();
     await navigate("Workflows", "Workflows");
+    assert.equal(await page.locator(".control-watcher-operator-evidence").count(), 0);
+    assert.equal(await page.locator(".control-watcher-outcome").getByText("Configure", { exact: true }).count(), 3);
+    assert.doesNotMatch(await page.locator(".control-watcher-list").innerText(), /active schedules|No recorded run|unavailable|use unverified/);
     const workflowSearch = page.getByRole("searchbox", {
       name: "Search workflows",
       exact: true,
@@ -1142,6 +1194,7 @@ async function scenario(role) {
       if (textSize === "100%") await capture("jobs-375");
       await navigate("Overview", "Overview");
       await noOverflow(`${role} ${textSize} overview`);
+      await readableMobileNavigation(textSize);
       await capture(textSize === "100%" ? "overview-375" : "overview-375-text-200");
       await page.getByText("View activity table", { exact: true }).click();
       await noOverflow(`${role} ${textSize} activity table`);
