@@ -386,3 +386,29 @@ def test_summary_requires_nonempty_text(load_fixture, summary):
     payload["summary"] = summary
     with pytest.raises(ValueError):
         _validate(payload)
+
+
+def test_tuntun_industry_category_keeps_macro_route(load_fixture):
+    import agent_protocol
+    from domain import Destination
+    candidate = CompanyCandidate(Provider.TUNTUN, 13597, None, SourceKind.TUNTUN_UPDATE_INDUSTRY, datetime.now(timezone.utc), "Kebijakan menambah kapasitas jaringan; perusahaan disebut memiliki bisnis kabel.", False)
+    select = getattr(agent_protocol, "presentation_category", None)
+    assert callable(select)
+    assert select(candidate) == "industry"
+    item = agent_item(candidate)
+    assert agent_protocol.news_format.category_instruction("industry") in item["instruction"]
+    payload = json.loads(load_fixture("classification-valid.json"))
+    payload.update(candidate_key=candidate.key, ticker="", title="Penambahan kapasitas jaringan", route="macro_news", summary="Kebijakan menambah kapasitas jaringan. Perusahaan kabel yang disebut dalam sumber berpotensi menerima tambahan permintaan jika pembangunan terlaksana.")
+    assert validate_agent_submission(candidate, payload) is EventClass.MATERIAL_CONTRACT
+
+
+def test_industry_category_preserves_destination_and_projection():
+    from dataclasses import replace
+    import publication_projection
+    import scan
+    from selection import SelectionCandidate
+    from domain import Destination
+    candidate = CompanyCandidate(Provider.TUNTUN, 13597, None, SourceKind.TUNTUN_UPDATE_INDUSTRY, datetime.now(timezone.utc), "Kapasitas jaringan meningkat.", False)
+    item = SelectionCandidate(candidate=candidate, event_class=EventClass.MATERIAL_CONTRACT, ranking_band=1, material_facts=("Kapasitas jaringan meningkat",), dedupe_facts=("jaringan",), summary="Kapasitas jaringan meningkat.", title="Kapasitas jaringan", route=Destination.MACRO_NEWS)
+    assert scan._delivery_channel(item) == config.active_watch_config().industry_news_channel_id
+    assert publication_projection._publication_type(item) == ("industry_news", "id_industry_news")

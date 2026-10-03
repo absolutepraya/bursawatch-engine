@@ -23,7 +23,16 @@ _CATEGORY_INSTRUCTIONS: dict[PresentationCategory, str] = {
         "claim while delivering supported news. Dense releases may retain only material indicators, with their "
         "context. Do not require a table or a fixed paragraph count. "
     ),
-    "industry": "",
+    "industry": (
+        "For industry news, use only supplied publication evidence, eligible-post image context and explicitly "
+        "provided source context. Separate reported developments from company implications with attribution "
+        "and qualified wording. A qualitative company implication is allowed only when supplied evidence "
+        "establishes specific exposure and a direct connecting mechanism, even without a quantified effect. "
+        "Preserve source forecasts and their assumptions. Do not invent impact size, turn a policy target "
+        "into a contract award, or predict a share-price move. Omit unsupported implications and still deliver "
+        "eligible industry news. Company impact is optional; no mandatory field or block, external research, "
+        "or automatic related-company discovery. "
+    ),
     "swing": "",
 }
 

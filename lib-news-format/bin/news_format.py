@@ -25,7 +25,7 @@ WRITING_INSTRUCTION = COMMON_WRITING_INSTRUCTION + (
     "For issuer news, start the headline with the exact exchange TICKER followed by a colon. "
     "For macro or industry news, use a natural headline. Return plain summary text without a Ringkasan label; "
     "the renderer adds it once. Do not generate the latest quote or 1D/1W/1M/3M tracker in the summary. "
-) + category_instruction("macro")
+) + category_instruction("macro") + category_instruction("industry")
 ITEMS_INSTRUCTION = (
     "Split clearly independent issuer developments into ordered items, one per issuer, even when several dividends or "
     "suspension reopenings share a sentence. GIAA rights issue and UNTR buyback are two items; dividends for DADA and NICL, "

@@ -60,3 +60,10 @@ context without deriving it solely from a delivery route. Macro guidance
 preserves figure roles, periods, units, bases, revisions, and uncertainty.
 Summary style is advisory; owner schema, source-safety and transport checks
 remain authoritative. The legacy `WRITING_INSTRUCTION` export stays available.
+
+Industry guidance distinguishes reported facts from qualified company impacts
+using supplied specific exposure evidence and a direct connecting mechanism.
+It adds no research/discovery call or output field. Unsupported implications
+are omitted while eligible news remains deliverable. Tuntun's owner selects
+Industry presentation by source kind even though its accepted route is
+`macro_news`; delivery and feed routing are unchanged.
