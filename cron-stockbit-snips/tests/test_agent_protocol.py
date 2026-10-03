@@ -103,3 +103,17 @@ def test_ringkasan_marker_is_renderer_owned(article: Article) -> None:
     payload = valid_payload(article)
     payload["summary"] = "*(Ringkasan)* SWAP memiliki bisnis produk kesehatan."
     assert validate_submission(article, payload).summary == "SWAP memiliki bisnis produk kesehatan."
+
+
+def test_flexible_summary_is_accepted(article):
+    payload = valid_payload(article)
+    payload["summary"] = "SWAP memproduksi produk kesehatan. Produk ditawarkan. Sumber menjelaskan bisnis.\n\nPenawaran umum direncanakan. Proses berlangsung. Informasi bersumber"
+    assert validate_submission(article, payload).summary == payload["summary"]
+
+
+@pytest.mark.parametrize("summary", ["", " ", None, 4])
+def test_summary_requires_nonempty_text(article, summary):
+    payload = valid_payload(article)
+    payload["summary"] = summary
+    with pytest.raises(ValueError):
+        validate_submission(article, payload)

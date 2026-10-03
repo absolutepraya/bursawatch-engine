@@ -298,7 +298,6 @@ def test_summary_marker_is_owned_by_the_renderer(load_fixture):
     ("field", "value", "error"),
     [
         ("event_class", "unknown_class", "event_class"),
-        ("summary", "First. Second. Third. Fourth. Fifth. Sixth.", "summary"),
         ("ranking_band", 6, "ranking_band"),
         ("ranking_band", True, "ranking_band"),
         ("material_facts", ["fact", 7], "material_facts"),
@@ -373,3 +372,17 @@ def test_submit_classification_persists_phintraco_macro_route(load_fixture, late
     submit_classification(state, later_candidate, payload, now)
 
     assert state["candidates"][later_candidate.key]["selection"]["route"] == "macro_news"
+
+
+def test_flexible_summary_is_accepted(load_fixture):
+    payload = json.loads(load_fixture("classification-valid.json"))
+    payload["summary"] = "Kontrak diumumkan. Nilainya Rp22 triliun. DEWA menjadi pihak kontrak.\n\nOperasional berjalan. Periode disebutkan. Angka tetap bersumber"
+    assert _validate(payload) is EventClass.MATERIAL_CONTRACT
+
+
+@pytest.mark.parametrize("summary", ["", " ", None, 4])
+def test_summary_requires_nonempty_text(load_fixture, summary):
+    payload = json.loads(load_fixture("classification-valid.json"))
+    payload["summary"] = summary
+    with pytest.raises(ValueError):
+        _validate(payload)

@@ -92,9 +92,6 @@ def _facts(payload: Mapping[str, object], key: str) -> tuple[str, ...]:
 def _validate_summary(value: str) -> str:
     if value.startswith("*(Ringkasan)*"):
         raise ValueError("summary must not include the Ringkasan marker")
-    sentences = re.split(r"(?<=[.!?])\s+", value)
-    if not 1 <= len(sentences) <= 5 or value[-1] not in ".!?":
-        raise ValueError("summary must contain one to five complete sentences")
     return value
 
 

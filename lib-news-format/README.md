@@ -53,3 +53,10 @@ Forward compatibility does not imply that an old owner binary understands
 new card records. Rollback must retain compatible readers, or drain the new
 records before restoring older owner code. Preserve live state and stable
 operations; do not strip fields or replay the source as a rollback shortcut.
+
+`writing_contract.py` owns common narrative rules and composable presentation
+category guidance. Owners compose common rules once and select category
+context without deriving it solely from a delivery route. Macro guidance
+preserves figure roles, periods, units, bases, revisions, and uncertainty.
+Summary style is advisory; owner schema, source-safety and transport checks
+remain authoritative. The legacy `WRITING_INSTRUCTION` export stays available.

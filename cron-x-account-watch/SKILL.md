@@ -72,14 +72,10 @@ When one source media URL returns a confirmed HTTP 404 or 410, treat only that m
 
 ## Shared generated-news format
 
-`lib-news-format` owns the common writing instruction, renderer, and
-optional deterministic quote lookup. Report directly in Indonesian and
-preserve research attribution, periods, units, and uncertainty. Prefer two
-short paragraphs for longer summaries; concise or cohesive items may use one.
-No fixed paragraph threshold or style-based relevance gate applies. Return
-plain summary text without a Ringkasan marker. The renderer adds it once and
-normalizes legacy markers. Existing structural, identity, capability, and
-source-specific safety checks remain mandatory.
+`lib-news-format` owns common and category writing guidance, supplied through
+`item.instruction`. Follow that trusted instruction. The renderer owns the
+Ringkasan marker and deterministic quote tracker. Structural, identity,
+capability, and source-specific safety checks remain mandatory.
 
 Split independent issuer developments into ordered items, including separate
 issuer dividends and suspension reopenings. Keep a connected transaction or
