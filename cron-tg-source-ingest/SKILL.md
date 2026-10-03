@@ -70,11 +70,11 @@ For `agent_target: kelas_investasi`, the runner supplies one `item`. Return
 exactly this JSON shape:
 
 ```json
-{"event_key":"<supplied item.event_key>","title":"<TICKER>: <source-grounded thesis>","summary":"*(Ringkasan)* <source-grounded Indonesian paragraph>"}
+{"schema_version":2,"event_key":"<supplied item.event_key>","title":"<TICKER>: <source-grounded thesis>","summary":"*(Ringkasan)* <source-grounded Indonesian summary>","plan_fields":[]}
 ```
 
 The key must match the item. The title starts with its exact ticker and a
-colon, has no ending punctuation, and uses only source facts. The summary
+colon, prefers no ending punctuation, and uses only source facts. The summary
 starts exactly with `*(Ringkasan)* ` and must not add external facts,
 investment advice, certainty, narrator framing, or invented plan values.
 Submit once through the existing owner wrapper:

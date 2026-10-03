@@ -277,6 +277,10 @@ def deliver_oldest_ready_event(
 
     try:
         chunks = render_event(event)
+        from render import saved_presentation
+        presentation = saved_presentation(event)
+        if presentation is not None:
+            channel_id = presentation["destination"]
     except Exception:
         _record_failure(event, now, RuntimeError("invalid delivery event"), None)
         _persist(persist)

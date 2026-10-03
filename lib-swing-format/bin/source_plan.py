@@ -10,7 +10,7 @@ _KEYS = {"label", "value", "source_start", "source_end"}
 _LABEL = re.compile(r"(?:Entry|Stop-loss(?: [2-9][0-9]*| 1[0-9]+)?|Target [1-9][0-9]*)\Z")
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
 _OPERATORS = re.compile(r"<=|>=|<|>|≤|≥")
-_LEVEL = re.compile(r"(?:<=|>=|<|>|≤|≥)?\s*\d+(?:[.,]\d+)*(?:\s*[-–]\s*\d+(?:[.,]\d+)*)?\Z")
+_LEVEL = re.compile(r"(?:<=|>=|<|>|≤|≥)?\s*\d+(?:[.,]\d+)*(?:\s*(?:[-–]|to|sampai)\s*\d+(?:[.,]\d+)*)?\Z")
 _SOURCE_LABEL = re.compile(r"^(watch\s+on|buy\s+area|entry|support\s+utama|stop[-\s]?loss\s*\d*|sl\s*\d*|target\s*\d*|tp\s*\d*)\b\s*:?\s*",re.IGNORECASE)
 
 

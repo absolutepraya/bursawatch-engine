@@ -170,8 +170,8 @@ class PhintracoHandoffAdapter:
                 self._leg(
                     event_key,
                     "text",
-                    scan.format_swing_alert(call, include_board=True),
-                    channel_id,
+                    scan.event_text(event,call),
+                    scan.event_destination(event),
                     completed_message_id=text_id,
                 )
             )
