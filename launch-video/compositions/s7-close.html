@@ -15,7 +15,7 @@
         #s7-kick { position: absolute; left: 0; right: 0; top: 118px; text-align: center; font-weight: 600; font-size: 40px; letter-spacing: -0.01em; color: #9C978E; }
         #s7-kick b { color: #DEA777; font-weight: 700; margin: 0 14px; }
         #s7-words { position: absolute; left: 0; right: 0; top: 178px; text-align: center; font-weight: 800; font-size: 118px; line-height: 1.05; letter-spacing: -0.04em; }
-        .gc { position: absolute; left: 960px; top: 690px; width: 330px; height: 330px; margin: -165px 0 0 -165px; border-radius: 22px; overflow: hidden; border: 2px solid #2a2d2b; box-shadow: 0 30px 70px rgba(0,0,0,.65); }
+        .gc { position: absolute; left: 960px; top: 610px; width: 330px; height: 330px; margin: -165px 0 0 -165px; border-radius: 22px; overflow: hidden; border: 2px solid #2a2d2b; box-shadow: 0 30px 70px rgba(0,0,0,.65); }
         .gc img { width: 100%; height: 100%; display: block; }
         #s7-disc { position: absolute; left: 0; right: 0; bottom: 34px; text-align: center; font-weight: 500; font-size: 22px; color: #86827B; letter-spacing: .01em; }
         .cu { color: #DEA777; }
@@ -81,7 +81,7 @@
           const times = [1.95, 2.1, 2.45, 2.6];
           gsap.utils.toArray("#s7-words .wi").forEach((w, i) => tl.fromTo(w, { yPercent: 108 }, { yPercent: 0, duration: 0.18, ease: "expo.out" }, times[i]));
           // everything gathers into the mark for the last kick
-          for (let i = 0; i < N; i++) tl.to("#s7-g" + i, { x: -548, y: -150, scale: 0.12, rotation: 0, opacity: 0, filter: "blur(8px)", duration: 0.42, ease: "power3.in" }, HIT - 0.5 + Math.abs(i - MID) * 0.02);
+          for (let i = 0; i < N; i++) tl.to("#s7-g" + i, { x: -548, y: -70, scale: 0.12, rotation: 0, opacity: 0, filter: "blur(8px)", duration: 0.42, ease: "power3.in" }, HIT - 0.5 + Math.abs(i - MID) * 0.02);
           tl.to("#s7-words, #s7-kick", { y: -50, opacity: 0, filter: "blur(10px)", duration: 0.26, ease: "power2.in" }, HIT - 0.42);
 
           // the mark lands on the last kick, then the lockup and URL
