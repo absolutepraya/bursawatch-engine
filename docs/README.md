@@ -130,7 +130,7 @@ with its [`working discussion`](notes/2026-10-03-shared-category-contracts-worki
 The user agreed the category rules, optional images after text eligibility,
 Swing synonym normalization, and preservation of deterministic Board tiers.
 The [implementation plan](superpowers/plans/2026-10-03-shared-category-contracts.md)
-is written for review and execution-method selection. Implementation and
+is implemented natively in a separate development branch. Validation and
 release remain separate steps. These documents make no current production
 claims.
 
@@ -146,3 +146,7 @@ contract is recorded in
 The distinction between terminal text-only news delivery and strict technical
 review media delivery is recorded in
 [`adr/0029-wa-nontechnical-text-fallback.md`](adr/0029-wa-nontechnical-text-fallback.md).
+
+The shared category implementation and compatible owner protocols are recorded
+in [category compatibility](specs/2026-10-03-shared-category-compatibility.md).
+It remains development work until a separately approved release.

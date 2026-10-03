@@ -83,6 +83,7 @@ def test_manifest_orders_dependencies_before_the_x_runtime_unit():
         "lib-swing-format",
         "cron-dc-swing-board",
         "lib-news-format",
+        "lib-bursawatch-source-media",
         "cron-x-account-watch",
     ]
 
@@ -1224,3 +1225,15 @@ def test_release_env_template_uses_only_the_delivery_client_token_for_heartbeat(
     ) in source
     assert "BURSAWATCH_RELEASE_HEARTBEAT_ENV" not in source
     assert "DISCORD_BOT_TOKEN" not in source
+
+
+def test_shared_category_consumers_retain_dependency_order_and_helper_paths():
+    data = json.loads((ROOT / "release-manifest.json").read_text())
+    units = {unit["id"]:unit for unit in data["units"]}
+    for owner in ("cron-tg-market-news","cron-x-account-watch","cron-ig-account-watch","cron-wa-channel-watch"):
+        assert "lib-bursawatch-source-media" in units[owner]["depends_on"]
+        assert owner+"/bin/**" in units[owner]["paths"]
+    assert "lib-news-format" in units["cron-tg-kelas-investasi-gtw"]["depends_on"]
+    assert "lib-swing-format" in units["cron-tg-kelas-investasi-gtw"]["depends_on"]
+    assert "lib-news-format/bin/**" in units["lib-news-format"]["paths"]
+    assert "lib-swing-format/bin/**" in units["lib-swing-format"]["paths"]

@@ -20,7 +20,8 @@ live check. If resumed, that watcher remains the source reader until a
 separately approved cutover. Accepted `company_news` and `macro_news` Source Inbox work enters that
 watcher's state through `PipelineRuntime` and `pipeline_owner.py`. The owner
 retrieves and checks every durable original through the Source Media Owner,
-then reuses the watcher OCR, reel-frame, vision, prompt, rendering, outbox,
+then uses caption-first eligibility and the optional bound image tool, while
+retaining the watcher prompt, rendering, outbox,
 Delivery Owner receipt, and cleanup paths. A missing original keeps the work
 retryable. The source runner drains owner deliveries and claims at most one
 watcher agent event per run. It must not poll the live watcher a second time.
