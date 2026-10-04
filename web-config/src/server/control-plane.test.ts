@@ -219,6 +219,39 @@ describe("profile avatar adapter", () => {
 });
 
 describe("operator inventory reads", () => {
+  it.each([
+    ["bursawatch-ig-source-ingest", "instagram:synthetic.research"],
+    ["bursawatch-wa-source-ingest", "whatsapp:0029SyntheticMixedCase"],
+  ])(
+    "reads catalog-shaped activity for %s without changing identity",
+    async (componentId, endpointId) => {
+      const activity = {
+        component_id: componentId,
+        endpoints: [
+          {
+            endpoint_id: endpointId,
+            accepted_at: time,
+            status: "stale",
+            meaning: "last accepted into Source Inbox",
+          },
+        ],
+        pipelines: [],
+        delivery_status: "not instrumented",
+      };
+      const { reader, fetchImpl } = setup(activity);
+      expect(await reader.getComponentActivity(componentId)).toEqual(activity);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(fetchImpl.mock.calls[0][1]).toMatchObject({
+        method: "GET",
+        cache: "no-store",
+        headers: { Authorization: "Bearer user-session-token" },
+      });
+      await expect(
+        reader.getComponentActivity("different-component"),
+      ).rejects.toMatchObject({ code: "invalid-response" });
+    },
+  );
+
   const componentRow = {
     inventory_version: 1,
     component_id: "bursawatch-tg-source-ingest",

@@ -118,6 +118,10 @@ storage, source identity and interactions. Check keyboard access, toast
 feedback, 375px layouts, reduced motion and enlarged text for UI changes.
 Keep all seven mobile destinations visible in an adaptive grid with whole-word
 labels; reserve its measured height as rows increase with text size.
+Activity endpoint identities use the bounded, case-sensitive Source Catalog
+validator, separate from component/job IDs. Jobs resolves a single supported
+watcher resource before linking to its editor; unresolved or ambiguous
+relationships stay readable without an editor link.
 Build output is `.next-build`, separate from the development `.next` tree.
 Never delete a build directory while its server is running.
 
