@@ -35,6 +35,12 @@ _Avoid_: Revised morning outlook.
 **Sector basket**:
 A portfolio of stocks grouped by the chosen sector classification. Its calculated return is distinct from the return of an official exchange sector index.
 
+**Weight snapshot**:
+A dated set of member market-cap weights used to calculate a basket's return.
+
+**Fixed-snapshot rotation**:
+A relative-rotation illustration calculated from historical member returns using one dated percentage allocation throughout the calculation history. Earlier positions incorporate that snapshot's information and are not historically knowable cap-weighted observations.
+
 **Conglomerate basket**:
 A portfolio of stocks associated with one conglomerate under the dated membership reference. A stock may belong to more than one such basket.
 
