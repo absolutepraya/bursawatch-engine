@@ -123,12 +123,14 @@ def post_heartbeat(content: str, now: datetime, *, delivery_client=None) -> None
 def _media_client():
     token_file = os.environ.get("BURSAWATCH_SOURCE_MEDIA_UPLOAD_TOKEN_FILE")
     url = os.environ.get("BURSAWATCH_SOURCE_MEDIA_URL")
-    if not token_file and not url:
-        return None
     if not token_file or not url:
-        raise RuntimeError("source media service configuration is incomplete")
-    from bursawatch_source_media import SourceMediaClient
-    return SourceMediaClient(url, Path(token_file))
+        return None
+    from bursawatch_source_media import SourceMediaClient, SourceMediaClientError
+    try:
+        return SourceMediaClient(url, Path(token_file))
+    except SourceMediaClientError:
+        # News can still enter as text; required Swing media fails closed.
+        return None
 
 
 def main() -> int:

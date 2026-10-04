@@ -17,6 +17,12 @@ This file supplements the repository root `AGENTS.md`. It is the development and
   work enters this watcher's queue through `bin/pipeline_owner.py`. This
   watcher remains the agent, renderer, Board handoff, and delivery owner.
   Opaque source image refs are checked and cached locally before queueing.
+  New `source_media_policy: optional_news` events may omit images whose read
+  or verification fails, retaining text and usable images. The omission is
+  frozen in the queue and is not reversed on a duplicate receipt. The existing
+  recognized Swing path and legacy events retain required media. Image-only
+  source posts cannot use the news fallback. After queueing, frozen payloads,
+  operation keys, Delivery Owner receipts and retries retain their contracts.
   Same-ID corrections update only an unclaimed event. A new X edit ID uses the
   existing verified replacement check against delivered history. Corrections
   after an agent claim remain retriable. Keep the source reader and queue

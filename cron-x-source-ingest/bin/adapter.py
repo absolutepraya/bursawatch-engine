@@ -83,6 +83,9 @@ class _TrackedInbox:
         if current is not None and current.get("version", 0) > version:
             return
         records[post_id] = {"version": version, "content_hash": event["content_hash"]}
+        payload = event["payload"]
+        if payload.get("source_media_policy") == "optional_news":
+            records[post_id]["source_observation_hash"] = payload["source_observation_hash"]
         _write(self._path(endpoint_id), records)
 
     def accept(self, event: dict[str, Any]) -> dict[str, Any]:
@@ -178,8 +181,8 @@ def _upload_post_media(post: Any, endpoint_id: str, media_store: Any, media_prep
             url_to_ref[source.url] = ref["ref"]
         return refs, url_to_ref
     except Exception:
-        # A failed fetch or upload keeps the provider cursor blocked. Repeating
-        # the stable keys makes partial durable uploads safe to retry.
+        # The caller applies the news fallback or required Swing policy.
+        # Stable upload keys keep partial durable uploads safe to retry.
         return [], {}
     finally:
         try:
@@ -199,7 +202,13 @@ def _safe_html(value: str | None, media_urls: set[str]) -> str | None:
     return value
 
 
-def _item(post: Any, endpoint_id: str, media_store: Any, *, upload_media: bool, media_preparer: Any = None, thread_posts: tuple[Any, ...] | None = None) -> dict[str, Any]:
+def _source_observation_hash(posts: tuple[Any, ...]) -> str:
+    from state import serialize_post
+    raw = json.dumps([serialize_post(post) for post in posts], sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode()
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _item(post: Any, endpoint_id: str, media_store: Any, *, upload_media: bool, media_preparer: Any = None, thread_posts: tuple[Any, ...] | None = None, optional_media: bool = False) -> dict[str, Any]:
     from state import serialize_post
     from scan import source_visible_text
     ordered = thread_posts or (post,)
@@ -214,7 +223,7 @@ def _item(post: Any, endpoint_id: str, media_store: Any, *, upload_media: bool, 
             complete = False
         refs.extend(current_refs)
         payload_post = serialize_post(source_post)
-        if source_media and current_refs:
+        if source_media and (current_refs or optional_media):
             media_urls = {item.url for item in (*source_post.media, *source_post.quoted_media)}
             payload_post["content_html"] = _safe_html(payload_post.get("content_html"), media_urls)
             payload_post["quoted_content_html"] = _safe_html(payload_post.get("quoted_content_html"), media_urls)
@@ -222,6 +231,8 @@ def _item(post: Any, endpoint_id: str, media_store: Any, *, upload_media: bool, 
             for field, items in (("media", source_post.media), ("quoted_media", source_post.quoted_media)):
                 serialized_media = []
                 for item in items:
+                    if item.url not in url_to_ref:
+                        continue
                     ref = url_to_ref[item.url]
                     if ref in seen_refs:
                         continue
@@ -229,12 +240,19 @@ def _item(post: Any, endpoint_id: str, media_store: Any, *, upload_media: bool, 
                     serialized_media.append({"index": item.index, "media_ref_id": ref})
                 payload_post[field] = serialized_media
         serialized.append(payload_post)
-    if not complete or len(refs) > 16 or sum(ref["size_bytes"] for ref in refs) > 25 * 1024 * 1024:
+    exceeds_bounds = len(refs) > 16 or sum(ref["size_bytes"] for ref in refs) > 25 * 1024 * 1024
+    if (not complete and not optional_media) or exceeds_bounds:
         refs = []
+        if optional_media:
+            for item in serialized:
+                item["media"] = []
+                item["quoted_media"] = []
     payload = {"post": serialized[-1], "thread_posts": serialized}
+    if optional_media:
+        payload.update(source_media_policy="optional_news", source_observation_hash=_source_observation_hash(ordered), media_degraded=not complete or exceeds_bounds)
     if has_media and refs:
         payload["media_ref_ids"] = [ref["ref"] for ref in refs]
-    return {"provider_event_id": post.post_id, "published_at": post.published_at.isoformat(), "source_url": post.url, "payload": payload, "media_refs": refs, "blocked_payload": {"profile_id": post.profile_id, "kind": post.kind.value, "source_text": source_visible_text(post.content_html), "quoted_text": source_visible_text(post.quoted_content_html or "")}, "media_required": has_media}
+    return {"provider_event_id": post.post_id, "published_at": post.published_at.isoformat(), "source_url": post.url, "payload": payload, "media_refs": refs, "blocked_payload": {"profile_id": post.profile_id, "kind": post.kind.value, "source_text": source_visible_text(post.content_html), "quoted_text": source_visible_text(post.quoted_content_html or "")}, "media_required": False if optional_media else has_media}
 
 
 def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Path, inbox: Any, observed_at: datetime, *, fetch_profile: Any = None, fetch_direct_x_head: Any = None, media_store: Any = None, media_preparer: Any = None) -> list[dict[str, Any]]:
@@ -254,6 +272,7 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Pa
         from rsshub import is_self_thread_post
         from models import PostKind
         from scan import source_visible_text
+        from agent_protocol import optional_news_media
         # RSSHub returns a whole visible page. Direct X takes an after-id and
         # expands threads; a full result without the old anchor remains
         # ambiguous and must block rather than skip unseen posts.
@@ -289,7 +308,7 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Pa
             inline_quote = post.kind is PostKind.QUOTE and bool(source_visible_text(post.quoted_content_html or "").strip())
             if post.post_id in upload_ids and is_self_thread_post(profile, post) and len(chain) == 1 and post.related_url and not inline_quote:
                 raise IntakeBlocked("self-chain parent is unavailable")
-            items.append(_item(post, endpoint_id, media_store, upload_media=post.post_id in upload_ids, media_preparer=media_preparer, thread_posts=chain))
+            items.append(_item(post, endpoint_id, media_store, upload_media=post.post_id in upload_ids, media_preparer=media_preparer, thread_posts=chain, optional_media=optional_news_media(profile, post, chain)))
         return {"items": items, "truncated": truncated, "contiguous": False, "id_order": "numeric_provider_event_id"}
     fetchers = {endpoint_id: (lambda cursor, profile=by_endpoint[endpoint_id], endpoint_id=endpoint_id: fetch(cursor, profile, endpoint_id)) for endpoint_id in selected}
     outcomes = ingest_all(selected, fetchers, state_root, tracked, observed_at, "x-watch-parser-1")
@@ -314,7 +333,11 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Pa
                     continue
                 correction_error_code = "correction_context_failed"
                 chain = _within_thread_age(profile, _self_chain(profile, post, by_id, lambda item: is_self_thread_post(profile, item)))
-                item = _item(post, endpoint_id, media_store, upload_media=True, media_preparer=media_preparer, thread_posts=chain)
+                optional_media = "source_observation_hash" in prior
+                if optional_media and _source_observation_hash(chain) == prior["source_observation_hash"]:
+                    continue
+                from agent_protocol import optional_news_media
+                item = _item(post, endpoint_id, media_store, upload_media=True, media_preparer=media_preparer, thread_posts=chain, optional_media=optional_media and optional_news_media(profile, post, chain))
                 if item["media_required"] and not item["media_refs"]:
                     correction_error_code = "correction_media_unavailable"
                     raise IntakeBlocked("X source correction media is unavailable")
