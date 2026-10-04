@@ -494,11 +494,12 @@ def test_unavailable_media_configuration_does_not_abort_text_intake(monkeypatch,
     assert runner._media_client() is None
 
 
-def test_swing_media_failure_still_holds_cursor(tmp_path):
+@pytest.mark.parametrize("source_text", ["KPIG: support 100, target 120", "BBCA buy area 8000, TP 9000, SL 7800"])
+def test_swing_media_failure_still_holds_cursor(tmp_path, source_text):
     profile = replace(next(p for p in load_watch_config(ROOT / "cron-x-account-watch/config/watches.json").profiles if p.id == "writingtorch"), enabled=True)
     profile = replace(profile, discord_channels=profile.discord_channels + (DiscordChannel("id_stocks_swing", "123", "Swing"),))
     snapshot = {"revision": 3, "subscriptions": [{"platform": "x", "endpoint_id": "x:writingtorch", "publisher_id": "x-writingtorch", "address": profile.handle, "provider_id": None, "capability_id": "swing_chart_context", "verification_status": "verified", "enabled": True}]}
-    post = lambda identity, media=(): SourcePost(profile.id, identity, f"https://x.com/{profile.handle}/status/{identity}", NOW, "KPIG: support 100, target 120", PostKind.NORMAL, None, None, tuple(media), ())
+    post = lambda identity, media=(): SourcePost(profile.id, identity, f"https://x.com/{profile.handle}/status/{identity}", NOW, source_text, PostKind.NORMAL, None, None, tuple(media), ())
     posts = [post("10")]
     inbox = Inbox()
     run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
@@ -507,6 +508,108 @@ def test_swing_media_failure_still_holds_cursor(tmp_path):
     assert result["reason"] == "media_blocked"
     assert inbox.events == []
     assert json.loads((tmp_path / "x-writingtorch/cursor.json").read_text())["anchor"] == "10"
+
+
+@pytest.mark.parametrize("swing_enabled", [False, True])
+@pytest.mark.parametrize("source_text, known_news", [("BBCA buy area 8000, TP 9000, SL 7800", False), ("IHSG technical chart shows broad market support", True)])
+def test_mixed_profile_fallback_uses_effective_swing_subscription(tmp_path, swing_enabled, source_text, known_news):
+    profile = replace(next(p for p in load_watch_config(ROOT / "cron-x-account-watch/config/watches.json").profiles if p.id == "doktermarket"), enabled=True)
+    endpoint = f"x:{profile.handle.casefold()}"
+    snapshot = {"revision": 3, "subscriptions": [
+        {"platform": "x", "endpoint_id": endpoint, "publisher_id": REVIEWED_PUBLISHERS[profile.id],
+         "address": profile.handle, "provider_id": None, "capability_id": capability,
+         "verification_status": "verified", "enabled": capability != "swing_chart_context" or swing_enabled}
+        for capability in ("company_news", "macro_news", "swing_chart_context")
+    ]}
+    posts = [SourcePost(profile.id, "10", f"https://x.com/{profile.handle}/status/10", NOW, "Boundary", PostKind.NORMAL, None, None, (), ())]
+    inbox = Inbox()
+    run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
+    posts.append(replace(posts[0], post_id="11", url=f"https://x.com/{profile.handle}/status/11",
+                         content_html=source_text,
+                         media=(SourceMedia("https://pbs.twimg.com/media/chart.jpg", 0),)))
+    result = run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)[0]
+    if swing_enabled and not known_news:
+        assert result["reason"] == "media_blocked"
+        assert inbox.events == []
+    else:
+        assert result["accepted"] == 1
+        assert inbox.events[0]["media_required"] is False
+
+
+@pytest.mark.parametrize("failure", ["fetch", "upload", "unsupported", "invalid_asset"])
+@pytest.mark.parametrize("failed_index", [0, 1])
+@pytest.mark.parametrize("optional", [False, True])
+def test_partial_media_preserves_healthy_source_identity_and_order(failure, failed_index, optional):
+    profile = load_watch_config(ROOT / "cron-x-account-watch/config/watches.json").profiles[0]
+    media = tuple(SourceMedia(f"https://pbs.twimg.com/media/{index}.jpg", index) for index in range(3))
+    if failure == "unsupported":
+        media = tuple(replace(item, url="https://video.twimg.com/clip.mp4") if item.index == failed_index else item for item in media)
+    post = SourcePost(profile.id, "101", f"https://x.com/{profile.handle}/status/101", NOW, "MYOR earnings increased", PostKind.NORMAL, None, None, media, ())
+    def prepare(source_post, root):
+        bundle = fake_image_prepare(source_post, root)
+        if failure == "fetch":
+            bundle = replace(bundle, assets=tuple(asset for asset in bundle.assets if asset.index != failed_index), unavailable_count=1)
+        if failure == "invalid_asset":
+            next(asset for asset in bundle.assets if asset.index == failed_index).path.write_bytes(b"")
+        return bundle
+    class Store(MediaStore):
+        def upload(self, key, data, **kwargs):
+            if failure == "upload" and key.endswith(f":{failed_index}"):
+                raise RuntimeError("isolated upload failure")
+            result = super().upload(key, data, **kwargs)
+            result["ref"] = f"20000000-0000-4000-8000-{int(key.rsplit(':', 1)[1]) + 1:012d}"
+            return result
+    store = Store()
+    item = _item(post, f"x:{profile.handle.casefold()}", store, upload_media=True,
+                 media_preparer=prepare, optional_media=optional)
+    if not optional:
+        assert item["media_refs"] == []
+        assert item["media_required"] is True
+        return
+    healthy = [index for index in range(3) if index != failed_index]
+    assert [ref["ref"] for ref in item["media_refs"]] == [f"20000000-0000-4000-8000-{index + 1:012d}" for index in healthy]
+    assert [item["index"] for item in item["payload"]["post"]["media"]] == healthy
+    assert item["payload"]["media_degraded"] is True
+    assert item["media_required"] is False
+    assert "pbs.twimg.com" not in json.dumps(item["payload"])
+
+
+def test_partial_news_images_stay_frozen_when_failed_upload_recovers(tmp_path):
+    profile = replace(load_watch_config(ROOT / "cron-x-account-watch/config/watches.json").profiles[0], enabled=True)
+    endpoint = f"x:{profile.handle.casefold()}"
+    snapshot = {"revision": 3, "subscriptions": [{"platform": "x", "endpoint_id": endpoint,
+        "publisher_id": REVIEWED_PUBLISHERS[profile.id], "address": profile.handle, "provider_id": None,
+        "capability_id": "company_news", "verification_status": "verified", "enabled": True}]}
+    posts = [SourcePost(profile.id, "10", f"https://x.com/{profile.handle}/status/10", NOW, "Boundary", PostKind.NORMAL, None, None, (), ())]
+    inbox = Inbox()
+    run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
+    posts.append(replace(posts[0], post_id="11", url=f"https://x.com/{profile.handle}/status/11", content_html="MYOR earnings increased",
+                         media=(SourceMedia("https://pbs.twimg.com/media/a.jpg", 0),),
+                         quoted_media=(SourceMedia("https://pbs.twimg.com/media/b.jpg", 0), SourceMedia("https://pbs.twimg.com/media/c.jpg", 1))))
+    class Store(MediaStore):
+        recovered = False
+        def upload(self, key, data, **kwargs):
+            if key.endswith(":1") and not self.recovered:
+                raise RuntimeError("isolated upload failure")
+            result = super().upload(key, data, **kwargs)
+            result["ref"] = f"20000000-0000-4000-8000-{int(key.rsplit(':', 1)[1]) + 1:012d}"
+            return result
+    store = Store()
+    assert run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts,
+                    media_store=store, media_preparer=fake_image_prepare)[0]["accepted"] == 1
+    event = inbox.events[0]
+    assert len(event["media_refs"]) == 2
+    assert event["payload"]["post"]["media"][0]["media_ref_id"].endswith("000000000001")
+    assert event["payload"]["post"]["quoted_media"] == [{"index": 1, "media_ref_id": "20000000-0000-4000-8000-000000000003"}]
+    assert event["payload"]["media_degraded"] is True
+    frozen = json.dumps(event, sort_keys=True)
+    uploads = list(store.uploads)
+    store.recovered = True
+    assert run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts,
+                    media_store=store, media_preparer=fake_image_prepare)[0]["accepted"] == 0
+    assert store.uploads == uploads
+    assert inbox.revisions == []
+    assert json.dumps(event, sort_keys=True) == frozen
 
 
 def test_image_only_source_cannot_use_news_fallback(tmp_path):

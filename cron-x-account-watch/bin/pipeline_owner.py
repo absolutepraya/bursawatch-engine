@@ -106,7 +106,7 @@ def _identity(work: dict[str, Any], profiles: tuple[Any, ...]) -> tuple[Any, dic
     return profile, envelope, dispatch_context
 
 
-def _posts(profile: Any, envelope: dict[str, Any]) -> tuple[tuple[Any, ...], dict[str, dict[str, Any]]]:
+def _posts(profile: Any, envelope: dict[str, Any], enabled_capabilities: frozenset[str] | None = None) -> tuple[tuple[Any, ...], dict[str, dict[str, Any]]]:
     payload = envelope.get("payload")
     raw_posts = payload.get("thread_posts") if type(payload) is dict else None
     if type(raw_posts) is not list or not 1 <= len(raw_posts) <= profile.thread_handling.max_posts:
@@ -170,7 +170,7 @@ def _posts(profile: Any, envelope: dict[str, Any]) -> tuple[tuple[Any, ...], dic
         raise ValueError("X source thread relations are invalid")
     if optional_media:
         from agent_protocol import optional_news_media
-        if (not optional_news_media(profile, latest, tuple(converted))
+        if (not optional_news_media(profile, latest, tuple(converted), enabled_capabilities)
                 or type(payload.get("source_observation_hash")) is not str
                 or not re.fullmatch(r"[0-9a-f]{64}", payload["source_observation_hash"])):
             raise ValueError("X optional media requires an ordinary-news source")
@@ -186,7 +186,8 @@ def accept_source_work(work: dict[str, Any], *, now: datetime | None = None, no_
             raise ValueError("X owner requires a live watcher config revision")
         profiles = loaded.config.profiles
     profile, envelope, dispatch_context = _identity(work, profiles)
-    posts, refs = _posts(profile, envelope)
+    enabled_capabilities = frozenset(item["capability_id"] for item in dispatch_context["subscriptions"]) if dispatch_context is not None else None
+    posts, refs = _posts(profile, envelope, enabled_capabilities)
     if work.get("event_kind") not in {"original", "correction"} or (work["event_kind"] == "original") != (work["version"] == 1):
         raise ValueError("X source revision kind is invalid")
     now = now or datetime.now(timezone.utc)

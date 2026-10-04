@@ -20,7 +20,10 @@ This file supplements the repository root `AGENTS.md`. It is the development and
   New `source_media_policy: optional_news` events may omit images whose read
   or verification fails, retaining text and usable images. The omission is
   frozen in the queue and is not reversed on a duplicate receipt. The existing
-  recognized Swing path and legacy events retain required media. Image-only
+  Swing path, unresolved routes with Swing enabled in frozen work, and legacy
+  events retain required media. An unresolved route can use fallback when its
+  frozen capabilities exclude Swing; the existing submission gate then prevents
+  a Swing delivery. Image-only
   source posts cannot use the news fallback. After queueing, frozen payloads,
   operation keys, Delivery Owner receipts and retries retain their contracts.
   Same-ID corrections update only an unclaimed event. A new X edit ID uses the

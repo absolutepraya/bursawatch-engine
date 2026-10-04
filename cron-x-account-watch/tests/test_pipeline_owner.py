@@ -395,17 +395,38 @@ def test_news_download_failure_falls_back_only_for_new_optional_payloads(tmp_pat
     assert len(work["envelope"]["payload"]["post"]["media"]) == 2
 
 
-def test_optional_media_policy_cannot_weaken_recognized_swing_claim(tmp_path):
+@pytest.mark.parametrize("source_text", ["KPIG: support 100, target 120", "BBCA buy area 8000, TP 9000, SL 7800"])
+def test_optional_media_policy_cannot_weaken_possible_swing_claim(tmp_path, source_text):
     from dataclasses import replace
     from models import DiscordChannel
     profile = _profile()
     profile = replace(profile, discord_channels=profile.discord_channels + (DiscordChannel("id_stocks_swing", "123", "Swing"),))
-    work = _work(profile, [_post(profile, 101, "KPIG: support 100, target 120")])
+    work = _work(profile, [_post(profile, 101, source_text)])
     payload = work["envelope"]["payload"]
     payload.update(source_media_policy="optional_news", source_observation_hash="a" * 64)
     work["envelope"]["content_hash"] = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
     with pytest.raises(ValueError, match="ordinary-news"):
         pipeline_owner.accept_source_work(work, profiles=(profile,), storage=tmp_path / "swing.json", no_post=True)
+
+
+@pytest.mark.parametrize("capabilities, accepted", [
+    (("company_news", "macro_news"), True),
+    (("company_news", "macro_news", "swing_chart_context"), False),
+])
+def test_owner_checks_optional_policy_against_frozen_swing_capability(tmp_path, capabilities, accepted):
+    profile = _profile("doktermarket")
+    work = _group_work(profile, [_post(profile, 101, "BBCA buy area 8000, TP 9000, SL 7800")], capabilities)
+    payload = work["envelope"]["payload"]
+    payload.update(source_media_policy="optional_news", source_observation_hash="a" * 64)
+    work["envelope"]["content_hash"] = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
+    storage = tmp_path / "swing.json"
+    if accepted:
+        assert pipeline_owner.accept_source_work(work, profiles=(profile,), storage=storage, no_post=True) == {"outcome": "accepted"}
+        assert state.load_state(storage)["outbox"][0]["enabled_capabilities"] == list(sorted(capabilities))
+    else:
+        with pytest.raises(ValueError, match="ordinary-news"):
+            pipeline_owner.accept_source_work(work, profiles=(profile,), storage=storage, no_post=True)
+        assert not storage.exists()
 
 
 def test_verified_new_x_edit_id_marks_old_delivery_for_owner_cleanup(tmp_path):

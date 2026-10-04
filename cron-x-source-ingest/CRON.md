@@ -46,8 +46,13 @@ the existing bounds; raw media locators are removed even on fallback. The
 existing specialized Swing path and image-only posts remain fail-closed in
 `blocked-media.json` with the cursor held. The safe fetch path does not support
 X video downloads. The ordinary-news boundary is the same per-event route
-hint used for upfront Swing enrichment, not whether a profile supports Swing.
-Content relevance and final news routing remain model-owned.
+hint used for upfront Swing enrichment, with an unresolved hint retaining
+required media whenever the effective event subscriptions allow Swing.
+Profiles with Swing disabled may still fall back for unresolved news routes;
+the watcher verifies this against frozen work capabilities before queueing.
+The LLM retains relevance and final routing within those existing capabilities.
+Partial preparation or upload failures retain healthy attachments in source
+order with their original source labels and upload identities.
 The runner reads one live watcher config revision and the effective catalog.
 Verified X endpoints are compatible with `company_news`, `macro_news`, and
 `swing_chart_context`; compatibility does not enable a subscription.

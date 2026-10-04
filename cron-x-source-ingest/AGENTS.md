@@ -19,8 +19,12 @@ adapter uploads bounded `pbs.twimg.com` images through the shared Source Media
 Owner before inbox acceptance. It stores only validated opaque refs in the
 event. Ordinary news with authored text uses optional media: unsupported media,
 failed fetches or uploads, and missing upload access fall back to sanitized
-text and any usable bounded images. Image-only posts and the existing recognized
-Swing path retain required-media handling. The
+text and any usable bounded images. A failed attachment does not discard its
+healthy siblings; source positions and upload keys remain unchanged.
+Image-only posts and Swing routes retain required-media handling. An unresolved
+route also requires media when its effective subscriptions allow Swing. If
+Swing is disabled for that event, unknown news routes may use fallback and the
+existing frozen capability gate prevents a later Swing delivery. The
 existing watcher remains the queue owner, agent wake owner, renderer, Board
 handoff, and Discord Delivery Owner client. For verified
 X endpoints, `company_news`, `macro_news`, and `swing_chart_context` are
