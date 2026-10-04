@@ -29,11 +29,19 @@ capability set, per-capability configuration source, and catalog revision for
 retries and corrections instead of re-evaluating current catalog settings.
 Existing legacy `company_news` and `macro_news` work remains compatible and
 drainable. Events include ordered self-chain context and opaque image references.
+An own-author quote retains its inline quoted text and media when its original
+is absent from the bounded page or outside the configured thread window. It
+does not require historical fetching. Inline quote data is removed only when
+the original is included in the retained thread. A missing reply parent or a
+quote without visible inline context still holds the cursor.
 Same-ID source changes create durable SourceEvent corrections. The owner leaves
 work retriable when required context cannot be reconstructed. Accepted source
 media is bounded to 16 refs per event, 8 MiB per object, and 25 MiB aggregate;
 the watcher makes up to 16 accepted images available to Vision and supports
 multi-image delivery through All and the Board.
+Correction failures retain the existing `correction_handoff_failed` reason and
+add a bounded `correction_error_code` identifying the failed stage. Never log
+raw exceptions, source bodies, media locators, or credentials for diagnostics.
 
 The first poll for a direct-X endpoint reads only the account page and stores
 the newest own-post ID as a future-only boundary. It does not fetch or publish

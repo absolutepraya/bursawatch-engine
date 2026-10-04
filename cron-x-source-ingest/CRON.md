@@ -74,7 +74,14 @@ accepted-event indexes, and pending handoffs remain unchanged. Do not use this
 one-edge tool for later catalog revisions without a separately reviewed
 package change.
 
-Accepted source events carry an ordered self-chain snapshot. A private
+Accepted source events carry an ordered self-chain snapshot. Own-author quotes
+keep inline quoted text and media when the original is absent from the page
+or outside the configured thread window. A missing reply parent or quote
+without visible inline context still blocks intake. The reader does not fetch
+historical originals to reconstruct these standalone quotes. Correction
+failures include a bounded `correction_error_code` identifying the failed
+stage alongside `correction_handoff_failed`, without raw exceptions or source
+content in diagnostics. A private
 accepted-event index detects same-ID source changes and stages durable
 corrections with stable revision IDs. The Source Media Owner uses
 `BURSAWATCH_SOURCE_MEDIA_URL`, the private upload token file
