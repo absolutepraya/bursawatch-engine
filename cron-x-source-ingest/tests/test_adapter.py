@@ -637,7 +637,13 @@ def test_self_quote_keeps_inline_context_when_original_is_outside_thread_window(
     assert json.loads((tmp_path / "x-writingtorch/cursor.json").read_text())["anchor"] == "101"
 
 
-@pytest.mark.parametrize("kind,quoted_text", [(PostKind.REPLY, None), (PostKind.QUOTE, None)])
+@pytest.mark.parametrize("kind,quoted_text", [
+    (PostKind.REPLY, None),
+    (PostKind.QUOTE, None),
+    (PostKind.QUOTE, " \n\t"),
+    (PostKind.QUOTE, "<br> \n"),
+    (PostKind.QUOTE, "&nbsp;<p> </p>"),
+])
 def test_self_continuation_without_parent_or_inline_context_holds_cursor(tmp_path, kind, quoted_text):
     profile = replace(next(item for item in load_watch_config(ROOT / "cron-x-account-watch/config/watches.json").profiles if item.id == "writingtorch"), enabled=True)
     snapshot = {"revision": 3, "subscriptions": [{"platform": "x", "endpoint_id": "x:writingtorch", "publisher_id": "x-writingtorch", "address": profile.handle, "provider_id": None, "capability_id": "company_news", "verification_status": "verified", "enabled": True}]}

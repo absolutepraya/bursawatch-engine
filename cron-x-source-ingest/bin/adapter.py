@@ -286,7 +286,7 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Pa
         items = []
         for post in ordered:
             chain = _within_thread_age(profile, _self_chain(profile, post, by_id, lambda item: is_self_thread_post(profile, item)))
-            inline_quote = post.kind is PostKind.QUOTE and bool(source_visible_text(post.quoted_content_html or ""))
+            inline_quote = post.kind is PostKind.QUOTE and bool(source_visible_text(post.quoted_content_html or "").strip())
             if post.post_id in upload_ids and is_self_thread_post(profile, post) and len(chain) == 1 and post.related_url and not inline_quote:
                 raise IntakeBlocked("self-chain parent is unavailable")
             items.append(_item(post, endpoint_id, media_store, upload_media=post.post_id in upload_ids, media_preparer=media_preparer, thread_posts=chain))
