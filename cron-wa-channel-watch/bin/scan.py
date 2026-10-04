@@ -678,10 +678,12 @@ def _run(
             relevance_guard_required=route_override is not None,
         )
         import summary_context
-        claimed_item["instruction"] += summary_context.context_instruction(
-            summary_context.claim_from_state(value, record["event_key"], state_path.parent / "summary-context"),
-            "~/.hermes/scripts/bursawatch-wa-channel-watch.sh prepare-summary-images --json",
-        )
+        selected_route = route_override if profile.enable_llm_routing else profile.discord_channels[0].key
+        if selected_route != "id_stocks_swing":
+            claimed_item["instruction"] += summary_context.context_instruction(
+                summary_context.claim_from_state(value, record["event_key"], state_path.parent / "summary-context"),
+                "~/.hermes/scripts/bursawatch-wa-channel-watch.sh prepare-summary-images --json",
+            )
         break
 
     state.save(state_path, value)

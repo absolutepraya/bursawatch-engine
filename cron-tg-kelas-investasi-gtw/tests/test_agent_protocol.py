@@ -226,3 +226,22 @@ def test_optional_fallback_keeps_range_comparator_and_number_grounding(claim):
     payload["summary"] = "*(Ringkasan)* " + claim + "."
     with pytest.raises(RetryableSubmissionError):
         validate_submission(source, payload)
+
+
+@pytest.mark.parametrize("claim", ["Watch on 288", "Watch on 270", "Support utama 288", "Support utama >260", "SL 288", "TP2 288"])
+@pytest.mark.parametrize("field", ["title", "summary"])
+def test_publisher_synonym_claim_cannot_borrow_a_number_from_another_level(claim, field):
+    source = pwon_event()
+    source["source_text"] += "\nSL <260"
+    payload = pwon_payload(source["source_text"])
+    payload[field] = ("PWON: " if field == "title" else "*(Ringkasan)* ") + claim
+    with pytest.raises(RetryableSubmissionError, match="source plan values"):
+        validate_submission(source, payload)
+
+
+@pytest.mark.parametrize("claim", ["Watch on 270–282", "Support utama 260", "Support utama <260", "Target 1 288", "Target 2 298"])
+def test_correct_publisher_synonym_claim_stays_deliverable(claim):
+    source = pwon_event()
+    payload = pwon_payload(source["source_text"])
+    payload["summary"] = "*(Ringkasan)* " + claim + "."
+    assert validate_submission(source, payload)["summary"] == payload["summary"]

@@ -432,3 +432,8 @@ The LLM owns semantic relevance. Market-keyword signals are advisory and
 cannot veto `is_relevant: false`. Generic investing education remains
 excluded even when it mentions earnings, dividends, charting, or an issuer.
 There is no deterministic education denylist.
+
+Optional summary-image context is limited to news claims. Leading
+TechnicalReview Swing claims expose no optional news-image instruction, and
+the helper refuses those claims. Their specialized source media and Board
+handling remain authoritative.

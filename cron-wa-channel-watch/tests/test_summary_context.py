@@ -69,3 +69,14 @@ def staged_claim(tmp_path, monkeypatch, key):
     asset.write_bytes(b"isolated analysis bytes")
     monkeypatch.setattr(module, "claim_from_state", lambda *args: claim)
     return asset
+
+
+@pytest.mark.parametrize("text", ["#TechnicalReview\nTINS breakout resistance 4.600.", "_*#TechnicalReview #ClientRequest*_\nTINS breakout resistance 4.600."])
+def test_optional_news_context_rejects_specialized_swing_claim(tmp_path, text):
+    from test_scan import event
+    from event_queue import serialize_event
+    source = event("swing", datetime.now(timezone.utc).isoformat(), text)
+    record = {"event_key": source.event_key, "event": serialize_event(source), "agent_phase": "awaiting_agent",
+              "agent_lease_until": (datetime.now(timezone.utc)+timedelta(minutes=10)).isoformat(),
+              "source_event_key": "a"*64, "source_content_hash": "b"*64}
+    assert owner().claim_from_state({"outbox": [record]}, source.event_key, tmp_path) is None

@@ -361,13 +361,23 @@ def test_queue_only_run_skips_source_fetch_and_claims_oldest_agent(tmp_path, mon
     assert saved["outbox"][0]["agent_phase"] == "awaiting_agent"
 
 
-@pytest.mark.parametrize("swing_possible", [False, True])
-def test_queue_worker_keeps_upfront_vision_only_for_specialized_swing(tmp_path, monkeypatch, config_path, swing_possible):
+@pytest.mark.parametrize("profile_mode,source_text,capabilities,swing_expected", [
+    ("news", "A substantive market post", None, False),
+    ("mixed", "A substantive market post", None, False),
+    ("mixed", "KPIG: wave count at support 90", None, True),
+    ("mixed", "IHSG technical chart shows support", None, False),
+    ("mixed", "KPIG: wave count at support 90", ["company_news", "macro_news"], False),
+    ("mixed", "KPIG: wave count at support 90", ["swing_chart_context"], True),
+    ("fixed_swing", "KPIG: wave count at support 90", ["swing_chart_context"], True),
+])
+def test_queue_worker_keeps_upfront_vision_only_for_specialized_swing(tmp_path, monkeypatch, config_path, profile_mode, source_text, capabilities, swing_expected):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
-    if swing_possible:
+    if profile_mode != "news":
         from dataclasses import replace
         from models import DiscordChannel
-        profile = replace(profile, discord_channels=(*profile.discord_channels, DiscordChannel("id_stocks_swing","1525102458253217803","Swing")))
+        profile = replace(profile, enable_llm_routing=True, discord_channels=(*profile.discord_channels, DiscordChannel("id_stocks_swing","1525102458253217803","Swing")))
+        if profile_mode == "fixed_swing":
+            profile = replace(profile, enable_llm_routing=False, discord_channels=(profile.discord_channels[-1],))
         monkeypatch.setattr(scan.config, "load_watch_config_for_run", lambda *args: __import__("config").LoadedWatchConfig(__import__("models").WatchConfig(1,(profile,)),None))
     current = datetime(2026, 8, 24, 10, 0, tzinfo=scan.WIB)
     storage = tmp_path / "state.json"
@@ -376,7 +386,7 @@ def test_queue_worker_keeps_upfront_vision_only_for_specialized_swing(tmp_path, 
         "101",
         "https://x.com/Kutekians/status/101",
         current - timedelta(hours=2),
-        "A substantive market post",
+        source_text,
         PostKind.QUOTE,
         "https://x.com/other/status/100",
         "Quoted market context",
@@ -386,6 +396,8 @@ def test_queue_worker_keeps_upfront_vision_only_for_specialized_swing(tmp_path, 
     value = state.new_state()
     value["profiles"][profile.id] = {"cursor": "100"}
     state.observe_posts(value, profile, [post], lambda candidate: candidate.kind is PostKind.QUOTE, now=post.published_at)
+    if capabilities is not None:
+        value["outbox"][0]["enabled_capabilities"] = capabilities
     state.save_state(storage, value)
     root = tmp_path / "vision" / profile.id / post.post_id
     root.mkdir(parents=True)
@@ -432,11 +444,11 @@ def test_queue_worker_keeps_upfront_vision_only_for_specialized_swing(tmp_path, 
 
     result = scan.run(now=current, dry_run=False)
 
-    assert prepared == ([(post, storage, False, (post,))] if swing_possible else [])
+    assert prepared == ([(post, storage, False, (post,))] if swing_expected else [])
     assert prepared_articles == [((post,), False)]
-    assert result["item"]["vision_asset_paths"] == ([str(authored),str(quoted)] if swing_possible else [])
-    assert ("Authored X post image 1" in result["item"]["post_text"]) is swing_possible
-    assert ("Quoted X post image 1" in result["item"]["post_text"]) is swing_possible
+    assert result["item"]["vision_asset_paths"] == ([str(authored),str(quoted)] if swing_expected else [])
+    assert ("Authored X post image 1" in result["item"]["post_text"]) is swing_expected
+    assert ("Quoted X post image 1" in result["item"]["post_text"]) is swing_expected
     assert "Article 1 title: Article context" in result["item"]["post_text"]
     assert flock_operations == [
         scan.fcntl.LOCK_EX | scan.fcntl.LOCK_NB,

@@ -913,7 +913,13 @@ def run(
                     fcntl.flock(lock, fcntl.LOCK_UN)
                     try:
                         try:
-                            swing_possible = any(channel.key == "id_stocks_swing" for channel in profiles[event["profile_id"]].discord_channels) and (not event.get("enabled_capabilities") or "swing_chart_context" in event["enabled_capabilities"])
+                            profile = profiles[event["profile_id"]]
+                            selected_route = (deterministic_route(profile, post, thread_posts)
+                                              if profile.enable_llm_routing else profile.discord_channels[0].key)
+                            capabilities = event.get("enabled_capabilities")
+                            swing_possible = selected_route == "id_stocks_swing" and (
+                                capabilities is None or "swing_chart_context" in capabilities
+                            )
                             if not swing_possible:
                                 vision_bundle = None
                             elif event.get("source_media_refs") and not dry_run:

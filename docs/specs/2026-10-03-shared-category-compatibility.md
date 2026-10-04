@@ -26,8 +26,12 @@ content. Existing schemas, source grounding and transport bounds still apply.
 Telegram Market News, X, Instagram and WhatsApp expose
 `prepare-summary-images --json '<request>'` through their existing wrappers.
 The unchanged initial news item contains no image pixels. Ordinary X news
-skips upfront vision preparation; mixed profiles retain their specialized Swing
-image handling, which cannot establish ordinary-news eligibility. Instagram
+skips upfront vision preparation, including on mixed profiles. Upfront X
+vision is limited to a claimed event whose existing deterministic override
+selects Swing, or whose fixed configured route is Swing, with Swing enabled
+in its frozen capabilities. This does not change relevance or routing rules.
+WhatsApp exposes optional summary images only on news claims; its leading
+TechnicalReview Swing claims keep their existing specialized media path. Instagram
 runtime news claims use caption text without upfront OCR or reel sampling.
 Original delivery attachments, specialized Swing/PDF and raw-forward policies
 remain source-owned. Stockbit remains text-only.

@@ -136,8 +136,12 @@ def agent_item(candidate: CompanyCandidate) -> dict[str, str]:
     }
 
 
-def build_wake_payload(items: Sequence[Mapping[str, str]]) -> dict[str, object]:
-    """Build the deliberately single-item Hermes wake payload."""
+def build_wake_payload(items: Sequence[Mapping[str, str]], *, instruction_suffix: str = "") -> dict[str, object]:
+    """Validate the category instruction plus an explicit trusted owner suffix.
+
+    The suffix is supplied by the owner that generated optional context, never
+    inferred from the untrusted item or accepted through a prefix-only check.
+    """
     if isinstance(items, (str, bytes)) or len(items) != 1:
         raise ValueError("wake payload requires exactly one item")
     item = items[0]
@@ -149,7 +153,17 @@ def build_wake_payload(items: Sequence[Mapping[str, str]]) -> dict[str, object]:
         provider = Provider(item["provider"])
     except ValueError as error:
         raise ValueError("wake payload item provider is unknown") from error
-    expected_instruction = _instruction_for(provider)
+    try:
+        source_kind = SourceKind(item["source_kind"])
+    except ValueError as error:
+        raise ValueError("wake payload source kind is unknown") from error
+    candidate_type = "issuer" if item["ticker"] else "macro"
+    if item["candidate_type"] != candidate_type:
+        raise ValueError("wake payload candidate type is inconsistent")
+    category = "industry" if source_kind is SourceKind.TUNTUN_UPDATE_INDUSTRY else candidate_type
+    if not isinstance(instruction_suffix, str):
+        raise ValueError("wake payload instruction suffix must be text")
+    expected_instruction = _instruction_for(provider, category) + instruction_suffix
     if item["instruction"] != expected_instruction:
         raise ValueError("wake payload item instruction does not match protocol")
     return {"wakeAgent": True, "items": [dict(item)]}

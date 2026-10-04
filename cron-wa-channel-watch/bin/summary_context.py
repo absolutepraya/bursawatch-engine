@@ -18,10 +18,13 @@ def _client():
 
 def _claim_from_state(value, key, root):
     from normalize import deserialize_queue_event
+    from classification import is_technical_review
     record = next((row for row in value["outbox"] if row.get("event_key") == key and row.get("agent_phase") == "awaiting_agent"), None)
     if record is None or not record.get("source_event_key"):
         return None
     event = deserialize_queue_event(record["event"])
+    if is_technical_review(event.text):
+        return None
     return SummaryContextClaim(key, record["agent_lease_until"], record["source_event_key"], 1, record["source_content_hash"], event.text, image_refs(record.get("summary_media_refs", []), association="original source publication"), root)
 
 

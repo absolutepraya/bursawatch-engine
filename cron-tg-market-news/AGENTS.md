@@ -333,3 +333,9 @@ The LLM owns semantic relevance. Market-keyword signals are advisory and
 cannot veto `is_relevant: false`. Generic investing education remains
 excluded even when it mentions earnings, dividends, charting, or an issuer.
 There is no deterministic education denylist.
+
+Wake validation matches the supplied candidate category and frozen operator
+prompt exactly. The owner supplies its generated optional image suffix
+separately for exact comparison; arbitrary appended instructions are rejected.
+Split publications keep candidate-specific source text and claim identities,
+with image instructions limited to clarifying that candidate's story.

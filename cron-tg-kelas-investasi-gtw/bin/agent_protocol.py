@@ -27,7 +27,7 @@ _SUBMISSION_FIELDS = frozenset({"event_key", "title", "summary"})
 _FORBIDDEN_LEAKAGE = re.compile(r"\b(?:abaikan\s+instruksi|ignore\s+(?:all\s+)?(?:previous\s+)?instructions?|system\s+prompt)\b", re.IGNORECASE)
 _FORBIDDEN_ADVICE = re.compile(r"\b(?:beli|jual|buy|sell)\s+sekarang\b|\b(?:rekomendasi|pasti|dijamin|cuan)\b", re.IGNORECASE)
 _PLAN_CLAIM = re.compile(
-    r"\b(?P<label>buy(?:\s+(?:area|price|harga))?|entry|target(?:\s+(?:price|harga))?(?:\s*\d+)?|tp(?:\s*\d+)?|stop[-\s]?loss(?:\s+\d+)?)\b"
+    r"\b(?P<label>watch\s+on|support\s+utama|sl(?:\s*\d+)?|buy(?:\s+(?:area|price|harga))?|entry|target(?:\s+(?:price|harga))?(?:\s*\d+)?|tp(?:\s*\d+)?|stop[-\s]?loss(?:\s+\d+)?)\b"
     r"\s*(?::|=|\bdi\b|\bpada\b)?\s*"
     r"(?P<value>(?:<=|>=|<|>|≤|≥)?\s*\d+(?:[.,]\d+)*(?:\s*(?:sampai|[-\u2013\u2014])\s*<?\s*\d+(?:[.,]\d+)*)?(?:\s*(?:,|dan)\s*<?\s*\d+(?:[.,]\d+)*)*)",
     re.IGNORECASE,
@@ -207,8 +207,13 @@ def _reject_noncanonical_plan_claims(summary: str, plan: Mapping[str, str], appr
         permitted = [plan[field]]
         if approved and canonical in approved:
             permitted.append(approved[canonical])
-        if (_normalize_plan_claim(match.group("value")) not in {_normalize_plan_claim(item) for item in permitted}
-                and not supports_source_plan_claim(source, canonical, match.group("value"), source_spans)):
+        value = match.group("value").strip()
+        # The approved publisher synonym means below the stated support.
+        # Explicit comparators remain source-exact.
+        if re.fullmatch(r"support\s+utama", label) and not re.match(r"[<>≤≥]", value):
+            value = "<" + value
+        if (_normalize_plan_claim(value) not in {_normalize_plan_claim(item) for item in permitted}
+                and not supports_source_plan_claim(source, canonical, value, source_spans)):
             raise RetryableSubmissionError("noncanonical_plan", "submission contains noncanonical source plan values")
 
 
@@ -219,8 +224,8 @@ def _normalize_plan_claim(value: str) -> str:
 
 
 def _plan_field(label: str) -> str:
-    normalized = re.sub(r"\s*\d+$", "", label.lower()).replace(" ", "")
-    if normalized.startswith(("buy", "entry")):
+    normalized = re.sub(r"\s+", "", re.sub(r"\s*\d+$", "", label.lower()))
+    if normalized.startswith(("buy", "entry", "watchon")):
         return "buy_area"
     if normalized.startswith(("target", "tp")):
         return "targets"

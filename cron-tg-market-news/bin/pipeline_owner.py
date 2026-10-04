@@ -248,11 +248,12 @@ def claim_agent(now: datetime | None = None) -> dict[str, Any]:
             import summary_context
             import state as owner_state
             item = agent_item(candidate)
-            item["instruction"] += summary_context.context_instruction(
+            instruction_suffix = summary_context.context_instruction(
                 summary_context.claim_from_state(state, candidate.key, owner_state._state_path().parent / "summary-context"),
                 "~/.hermes/scripts/bursawatch-tg-market-news.sh prepare-summary-images --json",
             )
-            return build_wake_payload([item])
+            item["instruction"] += instruction_suffix
+            return build_wake_payload([item], instruction_suffix=instruction_suffix)
 
 
 def submit_stock_status(work: dict[str, Any], *, no_post: bool = False) -> str:
