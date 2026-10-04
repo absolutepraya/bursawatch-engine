@@ -11,6 +11,7 @@ import type {
   PublicationFilters,
   PublicationPage,
 } from "@/lib/publications";
+import { WorkspaceError } from "@/lib/control-browser";
 import { publicationTypeLabels } from "@/lib/publications";
 
 type Requester = <T>(
@@ -41,7 +42,13 @@ const blankFilter: PublishedFilter & {
   dateTo: "",
 };
 
-export function PublishedWorkspace({ request }: { request: Requester }) {
+export function PublishedWorkspace({
+  request,
+  onSignIn,
+}: {
+  request: Requester;
+  onSignIn?: () => void;
+}) {
   const router = useRouter();
   const search = useSearchParams();
   const selectedId = search.get("publication");
@@ -49,6 +56,12 @@ export function PublishedWorkspace({ request }: { request: Requester }) {
   const [items, setItems] = useState<Publication[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [coverage, setCoverage] = useState<PublicationCoverage | null>(null);
+  const [coverageLoading, setCoverageLoading] = useState(true);
+  const [coverageError, setCoverageError] = useState("");
+  const [readRetry, setReadRetry] = useState(0);
+  const [accessFailure, setAccessFailure] = useState<string | null>(null);
+  const accessBlocked = useRef(false);
+  const coverageController = useRef<AbortController | null>(null);
   const [loading, setLoading] = useState(true);
   const [moreLoading, setMoreLoading] = useState(false);
   const [error, setError] = useState("");
@@ -92,8 +105,30 @@ export function PublishedWorkspace({ request }: { request: Requester }) {
     } satisfies Omit<PublicationFilters, "cursor" | "limit">;
   }, [filterKey]);
 
+  const revokeAccess = useCallback((failure: unknown): boolean => {
+    if (!(failure instanceof WorkspaceError) || !["auth", "forbidden"].includes(failure.code))
+      return false;
+    accessBlocked.current = true;
+    listGeneration.current++;
+    listController.current?.abort();
+    detailController.current?.abort();
+    coverageController.current?.abort();
+    setItems([]);
+    setCursor(null);
+    setCoverage(null);
+    setDetailResult(null);
+    setLoading(false);
+    setMoreLoading(false);
+    setCoverageLoading(false);
+    setError("");
+    setCoverageError("");
+    setAccessFailure(failure.code);
+    return true;
+  }, []);
+
   const loadPage = useCallback(
     async (append: boolean, nextCursor?: string | null) => {
+      if (accessBlocked.current) return;
       const generation = ++listGeneration.current;
       listController.current?.abort();
       const controller = new AbortController();
@@ -123,6 +158,7 @@ export function PublishedWorkspace({ request }: { request: Requester }) {
         setCursor(page.next_cursor);
       } catch (failure) {
         if (controller.signal.aborted || generation !== listGeneration.current) return;
+        if (revokeAccess(failure)) return;
         setError(
           failure instanceof Error
             ? failure.message
@@ -135,7 +171,7 @@ export function PublishedWorkspace({ request }: { request: Requester }) {
         }
       }
     },
-    [apiFilters, request],
+    [apiFilters, request, revokeAccess],
   );
 
   useEffect(() => {
@@ -144,30 +180,42 @@ export function PublishedWorkspace({ request }: { request: Requester }) {
       clearTimeout(timer);
       listController.current?.abort();
     };
-  }, [filterKey, loadPage]);
+  }, [filterKey, loadPage, readRetry]);
+
+  const loadCoverage = useCallback(async () => {
+    if (accessBlocked.current) return;
+    coverageController.current?.abort();
+    const controller = new AbortController();
+    coverageController.current = controller;
+    setCoverageLoading(true);
+    setCoverageError("");
+    try {
+      const result = await request<PublicationCoverage>("publications/coverage", undefined, {
+        signal: controller.signal,
+      });
+      if (!controller.signal.aborted) setCoverage(result);
+    } catch (failure) {
+      if (controller.signal.aborted || revokeAccess(failure)) return;
+      setCoverageError(
+        failure instanceof Error ? failure.message : "Publisher coverage could not be loaded.",
+      );
+    } finally {
+      if (!controller.signal.aborted) setCoverageLoading(false);
+    }
+  }, [request, revokeAccess]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    void request<PublicationCoverage>("publications/coverage", undefined, {
-      signal: controller.signal,
-    })
-      .then((result) => setCoverage(result))
-      .catch((failure) => {
-        if (!controller.signal.aborted)
-          setError(
-            (current) =>
-              current ||
-              (failure instanceof Error
-                ? failure.message
-                : "Publisher coverage could not be loaded."),
-          );
-      });
-    return () => controller.abort();
-  }, [request]);
+    // Start the external read after mount; state changes belong to that request.
+    const timer = setTimeout(() => void loadCoverage(), 0);
+    return () => {
+      clearTimeout(timer);
+      coverageController.current?.abort();
+    };
+  }, [loadCoverage, readRetry]);
 
   useEffect(() => {
     detailController.current?.abort();
-    if (!selectedId) return;
+    if (!selectedId || accessBlocked.current) return;
     const controller = new AbortController();
     detailController.current = controller;
     const attempt = detailRetry;
@@ -181,16 +229,16 @@ export function PublishedWorkspace({ request }: { request: Requester }) {
           setDetailResult({ id: selectedId, attempt, detail: result });
       })
       .catch((failure) => {
-        if (!controller.signal.aborted)
-          setDetailResult({
-            id: selectedId,
-            attempt,
-            error:
-              failure instanceof Error ? failure.message : "This publication could not be loaded.",
-          });
+        if (controller.signal.aborted || revokeAccess(failure)) return;
+        setDetailResult({
+          id: selectedId,
+          attempt,
+          error:
+            failure instanceof Error ? failure.message : "This publication could not be loaded.",
+        });
       });
     return () => controller.abort();
-  }, [selectedId, request, detailRetry]);
+  }, [selectedId, request, detailRetry, readRetry, revokeAccess]);
 
   const openDetail = (id: string) =>
     router.push(`/workspace/published?publication=${encodeURIComponent(id)}`);
@@ -203,7 +251,34 @@ export function PublishedWorkspace({ request }: { request: Requester }) {
         <h1>Published</h1>
         <p>Confirmed News and Swing deliveries since the recorded feed boundary.</p>
       </div>
-      {selectedId ? (
+      {accessFailure ? (
+        <div className="control-alert" role="alert">
+          <p>
+            {accessFailure === "auth"
+              ? "Your session has expired. Sign in again."
+              : "You do not have access to published records."}
+          </p>
+          {accessFailure === "auth" ? (
+            onSignIn ? (
+              <button type="button" className="button secondary" onClick={onSignIn}>
+                Sign in again
+              </button>
+            ) : null
+          ) : (
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => {
+                accessBlocked.current = false;
+                setAccessFailure(null);
+                setReadRetry((value) => value + 1);
+              }}
+            >
+              Try again
+            </button>
+          )}
+        </div>
+      ) : selectedId ? (
         detailLoading ? (
           <p role="status">Loading publication…</p>
         ) : currentDetailError ? (
@@ -271,6 +346,9 @@ export function PublishedWorkspace({ request }: { request: Requester }) {
           <PublishedList
             items={items}
             coverage={coverage}
+            coverageLoading={coverageLoading}
+            coverageError={coverageError}
+            onRetryCoverage={() => void loadCoverage()}
             cursor={cursor}
             filter={filter}
             loading={loading || moreLoading}

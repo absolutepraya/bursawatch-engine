@@ -568,7 +568,9 @@ function SignedInWorkspace({
             unavailable={records.operatorIssues.some((issue) => issue.resource === "operator-jobs")}
           />
         ) : null}
-        {view === "published" ? <PublishedWorkspace request={request} /> : null}
+        {view === "published" ? (
+          <PublishedWorkspace request={request} onSignIn={guardedSignOut} />
+        ) : null}
         {view === "settings" ? (
           <>
             <WorkspaceHeading
