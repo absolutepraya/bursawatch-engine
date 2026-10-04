@@ -3,6 +3,7 @@
 ## CI waiting policy (read first)
 
 - Never poll, watch, or wait on a GitHub CI run just to see it finish. After triggering CI, continue useful work or end the turn. Check the relevant run after it has finished, when its result is needed, then act on the observed pass or failure.
+- CodeRabbit checks and reviews are not merge gates here. Never wait, poll, or delay work or a merge for CodeRabbit. Merge when all other applicable PR checks are green, then continue the approved workflow.
 - This is an interactive workflow rule. Keep CI checks and the VPS release agent's exact-`main`-SHA success gate unchanged.
 
 ## Scope and split boundary
@@ -85,6 +86,7 @@ this contract:
 - `cron-rss-source-ingest/AGENTS.md`
 - `lib-bursawatch-discord-delivery/AGENTS.md`
 - `lib-bursawatch-source-media/AGENTS.md`
+- `lib-news-format/AGENTS.md`
 - `cron-dc-swing-board/AGENTS.md`
 - `cron-tg-phintraco-swing/AGENTS.md`
 - `cron-ig-account-watch/AGENTS.md`

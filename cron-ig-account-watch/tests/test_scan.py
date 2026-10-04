@@ -888,7 +888,7 @@ def test_expired_agent_lease_is_reclaimed_by_next_non_no_post_run(tmp_path, monk
     assert any("reclaimed 1 expired agent lease(s)" in content and "⚠️" in content for content in heartbeats)
 
 
-def test_direct_market_disclosure_cannot_be_marked_irrelevant(tmp_path, monkeypatch, config_path):
+def test_llm_can_reject_content_with_disclosure_terms(tmp_path, monkeypatch, config_path):
     profile = config.load_watch_config(config_path).profiles[0]
     storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
     _initialize_cursor(storage, profile, _post(profile.id, "baseline", 0))
@@ -900,14 +900,10 @@ def test_direct_market_disclosure_cannot_be_marked_irrelevant(tmp_path, monkeypa
     heartbeats: list[str] = []
     monkeypatch.setattr(scan.discord, "post_text", lambda content, *_args: heartbeats.append(content) or "heartbeat")
 
-    with pytest.raises(ValueError, match="direct market disclosure"):
-        scan.submit_analysis_payload({"event_key": event["event_key"], "is_relevant": False})
-
-    saved = state.load_state(storage)
-    assert saved["outbox"][0]["agent_phase"] == "awaiting_agent"
-    assert saved["outbox"][0]["last_error"] == "analysis submission failed"
-    assert len(heartbeats) == 1
-    assert heartbeats[0].startswith("🫀 instagram-post")
+    result = scan.submit_analysis_payload({"event_key": event["event_key"], "is_relevant": False})
+    assert result["ignored"] is True
+    assert state.load_state(storage)["outbox"] == []
+    assert heartbeats == []
 
 
 def test_invalid_submission_heartbeat_redacts_provider_details_and_preserves_error(tmp_path, monkeypatch, config_path):
@@ -1060,3 +1056,33 @@ def os_environ() -> dict[str, str]:
     import os
 
     return dict(os.environ)
+
+
+def test_independent_news_cards_freeze_delivery_and_projection(tmp_path,monkeypatch,config_path):
+    profile=config.load_watch_config(config_path).profiles[0]
+    storage,media_root=_install_paths(monkeypatch,tmp_path,config_path)
+    _initialize_cursor(storage,profile,_post(profile.id,'baseline',0))
+    post=_post(profile.id,'roundup',1,caption='GIAA rights issue dan UNTR buyback.')
+    event=_queued_event(storage,profile,post,_prepared(post,media_root),NOW+timedelta(minutes=1))
+    value=state.load_state(storage);state.claim_oldest_agent(value,{profile.id:profile},datetime.now(scan.WIB));state.save_state(storage,value)
+    quotes=[]
+    monkeypatch.setattr(scan.render.news_format,'get_market_snapshot',lambda ticker,route:quotes.append(ticker))
+    result=scan.submit_analysis_payload({'event_key':event['event_key'],'is_relevant':True,'items':[
+        {'title':'GIAA: Rencana rights issue','summary':'GIAA akan melakukan rights issue.','route':'id_stocks_news'},
+        {'title':'UNTR: Rencana buyback','summary':'UNTR akan membeli kembali saham.','route':'id_stocks_news'},
+    ]},dry_run=True)
+    assert result['delivered']==0 and quotes==['GIAA','UNTR']
+    saved=state.load_state(storage);record=saved['outbox'][0]
+    record['text_index']=2;record['text_message_ids']=['7001','7002']
+    record['media_index']=1;record['media_message_ids']=['7003']
+    monkeypatch.setattr(scan.render.news_format,'get_market_snapshot',lambda *args:pytest.fail('projection fetched quotes'))
+    import publication_projection
+    first,ops1=publication_projection._candidate(record,profile,NOW,0)
+    second,ops2=publication_projection._candidate(record,profile,NOW,1)
+    assert first['owner_key']!=second['owner_key']
+    assert first['ticker']=='GIAA' and second['ticker']=='UNTR'
+    assert len(ops1)==2 and len(ops2)==1
+    assert ops1[0][1]==record['news_cards'][0]['messages'][0]
+    assert ops2[0][1]==record['news_cards'][1]['messages'][0]
+    assert first['source_published_at']==second['source_published_at']==post.published_at.isoformat()
+    assert first['source_url']==second['source_url']==post.url

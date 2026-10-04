@@ -19,9 +19,13 @@ Delivery Owner handoff, and heartbeat. The RSS runner claims only
 `stockbit_snips` work and submits text-only articles through that owner. The
 owner binds the validated live configuration snapshot included when the
 source event was accepted. A retry with the same effect is idempotent; a
-legacy article collision or mismatched revision fails closed. The runner
-claims at most one Stockbit agent item per run and emits the existing bounded
-payload. Do not re-enable a legacy RSS poller beside this active reader or
+legacy article collision or mismatched revision fails closed. Each natural
+source run asks the owner to settle up to three due deliveries, even when RSS
+intake is blocked or empty. The owner uses the frozen destination and stable
+Delivery Owner operation, then persists article phase and retries publication
+intents. A failed drain raises the heartbeat warning while agent claim remains
+available. The runner claims at most one Stockbit agent item per run and emits
+the existing bounded payload. Do not re-enable a legacy RSS poller beside this active reader or
 reuse and rewrite live cursors or article state. A later intake revision
 mismatch does not prevent already accepted work from settling against its
 frozen snapshot.

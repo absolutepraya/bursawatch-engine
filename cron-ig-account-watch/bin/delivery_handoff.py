@@ -177,6 +177,12 @@ class InstagramAccountWatchHandoffAdapter:
             except (KeyError, TypeError, ValueError, OSError):
                 raise HandoffError("Instagram watcher outbox payload cannot be reconstructed") from None
 
+            targets = None
+            if event.get("news_cards") is not None:
+                cards = render.news_format.validate_cards(event["news_cards"])
+                messages = [message for card in cards for message in card["messages"]]
+                targets = [card["destination"] for card in cards for message in card["messages"]]
+                channel_id = targets[0]
             text_cursor = event.get("text_index")
             text_ids = event.get("text_message_ids", [])
             media_cursor = event.get("media_index")
@@ -193,18 +199,19 @@ class InstagramAccountWatchHandoffAdapter:
 
             event_key = event["event_key"]
             for index, content in enumerate(messages):
+                text_channel = targets[index] if targets else channel_id
                 nonce_value = discord.nonce(event_key, f"text:{index}")
                 operation = self._operation(
                     event_key,
                     f"text:{index}",
                     nonce_value,
-                    channel_id,
+                    text_channel,
                     content,
                     None,
                     unknown_outcome=index >= text_cursor,
                 )
                 known_id = text_ids[index] if index < text_cursor else None
-                receipt = {"channel_id": channel_id, "message_id": known_id} if known_id is not None else None
+                receipt = {"channel_id": text_channel, "message_id": known_id} if known_id is not None else None
                 self._append(items, operation, receipt)
 
             if profile.forward_media:

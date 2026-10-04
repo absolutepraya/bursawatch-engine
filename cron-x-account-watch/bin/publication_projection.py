@@ -156,12 +156,18 @@ def _validated_legs(raw_legs: object) -> tuple[list[str], list[dict[str, Any]]]:
 def _version_identity(state: dict[str, Any], event: dict[str, Any]) -> tuple[str, int, int | None]:
     records = _ledger(state)
     replacements = set(event.get("replacement_of", []))
-    parents = [record for record in records.values() if record["delivery_id"] in replacements]
+    item_index = event.get("news_item_index")
+    parents = [record for record in records.values()
+               if (record["delivery_id"] in replacements and item_index in (None, 0))
+               or (item_index is not None and record["delivery_id"].endswith(f":item:{item_index}")
+                   and record["delivery_id"].rsplit(":item:", 1)[0] in replacements)]
     parent = max(parents, key=lambda record: record["snapshot"]["version"], default=None)
     if parent is not None:
         owner_key = parent["snapshot"]["owner_key"]
     else:
         owner_key = f"x:{event['profile_id']}:{event.get('thread_root_id', event['post_id'])}"
+    if parent is None and "news_item_index" in event:
+        owner_key += f":item:{event['news_item_index']}"
     prior_versions = [
         record["snapshot"]["version"]
         for record in records.values()
@@ -206,7 +212,7 @@ def publication_snapshot(
     if not isinstance(source_published_at, str):
         source_published_at = None
     source_name = profile.handle
-    delivery_id = f"{event['profile_id']}:{event['post_id']}"
+    delivery_id = f"{event['profile_id']}:{event['post_id']}" + (f":item:{event['news_item_index']}" if "news_item_index" in event else "")
     return {
         "api_version": 1,
         "owner_key": owner_key,
@@ -218,7 +224,7 @@ def publication_snapshot(
         "source_name": source_name,
         "source_url": source_url,
         "source_published_at": source_published_at,
-        "market_data_as_of": None,
+        "market_data_as_of": event.get("market_data_as_of"),
         "delivery_confirmed_at": confirmed_at.astimezone(timezone.utc).isoformat(),
         "title": title[:300],
         "ticker": ticker,
@@ -226,7 +232,7 @@ def publication_snapshot(
         "parent_publication_id": None,
         "board_episode_id": None,
         "config_revision": revision,
-        "renderer_version": RENDERER_VERSION,
+        "renderer_version": "stock-news-v1" if "news_item_index" in event else RENDERER_VERSION,
         "source_version": source_version,
         "required_operation_keys": operation_keys,
         "legs": legs,
@@ -243,8 +249,21 @@ def record_confirmed_event(
     """Persist a pending snapshot after the complete All bundle has receipts."""
     if not _feature_enabled():
         return False
+    if event.get("news_cards") is not None:
+        offset = 0
+        changed = False
+        for index, card in enumerate(event["news_cards"]):
+            count = len(card["messages"])
+            text_legs = [leg for leg in event["publication_legs"] if leg.get("text") is not None]
+            media_legs = [leg for leg in event["publication_legs"] if leg.get("text") is None]
+            item_event = {**event, **card, "news_item_index": index,
+                          "publication_legs": text_legs[offset:offset + count] + (media_legs if index == 0 else [])}
+            item_event.pop("news_cards")
+            changed = record_confirmed_event(state, item_event, profile, confirmed_at) or changed
+            offset += count
+        return changed
     records = _ledger(state)
-    delivery_id = f"{event['profile_id']}:{event['post_id']}"
+    delivery_id = f"{event['profile_id']}:{event['post_id']}" + (f":item:{event['news_item_index']}" if "news_item_index" in event else "")
     prior = next((record for record in records.values() if record["delivery_id"] == delivery_id), None)
     if prior is not None:
         operation_keys, legs = _validated_legs(event.get("publication_legs"))

@@ -55,6 +55,25 @@ existing X watcher classifies it once. Existing legacy `company_news` and
 enabled capability set and per-capability configuration source for retries and
 corrections; it does not re-evaluate current catalog settings.
 
+## Source Catalog revision transition
+
+The effective catalog and the X reader marker must agree before polling. The
+reader accepts revision 8 only when its private journal directory contains the
+completed historical 5 to 7 revision-only transition and the completed
+package-owned 7 to 8 transition. The 7 to 8 journal records the reviewed hash
+of all 30 effective X subscription rows, including disabled capabilities.
+Missing, incomplete, malformed, or extra journal entries block the reader.
+
+Use `bin/compatible_catalog_transition.py preview` with the exact prior and
+target effective catalog JSON and the current source state root. Review and
+retain its private plan outside the state root. Applying requires that same
+plan, unchanged catalogs and source files, the package apply guard
+`BURSAWATCH_X_CATALOG_TRANSITION_ALLOW_APPLY=1`, and a paused source reader.
+The shared planner advances only the marker and journal; all endpoint cursors,
+accepted-event indexes, and pending handoffs remain unchanged. Do not use this
+one-edge tool for later catalog revisions without a separately reviewed
+package change.
+
 Accepted source events carry an ordered self-chain snapshot. A private
 accepted-event index detects same-ID source changes and stages durable
 corrections with stable revision IDs. The Source Media Owner uses

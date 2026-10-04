@@ -60,12 +60,16 @@ observed. Fixed jobs and viewer sessions have no save control. Job `can_edit` is
 backend-derived and never inferred from browser claims. Jobs and Published read
 only their current-view inventory or publication records; Published filters are
 sent to the authenticated API before paging.
-Do not trigger a real run or delivery in smoke tests.
+Do not trigger a real run or delivery in smoke tests. The signed-in
+browser smoke verifies Published records and coverage warnings plus the Jobs
+schedule-evidence note with intercepted synthetic auth and API responses.
+These fixture checks do not establish live Discord room visibility.
 
 Load only the current view's records: Sources reads the source catalog, Jobs
 reads components, jobs and observations, workflow lists read watchers, History
-lists read runs, and Account makes no control reads. Published reads its
-filtered forward-only publication page and coverage. Selected workflow
+lists read runs, and Account makes no control reads. Catalog-only workflow rows
+show saved configuration and Configure, without runtime or missing-evidence
+claims. Published reads its filtered forward-only publication page and coverage. Selected workflow
 configuration opens after the catalog and loads its watcher-scoped jobs plus
 component-linked operator jobs, then observations only for those operator job
 IDs. It never loads the global job inventory. Only X also loads source-poll run
@@ -112,6 +116,8 @@ Run `npm ci` then `npm run check` in this package and validate `web-landing`
 before the PR handoff. Add behavioral tests for changed validation,
 storage, source identity and interactions. Check keyboard access, toast
 feedback, 375px layouts, reduced motion and enlarged text for UI changes.
+Keep all seven mobile destinations visible in an adaptive grid with whole-word
+labels; reserve its measured height as rows increase with text size.
 Build output is `.next-build`, separate from the development `.next` tree.
 Never delete a build directory while its server is running.
 

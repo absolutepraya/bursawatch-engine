@@ -165,21 +165,28 @@ class XAccountWatchHandoffAdapter:
             except (KeyError, TypeError, ValueError):
                 raise HandoffError("X watcher outbox payload cannot be reconstructed") from None
 
+            targets = None
+            if event.get("news_cards") is not None:
+                cards = render.news_format.validate_cards(event["news_cards"])
+                messages = [message for card in cards for message in card["messages"]]
+                targets = [card["destination"] for card in cards for message in card["messages"]]
+                channel_id = targets[0]
             text_cursor = event.get("text_index")
             text_ids = event.get("text_message_ids", [])
             if type(text_cursor) is not int or not isinstance(text_ids, list) or text_cursor != len(text_ids):
                 raise HandoffError("X watcher text cursor does not match saved receipts")
             for index, content in enumerate(messages):
+                text_channel = targets[index] if targets else channel_id
                 nonce_value = discord.nonce(event_key, f"text:{index}")
                 known_id = text_ids[index] if index < text_cursor else None
                 operation = self._operation(
                     nonce_value,
-                    channel_id,
+                    text_channel,
                     content,
                     leg=f"text:{index}",
                     unknown_outcome=index >= text_cursor,
                 )
-                receipt = {"channel_id": channel_id, "message_id": known_id} if known_id is not None else None
+                receipt = {"channel_id": text_channel, "message_id": known_id} if known_id is not None else None
                 self._append(items, operation, receipt)
 
             media_urls = [item.url for item in scan._delivery_media(profile, thread_posts, route=event.get("route"))] if profile.forward_media else []

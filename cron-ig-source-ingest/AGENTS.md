@@ -27,8 +27,8 @@ watcher agent event per run. It must not poll the live watcher a second time.
 Frozen sibling capabilities select the routes that may receive a relevant
 publication. The agent still classifies truthfully against both configured
 routes; a relevant classification for an unsubscribed route gets an audited
-`route_not_subscribed` no-delivery outcome. The existing direct-disclosure
-relevance safeguard remains in force. Do not describe this adapter as active
+`route_not_subscribed` no-delivery outcome. Market-word context is advisory; a valid false LLM relevance decision
+remains authoritative, including educational posts. Do not describe this adapter as active
 intake until a reviewed schedule change is applied. Supabase Storage is
 accessed only through the shared Source Media Owner.
 

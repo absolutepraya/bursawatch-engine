@@ -17,8 +17,8 @@ path in `item.vision_asset_paths` when the selected vision mode requires it.
 Choose the truthful route from the configured choices in the item even if
 that route was not subscribed at source acceptance. The owner records a
 relevant, unsubscribed route as `route_not_subscribed` and sends nothing.
-Never call an unsubscribed route relevant only to force delivery. The existing
-direct market disclosure safeguard still applies.
+Never call an unsubscribed route relevant only to force delivery. Market-word context is advisory. A valid false LLM relevance decision
+remains authoritative, including education that mentions earnings or dividends.
 
 Return only the closed JSON object requested by `item.instruction`. Submit it
 through the existing watcher wrapper:

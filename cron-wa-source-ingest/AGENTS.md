@@ -17,6 +17,20 @@ import the legacy cursor. Only BRI's reviewed forwarding endpoint has source
 capabilities. INS and Samuel remain observe-only. New forwarding publishers
 fail closed until explicitly reviewed.
 
+The wrapper loads the optional `BURSAWATCH_WA_SOURCE_STATE_ROOT` from
+`~/.hermes/.env`. Without it, the source root remains
+`~/.hermes/state/bursawatch-wa-source-ingest`. A separately approved forward-only
+recovery may select a fresh private root: pause the existing writer through its
+desired schedule, verify quiescence, archive and fingerprint the old root under
+`~/backup/hermes/runtime-cutovers/`, then set the explicit fresh root and restore
+the original schedule. The first natural poll binds the effective catalog and
+records the queue high-water mark without opening retained payloads. Record the
+intentionally skipped backlog and verify that later arrivals are accepted.
+Preserve the old root unchanged and keep the existing owner state, accepted
+Source Inbox work, bridge queue, and immutable archive. Do not transplant an old
+cursor, edit a catalog marker, or run a second poller. A later catalog mismatch
+still blocks and requires a separate reviewed transition.
+
 The existing watcher remains the canonical owner of archive, agent analysis,
 BRI Chart context, Board handoff, rendering, Delivery Owner handoff, and
 heartbeat. `PipelineRuntime` passes accepted Source Inbox work to
@@ -26,9 +40,12 @@ claim also retries ready message and Board deliveries. The adapter sends its
 `#hermes` heartbeat through the shared Discord Delivery Owner. Do not run the
 legacy direct source reader beside this adapter. For media-bearing items, read only the
 watcher's immutable archive and use the Source Media Owner client. Never read
-the queue's disposable staging path or call Storage directly. Missing archive
-bytes, an unsupported MIME, absent Owner configuration, or an invalid upload
-response must leave the event blocked and its cursor unchanged.
+the queue's disposable staging path or call Storage directly. When media
+capture or transfer fails, a validated archive record with matching queue
+identity, text, and media descriptors permits a nonempty source text event
+without media refs. Preserve the original descriptors for the domain owner and
+advance the cursor only after Source Inbox acceptance. Missing or invalid
+archive records and media-only posts stay blocked with the cursor unchanged.
 
 Run `../../../.venv/bin/python -m pytest -q tests` in this worktree. Tests
 use a fake queue, isolated state, and no bridge or Discord calls.

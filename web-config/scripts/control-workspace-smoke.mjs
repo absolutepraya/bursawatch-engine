@@ -226,6 +226,56 @@ async function scenario(role) {
   const failures = { config: [], schedule: [] };
   const errors = [];
   const unexpectedRequests = [];
+  const publicationRequests = [];
+  const publication = {
+    api_version: 1,
+    publication_id: "c".repeat(64),
+    owner_id: "bursawatch-stockbit-snips",
+    owner_key: "fixture-stockbit-article",
+    version: 1,
+    supersedes_version: null,
+    type: "idx_company_news",
+    route: "id_stocks_news",
+    source_event_key: "fixture-stockbit-source",
+    source_name: "Synthetic Stockbit",
+    source_url: "https://snips.stockbit.com/fixture",
+    source_published_at: "2026-10-01T00:00:00+00:00",
+    market_data_as_of: null,
+    delivery_confirmed_at: "2026-10-01T00:01:00+00:00",
+    title: "Synthetic Stockbit filing",
+    ticker: "TEST",
+    broker_levels: null,
+    parent_publication_id: null,
+    board_episode_id: null,
+    config_revision: 1,
+    renderer_version: "fixture-1",
+    source_version: null,
+    required_operation_keys: ["stockbit:fixture:news"],
+    legs: [{
+      operation_key: "stockbit:fixture:news",
+      operation_digest: "a".repeat(64),
+      receipt_operation_id: "receipt-fixture",
+      destination: "123456789012345678",
+      receipt_id: "234567890123456789",
+      status: "delivered",
+      message_url: "https://discord.com/channels/940285152335110204/123456789012345678/234567890123456789",
+      text: "Synthetic source content",
+      attachments: [],
+    }],
+    digest: "b".repeat(64),
+  };
+  const coverage = {
+    cutover: {
+      boundary: "2026-10-01T00:00:00+00:00",
+      owner_ids: ["bursawatch-stockbit-snips"],
+    },
+    overall_status: "incomplete",
+    owners: [{
+      owner_id: "bursawatch-stockbit-snips",
+      status: "unknown",
+      checkpoint: null,
+    }],
+  };
   let signedIn = false;
   let scheduleChecks = 0;
   let stockbitScheduleChecks = 0;
@@ -337,6 +387,16 @@ async function scenario(role) {
         );
         assert.equal(signedIn, true, "Control requests require a signed-in synthetic user.");
         const path = url.pathname.slice("/api/control/".length);
+        if (method === "GET" && path === "publications/coverage") return json(coverage);
+        if (method === "GET" && path === "publications") {
+          publicationRequests.push(Object.fromEntries(url.searchParams));
+          return json({
+            items: url.searchParams.get("ticker") === "MISS" ? [] : [publication],
+            next_cursor: null,
+          });
+        }
+        if (method === "GET" && path === `publications/${publication.publication_id}`)
+          return json({ publication_id: publication.publication_id, versions: [publication], linked: [] });
         if (method === "GET" && path === "components")
           return json({ inventory_version: 1, components: state.components });
         if (method === "GET" && path === "jobs") {
@@ -629,6 +689,52 @@ async function scenario(role) {
     }));
     assert.ok(report.actual <= report.width, `${label}: ${JSON.stringify(report)}`);
   };
+  const readableMobileNavigation = async (textSize) => {
+    await page.evaluate(() => document.fonts.ready);
+    await page.waitForFunction(() => {
+      const bar = document.querySelector(".connected-navigation-links");
+      const workspace = document.querySelector(".has-connected-navigation");
+      return parseFloat(getComputedStyle(workspace).paddingBottom) >= bar.getBoundingClientRect().height;
+    });
+    const layout = await navigation.evaluate((bar) => {
+      const links = [...bar.querySelectorAll("a")];
+      return links.map((link) => {
+        const box = link.getBoundingClientRect();
+        const label = link.querySelector("span");
+        const range = document.createRange();
+        range.selectNodeContents(label);
+        return {
+          label: label.textContent,
+          width: box.width, height: box.height, top: box.top, bottom: box.bottom,
+          left: box.left, right: box.right,
+          textLines: range.getClientRects().length,
+        };
+      });
+    });
+    assert.deepEqual(layout.map((link) => link.label), ["Overview", "Sources", "Workflows", "Jobs", "History", "Published", "Account"]);
+    assert.equal(new Set(layout.map((link) => link.top)).size, textSize === "100%" ? 2 : 4);
+    for (const link of layout) {
+      assert.ok(link.width >= 44 && link.height >= 44, `${link.label}: target too small`);
+      assert.ok(link.top >= 0 && link.bottom <= 900 && link.left >= 0 && link.right <= 375, `${link.label}: target clipped`);
+      assert.equal(link.textLines, 1, `${link.label}: label split across lines`);
+    }
+    assert.equal(await navigation.getByRole("link", { name: "Overview", exact: true }).getAttribute("aria-current"), "page");
+    await navigation.getByRole("link", { name: "Overview", exact: true }).focus();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    for (const { label } of layout) {
+      assert.equal(await page.evaluate(() => document.activeElement.textContent), label);
+      assert.equal(await page.evaluate(() => getComputedStyle(document.activeElement).outlineStyle), "solid");
+      await page.keyboard.press("Tab");
+    }
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    assert.equal(await page.evaluate(() => {
+      const footer = document.querySelector(".control-footer").getBoundingClientRect();
+      const bar = document.querySelector(".connected-navigation-links").getBoundingClientRect();
+      return footer.bottom <= bar.top + 1;
+    }), true, "The footer must remain reachable above the navigation");
+    await page.evaluate(() => window.scrollTo(0, 0));
+  };
   try {
     const documentResponse = await page.goto(`${target.origin}/workspace`);
     assert.equal(documentResponse.headers()["x-frame-options"], "DENY");
@@ -651,6 +757,9 @@ async function scenario(role) {
     await page
       .getByText("Up to 50 latest runs per watcher. This range may be incomplete.", { exact: true })
       .waitFor();
+    const overviewEvidence = page.locator(".control-watcher-operator-evidence");
+    assert.match(await overviewEvidence.nth(0).innerText(), /Shared Telegram reader \(active\)/);
+    assert.match(await overviewEvidence.nth(2).innerText(), /Stockbit Snips check \(active\)/);
     await noOverflow(`${role} desktop overview`);
     await capture("overview-desktop");
     await page.getByRole("radio", { name: "7 days", exact: true }).focus();
@@ -701,6 +810,21 @@ async function scenario(role) {
       .click();
     await page.getByRole("heading", { name: "Run timeline", exact: true }).waitFor();
     await page.getByRole("heading", { name: "source checked", exact: true }).waitFor();
+    await navigate("Published", "Published");
+    await page.getByRole("button", { name: /Synthetic Stockbit filing/ }).waitFor();
+    await page
+      .getByText("Coverage is incomplete or unverified. A missing item does not prove nothing was published.", { exact: true })
+      .waitFor();
+    await page
+      .getByText("A confirmed record documents delivery at that time. Check Discord to see whether it is still visible.", { exact: true })
+      .waitFor();
+    await page.getByLabel("Ticker", { exact: true }).fill("MISS");
+    await page.getByText("No confirmed publications in this view since the cutover.", { exact: true }).waitFor();
+    assert.ok(publicationRequests.some((request) => request.ticker === "MISS"));
+    await navigate("Jobs", "Jobs");
+    await page
+      .getByText("Schedule observations and last execution do not confirm a post reached Discord.", { exact: true })
+      .waitFor();
     await navigate("Sources", "Sources");
     await page.getByRole("heading", { name: "Source Catalog", exact: true }).waitFor();
     const securitiesTab = page.getByRole("tab", { name: "Securities", exact: true });
@@ -757,6 +881,9 @@ async function scenario(role) {
     await page.waitForURL(`${target.origin}/workspace/sources`);
     await page.getByRole("heading", { name: "Source Catalog", exact: true }).waitFor();
     await navigate("Workflows", "Workflows");
+    assert.equal(await page.locator(".control-watcher-operator-evidence").count(), 0);
+    assert.equal(await page.locator(".control-watcher-outcome").getByText("Configure", { exact: true }).count(), 3);
+    assert.doesNotMatch(await page.locator(".control-watcher-list").innerText(), /active schedules|No recorded run|unavailable|use unverified/);
     const workflowSearch = page.getByRole("searchbox", {
       name: "Search workflows",
       exact: true,
@@ -1067,6 +1194,7 @@ async function scenario(role) {
       if (textSize === "100%") await capture("jobs-375");
       await navigate("Overview", "Overview");
       await noOverflow(`${role} ${textSize} overview`);
+      await readableMobileNavigation(textSize);
       await capture(textSize === "100%" ? "overview-375" : "overview-375-text-200");
       await page.getByText("View activity table", { exact: true }).click();
       await noOverflow(`${role} ${textSize} activity table`);

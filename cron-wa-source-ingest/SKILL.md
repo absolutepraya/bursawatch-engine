@@ -25,10 +25,12 @@ capabilities frozen at source acceptance, the owner records
 material as irrelevant to force a route. The existing disclosure safeguard
 remains active.
 
-For `swing_chart_context`, the existing watcher still requires the exact
-leading `#TechnicalReview` marker and one verified archived chart image before
-it can post All Swing content or submit BRI Chart context to the Swing Board.
-Keep all source event details and delivery behavior inside that watcher.
+For `swing_chart_context`, the watcher requires the exact leading
+`#TechnicalReview` marker. A verified chart enables the usual All Swing image
+and Board path. When the archived source chart cannot be transferred, the
+watcher forwards the original source text with `Source chart unavailable`
+and skips Board chart context. Keep all source event details and delivery
+behavior inside that watcher.
 INS and Samuel remain observe-only and never produce agent work.
 
 The old `(published_at, event_key)` cursor has no proven order-preserving
@@ -36,3 +38,12 @@ mapping to the bridge queue's `(mtime_ns, filename)` position, so the active
 reader starts forward-only and preserves the old state for rollback.
 `adapter.plan_legacy_cursor_seed` remains blocked. Do not start a second source
 poller or replay retained queue history.
+
+The wrapper may load an explicitly reviewed `BURSAWATCH_WA_SOURCE_STATE_ROOT`
+from `~/.hermes/.env` for forward-only recovery. A fresh root binds the current
+catalog at its first natural poll and records the observed queue high-water
+mark without reading old payloads. Keep the prior root for rollback and record
+the skipped backlog. Already-accepted Source Inbox and watcher owner work stays
+in its existing state and continues normally. This setting does not change the
+bridge, archive, destinations, or cadence, and it does not authorize a cursor
+reset or replay.

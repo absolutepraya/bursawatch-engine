@@ -110,6 +110,9 @@ def _capture_record(value: dict[str, object], record: dict[str, Any], profiles: 
                 summary=item.get("summary") if profile.enable_llm_summary else None,
                 route=route, sentiment=item.get("sentiment"), board_url=board_url,
             )
+            if record.get("news_cards") is not None:
+                create_messages = messages = record["news_cards"][item_index]["messages"]
+                channel_id = record["news_cards"][item_index]["destination"]
             if not messages or len(create_messages) != len(messages):
                 continue
             owner_key = f"{event.event_key}:item:{item_index}"
@@ -160,10 +163,10 @@ def _capture_record(value: dict[str, object], record: dict[str, Any], profiles: 
                 "api_version": 1, "owner_key": owner_key, "version": 1, "supersedes_version": None,
                 "type": kind, "route": route, "source_event_key": event.event_key,
                 "source_name": profile.display_name, "source_url": profile.channel_url,
-                "source_published_at": event.published_at.isoformat(), "market_data_as_of": None,
-                "delivery_confirmed_at": str(record.get("delivered_at") or confirmed_at.isoformat()), "title": title[:300], "ticker": None,
+                "source_published_at": event.published_at.isoformat(), "market_data_as_of": record["news_cards"][item_index]["market_data_as_of"] if record.get("news_cards") else None,
+                "delivery_confirmed_at": str(record.get("delivered_at") or confirmed_at.isoformat()), "title": title[:300], "ticker": record["news_cards"][item_index]["ticker"] if record.get("news_cards") else None,
                 "broker_levels": None, "parent_publication_id": None, "board_episode_id": None,
-                "config_revision": None, "renderer_version": RENDERER_VERSION,
+                "config_revision": None, "renderer_version": "stock-news-v1" if record.get("news_cards") else RENDERER_VERSION,
                 "source_version": event.message_id,
                 "required_operation_keys": [row["operation_key"] for row in descriptors], "legs": [],
                 "_receipt_pending": True, "_operation_descriptors": descriptors,
@@ -209,7 +212,7 @@ def _resolve(snapshot: dict[str, Any], owner: Any) -> dict[str, Any] | None:
                 or receipt.get("digest") != descriptor["operation_digest"] or receipt.get("status") != "delivered"):
             return None
         delivered = receipt.get("receipt")
-        if not isinstance(delivered, dict) or delivered.get("channel_id") != descriptor["destination"]:
+        if not isinstance(delivered, dict) or delivered.get("channel_id", descriptor["destination"]) != descriptor["destination"]:
             return None
         message_id = delivered.get("message_id")
         if not isinstance(message_id, str) or not message_id.isdigit() or not isinstance(receipt.get("id"), str):

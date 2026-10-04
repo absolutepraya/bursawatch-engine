@@ -675,8 +675,11 @@ def _validate_optional_analysis(value: object, key: str) -> None:
 
 def _validate_event(value: object) -> dict[str, object]:
     event = _require_object(value)
-    if set(event) != _EVENT_KEYS:
+    if set(event) not in (_EVENT_KEYS, _EVENT_KEYS | {"news_cards"}):
         raise _invalid()
+    if "news_cards" in event:
+        import render
+        render.news_format.validate_cards(event["news_cards"])
     profile_id = _safe_component(event["profile_id"])
     publication_id = _safe_component(event["publication_id"])
     event_key = _safe_token(event["event_key"])

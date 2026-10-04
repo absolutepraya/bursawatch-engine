@@ -26,13 +26,13 @@ Finance or economics relevance is necessary but not sufficient. The supplied pos
 
 For a thread, do not reject a substantive whole merely because one continuation is brief or contextual. For an irrelevant post, submit exactly `{"event_key":"<supplied item.event_key>","is_relevant":false}`. Do not include a title, summary, or route. The scanner removes that leased event without Discord delivery.
 
-When `relevance_guard_required` is `true`, the scanner has identified a clear substantive market signal. Never return `is_relevant:false` for it. Return the complete requested title, summary, and route instead. This is a positive recall safeguard only. The scanner never makes a negative content-relevance or promotion decision, so apply the shared and profile-specific exclusions in the LLM response.
+When `relevance_guard_required` is true, market-related words were detected. This is advisory context only. Decide relevance from the complete thesis. Education and promotions can still use `is_relevant:false`; the scanner accepts that decision.
 
 ## Title and summary contract
 
 When `title_required` is `true`, write a concise source-grounded Bahasa Indonesia headline. It must be one line, five to 120 characters, with no link or ending `.`, `!`, or `?`. Do not use the writer's name as the title. For a quote post, title the configured account's own point, not merely the quoted post. For a listed-security route, begin the title with the exact exchange ticker followed by `:`, such as `MYOR:` or `META:`. A `macro_news` title stays natural and must not invent a ticker.
 
-When `summary_required` is `true`, write one or two short paragraphs in Bahasa Indonesia. Start paragraph one exactly with `*(Ringkasan)* `. Never repeat that label in paragraph two. State the analysis directly, as the configured account's own view. Cover the core information, key numbers, named parties, main argument, and supported implications when present. Do not introduce the writer as a narrator with phrases such as `penulis menilai`, `Ricky menyebutkan`, `Ricky merangkum`, or `menurut tweet ini`. Attribute an external report, survey, or estimate only when the source post or supplied linked-article context does. Do not invent facts, advice, certainty, or outside context.
+When `summary_required` is true, follow the shared writing instruction below. Return plain factual Indonesian summary text without a Ringkasan marker. Preserve attribution for external research, forecasts, and guidance.
 
 Do not add headings, bullets, tables, disclaimers, links, raw source text, a quote block, or a `View on X` link. The scanner adds the heading, muted writer byline, main post link, source context, and media. Keep the total summary below 1,600 characters, and keep each paragraph on one line.
 
@@ -69,3 +69,51 @@ An accepted `id_stocks_swing` post is delivered to All Swing first. The scanner 
 The board handoff is not a second X resend. If the board later receives a complete Phintraco plan and promotes the episode, the superseded source starter and first chart become one normal source-context history reply. Do not create a separate GTW resend from the X watcher.
 
 When one source media URL returns a confirmed HTTP 404 or 410, treat only that media item as permanently unavailable. Record the skipped URL and degraded error, preserve the successful text delivery, and advance the media cursor so the queue can continue. Retry transient HTTP and transport failures. Do not replay already accepted All text or media, reset live state, or backfill historical X deliveries.
+
+## Shared generated-news format
+
+`lib-news-format` owns the common writing instruction, renderer, and
+optional deterministic quote lookup. Report directly in Indonesian and
+preserve research attribution, periods, units, and uncertainty. Prefer two
+short paragraphs for longer summaries; concise or cohesive items may use one.
+No fixed paragraph threshold or style-based relevance gate applies. Return
+plain summary text without a Ringkasan marker. The renderer adds it once and
+normalizes legacy markers. Existing structural, identity, capability, and
+source-specific safety checks remain mandatory.
+
+Split independent issuer developments into ordered items, including separate
+issuer dividends and suspension reopenings. Keep a connected transaction or
+one broad thesis as one story. Each generated issuer card has a ticker-led
+headline, source byline, latest native-currency price and 1D/1W/1M/3M absolute
+and percentage changes, plus the original source link. IDX uses IDR and US
+uses USD. Missing quotes or individual horizons use grey `-` placeholders;
+macro and industry cards omit the tracker. Prices are renderer enrichment,
+never model-generated news facts. Forecasts and incomplete amounts must not
+be made certain or filled in.
+
+For new submissions, collapse identical news items after validation and before
+assigning delivery or child identities. Match route, headline, summary,
+ticker and sentiment, ignoring only whitespace and legacy summary markers.
+Keep the first copy and source order. Distinct stories for the same issuer
+remain separate. Do not deduplicate old frozen payloads or across sources.
+
+New generated cards freeze their rendered text and quote timestamp before
+Discord delivery. X, Instagram, and WhatsApp also freeze each card's selected
+destination. Retries and Published Feed projections use those saved cards and
+stable operation identities. Existing pending records without new cards keep
+their legacy path. Profiles with generated summaries disabled retain their
+explicit raw-forwarding policy. Specialized Swing/Board and Stock Information
+contracts remain owner-specific.
+
+The LLM owns semantic relevance. Market-keyword signals are advisory and
+cannot veto `is_relevant: false`. Generic investing education remains
+excluded even when it mentions earnings, dividends, charting, or an issuer.
+There is no deterministic education denylist.
+
+When generated title, summary, and routing are enabled, relevant news uses
+`{"event_key":"<supplied key>","is_relevant":true,"items":[{"title":"GIAA: Rencana rights issue","summary":"GIAA akan melakukan rights issue.","route":"id_stocks_news"}]}`.
+Include `is_relevant` only when requested. Return one to sixteen items, each
+with exactly `title`, `summary`, and `route`. Every item selects one configured
+news route. A Swing item or a profile with only some generated fields enabled
+uses the existing scalar schema. Scalar submissions remain accepted for
+already leased events. Irrelevant events use only the key and false decision.

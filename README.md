@@ -67,6 +67,12 @@ automatic releases.
 its compose files, credentials, cookies, proxy configuration, or runtime data
 into source control.
 
+The news owners share `lib-news-format` for generated Telegram, X, WhatsApp,
+Instagram, and Stockbit cards. Independent issuer stories receive separate
+cards with native-currency quotes and 1D/1W/1M/3M changes. Existing saved
+payloads, raw-forwarding profiles, and specialized Swing/status output retain
+their owner contracts. This describes source behavior, not a live rollout.
+
 ## Web applications
 
 | Package | Purpose | Local guide |

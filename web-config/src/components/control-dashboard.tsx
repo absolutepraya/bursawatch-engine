@@ -452,6 +452,10 @@ export function ControlDashboard({
           updatedAt={updatedAt}
           onSelectWatcher={onSelectWatcher}
           issues={issues}
+          components={components}
+          operatorJobs={operatorJobs}
+          observations={observations}
+          operatorIssues={operatorIssues}
         />
       </section>
 
@@ -619,6 +623,7 @@ export function ControlWatcherList({
   components = [],
   operatorJobs = [],
   observations = [],
+  operatorIssues = [],
 }: {
   watchers: ControlWatcher[];
   runs: ControlRun[];
@@ -631,11 +636,17 @@ export function ControlWatcherList({
   components?: OperatorComponent[];
   operatorJobs?: OperatorJob[];
   observations?: OperatorObservation[];
+  operatorIssues?: { resource: string; message: string }[];
 }) {
   const latest = useMemo(
     () => latestControlRuns(watchers, runs, updatedAt),
     [watchers, runs, updatedAt],
   );
+  const observationById = useMemo(() => latestOperatorObservations(observations), [observations]);
+  const relationshipsUnavailable = operatorIssues.some(
+    (issue) => issue.resource === "components" || issue.resource === "operator-jobs",
+  );
+  const observationsUnavailable = operatorIssues.some((issue) => issue.resource === "observations");
   if (watchers.length === 0)
     return (
       <div className="control-list-empty">
@@ -665,11 +676,11 @@ export function ControlWatcherList({
           (component) =>
             component.kind === "domain_owner" &&
             (component.component_id === watcher.watcher_id ||
-              component.config_resource_ids.includes(watcher.watcher_id)),
+              component.config_resource_ids.includes(watcher.watcher_id) ||
+              component.config_resource_ids.includes(`watcher:${watcher.watcher_id}`)),
         );
         const ownerJobIds = new Set(ownerComponents.flatMap((component) => component.job_ids));
         const ownerJobs = operatorJobs.filter((job) => ownerJobIds.has(job.job_id));
-        const observationById = latestOperatorObservations(observations);
         return (
           <li key={watcher.watcher_id}>
             <button
@@ -709,34 +720,42 @@ export function ControlWatcherList({
                     No recorded run
                   </span>
                 )}
-                {lastRun && !runUnavailable && (
+                {statusLoaded && lastRun && !runUnavailable && (
                   <time dateTime={lastRun.started_at}>{formatTime(lastRun.started_at)} WIB</time>
                 )}
               </span>
               <ArrowUpRight size={18} className="control-row-arrow" aria-hidden="true" />
             </button>
-            <div className="control-watcher-operator-evidence">
-              <span>{configEvidence.label}</span>
-              {ownerJobs.length ? (
+            {statusLoaded && (
+              <div className="control-watcher-operator-evidence">
                 <span>
-                  Shared jobs:{" "}
-                  {ownerJobs.map((job, index) => {
-                    const state = observedJobState(job, observationById.get(`job:${job.job_id}`));
-                    return (
-                      <span key={job.job_id}>
-                        {index ? ", " : ""}
-                        {job.display_name} ({formatObservedJobState(state)})
-                      </span>
-                    );
-                  })}{" "}
-                  <Link href="/workspace/jobs">View Jobs</Link>
+                  {runUnavailable ? "Configuration use unavailable" : configEvidence.label}
                 </span>
-              ) : statusLoaded ? (
-                <span>Shared job relationship unavailable</span>
-              ) : (
-                <span>Shared job status unavailable</span>
-              )}
-            </div>
+                {relationshipsUnavailable ? (
+                  <span>Shared job relationship unavailable</span>
+                ) : ownerJobs.length ? (
+                  <span>
+                    Shared jobs:{" "}
+                    {ownerJobs.map((job, index) => {
+                      const state = observedJobState(job, observationById.get(`job:${job.job_id}`));
+                      return (
+                        <span key={job.job_id}>
+                          {index ? ", " : ""}
+                          {job.display_name} (
+                          {observationsUnavailable
+                            ? "status unavailable"
+                            : formatObservedJobState(state)}
+                          )
+                        </span>
+                      );
+                    })}{" "}
+                    <Link href="/workspace/jobs">View Jobs</Link>
+                  </span>
+                ) : (
+                  <span>Shared job relationship unavailable</span>
+                )}
+              </div>
+            )}
           </li>
         );
       })}

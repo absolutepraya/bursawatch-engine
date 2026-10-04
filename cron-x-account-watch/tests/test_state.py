@@ -204,3 +204,15 @@ def test_disabled_thread_handling_delivers_without_a_quiet_window(config_path, p
     state.observe_posts(value, profile, [post], lambda candidate: candidate.kind is PostKind.NORMAL, now=now)
 
     assert state.is_ready(value["outbox"][0], now) is True
+
+
+def test_split_news_cleanup_tracks_each_actual_destination():
+    value=state.new_state()
+    old={'delivery_id':'writer:101','channel_id':'123','text_message_ids':['1001','1002'],'text_destinations':['123','456'],'media_message_ids':['1003'],'superseded_by':None}
+    value['deliveries'].append(old)
+    state.queue_replacement_cleanup(value,{'delivery_id':'writer:102','replacement_of':['writer:101']})
+    assert {r['channel_id']:r['message_ids'] for r in value['cleanup']}=={'123':['1001','1003'],'456':['1002']}
+    state.finish_cleanup(value,value['cleanup'][0])
+    assert old.get('superseded_by') is None and old['replacement_pending']
+    state.finish_cleanup(value,value['cleanup'][0])
+    assert old['superseded_by']=='writer:102' and not old['replacement_pending']

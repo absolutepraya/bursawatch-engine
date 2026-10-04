@@ -42,24 +42,23 @@ watcher's scope.
   or delivery targets.
 - Text is rendered and delivered before supported media, in source order. Each
   text and media leg has its own retry checkpoint, so a failed attachment does
-  not repeat already-delivered text. For ordinary nontechnical forwarding, an
-  archive record that says source media is unavailable becomes terminal
-  text-only delivery: the record records `media_delivery_status` as
-  `unavailable` (or `partial`), emits a degraded heartbeat, and does not retry
-  the unavailable source forever. A Discord transport or upload failure remains
-  retryable. Technical BRI Swing reviews stay strict and require exactly one
-  verified archived image before any text, media, or Board handoff.
+  not repeat already-delivered text. A validated source archive may admit
+  nonempty text when media capture or Source Media transfer fails. Ordinary
+  news forwards its text and any archived media that remains available; the
+  missing leg becomes `unavailable` or `partial` with a degraded heartbeat.
+  Discord transport failures remain retryable.
 - Archived media remains content-addressed and extensionless for the 365-day
   research retention window. Discord delivery supplies a MIME-derived
   presentation name, such as `bri-chart-0.jpg`, and the bridge removes only
   its transient staging copy after a successful archive capture. Media bytes do
   not enter logs or the control-plane database.
-- BRI `#TechnicalReview` posts are stricter: they require exactly one verified,
-  archive-owned image before any All Swing text or media is posted. On success,
-  deliver text, then that image, then submit the eligible single-ticker chart
-  context to the Swing Board. A missing or multiple image leaves the item
-  pending with no partial Discord delivery. A multiple or ambiguous ticker is
-  All Swing only and must never create Board context.
+- BRI `#TechnicalReview` with exactly one verified archive-owned image
+  delivers text, then that image, then eligible single-ticker chart context to
+  the Swing Board. When the chart is unavailable or ambiguous, forward the
+  original source text to All Swing with `Source chart unavailable`, record
+  unavailable media, and skip Board chart context. Freeze that fallback before
+  the first text send so a retry cannot switch to a chart-dependent path.
+  Multiple or ambiguous tickers never create Board context.
 - A leading, case-sensitive `#TechnicalReview` token after optional whitespace
   and Markdown wrapper characters is a deterministic `id_stocks_swing` route
   override. A later tag, typo, chart, or technical vocabulary alone never
@@ -374,6 +373,13 @@ queue processing, and heartbeat construction without external messages.
 
 After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.
 
+A delivered channel-message receipt requires a valid `message_id`; its
+`channel_id` may be omitted. Senders and publication projection accept the
+destination bound by the validated operation key and digest in that case.
+An explicit conflicting channel remains invalid. An already delivered operation
+is looked up by its stable key before any submission, so receipt finalization
+does not create another message.
+
 ## Published Feed projection
 
 The watcher owns WhatsApp Channel Published Feed projections. It projects only
@@ -391,3 +397,43 @@ After a separately approved forward-only cutover, configure
 `BURSAWATCH_PUBLICATION_CONTROL_PLANE_URL` and the owner-scoped
 `BURSAWATCH_WA_CHANNEL_WATCH_PUBLICATION_TOKEN_FILE`. An unavailable read model
 leaves its durable intent pending without resending delivered Discord legs.
+
+## Shared generated-news format
+
+`lib-news-format` owns the common writing instruction, renderer, and
+optional deterministic quote lookup. Report directly in Indonesian and
+preserve research attribution, periods, units, and uncertainty. Prefer two
+short paragraphs for longer summaries; concise or cohesive items may use one.
+No fixed paragraph threshold or style-based relevance gate applies. Return
+plain summary text without a Ringkasan marker. The renderer adds it once and
+normalizes legacy markers. Existing structural, identity, capability, and
+source-specific safety checks remain mandatory.
+
+Split independent issuer developments into ordered items, including separate
+issuer dividends and suspension reopenings. Keep a connected transaction or
+one broad thesis as one story. Each generated issuer card has a ticker-led
+headline, source byline, latest native-currency price and 1D/1W/1M/3M absolute
+and percentage changes, plus the original source link. IDX uses IDR and US
+uses USD. Missing quotes or individual horizons use grey `-` placeholders;
+macro and industry cards omit the tracker. Prices are renderer enrichment,
+never model-generated news facts. Forecasts and incomplete amounts must not
+be made certain or filled in.
+
+For new submissions, collapse identical news items after validation and before
+assigning delivery or child identities. Match route, headline, summary,
+ticker and sentiment, ignoring only whitespace and legacy summary markers.
+Keep the first copy and source order. Distinct stories for the same issuer
+remain separate. Do not deduplicate old frozen payloads or across sources.
+
+New generated cards freeze their rendered text and quote timestamp before
+Discord delivery. X, Instagram, and WhatsApp also freeze each card's selected
+destination. Retries and Published Feed projections use those saved cards and
+stable operation identities. Existing pending records without new cards keep
+their legacy path. Profiles with generated summaries disabled retain their
+explicit raw-forwarding policy. Specialized Swing/Board and Stock Information
+contracts remain owner-specific.
+
+The LLM owns semantic relevance. Market-keyword signals are advisory and
+cannot veto `is_relevant: false`. Generic investing education remains
+excluded even when it mentions earnings, dividends, charting, or an issuer.
+There is no deterministic education denylist.

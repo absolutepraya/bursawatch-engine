@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agent_protocol import agent_item, analysis_payload, build_wake_payload, validate_submission
+from agent_protocol import agent_item, analysis_payload, build_wake_payload, validate_submission, validate_submissions
 from models import Article, FeedLane, Route
 
 
@@ -67,6 +67,15 @@ def test_valid_issuer_submission_is_accepted(article: Article) -> None:
     assert result.ticker == "SWAP"
 
 
+def test_duplicate_split_analyses_are_removed_before_child_identity_assignment(article):
+    first = valid_payload(article)
+    first.pop('candidate_key')
+    other = {**first, 'summary':'SWAP mengumumkan perkembangan bisnis lain.'}
+    analyses = validate_submissions(article, {'candidate_key':article.key, 'items':[first,dict(first),other]})
+    assert len(analyses) == 2
+    assert [analysis.summary for analysis in analyses] == [first['summary'],other['summary']]
+
+
 def test_multi_issuer_macro_submission_has_no_ticker(article: Article) -> None:
     payload = valid_payload(article)
     payload.update(
@@ -93,5 +102,4 @@ def test_title_contract_is_enforced(article: Article, title: str) -> None:
 def test_ringkasan_marker_is_renderer_owned(article: Article) -> None:
     payload = valid_payload(article)
     payload["summary"] = "*(Ringkasan)* SWAP memiliki bisnis produk kesehatan."
-    with pytest.raises(ValueError, match="Ringkasan"):
-        validate_submission(article, payload)
+    assert validate_submission(article, payload).summary == "SWAP memiliki bisnis produk kesehatan."

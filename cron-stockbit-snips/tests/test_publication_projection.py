@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+
 import config
 import publication_projection as projection
 import scan
@@ -88,6 +90,35 @@ def test_confirmed_stockbit_routes_create_typed_snapshots():
         assert snapshot["legs"][0]["receipt_operation_id"] == "delivery-op-1"
 
 
+def test_message_only_receipt_projects_the_frozen_operation_destination():
+    value, article, operation, _receipt = _bound_state()
+    del value["articles"][article.key]["delivery"]["receipt"]["receipt"]["channel_id"]
+
+    snapshot = projection._snapshot(value, article.key, NOW)
+
+    assert snapshot is not None
+    assert snapshot["legs"][0]["destination"] == operation.target["channel_id"]
+    assert snapshot["legs"][0]["operation_digest"] == operation.digest
+    assert snapshot["legs"][0]["receipt_id"] == "234567890123456789"
+
+
+@pytest.mark.parametrize("field,replacement", [
+    ("channel_id", "999999999999999999"),
+    ("key", "different-operation"),
+    ("digest", "f" * 64),
+])
+def test_receipt_with_conflicting_operation_identity_cannot_be_projected(field, replacement):
+    value, article, _operation, _receipt = _bound_state()
+    document = value["articles"][article.key]["delivery"]["receipt"]
+    if field == "channel_id":
+        document["receipt"][field] = replacement
+    else:
+        document[field] = replacement
+
+    with pytest.raises(projection.IncompletePublication):
+        projection._snapshot(value, article.key, NOW)
+
+
 def test_excluded_or_unproven_article_has_no_publication():
     excluded, article, *_ = _bound_state("exclude")
     assert projection._snapshot(excluded, article.key, NOW) is None
@@ -110,9 +141,12 @@ def test_incomplete_or_mismatched_receipt_cannot_be_projected():
         raise AssertionError("mismatched receipt was accepted")
 
 
-def test_confirmed_receipt_intent_is_saved_before_article_terminal_state(tmp_path, monkeypatch):
+@pytest.mark.parametrize("include_channel", [True, False])
+def test_confirmed_receipt_intent_is_saved_before_article_terminal_state(tmp_path, monkeypatch, include_channel):
     monkeypatch.setenv("BURSAWATCH_STOCKBIT_SNIPS_PUBLICATION_ENABLED", "1")
     value, article, operation, receipt = _bound_state()
+    if not include_channel:
+        del receipt.receipt["channel_id"]
     record = value["articles"][article.key]
     record["delivery"] = None
     path = tmp_path / "state.json"
@@ -136,7 +170,7 @@ def test_confirmed_receipt_intent_is_saved_before_article_terminal_state(tmp_pat
 
     monkeypatch.setattr(state, "save_state", record_save)
     assert scan._drain_delivery(value, runtime, NOW) == 1
-    assert saves == [("pending_delivery", True)]
+    assert saves == [("pending_delivery", False), ("pending_delivery", True)]
     assert value["articles"][article.key]["phase"] == "delivered"
 
 

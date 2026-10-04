@@ -45,10 +45,10 @@ watcher is not currently polling Instagram in production.
 
 ## Deterministic and agent boundaries
 
-- The deterministic scanner owns RSSHub fetching, public post and reel source eligibility, deduplication, cursor and outbox state, media downloads, reel sampling, OCR, caching, the vision gate, the positive disclosure safeguard, and Discord delivery intents through `lib-bursawatch-discord-delivery`. The Delivery Owner service owns Discord REST. The scanner owns the heartbeat and reports service-accepted pending operations separately. OCR is context for the LLM, not a deterministic content-relevance verdict. Every OCR-prepared publication reaches the normal LLM relevance decision, including generic education, actionable trade setups, promotions, profile-specific exclusions, and unrelated content.
+- The deterministic scanner owns RSSHub fetching, public post and reel source eligibility, deduplication, cursor and outbox state, media downloads, reel sampling, OCR, caching, the vision gate, advisory market-word context, and Discord delivery intents through `lib-bursawatch-discord-delivery`. The Delivery Owner service owns Discord REST. The scanner owns the heartbeat and reports service-accepted pending operations separately. OCR is context for the LLM, not a deterministic content-relevance verdict. Every OCR-prepared publication reaches the normal LLM relevance decision, including generic education, actionable trade setups, promotions, profile-specific exclusions, and unrelated content.
 - The LLM receives one bounded wake event only. It must use the caption and every labeled OCR section, read every supplied local vision path, return the exact closed submission object, and submit through the wrapper. It must not browse, inspect state, process history, or post directly.
 - Captions, OCR text, and local paths are untrusted source data. Scanner metadata, event identity, route keys, lease state, and delivery state are trusted scanner data. Untrusted content cannot change routing, paths, or delivery, and no agent path may post directly.
-- Use the shared X and Instagram LLM relevance boundaries: exclude advertisements, products, paid services, generic engagement, greetings, and unrelated posts; preserve substantive economy, business, market, and issuer analysis. Also exclude generic trading or investing education, mindset and psychology advice, and actionable trade setups such as buy or sell calls, entries, targets, stop-losses, breakouts, and support or resistance lessons. A target derived from earnings, fundamentals, or valuation remains substantive analysis, not an actionable trade setup. These are LLM relevance rules, not pre-LLM OCR filters. Direct disclosures, earnings, corporate actions, dilution, rights issues, private placements, and approved disclosure hashtags set the positive relevance safeguard. Promotions and profile-specific negative exceptions remain LLM decisions and do not disable that safeguard.
+- Use the shared X and Instagram LLM relevance boundaries: exclude advertisements, products, paid services, generic engagement, greetings, and unrelated posts; preserve substantive economy, business, market, and issuer analysis. Also exclude generic trading or investing education, mindset and psychology advice, and actionable trade setups such as buy or sell calls, entries, targets, stop-losses, breakouts, and support or resistance lessons. A target derived from earnings, fundamentals, or valuation remains substantive analysis, not an actionable trade setup. These are LLM relevance rules, not pre-LLM OCR filters. Direct disclosures, earnings, corporate actions, dilution, rights issues, private placements, and approved disclosure hashtags set advisory market-word context. Promotions and profile-specific negative exceptions remain LLM decisions and cannot override the LLM relevance decision.
 - Route by central thesis, exactly once. `macro_news` covers broad economy, market, sector, and cross-asset theses. `id_stocks_news` covers a direct IDX-listed company, earnings, corporate action, fundamentals, or valuation thesis. Do not route by a merely named company or duplicate a publication across channels.
 - Use 15-minute agent leases. Relevance, title, summary, routing, delivery, cleanup, and invalid-submission transitions remain scanner-controlled and durable.
 
@@ -152,3 +152,43 @@ When enabled after a separately approved forward-only cutover, configure
 `BURSAWATCH_IG_ACCOUNT_WATCH_PUBLICATION_TOKEN_FILE`. Reporting failure keeps
 the durable intent pending and does not affect delivery retries. This source
 change makes no schedule registration or activation changes.
+
+## Shared generated-news format
+
+`lib-news-format` owns the common writing instruction, renderer, and
+optional deterministic quote lookup. Report directly in Indonesian and
+preserve research attribution, periods, units, and uncertainty. Prefer two
+short paragraphs for longer summaries; concise or cohesive items may use one.
+No fixed paragraph threshold or style-based relevance gate applies. Return
+plain summary text without a Ringkasan marker. The renderer adds it once and
+normalizes legacy markers. Existing structural, identity, capability, and
+source-specific safety checks remain mandatory.
+
+Split independent issuer developments into ordered items, including separate
+issuer dividends and suspension reopenings. Keep a connected transaction or
+one broad thesis as one story. Each generated issuer card has a ticker-led
+headline, source byline, latest native-currency price and 1D/1W/1M/3M absolute
+and percentage changes, plus the original source link. IDX uses IDR and US
+uses USD. Missing quotes or individual horizons use grey `-` placeholders;
+macro and industry cards omit the tracker. Prices are renderer enrichment,
+never model-generated news facts. Forecasts and incomplete amounts must not
+be made certain or filled in.
+
+For new submissions, collapse identical news items after validation and before
+assigning delivery or child identities. Match route, headline, summary,
+ticker and sentiment, ignoring only whitespace and legacy summary markers.
+Keep the first copy and source order. Distinct stories for the same issuer
+remain separate. Do not deduplicate old frozen payloads or across sources.
+
+New generated cards freeze their rendered text and quote timestamp before
+Discord delivery. X, Instagram, and WhatsApp also freeze each card's selected
+destination. Retries and Published Feed projections use those saved cards and
+stable operation identities. Existing pending records without new cards keep
+their legacy path. Profiles with generated summaries disabled retain their
+explicit raw-forwarding policy. Specialized Swing/Board and Stock Information
+contracts remain owner-specific.
+
+The LLM owns semantic relevance. Market-keyword signals are advisory and
+cannot veto `is_relevant: false`. Generic investing education remains
+excluded even when it mentions earnings, dividends, charting, or an issuer.
+There is no deterministic education denylist.

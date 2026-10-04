@@ -116,3 +116,19 @@ The active contracts are [`service-bursawatch-control/README.md`](../../../servi
 - `web-config/docs/CONTROL_PLANE.md` and `CONFIGURATION_COVERAGE.md` describe the current authenticated workspace and its intentionally limited configuration editors.
 - The `AGENTS.md` files for Market News, Stockbit, X, Instagram, WhatsApp, Phintraco Swing, Kelas Investasi GTW, and the Swing Board define the owner-specific publication and delivery contracts.
 - The separately maintained Sectors Hackathon Track 2 working notes dated 2026-09-27 are draft research context, not an implementation contract for this feed.
+
+## 2026-10-01 health and proof clarification
+
+A signed-in Published feed or Jobs grid health note cannot prove a source
+item reached a Discord room. A confirmed publication needs every required
+Delivery Owner receipt. Source publication, owner acceptance, delivery
+confirmation, publication projection, and room visibility remain distinct
+evidence. A queued item may arrive after its source time; display both times.
+Previously abandoned cutover candidates stay terminal.
+
+CI should cover authenticated page/API behavior, receipt mapping, coverage
+warnings, and honest empty states using synthetic fixtures. Read-only live
+verification should correlate one source key across inbox, owner state,
+stable delivery operation and frozen target, publication record, and the
+configured Discord room. Lack of a fresh eligible post leaves that final
+observation unverified without blocking work on other sources.

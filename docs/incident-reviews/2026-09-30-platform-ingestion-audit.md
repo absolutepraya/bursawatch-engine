@@ -260,8 +260,9 @@ successful release at `3ae575c48ceac79cc95e5625f92b0b19dc38bb44`, release CI
 successful, the Telegram source reader active at its existing one-minute
 cadence, and all eight desired interval schedules matching the Hermes
 registry. The source catalog and reader state were both at revision 7. This is
-the state after the catalog recovery and Market News owner-state reconciliation
-recorded in the 2026-10-01 plan; it does not prove a new News delivery.
+the state after catalog recovery. The separate Market News state-root
+reconciliation was still pending; this snapshot does not prove a new News
+delivery.
 
 The Phintas finding is corrected by later evidence:
 
@@ -291,8 +292,368 @@ The Phintas finding is corrected by later evidence:
   already known in its state; otherwise the Board's context behavior remains
   the source-faithful outcome.
 
-The approved future-only canonical route work is documented in
+The completed future-only canonical route work is documented in
 [`Phintas Swing route design`](../superpowers/specs/2026-10-01-phintas-swing-route-design.md)
 and [`implementation plan`](../superpowers/plans/2026-10-01-phintas-swing-route.md).
 Other findings from this audit remain separate workstreams; do not treat the
 Telegram recovery as proof of X, RSS, WhatsApp, or Stockbit delivery.
+
+## 2026-10-01 follow-up: Phintas transition and Market News reconciliation gate
+
+A read-only production snapshot at 16:08 WIB showed `origin/main` and the
+successful release at `c955b7a8da6f6d4f439035270dd0b2f1b9588261`, release agent
+unblocked, Hermes gateway running, and all eight desired interval schedules
+matching the live registry. Seven of 13 Hermes jobs were active and six were
+paused. The shared Telegram source reader was paused at desired and applied
+revision 8 with its original one-minute interval. The snapshot reports
+scheduler and release state only, not runtime checksums or an exercised source
+to delivery event. The X account job still reported `last=error`; WhatsApp and
+Stockbit jobs reported `last=ok`.
+
+The Phintas route transition completed after PR #35 merged and released. The
+catalog moved from revision 7 to 8, the Swing owner config moved from revision
+1 to 2, and the existing Phintas cursor was preserved. Natural heartbeats
+followed the transition, but no new post-boundary Phintas source-to-Discord
+delivery has been observed. Message `35530` was not replayed.
+
+The original forward-only state merge had already been applied at 13:46 WIB,
+after the checks described above. Its archive and application are corrected in
+the later follow-up below. The source schedule remained paused. The supported
+Hermes job configuration has no `IDX_MARKET_NEWS_STATE_PATH` override.
+
+The released reconciliation command stopped safely on canonical
+`pending_delivery` candidates. Read-only Delivery Owner lookups found:
+
+- Phintraco message `35557` has a persisted exact payload and accepted
+  handoff. Its deterministic operation is `delivered`, and the owner digest
+  matches the saved payload.
+- Tuntun message `15063` has no saved delivery payload or handoff. Its
+  deterministic owner operation lookup returned `not_found`. This means there
+  is no current owner operation to preserve, but it does not explain why the
+  candidate entered `pending_delivery` before the payload was persisted.
+- Two package-local Stock Information events overlap canonical events whose
+  delivery operations are already delivered with matching digests. The
+  canonical event records and receipts remain authoritative.
+
+At the 16:08 snapshot, a local reconciliation update fingerprinted
+status-only checks for canonical pending candidates. It permits only a
+matching delivered operation or `not_found` with no local accepted handoff or
+Discord message ID, repeats the checks during apply, and never submits or waits
+on Delivery Owner work. Accepted legacy handoffs are reconstructed with their
+persisted nonce and `reconcile_before_first_create` operation setting. A
+confirmed local Discord message ID must match the owner's delivered receipt.
+Canonical pending stock-status deliveries remain blocking. At that snapshot,
+this code and its tests were not yet published or released. The Tuntun
+candidate's interruption point remains a separate diagnosis; no cause is
+inferred from the missing payload.
+
+The original version-1 plan had already been applied at 13:46:32 WIB, before
+this 16:08 snapshot. The archive, receipt, and later backward-compatibility
+regression are documented in the post-merge follow-up below. The source
+schedule remained paused.
+
+### Adjacent RSS crash-recovery review
+
+A review flagged that an interrupted atomic journal write could leave a
+temporary file in `catalog-transitions/` and block retry of the same plan.
+Inspection of the repository state at `c955b7a` found that the shared planner
+already recognizes only its owner-owned, regular, mode-`0600`, exact-pattern
+temporary files, excludes them from the journal comparison, and removes them
+before resuming apply. The existing regression covers leftovers in both the
+state root and transition directory, and rejects malformed or unexpected
+entries. The focused check passed 4 tests with 32 deselected. This review item
+is closed against that code state and does not require a separate RSS change;
+it is not evidence of a production RSS run.
+
+## 2026-10-01 follow-up: Market News PR merge and release gate
+
+PR #36 merged at 16:47 WIB as
+[`32c7ccd`](https://github.com/absolutepraya/bursawatch-engine/commit/32c7ccd158479bcf90dd33f2a7c587d0c32943ef).
+The merged change includes legacy accepted-operation reconstruction, confirmed
+Discord message-ID comparison, structured blocking for receipt destination
+mismatches, and the matching regression tests. Local Market News tests passed
+320 cases and `bash scripts/test-all` exited 0. The merge does not establish a
+production release or source-to-delivery success.
+
+The read-only production snapshot at 2026-10-01 16:48 WIB reported
+`origin/main=32c7ccd158479bcf90dd33f2a7c587d0c32943ef` and last successful
+release `c955b7a8da6f6d4f439035270dd0b2f1b9588261`; they did not match. The
+snapshot reported 13 Hermes jobs (7 active, 6 paused), with all 8 desired
+interval schedules matching. Telegram source ingest remained paused at desired
+and applied revision 8. The legacy Market News reader and watchdog also
+remained paused. X account watch showed `last=error`, its queue showed
+`last=ok`, while WhatsApp and Stockbit jobs showed `last=ok`; these scheduler
+records do not prove delivery. The original state archive and apply had
+already happened at 13:46 WIB; this 16:48 snapshot did not verify those state
+files.
+
+The GitHub PR check rollup still showed the CI validation and deterministic
+suite jobs in progress after the merge. The snapshot's release-CI `success`
+field did not prove that the merged SHA passed CI because the successful
+release remained at the older SHA. The archive and initial apply had already
+occurred. Keep the source reader paused until the receipt compatibility repair
+is released and the reviewed follow-up finalization is complete.
+
+## 2026-10-01 follow-up: legacy receipt compatibility repair
+
+The original forward-only state apply completed at 13:46:32 WIB with its
+version-1 receipt. It imported 81 source candidates and provenance records
+(12 new candidates, 69 overlaps), added two stock-status provenance records,
+and abandoned 95 active candidates. The retained archive at
+`~/backup/hermes/runtime-cutovers/2026-10-01/bursawatch-tg-market-news/`
+contains `source-state.json` and `canonical-state.json`; both pass the
+`SHA256SUMS` manifest. The original plan SHA-256 is
+`ee889308fd9f64eaf61181f1e0386e0b7045f17ffb2e907c602dcc4890b89134`, and the
+receipt references it. The unchanged source state matches the archived and
+receipted hash
+`c9ed4604e89ccd5c5bce71b0a8d4477d3fcb554141134844f47e76162e25d27d`.
+
+PR #36 introduced a receipt schema that required delivery-resolution fields
+while retaining receipt version 1. Once its exact main SHA reached production,
+the state reader rejected the existing receipt as malformed. This is a
+backward-compatibility regression after a completed apply, not an incomplete
+initial merge. PR #37 added the dual-schema validator and guarded legacy
+finalization, then merged at 18:23 WIB as
+`4e6db9ce97bd651926c7b6aaff1b936aa2e4d861`.
+
+The pre-release production snapshot at 18:24 WIB showed `origin/main` at that
+SHA, but the last successful release remained
+`32c7ccd158479bcf90dd33f2a7c587d0c32943ef`.
+The release agent is unblocked, Hermes is running, and all 8 desired schedules
+match. Telegram source-ingest remains paused at desired/applied revision 8 at
+its existing one-minute interval; the legacy Market News reader and watchdog
+also remain paused. PR-level `validate` and deterministic suite checks passed,
+while CodeRabbit was still pending. Neither the PR checks nor the snapshot
+prove the exact merged main SHA has passed its release gate or that a natural
+source-to-delivery event occurred.
+
+PR #37's code accepts the exact version-1 and version-2 receipt schemas. Its
+version-3 `finalize_legacy` plan authenticates the original plan and
+receipt, confirms the source import is complete, and fingerprints read-only
+Delivery Owner lookups. Phintraco message `35557` has a matching confirmed
+`delivered` receipt and message ID, so finalization will preserve it without a
+send. Tuntun message `15063` has no saved handoff or Discord ID and its
+operation is `not_found`, so finalization will abandon it and prevent a stale
+send. The plan performs no second import and leaves package-local source state
+unchanged. Only a fresh reviewed plan may be applied while the source reader,
+legacy reader, and watchdog remain paused. Afterward, resume source-ingest
+through the authenticated desired-schedule interface and use natural runs to
+check forward progress. Do not replay or backfill historical news.
+
+## 2026-10-01 production follow-up
+
+PR #37 is now deployed: the 18:57 WIB production snapshot showed `origin/main`
+and the successful VPS release both at
+`4e6db9ce97bd651926c7b6aaff1b936aa2e4d861`, exact-main release CI successful,
+and 8/8 desired schedules matching. The guarded version-3 finalization ran at
+18:39:38 WIB from a separately verified recovery archive. Its receipt records
+zero new imports, all 81 source candidates and provenance preserved, the
+confirmed Phintraco delivery for `35557`, and the unresolved Tuntun `15063`
+operation safely abandoned as not found. Telegram source-ingest resumed at
+revision 9 and is effective at its unchanged one-minute cadence; the legacy
+Market News reader and watchdog remain paused.
+
+The first resumed natural Telegram run accepted eight same-day events:
+Phintas `35559` and `35560`, Tuntun `15064` through `15067`, and Kelas `10905`
+and `10906`. Read-only Control Plane inspection found all 18 associated work
+rows `done`, with no error codes. The canonical Market News ledger received 14
+candidates from Tuntun `15065` and `15066`. At the 18:59 WIB check, five were
+pending selection, eight pending analysis, and one awaiting the agent; none
+had a matching confirmed publication receipt yet. Intake and owner acceptance
+are proven, but current-day classification and delivery acceptance remain in
+progress. No manual schedule run, replay, backfill, or test post occurred.
+
+The same 18:57 WIB schedule snapshot showed the X account watcher still
+`last=error` while its queue job was `last=ok`; WhatsApp and Stockbit were
+`last=ok`. The X error remains a separate adjacent diagnosis, and these
+scheduler labels do not establish source delivery for those routes.
+
+## 2026-10-01 Market News delivery receipt follow-up
+
+The 19:12 WIB production snapshot still showed the exact `main` SHA released,
+all 8 interval schedules matching, and Telegram source-ingest active at
+revision 9. The X watcher continued to report `last=error`; its queue job,
+WhatsApp, and Stockbit reported `last=ok`.
+
+The resumed natural Telegram run accepted eight same-day events and all 18
+associated source-work rows reached `done`. Fourteen candidates came from
+Tuntun messages `15065` and `15066`. By 19:12, eight candidates were
+`pending_delivery`, three `pending_analysis`, one `awaiting_agent`, and two
+`suppressed_rank`.
+
+One Industry candidate from message `15065` reached the Delivery Owner. Its
+operation key and digest match, its owner status is `delivered`, and the owner
+returned Discord message ID `1555188202858483763`. The local target is the
+Industry channel. The standard Delivery Owner receipt contains only
+`message_id`; the typed client validates that receipt against the frozen
+operation, and permits the destination field to be omitted. The deployed
+Market News projection instead required `channel_id` inside the receipt, so
+it rejected the valid owner receipt, left the candidate pending, and repeated
+the failure on later natural runs. The projection flag is enabled, and the
+deployed `publication_projection.py` hash matches the worktree, ruling out a
+configuration or stale-runtime difference.
+
+The narrow worktree fix derives the publication destination from the same
+validated operation target when the receipt omits it, while preserving the
+explicit mismatch rejection. A regression at the full delivery call site was
+red before the fix and green after it; the wrong-channel guard also passes and
+all 325 Market News tests pass. The fix has not reached production yet. The
+existing stable owner operation is already delivered, so post-release recovery
+must confirm that same operation and must not send a replacement. Current-day
+delivery acceptance remains open until natural runs persist matching owner
+receipts and publication records for the affected candidates.
+
+## 2026-10-01 19:15 natural-run follow-up
+
+Hermes reports the scheduled Market News source run
+`0b0b9c827ef442db964bc15c597781b4` completed at 19:15:37 WIB. A read-only
+owner-state inspection found 14 Tuntun candidates: 10 `pending_delivery`, 2
+`pending_analysis`, and 2 `suppressed_rank`. Only
+`tuntun:15065:industry-1` has an accepted Delivery Owner handoff among the
+pending deliveries. That same operation is already `delivered` with message
+ID `1555188202858483763`; the other nine pending candidates have no persisted
+handoff. None of these 14 candidates has a Published Feed projection entry.
+
+The fresh 19:19 WIB snapshot showed `origin/main` and the release still at
+`4e6db9ce97bd651926c7b6aaff1b936aa2e4d861`, exact-main CI successful, and
+8/8 desired schedules matching. Telegram source-ingest remains active at
+revision 9. The X watcher still reports `last=error`, while WhatsApp and
+Stockbit report `last=ok`. Those records establish scheduler state only. The
+message-only receipt correction remains in the development worktree and has
+not reached production; delivery acceptance remains open.
+
+## 2026-10-01 19:31 X source-reader follow-up
+
+The fresh 19:31 WIB snapshot still showed `origin/main` and the successful
+release at `4e6db9ce97bd651926c7b6aaff1b936aa2e4d861`, exact-main CI
+successful, and 8/8 desired schedules matching. The X source-ingest job
+remained active but `last=error`; its one-minute queue worker remained
+`last=ok`. Its latest three scheduled source runs at 19:10, 19:20, and 19:30
+WIB failed. Hermes retains only the generic wrapper traceback
+`RuntimeError: source processing failed`.
+
+Read-only live configuration inspection found X watcher revision 9 and
+effective Source Catalog revision 8. All eight enabled X profiles passed the
+adapter's current endpoint-binding and enabled-subscription selection check.
+Torch remains enabled with `source=rsshub`; its effective `company_news` and
+`macro_news` subscriptions are enabled, while `swing_chart_context` is
+disabled. The X source-ingest state root's `catalog-revision.json` is still
+revision 7. The package calls `bind_catalog_revision()` before endpoint
+polling, and that guard rejects a changed revision without a package-owned
+transition. The runner converts the resulting exception to the generic fatal
+message. This is a current X source-reader catalog gate, separate from the
+older account-feed omission.
+
+The current RSSHub user feed still returns HTTP 200, with eight items including
+Torch status `2105119182325252507` and newer status `2105222314002677829`, but
+not the reported `2105187407926809029`. Torch's source cursor is already at
+`2105222314002677829`; the missed status is absent from the accepted-event
+index. The watcher constructs its feed URL as
+`/twitter/user/writingtorch?format=json`, without an `includeReplies` route
+parameter. RSSHub's upstream [route issue](https://github.com/DIYgod/RSSHub/issues/20255)
+documents `includeReplies=true` as a route parameter, but requests to this
+instance with `includeReplies=true` and with `includeReplies=true&includeRts=true`
+both returned HTTP 200 with zero items. A direct status detail request also
+returned HTTP 403, so the missed post's kind and parent relationship remain
+unknown.
+
+The effective thread mode is `self_chain`, with a 20-post bound, 240-minute
+age bound, and 15-minute settle window. The watcher accepts a reply to the
+same author as a self-chain item even with `forward_reply=false`; that flag
+still excludes replies to other accounts. The available evidence therefore
+does not prove that the thread configuration caused this exact omission. Its
+cursor has passed the missed ID, and no recovery, replay, or backfill was
+attempted. Resolve the revision gate and RSSHub reply visibility in separate
+forward-only X follow-up work before claiming future account coverage.
+
+## 2026-10-01 20:10 X catalog-transition draft
+
+The initial local draft introduced an X-owned 7 to 8 catalog transition and
+used the shared source-state planner to preserve endpoint cursors, accepted
+event indexes, and handoff work. The fresh 20:10 WIB production snapshot still
+showed X source polling active at its existing 10-minute cadence with
+`last=error`; the queue worker remained `last=ok`. `origin/main` and the
+successful VPS release both remained at
+`1756f6f6567b0bc5a28fae2db21bd7187c43f168`, with 8/8 desired schedules
+matching. The draft was not released or applied to live state. The next review
+section records the projection proof correction made before merge. Torch's
+RSSHub visibility and thread handling remain a separate follow-up.
+
+## 2026-10-01 20:44 X projection hash verification
+
+A manual pre-merge review found that the initial helper draft selected only
+enabled X rows and used an incorrectly copied digest. A read-only transaction
+over Source Catalog revisions 7 and 8 reconstructed the complete effective
+X subscription projection from each historical config and the effective
+registry. Both revisions contain 30 X rows and produce the same canonical
+SHA-256: `877e8fce0e374dc2c94e876455d10087298ff837071d82c19d059e0450bef3d3`.
+The implementation and tests now use all 30 effective rows, including
+disabled capabilities, and this verified digest.
+
+The fresh 20:44 WIB production snapshot still showed the X source job active
+at its existing 10-minute cadence with `last=error`, while the queue worker
+remained `last=ok`. `origin/main` and the VPS release still matched
+`1756f6f6567b0bc5a28fae2db21bd7187c43f168`, and all 8 desired schedules
+matched. The corrected implementation remains in PR #39; production state has
+not been changed.
+
+## 2026-10-01 23:02 follow-up decisions and release boundary
+
+PR #39 merged as `193f2d60d07d17591e0624e99e668b1dc144f008`. The
+23:02 WIB read-only snapshot showed this SHA as both `origin/main` and the
+last successful release, with exact-main CI successful and 8/8 desired
+schedules matching. X source polling still showed `last=error`. Releasing
+the helper did not apply its guarded catalog 7 to 8 state transition. The
+catalog mismatch identified at 19:31 remains the confirmed current X
+source-reader cause until the reviewed transition is applied and a natural
+run verifies recovery. The older Torch RSSHub omission is separate.
+
+The operator clarified these choices for follow-up work:
+
+- Distinguish Source Inbox acceptance, owner queueing, Discord Delivery Owner
+  receipts, and messages in the configured Discord room. Health notes,
+  heartbeats, and scheduler results do not prove an item reached a room.
+  Do not block unrelated fixes while waiting for each source's next natural
+  eligible post; the operator will watch for that final observation.
+- The missed Torch post need not be recovered if bounded recovery is
+  difficult. Focus on future coverage. The omission has no proven
+  authentication or rate-limit cause. Consider changing X polling from 10
+  to 30 minutes only if rate limiting is confirmed and the longer feed
+  interval is safe. No cadence change has been made.
+- Let already accepted durable work drain naturally even if its source time
+  is old. Show the source and delivery times separately. This does not
+  authorize manual insertion, cursor rewind, or revival of previously
+  abandoned cutover candidates.
+- For BRI WhatsApp news, forward source text with an unavailable-image note
+  when archive capture is known unavailable. For an exact
+  `#TechnicalReview`, forward source text with `Source chart unavailable`
+  and omit chart-dependent Board context. This fallback is not implemented
+  yet. The observed failure was before Source Media, at archive capture;
+  no WhatsApp anti-bot cause has been established.
+- CI can verify authenticated feed/grid contracts and honest coverage
+  labels with synthetic data. Read-only live checks must correlate each
+  source key with owner state, stable delivery operation and target, and
+  publication and Discord evidence. A healthy signed-in grid is not
+  end-to-end proof.
+
+At a 22:15 WIB read-only state check, 12 Market News candidates and one
+Stockbit article were `pending_delivery`. These are unsettled owner
+records, not 13 proven unsent Discord messages. The Telegram candidates
+already have classified routes. A message-only receipt mismatch was proven
+for one candidate with a delivered stable operation, not for all 12. The
+other handoffs need individual inspection. Stockbit likewise has a
+confirmed stable delivery operation but an unreconciled local article
+phase. Both receipt fixes are released; settle existing operations without
+creating duplicate Discord messages.
+
+## 2026-10-02 source implementation update
+
+PR #41 merged bounded owner delivery drains for Market News and Stockbit;
+PR #42 merged the verified-archive WhatsApp text fallback; PR #43 merged
+signed-in Published and Jobs synthetic browser checks. Their pull-request
+CI checks passed. This records source implementation, not a current VPS
+snapshot or source-to-room proof. The X 7 to 8 state transition remains a
+separate guarded live operation. The known Torch feed omission still has no
+proven authentication or rate-limit cause, so the X polling interval was
+not changed. The 12 Telegram and one Stockbit pending records from the
+22:15 WIB snapshot require a new per-item live audit after natural drains.

@@ -262,9 +262,20 @@ class WhatsAppChannelWatchHandoffAdapter:
                 raise HandoffError("WhatsApp Channel outbox event identity is invalid")
 
             messages_by_item: list[tuple[str, list[str]]] = []
-            for item in raw_items:
+            cards = None
+            if record.get("news_cards") is not None:
+                try:
+                    cards = render.news_format.validate_cards(record["news_cards"])
+                    if len(cards) != len(raw_items):
+                        raise ValueError("card count differs from ready items")
+                except (KeyError, TypeError, ValueError):
+                    raise HandoffError("WhatsApp Channel rendered message is invalid") from None
+            for item_index, item in enumerate(raw_items):
                 if type(item) is not dict:
                     raise HandoffError("WhatsApp Channel ready item is invalid")
+                if cards is not None:
+                    messages_by_item.append((cards[item_index]["destination"], cards[item_index]["messages"]))
+                    continue
                 try:
                     channel_id = scan._delivery_channel(profile, item)
                     sentiment = item.get("sentiment") if isinstance(item.get("sentiment"), str) else None

@@ -1,7 +1,9 @@
 # Phintas Swing Route Canonicalization
 
 **Date:** 2026-10-01
-**Status:** Approved for implementation by the user's standing authorization in this chat
+**Status:** Implemented through PR #35 and released. The catalog and owner
+configuration transition is complete; no new post-boundary source-to-delivery
+event has yet been observed.
 
 ## Goal
 

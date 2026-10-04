@@ -185,14 +185,18 @@ def _deliver_ready(
                 raise ValueError("ready record has no news items")
             technical_review = profile.id == BRI_PROFILE_ID and is_technical_review(event.text)
             archived_images = _archived_images(archive_dir, event) if technical_review else ()
-            image_uploads = _archived_image_uploads(archive_dir, event) if technical_review else ()
-            if technical_review and not image_uploads and len(archived_images) == 1:
+            chart_unavailable = technical_review and (
+                record.get("source_media_unavailable") is True or len(archived_images) != 1
+            )
+            if chart_unavailable and record.get("source_media_unavailable") is not True:
+                record["source_media_unavailable"] = True
+                state.save(state_path, value)
+            image_uploads = _archived_image_uploads(archive_dir, event) if technical_review and not chart_unavailable else ()
+            if technical_review and not chart_unavailable and not image_uploads and len(archived_images) == 1:
                 image_indexes = [index for index, media in enumerate(event.media) if media.kind == "image"]
                 source_index = image_indexes[0] if image_indexes else 0
                 if source_index < len(event.media):
                     image_uploads = ((source_index, event.media[source_index], archived_images[0]),)
-            if technical_review and len(archived_images) != 1:
-                raise FileNotFoundError("technical review requires exactly one archived image")
             item_index = int(record.get("item_index", 0))
             while item_index < len(items):
                 item = items[item_index]
@@ -216,7 +220,12 @@ def _deliver_ready(
                     route=item.get("route") if isinstance(item.get("route"), str) else None,
                     sentiment=sentiment,
                     board_url=board_url if isinstance(board_url, str) else None,
+                    source_chart_unavailable=chart_unavailable,
                 )
+                if record.get("news_cards") is not None:
+                    render.news_format.validate_cards(record["news_cards"])
+                    messages = record["news_cards"][item_index]["messages"]
+                    target = record["news_cards"][item_index]["destination"]
                 text_index = int(record.get("text_index", 0))
                 while text_index < len(messages):
                     message_id = discord.post_text(
@@ -245,9 +254,9 @@ def _deliver_ready(
                 state.save(state_path, value)
             media_indexes: tuple[int, ...] = ()
             archived_media: dict[int, tuple[str, Path]] = {}
-            if technical_review:
+            if technical_review and not chart_unavailable:
                 media_indexes = tuple(index for index, _media, _path in image_uploads)
-            elif profile.forward_media:
+            elif not technical_review and profile.forward_media:
                 media_indexes = agent_protocol.media_delivery_indexes(item_count=len(items), media_count=len(event.media))
                 archived_media = _archived_media(archive_dir, event)
             missing_media_indexes: list[int] = []
@@ -306,7 +315,11 @@ def _deliver_ready(
                     media_index += 1
                     record["media_index"] = media_index
                     state.save(state_path, value)
-            if technical_review:
+            if chart_unavailable:
+                record["media_delivery_status"] = "unavailable"
+                record["media_error"] = "source chart unavailable"
+                errors.append(f"{profile.id}: source chart unavailable for {event.event_key}")
+            elif technical_review:
                 record["media_delivery_status"] = "delivered"
                 record["media_error"] = None
             elif not profile.forward_media:
@@ -328,7 +341,7 @@ def _deliver_ready(
                 record["media_delivery_status"] = "delivered"
                 record["media_error"] = None
             record["last_error"] = None
-            if technical_review:
+            if technical_review and not chart_unavailable:
                 item = items[0]
                 if type(item) is not dict:
                     raise ValueError("ready news item is invalid")
@@ -739,8 +752,6 @@ def submit_analysis(
         event = deserialize_queue_event(record["event"])
         route_override = agent_protocol.deterministic_route(profile, event)
         result = agent_protocol.validate_submission(profile, payload, event=event)
-        if result.get("is_relevant") is False and route_override is not None:
-            raise ValueError("TechnicalReview posts must be submitted as relevant")
         if profile.enable_llm_routing and result.get("is_relevant") is not False:
             items = result.get("items")
             if type(items) is not list or not items:
@@ -756,12 +767,15 @@ def submit_analysis(
                 record["pipeline_scope_dropped_routes"] = dropped
         elif source_work_routes.scoped_routes(record) is not None:
             record["pipeline_scope_outcome"] = "irrelevant"
+        if selected_items and profile.enable_llm_summary and all(item.get("route") != "id_stocks_swing" for item in selected_items):
+            record["news_cards"] = render.freeze_news(profile, event, selected_items)
         record["items"] = selected_items
         record["item_index"] = 0
         record["text_index"] = 0
         record["media_index"] = 0
         record["agent_lease_until"] = None
         record["agent_phase"] = "filtered" if result.get("is_relevant") is False or selected_items == [] else "ready"
+        state.save(state_path, value)
         errors: list[str] = []
         delivered = _deliver_ready(
             value,

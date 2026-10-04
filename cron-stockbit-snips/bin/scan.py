@@ -4,6 +4,7 @@ import argparse
 from datetime import datetime
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Mapping
 from zoneinfo import ZoneInfo
@@ -11,7 +12,7 @@ from zoneinfo import ZoneInfo
 import config
 import discord
 import state
-from agent_protocol import analysis_payload, build_wake_payload, validate_submission
+from agent_protocol import analysis_payload, build_wake_payload, validate_submissions
 from market_data import get_market_snapshot
 from models import Analysis, Article, Route, StockbitWatchConfig
 from render import render
@@ -214,13 +215,15 @@ def _bind_legacy_delivery(value: dict[str, object], loaded: config.LoadedStockbi
     return changed
 
 
-def _render_record(record: dict[str, object], article: Article, analysis: Analysis) -> str:
+def _render_record(record: dict[str, object], article: Article, analysis: Analysis, *, load_market_data: bool = True) -> str:
     existing = record.get("rendered")
     if isinstance(existing, str) and existing:
         return existing
-    snapshot = get_market_snapshot(analysis.ticker) if analysis.route is Route.ID_STOCKS_NEWS else None
+    snapshot = get_market_snapshot(analysis.ticker) if load_market_data and analysis.route is Route.ID_STOCKS_NEWS else None
     content = render(article, analysis, snapshot)
     record["rendered"] = content
+    record["market_data_as_of"] = snapshot.as_of if snapshot is not None else None
+    record["renderer_version"] = "stock-news-v1"
     return content
 
 
@@ -243,12 +246,14 @@ def _pending_delivery(value: dict[str, object], now: datetime) -> list[tuple[str
 
 def _drain_delivery(
     value: dict[str, object], runtime: config.RuntimeConfig, now: datetime,
-    errors: list[str] | None = None,
+    errors: list[str] | None = None, *, limit: int | None = None,
 ) -> int:
     delivered = 0
-    for key, record, article, analysis in _pending_delivery(value, now):
+    due = _pending_delivery(value, now)
+    for key, record, article, analysis in due[:limit] if limit is not None else due:
         try:
             content = _render_record(record, article, analysis)
+            state.save_state(runtime.state_path, value)
             if runtime.no_post:
                 continue
             channel_id = _channel(record, analysis.route)
@@ -469,7 +474,8 @@ def submit_analysis(payload: object) -> dict[str, object]:
         article = state.article_from_record(candidate_key, record)
         if record.get("phase") not in {"awaiting_agent"}:
             raise ValueError("Stockbit article is not awaiting agent analysis")
-        analysis = validate_submission(article, payload)
+        analyses = validate_submissions(article, payload)
+        analysis = analyses[0]
         if _bound_snapshot(record) is None:
             record["config_snapshot"] = _snapshot(config.load_watch_config_for_run())
         elif runtime.no_post:
@@ -491,7 +497,10 @@ def submit_analysis(payload: object) -> dict[str, object]:
             )
         delivery_errors: list[str] = []
         try:
-            result = _submit_bound_analysis(value, record, article, analysis, runtime, now, delivery_errors)
+            if "items" in payload:
+                result = _submit_split_analysis(value, record, article, analyses, runtime, now, delivery_errors)
+            else:
+                result = _submit_bound_analysis(value, record, article, analysis, runtime, now, delivery_errors)
             if not runtime.no_post:
                 _drain_publications(value, runtime.state_path, now)
         except Exception:
@@ -504,20 +513,50 @@ def submit_analysis(payload: object) -> dict[str, object]:
                 control_run.finish("failed", "Stockbit agent submission failed")
             raise
         if control_run is not None:
-            delivery_failed = bool(delivery_errors) or (
-                analysis.route is not Route.EXCLUDE and record.get("phase") == "pending_delivery"
-            )
+            records = [value["articles"][key] for key in record["news_item_keys"]] if record.get("phase") == "split" else [record]
+            delivery_pending = any(child.get("phase") not in {"delivered", "excluded"} for child in records)
+            delivery_failed = bool(delivery_errors) or delivery_pending
             control_run.event(
                 "submission-completed", level="warning" if delivery_failed else "info",
                 phase="lifecycle", event_type="submission.completed",
                 message="Stockbit agent submission completed",
                 attributes={
                     "delivered": int(result.get("delivered", 0)), "no_post": False,
-                    **({"errors": delivery_errors or ["Stockbit delivery failed"]} if delivery_failed else {}),
+                    **({"errors": delivery_errors or ["Stockbit delivery pending"]} if delivery_failed else {}),
                 },
             )
             control_run.finish("degraded" if delivery_failed else "ok")
         return result
+
+
+def _submit_split_analysis(value, record, article, analyses, runtime, now, errors):
+    from dataclasses import replace
+    from copy import deepcopy
+    children = []
+    staged = {}
+    quote_deadline = time.monotonic() + 9.0
+    for index, analysis in enumerate(analyses):
+        child = replace(article, guid=f"{article.guid}.news-item-{index}")
+        if child.key in value["articles"]:
+            raise ValueError("Stockbit news item identity already exists")
+        child_analysis = replace(analysis, candidate_key=child.key)
+        child_record = deepcopy(record)
+        child_record.update({"article": child.to_payload(), "analysis": analysis_payload(child_analysis),
+                             "agent_lease_until": None, "parent_candidate_key": article.key,
+                             "phase": "excluded" if analysis.route is Route.EXCLUDE else "pending_delivery"})
+        child_record.pop("rendered", None)
+        child_record.pop("delivery", None)
+        if child_analysis.route is not Route.EXCLUDE:
+            _render_record(child_record, child, child_analysis, load_market_data=time.monotonic() < quote_deadline)
+        staged[child.key] = child_record
+        children.append(child.key)
+    value["articles"].update(staged)
+    record.update({"phase": "split", "agent_lease_until": None, "news_item_keys": children})
+    state.save_state(runtime.state_path, value)
+    delivered = _drain_delivery(value, runtime, now, errors)
+    state.save_state(runtime.state_path, value)
+    return {"wakeAgent": False, "accepted": True, "candidate_key": article.key, "news_item_keys": children,
+            "excluded": all(a.route is Route.EXCLUDE for a in analyses), "delivered": delivered, **({"no_post": True} if runtime.no_post else {})}
 
 
 def _submit_bound_analysis(
