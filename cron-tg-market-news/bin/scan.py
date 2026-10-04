@@ -1279,7 +1279,11 @@ async def _submit_classification_payload_loaded(
             _drain_publications(state, now, dry_run=_dry_run())
             _migrate_scheduled_delivery_backlog(state, now)
             candidate = _candidate_for_submission(state, payload.get("candidate_key"))
+            import summary_context
+            import state as owner_state
+            optional_context = summary_context.claim_from_state(state, candidate.key, owner_state._state_path().parent / "summary-context")
             classification = submit_agent_classification(state, candidate, payload, now)
+            summary_context.cleanup_claim_context(optional_context)
             control_run.event(
                 "agent-submission-accepted",
                 level="info",
@@ -1361,9 +1365,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="queue one verified Phintraco Quick Note published today without moving the source cursor",
     )
     backfill.add_argument("--message-id", required=True, type=int)
+    images = subparsers.add_parser("prepare-summary-images")
+    images.add_argument("--json", required=True, dest="payload")
     arguments = parser.parse_args(argv)
     try:
-        if arguments.command == "submit-classification":
+        if arguments.command == "prepare-summary-images":
+            import summary_context
+            result = summary_context.prepare_summary_context(json.loads(arguments.payload))
+        elif arguments.command == "submit-classification":
             payload = json.loads(arguments.payload)
             result = asyncio.run(submit_classification_payload(payload))
         elif arguments.command == "backfill-phintraco-quick-note":

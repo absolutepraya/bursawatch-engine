@@ -19,15 +19,13 @@ MARKER = "*(Ringkasan)* "
 GREEN = "<:green:1531274822221434911>"
 RED = "<:red:1531274756853202974>"
 GREY = "<:grey:1531279158913536182>"
-WRITING_INSTRUCTION = (
-    "For issuer news, start the headline with the exact exchange TICKER followed by a colon. For macro or industry news, use a natural headline. "
-    "Report the news directly in factual Bahasa Indonesia, starting with the issuer, action, or actual subject. "
-    "Avoid generic writer narration and saya/kami. Preserve attribution for research estimates, forecasts and guidance, "
-    "including period, units and uncertainty. Prefer two short paragraphs separated by \\n\\n for longer summaries; "
-    "a short or cohesive item can use one paragraph. Use judgment, without a fixed length threshold, padding or invented facts. "
-    "Paragraph style must never make an eligible item undeliverable. Return plain summary text without a Ringkasan label; "
+from writing_contract import COMMON_WRITING_INSTRUCTION, PresentationCategory, category_instruction
+
+WRITING_INSTRUCTION = COMMON_WRITING_INSTRUCTION + (
+    "For issuer news, start the headline with the exact exchange TICKER followed by a colon. "
+    "For macro or industry news, use a natural headline. Return plain summary text without a Ringkasan label; "
     "the renderer adds it once. Do not generate the latest quote or 1D/1W/1M/3M tracker in the summary. "
-)
+) + category_instruction("macro") + category_instruction("industry")
 ITEMS_INSTRUCTION = (
     "Split clearly independent issuer developments into ordered items, one per issuer, even when several dividends or "
     "suspension reopenings share a sentence. GIAA rights issue and UNTR buyback are two items; dividends for DADA and NICL, "

@@ -39,7 +39,7 @@ MAX_TITLE_CHARACTERS = 120
 MAX_MEDIA_ASSETS = 100
 MAX_LOCAL_PATH_CHARACTERS = 4_096
 MAX_PATH_CONTEXT_CHARACTERS = 4_096
-MAX_INSTRUCTION_CHARACTERS = 8_000
+MAX_INSTRUCTION_CHARACTERS = 16_000
 
 SUMMARY_PREFIX = "*(Ringkasan)* "
 SUMMARY_LABEL = SUMMARY_PREFIX.rstrip()
@@ -205,7 +205,7 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
             "First decide whether the central thesis of this single Instagram publication is substantively "
             "about the stock market: listed shares, stock indices, listed companies or issuers, stock prices, "
             "equity valuation, earnings, dividends, corporate actions, or a macro or cross-asset factor with "
-            "an explicit stock-market implication. Use the caption and every labeled OCR section together. "
+            "an explicit stock-market implication. Screen ordinary news from the caption text alone. "
             "Exclude generic trading and investing education or advice, including tips, how-to guides, "
             "strategies, techniques, technical-analysis or chart lessons, risk or money management, and "
             "mentality, mindset, psychology, discipline, patience, fear, greed, or emotional-control lessons. "
@@ -251,9 +251,8 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
         INSTRUCTION_PREFIX
         + "Process exactly this one supplied event. Do not fetch Instagram, browse for image interpretation, "
         "read watcher state, inspect history, process other publications, or post Discord directly. "
-        "OCR is context and the scanner owns original-media delivery. When vision_mode is vision_partial "
-        "or vision_full, read every path in vision_asset_paths with vision before deciding. Do not render "
-        "OCR text automatically. Return only the requested closed JSON object and submit it through the "
+        "The scanner owns original-media delivery. Ordinary-news screening is caption-only. "
+        "Optional images may clarify an already eligible text story through the trusted lazy command. Return only the requested closed JSON object and submit it through the "
         "watcher wrapper. "
         + relevance
         + profile_instruction
@@ -798,8 +797,15 @@ def _event_parts(profile: Profile, event: dict) -> tuple[SourcePost, object, tup
     return post, downloaded, ocr_results, vision
 
 
-def agent_item(profile: Profile, event: dict) -> dict[str, object]:
+def agent_item(profile: Profile, event: dict, *, news_screening: bool = False) -> dict[str, object]:
     post, downloaded, ocr_results, vision = _event_parts(profile, event)
+    if news_screening:
+        # Original delivery assets remain owned and validated; eligibility gets only caption text.
+        from dataclasses import replace
+        downloaded = replace(downloaded, assets=(), failed_assets=())
+        ocr_results = ()
+        from vision_gate import VisionDecision, REASON_TEXT_SUFFICIENT
+        vision = VisionDecision(VisionMode.TEXT_ONLY, REASON_TEXT_SUFFICIENT, (), ())
     records = _ordered_ocr_records(downloaded, ocr_results, downloaded.failed_assets)
     media_root = _event_media_root(str(downloaded.media_root), event["event_key"])
     vision_ids, vision_path_ids, vision_paths = _validated_vision_selection(

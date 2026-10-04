@@ -13,6 +13,8 @@ if str(_SHARED_FORMAT_BIN) not in sys.path:
     sys.path.insert(0, str(_SHARED_FORMAT_BIN))
 
 from swing_format import BOARD_MENTION, MAX_DISCORD_CHARACTERS, SwingMessage, escape, render_chunks
+from source_plan import SourcePlanField, source_plan_display
+from frozen_presentation import saved_presentation, without_board
 
 import config
 
@@ -22,8 +24,12 @@ KELAS_INVESTASI_EMOJI = "<:kelasinvestasi:1536570114772574218>"
 GTW_SOURCE_STATUS = "Good to watch"
 
 
-def render_event(event: Mapping[str, object], *, include_board: bool = True) -> list[str]:
+def render_event(event: Mapping[str, object], *, include_board: bool = True, plan_fields=None) -> list[str]:
     """Render one validated GTW bundle through the shared Swing shell."""
+    frozen = saved_presentation(event)
+    if frozen is not None:
+        messages = list(frozen["messages"])
+        return messages if include_board else without_board(messages)
     ticker = _text(event, "ticker")
     title = _text(event, "title")
     summary = _render_summary(_text(event, "summary"))
@@ -36,6 +42,8 @@ def render_event(event: Mapping[str, object], *, include_board: bool = True) -> 
         f"**Target:** {escape(_plan_value(plan_values, 'targets'))}",
         f"**Stoploss:** {escape(_plan_value(plan_values, 'stoploss'))}",
     )
+    if plan_fields is not None:
+        plan_lines = tuple(f"**{field.label}:** {escape(field.value)}" for field in source_plan_display(tuple(SourcePlanField(**field) for field in plan_fields)))
     body = (summary, "", *plan_lines)
     message = SwingMessage(
         source_emoji=KELAS_INVESTASI_EMOJI,
@@ -119,3 +127,14 @@ def _split(prefix: str, summary: str, plan_block: str) -> list[str]:
         remaining = remaining[boundary + (1 if boundary < len(remaining) and remaining[boundary] == " " else 0):]
     chunks.append(remaining)
     return chunks
+
+
+def freeze_presentation(event: dict, accepted: Mapping[str, object], destination: str) -> None:
+    if accepted.get("schema_version") != 2 or "presentation" in event:
+        return
+    if event.get("text_index") or event.get("next_media_index") or event.get("text_message_ids"):
+        raise ValueError("cannot replace an issued Swing presentation")
+    fields = accepted["plan_fields"]
+    messages = render_event(event,plan_fields=fields)
+    event["presentation"] = {"version":2,"fields":fields,"messages":messages,"destination":destination}
+    saved_presentation(event)

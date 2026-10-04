@@ -203,7 +203,8 @@ def test_expired_agent_lease_is_reclaimable(tmp_path):
     assert reclaimed["wakeAgent"] is True
 
 
-def test_submission_moves_event_to_ready_or_filtered(tmp_path):
+def test_submission_moves_event_to_ready_or_filtered(tmp_path, monkeypatch):
+    from test_summary_context import staged_claim
     queue_dir = tmp_path / "queue"
     config_path = write_config(tmp_path)
     state_path = tmp_path / "state.json"
@@ -214,6 +215,7 @@ def test_submission_moves_event_to_ready_or_filtered(tmp_path):
     enqueue(queue_dir, event("new", "2026-09-10T00:01:00Z"))
     result = scan.run(config_path=config_path, state_path=state_path, queue_dir=queue_dir, now=now + timedelta(minutes=1), no_post=True)
     key = result["item"]["event_key"]
+    optional_asset = staged_claim(tmp_path, monkeypatch, key)
     submitted = scan.submit_analysis(
         config_path=config_path,
         state_path=state_path,
@@ -222,6 +224,7 @@ def test_submission_moves_event_to_ready_or_filtered(tmp_path):
         no_post=True,
     )
     assert submitted["agent_phase"] == "filtered"
+    assert not optional_asset.exists()
 
     with pytest.raises(ValueError):
         scan.submit_analysis(config_path=config_path, state_path=state_path, now=now + timedelta(minutes=2), no_post=True, payload={"event_key": key, "is_relevant": False})
@@ -1192,3 +1195,36 @@ def test_llm_can_reject_technical_education_without_delivery(tmp_path,monkeypatc
     monkeypatch.setattr(scan.discord,'post_text',lambda *args:pytest.fail('education forwarded'))
     result=scan.submit_analysis(config_path=config_path,state_path=storage,now=now+timedelta(minutes=2),no_post=True,payload={'event_key':claimed['item']['event_key'],'is_relevant':False})
     assert result['agent_phase']=='filtered'
+
+
+@pytest.mark.parametrize("claim_path", ["legacy", "native"])
+@pytest.mark.parametrize("fixed_swing", [False, True])
+@pytest.mark.parametrize("text,has_optional_news_context", [
+    ("#TechnicalReview\nTINS breakout resistance 4.600.", False),
+    ("BBCA mencatat laba bersih naik", True),
+])
+def test_news_image_context_is_not_exposed_to_swing_in_either_claim_path(tmp_path, monkeypatch, claim_path, fixed_swing, text, has_optional_news_context):
+    import pipeline_owner
+    current = datetime.now(timezone.utc)
+    source = event("image-claim", current.isoformat(), text)
+    storage = tmp_path / "state.json"
+    if fixed_swing:
+        configured = profile(enable_llm_routing=False)
+        configured["discord_channels"] = [configured["discord_channels"][-1]]
+        config_path = write_config(tmp_path, [configured])
+    else:
+        config_path = write_config(tmp_path)
+    record = {"event_key": source.event_key, "profile_id": "bri-danareksa-sekuritas", "event": serialize_event(source),
+              "agent_phase": "pending", "source_event_key": "a"*64, "source_content_hash": "b"*64,
+              "summary_media_refs": [{"kind": "image", "durable": True, "ref": "opaque", "sha256": "c"*64,
+                                      "size_bytes": 1, "content_type": "image/png"}]}
+    value = state.empty_state()
+    value["outbox"] = [record]
+    state.save(storage, value)
+    if claim_path == "native":
+        wake = pipeline_owner.claim_agent(config_path=config_path, state_path=storage, archive_root=tmp_path / "archive", now=current, no_post=True)
+    else:
+        wake = scan.run(config_path=config_path, state_path=storage, queue_dir=tmp_path / "queue", archive_dir=tmp_path / "archive", now=current, no_post=True)
+    instruction = wake["item"]["instruction"]
+    assert ("prepare-summary-images" in instruction) is (has_optional_news_context and not fixed_swing)
+    assert wake["item"]["relevance_guard_required"] is (not has_optional_news_context and not fixed_swing)

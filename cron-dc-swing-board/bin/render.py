@@ -16,6 +16,8 @@ if not _SHARED_FORMAT_BIN.exists():
 if str(_SHARED_FORMAT_BIN) not in sys.path:
     sys.path.insert(0, str(_SHARED_FORMAT_BIN))
 
+from source_plan import fields_from_canonical_message, source_plan_display
+
 from swing_format import (  # noqa: E402
     canonicalize_phintraco_message,
     source_status_emoji,
@@ -203,10 +205,24 @@ def _primary_static(event: SourceEvent) -> tuple[str, bool]:
     ]
     if source_type := _TYPE.search(event.all_content):
         lines.append(f"**Type:** {escape(space_inline_custom_emojis(source_type.group(1)))}")
+    source_fields = fields_from_canonical_message(event.all_content)
+    canonical = {field.label:field.value for field in source_fields}
+    canonical_targets = sorted((int(field.label.split()[-1]),field.value) for field in source_fields if field.label.startswith("Target "))
+    matches = (len(canonical) == len(source_fields) and canonical.get("Entry") == event.plan.entry
+               and canonical.get("Stop-loss") == event.plan.stop_loss
+               and tuple(value for _,value in canonical_targets) == event.plan.targets)
+    targets = [(f"Target {number}",target) for number,target in enumerate(event.plan.targets,start=1)]
+    extra_stops = []
+    if matches:
+        displayed = source_plan_display(source_fields)
+        targets = [(field.label,field.value) for field in displayed if field.label.startswith("Target ")]
+        extra_stops = [(field.label,field.value) for field in displayed if field.label.startswith("Stop-loss ")]
     lines.extend([f"**Entry:** {escape(event.plan.entry)}", f"**Stop-loss:** {escape(event.plan.stop_loss)}"])
     targets_start = len(lines)
-    for number, target in enumerate(event.plan.targets, start=1):
-        lines.append(f"**Target {number}:** {escape(target)}")
+    for label,target in targets:
+        lines.append(f"**{label}:** {escape(target)}")
+    for label,value in extra_stops:
+        lines.append(f"**{label}:** {escape(value)}")
     lines.append(f"**Signal date:** {format_wib(event.published_at)}")
     chart = next((line for line in event.all_content.splitlines() if line.startswith("**Chart:**")), None)
     if chart:
@@ -218,8 +234,8 @@ def _primary_static(event: SourceEvent) -> tuple[str, bool]:
         return complete, False
     core = "\n".join(lines)
     if discord_length(core) > STATIC_CARD_BUDGET - 70:
-        compact_targets = "; ".join(f"{number}: {escape(target)}" for number, target in enumerate(event.plan.targets, start=1))
-        compact_lines = lines[:targets_start] + [f"**Targets:** {compact_targets}"] + lines[targets_start + len(event.plan.targets):]
+        compact_targets = "; ".join(f"{label.removeprefix('Target ')}: {escape(target)}" for label,target in targets)
+        compact_lines = lines[:targets_start] + [f"**Targets:** {compact_targets}"] + lines[targets_start + len(targets):]
         core = "\n".join(compact_lines)
     if discord_length(core) > STATIC_CARD_BUDGET - 70:
         # Extreme source fields stay complete in ordered source replies.

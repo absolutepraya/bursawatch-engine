@@ -112,14 +112,10 @@ projection use this same contract.
 
 ## Shared generated-news format
 
-`lib-news-format` owns the common writing instruction, renderer, and
-optional deterministic quote lookup. Report directly in Indonesian and
-preserve research attribution, periods, units, and uncertainty. Prefer two
-short paragraphs for longer summaries; concise or cohesive items may use one.
-No fixed paragraph threshold or style-based relevance gate applies. Return
-plain summary text without a Ringkasan marker. The renderer adds it once and
-normalizes legacy markers. Existing structural, identity, capability, and
-source-specific safety checks remain mandatory.
+`lib-news-format` owns common and category writing guidance, supplied through
+`item.instruction`. Follow that trusted instruction. The renderer owns the
+Ringkasan marker and deterministic quote tracker. Structural, identity,
+capability, and source-specific safety checks remain mandatory.
 
 Split independent issuer developments into ordered items, including separate
 issuer dividends and suspension reopenings. Keep a connected transaction or
@@ -154,3 +150,7 @@ Keep the existing one-to-eight `items` schema and leading TechnicalReview
 route override for relevant Swing submissions. The route override never
 forces an irrelevant educational post to be forwarded. Existing multi-item
 media suppression and specialized Reasons/sentiment formatting stay intact.
+
+## Optional image context
+
+Screen ordinary news from supplied text first. Only when that text is eligible, the trusted item instruction may expose `prepare-summary-images`. Call that command with its exact bound request, then use the actual image viewer on returned paths. Paths indicate availability, not inspection. Images are additional context for the same supplied story, never a substitute for eligible text. Do not inspect any other files. On unavailable images or viewer failure, submit the text-supported result without holding delivery or retrying optional context. Specialized Swing and required outgoing media retain their owner contracts.

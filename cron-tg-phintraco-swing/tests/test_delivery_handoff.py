@@ -114,3 +114,20 @@ def test_synthetic_rollback_retry_reuses_phintraco_operation_keys(
         "bursawatch-tg-phintraco-swing:33655:chart",
     ]
     assert len(owner.new_pending_acceptances) == 1
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_handoff_preserves_the_saved_destination_for_both_legs(tmp_state, tmp_path, monkeypatch, legacy):
+    monkeypatch.setattr(scan, "state_path", lambda: tmp_state)
+    value, _ = _state_with_pending_chart(tmp_state, tmp_path)
+    event = value["outbox"]["33655"]
+    destination = "123456789012345678"
+    if legacy:
+        event.pop("presentation")
+        event["text_destination"] = destination
+        event["text_output"] = "legacy frozen text"
+    else:
+        event["presentation"]["destination"] = destination
+    scan.save_state(value)
+    snapshot = delivery_handoff.PhintracoHandoffAdapter(tmp_state, tmp_path / "plan.json").build_handoff_snapshot()
+    assert [item.operation.target["channel_id"] for item in snapshot.items] == [destination, destination]

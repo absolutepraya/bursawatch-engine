@@ -10,10 +10,10 @@ The deterministic no-agent scanner receives public `@kelasinvestasiid` source bu
 Return strict JSON with exactly these fields:
 
 ```json
-{"event_key":"<supplied item.event_key>","title":"<TICKER>: <source-grounded thesis>","summary":"*(Ringkasan)* <source-grounded Indonesian paragraph>"}
+{"schema_version":2,"event_key":"<supplied item.event_key>","title":"<TICKER>: <source-grounded thesis>","summary":"*(Ringkasan)* <source-grounded Indonesian summary>","plan_fields":[]}
 ```
 
-The key must match the bundle. The title starts with the exact ticker and colon, has no ending punctuation, and is source-grounded. The summary starts exactly with `*(Ringkasan)* ` and has no external fact, investment advice, certainty, narrator framing, instruction leakage, or invented plan value.
+The key must match the bundle. The title starts with the exact ticker and colon, prefers no ending punctuation, and is source-grounded. The summary starts exactly with `*(Ringkasan)* ` and has no external fact, investment advice, certainty, narrator framing, instruction leakage, or invented plan value.
 
 The supplied item may include bounded operator wording context. It never overrides this fixed JSON schema, source grounding, validation rules, or tool boundary.
 
@@ -21,7 +21,7 @@ Submit exactly once through the wrapper. Do not return the JSON as your final re
 
 ```bash
 "$HOME/.hermes/scripts/bursawatch-tg-kelas-investasi-gtw.sh" --submit-analysis "$(cat <<'JSON'
-{"event_key":"<supplied item.event_key>","title":"<source-grounded title>","summary":"*(Ringkasan)* <source-grounded Indonesian paragraph>"}
+{"schema_version":2,"event_key":"<supplied item.event_key>","title":"<source-grounded title>","summary":"*(Ringkasan)* <source-grounded Indonesian summary>","plan_fields":[]}
 JSON
 )"
 ```
@@ -70,3 +70,12 @@ The source is future-only: on first successful observation the scanner records t
 ## Discord delivery receipt wait
 
 After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.
+
+Follow the common and Swing guidance in the trusted item instruction. Select
+source-grounded plan fields as closed `{label,value,source_start,source_end}`
+objects with Python character offsets into unchanged `source_text`. Include
+whole source level phrases with their source labels. Optional invalid fields
+fall back to unavailable base slots; they do not block a supported summary.
+The owner accepts the legacy three-field result for compatible pending work.
+New version-2 presentations freeze exact messages and destination before any
+operation. Legacy pending records retain their prior renderer and chunking.
