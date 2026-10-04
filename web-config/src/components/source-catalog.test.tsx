@@ -1,16 +1,20 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { controlBrowser } from "@/lib/control-browser";
 import { WorkspaceError } from "@/lib/control-browser";
 import type { CatalogConfig, EffectiveCatalog, SourceCatalog } from "@/lib/source-catalog";
+import { readWorkspaceDraft, setDraftOwner } from "@/lib/workspace-drafts";
 import { SourceCatalogView } from "./source-catalog";
 
 const toast = vi.hoisted(() => vi.fn());
 vi.mock("./toast-provider", () => ({ useToast: () => toast }));
 
+beforeEach(() => setDraftOwner("fixture-operator"));
+
 afterEach(() => {
   cleanup();
+  setDraftOwner(null);
   vi.useRealTimers();
   toast.mockReset();
   vi.restoreAllMocks();
@@ -117,7 +121,7 @@ function effective(revision = 1): EffectiveCatalog {
   };
 }
 function renderCatalog(request: ReturnType<typeof controlBrowser>) {
-  render(<SourceCatalogView request={request} onDirtyChange={vi.fn()} />);
+  return render(<SourceCatalogView request={request} onDirtyChange={vi.fn()} />);
 }
 
 describe("SourceCatalogView", () => {
@@ -271,10 +275,11 @@ describe("SourceCatalogView", () => {
   });
 });
 
-async function editCatalog() {
-  const request = vi.fn(async (path: string) =>
+async function editCatalog(
+  request = vi.fn(async (path: string) =>
     path === "source-catalog" ? catalog(true) : effective(),
-  ) as unknown as ReturnType<typeof controlBrowser>;
+  ) as unknown as ReturnType<typeof controlBrowser>,
+) {
   const onDirtyChange = vi.fn();
   const view = render(<SourceCatalogView request={request} onDirtyChange={onDirtyChange} />);
   await screen.findByText(/Revision 1/);
@@ -331,4 +336,142 @@ it("preserves a draft when catalog reload is declined and discards only after co
   const beforeUnload = new Event("beforeunload", { cancelable: true });
   window.dispatchEvent(beforeUnload);
   expect(beforeUnload.defaultPrevented).toBe(false);
+});
+
+it("restores source drafts across history visits and drops them after explicit reload", async () => {
+  const first = await editCatalog();
+  first.unmount();
+  renderCatalog(first.request);
+  expect(await screen.findByRole("heading", { name: "Unsaved Analyst" })).toBeTruthy();
+  expect(screen.getByText(/Unsaved changes/)).toBeTruthy();
+  expect((screen.getByRole("button", { name: "Save catalog" }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Add identity to draft" }));
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  fireEvent.click(screen.getByRole("button", { name: "Reload current catalog" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("heading", { name: "Unsaved Analyst" })).toBeNull(),
+  );
+  expect(readWorkspaceDraft("source-catalog")).toBeNull();
+});
+
+it("locks a restored source draft when the server revision changed", async () => {
+  const first = await editCatalog();
+  first.unmount();
+  const request = vi.fn(async (path: string) =>
+    path === "source-catalog" ? catalog(true, emptyConfig, 2) : effective(2),
+  ) as unknown as ReturnType<typeof controlBrowser>;
+  renderCatalog(request);
+  expect(await screen.findByRole("heading", { name: "Unsaved Analyst" })).toBeTruthy();
+  expect(screen.getByRole("alert").textContent).toMatch(/catalog changed while you were away/i);
+  expect((screen.getByRole("button", { name: "Save catalog" }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Save catalog" }));
+  expect(vi.mocked(request).mock.calls.some(([path]) => path === "source-catalog/config")).toBe(
+    false,
+  );
+});
+
+it.each(["auth", "forbidden"])("clears the retained catalog draft after %s", async (code) => {
+  const first = await editCatalog();
+  first.unmount();
+  const denied = vi.fn(async () => {
+    throw new WorkspaceError(code, "Access denied");
+  }) as unknown as ReturnType<typeof controlBrowser>;
+  const visit = renderCatalog(denied);
+  await screen.findByRole("alert");
+  expect(readWorkspaceDraft("source-catalog")).toBeNull();
+  visit.unmount();
+  renderCatalog(first.request);
+  await screen.findByText(/Revision 1/);
+  fireEvent.click(screen.getByRole("tab", { name: "People & Org" }));
+  expect(screen.queryByRole("heading", { name: "Unsaved Analyst" })).toBeNull();
+});
+
+it("does not restore source drafts after losing edit access", async () => {
+  const first = await editCatalog();
+  first.unmount();
+  const viewer = vi.fn(async (path: string) =>
+    path === "source-catalog" ? catalog(false) : effective(),
+  ) as unknown as ReturnType<typeof controlBrowser>;
+  renderCatalog(viewer);
+  await screen.findByText("View access. An admin can change source catalog settings.");
+  fireEvent.click(screen.getByRole("tab", { name: "People & Org" }));
+  expect(screen.queryByRole("heading", { name: "Unsaved Analyst" })).toBeNull();
+  expect(readWorkspaceDraft("source-catalog")).toBeNull();
+});
+
+it("retains an unfinished save as locked and ignores its late completion after leaving", async () => {
+  const pending = deferred<{ revision: number }>();
+  const request = vi.fn((path: string) => {
+    if (path === "source-catalog/config") return pending.promise;
+    return Promise.resolve(path === "source-catalog" ? catalog(true) : effective());
+  }) as unknown as ReturnType<typeof controlBrowser>;
+  const first = await editCatalog(request);
+  fireEvent.click(screen.getByRole("button", { name: "Save catalog" }));
+  await screen.findByRole("button", { name: "Saving…" });
+  first.unmount();
+  renderCatalog(request);
+  await screen.findByRole("heading", { name: "Unsaved Analyst" });
+  expect(screen.getByRole("alert").textContent).toMatch(
+    /previous catalog save has not been confirmed/i,
+  );
+  expect((screen.getByRole("button", { name: "Save catalog" }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  await act(async () => pending.resolve({ revision: 2 }));
+  expect(toast).not.toHaveBeenCalled();
+  expect(readWorkspaceDraft("source-catalog")).not.toBeNull();
+  expect(vi.mocked(request)).toHaveBeenCalledTimes(5);
+});
+
+it("does not discard a retained draft when a failed return read is reloaded without confirmation", async () => {
+  const first = await editCatalog();
+  first.unmount();
+  const unavailable = vi.fn(async () => {
+    throw new WorkspaceError("unavailable", "Read unavailable");
+  }) as unknown as ReturnType<typeof controlBrowser>;
+  renderCatalog(unavailable);
+  await screen.findByRole("alert");
+  expect(readWorkspaceDraft("source-catalog")).not.toBeNull();
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  fireEvent.click(screen.getByRole("button", { name: "Reload current catalog" }));
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(vi.mocked(unavailable)).toHaveBeenCalledTimes(2);
+  expect(readWorkspaceDraft("source-catalog")).not.toBeNull();
+});
+
+it.each(["auth", "forbidden"])("clears a source draft when saving returns %s", async (code) => {
+  const request = vi.fn(async (path: string) => {
+    if (path === "source-catalog/config") throw new WorkspaceError(code, "Access denied");
+    return path === "source-catalog" ? catalog(true) : effective();
+  }) as unknown as ReturnType<typeof controlBrowser>;
+  await editCatalog(request);
+  expect(readWorkspaceDraft("source-catalog")).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Save catalog" }));
+  await screen.findByRole("alert");
+  expect(readWorkspaceDraft("source-catalog")).toBeNull();
+  expect(screen.queryByRole("heading", { name: "Unsaved Analyst" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Save catalog" })).toBeNull();
+});
+
+it("clears retained source changes after a confirmed save", async () => {
+  let saved = emptyConfig;
+  let revision = 1;
+  const request = vi.fn(async (path: string, payload?: unknown) => {
+    if (path === "source-catalog/config") {
+      saved = (payload as { config: CatalogConfig }).config;
+      return { revision: ++revision };
+    }
+    return path === "source-catalog" ? catalog(true, saved, revision) : effective(revision);
+  }) as unknown as ReturnType<typeof controlBrowser>;
+  await editCatalog(request);
+  expect(readWorkspaceDraft("source-catalog")).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Save catalog" }));
+  await waitFor(() => expect(toast).toHaveBeenCalledOnce());
+  expect(readWorkspaceDraft("source-catalog")).toBeNull();
+  expect(screen.getByRole("heading", { name: "Unsaved Analyst" })).toBeTruthy();
+  expect(screen.getByText(/Revision 2 · Saved catalog/)).toBeTruthy();
 });

@@ -1,7 +1,7 @@
 /** Private editor drafts live only in this browser tab's JavaScript memory.
  * They never survive a reload, sign-out, or a change of signed-in user.
  */
-export type WorkspaceDraftKey = `config:${string}` | `schedule:${string}`;
+export type WorkspaceDraftKey = `config:${string}` | `schedule:${string}` | "source-catalog";
 
 export type WorkspaceDraft<Base, Draft> = {
   base: Base;

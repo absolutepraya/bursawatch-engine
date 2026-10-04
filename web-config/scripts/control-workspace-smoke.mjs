@@ -957,6 +957,14 @@ async function scenario(role) {
     if (role === "admin") {
       await page.getByRole("group", { name: "Add People & Org identity" }).getByLabel("Name").fill("Fixture Analyst");
       await page.getByRole("button", { name: "Add identity to draft" }).click();
+      await page.getByRole("heading", { name: "Fixture Analyst", exact: true }).waitFor();
+      await page.goBack();
+      await page.getByRole("heading", { name: "Overview", exact: true }).waitFor();
+      await page.goForward();
+      await page.getByRole("heading", { name: "Source Catalog", exact: true }).waitFor();
+      await page.getByRole("heading", { name: "Fixture Analyst", exact: true }).waitFor();
+      assert.equal(await peopleTab.getAttribute("aria-selected"), "true", "History recovery restores the draft's tab.");
+      assert.equal(writes.filter((item) => item.resource === "source-catalog").length, 0);
       await confirm(/unsaved changes.*Leave without saving/i, false, () => navigation.getByRole("link", { name: "Jobs", exact: true }).click());
       await page.getByRole("heading", { name: "Fixture Analyst", exact: true }).waitFor();
       await page.getByRole("button", { name: "Add identity to draft" }).click();

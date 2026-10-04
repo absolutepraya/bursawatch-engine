@@ -29,9 +29,13 @@ state. The catalog read includes backend-derived
 `can_edit`; show mutation controls only when it is true. A successful PUT must
 be followed by a confirmed catalog and effective read before success feedback.
 If that read fails, preserve and lock the draft until an explicit reload.
-Warn before leaving unsaved catalog changes or an in-flight save, and confirm
-manual reload before discarding a changed draft. Display publisher defaults, endpoint
-overrides and the resolved status separately. Do not infer identity from a
+Warn before link navigation or closing with unsaved catalog changes or an
+in-flight save, and confirm manual reload before discarding a changed draft.
+Retain catalog drafts only in the existing signed-in user's JavaScript memory
+for same-document Back/Forward recovery. Recheck edit access on return; preserve
+and lock drafts based on stale revisions or unconfirmed saves until reload.
+Clear retained catalog drafts on access failure, sign-out or identity change.
+Display publisher defaults, endpoint overrides and the resolved status separately. Do not infer identity from a
 display name or internal ID. Public curated images remain static assets until
 an object-storage owner and upload policy are approved. No browser-local source
 preferences count as saved catalog records. Preserve all eight watcher editors and their input, processing and output
