@@ -252,6 +252,8 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Pa
     def fetch(cursor: dict[str, Any] | None, profile: Any, endpoint_id: str) -> dict[str, Any]:
         from state import _self_chain, _within_thread_age
         from rsshub import is_self_thread_post
+        from models import PostKind
+        from scan import source_visible_text
         # RSSHub returns a whole visible page. Direct X takes an after-id and
         # expands threads; a full result without the old anchor remains
         # ambiguous and must block rather than skip unseen posts.
@@ -284,7 +286,8 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Pa
         items = []
         for post in ordered:
             chain = _within_thread_age(profile, _self_chain(profile, post, by_id, lambda item: is_self_thread_post(profile, item)))
-            if post.post_id in upload_ids and is_self_thread_post(profile, post) and len(chain) == 1 and post.related_url:
+            inline_quote = post.kind is PostKind.QUOTE and bool(source_visible_text(post.quoted_content_html or ""))
+            if post.post_id in upload_ids and is_self_thread_post(profile, post) and len(chain) == 1 and post.related_url and not inline_quote:
                 raise IntakeBlocked("self-chain parent is unavailable")
             items.append(_item(post, endpoint_id, media_store, upload_media=post.post_id in upload_ids, media_preparer=media_preparer, thread_posts=chain))
         return {"items": items, "truncated": truncated, "contiguous": False, "id_order": "numeric_provider_event_id"}
@@ -296,8 +299,10 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Pa
             continue
         root = state_root / endpoint_id.replace(":", "-")
         handoff = SourceEventHandoff(root / "revisions", tracked)
+        correction_error_code = "revision_flush_failed"
         try:
             handoff.flush()
+            correction_error_code = "accepted_index_unavailable"
             records = tracked.records(endpoint_id)
             profile = by_endpoint[endpoint_id]
             by_id = {post.post_id: post for post in observed[endpoint_id]}
@@ -307,23 +312,32 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Pa
                 prior = records.get(post.post_id)
                 if prior is None:
                     continue
+                correction_error_code = "correction_context_failed"
                 chain = _within_thread_age(profile, _self_chain(profile, post, by_id, lambda item: is_self_thread_post(profile, item)))
                 item = _item(post, endpoint_id, media_store, upload_media=True, media_preparer=media_preparer, thread_posts=chain)
                 if item["media_required"] and not item["media_refs"]:
+                    correction_error_code = "correction_media_unavailable"
                     raise IntakeBlocked("X source correction media is unavailable")
+                correction_error_code = "correction_envelope_invalid"
                 current = envelope(selected[endpoint_id], item, observed_at, "x-watch-parser-1")
                 if current["content_hash"] == prior["content_hash"]:
                     continue
                 event_key = hashlib.sha256(json.dumps(["x", endpoint_id, post.post_id], separators=(",", ":")).encode()).hexdigest()
+                correction_error_code = "source_work_inspection_failed"
                 inspected = inbox.inspect(event_key)
                 rows = inspected.get("work") if type(inspected) is dict else None
                 if type(rows) is not list or not rows or any(type(row) is not dict or row.get("status") != "pending" for row in rows):
+                    correction_error_code = "source_work_not_pending"
                     raise IntakeBlocked("X correction requires unclaimed source work")
                 revision_id = f"x-source-content-{current['content_hash']}"
+                correction_error_code = "revision_stage_failed"
                 handoff.stage_revision(event_key, current, "correction", revision_id, "Observed source post content changed")
+                correction_error_code = "revision_flush_failed"
                 handoff.flush(limit=1)
+                correction_error_code = "accepted_index_unavailable"
                 records = tracked.records(endpoint_id)
         except Exception:
             result["status"] = "blocked"
             result["reason"] = "correction_handoff_failed"
+            result["correction_error_code"] = correction_error_code
     return outcomes
