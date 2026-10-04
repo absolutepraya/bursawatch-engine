@@ -577,6 +577,43 @@ describe("source catalog proxy", () => {
     compatibility: [],
     config: revision,
   };
+  it.each(["instagram:synthetic.research", "whatsapp:0029SyntheticMixedCase"])(
+    "preserves saved override identity %s through authenticated reads and writes",
+    async (endpointId) => {
+      const config = {
+        ...emptyConfig,
+        endpoint_overrides: [
+          { endpoint_id: endpointId, capability_id: "company_news", enabled: false, settings: {} },
+        ],
+      };
+      const savedRevision = { ...revision, config };
+      const fetchImpl = fake([{ ...catalog, config: savedRevision }], [{ ...savedRevision, revision: 2 }]);
+      const read = await invoke("source-catalog", fetchImpl);
+      expect(read.status).toBe(200);
+      expect((await read.json()).config.config.endpoint_overrides[0].endpoint_id).toBe(endpointId);
+      const write = await invoke("source-catalog/config", fetchImpl, { expected_revision: 1, config });
+      expect(write.status).toBe(200);
+      expect((await write.json()).config.endpoint_overrides[0].endpoint_id).toBe(endpointId);
+      expect(JSON.parse(fetchImpl.mock.calls[1][1]?.body as string).config.endpoint_overrides[0].endpoint_id).toBe(endpointId);
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    },
+  );
+  it("rejects malformed stored overrides and blocks malformed writes before network access", async () => {
+    const config = {
+      ...emptyConfig,
+      endpoint_overrides: [
+        { endpoint_id: "instagram:bad/handle", capability_id: "company_news", enabled: false, settings: {} },
+      ],
+    };
+    const fetchImpl = fake([{ ...catalog, config: { ...revision, config } }]);
+    const read = await invoke("source-catalog", fetchImpl);
+    expect(read.status).toBe(502);
+    expect((await read.json()).code).toBe("invalid-response");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const write = await invoke("source-catalog/config", fetchImpl, { expected_revision: 1, config });
+    expect(write.status).toBe(422);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
   it("forwards only exact authenticated catalog reads", async () => {
     const fetchImpl = fake(
       [catalog],

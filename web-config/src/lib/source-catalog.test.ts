@@ -63,11 +63,41 @@ describe("catalog settings", () => {
         compatibility: [
           { ...catalog.compatibility[0], endpoint_id: endpointId },
         ],
+        config: {
+          ...catalog.config,
+          config: {
+            ...config,
+            endpoint_overrides: [{ ...config.endpoint_overrides[0], endpoint_id: endpointId }],
+          },
+        },
       });
       expect(parsed.endpoints[0].id).toBe(endpointId);
       expect(parsed.compatibility[0].endpoint_id).toBe(endpointId);
+      expect(parsed.config.config.endpoint_overrides[0].endpoint_id).toBe(endpointId);
+      const write = catalogWrite.parse({ expected_revision: 1, config: parsed.config.config });
+      expect(write.config.endpoint_overrides[0].endpoint_id).toBe(endpointId);
     },
   );
+  it.each([
+    "",
+    "a".repeat(129),
+    "instagram:bad/handle",
+    "whatsapp:bad?query",
+    "x:bad handle",
+    "x:bad\u0000handle",
+    "x:badé",
+    "x:firm\n",
+  ])("rejects malformed saved override identity %j on reads and writes", (endpointId) => {
+    const invalidConfig = {
+      ...config,
+      endpoint_overrides: [{ ...config.endpoint_overrides[0], endpoint_id: endpointId }],
+    };
+    expect(sourceCatalog.safeParse({
+      ...catalog,
+      config: { ...catalog.config, config: invalidConfig },
+    }).success).toBe(false);
+    expect(catalogWrite.safeParse({ expected_revision: 1, config: invalidConfig }).success).toBe(false);
+  });
   it.each(["", "a".repeat(129), "instagram:bad/handle", "whatsapp:bad?query"])(
     "rejects invalid endpoint identity %j in catalog projections",
     (endpointId) => {

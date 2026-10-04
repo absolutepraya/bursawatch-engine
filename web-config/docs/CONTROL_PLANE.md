@@ -84,9 +84,11 @@ unrelated, unknown or ambiguous refs stay readable without a guessed editor.
 Source adapters link to Sources, while delivery services remain non-navigable.
 
 Catalog endpoint identities are opaque, case-sensitive ASCII IDs bounded to
-128 characters. Activity and catalog projections share a validator that
-preserves dots and mixed case, including Instagram handles and WhatsApp channel
-IDs. Component, job, pipeline and user-created endpoint ID rules remain
+128 characters. Activity, registry, compatibility, effective subscription and
+saved override identities share a validator that preserves dots and mixed case,
+including Instagram handles and WhatsApp channel IDs. Saved overrides use the
+same rule in catalog responses and configuration writes. Component, job,
+pipeline and user-created endpoint ID rules remain
 separate. Activity reads still validate the requested component identity,
 timestamps, states and response shape; malformed responses remain unavailable.
 

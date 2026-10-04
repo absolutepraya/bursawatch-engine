@@ -41,7 +41,7 @@ export const catalogConfig = z
     people_org: z.array(person).max(500),
     endpoints: z.array(endpoint).max(500),
     publisher_defaults: z.array(setting.extend({ publisher_id: z.string() }).strict()).max(500),
-    endpoint_overrides: z.array(setting.extend({ endpoint_id: z.string() }).strict()).max(500),
+    endpoint_overrides: z.array(setting.extend({ endpoint_id: sourceEndpointId }).strict()).max(500),
   })
   .strict();
 export const catalogWrite = z
