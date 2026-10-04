@@ -38,6 +38,9 @@ A portfolio of stocks grouped by the chosen sector classification. Its calculate
 **Weight snapshot**:
 A dated set of member market-cap weights used to calculate a basket's return.
 
+**Basket price coverage**:
+The share of a basket's total snapshot market cap represented by members with usable price history for the same calculation period. It cannot be measured reliably when mapped members lack valid snapshot weights.
+
 **Fixed-snapshot rotation**:
 A relative-rotation illustration calculated from historical member returns using one dated percentage allocation throughout the calculation history. Earlier positions incorporate that snapshot's information and are not historically knowable cap-weighted observations.
 
