@@ -28,7 +28,9 @@ identity-verification state beside its address, separate from subscription
 state. The catalog read includes backend-derived
 `can_edit`; show mutation controls only when it is true. A successful PUT must
 be followed by a confirmed catalog and effective read before success feedback.
-If that read fails, preserve and lock the draft until an explicit reload. Display publisher defaults, endpoint
+If that read fails, preserve and lock the draft until an explicit reload.
+Warn before leaving unsaved catalog changes or an in-flight save, and confirm
+manual reload before discarding a changed draft. Display publisher defaults, endpoint
 overrides and the resolved status separately. Do not infer identity from a
 display name or internal ID. Public curated images remain static assets until
 an object-storage owner and upload policy are approved. No browser-local source
@@ -59,7 +61,10 @@ and actions. Saved schedules remain pending until matching reconciliation is
 observed. Fixed jobs and viewer sessions have no save control. Job `can_edit` is
 backend-derived and never inferred from browser claims. Jobs and Published read
 only their current-view inventory or publication records; Published filters are
-sent to the authenticated API before paging.
+sent to the authenticated API before paging. Keep coverage loading, read failure
+and a confirmed inactive feed distinct, with coverage errors and retries
+independent of page reads. Authentication or permission failure on any Published
+read clears its loaded pages, detail and coverage and cancels pending reads.
 Do not trigger a real run or delivery in smoke tests. The signed-in
 browser smoke verifies Published records and coverage warnings plus the Jobs
 schedule-evidence note with intercepted synthetic auth and API responses.

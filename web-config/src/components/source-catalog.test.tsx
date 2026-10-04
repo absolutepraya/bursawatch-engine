@@ -13,6 +13,7 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   toast.mockReset();
+  vi.restoreAllMocks();
 });
 
 function deferred<T>() {
@@ -261,10 +262,73 @@ describe("SourceCatalogView", () => {
     expect(screen.getByText(/Save acknowledged, refresh unconfirmed/)).toBeTruthy();
     expect(toast).not.toHaveBeenCalled();
     expect(putCount).toBe(1);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     fireEvent.click(screen.getByRole("button", { name: "Reload current catalog" }));
     await waitFor(() => expect(screen.getByText(/Revision 2 · Saved catalog/)).toBeTruthy());
     expect(screen.queryByText(/refresh could not be confirmed/i)).toBeNull();
     expect(putCount).toBe(1);
     expect(toast).not.toHaveBeenCalled();
   });
+});
+
+async function editCatalog() {
+  const request = vi.fn(async (path: string) =>
+    path === "source-catalog" ? catalog(true) : effective(),
+  ) as unknown as ReturnType<typeof controlBrowser>;
+  const onDirtyChange = vi.fn();
+  const view = render(<SourceCatalogView request={request} onDirtyChange={onDirtyChange} />);
+  await screen.findByText(/Revision 1/);
+  fireEvent.click(screen.getByRole("tab", { name: "People & Org" }));
+  fireEvent.change(
+    screen.getByRole("group", { name: "Add People & Org identity" }).querySelector("input")!,
+    {
+      target: { value: "Unsaved Analyst" },
+    },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Add identity to draft" }));
+  return { ...view, request, onDirtyChange };
+}
+
+it("warns before leaving a source draft and removes the warning on unmount", async () => {
+  const { unmount, onDirtyChange } = await editCatalog();
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  const beforeUnload = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(beforeUnload);
+  expect(beforeUnload.defaultPrevented).toBe(true);
+  const link = document.createElement("a");
+  link.href = "/workspace/jobs";
+  document.body.append(link);
+  try {
+    expect(fireEvent.click(link)).toBe(false);
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(screen.getByRole("heading", { name: "Unsaved Analyst" })).toBeTruthy();
+  } finally {
+    link.remove();
+  }
+  unmount();
+  expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  const cleanUnload = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(cleanUnload);
+  expect(cleanUnload.defaultPrevented).toBe(false);
+});
+
+it("preserves a draft when catalog reload is declined and discards only after confirmation", async () => {
+  const { request } = await editCatalog();
+  // Adding an empty identity exposes the local validation error and reload action.
+  fireEvent.click(screen.getByRole("button", { name: "Add identity to draft" }));
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  fireEvent.click(screen.getByRole("button", { name: "Reload current catalog" }));
+  await act(async () => Promise.resolve());
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(vi.mocked(request)).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole("heading", { name: "Unsaved Analyst" })).toBeTruthy();
+  confirm.mockReturnValue(true);
+  fireEvent.click(screen.getByRole("button", { name: "Reload current catalog" }));
+  await waitFor(() => expect(vi.mocked(request)).toHaveBeenCalledTimes(4));
+  await waitFor(() =>
+    expect(screen.queryByRole("heading", { name: "Unsaved Analyst" })).toBeNull(),
+  );
+  const beforeUnload = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(beforeUnload);
+  expect(beforeUnload.defaultPrevented).toBe(false);
 });

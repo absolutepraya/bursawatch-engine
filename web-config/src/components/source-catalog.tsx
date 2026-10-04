@@ -17,6 +17,7 @@ import {
 import { StatusBadge } from "./status-badge";
 import { useToast } from "./toast-provider";
 import { WorkspaceLoading, type LoadingRequest } from "./workspace-loading";
+import { useUnsavedWarning } from "./watcher-config-editor";
 import "@/app/connected-sources.css";
 
 type Request = ReturnType<typeof controlBrowser>;
@@ -236,7 +237,11 @@ export function SourceCatalogView({
     catalog && draft && JSON.stringify(catalog.config.config) !== JSON.stringify(draft),
   );
   const canEdit = catalog?.can_edit === true;
-  useEffect(() => onDirtyChange(canEdit && dirty), [canEdit, dirty, onDirtyChange]);
+  useUnsavedWarning(canEdit && (dirty || saving));
+  useEffect(() => {
+    onDirtyChange(canEdit && (dirty || saving));
+    return () => onDirtyChange(false);
+  }, [canEdit, dirty, saving, onDirtyChange]);
   const reload = useCallback(
     async (signal?: AbortSignal) => {
       setLoading(true);
@@ -518,7 +523,13 @@ export function SourceCatalogView({
             className="button secondary small"
             type="button"
             disabled={loading || saving}
-            onClick={() => void reload()}
+            onClick={() => {
+              if (
+                !dirty ||
+                window.confirm("Discard unsaved changes and reload the current catalog?")
+              )
+                void reload();
+            }}
           >
             Reload current catalog
           </button>
