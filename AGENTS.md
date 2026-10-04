@@ -129,7 +129,8 @@ cleaned, committed, or included in dotfiles capture.
 
 ## Collaboration workflow
 
-Both Hermes repositories use the identical `.wt/config.toml` configuration.
+Both Hermes repositories use WT with repository-local `.wt/config.toml`
+settings, including independent slot limits.
 Use isolated managed feature worktrees through `wt` by default; never use a
 raw Git worktree when the repository is WT-configured. An explicit current-chat
 request from the human user to work on `main` overrides that default: work

@@ -50,6 +50,35 @@ const catalog = {
   },
 } as SourceCatalog;
 describe("catalog settings", () => {
+  it.each([
+    "instagram:synthetic.research",
+    "whatsapp:0029SyntheticMixedCase",
+    "a".repeat(128),
+  ])(
+    "preserves bounded endpoint identity %s in the catalog projection",
+    (endpointId) => {
+      const parsed = sourceCatalog.parse({
+        ...catalog,
+        endpoints: [{ ...catalog.endpoints[0], id: endpointId }],
+        compatibility: [
+          { ...catalog.compatibility[0], endpoint_id: endpointId },
+        ],
+      });
+      expect(parsed.endpoints[0].id).toBe(endpointId);
+      expect(parsed.compatibility[0].endpoint_id).toBe(endpointId);
+    },
+  );
+  it.each(["", "a".repeat(129), "instagram:bad/handle", "whatsapp:bad?query"])(
+    "rejects invalid endpoint identity %j in catalog projections",
+    (endpointId) => {
+      expect(
+        sourceCatalog.safeParse({
+          ...catalog,
+          endpoints: [{ ...catalog.endpoints[0], id: endpointId }],
+        }).success,
+      ).toBe(false);
+    },
+  );
   it("shows only compatible endpoint capabilities", () =>
     expect(compatibleCapabilities(catalog, "x:firm").map((item) => item.id)).toEqual([
       "company_news",

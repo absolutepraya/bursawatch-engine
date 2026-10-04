@@ -23,6 +23,12 @@ const swingId = "bursawatch-tg-phintraco-swing";
 const stockbitId = "bursawatch-stockbit-snips";
 const jobId = "fixture-market-news";
 const stockbitJobId = "fixture-stockbit-snips";
+const instagramAdapterId = "bursawatch-ig-source-ingest";
+const whatsappAdapterId = "bursawatch-wa-source-ingest";
+const intakeIds = {
+  [instagramAdapterId]: "instagram:synthetic.research",
+  [whatsappAdapterId]: "whatsapp:0029SyntheticMixedCase",
+};
 const password = "synthetic-only-password";
 const screenshotDir = resolve("test-results/control-workspace");
 await mkdir(screenshotDir, { recursive: true });
@@ -161,7 +167,11 @@ async function scenario(role) {
     component(adapterId, "source_adapter", "Telegram Source Inbox", [watcherId], [jobId]),
     component(watcherId, "domain_owner", "Market News", [adapterId], [jobId], [`watcher:${watcherId}`]),
     component(stockbitId, "domain_owner", "Stockbit Snips", [], [stockbitJobId], [`watcher:${stockbitId}`]),
+    component(instagramAdapterId, "source_adapter", "Synthetic Instagram intake", [], [], ["source-catalog"]),
+    component(whatsappAdapterId, "source_adapter", "Synthetic WhatsApp intake", [], [], ["source-catalog"]),
   ];
+  const intakeStatus = { [instagramAdapterId]: "observed", [whatsappAdapterId]: "stale" };
+  const failedActivity = new Set();
   const operatorJob = (sourceJob, displayName, runtimeJobKey, componentIds, canEdit) => ({
     job_id: sourceJob.job_id,
     can_edit: canEdit,
@@ -215,7 +225,11 @@ async function scenario(role) {
     securities: [],
     institutions: [{ id: "phintraco", name: "Phintraco Sekuritas", tier: 1, asset_ref: null }],
     people_org: [{ id: "x-ricky", name: "Ricky Ho", kind: null, tier: 3, asset_ref: null }],
-    endpoints: [{ id: "x:ricky", publisher_id: "x-ricky", platform: "x", address: "rickyho", provider_id: null, credential_ref: null, system_owned: true, verified: true }],
+    endpoints: [
+      { id: "x:ricky", publisher_id: "x-ricky", platform: "x", address: "rickyho", provider_id: null, credential_ref: null, system_owned: true, verified: true },
+      { id: intakeIds[instagramAdapterId], publisher_id: "x-ricky", platform: "instagram", address: "synthetic.research", provider_id: null, credential_ref: null, system_owned: true, verified: true },
+      { id: intakeIds[whatsappAdapterId], publisher_id: "x-ricky", platform: "whatsapp", address: "https://www.whatsapp.com/channel/0029SyntheticMixedCase", provider_id: null, credential_ref: null, system_owned: true, verified: true },
+    ],
     capabilities: [{ id: "company_news", label: "Company News", pipeline: "company_news", version: 1 }, { id: "macro_news", label: "Macro News", pipeline: "macro_news", version: 1 }, { id: "swing_chart_context", label: "Swing Chart Context", pipeline: "swing_chart_context", version: 1 }, { id: "trading_plans", label: "Trading Plans", pipeline: "swing_plan", version: 1 }],
     compatibility: [{ endpoint_id: "x:ricky", capability_id: "company_news", dispatch_group: "x_post_route" }, { endpoint_id: "x:ricky", capability_id: "macro_news", dispatch_group: "x_post_route" }, { endpoint_id: "x:ricky", capability_id: "swing_chart_context", dispatch_group: "x_post_route" }],
     config: { revision: 1, config: sourceConfig, sha256: "a".repeat(64), actor_id: "baseline", updated_at: new Date().toISOString() },
@@ -412,13 +426,22 @@ async function scenario(role) {
             : state.observations);
         }
         const activityMatch = method === "GET" && path.match(/^components\/([^/]+)\/activity$/);
-        if (activityMatch)
+        if (activityMatch) {
+          const componentId = decodeURIComponent(activityMatch[1]);
+          if (failedActivity.has(componentId))
+            return json({ code: "invalid-response", message: "The response could not be verified." }, 502);
           return json({
-            component_id: decodeURIComponent(activityMatch[1]),
-            endpoints: [],
+            component_id: componentId,
+            endpoints: intakeIds[componentId] ? [{
+              endpoint_id: intakeIds[componentId],
+              accepted_at: intakeStatus[componentId] === "unknown" ? null : state.snapshot.updated_at,
+              status: intakeStatus[componentId],
+              meaning: "last accepted into Source Inbox",
+            }] : [],
             pipelines: [],
             delivery_status: "not instrumented",
           });
+        }
         if (method === "GET" && path === "source-catalog") return json(sourceCatalog);
         if (method === "GET" && path === "source-catalog/effective") return json(effectiveCatalog());
         if (method === "PUT" && path === "source-catalog/config") {
@@ -757,6 +780,12 @@ async function scenario(role) {
     await page
       .getByText("Up to 50 latest runs per watcher. This range may be incomplete.", { exact: true })
       .waitFor();
+    for (const name of ["Synthetic Instagram intake", "Synthetic WhatsApp intake"]) {
+      const row = page.locator(".control-operator-evidence article").filter({ has: page.getByText(name, { exact: true }) });
+      await row.locator("time").waitFor();
+      assert.doesNotMatch(await row.innerText(), /Last accepted input: Unavailable/);
+    }
+    assert.equal(await page.locator(".control-evidence-warning").count(), 0);
     const overviewEvidence = page.locator(".control-watcher-operator-evidence");
     assert.match(await overviewEvidence.nth(0).innerText(), /Shared Telegram reader \(active\)/);
     assert.match(await overviewEvidence.nth(2).innerText(), /Stockbit Snips check \(active\)/);
@@ -825,8 +854,48 @@ async function scenario(role) {
     await page
       .getByText("Schedule observations and last execution do not confirm a post reached Discord.", { exact: true })
       .waitFor();
+    const writesBeforeNavigation = writes.length;
+    for (const [label, id, heading] of [
+      ["Stockbit Snips", stockbitId, "Stockbit Snips"],
+      ["Market News", watcherId, "Market news"],
+    ]) {
+      const link = page.locator(".operator-job-components").getByRole("link", { name: label, exact: true });
+      assert.equal(await link.getAttribute("href"), `/workspace/workflows?watcher=${id}`);
+      await link.click();
+      await page.waitForURL(`${target.origin}/workspace/workflows?watcher=${id}`);
+      await page.getByRole("heading", { name: heading, exact: true }).waitFor();
+      await page.getByRole("heading", { name: role === "admin" ? "Watcher configuration" : "View access", exact: true }).waitFor();
+      assert.equal(await page.getByText("Workflow not found", { exact: true }).count(), 0);
+      await navigate("Jobs", "Jobs");
+    }
+    await page.locator(".operator-job-components").getByRole("link", { name: "Telegram Source Inbox", exact: true }).click();
+    await page.waitForURL(`${target.origin}/workspace/sources`);
+    assert.equal(writes.length, writesBeforeNavigation, "Jobs relationships perform reads only.");
+    await page.getByRole("heading", { name: "Source Catalog", exact: true }).waitFor();
+    const adapterEvidence = page.locator(".source-adapter-evidence");
+    const intakeRow = (name) => adapterEvidence.getByRole("listitem").filter({ has: page.getByText(name, { exact: true }) });
+    await intakeRow("Synthetic Instagram intake").getByText("Input status: Observed", { exact: true }).waitFor();
+    await intakeRow("Synthetic WhatsApp intake").getByText("Input status: Stale", { exact: true }).waitFor();
+    assert.equal(await adapterEvidence.getByRole("status").count(), 0);
+    intakeStatus[whatsappAdapterId] = "unknown";
+    await navigate("Overview", "Overview");
     await navigate("Sources", "Sources");
     await page.getByRole("heading", { name: "Source Catalog", exact: true }).waitFor();
+    await intakeRow("Synthetic WhatsApp intake").getByText("Last accepted input: Unknown", { exact: true }).waitFor();
+    await intakeRow("Synthetic WhatsApp intake").getByText("Input status: Unknown", { exact: true }).waitFor();
+    failedActivity.add(instagramAdapterId);
+    await navigate("Overview", "Overview");
+    await page.getByText("Some operator evidence is unavailable. Its missing row does not mean no activity occurred.", { exact: true }).waitFor();
+    await navigate("Sources", "Sources");
+    await page.getByRole("heading", { name: "Source Catalog", exact: true }).waitFor();
+    await adapterEvidence.getByText("Some adapter evidence could not be loaded. Missing rows are unavailable, not zero.", { exact: true }).waitFor();
+    failedActivity.clear();
+    intakeStatus[whatsappAdapterId] = "stale";
+    await navigate("Overview", "Overview");
+    await navigate("Sources", "Sources");
+    await page.getByRole("heading", { name: "Source Catalog", exact: true }).waitFor();
+    await intakeRow("Synthetic Instagram intake").getByText("Input status: Observed", { exact: true }).waitFor();
+    assert.equal(await adapterEvidence.getByRole("status").count(), 0);
     const securitiesTab = page.getByRole("tab", { name: "Securities", exact: true });
     const institutionsTab = page.getByRole("tab", { name: "Institutions", exact: true });
     const peopleTab = page.getByRole("tab", { name: "People & Org", exact: true });

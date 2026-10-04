@@ -78,6 +78,17 @@ The owner component links that resource to its **shared jobs**, using the
 component inventory's `job_ids`. A `watcher:<id>` configuration resource ref
 and a watcher ID identify the same workflow, but the ref is not a URL query ID.
 Jobs can support multiple components; a workflow is not itself a schedule.
+Jobs resolves one distinct supported watcher from a domain owner's resource
+refs before constructing its editor link. Bare watcher IDs remain compatible;
+unrelated, unknown or ambiguous refs stay readable without a guessed editor.
+Source adapters link to Sources, while delivery services remain non-navigable.
+
+Catalog endpoint identities are opaque, case-sensitive ASCII IDs bounded to
+128 characters. Activity and catalog projections share a validator that
+preserves dots and mixed case, including Instagram handles and WhatsApp channel
+IDs. Component, job, pipeline and user-created endpoint ID rules remain
+separate. Activity reads still validate the requested component identity,
+timestamps, states and response shape; malformed responses remain unavailable.
 
 A **saved configuration revision** records settings accepted by the API. A
 **run-used revision** records which configuration a particular recorded owner

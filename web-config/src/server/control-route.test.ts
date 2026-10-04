@@ -200,6 +200,94 @@ describe("profile metadata proxy", () => {
 });
 
 describe("operator inventory read proxy", () => {
+  it.each([
+    ["bursawatch-ig-source-ingest", "instagram:synthetic.research"],
+    ["bursawatch-wa-source-ingest", "whatsapp:0029SyntheticMixedCase"],
+  ])(
+    "returns authenticated activity for %s as no-store without changing state",
+    async (componentId, endpointId) => {
+      for (const status of ["unknown", "stale", "observed"]) {
+        const activity = {
+          component_id: componentId,
+          endpoints: [
+            {
+              endpoint_id: endpointId,
+              accepted_at: status === "unknown" ? null : time,
+              status,
+              meaning: "last accepted into Source Inbox",
+            },
+          ],
+          pipelines: [],
+          delivery_status: "not instrumented",
+        };
+        const fetchImpl = fake([activity]);
+        const response = await invoke(
+          `components/${componentId}/activity`,
+          fetchImpl,
+        );
+        expect(response.status).toBe(200);
+        expect(response.headers.get("cache-control")).toContain("no-store");
+        expect(await response.json()).toEqual(activity);
+        expect(fetchImpl).toHaveBeenCalledTimes(1);
+        expect(fetchImpl.mock.calls[0][1]).toMatchObject({
+          method: "GET",
+          cache: "no-store",
+          headers: { Authorization: "Bearer e30.e30.signature" },
+        });
+      }
+    },
+  );
+
+  it.each(["instagram:bad/handle", "a".repeat(129)])(
+    "keeps invalid activity endpoint identities rejected: %j",
+    async (endpointId) => {
+      const fetchImpl = fake([
+        {
+          component_id: "bursawatch-ig-source-ingest",
+          endpoints: [
+            {
+              endpoint_id: endpointId,
+              accepted_at: null,
+              status: "unknown",
+              meaning: "last accepted into Source Inbox",
+            },
+          ],
+          pipelines: [],
+          delivery_status: "not instrumented",
+        },
+      ]);
+      const response = await invoke(
+        "components/bursawatch-ig-source-ingest/activity",
+        fetchImpl,
+      );
+      expect(response.status).toBe(502);
+      expect(await response.json()).toMatchObject({ code: "invalid-response" });
+    },
+  );
+
+  it("rejects a valid activity body for a different component", async () => {
+    const response = await invoke(
+      "components/bursawatch-ig-source-ingest/activity",
+      fake([
+        {
+          component_id: "bursawatch-wa-source-ingest",
+          endpoints: [
+            {
+              endpoint_id: "whatsapp:0029SyntheticMixedCase",
+              accepted_at: null,
+              status: "unknown",
+              meaning: "last accepted into Source Inbox",
+            },
+          ],
+          pipelines: [],
+          delivery_status: "not instrumented",
+        },
+      ]),
+    );
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ code: "invalid-response" });
+  });
+
   it("allowlists authenticated component, activity, job and observation GETs as no-store", async () => {
     const paths = [
       "components",

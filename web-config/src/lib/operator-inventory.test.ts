@@ -9,6 +9,19 @@ import {
 } from "./operator-inventory";
 
 const time = "2026-09-29T00:00:00Z";
+const activity = {
+  component_id: "bursawatch-ig-source-ingest",
+  endpoints: [
+    {
+      endpoint_id: "instagram:synthetic.research",
+      accepted_at: time,
+      status: "observed",
+      meaning: "last accepted into Source Inbox",
+    },
+  ],
+  pipelines: [],
+  delivery_status: "not instrumented",
+};
 const componentRow = {
   inventory_version: 1,
   component_id: "bursawatch-tg-source-ingest",
@@ -22,6 +35,84 @@ const componentRow = {
 };
 
 describe("operator inventory response contracts", () => {
+  it.each([
+    "instagram:synthetic.research",
+    "whatsapp:0029SyntheticMixedCase",
+    "rss:stockbit:unboxing_ipo",
+  ])(
+    "preserves catalog endpoint identity %s and all activity states",
+    (endpointId) => {
+      for (const status of ["unknown", "stale", "observed"]) {
+        const row = {
+          ...activity.endpoints[0],
+          endpoint_id: endpointId,
+          status,
+          accepted_at: status === "unknown" ? null : time,
+        };
+        expect(
+          componentActivity.parse({ ...activity, endpoints: [row] })
+            .endpoints[0],
+        ).toEqual(row);
+      }
+    },
+  );
+
+  it.each([
+    "",
+    "a".repeat(129),
+    "instagram:bad/handle",
+    "instagram:bad handle",
+    "instagram:bad\n",
+    "whatsapp:bad\r\n",
+    "whatsapp:bad?query",
+    "instagram:bad\u0000",
+    "instagram:résumé",
+  ])("rejects malformed or oversized endpoint identity %j", (endpointId) => {
+    expect(
+      componentActivity.safeParse({
+        ...activity,
+        endpoints: [{ ...activity.endpoints[0], endpoint_id: endpointId }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("keeps component, pipeline and capability identities narrow", () => {
+    expect(
+      componentActivity.safeParse({
+        ...activity,
+        component_id: "Adapter.MixedCase",
+      }).success,
+    ).toBe(false);
+    expect(
+      componentActivity.safeParse({
+        ...activity,
+        pipelines: [
+          {
+            pipeline_id: "Pipeline.MixedCase",
+            work_created_at: null,
+            work_status: null,
+            status: "unknown",
+            meaning: "last pipeline work",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      component.safeParse({
+        ...componentRow,
+        capabilities: ["Capability.MixedCase"],
+      }).success,
+    ).toBe(false);
+    expect(
+      componentActivity.safeParse({ ...activity, unsafe: true }).success,
+    ).toBe(false);
+    expect(
+      componentActivity.safeParse({
+        ...activity,
+        endpoints: [{ ...activity.endpoints[0], accepted_at: "not-a-date" }],
+      }).success,
+    ).toBe(false);
+  });
   it("requires the known inventory version and rejects unknown fields", () => {
     expect(component.safeParse({ ...componentRow, inventory_version: 2 }).success).toBe(false);
     expect(component.safeParse({ ...componentRow, internal_token: "secret" }).success).toBe(false);
@@ -74,6 +165,9 @@ describe("operator inventory response contracts", () => {
       },
     };
     const parsed = operatorJob.parse(row);
+    expect(
+      operatorJob.safeParse({ ...row, job_id: "Job.MixedCase" }).success,
+    ).toBe(false);
     expect(parsed.watcher_id).toBeNull();
     expect(parsed.reconciliation).toEqual({
       status: "error",

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { sourceEndpointId } from "./source-endpoint-id";
 
 const id = z.string().regex(/^[a-z0-9][a-z0-9-]{1,63}$/);
 const dispatchGroup = z.string().regex(/^[a-z][a-z0-9_]{0,63}$/).nullable();
@@ -61,7 +62,7 @@ const publisher = z.object({
   asset_ref: asset,
 });
 const registryEndpoint = z.object({
-  id: z.string(),
+  id: sourceEndpointId,
   publisher_id: z.string(),
   platform: z.string(),
   address: z.string(),
@@ -82,7 +83,7 @@ export const sourceCatalog = z.object({
     )
     .max(100),
   compatibility: z
-    .array(z.object({ endpoint_id: z.string(), capability_id: z.string(), dispatch_group: dispatchGroup }))
+    .array(z.object({ endpoint_id: sourceEndpointId, capability_id: z.string(), dispatch_group: dispatchGroup }))
     .max(5000),
   config: catalogRevision,
 });
@@ -93,7 +94,7 @@ export const effectiveCatalog = z.object({
   subscriptions: z
     .array(
       z.object({
-        endpoint_id: z.string(),
+        endpoint_id: sourceEndpointId,
         publisher_id: z.string(),
         platform: z.string(),
         address: z.string(),
