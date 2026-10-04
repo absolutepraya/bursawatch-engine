@@ -57,6 +57,12 @@ _Avoid_: Gainers when ranked returns are negative.
 **Relative rotation**:
 The position and movement of a basket's relative strength and relative momentum against IHSG. Relative leadership alone does not establish a positive absolute return.
 
+**Relative strength gap**:
+The basket's compounded ten-session return minus IHSG's compounded ten-session return, expressed in percentage points. A positive gap means the basket outperformed IHSG over that period.
+
+**Relative momentum**:
+The change in a basket's relative strength gap over three trading sessions, expressed in percentage points. A positive value means the gap improved over that interval.
+
 **Rotation trail**:
 A sequence of a basket's dated relative-rotation positions leading to its latest position. The number of displayed observations is distinct from the lookback windows used to calculate each position.
 
