@@ -212,3 +212,17 @@ def test_read_only_agent_status_exposes_one_ready_timestamp(owner):
         "ready": True, "pipeline_id": "swing_support", "event_key": "101:CTRA",
         "published_at": STAMP.isoformat()}
     assert owner.read_bytes() == before
+
+
+def test_pipeline_accepts_version_two_pwon_without_primary_promotion(owner,monkeypatch):
+    from test_agent_protocol import pwon_payload
+    for item in (work(101,"Good to watch - PWON #GTW"),work(102,"Watch on 270–282\nSupport utama 260\nTarget 1 288\nTarget 2 298",minute=1),work(103,"Good to watch - BREN #GTW",minute=2)):
+        pipeline_owner.submit(item,no_post=True)
+    wake = pipeline_owner.claim_agent(now=STAMP+timedelta(minutes=3),no_post=True)
+    payload = pwon_payload(wake["item"]["source_text"]);payload["event_key"] = wake["item"]["event_key"]
+    texts=[];board=[]
+    monkeypatch.setattr(discord,"post_text",lambda content,*args:texts.append(content) or "123456789012345678")
+    monkeypatch.setattr(discord,"submit_board_event",lambda payload,*args:board.append(payload.copy()) or True)
+    result = pipeline_owner.submit_analysis(payload,now=STAMP+timedelta(minutes=4))
+    assert result["accepted"] and "**Stop-loss:** <260" in texts[0]
+    assert board[0]["plan"] is None and board[0]["source"] == "kelas-investasi"

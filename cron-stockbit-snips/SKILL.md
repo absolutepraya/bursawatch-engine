@@ -32,7 +32,7 @@ Return exactly this JSON object with no extra fields:
   "candidate_key":"<supplied candidate_key>",
   "ticker":"<exact IDX ticker or empty text>",
   "title":"<natural Bahasa Indonesia sentence-case headline>",
-  "summary":"<one to five factual Indonesian sentences>",
+  "summary":"<source-grounded summary>",
   "material_facts":["<source-supported fact>"],
   "dedupe_facts":["<normalized source-supported fact>"],
   "eligible":true,
@@ -64,7 +64,7 @@ Title rules:
 
 Summary rules:
 
-- Write one to five short factual Indonesian sentences.
+- Follow the shared writing guidance in the supplied instruction.
 - Cover the central claim, important numbers, named parties, and supported
   implications without adding outside facts.
 - Do not include the `*(Ringkasan)*` marker. The renderer adds it.
@@ -112,14 +112,10 @@ feed cutover.
 
 ## Shared generated-news format
 
-`lib-news-format` owns the common writing instruction, renderer, and
-optional deterministic quote lookup. Report directly in Indonesian and
-preserve research attribution, periods, units, and uncertainty. Prefer two
-short paragraphs for longer summaries; concise or cohesive items may use one.
-No fixed paragraph threshold or style-based relevance gate applies. Return
-plain summary text without a Ringkasan marker. The renderer adds it once and
-normalizes legacy markers. Existing structural, identity, capability, and
-source-specific safety checks remain mandatory.
+`lib-news-format` owns common and category writing guidance, supplied through
+`item.instruction`. Follow that trusted instruction. The renderer owns the
+Ringkasan marker and deterministic quote tracker. Structural, identity,
+capability, and source-specific safety checks remain mandatory.
 
 Split independent issuer developments into ordered items, including separate
 issuer dividends and suspension reopenings. Keep a connected transaction or

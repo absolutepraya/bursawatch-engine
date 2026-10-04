@@ -29,7 +29,7 @@ candidate. Return exactly this JSON shape, including a source-grounded
   "candidate_key": "<supplied candidate_key>",
   "ticker": "<supplied ticker>",
   "event_class": "<allowed event class>",
-  "summary": "<one to five factual Indonesian sentences>",
+  "summary": "<source-grounded Indonesian summary>",
   "material_facts": ["<source-supported fact>"],
   "ranking_band": 1,
   "dedupe_facts": ["<normalized source-supported fact>"],
@@ -55,19 +55,7 @@ and preserve period, units, and forward-looking framing. The summary must not
 include `*(Ringkasan)*`; the renderer adds that marker. Do not include
 investment advice or price-direction language.
 
-For both Phintraco and Tuntun News, report directly: start with the issuer,
-action, or actual news subject, avoiding generic introductions such as
-`Phintraco melaporkan` or `menurut Tuntun` for straightforward news. Do not
-add `saya` or `kami`. Preserve meaningful attribution for research estimates
-and forecasts, distinct from reported results and company guidance.
-Prefer two shorter paragraphs separated by one blank line for longer
-summaries, grouped by subject. Use judgment rather than a fixed sentence or
-character threshold; short or cohesive summaries may remain one paragraph.
-Keep the total at one to five sentences. Do not pad, invent facts, or withhold
-an otherwise eligible item to satisfy paragraph style. Encode a paragraph
-break as `\n\n` inside the JSON summary string, without a second Ringkasan
-marker. Prices and the four-horizon tracker are deterministic owner
-enrichment, never generated in the summary.
+For common and category writing, follow the trusted item instruction from `lib-news-format`. The renderer owns the summary marker.
 
 Submit once through the existing owner wrapper:
 
@@ -82,11 +70,11 @@ For `agent_target: kelas_investasi`, the runner supplies one `item`. Return
 exactly this JSON shape:
 
 ```json
-{"event_key":"<supplied item.event_key>","title":"<TICKER>: <source-grounded thesis>","summary":"*(Ringkasan)* <source-grounded Indonesian paragraph>"}
+{"schema_version":2,"event_key":"<supplied item.event_key>","title":"<TICKER>: <source-grounded thesis>","summary":"*(Ringkasan)* <source-grounded Indonesian summary>","plan_fields":[]}
 ```
 
 The key must match the item. The title starts with its exact ticker and a
-colon, has no ending punctuation, and uses only source facts. The summary
+colon, prefers no ending punctuation, and uses only source facts. The summary
 starts exactly with `*(Ringkasan)* ` and must not add external facts,
 investment advice, certainty, narrator framing, or invented plan values.
 Submit once through the existing owner wrapper:
@@ -174,3 +162,7 @@ Phintraco submissions without a title remain accepted for older leases, with
 a source-name fallback. The shared `lib-news-format` renderer owns source
 bylines and the quote block. Swing and deterministic Stock Information keep
 their existing contracts.
+
+## Optional image context
+
+Screen ordinary news from supplied text first. Only when that text is eligible, the trusted item instruction may expose `prepare-summary-images`. Call that command with its exact bound request, then use the actual image viewer on returned paths. Paths indicate availability, not inspection. Images are additional context for the same supplied story, never a substitute for eligible text. Do not inspect any other files. On unavailable images or viewer failure, submit the text-supported result without holding delivery or retrying optional context. Specialized Swing and required outgoing media retain their owner contracts.

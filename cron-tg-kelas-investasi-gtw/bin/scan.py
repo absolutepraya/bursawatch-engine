@@ -542,6 +542,8 @@ def _submit_analysis_payload_loaded(
             raise
         event["title"] = validated["title"]
         event["summary"] = validated["summary"]
+        from render import freeze_presentation
+        freeze_presentation(event, validated, loaded_config.config.alert_discord_channel_id)
         # Submitted work is delivery-only. It can never re-enter the agent
         # claim queue, even if an immediate Discord retry is pending.
         event["agent_phase"] = "delivering"

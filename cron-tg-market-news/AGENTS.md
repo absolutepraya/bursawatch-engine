@@ -307,14 +307,9 @@ the recorded forward-only feed cutover. Its URL and scoped token file use
 
 ## Shared generated-news format
 
-`lib-news-format` owns the common writing instruction, renderer, and
-optional deterministic quote lookup. Report directly in Indonesian and
-preserve research attribution, periods, units, and uncertainty. Prefer two
-short paragraphs for longer summaries; concise or cohesive items may use one.
-No fixed paragraph threshold or style-based relevance gate applies. Return
-plain summary text without a Ringkasan marker. The renderer adds it once and
-normalizes legacy markers. Existing structural, identity, capability, and
-source-specific safety checks remain mandatory.
+`lib-news-format` owns common and category writing guidance, rendering, and
+optional deterministic quotes. Follow its trusted generated instruction.
+Source owners retain structural, identity, capability and source-safety checks.
 
 Split independent issuer developments into ordered items, including separate
 issuer dividends and suspension reopenings. Keep a connected transaction or
@@ -338,3 +333,9 @@ The LLM owns semantic relevance. Market-keyword signals are advisory and
 cannot veto `is_relevant: false`. Generic investing education remains
 excluded even when it mentions earnings, dividends, charting, or an issuer.
 There is no deterministic education denylist.
+
+Wake validation matches the supplied candidate category and frozen operator
+prompt exactly. The owner supplies its generated optional image suffix
+separately for exact comparison; arbitrary appended instructions are rejected.
+Split publications keep candidate-specific source text and claim identities,
+with image instructions limited to clarifying that candidate's story.

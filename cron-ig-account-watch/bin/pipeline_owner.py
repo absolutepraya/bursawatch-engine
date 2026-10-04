@@ -217,6 +217,7 @@ def submit(work: dict[str, Any], *, no_post: bool = False, inbox: Any = None, me
         "owner_event_key": owner_event_key, "source_event_key": work["event_key"],
         "content_hash": work["envelope"]["content_hash"], "profile_id": post.profile_id,
         "publication_id": post.publication_id, "capabilities": capabilities, "work_keys": keys,
+        "summary_media_refs": work["envelope"]["media_refs"],
         "outcome": "accepted" if rsshub.is_forwardable(profile, post) else "irrelevant",
     }
     storage = scan.state_path()
@@ -225,7 +226,7 @@ def submit(work: dict[str, Any], *, no_post: bool = False, inbox: Any = None, me
             raise OwnerPending("Instagram watcher ledger is busy")
         existing = source_work_routes.read(storage, owner_event_key)
         if existing is not None:
-            if existing != route_record or work["work_key"] not in existing["work_keys"]:
+            if {k:v for k,v in existing.items() if k != "summary_media_refs"} != {k:v for k,v in route_record.items() if k != "summary_media_refs"} or ("summary_media_refs" in existing and existing["summary_media_refs"] != route_record["summary_media_refs"]) or work["work_key"] not in existing["work_keys"]:
                 raise ValueError("Instagram source publication conflicts with prior handoff")
             if existing["outcome"] == "irrelevant":
                 return "irrelevant"
@@ -244,7 +245,7 @@ def submit(work: dict[str, Any], *, no_post: bool = False, inbox: Any = None, me
         root = scan._ensure_media_root()
         downloaded = _download_originals(post, refs, root, media_store)
         prepared = scan._prepare_downloaded_event(
-            post, profile, downloaded, scan.ocr_cache_path(), scan._ocr_backend_for_run(), scan.RunStats(),
+            post, profile, downloaded, scan.ocr_cache_path(), None, scan.RunStats(), news_screening=True,
         )
         event = state._event_for_publication(profile, post, prepared)
         source_work_routes.write(storage, route_record)

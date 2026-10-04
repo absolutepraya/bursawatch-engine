@@ -863,6 +863,7 @@ def test_tier_two_delivery_does_not_wait_for_a_market_window(tmp_state, monkeypa
 def test_submit_classification_cli_is_text_only_even_when_source_has_image(
     tmp_state, monkeypatch, candidate
 ):
+    from test_summary_context import staged_claim
     monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_state))
     monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
     now = datetime.now(scan.WIB).replace(microsecond=0)
@@ -895,6 +896,7 @@ def test_submit_classification_cli_is_text_only_even_when_source_has_image(
             return b"source-photo"
 
     runtime = ImageRuntime()
+    optional_asset = staged_claim(tmp_state.parent, monkeypatch, direct_image.key)
     monkeypatch.setattr(scan, "_make_client", lambda: runtime)
     payload = {
         "candidate_key": direct_image.key,
@@ -911,6 +913,7 @@ def test_submit_classification_cli_is_text_only_even_when_source_has_image(
     }
 
     assert scan.main(["submit-classification", "--json", json.dumps(payload)]) == 0
+    assert not optional_asset.exists()
 
     delivery_record = load_state()["stats"]["delivery_payloads"][direct_image.key]
     assert not runtime.connected and not runtime.disconnected

@@ -23,3 +23,10 @@ See `AGENTS.md` for the source policy, state transitions, and shared-resilience 
   revision whose source matches the canonical endpoint, then activates that
   snapshot for the whole operation. No default route fallback is allowed. It is
   not scheduled independently.
+
+New BUY/SELL records freeze a version-2 presentation before delivery. It uses
+the authoritative typed Entry and Stop-loss plus explicitly numbered Target n
+fields, preserving missing Target 1 as `-`. The saved message and destination
+serve retries and Board source content. Legacy records without presentation
+retain their prior renderer; already stored text output takes precedence.
+Status/reminder rendering and required chart/PDF acquisition are unchanged.

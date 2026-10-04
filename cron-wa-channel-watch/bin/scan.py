@@ -677,6 +677,13 @@ def _run(
             event,
             relevance_guard_required=route_override is not None,
         )
+        import summary_context
+        selected_route = route_override if profile.enable_llm_routing else profile.discord_channels[0].key
+        if selected_route != "id_stocks_swing":
+            claimed_item["instruction"] += summary_context.context_instruction(
+                summary_context.claim_from_state(value, record["event_key"], state_path.parent / "summary-context"),
+                "~/.hermes/scripts/bursawatch-wa-channel-watch.sh prepare-summary-images --json",
+            )
         break
 
     state.save(state_path, value)
@@ -750,6 +757,8 @@ def submit_analysis(
         if until <= now:
             raise ValueError("analysis lease expired")
         event = deserialize_queue_event(record["event"])
+        import summary_context
+        optional_context = summary_context.claim_from_state(value, event_key, state_path.parent / "summary-context")
         route_override = agent_protocol.deterministic_route(profile, event)
         result = agent_protocol.validate_submission(profile, payload, event=event)
         if profile.enable_llm_routing and result.get("is_relevant") is not False:
@@ -776,6 +785,7 @@ def submit_analysis(
         record["agent_lease_until"] = None
         record["agent_phase"] = "filtered" if result.get("is_relevant") is False or selected_items == [] else "ready"
         state.save(state_path, value)
+        summary_context.cleanup_claim_context(optional_context)
         errors: list[str] = []
         delivered = _deliver_ready(
             value,
@@ -842,7 +852,7 @@ def submit_analysis(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Process WhatsApp Channel queue")
-    parser.add_argument("command", nargs="?", choices={"run", "submit-analysis"}, default="run")
+    parser.add_argument("command", nargs="?", choices={"run", "submit-analysis", "prepare-summary-images"}, default="run")
     parser.add_argument("--json", dest="payload")
     parser.add_argument("--no-post", action="store_true")
     parser.add_argument("--config", type=Path, default=_default_path("WHATSAPP_CHANNEL_WATCH_CONFIG_PATH", "config/watches.json"))
@@ -852,7 +862,14 @@ def main() -> int:
     parser.add_argument("--media-staging-dir", type=Path, default=_default_path("WHATSAPP_CHANNEL_WATCH_MEDIA_STAGING_DIR", str(Path.home() / ".hermes/state/whatsapp-channel-watch/media-staging")))
     args = parser.parse_args()
     no_post = args.no_post or os.environ.get("WHATSAPP_CHANNEL_WATCH_NO_POST") == "1"
-    if args.command == "submit-analysis":
+    if args.command == "prepare-summary-images":
+        if not args.payload:
+            parser.error("prepare-summary-images requires --json")
+        import summary_context
+        os.environ["WHATSAPP_CHANNEL_WATCH_STATE_PATH"] = str(args.state)
+        os.environ["WHATSAPP_CHANNEL_WATCH_ARCHIVE_ROOT"] = str(args.archive_dir)
+        result = summary_context.prepare_summary_context(json.loads(args.payload), no_post=no_post)
+    elif args.command == "submit-analysis":
         if not args.payload:
             parser.error("submit-analysis requires --json")
         result = submit_analysis(

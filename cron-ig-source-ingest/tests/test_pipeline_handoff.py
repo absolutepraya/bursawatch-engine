@@ -150,7 +150,9 @@ def test_source_work_uses_existing_analysis_and_records_unsubscribed_route_witho
     assert result["work"][0]["status"] == "done"
     assert result["wakeAgent"] is True
     assert result["item"]["event_key"] == f"{profile.id}:new"
-    assert result["item"]["ocr_assets"][0]["text"] == "Broad earnings outlook in asset 0"
+    assert result["item"]["ocr_assets"] == []
+    assert result["item"]["vision_asset_paths"] == []
+    assert "Aggregate earnings" in result["item"]["post_text"]
     assert "macro_news" in result["item"]["instruction"]
     assert media.downloads == [media.reference]
     assert source_work_routes.allowed_routes(storage, f"{profile.id}:new") == frozenset({"id_stocks_news"})

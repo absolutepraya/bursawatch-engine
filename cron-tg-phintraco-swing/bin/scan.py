@@ -46,6 +46,8 @@ if not _DISCORD_DELIVERY_BIN.exists():
 if str(_DISCORD_DELIVERY_BIN) not in sys.path:
     sys.path.insert(0, str(_DISCORD_DELIVERY_BIN))
 
+from frozen_presentation import saved_presentation, without_board
+
 from swing_format import (
     SwingMessage,
     fields as shared_fields,
@@ -364,6 +366,7 @@ def _validate_outbox_event(key: object, payload: object) -> None:
     if not is_legacy and pdf_key is None:
         raise ValueError("outbox keys must be decimal IDs or PDF ticker event keys")
     event = _require_fields(payload, _REQUIRED_EVENT_FIELDS, f"outbox event {key}")
+    saved_presentation(event)
     _validate_call_payload(event["call"], event["source_message_id"] if type(event["source_message_id"]) is int else -1)
     if type(event["event_key"]) is not str or event["event_key"] != key:
         raise ValueError(f"outbox event {key} event_key must match its key")
@@ -882,6 +885,11 @@ def enqueue_call(
         "board_last_error": None,
         "created_at": now.isoformat(),
     }
+    if call.event_kind in {"BUY","SELL"}:
+        event["presentation"] = {"version":2,"fields":[],
+            "messages":[format_swing_alert(call,include_board=True,canonical_plan=True)],
+            "destination":config.active_watch_config().alert_discord_channel_id}
+        saved_presentation(event)
     state["outbox"][key] = event
     return event
 
@@ -1323,7 +1331,7 @@ def format_analyst_byline(call: SwingCall) -> str:
     return "-# Phintraco Sekuritas"
 
 
-def format_swing_alert(call: SwingCall, *, include_board: bool = True) -> str:
+def format_swing_alert(call: SwingCall, *, include_board: bool = True, canonical_plan: bool = False) -> str:
     """Render a Phintraco source event through the shared cash-Swing shell."""
     body: tuple[str, ...] = ()
     message_fields: list[tuple[str, str]] = []
@@ -1354,9 +1362,14 @@ def format_swing_alert(call: SwingCall, *, include_board: bool = True) -> str:
             ("Entry", call.entry),
             ("Stop-loss", call.stop_loss),
         ])
-        for target in call.targets:
-            label = "Target" if target.number is None else f"Target {target.number}"
-            message_fields.append((label, target.value))
+        if canonical_plan:
+            targets = {target.number or 1:target.value for target in call.targets}
+            for number in sorted({1,*targets}):
+                message_fields.append((f"Target {number}",targets.get(number,"-")))
+        else:
+            for target in call.targets:
+                label = "Target" if target.number is None else f"Target {target.number}"
+                message_fields.append((label, target.value))
         message_fields.append(("Signal date", format_signal_datetime(call.signal_datetime)))
         body = ("", f"**Reasons:** {escape_discord_markdown(call.rationale)}")
         status = "New setup"
@@ -2385,6 +2398,7 @@ def edit_discord_board_link(
     event_key: str,
     *,
     client: object | None = None,
+    channel_id: str | None = None,
 ) -> bool:
     """Replace the generic forum-channel marker in one delivered All message."""
     if not message_id or not board_url:
@@ -2395,7 +2409,7 @@ def edit_discord_board_link(
             f"-> {board_url} event {event_key}"
         )
         return True
-    channel_id = config.active_watch_config().alert_discord_channel_id
+    channel_id = channel_id or config.active_watch_config().alert_discord_channel_id
     owner = client if client is not None else delivery_client_from_environment()
     current = _read_channel_message_content(owner, channel_id, message_id)
     if current is None:
@@ -2555,7 +2569,7 @@ def board_event_payload(event: dict, call: SwingCall) -> tuple[dict, Path | None
         "ticker": call.ticker,
         "published_at": call.signal_datetime.isoformat(),
         "source_url": source_message_url(call.source_message_id),
-        "all_content": format_source_context(call) if is_context else format_swing_alert(call, include_board=False),
+        "all_content": format_source_context(call) if is_context else event_text(event,call,include_board=False),
         "source_title": source_title,
         "source_status": source_status,
         "plan": plan,
@@ -2700,8 +2714,8 @@ def _drain_all_outbox(state: dict, now: dt.datetime, dry_run: bool) -> int:
             try:
                 text_id = _post_with_receipt_sink(
                     post_discord_text,
-                    format_swing_alert(call, include_board=True),
-                    config.active_watch_config().alert_discord_channel_id,
+                    event_text(event,call),
+                    event_destination(event),
                     dry_run,
                     event["event_key"],
                     receipt_sink=lambda operation, receipt: _record_event_receipt(
@@ -2752,7 +2766,7 @@ def _drain_all_outbox(state: dict, now: dt.datetime, dry_run: bool) -> int:
                 chart_id = _post_with_receipt_sink(
                     post_discord_file,
                     str(media_path),
-                    config.active_watch_config().alert_discord_channel_id,
+                    event_destination(event),
                     dry_run,
                     event["event_key"],
                     receipt_sink=lambda operation, receipt: _record_event_receipt(
@@ -2841,7 +2855,8 @@ def _drain_board_outbox(state: dict, now: dt.datetime, dry_run: bool) -> int:
                 save_state(state)
                 return delivered
             if not edit_discord_board_link(
-                event.get("text_discord_id"), payload.get("_board_url"), dry_run, event["event_key"]
+                event.get("text_discord_id"), payload.get("_board_url"), dry_run, event["event_key"],
+                channel_id=event_destination(event),
             ):
                 schedule_board_retry(event, current_time(), "All Swing board link update failed")
                 save_state(state)
@@ -3142,6 +3157,25 @@ def main() -> int:
         result = {"wakeAgent": False, "error": str(exc)}
     print(json.dumps(result, ensure_ascii=False))
     return 0
+
+
+
+
+def event_text(event: dict, call: SwingCall | None = None, *, include_board: bool = True) -> str:
+    presentation = saved_presentation(event)
+    if presentation is not None:
+        messages = presentation["messages"]
+        return "\n\n".join(messages if include_board else without_board(messages))
+    if isinstance(event.get("text_output"),str) and event["text_output"]:
+        return event["text_output"] if include_board else "\n\n".join(without_board([event["text_output"]]))
+    return format_swing_alert(call or deserialize_call(event["call"]),include_board=include_board)
+
+
+def event_destination(event: dict) -> str:
+    presentation = saved_presentation(event)
+    if presentation is not None:
+        return presentation["destination"]
+    return event.get("text_destination") or config.active_watch_config().alert_discord_channel_id
 
 
 if __name__ == "__main__":

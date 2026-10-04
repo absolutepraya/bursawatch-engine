@@ -159,3 +159,27 @@ def test_render_summary_with_boundary_delimiter_never_exceeds_discord_limit() ->
     assert all(len(message) <= 2_000 for message in messages)
     assert "".join(messages).count("*(Ringkasan)*") == 1
     assert "".join(messages).count("**Buy area:**") == 1
+
+
+def test_version_two_freezes_canonical_pwon_and_retry_never_rerenders(monkeypatch):
+    import render
+    from agent_protocol import validate_submission
+    from test_agent_protocol import pwon_event,pwon_payload
+    source = pwon_event(); accepted = validate_submission(source,pwon_payload(source["source_text"]))
+    source.update(title=accepted["title"],summary=accepted["summary"],source_published_at="2026-10-03T09:00:00+07:00",media=[])
+    render.freeze_presentation(source,accepted,"1525102458253217803")
+    frozen = list(source["presentation"]["messages"])
+    assert "**Entry:** 270–282" in frozen[0] and "**Stop-loss:** <260" in frozen[0]
+    assert "**Target 2:** 298" in frozen[0]
+    monkeypatch.setattr(render,"render_chunks",lambda *args,**kwargs:(_ for _ in ()).throw(AssertionError("retry rerendered")))
+    assert render.render_event(source) == frozen
+    assert "**Board:**" not in render.render_event(source,include_board=False)[0]
+    assert "**Source status:** Good to watch" in frozen[0]
+
+
+def test_legacy_pending_presentation_is_not_upgraded():
+    import render
+    source = event(); source.update(text_index=1,text_message_ids=["123"],next_media_index=0)
+    before = render_event(source)
+    render.freeze_presentation(source,{"event_key":source["event_key"]},"1525102458253217803")
+    assert "presentation" not in source and render_event(source) == before

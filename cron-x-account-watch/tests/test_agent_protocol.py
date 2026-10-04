@@ -101,7 +101,7 @@ def test_agent_item_includes_labeled_local_tweet_and_quote_images(config_path, t
     assert "Authored X post image 1" in item["post_text"]
     assert "Quoted X post image 1" in item["post_text"]
     assert "[UNTRUSTED LOCAL VISION PATHS]" in item["post_text"]
-    assert "read every listed local image with vision" in item["instruction"]
+    assert "For specialized Swing analysis" in item["instruction"]
 
 
 def test_vision_asset_limit_serializes_and_validates_sixteen_and_rejects_seventeen(config_path, tmp_path):

@@ -54,6 +54,10 @@ def _descriptor(event: dict[str, Any], state_path: Path, media_root: Path, chann
     from bursawatch_discord_delivery import Attachment
 
     chunks = discord.render_event(event)
+    from render import saved_presentation
+    presentation = saved_presentation(event)
+    if presentation is not None:
+        channel_id = presentation["destination"]
     text_ids = event.get("text_message_ids")
     media = discord._media(event)
     if (event.get("text_index") != len(chunks) or not isinstance(text_ids, list)
