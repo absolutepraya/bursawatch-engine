@@ -865,7 +865,19 @@ async function scenario(role) {
     await page.getByRole("button", { name: /Synthetic Stockbit filing/ }).waitFor();
     await page.getByText("Publisher coverage unavailable", { exact: true }).waitFor();
     assert.equal(await page.getByText("Publication feed not started", { exact: true }).count(), 0);
+    // The existing row stays visible while the debounced filter read is pending.
+    // Finish that read before paging so it cannot cancel the access-failure probe.
+    const filteredPageRead = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.origin === target.origin
+        && url.pathname === "/api/control/publications"
+        && url.searchParams.get("ticker") === "TEST"
+        && !url.searchParams.has("cursor")
+        && response.request().method() === "GET"
+        && response.status() === 200;
+    });
     await page.getByLabel("Ticker", { exact: true }).fill("TEST");
+    await (await filteredPageRead).finished();
     await page.getByRole("button", { name: /Synthetic Stockbit filing/ }).waitFor();
     await page.getByRole("button", { name: "Retry publisher coverage", exact: true }).waitFor();
     await page.setViewportSize({ width: 375, height: 900 });
