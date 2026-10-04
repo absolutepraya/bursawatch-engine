@@ -10,8 +10,20 @@ The [morning brief spec](docs/notes/2026-09-27-bursawatch-morning-brief-design-s
 A dated pre-market publication presenting an IHSG outlook, its evidence, and relevant sector and conglomerate rotation context.
 
 **Morning outlook**:
-A conditional assessment of the coming IHSG session based on information available at the morning evidence cutoff.
+A conditional assessment covering the coming IHSG trading session as a whole, based on information available at the morning evidence cutoff.
 _Avoid_: Guaranteed prediction, calibrated probability without measured evidence.
+
+**IHSG evidence bundle**:
+A bounded collection of relevant, source-attributed information available by a brief's evidence cutoff. Its contents are selected evidence rather than a claim of complete market commentary coverage.
+
+**Narrative pulse**:
+A concise account of the optimistic and cautious views expressed by qualifying sources, including their disagreements. It describes collected commentary rather than a representative poll or measured probability of an IHSG move.
+
+**Original publisher**:
+The person or organization responsible for a source item, independently of the channels through which copies are distributed. Forwarding the same publication through another channel does not create an independent source view.
+
+**Facts-only brief**:
+A morning publication of verified observations and available charts when the generated outlook is unavailable. It makes the absence of analysis explicit.
 
 **Evidence cutoff**:
 The latest time at which information may enter a particular assessment. Information received afterward belongs to a later assessment rather than a rewrite of the original view.
@@ -35,6 +47,9 @@ _Avoid_: Gainers when ranked returns are negative.
 
 **Relative rotation**:
 The position and movement of a basket's relative strength and relative momentum against IHSG. Relative leadership alone does not establish a positive absolute return.
+
+**Rotation trail**:
+A sequence of a basket's dated relative-rotation positions leading to its latest position. The number of displayed observations is distinct from the lookback windows used to calculate each position.
 
 **Trading volume**:
 The number of shares traded during a specified interval and market scope.
