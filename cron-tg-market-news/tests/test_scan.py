@@ -986,8 +986,12 @@ def _status_source_message(message_id, text):
     )
 
 
+@pytest.mark.parametrize("source_date, observed_at", [
+    ("23 September 2026", "2026-09-23T08:30:00+07:00"),
+    ("10 October 2026", "2026-10-04T17:30:00+00:00"),
+])
 def test_status_post_sends_one_grouped_message_without_agent_wake(
-    tmp_state, monkeypatch, load_fixture
+    tmp_state, monkeypatch, load_fixture, source_date, observed_at
 ):
     monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_state))
     monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
@@ -999,7 +1003,7 @@ def test_status_post_sends_one_grouped_message_without_agent_wake(
     )
     clients = FakeClients()
     clients.client.messages["tuntun"] = []
-    body = load_fixture("phintraco-stock-status-35377.txt")
+    body = load_fixture("phintraco-stock-status-35377.txt").replace("23 September 2026", source_date)
     clients.client.messages["phintraco"] = [_status_source_message(35377, body)]
     posts = []
 
@@ -1010,7 +1014,7 @@ def test_status_post_sends_one_grouped_message_without_agent_wake(
     monkeypatch.setattr(delivery, "post_discord_text", post)
 
     result = asyncio.run(
-        scan.run(datetime.fromisoformat("2026-09-23T08:30:00+07:00"), clients)
+        scan.run(datetime.fromisoformat(observed_at), clients)
     )
 
     assert result["wakeAgent"] is False
@@ -1023,6 +1027,7 @@ def test_status_post_sends_one_grouped_message_without_agent_wake(
     assert posts[0][0] == format_stock_status(
         parse_stock_information(35377, body),
         "https://t.me/phintasprofits/35377",
+        datetime.fromisoformat(observed_at),
     )
     assert posts[0][1] == config.default_watch_config().id_stocks_news_channel_id
     assert posts[0][2] == "phintraco-stock-status:35377"
@@ -1109,7 +1114,7 @@ def test_status_retry_reuses_frozen_payload_route_and_event_identity(
     first = asyncio.run(scan.run(now, clients))
     failed_state = load_state(tmp_state)
     clients.client.messages["phintraco"] = []
-    second = asyncio.run(scan.run(now + timedelta(minutes=1), clients))
+    second = asyncio.run(scan.run(now + timedelta(days=1), clients))
 
     assert first["stock_status_delivered"] == 0
     assert scan._pending_count(failed_state) == 1

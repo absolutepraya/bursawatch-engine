@@ -40,9 +40,19 @@ media upload. The adapter reuses the live watcher's bounded, image-only
 `pbs.twimg.com` fetch path, then uploads bytes through the shared Source Media
 Owner before source-event acceptance. Accepted events contain validated
 opaque media refs, never CDN URLs or bytes. Video URLs, unsupported image
-types, unavailable media, and upload failures remain fail-closed in
-`blocked-media.json` with the cursor held. The current safe fetch path does
-not support X video downloads.
+types, unavailable media, and upload failures fall back to text for ordinary
+news with authored text. Any usable images stay in source order and within
+the existing bounds; raw media locators are removed even on fallback. The
+existing specialized Swing path and image-only posts remain fail-closed in
+`blocked-media.json` with the cursor held. The safe fetch path does not support
+X video downloads. The ordinary-news boundary is the same per-event route
+hint used for upfront Swing enrichment, with an unresolved hint retaining
+required media whenever the effective event subscriptions allow Swing.
+Profiles with Swing disabled may still fall back for unresolved news routes;
+the watcher verifies this against frozen work capabilities before queueing.
+The LLM retains relevance and final routing within those existing capabilities.
+Partial preparation or upload failures retain healthy attachments in source
+order with their original source labels and upload identities.
 The runner reads one live watcher config revision and the effective catalog.
 Verified X endpoints are compatible with `company_news`, `macro_news`, and
 `swing_chart_context`; compatibility does not enable a subscription.
@@ -86,9 +96,15 @@ accepted-event index detects same-ID source changes and stages durable
 corrections with stable revision IDs. The Source Media Owner uses
 `BURSAWATCH_SOURCE_MEDIA_URL`, the private upload token file
 `BURSAWATCH_SOURCE_MEDIA_UPLOAD_TOKEN_FILE`, and an owner read token file
-`BURSAWATCH_SOURCE_MEDIA_READ_TOKEN_FILE`. If upload access is absent, media
-events remain blocked. If owner read access or a required thread original is
-absent, its subscription work retries. Accepted media remains bounded to 16
+`BURSAWATCH_SOURCE_MEDIA_READ_TOKEN_FILE`. New ordinary-news events freeze
+`source_media_policy: optional_news` and an observed-source hash in their
+payload. Missing upload or owner read access can omit news images before the
+watcher queue is frozen. The accepted index keeps the source hash, preventing
+media recovery or outages from revising an unchanged accepted post. Genuine
+text or source-media metadata edits still use the existing correction path.
+Old accepted events retain their previous behavior and stable identities.
+Required Swing media or a required thread original still makes its work retry.
+Accepted media remains bounded to 16
 refs per event, 8 MiB per object, and 25 MiB aggregate. The adapter does not
 enable a capability or change the effective X watcher configuration.
 

@@ -17,7 +17,14 @@ to this package. Never copy or initialize them from the live X watcher state
 without a separately approved cutover. When media storage is configured, the
 adapter uploads bounded `pbs.twimg.com` images through the shared Source Media
 Owner before inbox acceptance. It stores only validated opaque refs in the
-event. Unsupported media and upload failures retain the endpoint cursor. The
+event. Ordinary news with authored text uses optional media: unsupported media,
+failed fetches or uploads, and missing upload access fall back to sanitized
+text and any usable bounded images. A failed attachment does not discard its
+healthy siblings; source positions and upload keys remain unchanged.
+Image-only posts and Swing routes retain required-media handling. An unresolved
+route also requires media when its effective subscriptions allow Swing. If
+Swing is disabled for that event, unknown news routes may use fallback and the
+existing frozen capability gate prevents a later Swing delivery. The
 existing watcher remains the queue owner, agent wake owner, renderer, Board
 handoff, and Discord Delivery Owner client. For verified
 X endpoints, `company_news`, `macro_news`, and `swing_chart_context` are
@@ -42,6 +49,14 @@ multi-image delivery through All and the Board.
 Correction failures retain the existing `correction_handoff_failed` reason and
 add a bounded `correction_error_code` identifying the failed stage. Never log
 raw exceptions, source bodies, media locators, or credentials for diagnostics.
+
+New optional-news payloads freeze `source_media_policy: optional_news` and a
+hash of the observed source thread. The accepted index retains that hash so
+an unchanged source does not trigger media reuploads or corrections when an
+attachment fails or recovers. Genuine source edits retain the existing
+unclaimed-work correction check. Old accepted payloads and indexes without
+that marker keep their required-media and correction behavior. Never retrofit
+the marker into live state or rewrite pending payloads.
 
 The first poll for a direct-X endpoint reads only the account page and stores
 the newest own-post ID as a future-only boundary. It does not fetch or publish

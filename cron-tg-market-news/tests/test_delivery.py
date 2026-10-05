@@ -938,7 +938,7 @@ def status_event(load_fixture, tmp_state, monkeypatch):
     )
     now = datetime.fromisoformat("2026-09-23T08:30:00+07:00")
     source_url = "https://t.me/phintasprofits/35377"
-    content = format_stock_status(status, source_url)
+    content = format_stock_status(status, source_url, now)
     event_key = "phintraco-stock-status:35377"
     enqueue_stock_status(state, status, source_url, "123", content, now)
     return SimpleNamespace(
@@ -1008,7 +1008,7 @@ def test_status_delivery_transient_failure_keeps_same_owner_operation_for_retry(
     assert event["retry"]["attempts"] == 1
     assert event["retry"]["last_error"]
 
-    later = status_event.now + timedelta(minutes=1)
+    later = status_event.now + timedelta(days=1)
     assert asyncio.run(
         delivery.deliver_stock_status_event(
             status_event.state,
@@ -1020,6 +1020,8 @@ def test_status_delivery_transient_failure_keeps_same_owner_operation_for_retry(
     assert len(owner.submissions) == 2
     assert owner.submissions[0].key == owner.submissions[1].key
     assert owner.submissions[0].digest == owner.submissions[1].digest
+    assert owner.submissions[0].payload["content"] == status_event.content
+    assert owner.submissions[1].payload["content"] == status_event.content
 
 
 def test_accepted_status_retry_stays_with_owner_without_local_backoff(status_event):

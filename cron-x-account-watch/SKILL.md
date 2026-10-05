@@ -116,4 +116,8 @@ already leased events. Irrelevant events use only the key and false decision.
 
 ## Optional image context
 
+Ordinary news may arrive as text only when source images failed. Use the
+supplied text; do not infer missing image content or fetch replacement media.
+This intake fallback does not change specialized Swing image handling.
+
 Screen ordinary news from supplied text first. Only when that text is eligible, the trusted item instruction may expose `prepare-summary-images`. Call that command with its exact bound request, then use the actual image viewer on returned paths. Paths indicate availability, not inspection. Images are additional context for the same supplied story, never a substitute for eligible text. Do not inspect any other files. On unavailable images or viewer failure, submit the text-supported result without holding delivery or retrying optional context. Specialized Swing and required outgoing media retain their owner contracts.

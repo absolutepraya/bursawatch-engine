@@ -8,6 +8,7 @@ import json
 import shutil
 import tempfile
 from datetime import datetime
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -83,6 +84,9 @@ class _TrackedInbox:
         if current is not None and current.get("version", 0) > version:
             return
         records[post_id] = {"version": version, "content_hash": event["content_hash"]}
+        payload = event["payload"]
+        if payload.get("source_media_policy") == "optional_news":
+            records[post_id]["source_observation_hash"] = payload["source_observation_hash"]
         _write(self._path(endpoint_id), records)
 
     def accept(self, event: dict[str, Any]) -> dict[str, Any]:
@@ -128,21 +132,28 @@ def _bounded_x_image_url(value: Any) -> bool:
     return parsed.scheme == "https" and parsed.hostname is not None and parsed.hostname.lower().rstrip(".") == "pbs.twimg.com" and port in {None, 443} and not parsed.username and not parsed.password and bool(parsed.path)
 
 
-def _upload_post_media(post: Any, endpoint_id: str, media_store: Any, media_preparer: Any = None) -> tuple[list[dict[str, Any]], dict[str, str]]:
+def _upload_post_media(post: Any, endpoint_id: str, media_store: Any, media_preparer: Any = None, *, optional_media: bool = False) -> tuple[list[dict[str, Any]], dict[str, str]]:
     media = [("media", item) for item in post.media] + [("quoted_media", item) for item in post.quoted_media]
     if not media or media_store is None:
         return [], {}
     unique: list[tuple[str, Any]] = []
     seen_urls: set[str] = set()
     for role, source in media:
-        if type(source.index) is not int or source.index < 0 or not _bounded_x_image_url(source.url):
+        if not optional_media and (type(source.index) is not int or source.index < 0 or not _bounded_x_image_url(source.url)):
             return [], {}
         if source.url not in seen_urls:
             seen_urls.add(source.url)
             unique.append((role, source))
     # The existing bounded X fetcher is image-only and caps each post at 8.
-    if not 1 <= len(unique) <= 8:
+    if not unique or (not optional_media and len(unique) > 8):
         return [], {}
+    candidates = [(index, role, source) for index, (role, source) in enumerate(unique)
+                  if type(source.index) is int and source.index >= 0 and _bounded_x_image_url(source.url)][:8]
+    prepared_post = post
+    if optional_media:
+        allowed_urls = {source.url for _, _, source in candidates}
+        prepared_post = replace(post, media=tuple(item for item in post.media if item.url in allowed_urls),
+                                quoted_media=tuple(item for item in post.quoted_media if item.url in allowed_urls))
     if media_preparer is None:
         from vision_media import cleanup_event, prepare
         media_preparer = prepare
@@ -154,33 +165,43 @@ def _upload_post_media(post: Any, endpoint_id: str, media_store: Any, media_prep
     refs: list[dict[str, Any]] = []
     url_to_ref: dict[str, str] = {}
     try:
-        bundle = media_preparer(post, temporary_root)
-        if bundle.unavailable_count or len(bundle.assets) != len(unique):
+        bundle = media_preparer(prepared_post, temporary_root)
+        if not optional_media and (bundle.unavailable_count or len(bundle.assets) != len(unique)):
             return [], {}
-        total_bytes = sum(asset.path.stat().st_size for asset in bundle.assets)
-        if total_bytes > 25 * 1024 * 1024:
-            return [], {}
+        # Partial bundles retain source labels, so a missing earlier image
+        # cannot shift a later asset onto the wrong source URL or upload key.
+        assets = {(asset.role, asset.post_id, asset.index): asset for asset in bundle.assets}
+        total_bytes = 0
         suffix_types = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
-        for index, ((role, source), asset) in enumerate(zip(unique, bundle.assets, strict=True)):
-            data = asset.path.read_bytes()
-            content_type = suffix_types.get(asset.path.suffix.lower())
-            if content_type is None or not 1 <= len(data) <= 8 * 1024 * 1024:
+        for index, role, source in candidates:
+            try:
+                asset = assets[("tweet" if role == "media" else "quoted_tweet", post.post_id, source.index)]
+                data = asset.path.read_bytes()
+                content_type = suffix_types.get(asset.path.suffix.lower())
+                if content_type is None or not 1 <= len(data) <= 8 * 1024 * 1024 or total_bytes + len(data) > 25 * 1024 * 1024:
+                    if optional_media:
+                        continue
+                    return [], {}
+                filename = f"x-{post.post_id}-{index}{asset.path.suffix.lower()}"
+                ref = media_store.upload(
+                    f"x:{endpoint_id}:{post.post_id}:attachment:{index}",
+                    data,
+                    kind="image",
+                    content_type=content_type,
+                    filename=filename,
+                )
+            except Exception:
+                if optional_media:
+                    continue
                 return [], {}
-            filename = f"x-{post.post_id}-{index}{asset.path.suffix.lower()}"
-            ref = media_store.upload(
-                f"x:{endpoint_id}:{post.post_id}:attachment:{index}",
-                data,
-                kind="image",
-                content_type=content_type,
-                filename=filename,
-            )
             refs.append(ref)
             url_to_ref[source.url] = ref["ref"]
+            total_bytes += len(data)
         return refs, url_to_ref
     except Exception:
-        # A failed fetch or upload keeps the provider cursor blocked. Repeating
-        # the stable keys makes partial durable uploads safe to retry.
-        return [], {}
+        # The caller applies the news fallback or required Swing policy.
+        # Stable upload keys keep partial durable uploads safe to retry.
+        return (refs, url_to_ref) if optional_media else ([], {})
     finally:
         try:
             cleanup_event(temporary_root, post.profile_id, post.post_id)
@@ -199,7 +220,13 @@ def _safe_html(value: str | None, media_urls: set[str]) -> str | None:
     return value
 
 
-def _item(post: Any, endpoint_id: str, media_store: Any, *, upload_media: bool, media_preparer: Any = None, thread_posts: tuple[Any, ...] | None = None) -> dict[str, Any]:
+def _source_observation_hash(posts: tuple[Any, ...]) -> str:
+    from state import serialize_post
+    raw = json.dumps([serialize_post(post) for post in posts], sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode()
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _item(post: Any, endpoint_id: str, media_store: Any, *, upload_media: bool, media_preparer: Any = None, thread_posts: tuple[Any, ...] | None = None, optional_media: bool = False) -> dict[str, Any]:
     from state import serialize_post
     from scan import source_visible_text
     ordered = thread_posts or (post,)
@@ -209,12 +236,12 @@ def _item(post: Any, endpoint_id: str, media_store: Any, *, upload_media: bool, 
     complete = upload_media or not has_media
     for source_post in ordered:
         source_media = bool(source_post.media or source_post.quoted_media)
-        current_refs, url_to_ref = _upload_post_media(source_post, endpoint_id, media_store, media_preparer) if source_media and upload_media else ([], {})
-        if source_media and not current_refs:
+        current_refs, url_to_ref = _upload_post_media(source_post, endpoint_id, media_store, media_preparer, optional_media=optional_media) if source_media and upload_media else ([], {})
+        if any(item.url not in url_to_ref for item in (*source_post.media, *source_post.quoted_media)):
             complete = False
         refs.extend(current_refs)
         payload_post = serialize_post(source_post)
-        if source_media and current_refs:
+        if source_media and (current_refs or optional_media):
             media_urls = {item.url for item in (*source_post.media, *source_post.quoted_media)}
             payload_post["content_html"] = _safe_html(payload_post.get("content_html"), media_urls)
             payload_post["quoted_content_html"] = _safe_html(payload_post.get("quoted_content_html"), media_urls)
@@ -222,6 +249,8 @@ def _item(post: Any, endpoint_id: str, media_store: Any, *, upload_media: bool, 
             for field, items in (("media", source_post.media), ("quoted_media", source_post.quoted_media)):
                 serialized_media = []
                 for item in items:
+                    if item.url not in url_to_ref:
+                        continue
                     ref = url_to_ref[item.url]
                     if ref in seen_refs:
                         continue
@@ -229,12 +258,19 @@ def _item(post: Any, endpoint_id: str, media_store: Any, *, upload_media: bool, 
                     serialized_media.append({"index": item.index, "media_ref_id": ref})
                 payload_post[field] = serialized_media
         serialized.append(payload_post)
-    if not complete or len(refs) > 16 or sum(ref["size_bytes"] for ref in refs) > 25 * 1024 * 1024:
+    exceeds_bounds = len(refs) > 16 or sum(ref["size_bytes"] for ref in refs) > 25 * 1024 * 1024
+    if (not complete and not optional_media) or exceeds_bounds:
         refs = []
+        if optional_media:
+            for item in serialized:
+                item["media"] = []
+                item["quoted_media"] = []
     payload = {"post": serialized[-1], "thread_posts": serialized}
+    if optional_media:
+        payload.update(source_media_policy="optional_news", source_observation_hash=_source_observation_hash(ordered), media_degraded=not complete or exceeds_bounds)
     if has_media and refs:
         payload["media_ref_ids"] = [ref["ref"] for ref in refs]
-    return {"provider_event_id": post.post_id, "published_at": post.published_at.isoformat(), "source_url": post.url, "payload": payload, "media_refs": refs, "blocked_payload": {"profile_id": post.profile_id, "kind": post.kind.value, "source_text": source_visible_text(post.content_html), "quoted_text": source_visible_text(post.quoted_content_html or "")}, "media_required": has_media}
+    return {"provider_event_id": post.post_id, "published_at": post.published_at.isoformat(), "source_url": post.url, "payload": payload, "media_refs": refs, "blocked_payload": {"profile_id": post.profile_id, "kind": post.kind.value, "source_text": source_visible_text(post.content_html), "quoted_text": source_visible_text(post.quoted_content_html or "")}, "media_required": False if optional_media else has_media}
 
 
 def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Path, inbox: Any, observed_at: datetime, *, fetch_profile: Any = None, fetch_direct_x_head: Any = None, media_store: Any = None, media_preparer: Any = None) -> list[dict[str, Any]]:
@@ -254,6 +290,7 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Pa
         from rsshub import is_self_thread_post
         from models import PostKind
         from scan import source_visible_text
+        from agent_protocol import optional_news_media
         # RSSHub returns a whole visible page. Direct X takes an after-id and
         # expands threads; a full result without the old anchor remains
         # ambiguous and must block rather than skip unseen posts.
@@ -289,7 +326,7 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Pa
             inline_quote = post.kind is PostKind.QUOTE and bool(source_visible_text(post.quoted_content_html or "").strip())
             if post.post_id in upload_ids and is_self_thread_post(profile, post) and len(chain) == 1 and post.related_url and not inline_quote:
                 raise IntakeBlocked("self-chain parent is unavailable")
-            items.append(_item(post, endpoint_id, media_store, upload_media=post.post_id in upload_ids, media_preparer=media_preparer, thread_posts=chain))
+            items.append(_item(post, endpoint_id, media_store, upload_media=post.post_id in upload_ids, media_preparer=media_preparer, thread_posts=chain, optional_media=optional_news_media(profile, post, chain, selected[endpoint_id]["capabilities"])))
         return {"items": items, "truncated": truncated, "contiguous": False, "id_order": "numeric_provider_event_id"}
     fetchers = {endpoint_id: (lambda cursor, profile=by_endpoint[endpoint_id], endpoint_id=endpoint_id: fetch(cursor, profile, endpoint_id)) for endpoint_id in selected}
     outcomes = ingest_all(selected, fetchers, state_root, tracked, observed_at, "x-watch-parser-1")
@@ -314,7 +351,11 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Pa
                     continue
                 correction_error_code = "correction_context_failed"
                 chain = _within_thread_age(profile, _self_chain(profile, post, by_id, lambda item: is_self_thread_post(profile, item)))
-                item = _item(post, endpoint_id, media_store, upload_media=True, media_preparer=media_preparer, thread_posts=chain)
+                optional_media = "source_observation_hash" in prior
+                if optional_media and _source_observation_hash(chain) == prior["source_observation_hash"]:
+                    continue
+                from agent_protocol import optional_news_media
+                item = _item(post, endpoint_id, media_store, upload_media=True, media_preparer=media_preparer, thread_posts=chain, optional_media=optional_media and optional_news_media(profile, post, chain, selected[endpoint_id]["capabilities"]))
                 if item["media_required"] and not item["media_refs"]:
                     correction_error_code = "correction_media_unavailable"
                     raise IntakeBlocked("X source correction media is unavailable")
