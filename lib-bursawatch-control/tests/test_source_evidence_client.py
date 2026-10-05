@@ -29,12 +29,14 @@ def record():
     return result
 
 
-def capture():
+def capture(gap=121, status='late', complete=False):
+    from datetime import datetime, timedelta
+    captured = (datetime.fromisoformat('2026-10-05T00:30:00+00:00') + timedelta(seconds=gap)).isoformat()
     result = {'api_version': 1, 'previous_cutoff': '2026-10-02T00:30:00+00:00',
-        'cutoff': '2026-10-05T00:30:00+00:00', 'captured_at': '2026-10-05T00:30:01+00:00',
-        'capture_status': 'late', 'capture_gap_seconds': 1, 'history_available_from': None,
+        'cutoff': '2026-10-05T00:30:00+00:00', 'captured_at': captured,
+        'capture_status': status, 'capture_gap_seconds': gap, 'history_available_from': None,
         'history_status': 'unknown', 'overflow': False, 'candidate_limit': 1000,
-        'complete': False, 'items': [{k: v for k, v in record().items() if k not in {'text', 'media_refs'}}]}
+        'complete': complete, 'items': [{k: v for k, v in record().items() if k not in {'text', 'media_refs'}}]}
     result['manifest_hash'] = checksum(result)
     return result
 
@@ -66,6 +68,28 @@ def test_capture_validates_window_and_keeps_late_incomplete_metadata():
     assert requests[0].full_url.endswith('/v1/source-evidence/capture')
     assert json.loads(requests[0].data)['previous_cutoff'] == '2026-10-02T00:30:00+00:00'
     assert requests[0].get_header('Authorization') == 'Bearer reader-secret'
+
+
+@pytest.mark.parametrize('gap,status', [(0, 'on_time'), (3, 'on_time'), (120, 'on_time'), (121, 'late')])
+def test_capture_grace_window_matches_service_and_keeps_gap(gap, status):
+    response = capture(gap=gap, status=status)
+    result = client(lambda request, timeout: Response(response)).capture_window('2026-10-02T00:30:00Z', '2026-10-05T00:30:00Z')
+    assert result['capture_status'] == status and result['capture_gap_seconds'] == gap
+
+
+def test_capture_rejects_on_time_claim_beyond_grace_and_late_within_grace():
+    from control_plane_client import ControlPlaneContractError
+    for gap, status in ((121, 'on_time'), (3, 'late')):
+        response = capture(gap=gap, status=status)
+        with pytest.raises(ControlPlaneContractError):
+            client(lambda request, timeout: Response(response)).capture_window('2026-10-02T00:30:00Z', '2026-10-05T00:30:00Z')
+
+
+def test_grace_constant_is_identical_in_service_and_client():
+    import re
+    from source_evidence_client import CAPTURE_GRACE_SECONDS
+    service = (Path(__file__).resolve().parents[2] / 'service-bursawatch-control/bin/control_plane/source_evidence.py').read_text()
+    assert re.search(rf'^CAPTURE_GRACE_SECONDS = {CAPTURE_GRACE_SECONDS}$', service, re.M)
 
 
 @pytest.mark.parametrize('mutation', ['hash', 'window', 'ref', 'ceiling'])

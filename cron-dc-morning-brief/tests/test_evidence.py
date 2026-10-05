@@ -214,3 +214,61 @@ def test_missing_collecting_publisher_retains_unknown_and_is_incomplete(core):
     assert result['items'][0]['publisher_id']=='unknown'
     assert result['items'][0]['origin_status']=='unknown' and result['items'][0]['independent_opinion'] is False
     assert 'missing_publisher' in result['degraded_reasons']
+
+
+def _grace_extras(gap, status):
+    from datetime import datetime, timedelta
+    captured = (datetime.fromisoformat(UPPER) + timedelta(seconds=gap)).isoformat()
+    return dict(capture_status=status, captured_at=captured, capture_gap_seconds=gap)
+
+
+def test_realistic_capture_gap_within_grace_is_on_time_and_reaches_generated_path(core, tmp_path):
+    module = core('evidence')
+    store, run, lease = owner(core, tmp_path)
+    rows = [source(1)]
+    capture = manifest(rows, **_grace_extras(4.2, 'on_time'))
+    result = module.freeze_source_evidence(store, run.run_id, CapturedClient(store, run.run_id, rows, capture),
+                                           previous_cutoff=LOWER, lease=lease, now=FREEZE).payload
+    assert result['capture_status'] == 'on_time' and result['capture_gap_seconds'] == 4.2
+    assert result['degraded_reasons'] == [] and result['facts_only'] is False
+
+
+def test_capture_gap_beyond_grace_stays_late_and_facts_only(core, tmp_path):
+    module = core('evidence')
+    store, run, lease = owner(core, tmp_path)
+    rows = [source(1)]
+    capture = manifest(rows, complete=False, **_grace_extras(121, 'late'))
+    result = module.freeze_source_evidence(store, run.run_id, CapturedClient(store, run.run_id, rows, capture),
+                                           previous_cutoff=LOWER, lease=lease, now=FREEZE).payload
+    assert 'late_capture' in result['degraded_reasons'] and result['facts_only']
+    assert result['capture_gap_seconds'] == 121
+
+
+class FlakyCapture(CapturedClient):
+    def __init__(self, *args, failures):
+        super().__init__(*args)
+        self.failures, self.calls = failures, 0
+    def capture_window(self, previous, cutoff, limit=1000):
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise OSError('transient')
+        return super().capture_window(previous, cutoff, limit)
+
+
+def test_transient_capture_failures_retry_at_most_twice(core, tmp_path):
+    module = core('evidence')
+    store, run, lease = owner(core, tmp_path)
+    rows = [source(1)]
+    client = FlakyCapture(store, run.run_id, rows, failures=2)
+    result = module.freeze_source_evidence(store, run.run_id, client, previous_cutoff=LOWER, lease=lease, now=FREEZE).payload
+    assert client.calls == 3 and result['facts_only'] is False and len(result['items']) == 1
+
+
+def test_capture_unavailable_is_frozen_only_after_bounded_retries(core, tmp_path):
+    module = core('evidence')
+    store, run, lease = owner(core, tmp_path)
+    client = FlakyCapture(store, run.run_id, [source(1)], failures=99)
+    result = module.freeze_source_evidence(store, run.run_id, client, previous_cutoff=LOWER, lease=lease, now=FREEZE).payload
+    assert client.calls == 3
+    assert 'capture_unavailable' in result['degraded_reasons'] and result['facts_only']
+    assert store.get_frozen(run.run_id, 'source_manifest').payload['status'] == 'unavailable'

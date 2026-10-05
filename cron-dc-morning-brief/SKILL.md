@@ -145,6 +145,20 @@ No selected record establishes independent opinion counts. Late/early capture,
 overflow and unknown/unavailable history force facts-only, while independently
 valid globals/calendar/numerical facts remain usable.
 
+Capture can never precede its cutoff, so the Control Plane and its client share
+one `CAPTURE_GRACE_SECONDS = 120` constant: a capture 0 to 120 seconds after the
+cutoff is `on_time`, a larger gap is `late` and facts-only, and the signed
+`capture_gap_seconds` stays in the frozen evidence. `freeze_source_evidence`
+retries a failed `capture_window` at most `CAPTURE_RETRIES = 2` times (three
+attempts, each bounded by the client's own timeout, well inside the 07:55 WIB
+selection cap) before freezing `{'status': 'unavailable'}`.
+
+Rollout input: `history_status` is `unknown`, and the run therefore facts-only,
+unless the Control Plane is provisioned with
+`CONTROL_PLANE_SOURCE_HISTORY_AVAILABLE_FROM` set to a timestamp at or before the
+previous session cutoff of the lookback window. Without it the generated outlook
+never triggers. This is a separate reviewed Control Plane provisioning input.
+
 `global_markets.parse_yahoo_chart(name, payload, freeze_at=..., retrieved_at=...,
 sessions=...)` parses an injected daily Yahoo chart response. `sessions` requires
 reviewed regular start/end instants, timezone, version, source digest, verification
@@ -203,6 +217,15 @@ The final publication owner must freeze its selected `outlook` before delivery.
 For optional numerical fact display, the already frozen `inputs.facts` list uses
 `{label, value, unit}` with finite numeric values. This does not certify upstream
 price visibility or replace `prepare_numerical_inputs` validation.
+
+## Known scope
+
+The writer is deliberately extractive: at most three verbatim complete source
+sentences attributed to their publisher. It produces no base case,
+counter-evidence, narrative pulse or invalidation text, and
+`morning_anchor()["scenario"]` for the closing review is the claims payload, not
+a derived scenario. This narrower scope is accepted for this local milestone;
+a richer writer contract is follow-up work.
 
 ## Integrated owner and receipt-gated publication
 

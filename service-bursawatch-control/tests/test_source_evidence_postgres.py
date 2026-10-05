@@ -56,7 +56,7 @@ def insert(conn, item, accepted, version=1, kind='original'):
 
 def test_late_commit_cannot_enter_already_frozen_manifest(postgres):
     store, pool = postgres
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=1)
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=3)
     lower = cutoff - timedelta(days=3)
     existing = source('committed', cutoff - timedelta(minutes=3))
     late = source('uncommitted', cutoff - timedelta(minutes=2))

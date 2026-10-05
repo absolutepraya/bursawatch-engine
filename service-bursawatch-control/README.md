@@ -441,8 +441,9 @@ The response includes `api_version=1`, normalized window timestamps,
 `captured_at`, `capture_status` (`early`, `on_time`, `late`), signed
 `capture_gap_seconds` (capture minus cutoff), `candidate_limit`, `overflow`,
 `history_available_from`, `history_status`, `complete`, `items`, and
-`manifest_hash`. Any capture later than cutoff is explicitly late, including a
-subsecond gap. It cannot reproduce the earlier committed-state snapshot because
+`manifest_hash`. A capture up to `CAPTURE_GRACE_SECONDS` (120) after cutoff is
+`on_time` because capture cannot precede its cutoff; a larger gap is explicitly
+late and the signed gap is always retained. It cannot reproduce the earlier committed-state snapshot because
 an acceptance timestamp may precede commit. An early capture is also incomplete.
 `overflow=true` means more candidates existed than the bound; there is no moving
 query continuation. The morning owner must persist this exact manifest in its

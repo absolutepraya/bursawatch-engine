@@ -12,6 +12,9 @@ from typing import Any
 MAX_CANDIDATES = 1000
 MAX_BATCH = 100
 MAX_TEXT = 12000
+# Capture cannot precede its cutoff, so a capture up to this many seconds after
+# it counts as on time. Keep identical to lib-bursawatch-control's client.
+CAPTURE_GRACE_SECONDS = 120
 _HEX = re.compile(r'[0-9a-f]{64}\Z')
 
 
@@ -132,7 +135,7 @@ def manifest(rows: list[dict[str, Any]], lower: str, upper: str, limit: int,
              captured_at: datetime, history_available_from: str | None) -> dict[str, Any]:
     captured = captured_at.astimezone(timezone.utc).isoformat()
     gap = (captured_at - datetime.fromisoformat(upper)).total_seconds()
-    capture_status = 'late' if gap > 0 else 'early' if gap < 0 else 'on_time'
+    capture_status = 'late' if gap > CAPTURE_GRACE_SECONDS else 'early' if gap < 0 else 'on_time'
     history = timestamp(history_available_from) if history_available_from is not None else None
     history_status = 'unknown' if history is None else 'available' if history <= lower else 'unavailable'
     items = []

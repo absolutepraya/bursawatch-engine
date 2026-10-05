@@ -70,7 +70,7 @@ def test_boundaries_observation_acceptance_overflow_and_history_are_honest(monke
         ('upper', CUTOFF, CUTOFF, CUTOFF),
         ('second', '2026-09-24T00:40:00Z', '2026-09-24T00:41:00Z', '2026-09-24T00:50:00Z'),
         ('unobserved', '2026-09-24T00:50:00Z', '2026-09-24T01:01:00Z', CUTOFF),
-        ('late', '2026-09-24T00:50:00Z', CUTOFF, '2026-09-24T01:01:00Z'),
+        ('late', '2026-09-24T00:50:00Z', CUTOFF, '2026-09-24T01:03:00Z'),
     ]:
         now[0] = datetime.fromisoformat(accepted.replace('Z', '+00:00'))
         candidate = deepcopy(item)
@@ -79,7 +79,7 @@ def test_boundaries_observation_acceptance_overflow_and_history_are_honest(monke
     assert hasattr(inbox, 'capture_window'), 'missing bounded capture'
     manifest = inbox.capture_window(START, CUTOFF, limit=1)
     assert manifest['capture_status'] == 'late'
-    assert manifest['capture_gap_seconds'] == 60
+    assert manifest['capture_gap_seconds'] == 180
     assert manifest['overflow'] is True
     assert manifest['history_status'] == 'unknown'
     assert manifest['complete'] is False
@@ -91,6 +91,22 @@ def test_boundaries_observation_acceptance_overflow_and_history_are_honest(monke
     assert early['capture_status'] == 'early'
     assert early['history_status'] == 'unavailable'
     assert early['complete'] is False
+
+
+@pytest.mark.parametrize('gap,status,complete', [
+    (0, 'on_time', True), (3, 'on_time', True), (120, 'on_time', True),
+    (120.5, 'late', False), (121, 'late', False), (-1, 'early', False)])
+def test_capture_grace_window_counts_realistic_gap_as_on_time(monkeypatch, gap, status, complete):
+    from datetime import timedelta
+    from control_plane.source_evidence import CAPTURE_GRACE_SECONDS
+    assert CAPTURE_GRACE_SECONDS == 120
+    inbox, item, now = fixture(monkeypatch)
+    inbox.accept(item)
+    now[0] = datetime.fromisoformat(CUTOFF) + timedelta(seconds=gap)
+    manifest = inbox.capture_window(START, CUTOFF, history_available_from=START)
+    assert manifest['capture_status'] == status
+    assert manifest['capture_gap_seconds'] == gap
+    assert manifest['complete'] is complete
 
 
 def test_batch_rejects_tampering_missing_duplicate_and_excess_refs(monkeypatch):

@@ -16,6 +16,8 @@ from control_plane_client import ControlPlaneContractError, ControlPlaneUnavaila
 
 _HEX = re.compile(r'[0-9a-f]{64}\Z')
 _MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+# Keep identical to service-bursawatch-control's source_evidence module.
+CAPTURE_GRACE_SECONDS = 120
 _ITEM_FIELDS = {'event_key', 'version', 'kind', 'accepted_at', 'published_at', 'observed_at',
                 'endpoint_id', 'publisher_id', 'platform', 'source_url', 'parser_version',
                 'content_hash', 'payload_hash', 'original_publisher_id', 'origin_status',
@@ -134,7 +136,7 @@ class SourceEvidenceClient:
                 raise ValueError('capture manifest integrity mismatch')
             captured = _timestamp(result['captured_at'])
             gap = (datetime.fromisoformat(captured) - datetime.fromisoformat(upper)).total_seconds()
-            timing = 'late' if gap > 0 else 'early' if gap < 0 else 'on_time'
+            timing = 'late' if gap > CAPTURE_GRACE_SECONDS else 'early' if gap < 0 else 'on_time'
             history = result['history_available_from']
             history_status = 'unknown' if history is None else 'available' if _timestamp(history) <= lower else 'unavailable'
             if (result['capture_status'] != timing or result['capture_gap_seconds'] != gap or result['history_status'] != history_status
