@@ -257,17 +257,24 @@ def test_news_source_work_requires_begun_same_version_sibling_snapshot(tmp_path,
 
 def test_stock_status_uses_existing_parser_renderer_and_owner_ledger(tmp_path, monkeypatch, load_fixture):
     monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_path / "news.json"))
-    source = load_fixture("phintraco-stock-status-35377.txt")
+    source = load_fixture("phintraco-stock-status-35377.txt").replace("23 September 2026", "10 October 2026")
+    class Clock(datetime):
+        observed_at = datetime.fromisoformat("2026-10-04T17:30:00+00:00")
+        @classmethod
+        def now(cls, tz=None):
+            return cls.observed_at.astimezone(tz)
+    monkeypatch.setattr(pipeline_owner, "datetime", Clock)
     key = "b" * 64
     effect = hashlib.sha256(f"{key}:1:stock_status".encode()).hexdigest()
     work = {"pipeline_id": "stock_status", "capability_id": "stock_status", "version": 1, "event_key": key, "effect_key": effect, "work_key": effect, "envelope": {"endpoint_id": "telegram:phintasprofits", "publisher_id": "phintraco", "provider_event_id": "35377", "source_url": "https://t.me/phintasprofits/35377", "payload": {"text": source}, "media_required": False, "media_refs": []}}
     work["envelope"]["media_required"] = True
     work["envelope"]["media_refs"] = [{"ref": "00000000-0000-4000-8000-000000000053", "sha256": hashlib.sha256(b"source chart").hexdigest(), "kind": "image", "content_type": "image/jpeg", "size_bytes": 12, "filename": "chart.jpg", "durable": True}]
+    work["envelope"]["published_at"] = "2026-10-10T01:27:27+00:00"
     assert pipeline_owner.submit_stock_status(work, no_post=True) == "accepted"
     record = load_state()["stats"]["stock_status_events"]["phintraco-stock-status:35377"]
     assert record["phase"] == "delivered"
     assert record["content"] == (
-        "### <:phintraco:1531272488645038091> Stock Status: Web, Wed, 23 Sep 2026\n\n"
+        "### <:phintraco:1531272488645038091> Stock Status: Mon, 05 Oct 2026\n\n"
         "**UMA:**\n(None)\n\n"
         "**Suspend In:**\n(None)\n\n"
         "**Suspend Out:**\n- WAPO\n- NASI\n\n"
@@ -275,7 +282,10 @@ def test_stock_status_uses_existing_parser_renderer_and_owner_ledger(tmp_path, m
         "**FCA Out:**\n- UNSP\n\n"
         "[View in Telegram](<https://t.me/phintasprofits/35377>)"
     )
+    Clock.observed_at += timedelta(days=1)
+    monkeypatch.setattr(pipeline_owner, "format_stock_status", lambda *_args: pytest.fail("duplicate status was reformatted"))
     assert pipeline_owner.submit_stock_status(work, no_post=True) == "accepted"
+    assert load_state()["stats"]["stock_status_events"]["phintraco-stock-status:35377"] == record
 
 
 @pytest.mark.parametrize("source_kind,ticker,category", [
