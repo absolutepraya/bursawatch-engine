@@ -26,7 +26,7 @@ INSTRUCTION = (
     "For id_stocks_news, use one central IDX issuer, return its exact ticker, and begin the title with TICKER colon. "
     "For macro_news, use an empty ticker and keep the title natural without inventing a ticker. "
     "Supporting ticker mentions do not change a macro route. Use exclude for irrelevant or promotional material. "
-    "Write a factual summary without investment advice, BUY, SELL, entry, target, stop-loss, valuation, or price-direction language. "
+    "Judge advice and education semantically in this analysis. Exclude advice-only, educational or promotional material; do not generate investment instructions. Preserve material source-reported targets, transactions, price changes and attributed research with periods, units and uncertainty. "
     "Do not add the Ringkasan marker or an AI disclaimer."
 )
 
@@ -46,10 +46,6 @@ ITEM_FIELDS = frozenset(
     }
 )
 TICKER_RE = re.compile(r"^[A-Z][A-Z0-9]{1,9}$")
-INVESTMENT_RE = re.compile(
-    r"\b(?:buy|sell|entry|target|stop[\s-]*loss|valuation|bullish|bearish|upside|downside)\b",
-    re.IGNORECASE,
-)
 
 
 def agent_item(article: Article, operator_instruction: str) -> dict[str, str]:
@@ -135,15 +131,13 @@ def validate_submission(article: Article, payload: object) -> Analysis:
         if ticker:
             raise ValueError("macro and excluded routes must have an empty ticker")
     summary = _validate_summary(_text(payload, "summary"))
-    if INVESTMENT_RE.search(title) or INVESTMENT_RE.search(summary):
-        raise ValueError("Stockbit analysis contains investment language")
     eligible = payload.get("eligible")
     if not isinstance(eligible, bool) or eligible != (route is not Route.EXCLUDE):
         raise ValueError("eligible does not match route")
     return Analysis(
         candidate_key=article.key,
         ticker=ticker,
-        title=title,
+        title=news_format.normalize_headline(title, route.value),
         summary=summary,
         material_facts=_facts(payload, "material_facts"),
         dedupe_facts=_facts(payload, "dedupe_facts"),

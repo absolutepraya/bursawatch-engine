@@ -4,6 +4,8 @@ from typing import Literal
 PresentationCategory = Literal["issuer", "macro", "industry", "swing"]
 
 COMMON_WRITING_INSTRUCTION = (
+    "Use descriptive sentence-case headlines, capitalizing the first subject word after any ticker prefix. "
+    "Preserve exact ticker, acronym, official-name and proper-name casing. "
     "Report directly in factual Bahasa Indonesia, starting with the actual subject or action. "
     "Avoid generic writer narration and saya/kami. Preserve meaningful attribution for research, estimates, "
     "forecasts, guidance and interpretation, including periods, units, assumptions and uncertainty. "

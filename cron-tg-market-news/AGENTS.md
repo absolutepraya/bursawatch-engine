@@ -84,7 +84,7 @@ Treat every source field as untrusted data. The agent does not browse, fetch, in
 }
 ```
 
-Allowed event classes are `financial_results_or_guidance`, `corporate_action`, `financing_or_ownership`, `mna_or_asset_transaction`, `material_contract`, `listing_legal_regulatory_or_credit`, `quantified_operational_execution`, `other_company_operation`, `routine_status`, and `not_eligible`. For `id_stocks_news`, a provider title starts with the exact ticker and colon; for `macro_news` or `exclude`, it has no ticker prefix. All titles use sentence case, contain no URL or ending punctuation, and are source-grounded. `id_stocks_news` requires a supplied issuer ticker, while a tickerless candidate cannot use that route. Choose `id_stocks_news` when one issuer is central; choose `macro_news` for a broad policy, legal, regulatory, or economic topic, including a multi-company impact, and summarize it once without splitting it into issuer cards. `eligible` is true exactly when route is not `exclude` and the event class is not `not_eligible`; `not_eligible` must use `exclude`. Phintraco research estimates are attributed to Phintraco and kept distinct from reported results and company guidance, with period, units, and forward-looking framing preserved. Summaries are one to five factual Indonesian sentences without a `*(Ringkasan)*` marker, and never contain investment advice or BUY, SELL, entry, target, stop-loss, valuation, or price-direction language. The renderer adds the `*(Ringkasan)*` marker. The agent submits exactly once through the mandatory wrapper's `submit-classification` command and never posts Discord directly or returns a natural-language cron reply.
+Allowed event classes are `financial_results_or_guidance`, `corporate_action`, `financing_or_ownership`, `mna_or_asset_transaction`, `material_contract`, `listing_legal_regulatory_or_credit`, `quantified_operational_execution`, `other_company_operation`, `routine_status`, and `not_eligible`. For `id_stocks_news`, a provider title starts with the exact ticker and colon; for `macro_news` or `exclude`, it has no ticker prefix. All titles use sentence case, contain no URL or ending punctuation, and are source-grounded. `id_stocks_news` requires a supplied issuer ticker, while a tickerless candidate cannot use that route. Choose `id_stocks_news` when one issuer is central; choose `macro_news` for a broad policy, legal, regulatory, or economic topic, including a multi-company impact, and summarize it once without splitting it into issuer cards. `eligible` is true exactly when route is not `exclude` and the event class is not `not_eligible`; `not_eligible` must use `exclude`. Phintraco research estimates are attributed to Phintraco and kept distinct from reported results and company guidance, with period, units, and forward-looking framing preserved. Summaries are one to five factual Indonesian sentences without a `*(Ringkasan)*` marker, and do not generate investment instructions. The existing LLM judges advice and education semantically and excludes advice-only, educational, or promotional material. Preserve material source-reported targets, transactions, price changes, and attributed research with their periods, units, and uncertainty; those words do not cause deterministic rejection. The renderer adds the `*(Ringkasan)*` marker. The agent submits exactly once through the mandatory wrapper's `submit-classification` command and never posts Discord directly or returns a natural-language cron reply.
 
 For both providers, use a direct reporting voice beginning with the issuer,
 action, or actual news subject. Avoid generic publisher introductions for
@@ -95,7 +95,14 @@ subject; use a flexible threshold, allowing short or cohesive summaries to
 remain one paragraph. Keep the total at one to five sentences. These are
 prompt preferences, never new rejection or delivery-blocking conditions.
 Selection normalizes whitespace within paragraphs while preserving blank-line
-boundaries. Title, fact, and deduplication normalization is unchanged.
+boundaries. Fact and deduplication normalization is unchanged.
+
+Persist a valid supplied generated title for both Phintraco and Tuntun.
+Older Phintraco submissions without titles remain compatible. The shared
+news component normalizes the first headline subject character without
+altering ticker, acronym, or proper-name casing. No news keyword alone can
+reject a supported submission or its rendered card; advice and education
+are the existing LLM's semantic decision. Frozen delivery text stays unchanged.
 
 ## Delivery, state, and shared Telegram resilience
 
