@@ -3,15 +3,20 @@
 This package supplements the repository `AGENTS.md` and owns the development
 source for the agent-backed `cron-stockbit-snips` watcher.
 
-`cron-rss-source-ingest` is an unscheduled source and pipeline pilot for the
-same four fixed lanes. Its accepted source events carry a validated frozen
-snapshot of the live configuration. `bin/pipeline_owner.py` admits text-only
-articles to this watcher's existing article queue with durable source-work
-provenance. It rejects a conflicting legacy article or revision and claims
-only source-backed articles for the RSS runner's agent wake. This watcher
-retains the live source job, routes, rendering, Delivery Owner path, and
-heartbeat. The pilot cannot replace the live source job before a reviewed
-state inventory and exact output parity are proven.
+`cron-rss-source-ingest` is the active source adapter for the same four fixed
+lanes. The existing Hermes job `cron-stockbit-snips` (job `0c6b17e4c944`,
+every 15 minutes at the 2026-09-29 live check) runs that adapter's wrapper.
+There is no second RSS schedule. Accepted source events carry a validated
+frozen configuration snapshot. `bin/pipeline_owner.py` admits text-only
+articles to this watcher's article queue with durable source-work provenance.
+It rejects a conflicting legacy article or revision and claims only
+source-backed articles for the RSS runner's agent wake. Its `drain-delivery`
+command settles up to three due, already accepted articles without fetching
+RSS or claiming an agent item. It preserves the frozen target and stable
+Delivery Owner operation, persists the delivered or retry phase, and retries
+publication intents. This package retains the domain queue, routes, rendering,
+Delivery Owner path, and heartbeat. Do not re-enable the legacy direct RSS
+poller beside the active adapter.
 
 ## Boundary
 
@@ -49,7 +54,7 @@ state inventory and exact output parity are proven.
   renderer rather than the agent.
 - A central single IDX issuer routes to `id_stocks_news` and receives the
   standard latest price, 1D, 1W, 1M, and 3M card.
-- A multi-issuer, sector, or macro thesis routes once to `macro_news` without
+- A connected multi-issuer, sector, or macro thesis routes once to `macro_news` without
   a price card. Supporting ticker mentions do not create issuer cards.
 - Missing market data renders `-` with the existing grey direction marker. It
   is not rendered as zero and does not fail the article.
@@ -65,7 +70,8 @@ state inventory and exact output parity are proven.
   cannot submit an article for agent analysis.
 - The wrapper imports the Stockbit control-plane URL, watcher ID, token, and
   timeout plus the Delivery Owner URL and client/admin token-file paths from
-  Hermes's `.env`. It unsets `DISCORD_BOT_TOKEN`, requires the deployed
+  Hermes's `.env`. It also imports the optional Published Feed URL, enable
+  switch, and owner token-file path. It unsets `DISCORD_BOT_TOKEN`, requires the deployed
   `lib-bursawatch-control` client and the shared Discord delivery client, and
   never sets an event spool path. It imports the live Stockbit configuration
   settings even in release no-post mode; missing or invalid live configuration
@@ -89,3 +95,85 @@ Run the focused package tests, then the repository package suite and
 `bursawatch-stockbit-snips`; the deployed skill directory is
 `~/.agents/skills/bursawatch-stockbit-snips/`; and the wrapper is
 `~/.hermes/scripts/bursawatch-stockbit-snips.sh`.
+
+## Discord delivery receipt wait
+
+After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.
+
+For `channel_message_create`, the shared receipt contract requires a valid
+`message_id`; `channel_id` may be omitted. The operation key and digest must
+match the stable operation for the article's frozen destination. If the receipt
+includes `channel_id`, it must match that frozen destination. Persist the local
+destination from the frozen configuration snapshot, and mark the article
+delivered only after the shared client returns a delivered receipt.
+
+## Published Feed projection
+
+Eligible articles accepted from the shared RSS source adapter create one
+Published Feed record only after the Stockbit text operation has a durable
+Delivery Owner receipt with matching operation key and payload digest, delivered
+status, destination, and Discord message ID. The article owner stores the exact
+rendered text, source event identity, frozen config revision, receipt, and
+pending projection intent before changing the article to `delivered`. Excluded
+articles and articles without shared-source provenance do not enter the feed.
+
+The projection accepts a message-only delivered receipt after the shared client
+validates its key and digest against the operation for the frozen destination.
+An explicit receipt channel must match that destination.
+
+The projection drain retries only the saved snapshot through the shared
+`PublicationClient`, then persists the accepted publication ID, version, and
+digest. It never calls Discord. Outstanding intents remain in the owner ledger,
+which reports the latest confirmed boundary, contiguous accepted boundary, and
+outstanding count. Projection writes stay disabled unless
+`BURSAWATCH_STOCKBIT_SNIPS_PUBLICATION_ENABLED=1`; the shared URL and this
+owner's private token file are `BURSAWATCH_PUBLICATION_CONTROL_PLANE_URL` and
+`BURSAWATCH_STOCKBIT_SNIPS_PUBLICATION_TOKEN_FILE`. The forward-only feed
+cutover is a separate activation boundary.
+
+## Shared generated-news format
+
+`lib-news-format` owns common and category writing guidance, rendering, and
+optional deterministic quotes. Follow its trusted generated instruction.
+Source owners retain structural, identity, capability and source-safety checks.
+
+Split independent issuer developments into ordered items, including separate
+issuer dividends and suspension reopenings. Keep a connected transaction or
+one broad thesis as one story. Each generated issuer card has a ticker-led
+headline, source byline, latest native-currency price and 1D/1W/1M/3M absolute
+and percentage changes, plus the original source link. IDX uses IDR and US
+uses USD. Missing quotes or individual horizons use grey `-` placeholders;
+macro and industry cards omit the tracker. Prices are renderer enrichment,
+never model-generated news facts. Forecasts and incomplete amounts must not
+be made certain or filled in.
+
+For new submissions, collapse identical news items after validation and before
+assigning delivery or child identities. Match route, headline, summary,
+ticker and sentiment, ignoring only whitespace and legacy summary markers.
+Keep the first copy and source order. Distinct stories for the same issuer
+remain separate. Do not deduplicate old frozen payloads or across sources.
+
+New generated cards freeze their rendered text and quote timestamp before
+Discord delivery. X, Instagram, and WhatsApp also freeze each card's selected
+destination. Retries and Published Feed projections use those saved cards and
+stable operation identities. Existing pending records without new cards keep
+their legacy path. Profiles with generated summaries disabled retain their
+explicit raw-forwarding policy. Specialized Swing/Board and Stock Information
+contracts remain owner-specific.
+
+The LLM owns semantic relevance. Market-keyword signals are advisory and
+cannot veto `is_relevant: false`. Generic investing education remains
+excluded even when it mentions earnings, dividends, charting, or an issuer.
+There is no deterministic education denylist.
+
+Stockbit accepts the ordinary scalar schema or `{candidate_key, items}`.
+Each item has the scalar fields except `candidate_key`. A split parent keeps
+its source cursor and child identity list; each child has a separate durable
+article record, frozen configuration, payload, receipt and publication key.
+The parent is `split`, while children retain normal delivery phases.
+
+Submission completion reporting aggregates the split parent's child phases.
+Any unfinished child keeps the run degraded, including an accepted Delivery
+Owner operation awaiting its terminal receipt. Report success only when all
+children are delivered or excluded. Keep accepted pending operations on the
+existing owner retry path without advancing a local retry clock.

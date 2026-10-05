@@ -188,7 +188,7 @@ def submit_news(work: dict[str, Any], *, no_post: bool = False, inbox: Any = Non
                 state, candidate.key, event_key=work["event_key"],
                 version=work["version"], content_hash=envelope["content_hash"],
                 source_url=envelope["source_url"], work_keys=keys,
-                loaded_config=loaded,
+                loaded_config=loaded, summary_media_refs=envelope["media_refs"],
             )
             enqueue_candidate(state, candidate, enqueued_at)
     return "accepted"
@@ -245,7 +245,15 @@ def claim_agent(now: datetime | None = None) -> dict[str, Any]:
         frozen = loaded_config_for(state, candidate.key)
         assert frozen is not None
         with config.activate_watch_config(frozen.config):
-            return build_wake_payload([agent_item(candidate)])
+            import summary_context
+            import state as owner_state
+            item = agent_item(candidate)
+            instruction_suffix = summary_context.context_instruction(
+                summary_context.claim_from_state(state, candidate.key, owner_state._state_path().parent / "summary-context"),
+                "~/.hermes/scripts/bursawatch-tg-market-news.sh prepare-summary-images --json",
+            )
+            item["instruction"] += instruction_suffix
+            return build_wake_payload([item], instruction_suffix=instruction_suffix)
 
 
 def submit_stock_status(work: dict[str, Any], *, no_post: bool = False) -> str:
@@ -269,9 +277,15 @@ def submit_stock_status(work: dict[str, Any], *, no_post: bool = False) -> str:
                     reject_stock_status(state, message_id, envelope["source_url"], code, now)
                     save_state(state)
                     return "rejected"
-                enqueue_stock_status(state, parsed, envelope["source_url"], loaded.config.id_stocks_news_channel_id, content, now)
+                enqueue_stock_status(
+                    state, parsed, envelope["source_url"],
+                    loaded.config.id_stocks_news_channel_id, content, now,
+                    source_event_key=work["event_key"],
+                    config_revision=loaded.revision,
+                )
                 save_state(state)
             asyncio.run(scan._drain_stock_status_events(state, now, no_post))
+            scan._drain_publications(state, now, dry_run=no_post)
             key = f"phintraco-stock-status:{message_id}"
             record = state["stats"]["stock_status_events"][key]
             if record["phase"] == "pending_delivery":
@@ -287,12 +301,44 @@ def submit(work: dict[str, Any], *, no_post: bool = False, inbox: Any = None) ->
     return submit_stock_status(work, no_post=no_post)
 
 
+
+def drain_deliveries(now: datetime | None = None, *, no_post: bool = False) -> dict[str, int]:
+    """Settle due owner deliveries without polling Telegram or claiming agent work."""
+    if no_post:
+        raise ValueError("delivery drain is unavailable in source no-post mode")
+    observed = now or datetime.now(scan.WIB)
+    loaded = config.load_watch_config_for_run()
+    with config.activate_watch_config(loaded.config):
+        with run_lock():
+            state = load_state()
+            scan._drain_publications(state, observed)
+            delivery_client = scan.delivery_client_from_environment()
+            news_delivered = asyncio.run(scan._drain_delivery(
+                state, None, observed, False, delivery_client=delivery_client, limit=3,
+            ))
+            stock_status_delivered = asyncio.run(scan._drain_stock_status_events(
+                state, observed, False, delivery_client=delivery_client, limit=1,
+            ))
+            scan._drain_publications(state, observed)
+            pending = scan._pending_count(state)
+    return {
+        "news_delivered": news_delivered,
+        "stock_status_delivered": stock_status_delivered,
+        "pending": pending,
+    }
+
+
 def main() -> int:
     if len(sys.argv) == 2 and sys.argv[1] == "agent-status":
         print(json.dumps(agent_status(), separators=(",", ":")))
         return 0
     if len(sys.argv) == 2 and sys.argv[1] == "claim-agent":
         print(json.dumps(claim_agent(), separators=(",", ":"), ensure_ascii=False))
+        return 0
+    if len(sys.argv) == 2 and sys.argv[1] == "drain-delivery":
+        print(json.dumps(drain_deliveries(
+            no_post=os.environ.get("BURSAWATCH_TG_SOURCE_NO_POST") == "1"
+        ), separators=(",", ":")))
         return 0
     if len(sys.argv) != 1:
         raise ValueError("unsupported Market News owner command")

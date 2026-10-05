@@ -48,7 +48,7 @@ def _records(state: Mapping[str, object]) -> dict[str, object]:
 
 
 def _validated(record: object, candidate_key: str) -> dict[str, Any]:
-    if not isinstance(record, dict) or set(record) != {
+    if not isinstance(record, dict) or set(record) - {"summary_media_refs"} != {
         "candidate_key", "event_key", "version", "content_hash", "source_url",
         "enabled_capabilities", "work_keys", "watch_config", "watch_config_revision",
     }:
@@ -88,7 +88,7 @@ def provenance(state: Mapping[str, object], candidate_key: str) -> dict[str, Any
 def put_provenance(
     state: dict[str, object], candidate_key: str, *, event_key: str, version: int,
     content_hash: str, source_url: str, work_keys: dict[str, str],
-    loaded_config: config.LoadedWatchConfig,
+    loaded_config: config.LoadedWatchConfig, summary_media_refs: list | None = None,
 ) -> bool:
     stats = state["stats"]
     assert isinstance(stats, dict)
@@ -113,6 +113,8 @@ def put_provenance(
         "watch_config": _config_data(loaded_config.config),
         "watch_config_revision": loaded_config.revision,
     }
+    if summary_media_refs is not None:
+        record["summary_media_refs"] = summary_media_refs
     records[candidate_key] = _validated(record, candidate_key)
     return True
 

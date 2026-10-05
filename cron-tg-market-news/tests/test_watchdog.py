@@ -59,7 +59,7 @@ def test_watchdog_uses_shared_delivery_client_for_fatal_heartbeat(tmp_state, mon
             return receipt
 
         def wait(self, operation_key, timeout_seconds):
-            assert timeout_seconds == 0
+            assert timeout_seconds == delivery.DELIVERY_RECEIPT_WAIT_SECONDS
             return self.receipts[operation_key]
 
     delivery_owner = Owner()

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 import json
 from types import SimpleNamespace
@@ -92,6 +93,50 @@ def ready_swing_state(tmp_path) -> dict:
     value["outbox"].append(swing_event("KPIG: Wave IV diproyeksikan menuju area 97 sampai 108"))
     state.save_state(tmp_path / "state.json", value)
     return value
+
+
+@pytest.mark.parametrize(("source_text", "candidate", "capabilities", "expected_outcome"), [
+    ("KPIG: wave count points to support at 90", "id_stocks_swing", ["company_news", "macro_news"], "suppressed_ineligible"),
+    ("IHSG technical chart shows broad market support", "id_stocks_swing", ["macro_news", "swing_chart_context"], "macro_news"),
+])
+def test_group_route_uses_one_candidate_and_frozen_capability_gate(tmp_path, monkeypatch, source_text, candidate, capabilities, expected_outcome):
+    profile = profile_fixture()
+    post = SourcePost(profile.id, "101", f"https://x.com/{profile.handle}/status/101", now(), source_text, PostKind.NORMAL, None, None, (), ())
+    storage = tmp_path / "state.json"
+    value = state.new_state()
+    state._event_for_thread(value, profile, (post,), now(), 0)
+    event = value["outbox"][0]
+    event.update(source_event_key="source-event", enabled_capabilities=capabilities, source_catalog_revision=17,
+                 agent_phase="awaiting_agent", agent_lease_until=(now() + timedelta(minutes=15)).isoformat())
+    value["source_events"]["source-event"] = {"version": 1, "outcome": "accepted", "enabled_capabilities": capabilities, "source_catalog_revision": 17}
+    state.save_state(storage, value)
+    monkeypatch.setattr(scan, "state_path", lambda: storage)
+    monkeypatch.setattr(scan, "config_path", lambda: tmp_path / "watches.json")
+    monkeypatch.setattr(scan.config, "load_watch_config_for_run", lambda path: SimpleNamespace(config=SimpleNamespace(profiles=(profile,)), revision=None))
+    classifier_calls = []
+    classify = scan.deterministic_route
+    def classify_once(*args):
+        classifier_calls.append(args)
+        return classify(*args)
+    monkeypatch.setattr(scan, "deterministic_route", classify_once)
+    deliveries = []
+    monkeypatch.setattr(scan, "_deliver", lambda value, profiles, index, dry_run, storage, stats, now: deliveries.append(value["outbox"][index]["route"]) or value["outbox"].pop(index) or True)
+    monkeypatch.setattr(scan, "submit_board_event", lambda *args, **kwargs: pytest.fail("Board handoff after ineligible route"))
+    monkeypatch.setattr(scan.discord, "post_text", lambda *args, **kwargs: pytest.fail("Discord post after ineligible route"))
+
+    result = scan.submit_analysis_payload({"event_key": f"{profile.id}:101", "is_relevant": True,
+                                           "title": "KPIG: Analisis teknikal", "summary": "*(Ringkasan)* Analisis pasar.",
+                                           "route": candidate}, dry_run=True)
+    saved = state.load_state(storage)
+    assert len(classifier_calls) == 1
+    if expected_outcome == "suppressed_ineligible":
+        assert result["suppressed"] == "suppressed_ineligible"
+        assert saved["source_events"]["source-event"]["outcome"] == "suppressed_ineligible"
+        assert saved["outbox"] == []
+        assert deliveries == []
+    else:
+        assert deliveries == [expected_outcome]
+        assert saved["source_events"]["source-event"]["outcome"] == "accepted"
 
 
 def test_run_skips_a_profile_during_source_retry_cooldown(tmp_path, monkeypatch, config_path):
@@ -215,6 +260,7 @@ def test_control_plane_reason_sanitizes_source_secrets_urls_and_paths():
 
 
 def test_live_agent_submission_reports_structured_events(tmp_path, monkeypatch, config_path):
+    from test_summary_context import staged_claim
     profile_config = __import__("config").load_watch_config(config_path)
     profile = profile_config.profiles[0]
     storage = tmp_path / "state.json"
@@ -268,6 +314,11 @@ def test_live_agent_submission_reports_structured_events(tmp_path, monkeypatch, 
         lambda _path: SimpleNamespace(config=profile_config, revision=17),
     )
     monkeypatch.setattr(scan, "_control_plane_reporter", lambda: reporter)
+    optional_asset = staged_claim(tmp_path, monkeypatch, f"{profile.id}:101")
+    with pytest.raises(ValueError):
+        scan.submit_analysis_payload({"event_key": f"{profile.id}:101", "is_relevant": "invalid"}, dry_run=True)
+    assert optional_asset.is_file()
+    reporter.started.clear(); reporter.events.clear(); reporter.finished.clear()
 
     result = scan.submit_analysis_payload(
         {"event_key": f"{profile.id}:101", "is_relevant": False},
@@ -275,6 +326,7 @@ def test_live_agent_submission_reports_structured_events(tmp_path, monkeypatch, 
     )
 
     assert result == {"submitted": True, "ignored": True, "delivered": 0}
+    assert not optional_asset.exists()
     assert reporter.started == [(17, "x-post-source", "agent_submission")]
     assert [event[2]["event_type"] for event in reporter.events] == [
         "agent.submission.started",
@@ -309,8 +361,24 @@ def test_queue_only_run_skips_source_fetch_and_claims_oldest_agent(tmp_path, mon
     assert saved["outbox"][0]["agent_phase"] == "awaiting_agent"
 
 
-def test_queue_worker_passes_authored_and_quoted_vision_images_to_the_agent(tmp_path, monkeypatch, config_path):
+@pytest.mark.parametrize("profile_mode,source_text,capabilities,swing_expected", [
+    ("news", "A substantive market post", None, False),
+    ("mixed", "A substantive market post", None, False),
+    ("mixed", "KPIG: wave count at support 90", None, True),
+    ("mixed", "IHSG technical chart shows support", None, False),
+    ("mixed", "KPIG: wave count at support 90", ["company_news", "macro_news"], False),
+    ("mixed", "KPIG: wave count at support 90", ["swing_chart_context"], True),
+    ("fixed_swing", "KPIG: wave count at support 90", ["swing_chart_context"], True),
+])
+def test_queue_worker_keeps_upfront_vision_only_for_specialized_swing(tmp_path, monkeypatch, config_path, profile_mode, source_text, capabilities, swing_expected):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
+    if profile_mode != "news":
+        from dataclasses import replace
+        from models import DiscordChannel
+        profile = replace(profile, enable_llm_routing=True, discord_channels=(*profile.discord_channels, DiscordChannel("id_stocks_swing","1525102458253217803","Swing")))
+        if profile_mode == "fixed_swing":
+            profile = replace(profile, enable_llm_routing=False, discord_channels=(profile.discord_channels[-1],))
+        monkeypatch.setattr(scan.config, "load_watch_config_for_run", lambda *args: __import__("config").LoadedWatchConfig(__import__("models").WatchConfig(1,(profile,)),None))
     current = datetime(2026, 8, 24, 10, 0, tzinfo=scan.WIB)
     storage = tmp_path / "state.json"
     post = SourcePost(
@@ -318,7 +386,7 @@ def test_queue_worker_passes_authored_and_quoted_vision_images_to_the_agent(tmp_
         "101",
         "https://x.com/Kutekians/status/101",
         current - timedelta(hours=2),
-        "A substantive market post",
+        source_text,
         PostKind.QUOTE,
         "https://x.com/other/status/100",
         "Quoted market context",
@@ -328,6 +396,8 @@ def test_queue_worker_passes_authored_and_quoted_vision_images_to_the_agent(tmp_
     value = state.new_state()
     value["profiles"][profile.id] = {"cursor": "100"}
     state.observe_posts(value, profile, [post], lambda candidate: candidate.kind is PostKind.QUOTE, now=post.published_at)
+    if capabilities is not None:
+        value["outbox"][0]["enabled_capabilities"] = capabilities
     state.save_state(storage, value)
     root = tmp_path / "vision" / profile.id / post.post_id
     root.mkdir(parents=True)
@@ -374,11 +444,11 @@ def test_queue_worker_passes_authored_and_quoted_vision_images_to_the_agent(tmp_
 
     result = scan.run(now=current, dry_run=False)
 
-    assert prepared == [(post, storage, False, (post,))]
+    assert prepared == ([(post, storage, False, (post,))] if swing_expected else [])
     assert prepared_articles == [((post,), False)]
-    assert result["item"]["vision_asset_paths"] == [str(authored), str(quoted)]
-    assert "Authored X post image 1" in result["item"]["post_text"]
-    assert "Quoted X post image 1" in result["item"]["post_text"]
+    assert result["item"]["vision_asset_paths"] == ([str(authored),str(quoted)] if swing_expected else [])
+    assert ("Authored X post image 1" in result["item"]["post_text"]) is swing_expected
+    assert ("Quoted X post image 1" in result["item"]["post_text"]) is swing_expected
     assert "Article 1 title: Article context" in result["item"]["post_text"]
     assert flock_operations == [
         scan.fcntl.LOCK_EX | scan.fcntl.LOCK_NB,
@@ -417,7 +487,7 @@ def test_queue_worker_discards_context_when_the_claimed_lease_changes(tmp_path, 
     monkeypatch.setattr(scan, "state_path", lambda: storage)
     monkeypatch.setattr(scan, "config_path", lambda: config_path)
     monkeypatch.setattr(scan, "_prepare_agent_vision", change_lease)
-    monkeypatch.setattr(scan, "_prepare_article_context", lambda *_args: None)
+    monkeypatch.setattr(scan, "_prepare_article_context", change_lease)
     monkeypatch.setattr(scan.discord, "post_text", lambda *args: None)
     monkeypatch.setenv("X_POST_WATCH_QUEUE_ONLY", "1")
 
@@ -448,7 +518,7 @@ def test_x_board_event_requires_one_exact_ticker_led_source_title() -> None:
     board_event = scan.board_source_event(event, profile_fixture())
 
     assert board_event["source_title"] == "KPIG: Wave IV diproyeksikan menuju area 97 sampai 108"
-    assert board_event["media_urls"] == ["https://img.example/chart.png"]
+    assert board_event["media_urls"] == ["https://img.example/chart.png", "https://img.example/quoted.png"]
 
 
 def test_x_board_event_accepts_whitespace_ticker_title_and_normalizes_only_board_title() -> None:
@@ -504,7 +574,7 @@ def test_swing_all_delivery_includes_board_link_before_view_on_x(tmp_path, monke
     sent = []
     monkeypatch.setattr(scan.discord, "post_text", lambda content, *_: sent.append(content) or "all-message")
 
-    assert scan._deliver(value, profiles(), 0, False, tmp_path / "state.json", stats(), now()) is True
+    assert scan._deliver(value, profiles(), 0, False, tmp_path / "state.json", stats(), now()) is False
     assert "**Board:** <#1548273399069933720>" in sent[0]
     assert "**Status date:** 15 Sep 2026 10:00 WIB" in sent[0]
     assert sent[0].index("**Board:**") < sent[0].index("[View on X]")
@@ -526,6 +596,87 @@ def test_board_retry_accepts_without_reposting_all_messages(tmp_path, monkeypatc
     assert value["outbox"] == []
     assert all_messages == []
     assert "**Status date:** 15 Sep 2026 10:00 WIB" in board_payloads[0]["all_content"]
+
+
+def test_all_text_then_ordered_images_then_board_in_one_delivery(tmp_path, monkeypatch) -> None:
+    swing_profile = replace(profile_fixture(), media_policy="omit_last")
+    value = ready_swing_state(tmp_path)
+    event = value["outbox"][0]
+    event["text_index"] = event["media_index"] = 0
+    event["text_message_ids"] = []
+    event["media_message_ids"] = []
+    refs = [f"20000000-0000-4000-8000-{index:012d}" for index in range(1, 4)]
+    urls = [f"source-media-ref:{ref}" for ref in refs]
+    event["post"]["media"] = [{"index": index, "url": url} for index, url in enumerate(urls[:2])]
+    event["post"]["quoted_media"] = [{"index": 0, "url": urls[2]}]
+    event["thread_posts"] = [event["post"]]
+    event["source_media_refs"] = {ref: {"ref": ref} for ref in refs}
+    event["source_media_paths"] = {ref: str(tmp_path / f"chart-{index}.jpg") for index, ref in enumerate(refs)}
+    sequence = []
+    monkeypatch.setattr(scan.discord, "post_text", lambda content, *_: sequence.append(("text", content)) or "text-1")
+    monkeypatch.setattr(scan.discord, "post_media", lambda url, *_args, **_kwargs: sequence.append(("media", url)) or f"media-{len(sequence)}")
+    monkeypatch.setattr(scan, "submit_board_event", lambda payload, *_: sequence.append(("board", payload["media_paths"])) or False)
+    storage = tmp_path / "state.json"
+    assert scan._deliver(value, {swing_profile.id: swing_profile}, 0, False, storage, stats(), now()) is False
+    assert [kind for kind, _ in sequence] == ["text", "media", "media", "media", "board"]
+    assert [item[1] for item in sequence[1:4]] == urls
+    assert sequence[-1][1] == [event["source_media_paths"][ref] for ref in refs]
+    assert event["text_message_ids"] == ["text-1"]
+    assert len(event["media_message_ids"]) == 3
+    assert scan._deliver(value, {swing_profile.id: swing_profile}, 0, False, storage, stats(), now() + timedelta(minutes=1)) is False
+    assert [kind for kind, _ in sequence] == ["text", "media", "media", "media", "board", "board"]
+
+
+def test_swing_transient_retry_reuses_delivery_and_board_keys_without_live_clients(tmp_path, monkeypatch) -> None:
+    value = ready_swing_state(tmp_path)
+    event = value["outbox"][0]
+    event["text_index"] = event["media_index"] = 0
+    event["text_message_ids"] = []
+    event["media_message_ids"] = []
+    event["post"]["quoted_media"] = []
+    event["thread_posts"][0]["quoted_media"] = []
+    sequence = []
+    text_nonces = []
+    media_nonces = []
+    board_keys = []
+    attempts = {"media": 0}
+
+    def fake_text(content, channel_id, dry_run, nonce):
+        text_nonces.append(nonce)
+        sequence.append("all-text")
+        return "all-message"
+
+    def fake_media(url, channel_id, dry_run, nonce, *_args, **_kwargs):
+        media_nonces.append(nonce)
+        attempts["media"] += 1
+        sequence.append("all-media")
+        if attempts["media"] == 1:
+            raise scan.discord.DeliveryOwnerPending("fake pending media")
+        return "media-message"
+
+    def fake_board(payload, *_args):
+        board_keys.append(payload["event_key"])
+        sequence.append("board")
+        return len(board_keys) > 1
+
+    monkeypatch.setattr(scan.discord, "post_text", fake_text)
+    monkeypatch.setattr(scan.discord, "post_media", fake_media)
+    monkeypatch.setattr(scan, "submit_board_event", fake_board)
+    monkeypatch.setattr(scan.discord, "delivery_client_from_environment", lambda **_kwargs: pytest.fail("live Delivery Owner client used"))
+    import source_media
+    monkeypatch.setattr(source_media, "client_from_environment", lambda: pytest.fail("live Source Media Owner client used"))
+
+    storage = tmp_path / "state.json"
+    assert scan._deliver(value, profiles(), 0, False, storage, stats(), now()) is False
+    assert scan._deliver(value, profiles(), 0, False, storage, stats(), now() + timedelta(minutes=1)) is False
+    assert scan._deliver(value, profiles(), 0, False, storage, stats(), now() + timedelta(minutes=2)) is True
+
+    assert sequence == ["all-text", "all-media", "all-media", "board", "board"]
+    assert len(text_nonces) == 1
+    assert len(media_nonces) == 2 and media_nonces[0] == media_nonces[1]
+    assert scan.discord.operation_key_for_nonce(media_nonces[0]) == scan.discord.operation_key_for_nonce(media_nonces[1])
+    assert len(board_keys) == 2 and board_keys[0] == board_keys[1]
+    assert value["outbox"] == []
 
 
 def test_permanent_missing_media_is_skipped_and_board_handoff_continues(tmp_path, monkeypatch) -> None:
@@ -621,7 +772,7 @@ def test_fatal_heartbeat_does_not_mention_owner():
     assert "<@" not in value
 
 
-def test_delivery_omits_quoted_media_when_each_quoting_post_has_media(tmp_path, monkeypatch, config_path):
+def test_delivery_includes_quoted_media_when_each_quoting_post_has_media(tmp_path, monkeypatch, config_path):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     root = SourcePost(profile.id, "101", "https://x.com/Kutekians/status/101", datetime.now(UTC), "Root", PostKind.QUOTE, "https://x.com/external/status/0", "Earlier external quote", (SourceMedia("https://img.example/root.jpg", 0),), (SourceMedia("https://img.example/root-quote.jpg", 0),))
     latest = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Latest", PostKind.QUOTE, "https://x.com/external/status/1", "External: Quote", (SourceMedia("https://img.example/latest.jpg", 0),), (SourceMedia("https://img.example/quote.jpg", 0),))
@@ -635,7 +786,8 @@ def test_delivery_omits_quoted_media_when_each_quoting_post_has_media(tmp_path, 
     storage = tmp_path / "state.json"
     while value["outbox"]:
         assert scan._deliver(value, {profile.id: profile}, 0, True, storage, scan.RunStats()) is True
-    assert delivered == ["https://img.example/root.jpg", "https://img.example/latest.jpg"]
+    assert delivered == ["https://img.example/root.jpg", "https://img.example/root-quote.jpg",
+                         "https://img.example/latest.jpg", "https://img.example/quote.jpg"]
 
 
 def test_delivery_uses_quoted_media_when_quoting_post_has_no_media(tmp_path, monkeypatch, config_path):
@@ -667,7 +819,7 @@ def test_delivery_omit_last_removes_only_final_unique_bundle_media(tmp_path, mon
     latest = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Latest", PostKind.QUOTE, "https://x.com/external/status/1", "External: Quote", (SourceMedia("https://img.example/latest.jpg", 0),), (SourceMedia("https://img.example/quote.jpg", 0),))
     value = state.new_state()
     value["outbox"].append({
-        "profile_id": profile.id, "post_id": latest.post_id, "text_index": 1, "media_index": 0,
+        "profile_id": profile.id, "post_id": latest.post_id, "route": "macro_news", "text_index": 1, "media_index": 0,
         "post": state.serialize_post(latest), "thread_posts": [state.serialize_post(root), state.serialize_post(latest)],
     })
     delivered = []
@@ -675,7 +827,8 @@ def test_delivery_omit_last_removes_only_final_unique_bundle_media(tmp_path, mon
     storage = tmp_path / "state.json"
     while value["outbox"]:
         assert scan._deliver(value, {profile.id: profile}, 0, True, storage, scan.RunStats()) is True
-    assert delivered == ["https://img.example/root.jpg"]
+    assert delivered == ["https://img.example/root.jpg", "https://img.example/root-quote.jpg",
+                         "https://img.example/latest.jpg"]
 
 
 def test_delivery_omit_last_drops_the_only_media_item(tmp_path, monkeypatch, config_path, profile_payload):
@@ -708,7 +861,6 @@ def test_delivery_persists_discord_message_id_in_ledger(tmp_path, monkeypatch, c
     storage = tmp_path / "state.json"
     stats = scan.RunStats()
 
-    assert scan._deliver(value, {profile.id: profile}, 0, False, storage, stats) is True
     assert scan._deliver(value, {profile.id: profile}, 0, False, storage, stats) is True
     assert value["deliveries"][0]["text_message_ids"] == ["new-text"]
 

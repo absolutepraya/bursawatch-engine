@@ -117,6 +117,62 @@ _STOCK_STATUS_EVENT_KEYS = frozenset(
     }
 )
 _STOCK_STATUS_DELIVERY_HANDOFF_KEYS = _STOCK_STATUS_EVENT_KEYS | {"delivery_handoff"}
+_STOCK_STATUS_SOURCE_EVENT_KEYS = _STOCK_STATUS_EVENT_KEYS | {"source_event_key"}
+_STOCK_STATUS_SOURCE_EVENT_HANDOFF_KEYS = _STOCK_STATUS_SOURCE_EVENT_KEYS | {"delivery_handoff"}
+_STOCK_STATUS_CONFIG_KEYS = _STOCK_STATUS_EVENT_KEYS | {"config_revision"}
+_STOCK_STATUS_CONFIG_HANDOFF_KEYS = _STOCK_STATUS_CONFIG_KEYS | {"delivery_handoff"}
+_STOCK_STATUS_SOURCE_CONFIG_KEYS = _STOCK_STATUS_SOURCE_EVENT_KEYS | {"config_revision"}
+_STOCK_STATUS_SOURCE_CONFIG_HANDOFF_KEYS = _STOCK_STATUS_SOURCE_CONFIG_KEYS | {"delivery_handoff"}
+_PUBLICATION_LEDGER_KEY = "publication_projection"
+_SOURCE_INGEST_RECONCILIATION_KEY = "source_ingest_state_reconciliation_v1"
+_SOURCE_INGEST_RECONCILIATION_V1_FIELDS = frozenset(
+    {
+        "version",
+        "plan_sha256",
+        "source_state_sha256",
+        "canonical_base_sha256",
+        "source_candidate_count",
+        "source_provenance_count",
+        "new_candidate_count",
+        "overlap_count",
+        "phase_difference_count",
+        "provenance_added_count",
+        "source_status_event_count",
+        "new_status_event_count",
+        "overlap_status_event_count",
+        "status_event_phase_difference_count",
+        "status_event_provenance_added_count",
+        "active_candidate_abandonment_count",
+        "applied_at",
+    }
+)
+_SOURCE_INGEST_RECONCILIATION_V2_FIELDS = frozenset(
+    {
+        "version",
+        "plan_sha256",
+        "source_state_sha256",
+        "canonical_base_sha256",
+        "delivery_resolution_sha256",
+        "prior_receipt_sha256",
+        "source_candidate_count",
+        "source_provenance_count",
+        "new_candidate_count",
+        "overlap_count",
+        "phase_difference_count",
+        "provenance_added_count",
+        "source_status_event_count",
+        "new_status_event_count",
+        "overlap_status_event_count",
+        "status_event_phase_difference_count",
+        "status_event_provenance_added_count",
+        "canonical_pending_delivery_count",
+        "canonical_pending_delivery_confirmed_count",
+        "canonical_pending_delivery_not_found_count",
+        "active_candidate_abandonment_count",
+        "applied_at",
+    }
+)
+_SOURCE_INGEST_RECONCILIATION_FIELDS = _SOURCE_INGEST_RECONCILIATION_V2_FIELDS
 _REJECTED_STOCK_STATUS_EVENT_KEYS = frozenset(
     {"source_message_id", "source_url", "phase", "rejected_at", "rejection_code"}
 )
@@ -299,11 +355,29 @@ def _validate_stock_status_event(key: object, event: object) -> None:
         if not isinstance(event["rejection_code"], str) or event["rejection_code"] not in _STOCK_STATUS_REASON_CODES:
             raise StateBlockedError(f"malformed state: {key}.rejection_code is invalid")
     else:
-        if frozenset(event) not in {_STOCK_STATUS_EVENT_KEYS, _STOCK_STATUS_DELIVERY_HANDOFF_KEYS}:
+        if frozenset(event) not in {
+            _STOCK_STATUS_EVENT_KEYS,
+            _STOCK_STATUS_DELIVERY_HANDOFF_KEYS,
+            _STOCK_STATUS_SOURCE_EVENT_KEYS,
+            _STOCK_STATUS_SOURCE_EVENT_HANDOFF_KEYS,
+            _STOCK_STATUS_CONFIG_KEYS,
+            _STOCK_STATUS_CONFIG_HANDOFF_KEYS,
+            _STOCK_STATUS_SOURCE_CONFIG_KEYS,
+            _STOCK_STATUS_SOURCE_CONFIG_HANDOFF_KEYS,
+        }:
             raise StateBlockedError(f"malformed state: {key} has invalid event fields")
         source_message_id = _validate_stock_status_source(
             event["source_message_id"], event["source_url"], key
         )
+        if "source_event_key" in event and (
+            not isinstance(event["source_event_key"], str)
+            or not re.fullmatch(r"[0-9a-f]{64}", event["source_event_key"])
+        ):
+            raise StateBlockedError(f"malformed state: {key}.source_event_key is invalid")
+        if "config_revision" in event and (
+            not _is_plain_int(event["config_revision"]) or event["config_revision"] < 1
+        ):
+            raise StateBlockedError(f"malformed state: {key}.config_revision is invalid")
         if phase not in {"pending_delivery", "delivered"}:
             raise StateBlockedError(f"malformed state: {key} has invalid phase")
         if not isinstance(event["effective_date"], str):
@@ -479,6 +553,12 @@ def _validate_state(state: object) -> None:
             raise StateBlockedError("malformed state: stats.stock_status_events must be an object")
         for key, event in status_events.items():
             _validate_stock_status_event(key, event)
+    if _PUBLICATION_LEDGER_KEY in state["stats"]:
+        _validate_publication_ledger(state["stats"][_PUBLICATION_LEDGER_KEY])
+    if _SOURCE_INGEST_RECONCILIATION_KEY in state["stats"]:
+        _validate_source_ingest_reconciliation(
+            state["stats"][_SOURCE_INGEST_RECONCILIATION_KEY]
+        )
     _validate_timestamp_or_none(state["last_poll_success"], "last_poll_success")
     _validate_timestamp_or_none(state["last_delivery_success"], "last_delivery_success")
     _validate_timestamp_or_none(state["last_heartbeat_hour"], "last_heartbeat_hour")
@@ -588,12 +668,20 @@ def _fsync_directory(directory: Path) -> None:
         os.close(descriptor)
 
 
-def save_state(state: Mapping[str, object], path: str | os.PathLike[str] | None = None) -> None:
+def save_state(
+    state: Mapping[str, object],
+    path: str | os.PathLike[str] | None = None,
+    *,
+    migrate: bool = True,
+) -> None:
     if not isinstance(state, dict):
         raise StateBlockedError("malformed state: top-level state must be an object")
+    if type(migrate) is not bool:
+        raise ValueError("migrate must be a boolean")
     _validate_state(state)
-    _migrate_legacy_provider_lanes(state)
-    _migrate_legacy_candidate_records(state)
+    if migrate:
+        _migrate_legacy_provider_lanes(state)
+        _migrate_legacy_candidate_records(state)
     _validate_state(state)
     state_path = _state_path(path)
     state_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -669,6 +757,8 @@ def _status_event_key(source_message_id: int) -> str:
 
 def _status_identity_fields(event: dict[str, object]) -> tuple[object, ...]:
     return (
+        event.get("source_event_key"),
+        event.get("config_revision"),
         event.get("source_message_id"),
         event.get("source_url"),
         event.get("effective_date"),
@@ -685,6 +775,9 @@ def enqueue_stock_status(
     channel_id: str,
     content: str,
     now: datetime,
+    *,
+    source_event_key: str | None = None,
+    config_revision: int | None = None,
 ) -> bool:
     _validate_state(state)
     _require_aware_timestamp(now, "now")
@@ -698,6 +791,13 @@ def enqueue_stock_status(
         raise ValueError("content must be nonempty and at most 2,000 characters")
     if not isinstance(status.effective_date, date):
         raise ValueError("status effective_date must be a date")
+    if source_event_key is not None and (
+        not isinstance(source_event_key, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", source_event_key)
+    ):
+        raise ValueError("source_event_key must be a lowercase SHA-256 identity")
+    if config_revision is not None and (not _is_plain_int(config_revision) or config_revision < 1):
+        raise ValueError("config_revision must be a positive integer")
     event: dict[str, object] = {
         "source_message_id": status.source_message_id,
         "source_url": source_url,
@@ -712,6 +812,10 @@ def enqueue_stock_status(
         "delivered_at": None,
         "rejection_code": None,
     }
+    if source_event_key is not None:
+        event["source_event_key"] = source_event_key
+    if config_revision is not None:
+        event["config_revision"] = config_revision
     events = _stock_status_events(state, create=True)
     existing = events.get(key)
     if existing is not None:
@@ -721,10 +825,223 @@ def enqueue_stock_status(
             and _status_identity_fields(existing) == _status_identity_fields(event)
         ):
             return False
+        if (
+            isinstance(existing, dict)
+            and existing.get("source_event_key") is None
+            and source_event_key is not None
+            and existing.get("config_revision") is None
+            and _status_identity_fields(existing)[2:] == _status_identity_fields(event)[2:]
+        ):
+            existing["source_event_key"] = source_event_key
+            if config_revision is not None:
+                existing["config_revision"] = config_revision
+            save_state(state)
+            return False
         raise StateBlockedError(f"status event {key!r} collides with different durable content")
     events[key] = event
     save_state(state)
     return True
+
+
+def _validate_publication_ledger(value: object) -> None:
+    if not isinstance(value, dict):
+        raise StateBlockedError("malformed state: publication projection ledger must be an object")
+    for owner_key, record in value.items():
+        if not isinstance(owner_key, str) or not owner_key or not isinstance(record, dict) or set(record) != {"snapshot", "ack"}:
+            raise StateBlockedError("malformed state: publication projection entry is invalid")
+        snapshot = record["snapshot"]
+        if not isinstance(snapshot, dict) or snapshot.get("owner_key") != owner_key:
+            raise StateBlockedError("malformed state: publication projection snapshot identity is invalid")
+        confirmed = snapshot.get("delivery_confirmed_at")
+        _parse_timestamp(confirmed, "publication_projection.delivery_confirmed_at")
+        required = snapshot.get("required_operation_keys")
+        legs = snapshot.get("legs")
+        if (
+            not isinstance(required, list)
+            or not required
+            or any(not isinstance(key, str) or not key for key in required)
+            or not isinstance(legs, list)
+            or [leg.get("operation_key") for leg in legs if isinstance(leg, dict)] != required
+            or len(legs) != len(required)
+            or any(not isinstance(leg, dict) or leg.get("status") != "delivered" for leg in legs)
+        ):
+            raise StateBlockedError("malformed state: publication projection legs are incomplete")
+        ack = record["ack"]
+        if ack is not None and (
+            not isinstance(ack, dict)
+            or set(ack) != {"publication_id", "version", "digest"}
+            or not isinstance(ack.get("publication_id"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", ack["publication_id"])
+            or type(ack.get("version")) is not int
+            or ack["version"] != snapshot.get("version")
+            or not isinstance(ack.get("digest"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", ack["digest"])
+        ):
+            raise StateBlockedError("malformed state: publication projection acknowledgment is invalid")
+
+
+def _validate_source_ingest_reconciliation(value: object) -> None:
+    if not isinstance(value, dict):
+        raise StateBlockedError("malformed state: source-ingest reconciliation receipt is invalid")
+    receipt_fields = frozenset(value)
+    if receipt_fields == _SOURCE_INGEST_RECONCILIATION_V1_FIELDS:
+        receipt_version = 1
+        count_fields = (
+            "source_candidate_count",
+            "source_provenance_count",
+            "new_candidate_count",
+            "overlap_count",
+            "phase_difference_count",
+            "provenance_added_count",
+            "source_status_event_count",
+            "new_status_event_count",
+            "overlap_status_event_count",
+            "status_event_phase_difference_count",
+            "status_event_provenance_added_count",
+            "active_candidate_abandonment_count",
+        )
+    elif receipt_fields == _SOURCE_INGEST_RECONCILIATION_V2_FIELDS:
+        receipt_version = 2
+        count_fields = (
+            "source_candidate_count",
+            "source_provenance_count",
+            "new_candidate_count",
+            "overlap_count",
+            "phase_difference_count",
+            "provenance_added_count",
+            "source_status_event_count",
+            "new_status_event_count",
+            "overlap_status_event_count",
+            "status_event_phase_difference_count",
+            "status_event_provenance_added_count",
+            "canonical_pending_delivery_count",
+            "canonical_pending_delivery_confirmed_count",
+            "canonical_pending_delivery_not_found_count",
+            "active_candidate_abandonment_count",
+        )
+    else:
+        raise StateBlockedError("malformed state: source-ingest reconciliation receipt is invalid")
+    if value["version"] != receipt_version or not _is_plain_int(value["version"]):
+        raise StateBlockedError("malformed state: source-ingest reconciliation version is invalid")
+    hash_fields = ["plan_sha256", "source_state_sha256", "canonical_base_sha256"]
+    if receipt_version == 2:
+        hash_fields.append("delivery_resolution_sha256")
+    for field in hash_fields:
+        if not isinstance(value[field], str) or not re.fullmatch(r"[0-9a-f]{64}", value[field]):
+            raise StateBlockedError(f"malformed state: source-ingest reconciliation {field} is invalid")
+    prior_receipt_sha256 = value.get("prior_receipt_sha256")
+    if receipt_version == 2 and prior_receipt_sha256 is not None and (
+        not isinstance(prior_receipt_sha256, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", prior_receipt_sha256)
+    ):
+        raise StateBlockedError("malformed state: source-ingest reconciliation prior_receipt_sha256 is invalid")
+    if any(not _is_plain_int(value[field]) or value[field] < 0 for field in count_fields):
+        raise StateBlockedError("malformed state: source-ingest reconciliation counts are invalid")
+    if (
+        value["source_candidate_count"] != value["source_provenance_count"]
+        or value["source_candidate_count"] != value["new_candidate_count"] + value["overlap_count"]
+        or value["phase_difference_count"] > value["overlap_count"]
+        or value["provenance_added_count"] > value["source_provenance_count"]
+        or value["source_status_event_count"]
+        != value["new_status_event_count"] + value["overlap_status_event_count"]
+        or value["status_event_phase_difference_count"] > value["overlap_status_event_count"]
+        or value["status_event_provenance_added_count"] > value["overlap_status_event_count"]
+    ):
+        raise StateBlockedError("malformed state: source-ingest reconciliation counts are inconsistent")
+    if receipt_version == 2 and (
+        value["canonical_pending_delivery_count"]
+        != value["canonical_pending_delivery_confirmed_count"]
+        + value["canonical_pending_delivery_not_found_count"]
+    ):
+        raise StateBlockedError("malformed state: source-ingest reconciliation counts are inconsistent")
+    _parse_timestamp(value["applied_at"], "source-ingest reconciliation applied_at")
+
+
+def record_publication_intent(state: dict[str, object], snapshot: dict[str, object]) -> bool:
+    """Persist one exact confirmed snapshot before acknowledging owner delivery."""
+    _validate_state(state)
+    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("owner_key"), str):
+        raise ValueError("publication snapshot identity is invalid")
+    owner_key = snapshot["owner_key"]
+    stats = state["stats"]
+    assert isinstance(stats, dict)
+    ledger = stats.setdefault(_PUBLICATION_LEDGER_KEY, {})
+    if not isinstance(ledger, dict):
+        raise StateBlockedError("malformed state: publication projection ledger must be an object")
+    existing = ledger.get(owner_key)
+    if existing is not None:
+        if not isinstance(existing, dict) or existing.get("snapshot") != snapshot:
+            raise StateBlockedError("publication identity conflicts with its durable projection intent")
+        return False
+    ledger[owner_key] = {"snapshot": snapshot, "ack": None}
+    save_state(state)
+    return True
+
+
+def pending_publication_intents(state: dict[str, object]) -> list[tuple[str, dict[str, object]]]:
+    _validate_state(state)
+    stats = state["stats"]
+    assert isinstance(stats, dict)
+    ledger = stats.get(_PUBLICATION_LEDGER_KEY, {})
+    assert isinstance(ledger, dict)
+    pending = [
+        (key, record["snapshot"])
+        for key, record in ledger.items()
+        if isinstance(record, dict) and record.get("ack") is None
+    ]
+    return sorted(pending, key=lambda item: (item[1]["delivery_confirmed_at"], item[0]))
+
+
+def acknowledge_publication_intent(
+    state: dict[str, object], owner_key: str, ack: dict[str, object]
+) -> bool:
+    _validate_state(state)
+    stats = state["stats"]
+    assert isinstance(stats, dict)
+    ledger = stats.get(_PUBLICATION_LEDGER_KEY)
+    record = ledger.get(owner_key) if isinstance(ledger, dict) else None
+    if not isinstance(record, dict):
+        raise StateBlockedError("publication acknowledgment has no durable intent")
+    if record["ack"] is not None:
+        if record["ack"] != ack:
+            raise StateBlockedError("publication acknowledgment changed after acceptance")
+        return False
+    record["ack"] = ack
+    save_state(state)
+    return True
+
+
+def publication_checkpoint_comparison(
+    state: dict[str, object], compared_at: datetime
+) -> dict[str, object]:
+    _validate_state(state)
+    _require_aware_timestamp(compared_at, "compared_at")
+    stats = state["stats"]
+    assert isinstance(stats, dict)
+    ledger = stats.get(_PUBLICATION_LEDGER_KEY, {})
+    assert isinstance(ledger, dict)
+    ordered = sorted(
+        ledger.items(),
+        key=lambda item: (item[1]["snapshot"]["delivery_confirmed_at"], item[0]),
+    )
+    confirmed = max(
+        (record["snapshot"]["delivery_confirmed_at"] for record in ledger.values()),
+        default=None,
+    )
+    accepted = None
+    for _owner_key, record in ordered:
+        snapshot = record["snapshot"]
+        if record["ack"] is None:
+            break
+        accepted = snapshot["delivery_confirmed_at"]
+    if confirmed is not None and not any(record["ack"] is None for record in ledger.values()):
+        accepted = confirmed
+    return {
+        "compared_at": compared_at.isoformat(),
+        "confirmed_through_at": confirmed,
+        "accepted_through_at": accepted,
+        "outstanding_count": sum(1 for record in ledger.values() if record["ack"] is None),
+    }
 
 
 def reject_stock_status(

@@ -67,6 +67,22 @@ def test_new_state_contains_delivery_ledger_and_cleanup_queue():
     assert value["cleanup"] == []
 
 
+def test_ineligible_group_event_suppression_is_durable(tmp_path):
+    value = state.new_state()
+    event = {"profile_id": "wavetiga", "post_id": "101", "source_event_key": "source-101",
+             "enabled_capabilities": ["company_news"], "route": "id_stocks_swing"}
+    value["outbox"].append(event)
+    value["source_events"]["source-101"] = {"version": 1, "outcome": "accepted", "enabled_capabilities": ["company_news"]}
+    state.suppress_ineligible(value, event)
+    path = tmp_path / "x.json"
+    state.save_state(path, value)
+
+    loaded = state.load_state(path)
+    assert loaded["outbox"] == []
+    assert loaded["source_events"]["source-101"]["outcome"] == "suppressed_ineligible"
+    assert loaded["source_events"]["source-101"]["enabled_capabilities"] == ["company_news"]
+
+
 def test_load_state_adds_pending_board_handoff_to_existing_outbox_event(tmp_path):
     path = tmp_path / "state.json"
     path.write_text(json.dumps({
@@ -188,3 +204,15 @@ def test_disabled_thread_handling_delivers_without_a_quiet_window(config_path, p
     state.observe_posts(value, profile, [post], lambda candidate: candidate.kind is PostKind.NORMAL, now=now)
 
     assert state.is_ready(value["outbox"][0], now) is True
+
+
+def test_split_news_cleanup_tracks_each_actual_destination():
+    value=state.new_state()
+    old={'delivery_id':'writer:101','channel_id':'123','text_message_ids':['1001','1002'],'text_destinations':['123','456'],'media_message_ids':['1003'],'superseded_by':None}
+    value['deliveries'].append(old)
+    state.queue_replacement_cleanup(value,{'delivery_id':'writer:102','replacement_of':['writer:101']})
+    assert {r['channel_id']:r['message_ids'] for r in value['cleanup']}=={'123':['1001','1003'],'456':['1002']}
+    state.finish_cleanup(value,value['cleanup'][0])
+    assert old.get('superseded_by') is None and old['replacement_pending']
+    state.finish_cleanup(value,value['cleanup'][0])
+    assert old['superseded_by']=='writer:102' and not old['replacement_pending']

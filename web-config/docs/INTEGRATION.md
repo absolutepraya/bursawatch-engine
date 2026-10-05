@@ -1,9 +1,9 @@
 # Web / automation contract
 
-Status, 20 September: `/workspace` now implements Supabase user authentication,
-allowlisted reads/writes, seven admin editors and schedule reconciliation.
-Read-only API health is verified; real user access and approved production
-changes are not. [CONTROL_PLANE.md](CONTROL_PLANE.md) is the current authority.
+**Historical status, 20 September 2026:** this note recorded the first
+Supabase-authenticated workspace implementation. Its deployment and access
+claims describe that review only. The current authenticated operator contract
+and production verification are in [CONTROL_PLANE.md](CONTROL_PLANE.md).
 Everything below is the **legacy sample/consumer contract**. It describes the
 pre-control-plane baseline, not the current authenticated operator interface.
 

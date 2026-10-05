@@ -40,6 +40,7 @@ run_suite cron-ig-source-ingest cron-ig-source-ingest tests
 run_suite cron-wa-source-ingest cron-wa-source-ingest tests
 run_suite cron-rss-source-ingest cron-rss-source-ingest tests
 run_suite cron-tg-phintraco-swing cron-tg-phintraco-swing tests
+run_suite lib-news-format lib-news-format tests
 run_suite lib-swing-format lib-swing-format tests
 run_suite cron-dc-swing-board cron-dc-swing-board tests
 run_suite cron-ig-account-watch cron-ig-account-watch tests
@@ -57,6 +58,7 @@ else
 fi
 run_suite service-bursawatch-control service-bursawatch-control tests
 run_suite service-bursawatch-source-media service-bursawatch-source-media tests
+run_suite platform-bursawatch-observer platform-bursawatch-observer tests
 run_suite platform-hermes-schedule-reconciler platform-hermes-schedule-reconciler tests
 run_suite platform-bursawatch-release platform-bursawatch-release tests
 if [[ "${SKIP_WHATSAPP_CHANNEL_WATCH:-0}" != "1" ]]; then

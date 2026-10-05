@@ -2,18 +2,20 @@
 
 Runtime identity: `bursawatch-x-source-ingest`. Entry point:
 `bin/runner.py`, installed by the release agent with
-`bin/bursawatch-x-source-ingest.sh`. No Hermes job is registered. Do not
-invoke this runtime beside the current X source polling job; production
-cutover requires a separate reviewed one-reader scheduler transition.
+`bin/bursawatch-x-source-ingest.sh`. The existing Hermes X source-polling job
+invokes this runtime. It is the sole production X source reader. The separate
+X account-watch queue worker processes accepted work and must remain active.
+Do not enable the legacy account-watch source-polling wrapper beside this
+reader.
 
-Before scheduling, configure the private Source Event API URL and token file
+For deployment, configure the private Source Event API URL and token file
 as `BURSAWATCH_X_SOURCE_CONTROL_PLANE_URL` and
 `BURSAWATCH_X_SOURCE_CONTROL_PLANE_TOKEN_FILE`. Every enabled X endpoint must
 also have a reviewed publisher binding; unknown bindings block intake rather
 than being inferred from a handle. Keep credentials out of logs and source
 control.
 
-When separately scheduled, every run sends a heartbeat through the shared
+Every run sends a heartbeat through the shared
 Discord Delivery Owner to `#hermes`, including empty polls. The format is
 `🫀 bursawatch-x-source-ingest · HH:MM WIB · endpoints=N accepted=N work=N pending=N`
 with `⚠️` for blocked source endpoints or pending work. Fatal runs use
@@ -42,23 +44,66 @@ types, unavailable media, and upload failures remain fail-closed in
 `blocked-media.json` with the cursor held. The current safe fetch path does
 not support X video downloads.
 The runner reads one live watcher config revision and the effective catalog.
-It claims `company_news` and `macro_news` work independently through
-`PipelineRuntime` and hands each item to the existing X watcher owner.
-Accepted source events carry an ordered self-chain snapshot. A private
+Verified X endpoints are compatible with `company_news`, `macro_news`, and
+`swing_chart_context`; compatibility does not enable a subscription.
+`swing_chart_context` is disabled by default, while its effective enabled
+state and catalog revision are explicit in the snapshot. The three X
+capabilities share the frozen `x_post_route` dispatch group: one publication
+with any enabled group members creates one route-group work item, and the
+existing X watcher classifies it once. Existing legacy `company_news` and
+`macro_news` work remains drainable. Each work item freezes the complete
+enabled capability set and per-capability configuration source for retries and
+corrections; it does not re-evaluate current catalog settings.
+
+## Source Catalog revision transition
+
+The effective catalog and the X reader marker must agree before polling. The
+reader accepts revision 8 only when its private journal directory contains the
+completed historical 5 to 7 revision-only transition and the completed
+package-owned 7 to 8 transition. The 7 to 8 journal records the reviewed hash
+of all 30 effective X subscription rows, including disabled capabilities.
+Missing, incomplete, malformed, or extra journal entries block the reader.
+
+Use `bin/compatible_catalog_transition.py preview` with the exact prior and
+target effective catalog JSON and the current source state root. Review and
+retain its private plan outside the state root. Applying requires that same
+plan, unchanged catalogs and source files, the package apply guard
+`BURSAWATCH_X_CATALOG_TRANSITION_ALLOW_APPLY=1`, and a paused source reader.
+The shared planner advances only the marker and journal; all endpoint cursors,
+accepted-event indexes, and pending handoffs remain unchanged. Do not use this
+one-edge tool for later catalog revisions without a separately reviewed
+package change.
+
+Accepted source events carry an ordered self-chain snapshot. Own-author quotes
+keep inline quoted text and media when the original is absent from the page
+or outside the configured thread window. A missing reply parent or quote
+without visible inline context still blocks intake. The reader does not fetch
+historical originals to reconstruct these standalone quotes. Correction
+failures include a bounded `correction_error_code` identifying the failed
+stage alongside `correction_handoff_failed`, without raw exceptions or source
+content in diagnostics. A private
 accepted-event index detects same-ID source changes and stages durable
 corrections with stable revision IDs. The Source Media Owner uses
 `BURSAWATCH_SOURCE_MEDIA_URL`, the private upload token file
 `BURSAWATCH_SOURCE_MEDIA_UPLOAD_TOKEN_FILE`, and an owner read token file
 `BURSAWATCH_SOURCE_MEDIA_READ_TOKEN_FILE`. If upload access is absent, media
 events remain blocked. If owner read access or a required thread original is
-absent, its subscription work retries. The Board chart path currently allows
-one image; multi-image source work stays unclaimed. These settings do not
-change the live X watcher.
+absent, its subscription work retries. Accepted media remains bounded to 16
+refs per event, 8 MiB per object, and 25 MiB aggregate. The adapter does not
+enable a capability or change the effective X watcher configuration.
+
+For a cursorless `direct_x` endpoint, the first poll reads the public profile
+page and records the largest own-author status ID as a future-only boundary.
+It does not download or publish posts already visible at setup time. If the
+page has no verifiable own-author status link, the endpoint stays blocked and
+no cursor is written. Later polls use the stored ID and normal post/thread
+fetching. The bootstrap deliberately does not transfer or backfill legacy
+history.
 
 The existing X watcher retains its self-chain, edit/supersession, classifier,
 rendering, outbox, Board, Delivery Owner, and heartbeat behavior. Do not
-remove its source job or queue worker before a reviewed state and scheduler
-transition proves parity and accounts for pending output.
+remove its queue worker; it processes accepted source work and may also have
+pending deliveries from before the source-reader transition.
 
 `adapter.plan_legacy_cursor_seed` previews a per-profile seed from an explicit
 legacy JSON snapshot. The Python API defaults to preview. Applying uses its

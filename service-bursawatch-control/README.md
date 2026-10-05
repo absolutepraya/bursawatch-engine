@@ -17,6 +17,21 @@ secrets are managed credential references. New People & Org endpoints stay
 pending and cannot activate a pipeline until a reviewed identity verification
 path is added.
 
+For verified X endpoints, `company_news`, `macro_news`, and
+`swing_chart_context` are compatible members of the exclusive `x_post_route`
+dispatch group. Compatibility says a capability may be selected; it does not
+enable it. Effective `enabled` state is still resolved from publisher defaults
+and endpoint overrides, and `swing_chart_context` is disabled by default.
+Catalog compatibility and effective enablement are returned separately with
+the catalog revision.
+
+Migration `021_phintas_swing_compatibility.sql` adds `trading_plans`
+compatibility for the canonical Phintraco endpoint `telegram:phintasprofits`.
+Compatibility alone leaves the effective subscription disabled. Enabling it
+and disabling the legacy `telegram:phintraprofits` alias requires the reviewed
+forward-only source-catalog transition; the compatibility migration does not
+change the active subscription or any watcher configuration.
+
 Migration `013_source_catalog.sql` adds a private engine registry and independent
 catalog revision/audit tables. It seeds canonical IDs from checked-in watcher
 configs and the fixed Stockbit `FEEDS` definition without copying, converting,
@@ -55,12 +70,18 @@ This branch adds:
   revision per invocation. Stockbit Snips requires live configuration for each
   invocation and has no static fallback.
 
-The Supabase Auth verifier and the reconciler-only control API are implemented
-and covered by local tests. A VPS reconciler service unit, real environment
-values, and an authenticated web client remain separate deployment work.
-The watcher validator bridge is implemented, but requires its deployed-source
-directory settings. A desired schedule revision also needs a separate trusted
-VPS scheduler reconciler before it changes a live Hermes job.
+The Supabase Auth verifier and reconciler-only control API are implemented
+and covered by local tests. The VPS schedule-reconciler systemd timer was
+enabled and active in a production read at 2026-10-01 00:35 WIB. It applies
+desired interval revisions through the supported Hermes CLI. For an approved
+temporary pause, the authenticated admin schedule route must store
+`enabled=false` while preserving the interval and timezone; verify the
+reconciler's `applied_revision` and paused Hermes state. A direct Hermes pause
+while desired state remains enabled can be undone by the next timer pass.
+Restore the original enabled desired schedule through the same admin route and
+verify natural reconciliation. The authenticated web application remains a
+separate Vercel deployment unit. The watcher validator bridge is implemented,
+but still requires its deployed-source directory settings.
 
 ## Runtime environment
 
@@ -154,8 +175,11 @@ Each validator executes in a fresh, credential-free subprocess. This prevents
 Python module collisions between watcher packages and means the same strict
 schema used at cron startup guards web writes. Unconfigured watchers remain
 read-only through the API until their typed validator is added. Stockbit config
-PUTs remain unavailable until the reviewed Stockbit validator bundle path is
-configured in the dedicated API environment and the service is restarted.
+PUTs are no longer blocked by a missing validator bundle. The reviewed
+Stockbit bundle path is configured in the dedicated production API environment
+and is present on the VPS. The API restarted with release
+`b1297c269bd42fb7d56624c362e0e0e1fe059144` on 2026-09-30. Do not point the
+validator at the live cron directory.
 
 ## Profile avatar metadata
 
@@ -242,18 +266,90 @@ Market News, and five minutes to six hours for Kelas Investasi. WhatsApp is one 
 to six hours. The two Swing Board calendar jobs and the X queue worker remain
 fixed and read-only.
 
-## Source inbox (development contract, not yet live)
+`GET /v1/jobs` returns the global job inventory once per shared job. Supplying
+`component_id` filters it to jobs linked to that declared component, so a
+workflow detail can load its own shared jobs without reading unrelated job
+records. `GET /v1/observations` similarly accepts repeated `job_id` filters;
+the unfiltered form is reserved for the global Jobs view. Unknown, duplicate,
+or excessive filter values are rejected rather than returned as empty data.
+
+## Published feed projection contract
+
+The separate publication read model accepts only confirmed, post-cutover
+Discord output. Its migration `020_publications.sql` is additive. Production
+activation recorded the one-time forward-only boundary as 30 September 2026,
+14:15 WIB with `bin/activate_publication_feed.py`; activation is separate from
+migration and service startup. It fixes the eight owner identities declared in
+`publication_model.py` and refuses a second activation. It neither replays old
+events nor sends a message.
+
+Each owner receives a distinct private credential in the
+`CONTROL_PLANE_PUBLICATION_OWNER_TOKENS` JSON mapping. The service derives the
+owner ID from that credential for `POST /v1/publications` and
+`POST /v1/publications/checkpoints`; browser JWTs and the shared machine token
+cannot submit. Viewer and admin JWTs may read the paginated list, immutable
+detail, and per-owner coverage. The web proxy must allow only those GET paths.
+
+An owner must persist its complete required-operation manifest and exact
+rendered snapshot in its own durable state before acknowledging confirmed
+delivery. Every required leg needs a confirmed Discord Delivery Owner receipt,
+including its stable operation key, digest, operation ID, destination, and
+message ID. The Control Plane validates the owner's submitted manifest and
+safe output but cannot infer an omitted leg from another owner's state. On an
+API outage, the owner retries that stored projection only. It must not repeat
+the Discord send to repair the feed. A checkpoint attests to the owner's
+comparison time, confirmed and accepted boundaries, and outstanding count.
+Missing or stale checkpoints are unknown. A complete feed claim requires every
+cutover owner to report a current successful comparison. A fresh checkpoint
+does not override a last-known disabled owner job, which remains paused or
+unverified.
+
+The deployed Control Plane API release SHA was
+`b1297c269bd42fb7d56624c362e0e0e1fe059144`, then-current `main` on
+2026-09-30, and the Published page is live in the web workspace. At the
+2026-09-30 production workspace check, the feed
+showed no confirmed publications after its boundary and marked publisher
+coverage incomplete or unverified. This does not prove that no delivery
+occurred. Natural delivery coverage remains unverified until owners submit
+receipt-backed publication records and current checkpoints.
+
+## Source Inbox API and adapter contract
+
+The version 1 Source Inbox API is part of the production Control Plane. The
+2026-09-30 production snapshot showed the standalone Telegram intake schedule
+active and the X, WhatsApp, and Stockbit adapter wrappers active through their
+existing watcher schedules. This verifies the scheduler entrypoints and
+Control Plane release SHA, not installed runtime checksums or a natural
+source-to-delivery outcome. Accepted events and pipeline work are intake
+evidence only; a Published record still requires the domain owner to report
+confirmed Delivery Owner receipts and current coverage checkpoints.
 
 `POST /v1/source-events` accepts a bounded version 1 envelope. Its provider identity
 is `(platform, endpoint_id, provider_event_id)`; repeating the same original returns
 its durable receipt and a conflicting original returns 409. Acceptance validates
 publisher and endpoint identity against the Source Catalog, then writes the source
-version and one work item per enabled, compatible subscription in one Postgres
-transaction. Work freezes the catalog revision, capability version, resolved settings,
-and the configuration source. A later disable prevents new work but leaves accepted
-items pending. Corrections and tombstones append audited versions targeted at the
-original subscription set, even if those subscriptions were later disabled. Tombstones
-are terminal. No legacy cursor or watcher state is moved by this migration.
+version and work in one Postgres transaction. An X publication with one or more
+enabled members of `x_post_route` creates exactly one route-group work item.
+It freezes the complete enabled capability set, per-capability source metadata,
+and catalog revision. Non-X subscriptions and existing legacy X `company_news`
+or `macro_news` work remain independently claimable during migration. A later
+disable prevents new work but leaves accepted items pending. Corrections and
+tombstones append audited versions targeted at the original frozen subscription
+set, even if those subscriptions were later disabled. Retries use the stored
+dispatch context and stable effect key rather than reevaluating current settings.
+Tombstones are terminal. No legacy cursor or watcher state is moved by this
+migration.
+
+The route group is consumed by the existing X watcher, which runs its
+X-specific classifier once and retains existing route precedence and output.
+Accepted thread images are Vision context and ordered delivery inputs. X Swing
+events deliver All text and media in the same queue invocation before one
+source-only handoff to the existing Board owner; transient legs retain their
+stable effect identity for retry, while confirmed missing media is a terminal
+skip for that item. The X route's `omit_last` profile setting does not remove
+accepted Swing images from All or Board delivery; non-Swing routes retain the
+profile policy. Source catalog support does not itself schedule or cut over the
+X adapter.
 
 Worker machine clients may claim work, settle a current lease, and inspect events or work.
 Claims require a nonempty list of supported pipeline IDs and use
@@ -298,7 +394,26 @@ identities minted by the private Source Media Owner, with bounded digest, kind, 
 size, and filename metadata. The inbox validates those fields and the per-object and
 per-event byte limits, but does not resolve refs or access Storage. The media service
 owns Storage credentials and provides authenticated upload and download operations.
-This code path uses fake providers in tests; it does not authorize a bucket, Supabase
-change, or production replay. Operator inspection can contain source payload and should
-be restricted to the authenticated API, never copied into routine logs or heartbeats.
-The in-memory inbox is for local contract testing only.
+Synthetic tests use fake providers and do not validate live object storage,
+authorize a bucket or Supabase change, or authorize production replay. Operator
+inspection can contain source payload and should be restricted to the
+authenticated API, never copied into routine logs or heartbeats. The in-memory
+inbox is for local contract testing only.
+
+## X Swing capability and state-transition boundary
+
+The X source adapter is active through the existing
+`bursawatch-x-account-watch` schedule, and the separate X queue worker remains
+active. The 2026-09-30 production snapshot confirmed those scheduler entries;
+it did not verify installed runtime checksums or prove a natural delivery.
+Do not add a second X polling job or resume the legacy source-polling wrapper.
+
+The route-group and capability contracts do not themselves enable a
+subscription. Do not infer that `swing_chart_context` or another capability is
+enabled from adapter compatibility. Future changes to effective capabilities,
+routes, state roots, Hermes schedules, or production delivery behavior still
+require their applicable reviewed and approved transition. Never transfer
+cursors or state, replay work, or post production messages as an implicit part
+of such a change. The original cutover preflight remains historical guidance;
+for a new state transition, collect its sanitized, read-only evidence before
+changing the live reader or its state.

@@ -254,6 +254,39 @@ def test_direct_x_bootstrap_excludes_other_authors_even_in_profile_markup(config
     assert [post.post_id for post in posts] == ["101"]
 
 
+def test_direct_x_head_uses_newest_own_status_id_without_detail_requests(config_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+
+    class ProfileOnlySession:
+        def __init__(self):
+            self.urls = []
+
+        def get(self, url, timeout, headers=None):
+            assert timeout == 30
+            self.urls.append(url)
+            return Response(200, text=(
+                '<a href="/Kutekians/status/101">old own post</a>'
+                '<article data-tweet-id="999999"></article>'
+                '<a href="/other/status/999999">other post</a>'
+                '<a href="https://x.com/kutekians/status/103">new own post</a>'
+            ))
+
+    session = ProfileOnlySession()
+    assert direct_x.fetch_profile_head_id(profile, session) == "103"
+    assert session.urls == [profile.profile_url]
+
+
+def test_direct_x_head_fails_closed_without_own_status_links(config_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+
+    class EmptyProfileSession:
+        def get(self, url, timeout, headers=None):
+            return Response(200, text='<a href="/other/status/999">not ours</a>')
+
+    with pytest.raises(direct_x.SourceFetchError, match="no own status links"):
+        direct_x.fetch_profile_head_id(profile, EmptyProfileSession())
+
+
 def test_direct_x_keeps_quoted_tweet_media_for_vision_context(config_path):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     post = direct_x._source_post(profile, {

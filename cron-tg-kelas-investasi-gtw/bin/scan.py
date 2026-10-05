@@ -199,6 +199,8 @@ async def _run(
                     dry_run,
                     channel_id=loaded_config.config.alert_discord_channel_id,
                 )
+                _drain_publication_projection(state, path, now, dry_run,
+                                              channel_id=loaded_config.config.alert_discord_channel_id)
                 warning = _has_delivery_warning(state)
                 control_run.event(
                     "delivery-drain-completed",
@@ -356,6 +358,17 @@ def _drain_due_delivery(
     ):
         delivered += 1
     return delivered
+
+
+def _drain_publication_projection(
+    state: dict[str, object], path: Path, now: datetime, dry_run: bool,
+    *, channel_id: str = DISCORD_CHANNEL_ID,
+) -> dict[str, int]:
+    """Persist confirmed snapshots and retry only the read-model submission."""
+    from publication_projection import record_confirmed_outbox, drain
+
+    record_confirmed_outbox(state, path, now, channel_id=channel_id)
+    return drain(state, path, now, dry_run=dry_run)
 
 
 def _has_delivery_warning(state: Mapping[str, object]) -> bool:
@@ -529,6 +542,8 @@ def _submit_analysis_payload_loaded(
             raise
         event["title"] = validated["title"]
         event["summary"] = validated["summary"]
+        from render import freeze_presentation
+        freeze_presentation(event, validated, loaded_config.config.alert_discord_channel_id)
         # Submitted work is delivery-only. It can never re-enter the agent
         # claim queue, even if an immediate Discord retry is pending.
         event["agent_phase"] = "delivering"
@@ -549,6 +564,8 @@ def _submit_analysis_payload_loaded(
             dry_run,
             channel_id=loaded_config.config.alert_discord_channel_id,
         )
+        _drain_publication_projection(state, path, submission_now, dry_run,
+                                      channel_id=loaded_config.config.alert_discord_channel_id)
         warning = _has_delivery_warning(state)
         control_run.event(
             "agent-delivery-drain-completed",

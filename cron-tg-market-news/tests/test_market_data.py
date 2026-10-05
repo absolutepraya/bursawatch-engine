@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from types import SimpleNamespace
+import pandas as pd
 
 import market_data
 
@@ -18,7 +19,11 @@ class FakeQuote:
 
     def history(self, **kwargs):
         self.history_args = kwargs
-        return FakeHistory(Close=self.closes)
+        return pd.DataFrame({'Close': self.closes}, index=pd.bdate_range(end='2026-10-01', periods=len(self.closes), tz='Asia/Jakarta'))
+
+    def get_history_metadata(self):
+        return {'regularMarketTime': pd.Timestamp('2026-10-01T16:00:00+07:00').timestamp(),
+                'exchangeTimezoneName': 'Asia/Jakarta'}
 
     def get_info(self):
         return {"longName": "PT Rukun Raharja Tbk"}
@@ -36,6 +41,7 @@ def test_market_snapshot_uses_one_year_history_and_22_66_session_horizons(monkey
         "interval": "1d",
         "auto_adjust": False,
         "raise_errors": True,
+        "timeout": 5,
     }
     assert snapshot.latest_price == 68
     assert snapshot.one_day_change == 1

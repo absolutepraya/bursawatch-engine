@@ -189,10 +189,16 @@ def _validate_work(work: dict[str, Any], profiles: tuple[Any, ...]) -> tuple[Any
     received_at = _timestamp(envelope.get("observed_at"), "observation timestamp")
     raw_manifest = payload.get("media_manifest")
     raw_ref_ids = payload.get("media_ref_ids")
+    unavailable_manifest = payload.get("unavailable_media_manifest", [])
     if type(raw_manifest) is not list or type(raw_ref_ids) is not list or len(refs) > 8 or len(raw_manifest) != len(refs) or raw_ref_ids != [item.get("ref") for item in refs if type(item) is dict]:
         raise ValueError("WhatsApp media manifest does not match Source Inbox references")
     if envelope.get("media_required") is not bool(refs):
         raise ValueError("WhatsApp media requirement does not match its references")
+    if (
+        type(unavailable_manifest) is not list or len(unavailable_manifest) > 8
+        or (unavailable_manifest and (refs or not payload["text"].strip()))
+    ):
+        raise ValueError("WhatsApp unavailable-media fallback is invalid")
 
     media_rows = []
     total = 0
@@ -230,13 +236,22 @@ def _validate_work(work: dict[str, Any], profiles: tuple[Any, ...]) -> tuple[Any
         media_rows.append({"kind": kind, "mime": content_type, "ref": reference})
     if len(raw_manifest) != len(set(row["ref"]["ref"] for row in media_rows)):
         raise ValueError("WhatsApp source media references repeat")
+    fallback_rows = []
+    for index, row in enumerate(unavailable_manifest):
+        if (
+            type(row) is not dict or set(row) != {"index", "kind", "mime"}
+            or row["index"] != index or row["kind"] not in _MEDIA_TYPES
+            or row["mime"] is not None and type(row["mime"]) is not str
+        ):
+            raise ValueError("WhatsApp unavailable-media manifest is invalid")
+        fallback_rows.append({"kind": row["kind"], "mime": row["mime"]})
 
     normalized = normalize_bridge_event({
         "channel_jid": profile.channel_jid,
         "message_id": provider_id,
         "published_at": published_at.isoformat(),
         "text": payload["text"],
-        "media": [{"kind": row["kind"], "mime": row["mime"]} for row in media_rows],
+        "media": [{"kind": row["kind"], "mime": row["mime"]} for row in media_rows] + fallback_rows,
     }, received_at=received_at)
     if list(normalized.links) != payload["links"]:
         raise ValueError("WhatsApp links do not match source text")
@@ -345,6 +360,7 @@ def submit(
     route_keys = source_work_routes.route_keys(capabilities)
     owner_event_key = event.event_key
     source_record = {
+        "summary_media_refs": work["envelope"]["media_refs"],
         "source_event_key": work["event_key"],
         "source_content_hash": work["envelope"]["content_hash"],
         "source_catalog_revision": work["catalog_revision"],
@@ -352,12 +368,14 @@ def submit(
         "source_pipeline_work_keys": work_keys,
         "source_pipeline_route_keys": route_keys,
     }
+    if work["envelope"]["payload"].get("unavailable_media_manifest"):
+        source_record["source_media_unavailable"] = True
 
     with _state_lock(state_path):
         value = state.load(state_path)
         existing = next((row for row in value["outbox"] if type(row) is dict and row.get("event_key") == owner_event_key), None)
         if existing is not None:
-            if any(existing.get(key) != expected for key, expected in source_record.items()):
+            if any(existing.get(key) != expected for key, expected in source_record.items() if key != "summary_media_refs" or key in existing):
                 raise ValueError("WhatsApp source event conflicts with existing watcher work")
             return "accepted"
 
@@ -396,19 +414,31 @@ def submit(
 
 def claim_agent(
     *, no_post: bool = False, config_path: Path | None = None, state_path: Path | None = None,
-    now: datetime | None = None,
+    archive_root: Path | None = None, now: datetime | None = None,
 ) -> dict[str, Any]:
     config_path = config_path or _config_path()
     state_path = state_path or _state_path()
-    _assert_no_post_isolated(no_post, (state_path,))
+    archive_root = archive_root or _archive_root()
+    _assert_no_post_isolated(no_post, (state_path, archive_root))
     if not state_path.is_absolute():
         raise ValueError("WhatsApp owner state path must be absolute")
+    if not archive_root.is_absolute():
+        raise ValueError("WhatsApp archive path must be absolute")
     loaded = config.load_for_run(config_path)
     observed = now or datetime.now(timezone.utc)
     with _state_lock(state_path):
         value = state.load(state_path)
-        state.expire_leases(value, observed)
+        expired = state.expire_leases(value, observed)
         profiles = {profile.id: profile for profile in loaded.config.profiles}
+        errors: list[str] = []
+        delivered = scan._deliver_ready(
+            value,
+            profiles,
+            dry_run=no_post,
+            state_path=state_path,
+            archive_dir=archive_root,
+            errors=errors,
+        )
         claimed = None
         for record in scan._active_records(value, profiles):
             if record.get("agent_phase") != "pending":
@@ -420,10 +450,23 @@ def claim_agent(
             record["agent_phase"] = "awaiting_agent"
             record["agent_lease_until"] = state.lease_until(observed)
             route_override = agent_protocol.deterministic_route(profile, event)
-            claimed = agent_protocol.agent_item(profile, event, relevance_guard_required=route_override is not None)
+            agent_event = replace(event, media=()) if record.get("source_media_unavailable") is True else event
+            claimed = agent_protocol.agent_item(profile, agent_event, relevance_guard_required=route_override is not None)
+            import summary_context
+            selected_route = route_override if profile.enable_llm_routing else profile.discord_channels[0].key
+            if selected_route != "id_stocks_swing":
+                claimed["instruction"] += summary_context.context_instruction(
+                    summary_context.claim_from_state(value, record["event_key"], state_path.parent / "summary-context"),
+                    "~/.hermes/scripts/bursawatch-wa-channel-watch.sh prepare-summary-images --json",
+                )
             break
         state.save(state_path, value)
-    return agent_protocol.build_wake_payload(claimed)
+    return {
+        **agent_protocol.build_wake_payload(claimed),
+        "delivered": delivered,
+        "expired": expired,
+        "delivery_errors": len(errors),
+    }
 
 
 def main() -> int:

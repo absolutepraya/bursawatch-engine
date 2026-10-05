@@ -83,6 +83,22 @@ def test_health_is_public_and_config_requires_authentication():
     assert client.get(f"/v1/watchers/{WATCHER}/config").status_code == 401
 
 
+def test_operator_component_reads_are_human_only_and_source_gate_uses_catalog():
+    client, _store = build_client()
+    admin_headers = {"Authorization": f"Bearer {ADMIN}"}
+    machine_headers = {"Authorization": f"Bearer {TOKEN}"}
+
+    inventory = client.get("/v1/components", headers=admin_headers)
+    components = {item["component_id"]: item for item in inventory.json()["components"]}
+
+    assert inventory.status_code == 200
+    assert inventory.json()["inventory_version"] == 1
+    assert components["bursawatch-tg-source-ingest"]["source_gate"]["catalog_revision"] == 1
+    assert client.get("/v1/components/bursawatch-tg-source-ingest", headers=admin_headers).status_code == 200
+    assert client.get("/v1/components/unknown", headers=admin_headers).status_code == 404
+    assert client.get("/v1/components", headers=machine_headers).status_code == 403
+
+
 def test_cors_allowlist_supports_the_separate_web_origin():
     store = InMemoryStore()
     store.seed_config(WATCHER, 1, {"version": 1, "profiles": []})
@@ -296,13 +312,41 @@ def test_admin_can_store_an_interval_schedule_without_claiming_it_is_live():
 
 
 def test_reconciler_only_endpoints_expose_interval_jobs_and_record_verified_outcomes():
-    client, _store = build_client()
+    client, store = build_client()
+    store.seed_job(
+        job_id="bursawatch-tg-source-ingest",
+        watcher_id=None,
+        display_name="Telegram Source Intake",
+        runtime_job_key="bursawatch-tg-source-ingest",
+        schedule_kind="interval",
+        min_interval_seconds=60,
+        max_interval_seconds=3_600,
+        enabled=True,
+        interval_seconds=60,
+        timezone="Asia/Jakarta",
+    )
     headers = {"Authorization": f"Bearer {RECONCILER}"}
 
     schedules = client.get("/v1/internal/schedules", headers=headers)
 
     assert schedules.status_code == 200
-    assert [job["job_id"] for job in schedules.json()] == ["bursawatch-x-account-watch-source"]
+    rows = {job["job_id"]: job for job in schedules.json()}
+    assert set(rows) == {"bursawatch-tg-source-ingest", "bursawatch-x-account-watch-source"}
+    shared_job = rows["bursawatch-tg-source-ingest"]
+    assert shared_job["watcher_id"] is None
+    assert set(shared_job) == {
+        "job_id",
+        "watcher_id",
+        "display_name",
+        "runtime_job_key",
+        "schedule_kind",
+        "min_interval_seconds",
+        "max_interval_seconds",
+        "schedule",
+        "reconciliation",
+    }
+    assert "component_ids" not in shared_job
+    assert "can_edit" not in shared_job
     applied = client.post(
         "/v1/internal/jobs/bursawatch-x-account-watch-source/reconciliation",
         headers=headers,
@@ -389,7 +433,7 @@ def test_machine_cannot_change_schedule_and_fixed_jobs_reject_changes():
     )
 
     assert machine.status_code == 403
-    assert fixed.status_code == 409
+    assert fixed.status_code == 422
 
 
 def test_schedule_rejects_values_outside_the_job_policy():

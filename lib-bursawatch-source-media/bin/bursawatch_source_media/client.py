@@ -200,17 +200,22 @@ class SourceMediaClient:
             raise SourceMediaClientError("invalid_response")
         return result
 
-    def download(self, ref: str) -> MediaDownload:
+    def download(self, ref: str, *, max_bytes: int | None = None, timeout_seconds: float | None = None) -> MediaDownload:
         if not isinstance(ref, str) or not _REF.fullmatch(ref):
             raise SourceMediaClientError("invalid_reference")
+        maximum = MAX_OBJECT_BYTES if max_bytes is None else max_bytes
+        if type(maximum) is not int or not 0 < maximum <= MAX_OBJECT_BYTES:
+            raise SourceMediaClientError("invalid_configuration")
+        if timeout_seconds is not None and (isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)) or not math.isfinite(timeout_seconds) or timeout_seconds <= 0):
+            raise SourceMediaClientError("invalid_configuration")
         encoded_ref = urllib.parse.quote(ref, safe="")
         request = urllib.request.Request(
             f"{self._base_url}/v1/objects/{encoded_ref}",
             headers={"Authorization": f"Bearer {self._token}"},
             method="GET",
         )
-        response, headers = self._request_with_headers(request, MAX_OBJECT_BYTES + 1)
-        if len(response) > MAX_OBJECT_BYTES:
+        response, headers = self._request_with_headers(request, maximum, timeout_seconds=timeout_seconds)
+        if len(response) > maximum:
             raise SourceMediaClientError("invalid_response")
         digest = headers.get("X-Media-Sha256", "")
         kind = headers.get("X-Media-Kind", "")
@@ -246,9 +251,10 @@ class SourceMediaClient:
         self,
         request: urllib.request.Request,
         maximum: int,
+        *, timeout_seconds: float | None = None,
     ) -> tuple[bytes, Any]:
         try:
-            with self._opener.open(request, timeout=self._timeout_seconds) as response:
+            with self._opener.open(request, timeout=self._timeout_seconds if timeout_seconds is None else min(self._timeout_seconds, timeout_seconds)) as response:
                 body = response.read(maximum + 1)
                 headers = response.headers
         except urllib.error.HTTPError as exc:

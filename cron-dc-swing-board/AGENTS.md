@@ -6,7 +6,7 @@ This file supplements the repository root `AGENTS.md`. It is the canonical devel
 
 The Board Engine alone mutates canonical episode/domain state, its SQLite intent outbox, and private media. The Delivery Owner service is the only Discord API writer. Board code sends forum/channel reads and writes through the typed shared client, and applies accepted receipts and Discord IDs back to SQLite exactly once. The Board accepts only validated internal watcher events after their All Swing delivery. It never imports a watcher store or writes watcher state.
 
-The board is read-only and factual. It has no LLM, does not infer a plan or a price state, does not give trading advice, and does not place orders. Only a complete Phintraco Daily cash-equity BUY creates or replaces a Primary Plan. Only active cash-equity source events may reach the board. When a complete BUY promotes an open source-only episode, already-recorded Phintraco status or reminder context after that BUY is reconciled against the new plan before the transition completes.
+The board is read-only and factual. It has no LLM, does not infer a plan or a price state, does not give trading advice, and does not place orders. Only a complete Phintraco Daily cash-equity BUY creates or replaces a Primary Plan. Only active cash-equity source events may reach the board. A BUY published before the latest material in an open source-only episode becomes a labeled historical reply; it cannot promote or rewind that episode.
 
 Kelas Investasi GTW is a qualifying source-only cash-Swing input. It may open
 or append to a `Supporting setup` episode, but it never becomes the Primary Plan
@@ -22,10 +22,37 @@ preserves the previous source starter once as history. The board never creates
 a separate GTW resend and never replays the All Swing feed. An archived episode
 receives no later source event.
 
-Every forum topic title is the ticker only, for example `CPIN`. Descriptive
-source and plan titles remain in the starter card. Source promotion, status
-updates, and same-tier replacements never rename the topic. The one-time
-`migrate-titles --apply` command renames existing topics to this stable form.
+Every forum topic title is the ticker and the opening source date in WIB, for
+example `CPIN - Wed, 23 Sep 2026`. The timestamp comes from the first accepted
+source event, including on a Saturday or Sunday, and stays fixed through
+source promotion, status updates, and starter replacement. Descriptive source
+and plan titles remain in the starter card. `migrate-titles --apply` repairs an
+existing topic from its canonical ticker and stored opening timestamp.
+
+### Linked Phintraco updates and source context
+
+Phintraco status/reminder events may include `matched_setup_event_key` only
+after the watcher proves one source setup. For weekly PDF setups, the key is
+`phintraco:<channel-id>:weekly:<pdf-message-id>:<ticker>`. The Board verifies
+that the key names the active Primary plan and that its ticker matches the
+update. A missing or different key cannot amend that plan. Legacy producers
+may omit the optional key and retain their existing behavior.
+
+An explicitly matched update may replace a numbered target or append the next
+contiguous target after validating the complete ladder. The current plan
+projection is updated and the starter is rerendered with the existing Primary
+card layout; the immutable setup
+`source_events` record remains unchanged, and the update itself remains a
+separate immutable source event. Source-confirmed milestones remain recorded
+even if later market position changes.
+
+The `context` event kind retains source material without claiming it updates a
+plan. With an open episode, it creates a source reply; with a resolved but
+unarchived episode, an event published before resolution may be retained as a
+historical reply. With no applicable episode, the owner persists and marks the
+event processed without creating a topic. Context does not alter lifecycle,
+tier, plan levels, market tags, milestones, or the inactivity timer. A
+reminder that has no unique setup match must use this path.
 
 ## Commands and safety
 
@@ -33,9 +60,31 @@ updates, and same-tier replacements never rename the topic. The one-time
 
 Ordered X media URLs become separate durable attachment intents. Only public HTTPS `pbs.twimg.com` and `video.twimg.com` URLs are accepted. The owner downloads validated image/MP4 content into private atomic cache files, with an 8 MiB limit per attachment, bounded timeouts and redirects, and no inherited credentials or proxy settings. Acquisition and upload failures retain the intent; upload retries reuse the owner copy. No-post skips remote acquisition. All source replies are split losslessly into at most 2,000 UTF-16 units per message. Managed cards reserve checkpoint space; compacted source fields remain complete in ordered source replies. Type and already escaped rationale retain their source rendering.
 
-Before remote mutation, the Board persists the desired operation, payload, and stable delivery key in its SQLite outbox. The Delivery Owner stores the exact create snapshot and bounded read-back boundary before its Discord request. On timeout or interruption, the service reconciles by that key and snapshot; Board retries look up the same key and never issue a new create for an ambiguous result. Accepted receipts and IDs are applied once to canonical Board state. The service owns Discord delivery locks, bounded recovery, and rate-limit handling.
+Before remote mutation, the Board persists the desired operation, payload, and stable delivery key in its SQLite outbox. The Delivery Owner stores the exact create snapshot and bounded read-back boundary before its Discord request. When an operation is accepted with a nonterminal receipt, the Board waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) for that same operation before retrying on a later drain. On timeout or interruption, the service reconciles by that key and snapshot; Board retries look up the same key and never issue a new create for an ambiguous result. Accepted receipts and IDs are applied once to canonical Board state. The service owns Discord delivery locks, bounded recovery, and rate-limit handling.
 
 `drain` reports `drained`, `pending`, and `failed` counts and exits nonzero while any work remains. Pending includes retained backoff work; failed counts pending operations with a recorded delivery failure.
+
+The daily `reconcile-lifecycle` owner pass uses the 17:10 WIB schedule through
+`bursawatch-dc-swing-board-lifecycle.sh`; its registered Hermes job is
+`f2b6c4f0995b`. It counts reviewed IDX trading sessions strictly after the
+last material source date. At 20 sessions it
+resolves an open Primary or source-only episode as `stale`, including when no
+new source arrives. A distinct newer Phintraco BUY resolves an active Primary
+as `superseded` and starts a new thread. The resolved card states the reason
+and last valid Phintraco close price, time, and state, or explicitly says no
+close was recorded.
+Stale and superseded resolutions clear the market tag; terminal resolutions
+retain it. All card, tag, source-history, and archive changes use the durable
+outbox and shared Delivery Owner.
+
+The 48-hour archive timer starts only after the resolution edit, tag patch,
+and all earlier episode outbox messages have completed or been tombstoned.
+Late historical source replies to a resolved, unarchived episode reset the
+timer after their delivery. An archived episode receives no later source
+events. The daily pass schedules an archive only after the full 48 hours; a
+daily cadence can leave a thread visible for up to one further day. Archive
+completion is recorded only from the accepted delivery receipt. The daily
+pass emits its own durable `#hermes` heartbeat, including no-op runs.
 
 Only scheduled `after-close --phase initial` at 16:30 WIB and `after-close --phase retry` at 17:00 WIB evaluate a valid current IDX session close. Each phase accepts a start within the following five minutes to tolerate Hermes scheduler lateness, while later or early invocations are ignored. The zero-argument scheduler executables are `bursawatch-dc-swing-board-close.sh` and `bursawatch-dc-swing-board-retry.sh`, respectively. The retry is eligible only when that exact active plan recorded an unavailable initial attempt for the current reviewed IDX session. A second unavailable result edits only the card to `Market check unavailable`, retaining the latest valid price/time and tags, without a history reply. A valid close updates the card and factual tags on an exact market-state or terminal-lifecycle transition, with operation identity scoped to plan and session. Stop-loss or the actual final target resolves and finishes the plan; target tags clamp at TP6 without shortening the target ladder. The owner does not generate quoted history replies. An unclassifiable plan preserves its facts, increments `invalid`, and does not block other tickers. Missing calendar coverage fails closed without a board mutation, drains safely, and emits one fatal `#hermes` heartbeat. Other unexpected reconciliation failures emit a sanitized fatal heartbeat. Every covered scheduled phase persists one normal or degraded `#hermes` heartbeat intent in `channel_outbox` before draining it through the typed Delivery Owner operation, warning on unavailable, invalid, or pending work.
 
@@ -72,6 +121,21 @@ changing the forum through the web would need a separately reviewed state and
 forum migration. The close and retry schedules are fixed market-calendar jobs,
 not web-editable interval schedules.
 
+## Published Feed projection
+
+Board publication reporting is disabled unless
+`IDX_SWING_PLAN_BOARD_PUBLICATION_ENABLED=1` and the shared
+`BURSAWATCH_PUBLICATION_CUTOVER_AT` is set. On a post-boundary successful
+outbox completion, the Board transaction inserts a private projection intent
+linked to that exact completed outbox row. A separate drain reconstructs the
+same Delivery Owner operation and requires a matching delivered receipt before
+submitting `swing_board_update`. Starters link to their source publication;
+replies and later lifecycle actions link to the episode starter publication.
+The durable retry ledger and contiguous checkpoint live in Board SQLite.
+Projection failures never reopen an outbox operation or create a Discord post.
+The API URL is `BURSAWATCH_PUBLICATION_CONTROL_PLANE_URL`, and the scoped
+credential path is `IDX_SWING_PLAN_BOARD_PUBLICATION_TOKEN_FILE`.
+
 Set `IDX_SWING_PLAN_BOARD_NO_POST=1` with isolated `IDX_SWING_PLAN_BOARD_STATE_PATH` and `IDX_SWING_PLAN_BOARD_MEDIA_ROOT` paths for every smoke test. This selects a local fake before any Delivery Owner client configuration is read, so no-post tests never contact the service. Never reset, hand-edit, initialize, or replay production state.
 
 `bin/delivery_handoff.py --plan <private-plan-path>` captures a payload-free,
@@ -107,6 +171,14 @@ send an All Swing alert or edit an existing All message. Capture each resulting
 forum-topic URL, then separately patch only the reviewed Yanto-owned All
 message IDs to the raw direct Discord URL.
 
+Manifest version 2 can give a recovered Board event a bounded recovery suffix
+so an audited correction does not reuse an already-processed source identity.
+It may promote a standalone Phintraco `On support` STATUS to a Primary setup
+only when entry, stop-loss, targets, and the original source timestamp are all
+present. It may also attach a Phintraco status/reminder to an exact weekly PDF
+setup key after source matching. These events still create Board work only;
+version 1 manifests retain their original shape and behavior.
+
 The one-time tag migration is `migrate-tags --apply`; it converts legacy
 `Source plan` episodes to their source-specific tier and rewrites existing
 forum tag applications. The one-time presentation migration is
@@ -120,8 +192,8 @@ titles, dates, field spacing, source status, and footer links. The approved reti
 `history_events` and must run against live Discord, never with the no-post
 control.
 
-The one-time `migrate-titles --apply` command renames existing forum topics to
-their ticker-only names without changing starter content or tags.
+The one-time `migrate-titles --apply` command repairs existing forum topics to
+their canonical dated names without changing starter content or tags.
 
 `repair-starter-media --event-key <key> --expected-thread-id <id>` previews a
 single open source starter whose image lost its filename type extension. It
@@ -143,4 +215,4 @@ Run the package suite from the repository root with the shared virtual environme
 ../../.venv/bin/python -m pytest -q cron-dc-swing-board/tests
 ```
 
-Deploy only a clean published commit after an approved VPS write, then compare changed checksums and use isolated no-post verification. Copy the generic wrapper plus both phase wrappers to the same Hermes scripts directory after approval. The two cutover target Hermes jobs are `bursawatch-dc-swing-board-close` at 16:30 WIB and `bursawatch-dc-swing-board-retry` at 17:00 WIB on weekdays. Never hand-edit the Hermes registry; use the supported CLI and verify the returned job records. Bootstrap has no scheduler entry.
+Deploy only a clean published commit after an approved VPS write, then compare changed checksums and use isolated no-post verification. Copy the generic wrapper, both phase wrappers, and the lifecycle wrapper to the same Hermes scripts directory after approval. The close and retry jobs use 16:30 and 17:00 WIB weekday schedules. The lifecycle job uses 17:10 WIB daily and is registered as Hermes job `f2b6c4f0995b`. Never hand-edit the Hermes registry; use the supported CLI and verify the returned job records. Bootstrap has no scheduler entry.

@@ -42,10 +42,10 @@ PEOPLE_ORG = (
     {'id': 'x-writingtorch', 'name': 'Torch', 'kind': None, 'tier': 3},
     {'id': 'x-arvinhonami', 'name': 'Arvin Honami', 'kind': None, 'tier': 3},
     {'id': 'x-insidertracker', 'name': 'Insider Tracker', 'kind': None, 'tier': 3},
-    {'id': 'x-doktermarket', 'name': 'DokterMarket', 'kind': None, 'tier': 3},
+    {'id': 'x-doktermarket', 'name': 'Dokter Market', 'kind': None, 'tier': 3},
     {'id': 'x-txthariansaham', 'name': 'Ga Cuan Ga tidur', 'kind': None, 'tier': 3},
     {'id': 'x-wavetiga', 'name': 'Andriy', 'kind': None, 'tier': 3},
-    {'id': 'x-aldotjahjadi8', 'name': 'IHSG Journal 🍀🌞', 'kind': None, 'tier': 3},
+    {'id': 'x-aldotjahjadi8', 'name': 'Aldo Tjahjadi', 'kind': None, 'tier': 3},
     {'id': 'x-kobeissiletter', 'name': 'The Kobeissi Letter', 'kind': None, 'tier': 3},
     {'id': 'instagram-beyondthefundamental', 'name': 'Beyond thy Fundamental', 'kind': None, 'tier': 3},
     {'id': 'instagram-investart_id', 'name': 'Investart', 'kind': None, 'tier': 3},
@@ -96,6 +96,7 @@ ENDPOINTS = (
 )
 
 COMPATIBILITY = (
+    *((endpoint["id"], "swing_chart_context") for endpoint in ENDPOINTS if endpoint["platform"] == "x"),
     ('x:kutekians', 'company_news'),
     ('x:kutekians', 'macro_news'),
     ('x:rickyho_1989', 'company_news'),
@@ -133,6 +134,7 @@ COMPATIBILITY = (
     ('whatsapp:0029Vb6qi96ISTkJcDn4op2z', 'company_news'),
     ('whatsapp:0029Vb6qi96ISTkJcDn4op2z', 'macro_news'),
     ("telegram:phintraprofits", "trading_plans"),
+    ("telegram:phintasprofits", "trading_plans"),
     ("telegram:phintasprofits", "company_news"),
     ("telegram:phintasprofits", "macro_news"),
     ("telegram:phintasprofits", "stock_status"),
@@ -140,17 +142,22 @@ COMPATIBILITY = (
     ("telegram:tuntunsekuritas", "company_news"),
     ("telegram:tuntunsekuritas", "macro_news"),
     ("whatsapp:0029VbAjdnb60eBhwVdJxj1c", "swing_chart_context"),
+    ("whatsapp:0029VbAjdnb60eBhwVdJxj1c", "company_news"),
+    ("whatsapp:0029VbAjdnb60eBhwVdJxj1c", "macro_news"),
     *((f"rss:stockbit:{lane}", "stockbit_snips") for lane in ("stockbit_commentary", "unboxing", "unboxing_ipo", "ai_reports_stockbit")),
 )
 
 _ID = re.compile(r"[a-z0-9][a-z0-9-]{1,63}\Z")
 _HANDLE = re.compile(r"[A-Za-z0-9_.]{1,64}\Z")
+X_ROUTE_CAPABILITIES = ("company_news", "macro_news", "swing_chart_context")
 USER_PLATFORM_CAPABILITIES = {
     "telegram": ("company_news", "macro_news"),
-    "x": ("company_news", "macro_news"),
+    "x": X_ROUTE_CAPABILITIES,
     "instagram": ("company_news", "macro_news"),
     "whatsapp": ("company_news", "macro_news"),
 }
+def _dispatch_group(platform: str, capability_id: str) -> str | None:
+    return "x_post_route" if platform == "x" and capability_id in X_ROUTE_CAPABILITIES else None
 
 
 class CatalogConflict(ValueError):
@@ -246,7 +253,7 @@ def effective_snapshot(config: dict[str, Any], registry: dict[str, Any], revisio
         key = (endpoint["id"], pair["capability_id"])
         inherited = defaults.get((endpoint["publisher_id"], pair["capability_id"]))
         chosen = overrides.get(key) or inherited
-        result.append({"endpoint_id": key[0], "publisher_id": endpoint["publisher_id"], "platform": endpoint["platform"], "address": endpoint["address"], "provider_id": endpoint.get("provider_id"), "credential_ref": endpoint.get("credential_ref"), "capability_id": key[1], "pipeline": next(x["pipeline"] for x in registry["capabilities"] if x["id"] == key[1]), "enabled": bool(chosen and chosen["enabled"] and endpoint.get("system_owned", False)), "verification_status": "verified" if endpoint.get("system_owned", False) else "pending", "settings": chosen["settings"] if chosen else {}, "source": "endpoint_override" if key in overrides else "publisher_default" if inherited else "unset"})
+        result.append({"endpoint_id": key[0], "publisher_id": endpoint["publisher_id"], "platform": endpoint["platform"], "address": endpoint["address"], "provider_id": endpoint.get("provider_id"), "credential_ref": endpoint.get("credential_ref"), "capability_id": key[1], "pipeline": next(x["pipeline"] for x in registry["capabilities"] if x["id"] == key[1]), "dispatch_group": pair["dispatch_group"], "enabled": bool(chosen and chosen["enabled"] and endpoint.get("system_owned", False)), "verification_status": "verified" if endpoint.get("system_owned", False) else "pending", "settings": chosen["settings"] if chosen else {}, "source": "endpoint_override" if key in overrides else "publisher_default" if inherited else "unset"})
     return {"revision": revision, "updated_at": updated_at, "selected_securities": config["selected_securities"], "subscriptions": result}
 
 
@@ -255,6 +262,7 @@ def snapshot(config: dict[str, Any], revision: int, actor_id: str, updated_at: s
 
 
 def registry() -> dict[str, Any]:
+    endpoint_platforms = {endpoint["id"]: endpoint["platform"] for endpoint in ENDPOINTS}
     return {
         "securities": deepcopy(list(SECURITIES)),
         "institutions": deepcopy(list(INSTITUTIONS)),
@@ -262,7 +270,7 @@ def registry() -> dict[str, Any]:
         "endpoints": deepcopy(list(ENDPOINTS)),
         "capabilities": deepcopy(list(CAPABILITIES)),
         "compatibility": [
-            {"endpoint_id": endpoint_id, "capability_id": capability_id}
+            {"endpoint_id": endpoint_id, "capability_id": capability_id, "dispatch_group": _dispatch_group(endpoint_platforms[endpoint_id], capability_id)}
             for endpoint_id, capability_id in COMPATIBILITY
         ],
     }
@@ -279,7 +287,7 @@ def catalog_view(config: dict[str, Any], base: dict[str, Any] | None = None) -> 
     ]
     result["endpoints"].extend({**deepcopy(item), "provider_id": None, "system_owned": False, "verified": False} for item in config["endpoints"])
     result["compatibility"].extend(
-        {"endpoint_id": endpoint["id"], "capability_id": capability}
+        {"endpoint_id": endpoint["id"], "capability_id": capability, "dispatch_group": _dispatch_group(endpoint["platform"], capability)}
         for endpoint in config["endpoints"]
         for capability in USER_PLATFORM_CAPABILITIES[endpoint["platform"]]
     )
@@ -336,7 +344,7 @@ class PostgresCatalogStore:
             publishers = conn.execute("select publisher_id as id, category, name, kind, source_tier as tier from bursawatch_source_publishers order by publisher_id").fetchall()
             endpoints = conn.execute("select endpoint_id as id, publisher_id, platform, address, provider_id, system_owned from bursawatch_source_endpoints order by endpoint_id").fetchall()
             capabilities = conn.execute("select capability_id as id, label, pipeline_id as pipeline, capability_version as version from bursawatch_source_capabilities order by capability_id").fetchall()
-            compatibility = conn.execute("select endpoint_id, capability_id from bursawatch_source_compatibility order by endpoint_id, capability_id").fetchall()
+            compatibility = conn.execute("select endpoint_id, capability_id, dispatch_group from bursawatch_source_compatibility order by endpoint_id, capability_id").fetchall()
         return {
             "securities": securities,
             "institutions": [{k: v for k, v in row.items() if k != "category"} for row in publishers if row["category"] == "institution"],

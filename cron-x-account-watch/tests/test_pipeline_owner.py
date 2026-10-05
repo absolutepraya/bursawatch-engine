@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -77,6 +78,116 @@ def _work(profile, posts, *, capability="company_news", version=1, kind="origina
                          "provider_event_id": latest["post_id"], "source_url": latest["url"],
                          "published_at": latest["published_at"], "payload": payload, "media_refs": refs,
                          "media_required": bool(refs), "content_hash": hashlib.sha256(encoded).hexdigest()}}
+
+
+def _group_work(profile, posts, capabilities=("company_news", "macro_news", "swing_chart_context"), **kwargs):
+    work = _work(profile, posts, capability="x_post_route_group", **kwargs)
+    work["pipeline_id"] = "x_post_route"
+    work["capability_version"] = 1
+    work["catalog_revision"] = 17
+    work["settings"] = {}
+    work["config_source"] = "publisher_default"
+    work["dispatch_context"] = {
+        "dispatch_group": "x_post_route",
+        "subscriptions": [
+            {"capability_id": capability, "capability_version": 1, "settings": {}, "config_source": "publisher_default"}
+            for capability in sorted(capabilities)
+        ],
+    }
+    return work
+
+
+def test_group_work_creates_one_event_and_one_classifier_input(tmp_path):
+    profile = _profile("wavetiga")
+    storage = tmp_path / "x.json"
+    work = _group_work(profile, [_post(profile, 101, "IHSG chart and market outlook")])
+    assert pipeline_owner.accept_source_work(work, profiles=(profile,), storage=storage, no_post=True, now=NOW) == {"outcome": "accepted"}
+    assert pipeline_owner.accept_source_work(work, profiles=(profile,), storage=storage, no_post=True, now=NOW) == {"outcome": "accepted"}
+    saved = state.load_state(storage)
+    assert len(saved["outbox"]) == 1
+    assert saved["outbox"][0]["enabled_capabilities"] == ["company_news", "macro_news", "swing_chart_context"]
+    assert saved["outbox"][0]["dispatch_context"] == work["dispatch_context"]
+    assert saved["source_events"][work["event_key"]]["dispatch_context"] == work["dispatch_context"]
+    assert saved["outbox"][0]["source_catalog_revision"] == 17
+    assert state.claim_oldest_agent(saved, {profile.id: profile}, NOW + timedelta(hours=1)) is saved["outbox"][0]
+    assert state.claim_oldest_agent(saved, {profile.id: profile}, NOW + timedelta(hours=1)) is None
+
+
+def test_group_identity_rejects_changed_or_unknown_frozen_context(tmp_path):
+    profile = _profile("wavetiga")
+    work = _group_work(profile, [_post(profile, 101, "Company update")])
+    bad = [
+        {**work, "dispatch_context": {**work["dispatch_context"], "dispatch_group": "other"}},
+        {**work, "dispatch_context": {**work["dispatch_context"], "subscriptions": [{"capability_id": "unknown", "capability_version": 1, "settings": {}, "config_source": "publisher_default"}]}},
+        {**work, "catalog_revision": "17"},
+        {**work, "capability_id": "company_news"},
+    ]
+    for index, item in enumerate(bad):
+        with pytest.raises(ValueError):
+            pipeline_owner.accept_source_work(item, profiles=(profile,), storage=tmp_path / f"bad-{index}.json", no_post=True)
+
+
+def test_group_correction_retains_original_capabilities(tmp_path):
+    profile = _profile("wavetiga")
+    storage = tmp_path / "x.json"
+    first = _group_work(profile, [_post(profile, 101, "First")], capabilities=("company_news",))
+    correction = _group_work(profile, [_post(profile, 101, "Corrected")], capabilities=("company_news",), version=2, kind="correction")
+    for work in (first, correction):
+        work["dispatch_context"]["subscriptions"][0]["config_source"] = "endpoint_override"
+        work["config_source"] = "endpoint_override"
+    pipeline_owner.accept_source_work(first, profiles=(profile,), storage=storage, no_post=True)
+    pipeline_owner.accept_source_work(correction, profiles=(profile,), storage=storage, no_post=True)
+    saved = state.load_state(storage)
+    assert saved["outbox"][0]["enabled_capabilities"] == ["company_news"]
+    assert saved["source_events"][first["event_key"]]["enabled_capabilities"] == ["company_news"]
+    assert saved["outbox"][0]["dispatch_context"] == first["dispatch_context"]
+    assert saved["source_events"][first["event_key"]]["dispatch_context"] == first["dispatch_context"]
+    expanded = _group_work(profile, [_post(profile, 101, "Changed again")], capabilities=("company_news", "swing_chart_context"), version=3, kind="correction")
+    with pytest.raises(ValueError, match="dispatch context"):
+        pipeline_owner.accept_source_work(expanded, profiles=(profile,), storage=storage, no_post=True)
+    stale = _group_work(profile, [_post(profile, 101, "Changed again")], capabilities=("company_news",), version=3, kind="correction")
+    stale["dispatch_context"] = deepcopy(first["dispatch_context"])
+    stale["config_source"] = "endpoint_override"
+    stale["catalog_revision"] = 18
+    with pytest.raises(ValueError, match="catalog snapshot"):
+        pipeline_owner.accept_source_work(stale, profiles=(profile,), storage=storage, no_post=True)
+
+
+def test_group_retry_rejects_changed_config_source_with_same_ids_and_revision(tmp_path):
+    profile = _profile("wavetiga")
+    storage = tmp_path / "x.json"
+    first = _group_work(profile, [_post(profile, 101, "First")], capabilities=("company_news", "macro_news"))
+    pipeline_owner.accept_source_work(first, profiles=(profile,), storage=storage, no_post=True)
+    changed = deepcopy(first)
+    changed["dispatch_context"]["subscriptions"][0]["config_source"] = "endpoint_override"
+    changed["config_source"] = "endpoint_override"
+    assert changed["catalog_revision"] == first["catalog_revision"]
+    assert [row["capability_id"] for row in changed["dispatch_context"]["subscriptions"]] == [row["capability_id"] for row in first["dispatch_context"]["subscriptions"]]
+    with pytest.raises(ValueError, match="dispatch context"):
+        pipeline_owner.accept_source_work(changed, profiles=(profile,), storage=storage, no_post=True)
+    changed_correction = _group_work(profile, [_post(profile, 101, "Corrected")], capabilities=("company_news", "macro_news"), version=2, kind="correction")
+    changed_correction["dispatch_context"] = deepcopy(changed["dispatch_context"])
+    changed_correction["config_source"] = "endpoint_override"
+    with pytest.raises(ValueError, match="dispatch context"):
+        pipeline_owner.accept_source_work(changed_correction, profiles=(profile,), storage=storage, no_post=True)
+    saved = state.load_state(storage)
+    assert saved["source_events"][first["event_key"]]["dispatch_context"] == first["dispatch_context"]
+    assert saved["outbox"][0]["dispatch_context"] == first["dispatch_context"]
+
+
+def test_legacy_work_still_accepts_during_group_drain(tmp_path):
+    profile = _profile("writingtorch")
+    storage = tmp_path / "x.json"
+    post = _post(profile, 101, "Legacy publication")
+    assert pipeline_owner.accept_source_work(_work(profile, [post], capability="company_news"), profiles=(profile,), storage=storage, no_post=True)["outcome"] == "accepted"
+    assert len(state.load_state(storage)["outbox"]) == 1
+    # The sibling legacy claim may arrive after the watcher has completed its
+    # single queued delivery. It must settle from the source ledger alone.
+    delivered = state.load_state(storage)
+    delivered["outbox"].clear()
+    state.save_state(storage, delivered)
+    assert pipeline_owner.accept_source_work(_work(profile, [post], capability="macro_news"), profiles=(profile,), storage=storage, no_post=True)["outcome"] == "accepted"
+    assert state.load_state(storage)["outbox"] == []
 
 
 def _profile(profile_id="writingtorch"):
@@ -197,13 +308,45 @@ def test_one_durable_image_keeps_opaque_ref_for_vision_and_board(tmp_path):
     assert board["media_urls"] == []
 
 
-def test_multiple_images_remain_unclaimed_until_board_supports_their_paths(tmp_path):
+def test_multiple_images_keep_order_for_vision_and_board(tmp_path):
     profile = _profile("kutekians")
-    refs = [{"ref": f"20000000-0000-4000-8000-{number:012d}"} for number in (1, 2)]
-    post = _post(profile, 101, "A market thesis")
-    with pytest.raises(ValueError, match="Board path contract"):
-        pipeline_owner.accept_source_work(_work(profile, [post], refs=refs), profiles=(profile,), storage=tmp_path / "x.json", no_post=True)
-    assert not (tmp_path / "x.json").exists()
+    blobs = [b"\xff\xd8\xfffirst", b"\xff\xd8\xffsecond"]
+    refs = [{"ref": f"20000000-0000-4000-8000-{number:012d}", "sha256": hashlib.sha256(blob).hexdigest(),
+             "kind": "image", "content_type": "image/jpeg", "size_bytes": len(blob),
+             "filename": f"chart-{number}.jpg", "durable": True}
+            for number, blob in enumerate(blobs, start=1)]
+    post = _post(profile, 101, "KPIG: Chart setup")
+    post["media"] = [{"index": index, "media_ref_id": metadata["ref"]} for index, metadata in enumerate(refs)]
+    by_ref = {metadata["ref"]: blob for metadata, blob in zip(refs, blobs)}
+
+    class MediaStore:
+        def download(self, requested):
+            data = by_ref[requested]
+            return SimpleNamespace(data=data, sha256=hashlib.sha256(data).hexdigest(), kind="image", content_type="image/jpeg")
+
+    storage = tmp_path / "x.json"
+    work = _work(profile, [post], refs=refs)
+    assert pipeline_owner.accept_source_work(work, profiles=(profile,), storage=storage,
+                                             media_client=MediaStore(), no_post=True)["outcome"] == "accepted"
+    event = state.load_state(storage)["outbox"][0]
+    assert event["source_media_refs"] == {item["ref"]: item for item in refs}
+    parsed = state.deserialize_post(event["post"])
+    vision = vision_media.prepare(parsed, tmp_path / "vision", thread_posts=(parsed,),
+                                  reference_meta=event["source_media_refs"], media_client=MediaStore())
+    assert [asset.path.read_bytes() for asset in vision.assets] == blobs
+    event.update(title="KPIG: Chart setup", summary="*(Ringkasan)* Chart context.", route="id_stocks_swing")
+    board = scan.board_source_event(event, profile, status_date=NOW)
+    expected_paths = [event["source_media_paths"][metadata["ref"]] for metadata in refs]
+    assert board["media_paths"] == expected_paths
+    assert board["media_path"] == board["media_paths"][0]
+    assert board["media_urls"] == []
+    repeated = _work(profile, [{**post, "media": [{"index": 0, "media_ref_id": refs[0]["ref"]},
+                                               {"index": 1, "media_ref_id": refs[0]["ref"]}]}], refs=refs)
+    with pytest.raises(ValueError, match="repeated"):
+        pipeline_owner.accept_source_work(repeated, profiles=(profile,), storage=tmp_path / "repeated.json", no_post=True)
+    reordered = _work(profile, [post], refs=list(reversed(refs)))
+    with pytest.raises(ValueError, match="completeness"):
+        pipeline_owner.accept_source_work(reordered, profiles=(profile,), storage=tmp_path / "reordered.json", no_post=True)
 
 
 def test_verified_new_x_edit_id_marks_old_delivery_for_owner_cleanup(tmp_path):

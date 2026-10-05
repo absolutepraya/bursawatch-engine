@@ -15,16 +15,21 @@ starve unrelated events behind it.
 
 - Deliver the accepted X event to All Swing first. After every All text and
   usable media leg is durable, submit at most one source-only `social` event to
-  the Swing Plan Board. X board events have `plan: null` and never own prices,
-  target checkpoints, stop-loss state, tags, or episode lifecycle.
+  the Swing Plan Board. All accepted X Swing images reach Vision, All, and the
+  Board in source order, including when the profile uses `omit_last`;
+  non-Swing routes keep the existing `omit_last` policy. X board events have
+  `plan: null` and never own prices, target checkpoints, stop-loss state, tags,
+  or episode lifecycle.
 - Add the temporary Swing forum `Board` marker to the All Swing X rendering
   only. Once the owner returns the materialized forum topic, edit that same
   message to the direct topic URL; retry the edit without replaying All. The
   board copy omits that line. Both copies include the durable Yanto delivery
   time, and the board uses the same accepted rendered summary as All. Normalize
-  only the board starter heading to `TICKER: ...`, while the forum topic remains
-  the ticker only; attach the first chart to that starter and keep later charts
-  ordered.
+  only the board starter heading to `TICKER: ...`; the Board owner generates
+  each forum topic title as `TICKER - Ddd, DD Mon YYYY` from the first accepted
+  source timestamp converted to WIB, with fixed English weekday and month
+  abbreviations, including weekend dates. Attach the first chart to that
+  starter and keep later charts ordered.
 - Accept a board handoff only when the first source-visible line is led by one
   ticker followed by a colon or whitespace, the accepted title begins with the
   same ticker, and the complete assembled thread has no second ticker-led

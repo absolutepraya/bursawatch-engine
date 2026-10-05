@@ -23,6 +23,12 @@ const swingId = "bursawatch-tg-phintraco-swing";
 const stockbitId = "bursawatch-stockbit-snips";
 const jobId = "fixture-market-news";
 const stockbitJobId = "fixture-stockbit-snips";
+const instagramAdapterId = "bursawatch-ig-source-ingest";
+const whatsappAdapterId = "bursawatch-wa-source-ingest";
+const intakeIds = {
+  [instagramAdapterId]: "instagram:synthetic.research",
+  [whatsappAdapterId]: "whatsapp:0029SyntheticMixedCase",
+};
 const password = "synthetic-only-password";
 const screenshotDir = resolve("test-results/control-workspace");
 await mkdir(screenshotDir, { recursive: true });
@@ -145,23 +151,145 @@ function fixtures() {
 
 async function scenario(role) {
   const state = fixtures();
+  const adapterId = "bursawatch-tg-source-ingest";
+  const component = (componentId, kind, displayName, relatedComponentIds, jobIds, configIds = []) => ({
+    inventory_version: 1,
+    component_id: componentId,
+    kind,
+    display_name: displayName,
+    capabilities: [],
+    pipeline_ids: [],
+    config_resource_ids: configIds,
+    related_component_ids: relatedComponentIds,
+    job_ids: jobIds,
+  });
+  state.components = [
+    component(adapterId, "source_adapter", "Telegram Source Inbox", [watcherId], [jobId]),
+    component(watcherId, "domain_owner", "Market News", [adapterId], [jobId], [`watcher:${watcherId}`]),
+    component(stockbitId, "domain_owner", "Stockbit Snips", [], [stockbitJobId], [`watcher:${stockbitId}`]),
+    component(instagramAdapterId, "source_adapter", "Synthetic Instagram intake", [], [], ["source-catalog"]),
+    component(whatsappAdapterId, "source_adapter", "Synthetic WhatsApp intake", [], [], ["source-catalog"]),
+  ];
+  const intakeStatus = { [instagramAdapterId]: "observed", [whatsappAdapterId]: "stale" };
+  const failedActivity = new Set();
+  const operatorJob = (sourceJob, displayName, runtimeJobKey, componentIds, canEdit) => ({
+    job_id: sourceJob.job_id,
+    can_edit: canEdit,
+    watcher_id: null,
+    component_ids: componentIds,
+    display_name: displayName,
+    runtime_job_key: runtimeJobKey,
+    schedule_kind: "interval",
+    min_interval_seconds: sourceJob.min_interval_seconds,
+    max_interval_seconds: sourceJob.max_interval_seconds,
+    schedule: sourceJob.schedule,
+    reconciliation: { ...sourceJob.reconciliation, has_error: false },
+  });
+  state.operatorJobs = [
+    operatorJob(state.job, "Shared Telegram reader", "bursawatch-tg-source-ingest", [adapterId, watcherId], role === "admin"),
+    operatorJob(state.stockbitJob, "Stockbit Snips check", "bursawatch-stockbit-snips", [stockbitId], role === "admin"),
+  ];
+  const observationFor = (job) => ({
+    api_version: 1,
+    identity_kind: "job",
+    identity_id: job.job_id,
+    observer_id: "vps-hermes-observer",
+    observed_at: new Date().toISOString(),
+    received_at: new Date().toISOString(),
+    status: job.schedule.enabled ? "enabled" : "disabled",
+    freshness: "fresh",
+    evidence: {
+      runtime_job_key: job.runtime_job_key,
+      enabled: job.schedule.enabled,
+      schedule: { kind: "interval", minutes: job.schedule.interval_seconds / 60 },
+      last_execution: { at: new Date().toISOString(), status: "success" },
+    },
+    comparison: "match",
+    desired: job.schedule,
+    reconciliation: {
+      status: job.reconciliation.status,
+      applied_revision: job.reconciliation.applied_revision,
+    },
+  });
+  state.observations = state.operatorJobs.map(observationFor);
+  const syncOperatorJob = (id, sourceJob, observed = false) => {
+    const operator = state.operatorJobs.find((item) => item.job_id === id);
+    operator.schedule = sourceJob.schedule;
+    operator.reconciliation = { ...sourceJob.reconciliation, has_error: false };
+    const index = state.observations.findIndex((item) => item.identity_id === id);
+    if (observed && index >= 0) state.observations[index] = observationFor(operator);
+  };
   const sourceConfig = { selected_securities: [], people_org: [], endpoints: [], publisher_defaults: [], endpoint_overrides: [] };
   const sourceCatalog = {
     can_edit: role === "admin",
     securities: [],
     institutions: [{ id: "phintraco", name: "Phintraco Sekuritas", tier: 1, asset_ref: null }],
     people_org: [{ id: "x-ricky", name: "Ricky Ho", kind: null, tier: 3, asset_ref: null }],
-    endpoints: [{ id: "x:ricky", publisher_id: "x-ricky", platform: "x", address: "rickyho", provider_id: null, credential_ref: null, system_owned: true, verified: true }],
-    capabilities: [{ id: "company_news", label: "Company News", pipeline: "company_news", version: 1 }, { id: "trading_plans", label: "Trading Plans", pipeline: "swing_plan", version: 1 }],
-    compatibility: [{ endpoint_id: "x:ricky", capability_id: "company_news" }],
+    endpoints: [
+      { id: "x:ricky", publisher_id: "x-ricky", platform: "x", address: "rickyho", provider_id: null, credential_ref: null, system_owned: true, verified: true },
+      { id: intakeIds[instagramAdapterId], publisher_id: "x-ricky", platform: "instagram", address: "synthetic.research", provider_id: null, credential_ref: null, system_owned: true, verified: true },
+      { id: intakeIds[whatsappAdapterId], publisher_id: "x-ricky", platform: "whatsapp", address: "https://www.whatsapp.com/channel/0029SyntheticMixedCase", provider_id: null, credential_ref: null, system_owned: true, verified: true },
+    ],
+    capabilities: [{ id: "company_news", label: "Company News", pipeline: "company_news", version: 1 }, { id: "macro_news", label: "Macro News", pipeline: "macro_news", version: 1 }, { id: "swing_chart_context", label: "Swing Chart Context", pipeline: "swing_chart_context", version: 1 }, { id: "trading_plans", label: "Trading Plans", pipeline: "swing_plan", version: 1 }],
+    compatibility: [{ endpoint_id: "x:ricky", capability_id: "company_news", dispatch_group: "x_post_route" }, { endpoint_id: "x:ricky", capability_id: "macro_news", dispatch_group: "x_post_route" }, { endpoint_id: "x:ricky", capability_id: "swing_chart_context", dispatch_group: "x_post_route" }],
     config: { revision: 1, config: sourceConfig, sha256: "a".repeat(64), actor_id: "baseline", updated_at: new Date().toISOString() },
   };
-  const effectiveCatalog = () => ({ revision: sourceCatalog.config.revision, updated_at: sourceCatalog.config.updated_at, selected_securities: [], subscriptions: [{ endpoint_id: "x:ricky", publisher_id: "x-ricky", platform: "x", address: "rickyho", provider_id: null, credential_ref: null, capability_id: "company_news", pipeline: "company_news", enabled: false, verification_status: "verified", settings: {}, source: "unset" }] });
+  const effectiveCatalog = () => ({ revision: sourceCatalog.config.revision, updated_at: sourceCatalog.config.updated_at, selected_securities: [], subscriptions: [{ endpoint_id: "x:ricky", publisher_id: "x-ricky", platform: "x", address: "rickyho", provider_id: null, credential_ref: null, capability_id: "company_news", pipeline: "company_news", dispatch_group: "x_post_route", enabled: false, verification_status: "verified", settings: {}, source: "unset" }, { endpoint_id: "x:ricky", publisher_id: "x-ricky", platform: "x", address: "rickyho", provider_id: null, credential_ref: null, capability_id: "macro_news", pipeline: "macro_news", dispatch_group: "x_post_route", enabled: false, verification_status: "verified", settings: {}, source: "unset" }, { endpoint_id: "x:ricky", publisher_id: "x-ricky", platform: "x", address: "rickyho", provider_id: null, credential_ref: null, capability_id: "swing_chart_context", pipeline: "swing_chart_context", dispatch_group: "x_post_route", enabled: false, verification_status: "verified", settings: {}, source: "unset" }] });
   const writes = [];
   const attempts = [];
   const failures = { config: [], schedule: [] };
   const errors = [];
   const unexpectedRequests = [];
+  const publicationRequests = [];
+  const publication = {
+    api_version: 1,
+    publication_id: "c".repeat(64),
+    owner_id: "bursawatch-stockbit-snips",
+    owner_key: "fixture-stockbit-article",
+    version: 1,
+    supersedes_version: null,
+    type: "idx_company_news",
+    route: "id_stocks_news",
+    source_event_key: "fixture-stockbit-source",
+    source_name: "Synthetic Stockbit",
+    source_url: "https://snips.stockbit.com/fixture",
+    source_published_at: "2026-10-01T00:00:00+00:00",
+    market_data_as_of: null,
+    delivery_confirmed_at: "2026-10-01T00:01:00+00:00",
+    title: "Synthetic Stockbit filing",
+    ticker: "TEST",
+    broker_levels: null,
+    parent_publication_id: null,
+    board_episode_id: null,
+    config_revision: 1,
+    renderer_version: "fixture-1",
+    source_version: null,
+    required_operation_keys: ["stockbit:fixture:news"],
+    legs: [{
+      operation_key: "stockbit:fixture:news",
+      operation_digest: "a".repeat(64),
+      receipt_operation_id: "receipt-fixture",
+      destination: "123456789012345678",
+      receipt_id: "234567890123456789",
+      status: "delivered",
+      message_url: "https://discord.com/channels/940285152335110204/123456789012345678/234567890123456789",
+      text: "Synthetic source content",
+      attachments: [],
+    }],
+    digest: "b".repeat(64),
+  };
+  const coverage = {
+    cutover: {
+      boundary: "2026-10-01T00:00:00+00:00",
+      owner_ids: ["bursawatch-stockbit-snips"],
+    },
+    overall_status: "incomplete",
+    owners: [{
+      owner_id: "bursawatch-stockbit-snips",
+      status: "unknown",
+      checkpoint: null,
+    }],
+  };
   let signedIn = false;
   let scheduleChecks = 0;
   let stockbitScheduleChecks = 0;
@@ -273,6 +401,47 @@ async function scenario(role) {
         );
         assert.equal(signedIn, true, "Control requests require a signed-in synthetic user.");
         const path = url.pathname.slice("/api/control/".length);
+        if (method === "GET" && path === "publications/coverage") return json(coverage);
+        if (method === "GET" && path === "publications") {
+          publicationRequests.push(Object.fromEntries(url.searchParams));
+          return json({
+            items: url.searchParams.get("ticker") === "MISS" ? [] : [publication],
+            next_cursor: null,
+          });
+        }
+        if (method === "GET" && path === `publications/${publication.publication_id}`)
+          return json({ publication_id: publication.publication_id, versions: [publication], linked: [] });
+        if (method === "GET" && path === "components")
+          return json({ inventory_version: 1, components: state.components });
+        if (method === "GET" && path === "jobs") {
+          const componentId = url.searchParams.get("component_id");
+          return json(componentId
+            ? state.operatorJobs.filter((job) => job.component_ids.includes(componentId))
+            : state.operatorJobs);
+        }
+        if (method === "GET" && path === "observations") {
+          const jobIds = url.searchParams.getAll("job_id");
+          return json(jobIds.length
+            ? state.observations.filter((item) => jobIds.includes(item.identity_id))
+            : state.observations);
+        }
+        const activityMatch = method === "GET" && path.match(/^components\/([^/]+)\/activity$/);
+        if (activityMatch) {
+          const componentId = decodeURIComponent(activityMatch[1]);
+          if (failedActivity.has(componentId))
+            return json({ code: "invalid-response", message: "The response could not be verified." }, 502);
+          return json({
+            component_id: componentId,
+            endpoints: intakeIds[componentId] ? [{
+              endpoint_id: intakeIds[componentId],
+              accepted_at: intakeStatus[componentId] === "unknown" ? null : state.snapshot.updated_at,
+              status: intakeStatus[componentId],
+              meaning: "last accepted into Source Inbox",
+            }] : [],
+            pipelines: [],
+            delivery_status: "not instrumented",
+          });
+        }
         if (method === "GET" && path === "source-catalog") return json(sourceCatalog);
         if (method === "GET" && path === "source-catalog/effective") return json(effectiveCatalog());
         if (method === "PUT" && path === "source-catalog/config") {
@@ -285,7 +454,7 @@ async function scenario(role) {
           sourceCatalog.config = { ...sourceCatalog.config, revision: sourceCatalog.config.revision + 1, config: payload.config, updated_at: new Date().toISOString() };
           sourceCatalog.people_org.push(...payload.config.people_org.map((item) => ({ ...item, tier: 3 })));
           sourceCatalog.endpoints.push(...payload.config.endpoints.map((item) => ({ ...item, provider_id: null, verified: false, system_owned: false })));
-          sourceCatalog.compatibility.push(...payload.config.endpoints.flatMap((item) => ["company_news", "macro_news"].map((capability_id) => ({ endpoint_id: item.id, capability_id }))));
+          sourceCatalog.compatibility.push(...payload.config.endpoints.flatMap((item) => ["company_news", "macro_news", "swing_chart_context"].map((capability_id) => ({ endpoint_id: item.id, capability_id, dispatch_group: item.platform === "x" ? "x_post_route" : null }))));
           return json(sourceCatalog.config);
         }
         if (method === "GET" && path === "watchers") return json(state.watchers);
@@ -377,6 +546,7 @@ async function scenario(role) {
                 effective: false,
               },
             };
+            syncOperatorJob(jobId, state.job);
             return json(state.job);
           }
           if (method === "GET") {
@@ -386,6 +556,7 @@ async function scenario(role) {
               applied_revision: state.job.schedule.revision,
               effective: true,
             };
+            syncOperatorJob(jobId, state.job, true);
             return json(state.job);
           }
         }
@@ -411,6 +582,7 @@ async function scenario(role) {
                 effective: false,
               },
             };
+            syncOperatorJob(stockbitJobId, state.stockbitJob);
             return json(state.stockbitJob);
           }
           if (method === "GET") {
@@ -421,6 +593,7 @@ async function scenario(role) {
                 applied_revision: state.stockbitJob.schedule.revision,
                 effective: true,
               };
+            syncOperatorJob(stockbitJobId, state.stockbitJob, true);
             return json(state.stockbitJob);
           }
         }
@@ -539,6 +712,52 @@ async function scenario(role) {
     }));
     assert.ok(report.actual <= report.width, `${label}: ${JSON.stringify(report)}`);
   };
+  const readableMobileNavigation = async (textSize) => {
+    await page.evaluate(() => document.fonts.ready);
+    await page.waitForFunction(() => {
+      const bar = document.querySelector(".connected-navigation-links");
+      const workspace = document.querySelector(".has-connected-navigation");
+      return parseFloat(getComputedStyle(workspace).paddingBottom) >= bar.getBoundingClientRect().height;
+    });
+    const layout = await navigation.evaluate((bar) => {
+      const links = [...bar.querySelectorAll("a")];
+      return links.map((link) => {
+        const box = link.getBoundingClientRect();
+        const label = link.querySelector("span");
+        const range = document.createRange();
+        range.selectNodeContents(label);
+        return {
+          label: label.textContent,
+          width: box.width, height: box.height, top: box.top, bottom: box.bottom,
+          left: box.left, right: box.right,
+          textLines: range.getClientRects().length,
+        };
+      });
+    });
+    assert.deepEqual(layout.map((link) => link.label), ["Overview", "Sources", "Workflows", "Jobs", "History", "Published", "Account"]);
+    assert.equal(new Set(layout.map((link) => link.top)).size, textSize === "100%" ? 2 : 4);
+    for (const link of layout) {
+      assert.ok(link.width >= 44 && link.height >= 44, `${link.label}: target too small`);
+      assert.ok(link.top >= 0 && link.bottom <= 900 && link.left >= 0 && link.right <= 375, `${link.label}: target clipped`);
+      assert.equal(link.textLines, 1, `${link.label}: label split across lines`);
+    }
+    assert.equal(await navigation.getByRole("link", { name: "Overview", exact: true }).getAttribute("aria-current"), "page");
+    await navigation.getByRole("link", { name: "Overview", exact: true }).focus();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    for (const { label } of layout) {
+      assert.equal(await page.evaluate(() => document.activeElement.textContent), label);
+      assert.equal(await page.evaluate(() => getComputedStyle(document.activeElement).outlineStyle), "solid");
+      await page.keyboard.press("Tab");
+    }
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    assert.equal(await page.evaluate(() => {
+      const footer = document.querySelector(".control-footer").getBoundingClientRect();
+      const bar = document.querySelector(".connected-navigation-links").getBoundingClientRect();
+      return footer.bottom <= bar.top + 1;
+    }), true, "The footer must remain reachable above the navigation");
+    await page.evaluate(() => window.scrollTo(0, 0));
+  };
   try {
     const documentResponse = await page.goto(`${target.origin}/workspace`);
     assert.equal(documentResponse.headers()["x-frame-options"], "DENY");
@@ -557,10 +776,19 @@ async function scenario(role) {
     await page.getByRole("button", { name: "Hide password", exact: true }).click();
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await page.getByRole("heading", { name: "Overview", exact: true }).waitFor();
-    assert.equal(await navigation.getByRole("link").count(), 5);
+    assert.equal(await navigation.getByRole("link").count(), 7);
     await page
       .getByText("Up to 50 latest runs per watcher. This range may be incomplete.", { exact: true })
       .waitFor();
+    for (const name of ["Synthetic Instagram intake", "Synthetic WhatsApp intake"]) {
+      const row = page.locator(".control-operator-evidence article").filter({ has: page.getByText(name, { exact: true }) });
+      await row.locator("time").waitFor();
+      assert.doesNotMatch(await row.innerText(), /Last accepted input: Unavailable/);
+    }
+    assert.equal(await page.locator(".control-evidence-warning").count(), 0);
+    const overviewEvidence = page.locator(".control-watcher-operator-evidence");
+    assert.match(await overviewEvidence.nth(0).innerText(), /Shared Telegram reader \(active\)/);
+    assert.match(await overviewEvidence.nth(2).innerText(), /Stockbit Snips check \(active\)/);
     await noOverflow(`${role} desktop overview`);
     await capture("overview-desktop");
     await page.getByRole("radio", { name: "7 days", exact: true }).focus();
@@ -611,8 +839,63 @@ async function scenario(role) {
       .click();
     await page.getByRole("heading", { name: "Run timeline", exact: true }).waitFor();
     await page.getByRole("heading", { name: "source checked", exact: true }).waitFor();
+    await navigate("Published", "Published");
+    await page.getByRole("button", { name: /Synthetic Stockbit filing/ }).waitFor();
+    await page
+      .getByText("Coverage is incomplete or unverified. A missing item does not prove nothing was published.", { exact: true })
+      .waitFor();
+    await page
+      .getByText("A confirmed record documents delivery at that time. Check Discord to see whether it is still visible.", { exact: true })
+      .waitFor();
+    await page.getByLabel("Ticker", { exact: true }).fill("MISS");
+    await page.getByText("No confirmed publications in this view since the cutover.", { exact: true }).waitFor();
+    assert.ok(publicationRequests.some((request) => request.ticker === "MISS"));
+    await navigate("Jobs", "Jobs");
+    await page
+      .getByText("Schedule observations and last execution do not confirm a post reached Discord.", { exact: true })
+      .waitFor();
+    const writesBeforeNavigation = writes.length;
+    for (const [label, id, heading] of [
+      ["Stockbit Snips", stockbitId, "Stockbit Snips"],
+      ["Market News", watcherId, "Market news"],
+    ]) {
+      const link = page.locator(".operator-job-components").getByRole("link", { name: label, exact: true });
+      assert.equal(await link.getAttribute("href"), `/workspace/workflows?watcher=${id}`);
+      await link.click();
+      await page.waitForURL(`${target.origin}/workspace/workflows?watcher=${id}`);
+      await page.getByRole("heading", { name: heading, exact: true }).waitFor();
+      await page.getByRole("heading", { name: role === "admin" ? "Watcher configuration" : "View access", exact: true }).waitFor();
+      assert.equal(await page.getByText("Workflow not found", { exact: true }).count(), 0);
+      await navigate("Jobs", "Jobs");
+    }
+    await page.locator(".operator-job-components").getByRole("link", { name: "Telegram Source Inbox", exact: true }).click();
+    await page.waitForURL(`${target.origin}/workspace/sources`);
+    assert.equal(writes.length, writesBeforeNavigation, "Jobs relationships perform reads only.");
+    await page.getByRole("heading", { name: "Source Catalog", exact: true }).waitFor();
+    const adapterEvidence = page.locator(".source-adapter-evidence");
+    const intakeRow = (name) => adapterEvidence.getByRole("listitem").filter({ has: page.getByText(name, { exact: true }) });
+    await intakeRow("Synthetic Instagram intake").getByText("Input status: Observed", { exact: true }).waitFor();
+    await intakeRow("Synthetic WhatsApp intake").getByText("Input status: Stale", { exact: true }).waitFor();
+    assert.equal(await adapterEvidence.getByRole("status").count(), 0);
+    intakeStatus[whatsappAdapterId] = "unknown";
+    await navigate("Overview", "Overview");
     await navigate("Sources", "Sources");
     await page.getByRole("heading", { name: "Source Catalog", exact: true }).waitFor();
+    await intakeRow("Synthetic WhatsApp intake").getByText("Last accepted input: Unknown", { exact: true }).waitFor();
+    await intakeRow("Synthetic WhatsApp intake").getByText("Input status: Unknown", { exact: true }).waitFor();
+    failedActivity.add(instagramAdapterId);
+    await navigate("Overview", "Overview");
+    await page.getByText("Some operator evidence is unavailable. Its missing row does not mean no activity occurred.", { exact: true }).waitFor();
+    await navigate("Sources", "Sources");
+    await page.getByRole("heading", { name: "Source Catalog", exact: true }).waitFor();
+    await adapterEvidence.getByText("Some adapter evidence could not be loaded. Missing rows are unavailable, not zero.", { exact: true }).waitFor();
+    failedActivity.clear();
+    intakeStatus[whatsappAdapterId] = "stale";
+    await navigate("Overview", "Overview");
+    await navigate("Sources", "Sources");
+    await page.getByRole("heading", { name: "Source Catalog", exact: true }).waitFor();
+    await intakeRow("Synthetic Instagram intake").getByText("Input status: Observed", { exact: true }).waitFor();
+    assert.equal(await adapterEvidence.getByRole("status").count(), 0);
     const securitiesTab = page.getByRole("tab", { name: "Securities", exact: true });
     const institutionsTab = page.getByRole("tab", { name: "Institutions", exact: true });
     const peopleTab = page.getByRole("tab", { name: "People & Org", exact: true });
@@ -644,6 +927,9 @@ async function scenario(role) {
       assert.equal(await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(1).locator("option").count(), 1, "Unsaved endpoints have no backend compatibility yet.");
       await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(0).selectOption("x:ricky");
       assert.equal(await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(1).getByRole("option", { name: "Trading Plans" }).count(), 0);
+      assert.equal(await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(1).getByRole("option", { name: "Swing Chart Context" }).count(), 1);
+      await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(1).selectOption("swing_chart_context");
+      assert.equal(await page.getByRole("group", { name: "Capability setting" }).getByLabel("Enabled intent").isChecked(), false);
       await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(1).selectOption("company_news");
       await page.getByRole("group", { name: "Capability setting" }).getByLabel("Enabled intent").check();
       await page.getByRole("button", { name: "Apply setting to draft" }).click();
@@ -664,6 +950,9 @@ async function scenario(role) {
     await page.waitForURL(`${target.origin}/workspace/sources`);
     await page.getByRole("heading", { name: "Source Catalog", exact: true }).waitFor();
     await navigate("Workflows", "Workflows");
+    assert.equal(await page.locator(".control-watcher-operator-evidence").count(), 0);
+    assert.equal(await page.locator(".control-watcher-outcome").getByText("Configure", { exact: true }).count(), 3);
+    assert.doesNotMatch(await page.locator(".control-watcher-list").innerText(), /active schedules|No recorded run|unavailable|use unverified/);
     const workflowSearch = page.getByRole("searchbox", {
       name: "Search workflows",
       exact: true,
@@ -824,26 +1113,30 @@ async function scenario(role) {
     await navigate("Workflows", "Workflows");
     await page.getByRole("button", { name: /^Open watcher details: Market news/ }).click();
     await page.getByRole("heading", { name: "Market news", exact: true }).waitFor();
-    await page.goto(`${target.origin}/workspace/schedules`);
-    await page.waitForURL(`${target.origin}/workspace/workflows`);
-    await page.getByRole("heading", { name: "Workflows", exact: true }).waitFor();
-    await page.getByRole("button", { name: /^Open watcher details: Market news/ }).click();
-    await page.getByRole("heading", { name: "Market news", exact: true }).waitFor();
-    await page.locator("#workflow-schedules").getByRole("heading", { name: "Schedules" }).waitFor();
-    await page.getByRole("heading", { name: "Market news check", exact: true }).waitFor();
+    assert.equal(await page.getByRole("button", { name: "Save schedule", exact: true }).count(), 0);
+    assert.equal(
+      await page.getByRole("link", { name: "Shared Telegram reader", exact: true }).getAttribute("href"),
+      "/workspace/jobs#job-fixture-market-news",
+    );
+    await page.getByRole("link", { name: "Shared Telegram reader", exact: true }).click();
+    await page.waitForURL(`${target.origin}/workspace/jobs#job-fixture-market-news`);
+    await page.getByRole("heading", { name: "Jobs", exact: true }).waitFor();
+    const marketJob = page.locator("#job-fixture-market-news");
+    await marketJob.getByRole("heading", { name: "Shared Telegram reader", exact: true, level: 2 }).waitFor();
     if (role === "viewer") {
       await page
-        .getByText("You have view access. An administrator can change these schedules.", {
+        .locator("#job-fixture-market-news")
+        .getByText("You have view access. An administrator can change this schedule.", {
           exact: true,
         })
         .waitFor();
       assert.equal(
-        await page.getByRole("button", { name: "Save schedule", exact: true }).count(),
+        await marketJob.getByRole("button", { name: "Save schedule", exact: true }).count(),
         0,
       );
     } else {
-      const interval = page.getByLabel("Check every (minutes)", { exact: true });
-      const saveSchedule = page.getByRole("button", { name: "Save schedule", exact: true });
+      const interval = marketJob.getByLabel("Check every (minutes)", { exact: true });
+      const saveSchedule = marketJob.getByRole("button", { name: "Save schedule", exact: true });
       await interval.fill("45");
       failNext("schedule", 422, "validation", ["interval_seconds"]);
       await saveSchedule.click();
@@ -853,21 +1146,21 @@ async function scenario(role) {
         .waitFor();
       assert.equal(await interval.inputValue(), "45");
       assert.equal(await saveSchedule.isEnabled(), true);
-      await page.getByLabel("Check every (minutes)", { exact: true }).fill("30");
-      await page.getByRole("button", { name: "Save schedule", exact: true }).click();
+      await marketJob.getByLabel("Check every (minutes)", { exact: true }).fill("30");
+      await marketJob.getByRole("button", { name: "Save schedule", exact: true }).click();
       await page
-        .locator(".watcher-schedule .watcher-draft-status")
+        .locator("#job-fixture-market-news .watcher-schedule .watcher-draft-status")
         .getByText("Pending", { exact: true })
         .waitFor();
       assert.equal(
-        await page.getByRole("button", { name: "Save schedule", exact: true }).isDisabled(),
+        await marketJob.getByRole("button", { name: "Save schedule", exact: true }).isDisabled(),
         true,
       );
       await page
         .getByText("Revision 3 is applied. This job is enabled.", { exact: true })
         .waitFor();
       assert.equal(
-        await page.getByLabel("Check every (minutes)", { exact: true }).inputValue(),
+        await marketJob.getByLabel("Check every (minutes)", { exact: true }).inputValue(),
         "30",
       );
       assert.ok(scheduleChecks >= 1, "Applied status must follow a separate scheduler response.");
@@ -882,7 +1175,7 @@ async function scenario(role) {
       assert.equal(await interval.inputValue(), "40");
       assert.equal(await interval.isDisabled(), true);
       assert.equal(await saveSchedule.isDisabled(), true);
-      await page.getByRole("button", { name: "Refresh status", exact: true }).click();
+      await marketJob.getByRole("button", { name: "Refresh status", exact: true }).click();
       await page
         .getByRole("alert")
         .filter({ hasText: "Status refreshed. Reload this editor" })
@@ -894,13 +1187,14 @@ async function scenario(role) {
       );
       assert.equal(await saveSchedule.isDisabled(), true);
       await confirm(/Discard your draft and load/, false, () =>
-        page.getByRole("button", { name: "Reload schedule", exact: true }).click(),
+        marketJob.getByRole("button", { name: "Reload schedule", exact: true }).click(),
       );
       assert.equal(await interval.inputValue(), "40");
       await confirm(/Discard your draft and load/, true, () =>
-        page.getByRole("button", { name: "Reload schedule", exact: true }).click(),
+        marketJob.getByRole("button", { name: "Reload schedule", exact: true }).click(),
       );
       await page
+        .locator("#job-fixture-market-news")
         .getByRole("button", { name: "Reload schedule", exact: true })
         .waitFor({ state: "hidden" });
       await page.waitForFunction(() => {
@@ -914,9 +1208,10 @@ async function scenario(role) {
       await capture("schedules-desktop");
       await interval.fill("42");
       await page.goBack();
-      await page.getByRole("heading", { name: "Workflows", exact: true }).waitFor();
+      await page.getByRole("heading", { name: "Market news", exact: true }).waitFor();
       state.job.schedule.revision += 1;
       state.job.reconciliation.applied_revision = state.job.schedule.revision;
+      syncOperatorJob(jobId, state.job, true);
       await page.goForward();
       await interval.waitFor();
       assert.equal(
@@ -930,7 +1225,7 @@ async function scenario(role) {
         "Restored drafts based on an older revision must not save.",
       );
       await confirm(/Discard your draft and load/, true, () =>
-        page.getByRole("button", { name: "Reload schedule", exact: true }).click(),
+        marketJob.getByRole("button", { name: "Reload schedule", exact: true }).click(),
       );
       await page.waitForFunction(() => {
         const input = document.querySelector('.watcher-schedule input[type="number"]');
@@ -938,30 +1233,37 @@ async function scenario(role) {
       });
       await navigate("Workflows", "Workflows");
       await page.getByRole("button", { name: /^Open watcher details: Stockbit Snips/ }).click();
-      await page.getByRole("heading", { name: "Stockbit Snips check", exact: true }).waitFor();
-      await page.getByText("Revision 1 is applied. This job is enabled.", { exact: true }).waitFor();
-      const stockbitInterval = page.getByLabel("Check every (minutes)", { exact: true });
+      await page.getByRole("heading", { name: "Stockbit Snips", exact: true }).waitFor();
+      assert.equal(await page.getByRole("button", { name: "Save schedule", exact: true }).count(), 0);
+      await page.getByRole("link", { name: "Stockbit Snips check", exact: true }).click();
+      await page.getByRole("heading", { name: "Jobs", exact: true }).waitFor();
+      const stockbitJob = page.locator("#job-fixture-stockbit-snips");
+      await stockbitJob.getByRole("heading", { name: "Stockbit Snips check", exact: true, level: 2 }).waitFor();
+      await stockbitJob.getByText("Revision 1 is applied. This job is enabled.", { exact: true }).waitFor();
+      const stockbitInterval = stockbitJob.getByLabel("Check every (minutes)", { exact: true });
       assert.equal(await stockbitInterval.inputValue(), "15");
       await stockbitInterval.fill("4");
-      await page.getByRole("button", { name: "Save schedule", exact: true }).click();
+      await stockbitJob.getByRole("button", { name: "Save schedule", exact: true }).click();
       assert.equal(writes.filter((write) => write.resource === "stockbit-schedule").length, 0);
       await stockbitInterval.fill("20");
-      await page.getByRole("button", { name: "Save schedule", exact: true }).click();
-      await page.getByText("Revision 2 is applied. This job is enabled.", { exact: true }).waitFor();
+      await stockbitJob.getByRole("button", { name: "Save schedule", exact: true }).click();
+      await stockbitJob.getByText("Revision 2 is applied. This job is enabled.", { exact: true }).waitFor();
       assert.equal(writes.find((write) => write.resource === "stockbit-schedule").payload.interval_seconds, 1200);
       await navigate("Workflows", "Workflows");
       await page.getByRole("button", { name: /^Open watcher details: Market news/ }).click();
-      await page.getByRole("heading", { name: "Market news check", exact: true }).waitFor();
+      await page.getByRole("heading", { name: "Market news", exact: true }).waitFor();
     }
     for (const textSize of ["100%", "200%"]) {
       await page.setViewportSize({ width: 375, height: 900 });
       await page.evaluate((size) => {
         document.documentElement.style.fontSize = size;
       }, textSize);
-      await noOverflow(`${role} ${textSize} schedules`);
-      if (textSize === "100%") await capture("schedules-375");
+      await navigate("Jobs", "Jobs");
+      await noOverflow(`${role} ${textSize} jobs`);
+      if (textSize === "100%") await capture("jobs-375");
       await navigate("Overview", "Overview");
       await noOverflow(`${role} ${textSize} overview`);
+      await readableMobileNavigation(textSize);
       await capture(textSize === "100%" ? "overview-375" : "overview-375-text-200");
       await page.getByText("View activity table", { exact: true }).click();
       await noOverflow(`${role} ${textSize} activity table`);
@@ -1067,31 +1369,36 @@ async function scenario(role) {
       await noOverflow(`${role} ${textSize} account`);
       await navigate("Workflows", "Workflows");
       await page.getByRole("button", { name: /^Open watcher details: Stockbit Snips/ }).click();
+      await page.getByRole("heading", { name: "Stockbit Snips", exact: true }).waitFor();
+      assert.equal(await page.getByRole("button", { name: "Save schedule", exact: true }).count(), 0);
+      await page.getByRole("link", { name: "Stockbit Snips check", exact: true }).click();
+      await page.getByRole("heading", { name: "Jobs", exact: true }).waitFor();
+      const mobileStockbitJob = page.locator("#job-fixture-stockbit-snips");
+      await mobileStockbitJob.getByRole("heading", { name: "Stockbit Snips check", exact: true, level: 2 }).waitFor();
       if (role === "admin") {
-        const mobileInterval = page.getByLabel("Check every (minutes)", { exact: true });
+        const mobileInterval = mobileStockbitJob.getByLabel("Check every (minutes)", { exact: true });
         const expectedRevision = textSize === "100%" ? 2 : 3;
-        await page.getByText(`Revision ${expectedRevision} is applied. This job is enabled.`, { exact: true }).waitFor();
+        await mobileStockbitJob.getByText(`Revision ${expectedRevision} is applied. This job is enabled.`, { exact: true }).waitFor();
         assert.equal(await mobileInterval.inputValue(), textSize === "100%" ? "20" : "25");
         assert.equal(await mobileInterval.getAttribute("min"), "5");
         assert.equal(await mobileInterval.getAttribute("max"), "60");
         if (textSize === "100%") {
           await mobileInterval.fill("25");
-          await page.getByRole("button", { name: "Save schedule", exact: true }).click();
+          await mobileStockbitJob.getByRole("button", { name: "Save schedule", exact: true }).click();
           await page.locator(".watcher-schedule .watcher-draft-status").getByText("Pending", { exact: true }).waitFor();
-          await page.getByText("Revision 3 is applied. This job is enabled.", { exact: true }).waitFor();
+          await mobileStockbitJob.getByText("Revision 3 is applied. This job is enabled.", { exact: true }).waitFor();
           const mobileScheduleWrite = writes.filter((write) => write.resource === "stockbit-schedule").at(-1);
           assert.equal(mobileScheduleWrite.payload.expectedRevision, 2);
           assert.equal(mobileScheduleWrite.payload.interval_seconds, 1500);
         }
         await noOverflow(`${role} ${textSize} Stockbit schedule`);
       } else {
-        await page.getByRole("heading", { name: "Stockbit Snips check", exact: true }).waitFor();
-        await page.getByText("Enabled · every 15 minutes", { exact: true }).waitFor();
-        await page.getByText("Effective", { exact: true }).waitFor();
+        assert.match(await mobileStockbitJob.locator(".operator-job-evidence").innerText(), /Enabled · every 15 minutes/);
+        assert.match(await mobileStockbitJob.locator(".operator-job-evidence").innerText(), /every 15 minutes/);
       }
       await navigate("Workflows", "Workflows");
       await page.getByRole("button", { name: /^Open watcher details: Market news/ }).click();
-      await page.getByRole("heading", { name: "Market news check", exact: true }).waitFor();
+      await page.getByRole("heading", { name: "Market news", exact: true }).waitFor();
     }
     const signOut = () =>
       page
@@ -1099,11 +1406,13 @@ async function scenario(role) {
         .getByRole("button", { name: "Sign out", exact: true })
         .click();
     if (role === "admin") {
-      await page.getByLabel("Check every (minutes)", { exact: true }).fill("45");
+      await navigate("Jobs", "Jobs");
+      const marketJob = page.locator("#job-fixture-market-news");
+      await marketJob.getByLabel("Check every (minutes)", { exact: true }).fill("45");
       await confirm(/Discard unsaved changes and sign out/, false, signOut);
       assert.equal(signouts, 0);
       assert.equal(
-        await page.getByLabel("Check every (minutes)", { exact: true }).inputValue(),
+        await marketJob.getByLabel("Check every (minutes)", { exact: true }).inputValue(),
         "45",
       );
       await confirm(/Discard unsaved changes and sign out/, true, signOut);

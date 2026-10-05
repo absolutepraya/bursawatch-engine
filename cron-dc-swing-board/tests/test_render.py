@@ -130,3 +130,25 @@ def test_format_wib_converts_an_aware_timestamp() -> None:
     assert format_wib(datetime(2026, 9, 19, 9, 30, tzinfo=ZoneInfo("UTC"))) == (
         "19 Sep 2026 16:30 WIB"
     )
+
+
+def test_primary_display_keeps_explicit_target_two_without_renumbering():
+    event = example_buy_event()
+    event = replace(event,plan=replace(event.plan,targets=("380",)),all_content="**Entry:** 208 to 212\n**Stop-loss:** <200\n**Target 1:** -\n**Target 2:** 380")
+    card = render_primary_card(event)
+    assert "**Target 1:** -" in card and "**Target 2:** 380" in card
+    assert event.plan.targets == ("380",)
+
+
+def test_conflicting_canonical_fields_do_not_override_typed_plan():
+    event = example_buy_event()
+    event = replace(event,all_content="**Entry:** 999\n**Stop-loss:** <1\n**Target 2:** 999")
+    card = render_primary_card(event)
+    assert "**Entry:** 208 to 212" in card and "**Target 1:** 230" in card
+
+
+def test_extra_source_stop_is_display_only():
+    event = example_buy_event()
+    event = replace(event,all_content="**Entry:** 208 to 212\n**Stop-loss:** <200\n**Target 1:** 230\n**Stop-loss 2:** <190")
+    card = render_primary_card(event)
+    assert "**Stop-loss 2:** <190" in card and event.plan.stop_loss == "<200"

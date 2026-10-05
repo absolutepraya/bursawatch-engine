@@ -10,7 +10,9 @@ from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 import fcntl
+import hashlib
 import json
+import os
 from pathlib import Path
 import sqlite3
 from typing import Any, Iterator, Mapping
@@ -19,13 +21,13 @@ from uuid import uuid4
 from models import Checkpoint, Episode, MarketState, OutboxOperation, PlanLevels, SourceEvent, SubmittedEvent
 
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 13
 _LEGAL_OPERATIONS = frozenset(
     {"create_thread", "edit_starter", "post_source_reply", "post_history_reply", "delete_message", "patch_thread"}
 )
 _BACKOFF_MINUTES = (1, 2, 4, 8, 15, 30, 60)
 _LEASE = timedelta(minutes=5)
-_TABLES = frozenset({"source_events", "episodes", "plans", "checkpoints", "history_events", "outbox", "close_attempts", "channel_outbox"})
+_TABLES = frozenset({"source_events", "episodes", "plans", "checkpoints", "history_events", "outbox", "close_attempts", "channel_outbox", "publication_intents", "publication_checkpoints"})
 
 
 class StoreBlockedError(RuntimeError):
@@ -110,8 +112,8 @@ class BoardStore:
                     event_key, source, kind, ticker, published_at, source_url,
                     all_content, source_title, source_status, plan_entry,
                     plan_stop_loss, plan_targets_json, media_path, media_urls_json,
-                    received_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    matched_setup_event_key, media_paths_json, received_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(event_key) DO NOTHING
                 """,
                 (
@@ -129,6 +131,8 @@ class BoardStore:
                     json.dumps(event.plan.targets) if event.plan else None,
                     event.media_path,
                     json.dumps(event.media_urls),
+                    event.matched_setup_event_key,
+                    json.dumps(event.media_paths),
                     _timestamp(received_at),
                 ),
         )
@@ -626,6 +630,13 @@ class BoardStore:
                     "UPDATE history_events SET deleted_at = ? WHERE id = ?",
                     (_timestamp(completed_at), payload.get("history_id")),
                 )
+            elif operation["operation"] == "patch_thread":
+                payload = json.loads(operation["payload_json"])
+                if payload.get("archived") is True and "cancelled" not in completion:
+                    connection.execute(
+                        "UPDATE episodes SET archived_at = COALESCE(archived_at, ?) WHERE id = ?",
+                        (_timestamp(completed_at), operation["episode_id"]),
+                    )
             connection.execute(
                 """
                 UPDATE outbox
@@ -635,6 +646,101 @@ class BoardStore:
                 """,
                 (json.dumps(dict(completion), sort_keys=True), _timestamp(completed_at), operation_id),
             )
+            if _publication_enabled(completed_at) and operation["operation"] in {
+                "create_thread", "edit_starter", "post_source_reply", "post_history_reply", "patch_thread"
+            }:
+                self._insert_publication_intent(connection, operation, completion, completed_at)
+            connection.execute(
+                """UPDATE episodes SET quiet_started_at = ?
+                WHERE id = ? AND lifecycle = 'resolved' AND archived_at IS NULL
+                  AND quiet_started_at IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM outbox WHERE episode_id = ? AND status != 'complete')""",
+                (_timestamp(completed_at), operation["episode_id"], operation["episode_id"]),
+            )
+
+    @staticmethod
+    def _insert_publication_intent(
+        connection: sqlite3.Connection,
+        operation: sqlite3.Row,
+        completion: Mapping[str, Any],
+        completed_at: datetime,
+    ) -> None:
+        """Bind one projection retry record to the same transaction as its completed outbox row."""
+        payload = json.loads(operation["payload_json"])
+        episode = connection.execute("SELECT * FROM episodes WHERE id = ?", (operation["episode_id"],)).fetchone()
+        if episode is None:
+            raise StoreBlockedError("completed Board publication has no episode")
+        source = None
+        if operation["operation"] in {"post_source_reply", "post_history_reply"}:
+            event_key = ""
+            if str(operation["dedupe_key"]).startswith("event:"):
+                try:
+                    event_key, _chunk = _source_event_key_from_dedupe(operation["dedupe_key"])
+                except (StoreBlockedError, TypeError, ValueError):
+                    event_key = ""
+            if event_key:
+                source = connection.execute("SELECT * FROM source_events WHERE event_key = ?", (event_key,)).fetchone()
+        if source is None and episode["starter_source_event_id"] is not None:
+            source = connection.execute("SELECT * FROM source_events WHERE id = ?", (episode["starter_source_event_id"],)).fetchone()
+        if source is None:
+            source = connection.execute(
+                """SELECT s.* FROM plans p JOIN source_events s ON s.id = p.source_event_id
+                WHERE p.episode_id = ? ORDER BY p.id DESC LIMIT 1""", (operation["episode_id"],)
+            ).fetchone()
+
+        owner_key = str(operation["dedupe_key"])
+        parent_publication_id = None
+        if operation["operation"] != "create_thread":
+            candidates = connection.execute(
+                "SELECT owner_key, snapshot_json FROM publication_intents WHERE episode_id = ? ORDER BY id",
+                (operation["episode_id"],),
+            ).fetchall()
+            starter = next((row for row in candidates
+                            if json.loads(row["snapshot_json"]).get("_operation") == "create_thread"), None)
+            if starter is not None:
+                parent_publication_id = _publication_identity("bursawatch-dc-swing-board", starter[0])
+        elif source is not None:
+            parent_owner = _source_owner_id(str(source["source"]))
+            if parent_owner:
+                source_owner_key = _source_publication_owner_key(source)
+                if source_owner_key:
+                    parent_publication_id = _publication_identity(parent_owner, source_owner_key)
+
+        content = payload.get("content")
+        if not isinstance(content, str):
+            content = None
+        attachment = payload.get("chart") or payload.get("media")
+        attachment_meta = None
+        if isinstance(attachment, str) and attachment:
+            attachment_meta = {"path": attachment}
+        elif isinstance(attachment, Mapping):
+            attachment_meta = {key: attachment[key] for key in ("path", "filename", "content_type") if key in attachment}
+        snapshot = {
+            "api_version": 1, "owner_key": owner_key, "version": 1, "supersedes_version": None,
+            "type": "swing_board_update", "route": "swing_board",
+            "source_event_key": str(source["event_key"]) if source is not None else None,
+            "source_name": str(source["source"]) if source is not None else "Swing Board",
+            "source_url": str(source["source_url"]) if source is not None and source["source_url"] else None,
+            "source_published_at": str(source["published_at"]) if source is not None else None,
+            "market_data_as_of": None, "delivery_confirmed_at": _timestamp(completed_at),
+            "title": (str(source["source_title"]) if source is not None and source["source_title"] else f"{episode['ticker']}: Swing Board update")[:300],
+            "ticker": str(episode["ticker"]), "broker_levels": None,
+            "parent_publication_id": parent_publication_id, "board_episode_id": str(operation["episode_id"]),
+            "config_revision": None, "renderer_version": "swing-board-v1",
+            "source_version": str(source["event_key"]) if source is not None else None,
+            "required_operation_keys": [], "legs": [],
+            "_operation": str(operation["operation"]), "_outbox_id": int(operation["id"]),
+            "_episode_id": int(operation["episode_id"]), "_payload": payload,
+            "_completion": dict(completion), "_attachment_meta": attachment_meta,
+        }
+        connection.execute(
+            """INSERT INTO publication_intents
+            (owner_key, outbox_id, episode_id, snapshot_json, next_attempt_at)
+            VALUES (?, ?, ?, ?, ?) ON CONFLICT(owner_key) DO NOTHING""",
+            (owner_key, operation["id"], operation["episode_id"],
+             json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+             _timestamp(completed_at)),
+        )
 
     def fail_outbox(
         self, operation_id: int, claim_token: str, error: str, failed_at: datetime,
@@ -673,6 +779,70 @@ class BoardStore:
         with self._connection() as connection:
             return int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
 
+    def pending_publication_intents(self, now: datetime) -> list[dict[str, Any]]:
+        now = _aware(now, "now")
+        with self._connection() as connection:
+            rows = connection.execute(
+                """SELECT * FROM publication_intents WHERE ack_json IS NULL
+                AND julianday(next_attempt_at) <= julianday(?) ORDER BY id""", (_timestamp(now),)
+            ).fetchall()
+            return [{**dict(row), "snapshot": json.loads(row["snapshot_json"])} for row in rows]
+
+    def all_publication_intents(self) -> list[dict[str, Any]]:
+        with self._connection() as connection:
+            rows = connection.execute("SELECT * FROM publication_intents ORDER BY id").fetchall()
+            return [{**dict(row), "snapshot": json.loads(row["snapshot_json"]),
+                     "ack": json.loads(row["ack_json"]) if row["ack_json"] else None} for row in rows]
+
+    def acknowledge_publication_intent(self, owner_key: str, ack: Mapping[str, Any]) -> None:
+        encoded = json.dumps(dict(ack), sort_keys=True, separators=(",", ":"))
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT ack_json FROM publication_intents WHERE owner_key = ?", (owner_key,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(owner_key)
+            if row[0] is not None and row[0] != encoded:
+                raise StoreBlockedError("Board publication acknowledgment conflicts with saved identity")
+            connection.execute(
+                "UPDATE publication_intents SET ack_json = ?, last_error = NULL WHERE owner_key = ?",
+                (encoded, owner_key),
+            )
+
+    def fail_publication_intent(self, owner_key: str, now: datetime, error: str) -> None:
+        now = _aware(now, "now")
+        if not error:
+            raise ValueError("publication retry category is required")
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT attempts FROM publication_intents WHERE owner_key = ? AND ack_json IS NULL",
+                (owner_key,),
+            ).fetchone()
+            if row is None:
+                return
+            attempts = int(row[0]) + 1
+            delay = _BACKOFF_MINUTES[min(attempts - 1, len(_BACKOFF_MINUTES) - 1)]
+            connection.execute(
+                "UPDATE publication_intents SET attempts = ?, next_attempt_at = ?, last_error = ? WHERE owner_key = ?",
+                (attempts, _timestamp(now + timedelta(minutes=delay)), error[:80], owner_key),
+            )
+
+    def save_publication_checkpoint(self, comparison: Mapping[str, Any], ack: Mapping[str, Any]) -> None:
+        with self._transaction() as connection:
+            connection.execute(
+                """INSERT INTO publication_checkpoints(id, comparison_json, ack_json) VALUES (1, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET comparison_json = excluded.comparison_json, ack_json = excluded.ack_json""",
+                (json.dumps(dict(comparison), sort_keys=True, separators=(",", ":")),
+                 json.dumps(dict(ack), sort_keys=True, separators=(",", ":"))),
+            )
+
+    def publication_checkpoint(self) -> dict[str, Any] | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT comparison_json, ack_json FROM publication_checkpoints WHERE id = 1"
+            ).fetchone()
+            return ({"comparison": json.loads(row[0]), "ack": json.loads(row[1])} if row else None)
+
     def _initialize(self) -> None:
         with self._locked():
             connection = sqlite3.connect(self.path, isolation_level=None)
@@ -703,6 +873,14 @@ class BoardStore:
                         _migrate_v7_to_v8(connection)
                     if version in {1, 2, 3, 4, 5, 6, 7, 8}:
                         _migrate_v8_to_v9(connection)
+                    if version in {1, 2, 3, 4, 5, 6, 7, 8, 9}:
+                        _migrate_v9_to_v10(connection)
+                    if version in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}:
+                        _migrate_v10_to_v11(connection)
+                    if version in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}:
+                        _migrate_v11_to_v12(connection)
+                    if version in {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}:
+                        _migrate_v12_to_v13(connection)
                     connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
                     connection.execute("COMMIT")
                 except BaseException:
@@ -890,6 +1068,38 @@ class BoardStoreTransaction:
         ).fetchone()
         return _episode_from_row(row) if row else None
 
+    def historical_episode(self, ticker: str, published_at: datetime) -> Episode | None:
+        """Find the newest resolution covering a late source event."""
+        row = self._connection.execute(
+            """SELECT * FROM episodes WHERE ticker = ? AND lifecycle = 'resolved'
+            AND julianday(opened_at) <= julianday(?)
+            AND julianday(closed_at) >= julianday(?)
+            ORDER BY julianday(closed_at) DESC, id DESC LIMIT 1""",
+            (ticker, _timestamp(published_at), _timestamp(published_at)),
+        ).fetchone()
+        return _episode_from_row(row) if row else None
+
+    def active_episodes(self) -> list[Episode]:
+        rows = self._connection.execute(
+            "SELECT * FROM episodes WHERE closed_at IS NULL ORDER BY id"
+        ).fetchall()
+        return [_episode_from_row(row) for row in rows]
+
+    def resolved_episodes(self) -> list[Episode]:
+        rows = self._connection.execute(
+            "SELECT * FROM episodes WHERE lifecycle = 'resolved' AND archived_at IS NULL ORDER BY id"
+        ).fetchall()
+        return [_episode_from_row(row) for row in rows]
+
+    def latest_plan_card(self, episode_id: int) -> PlanCard | None:
+        return next((card for card in self.latest_plan_cards() if card.episode.id == episode_id), None)
+
+    def has_pending_outbox(self, episode_id: int) -> bool:
+        return bool(self._connection.execute(
+            "SELECT 1 FROM outbox WHERE episode_id = ? AND status != 'complete' LIMIT 1",
+            (episode_id,),
+        ).fetchone())
+
     def episode_sources(self, episode_id: int) -> set[str]:
         """Resolve immutable source names through the board-owned reply intents."""
         return episode_sources_from_connection(self._connection, episode_id)
@@ -897,11 +1107,16 @@ class BoardStoreTransaction:
     def update_episode(self, episode: Episode) -> None:
         self._connection.execute(
             """UPDATE episodes SET lifecycle = ?, title = ?, latest_material_at = ?,
-            closed_at = ?, starter_source_event_id = ?, lifecycle_tag = ?, market_tag = ?
+            closed_at = ?, starter_source_event_id = ?, lifecycle_tag = ?, market_tag = ?,
+            resolution_reason = ?, quiet_started_at = ?, archived_at = ?
             WHERE id = ?""",
             (episode.lifecycle, episode.title, _timestamp(episode.latest_material_at),
              _timestamp(episode.closed_at) if episode.closed_at else None,
-             episode.starter_source_event_id, episode.lifecycle_tag, episode.market_tag, episode.id),
+             episode.starter_source_event_id, episode.lifecycle_tag, episode.market_tag,
+             episode.resolution_reason,
+             _timestamp(episode.quiet_started_at) if episode.quiet_started_at else None,
+             _timestamp(episode.archived_at) if episode.archived_at else None,
+             episode.id),
         )
 
     def starter_source_event(self, episode_id: int) -> SourceEvent | None:
@@ -913,19 +1128,35 @@ class BoardStoreTransaction:
         ).fetchone()
         return _source_event_from_row(row) if row else None
 
+    def source_starter_content(self, episode_id: int) -> str | None:
+        """Recover managed source card text from pre-starter-link episodes."""
+        rows = self._connection.execute(
+            """SELECT payload_json FROM outbox WHERE episode_id = ?
+            AND operation IN ('create_thread', 'edit_starter') ORDER BY id DESC""",
+            (episode_id,),
+        ).fetchall()
+        for row in rows:
+            content = json.loads(row["payload_json"]).get("content")
+            if isinstance(content, str) and content:
+                return content
+        return None
+
     def active_plan(self, episode_id: int) -> SourceEvent | None:
         row = self._connection.execute(
-            """SELECT s.*, p.source_status AS current_status FROM plans p
+            """SELECT s.*, p.source_status AS current_status,
+            p.entry AS active_plan_entry, p.stop_loss AS active_plan_stop_loss,
+            p.targets_json AS active_plan_targets_json FROM plans p
             JOIN source_events s ON s.id = p.source_event_id
             WHERE p.episode_id = ? AND p.terminal_at IS NULL ORDER BY p.id DESC LIMIT 1""",
             (episode_id,),
         ).fetchone()
-        return replace(_source_event_from_row(row), source_status=row["current_status"]) if row else None
+        return _projected_plan_from_row(row) if row else None
 
     def active_primary_plans(self) -> list[ActivePrimaryPlan]:
         rows = self._connection.execute(
             """SELECT e.*, p.id AS plan_id, s.*, p.source_status AS current_status,
-            p.source_status_at
+            p.source_status_at, p.entry AS active_plan_entry,
+            p.stop_loss AS active_plan_stop_loss, p.targets_json AS active_plan_targets_json
             FROM episodes e JOIN plans p ON p.episode_id = e.id
             JOIN source_events s ON s.id = p.source_event_id
             WHERE e.lifecycle = 'primary' AND e.closed_at IS NULL AND p.terminal_at IS NULL
@@ -935,7 +1166,7 @@ class BoardStoreTransaction:
             ActivePrimaryPlan(
                 episode=_episode_from_row(row),
                 plan_id=int(row["plan_id"]),
-                event=replace(_source_event_from_row(row), source_status=row["current_status"]),
+                event=_projected_plan_from_row(row),
                 source_updated_at=_parse_timestamp(row["source_status_at"]),
             )
             for row in rows
@@ -944,7 +1175,8 @@ class BoardStoreTransaction:
     def latest_plan_cards(self) -> list[PlanCard]:
         rows = self._connection.execute(
             """SELECT e.*, p.id AS plan_id, s.id AS source_event_id, s.*, p.source_status AS current_status,
-            p.source_status_at
+            p.source_status_at, p.entry AS active_plan_entry,
+            p.stop_loss AS active_plan_stop_loss, p.targets_json AS active_plan_targets_json
             FROM episodes e JOIN plans p ON p.episode_id = e.id
             JOIN source_events s ON s.id = p.source_event_id
             WHERE p.id = (SELECT MAX(latest.id) FROM plans latest WHERE latest.episode_id = e.id)
@@ -955,7 +1187,7 @@ class BoardStoreTransaction:
                 episode=_episode_from_row(row),
                 plan_id=int(row["plan_id"]),
                 event_id=int(row["source_event_id"]),
-                event=replace(_source_event_from_row(row), source_status=row["current_status"]),
+                event=_projected_plan_from_row(row),
                 source_updated_at=_parse_timestamp(row["source_status_at"]),
             )
             for row in rows
@@ -1021,6 +1253,26 @@ class BoardStoreTransaction:
             (episode_id, event_id, event.plan.entry, event.plan.stop_loss,
              json.dumps(event.plan.targets), event.source_status or "New setup",
              _timestamp(event.published_at)),
+        )
+
+    def update_plan_targets(self, episode_id: int, targets: tuple[str, ...]) -> None:
+        """Update the current mutable target ladder without rewriting source facts."""
+        if type(targets) is not tuple:
+            raise ValueError("plan targets must be a tuple")
+        row = self._connection.execute(
+            """SELECT p.entry, p.stop_loss FROM plans p
+            JOIN episodes e ON e.id = p.episode_id
+            WHERE p.episode_id = ? AND p.terminal_at IS NULL
+            AND e.lifecycle = 'primary' AND e.closed_at IS NULL
+            ORDER BY p.id DESC LIMIT 1""",
+            (episode_id,),
+        ).fetchone()
+        if row is None:
+            raise StoreBlockedError("only an active primary plan may update targets")
+        PlanLevels(row["entry"], row["stop_loss"], targets)
+        self._connection.execute(
+            "UPDATE plans SET targets_json = ? WHERE episode_id = ? AND terminal_at IS NULL",
+            (json.dumps(targets), episode_id),
         )
 
     def finish_plan(self, episode_id: int, now: datetime) -> None:
@@ -1138,6 +1390,8 @@ def _create_schema(connection: sqlite3.Connection) -> None:
             plan_targets_json TEXT,
             media_path TEXT,
             media_urls_json TEXT NOT NULL,
+            matched_setup_event_key TEXT,
+            media_paths_json TEXT NOT NULL DEFAULT '[]',
             received_at TEXT NOT NULL,
             board_processed_at TEXT
         );
@@ -1162,7 +1416,10 @@ def _create_non_event_tables(connection: sqlite3.Connection) -> None:
             starter_message_id TEXT,
             starter_source_event_id INTEGER REFERENCES source_events(id),
             lifecycle_tag TEXT,
-            market_tag TEXT
+            market_tag TEXT,
+            resolution_reason TEXT,
+            quiet_started_at TEXT,
+            archived_at TEXT
         );
         CREATE UNIQUE INDEX one_open_episode_per_ticker
             ON episodes(ticker) WHERE closed_at IS NULL;
@@ -1240,6 +1497,22 @@ def _create_non_event_tables(connection: sqlite3.Connection) -> None:
             completion_json TEXT,
             completed_at TEXT,
             created_at TEXT NOT NULL
+        );
+        CREATE TABLE publication_intents (
+            id INTEGER PRIMARY KEY,
+            owner_key TEXT NOT NULL UNIQUE,
+            outbox_id INTEGER NOT NULL UNIQUE REFERENCES outbox(id),
+            episode_id INTEGER NOT NULL REFERENCES episodes(id),
+            snapshot_json TEXT NOT NULL,
+            ack_json TEXT,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            next_attempt_at TEXT NOT NULL,
+            last_error TEXT
+        );
+        CREATE TABLE publication_checkpoints (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            comparison_json TEXT NOT NULL,
+            ack_json TEXT NOT NULL
         );
         """
     )
@@ -1440,6 +1713,60 @@ def _migrate_v8_to_v9(connection: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v9_to_v10(connection: sqlite3.Connection) -> None:
+    """Add lifecycle facts without rewriting existing events."""
+    existing = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "episodes" in existing:
+        episode_columns = {row[1] for row in connection.execute("PRAGMA table_info(episodes)")}
+        for name in ("resolution_reason", "quiet_started_at", "archived_at"):
+            if name not in episode_columns:
+                connection.execute(f"ALTER TABLE episodes ADD COLUMN {name} TEXT")
+
+
+def _migrate_v10_to_v11(connection: sqlite3.Connection) -> None:
+    """Persist an optional immutable link from an update to its weekly setup."""
+    existing = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "source_events" not in existing:
+        return
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(source_events)")}
+    if "matched_setup_event_key" not in columns:
+        connection.execute("ALTER TABLE source_events ADD COLUMN matched_setup_event_key TEXT")
+
+
+def _migrate_v11_to_v12(connection: sqlite3.Connection) -> None:
+    """Persist ordered source media paths without rewriting existing events."""
+    existing = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "source_events" not in existing:
+        return
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(source_events)")}
+    if "media_paths_json" not in columns:
+        connection.execute("ALTER TABLE source_events ADD COLUMN media_paths_json TEXT NOT NULL DEFAULT '[]'")
+
+
+def _migrate_v12_to_v13(connection: sqlite3.Connection) -> None:
+    """Add a Board-owned receipt projection queue without scanning old outbox rows."""
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS publication_intents (
+            id INTEGER PRIMARY KEY,
+            owner_key TEXT NOT NULL UNIQUE,
+            outbox_id INTEGER NOT NULL UNIQUE REFERENCES outbox(id),
+            episode_id INTEGER NOT NULL REFERENCES episodes(id),
+            snapshot_json TEXT NOT NULL,
+            ack_json TEXT,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            next_attempt_at TEXT NOT NULL,
+            last_error TEXT
+        )"""
+    )
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS publication_checkpoints (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            comparison_json TEXT NOT NULL,
+            ack_json TEXT NOT NULL
+        )"""
+    )
+
+
 def _create_missing_tables(connection: sqlite3.Connection) -> None:
     existing = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     if "episodes" not in existing:
@@ -1448,6 +1775,54 @@ def _create_missing_tables(connection: sqlite3.Connection) -> None:
 
 def _timestamp(value: datetime) -> str:
     return _aware(value, "timestamp").astimezone(timezone.utc).isoformat()
+
+
+def _publication_enabled(now: datetime) -> bool:
+    if os.environ.get("IDX_SWING_PLAN_BOARD_PUBLICATION_ENABLED") != "1":
+        return False
+    raw = os.environ.get("BURSAWATCH_PUBLICATION_CUTOVER_AT")
+    if not raw:
+        return False
+    try:
+        boundary = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return (
+        boundary.tzinfo is not None
+        and boundary.utcoffset() is not None
+        and _aware(now, "now").astimezone(timezone.utc) >= boundary.astimezone(timezone.utc)
+    )
+
+
+def _publication_identity(owner_id: str, owner_key: str) -> str:
+    raw = json.dumps(
+        [owner_id, owner_key], ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _source_owner_id(source: str) -> str | None:
+    normalized = source.casefold().replace("-", " ").replace("_", " ")
+    if "phintraco" in normalized:
+        return "bursawatch-tg-phintraco-swing"
+    if "kelas" in normalized and "investasi" in normalized:
+        return "bursawatch-tg-kelas-investasi-gtw"
+    if normalized in {"x", "twitter"}:
+        return "bursawatch-x-account-watch"
+    if "whatsapp" in normalized:
+        return "bursawatch-wa-channel-watch"
+    return None
+
+
+def _source_publication_owner_key(source: sqlite3.Row) -> str | None:
+    event_key = str(source["event_key"])
+    if str(source["source"]).casefold() == "phintraco":
+        if str(source["kind"]).casefold() == "buy":
+            return f"phintraco:{event_key}"
+        if source["matched_setup_event_key"]:
+            return f"phintraco:update:{event_key}"
+        return None
+    return event_key
 
 
 def _aware(value: datetime, name: str) -> datetime:
@@ -1527,6 +1902,9 @@ def _episode_from_row(row: sqlite3.Row) -> Episode:
         starter_source_event_id=row["starter_source_event_id"],
         lifecycle_tag=row["lifecycle_tag"],
         market_tag=row["market_tag"],
+        resolution_reason=row["resolution_reason"],
+        quiet_started_at=_parse_timestamp(row["quiet_started_at"]) if row["quiet_started_at"] else None,
+        archived_at=_parse_timestamp(row["archived_at"]) if row["archived_at"] else None,
     )
 
 
@@ -1543,6 +1921,9 @@ def _channel_outbox_from_row(row: sqlite3.Row) -> ChannelOutboxOperation:
 
 
 def _source_event_from_row(row: sqlite3.Row) -> SourceEvent:
+    paths = tuple(json.loads(row["media_paths_json"]))
+    if not paths and row["media_path"]:
+        paths = (row["media_path"],)
     return SourceEvent(
         event_key=row["event_key"], source=row["source"], kind=row["kind"], ticker=row["ticker"],
         published_at=_parse_timestamp(row["published_at"]), source_url=row["source_url"],
@@ -1551,7 +1932,19 @@ def _source_event_from_row(row: sqlite3.Row) -> SourceEvent:
         plan=PlanLevels(row["plan_entry"], row["plan_stop_loss"], tuple(json.loads(row["plan_targets_json"])))
         if row["plan_entry"] else None,
         media_path=row["media_path"], media_urls=tuple(json.loads(row["media_urls_json"])),
+        media_paths=paths,
+        matched_setup_event_key=row["matched_setup_event_key"],
     )
+
+
+def _projected_plan_from_row(row: sqlite3.Row) -> SourceEvent:
+    event = _source_event_from_row(row)
+    plan = PlanLevels(
+        row["active_plan_entry"],
+        row["active_plan_stop_loss"],
+        tuple(json.loads(row["active_plan_targets_json"])),
+    )
+    return replace(event, plan=plan, source_status=row["current_status"])
 
 
 def _outbox_from_row(row: sqlite3.Row) -> OutboxOperation:

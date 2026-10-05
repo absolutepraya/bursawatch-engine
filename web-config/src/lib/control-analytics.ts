@@ -1,4 +1,5 @@
 import type { ControlJob, ControlRun, ControlWatcher } from "@/server/control-plane";
+import type { OperatorJob, OperatorObservation, OperatorComponentActivity } from "@/lib/operator-inventory";
 
 export type ControlRange = "24h" | "7d";
 export type ControlCoverageIssue = {
@@ -121,4 +122,57 @@ export function controlRunDuration(run: ControlRun): string {
   if (seconds < 60) return `${seconds}s`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+}
+
+export type ObservedJobState = "active" | "paused" | "pending" | "error" | "mismatch" | "stale" | "unknown";
+
+export function latestOperatorObservations(rows: OperatorObservation[]) {
+  return new Map(rows.map((row) => [`${row.identity_kind}:${row.identity_id}`, row]));
+}
+
+export function observedJobState(job: OperatorJob, observation?: OperatorObservation): ObservedJobState {
+  if (!observation) return job.reconciliation.status === "error" ? "error" : job.reconciliation.status === "pending" ? "pending" : "unknown";
+  if (observation.freshness === "stale" || observation.status === "stale") return "stale";
+  if (observation.comparison === "mismatch") return "mismatch";
+  if (observation.status === "disabled") return "paused";
+  if (observation.comparison === "match" && job.schedule && job.reconciliation.status === "applied"
+    && job.reconciliation.applied_revision === job.schedule.revision) return "active";
+  if (job.schedule_kind === "fixed" && observation.status === "enabled") return "active";
+  return "unknown";
+}
+
+export function observedJobSummary(jobs: OperatorJob[], observations: OperatorObservation[]) {
+  const byJob = latestOperatorObservations(observations);
+  const counts: Record<ObservedJobState, number> = { active: 0, paused: 0, pending: 0, error: 0, mismatch: 0, stale: 0, unknown: 0 };
+  for (const job of jobs) counts[observedJobState(job, byJob.get(`job:${job.job_id}`))]++;
+  return { ...counts, total: jobs.length };
+}
+
+/** Current issues require a fresh enabled-job observation, never a historical run row. */
+export function currentObservedFailures(jobs: OperatorJob[], observations: OperatorObservation[]) {
+  const byJob = latestOperatorObservations(observations);
+  return jobs.filter((job) => {
+    const row = byJob.get(`job:${job.job_id}`);
+    return row && observedJobState(job, row) === "active" && row.evidence.last_execution.status === "failed";
+  });
+}
+
+export function latestActivityTimestamp(activity: OperatorComponentActivity[]) {
+  const values = activity.flatMap((row) => [
+    ...row.endpoints.map((endpoint) => endpoint.accepted_at),
+    ...row.pipelines.map((pipeline) => pipeline.work_created_at),
+  ]).filter((value): value is string => value !== null && Number.isFinite(Date.parse(value)));
+  return values.sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
+}
+
+export function ownerConfigEvidence(savedRevision: number | null, runs: ControlRun[]) {
+  if (savedRevision === null) return { label: "No saved configuration", loadedRevision: null as number | null };
+  const latest = [...runs].sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at))[0];
+  if (!latest) return { label: "Saved, use unverified", loadedRevision: null as number | null };
+  if (latest.config_revision === savedRevision) return { label: `Last run used saved v${savedRevision}`, loadedRevision: latest.config_revision };
+  return { label: `Saved v${savedRevision}, use unverified; last run used v${latest.config_revision}`, loadedRevision: latest.config_revision };
+}
+
+export function isEffectiveSubscription(subscription: { enabled: boolean; verification_status: "verified" | "pending" }) {
+  return subscription.enabled && subscription.verification_status === "verified";
 }

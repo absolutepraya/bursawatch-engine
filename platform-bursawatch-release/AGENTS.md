@@ -16,14 +16,14 @@ control, and stores sanitized durable release records under
 After recording a successful SHA, later timer ticks for that same SHA return
 without rematerializing it, rewriting its record, or sending another heartbeat.
 
-The Telegram and X source-ingest pilots use synthetic-only no-post controls.
+The Telegram, X, WhatsApp, and RSS source-ingest runtimes use synthetic-only no-post controls.
 Their scrubbed environments contain no inherited credentials; wrappers do
 not read `.env` in this mode. Each calls `runner.py --verify-synthetic`, which
 uses in-memory source data, makes no network calls, writes no pilot state, and
 reports explicit `network=false`, `secrets=false`, and `writes=false` evidence.
 The wrapper's only verification artifact is a log inside the release agent's
-disposable temporary directory. Installing X source-ingest does not register
-or enable a Hermes job.
+disposable temporary directory. Installing X, WhatsApp, or RSS source-ingest
+does not register or enable a Hermes job.
 
 Market News, Phintraco Swing, and Kelas no-post checks still connect to their
 Telegram sources. Their disposable watcher state and media paths are isolated,

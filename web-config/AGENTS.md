@@ -5,7 +5,7 @@ This independent Next.js package owns the user workspace and configuration
 dashboard. The public website lives in sibling `../web-landing/`. Both are
 reviewed in this repository; the backend still owns runtime state and delivery.
 Use the canonical `Bursawatch` spelling. Preserve the approved Signal Fold
-mark, five-destination navigation, readable dark palette and concise copy.
+mark, seven-destination navigation, readable dark palette and concise copy.
 
 ## Integration boundary
 
@@ -14,10 +14,11 @@ the user's token; same-origin `/api/control` forwards only allowlisted reads and
 config/schedule/avatar PUTs and explicit avatar-refresh POSTs to the configured HTTPS API. That backend verifies identity
 and admin authorization on every request. No public signup, machine/admin token,
 direct SQL, second scheduler or browser role flag may bypass that boundary.
-See `docs/CONTROL_PLANE.md` for the reviewed handoff and remaining live checks.
+See `docs/CONTROL_PLANE.md` for the current integration contract and production
+verification status.
 
 The live sidebar and mobile bottom navigation share Overview, Sources,
-Workflows, History and Account, in that order. Sources reads the authenticated
+Workflows, Jobs, History, Published and Account, in that order. Sources reads the authenticated
 Source Catalog API and shows Securities, Institutions, and People & Org. The
 engine owns supported securities, curated institutions, registered endpoints,
 capabilities and compatibility. People & Org identities and platform endpoints
@@ -51,18 +52,28 @@ never embed real config, destinations, sessions or runtime state in public
 bundles, fixtures, logs or snapshots. Tests use synthetic values. No silent
 retry of writes: ambiguous saves and stale drafts require a fresh read.
 Preflight revision checking is best effort, not an atomic backend lock.
-Schedule controls live inside the selected workflow's configuration detail;
-the old Schedules URL remains a compatibility entry point. Configuration and
-schedule saves use separate revisions and actions. Saved schedules remain
-pending until matching reconciliation is observed. Fixed jobs are read-only.
-Do not trigger a real run or delivery in smoke tests.
+Global schedule controls live only in Jobs. Workflow details show linked job
+identity and observed state without a second schedule editor. The old Schedules
+URL redirects to Jobs. Configuration and schedule saves use separate revisions
+and actions. Saved schedules remain pending until matching reconciliation is
+observed. Fixed jobs and viewer sessions have no save control. Job `can_edit` is
+backend-derived and never inferred from browser claims. Jobs and Published read
+only their current-view inventory or publication records; Published filters are
+sent to the authenticated API before paging.
+Do not trigger a real run or delivery in smoke tests. The signed-in
+browser smoke verifies Published records and coverage warnings plus the Jobs
+schedule-evidence note with intercepted synthetic auth and API responses.
+These fixture checks do not establish live Discord room visibility.
 
-Load only the current view's records: Sources reads the source catalog,
-workflow lists read watchers, History lists read runs, and Account makes no
-control reads. Selected
-workflow configuration opens after the catalog and loads only its jobs; only X
-also loads source-poll run status. Do not show a failed jobs read as an empty
-schedule list.
+Load only the current view's records: Sources reads the source catalog, Jobs
+reads components, jobs and observations, workflow lists read watchers, History
+lists read runs, and Account makes no control reads. Catalog-only workflow rows
+show saved configuration and Configure, without runtime or missing-evidence
+claims. Published reads its filtered forward-only publication page and coverage. Selected workflow
+configuration opens after the catalog and loads its watcher-scoped jobs plus
+component-linked operator jobs, then observations only for those operator job
+IDs. It never loads the global job inventory. Only X also loads source-poll run
+status. Do not show a failed jobs read as an empty schedule list.
 Run timelines request events directly instead of waiting for unrelated watcher
 histories. Reuse existing run metadata only within the current signed-in component;
 do not add a persistent private-record cache.
@@ -105,6 +116,12 @@ Run `npm ci` then `npm run check` in this package and validate `web-landing`
 before the PR handoff. Add behavioral tests for changed validation,
 storage, source identity and interactions. Check keyboard access, toast
 feedback, 375px layouts, reduced motion and enlarged text for UI changes.
+Keep all seven mobile destinations visible in an adaptive grid with whole-word
+labels; reserve its measured height as rows increase with text size.
+Activity endpoint identities use the bounded, case-sensitive Source Catalog
+validator, separate from component/job IDs. Jobs resolves a single supported
+watcher resource before linking to its editor; unresolved or ambiguous
+relationships stay readable without an editor link.
 Build output is `.next-build`, separate from the development `.next` tree.
 Never delete a build directory while its server is running.
 

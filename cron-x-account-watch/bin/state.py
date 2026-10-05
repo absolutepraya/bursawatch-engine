@@ -38,6 +38,10 @@ def load_state(path: Path) -> dict:
     value = json.loads(path.read_text(encoding="utf-8"))
     if type(value) is not dict or value.get("version") not in {1, 2, STATE_VERSION} or type(value.get("profiles")) is not dict or type(value.get("outbox")) is not list:
         raise ValueError("x-post-watch state is invalid")
+    for event in value["outbox"]:
+        if isinstance(event, dict) and "news_cards" in event:
+            import render
+            render.news_format.validate_cards(event["news_cards"])
     if value.get("version") in {1, 2}:
         value["version"] = STATE_VERSION
     if "deliveries" not in value:
@@ -175,6 +179,8 @@ def record_delivery(value: dict, event: dict, channel_id: str, delivered_at: dat
         "replacement_of": list(event.get("replacement_of", [])),
         "replacement_pending": False,
     }
+    if event.get("news_cards") is not None:
+        record["text_destinations"] = [card["destination"] for card in event["news_cards"] for _ in card["messages"]]
     if event.get("recovery"):
         record["recovery"] = event["recovery"]
     value["deliveries"].append(record)
@@ -192,18 +198,24 @@ def queue_replacement_cleanup(value: dict, new_record: dict) -> None:
             old["superseded_by"] = new_record["delivery_id"]
             old["replacement_pending"] = False
             continue
-        value["cleanup"].append({
-            "old_delivery_id": old_id,
-            "replacement_delivery_id": new_record["delivery_id"],
-            "channel_id": old["channel_id"],
-            "message_ids": message_ids,
-            "attempts": 0,
-        })
+        groups = {}
+        text_ids = old.get("text_message_ids", [])
+        text_targets = old.get("text_destinations", [old["channel_id"]] * len(text_ids))
+        if len(text_targets) != len(text_ids):
+            raise ValueError("X delivery destinations do not match receipts")
+        for target, message in zip(text_targets, text_ids):
+            groups.setdefault(target, []).append(message)
+        for message in old.get("media_message_ids", []):
+            groups.setdefault(old["channel_id"], []).append(message)
+        for target, ids in groups.items():
+            value["cleanup"].append({"old_delivery_id": old_id, "replacement_delivery_id": new_record["delivery_id"],
+                                     "channel_id": target, "message_ids": ids, "attempts": 0})
 
 
 def finish_cleanup(value: dict, item: dict) -> None:
     old = delivery_by_id(value, item["old_delivery_id"])
-    if old is not None:
+    other_pending = any(entry is not item and entry["old_delivery_id"] == item["old_delivery_id"] for entry in value["cleanup"])
+    if old is not None and not other_pending:
         old["superseded_by"] = item["replacement_delivery_id"]
         old["replacement_pending"] = False
     value["cleanup"].remove(item)
@@ -264,7 +276,16 @@ def _self_chain(profile: Profile, post: SourcePost, by_id: dict[str, SourcePost]
         seen.add(parent.post_id)
         current = parent
     chain.reverse()
-    return tuple(_post_from_thread(item) if is_self_thread(item) else item for item in chain[-profile.thread_handling.max_posts:])
+    bounded = _within_thread_age(profile, tuple(chain[-profile.thread_handling.max_posts:]))
+    retained_ids = {item.post_id for item in bounded}
+    # An own-author quote can reference a separate, much older publication.
+    # Remove its inline quote only when that original is actually retained.
+    return tuple(
+        _post_from_thread(item)
+        if is_self_thread(item) and item.related_url and item.related_url.rsplit("/", 1)[-1] in retained_ids
+        else item
+        for item in bounded
+    )
 
 
 def _within_thread_age(profile: Profile, posts: tuple[SourcePost, ...]) -> tuple[SourcePost, ...]:
@@ -397,6 +418,14 @@ def submit_analysis(value: dict, event_key: str, analysis: dict[str, str]) -> di
     event["agent_phase"] = "ready"
     event["agent_lease_until"] = None
     return event
+
+
+def suppress_ineligible(value: dict, event: dict) -> None:
+    source_key = event.get("source_event_key")
+    if source_key is None or source_key not in value["source_events"]:
+        raise ValueError("X source event is missing its durable identity")
+    value["source_events"][source_key]["outcome"] = "suppressed_ineligible"
+    value["outbox"].remove(event)
 
 
 def awaiting_analysis_event(value: dict, event_key: str) -> dict:

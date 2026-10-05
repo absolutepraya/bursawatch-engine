@@ -17,11 +17,13 @@ sys.path.insert(0, str(ROOT / "cron-tg-source-ingest" / "bin"))
 from adapter import IntakeBlocked, LegacySeedBlocked, endpoints, ingest_all as adapter_ingest_all, ingest_endpoint, plan_legacy_cursor_seed, plan_market_news_catalog_transition, envelope as telegram_envelope
 from runner import AGENT_OWNERS, HEARTBEAT_CHANNEL_ID, HEARTBEAT_DELIVERY_WAIT_SECONDS, PIPELINE_OWNERS, dispatch_agent, format_fatal, format_heartbeat, post_heartbeat, run_once
 from runner import verify_synthetic
+import runner as source_runner
 
 
 NOW = datetime(2026, 9, 24, tzinfo=timezone.utc)
 ENDPOINT = {"platform": "telegram", "endpoint_id": "telegram:phintraprofits", "publisher_id": "phintraco", "address": "phintraprofits", "provider_id": "1444713822", "catalog_revision": 7, "capabilities": {"trading_plans"}}
 NEWS_ENDPOINT = {"platform": "telegram", "endpoint_id": "telegram:phintasprofits", "publisher_id": "phintraco", "address": "phintasprofits", "provider_id": None, "catalog_revision": 7, "capabilities": {"company_news"}}
+PHINTAS_SWING_ENDPOINT = {"platform": "telegram", "endpoint_id": "telegram:phintasprofits", "publisher_id": "phintraco", "address": "phintasprofits", "provider_id": None, "catalog_revision": 8, "capabilities": {"trading_plans"}}
 TUNTUN_NEWS_ENDPOINT = {"platform": "telegram", "endpoint_id": "telegram:tuntunsekuritas", "publisher_id": "tuntun", "address": "tuntunsekuritas", "provider_id": None, "catalog_revision": 7, "capabilities": {"company_news", "macro_news"}}
 
 
@@ -38,9 +40,21 @@ def test_release_synthetic_verification_uses_only_in_memory_fixture(capsys, tmp_
     assert list(tmp_path.iterdir()) == []
 
 
-def test_runtime_wrapper_imports_source_media_read_token_path():
+def test_runtime_wrapper_imports_source_media_and_phintraco_owner_config():
     wrapper = ROOT / "cron-tg-source-ingest" / "bin" / "bursawatch-tg-source-ingest.sh"
-    assert "BURSAWATCH_SOURCE_MEDIA_READ_TOKEN_FILE=*" in wrapper.read_text()
+    content = wrapper.read_text()
+    assert "BURSAWATCH_SOURCE_MEDIA_READ_TOKEN_FILE=*" in content
+    for key in (
+        "IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_URL=*",
+        "IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_WATCHER_ID=*",
+        "IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_TOKEN=*",
+        "IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_TIMEOUT_SECONDS=*",
+        "IDX_SWING_WATCH_PHINTRACO_DAILY_PYTHONPATH=*",
+    ):
+        assert key in content
+    assert 'IFS=: read -r -a PHINTRACO_PYTHONPATH_ENTRIES <<< "$IDX_SWING_WATCH_PHINTRACO_DAILY_PYTHONPATH"' in content
+    assert '[[ -z "$pythonpath_entry" || ! -d "$pythonpath_entry" ]]' in content
+    assert 'export PYTHONPATH="$IDX_SWING_WATCH_PHINTRACO_DAILY_PYTHONPATH:$PYTHONPATH"' in content
 
 
 class FakeInbox:
@@ -70,7 +84,9 @@ class FakeTelegram:
     async def get_dialogs(self):
         return [SimpleNamespace(entity=SimpleNamespace(id=self.entity_id, username=self.address))]
 
-    async def get_messages(self, entity, limit):
+    async def get_messages(self, entity, limit=None, ids=None):
+        if ids is not None:
+            return next((item for item in self.messages if item.id == ids), None)
         assert limit == 1
         return [self.messages[-1]] if self.messages else []
 
@@ -398,6 +414,27 @@ def test_tuntun_envelope_preserves_forum_topic_identity(reply_fields):
     assert event["payload"]["topic_id"] == 3743
 
 
+def test_phintas_swing_endpoint_preserves_reply_parent_and_message_id(tmp_path):
+    parent = message(35448, "PHINTAS Weekly Swing Trading Ideas_20260928")
+    update = message(35557, "Reminder\n\nINDF - First target 6900 achieved")
+    update.reply_to_msg_id = 35448
+    state_root = tmp_path / "state"
+    endpoint_root = state_root / "telegram-phintasprofits"
+    endpoint_root.mkdir(parents=True)
+    (endpoint_root / "cursor.json").write_text('{"cursor":35556}\n')
+    client = FakeTelegram([parent, update], address="phintasprofits", entity_id=1444713822)
+    inbox = FakeInbox()
+
+    result = asyncio.run(ingest_endpoint(client, PHINTAS_SWING_ENDPOINT, state_root, inbox, NOW))
+
+    assert result["accepted"] == 1
+    event = inbox.accepted[0]
+    assert event["endpoint_id"] == "telegram:phintasprofits"
+    assert event["payload"]["reply_to_message_id"] == 35448
+    assert event["payload"]["reply_parent"]["message_id"] == 35448
+    assert event["payload"]["reply_parent"]["text"] == parent.message
+
+
 def test_tuntun_ingest_stages_forum_topic_identity(tmp_path):
     endpoint_root = tmp_path / "telegram-tuntunsekuritas"
     endpoint_root.mkdir()
@@ -541,6 +578,29 @@ def test_media_keeps_cursor_at_previous_ack(tmp_path):
     asyncio.run(_media_keeps_cursor_at_previous_ack(tmp_path))
 
 
+def test_webpage_link_preview_is_text_not_an_unhandled_attachment(tmp_path):
+    asyncio.run(_webpage_link_preview_is_text_not_an_unhandled_attachment(tmp_path))
+
+
+async def _webpage_link_preview_is_text_not_an_unhandled_attachment(tmp_path):
+    inbox = FakeInbox()
+    client = FakeTelegram([message(10)])
+    await ingest_endpoint(client, ENDPOINT, tmp_path, inbox, NOW)
+    preview = message(11, "CA reminder https://example.test", media=object())
+    preview.photo = None
+    client.messages.append(preview)
+
+    result = await ingest_endpoint(client, ENDPOINT, tmp_path, inbox, NOW)
+
+    cursor = tmp_path / "telegram-phintraprofits" / "cursor.json"
+    assert result["accepted"] == 1
+    assert json.loads(cursor.read_text())["cursor"] == 11
+    assert inbox.accepted[-1]["payload"]["text"] == "CA reminder https://example.test"
+    assert inbox.accepted[-1]["media_required"] is False
+    assert inbox.accepted[-1]["media_refs"] == []
+    assert not (cursor.parent / "blocked-media.json").exists()
+
+
 async def _media_keeps_cursor_at_previous_ack(tmp_path):
     inbox = FakeInbox()
     client = FakeTelegram([message(10)])
@@ -640,7 +700,7 @@ def test_board_and_synthetic_news_settle_independently(tmp_path, monkeypatch, fa
     swing_owner = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(swing_owner)
     monkeypatch.setenv("IDX_SWING_WATCH_PHINTRACO_DAILY_STATE_PATH", str(tmp_path / "swing.json"))
-    configured = swing_scan.config.WatchConfig(1444713822, "phintraprofits", "1525102458253217803", "1505162000420835388")
+    configured = swing_scan.config.WatchConfig(1444713822, "phintasprofits", "1525102458253217803", "1505162000420835388")
     monkeypatch.setattr(swing_scan.config, "load_watch_config_for_run", lambda: swing_scan.config.LoadedWatchConfig(configured, 5))
     monkeypatch.setattr(swing_scan, "post_discord_text", lambda *args: "dry-text-11")
     board_events = []
@@ -673,8 +733,8 @@ def test_board_and_synthetic_news_settle_independently(tmp_path, monkeypatch, fa
             return {"work_key": work_key, "status": "done" if success else "pending"}
 
     inbox = WorkInbox()
-    telegram = FakeTelegram([message(10)])
-    snapshot = {"revision": 5, "subscriptions": [{"platform": "telegram", "enabled": True, "endpoint_id": "telegram:phintraprofits", "capability_id": "trading_plans", "verification_status": "verified", "provider_id": "1444713822", "publisher_id": "phintraco", "address": "phintraprofits"}]}
+    telegram = FakeTelegram([message(10)], address="phintasprofits")
+    snapshot = {"revision": 5, "subscriptions": [{"platform": "telegram", "enabled": True, "endpoint_id": "telegram:phintasprofits", "capability_id": "trading_plans", "verification_status": "verified", "provider_id": None, "publisher_id": "phintraco", "address": "phintasprofits"}]}
     assert PIPELINE_OWNERS["company_news"] == "cron-tg-market-news"
     asyncio.run(run_once(telegram, snapshot, tmp_path, inbox, NOW, handlers={"swing_plan": lambda item: None}))
     text = (ROOT / "cron-tg-phintraco-swing" / "tests" / "fixtures" / "trading_buy.txt").read_text()
@@ -696,6 +756,35 @@ def test_board_and_synthetic_news_settle_independently(tmp_path, monkeypatch, fa
     assert board_events[0][0]["source_status"] == "New setup"
     assert board_events[0][2] is True
     assert len(inbox.accepted) == 1
+
+
+
+def test_pending_work_drains_market_news_even_when_no_agent_is_ready(tmp_path, monkeypatch):
+    import runner as source_runner
+
+    class EmptyRuntime:
+        def __init__(self, inbox, handlers):
+            assert set(handlers) == set(PIPELINE_OWNERS)
+
+        def run_once(self, *, limit):
+            assert limit == 20
+            return []
+
+    monkeypatch.setattr(source_runner, "PipelineRuntime", EmptyRuntime)
+    calls = []
+
+    def owner_command(package, command):
+        calls.append((package, command))
+        return {"news_delivered": 2, "stock_status_delivered": 0, "pending": 10}
+
+    result = source_runner._process_pending(
+        object(), tmp_path, agent_dispatcher=None, owner_command=owner_command,
+    )
+    assert calls == [("cron-tg-market-news", "drain-delivery")]
+    assert result["owner_delivery"]["news_delivered"] == 2
+    assert result["owner_delivery_warning"] is False
+    assert result["wakeAgent"] is False
+
 
 
 def test_agent_dispatch_claims_one_oldest_ready_owner(tmp_path):
@@ -781,6 +870,57 @@ def test_agent_dispatch_does_not_claim_when_no_owner_is_ready(tmp_path):
 
     assert dispatch_agent(tmp_path, owner_command=owner_command) == {"wakeAgent": False}
     assert len(calls) == len(AGENT_OWNERS)
+
+
+def test_market_news_work_owner_uses_the_shared_canonical_state_path(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("IDX_MARKET_NEWS_STATE_PATH", raising=False)
+    captured = {}
+
+    def run(_command, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(returncode=0, stdout='{"outcome":"accepted"}')
+
+    monkeypatch.setattr(source_runner.subprocess, "run", run)
+    handler = source_runner._owner_handler("cron-tg-market-news", no_post=False)
+    handler({"event_key": "synthetic-event"})
+
+    assert captured["env"]["IDX_MARKET_NEWS_STATE_PATH"] == str(
+        tmp_path / ".hermes" / "state" / "idx-market-news.json"
+    )
+
+
+def test_market_news_agent_commands_use_the_shared_canonical_state_path(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("IDX_MARKET_NEWS_STATE_PATH", raising=False)
+    captured = {}
+
+    def run(_command, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(returncode=0, stdout='{"ready":false}')
+
+    monkeypatch.setattr(source_runner.subprocess, "run", run)
+    result = source_runner._owner_command("cron-tg-market-news", "agent-status")
+
+    assert result == {"ready": False}
+    assert captured["env"]["IDX_MARKET_NEWS_STATE_PATH"] == str(
+        tmp_path / ".hermes" / "state" / "idx-market-news.json"
+    )
+
+
+def test_market_news_owner_environment_preserves_an_explicit_state_path(tmp_path, monkeypatch):
+    override = tmp_path / "isolated-state.json"
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(override))
+    captured = {}
+
+    def run(_command, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(returncode=0, stdout='{"ready":false}')
+
+    monkeypatch.setattr(source_runner.subprocess, "run", run)
+    source_runner._owner_command("cron-tg-market-news", "agent-status")
+
+    assert captured["env"]["IDX_MARKET_NEWS_STATE_PATH"] == str(override)
 
 
 def test_heartbeat_is_compact_sanitized_and_uses_shared_delivery_owner():

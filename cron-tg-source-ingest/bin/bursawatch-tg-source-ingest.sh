@@ -40,11 +40,27 @@ ENV_FILE="$HOME/.hermes/.env"
 if [[ -r "$ENV_FILE" ]]; then
   while IFS= read -r line || [[ -n "$line" ]]; do
     case "$line" in
-      TELEGRAM_API_ID=*|TELEGRAM_API_HASH=*|POLYCOP_SESSION_STRING=*|BURSAWATCH_TG_SOURCE_CONTROL_PLANE_URL=*|BURSAWATCH_TG_SOURCE_CONTROL_PLANE_TOKEN_FILE=*|BURSAWATCH_SOURCE_MEDIA_URL=*|BURSAWATCH_SOURCE_MEDIA_UPLOAD_TOKEN_FILE=*|BURSAWATCH_SOURCE_MEDIA_READ_TOKEN_FILE=*|BURSAWATCH_DISCORD_DELIVERY_URL=*|BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE=*)
+      TELEGRAM_API_ID=*|TELEGRAM_API_HASH=*|POLYCOP_SESSION_STRING=*|BURSAWATCH_TG_SOURCE_CONTROL_PLANE_URL=*|BURSAWATCH_TG_SOURCE_CONTROL_PLANE_TOKEN_FILE=*|BURSAWATCH_SOURCE_MEDIA_URL=*|BURSAWATCH_SOURCE_MEDIA_UPLOAD_TOKEN_FILE=*|BURSAWATCH_SOURCE_MEDIA_READ_TOKEN_FILE=*|BURSAWATCH_DISCORD_DELIVERY_URL=*|BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE=*|IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_URL=*|IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_WATCHER_ID=*|IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_TOKEN=*|IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_TIMEOUT_SECONDS=*|IDX_SWING_WATCH_PHINTRACO_DAILY_PYTHONPATH=*)
         export "$line"
         ;;
     esac
   done < "$ENV_FILE"
+fi
+
+# The source runner invokes the Phintraco domain-owner Python entry point
+# directly, so it cannot rely on the Phintraco cron wrapper to expose the
+# private PyMuPDF installation. Add only the configured private parser path to
+# this process environment, after verifying every entry. This does not modify
+# the shared interpreter or install packages into its environment.
+if [[ -n "${IDX_SWING_WATCH_PHINTRACO_DAILY_PYTHONPATH:-}" ]]; then
+  IFS=: read -r -a PHINTRACO_PYTHONPATH_ENTRIES <<< "$IDX_SWING_WATCH_PHINTRACO_DAILY_PYTHONPATH"
+  for pythonpath_entry in "${PHINTRACO_PYTHONPATH_ENTRIES[@]}"; do
+    if [[ -z "$pythonpath_entry" || ! -d "$pythonpath_entry" ]]; then
+      printf '%s\n' "configured Phintraco parser path is unavailable" >&2
+      exit 2
+    fi
+  done
+  export PYTHONPATH="$IDX_SWING_WATCH_PHINTRACO_DAILY_PYTHONPATH:$PYTHONPATH"
 fi
 
 LOG_DIR="$HOME/.logs"

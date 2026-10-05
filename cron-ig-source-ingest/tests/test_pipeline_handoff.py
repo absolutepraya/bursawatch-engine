@@ -93,7 +93,8 @@ class MediaStore:
         return SimpleNamespace(data=self.content, content_type="image/jpeg", kind="image")
 
 
-def test_source_work_uses_existing_analysis_and_records_unsubscribed_route_without_delivery(tmp_path, monkeypatch):
+@pytest.mark.parametrize("irrelevant", [False, True])
+def test_source_work_uses_existing_analysis_and_records_unsubscribed_route_without_delivery(tmp_path, monkeypatch, irrelevant):
     watch = load_watch_config(ROOT / "cron-ig-account-watch" / "config" / "watches.json")
     profile = watch.profiles[0]
     storage = tmp_path / "owner" / "state.json"
@@ -149,25 +150,29 @@ def test_source_work_uses_existing_analysis_and_records_unsubscribed_route_witho
     assert result["work"][0]["status"] == "done"
     assert result["wakeAgent"] is True
     assert result["item"]["event_key"] == f"{profile.id}:new"
-    assert result["item"]["ocr_assets"][0]["text"] == "Broad earnings outlook in asset 0"
+    assert result["item"]["ocr_assets"] == []
+    assert result["item"]["vision_asset_paths"] == []
+    assert "Aggregate earnings" in result["item"]["post_text"]
     assert "macro_news" in result["item"]["instruction"]
     assert media.downloads == [media.reference]
     assert source_work_routes.allowed_routes(storage, f"{profile.id}:new") == frozenset({"id_stocks_news"})
 
-    # A direct market disclosure still cannot be marked irrelevant.
-    with pytest.raises(ValueError, match="direct market disclosure must be relevant"):
-        scan.submit_analysis_payload({"event_key": f"{profile.id}:new", "is_relevant": False}, dry_run=True)
-
-    result = scan.submit_analysis_payload({
-        "event_key": f"{profile.id}:new", "is_relevant": True,
-        "title": "Pelemahan prospek laba di pasar saham", "summary": "*(Ringkasan)* Prospek laba agregat menekan pasar saham.",
-        "route": "macro_news",
-    }, dry_run=True)
-    assert result == {"submitted": True, "ignored": True, "delivered": 0, "outcome": "route_not_subscribed"}
+    if irrelevant:
+        result = scan.submit_analysis_payload({"event_key": f"{profile.id}:new", "is_relevant": False}, dry_run=True)
+        assert result == {"submitted": True, "ignored": True, "delivered": 0}
+    else:
+        result = scan.submit_analysis_payload({
+            "event_key": f"{profile.id}:new", "is_relevant": True,
+            "title": "Pelemahan prospek laba di pasar saham", "summary": "Prospek laba agregat menekan pasar saham.",
+            "route": "macro_news",
+        }, dry_run=True)
+        assert result == {"submitted": True, "ignored": True, "delivered": 0, "outcome": "route_not_subscribed"}
     assert state.load_state(storage)["outbox"] == []
     audit_path = next((storage.parent / "source-work").glob("*.outcome.json"))
     audit = json.loads(audit_path.read_text())
-    assert audit["outcome"] == "route_not_subscribed" and audit["classified_route"] == "macro_news"
+    assert audit["outcome"] == ("irrelevant" if irrelevant else "route_not_subscribed")
+    if not irrelevant:
+        assert audit["classified_route"] == "macro_news"
 
     # Retry of the already settled source work does not fetch or enqueue it.
     item = {**inbox.rows[0], "event_kind": "original", "envelope": inbox.events[0]}

@@ -8,10 +8,151 @@ servers:
 security:
   - bearerAuth: []
 paths:
+  /v1/components:
+    get:
+      summary: List the versioned declared component inventory.
+      description: Signed-in viewer or admin only. Adapter source gates are summarized from the current effective Source Catalog; publisher and endpoint settings are not duplicated in this inventory.
+      responses:
+        '200':
+          description: Versioned components, stable relationships, and catalog-derived source gate summaries.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComponentInventory'
+        '403':
+          description: Machine and other non-human principals are denied.
+  /v1/components/{component_id}:
+    parameters:
+      - name: component_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9-]*$'
+    get:
+      summary: Read one declared component.
+      description: Signed-in viewer or admin only. Adapter source gates are summarized from the current effective Source Catalog.
+      responses:
+        '200':
+          description: Component declaration and optional catalog-derived source gate summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Component'
+        '403':
+          description: Machine and other non-human principals are denied.
+        '404':
+          description: Component is not declared in this inventory version.
+  /v1/components/{component_id}/activity:
+    parameters:
+      - name: component_id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Read bounded Source Inbox activity for one declared component.
+      description: Signed-in viewer or admin only. Acceptance and work timestamps do not establish fetch, owner success, or Discord delivery. Missing evidence is unknown.
+      responses:
+        '200':
+          description: Source endpoint and pipeline activity without raw payloads.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComponentActivity'
+        '403':
+          description: Machine and other non-human principals are denied.
+        '404':
+          description: Component is not declared in this inventory version.
+  /v1/publications:
+    get:
+      summary: List confirmed publications after the recorded cutover.
+      description: Signed-in viewer or admin only. Results are ordered by delivery confirmation time, opaque publication ID, and version, all descending. Filters are applied before cursor advancement. An empty page does not prove coverage.
+      parameters:
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+        - {name: cursor, in: query, schema: {type: string, maxLength: 2048}}
+        - {name: group, in: query, schema: {type: string, enum: [news, swing]}}
+        - {name: type, in: query, schema: {type: string, maxLength: 200}}
+        - {name: route, in: query, schema: {type: string, maxLength: 200}}
+        - {name: date_from, in: query, schema: {type: string, format: date-time}}
+        - {name: date_to, in: query, schema: {type: string, format: date-time}}
+        - {name: source, in: query, schema: {type: string, maxLength: 200}}
+        - {name: ticker, in: query, schema: {type: string, maxLength: 200}}
+      responses:
+        '200':
+          description: Bounded page of sanitized published snapshots.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PublicationPage'}
+        '403': {description: Machine principals are denied.}
+        '422': {description: Invalid query or cursor.}
+    post:
+      summary: Accept one confirmed owner publication snapshot.
+      description: Publication owner credential only. Owner identity comes from the bearer token, never the body. Same key and digest are idempotent; conflicting versions are refused. The Control Plane does not send to Discord.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PublicationWrite'}
+      responses:
+        '202':
+          description: Immutable publication version accepted or already present.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PublicationAck'}
+        '403': {description: Caller is not a publication owner.}
+        '409': {description: Cutover inactive or publication key/version conflict.}
+        '422': {description: Invalid, incomplete, or pre-cutover snapshot.}
+  /v1/publications/checkpoints:
+    post:
+      summary: Record one owner's bounded projection comparison.
+      description: Publication owner credential only. An older comparison cannot replace a newer one. Reporting a checkpoint never resends Discord output.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PublicationCheckpoint'}
+      responses:
+        '202':
+          description: Accepted or previously stored monotonic checkpoint.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PublicationCheckpoint'}
+        '403': {description: Caller is not a publication owner.}
+        '409': {description: Cutover inactive or same-time comparison conflict.}
+        '422': {description: Invalid comparison or owner is outside cutover.}
+  /v1/publications/coverage:
+    get:
+      summary: Read cutover and per-owner projection coverage.
+      description: Signed-in viewer or admin only. Missing or stale checkpoints are unknown, and all-publisher completion requires every cutover owner. Fresh disabled-job observations may mark an owner paused or unverified.
+      responses:
+        '200':
+          description: Forward-only cutover and owner coverage.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PublicationCoverage'}
+        '403': {description: Machine principals are denied.}
+  /v1/publications/{publication_id}:
+    parameters:
+      - name: publication_id
+        in: path
+        required: true
+        schema: {type: string, pattern: '^[0-9a-f]{64}$'}
+    get:
+      summary: Read immutable versions and linked publications.
+      description: Signed-in viewer or admin only.
+      responses:
+        '200':
+          description: Exact confirmed output snapshots for this publication.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PublicationDetail'}
+        '403': {description: Machine principals are denied.}
+        '404': {description: Publication is missing.}
   /v1/source-events:
     post:
       summary: Accept a version 1 normalized source event durably.
-      description: Machine or admin credential. Duplicate provider identities return the original receipt; conflicting content requires an audited correction. Acceptance and per-subscription work insertion share a transaction. Media refs are opaque IDs returned by the private Source Media Owner, with bounded verified metadata only.
+      description: Machine or admin credential. Duplicate provider identities return the original receipt; conflicting content requires an audited correction. Acceptance and frozen work insertion share a transaction. Compatible enabled X subscriptions in the x_post_route group create one work item. Media refs are opaque IDs returned by the private Source Media Owner, with bounded verified metadata only.
       requestBody:
         required: true
         content:
@@ -342,6 +483,94 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/SchedulerJob'
+  /v1/jobs:
+    get:
+      summary: List the global declared scheduler job inventory.
+      description: Signed-in viewer or admin only. Each shared job appears once and links to every declared component that uses it. An optional component_id filter returns only jobs linked to that component.
+      parameters:
+        - name: component_id
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: '^[a-z0-9][a-z0-9-]*$'
+      responses:
+        '200':
+          description: Scheduler jobs in stable job-ID order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SchedulerJob'
+        '422':
+          description: Unknown component filter.
+  /v1/internal/observations:
+    post:
+      summary: Submit a bounded Hermes job observation.
+      description: Dedicated observer principal only. The server derives observer identity from its credential. This role cannot write desired schedules, configurations, cursors, or publications.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ObservationWrite'
+      responses:
+        '202':
+          description: Accepted observation, or the newer stored observation when the report was out of order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ObservationAccepted'
+        '403':
+          description: Credential is not scoped to the Hermes observer.
+        '422':
+          description: Unknown job, malformed evidence, or unsafe values.
+  /v1/observations:
+    get:
+      summary: Read bounded latest job observations.
+      description: Signed-in viewer or admin only. Each record keeps received time, freshness, desired state, reconciliation state, and live schedule comparison separate. Repeated job_id filters return only selected declared jobs; omitting the filter returns all observations.
+      parameters:
+        - name: job_id
+          in: query
+          required: false
+          style: form
+          explode: true
+          schema:
+            type: array
+            maxItems: 100
+            uniqueItems: true
+            items:
+              type: string
+              pattern: '^[a-z0-9][a-z0-9-]*$'
+      responses:
+        '200':
+          description: Latest safe observation summaries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Observation'
+        '422':
+          description: Unknown, duplicate, or excessive job filters.
+        '403':
+          description: Machine principals are denied.
+  /v1/jobs/{job_id}:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    get:
+      summary: Read one global scheduler job record.
+      description: Signed-in viewer or admin only. Desired, reconciled, and observed state remain separate.
+      responses:
+        '200':
+          description: Scheduler job state and component relationships.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchedulerJob'
+        '404':
+          description: Scheduler job does not exist.
   /v1/jobs/{job_id}/schedule:
     parameters:
       - $ref: '#/components/parameters/JobId'
@@ -372,10 +601,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SchedulerJob'
-        '409':
-          description: The job has a fixed source-defined schedule.
         '422':
-          description: The cadence is outside the job's approved policy.
+          description: The job has a fixed source-defined schedule or the cadence is outside its approved policy.
   /v1/internal/schedules:
     get:
       summary: Read every desired interval schedule for the trusted VPS reconciler.
@@ -388,7 +615,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/SchedulerJob'
+                  $ref: '#/components/schemas/ReconcilerSchedulerJob'
   /v1/internal/jobs/{job_id}/reconciliation:
     parameters:
       - $ref: '#/components/parameters/JobId'
@@ -515,6 +742,265 @@ components:
         maximum: 1000
         default: 500
   schemas:
+    PublicationLeg:
+      type: object
+      additionalProperties: false
+      required: [operation_key, operation_digest, receipt_operation_id, destination, receipt_id, status, message_url, text, attachments]
+      properties:
+        operation_key: {type: string, minLength: 1, maxLength: 256}
+        operation_digest: {type: string, pattern: '^[0-9a-f]{64}$'}
+        receipt_operation_id: {type: string, minLength: 1, maxLength: 128}
+        destination: {type: string, pattern: '^[0-9]{17,20}$'}
+        receipt_id: {type: string, pattern: '^[0-9]{17,20}$'}
+        status: {type: string, const: delivered}
+        message_url: {type: [string, 'null'], format: uri}
+        text: {type: [string, 'null'], maxLength: 16000}
+        attachments:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            additionalProperties: false
+            required: [filename, content_type, discord_url]
+            properties:
+              filename: {type: string, maxLength: 255}
+              content_type: {type: string, maxLength: 100}
+              discord_url: {type: [string, 'null'], format: uri}
+    PublicationWrite:
+      type: object
+      additionalProperties: false
+      required: [api_version, owner_key, version, supersedes_version, type, route, source_event_key, source_name, source_url, source_published_at, market_data_as_of, delivery_confirmed_at, title, ticker, broker_levels, parent_publication_id, board_episode_id, config_revision, renderer_version, source_version, required_operation_keys, legs]
+      properties:
+        api_version: {type: integer, const: 1}
+        owner_key: {type: string, minLength: 1, maxLength: 256}
+        version: {type: integer, minimum: 1, maximum: 1000000}
+        supersedes_version: {type: [integer, 'null']}
+        type: {type: string, enum: [idx_company_news, us_company_news, industry_news, macro_news, stock_status, broker_swing_plan, broker_swing_update, swing_context, swing_bundle, swing_board_update]}
+        route: {type: string, enum: [id_stocks_news, id_industry_news, macro_news, us_stocks_news, id_stocks_swing, swing_board]}
+        source_event_key: {type: [string, 'null'], maxLength: 256}
+        source_name: {type: string, minLength: 1, maxLength: 200}
+        source_url: {type: [string, 'null'], format: uri}
+        source_published_at: {type: [string, 'null'], format: date-time}
+        market_data_as_of: {type: [string, 'null'], format: date-time}
+        delivery_confirmed_at: {type: string, format: date-time}
+        title: {type: string, minLength: 1, maxLength: 300}
+        ticker: {type: [string, 'null']}
+        broker_levels:
+          oneOf:
+            - {type: 'null'}
+            - type: object
+              additionalProperties: false
+              required: [entry, stop, targets, units, attribution]
+              properties:
+                entry: {type: string}
+                stop: {type: string}
+                targets: {type: array, minItems: 1, maxItems: 10, items: {type: string}}
+                units: {type: string}
+                attribution: {type: string}
+        parent_publication_id: {type: [string, 'null']}
+        board_episode_id: {type: [string, 'null']}
+        config_revision: {type: [integer, 'null']}
+        renderer_version: {type: string, minLength: 1, maxLength: 100}
+        source_version: {type: [string, 'null'], maxLength: 100}
+        required_operation_keys: {type: array, minItems: 1, maxItems: 64, items: {type: string}}
+        legs: {type: array, minItems: 1, maxItems: 64, items: {$ref: '#/components/schemas/PublicationLeg'}}
+    Publication:
+      type: object
+      additionalProperties: false
+      required: [api_version, publication_id, owner_id, owner_key, version, supersedes_version, type, route, source_event_key, source_name, source_url, source_published_at, market_data_as_of, delivery_confirmed_at, title, ticker, broker_levels, parent_publication_id, board_episode_id, config_revision, renderer_version, source_version, required_operation_keys, legs, digest]
+      properties:
+        api_version: {type: integer, const: 1}
+        publication_id: {type: string, pattern: '^[0-9a-f]{64}$'}
+        owner_id: {type: string}
+        owner_key: {type: string}
+        version: {type: integer}
+        supersedes_version: {type: [integer, 'null']}
+        type: {type: string, enum: [idx_company_news, us_company_news, industry_news, macro_news, stock_status, broker_swing_plan, broker_swing_update, swing_context, swing_bundle, swing_board_update]}
+        route: {type: string, enum: [id_stocks_news, id_industry_news, macro_news, us_stocks_news, id_stocks_swing, swing_board]}
+        source_event_key: {type: [string, 'null']}
+        source_name: {type: string}
+        source_url: {type: [string, 'null'], format: uri}
+        source_published_at: {type: [string, 'null'], format: date-time}
+        market_data_as_of: {type: [string, 'null'], format: date-time}
+        delivery_confirmed_at: {type: string, format: date-time}
+        title: {type: string}
+        ticker: {type: [string, 'null']}
+        broker_levels: {type: [object, 'null']}
+        parent_publication_id: {type: [string, 'null']}
+        board_episode_id: {type: [string, 'null']}
+        config_revision: {type: [integer, 'null']}
+        renderer_version: {type: string}
+        source_version: {type: [string, 'null']}
+        required_operation_keys: {type: array, maxItems: 64, items: {type: string}}
+        legs: {type: array, maxItems: 64, items: {$ref: '#/components/schemas/PublicationLeg'}}
+        digest: {type: string, pattern: '^[0-9a-f]{64}$'}
+    PublicationAck:
+      type: object
+      additionalProperties: false
+      required: [publication_id, version, digest]
+      properties:
+        publication_id: {type: string, pattern: '^[0-9a-f]{64}$'}
+        version: {type: integer, minimum: 1}
+        digest: {type: string, pattern: '^[0-9a-f]{64}$'}
+    PublicationPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/Publication'}}
+        next_cursor: {type: [string, 'null']}
+    PublicationDetail:
+      type: object
+      additionalProperties: false
+      required: [publication_id, versions, linked]
+      properties:
+        publication_id: {type: string, pattern: '^[0-9a-f]{64}$'}
+        versions: {type: array, minItems: 1, items: {$ref: '#/components/schemas/Publication'}}
+        linked:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [publication_id, type, delivery_confirmed_at]
+            properties:
+              publication_id: {type: string}
+              type: {type: string}
+              delivery_confirmed_at: {type: string, format: date-time}
+    PublicationCheckpoint:
+      type: object
+      additionalProperties: false
+      required: [compared_at, confirmed_through_at, accepted_through_at, outstanding_count]
+      properties:
+        compared_at: {type: string, format: date-time}
+        confirmed_through_at: {type: [string, 'null'], format: date-time}
+        accepted_through_at: {type: [string, 'null'], format: date-time}
+        outstanding_count: {type: integer, minimum: 0, maximum: 1000000}
+    PublicationCoverage:
+      type: object
+      additionalProperties: false
+      required: [cutover, overall_status, owners]
+      properties:
+        cutover:
+          oneOf:
+            - {type: 'null'}
+            - type: object
+              required: [boundary, owner_ids]
+              properties:
+                boundary: {type: string, format: date-time}
+                owner_ids: {type: array, items: {type: string}}
+        overall_status: {type: string, enum: [not_started, complete, incomplete]}
+        owners:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [owner_id, status, checkpoint]
+            properties:
+              owner_id: {type: string}
+              status: {type: string, enum: [complete, lagging, unknown, paused/unverified]}
+              checkpoint:
+                oneOf:
+                  - {type: 'null'}
+                  - {$ref: '#/components/schemas/PublicationCheckpoint'}
+    ComponentActivity:
+      type: object
+      additionalProperties: false
+      required: [component_id, endpoints, pipelines, delivery_status]
+      properties:
+        component_id: {type: string}
+        delivery_status: {type: string, const: not instrumented}
+        endpoints:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [endpoint_id, accepted_at, status, meaning]
+            properties:
+              endpoint_id: {type: string}
+              accepted_at: {type: [string, 'null'], format: date-time}
+              status: {type: string, enum: [unknown, stale, observed]}
+              meaning: {type: string, const: last accepted into Source Inbox}
+        pipelines:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [pipeline_id, work_created_at, work_status, status, meaning]
+            properties:
+              pipeline_id: {type: string}
+              work_created_at: {type: [string, 'null'], format: date-time}
+              work_status: {type: [string, 'null']}
+              status: {type: string, enum: [unknown, stale, observed]}
+              meaning: {type: string, const: last pipeline work}
+    ComponentInventory:
+      type: object
+      additionalProperties: false
+      required: [inventory_version, components]
+      properties:
+        inventory_version:
+          type: integer
+          const: 1
+        components:
+          type: array
+          items:
+            $ref: '#/components/schemas/Component'
+    Component:
+      type: object
+      additionalProperties: false
+      required: [inventory_version, component_id, kind, display_name, capabilities, pipeline_ids, config_resource_ids, related_component_ids, job_ids]
+      properties:
+        inventory_version:
+          type: integer
+          const: 1
+        component_id:
+          type: string
+        kind:
+          type: string
+          enum: [source_adapter, domain_owner, delivery_service]
+        display_name:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        pipeline_ids:
+          type: array
+          items:
+            type: string
+        config_resource_ids:
+          type: array
+          items:
+            type: string
+        related_component_ids:
+          type: array
+          items:
+            type: string
+        job_ids:
+          type: array
+          items:
+            type: string
+        source_gate:
+          type: object
+          additionalProperties: false
+          required: [catalog_revision, capabilities]
+          properties:
+            catalog_revision:
+              type: integer
+            capabilities:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [capability_id, endpoint_count, enabled_endpoint_count]
+                properties:
+                  capability_id:
+                    type: string
+                  endpoint_count:
+                    type: integer
+                    minimum: 0
+                  enabled_endpoint_count:
+                    type: integer
+                    minimum: 0
     SourceEventEnvelope:
       type: object
       additionalProperties: false
@@ -673,9 +1159,21 @@ components:
         people_org: {type: array, items: {type: object}}
         endpoints: {type: array, items: {type: object}}
         capabilities: {type: array, items: {type: object}}
-        compatibility: {type: array, items: {type: object}}
+        compatibility:
+          type: array
+          items: {$ref: '#/components/schemas/SourceCompatibility'}
         config: {$ref: '#/components/schemas/SourceCatalogRevision'}
         can_edit: {type: boolean, description: True only for an authenticated admin user.}
+    SourceCompatibility:
+      type: object
+      required: [endpoint_id, capability_id, dispatch_group]
+      properties:
+        endpoint_id: {type: string}
+        capability_id: {type: string}
+        dispatch_group:
+          oneOf:
+            - {type: string, pattern: '^[a-z][a-z0-9_]{0,63}$'}
+            - {type: 'null'}
     EffectiveSourceCatalog:
       type: object
       required: [revision, updated_at, selected_securities, subscriptions]
@@ -688,7 +1186,7 @@ components:
           items: {$ref: '#/components/schemas/EffectiveSourceSubscription'}
     EffectiveSourceSubscription:
       type: object
-      required: [endpoint_id, publisher_id, platform, address, provider_id, credential_ref, capability_id, pipeline, enabled, verification_status, settings, source]
+      required: [endpoint_id, publisher_id, platform, address, provider_id, credential_ref, capability_id, pipeline, dispatch_group, enabled, verification_status, settings, source]
       properties:
         endpoint_id: {type: string}
         publisher_id: {type: string}
@@ -706,6 +1204,10 @@ components:
           description: Managed credential reference only; credential material is never returned.
         capability_id: {type: string}
         pipeline: {type: string}
+        dispatch_group:
+          oneOf:
+            - {type: string, pattern: '^[a-z][a-z0-9_]{0,63}$'}
+            - {type: 'null'}
         enabled: {type: boolean}
         verification_status: {type: string, enum: [verified, pending]}
         settings: {type: object}
@@ -893,12 +1395,16 @@ components:
     SchedulerJob:
       type: object
       additionalProperties: false
-      required: [job_id, watcher_id, display_name, runtime_job_key, schedule_kind, min_interval_seconds, max_interval_seconds, schedule, reconciliation]
+      required: [job_id, watcher_id, component_ids, display_name, runtime_job_key, schedule_kind, min_interval_seconds, max_interval_seconds, schedule, can_edit, reconciliation]
       properties:
         job_id:
           type: string
         watcher_id:
-          type: string
+          type: [string, 'null']
+        component_ids:
+          type: array
+          items:
+            type: string
         display_name:
           type: string
         runtime_job_key:
@@ -914,8 +1420,115 @@ components:
           oneOf:
             - $ref: '#/components/schemas/ScheduleSnapshot'
             - type: 'null'
+        can_edit:
+          type: boolean
+          description: True only for an administrator and an interval job whose safe cadence controls are supported.
         reconciliation:
           $ref: '#/components/schemas/SchedulerReconciliation'
+    ReconcilerSchedulerJob:
+      type: object
+      additionalProperties: false
+      required: [job_id, watcher_id, display_name, runtime_job_key, schedule_kind, min_interval_seconds, max_interval_seconds, schedule, reconciliation]
+      properties:
+        job_id:
+          type: string
+        watcher_id:
+          type: [string, 'null']
+        display_name:
+          type: string
+        runtime_job_key:
+          type: string
+        schedule_kind:
+          type: string
+          const: interval
+        min_interval_seconds:
+          type: integer
+          minimum: 60
+          maximum: 86400
+        max_interval_seconds:
+          type: integer
+          minimum: 60
+          maximum: 86400
+        schedule:
+          $ref: '#/components/schemas/ScheduleSnapshot'
+        reconciliation:
+          $ref: '#/components/schemas/SchedulerReconciliation'
+    ObservationWrite:
+      type: object
+      additionalProperties: false
+      required: [api_version, identity_kind, identity_id, observed_at, status, evidence]
+      properties:
+        api_version:
+          type: integer
+          const: 1
+        identity_kind:
+          type: string
+          const: job
+        identity_id:
+          type: string
+          maxLength: 128
+          description: Logical Control Plane job ID, not necessarily the Hermes runtime name.
+        observed_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [enabled, disabled]
+        evidence:
+          type: object
+          additionalProperties: false
+          required: [runtime_job_key, enabled, schedule, last_execution]
+          properties:
+            runtime_job_key:
+              type: string
+              maxLength: 128
+            enabled:
+              type: boolean
+            schedule:
+              oneOf:
+                - type: object
+                  additionalProperties: false
+                  required: [kind, minutes]
+                  properties:
+                    kind: {type: string, const: interval}
+                    minutes: {type: integer, minimum: 1, maximum: 1440}
+                - type: object
+                  additionalProperties: false
+                  required: [kind, expr]
+                  properties:
+                    kind: {type: string, const: cron}
+                    expr: {type: string, maxLength: 100, pattern: '^[0-9*/?, -]+$'}
+            last_execution:
+              type: object
+              additionalProperties: false
+              required: [at, status]
+              properties:
+                at: {type: [string, 'null'], format: date-time}
+                status: {type: [string, 'null'], enum: [success, failed, running, skipped, null]}
+    Observation:
+      allOf:
+        - $ref: '#/components/schemas/ObservationWrite'
+        - type: object
+          required: [observer_id, received_at, freshness, comparison, desired, reconciliation]
+          properties:
+            observer_id: {type: string}
+            received_at: {type: string, format: date-time}
+            freshness: {type: string, enum: [fresh, stale]}
+            comparison: {type: string, enum: [match, mismatch]}
+            desired: {oneOf: [{'$ref': '#/components/schemas/ScheduleSnapshot'}, {type: 'null'}]}
+            reconciliation: {'$ref': '#/components/schemas/SchedulerReconciliation'}
+    ObservationAccepted:
+      type: object
+      required: [identity_kind, identity_id, observer_id, observed_at, received_at, status, evidence, freshness]
+      properties:
+        identity_kind: {type: string, const: job}
+        identity_id: {type: string}
+        observer_id: {type: string}
+        observed_at: {type: string, format: date-time}
+        received_at: {type: string, format: date-time}
+        status: {type: string, enum: [enabled, disabled, stale]}
+        evidence: {type: object}
+        freshness: {type: string, enum: [fresh, stale]}
     Run:
       type: object
       additionalProperties: false

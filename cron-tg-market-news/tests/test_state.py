@@ -66,6 +66,85 @@ def test_state_round_trip_is_private_and_provider_cursors_are_independent(tmp_pa
     assert path.stat().st_mode & 0o777 == 0o600
 
 
+def test_load_state_accepts_legacy_v1_source_ingest_reconciliation_receipt(tmp_path):
+    path = tmp_path / "state.json"
+    state = empty_state()
+    state["stats"][state_module._SOURCE_INGEST_RECONCILIATION_KEY] = {
+        "version": 1,
+        "plan_sha256": "a" * 64,
+        "source_state_sha256": "b" * 64,
+        "canonical_base_sha256": "c" * 64,
+        "source_candidate_count": 0,
+        "source_provenance_count": 0,
+        "new_candidate_count": 0,
+        "overlap_count": 0,
+        "phase_difference_count": 0,
+        "provenance_added_count": 0,
+        "source_status_event_count": 0,
+        "new_status_event_count": 0,
+        "overlap_status_event_count": 0,
+        "status_event_phase_difference_count": 0,
+        "status_event_provenance_added_count": 0,
+        "active_candidate_abandonment_count": 0,
+        "applied_at": "2026-10-01T10:00:00+00:00",
+    }
+    path.write_text(json.dumps(state), encoding="utf-8")
+    os.chmod(path, 0o600)
+
+    restored = load_state(path, migrate=False)
+
+    assert restored["stats"][state_module._SOURCE_INGEST_RECONCILIATION_KEY]["version"] == 1
+
+
+def test_load_state_accepts_v2_source_ingest_reconciliation_receipt(tmp_path):
+    path = tmp_path / "state.json"
+    state = empty_state()
+    state["stats"][state_module._SOURCE_INGEST_RECONCILIATION_KEY] = {
+        "version": 2,
+        "plan_sha256": "a" * 64,
+        "source_state_sha256": "b" * 64,
+        "canonical_base_sha256": "c" * 64,
+        "delivery_resolution_sha256": "d" * 64,
+        "prior_receipt_sha256": None,
+        "source_candidate_count": 0,
+        "source_provenance_count": 0,
+        "new_candidate_count": 0,
+        "overlap_count": 0,
+        "phase_difference_count": 0,
+        "provenance_added_count": 0,
+        "source_status_event_count": 0,
+        "new_status_event_count": 0,
+        "overlap_status_event_count": 0,
+        "status_event_phase_difference_count": 0,
+        "status_event_provenance_added_count": 0,
+        "canonical_pending_delivery_count": 0,
+        "canonical_pending_delivery_confirmed_count": 0,
+        "canonical_pending_delivery_not_found_count": 0,
+        "active_candidate_abandonment_count": 0,
+        "applied_at": "2026-10-01T10:00:00+00:00",
+    }
+    path.write_text(json.dumps(state), encoding="utf-8")
+    os.chmod(path, 0o600)
+
+    restored = load_state(path, migrate=False)
+
+    assert restored["stats"][state_module._SOURCE_INGEST_RECONCILIATION_KEY]["version"] == 2
+
+
+def test_load_state_rejects_source_ingest_receipt_with_unknown_shape(tmp_path):
+    path = tmp_path / "state.json"
+    state = empty_state()
+    state["stats"][state_module._SOURCE_INGEST_RECONCILIATION_KEY] = {
+        "version": 1,
+        "plan_sha256": "a" * 64,
+    }
+    path.write_text(json.dumps(state), encoding="utf-8")
+    os.chmod(path, 0o600)
+
+    with pytest.raises(StateBlockedError, match="receipt is invalid"):
+        load_state(path, migrate=False)
+
+
 
 def test_bootstrap_cursor_and_completion_are_saved_in_one_transition(monkeypatch):
     state = empty_state()
@@ -103,6 +182,21 @@ def test_load_state_migrates_valid_legacy_provider_lanes(tmp_path, monkeypatch):
     assert provider_bootstrap_complete(restored, "phintraco") is False
     assert persisted["providers"]["tuntun"]["bootstrap_complete"] is True
     assert persisted["providers"]["phintraco"]["bootstrap_complete"] is False
+
+
+def test_save_state_can_skip_legacy_auto_migration_for_owner_reconciliation(tmp_path):
+    path = tmp_path / "state.json"
+    legacy_state = empty_state()
+    for lane in legacy_state["providers"].values():
+        del lane["bootstrap_complete"]
+
+    save_state(legacy_state, path, migrate=False)
+    saved_without_migration = json.loads(path.read_text(encoding="utf-8"))
+    assert all("bootstrap_complete" not in lane for lane in saved_without_migration["providers"].values())
+
+    save_state(legacy_state, path)
+    saved_with_default_migration = json.loads(path.read_text(encoding="utf-8"))
+    assert all("bootstrap_complete" in lane for lane in saved_with_default_migration["providers"].values())
 
 
 def test_load_state_accepts_legacy_two_to_five_letter_candidate_tickers(tmp_path, monkeypatch):

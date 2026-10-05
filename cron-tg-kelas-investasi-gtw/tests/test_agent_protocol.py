@@ -118,12 +118,11 @@ def test_submission_rejects_source_instruction_leakage_and_never_marks_event_com
         ("summary", "*(Ringkasan)* Good to Watch CTRA masih di area breakout."),
     ],
 )
-def test_submission_rejects_forbidden_visible_formatting(field: str, replacement: str) -> None:
+def test_submission_accepts_grounded_visible_style_variations(field: str, replacement: str) -> None:
     payload = valid_payload()
     payload[field] = replacement
 
-    with pytest.raises(RetryableSubmissionError, match="forbidden visible formatting"):
-        validate_submission(event(), payload)
+    assert validate_submission(event(), payload)[field] == replacement
 
 
 def test_submission_rejects_alternate_plan_price_from_source_text() -> None:
@@ -159,3 +158,90 @@ def test_submission_keeps_grounded_nonplan_source_numbers() -> None:
     payload["summary"] = "*(Ringkasan)* Akumulasi kuat di area breakout, volume perdagangan mencapai 2 juta saham."
 
     assert validate_submission(nonplan_event, payload) == payload
+
+
+def pwon_event():
+    return {"event_key":"150:PWON","ticker":"PWON","header_message_id":150,"source_text":"Good to watch - PWON #GTW\nWatch on 270–282\nSupport utama 260\nTarget 1 288\nTarget 2 298","plan":{"buy_area":"-","targets":"-","stoploss":"-"}}
+
+
+def pwon_payload(source):
+    def field(text,label,value):
+        start = source.index(text)
+        return {"label":label,"value":value,"source_start":start,"source_end":start+len(text)}
+    return {"schema_version":2,"event_key":"150:PWON","title":"PWON: Good to watch","summary":"*(Ringkasan)* Entry 270–282.\n\nStop-loss <260.","plan_fields":[field("Watch on 270–282","Entry","270–282"),field("Support utama 260","Stop-loss","<260"),field("Target 1 288","Target 1","288"),field("Target 2 298","Target 2","298")]}
+
+
+def test_version_two_result_normalizes_pwon_without_primary_promotion():
+    source = pwon_event()
+    result = validate_submission(source,pwon_payload(source["source_text"]))
+    assert result["schema_version"] == 2 and len(result["plan_fields"]) == 4
+    assert source["plan"] == {"buy_area":"-","targets":"-","stoploss":"-"}
+
+
+def test_bad_optional_plan_fields_do_not_block_supported_summary():
+    source = pwon_event(); payload = pwon_payload(source["source_text"])
+    payload["summary"] = "*(Ringkasan)* Watch on 270–282."
+    payload["plan_fields"][0]["value"] = "795"
+    result = validate_submission(source,payload)
+    assert [row["label"] for row in result["plan_fields"]] == ["Stop-loss","Target 1","Target 2"]
+
+
+def test_two_paragraph_grounded_summary_and_harmless_style_are_deliverable():
+    source = event(); payload = valid_payload()
+    payload["summary"] = "*(Ringkasan)* Akumulasi kuat.\n\n**Buy area:** 605 sampai 630."
+    assert "\n\n" in validate_submission(source,payload)["summary"]
+
+
+def test_bad_optional_field_does_not_reject_unchanged_canonical_summary():
+    source = pwon_event()
+    payload = pwon_payload(source["source_text"])
+    payload["plan_fields"][0]["value"] = "795"
+    result = validate_submission(source, payload)
+    assert result["summary"] == payload["summary"]
+    assert "Entry" not in [row["label"] for row in result["plan_fields"]]
+
+
+def test_bad_optional_value_keeps_grounded_prose_from_selected_inline_evidence():
+    source = pwon_event()
+    source["source_text"] = source["source_text"].replace("Watch on", "Thesis: Watch on")
+    payload = pwon_payload(source["source_text"])
+    payload["plan_fields"][0]["value"] = "795"
+    assert validate_submission(source, payload)["summary"] == payload["summary"]
+
+
+def test_optional_fallback_retains_additional_stop_number():
+    source = pwon_event()
+    source["source_text"] += "\nSL2 <250"
+    payload = pwon_payload(source["source_text"])
+    payload["plan_fields"] = []
+    payload["summary"] = "*(Ringkasan)* Stop-loss 2 <250."
+    assert validate_submission(source, payload)["summary"] == payload["summary"]
+
+
+@pytest.mark.parametrize("claim", ["Entry 270", "Entry 795", "Stop-loss >260", "Target 2 288"])
+def test_optional_fallback_keeps_range_comparator_and_number_grounding(claim):
+    source = pwon_event()
+    payload = pwon_payload(source["source_text"])
+    payload["plan_fields"] = []
+    payload["summary"] = "*(Ringkasan)* " + claim + "."
+    with pytest.raises(RetryableSubmissionError):
+        validate_submission(source, payload)
+
+
+@pytest.mark.parametrize("claim", ["Watch on 288", "Watch on 270", "Support utama 288", "Support utama >260", "SL 288", "TP2 288"])
+@pytest.mark.parametrize("field", ["title", "summary"])
+def test_publisher_synonym_claim_cannot_borrow_a_number_from_another_level(claim, field):
+    source = pwon_event()
+    source["source_text"] += "\nSL <260"
+    payload = pwon_payload(source["source_text"])
+    payload[field] = ("PWON: " if field == "title" else "*(Ringkasan)* ") + claim
+    with pytest.raises(RetryableSubmissionError, match="source plan values"):
+        validate_submission(source, payload)
+
+
+@pytest.mark.parametrize("claim", ["Watch on 270–282", "Support utama 260", "Support utama <260", "Target 1 288", "Target 2 298"])
+def test_correct_publisher_synonym_claim_stays_deliverable(claim):
+    source = pwon_event()
+    payload = pwon_payload(source["source_text"])
+    payload["summary"] = "*(Ringkasan)* " + claim + "."
+    assert validate_submission(source, payload)["summary"] == payload["summary"]

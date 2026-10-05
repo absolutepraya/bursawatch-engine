@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pipeline_owner
 import scan
+from test_weekly_pdf import Section, make_pdf
 
 
 def test_text_plan_uses_existing_owner_and_exact_render(tmp_state, monkeypatch):
@@ -19,6 +20,7 @@ def test_text_plan_uses_existing_owner_and_exact_render(tmp_state, monkeypatch):
     sent = []
     monkeypatch.setattr(scan, "post_discord_text", lambda content, channel_id, *args: sent.append((content, channel_id)) or "dry-text-40001")
     assert pipeline_owner.submit(work, no_post=True) == "accepted"
+    assert pipeline_owner._receipt_path(effect).exists()
     assert len(sent) == 1
     assert sent[0] == (
         "### <:phintraco:1531272488645038091> SCMA: Buy\n"
@@ -26,14 +28,14 @@ def test_text_plan_uses_existing_owner_and_exact_render(tmp_state, monkeypatch):
         "**Type:** Trading Buy <:up:1531285100346740766>\n"
         "**Entry:** 208 to 212\n"
         "**Stop-loss:** <200\n"
-        "**Target:** 230\n"
+        "**Target 1:** 230\n"
         "**Signal date:** 10 Jul 2026 07:00 WIB\n\n"
         "**Reasons:** Konsolidasi bertahan di atas support area 200 menjaga peluang rebound hingga minor uptrend lanjutan. MACD yang konsisten membentuk histogram positif sejalan dengan peluang tersebut.\n"
         "**Chart:** Unavailable from source\n\n"
         "**Source status:** New setup <:grey:1531279158913536182>\n"
         "**Last updated:** 10 Jul 2026 07:00 WIB\n"
         "**Board:** <#1548273399069933720>\n\n"
-        "[View in Telegram](<https://t.me/phintraprofits/40001>)",
+        "[View in Telegram](<https://t.me/phintasprofits/40001>)",
         route,
     )
     assert pipeline_owner.submit(work, no_post=True) == "accepted"
@@ -47,7 +49,7 @@ def test_chart_plan_downloads_durable_ref_into_existing_owner_path(tmp_state, mo
     chart = b"\xff\xd8\xffdurable-chart"
     ref = {"ref": "00000000-0000-4000-8000-000000000041", "sha256": hashlib.sha256(chart).hexdigest(), "kind": "image", "content_type": "image/jpeg", "size_bytes": len(chart), "filename": "chart.jpg", "durable": True}
     work = {"pipeline_id": "swing_plan", "capability_id": "trading_plans", "event_key": key, "version": 1, "effect_key": effect, "work_key": effect, "envelope": {"endpoint_id": "telegram:phintraprofits", "publisher_id": "phintraco", "provider_event_id": "40002", "published_at": "2026-07-10T00:00:00+00:00", "payload": {"text": text, "media_ref_ids": [ref["ref"]]}, "media_required": True, "media_refs": [ref]}}
-    configured = scan.config.WatchConfig(1444713822, "phintraprofits", "123456789012345678", "1505162000420835388")
+    configured = scan.config.WatchConfig(1444713822, "phintasprofits", "123456789012345678", "1505162000420835388")
     monkeypatch.setattr(scan.config, "load_watch_config_for_run", lambda: scan.config.LoadedWatchConfig(configured, 17))
 
     class MediaStore:
@@ -68,6 +70,55 @@ def test_chart_plan_downloads_durable_ref_into_existing_owner_path(tmp_state, mo
     assert board_events[0][0]["media_path"].endswith("phintraco-40002.jpg")
 
 
+def test_weekly_pdf_source_work_uses_durable_document_and_original_published_time(
+    tmp_state, monkeypatch
+):
+    pdf = make_pdf(pages=[[Section("KETR", "On Support", ">=940", (
+        "Target Price 2: 1050", "Target Price 1: 1000 ; SL <900"
+    ))]])
+    event_key = "b" * 64
+    effect = hashlib.sha256(f"{event_key}:2:trading_plans".encode()).hexdigest()
+    reference = {
+        "ref": "00000000-0000-4000-8000-000000000042",
+        "sha256": hashlib.sha256(pdf).hexdigest(),
+        "kind": "document",
+        "content_type": "application/pdf",
+        "size_bytes": len(pdf),
+        "filename": "PHINTAS_Weekly_Swing_Trading_Ideas_20260928.pdf",
+        "durable": True,
+    }
+    work = {
+        "pipeline_id": "swing_plan", "capability_id": "trading_plans",
+        "event_key": event_key, "version": 2, "effect_key": effect,
+        "work_key": effect,
+        "envelope": {
+            "endpoint_id": "telegram:phintraprofits", "publisher_id": "phintraco",
+            "provider_event_id": "35448", "published_at": "2026-09-27T23:05:33+00:00",
+            "payload": {"text": "", "reply_to_message_id": 35447}, "media_required": True,
+            "media_refs": [reference],
+        },
+    }
+    configured = scan.config.WatchConfig(1444713822, "phintasprofits", "123456789012345678", "1505162000420835388")
+    monkeypatch.setattr(scan.config, "load_watch_config_for_run", lambda: scan.config.LoadedWatchConfig(configured, 17))
+
+    class MediaStore:
+        def download(self, stored_ref):
+            assert stored_ref == reference["ref"]
+            return SimpleNamespace(data=pdf, kind="document", content_type="application/pdf", filename=reference["filename"])
+
+    assert pipeline_owner.submit(work, no_post=True, media_store=MediaStore()) == "accepted"
+    assert pipeline_owner._receipt_path(effect).exists()
+    state = scan.load_state()
+    batch = state["pdf_batches"]["35448"]
+    assert batch["published_at"] == "2026-09-28T06:05:33+07:00"
+    assert batch["event_keys"] == ["pdf:35448:KETR"]
+    plan = state["source_plans"]["pdf:35448:KETR"]
+    assert plan["signal_datetime"] == "2026-09-28T06:05:33+07:00"
+    assert plan["entry"] == ">=940"
+    assert plan["targets"] == [{"number": 1, "value": "1000"}, {"number": 2, "value": "1050"}]
+    assert Path(plan["chart_path"]).is_file()
+
+
 def test_owner_rejects_missing_effective_live_config_before_state_or_delivery(tmp_state, monkeypatch):
     monkeypatch.setattr(scan.config, "load_watch_config_for_run", lambda: scan.config.LoadedWatchConfig(scan.config.default_watch_config(), None))
     monkeypatch.setattr(scan, "load_state", lambda: (_ for _ in ()).throw(AssertionError("state opened")))
@@ -77,9 +128,9 @@ def test_owner_rejects_missing_effective_live_config_before_state_or_delivery(tm
 
 
 def test_owner_rejects_source_mismatch_before_state_or_delivery(tmp_state, monkeypatch):
-    configured = scan.config.WatchConfig(1444713823, "phintraprofits", "123456789012345678", "1505162000420835388")
+    configured = scan.config.WatchConfig(1444713823, "phintasprofits", "123456789012345678", "1505162000420835388")
     monkeypatch.setattr(scan.config, "load_watch_config_for_run", lambda: scan.config.LoadedWatchConfig(configured, 17))
     monkeypatch.setattr(scan, "load_state", lambda: (_ for _ in ()).throw(AssertionError("state opened")))
     import pytest
-    with pytest.raises(ValueError, match="canonical endpoint"):
+    with pytest.raises(ValueError, match="verified channel"):
         pipeline_owner.submit({}, no_post=True)

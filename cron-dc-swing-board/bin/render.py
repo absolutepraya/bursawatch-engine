@@ -16,6 +16,8 @@ if not _SHARED_FORMAT_BIN.exists():
 if str(_SHARED_FORMAT_BIN) not in sys.path:
     sys.path.insert(0, str(_SHARED_FORMAT_BIN))
 
+from source_plan import fields_from_canonical_message, source_plan_display
+
 from swing_format import (  # noqa: E402
     canonicalize_phintraco_message,
     source_status_emoji,
@@ -49,13 +51,23 @@ def format_wib(value: datetime) -> str:
     return value.astimezone(WIB).strftime("%-d %b %Y %H:%M WIB")
 
 
+def episode_title(ticker: str, opened_at: datetime) -> str:
+    """Keep a topic's ticker and first accepted source date fixed in WIB."""
+    if opened_at.tzinfo is None or opened_at.utcoffset() is None:
+        raise ValueError("opening timestamp must include a timezone")
+    return f"{ticker} - {opened_at.astimezone(WIB):%a, %-d %b %Y}"
+
+
 def analyst_byline(name: str | None, role: str | None) -> str:
     """Render only a source-provided analyst identity, or the firm fallback."""
     return f"-# {escape(name)}, {escape(role)}" if name and role else "-# Phintraco Sekuritas"
 
 
-def render_source_only_card(title: str, source_url: str | None = None) -> str:
+def render_source_only_card(title: str, source_url: str | None = None, *,
+                            resolution_reason: str | None = None) -> str:
     content = f"### {escape(title)}\n\n**Primary plan:** No Phintraco plan yet"
+    if resolution_reason:
+        content += f"\n**Resolution:** {escape(resolution_reason)}\n**Last checked:** no Phintraco close recorded"
     return content + (f"\n\n[View source](<{source_url}>)" if source_url else "")
 
 
@@ -96,6 +108,21 @@ def render_source_replies(event: SourceEvent) -> tuple[str, ...]:
     return split_content(render_source_reply(event))
 
 
+def render_historical_source_replies(event: SourceEvent) -> tuple[str, ...]:
+    """Date a late source while preserving its complete attributed content."""
+    heading = f"**Historical source event:** {format_wib(event.published_at)}\n\n"
+    parts = split_content(render_source_reply(event), MAX_DISCORD_CHARACTERS - discord_length(heading))
+    return (heading + parts[0], *parts[1:])
+
+
+def render_resolved_source_card(event: SourceEvent | str, reason: str) -> tuple[str, tuple[str, ...]]:
+    """Append lifecycle facts and return any displaced starter text as replies."""
+    suffix = f"\n\n**Resolution:** {escape(reason)}\n**Last checked:** no Phintraco close recorded"
+    first = render_source_replies(event)[0] if isinstance(event, SourceEvent) else event
+    parts = split_content(first, MAX_DISCORD_CHARACTERS - discord_length(suffix))
+    return parts[0] + suffix, tuple(parts[1:])
+
+
 def discord_length(content: str) -> int:
     return len(content.encode("utf-16-le")) // 2
 
@@ -125,6 +152,7 @@ def render_primary_card(
     checkpoint: Checkpoint | None = None,
     last_valid_checkpoint: Checkpoint | None = None,
     source_updated_at: datetime | None = None,
+    resolution_reason: str | None = None,
 ) -> str:
     """Render the managed card without adding advice or a redundant source footer."""
     if event.kind != "buy" or event.plan is None:
@@ -139,6 +167,17 @@ def render_primary_card(
         f"**Source status:** {_excerpt(escape(source_status), 220)} {source_status_emoji(source_status)}",
         f"**Last updated:** {format_wib(updated_at)}",
     ]
+    if resolution_reason:
+        lines.append(f"**Resolution:** {escape(resolution_reason)}")
+        if resolution_reason in {"stale", "superseded"}:
+            checked = last_valid_checkpoint or (checkpoint if checkpoint and not checkpoint.unavailable else None)
+            if checked and checked.state and checked.close_price:
+                lines.append(f"**Closing price:** Rp{escape(checked.close_price)}")
+            lines.append(
+                f"**Last checked:** {format_wib(datetime.fromisoformat(checked.checked_at))} · {escape(checked.state.value)}"
+                if checked and checked.state else "**Last checked:** no Phintraco close recorded"
+            )
+            checkpoint = None
     if checkpoint is not None:
         lines.append("")
         if checkpoint.unavailable:
@@ -166,10 +205,24 @@ def _primary_static(event: SourceEvent) -> tuple[str, bool]:
     ]
     if source_type := _TYPE.search(event.all_content):
         lines.append(f"**Type:** {escape(space_inline_custom_emojis(source_type.group(1)))}")
+    source_fields = fields_from_canonical_message(event.all_content)
+    canonical = {field.label:field.value for field in source_fields}
+    canonical_targets = sorted((int(field.label.split()[-1]),field.value) for field in source_fields if field.label.startswith("Target "))
+    matches = (len(canonical) == len(source_fields) and canonical.get("Entry") == event.plan.entry
+               and canonical.get("Stop-loss") == event.plan.stop_loss
+               and tuple(value for _,value in canonical_targets) == event.plan.targets)
+    targets = [(f"Target {number}",target) for number,target in enumerate(event.plan.targets,start=1)]
+    extra_stops = []
+    if matches:
+        displayed = source_plan_display(source_fields)
+        targets = [(field.label,field.value) for field in displayed if field.label.startswith("Target ")]
+        extra_stops = [(field.label,field.value) for field in displayed if field.label.startswith("Stop-loss ")]
     lines.extend([f"**Entry:** {escape(event.plan.entry)}", f"**Stop-loss:** {escape(event.plan.stop_loss)}"])
     targets_start = len(lines)
-    for number, target in enumerate(event.plan.targets, start=1):
-        lines.append(f"**Target {number}:** {escape(target)}")
+    for label,target in targets:
+        lines.append(f"**{label}:** {escape(target)}")
+    for label,value in extra_stops:
+        lines.append(f"**{label}:** {escape(value)}")
     lines.append(f"**Signal date:** {format_wib(event.published_at)}")
     chart = next((line for line in event.all_content.splitlines() if line.startswith("**Chart:**")), None)
     if chart:
@@ -181,8 +234,8 @@ def _primary_static(event: SourceEvent) -> tuple[str, bool]:
         return complete, False
     core = "\n".join(lines)
     if discord_length(core) > STATIC_CARD_BUDGET - 70:
-        compact_targets = "; ".join(f"{number}: {escape(target)}" for number, target in enumerate(event.plan.targets, start=1))
-        compact_lines = lines[:targets_start] + [f"**Targets:** {compact_targets}"] + lines[targets_start + len(event.plan.targets):]
+        compact_targets = "; ".join(f"{label.removeprefix('Target ')}: {escape(target)}" for label,target in targets)
+        compact_lines = lines[:targets_start] + [f"**Targets:** {compact_targets}"] + lines[targets_start + len(targets):]
         core = "\n".join(compact_lines)
     if discord_length(core) > STATIC_CARD_BUDGET - 70:
         # Extreme source fields stay complete in ordered source replies.

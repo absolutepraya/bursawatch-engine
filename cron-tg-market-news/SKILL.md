@@ -12,7 +12,7 @@ Live Telegram polling belongs to the deterministic no-agent intake phase in the 
 
 The Market News owner handles Phintraco `Stock Information` source work through its deterministic status path and never supplies those posts as classifier items.
 
-Return exactly this JSON object with no extra fields. For a Tuntun candidate, include `title` and `route`; for a Phintraco candidate, include `route` and omit `title`:
+Return exactly this JSON object with no extra fields. For a Tuntun candidate, include `title` and `route`; for a Phintraco candidate, include `title` and `route`:
 
 ```json
 {
@@ -20,7 +20,7 @@ Return exactly this JSON object with no extra fields. For a Tuntun candidate, in
   "ticker":"<supplied ticker or empty text for macro>",
   "event_class":"<allowed event class>",
   "title":"<TICKER>: <source-grounded Indonesian sentence-case headline>",
-  "summary":"<one to five factual Indonesian sentences>",
+  "summary":"<source-grounded summary>",
   "material_facts":["<source-supported fact>"],
   "ranking_band":1,
   "dedupe_facts":["<normalized source-supported fact>"],
@@ -30,7 +30,15 @@ Return exactly this JSON object with no extra fields. For a Tuntun candidate, in
 }
 ```
 
-`candidate_key` and `ticker` exactly match the item. Use `id_stocks_news` when one supplied issuer is central. Use `macro_news` for a material broad policy, legal, regulatory, or economic topic, including a multi-company impact; summarize it once without splitting it into issuer cards. A Phintraco note may route to `macro_news` even when its candidate includes a ticker. Tuntun macro titles are unprefixed and have no issuer price card. A `tuntun_update_industry` candidate must use `macro_news` when material because the scanner routes it to the Industry channel. Use `exclude` for ineligible material, set `eligible` false, and use `not_eligible`; `not_eligible` must use `exclude`. A tickerless candidate cannot route to `id_stocks_news`. Every title uses sentence case, has no URL or ending punctuation, and is source-grounded. Keep `summary` as one to five factual Indonesian sentences without a `*(Ringkasan)*` marker. Attribute Phintraco research estimates to Phintraco, distinguish estimates from reported results and company guidance, and preserve period, units, and forward-looking framing. The renderer adds the `*(Ringkasan)*` marker to summaries. `event_class` is one of `financial_results_or_guidance`, `corporate_action`, `financing_or_ownership`, `mna_or_asset_transaction`, `material_contract`, `listing_legal_regulatory_or_credit`, `quantified_operational_execution`, `other_company_operation`, `routine_status`, or `not_eligible`. Titles and summaries have no investment advice or BUY, SELL, entry, target, stop-loss, valuation, or price-direction language.
+`candidate_key` and `ticker` exactly match the item. Use `id_stocks_news` when one supplied issuer is central. Use `macro_news` for a material broad policy, legal, regulatory, or economic topic, including a multi-company impact; summarize it once without splitting it into issuer cards. A Phintraco note may route to `macro_news` even when its candidate includes a ticker. Tuntun macro titles are unprefixed and have no issuer price card. A `tuntun_update_industry` candidate must use `macro_news` when material because the scanner routes it to the Industry channel. Use `exclude` for ineligible material, set `eligible` false, and use `not_eligible`; `not_eligible` must use `exclude`. A tickerless candidate cannot route to `id_stocks_news`. Every title uses sentence case, has no URL or ending punctuation, and is source-grounded. Keep `summary` as plain text without a `*(Ringkasan)*` marker. Attribute Phintraco research estimates to Phintraco, distinguish estimates from reported results and company guidance, and preserve period, units, and forward-looking framing. The renderer adds the `*(Ringkasan)*` marker to summaries. `event_class` is one of `financial_results_or_guidance`, `corporate_action`, `financing_or_ownership`, `mna_or_asset_transaction`, `material_contract`, `listing_legal_regulatory_or_credit`, `quantified_operational_execution`, `other_company_operation`, `routine_status`, or `not_eligible`. Titles and summaries have no investment advice or BUY, SELL, entry, target, stop-loss, valuation, or price-direction language.
+
+Tuntun `corporate_entry` items are independent issuer items, including entries
+parsed from a Corporate section inside a Midday or Evening Update. Classify
+only the supplied issuer evidence. An eligible issuer action belongs in
+`id_stocks_news`; its update origin does not make it Industry news. Apply the
+existing relevance and broad-topic route rules normally.
+
+Follow the shared common and category writing rules in `item.instruction`. The renderer owns the Ringkasan marker and deterministic quote tracker.
 
 Submit exactly once through the wrapper. The wrapper is mandatory because it supplies the runtime environment:
 
@@ -47,3 +55,20 @@ IDX_MARKET_NEWS_NO_POST=1
 IDX_MARKET_NEWS_STATE_PATH=/tmp/idx-market-news-state.json
 IDX_MARKET_NEWS_FORCE_HEARTBEAT=1
 ```
+
+## Discord delivery receipt wait
+
+After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.
+
+After every required delivery receipt is durably confirmed, the Market News owner stores the exact output and a pending Published Feed projection intent. The owner retries that projection through the Control Plane without submitting another Discord operation. Projection reporting is enabled only with `BURSAWATCH_TG_MARKET_NEWS_PUBLICATION_ENABLED=1` after the forward-only feed cutover; the agent never submits feed records itself.
+
+Both News providers now request a source-grounded headline. Issuer headlines
+start with the supplied ticker and colon; macro headlines stay natural.
+Phintraco submissions without a title remain accepted for older leases, with
+a source-name fallback. The shared `lib-news-format` renderer owns source
+bylines and the quote block. Swing and deterministic Stock Information keep
+their existing contracts.
+
+## Optional image context
+
+Screen ordinary news from supplied text first. Only when that text is eligible, the trusted item instruction may expose `prepare-summary-images`. Call that command with its exact bound request, then use the actual image viewer on returned paths. Paths indicate availability, not inspection. Images are additional context for the same supplied story, never a substitute for eligible text. Do not inspect any other files. On unavailable images or viewer failure, submit the text-supported result without holding delivery or retrying optional context. Specialized Swing and required outgoing media retain their owner contracts.

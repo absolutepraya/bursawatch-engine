@@ -1,5 +1,8 @@
+import pytest
+
 import discord
-from bursawatch_discord_delivery import OperationReceipt
+from bursawatch_discord_delivery import Attachment, OperationReceipt
+from bursawatch_discord_delivery.client import DeliveryClientError
 
 
 class Owner:
@@ -30,6 +33,58 @@ class Owner:
 
     def wait(self, key, timeout):
         raise AssertionError("delivered operation must not need a wait")
+
+
+class DeliveredOwner(Owner):
+    def __init__(self, receipt):
+        super().__init__()
+        self.receipt = receipt
+
+    def status(self, key):
+        return self.receipt
+
+    def submit(self, operation):
+        raise AssertionError("existing delivered operation must not be resubmitted")
+
+
+@pytest.mark.parametrize("media", [False, True])
+def test_existing_message_only_receipt_finishes_without_resubmitting(tmp_path, media):
+    nonce = discord.nonce("event", "media:0" if media else "text:0")
+    attachment = Attachment("chart.jpg", "image/jpeg", b"chart") if media else None
+    operation = discord._message_operation("" if media else "news", "42", nonce, attachment=attachment)
+    owner = DeliveredOwner(OperationReceipt(
+        id="operation-1", key=operation.key, digest=operation.digest,
+        status="delivered", receipt={"message_id": "123456789012345678"},
+    ))
+
+    if media:
+        path = tmp_path / "chart"
+        path.write_bytes(b"chart")
+        message_id = discord.post_media(path, "42", False, nonce, filename="chart.jpg", mime="image/jpeg", client=owner)
+    else:
+        message_id = discord.post_text("news", "42", False, nonce, client=owner)
+
+    assert message_id == "123456789012345678"
+
+
+@pytest.mark.parametrize("field,replacement", [
+    ("channel_id", "99"), ("channel_id", None),
+    ("message_id", "invalid"), ("key", "wrong-operation"), ("digest", "f" * 64),
+])
+def test_conflicting_or_invalid_delivered_receipt_is_rejected(field, replacement):
+    nonce = discord.nonce("event", "text:0")
+    operation = discord._message_operation("news", "42", nonce)
+    document = {
+        "id": "operation-1", "key": operation.key, "digest": operation.digest,
+        "status": "delivered", "receipt": {"message_id": "123456789012345678"},
+    }
+    if field in {"channel_id", "message_id"}:
+        document["receipt"][field] = replacement
+    else:
+        document[field] = replacement
+
+    with pytest.raises(DeliveryClientError):
+        discord.post_text("news", "42", False, nonce, client=DeliveredOwner(OperationReceipt(**document)))
 
 
 def test_media_filename_adds_real_jpeg_extension():

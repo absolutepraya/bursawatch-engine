@@ -21,6 +21,7 @@ import supersession
 import article_context
 import vision_media
 import recovery
+import publication_projection
 from agent_protocol import (
     normalize_route,
     agent_item,
@@ -39,6 +40,12 @@ BOARD_PENDING = "pending"
 BOARD_UNAVAILABLE = "unavailable"
 BOARD_RETRY_INITIAL_SECONDS = 60
 BOARD_RETRY_CAP_SECONDS = 15 * 60
+ROUTE_CAPABILITIES = {
+    "id_stocks_news": "company_news",
+    "us_stocks_news": "company_news",
+    "macro_news": "macro_news",
+    "id_stocks_swing": "swing_chart_context",
+}
 _TICKER_TOKEN = r"[A-Z][A-Z0-9]{1,9}"
 _TICKER_COLON_CLAUSE = re.compile(rf"(?<![A-Z0-9])({_TICKER_TOKEN})\s*:\s+\S")
 _TICKER_SPACE_CLAUSE = re.compile(rf"^\s*({_TICKER_TOKEN})\s+\S")
@@ -260,11 +267,28 @@ def _target_channel(profile, event: dict) -> str:
     return profile.channel_for(normalize_route(profile, event["route"])).channel_id
 
 
+def capability_for_route(route_key: str) -> str | None:
+    return ROUTE_CAPABILITIES.get(route_key)
+
+
+def eligible_capability_for_route(route_key: str, enabled_capabilities: frozenset[str]) -> str | None:
+    capability = capability_for_route(route_key)
+    return capability if capability in enabled_capabilities else None
+
+
+def _event_route_is_eligible(profile, event: dict) -> bool:
+    enabled = event.get("enabled_capabilities")
+    if enabled is None:
+        return True
+    route = event.get("route") if profile.enable_llm_routing else profile.discord_channels[0].key
+    return eligible_capability_for_route(route, frozenset(enabled)) is not None
+
+
 def _event_source_ids(event: dict) -> set[str]:
     return {item.get("post_id") for item in event.get("thread_posts", [event.get("post", {})]) if item.get("post_id")}
 
 
-def _delivery_media(profile, thread_posts):
+def _delivery_media(profile, thread_posts, *, route: str | None = None):
     all_media = []
     seen_media: set[str] = set()
 
@@ -276,10 +300,8 @@ def _delivery_media(profile, thread_posts):
 
     for thread_post in thread_posts:
         append_unique(thread_post.media)
-    for thread_post in thread_posts:
-        if not thread_post.media:
-            append_unique(thread_post.quoted_media)
-    if profile.media_policy == "omit_last":
+        append_unique(thread_post.quoted_media)
+    if profile.media_policy == "omit_last" and route != "id_stocks_swing":
         return all_media[:-1]
     return all_media
 
@@ -297,17 +319,6 @@ def _board_retry_due(event: dict, now: datetime) -> bool:
     except ValueError:
         return True
     return (retry_at.tzinfo is None) == (now.tzinfo is None) and retry_at <= now
-
-
-def _direct_media_urls(thread_posts) -> list[str]:
-    urls: list[str] = []
-    seen: set[str] = set()
-    for thread_post in thread_posts:
-        for media in thread_post.media:
-            if media.url not in seen:
-                seen.add(media.url)
-                urls.append(media.url)
-    return urls
 
 
 def _ticker_led_clauses(value: str) -> list[str]:
@@ -376,9 +387,11 @@ def board_source_event(event: dict, profile, *, status_date: datetime | None = N
     normalized_source_title = f"{ticker}: {source_match.group(2).strip()}"
     skipped_media = set(event.get("media_skipped_urls", []))
     source_paths = event.get("source_media_paths", {})
-    source_urls = _direct_media_urls(thread_posts)
+    source_urls = [item.url for item in _delivery_media(profile, thread_posts, route=event.get("route"))] if profile.forward_media else []
     from source_media import reference_id
-    first_ref = reference_id(source_urls[0]) if source_urls else None
+    usable_urls = [url for url in source_urls if url not in skipped_media]
+    media_paths = [source_paths[ref] for url in usable_urls
+                   if (ref := reference_id(url)) is not None and ref in source_paths]
     return {
         "event_key": f"x:{profile.id}:{post.post_id}",
         "source": "x",
@@ -390,8 +403,9 @@ def board_source_event(event: dict, profile, *, status_date: datetime | None = N
         "source_title": normalized_source_title,
         "source_status": None,
         "plan": None,
-        "media_path": source_paths.get(first_ref) if first_ref else None,
-        "media_urls": [] if first_ref else [url for url in source_urls if url not in skipped_media],
+        "media_path": media_paths[0] if media_paths else None,
+        "media_paths": media_paths,
+        "media_urls": [url for url in usable_urls if reference_id(url) is None],
     }
 
 
@@ -565,15 +579,32 @@ def _delivery_at(event: dict, now: datetime | None) -> datetime:
     return current
 
 
+def _drain_publications(value: dict, dry_run: bool, storage: Path, stats: RunStats, now: datetime) -> None:
+    if not publication_projection.enabled():
+        return
+    result = publication_projection.drain(
+        value,
+        now,
+        dry_run=dry_run,
+        persist=lambda: state.save_state(storage, value),
+    )
+    if result["pending"]:
+        stats.note_source_error("Published projection pending")
+
+
 def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, storage: Path, stats: RunStats, now: datetime | None = None) -> bool:
     event = value["outbox"][event_index]
+    profile = profiles[event["profile_id"]]
+    if not _event_route_is_eligible(profile, event):
+        state.suppress_ineligible(value, event)
+        state.save_state(storage, value)
+        return True
     event.setdefault("board_phase", BOARD_PENDING)
     event.setdefault("board_attempts", 0)
     event.setdefault("board_next_attempt_at", None)
     event.setdefault("board_last_error", None)
     event.setdefault("media_skipped_urls", [])
     event.setdefault("media_errors", [])
-    profile = profiles[event["profile_id"]]
     post = state.deserialize_post(event["post"])
     thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]]))
     channel_id = _target_channel(profile, event)
@@ -590,32 +621,62 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
         include_status_date=event.get("route") == "id_stocks_swing",
         status_date=delivery_at if event.get("route") == "id_stocks_swing" else None,
     )
+    cards = event.get("news_cards")
+    targets = None
+    if cards is not None:
+        render.news_format.validate_cards(cards)
+        messages = [message for card in cards for message in card["messages"]]
+        targets = [card["destination"] for card in cards for message in card["messages"]]
+        channel_id = targets[0]
     media_url: str | None = None
     try:
-        if event["text_index"] < len(messages):
+        while event["text_index"] < len(messages):
             index = event["text_index"]
-            message_id = discord.post_text(messages[index], channel_id, dry_run, discord.nonce(f"{profile.id}:{post.post_id}", f"text:{index}"))
+            text_channel = targets[index] if targets else channel_id
+            nonce_value = discord.nonce(f"{profile.id}:{post.post_id}", f"text:{index}")
+            if publication_projection.enabled():
+                message_id, operation, receipt = discord.post_text_with_receipt(
+                    messages[index], text_channel, dry_run, nonce_value,
+                )
+                if operation is not None and receipt is not None:
+                    event.setdefault("publication_legs", []).append(
+                        publication_projection.confirmed_leg(operation, receipt, text=messages[index])
+                    )
+            else:
+                message_id = discord.post_text(messages[index], text_channel, dry_run, nonce_value)
             if message_id is not None:
                 event.setdefault("text_message_ids", []).append(message_id)
             event["text_index"] += 1
             if event.get("route") == "id_stocks_swing" and event.get("delivery_at") is None:
                 event["delivery_at"] = delivery_at.isoformat()
             state.save_state(storage, value)
-            return True
-        all_media = _delivery_media(profile, thread_posts)
-        if profile.forward_media and event["media_index"] < len(all_media):
+            continue
+        all_media = _delivery_media(profile, thread_posts, route=event.get("route"))
+        while profile.forward_media and event["media_index"] < len(all_media):
             index = event["media_index"]
             media_url = all_media[index].url
             from source_media import reference_id
             ref = reference_id(media_url)
             reference = event.get("source_media_refs", {}).get(ref) if ref else None
             media_arguments = {"source_reference": reference} if ref else {}
-            message_id = discord.post_media(media_url, channel_id, dry_run, discord.nonce(f"{profile.id}:{post.post_id}", f"media:{index}"), storage.parent / "media", **media_arguments)
+            nonce_value = discord.nonce(f"{profile.id}:{post.post_id}", f"media:{index}")
+            if publication_projection.enabled():
+                message_id, operation, receipt = discord.post_media_with_receipt(
+                    media_url, channel_id, dry_run, nonce_value, storage.parent / "media", **media_arguments,
+                )
+                if operation is not None and receipt is not None:
+                    event.setdefault("publication_legs", []).append(
+                        publication_projection.confirmed_leg(operation, receipt, text=None)
+                    )
+            else:
+                message_id = discord.post_media(
+                    media_url, channel_id, dry_run, nonce_value, storage.parent / "media", **media_arguments,
+                )
             if message_id is not None:
                 event.setdefault("media_message_ids", []).append(message_id)
             event["media_index"] += 1
             state.save_state(storage, value)
-            return True
+            continue
     except Exception as exc:
         if isinstance(exc, discord.DeliveryOwnerPending):
             stats.owner_pending += 1
@@ -645,6 +706,17 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
     record = state.record_delivery(value, event, channel_id, delivered_at, dry_run)
     if record is not None:
         state.queue_replacement_cleanup(value, record)
+    if not dry_run and publication_projection.enabled():
+        confirmed_at = event.get("publication_delivery_confirmed_at")
+        if not isinstance(confirmed_at, str):
+            confirmed_at = datetime.now().astimezone().isoformat()
+            event["publication_delivery_confirmed_at"] = confirmed_at
+        publication_projection.record_confirmed_event(
+            value,
+            event,
+            profile,
+            datetime.fromisoformat(confirmed_at),
+        )
     # The All delivery is durable before the owner sees a source event. A
     # retry below must therefore never revisit text, media, routing, or agent
     # work.
@@ -805,6 +877,7 @@ def run(
             while (event_index := _next_deliverable_index(value, profiles, now)) is not None:
                 if not _deliver(value, profiles, event_index, dry_run, storage, stats, now): break
             _retry_cleanup(value, dry_run, storage, stats)
+            _drain_publications(value, dry_run, storage, stats, now)
             stats.pending, stats.oldest_pending_minutes = _queue_metrics(value, profiles, now)
             _report_control_event(
                 reporter,
@@ -840,7 +913,16 @@ def run(
                     fcntl.flock(lock, fcntl.LOCK_UN)
                     try:
                         try:
-                            if event.get("source_media_refs") and not dry_run:
+                            profile = profiles[event["profile_id"]]
+                            selected_route = (deterministic_route(profile, post, thread_posts)
+                                              if profile.enable_llm_routing else profile.discord_channels[0].key)
+                            capabilities = event.get("enabled_capabilities")
+                            swing_possible = selected_route == "id_stocks_swing" and (
+                                capabilities is None or "swing_chart_context" in capabilities
+                            )
+                            if not swing_possible:
+                                vision_bundle = None
+                            elif event.get("source_media_refs") and not dry_run:
                                 vision_bundle = vision_media.prepare(
                                     post, vision_media.default_root(storage),
                                     reference_meta=event["source_media_refs"],
@@ -875,10 +957,14 @@ def run(
                     thread_posts = None
                     vision_bundle = None
                     article_bundle = None
-            wake_payload = build_wake_payload(
-                agent_item(profiles[event["profile_id"]], post, thread_posts, vision_bundle, article_bundle)
-                if event and post else None
-            )
+            item = agent_item(profiles[event["profile_id"]], post, thread_posts, vision_bundle, article_bundle) if event and post else None
+            if item is not None:
+                import summary_context
+                item["instruction"] += summary_context.context_instruction(
+                    summary_context.claim_from_state(value, item["event_key"], storage.parent / "summary-context"),
+                    "~/.hermes/scripts/bursawatch-x-account-watch.sh prepare-summary-images --json",
+                )
+            wake_payload = build_wake_payload(item)
             try:
                 discord.post_text(
                     format_heartbeat(now, stats),
@@ -977,13 +1063,14 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 raise ValueError("analysis profile is not enabled")
             analysis = validate_submission(profile, payload)
             event = state.awaiting_analysis_event(value, analysis["event_key"])
+            import summary_context
+            optional_context = summary_context.claim_from_state(value, analysis["event_key"], storage.parent / "summary-context")
             post = state.deserialize_post(event["post"])
             thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]]))
             if analysis.get("is_relevant") is False:
-                if requires_relevance(post, thread_posts, profile):
-                    raise ValueError("direct market disclosure must be relevant")
                 state.discard_analysis(value, analysis["event_key"])
                 state.save_state(storage, value)
+                summary_context.cleanup_claim_context(optional_context)
                 _cleanup_agent_vision(storage, event)
                 _report_control_event(
                     reporter,
@@ -997,11 +1084,40 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 )
                 _finish_control_run(reporter, run_id, "ok")
                 return {"submitted": True, "ignored": True, "delivered": 0}
-            route_override = deterministic_route(profile, post, thread_posts)
+            news_items = analysis.pop("news_items", None)
+            route_override = deterministic_route(profile, post, thread_posts) if news_items is None else None
             if route_override is not None:
                 analysis["route"] = route_override
+            if news_items is not None:
+                allowed = event.get("enabled_capabilities")
+                news_items = [item for item in news_items if allowed is None or eligible_capability_for_route(item["route"], frozenset(allowed)) is not None]
+                if news_items:
+                    analysis.update(news_items[0])
+                else:
+                    state.suppress_ineligible(value, event)
+                    state.save_state(storage, value)
+                    summary_context.cleanup_claim_context(optional_context)
+                    _cleanup_agent_vision(storage, event)
+                    _finish_control_run(reporter, run_id, "ok")
+                    return {"submitted": True, "suppressed": "suppressed_ineligible", "delivered": 0}
+            candidate_route = analysis.get("route") if profile.enable_llm_routing else profile.discord_channels[0].key
+            if event.get("enabled_capabilities") is not None and eligible_capability_for_route(candidate_route, frozenset(event["enabled_capabilities"])) is None:
+                state.suppress_ineligible(value, event)
+                state.save_state(storage, value)
+                summary_context.cleanup_claim_context(optional_context)
+                _cleanup_agent_vision(storage, event)
+                _report_control_event(
+                    reporter, run_id, "agent-submission-accepted", level="info", phase="agent",
+                    event_type="agent.submission.accepted", message="X agent submission suppressed by frozen source capability",
+                    attributes={"is_relevant": True, "delivered": 0, "outcome": "suppressed_ineligible"},
+                )
+                _finish_control_run(reporter, run_id, "ok")
+                return {"submitted": True, "suppressed": "suppressed_ineligible", "delivered": 0}
+            if profile.enable_llm_summary and candidate_route in {"id_stocks_news", "us_stocks_news", "macro_news"}:
+                analysis["news_cards"] = render.freeze_news(profile, post, news_items or [{"title": analysis.get("title") or profile.display_name, "summary": analysis["summary"], "route": candidate_route}], updated_tweet=bool(event.get("updated_tweet")))
             state.submit_analysis(value, analysis["event_key"], {key: item for key, item in analysis.items() if key not in {"event_key", "is_relevant"}})
             state.save_state(storage, value)
+            summary_context.cleanup_claim_context(optional_context)
             _cleanup_agent_vision(storage, event)
             stats = RunStats()
             now = datetime.now(WIB)
@@ -1009,6 +1125,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 if not _deliver(value, profiles, event_index, dry_run, storage, stats, now):
                     break
             _retry_cleanup(value, dry_run, storage, stats)
+            _drain_publications(value, dry_run, storage, stats, now)
             _report_control_event(
                 reporter,
                 run_id,
@@ -1111,9 +1228,14 @@ if __name__ == "__main__":
     recover = subparsers.add_parser("recover-missing")
     recover.add_argument("--status-url", action="append", required=True, dest="urls")
     recover.add_argument("--apply", action="store_true")
+    images = subparsers.add_parser("prepare-summary-images")
+    images.add_argument("--json", required=True, dest="payload")
     arguments = parser.parse_args()
     try:
-        if arguments.command == "submit-analysis":
+        if arguments.command == "prepare-summary-images":
+            import summary_context
+            result = summary_context.prepare_summary_context(json.loads(arguments.payload))
+        elif arguments.command == "submit-analysis":
             result = submit_analysis_payload(json.loads(arguments.payload))
         elif arguments.command == "recover-missing":
             result = recover_missing_source(arguments.urls, apply=arguments.apply)

@@ -155,10 +155,27 @@ def _subscriptions(catalog: dict[str, Any], registry: dict[str, Any], envelope: 
     effective = effective_snapshot(catalog["config"], view, catalog["revision"], catalog["updated_at"])
     capabilities = {row["id"]: row for row in registry["capabilities"]}
     result = []
+    grouped: dict[str, list[dict[str, Any]]] = {}
     for row in effective["subscriptions"]:
         if row["endpoint_id"] == envelope["endpoint_id"] and row["enabled"]:
             capability = capabilities[row["capability_id"]]
-            result.append({"capability_id": row["capability_id"], "pipeline": row["pipeline"], "capability_version": capability["version"], "catalog_revision": catalog["revision"], "settings": deepcopy(row["settings"]), "config_source": row["source"]})
+            sub = {"capability_id": row["capability_id"], "pipeline": row["pipeline"], "capability_version": capability["version"], "catalog_revision": catalog["revision"], "settings": deepcopy(row["settings"]), "config_source": row["source"], "dispatch_context": {}}
+            if row["dispatch_group"] == "x_post_route" and envelope["platform"] == "x":
+                grouped.setdefault("x_post_route", []).append(sub)
+            else:
+                result.append(sub)
+    for group, subscriptions in grouped.items():
+        subscriptions.sort(key=lambda item: item["capability_id"])
+        result.append({
+            "capability_id": "x_post_route_group", "pipeline": group,
+            "capability_version": 1, "catalog_revision": catalog["revision"],
+            "settings": {},
+            "config_source": "endpoint_override" if any(item["config_source"] == "endpoint_override" for item in subscriptions) else "publisher_default",
+            "dispatch_context": {"dispatch_group": group, "subscriptions": [
+                {field: item[field] for field in ("capability_id", "capability_version", "settings", "config_source")}
+                for item in subscriptions
+            ]},
+        })
     return result
 
 
@@ -219,7 +236,7 @@ class MemoryInboxStore:
                     raise InboxConflict("provider identity already accepted with different content; use correction")
                 return {"event_key": key, "version": 1, "duplicate": True, "work_keys": [k for k, w in self.work.items() if w["event_key"] == key and w["version"] == 1]}
             subs = _subscriptions(self.catalog.get(), self.catalog.registry(), envelope)
-            self.events[key] = {"event_key": key, "versions": [{"version": 1, "envelope": envelope, "kind": "original"}]}
+            self.events[key] = {"event_key": key, "created_at": _now().isoformat(), "versions": [{"version": 1, "envelope": envelope, "kind": "original"}]}
             keys = []
             for sub in subs:
                 item = self._create_work(key, 1, sub)
@@ -228,7 +245,8 @@ class MemoryInboxStore:
 
     def _create_work(self, key: str, version: int, sub: dict[str, Any]) -> dict[str, Any]:
         wid = work_key(key, version, sub["capability_id"])
-        item = {"work_key": wid, "event_key": key, "version": version, **deepcopy(sub), "pipeline_id": sub["pipeline"], "effect_key": wid, "status": "pending", "attempts": 0, "available_at": _now().isoformat(), "lease_token": None, "lease_until": None, "error_code": None}
+        created_at = _now().isoformat()
+        item = {"work_key": wid, "event_key": key, "version": version, **deepcopy(sub), "pipeline_id": sub["pipeline"], "effect_key": wid, "status": "pending", "attempts": 0, "created_at": created_at, "available_at": created_at, "lease_token": None, "lease_until": None, "error_code": None}
         self.work[wid] = item
         return item
 
@@ -297,6 +315,20 @@ class MemoryInboxStore:
         with self.lock:
             return [deepcopy(w) for w in self.work.values() if w["status"] == status][:limit]
 
+    def latest_endpoint_accepted_at(self, endpoint_id: str) -> str | None:
+        with self.lock:
+            times = [item["created_at"] for item in self.events.values()
+                     if item["versions"][0]["envelope"]["endpoint_id"] == endpoint_id]
+        return max(times) if times else None
+
+    def latest_pipeline_work(self, pipeline_id: str) -> tuple[str, str] | None:
+        with self.lock:
+            matches = [item for item in self.work.values() if item["pipeline_id"] == pipeline_id]
+            if not matches:
+                return None
+            latest = max(matches, key=lambda item: (item["created_at"], item["work_key"]))
+            return latest["created_at"], latest["status"]
+
     def suppress(self, wid: str, actor: str, reason: str) -> dict[str, Any]:
         with self.lock:
             item = self.work.get(wid)
@@ -362,7 +394,7 @@ class MemoryInboxStore:
                 if item["event_key"] == key and item["version"] < version and item["status"] != "done":
                     item.update(status="superseded", lease_token=None, lease_until=None)
             subs = [
-                {field: item[field] for field in ("capability_id", "pipeline", "capability_version", "catalog_revision", "settings", "config_source")}
+                {field: item[field] for field in ("capability_id", "pipeline", "capability_version", "catalog_revision", "settings", "config_source", "dispatch_context")}
                 for item in self.work.values() if item["event_key"] == key and item["version"] == 1
             ]
             return {"event_key": key, "version": version, "duplicate": False, "work_keys": [self._create_work(key, version, sub)["work_key"] for sub in subs]}
@@ -422,7 +454,7 @@ class PostgresInboxStore:
 
     def _insert_work(self, conn, key, version, sub):
         wid = work_key(key, version, sub["capability_id"])
-        conn.execute("insert into bursawatch_source_work (work_key,event_key,version,capability_id,pipeline_id,capability_version,catalog_revision,settings,config_source,effect_key) values (%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s)", (wid, key, version, sub["capability_id"], sub["pipeline"], sub["capability_version"], sub["catalog_revision"], json.dumps(sub["settings"]), sub["config_source"], wid))
+        conn.execute("insert into bursawatch_source_work (work_key,event_key,version,capability_id,pipeline_id,capability_version,catalog_revision,settings,config_source,dispatch_context,effect_key) values (%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s)", (wid, key, version, sub["capability_id"], sub["pipeline"], sub["capability_version"], sub["catalog_revision"], json.dumps(sub["settings"]), sub["config_source"], json.dumps(sub["dispatch_context"]), wid))
         return wid
 
     def claim(self, pipeline_ids: list[str], limit: int = 10) -> list[dict[str, Any]]:
@@ -535,6 +567,24 @@ class PostgresInboxStore:
             rows = conn.execute("select * from bursawatch_source_work where status=%s order by available_at,work_key limit %s", (status, limit)).fetchall()
             return [self._work(row) for row in rows]
 
+    def latest_endpoint_accepted_at(self, endpoint_id: str) -> str | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "select created_at from bursawatch_source_events where endpoint_id=%s "
+                "order by created_at desc, event_key desc limit 1",
+                (endpoint_id,),
+            ).fetchone()
+        return row["created_at"].isoformat() if row else None
+
+    def latest_pipeline_work(self, pipeline_id: str) -> tuple[str, str] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "select created_at, status from bursawatch_source_work where pipeline_id=%s "
+                "order by created_at desc, work_key desc limit 1",
+                (pipeline_id,),
+            ).fetchone()
+        return (row["created_at"].isoformat(), row["status"]) if row else None
+
     def _operator_action(self, wid: str, actor: str, reason: str, action: str) -> dict[str, Any]:
         if not actor or type(reason) is not str or not 1 <= len(reason.strip()) <= 500:
             raise ValueError("actor and bounded reason required")
@@ -600,8 +650,8 @@ class PostgresInboxStore:
             if old["envelope"] == envelope and old["kind"] == kind:
                 raise InboxConflict("duplicate correction")
             version = old["version"] + 1
-            original = conn.execute("select capability_id,pipeline_id,capability_version,catalog_revision,settings,config_source from bursawatch_source_work where event_key=%s and version=1", (key,)).fetchall()
-            subs = [{"capability_id": row["capability_id"], "pipeline": row["pipeline_id"], "capability_version": row["capability_version"], "catalog_revision": row["catalog_revision"], "settings": row["settings"], "config_source": row["config_source"]} for row in original]
+            original = conn.execute("select capability_id,pipeline_id,capability_version,catalog_revision,settings,config_source,dispatch_context from bursawatch_source_work where event_key=%s and version=1", (key,)).fetchall()
+            subs = [{"capability_id": row["capability_id"], "pipeline": row["pipeline_id"], "capability_version": row["capability_version"], "catalog_revision": row["catalog_revision"], "settings": row["settings"], "config_source": row["config_source"], "dispatch_context": row["dispatch_context"]} for row in original]
             conn.execute("insert into bursawatch_source_event_versions (event_key,version,kind,envelope,content_hash,actor_id,reason,revision_id) values (%s,%s,%s,%s::jsonb,%s,%s,%s,%s)", (key, version, kind, json.dumps(envelope), envelope["content_hash"], actor, reason, revision_id))
             conn.execute("update bursawatch_source_work set status='superseded', lease_token=null, lease_until=null where event_key=%s and version<%s and status<>'done'", (key, version))
             keys = [self._insert_work(conn, key, version, sub) for sub in subs]

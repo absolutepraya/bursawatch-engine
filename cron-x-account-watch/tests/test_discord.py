@@ -55,6 +55,51 @@ class _DeliveryOwner:
         return {"messages": [{"id": "7001", "content": "**Board:** <#1548273399069933720>"}]}
 
 
+def test_post_text_waits_for_delivery_receipt_before_advancing():
+    class PendingThenDeliveredOwner:
+        def __init__(self):
+            self.operation = None
+            self.waited = []
+
+        def status(self, key):
+            return None
+
+        def submit(self, operation):
+            self.operation = operation
+            return OperationReceipt(
+                id="pending-operation",
+                key=operation.key,
+                digest=operation.digest,
+                status="pending",
+                receipt=None,
+            )
+
+        def wait(self, key, timeout):
+            self.waited.append((key, timeout))
+            return OperationReceipt(
+                id="pending-operation",
+                key=key,
+                digest=self.operation.digest,
+                status="delivered",
+                receipt={"channel_id": "123456789012345678", "message_id": "7002"},
+            )
+
+    owner = PendingThenDeliveredOwner()
+
+    message_id = discord.post_text(
+        "alert",
+        "123456789012345678",
+        False,
+        "stable-nonce",
+        event_key="writer:123",
+        client=owner,
+    )
+
+    assert message_id == "7002"
+    assert owner.operation is not None
+    assert owner.waited == [(owner.operation.key, discord.DELIVERY_RECEIPT_WAIT_SECONDS)]
+
+
 def test_source_media_download_stays_local_and_retry_uses_original_owner_message_id(monkeypatch, tmp_path):
     class Source:
         status_code = 200

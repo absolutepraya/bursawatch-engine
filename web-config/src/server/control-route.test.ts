@@ -57,7 +57,10 @@ async function invoke(
   body?: unknown,
   headers?: Record<string, string>,
 ) {
-  return handleControlRequest(request(path, body, headers), path.split("/"), { origin, fetchImpl });
+  return handleControlRequest(request(path, body, headers), path.split("?")[0].split("/"), {
+    origin,
+    fetchImpl,
+  });
 }
 const configWrite = { expectedRevision: 2, config_version: 1, config: { profiles: [] } };
 const scheduleWrite = {
@@ -68,17 +71,37 @@ const scheduleWrite = {
 };
 
 const avatarProfile = {
-  watcher_id: "x-post-watch", profile_id: "source_one", handle: "sourceone", display_name: "Source One",
-  profile_url: "https://x.com/sourceone", enabled: true,
-  avatar: { mode: "auto", url: null, source: null, fetched_at: null, last_success_at: null,
-    last_error: "private upstream details", updated_at: time },
+  watcher_id: "x-post-watch",
+  profile_id: "source_one",
+  handle: "sourceone",
+  display_name: "Source One",
+  profile_url: "https://x.com/sourceone",
+  enabled: true,
+  avatar: {
+    mode: "auto",
+    url: null,
+    source: null,
+    fetched_at: null,
+    last_success_at: null,
+    last_error: "private upstream details",
+    updated_at: time,
+  },
 };
 
 describe("profile metadata proxy", () => {
   const avatarPath = "watchers/x-post-watch/profiles/source_one/avatar";
-  function refresh(path = `${avatarPath}/refresh`, originHeader = "https://web.example.test", body: unknown = {}) {
+  function refresh(
+    path = `${avatarPath}/refresh`,
+    originHeader = "https://web.example.test",
+    body: unknown = {},
+  ) {
     return new Request(`https://web.example.test/api/control/${path}`, {
-      method: "POST", headers: { authorization: "Bearer e30.e30.signature", origin: originHeader, "content-type": "application/json" },
+      method: "POST",
+      headers: {
+        authorization: "Bearer e30.e30.signature",
+        origin: originHeader,
+        "content-type": "application/json",
+      },
       body: JSON.stringify(body),
     });
   }
@@ -95,7 +118,10 @@ describe("profile metadata proxy", () => {
     const fetchImpl = fake([avatarProfile]);
     const response = await invoke(avatarPath, fetchImpl, { mode: "auto" });
     expect(response.status).toBe(200);
-    expect(fetchImpl.mock.calls[0][1]).toMatchObject({ method: "PUT", headers: { Authorization: "Bearer e30.e30.signature" } });
+    expect(fetchImpl.mock.calls[0][1]).toMatchObject({
+      method: "PUT",
+      headers: { Authorization: "Bearer e30.e30.signature" },
+    });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
   it("uses only the exact POST refresh route and an empty payload", async () => {
@@ -105,17 +131,53 @@ describe("profile metadata proxy", () => {
     expect(response.status).toBe(200);
     expect(fetchImpl.mock.calls[0][1]?.method).toBe("POST");
     expect(fetchImpl.mock.calls[0][1]?.body).toBeUndefined();
-    for (const invalidPath of [avatarPath, "watchers/x-post-watch/config", "runs/create", `${path}/extra`]) {
-      expect((await handleControlRequest(refresh(invalidPath), invalidPath.split("/"), { origin, fetchImpl })).status).toBe(404);
+    for (const invalidPath of [
+      avatarPath,
+      "watchers/x-post-watch/config",
+      "runs/create",
+      `${path}/extra`,
+    ]) {
+      expect(
+        (
+          await handleControlRequest(refresh(invalidPath), invalidPath.split("/"), {
+            origin,
+            fetchImpl,
+          })
+        ).status,
+      ).toBe(404);
     }
-    expect((await handleControlRequest(refresh(path, "https://web.example.test", { url: "https://images.example.test/a.jpg" }), path.split("/"), { origin, fetchImpl })).status).toBe(422);
+    expect(
+      (
+        await handleControlRequest(
+          refresh(path, "https://web.example.test", { url: "https://images.example.test/a.jpg" }),
+          path.split("/"),
+          { origin, fetchImpl },
+        )
+      ).status,
+    ).toBe(422);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
   it("blocks cross-origin avatar saves and refreshes before fetching", async () => {
     const fetchImpl = fake();
-    expect((await invoke(avatarPath, fetchImpl, { mode: "auto" }, { origin: "https://evil.example.test" })).status).toBe(403);
+    expect(
+      (
+        await invoke(
+          avatarPath,
+          fetchImpl,
+          { mode: "auto" },
+          { origin: "https://evil.example.test" },
+        )
+      ).status,
+    ).toBe(403);
     const path = `${avatarPath}/refresh`;
-    expect((await handleControlRequest(refresh(path, "https://evil.example.test"), path.split("/"), { origin, fetchImpl })).status).toBe(403);
+    expect(
+      (
+        await handleControlRequest(refresh(path, "https://evil.example.test"), path.split("/"), {
+          origin,
+          fetchImpl,
+        })
+      ).status,
+    ).toBe(403);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
   it("does not permit backend-denied viewer mutations or expose provider errors", async () => {
@@ -127,9 +189,194 @@ describe("profile metadata proxy", () => {
   });
   it("rejects unsafe URLs and extra write fields without fetching", async () => {
     const fetchImpl = fake();
-    for (const payload of [{ mode: "manual", url: "https://user:secret@example.test/a.jpg" }, { mode: "auto", token: "private" }]) {
+    for (const payload of [
+      { mode: "manual", url: "https://user:secret@example.test/a.jpg" },
+      { mode: "auto", token: "private" },
+    ]) {
       expect((await invoke(avatarPath, fetchImpl, payload)).status).toBe(422);
     }
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe("operator inventory read proxy", () => {
+  it.each([
+    ["bursawatch-ig-source-ingest", "instagram:synthetic.research"],
+    ["bursawatch-wa-source-ingest", "whatsapp:0029SyntheticMixedCase"],
+  ])(
+    "returns authenticated activity for %s as no-store without changing state",
+    async (componentId, endpointId) => {
+      for (const status of ["unknown", "stale", "observed"]) {
+        const activity = {
+          component_id: componentId,
+          endpoints: [
+            {
+              endpoint_id: endpointId,
+              accepted_at: status === "unknown" ? null : time,
+              status,
+              meaning: "last accepted into Source Inbox",
+            },
+          ],
+          pipelines: [],
+          delivery_status: "not instrumented",
+        };
+        const fetchImpl = fake([activity]);
+        const response = await invoke(
+          `components/${componentId}/activity`,
+          fetchImpl,
+        );
+        expect(response.status).toBe(200);
+        expect(response.headers.get("cache-control")).toContain("no-store");
+        expect(await response.json()).toEqual(activity);
+        expect(fetchImpl).toHaveBeenCalledTimes(1);
+        expect(fetchImpl.mock.calls[0][1]).toMatchObject({
+          method: "GET",
+          cache: "no-store",
+          headers: { Authorization: "Bearer e30.e30.signature" },
+        });
+      }
+    },
+  );
+
+  it.each(["instagram:bad/handle", "a".repeat(129)])(
+    "keeps invalid activity endpoint identities rejected: %j",
+    async (endpointId) => {
+      const fetchImpl = fake([
+        {
+          component_id: "bursawatch-ig-source-ingest",
+          endpoints: [
+            {
+              endpoint_id: endpointId,
+              accepted_at: null,
+              status: "unknown",
+              meaning: "last accepted into Source Inbox",
+            },
+          ],
+          pipelines: [],
+          delivery_status: "not instrumented",
+        },
+      ]);
+      const response = await invoke(
+        "components/bursawatch-ig-source-ingest/activity",
+        fetchImpl,
+      );
+      expect(response.status).toBe(502);
+      expect(await response.json()).toMatchObject({ code: "invalid-response" });
+    },
+  );
+
+  it("rejects a valid activity body for a different component", async () => {
+    const response = await invoke(
+      "components/bursawatch-ig-source-ingest/activity",
+      fake([
+        {
+          component_id: "bursawatch-wa-source-ingest",
+          endpoints: [
+            {
+              endpoint_id: "whatsapp:0029SyntheticMixedCase",
+              accepted_at: null,
+              status: "unknown",
+              meaning: "last accepted into Source Inbox",
+            },
+          ],
+          pipelines: [],
+          delivery_status: "not instrumented",
+        },
+      ]),
+    );
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ code: "invalid-response" });
+  });
+
+  it("allowlists authenticated component, activity, job and observation GETs as no-store", async () => {
+    const paths = [
+      "components",
+      "components/bursawatch-tg-source-ingest",
+      "components/bursawatch-tg-source-ingest/activity",
+      "jobs",
+      "jobs?component_id=bursawatch-tg-market-news",
+      "jobs/global-reader",
+      "observations",
+      "observations?job_id=global-reader",
+    ];
+    for (const path of paths) {
+      const fetchImpl = fake([
+        path === "components"
+          ? { inventory_version: 1, components: [] }
+          : ["jobs", "observations"].includes(path.split("?")[0])
+            ? []
+            : path === "jobs/global-reader"
+              ? {
+                  job_id: "global-reader",
+                  can_edit: false,
+                  watcher_id: null,
+                  component_ids: [],
+                  display_name: "Reader",
+                  runtime_job_key: "reader",
+                  schedule_kind: "fixed",
+                  min_interval_seconds: null,
+                  max_interval_seconds: null,
+                  schedule: null,
+                  reconciliation: {
+                    status: "not_connected",
+                    applied_revision: null,
+                    last_error: null,
+                    effective: false,
+                  },
+                }
+              : path.endsWith("/activity")
+                ? {
+                    component_id: "bursawatch-tg-source-ingest",
+                    endpoints: [],
+                    pipelines: [],
+                    delivery_status: "not instrumented",
+                  }
+                : {
+                    inventory_version: 1,
+                    component_id: "bursawatch-tg-source-ingest",
+                    kind: "source_adapter",
+                    display_name: "Telegram Source Adapter",
+                    capabilities: [],
+                    pipeline_ids: [],
+                    config_resource_ids: [],
+                    related_component_ids: [],
+                    job_ids: [],
+                  },
+      ]);
+      const response = await invoke(path, fetchImpl);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toContain("no-store");
+      expect(fetchImpl.mock.calls[0][1]).toMatchObject({
+        cache: "no-store",
+        headers: { Authorization: "Bearer e30.e30.signature" },
+      });
+    }
+  });
+
+  it("rejects unrecognized inventory filters before contacting the API", async () => {
+    const fetchImpl = fake();
+    const response = await invoke("jobs?unbounded=true", fetchImpl);
+
+    expect(response.status).toBe(422);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("does not expose the internal observation POST through the browser proxy", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const request = new Request("https://web.example.test/api/control/internal/observations", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer e30.e30.signature",
+        origin: "https://web.example.test",
+        "content-type": "application/json",
+      },
+      body: "{}",
+    });
+    const response = await handleControlRequest(request, ["internal", "observations"], {
+      origin,
+      fetchImpl,
+    });
+    expect(response.status).toBe(404);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
@@ -234,7 +481,10 @@ describe("authenticated control routes", () => {
     expect(JSON.stringify(body)).not.toMatch(/secret-input|private-error/);
   });
   it("extracts a plain validator path without forwarding its private prose", async () => {
-    const fetchImpl = fake([snapshot], [{ detail: "profiles[0].handle must match the configured private-source-account" }, 422]);
+    const fetchImpl = fake(
+      [snapshot],
+      [{ detail: "profiles[0].handle must match the configured private-source-account" }, 422],
+    );
     const response = await invoke("watchers/x-post-watch/config", fetchImpl, configWrite);
     const result = await response.json();
     expect(result.fields).toEqual(["profiles[0].handle"]);
@@ -302,13 +552,73 @@ describe("authenticated control routes", () => {
   });
 });
 
-
 describe("source catalog proxy", () => {
-  const emptyConfig = { selected_securities: [], people_org: [], endpoints: [], publisher_defaults: [], endpoint_overrides: [] };
-  const revision = { revision: 1, config: emptyConfig, sha256: "a".repeat(64), actor_id: "baseline", updated_at: time };
-  const catalog = { can_edit: true, securities: [], institutions: [], people_org: [], endpoints: [], capabilities: [], compatibility: [], config: revision };
+  const emptyConfig = {
+    selected_securities: [],
+    people_org: [],
+    endpoints: [],
+    publisher_defaults: [],
+    endpoint_overrides: [],
+  };
+  const revision = {
+    revision: 1,
+    config: emptyConfig,
+    sha256: "a".repeat(64),
+    actor_id: "baseline",
+    updated_at: time,
+  };
+  const catalog = {
+    can_edit: true,
+    securities: [],
+    institutions: [],
+    people_org: [],
+    endpoints: [],
+    capabilities: [],
+    compatibility: [],
+    config: revision,
+  };
+  it.each(["instagram:synthetic.research", "whatsapp:0029SyntheticMixedCase"])(
+    "preserves saved override identity %s through authenticated reads and writes",
+    async (endpointId) => {
+      const config = {
+        ...emptyConfig,
+        endpoint_overrides: [
+          { endpoint_id: endpointId, capability_id: "company_news", enabled: false, settings: {} },
+        ],
+      };
+      const savedRevision = { ...revision, config };
+      const fetchImpl = fake([{ ...catalog, config: savedRevision }], [{ ...savedRevision, revision: 2 }]);
+      const read = await invoke("source-catalog", fetchImpl);
+      expect(read.status).toBe(200);
+      expect((await read.json()).config.config.endpoint_overrides[0].endpoint_id).toBe(endpointId);
+      const write = await invoke("source-catalog/config", fetchImpl, { expected_revision: 1, config });
+      expect(write.status).toBe(200);
+      expect((await write.json()).config.endpoint_overrides[0].endpoint_id).toBe(endpointId);
+      expect(JSON.parse(fetchImpl.mock.calls[1][1]?.body as string).config.endpoint_overrides[0].endpoint_id).toBe(endpointId);
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    },
+  );
+  it("rejects malformed stored overrides and blocks malformed writes before network access", async () => {
+    const config = {
+      ...emptyConfig,
+      endpoint_overrides: [
+        { endpoint_id: "instagram:bad/handle", capability_id: "company_news", enabled: false, settings: {} },
+      ],
+    };
+    const fetchImpl = fake([{ ...catalog, config: { ...revision, config } }]);
+    const read = await invoke("source-catalog", fetchImpl);
+    expect(read.status).toBe(502);
+    expect((await read.json()).code).toBe("invalid-response");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const write = await invoke("source-catalog/config", fetchImpl, { expected_revision: 1, config });
+    expect(write.status).toBe(422);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
   it("forwards only exact authenticated catalog reads", async () => {
-    const fetchImpl = fake([catalog], [{ revision: 1, updated_at: time, selected_securities: [], subscriptions: [] }]);
+    const fetchImpl = fake(
+      [catalog],
+      [{ revision: 1, updated_at: time, selected_securities: [], subscriptions: [] }],
+    );
     expect((await invoke("source-catalog", fetchImpl)).status).toBe(200);
     expect((await invoke("source-catalog/effective", fetchImpl)).status).toBe(200);
     expect((await invoke("source-catalog/private", fetchImpl)).status).toBe(404);
@@ -317,8 +627,16 @@ describe("source catalog proxy", () => {
   it("checks origin and schema before a catalog write and preserves backend role denial", async () => {
     const fetchImpl = fake([{ detail: "private" }, 403]);
     const payload = { expected_revision: 1, config: emptyConfig };
-    expect((await invoke("source-catalog/config", fetchImpl, payload, { origin: "https://evil.example.test" })).status).toBe(403);
-    expect((await invoke("source-catalog/config", fetchImpl, { ...payload, secret: "bad" })).status).toBe(422);
+    expect(
+      (
+        await invoke("source-catalog/config", fetchImpl, payload, {
+          origin: "https://evil.example.test",
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (await invoke("source-catalog/config", fetchImpl, { ...payload, secret: "bad" })).status,
+    ).toBe(422);
     const denied = await invoke("source-catalog/config", fetchImpl, payload);
     expect(denied.status).toBe(403);
     expect(await denied.text()).not.toContain("private");

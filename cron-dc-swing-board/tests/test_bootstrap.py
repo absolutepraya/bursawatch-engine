@@ -199,13 +199,16 @@ class _ApplyEngine:
         return 0
 
 
-def _rich_call(ticker: str, kind: str, *, status: str | None = None):
+def _rich_call(
+    ticker: str, kind: str, *, status: str | None = None,
+    outcomes: tuple[str, ...] = (),
+):
     return SimpleNamespace(
         ticker=ticker,
         event_kind=kind,
         has_source_chart=False,
         status=status,
-        outcomes=(),
+        outcomes=outcomes,
         targets=(SimpleNamespace(value="230"), SimpleNamespace(value="240")),
         entry="208 to 212",
         stop_loss="<200",
@@ -323,6 +326,91 @@ def test_manifest_source_only_conversion_never_invents_a_primary_plan() -> None:
     source_event = bootstrap._source_event_for_manifest(item, event, _ApplyWatcher)
 
     assert (source_event.kind, source_event.plan, source_event.ticker) == ("social", None, "DSSA")
+
+
+def test_v2_manifest_promotes_only_complete_on_support_status_to_board_buy() -> None:
+    event = _event(
+        35456,
+        datetime(2026, 9, 28, 9, 0, tzinfo=WIB),
+        _rich_call("BBRI", "STATUS", status="On support"),
+    )
+    item = bootstrap.BootstrapManifestEvent(
+        35456, "STATUS", "buy", None, "plan-v1", None
+    )
+
+    source_event = bootstrap._source_event_for_manifest(item, event, _ApplyWatcher)
+
+    assert source_event.event_key == "phintraco:1444713822:35456:recovery:plan-v1"
+    assert source_event.kind == "buy"
+    assert source_event.source_status == "New setup"
+    assert source_event.published_at == event.call.signal_datetime
+    assert source_event.plan.entry == "208 to 212"
+    assert source_event.plan.stop_loss == "<200"
+    assert source_event.plan.targets == ("230", "240")
+
+
+def test_v2_manifest_rejects_incomplete_on_support_status_conversion() -> None:
+    import pytest
+
+    call = _rich_call("BBRI", "STATUS", status="On support")
+    call.stop_loss = ""
+    event = _event(
+        35456,
+        datetime(2026, 9, 28, 9, 0, tzinfo=WIB),
+        call,
+    )
+    item = bootstrap.BootstrapManifestEvent(
+        35456, "STATUS", "buy", None, "plan-v1", None
+    )
+
+    with pytest.raises(bootstrap.BootstrapError, match="complete On support setup"):
+        bootstrap._source_event_for_manifest(item, event, _ApplyWatcher)
+
+
+def test_v2_manifest_links_weekly_reminder_and_uses_recovery_identity() -> None:
+    event = _event(
+        35461,
+        datetime(2026, 9, 28, 11, 0, tzinfo=WIB),
+        _rich_call(
+            "KETR", "REMINDER", outcomes=("First target 1000 achieved",)
+        ),
+    )
+    item = bootstrap.BootstrapManifestEvent(
+        35461,
+        "REMINDER",
+        "reminder",
+        None,
+        "weekly-v1",
+        "phintraco:1444713822:weekly:35448:KETR",
+    )
+
+    source_event = bootstrap._source_event_for_manifest(item, event, _ApplyWatcher)
+
+    assert source_event.event_key == "phintraco:1444713822:35461:recovery:weekly-v1"
+    assert source_event.matched_setup_event_key == item.matched_setup_event_key
+    assert source_event.kind == "reminder"
+    assert source_event.ticker == "KETR"
+
+
+def test_load_v2_manifest_requires_recovery_suffix_and_allows_setup_conversion(tmp_path) -> None:
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps({
+        "version": 2,
+        "source_channel_id": bootstrap.SOURCE_CHANNEL_ID,
+        "events": [{
+            "source_message_id": 35456,
+            "source_event_kind": "STATUS",
+            "board_kind": "buy",
+            "target_all_message_id": None,
+            "event_key_suffix": "plan-v1",
+            "matched_setup_event_key": None,
+        }],
+    }))
+
+    entries = bootstrap.load_manifest(path)
+
+    assert entries[0].board_kind == "buy"
+    assert entries[0].event_key_suffix == "plan-v1"
 
 
 def test_apply_manifest_submits_only_reviewed_events_without_ticker_collapsing(

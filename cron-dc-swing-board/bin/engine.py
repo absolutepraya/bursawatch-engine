@@ -10,17 +10,18 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import re
 
-from calendar import is_idx_trading_day, sessions_ago
+from calendar import is_idx_trading_day, trading_sessions_since
 from discord_forum import DiscordForumClient, DiscordForumError
 from models import Checkpoint, Episode, MarketState, SourceEvent
 from media_store import acquire_media
 from prices import classify_close, fetch_session_close, parse_plan_levels
-from render import WIB, render_primary_card, render_source_reply, render_source_replies, primary_card_requires_source_reply
+from render import WIB, episode_title, render_historical_source_replies, render_primary_card, render_resolved_source_card, render_source_only_card, render_source_reply, render_source_replies, primary_card_requires_source_reply
 from store import BoardStore, BoardStoreTransaction, StoreBlockedError
 from tags import (
     PRIMARY_PLAN,
     RESOLVED,
     desired_lifecycle_tag,
+    episode_tag_names,
     merge_source_tier,
     source_tier,
     source_tier_rank,
@@ -32,6 +33,12 @@ _ORDINALS = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixt
 _TARGET = re.compile(
     r"(first|second|third|fourth|fifth|sixth|[0-9]+(?:st|nd|rd|th)) target"
     r"(?: [0-9][0-9.,]*)? (?:achieved|hit|reached)", re.IGNORECASE
+)
+_FORMATTED_TARGET_AMENDMENT = re.compile(
+    r"^\s*\*\*Target ([1-6]):\*\*\s*(.+?)\s*$", re.IGNORECASE
+)
+_PLAIN_TARGET_AMENDMENT = re.compile(
+    r"^\s*Target ([1-6])\s*:\s*(.+?)\s*$", re.IGNORECASE
 )
 # Hermes can claim a scheduled job while another built-in job is still running.
 # Keep the window bounded so a stale or manually delayed invocation is ignored.
@@ -70,6 +77,50 @@ def source_outcome_state(event: SourceEvent, active_plan: SourceEvent) -> Market
     return MarketState.from_target_number(min(max(reached), 6)) if reached else None
 
 
+def _target_amendments(event: SourceEvent) -> dict[int, str] | None:
+    """Read only explicit numbered target fields from canonical source content."""
+    if event.kind != "reminder" or event.source.casefold() != "phintraco":
+        return {}
+    amendments: dict[int, str] = {}
+    fragments = event.all_content.splitlines()
+    fragments.extend((event.source_status or "").split(";"))
+    for fragment in fragments:
+        match = (
+            _FORMATTED_TARGET_AMENDMENT.fullmatch(fragment)
+            or _PLAIN_TARGET_AMENDMENT.fullmatch(fragment)
+        )
+        if match is None:
+            continue
+        number = int(match.group(1))
+        value = match.group(2).strip()
+        if not value or (number in amendments and amendments[number] != value):
+            return None
+        amendments[number] = value
+    return amendments
+
+
+def _updated_target_ladder(plan: SourceEvent, event: SourceEvent) -> tuple[str, ...] | None:
+    """Validate replacements and contiguous appends before changing the plan projection."""
+    if plan.plan is None:
+        return None
+    amendments = _target_amendments(event)
+    if amendments is None:
+        return None
+    targets = list(plan.plan.targets)
+    for number, value in sorted(amendments.items()):
+        if number <= len(targets):
+            targets[number - 1] = value
+        elif number == len(targets) + 1:
+            targets.append(value)
+        else:
+            return None
+    try:
+        parse_plan_levels(plan.plan.entry, plan.plan.stop_loss, targets)
+    except ValueError:
+        return None
+    return tuple(targets)
+
+
 class BoardEngine:
     def __init__(self, store: BoardStore, client: DiscordForumClient) -> None:
         self.store = store
@@ -89,18 +140,89 @@ class BoardEngine:
             event = tx.source_event(submitted.id)
             active = tx.active_episode(event.ticker)
             if event.kind == "social":
-                self._social(tx, event, submitted.id, active, now)
-                result = "board_submitted"
+                historical = tx.historical_episode(event.ticker, event.published_at)
+                if historical is not None:
+                    if historical.archived_at is None:
+                        self._historical_source(tx, event, historical, now)
+                        result = "board_submitted"
+                    else:
+                        result = "board_ignored"
+                else:
+                    self._social(tx, event, submitted.id, active, now)
+                    result = "board_submitted"
+            elif event.kind == "context":
+                historical = tx.historical_episode(event.ticker, event.published_at)
+                if historical is not None:
+                    if historical.archived_at is None:
+                        self._historical_source(tx, event, historical, now)
+                        result = "board_submitted"
+                    else:
+                        result = "board_ignored"
+                elif active is not None:
+                    self._context_reply(tx, event, active, now)
+                    result = "board_submitted"
+                else:
+                    result = "board_ignored"
             elif event.kind == "buy":
                 self._buy(tx, event, submitted.id, active, now)
                 result = "board_submitted"
+            elif event.source.casefold() == "phintraco" and event.kind in {"status", "reminder"}:
+                historical = (
+                    tx.historical_episode(event.ticker, event.published_at)
+                    if event.matched_setup_event_key is not None else None
+                )
+                if historical is not None:
+                    if historical.archived_at is None:
+                        self._historical_source(tx, event, historical, now)
+                        result = "board_submitted"
+                    else:
+                        result = "board_ignored"
+                elif active is not None and active.lifecycle == "primary":
+                    if event.published_at < active.latest_material_at:
+                        self._historical_source(tx, event, active, now)
+                    else:
+                        plan = tx.active_plan(active.id)
+                        if (
+                            event.matched_setup_event_key is not None
+                            and (plan is None or event.matched_setup_event_key != plan.event_key)
+                        ):
+                            self._context_reply(tx, event, active, now)
+                        elif event.matched_setup_event_key is not None:
+                            target_ladder = _updated_target_ladder(plan, event)
+                            if target_ladder is None:
+                                self._context_reply(tx, event, active, now)
+                            else:
+                                self._status(
+                                    tx, event, submitted.id, active, now,
+                                    target_ladder=target_ladder,
+                                )
+                        else:
+                            self._status(tx, event, submitted.id, active, now)
+                    result = "board_submitted"
+                elif event.matched_setup_event_key is not None and active is not None:
+                    self._context_reply(tx, event, active, now)
+                    result = "board_submitted"
+                else:
+                    result = "board_ignored"
             elif active is not None and active.lifecycle == "primary":
-                self._status(tx, event, submitted.id, active, now)
+                if event.source.casefold() != "phintraco":
+                    self._social(tx, event, submitted.id, active, now)
+                elif event.published_at < active.latest_material_at:
+                    self._historical_source(tx, event, active, now)
+                else:
+                    self._status(tx, event, submitted.id, active, now)
                 result = "board_submitted"
             else:
                 result = "board_ignored"
             tx.mark_event_processed(submitted.id, now)
             return result
+
+    def _context_reply(self, tx, event, episode, now) -> None:
+        """Retain source context without changing the episode or its plan projection."""
+        if episode.lifecycle == "resolved":
+            self._historical_source(tx, event, episode, now)
+        else:
+            self._source_reply(tx, event, episode, now)
 
     def after_close(self, phase: str, now: datetime) -> dict[str, int]:
         """Reconcile active primary plans at the one reviewed close-phase instant.
@@ -180,14 +302,50 @@ class BoardEngine:
                 updated = replace(current.episode, market_tag=state.value,
                                   lifecycle="resolved" if terminal else "primary",
                                   lifecycle_tag=RESOLVED if terminal else PRIMARY_PLAN,
-                                  closed_at=instant if terminal else None)
+                                  closed_at=instant if terminal else None,
+                                  resolution_reason=("stop loss" if state == MarketState.STOP_LOSS_BREACHED
+                                                     else "all targets") if terminal else None)
                 tx.update_episode(updated)
-                self._enqueue_close_edit(tx, current, checkpoint, checkpoint, instant, f"{phase}-close")
+                self._enqueue_close_edit(tx, current, checkpoint, checkpoint, instant, f"{phase}-close",
+                                         resolution_reason=updated.resolution_reason)
                 if updated.market_tag != current.episode.market_tag or terminal:
                     self._enqueue_close_patch(tx, current.plan_id, updated, instant, f"{phase}-tag")
                 if terminal:
                     tx.finish_plan(updated.id, instant)
                 result["checked"] += 1
+        result["pending"] = self.store.pending_outbox_count()
+        return result
+
+    def reconcile_lifecycle(self, now: datetime) -> dict[str, int]:
+        """Resolve 20-session inactivity and schedule quiet resolved archives."""
+        instant = _wib(now)
+        result = {"resolved": 0, "quiet_started": 0, "archived": 0, "pending": 0}
+        with self.store.transaction() as tx:
+            for active in tx.active_episodes():
+                if trading_sessions_since(active.latest_material_at.astimezone(WIB).date(), instant.date()) >= 20:
+                    self._resolve_episode(tx, active, "stale", instant)
+                    result["resolved"] += 1
+            for episode in tx.resolved_episodes():
+                if episode.archived_at is not None or not episode.thread_id:
+                    continue
+                if tx.has_pending_outbox(episode.id):
+                    continue
+                if episode.quiet_started_at is None:
+                    episode = replace(episode, quiet_started_at=instant)
+                    tx.update_episode(episode)
+                    result["quiet_started"] += 1
+                if instant - episode.quiet_started_at < timedelta(hours=48):
+                    continue
+                key = f"lifecycle:archive:{episode.id}:{episode.quiet_started_at.isoformat()}"
+                intent = tx.enqueue_outbox("patch_thread", episode.id, {
+                    "name": episode.title,
+                    "tag_names": episode_tag_names(episode.lifecycle_tag or RESOLVED,
+                                                   episode.market_tag, episode.resolution_reason),
+                    "archived": True, "quiet_started_at": episode.quiet_started_at.isoformat(),
+                    "nonce_value": key,
+                }, key, instant)
+                if intent.status != "complete":
+                    result["archived"] += 1
         result["pending"] = self.store.pending_outbox_count()
         return result
 
@@ -236,9 +394,64 @@ class BoardEngine:
             scheduled += 1
         return {"scheduled": scheduled, "unchanged": unchanged, "blocked": blocked}
 
+    def _resolve_episode(self, tx: BoardStoreTransaction, active: Episode,
+                         reason: str, now: datetime) -> Episode:
+        if reason not in {"stale", "superseded"}:
+            raise ValueError("unsupported lifecycle resolution")
+        updated = replace(active, lifecycle="resolved", lifecycle_tag=RESOLVED,
+                          market_tag=None, closed_at=now, resolution_reason=reason,
+                          quiet_started_at=None)
+        tx.update_episode(updated)
+        tx.finish_plan(updated.id, now)
+        key = f"lifecycle:resolve:{updated.id}:{reason}"
+        plan = tx.latest_plan_card(updated.id)
+        if plan is not None:
+            checkpoint, last_valid = tx.latest_checkpoints(updated.id)
+            content = render_primary_card(plan.event, checkpoint, last_valid,
+                                          plan.source_updated_at, resolution_reason=reason)
+            overflow = ()
+        else:
+            starter = tx.starter_source_event(updated.id)
+            source_content = starter if starter is not None else (
+                tx.source_starter_content(updated.id) or render_source_only_card(updated.title)
+            )
+            content, overflow = render_resolved_source_card(source_content, reason)
+        tx.enqueue_outbox("edit_starter", updated.id,
+                          {"content": content, "chart": None, "nonce_value": f"{key}:edit"},
+                          f"{key}:edit", now)
+        for index, part in enumerate(overflow):
+            overflow_key = f"{key}:source-overflow:{index}"
+            tx.enqueue_outbox("post_source_reply", updated.id,
+                              {"content": part, "media": None, "nonce_value": overflow_key},
+                              overflow_key, now)
+        tx.enqueue_outbox("patch_thread", updated.id,
+                          {"name": updated.title, "tag_names": [RESOLVED],
+                           "archived": False, "nonce_value": f"{key}:patch"},
+                          f"{key}:patch", now)
+        return updated
+
+    def _historical_source(self, tx: BoardStoreTransaction, event: SourceEvent,
+                           episode: Episode, now: datetime) -> None:
+        if episode.archived_at is not None:
+            return
+        if episode.lifecycle == "resolved":
+            tx.update_episode(replace(episode, quiet_started_at=None))
+        for index, content in enumerate(render_historical_source_replies(event)):
+            key = f"event:{event.event_key}:post_source_reply:historical:{index}"
+            tx.enqueue_outbox("post_source_reply", episode.id,
+                              {"content": content,
+                               "media": _local_media(event.media_path) if index == 0 else None,
+                               "nonce_value": key}, key, now)
+        for index, url in enumerate(event.media_urls):
+            key = f"event:{event.event_key}:post_source_reply:historical:media:{index}"
+            tx.enqueue_outbox("post_source_reply", episode.id,
+                              {"content": "", "media_url": url, "media": None,
+                               "nonce_value": key}, key, now)
+
     def _social(self, tx, event, event_id, active, now):
         if active is None:
-            active = tx.create_episode(event.ticker, "source", event.ticker, event.published_at)
+            active = tx.create_episode(event.ticker, "source",
+                                       episode_title(event.ticker, event.published_at), event.published_at)
             active = replace(
                 active,
                 lifecycle_tag=source_tier(event.source),
@@ -288,7 +501,8 @@ class BoardEngine:
                     merge_source_tier(active.lifecycle_tag, source_tier(event.source))
                     if active.lifecycle == "source" else active.lifecycle_tag
                 ),
-                latest_material_at=max(active.latest_material_at, event.published_at),
+                latest_material_at=(max(active.latest_material_at, event.published_at)
+                                    if active.lifecycle == "source" else active.latest_material_at),
                 starter_source_event_id=event_id if replace_starter else active.starter_source_event_id,
             )
             tx.update_episode(updated)
@@ -322,17 +536,25 @@ class BoardEngine:
             active = updated
 
     def _buy(self, tx, event, event_id, active, now):
-        event_date = event.published_at.astimezone(WIB).date()
         promoting_source = active is not None and active.lifecycle == "source"
-        if active is not None and active.latest_material_at.astimezone(WIB).date() < sessions_ago(event_date, 20):
-            # Close only the board's selection window. No synthetic resolution,
-            # market fact, archive request, or retention message is produced.
-            tx.finish_plan(active.id, now)
-            tx.update_episode(replace(active, closed_at=now))
+        if active is not None and active.lifecycle == "primary":
+            prior = tx.active_plan(active.id)
+            if prior is not None and event.published_at <= prior.published_at:
+                self._historical_source(tx, event, active, now)
+                return
+            self._resolve_episode(tx, active, "superseded", now)
             active = None
-        # Keep the forum topic stable across source promotion.  The managed
-        # starter card carries the descriptive ``TICKER: Buy`` heading.
-        title = event.ticker
+        elif active is not None and event.published_at < active.latest_material_at:
+            self._historical_source(tx, event, active, now)
+            return
+        elif active is not None and trading_sessions_since(
+            active.latest_material_at.astimezone(WIB).date(), event.published_at.astimezone(WIB).date()
+        ) >= 20:
+            self._resolve_episode(tx, active, "stale", now)
+            active = None
+        # Promotion keeps the first accepted source date. A new BUY opens a
+        # separate dated topic and keeps its descriptive heading in the card.
+        title = active.title if active is not None and promoting_source else episode_title(event.ticker, event.published_at)
         if active is None:
             active = tx.create_episode(event.ticker, "primary", title, event.published_at)
             active = replace(active, lifecycle_tag=PRIMARY_PLAN, starter_source_event_id=event_id)
@@ -405,20 +627,28 @@ class BoardEngine:
                 replay=True,
             )
 
-    def _status(self, tx, event, event_id, active, now, *, replay=False):
+    def _status(self, tx, event, event_id, active, now, *, replay=False, target_ladder=None):
         plan = tx.active_plan(active.id)
         if plan is None:
             raise StoreBlockedError("active primary episode is missing its plan")
+        if target_ladder is not None and target_ladder != plan.plan.targets:
+            tx.update_plan_targets(active.id, target_ladder)
+            plan = tx.active_plan(active.id)
+            if plan is None:
+                raise StoreBlockedError("active primary plan disappeared after target update")
         current = event.source_status or plan.source_status or "New setup"
         state = source_outcome_state(event, plan)
         stopped, reached = _source_confirmations(event, plan)
         terminal = stopped or len(plan.plan.targets) in reached
         # Source confirmations may set the factual tag; generic status leaves it.
         active = replace(active, market_tag=state.value if state else active.market_tag,
-                         latest_material_at=max(active.latest_material_at, event.published_at),
+                         latest_material_at=(max(active.latest_material_at, event.published_at)
+                                             if event.source.casefold() == "phintraco" and event.source_status
+                                             else active.latest_material_at),
                          lifecycle="resolved" if terminal else "primary",
                          lifecycle_tag=RESOLVED if terminal else PRIMARY_PLAN,
-                         closed_at=now if terminal else None)
+                         closed_at=now if terminal else None,
+                         resolution_reason=("stop loss" if stopped else "all targets") if terminal else None)
         tx.set_source_status(active.id, current, event.published_at)
         tx.update_episode(active)
         if not replay:
@@ -426,7 +656,8 @@ class BoardEngine:
         checkpoint, last_valid = tx.latest_checkpoints(active.id)
         self._enqueue(tx, event, active, "edit_starter", {
             "content": render_primary_card(
-                replace(plan, source_status=current), checkpoint, last_valid, event.published_at
+                replace(plan, source_status=current), checkpoint, last_valid, event.published_at,
+                resolution_reason=active.resolution_reason,
             ),
             "chart": None,
         }, now)
@@ -464,6 +695,15 @@ class BoardEngine:
                     "post_source_reply", active.id,
                     {**payload, "nonce_value": dedupe_key}, dedupe_key, now,
                 )
+        for index, path in enumerate(event.media_paths[1:], start=1):
+            payload = {"content": "", "media": _local_media(path)}
+            suffix = f":media-path:{index}"
+            if dedupe_scope is None:
+                self._enqueue(tx, event, active, "post_source_reply", payload, now, suffix=suffix)
+            else:
+                dedupe_key = f"{dedupe_scope}:{event.event_key}:post_source_reply{suffix}"
+                tx.enqueue_outbox("post_source_reply", active.id,
+                                  {**payload, "nonce_value": dedupe_key}, dedupe_key, now)
 
     def _source_history(self, tx, previous, active, replacement, now):
         """Preserve the previous starter card and first chart exactly once."""
@@ -484,17 +724,18 @@ class BoardEngine:
         tx.enqueue_outbox("post_source_reply", active.id, payload, dedupe_key, now)
 
     def _patch(self, tx, event, active, now):
-        tags = [active.lifecycle_tag]
-        if active.market_tag:
-            tags.append(active.market_tag)
+        tags = episode_tag_names(active.lifecycle_tag, active.market_tag,
+                                 active.resolution_reason)
         self._enqueue(tx, event, active, "patch_thread", {
             "name": active.title, "tag_names": tags, "archived": False,
         }, now)
 
-    def _enqueue_close_edit(self, tx, current, checkpoint, last_valid, now, suffix):
+    def _enqueue_close_edit(self, tx, current, checkpoint, last_valid, now, suffix,
+                            *, resolution_reason=None):
         payload = {
             "content": render_primary_card(
-                current.event, checkpoint, last_valid, current.source_updated_at
+                current.event, checkpoint, last_valid, current.source_updated_at,
+                resolution_reason=resolution_reason,
             ),
             "chart": None,
             "nonce_value": f"close:{current.plan_id}:{checkpoint.session_date}:{suffix}:edit",
@@ -505,9 +746,8 @@ class BoardEngine:
         )
 
     def _enqueue_close_patch(self, tx, plan_id, active, now, suffix):
-        tags = [active.lifecycle_tag]
-        if active.market_tag:
-            tags.append(active.market_tag)
+        tags = episode_tag_names(active.lifecycle_tag, active.market_tag,
+                                 active.resolution_reason)
         nonce_value = f"close:{plan_id}:{_wib(now).date().isoformat()}:{suffix}:patch"
         tx.enqueue_outbox(
             "patch_thread", active.id,
@@ -521,13 +761,13 @@ class BoardEngine:
             return tx.schedule_history_deletes(now)
 
     def schedule_title_migration(self, now: datetime) -> dict[str, int]:
-        """Queue the stable ticker-only forum topic for every existing episode."""
+        """Repair topics from each episode's immutable opening timestamp."""
         scheduled = 0
         unchanged = 0
         for episode in self.store.episodes():
             if not episode.thread_id or not episode.starter_message_id:
                 continue
-            desired = episode.ticker
+            desired = episode_title(episode.ticker, episode.opened_at)
             if episode.title == desired:
                 unchanged += 1
                 continue
@@ -538,9 +778,8 @@ class BoardEngine:
                     continue
                 updated = replace(current, title=desired)
                 tx.update_episode(updated)
-                tag_names = [current.lifecycle_tag] if current.lifecycle_tag else []
-                if current.market_tag and current.lifecycle in {"primary", "resolved"}:
-                    tag_names.append(current.market_tag)
+                tag_names = episode_tag_names(current.lifecycle_tag, current.market_tag,
+                                              current.resolution_reason) if current.lifecycle_tag else []
                 nonce = f"title-migration:v1:{current.id}:{desired}"
                 tx.enqueue_outbox(
                     "patch_thread",
@@ -548,7 +787,7 @@ class BoardEngine:
                     {
                         "name": desired,
                         "tag_names": tag_names,
-                        "archived": False,
+                        "archived": current.archived_at is not None,
                         "nonce_value": nonce,
                     },
                     nonce,
@@ -695,7 +934,13 @@ class BoardEngine:
         if limit < 1:
             raise ValueError("drain limit must be positive")
         with self.store.delivery_lock() as acquired:
-            return self._drain_owned(now, limit) if acquired else 0
+            if not acquired:
+                return 0
+            completed = self._drain_owned(now, limit)
+            from board_publication_projection import drain as drain_publications
+
+            drain_publications(self.store, now or datetime.now(timezone.utc))
+            return completed
 
     def enqueue_heartbeat(self, channel_id: str, content: str, dedupe_key: str, now: datetime):
         """Persist one scheduled channel intent before the owner can submit it."""
@@ -716,6 +961,16 @@ class BoardEngine:
                         payload["chart"] = payload["media"]
                 if operation.operation != "create_thread":
                     episode = self.store.episode(operation.episode_id)
+                    if operation.operation == "patch_thread" and payload.get("archived") is True:
+                        expected = payload.get("quiet_started_at")
+                        actual = episode.quiet_started_at.isoformat() if episode.quiet_started_at else None
+                        if episode.archived_at is not None or expected != actual:
+                            self.store.complete_outbox(
+                                operation.id, operation.claim_token,
+                                {"cancelled": "quiet period changed"}, instant,
+                            )
+                            completed += 1
+                            continue
                     if not episode.thread_id or not episode.starter_message_id:
                         raise StoreBlockedError("Discord thread identity is unavailable")
                     if operation.operation == "delete_message":

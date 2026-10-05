@@ -29,15 +29,14 @@ Apply the same finance and news relevance boundary as `cron-x-account-watch`:
 - If irrelevant, return exactly `event_key` and `is_relevant: false`.
 - A post with the exact leading, case-sensitive `#TechnicalReview` tag after
   optional whitespace or Markdown wrapper characters is a source-grounded IDX
-  technical review. Treat it as relevant even when the generic trading
-  exclusion would otherwise apply. A later tag or a technical-looking post
+  technical review when the LLM finds concrete issuer technical evidence.
+  Generic educational lessons remain irrelevant. Apply relevance before routing. A later tag or a technical-looking post
   without that leading tag does not receive this exception.
 
 For relevant events, return only the fields requested by the event. Return one
 ordered `items` array containing one to eight independent News Items. Each item
 has a concise, source-grounded Bahasa Indonesia title, a summary, and one
-configured route. Start only the first non-swing summary paragraph with
-`*(Ringkasan)*`; the optional second paragraph must not repeat that label. For
+configured route. Return plain non-swing summaries without a Ringkasan marker; the renderer adds it once. For
 a direct listed-company thesis, start the title with the exact IDX ticker and a
 colon.
 For a broad market or economy thesis, do not invent a ticker. Summarize the
@@ -73,15 +72,18 @@ one concise paragraph without a label prefix, and exactly one `sentiment`
 value: `Bullish`, `Bearish`, or `Sideways`. Preserve an explicit source stance
 when present, otherwise classify the dominant direction of the supplied
 technical evidence and use `Sideways` only for a genuinely balanced setup.
-Delivery logic, not this skill, verifies the required archive-owned chart
-image, renders `Sentiment`, `Sentiment date`, `Reasons`, `Last updated`, and
-`Board`, posts All Swing text then the image, and makes the Board
-`Chart context` handoff. Never attempt that handoff, inspect the archive, or
-make up an image status yourself. For ordinary macro and issuer-news items,
+Delivery logic, not this skill, verifies whether an archive-owned chart
+is available. With a chart, it renders `Sentiment`, `Sentiment date`,
+`Reasons`, `Last updated`, and `Board`, posts All Swing text then the image,
+and makes the Board `Chart context` handoff. Never attempt that handoff,
+inspect the archive, or make up an image status yourself. For ordinary macro and issuer-news items,
 delivery may complete text-only when the immutable archive record reports that
 source media is unavailable. The watcher records that degraded media result,
 does not retry the same unavailable source forever, and still retries a Discord
-transport or upload failure. Technical Swing remains image-strict.
+transport or upload failure. If a Technical Review chart is unavailable,
+delivery forwards the original source text with `Source chart unavailable`
+and skips the chart image and Board context. Do not infer chart facts from
+missing media.
 
 All Discord sends, bounded history reads, and existing-message edits use the
 shared Delivery Owner client. Do not read a bot token, call Discord directly,
@@ -89,8 +91,66 @@ or run the operator-only `delivery-handoff` plan/apply command while processing
 an event. A service-accepted operation remains under the owner's retry
 lifecycle while the watcher keeps its source cursor unchanged.
 
+Published Feed projection is scanner-owned and includes only forwarded output
+after every required Discord leg has a confirmed Delivery Owner receipt. Do
+not submit, retry, or edit Published Feed records from the agent response.
+
 Submit through the watcher wrapper:
 
 ```text
 $HOME/.hermes/scripts/bursawatch-wa-channel-watch.sh submit-analysis --json '<payload>'
 ```
+
+## Discord delivery receipt wait
+
+After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.
+
+The scanner accepts a delivered receipt containing only `message_id` when its
+key and digest match the stable operation. The operation binds the destination;
+an explicit conflicting receipt channel is rejected. Senders and Published Feed
+projection use this same contract.
+
+## Shared generated-news format
+
+`lib-news-format` owns common and category writing guidance, supplied through
+`item.instruction`. Follow that trusted instruction. The renderer owns the
+Ringkasan marker and deterministic quote tracker. Structural, identity,
+capability, and source-specific safety checks remain mandatory.
+
+Split independent issuer developments into ordered items, including separate
+issuer dividends and suspension reopenings. Keep a connected transaction or
+one broad thesis as one story. Each generated issuer card has a ticker-led
+headline, source byline, latest native-currency price and 1D/1W/1M/3M absolute
+and percentage changes, plus the original source link. IDX uses IDR and US
+uses USD. Missing quotes or individual horizons use grey `-` placeholders;
+macro and industry cards omit the tracker. Prices are renderer enrichment,
+never model-generated news facts. Forecasts and incomplete amounts must not
+be made certain or filled in.
+
+For new submissions, collapse identical news items after validation and before
+assigning delivery or child identities. Match route, headline, summary,
+ticker and sentiment, ignoring only whitespace and legacy summary markers.
+Keep the first copy and source order. Distinct stories for the same issuer
+remain separate. Do not deduplicate old frozen payloads or across sources.
+
+New generated cards freeze their rendered text and quote timestamp before
+Discord delivery. X, Instagram, and WhatsApp also freeze each card's selected
+destination. Retries and Published Feed projections use those saved cards and
+stable operation identities. Existing pending records without new cards keep
+their legacy path. Profiles with generated summaries disabled retain their
+explicit raw-forwarding policy. Specialized Swing/Board and Stock Information
+contracts remain owner-specific.
+
+The LLM owns semantic relevance. Market-keyword signals are advisory and
+cannot veto `is_relevant: false`. Generic investing education remains
+excluded even when it mentions earnings, dividends, charting, or an issuer.
+There is no deterministic education denylist.
+
+Keep the existing one-to-eight `items` schema and leading TechnicalReview
+route override for relevant Swing submissions. The route override never
+forces an irrelevant educational post to be forwarded. Existing multi-item
+media suppression and specialized Reasons/sentiment formatting stay intact.
+
+## Optional image context
+
+Screen ordinary news from supplied text first. Only when that text is eligible, the trusted item instruction may expose `prepare-summary-images`. Call that command with its exact bound request, then use the actual image viewer on returned paths. Paths indicate availability, not inspection. Images are additional context for the same supplied story, never a substitute for eligible text. Do not inspect any other files. On unavailable images or viewer failure, submit the text-supported result without holding delivery or retrying optional context. Specialized Swing and required outgoing media retain their owner contracts.

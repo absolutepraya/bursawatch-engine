@@ -1,0 +1,18 @@
+[Unit]
+Description=Bursawatch read-only Hermes job observer
+After=network-online.target bursawatch-control-plane.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=praya
+Group=praya
+WorkingDirectory=/home/praya/.hermes/bursawatch-operator-observer
+Environment=HOME=/home/praya
+EnvironmentFile=/home/praya/.hermes/bursawatch-operator-observer.env
+ExecStart=/home/praya/.hermes/bursawatch-operator-observer/bin/bursawatch-operator-observer.sh
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only

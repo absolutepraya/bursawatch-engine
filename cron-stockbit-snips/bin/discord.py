@@ -8,7 +8,12 @@ import re
 import sys
 
 try:
-    from bursawatch_discord_delivery import DeliveryClient, OperationIntent, OperationReceipt
+    from bursawatch_discord_delivery import (
+        DELIVERY_RECEIPT_WAIT_SECONDS,
+        DeliveryClient,
+        OperationIntent,
+        OperationReceipt,
+    )
     from bursawatch_discord_delivery.client import DeliveryClientError
 except ModuleNotFoundError:
     _ROOT = Path(__file__).resolve().parents[2]
@@ -17,7 +22,12 @@ except ModuleNotFoundError:
         _SHARED_BIN = Path.home() / ".agents/skills/lib-bursawatch-discord-delivery/bin"
     if str(_SHARED_BIN) not in sys.path:
         sys.path.insert(0, str(_SHARED_BIN))
-    from bursawatch_discord_delivery import DeliveryClient, OperationIntent, OperationReceipt
+    from bursawatch_discord_delivery import (
+        DELIVERY_RECEIPT_WAIT_SECONDS,
+        DeliveryClient,
+        OperationIntent,
+        OperationReceipt,
+    )
     from bursawatch_discord_delivery.client import DeliveryClientError
 
 
@@ -102,7 +112,7 @@ def _submit_or_lookup(operation: OperationIntent, client: object, *, legacy_nonc
     ):
         raise DeliveryClientError("invalid_response")
     if receipt.status in NON_TERMINAL_STATUSES:
-        receipt = client.wait(operation.key, 0)  # type: ignore[attr-defined]
+        receipt = client.wait(operation.key, DELIVERY_RECEIPT_WAIT_SECONDS)  # type: ignore[attr-defined]
         if (
             not isinstance(receipt, OperationReceipt)
             or receipt.key != operation.key
@@ -124,7 +134,8 @@ def post_text(
     event_key: str,
     leg: str,
     client: object | None = None,
-) -> str | None:
+    return_receipt: bool = False,
+) -> str | OperationReceipt | None:
     if len(content) > 2_000:
         raise ValueError("Discord text exceeds 2,000 characters")
     if dry_run:
@@ -133,8 +144,12 @@ def post_text(
     operation, nonce_value = _operation(content, channel_id, event_key, leg)
     owner = client if client is not None else delivery_client_from_environment()
     receipt = _submit_or_lookup(operation, owner, legacy_nonce=nonce_value)
+    if return_receipt:
+        return receipt
     value = receipt.receipt
-    if not isinstance(value, dict) or value.get("channel_id") != channel_id:
+    if not isinstance(value, dict):
+        raise DeliveryClientError("invalid_response")
+    if "channel_id" in value and value["channel_id"] != channel_id:
         raise DeliveryClientError("invalid_response")
     message_id = value.get("message_id")
     if not isinstance(message_id, str) or not message_id.isdigit():

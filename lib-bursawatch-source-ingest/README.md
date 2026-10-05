@@ -1,8 +1,13 @@
 # Source ingest handoff
 
 `bin/source_ingest.py` provides an endpoint-local future-only cursor and the
-Task 3 durable source inbox handoff contract. It is used by the Telegram pilot
-and planned later platform adapters. A source event is staged in a private
+Task 3 durable source inbox handoff contract. The library is imported by the
+Telegram, X, WhatsApp, Stockbit RSS, and Instagram source adapters. The
+production snapshot on 2026-09-30 at 22:48 WIB showed Telegram source ingest
+as its own active job; X account watch, WhatsApp channel watch, and Stockbit
+Snips invoking their adapters through existing watcher jobs; and no registered
+job for the Instagram source adapter. Refresh the production snapshot before
+relying on those scheduler assignments. A source event is staged in a private
 spool before inbox acceptance; the cursor advances only after the receipt.
 An empty first poll persists an initialized cursor, so its first later event
 is accepted. Each staged event also has a durable position intent, allowing
@@ -46,6 +51,27 @@ and advances `catalog-revision.json` only after all cursors verify. A retry
 resumes only when the durable journal and any partially created cursor files
 match the original preview. It rejects changed state, a conflicting cursor,
 pending handoff, or an unexpected revision.
+
+A compatible revision-only transition may pass `seeds=[]` and
+`allow_empty_seeds=True` with a reviewed `metadata.reason`. It fingerprints all
+existing state files, writes the same durable journal, and advances only the
+revision marker. It never edits or initializes a cursor. Use it only after
+proving the source catalog change is compatible with the active endpoint set
+and pausing that source writer.
+
+`plan_catalog_revision_transition` accepts an optional `apply_guard_env` name.
+It defaults to `BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY`, preserving existing
+callers. A caller-specific transition such as Stockbit RSS may pass
+`BURSAWATCH_RSS_CATALOG_TRANSITION_ALLOW_APPLY`; only the named environment
+variable must equal `1`. The planner validates the name and does not copy it
+into its plan, journal, or source state. Revision-only apply changes only the
+catalog revision marker and transition journal; the fingerprint binds all
+preexisting source-state files so changes between preview and apply block.
+Atomic journal and revision-marker writes use private temporary files. If a
+process stops before its rename or cleanup, a same-plan apply recognizes only
+the exact private regular-file temp-name pattern in the state root or
+`catalog-transitions/`, removes the leftover, and resumes. Other unexpected
+entries, symlinks, and unsafe temp permissions remain errors.
 
 The Telegram News adapter exposes the paired rollout via
 `cron-tg-source-ingest/bin/catalog_transition.py`. Its preview accepts only the

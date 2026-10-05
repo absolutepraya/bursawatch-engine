@@ -18,6 +18,9 @@ from source_media import cache_reference, client_from_environment, reference_url
 
 
 CAPABILITIES = frozenset({"company_news", "macro_news"})
+GROUP_PIPELINE = "x_post_route"
+GROUP_CAPABILITY = "x_post_route_group"
+GROUP_CAPABILITIES = frozenset({"company_news", "macro_news", "swing_chart_context"})
 SOURCE_PUBLISHERS = config.REVIEWED_PUBLISHERS
 
 
@@ -30,10 +33,49 @@ def _check_no_post(path: Path, no_post: bool) -> None:
         raise ValueError("no-post X source work requires isolated state")
 
 
-def _identity(work: dict[str, Any], profiles: tuple[Any, ...]) -> tuple[Any, dict[str, Any]]:
-    capability = work.get("pipeline_id")
+def _frozen_dispatch_context(work: dict[str, Any]) -> dict[str, Any] | None:
+    pipeline = work.get("pipeline_id")
+    if pipeline in CAPABILITIES:
+        if work.get("capability_id") != pipeline or work.get("dispatch_context", {}) != {}:
+            raise ValueError("X legacy work context is invalid")
+        return None
+    if pipeline != GROUP_PIPELINE or work.get("capability_id") != GROUP_CAPABILITY:
+        raise ValueError("X work pipeline is invalid")
+    if (type(work.get("catalog_revision")) is not int or work["catalog_revision"] < 1
+            or type(work.get("capability_version")) is not int or work["capability_version"] != 1
+            or work.get("settings") != {}):
+        raise ValueError("X group catalog snapshot is invalid")
+    context = work.get("dispatch_context")
+    if type(context) is not dict or set(context) != {"dispatch_group", "subscriptions"} or context["dispatch_group"] != GROUP_PIPELINE:
+        raise ValueError("X group dispatch context is invalid")
+    subscriptions = context["subscriptions"]
+    if type(subscriptions) is not list or not subscriptions:
+        raise ValueError("X group subscriptions are invalid")
+    capabilities = []
+    for item in subscriptions:
+        if (type(item) is not dict or set(item) != {"capability_id", "capability_version", "settings", "config_source"}
+                or item["capability_id"] not in GROUP_CAPABILITIES or type(item["capability_version"]) is not int
+                or item["capability_version"] != 1 or item["settings"] != {}
+                or item["config_source"] not in {"publisher_default", "endpoint_override"}):
+            raise ValueError("X group subscription is invalid")
+        capabilities.append(item["capability_id"])
+    if capabilities != sorted(set(capabilities)):
+        raise ValueError("X group capabilities are not unique and ordered")
+    expected_source = "endpoint_override" if any(item["config_source"] == "endpoint_override" for item in subscriptions) else "publisher_default"
+    if work.get("config_source") != expected_source:
+        raise ValueError("X group catalog snapshot is invalid")
+    return {"dispatch_group": GROUP_PIPELINE, "subscriptions": [
+        {"capability_id": item["capability_id"], "capability_version": item["capability_version"],
+         "settings": dict(item["settings"]), "config_source": item["config_source"]}
+        for item in subscriptions
+    ]}
+
+
+def _identity(work: dict[str, Any], profiles: tuple[Any, ...]) -> tuple[Any, dict[str, Any], dict[str, Any] | None]:
+    capability = work.get("capability_id")
+    dispatch_context = _frozen_dispatch_context(work)
     envelope = work.get("envelope")
-    if capability not in CAPABILITIES or type(envelope) is not dict or work.get("capability_id") != capability or work.get("settings") not in ({}, None):
+    if type(envelope) is not dict or work.get("settings") not in ({}, None):
         raise ValueError("X work pipeline is invalid")
     endpoint = envelope.get("endpoint_id")
     identity = envelope.get("provider_event_id")
@@ -60,7 +102,7 @@ def _identity(work: dict[str, Any], profiles: tuple[Any, ...]) -> tuple[Any, dic
     digest = hashlib.sha256(json.dumps(hash_input, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
     if envelope.get("content_hash") != digest:
         raise ValueError("X source content hash is invalid")
-    return profile, envelope
+    return profile, envelope, dispatch_context
 
 
 def _posts(profile: Any, envelope: dict[str, Any]) -> tuple[tuple[Any, ...], dict[str, dict[str, Any]]]:
@@ -69,15 +111,18 @@ def _posts(profile: Any, envelope: dict[str, Any]) -> tuple[tuple[Any, ...], dic
     if type(raw_posts) is not list or not 1 <= len(raw_posts) <= profile.thread_handling.max_posts:
         raise ValueError("X source thread is incomplete")
     refs = envelope.get("media_refs")
-    if type(refs) is not list or len(refs) > 1:
-        # The Board's current source-event contract has one chart path. More
-        # images remain in Source Inbox for a later multi-chart owner contract.
-        raise ValueError("X source media exceeds the Board path contract")
+    if type(refs) is not list or len(refs) > 16:
+        raise ValueError("X source media exceeds the ordered media contract")
     by_ref = {ref["ref"]: ref for ref in refs if type(ref) is dict and type(ref.get("ref")) is str}
     if len(by_ref) != len(refs):
         raise ValueError("X source media references are invalid")
+    if any(type(ref.get("size_bytes")) is not int or not 1 <= ref["size_bytes"] <= 8 * 1024 * 1024 for ref in refs):
+        raise ValueError("X source image size is invalid")
+    if sum(ref["size_bytes"] for ref in refs) > 25 * 1024 * 1024:
+        raise ValueError("X source media exceeds the aggregate limit")
     converted = []
     used_refs: set[str] = set()
+    ordered_refs: list[str] = []
     for raw in raw_posts:
         if type(raw) is not dict or raw.get("profile_id") != profile.id:
             raise ValueError("X source post profile is invalid")
@@ -93,7 +138,10 @@ def _posts(profile: Any, envelope: dict[str, Any]) -> tuple[tuple[Any, ...], dic
                 ref = item["media_ref_id"]
                 if ref not in by_ref:
                     raise ValueError("X source image is not durable")
+                if ref in used_refs:
+                    raise ValueError("X source media reference is repeated")
                 used_refs.add(ref)
+                ordered_refs.append(ref)
                 converted_media.append({"index": item["index"], "url": reference_url(ref)})
             post[field] = converted_media
         try:
@@ -103,7 +151,7 @@ def _posts(profile: Any, envelope: dict[str, Any]) -> tuple[tuple[Any, ...], dic
         if parsed.post_id != str(int(parsed.post_id)) or parsed.url != f"https://x.com/{profile.handle}/status/{parsed.post_id}":
             raise ValueError("X source post identity is invalid")
         converted.append(parsed)
-    if used_refs != set(by_ref) or bool(refs) != envelope.get("media_required"):
+    if ordered_refs != [ref["ref"] for ref in refs] or bool(refs) != envelope.get("media_required"):
         raise ValueError("X source media completeness is invalid")
     latest = converted[-1]
     if (latest.post_id != envelope["provider_event_id"] or latest.url != envelope["source_url"]
@@ -126,7 +174,7 @@ def accept_source_work(work: dict[str, Any], *, now: datetime | None = None, no_
         if loaded.revision is None:
             raise ValueError("X owner requires a live watcher config revision")
         profiles = loaded.config.profiles
-    profile, envelope = _identity(work, profiles)
+    profile, envelope, dispatch_context = _identity(work, profiles)
     posts, refs = _posts(profile, envelope)
     if work.get("event_kind") not in {"original", "correction"} or (work["event_kind"] == "original") != (work["version"] == 1):
         raise ValueError("X source revision kind is invalid")
@@ -142,6 +190,12 @@ def accept_source_work(work: dict[str, Any], *, now: datetime | None = None, no_
         event_key = work["event_key"]
         recorded = ledger.get(event_key)
         version = work["version"]
+        if recorded is not None and dispatch_context is not None and recorded.get("dispatch_context") != dispatch_context:
+            raise ValueError("X source dispatch context changed after intake")
+        if recorded is not None and dispatch_context is not None and recorded.get("source_catalog_revision") != work["catalog_revision"]:
+            raise ValueError("X source catalog snapshot changed after intake")
+        if recorded is not None and dispatch_context is None and "dispatch_context" in recorded:
+            raise ValueError("X source work changed its dispatch type")
         if recorded is not None and recorded["version"] == version:
             if recorded["content_hash"] != envelope["content_hash"]:
                 raise ValueError("X source event version changed content")
@@ -161,6 +215,9 @@ def accept_source_work(work: dict[str, Any], *, now: datetime | None = None, no_
         would_update = existing is None or int(existing["post_id"]) <= int(latest.post_id)
         if existing and would_update and existing.get("agent_phase") not in {None, "pending"}:
             raise ValueError("X source thread has already been claimed")
+        if existing and would_update and (existing.get("text_index", 0) or existing.get("media_index", 0)
+                                           or existing.get("text_message_ids") or existing.get("media_message_ids")):
+            raise ValueError("X source thread has already begun delivery")
         forwardable = rsshub.is_forwardable(profile, latest) or rsshub.is_self_thread_post(profile, latest)
         outcome = "irrelevant"
         if forwardable:
@@ -174,6 +231,10 @@ def accept_source_work(work: dict[str, Any], *, now: datetime | None = None, no_
                 existing["source_media_refs"] = refs
                 existing["source_media_paths"] = cached_paths
                 existing["source_event_key"] = event_key
+                if dispatch_context is not None:
+                    existing["dispatch_context"] = dispatch_context
+                    existing["enabled_capabilities"] = [item["capability_id"] for item in dispatch_context["subscriptions"]]
+                    existing["source_catalog_revision"] = work["catalog_revision"]
             if updating and value["deliveries"]:
                 import scan
                 import supersession
@@ -182,6 +243,10 @@ def accept_source_work(work: dict[str, Any], *, now: datetime | None = None, no_
                 scan._annotate_replacements(value, profile, {latest.post_id}, verifier or supersession.EditHistoryVerifier(), now, scan.RunStats())
             outcome = "accepted"
         ledger[event_key] = {"version": version, "content_hash": envelope["content_hash"], "work_keys": [work["work_key"]], "outcome": outcome}
+        if dispatch_context is not None:
+            ledger[event_key]["dispatch_context"] = dispatch_context
+            ledger[event_key]["enabled_capabilities"] = [item["capability_id"] for item in dispatch_context["subscriptions"]]
+            ledger[event_key]["source_catalog_revision"] = work["catalog_revision"]
         state.save_state(storage, value)
         return {"outcome": outcome}
 

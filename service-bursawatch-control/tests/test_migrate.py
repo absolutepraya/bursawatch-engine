@@ -115,12 +115,38 @@ def test_discover_migrations_uses_the_checked_legacy_eligibility_registry():
         "014_source_inbox.sql",
         "015_source_revision_identity.sql",
         "016_source_execution_fence.sql",
+        "017_x_swing_route_groups.sql",
+        "018_bri_whatsapp_news_compatibility.sql",
+        "019_operator_inventory.sql",
+        "020_publications.sql",
+        "021_phintas_swing_compatibility.sql",
+        "022_rename_x_source_display_names.sql",
     }
     assert {migration.release_eligibility for migration in migrations} == {"automatic", "manual"}
     assert next(
         migration.release_eligibility
         for migration in migrations
         if migration.name == "011_stockbit_snips_control_plane.sql"
+    ) == "manual"
+    assert next(
+        migration.release_eligibility
+        for migration in migrations
+        if migration.name == "017_x_swing_route_groups.sql"
+    ) == "automatic"
+    assert next(
+        migration.release_eligibility
+        for migration in migrations
+        if migration.name == "019_operator_inventory.sql"
+    ) == "manual"
+    assert next(
+        migration.release_eligibility
+        for migration in migrations
+        if migration.name == "020_publications.sql"
+    ) == "automatic"
+    assert next(
+        migration.release_eligibility
+        for migration in migrations
+        if migration.name == "022_rename_x_source_display_names.sql"
     ) == "manual"
 
 

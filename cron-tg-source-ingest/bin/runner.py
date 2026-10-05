@@ -64,11 +64,21 @@ def _owner_path(package: str) -> Path:
     return Path.home() / ".agents" / "skills" / runtime / "bin" / "pipeline_owner.py"
 
 
+def _owner_environment(package: str) -> dict[str, str]:
+    environment = os.environ.copy()
+    if package == "cron-tg-market-news" and not environment.get("IDX_MARKET_NEWS_STATE_PATH"):
+        # Direct owner calls bypass the wrapper that selects this canonical ledger.
+        environment["IDX_MARKET_NEWS_STATE_PATH"] = str(
+            Path.home() / ".hermes" / "state" / "idx-market-news.json"
+        )
+    return environment
+
+
 def _owner_handler(package: str, *, no_post: bool):
     path = _owner_path(package)
 
     def handle(item: dict[str, Any]) -> None:
-        environment = os.environ.copy()
+        environment = _owner_environment(package)
         if no_post:
             environment["BURSAWATCH_TG_SOURCE_NO_POST"] = "1"
         result = subprocess.run([sys.executable, str(path)], input=json.dumps(item, ensure_ascii=False, allow_nan=False), text=True, capture_output=True, timeout=60, env=environment, check=False)
@@ -90,7 +100,7 @@ def _owner_command(package: str, *arguments: str) -> dict[str, Any]:
         text=True,
         capture_output=True,
         timeout=60,
-        env=os.environ.copy(),
+        env=_owner_environment(package),
         check=False,
     )
     if result.returncode != 0:
@@ -225,11 +235,24 @@ def dispatch_agent(state_root: Path, *, owner_command: Any = _owner_command) -> 
     return result
 
 
-def _process_pending(inbox: Any, state_root: Path, *, handlers: dict[str, Any] | None = None, agent_dispatcher: Any = dispatch_agent) -> dict[str, Any]:
+def _process_pending(inbox: Any, state_root: Path, *, handlers: dict[str, Any] | None = None, agent_dispatcher: Any = dispatch_agent, owner_command: Any = _owner_command) -> dict[str, Any]:
     selected = handlers if handlers is not None else {pipeline: _owner_handler(package, no_post=False) for pipeline, package in PIPELINE_OWNERS.items()}
     work = PipelineRuntime(inbox, selected).run_once(limit=20)
+    delivery: dict[str, Any] = {}
+    delivery_warning = False
+    if handlers is None:
+        try:
+            delivery = owner_command("cron-tg-market-news", "drain-delivery")
+            if (
+                type(delivery.get("news_delivered")) is not int
+                or type(delivery.get("stock_status_delivered")) is not int
+                or type(delivery.get("pending")) is not int
+            ):
+                raise RuntimeError("Market News owner drain response is invalid")
+        except Exception:
+            delivery_warning = True
     agent = agent_dispatcher(state_root) if agent_dispatcher is not None else {"wakeAgent": False}
-    return {"work": work, **agent}
+    return {"work": work, "owner_delivery": delivery, "owner_delivery_warning": delivery_warning, **agent}
 
 
 def format_heartbeat(now: datetime, result: dict[str, Any]) -> str:
@@ -245,7 +268,7 @@ def format_heartbeat(now: datetime, result: dict[str, Any]) -> str:
     target = result.get("agent_target", "none")
     if target not in {"none", *AGENT_OWNERS}:
         target = "invalid"
-    warning = bool(result.get("agent_dispatch_warning")) or pending > 0 or any(
+    warning = bool(result.get("agent_dispatch_warning") or result.get("owner_delivery_warning")) or pending > 0 or any(
         type(item) is dict and item.get("status") in {"resilience_blocked", "auth_required", "blocked"}
         for item in source
     )
@@ -291,7 +314,16 @@ def post_heartbeat(content: str, now: datetime, *, delivery_client: Any = None) 
 
 
 async def run_once(telegram: Any, snapshot: dict[str, Any], state_root: Path, inbox: Any, now: datetime, *, handlers: dict[str, Any] | None = None, media_store: Any = None, agent_dispatcher: Any = None) -> dict[str, Any]:
-    source = await ingest_all(telegram, snapshot, state_root, inbox, now, media_store=media_store)
+    try:
+        source = await ingest_all(telegram, snapshot, state_root, inbox, now, media_store=media_store)
+    except Exception:
+        # Existing owner deliveries are independent of a fresh source poll.
+        if handlers is None:
+            try:
+                _owner_command("cron-tg-market-news", "drain-delivery")
+            except Exception:
+                pass
+        raise
     dispatch = agent_dispatcher
     if dispatch is None and handlers is None:
         dispatch = dispatch_agent

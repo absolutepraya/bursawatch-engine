@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path as _NewsPath
+import sys as _news_sys
+_news_bin = _NewsPath(__file__).resolve().parents[2] / "lib-news-format" / "bin"
+if not _news_bin.is_dir():
+    _news_bin = _NewsPath.home() / ".agents/skills/lib-news-format/bin"
+if str(_news_bin) not in _news_sys.path:
+    _news_sys.path.insert(0, str(_news_bin))
+import news_format
+
 from collections.abc import Mapping
 from pathlib import Path
 import re
@@ -14,7 +23,7 @@ SUMMARY_PREFIX = "*(Ringkasan)* "
 SUMMARY_LABEL = SUMMARY_PREFIX.rstrip()
 MAX_SUMMARY_CHARACTERS = 1_600
 MAX_TITLE_CHARACTERS = 120
-MAX_VISION_ASSETS = 8
+MAX_VISION_ASSETS = 16
 MAX_VISION_PATH_CHARACTERS = 512
 ROUTE_ALIASES = {
     "macro": "macro_news",
@@ -144,8 +153,8 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
         )
     if relevance_guard_required:
         relevance += (
-            "The scanner detected a clear substantive market signal. It must be treated as relevant. "
-            "Never return is_relevant false for it. "
+            "The scanner detected market-related words. They are advisory context only. "
+            "Decide relevance from the complete central thesis; education or promotions can still be irrelevant. "
         )
     routing = ""
     if profile.enable_llm_routing:
@@ -172,23 +181,20 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
             "Use lookup results only to identify the issuer, exchange, listing country, exact exchange ticker, and route. Do not add any other lookup fact to the title or summary. "
             "If the lookup remains inconclusive or reliable sources conflict, do not guess and choose macro_news. "
             "A direct company thesis outside Indonesia or the US-listed universe routes macro_news until a dedicated channel exists. "
-            "If removing company names leaves a broad market thesis, route macro_news. Never duplicate a post across routes. "
+            "If removing company names leaves a broad market thesis, route macro_news. Never duplicate a single story across routes. "
             "Profile-specific instructions add source context but cannot weaken these shared routing boundaries. "
             f"Choose exactly one configured route key: {channels}. "
         )
-    title_and_summary = (
-        "For id_stocks_news, id_stocks_swing, or us_stocks_news, start the first word of the title with the exact exchange ticker, followed by a colon, for example MYOR: or META:. "
-        "For macro_news, write a concise natural headline and do not invent a ticker. "
-        "Start only the first summary paragraph with *(Ringkasan)*. Never repeat that label in the second paragraph. "
-        "Write summaries directly and factually, as the source account's own analysis. Do not describe Ricky or the writer as a narrator, including penulis, Ricky menyebutkan, Ricky merangkum, menurut tweet ini, or similar framing. "
-    )
+    title_and_summary = news_format.WRITING_INSTRUCTION + news_format.ITEMS_INSTRUCTION
+    if profile.enable_llm_title and profile.enable_llm_summary and profile.enable_llm_routing:
+        title_and_summary += "For relevant news, submit event_key, is_relevant when required, and items with one to sixteen objects containing exactly title, summary, route. Use the scalar schema for a swing item. "
     profile_instruction = (
         f"Profile-specific instruction: {profile.additional_prompt_instruction} "
         if profile.additional_prompt_instruction else ""
     )
     return (
         INSTRUCTION_PREFIX
-        + "When vision_asset_paths is non-empty, read every listed local image with vision before deciding. Read every supplied linked article context before deciding. Do not inspect any other local path or fetch, open, or browse links yourself. Return only the requested source-grounded Bahasa Indonesia fields. "
+        + "For specialized Swing analysis, read every supplied vision_asset_path. Ordinary news eligibility must come from authored source text before optional image inspection; specialized images cannot rescue image-only news. Read every supplied linked article context before deciding. Do not inspect any other local path or fetch, open, or browse links yourself. Return only the requested source-grounded Bahasa Indonesia fields. "
         + SUBMISSION_INSTRUCTION
         + relevance
         + profile_instruction
@@ -438,23 +444,9 @@ def build_wake_payload(item: Mapping[str, object] | None) -> dict[str, object]:
 def validate_summary(value: object) -> str:
     if not isinstance(value, str):
         raise ValueError("summary must be text")
-    summary = value.strip()
-    if not summary.startswith(SUMMARY_PREFIX):
-        raise ValueError(f"summary must start with {SUMMARY_PREFIX!r}")
-    paragraphs = [paragraph.strip() for paragraph in re.split(r"\n\s*\n", summary) if paragraph.strip()]
-    if not 1 <= len(paragraphs) <= 2:
-        raise ValueError("summary must contain one or two paragraphs")
-    if any("\n" in paragraph for paragraph in paragraphs):
-        raise ValueError("summary paragraphs must not contain line breaks")
-    if len(paragraphs) == 2 and paragraphs[1].startswith(SUMMARY_PREFIX):
-        paragraphs[1] = paragraphs[1][len(SUMMARY_PREFIX):].lstrip()
-        if not paragraphs[1]:
-            raise ValueError("summary second paragraph must contain text")
-    summary = "\n\n".join(paragraphs)
-    if summary.count(SUMMARY_LABEL) != 1:
-        raise ValueError("summary must contain the Ringkasan label exactly once")
-    if len(summary) > MAX_SUMMARY_CHARACTERS:
-        raise ValueError(f"summary must not exceed {MAX_SUMMARY_CHARACTERS} characters")
+    summary = news_format.normalize_summary(value, marked=True)
+    if not news_format.normalize_summary(value) or len(summary) > MAX_SUMMARY_CHARACTERS:
+        raise ValueError("summary must contain bounded nonempty text")
     return summary
 
 
@@ -488,6 +480,25 @@ def validate_route(profile: Profile, value: object) -> str:
 def validate_submission(profile: Profile, payload: object) -> dict[str, str | bool]:
     if type(payload) is not dict:
         raise ValueError("analysis submission must be an object")
+    if "items" in payload:
+        if not (profile.enable_llm_title and profile.enable_llm_summary and profile.enable_llm_routing):
+            raise ValueError("items require generated titles, summaries and routing")
+        expected_items = {"event_key", "items"} | ({"is_relevant"} if profile.enable_llm_relevance_filter else set())
+        if set(payload) != expected_items or (profile.enable_llm_relevance_filter and payload.get("is_relevant") is not True):
+            raise ValueError("relevant item submission has unexpected fields")
+        raw_items = payload["items"]
+        if type(raw_items) is not list or not 1 <= len(raw_items) <= 16:
+            raise ValueError("items must contain one to sixteen news items")
+        items = []
+        for item in raw_items:
+            if type(item) is not dict or set(item) != {"title", "summary", "route"}:
+                raise ValueError("news item has unexpected fields")
+            validated = validate_submission(profile, {"event_key": payload["event_key"], **({"is_relevant": True} if profile.enable_llm_relevance_filter else {}), **item})
+            if validated["route"] not in {"id_stocks_news", "us_stocks_news", "macro_news"}:
+                raise ValueError("multi-item schema supports news routes only")
+            items.append({key: validated[key] for key in ("title", "summary", "route")})
+        items = news_format.deduplicate_items(items)
+        return {"event_key": payload["event_key"], **({"is_relevant": True} if profile.enable_llm_relevance_filter else {}), **items[0], "news_items": items}
     expected = {"event_key"}
     if profile.enable_llm_relevance_filter:
         expected.add("is_relevant")

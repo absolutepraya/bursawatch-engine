@@ -10,6 +10,7 @@ import pytest
 import scan
 import state
 from agent_protocol import analysis_payload
+from bursawatch_discord_delivery import OperationReceipt
 from models import Article, FeedLane, Route, StockbitFeedSetting, StockbitWatchConfig
 from rss import FetchResult
 
@@ -38,6 +39,14 @@ def watch_config(*disabled: FeedLane) -> StockbitWatchConfig:
 def set_live_config(monkeypatch, *disabled: FeedLane) -> None:
     loaded = config.LoadedStockbitConfig(config=watch_config(*disabled), revision=7)
     monkeypatch.setattr(config, "load_watch_config_for_run", lambda: loaded)
+
+
+def delivered_receipt(content: str, channel_id: str, *, event_key: str, leg: str) -> OperationReceipt:
+    operation, _nonce = scan.discord._operation(content, channel_id, event_key, leg)
+    return OperationReceipt(
+        id=f"receipt:{event_key}", key=operation.key, digest=operation.digest,
+        status="delivered", receipt={"channel_id": channel_id, "message_id": "345678901234567890"},
+    )
 
 
 def suppress_run_reporting(monkeypatch) -> None:
@@ -457,7 +466,7 @@ def test_frozen_config_survives_submission_and_delivery_retry(monkeypatch, tmp_p
         posted_channel_ids.append(channel_id)
         if len(posted_channel_ids) == 1:
             raise RuntimeError("temporary delivery failure")
-        return "message-id"
+        return delivered_receipt(content, channel_id, event_key=kwargs["event_key"], leg=kwargs["leg"])
 
     monkeypatch.setattr(scan.discord, "post_text", post_then_retry)
     scan.submit_analysis(_issuer_payload(item))
@@ -525,7 +534,7 @@ def test_run_reporting_uses_only_safe_lifecycle_fields(monkeypatch, tmp_path) ->
     monkeypatch.setattr(config, "load_watch_config_for_run", lambda: loaded)
     monkeypatch.setattr(scan, "fetch_feed", lambda feed, **kwargs: FetchResult(feed, (), None, None, True))
     monkeypatch.setattr(scan, "get_market_snapshot", lambda ticker: None)
-    monkeypatch.setattr(scan.discord, "post_text", lambda *args, **kwargs: "message-id")
+    monkeypatch.setattr(scan.discord, "post_text", lambda content, channel_id, **kwargs: delivered_receipt(content, channel_id, event_key=kwargs["event_key"], leg=kwargs["leg"]))
     calls = []
 
     class RecordedRun:
@@ -632,7 +641,7 @@ def test_config_outage_drains_bound_delivery_and_attempts_fixed_heartbeat(monkey
     monkeypatch.setattr(config, "load_watch_config_for_run", lambda: (_ for _ in ()).throw(ValueError("secret /local/path")))
     monkeypatch.setattr(scan, "fetch_feed", lambda *args, **kwargs: pytest.fail("outage polled source"))
     calls = []
-    monkeypatch.setattr(scan.discord, "post_text", lambda content, channel_id, **kwargs: calls.append((content, channel_id)) or "message-id")
+    monkeypatch.setattr(scan.discord, "post_text", lambda content, channel_id, **kwargs: calls.append((content, channel_id)) or delivered_receipt(content, channel_id, event_key=kwargs["event_key"], leg=kwargs["leg"]))
 
     class ForbiddenRun:
         @classmethod
@@ -681,6 +690,77 @@ def test_owner_accepted_pending_delivery_does_not_start_local_retry_clock(monkey
     saved = value["articles"][item.key]
     assert saved["phase"] == "pending_delivery"
     assert saved["retry"] == {"attempts": 0, "next_attempt_at": None, "last_error": None}
+
+
+@pytest.mark.parametrize(
+    ("receipt_channel", "expected_delivered"),
+    [(None, True), ("999999999999999999", False)],
+)
+def test_delivery_receipt_channel_is_optional_but_mismatch_is_rejected(
+    monkeypatch, tmp_path, receipt_channel: str | None, expected_delivered: bool,
+) -> None:
+    path = tmp_path / "state.json"
+    value = state.new_state(config.FEEDS)
+    item = article(FeedLane.UNBOXING_IPO, suffix=f"receipt-{receipt_channel or 'omitted'}")
+    now = datetime(2026, 9, 24, 0, 0, tzinfo=UTC)
+    state.queue_article(value, item, now)
+    record = value["articles"][item.key]
+    record["phase"] = "pending_delivery"
+    record["analysis"] = _issuer_payload(item)
+    record["rendered"] = "Previously rendered content"
+    channel_id = "123456789012345678"
+    record["config_snapshot"] = {
+        "revision": 7, "additional_prompt_instruction": "instruction A",
+        "id_stocks_news_channel_id": channel_id,
+        "macro_news_channel_id": "234567890123456789",
+    }
+    runtime = config.RuntimeConfig(
+        state_path=path, no_post=False, request_timeout=20,
+        heartbeat_channel_id=config.HEARTBEAT_CHANNEL_ID,
+        id_stocks_news_channel_id=config.ID_STOCKS_NEWS_CHANNEL_ID,
+        macro_news_channel_id=config.MACRO_NEWS_CHANNEL_ID,
+    )
+    operation, _nonce = scan.discord._operation(record["rendered"], channel_id, item.key, "news")
+    receipt_value = {"message_id": "345678901234567890"}
+    if receipt_channel is not None:
+        receipt_value["channel_id"] = receipt_channel
+    receipt = OperationReceipt(
+        id="existing-delivered-operation",
+        key=operation.key,
+        digest=operation.digest,
+        status="delivered",
+        receipt=receipt_value,
+    )
+
+    class Owner:
+        def __init__(self) -> None:
+            self.status_keys: list[str] = []
+            self.submitted = []
+
+        def status(self, operation_key: str) -> OperationReceipt:
+            self.status_keys.append(operation_key)
+            return receipt
+
+        def submit(self, submitted_operation) -> OperationReceipt:
+            self.submitted.append(submitted_operation)
+            return receipt
+
+    owner = Owner()
+    monkeypatch.setattr(scan.discord, "delivery_client_from_environment", lambda: owner)
+
+    delivered = scan._drain_delivery(value, runtime, now)
+
+    saved = value["articles"][item.key]
+    assert owner.status_keys == [operation.key]
+    assert owner.submitted == []
+    if expected_delivered:
+        assert delivered == 1
+        assert saved["phase"] == "delivered"
+        assert saved["delivery"]["channel_id"] == channel_id
+        assert saved["delivery"]["receipt"]["receipt"] == {"message_id": "345678901234567890"}
+    else:
+        assert delivered == 0
+        assert saved["phase"] == "pending_delivery"
 
 
 def test_unbound_legacy_delivery_waits_for_config_then_uses_first_revision(monkeypatch, tmp_path) -> None:
@@ -793,7 +873,7 @@ def test_legacy_delivery_snapshot_is_durable_before_first_send(monkeypatch, tmp_
     )
     clock[0] += timedelta(minutes=2)
     channels = []
-    monkeypatch.setattr(scan.discord, "post_text", lambda content, channel_id, **kwargs: channels.append(channel_id) or "message-id")
+    monkeypatch.setattr(scan.discord, "post_text", lambda content, channel_id, **kwargs: channels.append(channel_id) or delivered_receipt(content, channel_id, event_key=kwargs["event_key"], leg=kwargs["leg"]))
     scan.run()
     assert channels == ["123456789012345678"]
     assert state.load_state(path, config.FEEDS)["articles"][item.key]["config_snapshot"]["revision"] == 7
@@ -978,7 +1058,7 @@ def test_submission_degrades_when_another_due_delivery_fails(monkeypatch, tmp_pa
         sent.append(event_key)
         if event_key == due.key:
             raise RuntimeError("credential /private/path")
-        return "message-id"
+        return delivered_receipt(content, channel_id, event_key=event_key, leg=kwargs["leg"])
 
     monkeypatch.setattr(scan.discord, "post_text", post_text)
     calls = []
@@ -1008,3 +1088,131 @@ def test_submission_degrades_when_another_due_delivery_fails(monkeypatch, tmp_pa
     assert completed[0][2]["attributes"]["errors"] == ["Stockbit delivery failed"]
     assert "credential" not in repr(calls)
     assert "/private/path" not in repr(calls)
+
+
+def test_split_stockbit_items_resume_without_changing_quotes_or_source(tmp_path,monkeypatch):
+    source=article(FeedLane.STOCKBIT_COMMENTARY)
+    value=state.new_state(config.FEEDS);state.queue_article(value,source,source.published_at)
+    record=value['articles'][source.key]
+    record['config_snapshot']={'revision':7,'additional_prompt_instruction':'','id_stocks_news_channel_id':'123456789012345678','macro_news_channel_id':'234567890123456789'}
+    record['source_work']={'event_key':'a'*64,'version':1}
+    from agent_protocol import validate_submissions
+    def item(ticker):
+        return {'ticker':ticker,'title':ticker+': Pembagian dividen','summary':ticker+' akan membagikan dividen.','material_facts':[ticker+' dividen'],'dedupe_facts':[ticker+' dividen'],'eligible':True,'route':'id_stocks_news','source_evidence':'Sumber menyebut dividen '+ticker+'.'}
+    analyses=validate_submissions(source,{'candidate_key':source.key,'items':[item('DADA'),item('NICL')]})
+    quotes=[]
+    monkeypatch.setattr(scan,'get_market_snapshot',lambda ticker:quotes.append(ticker))
+    calls=[]
+    def send(content,channel_id,*,dry_run,event_key,leg,return_receipt):
+        saved=state.load_state(runtime.state_path,config.FEEDS)
+        assert all(saved['articles'][key]['rendered'] for key in saved['articles'][source.key]['news_item_keys'])
+        calls.append((content,channel_id,event_key,leg))
+        if len(calls)==2:
+            raise scan.discord.DeliveryOwnerPending('pending')
+        return delivered_receipt(content,channel_id,event_key=event_key,leg=leg)
+    runtime=config.RuntimeConfig(state_path=tmp_path/'state.json',no_post=False,request_timeout=10,heartbeat_channel_id='987654321098765432',id_stocks_news_channel_id='123456789012345678',macro_news_channel_id='234567890123456789')
+    monkeypatch.setattr(scan.discord,'post_text',send)
+    result=scan._submit_split_analysis(value,record,source,analyses,runtime,source.published_at,[])
+    assert result['delivered']==1 and quotes==['DADA','NICL']
+    saved=state.load_state(runtime.state_path,config.FEEDS)
+    keys=saved['articles'][source.key]['news_item_keys']
+    assert saved['articles'][keys[0]]['phase']=='delivered'
+    assert saved['articles'][keys[1]]['phase']=='pending_delivery'
+    monkeypatch.setattr(scan,'get_market_snapshot',lambda *args:pytest.fail('retry fetched quotes'))
+    assert scan._drain_delivery(saved,runtime,source.published_at)==1
+    assert calls[1]==calls[2] and calls[0][2]!=calls[1][2]
+    for key in keys:
+        child=saved['articles'][key]
+        assert child['article']['url']==source.url
+        assert child['article']['published_at']==source.published_at.isoformat()
+        assert child['source_work']['event_key']=='a'*64
+        assert child['rendered'].count('Harga terakhir')==1
+
+
+@pytest.mark.parametrize('outcomes,expected_status', [
+    (('pending','pending'),'degraded'),
+    (('delivered','pending'),'degraded'),
+    (('excluded','pending'),'degraded'),
+    (('delivered','delivered'),'ok'),
+    (('excluded','delivered'),'ok'),
+    (('excluded','excluded'),'ok'),
+])
+def test_split_submission_reports_all_child_delivery_states(tmp_path, monkeypatch, outcomes, expected_status):
+    source = article(FeedLane.STOCKBIT_COMMENTARY)
+    value = state.new_state(config.FEEDS)
+    state.queue_article(value, source, source.published_at)
+    value['articles'][source.key]['config_snapshot'] = scan._snapshot(config.LoadedStockbitConfig(watch_config(), 7))
+    path = tmp_path/'state.json'
+    state.save_state(path, value)
+    runtime = config.RuntimeConfig(state_path=path, no_post=False, request_timeout=10,
+                                   heartbeat_channel_id='987654321098765432',
+                                   id_stocks_news_channel_id='123456789012345678', macro_news_channel_id='234567890123456789')
+    monkeypatch.setattr(config, 'runtime', lambda:runtime)
+    monkeypatch.setattr(scan, '_now', lambda:source.published_at)
+    monkeypatch.setattr(scan, 'get_market_snapshot', lambda *args:None)
+    monkeypatch.setattr(scan, '_drain_publications', lambda *args:None)
+    monkeypatch.delenv('BURSAWATCH_STOCKBIT_SNIPS_PUBLICATION_ENABLED', raising=False)
+    calls, finishes, reports = [], [], []
+    class RecordedRun:
+        @classmethod
+        def begin(cls, *args, **kwargs): return cls()
+        def event(self, name, **kwargs):
+            if name == 'submission-completed': reports.append(kwargs)
+        def finish(self, status, *args, **kwargs): finishes.append(status)
+    monkeypatch.setattr(scan, 'ControlPlaneRun', RecordedRun)
+    def send(content, channel_id, *, event_key, leg, **kwargs):
+        calls.append(event_key)
+        index = int(event_key.rsplit('.news-item-', 1)[1])
+        if outcomes[index] == 'pending':
+            raise scan.discord.DeliveryOwnerPending('synthetic pending receipt')
+        return delivered_receipt(content, channel_id, event_key=event_key, leg=leg)
+    monkeypatch.setattr(scan.discord, 'post_text', send)
+    def item(index, outcome):
+        ticker = ('DADA','NICL')[index]
+        return {'ticker':ticker if outcome != 'excluded' else '',
+                'title':ticker+': Pembagian dividen', 'summary':ticker+' akan membagikan dividen.',
+                'material_facts':[ticker+' dividen'], 'dedupe_facts':[ticker+' dividen'],
+                'eligible':outcome != 'excluded', 'route':'exclude' if outcome == 'excluded' else 'id_stocks_news',
+                'source_evidence':'Sumber menyebut dividen '+ticker+'.'}
+    result = scan.submit_analysis({'candidate_key':source.key,'items':[item(index,outcome) for index,outcome in enumerate(outcomes)]})
+    saved = state.load_state(path, config.FEEDS)
+    parent = saved['articles'][source.key]
+    assert parent['phase'] == 'split'
+    assert finishes == [expected_status]
+    assert reports[0]['level'] == ('warning' if expected_status == 'degraded' else 'info')
+    if expected_status == 'degraded':
+        assert reports[0]['attributes']['errors'] == ['Stockbit delivery pending']
+    else:
+        assert 'errors' not in reports[0]['attributes']
+    children = [saved['articles'][key] for key in result['news_item_keys']]
+    assert any(child['phase'] == 'pending_delivery' for child in children) == (expected_status == 'degraded')
+    assert all(child['retry']['attempts'] == 0 for child in children)
+
+
+def test_duplicate_stockbit_items_create_one_child_delivery(tmp_path, monkeypatch):
+    source = article(FeedLane.STOCKBIT_COMMENTARY)
+    value = state.new_state(config.FEEDS)
+    state.queue_article(value, source, source.published_at)
+    value['articles'][source.key]['config_snapshot'] = scan._snapshot(config.LoadedStockbitConfig(watch_config(), 7))
+    path = tmp_path/'state.json'
+    state.save_state(path, value)
+    monkeypatch.setenv('STOCKBIT_SNIPS_STATE_PATH', str(path))
+    monkeypatch.delenv('STOCKBIT_SNIPS_NO_POST', raising=False)
+    monkeypatch.delenv('BURSAWATCH_STOCKBIT_SNIPS_PUBLICATION_ENABLED', raising=False)
+    monkeypatch.setattr(scan, '_now', lambda:source.published_at)
+    monkeypatch.setattr(scan, 'get_market_snapshot', lambda *args:None)
+    monkeypatch.setattr(scan, '_drain_publications', lambda *args:None)
+    suppress_run_reporting(monkeypatch)
+    calls = []
+    def send(content, channel_id, *, event_key, leg, **kwargs):
+        calls.append(event_key)
+        return delivered_receipt(content, channel_id, event_key=event_key, leg=leg)
+    monkeypatch.setattr(scan.discord, 'post_text', send)
+    first = _issuer_payload(source)
+    first.pop('candidate_key')
+    result = scan.submit_analysis({'candidate_key':source.key,'items':[first,dict(first)]})
+    assert result['delivered'] == 1
+    assert len(result['news_item_keys']) == 1
+    assert calls == result['news_item_keys']
+    saved = state.load_state(path, config.FEEDS)
+    assert len(saved['articles']) == 2

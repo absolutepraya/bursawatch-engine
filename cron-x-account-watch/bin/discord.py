@@ -21,7 +21,14 @@ if not _DELIVERY_BIN.exists():
 if str(_DELIVERY_BIN) not in sys.path:
     sys.path.insert(0, str(_DELIVERY_BIN))
 
-from bursawatch_discord_delivery import Attachment, DeliveryClient, DiscordQuery, OperationIntent, OperationReceipt
+from bursawatch_discord_delivery import (
+    DELIVERY_RECEIPT_WAIT_SECONDS,
+    Attachment,
+    DeliveryClient,
+    DiscordQuery,
+    OperationIntent,
+    OperationReceipt,
+)
 from bursawatch_discord_delivery.client import DeliveryClientError
 from swing_format import replace_board_topic_link
 
@@ -133,7 +140,7 @@ def _submit_or_lookup(
     if not isinstance(receipt, OperationReceipt) or receipt.key != operation.key or receipt.digest != expected_digest:
         raise DeliveryOwnerError("Delivery Owner returned an invalid operation receipt")
     if receipt.status in NON_TERMINAL_DELIVERY_STATUSES:
-        receipt = client.wait(operation.key, 0)  # type: ignore[attr-defined]
+        receipt = client.wait(operation.key, DELIVERY_RECEIPT_WAIT_SECONDS)  # type: ignore[attr-defined]
         if not isinstance(receipt, OperationReceipt) or receipt.key != operation.key or receipt.digest != expected_digest:
             raise DeliveryOwnerError("Delivery Owner returned an invalid operation receipt")
     if receipt.status in NON_TERMINAL_DELIVERY_STATUSES:
@@ -159,6 +166,16 @@ def _submit_message(
     client: object | None,
     legacy_nonce: str | None = None,
 ) -> str:
+    receipt = _submit_message_receipt(operation, client=client, legacy_nonce=legacy_nonce)
+    return _delivered_message_id(receipt, operation.target["channel_id"])
+
+
+def _submit_message_receipt(
+    operation: OperationIntent,
+    *,
+    client: object | None,
+    legacy_nonce: str | None = None,
+) -> OperationReceipt:
     owner = client if client is not None else delivery_client_from_environment()
     try:
         receipt = _submit_or_lookup(operation, owner, legacy_nonce=legacy_nonce)
@@ -166,7 +183,14 @@ def _submit_message(
         if error.category == "rate_limited":
             raise DiscordRetryAfter(60) from None
         raise DeliveryOwnerError("Delivery Owner request failed") from None
-    return _delivered_message_id(receipt, operation.target["channel_id"])
+    return receipt
+
+
+def _receipt_result(
+    operation: OperationIntent,
+    receipt: OperationReceipt,
+) -> tuple[str, OperationIntent, OperationReceipt]:
+    return _delivered_message_id(receipt, operation.target["channel_id"]), operation, receipt
 
 
 def post_text(
@@ -197,6 +221,37 @@ def post_text(
         )
     legacy = nonce(event_key, operation_leg) if event_key is not None else nonce_value
     return _submit_message(operation, client=client, legacy_nonce=legacy)
+
+
+def post_text_with_receipt(
+    content: str,
+    channel_id: str,
+    dry_run: bool,
+    nonce_value: str,
+    *,
+    event_key: str | None = None,
+    operation_leg: str = "message",
+    client: object | None = None,
+) -> tuple[str | None, OperationIntent | None, OperationReceipt | None]:
+    """Create one message and return the exact Delivery Owner receipt."""
+    if len(content) > 2000:
+        raise ValueError("Discord text exceeds 2000 characters")
+    if dry_run:
+        print(f"[dry-run] Discord text {channel_id}: {content}")
+        return "dry-run", None, None
+    identity = event_key if event_key is not None else nonce_value
+    operation = _message_operation(content, channel_id, identity, operation_leg)
+    if event_key is None:
+        operation = OperationIntent(
+            key=operation_key_for_nonce(nonce_value),
+            kind=operation.kind,
+            ordering_key=operation.ordering_key,
+            target=operation.target,
+            payload=operation.payload,
+            attachments=operation.attachments,
+        )
+    legacy = nonce(event_key, operation_leg) if event_key is not None else nonce_value
+    return _receipt_result(operation, _submit_message_receipt(operation, client=client, legacy_nonce=legacy))
 
 
 def _read_channel_message_content(client: object, channel_id: str, message_id: str) -> str | None:
@@ -310,6 +365,43 @@ def post_media(
         )
     legacy = nonce(event_key, operation_leg) if event_key is not None else nonce_value
     return _submit_message(operation, client=client, legacy_nonce=legacy)
+
+
+def post_media_with_receipt(
+    url: str,
+    channel_id: str,
+    dry_run: bool,
+    nonce_value: str,
+    directory: Path,
+    *,
+    event_key: str | None = None,
+    operation_leg: str = "media",
+    client: object | None = None,
+    source_reference: dict | None = None,
+) -> tuple[str | None, OperationIntent | None, OperationReceipt | None]:
+    """Upload one source image and return its exact Delivery Owner receipt."""
+    if dry_run:
+        print(f"[dry-run] Discord media {channel_id}: {url}")
+        return "dry-run", None, None
+    from source_media import reference_id
+    ref = reference_id(url)
+    if ref is None:
+        attachment = download_source_attachment(url, nonce_value)
+    else:
+        attachment = attachment_from_source_reference(ref, source_reference, nonce_value)
+    identity = event_key if event_key is not None else nonce_value
+    operation = _message_operation("", channel_id, identity, operation_leg, attachment=attachment)
+    if event_key is None:
+        operation = OperationIntent(
+            key=operation_key_for_nonce(nonce_value),
+            kind=operation.kind,
+            ordering_key=operation.ordering_key,
+            target=operation.target,
+            payload=operation.payload,
+            attachments=operation.attachments,
+        )
+    legacy = nonce(event_key, operation_leg) if event_key is not None else nonce_value
+    return _receipt_result(operation, _submit_message_receipt(operation, client=client, legacy_nonce=legacy))
 
 
 def attachment_from_source_reference(ref: str, reference: dict | None, nonce_value: str) -> Attachment:

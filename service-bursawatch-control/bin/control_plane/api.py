@@ -21,6 +21,19 @@ from .profile_metadata import (
     profile_inputs_from_config,
     validate_profile_id,
 )
+from .operator_inventory import component_view, list_components
+from .operator_activity import get_endpoint_activity, get_pipeline_activity
+from .publication_store import MemoryPublicationStore, PostgresPublicationStore, PublicationConflict
+from .publication_coverage import coverage_view
+from .operator_observations import (
+    MemoryObservationStore,
+    ObservationError,
+    ObservationStore,
+    PostgresObservationStore,
+    observed_interval_matches,
+    observation_view,
+    validate_observation,
+)
 from .postgres_pool import create_postgres_pool
 from .store import (
     EventRecord,
@@ -213,7 +226,7 @@ def _profile_avatar_response(record: ProfileAvatarRecord) -> dict[str, Any]:
     }
 
 
-def _job_response(job: SchedulerJobRecord) -> dict[str, Any]:
+def _job_response(job: SchedulerJobRecord, *, can_edit: bool = False) -> dict[str, Any]:
     schedule = job.schedule.to_dict() if job.schedule else None
     effective = bool(
         job.schedule
@@ -223,18 +236,39 @@ def _job_response(job: SchedulerJobRecord) -> dict[str, Any]:
     return {
         "job_id": job.job_id,
         "watcher_id": job.watcher_id,
+        "component_ids": list(job.component_ids),
         "display_name": job.display_name,
         "runtime_job_key": job.runtime_job_key,
         "schedule_kind": job.schedule_kind,
         "min_interval_seconds": job.min_interval_seconds,
         "max_interval_seconds": job.max_interval_seconds,
         "schedule": schedule,
+        "can_edit": can_edit and job.schedule_kind == "interval",
         "reconciliation": {
             "status": job.reconciliation_status,
             "applied_revision": job.applied_revision,
             "last_error": job.reconciliation_error,
             "effective": effective,
         },
+    }
+
+
+def _reconciler_job_response(job: SchedulerJobRecord) -> dict[str, Any]:
+    """Return only the strict machine contract consumed by the VPS worker."""
+    response = _job_response(job)
+    return {
+        key: response[key]
+        for key in (
+            "job_id",
+            "watcher_id",
+            "display_name",
+            "runtime_job_key",
+            "schedule_kind",
+            "min_interval_seconds",
+            "max_interval_seconds",
+            "schedule",
+            "reconciliation",
+        )
     }
 
 
@@ -246,6 +280,8 @@ def create_app(
     avatar_resolver: AvatarResolver | None = None,
     catalog_store: MemoryCatalogStore | PostgresCatalogStore | None = None,
     inbox_store: MemoryInboxStore | PostgresInboxStore | None = None,
+    observation_store: ObservationStore | None = None,
+    publication_store: MemoryPublicationStore | PostgresPublicationStore | None = None,
 ) -> FastAPI:
     store = store or InMemoryStore()
     auth = auth or StaticTokenAuth.from_environment()
@@ -253,6 +289,10 @@ def create_app(
     pool = store.pool if isinstance(store, PostgresStore) else None
     catalog_store = catalog_store or (PostgresCatalogStore(store.dsn, pool=pool) if isinstance(store, PostgresStore) else MemoryCatalogStore())
     inbox_store = inbox_store or (PostgresInboxStore(store.dsn, catalog_store, pool=pool) if isinstance(store, PostgresStore) else MemoryInboxStore(catalog_store))
+    observation_store = observation_store or (PostgresObservationStore(pool) if pool is not None else MemoryObservationStore())
+    publication_store = publication_store or (
+        PostgresPublicationStore(store.dsn, pool=pool) if isinstance(store, PostgresStore) else MemoryPublicationStore()
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -308,6 +348,16 @@ def create_app(
     def reconciler_only(current: Principal = Depends(principal)) -> Principal:
         if current.kind != "reconciler":
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="schedule reconciler role required")
+        return current
+
+    def observer_only(current: Principal = Depends(principal)) -> Principal:
+        if current.kind != "observer":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="observer role required")
+        return current
+
+    def publication_owner_only(current: Principal = Depends(principal)) -> Principal:
+        if current.kind != "publication_owner":
+            raise HTTPException(status_code=403, detail="publication owner role required")
         return current
 
     def current_profile_metadata(watcher_id: str) -> list[ProfileAvatarRecord]:
@@ -369,6 +419,162 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="insufficient role")
         current = catalog_store.get()
         return effective_snapshot(current["config"], catalog_view(current["config"], catalog_store.registry()), current["revision"], current["updated_at"])
+
+    def component_inventory_view(
+        component_id: str,
+        catalog_gate_state: tuple[int, list[dict[str, Any]]] | None = None,
+    ) -> dict[str, Any]:
+        try:
+            result = component_view(component_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="unknown component") from exc
+        platform = {
+            "bursawatch-tg-source-ingest": "telegram",
+            "bursawatch-x-source-ingest": "x",
+            "bursawatch-ig-source-ingest": "instagram",
+            "bursawatch-wa-source-ingest": "whatsapp",
+            "bursawatch-rss-source-ingest": "rss",
+        }.get(component_id)
+        if platform is not None:
+            if catalog_gate_state is None:
+                current = catalog_store.get()
+                resolved = effective_snapshot(
+                    current["config"],
+                    catalog_view(current["config"], catalog_store.registry()),
+                    current["revision"],
+                    current["updated_at"],
+                )
+                catalog_gate_state = (current["revision"], resolved["subscriptions"])
+            catalog_revision, all_subscriptions = catalog_gate_state
+            subscriptions = [row for row in all_subscriptions if row["platform"] == platform]
+            capability_ids = sorted({row["capability_id"] for row in subscriptions})
+            result["source_gate"] = {
+                "catalog_revision": catalog_revision,
+                "capabilities": [
+                    {
+                        "capability_id": capability_id,
+                        "endpoint_count": sum(row["capability_id"] == capability_id for row in subscriptions),
+                        "enabled_endpoint_count": sum(
+                            row["capability_id"] == capability_id and row["enabled"] for row in subscriptions
+                        ),
+                    }
+                    for capability_id in capability_ids
+                ],
+            }
+        return result
+
+    @app.get("/v1/components")
+    def get_components(_current: Principal = Depends(human_reader)) -> dict[str, Any]:
+        current = catalog_store.get()
+        resolved = effective_snapshot(
+            current["config"],
+            catalog_view(current["config"], catalog_store.registry()),
+            current["revision"],
+            current["updated_at"],
+        )
+        catalog_gate_state = (current["revision"], resolved["subscriptions"])
+        return {
+            "inventory_version": 1,
+            "components": [
+                component_inventory_view(item.component_id, catalog_gate_state)
+                for item in list_components()
+            ],
+        }
+
+    @app.get("/v1/components/{component_id}")
+    def get_component(component_id: str, _current: Principal = Depends(human_reader)) -> dict[str, Any]:
+        return component_inventory_view(component_id)
+
+    @app.get("/v1/components/{component_id}/activity")
+    def get_component_activity(component_id: str, _current: Principal = Depends(human_reader)) -> dict[str, Any]:
+        component = component_inventory_view(component_id)
+        endpoints: list[dict[str, Any]] = []
+        if component["kind"] == "source_adapter":
+            platform = {
+                "bursawatch-tg-source-ingest": "telegram",
+                "bursawatch-x-source-ingest": "x",
+                "bursawatch-ig-source-ingest": "instagram",
+                "bursawatch-wa-source-ingest": "whatsapp",
+                "bursawatch-rss-source-ingest": "rss",
+            }[component_id]
+            current = catalog_store.get()
+            declared = catalog_store.registry()["endpoints"] + current["config"]["endpoints"]
+            endpoint_ids = sorted({row["id"] for row in declared if row["platform"] == platform})
+            endpoints = [get_endpoint_activity(inbox_store, endpoint_id).to_dict() for endpoint_id in endpoint_ids]
+        return {
+            "component_id": component_id,
+            "endpoints": endpoints,
+            "pipelines": [get_pipeline_activity(inbox_store, pipeline_id).to_dict()
+                          for pipeline_id in component["pipeline_ids"]],
+            "delivery_status": "not instrumented",
+        }
+
+    @app.post("/v1/publications", status_code=status.HTTP_202_ACCEPTED)
+    def submit_publication(payload: dict[str, Any], current: Principal = Depends(publication_owner_only)) -> dict[str, Any]:
+        try:
+            return publication_store.accept(current.subject, payload)
+        except PublicationConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (ValueError, TypeError, KeyError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/v1/publications")
+    def list_publications(
+        limit: int = Query(default=20, ge=1, le=100),
+        cursor: str | None = Query(default=None, max_length=2048),
+        group: str | None = None,
+        type: str | None = None,
+        route: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        source: str | None = None,
+        ticker: str | None = None,
+        _current: Principal = Depends(human_reader),
+    ) -> dict[str, Any]:
+        filters = {key: value for key, value in {
+            "group": group, "type": type, "route": route, "date_from": date_from, "date_to": date_to,
+            "source": source, "ticker": ticker,
+        }.items() if value is not None}
+        try:
+            return publication_store.list_page(limit=limit, cursor=cursor, filters=filters)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/v1/publications/checkpoints", status_code=status.HTTP_202_ACCEPTED)
+    def submit_publication_checkpoint(
+        payload: dict[str, Any], current: Principal = Depends(publication_owner_only),
+    ) -> dict[str, Any]:
+        try:
+            return publication_store.checkpoint(current.subject, payload)
+        except PublicationConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (ValueError, TypeError, KeyError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/v1/publications/coverage")
+    def get_publication_coverage(_current: Principal = Depends(human_reader)) -> dict[str, Any]:
+        jobs = store.list_all_jobs()
+        observations = {item.identity_id: item for item in observation_store.list_latest()}
+        paused_owners = set()
+        cutover = publication_store.cutover()
+        if cutover is not None:
+            for owner_id in cutover["owner_ids"]:
+                owner_jobs = [job for job in jobs if job.watcher_id == owner_id]
+                observed = [observations.get(job.job_id) for job in owner_jobs]
+                # A stale last-known disabled job is still paused or unverified;
+                # it must never turn a fresh owner checkpoint into a complete claim.
+                if observed and all(item is not None and item.status == "disabled" for item in observed):
+                    paused_owners.add(owner_id)
+        return coverage_view(cutover, publication_store.checkpoints(), paused_owner_ids=paused_owners)
+
+    @app.get("/v1/publications/{publication_id}")
+    def get_publication(publication_id: str, _current: Principal = Depends(human_reader)) -> dict[str, Any]:
+        if len(publication_id) != 64 or any(char not in "0123456789abcdef" for char in publication_id):
+            raise HTTPException(status_code=404, detail="publication not found")
+        try:
+            return publication_store.get(publication_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="publication not found") from exc
 
     @app.put("/v1/source-catalog/config")
     def put_source_catalog(payload: CatalogWrite, current: Principal = Depends(admin_only)) -> dict[str, Any]:
@@ -508,24 +714,96 @@ def create_app(
     @app.get("/v1/watchers/{watcher_id}/jobs")
     def list_jobs(
         watcher_id: str,
-        _current: Principal = Depends(human_reader),
+        current: Principal = Depends(human_reader),
     ) -> list[dict[str, Any]]:
         try:
             validate_watcher_id(watcher_id)
-            return [_job_response(job) for job in store.list_jobs(watcher_id)]
+            return [_job_response(job, can_edit=current.kind == "admin") for job in store.list_jobs(watcher_id)]
         except ContractError as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
-    @app.get("/v1/jobs/{job_id}/schedule")
-    def get_schedule(job_id: str, _current: Principal = Depends(human_reader)) -> dict[str, Any]:
+    @app.get("/v1/jobs")
+    def list_all_jobs(
+        component_id: str | None = Query(default=None),
+        current: Principal = Depends(human_reader),
+    ) -> list[dict[str, Any]]:
+        jobs = store.list_all_jobs()
+        if component_id is not None:
+            if component_id not in {item.component_id for item in list_components()}:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="unknown component_id",
+                )
+            jobs = [job for job in jobs if component_id in job.component_ids]
+        return [_job_response(job, can_edit=current.kind == "admin") for job in jobs]
+
+    @app.get("/v1/jobs/{job_id}")
+    def get_job(job_id: str, current: Principal = Depends(human_reader)) -> dict[str, Any]:
         try:
-            return _job_response(store.get_job(job_id))
+            return _job_response(store.get_job(job_id), can_edit=current.kind == "admin")
         except (ContractError, KeyError) as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="scheduler job not found") from exc
 
+    @app.get("/v1/jobs/{job_id}/schedule")
+    def get_schedule(job_id: str, current: Principal = Depends(human_reader)) -> dict[str, Any]:
+        try:
+            return _job_response(store.get_job(job_id), can_edit=current.kind == "admin")
+        except (ContractError, KeyError) as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="scheduler job not found") from exc
+
+    @app.post("/v1/internal/observations", status_code=status.HTTP_202_ACCEPTED)
+    def accept_observation(payload: dict[str, Any], current: Principal = Depends(observer_only)) -> dict[str, Any]:
+        try:
+            observation = validate_observation(payload, current.subject, store.list_all_jobs())
+            accepted = observation_store.accept(observation)
+            return observation_view(accepted)
+        except ObservationError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+    @app.get("/v1/observations")
+    def list_observations(
+        job_id: list[str] = Query(default=[]),
+        _current: Principal = Depends(human_reader),
+    ) -> list[dict[str, Any]]:
+        jobs = store.list_all_jobs()
+        by_id = {job.job_id: job for job in jobs}
+        if len(job_id) > 100 or len(set(job_id)) != len(job_id) or any(item not in by_id for item in job_id):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="job_id filters must be unique declared jobs, up to 100 values",
+            )
+        selected = set(job_id)
+        result: list[dict[str, Any]] = []
+        for observation in observation_store.list_latest():
+            if selected and (
+                observation.identity_kind != "job" or observation.identity_id not in selected
+            ):
+                continue
+            row = observation_view(observation)
+            job = by_id.get(observation.identity_id)
+            if job is not None:
+                desired = job.schedule.to_dict() if job.schedule is not None else None
+                observed_schedule = observation.evidence.get("schedule")
+                if desired is None:
+                    # Fixed jobs have no Control Plane desired schedule to compare.
+                    row["comparison"] = "not_comparable"
+                else:
+                    schedule_match = (
+                        observed_interval_matches(observed_schedule, desired["interval_seconds"] // 60)
+                        and observation.evidence.get("enabled") == desired["enabled"]
+                    )
+                    row["comparison"] = "match" if schedule_match else "mismatch"
+                row["desired"] = desired
+                row["reconciliation"] = {
+                    "status": job.reconciliation_status,
+                    "applied_revision": job.applied_revision,
+                }
+            result.append(row)
+        return result
+
     @app.get("/v1/internal/schedules")
     def list_reconcilable_schedules(_current: Principal = Depends(reconciler_only)) -> list[dict[str, Any]]:
-        return [_job_response(job) for job in store.list_reconcilable_jobs()]
+        return [_reconciler_job_response(job) for job in store.list_reconcilable_jobs()]
 
     @app.get("/v1/watchers/{watcher_id}/events")
     def list_watcher_events(
@@ -629,12 +907,13 @@ def create_app(
                     payload.interval_seconds,
                     payload.timezone,
                     current.subject,
-                )
+                ),
+                can_edit=True,
             )
         except KeyError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="scheduler job not found") from exc
         except PermissionError as exc:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
         except (ContractError, ValueError) as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 

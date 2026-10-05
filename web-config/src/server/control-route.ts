@@ -1,7 +1,13 @@
 import "server-only";
 import { z } from "zod";
 import { catalogWrite } from "@/lib/source-catalog";
-import { avatarInput, ControlPlaneError, createControlPlaneReader, scheduleInput } from "@/server/control-plane";
+import { publicationFilters } from "@/lib/publications";
+import {
+  avatarInput,
+  ControlPlaneError,
+  createControlPlaneReader,
+  scheduleInput,
+} from "@/server/control-plane";
 
 const opaqueId = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/;
 const headers = {
@@ -50,9 +56,48 @@ export async function handleControlRequest(
       fetchImpl: options.fetchImpl,
     });
     if (request.method === "GET") {
-      if (path.length === 1 && path[0] === "source-catalog") return json(await api.getSourceCatalog());
-      if (path.length === 2 && path[0] === "source-catalog" && path[1] === "effective") return json(await api.getEffectiveCatalog());
+      if (path.length === 1 && path[0] === "source-catalog")
+        return json(await api.getSourceCatalog());
+      if (path.length === 2 && path[0] === "source-catalog" && path[1] === "effective")
+        return json(await api.getEffectiveCatalog());
       if (path.length === 1 && path[0] === "watchers") return json(await api.listWatchers());
+      if (path.length === 1 && path[0] === "components") return json(await api.listComponents());
+      if (path.length === 2 && path[0] === "components")
+        return json(await api.getComponent(path[1]));
+      if (path.length === 3 && path[0] === "components" && path[2] === "activity")
+        return json(await api.getComponentActivity(path[1]));
+      if (path.length === 1 && path[0] === "jobs") {
+        const search = new URL(request.url).searchParams;
+        if (
+          [...search.keys()].some((key) => key !== "component_id") ||
+          search.getAll("component_id").length > 1
+        )
+          throw new ControlPlaneError("validation");
+        return json(await api.listOperatorJobs(search.get("component_id") ?? undefined));
+      }
+      if (path.length === 2 && path[0] === "jobs") return json(await api.getOperatorJob(path[1]));
+      if (path.length === 1 && path[0] === "observations") {
+        const search = new URL(request.url).searchParams;
+        if ([...search.keys()].some((key) => key !== "job_id"))
+          throw new ControlPlaneError("validation");
+        return json(await api.listObservations(search.getAll("job_id")));
+      }
+      if (path.length === 1 && path[0] === "publications") {
+        const search = new URL(request.url).searchParams;
+        if ([...search.keys()].some((key) => search.getAll(key).length !== 1))
+          throw new ControlPlaneError("validation");
+        const raw = Object.fromEntries(search);
+        const parsed = publicationFilters.safeParse({
+          ...raw,
+          ...(raw.limit === undefined ? {} : { limit: Number(raw.limit) }),
+        });
+        if (!parsed.success) throw new ControlPlaneError("validation");
+        return json(await api.listPublications(parsed.data));
+      }
+      if (path.length === 2 && path[0] === "publications" && path[1] === "coverage")
+        return json(await api.getPublicationCoverage());
+      if (path.length === 2 && path[0] === "publications")
+        return json(await api.getPublication(path[1]));
       if (path.length === 3 && path[0] === "watchers") {
         if (path[2] === "jobs") return json(await api.listJobs(path[1]));
         if (path[2] === "runs") return json(await api.listRuns(path[1]));
@@ -64,11 +109,34 @@ export async function handleControlRequest(
       if (path.length === 3 && path[0] === "runs" && path[2] === "events")
         return json(await api.listRunEvents(path[1]));
     } else {
-      const isCatalog = request.method === "PUT" && path.length === 2 && path[0] === "source-catalog" && path[1] === "config";
-      const isConfig = request.method === "PUT" && path.length === 3 && path[0] === "watchers" && path[2] === "config";
-      const isSchedule = request.method === "PUT" && path.length === 3 && path[0] === "jobs" && path[2] === "schedule";
-      const isAvatar = request.method === "PUT" && path.length === 5 && path[0] === "watchers" && path[2] === "profiles" && path[4] === "avatar";
-      const isRefresh = request.method === "POST" && path.length === 6 && path[0] === "watchers" && path[2] === "profiles" && path[4] === "avatar" && path[5] === "refresh";
+      const isCatalog =
+        request.method === "PUT" &&
+        path.length === 2 &&
+        path[0] === "source-catalog" &&
+        path[1] === "config";
+      const isConfig =
+        request.method === "PUT" &&
+        path.length === 3 &&
+        path[0] === "watchers" &&
+        path[2] === "config";
+      const isSchedule =
+        request.method === "PUT" &&
+        path.length === 3 &&
+        path[0] === "jobs" &&
+        path[2] === "schedule";
+      const isAvatar =
+        request.method === "PUT" &&
+        path.length === 5 &&
+        path[0] === "watchers" &&
+        path[2] === "profiles" &&
+        path[4] === "avatar";
+      const isRefresh =
+        request.method === "POST" &&
+        path.length === 6 &&
+        path[0] === "watchers" &&
+        path[2] === "profiles" &&
+        path[4] === "avatar" &&
+        path[5] === "refresh";
       if (!isCatalog && !isConfig && !isSchedule && !isAvatar && !isRefresh)
         return json({ code: "missing", message: "Page not found." }, 404);
       if (!request.headers.get("content-type")?.startsWith("application/json"))
@@ -108,7 +176,8 @@ export async function handleControlRequest(
         return json(await api.saveProfileAvatar(path[1], path[3], parsed.data));
       }
       if (isRefresh) {
-        if (!z.object({}).strict().safeParse(input).success) throw new ControlPlaneError("validation");
+        if (!z.object({}).strict().safeParse(input).success)
+          throw new ControlPlaneError("validation");
         return json(await api.refreshProfileAvatar(path[1], path[3]));
       }
       if (isConfig) {

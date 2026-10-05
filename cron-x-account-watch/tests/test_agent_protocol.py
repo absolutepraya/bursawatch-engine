@@ -3,10 +3,40 @@ from pathlib import Path
 import pytest
 
 import agent_protocol
+import scan
 import config as config_module
 from article_context import ArticleBundle, ArticleSource
 from models import PostKind, SourcePost
 from vision_media import VisionAsset, VisionBundle
+
+
+@pytest.mark.parametrize(("route_key", "capability"), [
+    ("id_stocks_news", "company_news"),
+    ("us_stocks_news", "company_news"),
+    ("macro_news", "macro_news"),
+    ("id_stocks_swing", "swing_chart_context"),
+])
+def test_route_maps_to_its_source_capability(route_key, capability):
+    assert scan.capability_for_route(route_key) == capability
+    assert scan.eligible_capability_for_route(route_key, frozenset({capability})) == capability
+
+
+def test_disabled_swing_candidate_has_no_eligible_capability():
+    enabled = frozenset({"company_news", "macro_news"})
+    assert scan.eligible_capability_for_route("id_stocks_swing", enabled) is None
+    assert scan.eligible_capability_for_route("unknown", enabled) is None
+
+
+def test_duplicate_news_array_is_removed_before_cards_are_frozen(config_path, profile_payload):
+    profile_payload.update(enable_llm_title=True, enable_llm_summary=True, enable_llm_routing=True)
+    profile_payload['discord_channels'].append({'key':'id_stocks_news','channel_id':'1525102508714889257','description':'Issuer news'})
+    config_path.write_text(__import__('json').dumps({'version':1,'profiles':[profile_payload]}), encoding='utf-8')
+    profile = config_module.load_watch_config(config_path).profiles[0]
+    first = {'title':'Inflasi tahunan menurun','summary':'Inflasi tahunan menurun.','route':'macro_news'}
+    other = {**first, 'summary':'Inflasi bulanan meningkat.'}
+    result = agent_protocol.validate_submission(profile, {'event_key':'kutekians:102','is_relevant':True,'items':[first,dict(first),other]})
+    assert len(result['news_items']) == 2
+    assert [agent_protocol.news_format.normalize_summary(item['summary']) for item in result['news_items']] == [first['summary'],other['summary']]
 
 
 def test_agent_item_supplies_only_bounded_post_context(config_path, profile_payload):
@@ -71,7 +101,36 @@ def test_agent_item_includes_labeled_local_tweet_and_quote_images(config_path, t
     assert "Authored X post image 1" in item["post_text"]
     assert "Quoted X post image 1" in item["post_text"]
     assert "[UNTRUSTED LOCAL VISION PATHS]" in item["post_text"]
-    assert "read every listed local image with vision" in item["instruction"]
+    assert "For specialized Swing analysis" in item["instruction"]
+
+
+def test_vision_asset_limit_serializes_and_validates_sixteen_and_rejects_seventeen(config_path, tmp_path):
+    profile = __import__("config").load_watch_config(config_path).profiles[0]
+    post = SourcePost(profile.id, "102", "https://x.com/Kutekians/status/102", datetime.now(UTC), "Author text", PostKind.NORMAL, None, None, (), ())
+    root = tmp_path / "vision-limit"
+    root.mkdir()
+    paths = []
+    assets = []
+    for index in range(17):
+        image = root / f"image-{index}.jpg"
+        image.write_bytes(b"image")
+        paths.append(image)
+        assets.append(VisionAsset("tweet", post.post_id, index, image))
+
+    bundle = VisionBundle(root, tuple(assets[:16]), 0)
+    item = agent_protocol.agent_item(profile, post, vision_bundle=bundle)
+    payload = agent_protocol.build_wake_payload(item)
+
+    assert len(payload["item"]["vision_asset_paths"]) == 16
+    assert payload["item"]["vision_asset_paths"] == [str(path.resolve()) for path in paths[:16]]
+
+    oversized_bundle = VisionBundle(root, tuple(assets), 0)
+    with pytest.raises(ValueError, match="bundle is invalid"):
+        agent_protocol.agent_item(profile, post, vision_bundle=oversized_bundle)
+
+    oversized_item = {**item, "vision_asset_paths": [str(path.resolve()) for path in paths]}
+    with pytest.raises(ValueError, match="vision paths are invalid"):
+        agent_protocol.build_wake_payload(oversized_item)
 
 
 def test_agent_item_includes_retrieved_article_context_without_allowing_model_browsing(config_path):
@@ -165,9 +224,10 @@ def test_agent_item_rejects_relative_or_symlinked_vision_roots(config_path, tmp_
         "*(Ringkasan)* One.\n\nTwo.\n\nThree.",
     ],
 )
-def test_summary_validation_rejects_wrong_shape(summary):
-    with pytest.raises(ValueError):
-        agent_protocol.validate_summary(summary)
+def test_summary_validation_accepts_flexible_style(summary):
+    normalized = agent_protocol.validate_summary(summary)
+    assert normalized.startswith("*(Ringkasan)* ")
+    assert normalized.count("*(Ringkasan)*") == 1
 
 
 def test_summary_validation_normalizes_one_or_two_paragraphs():
@@ -180,11 +240,8 @@ def test_summary_validation_normalizes_repeated_label_on_second_paragraph():
     ) == "*(Ringkasan)* Satu.\n\nDua."
 
 
-def test_summary_validation_rejects_repeated_label_inside_paragraph():
-    with pytest.raises(ValueError, match="exactly once"):
-        agent_protocol.validate_summary(
-            "*(Ringkasan)* Satu dengan *(Ringkasan)* label tambahan."
-        )
+def test_summary_validation_normalizes_repeated_label_inside_paragraph():
+    assert agent_protocol.validate_summary("*(Ringkasan)* Satu dengan *(Ringkasan)* label tambahan.") == "*(Ringkasan)* Satu dengan label tambahan."
 
 
 @pytest.mark.parametrize("title", ["A", "Judul dengan akhir titik.", "Lihat https://x.com/post"])
@@ -217,7 +274,7 @@ def test_relevance_filter_accepts_a_closed_irrelevant_decision(config_path, prof
         agent_protocol.validate_submission(profile, {"event_key": "kutekians:102", "is_relevant": False, "title": "Tidak boleh ada judul"})
 
 
-def test_direct_market_disclosure_requires_a_relevant_decision(config_path, profile_payload):
+def test_direct_market_disclosure_is_advisory_for_the_llm(config_path, profile_payload):
     profile_payload["enable_llm_title"] = True
     config_path.write_text(__import__("json").dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
     profile = __import__("config").load_watch_config(config_path).profiles[0]
@@ -227,7 +284,8 @@ def test_direct_market_disclosure_requires_a_relevant_decision(config_path, prof
 
     assert agent_protocol.requires_relevance(post) is True
     assert item["relevance_guard_required"] is True
-    assert "must be treated as relevant" in item["instruction"].lower()
+    assert "advisory context only" in item["instruction"].lower()
+    assert "never return is_relevant false" not in item["instruction"].lower()
 
 
 def test_promotion_like_disclosure_keeps_the_positive_relevance_safeguard(config_path, profile_payload):
@@ -442,10 +500,10 @@ def test_indonesia_economy_scope_uses_profile_guidance_for_source_exceptions(con
 
 def test_agent_instruction_requires_ticker_first_stock_titles_and_direct_summary_voice(config_path, profile_payload):
     instruction = agent_protocol.instruction_for(__import__("config").load_watch_config(config_path).profiles[0]).lower()
-    assert "id_stocks_news, id_stocks_swing, or us_stocks_news" in instruction
-    assert "first word of the title" in instruction
-    assert "never repeat that label in the second paragraph" in instruction
-    assert "do not describe ricky or the writer" in instruction
+    assert "exact exchange ticker followed by a colon" in instruction
+    assert "renderer adds it once" in instruction
+    assert "avoid generic writer narration" in instruction
+    assert "without a fixed length threshold" in instruction
 
 
 def test_agent_instruction_requires_managed_submission_wrapper(config_path, profile_payload):

@@ -778,13 +778,15 @@ async def _drain_delivery(
     dry_run: bool,
     *,
     delivery_client: object | None = None,
+    limit: int | None = None,
 ) -> int:
     delivered = 0
     entities = {} if runtime is None else {
         Provider.PHINTRACO: runtime.phintraco_entity,
         Provider.TUNTUN: runtime.tuntun_entity,
     }
-    for item in _pending_delivery(state, now):
+    due = _pending_delivery(state, now)
+    for item in (due[:limit] if limit is not None else due):
         frozen = loaded_config_for(state, item.key)
         with config.activate_watch_config(frozen.config if frozen is not None else config.active_watch_config()):
             channel_id = _delivery_channel(item)
@@ -809,9 +811,11 @@ async def _drain_stock_status_events(
     dry_run: bool,
     *,
     delivery_client: object | None = None,
+    limit: int | None = None,
 ) -> int:
     delivered = 0
-    for event_key, _event in pending_stock_status_events(state, now):
+    due = pending_stock_status_events(state, now)
+    for event_key, _event in (due[:limit] if limit is not None else due):
         if await deliver_stock_status_event(
             state, event_key, now, dry_run=dry_run, delivery_client=delivery_client
         ):
@@ -925,7 +929,25 @@ async def _route_and_deliver(
     news_delivered = await _drain_delivery(
         state, runtime, now, dry_run, delivery_client=delivery_client
     )
+    _drain_publications(state, now, dry_run=dry_run)
     return classified, news_delivered
+
+
+def _drain_publications(
+    state: dict[str, object],
+    now: datetime,
+    *,
+    dry_run: bool = False,
+    client: object | None = None,
+) -> dict[str, int]:
+    """Drain owner read-model intents without touching the Discord outbox."""
+    from publication_projection import drain as drain_publications
+
+    if dry_run:
+        from state import pending_publication_intents
+
+        return {"accepted": 0, "pending": len(pending_publication_intents(state))}
+    return drain_publications(state, now, client)
 
 
 async def run(now: datetime | None = None, clients: object | None = None) -> dict[str, object]:
@@ -963,6 +985,8 @@ async def _run_loaded_config(
         outcome = "failed"
         failure: str | None = None
         try:
+            state = load_state()
+            _drain_publications(state, now, dry_run=dry_run)
             if clients is None:
                 resilience_control = resilience()
                 decision = await acquire_probe_after_active_lease(
@@ -1026,7 +1050,6 @@ async def _run_loaded_config(
                         return {"wakeAgent": False, "_telegram_resilience_handled": True}
                     raise
 
-            state = load_state()
             _migrate_scheduled_delivery_backlog(state, now)
             runtime: RuntimeClients | None = None
             if clients is None:
@@ -1061,6 +1084,7 @@ async def _run_loaded_config(
                 dry_run,
                 delivery_client=shared_delivery_client,
             )
+            _drain_publications(state, now, dry_run=dry_run)
             news_delivered += stock_status_delivered
             provider_errored, retrying, delivery_pending = _health_and_warning(state)
             control_run.event(
@@ -1252,9 +1276,14 @@ async def _submit_classification_payload_loaded(
         failure: str | None = None
         try:
             state = load_state()
+            _drain_publications(state, now, dry_run=_dry_run())
             _migrate_scheduled_delivery_backlog(state, now)
             candidate = _candidate_for_submission(state, payload.get("candidate_key"))
+            import summary_context
+            import state as owner_state
+            optional_context = summary_context.claim_from_state(state, candidate.key, owner_state._state_path().parent / "summary-context")
             classification = submit_agent_classification(state, candidate, payload, now)
+            summary_context.cleanup_claim_context(optional_context)
             control_run.event(
                 "agent-submission-accepted",
                 level="info",
@@ -1336,9 +1365,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="queue one verified Phintraco Quick Note published today without moving the source cursor",
     )
     backfill.add_argument("--message-id", required=True, type=int)
+    images = subparsers.add_parser("prepare-summary-images")
+    images.add_argument("--json", required=True, dest="payload")
     arguments = parser.parse_args(argv)
     try:
-        if arguments.command == "submit-classification":
+        if arguments.command == "prepare-summary-images":
+            import summary_context
+            result = summary_context.prepare_summary_context(json.loads(arguments.payload))
+        elif arguments.command == "submit-classification":
             payload = json.loads(arguments.payload)
             result = asyncio.run(submit_classification_payload(payload))
         elif arguments.command == "backfill-phintraco-quick-note":

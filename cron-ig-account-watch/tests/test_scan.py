@@ -301,9 +301,9 @@ def test_partial_source_failure_queues_event_ocr_and_keeps_successful_assets(tmp
     assert saved["profiles"][profile.id]["cursor"] == "asset-failure"
     assert [asset["source"]["index"] for asset in event["downloaded_publication"]["assets"]] == [1]
     assert [asset["source"]["index"] for asset in event["downloaded_publication"]["failed_assets"]] == [0]
-    assert ocr_calls == [1]
+    assert ocr_calls == []
     decision = state.deserialize_vision_decision(event["vision_decision"])
-    assert decision.mode is vision_gate.VisionMode.VISION_PARTIAL
+    assert decision.mode is vision_gate.VisionMode.TEXT_ONLY
 
 
 def test_retried_event_owns_media_before_stale_cleanup_runs(tmp_path, monkeypatch, config_path):
@@ -333,7 +333,7 @@ def test_retried_event_owns_media_before_stale_cleanup_runs(tmp_path, monkeypatc
     assert state.load_state(storage)["outbox"][0]["event_key"] == f"{profile.id}:{post.publication_id}"
 
 
-def test_carousel_is_one_event_and_every_image_is_ocrd(tmp_path, monkeypatch, config_path):
+def test_carousel_keeps_delivery_originals_without_upfront_ocr(tmp_path, monkeypatch, config_path):
     profile = config.load_watch_config(config_path).profiles[0]
     storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
     _initialize_cursor(storage, profile, _post(profile.id, "baseline", 0))
@@ -355,9 +355,9 @@ def test_carousel_is_one_event_and_every_image_is_ocrd(tmp_path, monkeypatch, co
     event = saved["outbox"][0]
     assert result["wakeAgent"] is False
     assert len(saved["outbox"]) == 1
-    assert calls == [0, 1]
+    assert calls == []
     assert len(event["downloaded_publication"]["assets"]) == 2
-    assert len(event["ocr_results"]) == 2
+    assert event["ocr_results"] == []
 
 
 @pytest.mark.parametrize(
@@ -373,7 +373,7 @@ def test_carousel_is_one_event_and_every_image_is_ocrd(tmp_path, monkeypatch, co
         ),
     ],
 )
-def test_ocr_context_reaches_llm_relevance_decision(
+def test_caption_alone_reaches_llm_relevance_decision(
     tmp_path,
     monkeypatch,
     config_path,
@@ -418,13 +418,13 @@ def test_ocr_context_reaches_llm_relevance_decision(
     assert result["wakeAgent"] is True
     assert result["item"]["event_key"].endswith(":education")
     assert len(saved["outbox"]) == 1
-    assert ocr_calls == [0, 1]
+    assert ocr_calls == []
     assert len(heartbeats) == 1
     assert "1 queued" in heartbeats[0]
     assert "filters:" not in heartbeats[0]
 
 
-def test_ocr_failure_chooses_partial_vision_and_sparse_text_chooses_full(tmp_path, monkeypatch, config_path):
+def test_optional_ocr_failure_and_sparse_caption_do_not_trigger_vision(tmp_path, monkeypatch, config_path):
     profile = config.load_watch_config(config_path).profiles[0]
     storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
     _initialize_cursor(storage, profile, _post(profile.id, "baseline", 0))
@@ -443,8 +443,8 @@ def test_ocr_failure_chooses_partial_vision_and_sparse_text_chooses_full(tmp_pat
     scan.run(now=NOW + timedelta(minutes=1), dry_run=True)
     saved = state.load_state(storage)
     decision = state.deserialize_vision_decision(saved["outbox"][0]["vision_decision"])
-    assert decision.mode is vision_gate.VisionMode.VISION_PARTIAL
-    assert decision.asset_ids == (1,)
+    assert decision.mode is vision_gate.VisionMode.TEXT_ONLY
+    assert decision.asset_ids == ()
 
     storage2, media_root2 = _install_paths(monkeypatch, tmp_path / "sparse", config_path)
     _initialize_cursor(storage2, profile, _post(profile.id, "baseline2", 0))
@@ -455,11 +455,11 @@ def test_ocr_failure_chooses_partial_vision_and_sparse_text_chooses_full(tmp_pat
     scan.run(now=NOW + timedelta(minutes=1), dry_run=True)
     sparse_state = state.load_state(storage2)
     sparse_decision = state.deserialize_vision_decision(sparse_state["outbox"][0]["vision_decision"])
-    assert sparse_decision.mode is vision_gate.VisionMode.VISION_FULL
-    assert sparse_decision.asset_ids == (0,)
+    assert sparse_decision.mode is vision_gate.VisionMode.TEXT_ONLY
+    assert sparse_decision.asset_ids == ()
 
 
-def test_reel_frames_are_ocrd_and_persisted_for_analysis(tmp_path, monkeypatch, config_path):
+def test_reel_originals_persist_without_analysis_sampling(tmp_path, monkeypatch, config_path):
     profile = config.load_watch_config(config_path).profiles[0]
     storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
     _initialize_cursor(storage, profile, _post(profile.id, "baseline", 0))
@@ -490,9 +490,9 @@ def test_reel_frames_are_ocrd_and_persisted_for_analysis(tmp_path, monkeypatch, 
 
     saved = state.load_state(storage)
     event = saved["outbox"][0]
-    assert ocr_calls == [1, 2]
-    assert [item["source"]["kind"] for item in event["downloaded_publication"]["assets"]] == ["video", "image", "image"]
-    assert [item["source"]["index"] for item in event["downloaded_publication"]["assets"]] == [0, 1, 2]
+    assert ocr_calls == []
+    assert [item["source"]["kind"] for item in event["downloaded_publication"]["assets"]] == ["video", "image"]
+    assert [item["source"]["index"] for item in event["downloaded_publication"]["assets"]] == [0, 1]
 
 
 def test_reel_delivery_sends_only_first_image_not_sampled_frames(tmp_path, monkeypatch, config_path):
@@ -693,6 +693,7 @@ def test_discord_nonce_fits_discord_limit():
 
 
 def test_filtered_submission_cleans_owned_media(tmp_path, monkeypatch, config_path):
+    from test_summary_context import staged_claim
     profile = config.load_watch_config(config_path).profiles[0]
     storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
     baseline = _post(profile.id, "baseline", 0)
@@ -706,11 +707,13 @@ def test_filtered_submission_cleans_owned_media(tmp_path, monkeypatch, config_pa
     state.save_state(storage, value)
     cleaned: list[tuple[Path, str]] = []
     monkeypatch.setattr(scan.media, "cleanup_event_media", lambda root, event_id: cleaned.append((root, event_id)))
+    optional_asset = staged_claim(tmp_path, monkeypatch, event["event_key"])
 
     result = scan.submit_analysis_payload({"event_key": event["event_key"], "is_relevant": False})
 
     saved = state.load_state(storage)
     assert result == {"submitted": True, "ignored": True, "delivered": 0}
+    assert not optional_asset.exists()
     assert saved["outbox"] == []
     assert saved["filtered_since_last_heartbeat"] == 1
     assert cleaned == [(media_root, post.publication_id)]
@@ -854,7 +857,7 @@ def test_expired_agent_lease_is_reclaimed_by_next_non_no_post_run(tmp_path, monk
     monkeypatch.setattr(scan.rsshub, "fetch_profile_items", lambda *_args, **_kwargs: [])
     heartbeats: list[str] = []
     monkeypatch.setattr(scan.discord, "post_text", lambda content, *_args: heartbeats.append(content) or "heartbeat")
-    monkeypatch.setattr(scan.agent_protocol, "agent_item", lambda _profile, _event: {
+    monkeypatch.setattr(scan.agent_protocol, "agent_item", lambda _profile, _event, **_kwargs: {
         "event_key": event["event_key"],
         "profile_handle": profile.handle,
         "profile_name": profile.display_name,
@@ -888,7 +891,7 @@ def test_expired_agent_lease_is_reclaimed_by_next_non_no_post_run(tmp_path, monk
     assert any("reclaimed 1 expired agent lease(s)" in content and "⚠️" in content for content in heartbeats)
 
 
-def test_direct_market_disclosure_cannot_be_marked_irrelevant(tmp_path, monkeypatch, config_path):
+def test_llm_can_reject_content_with_disclosure_terms(tmp_path, monkeypatch, config_path):
     profile = config.load_watch_config(config_path).profiles[0]
     storage, media_root = _install_paths(monkeypatch, tmp_path, config_path)
     _initialize_cursor(storage, profile, _post(profile.id, "baseline", 0))
@@ -900,14 +903,10 @@ def test_direct_market_disclosure_cannot_be_marked_irrelevant(tmp_path, monkeypa
     heartbeats: list[str] = []
     monkeypatch.setattr(scan.discord, "post_text", lambda content, *_args: heartbeats.append(content) or "heartbeat")
 
-    with pytest.raises(ValueError, match="direct market disclosure"):
-        scan.submit_analysis_payload({"event_key": event["event_key"], "is_relevant": False})
-
-    saved = state.load_state(storage)
-    assert saved["outbox"][0]["agent_phase"] == "awaiting_agent"
-    assert saved["outbox"][0]["last_error"] == "analysis submission failed"
-    assert len(heartbeats) == 1
-    assert heartbeats[0].startswith("🫀 instagram-post")
+    result = scan.submit_analysis_payload({"event_key": event["event_key"], "is_relevant": False})
+    assert result["ignored"] is True
+    assert state.load_state(storage)["outbox"] == []
+    assert heartbeats == []
 
 
 def test_invalid_submission_heartbeat_redacts_provider_details_and_preserves_error(tmp_path, monkeypatch, config_path):
@@ -1060,3 +1059,33 @@ def os_environ() -> dict[str, str]:
     import os
 
     return dict(os.environ)
+
+
+def test_independent_news_cards_freeze_delivery_and_projection(tmp_path,monkeypatch,config_path):
+    profile=config.load_watch_config(config_path).profiles[0]
+    storage,media_root=_install_paths(monkeypatch,tmp_path,config_path)
+    _initialize_cursor(storage,profile,_post(profile.id,'baseline',0))
+    post=_post(profile.id,'roundup',1,caption='GIAA rights issue dan UNTR buyback.')
+    event=_queued_event(storage,profile,post,_prepared(post,media_root),NOW+timedelta(minutes=1))
+    value=state.load_state(storage);state.claim_oldest_agent(value,{profile.id:profile},datetime.now(scan.WIB));state.save_state(storage,value)
+    quotes=[]
+    monkeypatch.setattr(scan.render.news_format,'get_market_snapshot',lambda ticker,route:quotes.append(ticker))
+    result=scan.submit_analysis_payload({'event_key':event['event_key'],'is_relevant':True,'items':[
+        {'title':'GIAA: Rencana rights issue','summary':'GIAA akan melakukan rights issue.','route':'id_stocks_news'},
+        {'title':'UNTR: Rencana buyback','summary':'UNTR akan membeli kembali saham.','route':'id_stocks_news'},
+    ]},dry_run=True)
+    assert result['delivered']==0 and quotes==['GIAA','UNTR']
+    saved=state.load_state(storage);record=saved['outbox'][0]
+    record['text_index']=2;record['text_message_ids']=['7001','7002']
+    record['media_index']=1;record['media_message_ids']=['7003']
+    monkeypatch.setattr(scan.render.news_format,'get_market_snapshot',lambda *args:pytest.fail('projection fetched quotes'))
+    import publication_projection
+    first,ops1=publication_projection._candidate(record,profile,NOW,0)
+    second,ops2=publication_projection._candidate(record,profile,NOW,1)
+    assert first['owner_key']!=second['owner_key']
+    assert first['ticker']=='GIAA' and second['ticker']=='UNTR'
+    assert len(ops1)==2 and len(ops2)==1
+    assert ops1[0][1]==record['news_cards'][0]['messages'][0]
+    assert ops2[0][1]==record['news_cards'][1]['messages'][0]
+    assert first['source_published_at']==second['source_published_at']==post.published_at.isoformat()
+    assert first['source_url']==second['source_url']==post.url

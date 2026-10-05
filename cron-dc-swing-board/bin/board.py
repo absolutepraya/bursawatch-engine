@@ -21,7 +21,7 @@ import config
 from discord_forum import DiscordForumClient, forum_thread_url
 from engine import BoardEngine
 from models import SourceEvent
-from render import WIB
+from render import WIB, episode_title
 from store import BoardStore
 
 
@@ -62,6 +62,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         health = {"drained": engine.drain(), **engine.store.outbox_health()}
         print(json.dumps(health, separators=(",", ":")))
         return int(health["pending"] > 0 or health["failed"] > 0)
+    if arguments.command == "reconcile-lifecycle":
+        return _reconcile_lifecycle(engine, loaded_config)
     if arguments.command == "migrate-format":
         if not arguments.apply:
             print(json.dumps({
@@ -94,7 +96,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "apply_required": True,
                 "planned_episodes": sum(
                     1 for episode in engine.store.episodes()
-                    if episode.thread_id and episode.starter_message_id and episode.title != episode.ticker
+                    if episode.thread_id and episode.starter_message_id
+                    and episode.title != episode_title(episode.ticker, episode.opened_at)
                 ),
             }, separators=(",", ":")))
             return 0
@@ -129,6 +132,7 @@ def _parser() -> argparse.ArgumentParser:
     repair_media.add_argument("--expected-thread-id", required=True)
     repair_media.add_argument("--apply", action="store_true")
     subcommands.add_parser("drain")
+    subcommands.add_parser("reconcile-lifecycle")
     migrate = subcommands.add_parser("migrate-format")
     migrate.add_argument("--apply", action="store_true")
     cleanup = subcommands.add_parser("cleanup-history")
@@ -535,6 +539,37 @@ def _after_close(
         control_run.finish(outcome, failure)
 
 
+def _reconcile_lifecycle(engine: BoardEngine, loaded_config: config.LoadedBoardConfig) -> int:
+    """Run the daily inactivity and archive pass with a durable heartbeat."""
+    now = datetime.now(WIB)
+    try:
+        result = engine.reconcile_lifecycle(now)
+    except CalendarCoverageError:
+        engine.drain()
+        content = f"❌ swing-board-lifecycle · {now:%H:%M} WIB · failed: calendar coverage unavailable"
+        _queue_heartbeat(engine, loaded_config.config.heartbeat_discord_channel_id,
+                         content, "lifecycle")
+        print(content)
+        return 1
+    except Exception:
+        engine.drain()
+        content = f"❌ swing-board-lifecycle · {now:%H:%M} WIB · failed: reconciliation error"
+        _queue_heartbeat(engine, loaded_config.config.heartbeat_discord_channel_id,
+                         content, "lifecycle")
+        print(content)
+        return 1
+    drained = engine.drain()
+    health = engine.store.outbox_health()
+    warning = " ⚠️" if health["pending"] or health["failed"] else ""
+    content = (f"🫀 swing-board-lifecycle · {now:%H:%M} WIB · "
+               f"resolved={result['resolved']} quiet={result['quiet_started']} "
+               f"archive={result['archived']} drained={drained} pending={health['pending']}{warning}")
+    _queue_heartbeat(engine, loaded_config.config.heartbeat_discord_channel_id,
+                     content, "lifecycle")
+    print(content)
+    return 0
+
+
 def _queue_heartbeat(engine: BoardEngine, channel_id: str, content: str, phase: str) -> None:
     """Commit a stable channel intent before handing it to Delivery Owner."""
     identity = f"scheduled-heartbeat:v1:{phase}:{uuid4().hex}"
@@ -547,33 +582,35 @@ def _failure_reason(error: object) -> str:
 
 
 def _own_media(event: SourceEvent) -> SourceEvent:
-    if event.media_path is None:
+    if not event.media_paths:
         return event
-    source = Path(event.media_path)
-    if not source.is_file():
+    sources = tuple(Path(path) for path in event.media_paths)
+    if any(not source.is_file() for source in sources):
         raise ValueError("source media is unavailable")
     root = _media_root()
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    suffix = _media_suffix(source)
     digest = hashlib.sha256(event.event_key.encode("utf-8")).hexdigest()
-    destination = root / f"{digest}{suffix}"
-    if destination.is_file():
-        return replace(event, media_path=str(destination))
-    descriptor, temporary = tempfile.mkstemp(prefix=f".{digest}.", dir=root)
+    destinations = []
+    for index, source in enumerate(sources):
+        suffix = _media_suffix(source)
+        destination = root / f"{digest}-{index}{suffix}"
+        if not destination.is_file():
+            descriptor, temporary = tempfile.mkstemp(prefix=f".{digest}-{index}.", dir=root)
+            try:
+                with os.fdopen(descriptor, "wb") as target, source.open("rb") as incoming:
+                    shutil.copyfileobj(incoming, target)
+                    target.flush()
+                    os.fsync(target.fileno())
+                os.replace(temporary, destination)
+            finally:
+                Path(temporary).unlink(missing_ok=True)
+        destinations.append(str(destination))
+    directory = os.open(root, os.O_RDONLY)
     try:
-        with os.fdopen(descriptor, "wb") as target, source.open("rb") as incoming:
-            shutil.copyfileobj(incoming, target)
-            target.flush()
-            os.fsync(target.fileno())
-        os.replace(temporary, destination)
-        directory = os.open(root, os.O_RDONLY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        os.fsync(directory)
     finally:
-        Path(temporary).unlink(missing_ok=True)
-    return replace(event, media_path=str(destination))
+        os.close(directory)
+    return replace(event, media_path=destinations[0], media_paths=tuple(destinations))
 
 
 def _media_suffix(source: Path) -> str:

@@ -14,9 +14,9 @@ from models import SourceMedia, SourcePost
 from source_media import client_from_environment, reference_id, verified_download
 
 
-MAX_VISION_ASSETS = 8
+MAX_VISION_ASSETS = 16
 MAX_ASSET_BYTES = 8 * 1024 * 1024
-MAX_EVENT_BYTES = 32 * 1024 * 1024
+MAX_EVENT_BYTES = 25 * 1024 * 1024
 REQUEST_TIMEOUT_SECONDS = 8
 PREPARATION_TIMEOUT_SECONDS = 20
 _COMPONENT_RE = re.compile(r"[a-z0-9][a-z0-9_-]*")
@@ -144,8 +144,8 @@ def _is_supported_source(media: SourceMedia) -> bool:
 def _candidate_media(posts: tuple[SourcePost, ...]) -> tuple[tuple[str, SourcePost, SourceMedia, int], ...]:
     candidates: list[tuple[str, SourcePost, SourceMedia, int]] = []
     seen: set[str] = set()
-    for role, collection_name in (("tweet", "media"), ("quoted_tweet", "quoted_media")):
-        for position, post in enumerate(posts, start=1):
+    for position, post in enumerate(posts, start=1):
+        for role, collection_name in (("tweet", "media"), ("quoted_tweet", "quoted_media")):
             for media in getattr(post, collection_name):
                 if not _is_supported_source(media) or media.url in seen:
                     continue

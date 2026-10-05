@@ -204,6 +204,61 @@ def test_handoff_plan_keeps_existing_text_receipt_and_does_not_replay_it(tmp_pat
     assert snapshot.items[0].operation.payload["content"]
 
 
+@pytest.mark.parametrize('bad_card_count', [False, True])
+def test_handoff_reuses_each_frozen_card_and_partial_receipts(tmp_path, monkeypatch, bad_card_count):
+    import delivery_handoff
+    import json
+    import render
+    from bursawatch_discord_delivery.handoff import HandoffError
+
+    frozen_channel = '1525102508714889257'
+    profile = config.load_data({'version': 2, 'profiles': [{
+        'id': 'bri-danareksa-sekuritas', 'enabled': True, 'mode': 'forward',
+        'channel_jid': '1@newsletter', 'channel_url': 'https://whatsapp.com/channel/example',
+        'display_name': 'BRI', 'emoji': '<:bri:12345678901234567>',
+        'status_emojis': {'up': None, 'down': None, 'hold': None},
+        'discord_channels': [{'key': 'id_stocks_news', 'channel_id': '1525102508714889258', 'description': 'News'}],
+        'forward_media': False, 'enable_llm_title': True, 'enable_llm_summary': True,
+        'enable_llm_routing': True, 'enable_llm_relevance_filter': True,
+        'relevance_scope': 'financial_market', 'additional_prompt_instruction': '', 'max_items_per_poll': 5,
+    }]}).profiles[0]
+    event = normalize_bridge_event({
+        'channel_jid': profile.channel_jid, 'message_id': 'wa-frozen',
+        'published_at': '2026-09-22T04:26:00Z', 'text': 'Source post', 'media': [],
+    })
+    news_items = [{'title': ticker + ': Aksi korporasi', 'summary': ticker + ' mengumumkan aksi korporasi.',
+                   'route': 'id_stocks_news'} for ticker in ('GIAA', 'UNTR')]
+    cards = render.news_format.freeze_cards(
+        news_items, lambda item: '### ' + item['title'], profile.channel_url, 'WhatsApp',
+        fetch=lambda *args: None, target_for=lambda item: frozen_channel,
+    )
+    if bad_card_count:
+        cards.pop()
+    state_path = tmp_path / 'state.json'
+    state_path.write_text(json.dumps({'version': 1, 'profiles': {}, 'outbox': [{
+        'event_key': event.event_key, 'profile_id': profile.id,
+        'event': serialize_event(event), 'agent_phase': 'ready', 'items': news_items, 'news_cards': cards,
+        'item_index': 1, 'text_index': 0, 'text_message_ids': ['123456789012345678'],
+        'media_index': 0, 'media_skipped_indexes': [], 'board_phase': 'pending',
+    }]}), encoding='utf-8')
+    original = state_path.read_bytes()
+    monkeypatch.setattr(render, 'render_post', lambda *args, **kwargs: pytest.fail('frozen cards must not be rendered again'))
+    adapter = delivery_handoff.WhatsAppChannelWatchHandoffAdapter(
+        state_path, tmp_path / 'handoff.json', archive_root=tmp_path / 'archive', profiles={profile.id: profile},
+    )
+    if bad_card_count:
+        with pytest.raises(HandoffError, match='rendered message is invalid'):
+            adapter.build_handoff_snapshot()
+    else:
+        snapshot = adapter.build_handoff_snapshot()
+        assert [item.operation.payload['content'] for item in snapshot.items] == [card['messages'][0] for card in cards]
+        assert [item.operation.target['channel_id'] for item in snapshot.items] == [frozen_channel, frozen_channel]
+        assert snapshot.items[0].receipt == {'channel_id': frozen_channel, 'message_id': '123456789012345678'}
+        assert snapshot.items[1].receipt is None
+        assert snapshot.items[1].operation.legacy_nonce == discord.nonce(event.event_key, 'item:1:text:0')
+    assert state_path.read_bytes() == original
+
+
 def _legacy_bri_profile():
     profile_data = {
         "id": "bri-danareksa-sekuritas", "enabled": True, "mode": "forward",

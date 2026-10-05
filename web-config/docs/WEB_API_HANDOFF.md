@@ -1,9 +1,9 @@
 # Proposed web configuration API
 
-**Historical proposal:** the teammate has since published a different operator
-API on a development branch. Follow [CONTROL_PLANE.md](CONTROL_PLANE.md) for
-the reviewed implementation. The tenant-scoped routes below remain proposals;
-they must not be mistaken for implemented endpoints.
+**Historical proposal:** the tenant-scoped API below was not adopted. The
+shared operator API is implemented and deployed; follow
+[CONTROL_PLANE.md](CONTROL_PLANE.md) for its current contract and production
+status. The routes below remain proposals and are not implemented endpoints.
 
 **Proposal only. Nothing in this document is an implemented endpoint, an agreed
 database schema or permission to modify the teammate's repository or runtime.**

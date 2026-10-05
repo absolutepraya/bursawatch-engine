@@ -3,10 +3,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib-bursawatch-discord-delivery" / "bin"))
 
 import discord
 from bursawatch_discord_delivery import OperationIntent, OperationReceipt
+from bursawatch_discord_delivery.client import DeliveryClientError
 
 
 class Owner:
@@ -57,6 +60,72 @@ def test_duplicate_stockbit_submission_recovers_existing_receipt_without_bot_tok
     )
 
     assert message_id == "123456789012345678"
+    assert owner.status_keys == [operation_key]
+    assert owner.submitted == []
+
+
+def test_duplicate_stockbit_submission_accepts_legacy_receipt_without_channel_id():
+    operation_key = "bursawatch-stockbit-snips:" + discord.nonce("event-legacy", "news")
+    expected = OperationIntent(
+        key=operation_key,
+        kind="channel_message_create",
+        ordering_key="channel:42",
+        target={"channel_id": "42"},
+        payload={"content": "Stockbit update", "allowed_mentions": {"parse": []}},
+    )
+    owner = Owner(
+        OperationReceipt(
+            id="op-legacy",
+            key=expected.key,
+            digest=expected.digest,
+            status="delivered",
+            receipt={"message_id": "123456789012345678"},
+        )
+    )
+
+    message_id = discord.post_text(
+        "Stockbit update",
+        "42",
+        dry_run=False,
+        event_key="event-legacy",
+        leg="news",
+        client=owner,
+    )
+
+    assert message_id == "123456789012345678"
+    assert owner.status_keys == [operation_key]
+    assert owner.submitted == []
+
+
+def test_duplicate_stockbit_submission_rejects_receipt_for_another_channel():
+    operation_key = "bursawatch-stockbit-snips:" + discord.nonce("event-other-channel", "news")
+    expected = OperationIntent(
+        key=operation_key,
+        kind="channel_message_create",
+        ordering_key="channel:42",
+        target={"channel_id": "42"},
+        payload={"content": "Stockbit update", "allowed_mentions": {"parse": []}},
+    )
+    owner = Owner(
+        OperationReceipt(
+            id="op-other-channel",
+            key=expected.key,
+            digest=expected.digest,
+            status="delivered",
+            receipt={"channel_id": "99", "message_id": "123456789012345678"},
+        )
+    )
+
+    with pytest.raises(DeliveryClientError):
+        discord.post_text(
+            "Stockbit update",
+            "42",
+            dry_run=False,
+            event_key="event-other-channel",
+            leg="news",
+            client=owner,
+        )
+
     assert owner.status_keys == [operation_key]
     assert owner.submitted == []
 

@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path as _NewsPath
+import sys as _news_sys
+_news_bin = _NewsPath(__file__).resolve().parents[2] / "lib-news-format" / "bin"
+if not _news_bin.is_dir():
+    _news_bin = _NewsPath.home() / ".agents/skills/lib-news-format/bin"
+if str(_news_bin) not in _news_sys.path:
+    _news_sys.path.insert(0, str(_news_bin))
+import news_format
+
 from collections.abc import Mapping
 from html.parser import HTMLParser
 import hashlib
@@ -30,7 +39,7 @@ MAX_TITLE_CHARACTERS = 120
 MAX_MEDIA_ASSETS = 100
 MAX_LOCAL_PATH_CHARACTERS = 4_096
 MAX_PATH_CONTEXT_CHARACTERS = 4_096
-MAX_INSTRUCTION_CHARACTERS = 8_000
+MAX_INSTRUCTION_CHARACTERS = 16_000
 
 SUMMARY_PREFIX = "*(Ringkasan)* "
 SUMMARY_LABEL = SUMMARY_PREFIX.rstrip()
@@ -196,7 +205,7 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
             "First decide whether the central thesis of this single Instagram publication is substantively "
             "about the stock market: listed shares, stock indices, listed companies or issuers, stock prices, "
             "equity valuation, earnings, dividends, corporate actions, or a macro or cross-asset factor with "
-            "an explicit stock-market implication. Use the caption and every labeled OCR section together. "
+            "an explicit stock-market implication. Screen ordinary news from the caption text alone. "
             "Exclude generic trading and investing education or advice, including tips, how-to guides, "
             "strategies, techniques, technical-analysis or chart lessons, risk or money management, and "
             "mentality, mindset, psychology, discipline, patience, fear, greed, or emotional-control lessons. "
@@ -215,8 +224,8 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
         )
     if relevance_guard_required:
         relevance += (
-            "The scanner detected a clear direct market-disclosure signal. It must be relevant. "
-            "Never return is_relevant false for it. "
+            "The scanner detected market-related words. They are advisory context only. "
+            "Decide relevance from the complete thesis; education and promotions can still be irrelevant. "
         )
     routing = ""
     if profile.enable_llm_routing:
@@ -226,20 +235,15 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
             "valuations, investor positioning, bubbles, broad sector or AI-cycle risk, even when companies "
             "or ETFs are examples. Use id_stocks_news only for a direct IDX-listed company or ticker thesis, "
             "earnings, corporate action, fundamentals, or valuation. If removing company names leaves a "
-            "broad market thesis, route macro_news. Never duplicate a publication across routes. If an issuer, "
+            "broad market thesis, route macro_news. Never duplicate a single story across routes. If an issuer, "
             "exchange, or listing country is uncertain, use the available Yahoo Finance tool first, then "
             "Serper, then Brave Search. Use lookup results only to identify the issuer, exchange, listing "
             "country, exact exchange ticker, and route. Do not add any other lookup fact to the title or "
             f"summary. Choose exactly one configured route key: {channels}. "
         )
-    title_and_summary = (
-        "Titles and summaries must be source-grounded Bahasa Indonesia. For id_stocks_news, start the first "
-        "word of the title with the exact exchange ticker followed by a colon, for example MYOR: or BBCA:. "
-        "For macro_news, write a concise natural headline and do not invent a ticker. Start only the first "
-        "summary paragraph with *(Ringkasan)*. Never repeat that label in the second paragraph. Write "
-        "the account's own thesis directly and factually. Do not describe the account or writer as a "
-        "narrator, and do not invent facts, advice, or outside context. "
-    )
+    title_and_summary = news_format.WRITING_INSTRUCTION + news_format.ITEMS_INSTRUCTION
+    if profile.enable_llm_title and profile.enable_llm_summary and profile.enable_llm_routing:
+        title_and_summary += "For relevant news, submit event_key, is_relevant when required, and items with one to sixteen objects containing exactly title, summary, route. "
     profile_instruction = ""
     if profile.additional_prompt_instruction:
         profile_instruction = f"Profile-specific instruction: {_clean_text(profile.additional_prompt_instruction, 800)} "
@@ -247,9 +251,8 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
         INSTRUCTION_PREFIX
         + "Process exactly this one supplied event. Do not fetch Instagram, browse for image interpretation, "
         "read watcher state, inspect history, process other publications, or post Discord directly. "
-        "OCR is context and the scanner owns original-media delivery. When vision_mode is vision_partial "
-        "or vision_full, read every path in vision_asset_paths with vision before deciding. Do not render "
-        "OCR text automatically. Return only the requested closed JSON object and submit it through the "
+        "The scanner owns original-media delivery. Ordinary-news screening is caption-only. "
+        "Optional images may clarify an already eligible text story through the trusted lazy command. Return only the requested closed JSON object and submit it through the "
         "watcher wrapper. "
         + relevance
         + profile_instruction
@@ -794,8 +797,15 @@ def _event_parts(profile: Profile, event: dict) -> tuple[SourcePost, object, tup
     return post, downloaded, ocr_results, vision
 
 
-def agent_item(profile: Profile, event: dict) -> dict[str, object]:
+def agent_item(profile: Profile, event: dict, *, news_screening: bool = False) -> dict[str, object]:
     post, downloaded, ocr_results, vision = _event_parts(profile, event)
+    if news_screening:
+        # Original delivery assets remain owned and validated; eligibility gets only caption text.
+        from dataclasses import replace
+        downloaded = replace(downloaded, assets=(), failed_assets=())
+        ocr_results = ()
+        from vision_gate import VisionDecision, REASON_TEXT_SUFFICIENT
+        vision = VisionDecision(VisionMode.TEXT_ONLY, REASON_TEXT_SUFFICIENT, (), ())
     records = _ordered_ocr_records(downloaded, ocr_results, downloaded.failed_assets)
     media_root = _event_media_root(str(downloaded.media_root), event["event_key"])
     vision_ids, vision_path_ids, vision_paths = _validated_vision_selection(
@@ -1065,19 +1075,9 @@ def build_wake_payload(item: Mapping[str, object] | None) -> dict[str, object]:
 def validate_summary(value: object) -> str:
     if not isinstance(value, str):
         raise ValueError("summary must be text")
-    summary = value.strip()
-    if not summary.startswith(SUMMARY_PREFIX):
-        raise ValueError(f"summary must start with {SUMMARY_PREFIX!r}")
-    paragraphs = [paragraph.strip() for paragraph in re.split(r"\n\s*\n", summary) if paragraph.strip()]
-    if not 1 <= len(paragraphs) <= 2 or any("\n" in paragraph for paragraph in paragraphs):
-        raise ValueError("summary must contain one or two one-line paragraphs")
-    if len(paragraphs) == 2 and paragraphs[1].startswith(SUMMARY_PREFIX):
-        paragraphs[1] = paragraphs[1][len(SUMMARY_PREFIX):].lstrip()
-        if not paragraphs[1]:
-            raise ValueError("summary second paragraph must contain text")
-    summary = "\n\n".join(paragraphs)
-    if summary.count(SUMMARY_LABEL) != 1 or len(summary) > MAX_SUMMARY_CHARACTERS:
-        raise ValueError("summary must contain one bounded Ringkasan label")
+    summary = news_format.normalize_summary(value, marked=True)
+    if not news_format.normalize_summary(value) or len(summary) > MAX_SUMMARY_CHARACTERS:
+        raise ValueError("summary must contain bounded nonempty text")
     return summary
 
 
@@ -1106,6 +1106,25 @@ def validate_route(profile: Profile, value: object) -> str:
 def validate_submission(profile: Profile, payload: object) -> dict[str, str | bool]:
     if type(payload) is not dict:
         raise ValueError("analysis submission must be an object")
+    if "items" in payload:
+        if not (profile.enable_llm_title and profile.enable_llm_summary and profile.enable_llm_routing):
+            raise ValueError("items require generated titles, summaries and routing")
+        expected_items = {"event_key", "items"} | ({"is_relevant"} if profile.enable_llm_relevance_filter else set())
+        if set(payload) != expected_items or (profile.enable_llm_relevance_filter and payload.get("is_relevant") is not True):
+            raise ValueError("relevant item submission has unexpected fields")
+        raw_items = payload["items"]
+        if type(raw_items) is not list or not 1 <= len(raw_items) <= 16:
+            raise ValueError("items must contain one to sixteen news items")
+        items = []
+        for item in raw_items:
+            if type(item) is not dict or set(item) != {"title", "summary", "route"}:
+                raise ValueError("news item has unexpected fields")
+            validated = validate_submission(profile, {"event_key": payload["event_key"], **({"is_relevant": True} if profile.enable_llm_relevance_filter else {}), **item})
+            if validated["route"] not in {"id_stocks_news", "us_stocks_news", "macro_news"}:
+                raise ValueError("multi-item schema supports news routes only")
+            items.append({key: validated[key] for key in ("title", "summary", "route")})
+        items = news_format.deduplicate_items(items)
+        return {"event_key": payload["event_key"], **({"is_relevant": True} if profile.enable_llm_relevance_filter else {}), **items[0], "news_items": items}
     expected = {"event_key"}
     if profile.enable_llm_relevance_filter:
         expected.add("is_relevant")

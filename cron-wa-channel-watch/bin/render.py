@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path as _NewsPath
+import sys as _news_sys
+_news_bin = _NewsPath(__file__).resolve().parents[2] / "lib-news-format" / "bin"
+if not _news_bin.is_dir():
+    _news_bin = _NewsPath.home() / ".agents/skills/lib-news-format/bin"
+if str(_news_bin) not in _news_sys.path:
+    _news_sys.path.insert(0, str(_news_bin))
+import news_format
+
 import re
 from zoneinfo import ZoneInfo
 
@@ -94,7 +103,14 @@ def render_post(
     route: str | None = None,
     sentiment: str | None = None,
     board_url: str | None = None,
+    source_chart_unavailable: bool = False,
 ) -> list[str]:
+    if source_chart_unavailable and is_technical_review(event.text):
+        heading = f"### {profile.emoji} {_safe_name(title or profile.display_name)}"
+        return _split(
+            f"{heading}\n\n{event.text.strip()}\n\nSource chart unavailable\n\n[View on WhatsApp Channel](<{profile.channel_url}>)",
+            DISCORD_LIMIT,
+        )
     if route == "id_stocks_swing" and is_technical_review(event.text):
         return _split(
             _swing_post(
@@ -110,3 +126,8 @@ def render_post(
     heading = f"### {profile.emoji} {_safe_name(title or profile.display_name)}"
     body = (summary or event.text or "*(Media tanpa caption)*").strip()
     return _split(f"{heading}\n\n{body}\n\n[View on WhatsApp Channel](<{profile.channel_url}>)", DISCORD_LIMIT)
+
+
+def freeze_news(profile, event, items):
+    return news_format.validate_cards(news_format.freeze_cards(
+        items, lambda item: f"### {profile.emoji} {_safe_name(item.get('title') or profile.display_name)}\n-# {_safe_name(profile.display_name)}", profile.channel_url, "WhatsApp Channel", target_for=lambda item: profile.channel_for(item["route"]).channel_id))

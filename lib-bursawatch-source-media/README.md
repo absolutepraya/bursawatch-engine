@@ -30,3 +30,21 @@ download = reader.download(media_ref["ref"])
 `download` returns a `MediaDownload` with `data`, `content_type`, `filename`, `kind`, and `sha256`. The client verifies the downloaded body digest and size against response metadata before returning it. Each call carries one token, so an upload-only token cannot perform reads and a read-only token cannot upload.
 
 The client rejects non-loopback URLs, does not follow redirects, and never constructs Supabase requests. It does not send source media bytes through Control Plane or Discord Delivery APIs by URL; a domain owner passes retrieved bytes to the existing output owner.
+
+`summary_images` prepares optional original-image context only after the domain
+owner's text eligibility decision and active-claim check. It reads verified
+opaque refs through this client, cross-checks immutable source metadata, and
+stages private assets (directories 0700, files 0600). Source association and
+order survive. Defaults are four selected images, 8 MiB each, 25 MiB total,
+8 seconds per request and 20 seconds aggregate; limits are injectable. Four
+process-wide daemon slots prevent unbounded stalled reads. Late reads never
+stage assets. Failures return partial/unavailable context for a text fallback,
+without model calls, OCR, source discovery or required-media delivery changes.
+`download` accepts optional `max_bytes` and `timeout_seconds` bounds; existing
+calls retain their behavior. Cleanup removes only the specified private
+analysis binding, without touching source media or delivery attachments.
+Owners call `cleanup_claim_context` after accepted analysis is saved, including
+irrelevant results. Rejected submissions retain their paths while inspection
+may continue. Preparation records the lease deadline privately; subsequent
+claims or preparation call `expire_claim_context` to prune abandoned expired
+bundles. No additional job or required-media cleanup is introduced.

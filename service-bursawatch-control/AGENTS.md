@@ -7,12 +7,35 @@ API contract consumed by the separate web repository.
 It also owns durable normalized source-event acceptance and independent leased
 pipeline work. These are separate from structured run events and their retry
 state is held in Postgres.
+The publication read model in `publication_model.py`, `publication_store.py`,
+and migration `020_publications.sql` is a separate forward-only projection of
+confirmed Discord output. An owner submits only after all required Delivery
+Owner receipts are confirmed. The Control Plane keeps immutable versions,
+cutover, and owner checkpoints; it does not send to Discord, replay source
+events, or own the durable owner outboxes. Production recorded its forward-only
+cutover boundary on 2026-09-30 at 14:15 WIB. The feed may be empty after that
+boundary, and missing checkpoints cannot establish completeness.
+Distinct `CONTROL_PLANE_PUBLICATION_OWNER_TOKENS` scope each owner to its own
+submission and checkpoint. Human viewer/admin JWTs alone may read the feed.
+Activation uses the host-local `bin/activate_publication_feed.py` after separate
+approval. The complete required-operation manifest and exact output snapshot
+must be persisted in owner state before the owner acknowledges confirmed
+delivery; projection retry never reissues a Discord operation.
 It also owns the Source Catalog registry, capability compatibility, and
 versioned source configuration. Source catalog revisions are separate from
 watcher configuration revisions. User endpoints remain pending until a
 reviewed verification path exists; pending endpoints cannot produce effective
 subscriptions. The supported securities table starts empty because no
 reviewed finite engine universe has been established in source.
+The canonical Phintraco Sekuritas endpoint `telegram:phintasprofits` is
+compatible with `trading_plans` through migration
+`021_phintas_swing_compatibility.sql`. The migration adds compatibility only;
+effective source-catalog configuration must still enable the subscription.
+The legacy `telegram:phintraprofits` identity remains registered for accepted
+work and audit compatibility.
+The system-owned BRI WhatsApp endpoint supports `company_news`, `macro_news`,
+and `swing_chart_context`; the channel watcher's route scope still decides
+which classified items can be delivered.
 
 It does not own watcher cursors, image bytes, media, delivery outboxes,
 domain retry state, Telegram resilience, Swing Board state, secrets, or scheduler

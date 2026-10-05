@@ -54,6 +54,11 @@ def test_config_rejects_unknown_fields_duplicate_destinations_and_an_unbounded_p
     with pytest.raises(ValueError, match="800"):
         config.load_watch_config_data(invalid)
 
+    invalid = payload()
+    del invalid["additional_prompt_instruction"]
+    with pytest.raises(ValueError, match="additional_prompt_instruction"):
+        config.load_watch_config_data(invalid)
+
 
 def test_live_mode_uses_one_validated_frozen_snapshot(monkeypatch):
     live_payload = payload()

@@ -18,6 +18,7 @@ import pipeline_owner
 import source_work_routes
 import state
 from config import LoadedWatchConfig, load
+from models import ChannelEvent, ChannelMedia
 
 NOW = datetime(2026, 9, 25, 8, tzinfo=timezone.utc)
 
@@ -131,13 +132,52 @@ def test_whatsapp_source_work_hands_verified_chart_to_existing_watcher_without_p
     assert media.downloads == [work["envelope"]["media_refs"][0]["ref"]]
 
     wake = pipeline_owner.claim_agent(
-        no_post=True, state_path=state_path,
+        no_post=True, state_path=state_path, archive_root=archive_root,
         config_path=ROOT / "cron-wa-channel-watch" / "config" / "watches.json", now=NOW,
     )
     assert wake["wakeAgent"] is True
     assert wake["item"]["event_key"] == record["event_key"]
     assert "#TechnicalReview" in wake["item"]["post_text"]
     assert wake["item"]["media_kinds"] == ["image"]
+
+
+
+def test_unavailable_chart_keeps_original_archive_and_excludes_image_from_agent(tmp_path, monkeypatch):
+    work, inbox, _media, profiles = make_work(with_media=False)
+    work["envelope"]["payload"]["unavailable_media_manifest"] = [
+        {"index": 0, "kind": "image", "mime": "image/jpeg"}
+    ]
+    profile = next(row for row in profiles if row.id == "bri-danareksa-sekuritas")
+    state_path = tmp_path / "watcher" / "state.json"
+    archive_root = tmp_path / "watcher" / "archive"
+    staging_root = tmp_path / "watcher" / "staging"
+    staging_root.mkdir(parents=True)
+    event = ChannelEvent(
+        profile.channel_jid, "bri-message-1", NOW,
+        work["envelope"]["payload"]["text"], (),
+        (ChannelMedia("image", 0, "image/jpeg", str(staging_root / "missing.jpg")),), NOW,
+    )
+    archive.ensure(archive_root, profile.id, event, 3, staging_root=staging_root)
+    monkeypatch.setattr(
+        pipeline_owner.config, "load_for_run",
+        lambda *_args: LoadedWatchConfig(load(ROOT / "cron-wa-channel-watch" / "config" / "watches.json"), 3),
+    )
+    assert pipeline_owner.submit(
+        work, no_post=True, inbox=inbox, state_path=state_path,
+        archive_root=archive_root, staging_root=staging_root,
+    ) == "accepted"
+    record = state.load(state_path)["outbox"][0]
+    assert record["source_media_unavailable"] is True
+    assert record["event"]["media"][0]["path"] is None
+    archived = archive.query(archive_root, event_key=record["event_key"])
+    assert archived[0].data["media"][0]["capture_status"] == "unavailable"
+    wake = pipeline_owner.claim_agent(
+        no_post=True, state_path=state_path, archive_root=archive_root,
+        config_path=ROOT / "cron-wa-channel-watch" / "config" / "watches.json", now=NOW,
+    )
+    assert wake["wakeAgent"] is True
+    assert wake["item"]["media_kinds"] == []
+
 
 
 def test_source_scope_records_no_match_and_delivers_only_subscribed_classifications():

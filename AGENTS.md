@@ -3,6 +3,7 @@
 ## CI waiting policy (read first)
 
 - Never poll, watch, or wait on a GitHub CI run just to see it finish. After triggering CI, continue useful work or end the turn. Check the relevant run after it has finished, when its result is needed, then act on the observed pass or failure.
+- CodeRabbit checks and reviews are not merge gates here. Never wait, poll, or delay work or a merge for CodeRabbit. Merge when all other applicable PR checks are green, then continue the approved workflow.
 - This is an interactive workflow rule. Keep CI checks and the VPS release agent's exact-`main`-SHA success gate unchanged.
 
 ## Scope and split boundary
@@ -15,25 +16,49 @@ Hermes Personal is a separate repository at
 
 Packages use these names:
 
-- `cron-<surface>-<purpose>` is a scheduled development package.
+- `cron-<surface>-<purpose>` is a cron-oriented development package; it may
+  own an independent job or provide an adapter called by an existing job.
 - `bursawatch-<surface>-<purpose>` is its VPS runtime identity.
 - `lib-<purpose>` is shared imported code.
 - `skill-<purpose>` is a reusable non-scheduled skill.
 - `service-<purpose>` is a deployable daemon or service definition.
 - `platform-<purpose>` is host-bound supporting code.
 
-The current scheduled packages are `cron-tg-market-news`,
-`cron-tg-phintraco-swing`, `cron-tg-kelas-investasi-gtw`,
-`cron-dc-swing-board`, `cron-x-account-watch`, `cron-ig-account-watch`,
-`cron-wa-channel-watch`, and `cron-stockbit-snips`. `idx-ca-watch` and
-`yanto-gateway-voice` are retired
-and must not be recreated.
+The package inventory and its current production roles are in `README.md`.
+The production schedule is not one job per package: the active Telegram
+source-ingest job owns Telegram intake, while the X, WhatsApp, and Stockbit
+adapters run through their existing watcher jobs. The Instagram source adapter
+has no registered job. The standalone Telegram News, Phintraco Swing, Kelas
+Investasi, and Instagram watcher jobs were paused in the 2026-09-30 production
+snapshot, which showed 13 Hermes jobs (8 active, 5 paused) and all 8 desired
+interval schedules matching the live registry. `idx-ca-watch` and
+`yanto-gateway-voice` are retired and must not be recreated.
 
 The first production cutover changes source, runtime, wrapper, and scheduler
 identities while retaining established production state locations. A later,
 separately approved state migration must stop each writer and watchdog, prove
 integrity, move atomically, and verify the resumed runtime. Never hand-edit,
 reset, replay, or copy live state as source.
+
+## Migration and cutover policy
+
+Prefer forward-only cutovers for code, runtime, configuration, wrappers,
+services, schedules, and other deployment changes. Inventory every artifact
+and owner that must move together, then stage a compatible replacement while
+the existing path remains authoritative. At the switch, stop the old writer
+before starting the new one, record the source boundary, and use a fresh cursor
+or state root so only post-boundary work enters the new path. Do not replay or
+transfer historical state by default. Record any intentionally skipped
+backlog; preserve the old state and release artifacts unchanged for rollback.
+Keep the single-writer pause as short as practical, and verify health plus the
+first natural run without sending synthetic messages.
+
+Use a full snapshot and reconciliation only when preserving history is a
+requirement. Keep that path separately planned and approved; an incomplete
+history handoff must not block a forward-only cutover when history is not
+needed, and it must never be made to look ready by weakening validation.
+Existing approval rules for live scheduler, destination, and service changes
+still apply.
 
 VPS-only retained runtime material has one canonical backup tree:
 `~/backup/hermes/`. Store state-cutover rollback archives at
@@ -59,6 +84,9 @@ this contract:
 - `cron-ig-source-ingest/AGENTS.md`
 - `cron-wa-source-ingest/AGENTS.md`
 - `cron-rss-source-ingest/AGENTS.md`
+- `lib-bursawatch-discord-delivery/AGENTS.md`
+- `lib-bursawatch-source-media/AGENTS.md`
+- `lib-news-format/AGENTS.md`
 - `cron-dc-swing-board/AGENTS.md`
 - `cron-tg-phintraco-swing/AGENTS.md`
 - `cron-ig-account-watch/AGENTS.md`
@@ -69,6 +97,8 @@ this contract:
 - `cron-x-account-watch/AGENTS.md`
 - `cron-stockbit-snips/AGENTS.md`
 - `platform-bursawatch-release/AGENTS.md`
+- `platform-bursawatch-observer/AGENTS.md`
+- `platform-hermes-schedule-reconciler/AGENTS.md`
 - `web-config/AGENTS.md`
 - `web-landing/AGENTS.md`
 
@@ -79,6 +109,14 @@ Each scheduled package has `AGENTS.md` and exactly one root contract:
 agent-backed package. Reusable skills retain their own `SKILL.md`. Keep
 documentation aligned with the code, runtime identity, wrapper, scheduler,
 tests, and deployment instructions in the same change.
+
+Before writing or updating documentation that makes current production
+claims, run `python3 scripts/production_snapshot.py --production`. It compares
+published `main` with the VPS release SHA, checks Hermes gateway health, and
+compares Bursawatch desired interval schedules with the live registry. The
+read-only schedule query uses the VPS's reconciler credential without printing
+it. The helper does not verify runtime checksums or prove a natural
+source-to-delivery event.
 
 [`docs/README.md`](docs/README.md) distinguishes active operating guidance
 from retained design and implementation history. A historical record may name
@@ -91,7 +129,8 @@ cleaned, committed, or included in dotfiles capture.
 
 ## Collaboration workflow
 
-Both Hermes repositories use the identical `.wt/config.toml` configuration.
+Both Hermes repositories use WT with repository-local `.wt/config.toml`
+settings, including independent slot limits.
 Use isolated managed feature worktrees through `wt` by default; never use a
 raw Git worktree when the repository is WT-configured. An explicit current-chat
 request from the human user to work on `main` overrides that default: work
@@ -122,8 +161,9 @@ explicitly approved action after review.
    `~/.agents/skills/bursawatch-<slug>/bin/`. It supports a deliberate single
    file deployment as `./deploy.sh cron-<slug> <file>`.
 5. Contract files, scheduler wrappers, services, and skill runtime prompts are
-   separate deploy inputs. Compare every changed file against the VPS before
-   the first write, receive current-session approval, then compare checksums.
+   separate deploy inputs. For manual deployment, compare every changed file
+   against the VPS before the first write, receive current-session approval,
+   then compare checksums.
    A scheduler wrapper under `~/.hermes/scripts/` must retain mode `0755` and
    pass a direct executability check before a cron is retargeted to it.
 6. GitHub Actions has no VPS credential or access. The narrowly scoped
@@ -168,6 +208,13 @@ release agent itself is host-bound platform infrastructure: its code, token
 file, systemd assets, and sudo boundary change only through the explicit VPS
 bootstrap process, never through an ordinary automated release.
 
+`platform-bursawatch-observer` is separate host-bound, read-only reporting
+infrastructure. Its observer credential is distinct from the scheduler
+reconciler credential. The release manifest keeps its code and systemd assets
+manual; first installation, credential provisioning, and timer activation
+require a separately reviewed host operation. The observer reads the Hermes
+registry directly and never invokes the Hermes CLI or writes scheduler state.
+
 The dotfiles mirror is a scrubbed VPS backup, not an authoring or deployment
 target. Do not edit `~/.dotfiles/vps/agents/skills/`. After an approved runtime
 deployment, use `sync-mac --check` before an explicitly approved capture. A
@@ -197,7 +244,9 @@ rendered Discord channel links do not make API calls.
 The service owns operation keys, payload digests, delivery retries and
 reconciliation, receipts, and staged media. Its service and first host
 bootstrap are manual rollout boundaries. See the service and client package
-documentation before changing either contract.
+documentation before changing either contract. Every sender imports the shared
+`DELIVERY_RECEIPT_WAIT_SECONDS` setting and waits up to 10 seconds on the same
+stable operation when its receipt is still nonterminal.
 
 `service-bursawatch-source-media` owns source media object operations in private
 Supabase Storage, including its privileged Storage credential and upload/read
@@ -210,10 +259,24 @@ path may reuse this owner after its API is designed. The bucket, policies,
 credentials, retention, and first service bootstrap remain separate deployment
 approvals.
 
+The VPS schedule-reconciler timer was enabled and active in a read-only
+production check at 2026-10-01 00:35 WIB. It reconciles Control Plane desired
+schedules by calling the supported Hermes CLI. A direct Hermes pause can be
+undone on the next timer pass while desired state remains enabled. For an
+approved maintenance pause, write `enabled=false` at the existing interval
+and timezone through the authenticated admin schedule interface, verify the
+applied revision and paused job, then restore `enabled=true` the same way after
+maintenance.
+
 ## Safety
 
 - Do not add, remove, rename, enable, disable, or reschedule a live Hermes job
-  without explicit current-chat approval and the supported Hermes CLI.
+  without explicit current-chat approval. For jobs managed by the active
+  schedule reconciler, record temporary pause and resume through the
+  authenticated desired-schedule interface at the existing interval and
+  timezone, then verify the applied revision; the reconciler uses the
+  supported Hermes CLI. A direct CLI pause can be undone by the next timer
+  pass.
 - Do not change delivery destinations or cadence without explicit approval.
 - Outside the approved release agent, do not restart services, manually
   trigger production schedules, post test messages, place orders, reset state,

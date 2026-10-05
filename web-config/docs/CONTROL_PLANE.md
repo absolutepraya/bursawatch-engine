@@ -71,6 +71,45 @@ configuration. Deploy to a Node-capable Next.js host, not a static export.
 Never cache `/api/control` responses or protected records. Static `/workspace`
 HTML is a public shell only, not an authenticated server-rendered response.
 
+## Workflow and job evidence terminology
+
+A **workflow** is a catalogued configuration resource for a **domain owner**.
+The owner component links that resource to its **shared jobs**, using the
+component inventory's `job_ids`. A `watcher:<id>` configuration resource ref
+and a watcher ID identify the same workflow, but the ref is not a URL query ID.
+Jobs can support multiple components; a workflow is not itself a schedule.
+Jobs resolves one distinct supported watcher from a domain owner's resource
+refs before constructing its editor link. Bare watcher IDs remain compatible;
+unrelated, unknown or ambiguous refs stay readable without a guessed editor.
+Source adapters link to Sources, while delivery services remain non-navigable.
+
+Catalog endpoint identities are opaque, case-sensitive ASCII IDs bounded to
+128 characters. Activity, registry, compatibility, effective subscription and
+saved override identities share a validator that preserves dots and mixed case,
+including Instagram handles and WhatsApp channel IDs. Saved overrides use the
+same rule in catalog responses and configuration writes. Component, job,
+pipeline and user-created endpoint ID rules remain
+separate. Activity reads still validate the requested component identity,
+timestamps, states and response shape; malformed responses remain unavailable.
+
+A **saved configuration revision** records settings accepted by the API. A
+**run-used revision** records which configuration a particular recorded owner
+run used. A matching revision establishes use by that run, without establishing
+that subsequent work used it or that a post was delivered.
+
+A **desired schedule** is the stored job setting. **Reconciled state** reports
+whether the scheduler applied its revision. **Observed state** is the latest
+observer evidence of the runtime job, including freshness and comparison.
+Active, paused, pending, stale, mismatch, unknown and unavailable remain
+separate states. An absent observation after a successful read is unknown;
+a failed observation read is unavailable. Neither establishes delivery.
+
+A **catalog-only read** intentionally omits runtime evidence. A successful read
+with no rows is **loaded empty**; an omitted resource is **not loaded**; a failed
+read is **unavailable**. Empty arrays alone do not prove that a read completed.
+Render runtime claims only in views that requested that evidence, and retain
+partial-read failures beside the relevant evidence.
+
 ## Loading and failure feedback
 
 The browser fetches only the current destination's data. Catalog-driven views
@@ -79,11 +118,17 @@ endpoint without requesting unrelated watcher histories:
 
 - Sources reads the authenticated Source Catalog and effective subscription
   snapshot. The workflow list reads the separate watcher catalog. Neither
-  presents unloaded schedules or history as empty results.
+  presents unloaded schedules or history as empty results. Workflow catalog
+  rows show the saved configuration revision and Configure action, without
+  schedule, run, configuration-use or shared-job claims. Overview passes its
+  loaded component, job and observation records into watcher rows. Failed
+  relationship reads remain unavailable; failed observation reads retain known
+  job identities with unavailable status.
 - A selected workflow starts its admin configuration read after catalog
-  membership is confirmed and loads only that workflow's jobs for its schedule
-  controls. X also loads source-poll runs for its delivery checks; other editors
-  do not fetch unrelated run histories.
+  membership is confirmed. It requests only component-linked operator jobs,
+  then observations for those job IDs, to link related jobs and show observed
+  state; schedule controls live only on Jobs. X also loads source-poll runs for
+  its delivery checks; other editors do not fetch unrelated run histories.
 - A run timeline reads events directly; it does not wait for all workflows'
   histories. Metadata already present in the same signed-in component can be
   shown; direct links do not invent missing run metadata.
@@ -111,8 +156,9 @@ raw provider errors, secrets or config.
 
 ## Implemented surface
 
-The desktop sidebar and mobile bottom navigation expose the same five
-destinations: Overview, Sources, Workflows, History and Account. They reuse
+The desktop sidebar and mobile bottom navigation expose the same seven
+destinations: Overview, Sources, Workflows, Jobs, History, Published and
+Account. They reuse
 the sample workspace's visual language while keeping authenticated API records
 and sample browser preferences separate.
 
@@ -128,16 +174,24 @@ and sample browser preferences separate.
   GTW investment classes, the swing board and Stockbit Snips. Each supported workflow explains
   its input, processing and output. All existing editor fields remain available;
   unknown keys are preserved when a known field changes. No private config is
-  bundled as defaults. Each selected workflow also shows its own jobs. Interval
-  schedules use API bounds, the WIB timezone and pending/effective status;
-  fixed jobs are read-only. Configuration and schedule saves have independent
-  revisions and actions.
+  bundled as defaults. Each selected workflow links to its related jobs and
+  shows their observed state. Schedules are edited only from Jobs.
 - History: recorded timestamps, config revisions, outcomes and event metadata.
   A server-side event-specific projection exposes bounded source IDs, validated
   counts and execution flags only. Raw messages and arbitrary attributes remain
   excluded. Missing counts are not zero; run totals and simulated dry-run counts
   cannot establish per-post/channel receipt. An `ok` run is not proof of message
   delivery or Sectors use.
+- Jobs: declared jobs appear once with their component relationships, desired
+  schedule, reconciler state, fresh observation and last execution evidence.
+  Backend `can_edit` gates interval controls; fixed jobs and viewer sessions
+  have no save action. `/workspace/schedules` redirects here.
+- Published: cursor-paginated confirmed News and Swing deliveries since the
+  recorded forward-only boundary. Date, source, type, route, ticker and group
+  filters are sent to the authenticated read API before pagination. Detail
+  shows exact delivered legs and safe source or related-publication links.
+  Publisher coverage is shown separately; an incomplete or unknown checkpoint
+  keeps an empty result explicitly bounded.
 - Account: current identity, copyable UUID for owner-managed access and sign-out.
 
 The Sources page (`/workspace/sources`) reads the versioned Source Catalog and
@@ -226,9 +280,10 @@ system-owned. A disabled lane stops new intake; on resumption, its first
 successful fetch establishes a future-only baseline without replaying paused
 items. Articles already queued keep their frozen dispatch settings. A saved
 config revision applies to future work after a valid runtime read and is not
-delivery proof. The workflow's schedule section uses the generic API-provided job bounds,
-desired revision and reconciler status. A saved interval or enabled change is
-pending until that exact schedule revision is reported applied and effective.
+delivery proof. Jobs is the single schedule editor and uses the API-provided
+bounds. Workflow details link back to the shared jobs that serve their adapters
+and owners. A saved interval or enabled change stays pending until that exact
+schedule revision is reported applied and effective.
 
 ## X source and delivery evidence
 
@@ -268,21 +323,38 @@ Do not copy the backend's `.env` into this package. Use Node 24 and run
 Unit/browser regressions use synthetic contracts and intercepted authentication;
 they cannot establish that a real user is allowed to access production.
 
-Before deployment is declared complete:
+## Production rollout status (2026-09-30)
 
-1. Sign in with the owner's provided **Supabase Auth** account and verify real
-   watcher/job/run reads; verify a viewer cannot read or change admin config.
-2. Have the owner confirm an admin UUID and the intended shared audience.
-3. With explicit approval for a specific safe change, save/read back a revision,
-   observe matching schedule reconciliation and a later unattended run.
-4. Record actual Track 02 evidence. Sample runs and mocked tests do not qualify.
+The operator workspace and Published feed shipped in PR #28. PR #29 corrected
+the reconciler schedule contract; PRs #30 and #31 corrected Hermes observer
+status and legacy cron handling. All four PRs are merged. The rollout release
+SHA `b1297c269bd42fb7d56624c362e0e0e1fe059144` was then-current `main`, passed
+its exact CI gate, and the VPS release agent reported that SHA as released. The
+Control Plane health route,
+public landing page, and authenticated workspace view returned successfully.
 
-No production write, message delivery or live authenticated session was tested
-in this implementation pass. Do not use the database password as a login.
+The production snapshot on 2026-09-30 found 13 Hermes jobs, 8 active and 5
+paused, with all 8 desired interval schedules matching. The separately
+installed and enabled observer timer completed a natural run that reported all
+13 jobs. The authenticated Jobs page showed 8 observed active jobs, 5 observed
+paused jobs, and no unknown observations or attention state.
 
-Verified locally on 22 September 2026 after workspace visual unification and loading improvements:
-both production builds, formatting,
-lint and types passed; 275 configuration-app unit tests and 24 landing tests
+The Published page boundary is 30 September 2026, 14:15 WIB. At the production
+page check it showed no confirmed publications since the boundary and marked
+publisher coverage incomplete or unverified. This does not prove that no
+upstream delivery occurred. A published row requires a supported owner
+projection backed by confirmed Delivery Owner receipts and does not include
+historical backfill.
+
+No live configuration or schedule write, manual watcher run, or test post was
+used for this rollout verification. These checks do not establish natural
+source-to-delivery coverage or separate Track 02 evidence.
+
+## Historical local verification (2026-09-22)
+
+The original local check followed workspace visual unification and loading
+improvements. Both production builds, formatting, lint and types passed; 275
+configuration-app unit tests and 24 landing tests
 passed. Isolated browser suites passed for viewer/admin behavior, 422 field
 errors, 409/uncertain-save recovery, schedule pending-to-applied responses,
 same-document Back/Forward draft recovery, stale restored revisions, sign-out,

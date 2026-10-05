@@ -52,8 +52,21 @@ function catalog(canEdit: boolean, config = emptyConfig, revision = 1): SourceCa
     ],
     capabilities: [
       { id: "company_news", label: "Company News", pipeline: "company_news", version: 1 },
+      {
+        id: "swing_chart_context",
+        label: "Swing Chart Context",
+        pipeline: "swing_chart_context",
+        version: 1,
+      },
     ],
-    compatibility: [{ endpoint_id: "x:test", capability_id: "company_news" }],
+    compatibility: [
+      { endpoint_id: "x:test", capability_id: "company_news", dispatch_group: "x_post_route" },
+      {
+        endpoint_id: "x:test",
+        capability_id: "swing_chart_context",
+        dispatch_group: "x_post_route",
+      },
+    ],
     config: {
       revision,
       config,
@@ -78,6 +91,22 @@ function effective(revision = 1): EffectiveCatalog {
         credential_ref: null,
         capability_id: "company_news",
         pipeline: "company_news",
+        dispatch_group: "x_post_route",
+        enabled: false,
+        verification_status: "verified",
+        settings: {},
+        source: "unset",
+      },
+      {
+        endpoint_id: "x:test",
+        publisher_id: "my-group",
+        platform: "x",
+        address: "test",
+        provider_id: null,
+        credential_ref: null,
+        capability_id: "swing_chart_context",
+        pipeline: "swing_chart_context",
+        dispatch_group: "x_post_route",
         enabled: false,
         verification_status: "verified",
         settings: {},
@@ -91,6 +120,26 @@ function renderCatalog(request: ReturnType<typeof controlBrowser>) {
 }
 
 describe("SourceCatalogView", () => {
+  it("offers X Swing Chart Context while showing its unset state as off", async () => {
+    const request = vi.fn(async (path: string) =>
+      path === "source-catalog" ? catalog(true) : effective(),
+    ) as unknown as ReturnType<typeof controlBrowser>;
+    renderCatalog(request);
+    await screen.findByText(/Revision 1/);
+    fireEvent.click(screen.getByRole("tab", { name: "People & Org" }));
+    const setting = screen.getByRole("group", { name: "Capability setting" });
+    fireEvent.change(setting.querySelector('select[aria-label="Endpoint"]')!, {
+      target: { value: "x:test" },
+    });
+    expect(setting.querySelector('option[value="swing_chart_context"]')?.textContent).toBe(
+      "Swing Chart Context",
+    );
+    fireEvent.change(setting.querySelector('select[aria-label="Capability"]')!, {
+      target: { value: "swing_chart_context" },
+    });
+    expect((screen.getByLabelText("Enabled intent") as HTMLInputElement).checked).toBe(false);
+    expect(setting.textContent).toContain("Unset");
+  });
   it("keeps the skeleton visible and counts each catalog read as it settles", async () => {
     const catalogRead = deferred<SourceCatalog>();
     const effectiveRead = deferred<EffectiveCatalog>();

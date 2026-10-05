@@ -26,7 +26,14 @@ if not _DISCORD_DELIVERY_BIN.exists():
 if str(_DISCORD_DELIVERY_BIN) not in sys.path:
     sys.path.insert(0, str(_DISCORD_DELIVERY_BIN))
 
-from bursawatch_discord_delivery import Attachment, DeliveryClient, DiscordQuery, OperationIntent, OperationReceipt
+from bursawatch_discord_delivery import (
+    DELIVERY_RECEIPT_WAIT_SECONDS,
+    Attachment,
+    DeliveryClient,
+    DiscordQuery,
+    OperationIntent,
+    OperationReceipt,
+)
 from bursawatch_discord_delivery.client import DeliveryClientError
 from render import GTW_SOURCE_STATUS, MAX_DISCORD_CHARACTERS, render_event
 from swing_format import replace_board_topic_link
@@ -135,7 +142,7 @@ def _submit_or_lookup(
     if not isinstance(receipt, OperationReceipt) or receipt.key != operation.key or receipt.digest != expected_digest:
         raise DeliveryClientError("invalid_response")
     if receipt.status in NON_TERMINAL_DELIVERY_STATUSES:
-        receipt = client.wait(operation.key, 0)  # type: ignore[attr-defined]
+        receipt = client.wait(operation.key, DELIVERY_RECEIPT_WAIT_SECONDS)  # type: ignore[attr-defined]
         if not isinstance(receipt, OperationReceipt) or receipt.key != operation.key or receipt.digest != expected_digest:
             raise DeliveryClientError("invalid_response")
     return receipt
@@ -270,6 +277,10 @@ def deliver_oldest_ready_event(
 
     try:
         chunks = render_event(event)
+        from render import saved_presentation
+        presentation = saved_presentation(event)
+        if presentation is not None:
+            channel_id = presentation["destination"]
     except Exception:
         _record_failure(event, now, RuntimeError("invalid delivery event"), None)
         _persist(persist)
@@ -328,6 +339,9 @@ def deliver_oldest_ready_event(
     _clear_failure(event)
     _persist(persist)
     if _complete(event, chunks):
+        if event.get("all_delivery_completed_at") is None:
+            event["all_delivery_completed_at"] = now.isoformat()
+            _persist(persist)
         return _submit_board_context(state, event, now, dry_run, persist, media_root, channel_id, client)
     return True
 

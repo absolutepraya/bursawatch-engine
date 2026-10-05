@@ -31,7 +31,7 @@ from source_ingest import IntakeBlocked, _write, bind_catalog_revision, envelope
 from source_event_client import SourceEventHandoff
 from config import REVIEWED_PUBLISHERS
 
-ALLOWED = {"company_news", "macro_news"}
+ALLOWED = {"company_news", "macro_news", "swing_chart_context"}
 
 
 def plan_legacy_cursor_seed(legacy_state_path: Path, state_root: Path, endpoint: dict[str, Any], profile: Any, catalog_revision: int, *, apply: bool = False, expected_plan: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -218,12 +218,18 @@ def _item(post: Any, endpoint_id: str, media_store: Any, *, upload_media: bool, 
             media_urls = {item.url for item in (*source_post.media, *source_post.quoted_media)}
             payload_post["content_html"] = _safe_html(payload_post.get("content_html"), media_urls)
             payload_post["quoted_content_html"] = _safe_html(payload_post.get("quoted_content_html"), media_urls)
-            payload_post["media"] = [{"index": item.index, "media_ref_id": url_to_ref[item.url]} for item in source_post.media]
-            payload_post["quoted_media"] = [{"index": item.index, "media_ref_id": url_to_ref[item.url]} for item in source_post.quoted_media]
+            seen_refs: set[str] = set()
+            for field, items in (("media", source_post.media), ("quoted_media", source_post.quoted_media)):
+                serialized_media = []
+                for item in items:
+                    ref = url_to_ref[item.url]
+                    if ref in seen_refs:
+                        continue
+                    seen_refs.add(ref)
+                    serialized_media.append({"index": item.index, "media_ref_id": ref})
+                payload_post[field] = serialized_media
         serialized.append(payload_post)
-    # The current X Board handoff has one local chart path. Hold a source
-    # event with more than one original before it creates subscription work.
-    if not complete or len(refs) > 1 or sum(ref["size_bytes"] for ref in refs) > 25 * 1024 * 1024:
+    if not complete or len(refs) > 16 or sum(ref["size_bytes"] for ref in refs) > 25 * 1024 * 1024:
         refs = []
     payload = {"post": serialized[-1], "thread_posts": serialized}
     if has_media and refs:
@@ -231,20 +237,39 @@ def _item(post: Any, endpoint_id: str, media_store: Any, *, upload_media: bool, 
     return {"provider_event_id": post.post_id, "published_at": post.published_at.isoformat(), "source_url": post.url, "payload": payload, "media_refs": refs, "blocked_payload": {"profile_id": post.profile_id, "kind": post.kind.value, "source_text": source_visible_text(post.content_html), "quoted_text": source_visible_text(post.quoted_content_html or "")}, "media_required": has_media}
 
 
-def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Path, inbox: Any, observed_at: datetime, *, fetch_profile: Any = None, media_store: Any = None, media_preparer: Any = None) -> list[dict[str, Any]]:
+def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Path, inbox: Any, observed_at: datetime, *, fetch_profile: Any = None, fetch_direct_x_head: Any = None, media_store: Any = None, media_preparer: Any = None) -> list[dict[str, Any]]:
     selected, by_endpoint = endpoints(snapshot, profiles)
-    bind_catalog_revision(state_root, snapshot["revision"])
+    from compatible_catalog_transition import require_catalog_revision
+    require_catalog_revision(state_root, snapshot["revision"], bind_catalog_revision)
     tracked = _TrackedInbox(inbox, state_root)
     observed: dict[str, tuple[Any, ...]] = {}
     if fetch_profile is None:
         from rsshub import fetch_profile_items
         fetch_profile = fetch_profile_items
+    if fetch_direct_x_head is None:
+        from direct_x import fetch_profile_head_id
+        fetch_direct_x_head = fetch_profile_head_id
     def fetch(cursor: dict[str, Any] | None, profile: Any, endpoint_id: str) -> dict[str, Any]:
         from state import _self_chain, _within_thread_age
         from rsshub import is_self_thread_post
+        from models import PostKind
+        from scan import source_visible_text
         # RSSHub returns a whole visible page. Direct X takes an after-id and
         # expands threads; a full result without the old anchor remains
         # ambiguous and must block rather than skip unseen posts.
+        if cursor is None and profile.source == "direct_x":
+            # Establish a future-only boundary without downloading every
+            # visible status. Direct-X detail requests are slow and can be
+            # rate limited during this one-time initialization.
+            head_id = str(fetch_direct_x_head(profile))
+            if not head_id.isdigit():
+                raise IntakeBlocked("direct X profile head ID is invalid")
+            return {
+                "items": [{"provider_event_id": head_id}],
+                "truncated": False,
+                "contiguous": False,
+                "id_order": "numeric_provider_event_id",
+            }
         after_id = cursor["anchor"] if cursor and profile.source in {"direct_x", "hybrid"} else None
         posts = fetch_profile(profile, after_id=after_id)
         ordered = sorted(posts, key=lambda post: int(post.post_id))
@@ -261,7 +286,8 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Pa
         items = []
         for post in ordered:
             chain = _within_thread_age(profile, _self_chain(profile, post, by_id, lambda item: is_self_thread_post(profile, item)))
-            if post.post_id in upload_ids and is_self_thread_post(profile, post) and len(chain) == 1 and post.related_url:
+            inline_quote = post.kind is PostKind.QUOTE and bool(source_visible_text(post.quoted_content_html or "").strip())
+            if post.post_id in upload_ids and is_self_thread_post(profile, post) and len(chain) == 1 and post.related_url and not inline_quote:
                 raise IntakeBlocked("self-chain parent is unavailable")
             items.append(_item(post, endpoint_id, media_store, upload_media=post.post_id in upload_ids, media_preparer=media_preparer, thread_posts=chain))
         return {"items": items, "truncated": truncated, "contiguous": False, "id_order": "numeric_provider_event_id"}
@@ -273,8 +299,10 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Pa
             continue
         root = state_root / endpoint_id.replace(":", "-")
         handoff = SourceEventHandoff(root / "revisions", tracked)
+        correction_error_code = "revision_flush_failed"
         try:
             handoff.flush()
+            correction_error_code = "accepted_index_unavailable"
             records = tracked.records(endpoint_id)
             profile = by_endpoint[endpoint_id]
             by_id = {post.post_id: post for post in observed[endpoint_id]}
@@ -284,23 +312,32 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Pa
                 prior = records.get(post.post_id)
                 if prior is None:
                     continue
+                correction_error_code = "correction_context_failed"
                 chain = _within_thread_age(profile, _self_chain(profile, post, by_id, lambda item: is_self_thread_post(profile, item)))
                 item = _item(post, endpoint_id, media_store, upload_media=True, media_preparer=media_preparer, thread_posts=chain)
                 if item["media_required"] and not item["media_refs"]:
+                    correction_error_code = "correction_media_unavailable"
                     raise IntakeBlocked("X source correction media is unavailable")
+                correction_error_code = "correction_envelope_invalid"
                 current = envelope(selected[endpoint_id], item, observed_at, "x-watch-parser-1")
                 if current["content_hash"] == prior["content_hash"]:
                     continue
                 event_key = hashlib.sha256(json.dumps(["x", endpoint_id, post.post_id], separators=(",", ":")).encode()).hexdigest()
+                correction_error_code = "source_work_inspection_failed"
                 inspected = inbox.inspect(event_key)
                 rows = inspected.get("work") if type(inspected) is dict else None
                 if type(rows) is not list or not rows or any(type(row) is not dict or row.get("status") != "pending" for row in rows):
+                    correction_error_code = "source_work_not_pending"
                     raise IntakeBlocked("X correction requires unclaimed source work")
                 revision_id = f"x-source-content-{current['content_hash']}"
+                correction_error_code = "revision_stage_failed"
                 handoff.stage_revision(event_key, current, "correction", revision_id, "Observed source post content changed")
+                correction_error_code = "revision_flush_failed"
                 handoff.flush(limit=1)
+                correction_error_code = "accepted_index_unavailable"
                 records = tracked.records(endpoint_id)
         except Exception:
             result["status"] = "blocked"
             result["reason"] = "correction_handoff_failed"
+            result["correction_error_code"] = correction_error_code
     return outcomes

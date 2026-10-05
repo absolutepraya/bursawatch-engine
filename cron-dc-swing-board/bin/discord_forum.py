@@ -23,6 +23,7 @@ if str(_DELIVERY_BIN) not in sys.path:
     sys.path.insert(0, str(_DELIVERY_BIN))
 
 from bursawatch_discord_delivery import (
+    DELIVERY_RECEIPT_WAIT_SECONDS,
     Attachment,
     DeliveryClient,
     DeliveryClientError,
@@ -326,7 +327,9 @@ class DiscordForumClient:
                 imported_legacy_nonce=imported_legacy_nonce,
             )
             if receipt.status in _NON_TERMINAL:
-                receipt = self._delivery.wait(intent.key, 0)  # type: ignore[attr-defined]
+                receipt = self._delivery.wait(
+                    intent.key, DELIVERY_RECEIPT_WAIT_SECONDS
+                )  # type: ignore[attr-defined]
                 self._require_matching_receipt(intent, receipt, expected_digest)
         except DeliveryClientError:
             raise

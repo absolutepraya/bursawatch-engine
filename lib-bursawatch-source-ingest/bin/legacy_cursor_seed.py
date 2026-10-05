@@ -8,6 +8,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
+import stat
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -256,10 +258,53 @@ def _write_private_json(path: Path, value: dict[str, Any]) -> None:
             os.unlink(temporary)
 
 
+def _catalog_transition_temporaries(directory: Path) -> set[Path]:
+    """Find only safe orphan temp files left by atomic transition writes."""
+    try:
+        directory_info = directory.lstat()
+    except FileNotFoundError:
+        return set()
+    except OSError as error:
+        raise LegacySeedBlocked("catalog transition temporary directory is unavailable") from error
+    try:
+        if (
+            not stat.S_ISDIR(directory_info.st_mode)
+            or directory_info.st_uid != os.geteuid()
+            or stat.S_IMODE(directory_info.st_mode) & 0o022
+        ):
+            raise LegacySeedBlocked("catalog transition temporary directory is unsafe")
+        paths = list(directory.iterdir())
+    except LegacySeedBlocked:
+        raise
+    except OSError as error:
+        raise LegacySeedBlocked("catalog transition temporary directory is unreadable") from error
+
+    result: set[Path] = set()
+    for path in paths:
+        if not path.name.startswith(".catalog-transition-"):
+            continue
+        try:
+            info = path.lstat()
+        except OSError as error:
+            raise LegacySeedBlocked("catalog transition temporary file is unavailable") from error
+        if (
+            re.fullmatch(r"\.catalog-transition-[a-z0-9_]{8}", path.name) is None
+            or not stat.S_ISREG(info.st_mode)
+            or stat.S_IMODE(info.st_mode) != 0o600
+            or info.st_uid != os.geteuid()
+            or info.st_nlink != 1
+        ):
+            raise LegacySeedBlocked("catalog transition temporary file is unsafe")
+        result.add(path)
+    return result
+
+
 def _state_file_hashes(root: Path, excluded: set[Path]) -> dict[str, str]:
     result: dict[str, str] = {}
+    temporary_paths = _catalog_transition_temporaries(root)
+    temporary_paths.update(_catalog_transition_temporaries(root / "catalog-transitions"))
     for path in root.rglob("*"):
-        if path in excluded:
+        if path in excluded or path in temporary_paths:
             continue
         if path.is_symlink():
             raise LegacySeedBlocked("source state contains an unsupported filesystem entry")
@@ -281,8 +326,10 @@ def plan_catalog_revision_transition(
     to_revision: int,
     seeds: list[dict[str, Any]],
     metadata: dict[str, Any] | None = None,
+    allow_empty_seeds: bool = False,
     apply: bool = False,
     expected_plan: dict[str, Any] | None = None,
+    apply_guard_env: str = "BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY",
 ) -> dict[str, Any]:
     """Preview or apply a resumable, future-only catalog revision transition.
 
@@ -291,11 +338,21 @@ def plan_catalog_revision_transition(
     baseline, creates only absent endpoint cursors, then advances the revision
     marker last. An apply can resume after a process interruption.
     """
+    if type(apply_guard_env) is not str or re.fullmatch(r"[A-Z][A-Z0-9_]*", apply_guard_env) is None:
+        raise LegacySeedBlocked("catalog transition apply guard name is invalid")
     root = Path(state_root).expanduser().resolve(strict=True)
     if type(from_revision) is not int or type(to_revision) is not int or to_revision <= from_revision:
         raise LegacySeedBlocked("catalog revision transition must move forward")
-    if type(seeds) is not list or not seeds:
-        raise LegacySeedBlocked("catalog revision transition needs at least one cursor seed")
+    if type(allow_empty_seeds) is not bool:
+        raise LegacySeedBlocked("empty cursor seed opt-in is invalid")
+    if type(seeds) is not list or (not seeds and not allow_empty_seeds):
+        raise LegacySeedBlocked("catalog revision transition needs cursor seeds unless an explicit revision-only transition is allowed")
+    if not seeds and (
+        type(metadata) is not dict
+        or type(metadata.get("reason")) is not str
+        or len(metadata["reason"].strip()) < 20
+    ):
+        raise LegacySeedBlocked("revision-only transition requires a reviewed reason")
     transition_path = root / "catalog-transitions" / f"{from_revision}-to-{to_revision}.json"
     revision_path = root / "catalog-revision.json"
     try:
@@ -361,6 +418,8 @@ def plan_catalog_revision_transition(
         "seeds": seed_plans,
         "metadata": metadata or {},
     }
+    if not seed_plans:
+        plan["revision_only"] = True
     if journal_exists and journal["plan"] != plan:
         raise LegacySeedBlocked("catalog transition inputs differ from the durable apply journal")
     if journal_exists:
@@ -385,11 +444,23 @@ def plan_catalog_revision_transition(
         or expected_plan != plan
     ):
         raise LegacySeedBlocked("apply requires the unchanged catalog transition preview")
-    if os.environ.get("BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY") != "1":
-        raise LegacySeedBlocked("apply requires BURSAWATCH_ALLOW_LEGACY_CURSOR_SEED_APPLY=1")
+    if os.environ.get(apply_guard_env) != "1":
+        raise LegacySeedBlocked(f"apply requires {apply_guard_env}=1")
     current_files = _state_file_hashes(root, excluded)
     if current_files != state_files:
         raise LegacySeedBlocked("source state changed after the catalog transition preview")
+    temporary_paths = _catalog_transition_temporaries(root)
+    temporary_paths.update(_catalog_transition_temporaries(root / "catalog-transitions"))
+    for temporary in temporary_paths:
+        try:
+            temporary.unlink()
+            directory_fd = os.open(temporary.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        except OSError as error:
+            raise LegacySeedBlocked("catalog transition temporary file could not be removed") from error
     if not journal_exists:
         if revision_record["revision"] != from_revision:
             raise LegacySeedBlocked("catalog revision changed before transition apply")

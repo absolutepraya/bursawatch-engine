@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path as _NewsPath
+import sys as _news_sys
+_news_bin = _NewsPath(__file__).resolve().parents[2] / "lib-news-format" / "bin"
+if not _news_bin.is_dir():
+    _news_bin = _NewsPath.home() / ".agents/skills/lib-news-format/bin"
+if str(_news_bin) not in _news_sys.path:
+    _news_sys.path.insert(0, str(_news_bin))
+import news_format
+
 import re
 
 from config import GREY_EMOJI, GREEN_EMOJI, RED_EMOJI, STOCKBIT_EMOJI
@@ -57,16 +66,8 @@ def render(article: Article, analysis: Analysis, snapshot: MarketSnapshot | None
         raise ValueError("Stockbit analysis title and summary are required")
     if INVESTMENT_LANGUAGE.search(analysis.summary):
         raise ValueError("Stockbit summary contains investment language")
-    content = [
-        f"### {STOCKBIT_EMOJI} {analysis.title}",
-        "-# Stockbit",
-        "",
-        f"{RINGKASAN_PREFIX}{analysis.summary}",
-    ]
-    if analysis.route is Route.ID_STOCKS_NEWS:
-        content.extend(["", _market_block(snapshot)])
-    content.extend(["", f"[View on Stockbit](<{article.url}>)"])
-    result = "\n".join(content)
-    if len(result) > DISCORD_LIMIT:
+    messages = news_format.render_card(f"### {STOCKBIT_EMOJI} {analysis.title}\n-# Stockbit", analysis.summary, article.url, "Stockbit", route=analysis.route.value, snapshot=snapshot)
+    result = "\n\n".join(messages)
+    if news_format.discord_length(result) > DISCORD_LIMIT:
         raise ValueError("Stockbit Discord content exceeds 2,000 characters")
     return result

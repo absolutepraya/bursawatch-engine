@@ -8,30 +8,38 @@ Its scheduled packages deploy to the VPS as `bursawatch-<slug>`. Hermes
 Personal is a separate repository at `~/Documents/Projects/Hermes-Personal`,
 where personal crons deploy as `personal-<slug>`.
 
-Every scheduled package has `AGENTS.md` and exactly one contract file:
+Every cron-oriented package has `AGENTS.md` and exactly one contract file:
 `CRON.md` for deterministic packages or `SKILL.md` for agent-backed packages.
+Some source-adapter packages run inside an existing Hermes job rather than
+owning a separate schedule.
 
-| Development package | Runtime identity | What it is |
-|---|---|---|
-| `cron-tg-market-news` | `bursawatch-tg-market-news` | Telegram IDX company and macro-news watcher |
-| `cron-tg-phintraco-swing` | `bursawatch-tg-phintraco-swing` | Phintraco Daily cash-Swing forwarder |
-| `cron-tg-kelas-investasi-gtw` | `bursawatch-tg-kelas-investasi-gtw` | Kelas Investasi GTW bundle watcher |
-| `cron-dc-swing-board` | `bursawatch-dc-swing-board` | Discord Swing board owner and close reconciler |
-| `cron-x-account-watch` | `bursawatch-x-account-watch` | X-account watcher and queue worker |
-| `cron-ig-account-watch` | `bursawatch-ig-account-watch` | Instagram account and reel watcher |
-| `cron-wa-channel-watch` | `bursawatch-wa-channel-watch` | WhatsApp Channel watcher and queue |
-| `cron-stockbit-snips` | `bursawatch-stockbit-snips` | Stockbit Snips RSS news watcher |
-| `cron-tg-source-ingest` | reserved `bursawatch-tg-source-ingest` | Unscheduled Telegram source, pipeline, and bounded agent handoff pilot |
-| `cron-x-source-ingest` | reserved `bursawatch-x-source-ingest` | Unscheduled X catalog and inbox pilot |
-| `cron-ig-source-ingest` | reserved `bursawatch-ig-source-ingest` | Unscheduled Instagram catalog and inbox pilot |
-| `cron-wa-source-ingest` | reserved `bursawatch-wa-source-ingest` | Unscheduled WhatsApp bridge-queue inbox pilot |
-| `cron-rss-source-ingest` | reserved `bursawatch-rss-source-ingest` | Unscheduled fixed Stockbit RSS inbox pilot |
+Production roles below were checked against the VPS on 2026-09-30. That
+snapshot found 13 Hermes jobs, 8 active and 5 paused, with all 8 desired
+interval schedules matching the live registry. Run the
+[read-only production snapshot](scripts/production_snapshot.py) before relying
+on a current schedule or release claim.
 
-The five source-ingest packages and their platform-to-domain handoffs are
-development pilots. They are release metadata only and have no Hermes jobs.
-Existing watcher packages remain the production readers and continue to own
-their current queues, agents, rendering, and domain state until a separately
-approved state and schedule cutover. The shared
+| Development package | Runtime identity | What it is | Production schedule state |
+|---|---|---|---|
+| `cron-tg-market-news` | `bursawatch-tg-market-news` | Telegram IDX company and macro-news domain owner | Standalone watcher paused; shared Telegram source job dispatches owner work |
+| `cron-tg-phintraco-swing` | `bursawatch-tg-phintraco-swing` | Phintraco Daily cash-Swing domain owner | Standalone watcher paused; shared Telegram source job dispatches owner work |
+| `cron-tg-kelas-investasi-gtw` | `bursawatch-tg-kelas-investasi-gtw` | Kelas Investasi GTW domain owner | Standalone watcher paused; shared Telegram source job dispatches owner work |
+| `cron-dc-swing-board` | `bursawatch-dc-swing-board` | Discord Swing board owner and lifecycle/retry jobs | Active maintenance jobs |
+| `cron-x-account-watch` | `bursawatch-x-account-watch` | X-account queue owner | Active source polling and queue-worker jobs |
+| `cron-ig-account-watch` | `bursawatch-ig-account-watch` | Instagram account and reel watcher | Paused |
+| `cron-wa-channel-watch` | `bursawatch-wa-channel-watch` | WhatsApp Channel queue and domain owner | Active; existing job runs WhatsApp source ingest |
+| `cron-stockbit-snips` | `bursawatch-stockbit-snips` | Stockbit Snips domain owner | Active; existing job runs RSS source ingest every 15 minutes |
+| `cron-tg-source-ingest` | `bursawatch-tg-source-ingest` | Telegram source, pipeline, and bounded agent handoff | Active standalone job, every minute |
+| `cron-x-source-ingest` | `bursawatch-x-source-ingest` | X catalog and inbox adapter | Active through existing X source-polling job |
+| `cron-ig-source-ingest` | `bursawatch-ig-source-ingest` | Instagram catalog and inbox adapter | Unscheduled pilot |
+| `cron-wa-source-ingest` | `bursawatch-wa-source-ingest` | WhatsApp bridge-queue inbox adapter | Active through existing WhatsApp job |
+| `cron-rss-source-ingest` | `bursawatch-rss-source-ingest` | Fixed Stockbit RSS inbox adapter | Active through existing Stockbit job |
+
+Production source intake has one dedicated Telegram job plus X, WhatsApp, and
+RSS adapters under existing owner jobs. Instagram source ingest has no
+registered job, and its legacy watcher is paused. Standalone Telegram News,
+Phintraco, and Kelas watcher jobs are paused while the active Telegram source
+job dispatches accepted work to their domain owners. The shared
 `lib-bursawatch-source-ingest` code stages bounded endpoint-local events and
 advances a private cursor only after an inbox receipt. Media uses the shared
 Source Media Owner contract; no live bucket or service bootstrap is claimed.
@@ -51,9 +59,19 @@ apply that intent to Hermes.
 
 `skill-guess-stock` and `skill-profile-emoji` are reusable, non-scheduled
 market skills. `service-cobalt` is the tracked media-download service.
+`platform-bursawatch-observer` contains read-only VPS job-observation code.
+Its first host install, separate credential, and timer activation were
+completed as a manual VPS operation on 2026-09-30. The package remains outside
+automatic releases.
 `service-rsshub` records the VPS-owned shared RSSHub boundary without copying
 its compose files, credentials, cookies, proxy configuration, or runtime data
 into source control.
+
+The news owners share `lib-news-format` for generated Telegram, X, WhatsApp,
+Instagram, and Stockbit cards. Independent issuer stories receive separate
+cards with native-currency quotes and 1D/1W/1M/3M changes. Existing saved
+payloads, raw-forwarding profiles, and specialized Swing/status output retain
+their owner contracts. This describes source behavior, not a live rollout.
 
 ## Web applications
 
@@ -62,10 +80,9 @@ into source control.
 | `web-landing` | Public product site and sample market walkthrough | [Landing setup](web-landing/README.md) |
 | `web-config` | Signed-in operator workspace for configuration, schedules and run evidence | [Workspace setup](web-config/README.md) |
 
-The current sites are [the landing page](https://bursawatch-web-landing.vercel.app/)
-and [the workspace](https://bursawatch-web-config.vercel.app/workspace).
-These URLs are existing Vercel deployments; this pull request only moves and
-reviews their source until a separate web release publishes the new revision.
+The current sites are [the landing page](https://bursawatch.abhipraya.dev/)
+and [the workspace](https://dash.bursawatch.abhipraya.dev/workspace). Source
+changes reach them through the separate Vercel web release path.
 
 Each package installs and builds independently with Node 24. The workspace
 uses a signed-in user's Supabase token to call the control API through a
@@ -82,6 +99,13 @@ that provenance and does not rewrite its history.
 3. For a changed contract file, commit and push first, compare it with the VPS copy, obtain approval for the first VPS write, then sync only that file and compare checksums.
 4. Verify with the watcher's isolated no-post controls. Live source and Telegram verification run on the VPS.
 5. The VPS uses `~/.local/share/uv/tools/yahoo-finance-mcp/bin/python` for market watchers.
+
+Before making current schedule or release claims, run
+`python3 scripts/production_snapshot.py --production`. The read-only helper
+checks gateway health, filters the VPS scheduler listing to Bursawatch jobs,
+compares desired schedule revisions with the live registry, and compares the
+release agent's last successful SHA with `origin/main`. It does not prove
+runtime checksums or a natural source-to-delivery event.
 
 For collaboration, create feature worktrees through the tracked `.wt/config.toml`.
 The repository-local `finish-workflow` skill validates, commits, pushes, and
@@ -132,11 +156,16 @@ production credentials or prove a live watcher run.
 
 ## Validation and deployment
 
-GitHub Actions runs read-only tests, shell syntax checks, and tracked-file policy checks. It has no secrets, VPS access, or deployment authority. A GitHub push never deploys anything.
+GitHub Actions runs CI and has no VPS credential or deployment authority. The
+VPS-local release agent automatically handles allowlisted backend units only
+after the exact current `main` SHA passes `CI / validate`. Web deployments stay
+under Vercel's separate Git integration. See `DEPLOYMENT.md` for the release
+gates and verification boundaries.
 
-All deployments remain explicit local commands. The deploy scripts refuse a dirty worktree or a commit that is not published to `origin`, then copy only their documented source paths to the VPS. Continue to verify deployed checksums and the cron-specific no-post path after every manual deployment.
+Manual deploy helpers remain separate recovery paths with their documented
+approval gates. Do not run one concurrently with the release agent.
 
-The first split cutover changes source and runtime identities while retaining
+The initial split cutover changed source and runtime identities while retaining
 established production state locations. Physical state migration is a separate,
 stopped-writer and integrity-checked operation.
 

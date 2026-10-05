@@ -3,6 +3,8 @@
 import Image from "next/image";
 import { useCallback, useEffect, useId, useState } from "react";
 import type { controlBrowser } from "@/lib/control-browser";
+import type { OperatorComponent, OperatorComponentActivity } from "@/lib/operator-inventory";
+import { isEffectiveSubscription } from "@/lib/control-analytics";
 import { WorkspaceError } from "@/lib/control-browser";
 import {
   catalogConfig,
@@ -38,22 +40,125 @@ const curatedPeopleImages: Record<string, string> = {
 };
 const userPlatforms = ["telegram", "x", "instagram", "whatsapp"] as const;
 
-function RegisteredEndpointList({ endpoints }: { endpoints: SourceCatalog["endpoints"] }) {
+function RegisteredEndpointList({
+  endpoints,
+  effective = [],
+}: {
+  endpoints: SourceCatalog["endpoints"];
+  effective?: EffectiveCatalog["subscriptions"];
+}) {
   if (endpoints.length === 0) return null;
   return (
     <ul className="source-endpoint-list" aria-label="Registered platform endpoints">
       {endpoints.map((endpoint) => (
         <li className="source-endpoint-row" key={endpoint.id}>
-          <span className="source-endpoint-identity">
-            <strong>{endpoint.platform}</strong> · {endpoint.address}
-          </span>
+          <div className="source-endpoint-detail">
+            <span className="source-endpoint-identity">
+              <strong>{endpoint.platform}</strong> · {endpoint.address}
+            </span>
+            <span className="source-endpoint-subscriptions">
+              Resolved:{" "}
+              {
+                effective.filter(
+                  (row) => row.endpoint_id === endpoint.id && isEffectiveSubscription(row),
+                ).length
+              }{" "}
+              effective ·{" "}
+              {
+                effective.filter(
+                  (row) =>
+                    row.endpoint_id === endpoint.id &&
+                    row.enabled &&
+                    row.verification_status === "pending",
+                ).length
+              }{" "}
+              awaiting verification
+            </span>
+          </div>
           <StatusBadge
             status={endpoint.verified ? "verified" : "verification-pending"}
-            label={endpoint.verified ? "Verified" : "Pending verification"}
+            label={endpoint.verified ? "Identity verified" : "Identity pending"}
           />
         </li>
       ))}
     </ul>
+  );
+}
+
+function SourceAdapterEvidence({
+  components,
+  activity,
+  unavailable,
+}: {
+  components: OperatorComponent[];
+  activity: OperatorComponentActivity[];
+  unavailable: boolean;
+}) {
+  const sourceAdapters = components.filter((item) => item.kind === "source_adapter");
+  const activityById = new Map(activity.map((item) => [item.component_id, item]));
+  if (!sourceAdapters.length && !unavailable) return null;
+  return (
+    <section className="source-adapter-evidence" aria-labelledby="source-adapter-evidence-title">
+      <div>
+        <h2 id="source-adapter-evidence-title">Adapter and intake evidence</h2>
+        <p>
+          Catalog choices show intent. Adapter binding and accepted Source Inbox input are reported
+          separately.
+        </p>
+      </div>
+      {unavailable ? (
+        <p role="status">
+          Some adapter evidence could not be loaded. Missing rows are unavailable, not zero.
+        </p>
+      ) : null}
+      <ul>
+        {sourceAdapters.map((adapter) => {
+          const row = activityById.get(adapter.component_id);
+          const latest = row?.endpoints
+            .filter((endpoint) => endpoint.accepted_at)
+            .sort((a, b) => Date.parse(b.accepted_at!) - Date.parse(a.accepted_at!))[0];
+          const binding = adapter.source_gate?.capabilities ?? [];
+          const enabled = binding.reduce((sum, item) => sum + item.enabled_endpoint_count, 0);
+          const total = binding.reduce((sum, item) => sum + item.endpoint_count, 0);
+          const status = latest?.status ?? "unknown";
+          return (
+            <li key={adapter.component_id}>
+              <strong>{adapter.display_name}</strong>
+              <span>
+                Adapter binding:{" "}
+                {binding.length
+                  ? `${enabled} of ${total} enabled catalog endpoints`
+                  : "unavailable"}
+              </span>
+              <span>
+                Last accepted input:{" "}
+                {latest?.accepted_at ? (
+                  <time dateTime={latest.accepted_at}>
+                    {new Date(latest.accepted_at).toLocaleString("en-GB", {
+                      timeZone: "Asia/Jakarta",
+                    })}{" "}
+                    WIB
+                  </time>
+                ) : status === "unknown" ? (
+                  "Unknown"
+                ) : (
+                  "No accepted input recorded"
+                )}
+              </span>
+              <span>
+                Input status:{" "}
+                {status === "observed" ? "Observed" : status === "stale" ? "Stale" : "Unknown"}
+              </span>
+              <span>Delivery: {row?.delivery_status ?? "Not instrumented"}</span>
+              {adapter.component_id === "bursawatch-ig-source-ingest" &&
+              adapter.job_ids.length === 0 ? (
+                <span>Schedule: no registered source job</span>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
@@ -92,9 +197,15 @@ function safeReadError(error: unknown) {
 export function SourceCatalogView({
   request,
   onDirtyChange,
+  components = [],
+  activity = [],
+  activityUnavailable = false,
 }: {
   request: Request;
   onDirtyChange: (dirty: boolean) => void;
+  components?: OperatorComponent[];
+  activity?: OperatorComponentActivity[];
+  activityUnavailable?: boolean;
 }) {
   const [catalog, setCatalog] = useState<SourceCatalog | null>(null);
   const [effective, setEffective] = useState<EffectiveCatalog | null>(null);
@@ -422,6 +533,11 @@ export function SourceCatalogView({
       )}
       {catalog && draft && (
         <>
+          <SourceAdapterEvidence
+            components={components}
+            activity={activity}
+            unavailable={activityUnavailable}
+          />
           {!canEdit && (
             <p role="status" className="connected-panel-intro">
               View access. An admin can change source catalog settings.
@@ -544,6 +660,7 @@ export function SourceCatalogView({
                       </p>
                       <RegisteredEndpointList
                         endpoints={endpoints.filter((entry) => entry.publisher_id === item.id)}
+                        effective={effective?.subscriptions ?? []}
                       />
                     </div>
                   </article>
@@ -595,6 +712,7 @@ export function SourceCatalogView({
                         </p>
                         <RegisteredEndpointList
                           endpoints={endpoints.filter((entry) => entry.publisher_id === item.id)}
+                          effective={effective?.subscriptions ?? []}
                         />
                       </div>
                     </article>
@@ -613,6 +731,7 @@ export function SourceCatalogView({
                       </p>
                       <RegisteredEndpointList
                         endpoints={endpoints.filter((entry) => entry.publisher_id === item.id)}
+                        effective={effective?.subscriptions ?? []}
                       />
                       {canEdit && !saveBlocked && (
                         <>

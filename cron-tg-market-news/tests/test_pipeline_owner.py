@@ -107,7 +107,7 @@ def test_phintraco_news_sibling_work_claims_one_frozen_agent_item_and_renders_go
     assert result["news_delivered"] == 1
     delivered = load_state()["stats"]["delivery_payloads"][item["candidate_key"]]
     assert delivered["content"] == (
-        "### <:phintraco:1531272488645038091> Phintraco Sekuritas\n\n"
+        "### <:phintraco:1531272488645038091> Phintraco Sekuritas\n-# Phintraco\n\n"
         "*(Ringkasan)* DEWA mendapat kontrak bernilai Rp22 triliun.\n\n"
         "[View on Telegram](<https://t.me/phintasprofits/35390>)"
     )
@@ -276,3 +276,76 @@ def test_stock_status_uses_existing_parser_renderer_and_owner_ledger(tmp_path, m
         "[View in Telegram](<https://t.me/phintasprofits/35377>)"
     )
     assert pipeline_owner.submit_stock_status(work, no_post=True) == "accepted"
+
+
+@pytest.mark.parametrize("source_kind,ticker,category", [
+    (scan.SourceKind.CORPORATE_ENTRY, "DEWA", "issuer"),
+    (scan.SourceKind.TUNTUN_UPDATE_INDUSTRY, None, "industry"),
+    (scan.SourceKind.TUNTUN_UPDATE_SECTION, None, "macro"),
+])
+def test_native_category_claim_accepts_bound_image_instruction(tmp_path, monkeypatch, source_kind, ticker, category):
+    import news_source_work
+    from state import empty_state, enqueue_candidate, save_state
+    from domain import CompanyCandidate, Provider
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_path / "news.json"))
+    current = datetime.now(scan.WIB)
+    candidate = CompanyCandidate(Provider.TUNTUN, 14980, ticker, source_kind, current, "Kapasitas produksi bertambah.", False, candidate_id="story")
+    value = empty_state()
+    enqueue_candidate(value, candidate, current)
+    news_source_work.put_provenance(value, candidate.key, event_key="a"*64, version=1, content_hash="b"*64,
+        source_url="https://t.me/tuntunsekuritas/14980", work_keys={"company_news":"c"*64,"macro_news":"d"*64},
+        loaded_config=config.LoadedWatchConfig(config.default_watch_config(), 9),
+        summary_media_refs=[{"kind":"image","durable":True,"ref":"opaque","sha256":"e"*64,"size_bytes":1,"content_type":"image/png"}])
+    save_state(value)
+    wake = pipeline_owner.claim_agent(current + timedelta(seconds=1))
+    assert wake["wakeAgent"] is True
+    item = wake["items"][0]
+    assert item["candidate_key"] == candidate.key
+    assert "prepare-summary-images" in item["instruction"]
+    if category != "issuer":
+        assert f"Selected presentation category: {category}." in item["instruction"]
+
+
+def test_split_tuntun_image_context_remains_candidate_bound(tmp_path, monkeypatch, load_fixture):
+    import base64
+    import summary_context
+    from bursawatch_source_media import MediaDownload, claim_id
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_path / "news.json"))
+    monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
+    data = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3ioAAAAASUVORK5CYII=")
+    work, inspection = _news_work("company_news", endpoint_id="telegram:tuntunsekuritas", publisher_id="tuntun",
+        source_handle="tuntunsekuritas", message_id="14980", text=load_fixture("tuntun-split-image-context.txt"), topic_id=3743)
+    work["envelope"]["media_refs"] = [{"kind":"image","durable":True,"ref":"publication-image",
+        "sha256":hashlib.sha256(data).hexdigest(),"size_bytes":len(data),"content_type":"image/png"}]
+    assert pipeline_owner.submit(work, no_post=True, inbox=_Inbox(inspection)) == "accepted"
+    current = datetime.now(scan.WIB) + timedelta(seconds=1)
+    items = [pipeline_owner.claim_agent(current)["items"][0] for _ in range(2)]
+    assert {item["ticker"] for item in items} == {"DEWA", "PTBA"}
+    claims = [summary_context._load_claim(item["candidate_key"], current, True) for item in items]
+    assert claims[0].source_event_key == claims[1].source_event_key
+    assert claims[0].refs == claims[1].refs
+    assert claim_id(claims[0]) != claim_id(claims[1])
+    for item, claim in zip(items, claims):
+        other_ticker = "PTBA" if item["ticker"] == "DEWA" else "DEWA"
+        assert other_ticker not in item["source_text"]
+        assert claim.source_text == item["source_text"]
+        assert "do not lift an unrelated company/story from a publication image" in item["instruction"]
+        assert "Only after eligible text establishes this story" in item["instruction"]
+    calls = []
+    class Reader:
+        def download(self, key, **kwargs):
+            calls.append(key)
+            return MediaDownload(data, "image/png", "publication.png", "image", hashlib.sha256(data).hexdigest())
+    monkeypatch.setattr(summary_context, "_client", Reader)
+    request = {"protocol":"summary-images-v1","owner_event_key":claims[1].owner_event_key,
+               "claim_id":claim_id(claims[0]),"text_eligible":True,"asset_indexes":[0]}
+    assert summary_context.prepare_summary_context(request, now=current, no_post=True)["assets"] == []
+    assert calls == []
+    request["claim_id"] = claim_id(claims[1])
+    request["text_eligible"] = False
+    assert summary_context.prepare_summary_context(request, now=current, no_post=True)["assets"] == []
+    assert calls == []
+    request["text_eligible"] = True
+    response = summary_context.prepare_summary_context(request, now=current, no_post=True)
+    assert response["status"] == "ready" and calls == ["publication-image"]
+    assert response["assets"][0]["association"] == "source publication; only this candidate's supplied story"

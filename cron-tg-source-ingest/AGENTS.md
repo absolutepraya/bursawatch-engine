@@ -1,13 +1,16 @@
 # Telegram source ingest
 
-This package is the active Telegram source-intake pilot with an automatic
+This package owns active Telegram source intake with an automatic
 release unit and deployable runtime wrapper. Hermes job
-`bursawatch-tg-source-ingest` runs every minute. Its live scope includes
-Phintraco Swing `trading_plans`, Kelas Investasi `swing_support`, Phintraco News
+`bursawatch-tg-source-ingest` runs every minute. Its scope includes Phintraco
+Swing `trading_plans`, Kelas Investasi `swing_support`, Phintraco News
 `company_news`, `macro_news`, and `stock_status`, plus Tuntun News
 `company_news` and `macro_news`. The paired Phintraco and Tuntun News cutover
 completed on 2026-09-27. Its production record is in
 [`docs/superpowers/plans/2026-09-27-tuntun-telegram-source-intake.md`](../docs/superpowers/plans/2026-09-27-tuntun-telegram-source-intake.md).
+The approved Phintraco route transition moves `trading_plans` from the current
+legacy endpoint to canonical `telegram:phintasprofits`; until that catalog
+transition is applied, production remains enabled on `telegram:phintraprofits`.
 
 `bin/runner.py` reads one authenticated effective source catalog snapshot, then
 `bin/adapter.py` groups enabled verified subscriptions by canonical endpoint.
@@ -49,13 +52,43 @@ creation and advances the state revision last, so an interrupted apply can
 resume from the exact preview. Keep its private plan outside the source state
 root. Never hand-edit `catalog-revision.json` or either cursor.
 
+When a catalog revision changes only non-Telegram configuration, a separate
+cursor-preserving transition is allowed only if selected securities and every
+enabled Telegram subscription row is identical after canonical JSON
+normalization, including identity, capability, settings, credentials, and
+dispatch metadata. Pause this source-ingest writer first. Capture the prior and
+target effective catalog snapshots, then use
+`bin/compatible_catalog_transition.py preview` and `apply`
+with a private plan outside the state root. Apply requires
+`BURSAWATCH_ALLOW_COMPATIBLE_CATALOG_TRANSITION_APPLY=1`; it fingerprints all
+other state files and journals before advancing only the revision marker. It
+never creates, resets, or moves cursors. Any Telegram row or selected-security
+change requires a separately reviewed transition. This is not a News backfill
+path; keep News future-only and do not replay source history.
+
+The Phintraco Swing route uses a separate revision-only transition when moving
+`trading_plans` from the legacy `telegram:phintraprofits` alias to
+`telegram:phintasprofits`. Both endpoint identities represent channel
+`1444713822`, but Telegram resolves the live publisher as `@phintasprofits`.
+Keep already accepted legacy work processable while the route moves. Pause this
+writer and drain its Swing work before taking exact consecutive effective
+catalog snapshots. `bin/phintas_swing_catalog_transition.py preview` and
+`apply` permit only disabling the legacy row and enabling the canonical row.
+The transition requires the pre-existing Phintas cursor, fingerprints every
+other state file, journals the move, and advances only the catalog revision
+marker. It does not create or seed cursors, move state, or replay history.
+Apply requires the unchanged private preview plan and
+`BURSAWATCH_ALLOW_PHINTAS_SWING_CATALOG_TRANSITION_APPLY=1`. Keep the plan
+outside the source state root. Never hand-edit the revision marker or either
+endpoint cursor.
+
 The inbox owns source events and independent subscription work. The adapter
 never submits Discord or Board operations. `service-bursawatch-source-media`
 owns private Supabase Storage access; `lib-bursawatch-source-media` uploads
 bounded media before event acceptance and returns opaque durable refs. The
 adapter never receives Storage credentials or stores signed/public media URLs.
 `lib-bursawatch-pipeline-runtime`
-claims only registered handler pipelines. The pilot registers the existing
+claims only registered handler pipelines. The active runner dispatches the
 Phintraco Swing owner for plans, Kelas Investasi for supporting setups, and
 Market News for Stock Information plus Phintraco and Tuntun news. Each owner
 retains its own state and uses the Discord Delivery Owner. Market News and
@@ -64,16 +97,29 @@ agent work, the runner claims at most one oldest candidate, using a persisted
 round-robin tie break for equal publication times. Kelas inbox work is claimed
 in Telegram message order; a failed earlier message blocks later messages
 until it succeeds or an admin explicitly suppresses it. Telegram media
-blocks the endpoint before cursor advancement only when its type is unsupported,
-the media service is unavailable, or durable upload fails. A local
+blocks the endpoint before cursor advancement only for an actual photo or
+document attachment when its type is unsupported, the media service is
+unavailable, or durable upload fails. Web-page link previews
+(`MessageMediaWebPage`) remain part of the text event and are not treated as
+file attachments. A local
 `blocked-media.json` records only source identity and media type to diagnose a
 blocked handoff; it is private state, never Git. If upload succeeds but inbox
 acceptance fails, the private handoff spool retains the opaque reference and
 retries it without reuploading or advancing the Telegram cursor.
 
+The runner launches Market News owner processes directly. Source-work
+acceptance, `drain-delivery`, `agent-status`, and `claim-agent` must all
+receive the same `IDX_MARKET_NEWS_STATE_PATH` used by the owner submission
+wrapper, defaulting to `~/.hermes/state/idx-market-news.json`. This keeps
+durable candidates, delivery retries, agent leases, and classification
+submissions in one ledger. The drain runs on an idle natural poll and is
+attempted even if Telegram source intake raises. A drain failure is reported
+as an operational warning without discarding accepted inbox work or changing
+the source cursor.
+
 Keep live subscriptions within the reviewed catalog scope above. Do not enable
-other Telegram subscriptions or change the pilot schedule without an approved
-rollout. News cursors were seeded from the legacy high-water marks and are
+other Telegram subscriptions or change the shared source-ingest schedule
+without an approved rollout. News cursors were seeded from the legacy high-water marks and are
 future-only; do not backfill or replay source history. The legacy Market News
 scanner and watchdog remain paused, and the legacy scanner's desired schedule
 is disabled. Do not resume either while shared source ingest polls these
@@ -88,8 +134,16 @@ point reads only `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`,
 `BURSAWATCH_SOURCE_MEDIA_URL`, `BURSAWATCH_SOURCE_MEDIA_UPLOAD_TOKEN_FILE`,
 and `BURSAWATCH_SOURCE_MEDIA_READ_TOKEN_FILE`, plus the two
 `BURSAWATCH_DISCORD_DELIVERY_*` settings from
-`~/.hermes/.env`. Credential contents stay in their existing private files and
-never enter logs. The release-agent `BURSAWATCH_RELEASE_NO_POST=1`
+`~/.hermes/.env`. It also passes the Phintraco Swing owner's
+`IDX_SWING_WATCH_PHINTRACO_DAILY_CONTROL_PLANE_URL`, `_WATCHER_ID`, `_TOKEN`,
+and `_TIMEOUT_SECONDS` settings so the owner subprocess can load its revisioned
+live config. The source wrapper validates `IDX_SWING_WATCH_PHINTRACO_DAILY_PYTHONPATH`
+and prepends it to `PYTHONPATH` because the source runner invokes the owner
+directly, without the Phintraco cron shell wrapper. This lets the owner import
+the privately provisioned pinned PDF parser without changing the shared Yahoo
+Finance environment. Credential contents stay in their
+existing private files and never enter logs. The release-agent
+`BURSAWATCH_RELEASE_NO_POST=1`
 path does not open `.env` or credential files. It invokes only the synthetic
 in-memory contract check, passes a scrubbed environment, and keeps its log in
 the release agent's disposable `BURSAWATCH_RELEASE_NO_POST_TEMP` directory.
@@ -98,3 +152,11 @@ token to download accepted private media through Source Media.
 
 Run focused synthetic tests from the repository root with
 `.venv/bin/python -m pytest -q cron-tg-source-ingest/tests`.
+
+The News classification section of `SKILL.md` shares the Market News owner's
+direct reporting and flexible two-paragraph preference for both Phintraco and
+Tuntun. It retains meaningful research attribution and the one-to-five-sentence
+bound. Paragraph style does not introduce rejection, withholding, or another
+model call. The Market News owner preserves paragraph breaks and owns the
+single Ringkasan marker, deterministic tracker, and spacing-only fallback near
+Discord's content limit; this source runner does not format news cards.
