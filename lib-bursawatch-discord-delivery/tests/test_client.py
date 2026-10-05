@@ -869,3 +869,39 @@ def test_import_does_not_acknowledge_when_service_rejects_before_acceptance(fake
 
     assert observed == []
     assert fake_owner.state["requests"] == []
+
+
+def test_deadline_digest_matches_owner_and_omission_preserves_legacy_contract():
+    from dataclasses import replace
+    from datetime import datetime, timedelta, timezone
+    original = make_operation()
+    owner = load_service_models()
+    plain = owner.OperationIntent(original.key, original.kind, original.ordering_key,
+                                  dict(original.target), dict(original.payload))
+    assert original.digest == plain.digest
+    assert 'attempt_deadline' not in original.as_dict()
+    deadline = datetime(2026, 9, 24, tzinfo=timezone.utc)
+    intent = replace(original, attempt_deadline=deadline)
+    counterpart = owner.OperationIntent(intent.key, intent.kind, intent.ordering_key,
+                                       dict(intent.target), dict(intent.payload), attempt_deadline=deadline)
+    assert intent.digest == counterpart.digest
+    assert intent.digest != original.digest
+    assert intent.as_dict()['attempt_deadline'] == '2026-09-24T00:00:00.000000Z'
+    assert replace(intent, attempt_deadline=deadline.astimezone(timezone(timedelta(hours=7)))).digest == intent.digest
+    with pytest.raises(client_models.ValidationError, match='attempt deadline'):
+        replace(intent, attempt_deadline=deadline.replace(tzinfo=None))
+
+
+def test_deadline_submit_retry_and_wait_use_same_immutable_operation(fake_owner, token_file):
+    from dataclasses import replace
+    from datetime import datetime, timezone
+    intent = replace(make_operation(), attempt_deadline=datetime(2026, 9, 24, tzinfo=timezone.utc))
+    client = client_for(fake_owner, token_file)
+    first = client.submit(intent)
+    second = client.submit(intent)
+    assert first.id == second.id
+    assert first.digest == intent.digest
+    assert fake_owner.state['last_operation']['attempt_deadline'] == '2026-09-24T00:00:00.000000Z'
+    fake_owner.state['accepted'][intent.key].update(status='delivered', receipt={'message_id': '456'})
+    assert client.wait(intent.key, timeout_seconds=0).receipt == {'message_id': '456'}
+    assert [item['method'] for item in fake_owner.state['requests']] == ['POST', 'POST', 'GET']

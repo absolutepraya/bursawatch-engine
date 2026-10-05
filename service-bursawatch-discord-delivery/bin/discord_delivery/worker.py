@@ -31,9 +31,11 @@ class ReconcileResult:
 
 class DeliveryWorker:
     def __init__(self, store: DeliveryStore, gateway: DiscordGateway,
-                 alert: Callable[[str, str], None] | None = None):
+                 alert: Callable[[str, str], None] | None = None,
+                 *, clock: Callable[[], datetime] | None = None):
         self.store = store
         self.gateway = gateway
+        self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.alert = alert or (lambda key, category: logging.warning(
             "discord delivery alert operation=%s category=%s", key, category))
 
@@ -42,6 +44,24 @@ class DeliveryWorker:
         if when.tzinfo is None:
             raise ValueError("worker time must be timezone aware")
         return when.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+    def _expired(self, record: OperationRecord) -> bool:
+        if record.attempt_deadline is None:
+            return False
+        current = self.clock()
+        self._timestamp(current)  # Validate an injected clock before comparing.
+        return current >= record.attempt_deadline
+
+    def _check_attempt_deadline(self, record: OperationRecord) -> None:
+        if self._expired(record):
+            raise GatewayError("attempt_deadline_expired")
+
+    def _expire(self, record: OperationRecord) -> WorkerResult:
+        current = self.store.get_by_key(record.key)
+        if current.uncertain_attempt:
+            return self._ambiguous(record, "attempt_outcome_unknown")
+        self.store.finish(record.key, "rejected", error_category="attempt_deadline_expired")
+        return WorkerResult("rejected", record.key)
 
     def _retry(self, record: OperationRecord, now: datetime, category: str,
                delay: float | None = None) -> WorkerResult:
@@ -58,6 +78,10 @@ class DeliveryWorker:
         return WorkerResult("pending_reconciliation", record.key)
 
     def _after_proven_absence(self, record: OperationRecord, now: datetime) -> WorkerResult:
+        if record.attempt_deadline is not None:
+            self.store.set_uncertain_attempt(record.key, False)
+            if self._expired(record):
+                return self._expire(record)
         snapshot = self.store.create_snapshot(record.key)
         if not snapshot.get("absence_backoff_done"):
             snapshot["absence_backoff_done"] = True
@@ -268,6 +292,10 @@ class DeliveryWorker:
     def _process(self, record: OperationRecord, now: datetime, reconciling: bool) -> WorkerResult:
         sent = False
         try:
+            if self._expired(record) and not reconciling:
+                if not record.uncertain_attempt or not record.kind.endswith("_create"):
+                    return self._expire(record)
+                reconciling = True
             intent = self.store.load_intent(record.key)
             if reconciling:
                 self._set_reconciliation_required(record, True)
@@ -279,6 +307,10 @@ class DeliveryWorker:
                     return self._handle_reconcile_error(record, now, result)
                 if result.status == "inconclusive":
                     return self._ambiguous(record, "reconciliation_inconclusive")
+                if record.attempt_deadline is not None:
+                    self.store.set_uncertain_attempt(record.key, False)
+                    if self._expired(record):
+                        return self._expire(record)
                 snapshot = self.store.create_snapshot(record.key)
                 if not snapshot.get("absence_backoff_done"):
                     return self._after_proven_absence(record, now)
@@ -289,11 +321,26 @@ class DeliveryWorker:
                     snapshot["absence_backoff_done"] = False
                     snapshot["reconciliation_required"] = False
                     self.store.save_create_snapshot(record.key, snapshot)
+            attachments = self._attachments(record.key)
+            # Readback, snapshots and staging can consume the remaining budget.
+            # Recheck the actual clock immediately before beginning the mutation.
+            if self._expired(record):
+                return self._expire(record)
             sent = True
-            receipt = self.gateway.execute(intent, self._attachments(record.key))
+            if record.attempt_deadline is None:
+                receipt = self.gateway.execute(intent, attachments)
+            else:
+                receipt = self.gateway.execute(intent, attachments,
+                                               before_mutation=lambda: self._check_attempt_deadline(record))
             self.store.finish(record.key, "delivered", receipt=receipt)
             return WorkerResult("delivered", record.key)
         except GatewayError as exc:
+            if exc.category == "attempt_deadline_expired":
+                return self._expire(record)
+            unknown_outcome = sent and exc.category in {
+                "timeout", "network", "discord_unavailable", "invalid_response"}
+            if unknown_outcome and record.attempt_deadline is not None:
+                self.store.set_uncertain_attempt(record.key, True)
             if (sent and record.kind.endswith("_create") and
                     exc.category in {"timeout", "network", "discord_unavailable", "invalid_response"}):
                 self._set_reconciliation_required(record, True)
@@ -306,14 +353,24 @@ class DeliveryWorker:
                 if result.status == "not_found":
                     return self._after_proven_absence(record, now)
                 return self._ambiguous(record, "create_outcome_unknown")
-            if exc.category in {"rate_limited", "network", "timeout", "discord_unavailable"}:
+            if exc.category in {"rate_limited", "network", "timeout", "discord_unavailable"} or (
+                    unknown_outcome and record.attempt_deadline is not None):
                 return self._retry(record, now, exc.category, exc.retry_after)
             status = "blocked" if exc.category in {"permission", "destination_missing"} else "rejected"
+            if (status == "rejected" and record.attempt_deadline is not None
+                    and self.store.get_by_key(record.key).uncertain_attempt):
+                return self._ambiguous(record, "attempt_outcome_unknown")
             self.store.finish(record.key, status, error_category=exc.category)
             if status == "blocked":
                 self.alert(record.key, "blocked")
             return WorkerResult(status, record.key)
         except (OSError, OperationStateConflict):
+            if sent and record.attempt_deadline is not None:
+                # A valid response whose receipt failed to persist is still an
+                # unresolved earlier mutation. Operator repair cannot erase it.
+                self.store.set_uncertain_attempt(record.key, True)
+                if record.kind.endswith("_create"):
+                    self._set_reconciliation_required(record, True)
             self.store.finish(record.key, "blocked", error_category="local_state_invalid")
             self.alert(record.key, "blocked")
             return WorkerResult("blocked", record.key)

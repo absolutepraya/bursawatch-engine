@@ -21,6 +21,8 @@ from .models import (
     validate_preflight,
     validate_receipt,
     DIGEST,
+    parse_attempt_deadline,
+    serialize_attempt_deadline,
 )
 
 
@@ -79,6 +81,14 @@ class DeliveryStore:
             CREATE INDEX IF NOT EXISTS discord_operations_order ON discord_operations(ordering_key, created_at);
             CREATE INDEX IF NOT EXISTS discord_operations_status ON discord_operations(status, created_at);
         """)
+        # Additive migration preserves old rows, status CHECK, receipts and media.
+        # Serialize schema checks with other openers so repeated startup is safe.
+        with self._transaction():
+            columns = {row["name"] for row in self.db.execute("PRAGMA table_info(discord_operations)")}
+            if "attempt_deadline" not in columns:
+                self.db.execute("ALTER TABLE discord_operations ADD COLUMN attempt_deadline TEXT")
+            if "uncertain_attempt" not in columns:
+                self.db.execute("ALTER TABLE discord_operations ADD COLUMN uncertain_attempt INTEGER NOT NULL DEFAULT 0")
         for suffix in ("-wal", "-shm"):
             sidecar = Path(str(self.database_path) + suffix)
             if sidecar.exists():
@@ -117,6 +127,8 @@ class DeliveryStore:
             receipt=json.loads(row["receipt_json"]) if row["receipt_json"] else None,
             attempt_count=row["attempt_count"], error_category=row["error_category"],
             created_at=row["created_at"], updated_at=row["updated_at"],
+            attempt_deadline=parse_attempt_deadline(row["attempt_deadline"]),
+            uncertain_attempt=bool(row["uncertain_attempt"]),
         )
 
     def get_by_key(self, key: str) -> OperationRecord | None:
@@ -138,7 +150,7 @@ class DeliveryStore:
         intent = OperationIntent(row["operation_key"], row["kind"], row["ordering_key"],
                                  json.loads(row["target_json"]), json.loads(row["payload_json"]),
                                  tuple(attachments), recovery.get("reconcile_before_first_create", False),
-                                 recovery.get("legacy_nonce"))
+                                 recovery.get("legacy_nonce"), parse_attempt_deadline(row["attempt_deadline"]))
         if intent.digest != row["payload_digest"]:
             raise OperationStateConflict("stored operation changed")
         return intent
@@ -162,6 +174,15 @@ class DeliveryStore:
                 raise OperationStateConflict("operation is not a claimed create")
             self.db.execute("UPDATE discord_operations SET create_recovery_json=? WHERE operation_key=?",
                             (json.dumps(snapshot, sort_keys=True), key))
+
+    def set_uncertain_attempt(self, key: str, uncertain: bool) -> None:
+        """Retain uncertainty independently of retries and create snapshots."""
+        with self._transaction():
+            current = self.get_by_key(key)
+            if current is None or current.status != "delivering":
+                raise OperationStateConflict("operation is not delivering")
+            self.db.execute("UPDATE discord_operations SET uncertain_attempt=? WHERE operation_key=?",
+                            (int(uncertain), key))
 
     def _stage(self, operation_id: str, intent: OperationIntent) -> list[dict[str, str]]:
         metadata = []
@@ -235,13 +256,14 @@ class DeliveryStore:
             try:
                 self.db.execute("""INSERT INTO discord_operations
                     (id,operation_key,payload_digest,kind,ordering_key,target_json,payload_json,
-                     attachments_json,status,receipt_json,create_recovery_json)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (
+                     attachments_json,status,receipt_json,create_recovery_json,attempt_deadline)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", (
                     operation_id, intent.key, intent.digest, intent.kind, intent.ordering_key,
                     json.dumps(intent.target, sort_keys=True), json.dumps(intent.payload, sort_keys=True),
                     json.dumps(staged, sort_keys=True), status,
                     json.dumps(receipt, sort_keys=True) if receipt else None,
                     json.dumps(recovery, sort_keys=True),
+                    serialize_attempt_deadline(intent.attempt_deadline) if intent.attempt_deadline is not None else None,
                 ))
             except BaseException:
                 for attachment in staged:
@@ -275,7 +297,7 @@ class DeliveryStore:
                 raise OperationStateConflict("blocked operation and digest must match")
             recovery = self.create_snapshot(operation_key)
             status = ("pending_reconciliation" if existing.kind.endswith("_create") and
-                      recovery.get("reconciliation_required") else "retrying")
+                      (recovery.get("reconciliation_required") or existing.uncertain_attempt) else "retrying")
             self.db.execute("""UPDATE discord_operations SET status=?, error_category=NULL,
                 next_attempt_at=NULL, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
                 WHERE operation_key=?""", (status, operation_key))
@@ -297,15 +319,18 @@ class DeliveryStore:
 
         An interrupted create may have reached Discord without a receipt. It must
         be read back and reconciled before another create can be sent. Other
-        mutation kinds are safe to re-enter the retry queue.
+        mutation kinds re-enter the retry queue, but deadline-bound mutations
+        retain uncertainty so expiry cannot incorrectly imply a safe rejection.
         """
         with self._transaction():
             creates = self.db.execute("""UPDATE discord_operations
                 SET status='pending_reconciliation', next_attempt_at=NULL,
+                    uncertain_attempt=CASE WHEN attempt_deadline IS NOT NULL THEN 1 ELSE uncertain_attempt END,
                     updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
                 WHERE status='delivering' AND kind LIKE '%_create'""").rowcount
             mutations = self.db.execute("""UPDATE discord_operations
                 SET status='pending', next_attempt_at=NULL,
+                    uncertain_attempt=CASE WHEN attempt_deadline IS NOT NULL THEN 1 ELSE uncertain_attempt END,
                     updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
                 WHERE status='delivering' AND kind NOT LIKE '%_create'""").rowcount
             return {"pending_reconciliation": creates, "pending": mutations}
