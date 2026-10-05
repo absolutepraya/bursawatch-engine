@@ -10,6 +10,9 @@ node_modules/
 .media/cache/
 *.mp4
 !research/jkse.json
+!research/true.json
+!research/ketr.json
+!research/audiomap-v1.json
 assets/pain/x-sirkel-raw.png
 snapshots/
 .thumbnails/
