@@ -1,4 +1,4 @@
-# BursaWatch After-Close Review: Design Spec
+# Bursawatch After-Close Review: Design Spec
 
 Status: draft design specification, updated 4 October 2026. This is a design record, not implementation or production-change approval. Preserve this extension while the morning brief is the active design priority. Further closing-review design and implementation can wait until the morning brief is ready.
 
@@ -58,7 +58,7 @@ The chart-price source boundary remains unchanged: use the separately selected p
 
 ## Shared presentation and references
 
-All closing images use padding, Hanken Grotesk, and the full [BursaWatch image theme](2026-09-27-bursawatch-morning-brief-design-spec.md#image-theme-supplied-by-the-user-4-october-2026): copper as the single focal accent; warm dark surfaces and text; green/red for positive/negative market values; no pure black or white; no text glow; no background gradients except the allowed subtle radial copper glow. The review requires an updated IHSG candlestick/RSI image and one activity visual. Sector and conglomerate rankings stay text, using the morning spec's market-cap-weighted baskets and its [dated conglomerate membership reference](references/konglo_tickers_arthara_2026-09-22.csv).
+All closing images use padding, Hanken Grotesk, and the full [Bursawatch image theme](2026-09-27-bursawatch-morning-brief-design-spec.md#image-theme-supplied-by-the-user-4-october-2026): copper as the single focal accent; warm dark surfaces and text; green/red for positive/negative market values; no pure black or white; no text glow; no background gradients except the allowed subtle radial copper glow. The review requires an updated IHSG candlestick/RSI image and one activity visual. Sector and conglomerate rankings stay text, using the morning spec's market-cap-weighted baskets and its [dated conglomerate membership reference](references/konglo_tickers_arthara_2026-09-22.csv).
 
 See [GLOSSARY.md](../../GLOSSARY.md) for the shared domain vocabulary. Preserve source links, as-of dates, selected and excluded evidence, the frozen generated output, and delivery receipts in the future submission's own records; these documents are not execution evidence.
 
