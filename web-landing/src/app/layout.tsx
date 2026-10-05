@@ -3,9 +3,9 @@ import "./globals.css";
 import type { Metadata, Viewport } from "next";
 
 export const metadata: Metadata = {
-  title: "Bursawatch — Know what changed",
+  title: "Bursawatch: info saham cepat dan bisa dipercaya",
   description:
-    "Follow the people and securities firms you trust. Build a research brief around your sources, interests and investment horizon.",
+    "Berita, trading plan dan anotasi chart dari sekuritas dan analis terpercaya, dipilah dan dirangkum AI, langsung di Discord kamu.",
 };
 
 export const viewport: Viewport = {
@@ -17,7 +17,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" data-scroll-behavior="smooth">
+    <html lang="id" data-scroll-behavior="smooth">
       <body>{children}</body>
     </html>
   );

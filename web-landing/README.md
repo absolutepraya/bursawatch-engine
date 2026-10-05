@@ -1,7 +1,12 @@
 # Bursawatch landing
 
-Independent Next.js landing page. The interactive market example uses fixed
-sample figures; it does not request prices, run jobs or deliver messages.
+Independent Next.js landing page in casual Indonesian. Its Discord frames are
+static recreations of real Bursawatch deliveries, built from
+`src/lib/landing-content.ts` and the images in `public/landing/`; the page does
+not request prices, run jobs or deliver messages. The main call to action is
+the demo Discord invite, `DEMO_DISCORD_URL` in that content module. The
+header, config section and footer also link to the sample workspace (`/app`)
+and the authenticated workspace (`/workspace`) on `BURSAWATCH_CONFIG_URL`.
 The workspace and all configuration live in [`../web-config/`](../web-config/README.md)
 in this repository. The backend packages remain separate deployment units;
 this app does not require their services to run locally.
@@ -41,8 +46,9 @@ See [DEPLOYMENT.md](../DEPLOYMENT.md) for environment and release checks.
 For browser checks, install Chromium with `npx playwright install chromium`,
 start the local server, then run `npm run test:browser`. When checking a
 production build, pass the same `BURSAWATCH_CONFIG_URL` used at build time.
-The smoke test checks preview interactions, all workspace URLs, three viewport
-sizes and 200% text. It never follows links to an external deployment.
+The smoke test checks the skip link, demo and workspace URLs, the labelled
+Discord recreations, image loading, three viewport sizes, 200% text and 44px
+targets. It never follows links to an external deployment.
 
 Migrated as a fresh source snapshot on 2026-09-18 from the team's prior web
 implementation at commit `501c0f896f94b8258325fa7e6e6e0b510ed30692`. Original
@@ -55,8 +61,8 @@ snapshot, public catalog review and backend boundary.
 
 `src/components/brand.tsx`, `src/app/icon.svg`, `src/app/apple-icon.png` and
 the landing styles retain the approved Signal Fold identity. They are
-intentionally mirrored with the sibling application, not pulled from private
-Hermes media. Coordinate future brand changes across both packages. The
-landing ships no broker or social profile photographs and imports no private
-watcher configuration. See [DESIGN.md](DESIGN.md) and [AGENTS.md](AGENTS.md)
+intentionally mirrored with the sibling application. Coordinate future brand
+changes across both packages. `public/landing/` holds source logos, charts and
+screenshots copied from `../launch-video/assets/`, approved for public use on
+2026-10-05. The landing imports no private watcher configuration. See [DESIGN.md](DESIGN.md) and [AGENTS.md](AGENTS.md)
 for the active visual and engineering contracts.

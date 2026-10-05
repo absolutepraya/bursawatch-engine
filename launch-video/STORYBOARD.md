@@ -15,6 +15,11 @@ version: v3-build
 
 Layout confirmed by the user on 2026-10-01 (storyboard v2). Built in compositions/ from scenes-src/ via tools/build_scenes.py.
 
+## Changes from the Bursawatch Pagi format (2026-10-05)
+
+- Brief rebuilt on the real message format (preview `Bursawatch-Pagi-preview-2026-10-05.md`): "🌇 BURSAWATCH PAGI" with Pasar global (KOSPI, NIKKEI, QQQ emoji) and Agenda Indonesia, then "🏭 Rotasi sektor", "🐉 Rotasi konglo", and IHSG hari ini as the conclusion. Same four beat-locked parts (2.5 / 2.0 / 2.5 / 3.0s), so the SFX plan is unchanged. Figures are the preview's dummy data.
+- Index emoji are the TradingView symbol logos (KRX KOSPI, Nikkei 225, Invesco QQQ), circle-cropped, in `assets/sources/emoji/`.
+
 ## Changes from feedback round 3 (team review)
 
 - Burst: caption centred and larger than the chips. Proof and swing captions larger, vertically centred on the left; the 0:32 caption blink removed.
@@ -211,45 +216,44 @@ The viewer's own question, in their own words. "cepet" and "bener" in copper.
 - poster: 2.0
 - rules: waterfall-entry, coordinate-target-zoom (punch to chart)
 
-## Frame 15 — Brief: global
+## Frame 15 — Brief: Pasar global
 
-- scene: Caption types "08.00 WIB. morning brief." with a "segera hadir" chip. Index tiles count up (real closes, 30 Sep 2026, Yahoo Finance): NASDAQ +0,24%, NIKKEI +1,94%, KOSPI -0,48%.
-- duration: 3.00s
+- scene: Bot card titled "🌇 BURSAWATCH PAGI" (Senin, 5 Okt 2026 · 08.00 WIB). Three tiles with index emoji count up: KOSPI +28,60 (+0,42%), NIKKEI -210,00 (-0,31%), QQQ +$2,10 (+0,28%). "Acuan" line, then "Agenda Indonesia": cadangan devisa, neraca perdagangan, BI-Rate.
+- duration: 2.50s
 - start: 34.27
 - transition_in: copper line collapse and expand
 - status: animated
 - src: compositions/s5-brief.html
 - blueprint: dataviz-countup
-- rules: counting-dynamic-scale, ref4 caption typing
+- rules: counting-dynamic-scale
 
-## Frame 16 — Brief: overnight
+## Frame 16 — Brief: Rotasi sektor
 
-- scene: "Semalam" card: "Inflasi AS melandai, peluang The Fed naikin bunga turun ke 37%." Second line: "Brent masih di atas US$100, Selat Hormuz masih panas."
-- duration: 3.00s
-- start: 37.27
+- scene: "🏭 Rotasi sektor": "Energy masih memimpin; Financials mulai mengejar." Cropped quadrant chart with a slow push, beside three rows: Energy Leading, Financials Improving, Technology Weakening (kekuatan and momentum in pp).
+- duration: 2.00s
+- start: 36.77
 - status: animated
 - src: compositions/s5-brief.html
 - rules: card-morph-anchor
 
-## Frame 17 — Brief: sentiment
+## Frame 17 — Brief: Rotasi konglo
 
-- scene: Two real X takes (with X badges): IHSG Journal "IHSG masih lemah, belum ada sinyal pembalikan" (hati-hati) and "IHSG dinilai mulai terbebas dari tekanan MSCI" (optimis). A balance bar tips toward hati-hati. Label "Kata trader di X".
-- duration: 3.00s
-- start: 40.27
+- scene: "🐉 Rotasi konglo": "Barito memimpin, Djarum membaik, Astra melemah." Same layout: quadrant chart plus Barito Leading, Djarum Improving, Astra / Jardine Weakening.
+- duration: 2.50s
+- start: 38.77
 - status: animated
 - src: compositions/s5-brief.html
-- rules: stat-bars-and-fills
+- rules: card-morph-anchor
 
 ## Frame 18 — Brief: IHSG
 
-- scene: IHSG daily candles draw in (real ^JKSE history); dashed resistance 6.257 and support 6.071 draw across, downside 5.825 faint. Verdict chip cycles Hijau / Merah / Sideways and lands "Sideways, rawan turun."
+- scene: "IHSG hari ini": the branded IHSG daily chart (RSI 14 near 30) settles in; level chips "> 6.100 ruang pemulihan terbuka" and "< 6.000 tekanan balik lagi". Verdict chip cycles Hijau / Merah and lands "Tunggu konfirmasi pemulihan."
 - duration: 3.02s
-- start: 43.27
+- start: 41.27
 - status: animated
 - src: compositions/s5-brief.html
 - poster: 2.5
-- blueprint: dataviz-countup (chart hit)
-- rules: svg-path-draw, vertical-spring-ticker (verdict)
+- rules: vertical-spring-ticker (verdict)
 - audio: soft hit when the verdict lands
 
 ## Frame 19 — Mau: malem

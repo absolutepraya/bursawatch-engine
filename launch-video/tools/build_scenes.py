@@ -274,7 +274,7 @@ def main():
         "{{TRUE_CUT}}": str(true_chart()[1]),
         "{{TRUE_W}}": str(true_chart()[2]),
         "{{KETR_SPARK}}": ketr_spark(),
-        "{{BOTHEAD}}": SB.bot_header("", "Kamis, 1 Okt 2026 · 08.00 WIB"),
+        "{{BOTHEAD}}": SB.bot_header("", "Senin, 5 Okt 2026 · 08.00 WIB"),
     }
     for src in sorted((ROOT / "scenes-src").glob("*.html.tpl")):
         text = src.read_text()
