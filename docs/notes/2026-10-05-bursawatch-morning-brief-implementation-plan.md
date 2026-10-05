@@ -410,4 +410,3 @@ For actual deployment, verify the current release contract, run the required pro
 Stage disabled/no-post first, then activate the approved desired schedule at the existing agreed cadence through its supported owner/reconciler contract. Verify applied revision and the first natural market-session run: source snapshot, immutable run state, all matching receipts and visible six-step output. Green health or schedule parity alone is insufficient. Do not post synthetic smoke-test messages or broadly replay historical briefs.
 
 On failure, disable only the newly approved morning job through desired state, preserve its run/provider/delivery ledgers and uncertain operations, and retain rollback artifacts under the repository's VPS backup contract. Do not reset shared caches or modify unrelated jobs. Report capability, scheduler state and visible delivery separately.
-
