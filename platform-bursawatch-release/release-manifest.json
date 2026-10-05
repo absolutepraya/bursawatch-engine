@@ -11,6 +11,7 @@
         ".gitignore",
         ".wt/**",
         "AGENTS.md",
+        "GLOSSARY.md",
         "bursawatch.png",
         "DEPLOYMENT.md",
         "README.md",
@@ -392,6 +393,22 @@
       "id": "manual-guess-stock",
       "handler": "manual",
       "paths": ["skill-guess-stock/**"]
+    },
+    {
+      "id": "lib-sectors",
+      "handler": "manual",
+      "paths": ["lib-sectors/**"]
+    },
+    {
+      "id": "lib-chart-img",
+      "handler": "manual",
+      "paths": ["lib-chart-img/**"]
+    },
+    {
+      "id": "cron-dc-morning-brief",
+      "handler": "manual",
+      "depends_on": ["lib-sectors", "lib-chart-img", "lib-bursawatch-control", "lib-bursawatch-discord-delivery", "manual-discord-delivery-owner"],
+      "paths": ["cron-dc-morning-brief/**"]
     }
   ]
 }

@@ -188,3 +188,10 @@ def test_identity_is_owner_scoped_and_digest_changes_with_exact_output():
     assert first["publication_id"] != other["publication_id"]
     assert first["publication_id"] == changed["publication_id"]
     assert first["digest"] != changed["digest"]
+
+def test_morning_owner_has_only_its_bounded_logical_route():
+    owner='bursawatch-dc-morning-brief'
+    record=validate_publication(publication(type='morning_brief',route='morning_brief',ticker=None),owner)
+    assert record['owner_id']==owner and record['route']=='morning_brief'
+    with pytest.raises(ValueError,match='unsupported'):
+        validate_publication(publication(type='morning_brief',route='macro_news'),owner)

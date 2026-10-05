@@ -67,4 +67,8 @@ if [[ "${SKIP_WHATSAPP_CHANNEL_WATCH:-0}" != "1" ]]; then
 fi
 run_suite skill-profile-emoji skill-profile-emoji tests
 
+run_suite lib-sectors lib-sectors tests
+run_suite lib-chart-img lib-chart-img tests
+run_suite cron-dc-morning-brief cron-dc-morning-brief tests
+
 run_suite repository-policy . tests

@@ -169,6 +169,12 @@ class RunStore:
             db.execute('UPDATE leases SET expires_at=? WHERE run_id=?',(expiry,lease.run_id))
         return Lease(lease.run_id,lease.owner,lease.generation,expiry)
 
+    def release_lease(self, lease: Lease, *, now: datetime):
+        """Expire a completed writer while retaining its fencing generation."""
+        with self._db() as db:
+            self._check_lease(db,lease.run_id,lease,now)
+            db.execute('UPDATE leases SET expires_at=? WHERE run_id=?',(stamp(now),lease.run_id))
+
     @staticmethod
     def _frozen(row):
         return FrozenRecord(row['run_id'],row['slot'],row['digest'],json.loads(row['payload']),

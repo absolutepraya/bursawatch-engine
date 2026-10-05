@@ -35,9 +35,9 @@ def test_missing_and_stale_checkpoints_are_unknown_and_all_owners_are_required()
     assert next(row for row in view["owners"] if row["owner_id"] == OWNER)["status"] == "complete"
     assert all(row["status"] == "unknown" for row in view["owners"] if row["owner_id"] != OWNER)
     stale = coverage_view(cutover, {OWNER: comparison(NOW - timedelta(hours=1))}, now=NOW)
-    assert stale["owners"][0]["status"] == "unknown"
+    assert next(row for row in stale["owners"] if row["owner_id"] == OWNER)["status"] == "unknown"
     paused = coverage_view(cutover, one, now=NOW, paused_owner_ids={OWNER})
-    assert paused["owners"][0]["status"] == "paused/unverified"
+    assert next(row for row in paused["owners"] if row["owner_id"] == OWNER)["status"] == "paused/unverified"
 
 
 def test_nonzero_outstanding_is_lagging_and_zero_requires_equal_boundaries():

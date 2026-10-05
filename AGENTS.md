@@ -74,6 +74,9 @@ dotfiles, and require separate approval before deletion.
 Read a package `AGENTS.md` before modifying it. These child files supplement
 this contract:
 
+- `lib-sectors/AGENTS.md`
+- `lib-chart-img/AGENTS.md`
+- `cron-dc-morning-brief/AGENTS.md`
 - `service-cobalt/AGENTS.md`
 - `service-bursawatch-discord-delivery/AGENTS.md`
 - `service-bursawatch-source-media/AGENTS.md`
@@ -140,7 +143,8 @@ T3 Code keeps its own worktree manager. In `t3.json`,
 `defaultThreadEnvMode = "worktree"` is a repository fallback, so T3 project or
 environment settings take precedence. WT and T3 worktree creation both call
 `scripts/prepare-control-plane-worktree.sh` to share the ignored
-`service-bursawatch-control/.env` only when the package is present and the
+package-local `service-bursawatch-control/.env`, `lib-sectors/.env` and
+`lib-chart-img/.env` only when each package is present and the
 worktree has no conflicting path. T3 project actions from `t3.json` require an
 explicit import in T3 before `runOnWorktreeCreate` runs; a tracked file alone
 does not enable the action. T3's project file does not configure WT's worktree

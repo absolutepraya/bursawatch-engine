@@ -34,6 +34,7 @@ on a current schedule or release claim.
 | `cron-ig-source-ingest` | `bursawatch-ig-source-ingest` | Instagram catalog and inbox adapter | Unscheduled pilot |
 | `cron-wa-source-ingest` | `bursawatch-wa-source-ingest` | WhatsApp bridge-queue inbox adapter | Active through existing WhatsApp job |
 | `cron-rss-source-ingest` | `bursawatch-rss-source-ingest` | Fixed Stockbit RSS inbox adapter | Active through existing Stockbit job |
+| `cron-dc-morning-brief` | `bursawatch-dc-morning-brief` | Local frozen six-step market brief owner | Proposed runtime, rollout and activation separately gated |
 
 Production source intake has one dedicated Telegram job plus X, WhatsApp, and
 RSS adapters under existing owner jobs. Instagram source ingest has no
@@ -45,6 +46,11 @@ advances a private cursor only after an inbox receipt. Media uses the shared
 Source Media Owner contract; no live bucket or service bootstrap is claimed.
 The [migration inventory](docs/superpowers/specs/2026-09-25-bursawatch-source-pipeline-migration-inventory.md)
 lists checked-in endpoint/state contracts and the live evidence still required.
+
+`lib-sectors` and `lib-chart-img` provide shared cache-only provider clients.
+The [morning contract](cron-dc-morning-brief/SKILL.md) describes the local owner,
+private immutable state, offline preview and receipt-gated publication. All three
+new packages are manual release units pending separately approved provisioning.
 
 `lib-swing-format` is the shared cash-Swing renderer. `lib-telegram-resilience`
 owns the shared PolyCop Telegram control plane. Hermes Personal's Polymarket

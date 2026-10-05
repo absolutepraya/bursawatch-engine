@@ -122,8 +122,8 @@ Text/image operation slots retain `operation_key` and `digest` for the frozen
 transport payload. `append_receipt` requires those matching identities, preserving
 immutable receipt observations and acceptance state. Progress checkpoints and
 phase/fallback summaries are mutable under the fenced lease, separate from
-publication freezes. Subsequent integration must validate actual Delivery Owner
-receipts and gate step dependencies, including text anchors, before submission.
+publication freezes. The Publisher validates Delivery Owner receipts and gates
+step dependencies, including text anchors, before submission.
 
 ## Frozen evidence and bounded writing
 
@@ -204,20 +204,103 @@ For optional numerical fact display, the already frozen `inputs.facts` list uses
 `{label, value, unit}` with finite numeric values. This does not certify upstream
 price visibility or replace `prepare_numerical_inputs` validation.
 
-## Planned heartbeat and provisioning boundary
+## Integrated owner and receipt-gated publication
 
-The later runner must emit a heartbeat for each attempted session, no-op,
-degraded and fatal run to `1505162000420835388` (#hermes). Planned shape:
-`🫀 bursawatch-dc-morning-brief · HH:MM WIB · <safe tokens>[ ⚠️]`;
+`morning_brief.runner.MorningRunner(store, source, delivery, projection, clock=...)`
+uses explicit injected clients. `run(calendar=..., numerical=..., global_inputs=...,
+calendar_snapshots=..., model=..., model_version=..., prompt_version=..., preview=True)`
+is cache-only and no-post by default. `preview=False` additionally requires a
+reviewed `destination` and nonempty `reviewed_config` provenance. This gate records
+caller intent, not external proof of rollout approval or provider rights.
+Use the shared SourceEvidenceClient, DeliveryClient and PublicationClient for
+reviewed runtime transports; the owner never calls Discord REST directly.
+
+The `numerical` dictionary contains JSON-compatible exact imported `memberships`
+(by sectors/konglo), `caps`, `prices`, `actions` and `benchmark`. Price attestations
+are indexed by symbol in `price_attestations`; `benchmark_attestation` also needs
+an explicit version. Each attestation declares `kind='caller_attestation'`,
+`verified=True`, the exact canonical content SHA-256, cutoff-visible
+`available_at`, source URL and evidence reference. These are caller evidence,
+never derived eligibility or proof from positive rows. Missing evidence excludes
+rotation members or the benchmark without substituting prices. All upstream
+records, versions and attestations freeze in `upstream` before selection.
+
+Optional `sectors_client`/`sectors_requests` use the shared client's cache-only
+`get` with max_cost zero and retain exact request keys/URLs, payloads, availability
+and provenance. No cache miss permits provider access. Optional
+`chart_client`/`chart_request` use shared `render(..., cache_only=True)`;
+accepted IHSG images require matching external as-of attestation and the
+calendar's immediately preceding session. Unsupported images are explicitly
+omitted before publication. Raw global input rows contain name, Yahoo chart
+payload, retrieval instant and reviewed exchange sessions. Official calendar
+snapshots come from the shared immutable SnapshotCache. Empty calendar/global
+inputs remain gaps, not fabricated dates or zero changes.
+
+One bounded writer uses the frozen bundle. Output selection is fixed by 07:55
+WIB, with facts-only degradation on missing evidence, timeout or unsupported
+claims. Three exact Indonesian texts and all available image bytes/manifests,
+letters, global/calendar facts and omissions freeze under the fenced lease.
+Freeze is 07:30 WIB; target delivery is 08:00 WIB. Every brief operation has an
+immutable 08:15 WIB attempt deadline, including retries. Delayed recovery keeps
+the original visible cutoff/target labels and records actual lateness.
+
+`publication.Publisher.freeze` persists all six alternating IHSG text/image,
+sector text/image and konglo text/image steps before submission. Attachment bytes
+are base64 in immutable private RunStore records, with original byte hashes.
+They remain retained across durable acceptance and recovery. No staged-media-ref
+API or automatic service media TTL is assumed. `publish` validates exact key,
+digest, operation ID, status, destination and message receipt, then advances from
+matching delivery only. A rejected text anchor blocks its image; pending or
+ambiguous images stay unresolved. Missing/corrupt bytes fail closed. Shared
+receipt waiting uses DELIVERY_RECEIPT_WAIT_SECONDS (10); that duration does not
+extend the attempt deadline or claim cancellation of an earlier attempt.
+
+After expiry, earlier operations may still be queried/reconciled and confirm,
+but no absent operation is submitted. The existing Delivery Owner deadline
+policy remains authoritative for worker sends and bounded reconciliation.
+After every required available receipt, the exact output projection freezes
+and submits to the bounded logical `morning_brief` route/type. This route is
+metadata, not a selected live channel. Projection outage retries that snapshot
+alone. `morning_anchor(run_id)` exposes original selected IHSG text, scenario and
+matching receipt for a later closing consumer. Corrected inputs cannot rewrite
+prior output. Completed attempts release leases while preserving fencing;
+a crashed writer remains fenced until its lease expires.
+
+## Local entrypoint, heartbeat and provisioning boundary
+
+`bin/runner.py` and executable `bin/bursawatch-dc-morning-brief.sh` are no-post
+review entrypoints. With no input they emit a simulated no-data heartbeat and
+perform no network access or credential loading. For an explicit local preview:
+
+```sh
+python cron-dc-morning-brief/bin/runner.py --input /private/retained-input.json \
+  --state /private/morning.sqlite --preview-dir /private/morning-preview
+```
+
+The input manifest names `calendar_path`, expected `calendar_version` and
+`calendar_amendment`, `numerical`, `global_inputs`, `calendar_snapshots`,
+`model_version` and `prompt_version`. The CLI uses an unavailable source/model
+transport and facts-only output; controlled full integration uses injected fake
+or separately reviewed shared clients. `--as-of` is an explicit aware fixture
+instant, never a production currentness assertion. Runtime model transport and
+its own request deadline remain separate provisioning inputs.
+
+Every attempted session, non-session, no-data, degraded and fatal run emits or
+simulates the repository heartbeat destination `1505162000420835388` (#hermes).
+Shape: `🫀 bursawatch-dc-morning-brief · HH:MM WIB · <safe tokens>[ ⚠️]`;
 fatal: `❌ bursawatch-dc-morning-brief · HH:MM WIB · failed: <safe reason>`.
-Tokens summarize phase, cache hits/gaps, reserved/spent/uncertain credits,
-coverage, fallback, explicit image omissions and matching receipt state.
-No secrets or raw sensitive evidence belong in heartbeats.
+Tokens summarize run phase, cache hits/misses, reserved/spent/uncertain credits,
+coverage gaps, selected fallback, image omissions, matching receipt outcome and
+actual lateness. Unavailable billing counters stay unknown. An explicit
+`accounting` snapshot can supply bounded numeric counters, never an inferred
+provider balance. Heartbeats contain no secrets or raw sensitive evidence.
+Preview writes heartbeat JSON, exact six-block Markdown, rendered bytes and
+manifests to the explicit private directory and contacts no service.
 
-The brief destination is a separately reviewed input, never implicitly chosen.
-Shared Discord Delivery Owner is the sole REST path. Shared Control Plane owns
-source reads and confirmed output projection. A six-step publication manifest,
-attachment retention, receipt gates and projection recovery belong to integration.
+New provider and morning release units remain manual. Manifest registration,
+local tests and visual fixture review do not authorize provider requests,
+credential provisioning, service changes, destination or schedule activation.
+The brief destination is a separate reviewed deployment input.
 
 Provider package-local ignored `.env` files remain canonical main-checkout
 inputs with conflict-preserving worktree links; this core reads neither file.
@@ -232,6 +315,6 @@ Run `python -m pytest -q cron-dc-morning-brief/tests` with the repository
 interpreter. The analytical fixtures explicitly use synthetic sessions/prices.
 The private retained cache has four complete sessions and one partial session,
 which is insufficient for an 18-level rotation trail. Retained cache gaps must
-remain gaps. Full repository checks and deployment review occur at final
-integration; natural source-to-visible-delivery verification requires a separately
+remain gaps. Run `bash scripts/test-all` after touched package suites. Deployment review is
+separate; natural source-to-visible-delivery verification requires a separately
 approved rollout and cannot be established by these offline tests.

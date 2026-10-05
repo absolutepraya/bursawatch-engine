@@ -6,7 +6,15 @@
 - [After-close review design spec](notes/2026-10-04-bursawatch-after-close-review-design-spec.md): deferred extension, retaining the closing discussion with an 18:00 WIB target, one LLM run, daily group rankings, and a 20-session foreign-flow visual.
 - [Shared design glossary](../GLOSSARY.md): vocabulary for the proposed brief and review.
 
-These are draft design records, not implementation approval or production operating guidance. The morning spec replaces the former Sectors hackathon working-note filename; the immediate Industry company-impact design remains in its separate managed worktree.
+The morning design has an authorized local implementation in the managed feature
+branch, described by the [implementation plan](notes/2026-10-05-bursawatch-morning-brief-implementation-plan.md)
+and [package contract](../cron-dc-morning-brief/SKILL.md). It has no production
+activation approval. Provider permissions, source retention, credentials,
+destination onboarding, service release and natural visible delivery remain
+separate rollout gates. The after-close extension and competition integration
+remain deferred. Dated research checkpoints retain their original scope.
+The morning spec replaces the former Sectors hackathon working-note filename;
+the immediate Industry company-impact design remains in its separate managed worktree.
 
 ## Operating guidance and retained history
 

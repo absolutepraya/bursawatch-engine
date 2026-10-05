@@ -80,6 +80,7 @@ jobs:
           python -m pytest -q
           service-bursawatch-control/tests/test_postgres_pool_integration.py
           service-bursawatch-control/tests/test_source_rename_migration.py
+          service-bursawatch-control/tests/test_source_evidence_postgres.py
 
   tests:
     name: Deterministic package suites
