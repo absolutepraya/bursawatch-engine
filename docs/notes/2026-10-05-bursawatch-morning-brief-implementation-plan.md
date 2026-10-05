@@ -171,6 +171,7 @@ The local implementation is ready for deployment review when all fake/no-post te
 - Fake transports and temporary private state for tests. Synthetic data is explicit preview mode, never a fallback for real-data gaps.
 - Importing a package must not load secrets, fetch data or write state.
 - No credentials, retained private data, generated artifacts, local environments or caches in Git.
+- Never use the em-dash character in authored code comments, docs, commits or output.
 - Read root and touched child instructions. Preserve existing consumers and all unrelated work. Use English for engineering docs and concise Indonesian for the brief.
 - Implement with TDD and report RED/GREEN evidence. Commit only the task scope. Do not spawn child agents.
 - Shared Control Plane, Source Media and Discord Delivery owners retain their existing boundaries.
@@ -244,7 +245,7 @@ Acceptance: controlled SVG/PNG fixture composition, square geometry, date/header
 
 ### Task 3: Immutable read-only source capture
 
-Own the Control Plane service and lib-bursawatch-control client changes needed for source-window capture, not outlook writing. Read their contracts. Add least-privilege read-only capture and immutable version batch reads through existing HTTP/auth/store conventions. Capture bounded manifest identities under a consistent SQLite read transaction and persist/return opaque stable version references so later amendments/tombstones do not change captured payloads. Explicitly label late captures and overflow. No source work claim, dispatch, publication or scheduler write from this API. Add client methods and tests for auth, boundaries, late commits, corrections/tombstones and batch integrity. Preserve existing service routes and permissions. Update API documentation and package contract in the same task. Evidence selection and generative writer belong to Task 6.
+Own the Control Plane service and lib-bursawatch-control client changes needed for source-window capture, not outlook writing. Read their contracts. Add least-privilege read-only capture and immutable version batch reads through existing HTTP/auth/store conventions. Capture bounded manifest identities under a consistent database read snapshot using the existing Postgres pool/store and memory test double and persist/return opaque stable version references so later amendments/tombstones do not change captured payloads. Explicitly label late captures and overflow. No source work claim, dispatch, publication or scheduler write from this API. Add client methods and tests for auth, boundaries, late commits, corrections/tombstones and batch integrity. Preserve existing service routes and permissions. Update API documentation and package contract in the same task. Evidence selection and generative writer belong to Task 6.
 
 #### Binding requirements from section 7
 
@@ -373,6 +374,8 @@ Index icons need verified/supplied logo assets. Use the existing helper's local-
 Acceptance: final markup length boundary, hard line breaks, absent icon, duplicate names, source-link preservation, six-block local Markdown and attachment captions/titles understandable when unrelated posts interleave.
 
 
+Approved preview constants for Task 7: 2600 by 1660 canvas; 1260-pixel quadrant square; Leading #2EE65F, Improving #78ACF2, Weakening #F0BE91, Lagging #F23F43; corresponding fills #17271D, #19232F, #2B241C, #2A1C20. Use the supplied SVG and properly licensed Hanken Grotesk assets. Synthetic reference remains outside Git in Downloads.
+
 ### Task 8: Receipt-gated publication, local entrypoint and repository wiring
 
 Own morning publication.py and CLI/wrapper, package root contracts and narrow repository wiring. Consume existing shared service clients, deadline and immutable owner state from previous tasks. Implement six frozen steps with image omission declared before submission, stable digest/key matching, acceptance/receipt gates, retained attachment bytes, no-publish preview default and safe restart. Projection only after matching required receipts; failure retries projection alone. Heartbeat on every attempted session/no-op/degraded/fatal run via injectable shared delivery client, no live destination chosen. Live mode requires explicit reviewed destination/config and verified inputs. Add hermetic end-to-end fake run plus accepted-response-loss/restart/projection tests. Register package suites and dependencies in test-all/CI and reviewed release-manifest metadata only; no scheduler or production activation. Extend worktree env linking for both provider package .env files preserving conflicts. Update inventory/docs as proposed/local implementation, not production claims. Complete focused tests, package suites and bash scripts/test-all, plus local preview/recovery verification. Production acceptance section 12 remains separately approved rollout, report exact remaining validation gates. Do not create PR, merge, push or deploy.
@@ -410,3 +413,5 @@ For actual deployment, verify the current release contract, run the required pro
 Stage disabled/no-post first, then activate the approved desired schedule at the existing agreed cadence through its supported owner/reconciler contract. Verify applied revision and the first natural market-session run: source snapshot, immutable run state, all matching receipts and visible six-step output. Green health or schedule parity alone is insufficient. Do not post synthetic smoke-test messages or broadly replay historical briefs.
 
 On failure, disable only the newly approved morning job through desired state, preserve its run/provider/delivery ledgers and uncertain operations, and retain rollback artifacts under the repository's VPS backup contract. Do not reset shared caches or modify unrelated jobs. Report capability, scheduler state and visible delivery separately.
+
+Integration clarification: the current publication owner route table needs a narrowly scoped morning owner/type/logical route before projection. This is not a live destination choice. Preserve and map legacy tracked GLOSSARY.md to metadata. Keep newly unprovisioned units manual pending separately approved rollout.
