@@ -191,7 +191,12 @@ and sample browser preferences separate.
   filters are sent to the authenticated read API before pagination. Detail
   shows exact delivered legs and safe source or related-publication links.
   Publisher coverage is shown separately; an incomplete or unknown checkpoint
-  keeps an empty result explicitly bounded.
+  keeps an empty result explicitly bounded. Coverage loading or a failed read
+  is distinct from a confirmed inactive feed. Coverage errors survive page
+  filtering and pagination, and the coverage retry reads only coverage.
+  Authentication or permission failure on any Published read clears loaded
+  pages, detail and coverage, cancels pending reads, and blocks further reads
+  until sign-in or an explicit permission retry.
 - Account: current identity, copyable UUID for owner-managed access and sign-out.
 
 The Sources page (`/workspace/sources`) reads the versioned Source Catalog and
@@ -204,7 +209,17 @@ user-managed records. The catalog response includes a backend-derived
 identities, platform endpoints, publisher defaults and compatible endpoint
 overrides, then save an optimistic catalog revision. A successful PUT followed
 by a failed read leaves the draft locked and clearly marks refresh as
-unconfirmed; only an explicit successful reload restores editing. Newly added endpoints remain pending identity verification;
+unconfirmed; only an explicit successful reload restores editing. Unsaved catalog
+changes and in-flight saves warn before link navigation or closing the page;
+manual reload requires confirmation before discarding a changed draft. Catalog
+drafts and their selected tab survive same-document Back/Forward in the existing
+signed-in user's JavaScript memory, without persistent browser storage. Returning
+rechecks backend edit access and catalog/effective revision consistency before
+restoring the draft. A changed server revision or an unconfirmed save keeps the
+restored draft locked until explicit reload. Access failure or lost edit access
+clears its retained draft; sign-out and identity change clear all retained drafts.
+Late save completions after leaving cannot clear or unlock a recovered draft.
+Newly added endpoints remain pending identity verification;
 an enabled intent is not an effective subscription or delivery proof. The page
 shows default, override, effective draft and saved effective values separately.
 For ingestion, verified or enabled catalog state remains subject to the
@@ -212,7 +227,7 @@ platform adapter's fixed identity bindings and owner configuration-snapshot
 support. Current platform pilots fail closed for unbound endpoints; adding a
 person to the catalog does not silently start provider polling or delivery.
 The fixed watcher editors, including Stockbit's four RSS lanes, remain independent.
-There is no browser source cache, object-storage upload, direct database access,
+There is no persistent browser source cache, object-storage upload, direct database access,
 or custom-security creation. Public curated assets remain in the web package.
 
 The same-origin proxy allowlists GET `/source-catalog` and

@@ -64,3 +64,32 @@ it("offers an explicit next page and keeps the empty state bounded to the cutove
   fireEvent.click(screen.getByRole("button", { name: "Load more" }));
   expect(onMore).toHaveBeenCalledOnce();
 });
+
+it.each([
+  { coverage: null, loading: true, heading: "Loading publisher coverage…" },
+  { coverage: null, loading: false, heading: "Publisher coverage unavailable" },
+  {
+    coverage: { cutover: null, overall_status: "not_started", owners: [] } as PublicationCoverage,
+    loading: false,
+    heading: "Publication feed not started",
+  },
+])("distinguishes the coverage state: $heading", ({ coverage: state, loading, heading }) => {
+  render(
+    <PublishedList
+      items={[]}
+      coverage={state}
+      coverageLoading={loading}
+      cursor={null}
+      filter={{ group: "all", type: "all", ticker: "", source: "" }}
+      loading={false}
+      error=""
+      onFilter={vi.fn()}
+      onMore={vi.fn()}
+      onSelect={vi.fn()}
+    />,
+  );
+  expect(screen.getByText(heading)).toBeTruthy();
+  if (!state)
+    expect(screen.queryByText("The forward-only feed has not been activated.")).toBeNull();
+  else expect(screen.getByText("The forward-only feed has not been activated.")).toBeTruthy();
+});
