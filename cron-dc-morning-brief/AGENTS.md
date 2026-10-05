@@ -22,6 +22,14 @@ inputs. Do not infer readiness or natural delivery from these local tests.
   Conflicting freezes fail closed. Corrections cannot rewrite prior publications.
 - All 18 levels use aligned sessions, compatible split-adjusted returns, a fixed
   cap snapshot and consistent members. Preserve exclusions and original coverage.
+- Source manifests freeze before version reads/selection. Recovery compares every
+  immutable hash/ref and never recaptures; incomplete corpora force facts-only.
+- Globals require explicit regular exchange sessions and prior-close denominator.
+  Calendar snapshots require primary URL, cutoff-visible verification and exact
+  amendments; dynamic empty pages stay unavailable. No live-fetch fallback.
+- Injected writers return complete attributed source excerpts only. Invocation and
+  validation share a deadline capped at 07:55 WIB, with one daemon worker maximum.
+  Late worker results never mutate the selected fallback or owner state.
 - Run focused tests, then `python -m pytest -q cron-dc-morning-brief/tests`.
   Full repository verification belongs to the final integration task.
 - Tests use injected dependencies and temporary state. No live model, provider,
