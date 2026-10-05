@@ -360,6 +360,7 @@ def submit(
     route_keys = source_work_routes.route_keys(capabilities)
     owner_event_key = event.event_key
     source_record = {
+        "summary_media_refs": work["envelope"]["media_refs"],
         "source_event_key": work["event_key"],
         "source_content_hash": work["envelope"]["content_hash"],
         "source_catalog_revision": work["catalog_revision"],
@@ -374,7 +375,7 @@ def submit(
         value = state.load(state_path)
         existing = next((row for row in value["outbox"] if type(row) is dict and row.get("event_key") == owner_event_key), None)
         if existing is not None:
-            if any(existing.get(key) != expected for key, expected in source_record.items()):
+            if any(existing.get(key) != expected for key, expected in source_record.items() if key != "summary_media_refs" or key in existing):
                 raise ValueError("WhatsApp source event conflicts with existing watcher work")
             return "accepted"
 
@@ -451,6 +452,13 @@ def claim_agent(
             route_override = agent_protocol.deterministic_route(profile, event)
             agent_event = replace(event, media=()) if record.get("source_media_unavailable") is True else event
             claimed = agent_protocol.agent_item(profile, agent_event, relevance_guard_required=route_override is not None)
+            import summary_context
+            selected_route = route_override if profile.enable_llm_routing else profile.discord_channels[0].key
+            if selected_route != "id_stocks_swing":
+                claimed["instruction"] += summary_context.context_instruction(
+                    summary_context.claim_from_state(value, record["event_key"], state_path.parent / "summary-context"),
+                    "~/.hermes/scripts/bursawatch-wa-channel-watch.sh prepare-summary-images --json",
+                )
             break
         state.save(state_path, value)
     return {

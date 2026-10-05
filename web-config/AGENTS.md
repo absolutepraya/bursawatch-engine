@@ -28,8 +28,14 @@ identity-verification state beside its address, separate from subscription
 state. The catalog read includes backend-derived
 `can_edit`; show mutation controls only when it is true. A successful PUT must
 be followed by a confirmed catalog and effective read before success feedback.
-If that read fails, preserve and lock the draft until an explicit reload. Display publisher defaults, endpoint
-overrides and the resolved status separately. Do not infer identity from a
+If that read fails, preserve and lock the draft until an explicit reload.
+Warn before link navigation or closing with unsaved catalog changes or an
+in-flight save, and confirm manual reload before discarding a changed draft.
+Retain catalog drafts only in the existing signed-in user's JavaScript memory
+for same-document Back/Forward recovery. Recheck edit access on return; preserve
+and lock drafts based on stale revisions or unconfirmed saves until reload.
+Clear retained catalog drafts on access failure, sign-out or identity change.
+Display publisher defaults, endpoint overrides and the resolved status separately. Do not infer identity from a
 display name or internal ID. Public curated images remain static assets until
 an object-storage owner and upload policy are approved. No browser-local source
 preferences count as saved catalog records. Preserve all eight watcher editors and their input, processing and output
@@ -59,7 +65,10 @@ and actions. Saved schedules remain pending until matching reconciliation is
 observed. Fixed jobs and viewer sessions have no save control. Job `can_edit` is
 backend-derived and never inferred from browser claims. Jobs and Published read
 only their current-view inventory or publication records; Published filters are
-sent to the authenticated API before paging.
+sent to the authenticated API before paging. Keep coverage loading, read failure
+and a confirmed inactive feed distinct, with coverage errors and retries
+independent of page reads. Authentication or permission failure on any Published
+read clears its loaded pages, detail and coverage and cancels pending reads.
 Do not trigger a real run or delivery in smoke tests. The signed-in
 browser smoke verifies Published records and coverage warnings plus the Jobs
 schedule-evidence note with intercepted synthetic auth and API responses.
@@ -118,6 +127,10 @@ storage, source identity and interactions. Check keyboard access, toast
 feedback, 375px layouts, reduced motion and enlarged text for UI changes.
 Keep all seven mobile destinations visible in an adaptive grid with whole-word
 labels; reserve its measured height as rows increase with text size.
+Activity endpoint identities use the bounded, case-sensitive Source Catalog
+validator, separate from component/job IDs. Jobs resolves a single supported
+watcher resource before linking to its editor; unresolved or ambiguous
+relationships stay readable without an editor link.
 Build output is `.next-build`, separate from the development `.next` tree.
 Never delete a build directory while its server is running.
 

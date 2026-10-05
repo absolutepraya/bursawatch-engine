@@ -28,7 +28,7 @@ def test_text_plan_uses_existing_owner_and_exact_render(tmp_state, monkeypatch):
         "**Type:** Trading Buy <:up:1531285100346740766>\n"
         "**Entry:** 208 to 212\n"
         "**Stop-loss:** <200\n"
-        "**Target:** 230\n"
+        "**Target 1:** 230\n"
         "**Signal date:** 10 Jul 2026 07:00 WIB\n\n"
         "**Reasons:** Konsolidasi bertahan di atas support area 200 menjaga peluang rebound hingga minor uptrend lanjutan. MACD yang konsisten membentuk histogram positif sejalan dengan peluang tersebut.\n"
         "**Chart:** Unavailable from source\n\n"

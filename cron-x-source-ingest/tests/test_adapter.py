@@ -561,7 +561,34 @@ def test_x_correction_after_original_work_claim_stays_at_source_boundary(tmp_pat
     result = run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
     assert result[0]["status"] == "blocked"
     assert result[0]["reason"] == "correction_handoff_failed"
+    assert result[0]["correction_error_code"] == "source_work_not_pending"
     assert inbox.revisions == []
+
+
+def test_correction_media_failure_identifies_stage_without_advancing_or_revising(tmp_path):
+    from vision_media import VisionBundle
+
+    profile = replace(load_watch_config(ROOT / "cron-x-account-watch/config/watches.json").profiles[0], enabled=True)
+    endpoint_id = f"x:{profile.handle.casefold()}"
+    snapshot = {"revision": 3, "subscriptions": [{"platform": "x", "endpoint_id": endpoint_id, "publisher_id": "x-kutekians", "address": profile.handle, "provider_id": None, "capability_id": "company_news", "verification_status": "verified", "enabled": True}]}
+    url = lambda identity: f"https://x.com/{profile.handle}/status/{identity}"
+    posts = [SourcePost(profile.id, "100", url("100"), NOW, "Boundary", PostKind.NORMAL, None, None, (), ())]
+    inbox = Inbox()
+    run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
+    posts.append(SourcePost(profile.id, "101", url("101"), NOW, "Original", PostKind.NORMAL, None, None, (SourceMedia("https://pbs.twimg.com/media/image.jpg", 0),), ()))
+    run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts,
+             media_store=MediaStore(), media_preparer=fake_image_prepare)
+    cursor_path = tmp_path / endpoint_id.replace(":", "-") / "cursor.json"
+    before = cursor_path.read_bytes()
+
+    result = run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts,
+                      media_store=MediaStore(), media_preparer=lambda _post, root: VisionBundle(root, (), 1))
+
+    assert result[0]["reason"] == "correction_handoff_failed"
+    assert result[0]["correction_error_code"] == "correction_media_unavailable"
+    assert cursor_path.read_bytes() == before
+    assert inbox.revisions == []
+    assert len(inbox.events) == 1
 
 
 def test_self_chain_source_event_carries_ordered_post_context(tmp_path):
@@ -577,6 +604,82 @@ def test_self_chain_source_event_carries_ordered_post_context(tmp_path):
     assert run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)[0]["accepted"] == 1
     assert [item["post_id"] for item in inbox.events[0]["payload"]["thread_posts"]] == ["100", "101"]
     assert inbox.events[0]["provider_event_id"] == "101"
+
+
+@pytest.mark.parametrize("parent_visible", [False, True])
+def test_self_quote_keeps_inline_context_when_original_is_outside_thread_window(tmp_path, parent_visible):
+    from datetime import timedelta
+
+    profile = replace(next(item for item in load_watch_config(ROOT / "cron-x-account-watch/config/watches.json").profiles if item.id == "writingtorch"), enabled=True)
+    endpoint_id = "x:writingtorch"
+    snapshot = {"revision": 3, "subscriptions": [{"platform": "x", "endpoint_id": endpoint_id, "publisher_id": "x-writingtorch", "address": profile.handle, "provider_id": None, "capability_id": "company_news", "verification_status": "verified", "enabled": True}]}
+    url = lambda identity: f"https://x.com/{profile.handle}/status/{identity}"
+    boundary = SourcePost(profile.id, "100", url("100"), NOW, "Boundary", PostKind.NORMAL, None, None, (), ())
+    original = SourcePost(profile.id, "90", url("90"), NOW - timedelta(days=30), "Original rights issue", PostKind.NORMAL, None, None, (), ())
+    quote = SourcePost(profile.id, "101", url("101"), NOW, "Updated rights issue date", PostKind.QUOTE, original.url, "Original rights issue", (), (), original.url)
+    posts = [boundary]
+    inbox = Inbox()
+    run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
+    posts = ([original] if parent_visible else []) + [boundary, quote]
+
+    result = run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
+
+    assert result[0]["status"] == "accepted"
+    assert result[0]["accepted"] == 1
+    event = inbox.events[0]
+    assert [post["post_id"] for post in event["payload"]["thread_posts"]] == ["101"]
+    assert event["payload"]["post"]["quoted_content_html"] == "Original rights issue"
+    assert event["payload"]["post"]["quoted_url"] == url("90")
+    # The real owner must accept the same frozen single-post quote context.
+    posts, refs = pipeline_owner._posts(profile, event)
+    assert posts[0].quoted_content_html == "Original rights issue"
+    assert refs == {}
+    assert json.loads((tmp_path / "x-writingtorch/cursor.json").read_text())["anchor"] == "101"
+
+
+@pytest.mark.parametrize("kind,quoted_text", [
+    (PostKind.REPLY, None),
+    (PostKind.QUOTE, None),
+    (PostKind.QUOTE, " \n\t"),
+    (PostKind.QUOTE, "<br> \n"),
+    (PostKind.QUOTE, "&nbsp;<p> </p>"),
+])
+def test_self_continuation_without_parent_or_inline_context_holds_cursor(tmp_path, kind, quoted_text):
+    profile = replace(next(item for item in load_watch_config(ROOT / "cron-x-account-watch/config/watches.json").profiles if item.id == "writingtorch"), enabled=True)
+    snapshot = {"revision": 3, "subscriptions": [{"platform": "x", "endpoint_id": "x:writingtorch", "publisher_id": "x-writingtorch", "address": profile.handle, "provider_id": None, "capability_id": "company_news", "verification_status": "verified", "enabled": True}]}
+    url = lambda identity: f"https://x.com/{profile.handle}/status/{identity}"
+    posts = [SourcePost(profile.id, "100", url("100"), NOW, "Boundary", PostKind.NORMAL, None, None, (), ())]
+    inbox = Inbox()
+    run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
+    posts.append(SourcePost(profile.id, "101", url("101"), NOW, "Continuation", kind, url("90") if kind is PostKind.QUOTE else None, quoted_text, (), (), url("90")))
+
+    result = run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
+
+    assert result[0]["status"] == "blocked"
+    assert inbox.events == []
+    assert json.loads((tmp_path / "x-writingtorch/cursor.json").read_text())["anchor"] == "100"
+
+
+def test_self_quote_keeps_durable_quoted_image_when_parent_is_absent(tmp_path):
+    profile = replace(next(item for item in load_watch_config(ROOT / "cron-x-account-watch/config/watches.json").profiles if item.id == "writingtorch"), enabled=True)
+    snapshot = {"revision": 3, "subscriptions": [{"platform": "x", "endpoint_id": "x:writingtorch", "publisher_id": "x-writingtorch", "address": profile.handle, "provider_id": None, "capability_id": "company_news", "verification_status": "verified", "enabled": True}]}
+    url = lambda identity: f"https://x.com/{profile.handle}/status/{identity}"
+    posts = [SourcePost(profile.id, "100", url("100"), NOW, "Boundary", PostKind.NORMAL, None, None, (), ())]
+    inbox = Inbox()
+    run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
+    posts.append(SourcePost(profile.id, "101", url("101"), NOW, "New date", PostKind.QUOTE, url("90"), "Original rights issue", (), (SourceMedia("https://pbs.twimg.com/media/original.jpg", 0),), url("90")))
+
+    result = run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts,
+                      media_store=MediaStore(), media_preparer=fake_image_prepare)
+
+    assert result[0]["status"] == "accepted"
+    event = inbox.events[0]
+    assert event["media_required"] is True
+    assert len(event["media_refs"]) == 1
+    converted, refs = pipeline_owner._posts(profile, event)
+    assert len(converted[0].quoted_media) == 1
+    assert converted[0].quoted_content_html == "Original rights issue"
+    assert len(refs) == 1
 
 
 def test_x_subscriptions_settle_independently_through_pipeline_runtime():

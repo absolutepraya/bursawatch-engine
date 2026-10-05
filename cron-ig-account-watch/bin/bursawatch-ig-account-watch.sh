@@ -23,7 +23,7 @@ if [[ "${INSTAGRAM_POST_WATCH_NO_POST:-}" == "1" ]]; then
 fi
 
 if [[ -r "$HOME/.hermes/.env" ]]; then
-  for name in BURSAWATCH_DISCORD_DELIVERY_URL BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE; do
+  for name in BURSAWATCH_SOURCE_MEDIA_URL BURSAWATCH_SOURCE_MEDIA_READ_TOKEN_FILE BURSAWATCH_DISCORD_DELIVERY_URL BURSAWATCH_DISCORD_DELIVERY_CLIENT_TOKEN_FILE; do
     value="$(grep -E "^${name}=" "$HOME/.hermes/.env" | head -1 | cut -d= -f2- || true)"
     [[ -n "$value" ]] && export "$name=$value"
   done

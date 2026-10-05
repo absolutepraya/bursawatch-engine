@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { sourceEndpointId } from "./source-endpoint-id";
 
 const id = z.string().regex(/^[a-z0-9][a-z0-9:_-]{0,127}$/);
 const timestamp = z.iso.datetime({ offset: true });
@@ -55,7 +56,7 @@ export const componentActivity = z
       .array(
         z
           .object({
-            endpoint_id: id,
+            endpoint_id: sourceEndpointId,
             accepted_at: timestamp.nullable(),
             status: z.enum(["unknown", "stale", "observed"]),
             meaning: z.literal("last accepted into Source Inbox"),

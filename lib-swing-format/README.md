@@ -31,3 +31,16 @@ status, and provider footers.
 `bin/bri_adapter.py` defines the future BRI Danareksa normalized adapter. The
 live WhatsApp watcher does not import it yet, so BRI routing and delivery stay
 unchanged until that separate integration is approved.
+
+`bin/source_plan.py` validates LLM-selected level fields against unchanged source
+character spans. It does not extract source plans or alter Board evaluation.
+`source_plan_display` supplies Entry, Stop-loss and Target 1 placeholders, then
+explicitly supplied numbered targets and additional stops. Source ranges and
+comparators remain intact. `fields_from_canonical_message` reads only the
+already canonical rendered fields for optional Board presentation. Raw source
+text and legacy plan records remain authoritative evidence.
+
+`frozen_presentation.py` validates closed version-2 presentation records and
+removes only the Board line for source-context copies. Source owners freeze
+messages and destinations before delivery; the library has no state or send
+authority. Legacy records remain on their original rendering path.

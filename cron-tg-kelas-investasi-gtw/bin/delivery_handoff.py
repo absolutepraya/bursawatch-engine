@@ -166,6 +166,9 @@ class KelasInvestasiHandoffAdapter:
             if not isinstance(event_key, str):
                 raise HandoffError("Kelas Investasi source event key is invalid")
             chunks = discord.render_event(event)
+            from render import saved_presentation
+            presentation = saved_presentation(event)
+            channel_id = presentation["destination"] if presentation else discord.DISCORD_CHANNEL_ID
             text_index = event.get("text_index")
             text_ids = event.get("text_message_ids")
             media_index = event.get("next_media_index")

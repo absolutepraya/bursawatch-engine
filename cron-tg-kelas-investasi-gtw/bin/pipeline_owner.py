@@ -232,6 +232,8 @@ def submit_analysis(payload: object, *, now: datetime | None = None, no_post: bo
         accepted = validate_submission(event, raw)
         event["title"] = accepted["title"]
         event["summary"] = accepted["summary"]
+        from render import freeze_presentation
+        freeze_presentation(event, accepted, loaded.config.alert_discord_channel_id)
         event["agent_phase"] = "delivering"
         event["agent_lease_until"] = None
         save_state(path, state)

@@ -628,7 +628,7 @@ def _prepare_event(
         )
     finally:
         session.close()
-    return _prepare_downloaded_event(post, profile, downloaded, cache_root, backend, stats)
+    return _prepare_downloaded_event(post, profile, downloaded, cache_root, backend, stats, news_screening=True)
 
 
 def _prepare_downloaded_event(
@@ -638,12 +638,16 @@ def _prepare_downloaded_event(
     cache_root: Path,
     backend: object,
     stats: RunStats,
+    *, news_screening: bool = False,
 ) -> dict[str, object]:
     """Apply the watcher OCR and vision flow to already durable originals."""
     if not isinstance(downloaded, DownloadedPublication):
         raise ValueError("media preparation returned an invalid publication")
     if downloaded.failed_assets:
         stats.note_media_failure(profile)
+    if news_screening:
+        return {"post": post, "downloaded_publication": downloaded, "ocr_results": (),
+                "vision_decision": vision_gate.VisionDecision(vision_gate.VisionMode.TEXT_ONLY, vision_gate.REASON_TEXT_SUFFICIENT, (), ())}
     downloaded = _reel_analysis_assets(post, downloaded, profile, stats)
     image_assets = tuple(
         sorted(
@@ -777,7 +781,12 @@ def _claim_agent(
         return agent_protocol.build_wake_payload(None)
     state.save_state(storage, value)
     try:
-        item = agent_protocol.agent_item(profiles[event["profile_id"]], event)
+        item = agent_protocol.agent_item(profiles[event["profile_id"]], event, news_screening=True)
+        import summary_context
+        item["instruction"] += summary_context.context_instruction(
+            summary_context.claim_from_state(value, event["event_key"], storage.parent / "summary-context", source_work_routes.read(storage, event["event_key"])),
+            "~/.hermes/scripts/bursawatch-ig-account-watch.sh prepare-summary-images --json",
+        )
         return agent_protocol.build_wake_payload(item)
     except Exception:
         event["agent_phase"] = "pending"
@@ -917,8 +926,6 @@ def run(now: datetime | None = None, dry_run: bool | None = None) -> dict[str, o
                             },
                         )
                         continue
-                    if backend is None:
-                        backend = _ocr_backend_for_run()
                     def prepare(post: SourcePost, profile: Profile = profile) -> dict[str, object]:
                         prepared_roots[post.publication_id] = root / post.publication_id
                         prepared = _prepare_event(
@@ -1121,6 +1128,8 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
             if profile is None or not profile.uses_llm:
                 raise ValueError("analysis profile is not enabled")
             event = state.awaiting_analysis_event(value, event_key)
+            import summary_context
+            optional_context = summary_context.claim_from_state(value, event_key, storage.parent / "summary-context", source_work_routes.read(storage, event_key))
             analysis = agent_protocol.validate_submission(profile, payload)
             post = state.deserialize_post(event["post"])
             ocr_text = _analysis_ocr_text(event)
@@ -1130,6 +1139,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                     source_work_routes.record_terminal(storage, event_key, "irrelevant")
                 state.discard_analysis(value, analysis["event_key"], now)
                 state.save_state(storage, value)
+                summary_context.cleanup_claim_context(optional_context)
                 stats = RunStats()
                 _retry_media_cleanup(value, storage, stats, no_post=no_post)
                 if stats.degraded and not no_post:
@@ -1161,6 +1171,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 source_work_routes.record_terminal(storage, event_key, "route_not_subscribed", analysis["route"])
                 state.discard_analysis(value, analysis["event_key"], now)
                 state.save_state(storage, value)
+                summary_context.cleanup_claim_context(optional_context)
                 stats = RunStats()
                 _retry_media_cleanup(value, storage, stats, no_post=no_post)
                 if stats.degraded and not no_post:
@@ -1186,6 +1197,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 event["news_cards"] = render.freeze_news(profile, post, news_items or [{"title": analysis.get("title") or profile.display_name, "summary": analysis["summary"], "route": analysis.get("route") or profile.discord_channels[0].key}])
             state.save_state(storage, value)
             stats = RunStats()
+            summary_context.cleanup_claim_context(optional_context)
             if not no_post:
                 _drain_deliveries(value, profiles, storage, stats, now, limit=1)
                 _retry_media_cleanup(value, storage, stats, no_post=False)
@@ -1239,9 +1251,14 @@ def _main() -> int:
     subparsers = parser.add_subparsers(dest="command")
     submit = subparsers.add_parser("submit-analysis")
     submit.add_argument("--json", required=True, dest="payload")
+    images = subparsers.add_parser("prepare-summary-images")
+    images.add_argument("--json", required=True, dest="payload")
     arguments = parser.parse_args()
     try:
-        if arguments.command == "submit-analysis":
+        if arguments.command == "prepare-summary-images":
+            import summary_context
+            result = summary_context.prepare_summary_context(json.loads(arguments.payload))
+        elif arguments.command == "submit-analysis":
             result = submit_analysis_payload(json.loads(arguments.payload))
         else:
             result = run()

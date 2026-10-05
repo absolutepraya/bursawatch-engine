@@ -200,6 +200,94 @@ describe("profile metadata proxy", () => {
 });
 
 describe("operator inventory read proxy", () => {
+  it.each([
+    ["bursawatch-ig-source-ingest", "instagram:synthetic.research"],
+    ["bursawatch-wa-source-ingest", "whatsapp:0029SyntheticMixedCase"],
+  ])(
+    "returns authenticated activity for %s as no-store without changing state",
+    async (componentId, endpointId) => {
+      for (const status of ["unknown", "stale", "observed"]) {
+        const activity = {
+          component_id: componentId,
+          endpoints: [
+            {
+              endpoint_id: endpointId,
+              accepted_at: status === "unknown" ? null : time,
+              status,
+              meaning: "last accepted into Source Inbox",
+            },
+          ],
+          pipelines: [],
+          delivery_status: "not instrumented",
+        };
+        const fetchImpl = fake([activity]);
+        const response = await invoke(
+          `components/${componentId}/activity`,
+          fetchImpl,
+        );
+        expect(response.status).toBe(200);
+        expect(response.headers.get("cache-control")).toContain("no-store");
+        expect(await response.json()).toEqual(activity);
+        expect(fetchImpl).toHaveBeenCalledTimes(1);
+        expect(fetchImpl.mock.calls[0][1]).toMatchObject({
+          method: "GET",
+          cache: "no-store",
+          headers: { Authorization: "Bearer e30.e30.signature" },
+        });
+      }
+    },
+  );
+
+  it.each(["instagram:bad/handle", "a".repeat(129)])(
+    "keeps invalid activity endpoint identities rejected: %j",
+    async (endpointId) => {
+      const fetchImpl = fake([
+        {
+          component_id: "bursawatch-ig-source-ingest",
+          endpoints: [
+            {
+              endpoint_id: endpointId,
+              accepted_at: null,
+              status: "unknown",
+              meaning: "last accepted into Source Inbox",
+            },
+          ],
+          pipelines: [],
+          delivery_status: "not instrumented",
+        },
+      ]);
+      const response = await invoke(
+        "components/bursawatch-ig-source-ingest/activity",
+        fetchImpl,
+      );
+      expect(response.status).toBe(502);
+      expect(await response.json()).toMatchObject({ code: "invalid-response" });
+    },
+  );
+
+  it("rejects a valid activity body for a different component", async () => {
+    const response = await invoke(
+      "components/bursawatch-ig-source-ingest/activity",
+      fake([
+        {
+          component_id: "bursawatch-wa-source-ingest",
+          endpoints: [
+            {
+              endpoint_id: "whatsapp:0029SyntheticMixedCase",
+              accepted_at: null,
+              status: "unknown",
+              meaning: "last accepted into Source Inbox",
+            },
+          ],
+          pipelines: [],
+          delivery_status: "not instrumented",
+        },
+      ]),
+    );
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ code: "invalid-response" });
+  });
+
   it("allowlists authenticated component, activity, job and observation GETs as no-store", async () => {
     const paths = [
       "components",
@@ -489,6 +577,43 @@ describe("source catalog proxy", () => {
     compatibility: [],
     config: revision,
   };
+  it.each(["instagram:synthetic.research", "whatsapp:0029SyntheticMixedCase"])(
+    "preserves saved override identity %s through authenticated reads and writes",
+    async (endpointId) => {
+      const config = {
+        ...emptyConfig,
+        endpoint_overrides: [
+          { endpoint_id: endpointId, capability_id: "company_news", enabled: false, settings: {} },
+        ],
+      };
+      const savedRevision = { ...revision, config };
+      const fetchImpl = fake([{ ...catalog, config: savedRevision }], [{ ...savedRevision, revision: 2 }]);
+      const read = await invoke("source-catalog", fetchImpl);
+      expect(read.status).toBe(200);
+      expect((await read.json()).config.config.endpoint_overrides[0].endpoint_id).toBe(endpointId);
+      const write = await invoke("source-catalog/config", fetchImpl, { expected_revision: 1, config });
+      expect(write.status).toBe(200);
+      expect((await write.json()).config.endpoint_overrides[0].endpoint_id).toBe(endpointId);
+      expect(JSON.parse(fetchImpl.mock.calls[1][1]?.body as string).config.endpoint_overrides[0].endpoint_id).toBe(endpointId);
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    },
+  );
+  it("rejects malformed stored overrides and blocks malformed writes before network access", async () => {
+    const config = {
+      ...emptyConfig,
+      endpoint_overrides: [
+        { endpoint_id: "instagram:bad/handle", capability_id: "company_news", enabled: false, settings: {} },
+      ],
+    };
+    const fetchImpl = fake([{ ...catalog, config: { ...revision, config } }]);
+    const read = await invoke("source-catalog", fetchImpl);
+    expect(read.status).toBe(502);
+    expect((await read.json()).code).toBe("invalid-response");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const write = await invoke("source-catalog/config", fetchImpl, { expected_revision: 1, config });
+    expect(write.status).toBe(422);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
   it("forwards only exact authenticated catalog reads", async () => {
     const fetchImpl = fake(
       [catalog],

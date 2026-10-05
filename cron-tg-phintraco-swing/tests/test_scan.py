@@ -2371,7 +2371,7 @@ def test_delivery_owner_receipts_persist_text_before_chart_and_keep_source_keys(
         "bursawatch-tg-phintraco-swing:33655:chart",
     ]
     assert owner.operations[0].payload["content"] == scan.format_swing_alert(
-        sample_call(), include_board=True
+        sample_call(), include_board=True,canonical_plan=True
     )
     assert owner.operations[1].attachments[0].data == b"chart"
     assert owner.chart_saw_saved_text is True
@@ -2813,3 +2813,38 @@ def test_main_prints_original_error_when_fatal_notice_fails(
     assert scan.main() == 0
     payload = json.loads(capsys.readouterr().out.strip())
     assert payload == {"wakeAgent": False, "error": "telegram down"}
+
+
+def test_new_plan_keeps_bull_target_numbers_status_and_date():
+    call = scan.parse_swing_call(33655,fixture("trading_buy.txt"),True)
+    call = replace(call,ticker="BULL",entry=">=340",stop_loss="<330",targets=(scan.PriceTarget(2,"380"),scan.PriceTarget(1,"360")))
+    state = scan.empty_state()
+    event = scan.enqueue_call(state,call,now())
+    assert "presentation" in event
+    text = event["presentation"]["messages"][0]
+    assert text.index("**Target 1:** 360") < text.index("**Target 2:** 380")
+    assert "**Entry:** >=340" in text and "**Stop-loss:** <330" in text
+    assert "**Source status:** New setup" in text
+    assert scan.format_signal_datetime(call.signal_datetime) in text
+    # Legacy callable renderer is unchanged for old pending payloads.
+    assert scan.format_swing_alert(call,include_board=True) != text
+
+
+def test_frozen_swing_retry_never_reanalyzes_or_rerenders(monkeypatch):
+    call = sample_call(has_photo=False)
+    state = scan.empty_state(); event = scan.enqueue_call(state,call,now())
+    saved = event["presentation"]["messages"][0]
+    monkeypatch.setattr(scan,"format_swing_alert",lambda *a,**k:(_ for _ in ()).throw(AssertionError("rerendered")))
+    assert scan.event_text(event) == saved
+    assert scan.event_destination(event) == event["presentation"]["destination"]
+
+
+def test_legacy_pending_swing_keeps_original_bytes_and_destination(monkeypatch):
+    call = sample_call(has_photo=False)
+    state = scan.empty_state(); event = scan.enqueue_call(state,call,now())
+    event.pop("presentation")
+    legacy = scan.format_swing_alert(call)
+    assert scan.event_text(event) == legacy
+    event["text_output"] = legacy; event["text_destination"] = "123456789012345678"
+    monkeypatch.setattr(scan,"format_swing_alert",lambda *a,**k:(_ for _ in ()).throw(AssertionError("issued legacy rerendered")))
+    assert scan.event_text(event) == legacy and scan.event_destination(event) == "123456789012345678"

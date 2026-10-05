@@ -260,6 +260,7 @@ def test_control_plane_reason_sanitizes_source_secrets_urls_and_paths():
 
 
 def test_live_agent_submission_reports_structured_events(tmp_path, monkeypatch, config_path):
+    from test_summary_context import staged_claim
     profile_config = __import__("config").load_watch_config(config_path)
     profile = profile_config.profiles[0]
     storage = tmp_path / "state.json"
@@ -313,6 +314,11 @@ def test_live_agent_submission_reports_structured_events(tmp_path, monkeypatch, 
         lambda _path: SimpleNamespace(config=profile_config, revision=17),
     )
     monkeypatch.setattr(scan, "_control_plane_reporter", lambda: reporter)
+    optional_asset = staged_claim(tmp_path, monkeypatch, f"{profile.id}:101")
+    with pytest.raises(ValueError):
+        scan.submit_analysis_payload({"event_key": f"{profile.id}:101", "is_relevant": "invalid"}, dry_run=True)
+    assert optional_asset.is_file()
+    reporter.started.clear(); reporter.events.clear(); reporter.finished.clear()
 
     result = scan.submit_analysis_payload(
         {"event_key": f"{profile.id}:101", "is_relevant": False},
@@ -320,6 +326,7 @@ def test_live_agent_submission_reports_structured_events(tmp_path, monkeypatch, 
     )
 
     assert result == {"submitted": True, "ignored": True, "delivered": 0}
+    assert not optional_asset.exists()
     assert reporter.started == [(17, "x-post-source", "agent_submission")]
     assert [event[2]["event_type"] for event in reporter.events] == [
         "agent.submission.started",
@@ -354,8 +361,24 @@ def test_queue_only_run_skips_source_fetch_and_claims_oldest_agent(tmp_path, mon
     assert saved["outbox"][0]["agent_phase"] == "awaiting_agent"
 
 
-def test_queue_worker_passes_authored_and_quoted_vision_images_to_the_agent(tmp_path, monkeypatch, config_path):
+@pytest.mark.parametrize("profile_mode,source_text,capabilities,swing_expected", [
+    ("news", "A substantive market post", None, False),
+    ("mixed", "A substantive market post", None, False),
+    ("mixed", "KPIG: wave count at support 90", None, True),
+    ("mixed", "IHSG technical chart shows support", None, False),
+    ("mixed", "KPIG: wave count at support 90", ["company_news", "macro_news"], False),
+    ("mixed", "KPIG: wave count at support 90", ["swing_chart_context"], True),
+    ("fixed_swing", "KPIG: wave count at support 90", ["swing_chart_context"], True),
+])
+def test_queue_worker_keeps_upfront_vision_only_for_specialized_swing(tmp_path, monkeypatch, config_path, profile_mode, source_text, capabilities, swing_expected):
     profile = __import__("config").load_watch_config(config_path).profiles[0]
+    if profile_mode != "news":
+        from dataclasses import replace
+        from models import DiscordChannel
+        profile = replace(profile, enable_llm_routing=True, discord_channels=(*profile.discord_channels, DiscordChannel("id_stocks_swing","1525102458253217803","Swing")))
+        if profile_mode == "fixed_swing":
+            profile = replace(profile, enable_llm_routing=False, discord_channels=(profile.discord_channels[-1],))
+        monkeypatch.setattr(scan.config, "load_watch_config_for_run", lambda *args: __import__("config").LoadedWatchConfig(__import__("models").WatchConfig(1,(profile,)),None))
     current = datetime(2026, 8, 24, 10, 0, tzinfo=scan.WIB)
     storage = tmp_path / "state.json"
     post = SourcePost(
@@ -363,7 +386,7 @@ def test_queue_worker_passes_authored_and_quoted_vision_images_to_the_agent(tmp_
         "101",
         "https://x.com/Kutekians/status/101",
         current - timedelta(hours=2),
-        "A substantive market post",
+        source_text,
         PostKind.QUOTE,
         "https://x.com/other/status/100",
         "Quoted market context",
@@ -373,6 +396,8 @@ def test_queue_worker_passes_authored_and_quoted_vision_images_to_the_agent(tmp_
     value = state.new_state()
     value["profiles"][profile.id] = {"cursor": "100"}
     state.observe_posts(value, profile, [post], lambda candidate: candidate.kind is PostKind.QUOTE, now=post.published_at)
+    if capabilities is not None:
+        value["outbox"][0]["enabled_capabilities"] = capabilities
     state.save_state(storage, value)
     root = tmp_path / "vision" / profile.id / post.post_id
     root.mkdir(parents=True)
@@ -419,11 +444,11 @@ def test_queue_worker_passes_authored_and_quoted_vision_images_to_the_agent(tmp_
 
     result = scan.run(now=current, dry_run=False)
 
-    assert prepared == [(post, storage, False, (post,))]
+    assert prepared == ([(post, storage, False, (post,))] if swing_expected else [])
     assert prepared_articles == [((post,), False)]
-    assert result["item"]["vision_asset_paths"] == [str(authored), str(quoted)]
-    assert "Authored X post image 1" in result["item"]["post_text"]
-    assert "Quoted X post image 1" in result["item"]["post_text"]
+    assert result["item"]["vision_asset_paths"] == ([str(authored),str(quoted)] if swing_expected else [])
+    assert ("Authored X post image 1" in result["item"]["post_text"]) is swing_expected
+    assert ("Quoted X post image 1" in result["item"]["post_text"]) is swing_expected
     assert "Article 1 title: Article context" in result["item"]["post_text"]
     assert flock_operations == [
         scan.fcntl.LOCK_EX | scan.fcntl.LOCK_NB,
@@ -462,7 +487,7 @@ def test_queue_worker_discards_context_when_the_claimed_lease_changes(tmp_path, 
     monkeypatch.setattr(scan, "state_path", lambda: storage)
     monkeypatch.setattr(scan, "config_path", lambda: config_path)
     monkeypatch.setattr(scan, "_prepare_agent_vision", change_lease)
-    monkeypatch.setattr(scan, "_prepare_article_context", lambda *_args: None)
+    monkeypatch.setattr(scan, "_prepare_article_context", change_lease)
     monkeypatch.setattr(scan.discord, "post_text", lambda *args: None)
     monkeypatch.setenv("X_POST_WATCH_QUEUE_ONLY", "1")
 

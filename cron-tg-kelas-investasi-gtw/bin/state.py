@@ -301,12 +301,17 @@ def _is_pending(value: object, media_root: Path | None = None) -> bool:
 
 
 def _is_outbox(value: object, media_root: Path | None = None) -> bool:
-    if not isinstance(value, dict) or set(value) != {
+    if not isinstance(value, dict) or set(value) - {"presentation"} != {
         "event_key", "ticker", "header_message_id", "source_message_ids", "source_text", "source_published_at", "plan", "media", "title", "summary", "text_message_ids",
         "agent_phase", "agent_lease_until", "text_index", "next_media_index", "attempts", "next_attempt_at", "last_error",
         "board_phase", "board_attempts", "board_next_attempt_at", "board_last_error",
         "all_delivery_completed_at",
     }:
+        return False
+    from render import saved_presentation
+    try:
+        saved_presentation(value)
+    except ValueError:
         return False
     plan = value["plan"]
     return (

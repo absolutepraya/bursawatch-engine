@@ -194,7 +194,7 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
     )
     return (
         INSTRUCTION_PREFIX
-        + "When vision_asset_paths is non-empty, read every listed local image with vision before deciding. Read every supplied linked article context before deciding. Do not inspect any other local path or fetch, open, or browse links yourself. Return only the requested source-grounded Bahasa Indonesia fields. "
+        + "For specialized Swing analysis, read every supplied vision_asset_path. Ordinary news eligibility must come from authored source text before optional image inspection; specialized images cannot rescue image-only news. Read every supplied linked article context before deciding. Do not inspect any other local path or fetch, open, or browse links yourself. Return only the requested source-grounded Bahasa Indonesia fields. "
         + SUBMISSION_INSTRUCTION
         + relevance
         + profile_instruction

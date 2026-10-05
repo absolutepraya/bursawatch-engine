@@ -4,6 +4,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { OperatorJobs } from "./operator-jobs";
 import { ToastProvider } from "./toast-provider";
 import type { OperatorComponent, OperatorJob, OperatorObservation } from "@/lib/operator-inventory";
+import { watcherNames } from "@/lib/watcher-fields";
 
 afterEach(cleanup);
 
@@ -74,12 +75,12 @@ const mismatch: OperatorObservation = {
   reconciliation: { status: "applied", applied_revision: 3 },
 };
 
-function view(current: OperatorJob) {
+function view(current: OperatorJob, relatedComponents = components) {
   return render(
     <ToastProvider>
       <OperatorJobs
         jobs={[current]}
-        components={components}
+        components={relatedComponents}
         observations={[mismatch]}
         request={vi.fn()}
         onDirtyChange={vi.fn()}
@@ -102,4 +103,67 @@ it("shows an observed mismatch and removes save controls for viewers", () => {
   expect(screen.getByText("Observed schedule mismatch")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Save schedule" })).toBeNull();
   expect(screen.getByText(/You have view access/)).toBeTruthy();
+});
+
+it.each(Object.keys(watcherNames))(
+  "resolves the backend watcher resource for %s for viewers and admins",
+  (watcherId) => {
+    const owner = {
+      ...components[1],
+      config_resource_ids: ["source-catalog", `watcher:${watcherId}`],
+    };
+    for (const canEdit of [false, true]) {
+      const rendered = view({ ...job, can_edit: canEdit }, [components[0], owner]);
+      expect(screen.getByRole("link", { name: "Market News" }).getAttribute("href")).toBe(
+        `/workspace/workflows?watcher=${watcherId}`,
+      );
+      expect(screen.getByRole("link", { name: "Telegram Source Inbox" }).getAttribute("href")).toBe(
+        "/workspace/sources",
+      );
+      rendered.unmount();
+    }
+  },
+);
+
+it.each(
+  [
+    [],
+    ["source-catalog"],
+    ["watcher:"],
+    ["watcher:unknown-workflow"],
+    ["pipeline:bursawatch-tg-market-news"],
+    ["watcher:watcher:bursawatch-tg-market-news"],
+    ["watcher:bursawatch-tg-market-news", "watcher:bursawatch-stockbit-snips"],
+  ].map((resources) => ({ resources })),
+)(
+  "keeps unresolved or ambiguous resources readable without a bogus workflow link: $resources",
+  ({ resources }) => {
+    view(job, [components[0], { ...components[1], config_resource_ids: resources }]);
+    expect(screen.queryByRole("link", { name: "Market News" })).toBeNull();
+    expect(screen.getAllByText("Market News").length).toBeGreaterThan(0);
+  },
+);
+
+it("retains bare watcher compatibility and ignores duplicate references", () => {
+  view(job, [
+    components[0],
+    {
+      ...components[1],
+      config_resource_ids: ["bursawatch-tg-market-news", "watcher:bursawatch-tg-market-news"],
+    },
+  ]);
+  expect(screen.getByRole("link", { name: "Market News" }).getAttribute("href")).toBe(
+    "/workspace/workflows?watcher=bursawatch-tg-market-news",
+  );
+});
+
+it("does not link a delivery service even when a watcher resource is present", () => {
+  view(job, [
+    {
+      ...components[1],
+      kind: "delivery_service",
+      config_resource_ids: ["watcher:bursawatch-tg-market-news"],
+    },
+  ]);
+  expect(screen.queryByRole("link", { name: "Market News" })).toBeNull();
 });

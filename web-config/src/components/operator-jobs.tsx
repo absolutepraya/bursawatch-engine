@@ -6,6 +6,7 @@ import Link from "next/link";
 import { observedJobState, latestOperatorObservations } from "@/lib/control-analytics";
 import type { OperatorComponent, OperatorJob, OperatorObservation } from "@/lib/operator-inventory";
 import type { ControlJob, ScheduleInput } from "@/server/control-plane";
+import { watcherNames } from "@/lib/watcher-fields";
 
 type Requester = <T>(
   path: string,
@@ -138,12 +139,7 @@ export function OperatorJobs({
                         {related.length ? (
                           <ul className="operator-job-components">
                             {related.map((item) => {
-                              const href =
-                                item.kind === "source_adapter"
-                                  ? "/workspace/sources"
-                                  : item.kind === "domain_owner" && item.config_resource_ids[0]
-                                    ? `/workspace/workflows?watcher=${encodeURIComponent(item.config_resource_ids[0])}`
-                                    : null;
+                              const href = componentHref(item);
                               return (
                                 <li key={item.component_id}>
                                   {href ? (
@@ -221,6 +217,21 @@ export function OperatorJobs({
       )}
     </>
   );
+}
+
+function componentHref(component: OperatorComponent): string | null {
+  if (component.kind === "source_adapter") return "/workspace/sources";
+  if (component.kind !== "domain_owner") return null;
+  const watcherIds = new Set(
+    component.config_resource_ids
+      .map((resource) =>
+        resource.startsWith("watcher:") ? resource.slice("watcher:".length) : resource,
+      )
+      .filter((watcherId) => Object.hasOwn(watcherNames, watcherId)),
+  );
+  // Never guess which editor a missing or ambiguous relationship refers to.
+  if (watcherIds.size !== 1) return null;
+  return `/workspace/workflows?watcher=${encodeURIComponent([...watcherIds][0])}`;
 }
 
 function toControlJob(job: OperatorJob): ControlJob {

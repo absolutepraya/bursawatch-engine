@@ -188,7 +188,7 @@ def submit_news(work: dict[str, Any], *, no_post: bool = False, inbox: Any = Non
                 state, candidate.key, event_key=work["event_key"],
                 version=work["version"], content_hash=envelope["content_hash"],
                 source_url=envelope["source_url"], work_keys=keys,
-                loaded_config=loaded,
+                loaded_config=loaded, summary_media_refs=envelope["media_refs"],
             )
             enqueue_candidate(state, candidate, enqueued_at)
     return "accepted"
@@ -245,7 +245,15 @@ def claim_agent(now: datetime | None = None) -> dict[str, Any]:
         frozen = loaded_config_for(state, candidate.key)
         assert frozen is not None
         with config.activate_watch_config(frozen.config):
-            return build_wake_payload([agent_item(candidate)])
+            import summary_context
+            import state as owner_state
+            item = agent_item(candidate)
+            instruction_suffix = summary_context.context_instruction(
+                summary_context.claim_from_state(state, candidate.key, owner_state._state_path().parent / "summary-context"),
+                "~/.hermes/scripts/bursawatch-tg-market-news.sh prepare-summary-images --json",
+            )
+            item["instruction"] += instruction_suffix
+            return build_wake_payload([item], instruction_suffix=instruction_suffix)
 
 
 def submit_stock_status(work: dict[str, Any], *, no_post: bool = False) -> str:

@@ -276,7 +276,16 @@ def _self_chain(profile: Profile, post: SourcePost, by_id: dict[str, SourcePost]
         seen.add(parent.post_id)
         current = parent
     chain.reverse()
-    return tuple(_post_from_thread(item) if is_self_thread(item) else item for item in chain[-profile.thread_handling.max_posts:])
+    bounded = _within_thread_age(profile, tuple(chain[-profile.thread_handling.max_posts:]))
+    retained_ids = {item.post_id for item in bounded}
+    # An own-author quote can reference a separate, much older publication.
+    # Remove its inline quote only when that original is actually retained.
+    return tuple(
+        _post_from_thread(item)
+        if is_self_thread(item) and item.related_url and item.related_url.rsplit("/", 1)[-1] in retained_ids
+        else item
+        for item in bounded
+    )
 
 
 def _within_thread_age(profile: Profile, posts: tuple[SourcePost, ...]) -> tuple[SourcePost, ...]:
