@@ -226,6 +226,39 @@ class MemoryInboxStore:
         self.audit: list[dict[str, Any]] = []
         self.lock = threading.RLock()
 
+    def capture_window(self, previous_cutoff: str, cutoff: str, limit: int = 1000, *, history_available_from: str | None = None) -> dict[str, Any]:
+        from .source_evidence import manifest, timestamp, window
+        lower, upper = window(previous_cutoff, cutoff, limit)
+        with self.lock:
+            captured_at = _now()
+            rows = []
+            for key, event in self.events.items():
+                eligible = [version for version in event["versions"]
+                            if timestamp(version["created_at"]) <= upper
+                            and timestamp(version["envelope"]["observed_at"]) <= upper]
+                if not eligible:
+                    continue
+                selected = max(eligible, key=lambda version: version["version"])
+                if selected["kind"] != "tombstone" and lower < timestamp(selected["envelope"]["published_at"]) <= upper:
+                    rows.append({"event_key": key, **selected})
+            rows.sort(key=lambda row: (timestamp(row["envelope"]["published_at"]), row["event_key"], row["version"]))
+            return deepcopy(manifest(rows[:limit + 1], lower, upper, limit, captured_at, history_available_from))
+
+    def read_versions(self, version_refs: list[str]) -> list[dict[str, Any]]:
+        from .source_evidence import digest, evidence, references
+        requested = references(version_refs)
+        with self.lock:
+            result = []
+            for key, version, payload_hash in requested:
+                event = self.events.get(key)
+                row = next((item for item in event["versions"] if item["version"] == version), None) if event else None
+                if row is None:
+                    raise KeyError("immutable source history is unavailable")
+                if digest(row["envelope"]) != payload_hash:
+                    raise ValueError("immutable source version integrity mismatch")
+                result.append(evidence({"event_key": key, **row}))
+            return deepcopy(result)
+
     def accept(self, raw: object) -> dict[str, Any]:
         envelope = validate_envelope(raw)
         key = event_key(envelope)
@@ -236,7 +269,7 @@ class MemoryInboxStore:
                     raise InboxConflict("provider identity already accepted with different content; use correction")
                 return {"event_key": key, "version": 1, "duplicate": True, "work_keys": [k for k, w in self.work.items() if w["event_key"] == key and w["version"] == 1]}
             subs = _subscriptions(self.catalog.get(), self.catalog.registry(), envelope)
-            self.events[key] = {"event_key": key, "created_at": _now().isoformat(), "versions": [{"version": 1, "envelope": envelope, "kind": "original"}]}
+            self.events[key] = {"event_key": key, "created_at": _now().isoformat(), "versions": [{"version": 1, "envelope": envelope, "kind": "original", "created_at": _now().isoformat()}]}
             keys = []
             for sub in subs:
                 item = self._create_work(key, 1, sub)
@@ -389,7 +422,7 @@ class MemoryInboxStore:
                 raise InboxConflict("duplicate correction")
             version = len(event["versions"]) + 1
             self._audit(kind, key, actor, reason, before=previous["envelope"]["content_hash"], after=envelope["content_hash"])
-            event["versions"].append({"version": version, "kind": kind, "revision_id": revision_id, "envelope": envelope})
+            event["versions"].append({"version": version, "kind": kind, "revision_id": revision_id, "envelope": envelope, "created_at": _now().isoformat()})
             for item in self.work.values():
                 if item["event_key"] == key and item["version"] < version and item["status"] != "done":
                     item.update(status="superseded", lease_token=None, lease_until=None)
@@ -425,6 +458,50 @@ class PostgresInboxStore:
             if result.get(field) is not None:
                 result[field] = result[field].isoformat()
         return result
+
+    def capture_window(self, previous_cutoff: str, cutoff: str, limit: int = 1000, *, history_available_from: str | None = None) -> dict[str, Any]:
+        from .source_evidence import manifest, window
+        lower, upper = window(previous_cutoff, cutoff, limit)
+        with self._connect() as conn:
+            conn.execute("set transaction isolation level repeatable read read only")
+            # Establish visibility and timestamp in the same database snapshot.
+            captured = conn.execute("select clock_timestamp() as captured_at, pg_current_snapshot() as snapshot").fetchone()
+            rows = conn.execute("""
+                with eligible as (
+                    select distinct on (event_key) event_key, version, kind, envelope, created_at
+                    from bursawatch_source_event_versions
+                    where created_at <= %s::timestamptz
+                      and (envelope->>'observed_at')::timestamptz <= %s::timestamptz
+                    order by event_key, version desc
+                )
+                select * from eligible where kind <> 'tombstone'
+                  and (envelope->>'published_at')::timestamptz > %s::timestamptz
+                  and (envelope->>'published_at')::timestamptz <= %s::timestamptz
+                order by (envelope->>'published_at')::timestamptz, event_key, version
+                limit %s
+            """, (upper, upper, lower, upper, limit + 1)).fetchall()
+            return manifest(rows, lower, upper, limit, captured["captured_at"], history_available_from)
+
+    def read_versions(self, version_refs: list[str]) -> list[dict[str, Any]]:
+        from .source_evidence import digest, evidence, references
+        requested = references(version_refs)
+        with self._connect() as conn:
+            conn.execute("set transaction isolation level repeatable read read only")
+            rows = conn.execute("""
+                select event_key, version, kind, envelope, created_at
+                from bursawatch_source_event_versions
+                where (event_key, version) in (select * from unnest(%s::text[], %s::integer[]))
+            """, ([key for key, _, _ in requested], [version for _, version, _ in requested])).fetchall()
+            by_identity = {(row["event_key"], row["version"]): row for row in rows}
+            result = []
+            for key, version, payload_hash in requested:
+                row = by_identity.get((key, version))
+                if row is None:
+                    raise KeyError("immutable source history is unavailable")
+                if digest(row["envelope"]) != payload_hash:
+                    raise ValueError("immutable source version integrity mismatch")
+                result.append(evidence(row))
+            return result
 
     def accept(self, raw: object) -> dict[str, Any]:
         envelope = validate_envelope(raw)
