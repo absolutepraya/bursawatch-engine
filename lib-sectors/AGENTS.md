@@ -14,7 +14,9 @@ VPS provisioning remains a separate approved operation.
 
 Use one explicitly configured private host-local SQLite store and the same
 billing-window identity for every participating consumer. A store or window
-chosen independently by each consumer defeats host coordination. Cache-only
+chosen independently by each consumer defeats host coordination. Caller-owned
+request generations may distinguish explicitly planned weekly snapshots of a mutable endpoint. They change only local identity, never the
+provider URL, and must not implement automatic freshness fetching. Cache-only
 mode is the default. No fetch is authorized by an import, cache miss, preview
 regeneration or stale historical setup allowance.
 

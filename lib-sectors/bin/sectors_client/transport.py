@@ -28,22 +28,23 @@ class HTTPTransport:
         })
         open_ = self.opener.open if hasattr(self.opener, 'open') else self.opener
         try:
-            response = open_(request, timeout=self.config.timeout_seconds)
-            with response:
-                if response.geturl() != identity.url:
-                    raise TransportFailure('provider redirect refused')
-                status = response.status
-                raw = response.read(self.config.max_bytes + 1)
-                if len(raw) > self.config.max_bytes:
-                    raise TransportFailure('provider response exceeds size limit')
-                if status != 200:
-                    self._status(status, response.headers, raw)
-        except HTTPError as error:
             try:
-                raw = error.read(self.config.max_bytes + 1)
-                self._status(error.code, error.headers, raw)
-            finally:
-                error.close()
+                response = open_(request, timeout=self.config.timeout_seconds)
+                with response:
+                    if response.geturl() != identity.url:
+                        raise TransportFailure('provider redirect refused')
+                    status = response.status
+                    raw = response.read(self.config.max_bytes + 1)
+                    if len(raw) > self.config.max_bytes:
+                        raise TransportFailure('provider response exceeds size limit')
+                    if status != 200:
+                        self._status(status, response.headers, raw)
+            except HTTPError as error:
+                try:
+                    raw = error.read(self.config.max_bytes + 1)
+                    self._status(error.code, error.headers, raw)
+                finally:
+                    error.close()
         except (TransportFailure, AuthenticationFailure, AllowanceExhausted, Throttled):
             raise
         except Exception:

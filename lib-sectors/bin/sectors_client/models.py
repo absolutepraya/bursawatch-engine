@@ -78,8 +78,11 @@ def instant(value):
 class RequestIdentity:
     path: str
     query: tuple
+    generation: str | None
 
-    def __init__(self, path, query=None):
+    def __init__(self, path, query=None, *, generation=None):
+        if generation is not None and (not isinstance(generation, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}', generation)):
+            raise ValidationError('invalid caller-owned request generation')
         patterns = [r'/v2/close/', r'/v2/companies/', r'/v2/company/screener/',
                     r'/v2/stock-screener/', r'/v2/index-daily/ihsg/', r'/v2/corporate-actions/',
                     r'/v2/daily/[A-Z][A-Z0-9]{0,11}/',
@@ -113,6 +116,7 @@ class RequestIdentity:
             raise ValidationError('close request requires a session date')
         object.__setattr__(self, 'path', path)
         object.__setattr__(self, 'query', tuple(sorted(q.items())))
+        object.__setattr__(self, 'generation', generation)
 
     @property
     def url(self):
@@ -120,7 +124,8 @@ class RequestIdentity:
 
     @property
     def key(self):
-        return hashlib.sha256(self.url.encode()).hexdigest()
+        identity = self.url if self.generation is None else self.url + '\0' + self.generation
+        return hashlib.sha256(identity.encode()).hexdigest()
 
 
 @dataclass(frozen=True)

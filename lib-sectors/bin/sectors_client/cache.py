@@ -185,8 +185,10 @@ class CacheStore:
             reservation = db.execute('SELECT * FROM reservations WHERE token=? AND request_key=?', (token, identity.key)).fetchone()
             if not row or not reservation or row['token'] != token or charged_cost > reservation['cost']:
                 raise ValidationError('billing reconciliation does not match reservation')
-            if row['state'] not in ('uncertain', 'blocked', 'fetching') or row['state'] == 'fetching' and instant(row['lease_until']) > now:
+            if row['state'] not in ('uncertain', 'blocked', 'throttled', 'fetching') or row['state'] == 'fetching' and instant(row['lease_until']) > now:
                 raise ValidationError('request is not eligible for billing reconciliation')
+            if row['state'] == 'throttled' and row['cooldown_until'] and instant(row['cooldown_until']) > now:
+                raise ValidationError('verified provider cooldown has not elapsed')
             db.execute('INSERT INTO reconciliations VALUES (?,?,?,?)', (token, reservation['cost'], charged_cost, evidence_digest))
             db.execute("UPDATE reservations SET cost=?, state='resolved' WHERE token=?", (charged_cost, token))
             db.execute("UPDATE requests SET state='resolved' WHERE key=?", (identity.key,))

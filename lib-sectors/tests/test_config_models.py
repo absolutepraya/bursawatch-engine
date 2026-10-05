@@ -51,3 +51,18 @@ def test_network_mode_requires_key_before_creating_coordination_state(tmp_path):
     with pytest.raises(ValidationError):
         Config(store_path=tmp_path/'cache.sqlite3',caller='morning',billing_window='oct',caller_limit=40,cache_only=False)
     assert not (tmp_path/'cache.sqlite3').exists()
+
+
+def test_generation_changes_only_local_identity_and_preserves_default_keys():
+    default=RequestIdentity('/v2/companies/',{'offset':0,'limit':200})
+    omitted=RequestIdentity('/v2/companies/',{'limit':200,'offset':0},generation=None)
+    first=RequestIdentity('/v2/companies/',{'limit':200,'offset':0},generation='caps:2026-W41')
+    repeated=RequestIdentity('/v2/companies/',{'offset':0,'limit':200},generation='caps:2026-W41')
+    later=RequestIdentity('/v2/companies/',{'offset':0,'limit':200},generation='caps:2026-W42')
+    assert default.key==omitted.key=='c5bbf7637e13db8c32b3091af4d247d10943fe9092c2a6f2d0f2f7246dbf1fbd'
+    assert default.url==omitted.url==first.url==later.url=='https://api.sectors.app/v2/companies/?limit=200&offset=0'
+    assert first.key==repeated.key
+    assert len({default.key,first.key,later.key})==3
+    for value in ('','a'*101,'generation with spaces','../../other','secret\nvalue',3,False):
+        with pytest.raises(ValidationError):
+            RequestIdentity('/v2/companies/',generation=value)

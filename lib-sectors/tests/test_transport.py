@@ -83,3 +83,23 @@ def test_unrepresentable_cooldown_remains_unknown_without_overflow(transport_cla
     with pytest.raises(Throttled) as error:
         transport_class(config(tmp_path),opener=open_).get(RequestIdentity('/v2/close/',{'date':'2026-10-02'}))
     assert error.value.retry_after is None
+
+
+@pytest.mark.parametrize('failure', ['read', 'close'])
+def test_http_error_body_and_cleanup_failures_are_sanitized(transport_class,tmp_path,failure):
+    class BrokenBody:
+        failed_close = False
+        def read(self, *args):
+            if failure == 'read':
+                raise RuntimeError('SYNTHETIC_SECRET')
+            return b'{}'
+        def close(self):
+            if failure == 'close' and not self.failed_close:
+                self.failed_close = True
+                raise RuntimeError('SYNTHETIC_SECRET')
+    def open_(request,timeout):
+        raise HTTPError(request.full_url,429,'private provider details',{},BrokenBody())
+    with pytest.raises(UncertainOutcome) as error:
+        transport_class(config(tmp_path),opener=open_).get(RequestIdentity('/v2/close/',{'date':'2026-10-02'}))
+    assert 'SYNTHETIC_SECRET' not in str(error.value)
+    assert error.value.__suppress_context__

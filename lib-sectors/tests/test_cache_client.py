@@ -236,3 +236,123 @@ def test_correction_versions_preserve_prior_cutoff_and_survive_store_reopen(tmp_
     b=client(tmp_path,Fake([]),cache_only=True)
     assert b.get(identity(),cutoff=NOW,max_cost=1).payload['results'][0]['close']==8000
     assert b.get(identity(),cutoff=NOW+timedelta(hours=1),max_cost=1).payload['results'][0]['close']==8100
+
+
+@pytest.mark.parametrize('hint',[None,'invalid','999999999999999999'])
+def test_unknown_throttle_reconciliation_is_audited_and_explicit(tmp_path,hint):
+    import io
+    from urllib.error import HTTPError
+    requests=[]
+    class Response(io.BytesIO):
+        status=200
+        headers={}
+        def geturl(self):
+            return identity().url
+    def open_(request,timeout):
+        import json
+        requests.append(request.full_url)
+        if len(requests)==1:
+            headers={} if hint is None else {'Retry-After':hint}
+            raise HTTPError(request.full_url,429,'synthetic throttle',headers,io.BytesIO(b'{}'))
+        return Response(json.dumps(page()).encode())
+    a=client(tmp_path,sc.HTTPTransport(config(tmp_path),opener=open_))
+    with pytest.raises(sc.Throttled) as error:
+        a.get(identity(),cutoff=NOW,max_cost=2)
+    assert error.value.retry_after is None
+    status=a.store.request_status(identity())
+    with pytest.raises(sc.Throttled):
+        a.get(identity(),cutoff=NOW,max_cost=2,retry=True)
+    assert len(requests)==1
+    assert a.store.usage('oct','morning')['host_reserved']==2
+    for changes in ({'token':'incorrect'},{'evidence_digest':'invalid'},{'charged_cost':3}):
+        with pytest.raises(sc.ValidationError):
+            a.store.reconcile(identity(),**(dict(token=status['token'],charged_cost=1,evidence_digest='a'*64,now=NOW)|changes))
+    assert a.store.usage('oct','morning')['host_reserved']==2
+    a.store.reconcile(identity(),token=status['token'],charged_cost=1,evidence_digest='a'*64,now=NOW)
+    b=client(tmp_path,a.transport)
+    with b.store.connection() as db:
+        audit=dict(db.execute('SELECT * FROM reconciliations WHERE token=?',(status['token'],)).fetchone())
+    assert audit=={'token':status['token'],'reserved_cost':2,'charged_cost':1,'evidence_digest':'a'*64}
+    assert b.store.usage('oct','morning')['host_reserved']==1
+    with pytest.raises(sc.UncertainOutcome):
+        b.get(identity(),cutoff=NOW,max_cost=2)
+    assert len(requests)==1
+    assert b.get(identity(),cutoff=NOW,max_cost=2,retry=True).payload['pagination']['total_count']==3
+    assert len(requests)==2
+    assert b.store.usage('oct','morning')['host_reserved']==3
+
+
+def test_reconciled_throttle_still_enforces_shared_attempt_ceiling(tmp_path):
+    fake=Fake([sc.Throttled(None),page()])
+    a=client(tmp_path,fake,max_attempts=1)
+    with pytest.raises(sc.Throttled):
+        a.get(identity(),cutoff=NOW,max_cost=2)
+    status=a.store.request_status(identity())
+    a.store.reconcile(identity(),token=status['token'],charged_cost=0,evidence_digest='a'*64,now=NOW)
+    with pytest.raises(sc.RetryExhausted):
+        a.get(identity(),cutoff=NOW,max_cost=2,retry=True)
+    assert len(fake.requests)==1
+    assert a.store.usage('oct','morning')['host_reserved']==0
+
+
+def test_throttle_reconciliation_preserves_verified_cooldown(tmp_path):
+    a=client(tmp_path,Fake([sc.Throttled(30)]))
+    with pytest.raises(sc.Throttled):
+        a.get(identity(),cutoff=NOW,max_cost=2)
+    status=a.store.request_status(identity())
+    with pytest.raises(sc.ValidationError):
+        a.store.reconcile(identity(),token=status['token'],charged_cost=1,evidence_digest='a'*64,now=NOW)
+    assert a.store.usage('oct','morning')['host_reserved']==2
+    a.store.reconcile(identity(),token=status['token'],charged_cost=1,evidence_digest='a'*64,now=NOW+timedelta(seconds=30))
+    assert a.store.request_status(identity())['state']=='resolved'
+
+
+def test_same_generation_deduplicates_and_new_generation_is_separately_budgeted(tmp_path):
+    entered,release=Event(),Event()
+    class Weekly:
+        requests=[]
+        def get(self,request):
+            self.requests.append(request)
+            if len(self.requests)==1:
+                entered.set()
+                assert release.wait(2)
+            return {'results':[{'symbol':'BBCA','market_cap':100}]}
+    fake=Weekly()
+    first=sc.RequestIdentity('/v2/companies/',{'offset':0,'limit':200},generation='caps:2026-W41')
+    next_week=sc.RequestIdentity('/v2/companies/',{'offset':0,'limit':200},generation='caps:2026-W42')
+    beyond_limit=sc.RequestIdentity('/v2/companies/',{'offset':0,'limit':200},generation='caps:2026-W43')
+    a,b=client(tmp_path,fake,caller_limit=2,host_limit=2),client(tmp_path,fake,caller='other',caller_limit=2,host_limit=2)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        one=pool.submit(a.get,first,cutoff=NOW,max_cost=1)
+        assert entered.wait(2)
+        duplicate=pool.submit(b.get,first,cutoff=NOW,max_cost=1)
+        release.set()
+        assert one.result().identity.generation==duplicate.result().identity.generation=='caps:2026-W41'
+    assert len(fake.requests)==1
+    assert a.get(next_week,cutoff=NOW,max_cost=1).identity.generation=='caps:2026-W42'
+    assert len(fake.requests)==2 and fake.requests[0].url==fake.requests[1].url
+    assert a.store.usage('oct','morning')=={'host_reserved':2,'caller_reserved':2}
+    with pytest.raises(sc.BudgetDenied):
+        b.get(beyond_limit,cutoff=NOW,max_cost=1)
+    assert len(fake.requests)==2
+
+
+def test_generation_cache_cutoffs_and_uncertain_reservations_are_isolated(tmp_path):
+    fake=Fake([{'results':[{'symbol':'BBCA','market_cap':100}]},sc.UncertainOutcome('unknown')])
+    first=sc.RequestIdentity('/v2/companies/',generation='caps:2026-W41')
+    next_week=sc.RequestIdentity('/v2/companies/',generation='caps:2026-W42')
+    a=client(tmp_path,fake)
+    a.get(first,cutoff=NOW,max_cost=1)
+    b=sc.SectorsClient(a.config,transport=fake,clock=lambda:NOW+timedelta(days=7))
+    with pytest.raises(sc.UncertainOutcome):
+        b.get(next_week,cutoff=NOW+timedelta(days=7),max_cost=2)
+    with pytest.raises(sc.UncertainOutcome):
+        a.get(next_week,cutoff=NOW,max_cost=2,retry=True)
+    assert len(fake.requests)==2
+    assert a.store.usage('oct','morning')['host_reserved']==3
+    a.store.save(next_week,{'results':[{'symbol':'BBCA','market_cap':110}]},available_at=NOW+timedelta(days=7),provenance='provider-https')
+    with pytest.raises(sc.CacheMiss):
+        a.get(next_week,cutoff=NOW,max_cost=1)
+    assert a.get(first,cutoff=NOW+timedelta(days=7),max_cost=1).payload['results'][0]['market_cap']==100
+    assert a.get(next_week,cutoff=NOW+timedelta(days=7),max_cost=1).payload['results'][0]['market_cap']==110
+    assert a.store.usage('oct','morning')['host_reserved']==3

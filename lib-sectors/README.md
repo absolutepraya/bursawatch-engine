@@ -38,13 +38,25 @@ worktree link. Key values are omitted from configuration representations.
 Loading a key does not enable network mode: `cache_only=False` must be explicit.
 Layout IDs and profile revisions remain caller-owned.
 
-`RequestIdentity(path, query)` canonicalizes a validated identity at
+`RequestIdentity(path, query=None, *, generation=None)` canonicalizes a validated
+identity at
 `https://api.sectors.app`. It supports full-universe close pages, the companies
 screener, IHSG index history, per-symbol daily data, per-symbol corporate actions,
 and the marketwide stock-split calendar. Split-calendar identities require
 `type=stock_split` plus a range of at most 90 inclusive calendar days, avoiding
 an implicit request for all action types. Query pagination, ISO dates and symbol
 path segments are validated. Provider-origin overrides are rejected.
+
+`generation` is a keyword-only caller-owned immutable revision, such as
+`caps:2026-W41`, limited to 100 ASCII letters, digits, underscores, dots, colons
+and hyphens, beginning with a letter or digit. None preserves existing request
+keys and URLs. A present generation changes only the local request/cache key;
+it is never sent in the HTTP path or query. Reusing the same generation shares
+cache and fetch leases. A new weekly generation permits a separately budgeted
+snapshot through the same client and provider URL. The caller chooses the
+revision explicitly; the library has no automatic freshness policy or fetch.
+Each generation keeps its own immutable versions, cutoff checks, attempts and
+uncertain reservations, while all generations share host/caller window limits.
 
 `SectorsClient.get(identity, cutoff=..., max_cost=..., retry=False)` returns a
 `CachedResponse` with payload, available-at timestamp, provenance and imported
@@ -91,8 +103,10 @@ recalculation before spending, including any retry reserve.
 
 `request_status(identity)` returns safe lease metadata. Administrative
 `reconcile(identity, token=..., charged_cost=..., evidence_digest=..., now=...)`
-requires a matching uncertain, blocked or expired reservation and a SHA-256
-reference to caller-retained authoritative billing evidence. It records the
+requires a matching uncertain, blocked, throttled or expired reservation and a
+SHA-256 reference to caller-retained authoritative billing evidence. A verified
+throttle cooldown must elapse before reconciliation. An unknown cooldown can be
+resolved only through this audited administrative path. It records the
 original reservation and verified charge in the reconciliation table. It does
 not verify billing itself or claim an account balance. Resumption still requires
 an explicit retry and respects the attempt ceiling. Do not resolve uncertainty
