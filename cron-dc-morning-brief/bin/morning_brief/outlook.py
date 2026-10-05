@@ -83,7 +83,7 @@ def _claims(response,payload):
         if excerpt not in sentences or row.get('text_truncated'):
             raise ValueError('claim is not a complete supported excerpt')
         # Forbidden numerical probabilities remain forbidden across source wraps.
-        if re.search(r'(?:probabilitas|probability|peluang).*\d|\d.*(?:probabilitas|probability)',row['text'],re.I|re.S):
+        if re.search(r'(?:probabilitas|probability|peluang).*\d|\d.*(?:probabilitas|probability|peluang)',row['text'],re.I|re.S):
             raise ValueError('calibrated probability is outside writer contract')
         if (identity,excerpt) in seen: raise ValueError('duplicate claim')
         seen.add((identity,excerpt))
@@ -113,7 +113,7 @@ def _scenario(response,payload):
         row=rows[identity]
         if row.get('text_truncated') or not 1<=len(text)<=600 or text!=row['text'].strip():
             raise ValueError('full untruncated source context required')
-        if re.search(r'(?:probabilitas|probability|peluang).*\d|\d.*(?:probabilitas|probability)',text,re.I|re.S):
+        if re.search(r'(?:probabilitas|probability|peluang).*\d|\d.*(?:probabilitas|probability|peluang)',text,re.I|re.S):
             raise ValueError('numerical probability forbidden')
         if conditional and not re.search(r'\b(?:jika|bila|apabila|selama|asalkan|if|unless|provided)\b',text,re.I):
             raise ValueError('sourced conditional language required')

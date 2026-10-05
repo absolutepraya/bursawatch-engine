@@ -302,3 +302,35 @@ def test_complete_context_probability_is_rejected_even_when_selected_sentence_om
     response['scenario']['pulse']={'optimistic':[],'cautious':[]}
     result=core('outlook').write_outlook(bundle,lambda _:response,now=FREEZE,timeout_seconds=1)
     assert result['mode']=='facts_only' and result['reason']=='unsupported_claim'
+
+
+@pytest.mark.parametrize('path', ['scenario','claim'])
+@pytest.mark.parametrize('source_text', [
+    'Jika likuiditas pulih, IHSG memiliki 80 persen peluang naik.',
+    'Jika likuiditas pulih, IHSG memiliki 80 persen\npeluang naik.',
+    'Jika likuiditas pulih, IHSG memiliki 80 persen\r\npeluang naik.',
+    'Jika likuiditas pulih, IHSG memiliki 80 persen\n\npeluang naik.',
+])
+def test_number_before_peluang_cannot_enter_claim_or_scenario_even_across_wraps(core,tmp_path,path,source_text):
+    import copy
+    from test_formatting import inputs
+    _,_,_,bundle=frozen_bundle(core,tmp_path,source_text)
+    payload=copy.deepcopy(bundle.payload)
+    response=structured_response(payload)
+    if path=='scenario':
+        payload['evidence']['items'][-1]['text']=source_text
+        response=structured_response(payload)
+    else:
+        row=payload['evidence']['items'][0]
+        response['claims']=[{'evidence_id':row['evidence_id'],'excerpt':source_text}]
+        # Keep scenario references on safe source 2, so only the claim guard can
+        # reject source 1. A scenario-side rejection cannot mask a claim defect.
+        response['scenario']['supporting']=[]
+        response['scenario']['pulse']={'optimistic':[],'cautious':[]}
+    result=core('outlook').write_outlook(payload,lambda _:response,now=FREEZE,timeout_seconds=1)
+    assert result['mode']=='facts_only' and result['reason']=='unsupported_claim'
+    assert result['claims']==[] and result['scenario'] is None and '80 persen' not in result['text']
+    values=inputs();values['outlook']=result
+    texts,presentation=core('formatting').format_brief(**values,with_selection=True)
+    assert presentation['mode']=='facts_only' and presentation['scenario'] is None
+    assert '80 persen' not in texts[0]
