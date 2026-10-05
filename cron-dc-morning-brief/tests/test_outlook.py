@@ -163,3 +163,20 @@ def test_complete_wrapped_context_and_punctuation_delimited_sentences_remain_sup
     assert result['mode']=='supported' and result['reason'] is None
     assert result['claims'][0]['excerpt']==excerpt
     assert result['claims'][0]['text']=='Menurut [collector](https://example.com/story/1): '+excerpt
+
+
+@pytest.mark.parametrize('source_text', [
+    'Probabilitas IHSG naik 80 persen.',
+    'Probabilitas\nIHSG naik 80 persen.',
+    'Probabilitas\r\nIHSG naik 80 persen.',
+    'Peluang\n\nIHSG naik 80 persen.',
+    'Probability\nIHSG naik 80 persen.',
+    '80 persen\nprobabilitas IHSG naik.',
+])
+def test_complete_wrapped_numerical_probability_falls_back(core,tmp_path,source_text):
+    module=core('outlook'); _,_,_,bundle=frozen_bundle(core,tmp_path,source_text)
+    row=bundle.payload['evidence']['items'][0]
+    result=module.write_outlook(bundle,lambda _: {'claims':[{'evidence_id':row['evidence_id'],'excerpt':source_text}]},now=FREEZE,timeout_seconds=1)
+    assert result['mode']=='facts_only' and result['reason']=='unsupported_claim'
+    assert result['claims']==[] and 'Menurut ' not in result['text']
+    assert result['global_facts'][0]['price']==102 and result['calendar_facts'][0]['date']=='2026-10-06'

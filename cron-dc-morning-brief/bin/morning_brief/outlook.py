@@ -71,7 +71,8 @@ def _claims(response,payload):
         sentences=re.split(r'(?<=[.!?])\s+',row['text'].strip())
         if excerpt not in sentences or row.get('text_truncated'):
             raise ValueError('claim is not a complete supported excerpt')
-        if re.search(r'(?:probabilitas|probability|peluang).{0,40}\d|\d.{0,40}(?:probabilitas|probability)',excerpt,re.I):
+        # Forbidden numerical probabilities remain forbidden across source wraps.
+        if re.search(r'(?:probabilitas|probability|peluang).{0,40}\d|\d.{0,40}(?:probabilitas|probability)',excerpt,re.I|re.S):
             raise ValueError('calibrated probability is outside writer contract')
         if (identity,excerpt) in seen: raise ValueError('duplicate claim')
         seen.add((identity,excerpt))
