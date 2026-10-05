@@ -1,0 +1,19 @@
+# Pulled Discord media, source logos, and raw message exports stay local
+assets/discord-media/
+assets/discord-ref/
+assets/sources/ig-dummy/
+research/*.json
+# Build and render output
+renders/
+node_modules/
+.hyperframes/
+.media/cache/
+*.mp4
+!research/jkse.json
+!research/true.json
+!research/ketr.json
+!research/audiomap-v1.json
+assets/pain/x-sirkel-raw.png
+snapshots/
+.thumbnails/
+.waveform-cache/
