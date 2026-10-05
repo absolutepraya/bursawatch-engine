@@ -132,6 +132,43 @@ function renderCatalog(request: ReturnType<typeof controlBrowser>) {
 }
 
 describe("SourceCatalogView", () => {
+  it("filters registered RSS sources without allowing user-created RSS accounts", async () => {
+    const fixture = catalog(true);
+    fixture.people_org.push({
+      id: "stockbit",
+      name: "Stockbit",
+      kind: null,
+      tier: 3,
+      asset_ref: null,
+    });
+    fixture.endpoints.push({
+      id: "rss:stockbit:unboxing",
+      publisher_id: "stockbit",
+      platform: "rss",
+      address: "https://snips.example.test/unboxing?format=rss",
+      provider_id: "unboxing",
+      credential_ref: null,
+      system_owned: true,
+      verified: true,
+    });
+    const request = vi.fn(async (path: string) =>
+      path === "source-catalog" ? fixture : effective(),
+    ) as unknown as ReturnType<typeof controlBrowser>;
+    renderCatalog(request);
+    await screen.findByText(/Revision 1/);
+    fireEvent.click(screen.getByRole("tab", { name: "People & Org" }));
+    const browse = within(screen.getByRole("search", { name: "Find catalog sources" }));
+    fireEvent.change(browse.getByLabelText("Platform"), { target: { value: "rss" } });
+    expect(screen.getByRole("heading", { name: "Stockbit" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "My Group" })).toBeNull();
+    const add = within(screen.getByRole("group", { name: "Add an account or channel" }));
+    expect(
+      [...add.getByLabelText("Platform").querySelectorAll("option")].map((option) => option.value),
+    ).not.toContain("rss");
+    fireEvent.click(browse.getByRole("button", { name: "Clear filters" }));
+    expect(screen.getByRole("heading", { name: "My Group" })).toBeTruthy();
+  });
+
   it("initializes saved choices, switches scope safely and removes overrides to restore inheritance", async () => {
     let config: CatalogConfig = structuredClone(emptyConfig);
     config.publisher_defaults = [

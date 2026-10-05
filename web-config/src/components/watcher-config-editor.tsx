@@ -803,6 +803,7 @@ export function WatcherConfigEditor({
   const toast = useToast();
   const [profileQuery, setProfileQuery] = useState("");
   const [profileStatus, setProfileStatus] = useState("all");
+  const [editingProfile, setEditingProfile] = useState<number | null>(null);
   const changes = countConfigChanges(saved.config, draft);
   const dirty = JSON.stringify(saved.config) !== JSON.stringify(draft);
   if (snapshot !== receivedSnapshot) {
@@ -843,7 +844,9 @@ export function WatcherConfigEditor({
   const profiles = Array.isArray(draft.profiles) ? draft.profiles : [];
   const visibleProfiles = profiles
     .map((profile, index) => ({ profile, index }))
-    .filter(({ profile }) => {
+    .filter(({ profile, index }) => {
+      // Keep the focused editor mounted when its draft stops matching a filter.
+      if (index === editingProfile) return true;
       const row = profile as Record<string, unknown>;
       return (
         matchesConfigSearch(
@@ -1039,6 +1042,11 @@ export function WatcherConfigEditor({
                         className="watcher-profile"
                         key={index}
                         open={profiles.length === 1 || undefined}
+                        onFocusCapture={() => setEditingProfile(index)}
+                        onBlurCapture={(event) => {
+                          if (!event.currentTarget.contains(event.relatedTarget))
+                            setEditingProfile(null);
+                        }}
                       >
                         <summary>
                           <ProfileIdentity
@@ -1073,11 +1081,13 @@ export function WatcherConfigEditor({
                                 window.confirm(
                                   "Remove this source from the draft? This takes effect after you save.",
                                 )
-                              )
+                              ) {
+                                setEditingProfile(null);
                                 update(
                                   ["profiles"],
                                   profiles.filter((_, row) => row !== index),
                                 );
+                              }
                             }}
                           >
                             <Trash2 size={16} aria-hidden="true" />
@@ -1096,7 +1106,22 @@ export function WatcherConfigEditor({
                   <button
                     className="button secondary"
                     type="button"
-                    onClick={() => update(["profiles"], [...profiles, newProfile(kind)])}
+                    onClick={() => {
+                      setProfileQuery("");
+                      setProfileStatus("all");
+                      setEditingProfile(null);
+                      update(["profiles"], [...profiles, newProfile(kind)]);
+                      requestAnimationFrame(() => {
+                        const added =
+                          form.current?.querySelectorAll<HTMLDetailsElement>(".watcher-profile")[
+                            profiles.length
+                          ];
+                        if (added) {
+                          added.open = true;
+                          added.querySelector<HTMLInputElement>("input:not(:disabled)")?.focus();
+                        }
+                      });
+                    }}
                   >
                     <Plus size={16} aria-hidden="true" />
                     Add {kind === "whatsapp" ? "channel" : "account"}

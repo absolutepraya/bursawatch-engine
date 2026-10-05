@@ -881,11 +881,13 @@ export function SourceCatalogView({
                       onChange={(event) => setPlatformFilter(event.target.value)}
                     >
                       <option value="all">All platforms</option>
-                      {userPlatforms.map((platform) => (
-                        <option key={platform} value={platform}>
-                          {platform}
-                        </option>
-                      ))}
+                      {[...new Set(allEndpoints.map((endpoint) => endpoint.platform))]
+                        .sort()
+                        .map((platform) => (
+                          <option key={platform} value={platform}>
+                            {platform}
+                          </option>
+                        ))}
                     </select>
                   </label>
                   <label>

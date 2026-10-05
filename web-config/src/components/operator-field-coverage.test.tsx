@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WatcherConfigEditor } from "./watcher-config-editor";
 import { operatorFieldCoverage } from "@/lib/operator-control-coverage";
@@ -139,6 +139,71 @@ function normalize(name: string) {
 }
 
 describe("rendered watcher controls match the field coverage map", () => {
+  it("keeps the focused source mounted while its name stops matching the search", () => {
+    const snapshot: ConfigSnapshot = {
+      api_version: 1,
+      watcher_id: "bursawatch-x-account-watch",
+      revision: 1,
+      config_version: 1,
+      config: {
+        version: 1,
+        profiles: [profile("x"), { ...profile("x"), id: "second", display_name: "Second Analyst" }],
+      },
+      config_sha256: "a".repeat(64),
+      updated_at: "2026-09-30T00:00:00Z",
+    };
+    render(<WatcherConfigEditor snapshot={snapshot} onSave={vi.fn()} />);
+    const search = screen.getByRole("searchbox");
+    fireEvent.change(search, { target: { value: "Second Analyst" } });
+    document.querySelector<HTMLDetailsElement>(".watcher-profile")!.open = true;
+    const name = screen.getByLabelText("Display name");
+    act(() => name.focus());
+    fireEvent.change(name, { target: { value: "Second Analys" } });
+    expect(document.querySelectorAll(".watcher-profile")).toHaveLength(1);
+    expect(document.activeElement).toBe(name);
+    expect(search).toHaveProperty("value", "Second Analyst");
+    fireEvent.change(name, { target: { value: "Replacement" } });
+    expect(document.activeElement).toBe(name);
+    act(() => search.focus());
+    expect(document.querySelectorAll(".watcher-profile")).toHaveLength(0);
+  });
+
+  it.each(["search", "enabled"])(
+    "reveals and focuses a new source through the %s filter",
+    async (filter) => {
+      const snapshot: ConfigSnapshot = {
+        api_version: 1,
+        watcher_id: "bursawatch-x-account-watch",
+        revision: 1,
+        config_version: 1,
+        config: {
+          version: 1,
+          profiles: [
+            { ...profile("x"), enabled: true },
+            { ...profile("x"), id: "second" },
+          ],
+        },
+        config_sha256: "a".repeat(64),
+        updated_at: "2026-09-30T00:00:00Z",
+      };
+      const onSave = vi.fn();
+      render(<WatcherConfigEditor snapshot={snapshot} onSave={onSave} />);
+      if (filter === "search")
+        fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Example" } });
+      else
+        fireEvent.change(screen.getByLabelText("Watch status"), { target: { value: "enabled" } });
+      fireEvent.click(screen.getByRole("button", { name: "Add account" }));
+      expect(screen.getByRole("searchbox")).toHaveProperty("value", "");
+      expect(screen.getByLabelText("Watch status")).toHaveProperty("value", "all");
+      expect(document.querySelectorAll(".watcher-profile")).toHaveLength(3);
+      await waitFor(() => expect(document.activeElement).toHaveProperty("name", "profiles.2.id"));
+      const added = document.querySelectorAll<HTMLDetailsElement>(".watcher-profile")[2];
+      expect(added.open).toBe(true);
+      expect(added.querySelector(".watcher-profile-state")?.textContent).toBe("Paused");
+      expect(onSave).not.toHaveBeenCalled();
+    },
+  );
+
   it("edits the original account behind a filtered result and preserves hidden siblings and unknown fields", async () => {
     setDraftOwner("synthetic-filter-operator");
     const profiles = ["first", "second", "third"].map((handle) => ({
