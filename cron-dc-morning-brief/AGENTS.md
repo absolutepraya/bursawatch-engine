@@ -14,7 +14,10 @@ inputs. Do not infer readiness or natural delivery from these local tests.
 - Preserve supplied CSV bytes and overlap semantics. Sector membership is imported
   once with official-first fallback provenance, without an automatic refresh.
 - Use a verified, versioned IDX calendar and amendment check. Never infer sessions
-  from weekdays. Non-sessions produce a no-op heartbeat under the planned runner.
+  from weekdays. Revalidate calendar visibility and amendment age at the freeze.
+  The explicit publication session governs cap age; the immediately preceding
+  verified session ends the closing window. Non-sessions produce a no-op
+  heartbeat under the planned runner.
 - Freeze evidence and publication artifacts under the session's fenced lease.
   Conflicting freezes fail closed. Corrections cannot rewrite prior publications.
 - All 18 levels use aligned sessions, compatible split-adjusted returns, a fixed

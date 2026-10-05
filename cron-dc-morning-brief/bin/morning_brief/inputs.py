@@ -202,6 +202,7 @@ class NumericalInputs:
     actions: tuple[ActionDecision, ...]
     freeze_at: datetime
     cap_collection_status: str
+    publication_session: date
 
     @property
     def provenance(self) -> dict:
@@ -213,22 +214,36 @@ class NumericalInputs:
                     membership_method=self.membership.provenance.method,
                     membership_reference=self.membership.provenance.reference,
                     cap_collection_status=self.cap_collection_status,
+                    publication_session=self.publication_session.isoformat(),
+                    closing_session=self.sessions[-1].isoformat(),
                     freeze_at=self.freeze_at.isoformat())
 
 
 def prepare_numerical_inputs(calendar: SessionCalendar, membership: MembershipSnapshot, caps: CapSnapshot,
                              prices: dict[str, PriceSeries], benchmark: dict[str, float], *,
-                             through: date, freeze_at: datetime,
+                             through: date, publication_session: date, freeze_at: datetime,
                              actions: tuple[ActionDecision, ...] = ()) -> NumericalInputs:
     """Validate explicit imported inputs; never fetch or substitute missing market data.
 
     Price trading eligibility and action evidence must be supplied by the owner;
-    positive bulk close rows do not provide those facts by themselves.
+    positive bulk close rows do not provide those facts by themselves. The
+    publication session governs snapshot freshness; through only ends the
+    immediately preceding completed-session price window.
     """
     aware(freeze_at)
     try:
+        checked_at = aware(calendar.amendment_checked_at)
+        if checked_at > freeze_at or freeze_at-checked_at > timedelta(days=7):
+            raise InputUnavailable('calendar amendment check unavailable at frozen cutoff')
+        if publication_session != freeze_at.astimezone(ZoneInfo('Asia/Jakarta')).date():
+            raise InputUnavailable('publication session does not match Jakarta freeze date')
+        if not calendar.is_session(publication_session):
+            raise InputUnavailable('publication date is not a verified session')
+        previous_session = calendar.last_sessions(publication_session,2)[0]
+        if through != previous_session:
+            raise InputUnavailable('closing window must end at previous verified session')
         sessions = calendar.last_sessions(through,18)
-        status = cap_status(caps,through,calendar)
+        status = cap_status(caps,publication_session,calendar)
     except ValueError as exc:
         raise InputUnavailable(str(exc)) from None
     if (caps.collected_at > freeze_at or status not in {'current_week','extra_week'}
@@ -236,10 +251,8 @@ def prepare_numerical_inputs(calendar: SessionCalendar, membership: MembershipSn
             or not membership.version or not membership.groups
             or not membership.provenance.digest or not membership.provenance.reference):
         raise InputUnavailable('unavailable cap or membership snapshot at frozen cutoff')
-    if through > freeze_at.astimezone(ZoneInfo('Asia/Jakarta')).date():
-        raise InputUnavailable('future closing session')
     try:
         aligned_index = {s.isoformat():positive(benchmark[s.isoformat()]) for s in sessions}
     except (ValueError,KeyError):
         raise InputUnavailable('missing aligned benchmark session') from None
-    return NumericalInputs(calendar,membership,caps,dict(prices),aligned_index,sessions,tuple(actions),freeze_at,status)
+    return NumericalInputs(calendar,membership,caps,dict(prices),aligned_index,sessions,tuple(actions),freeze_at,status,publication_session)

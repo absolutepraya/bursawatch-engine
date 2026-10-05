@@ -76,27 +76,122 @@ def test_refresh_caps_only_on_first_verified_session_of_week(core,tmp_path):
     assert m.cap_refresh_due(date(2026,9,29),c)
 
 
-def test_prepared_inputs_enforce_verified_window_and_frozen_provenance(core,tmp_path):
-    m=core('inputs');calmod=core('calendar');r=core('rotation')
-    from datetime import timedelta
-    sessions=[(date(2026,9,1)+timedelta(days=n)).isoformat() for n in range(18)]
-    path=calendar_file(tmp_path);payload=json.loads(path.read_text());payload['sessions']=sessions+payload['sessions'];payload['sessions']=sorted(set(payload['sessions']));path.write_text(json.dumps(payload))
-    cal=calmod.SessionCalendar.from_file(path,expected_version='idx-2026-v2',expected_amendment='amend-2',as_of=NOW)
+def prepared_fixture(core, tmp_path, *, publication='2026-10-05',
+                     checked='2026-10-04T00:00:00+00:00', loaded_at=NOW,
+                     freeze_at=None, caps_collected='2026-10-05T07:00:00+07:00',
+                     valid_through='2026-10-31'):
+    """Explicit synthetic calendar with a full 18-level latest closing window."""
+    m=core('inputs');calmod=core('calendar')
+    sessions=['2026-09-07','2026-09-08','2026-09-09','2026-09-10','2026-09-11','2026-09-14','2026-09-15',
+              '2026-09-16','2026-09-17','2026-09-18','2026-09-21','2026-09-22',
+              '2026-09-23','2026-09-24','2026-09-25','2026-09-28','2026-09-29',
+              '2026-09-30','2026-10-01','2026-10-02']
+    path=calendar_file(tmp_path);payload=json.loads(path.read_text())
+    payload['sessions']=sessions+[publication,'2026-10-07']
+    payload['amendment_checked_at']=checked
+    payload['valid_through']=valid_through
+    path.write_text(json.dumps(payload))
+    cal=calmod.SessionCalendar.from_file(path,expected_version='idx-2026-v2',
+                                       expected_amendment='amend-2',as_of=loaded_at)
     provenance=m.Provenance('fixture','a'*64,'fixture','fixture')
     membership=m.MembershipSnapshot('members-v1',{'Energy':('AAAA',)},provenance)
-    caps=m.CapSnapshot('caps-v1',datetime(2026,9,14,tzinfo=timezone.utc),None,{'AAAA':100.},provenance)
-    prices={'AAAA':m.PriceSeries('AAAA',{s:100. for s in sessions},'split_adjusted','price-v1',True)}
-    window=m.prepare_numerical_inputs(cal,membership,caps,prices,{s:100. for s in sessions},through=date(2026,9,18),freeze_at=NOW)
+    caps=m.CapSnapshot('caps-v1',datetime.fromisoformat(caps_collected),None,{'AAAA':100.},provenance)
+    prices={'AAAA':m.PriceSeries('AAAA',{day:100. for day in sessions},'split_adjusted','price-v1',True)}
+    frozen=freeze_at or datetime.fromisoformat(publication+'T07:30:00+07:00')
+    return dict(calendar=cal,membership=membership,caps=caps,prices=prices,
+                benchmark={day:100. for day in sessions},through=date(2026,10,2),
+                publication_session=date.fromisoformat(publication),freeze_at=frozen)
+
+
+def test_prepared_inputs_enforce_verified_window_and_frozen_provenance(core,tmp_path):
+    m=core('inputs');r=core('rotation')
+    arguments=prepared_fixture(core,tmp_path)
+    window=m.prepare_numerical_inputs(**arguments)
     result=r.calculate_from_inputs('Energy',window)
     assert result.provenance['membership']=='members-v1'
     assert result.provenance['calendar']=='idx-2026-v2'
     assert result.provenance['amendment']=='amend-2'
     assert result.provenance['membership_digest']=='a'*64
+    assert result.provenance['publication_session']=='2026-10-05'
+    assert result.provenance['closing_session']=='2026-10-02'
+    assert window.publication_session==date(2026,10,5)
     assert len(window.sessions)==18
-    with pytest.raises(m.InputUnavailable):m.prepare_numerical_inputs(cal,membership,caps,prices,{},through=date(2026,10,2),freeze_at=NOW)
-    future=m.CapSnapshot('future',NOW+timedelta(days=1),None,{'AAAA':100.},provenance)
-    with pytest.raises(m.InputUnavailable):m.prepare_numerical_inputs(cal,membership,future,prices,{},through=date(2026,9,18),freeze_at=NOW)
-    with pytest.raises(m.InputUnavailable):m.prepare_numerical_inputs(cal,membership,caps,prices,{},through=date(2026,10,5),freeze_at=NOW)
+    with pytest.raises(m.InputUnavailable):m.prepare_numerical_inputs(**(arguments|{'benchmark':{}}))
+    future=m.CapSnapshot('future',datetime.fromisoformat('2026-10-05T07:31:00+07:00'),None,
+                         {'AAAA':100.},arguments['caps'].provenance)
+    with pytest.raises(m.InputUnavailable):m.prepare_numerical_inputs(**(arguments|{'caps':future}))
+
+
+@pytest.mark.parametrize('publication', ['2026-10-05','2026-10-06'])
+def test_first_session_after_weekend_or_holiday_accepts_fresh_caps(core,tmp_path,publication):
+    m=core('inputs')
+    arguments=prepared_fixture(core,tmp_path,publication=publication,
+                               caps_collected=publication+'T07:00:00+07:00')
+    assert m.prepare_numerical_inputs(**arguments).cap_collection_status=='current_week'
+
+
+@pytest.mark.parametrize('publication', ['2026-10-05','2026-10-06'])
+def test_publication_week_rejects_caps_two_weeks_old(core,tmp_path,publication):
+    m=core('inputs')
+    arguments=prepared_fixture(core,tmp_path,publication=publication,
+                               caps_collected='2026-09-21T07:00:00+07:00')
+    with pytest.raises(m.InputUnavailable):m.prepare_numerical_inputs(**arguments)
+
+
+def test_one_extra_publication_week_caps_remain_supported(core,tmp_path):
+    m=core('inputs');arguments=prepared_fixture(core,tmp_path,caps_collected='2026-09-28T07:00:00+07:00')
+    assert m.prepare_numerical_inputs(**arguments).cap_collection_status=='extra_week'
+
+
+def test_preparation_rejects_calendar_checked_after_frozen_cutoff(core,tmp_path):
+    m=core('inputs')
+    arguments=prepared_fixture(core,tmp_path,checked='2026-10-06T00:00:00+00:00',
+                               loaded_at=datetime(2026,10,6,tzinfo=timezone.utc),
+                               caps_collected='2026-09-28T07:00:00+07:00')
+    with pytest.raises(m.InputUnavailable):m.prepare_numerical_inputs(**arguments)
+
+
+def test_preparation_rejects_previously_loaded_stale_calendar(core,tmp_path):
+    m=core('inputs')
+    arguments=prepared_fixture(core,tmp_path,checked='2026-09-27T00:00:00+00:00',
+                               loaded_at=datetime(2026,9,27,tzinfo=timezone.utc),
+                               caps_collected='2026-09-28T07:00:00+07:00')
+    with pytest.raises(m.InputUnavailable):m.prepare_numerical_inputs(**arguments)
+
+
+def test_preparation_accepts_seven_day_check_and_rejects_one_second_older(core,tmp_path):
+    m=core('inputs')
+    arguments=prepared_fixture(core,tmp_path,checked='2026-09-28T00:30:00+00:00',
+                               loaded_at=datetime(2026,9,28,0,30,tzinfo=timezone.utc),
+                               caps_collected='2026-09-28T07:00:00+07:00')
+    assert m.prepare_numerical_inputs(**arguments).publication_session==date(2026,10,5)
+    arguments=prepared_fixture(core,tmp_path,checked='2026-09-28T00:29:59+00:00',
+                               loaded_at=datetime(2026,9,28,0,30,tzinfo=timezone.utc),
+                               caps_collected='2026-09-28T07:00:00+07:00')
+    with pytest.raises(m.InputUnavailable):m.prepare_numerical_inputs(**arguments)
+
+
+def test_preparation_requires_publication_coverage_session_and_jakarta_freeze_date(core,tmp_path):
+    m=core('inputs');arguments=prepared_fixture(core,tmp_path,caps_collected='2026-09-28T07:00:00+07:00')
+    from dataclasses import replace
+    uncovered=replace(arguments['calendar'],valid_through=date(2026,10,2))
+    with pytest.raises(m.InputUnavailable):m.prepare_numerical_inputs(**(arguments|{'calendar':uncovered}))
+    with pytest.raises(m.InputUnavailable):m.prepare_numerical_inputs(**(arguments|{'publication_session':date(2026,10,4)}))
+    with pytest.raises(m.InputUnavailable):m.prepare_numerical_inputs(**(arguments|{'publication_session':date(2026,10,7)}))
+    # Freeze expressed in UTC is still October 5 in Jakarta.
+    utc_arguments=arguments|{'freeze_at':datetime(2026,10,5,0,30,tzinfo=timezone.utc)}
+    assert m.prepare_numerical_inputs(**utc_arguments).publication_session==date(2026,10,5)
+    # A previous UTC date is October 5 locally, not an October 4 non-session.
+    midnight_arguments=prepared_fixture(core,tmp_path,
+        freeze_at=datetime(2026,10,4,17,30,tzinfo=timezone.utc),
+        caps_collected='2026-10-05T00:00:00+07:00')
+    assert m.prepare_numerical_inputs(**midnight_arguments).publication_session==date(2026,10,5)
+
+
+def test_preparation_rejects_any_closing_window_older_than_previous_verified_session(core,tmp_path):
+    m=core('inputs');arguments=prepared_fixture(core,tmp_path,caps_collected='2026-09-28T07:00:00+07:00')
+    with pytest.raises(m.InputUnavailable):m.prepare_numerical_inputs(**(arguments|{'through':date(2026,10,1)}))
+    with pytest.raises(m.InputUnavailable):m.prepare_numerical_inputs(**(arguments|{'through':date(2026,10,5)}))
 
 
 def test_raw_split_cannot_be_applied_twice_under_different_ids(core):

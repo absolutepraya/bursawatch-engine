@@ -58,8 +58,17 @@ time is retained; the companies screener's underlying cap effective date is
 unverified and remains `None`. Missing calendar coverage cannot be repaired with
 weekdays. Expired caps omit unsupported rotation.
 
-`prepare_numerical_inputs` validates an 18-level calendar window, aligned
-benchmark, cutoff-visible membership/caps and cap age. Missing data raises
+`prepare_numerical_inputs(calendar, membership, caps, prices, benchmark,
+through=..., publication_session=..., freeze_at=..., actions=())` requires an
+explicit verified publication session matching the freeze's Jakarta date.
+`through` must be the immediately preceding verified session and only defines
+the closing window. Weekly cap age is assessed against the publication session,
+so a fresh first-session cap snapshot is valid before the freeze while a snapshot
+from two publication weeks ago is expired. Preparation revalidates publication
+calendar coverage and amendment visibility/freshness at the freeze, even when
+that calendar object was loaded earlier or later for another caller.
+It validates an 18-level aligned benchmark window and cutoff-visible
+membership/caps. Missing data raises
 `InputUnavailable`. It never fetches a provider or supplies synthetic fallback.
 Price eligibility and action compatibility are explicit caller-owned evidence;
 positive closes alone are insufficient. `compatible_closes` accepts verified
@@ -72,7 +81,8 @@ reconstructing shares from cap/price ratios.
 ## Rotation calculations
 
 `calculate_from_inputs(group_name, inputs)` preserves calendar/amendment,
-membership, cap and price/action version identities. Every original member needs
+membership, publication/closing sessions, cap and price/action version identities.
+Every original member needs
 a valid positive cap. Eligible members must have compatible prices in every
 aligned session and cover at least 90 percent of original basket cap. Weights
 renormalize over eligible caps and remain fixed across the whole trail.
