@@ -184,7 +184,9 @@ lease=..., now=...)` freezes `writer_bundle` from existing `evidence`, `globals`
 `write_outlook(bundle, injected_model, now=..., timeout_seconds=30)` accepts the
 frozen record and supplies a serialized isolated JSON bundle. The bounded writer
 may return only up to three `{evidence_id, excerpt}` claims. Exact complete source
-sentences are required, with deterministic inline publisher attribution. Freeform
+sentences are required, with deterministic inline publisher attribution. Ordinary
+line wraps remain inside the exact sentence span, including preceding negation or
+conditions; only sentence punctuation followed by whitespace ends the span. Freeform
 inferences, partial-context excerpts, unsupported levels and calibrated
 probabilities fail facts-only. This is deliberately extractive; it does not
 certify a source's truth or manufacture an IHSG direction from RSI/SMC overlays.

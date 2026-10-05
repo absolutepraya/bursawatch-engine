@@ -66,8 +66,9 @@ def _claims(response,payload):
         if type(identity) is not str or identity not in evidence or type(excerpt) is not str or not 1<=len(excerpt)<=600:
             raise ValueError('claim support missing')
         row=evidence[identity]
-        # A substring such as "naik" can reverse a sentence containing "tidak naik".
-        sentences=re.split(r'(?<=[.!?])\s+|\n+',row['text'].strip())
+        # Line wraps retain preceding negation/conditions inside the source span.
+        # Only punctuation followed by whitespace marks a sentence boundary.
+        sentences=re.split(r'(?<=[.!?])\s+',row['text'].strip())
         if excerpt not in sentences or row.get('text_truncated'):
             raise ValueError('claim is not a complete supported excerpt')
         if re.search(r'(?:probabilitas|probability|peluang).{0,40}\d|\d.{0,40}(?:probabilitas|probability)',excerpt,re.I):

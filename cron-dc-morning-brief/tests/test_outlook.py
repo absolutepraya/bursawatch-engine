@@ -11,9 +11,9 @@ from test_global_markets import chart, schedule, US_ROWS
 from test_economic_calendar import saved, page
 
 
-def frozen_bundle(core,tmp_path):
+def frozen_bundle(core,tmp_path,source_text='Laba emiten sintetis naik 10 persen. Kas emiten tetap positif.'):
     store,run,lease=owner(core,tmp_path)
-    core('evidence').freeze_source_evidence(store,run.run_id,CapturedClient(store,run.run_id,[source(1,text='Laba emiten sintetis naik 10 persen. Kas emiten tetap positif.')]),previous_cutoff=LOWER,lease=lease,now=FREEZE)
+    core('evidence').freeze_source_evidence(store,run.run_id,CapturedClient(store,run.run_id,[source(1,text=source_text)]),previous_cutoff=LOWER,lease=lease,now=FREEZE)
     globals_module=core('global_markets')
     quote=globals_module.parse_yahoo_chart('QQQ',chart('QQQ','America/New_York',[s for s,e in US_ROWS[:2]],[100,102]),freeze_at=FREEZE,retrieved_at=FREEZE,sessions=schedule('America/New_York',US_ROWS))
     globals_module.freeze_globals(store,run.run_id,[quote],lease=lease,now=FREEZE)
@@ -133,3 +133,33 @@ def test_writer_deadline_also_bounds_support_validation(core,tmp_path,monkeypatc
         assert time.monotonic()-start<0.1
     finally:
         assert finished.wait(1)
+
+
+@pytest.mark.parametrize('source_text,fragment', [
+    ('IHSG tidak\nnaik.', 'naik.'),
+    ('IHSG tidak\r\nnaik.', 'naik.'),
+    ('Jika likuiditas pulih,\nIHSG naik.', 'IHSG naik.'),
+    ('Jika inflasi stabil:\n\nIHSG naik.', 'IHSG naik.'),
+])
+def test_source_wrap_cannot_remove_preceding_negation_or_condition(core,tmp_path,source_text,fragment):
+    module=core('outlook'); _,_,_,bundle=frozen_bundle(core,tmp_path,source_text)
+    row=bundle.payload['evidence']['items'][0]
+    result=module.write_outlook(bundle,lambda _: {'claims':[{'evidence_id':row['evidence_id'],'excerpt':fragment}]},now=FREEZE,timeout_seconds=1)
+    assert result['mode']=='facts_only' and result['reason']=='unsupported_claim'
+    assert result['claims']==[] and 'Menurut ' not in result['text']
+    assert result['global_facts'][0]['price']==102 and result['calendar_facts'][0]['date']=='2026-10-06'
+
+
+@pytest.mark.parametrize('source_text,excerpt', [
+    ('IHSG tidak\nnaik.', 'IHSG tidak\nnaik.'),
+    ('Jika likuiditas pulih,\nIHSG naik.', 'Jika likuiditas pulih,\nIHSG naik.'),
+    ('Laba emiten naik.\nKas emiten tetap positif.', 'Kas emiten tetap positif.'),
+    ('IHSG tidak\nnaik. Kas emiten tetap positif.', 'IHSG tidak\nnaik.'),
+])
+def test_complete_wrapped_context_and_punctuation_delimited_sentences_remain_supported(core,tmp_path,source_text,excerpt):
+    module=core('outlook'); _,_,_,bundle=frozen_bundle(core,tmp_path,source_text)
+    row=bundle.payload['evidence']['items'][0]
+    result=module.write_outlook(bundle,lambda _: {'claims':[{'evidence_id':row['evidence_id'],'excerpt':excerpt}]},now=FREEZE,timeout_seconds=1)
+    assert result['mode']=='supported' and result['reason'] is None
+    assert result['claims'][0]['excerpt']==excerpt
+    assert result['claims'][0]['text']=='Menurut [collector](https://example.com/story/1): '+excerpt
