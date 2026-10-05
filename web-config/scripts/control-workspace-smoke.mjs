@@ -921,6 +921,7 @@ async function scenario(role) {
     await page.waitForURL(`${target.origin}/workspace/sources`);
     assert.equal(writes.length, writesBeforeNavigation, "Jobs relationships perform reads only.");
     await page.getByRole("heading", { name: "Source Catalog", exact: true }).waitFor();
+    await page.locator(".source-collection-status > summary").click();
     const adapterEvidence = page.locator(".source-adapter-evidence");
     const intakeRow = (name) => adapterEvidence.getByRole("listitem").filter({ has: page.getByText(name, { exact: true }) });
     await intakeRow("Synthetic Instagram intake").getByText("Input status: Observed", { exact: true }).waitFor();
@@ -930,6 +931,7 @@ async function scenario(role) {
     await navigate("Overview", "Overview");
     await navigate("Sources", "Sources");
     await page.getByRole("heading", { name: "Source Catalog", exact: true }).waitFor();
+    await page.locator(".source-collection-status > summary").click();
     await intakeRow("Synthetic WhatsApp intake").getByText("Last accepted input: Unknown", { exact: true }).waitFor();
     await intakeRow("Synthetic WhatsApp intake").getByText("Input status: Unknown", { exact: true }).waitFor();
     failedActivity.add(instagramAdapterId);
@@ -937,12 +939,14 @@ async function scenario(role) {
     await page.getByText("Some operator evidence is unavailable. Its missing row does not mean no activity occurred.", { exact: true }).waitFor();
     await navigate("Sources", "Sources");
     await page.getByRole("heading", { name: "Source Catalog", exact: true }).waitFor();
+    await page.locator(".source-collection-status > summary").click();
     await adapterEvidence.getByText("Some adapter evidence could not be loaded. Missing rows are unavailable, not zero.", { exact: true }).waitFor();
     failedActivity.clear();
     intakeStatus[whatsappAdapterId] = "stale";
     await navigate("Overview", "Overview");
     await navigate("Sources", "Sources");
     await page.getByRole("heading", { name: "Source Catalog", exact: true }).waitFor();
+    await page.locator(".source-collection-status > summary").click();
     await intakeRow("Synthetic Instagram intake").getByText("Input status: Observed", { exact: true }).waitFor();
     assert.equal(await adapterEvidence.getByRole("status").count(), 0);
     const securitiesTab = page.getByRole("tab", { name: "Securities", exact: true });
@@ -961,7 +965,7 @@ async function scenario(role) {
     if (role === "viewer") {
       await page.getByText("View access. An admin can change source catalog settings.", { exact: true }).waitFor();
       assert.equal(await page.getByRole("group", { name: "Add People & Org identity" }).count(), 0);
-      assert.equal(await page.getByRole("group", { name: "Add an endpoint for People & Org" }).count(), 0);
+      assert.equal(await page.getByRole("group", { name: "Add an account or channel" }).count(), 0);
       assert.equal(await page.getByRole("button", { name: "Apply setting to draft" }).count(), 0);
       assert.equal(await page.getByRole("button", { name: "Save catalog" }).count(), 0);
       assert.equal(writes.filter((item) => item.resource === "source-catalog").length, 0);
@@ -982,18 +986,18 @@ async function scenario(role) {
       await page.getByRole("button", { name: "Add identity to draft" }).click();
       await confirm(/Discard unsaved changes and reload the current catalog/i, false, () => page.getByRole("button", { name: "Reload current catalog", exact: true }).click());
       await page.getByRole("heading", { name: "Fixture Analyst", exact: true }).waitFor();
-      await page.getByRole("group", { name: "Add an endpoint for People & Org" }).getByLabel("Publisher").selectOption("fixture-analyst");
-      await page.getByRole("group", { name: "Add an endpoint for People & Org" }).getByLabel("Canonical handle").fill("fixture_analyst");
-      await page.getByRole("button", { name: "Add pending endpoint to draft" }).click();
-      await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(0).selectOption("x-fixture-analyst");
-      assert.equal(await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(1).locator("option").count(), 1, "Unsaved endpoints have no backend compatibility yet.");
-      await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(0).selectOption("x:ricky");
-      assert.equal(await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(1).getByRole("option", { name: "Trading Plans" }).count(), 0);
-      assert.equal(await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(1).getByRole("option", { name: "Swing Chart Context" }).count(), 1);
-      await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(1).selectOption("swing_chart_context");
-      assert.equal(await page.getByRole("group", { name: "Capability setting" }).getByLabel("Enabled intent").isChecked(), false);
-      await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(1).selectOption("company_news");
-      await page.getByRole("group", { name: "Capability setting" }).getByLabel("Enabled intent").check();
+      await page.getByRole("group", { name: "Add an account or channel" }).getByLabel("Source", { exact: true }).selectOption("fixture-analyst");
+      await page.getByRole("group", { name: "Add an account or channel" }).getByLabel("Handle (without @)").fill("fixture_analyst");
+      await page.getByRole("button", { name: "Add pending account to draft" }).click();
+      await page.getByRole("group", { name: "Content choices" }).locator("select").nth(0).selectOption("x-fixture-analyst");
+      assert.equal(await page.getByRole("group", { name: "Content choices" }).locator("select").nth(1).locator("option").count(), 1, "Unsaved endpoints have no backend compatibility yet.");
+      await page.getByRole("group", { name: "Content choices" }).locator("select").nth(0).selectOption("x:ricky");
+      assert.equal(await page.getByRole("group", { name: "Content choices" }).locator("select").nth(1).getByRole("option", { name: "Trading Plans" }).count(), 0);
+      assert.equal(await page.getByRole("group", { name: "Content choices" }).locator("select").nth(1).getByRole("option", { name: "Swing Chart Context" }).count(), 1);
+      await page.getByRole("group", { name: "Content choices" }).locator("select").nth(1).selectOption("swing_chart_context");
+      assert.equal(await page.getByRole("group", { name: "Content choices" }).getByLabel("Include this content").inputValue(), "default");
+      await page.getByRole("group", { name: "Content choices" }).locator("select").nth(1).selectOption("company_news");
+      await page.getByRole("group", { name: "Content choices" }).getByLabel("Include this content").selectOption("on");
       await page.getByRole("button", { name: "Apply setting to draft" }).click();
       await page.getByRole("button", { name: "Save catalog" }).click();
       await page.getByText("Saved catalog", { exact: false }).waitFor();
@@ -1004,8 +1008,8 @@ async function scenario(role) {
       await page.getByRole("heading", { name: "Source Catalog", exact: true }).waitFor();
       await page.getByRole("tab", { name: "People & Org", exact: true }).click();
       await page.getByRole("heading", { name: "Fixture Analyst", exact: true }).waitFor();
-      await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(0).selectOption("x-fixture-analyst");
-      await page.getByRole("group", { name: "Capability setting" }).locator("select").nth(1).selectOption("company_news");
+      await page.getByRole("group", { name: "Content choices" }).locator("select").nth(0).selectOption("x-fixture-analyst");
+      await page.getByRole("group", { name: "Content choices" }).locator("select").nth(1).selectOption("company_news");
       await page.getByText("pending", { exact: false }).first().waitFor();
     }
     await securitiesTab.click();

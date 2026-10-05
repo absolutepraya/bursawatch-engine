@@ -12,6 +12,9 @@ import {
 } from "react";
 import { ChevronDown, Plus, Save, Trash2 } from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
+import { countConfigChanges, matchesConfigSearch } from "@/lib/config-changes";
+import { SaveButton } from "./save-button";
 import { matchSourceIdentity } from "@/lib/connected-sources";
 import { useToast } from "@/components/toast-provider";
 import {
@@ -798,6 +801,9 @@ export function WatcherConfigEditor({
   const prefix = useId();
   const form = useRef<HTMLFormElement>(null);
   const toast = useToast();
+  const [profileQuery, setProfileQuery] = useState("");
+  const [profileStatus, setProfileStatus] = useState("all");
+  const changes = countConfigChanges(saved.config, draft);
   const dirty = JSON.stringify(saved.config) !== JSON.stringify(draft);
   if (snapshot !== receivedSnapshot) {
     setReceivedSnapshot(snapshot);
@@ -835,10 +841,36 @@ export function WatcherConfigEditor({
   }, [dirty, saving, onDirtyChange]);
   const kind = profileKind(saved.watcher_id);
   const profiles = Array.isArray(draft.profiles) ? draft.profiles : [];
+  const visibleProfiles = profiles
+    .map((profile, index) => ({ profile, index }))
+    .filter(({ profile }) => {
+      const row = profile as Record<string, unknown>;
+      return (
+        matchesConfigSearch(
+          [
+            row.display_name,
+            row.name,
+            row.handle,
+            row.username,
+            row.id,
+            row.channel_id,
+            row.channel_jid,
+            row.channel_url,
+            row.profile_url,
+          ]
+            .filter((value) => typeof value === "string")
+            .join(" "),
+          profileQuery,
+        ) &&
+        (profileStatus === "all" || (profileStatus === "enabled") === (row.enabled === true))
+      );
+    });
   const known =
     supportsWatcherConfig(saved.watcher_id, saved.config_version) &&
     saved.config.version === saved.config_version;
   function focusErrors() {
+    setProfileQuery("");
+    setProfileStatus("all");
     requestAnimationFrame(() => {
       form.current?.querySelectorAll("details").forEach((detail) => {
         detail.open = true;
@@ -912,7 +944,9 @@ export function WatcherConfigEditor({
             </p>
           </div>
           <span className={`watcher-draft-status${dirty ? " is-dirty" : ""}`}>
-            {dirty ? "Unsaved changes" : "Saved configuration"}
+            {dirty
+              ? `${changes} unsaved ${changes === 1 ? "change" : "changes"}`
+              : "Saved configuration"}
           </span>
         </header>
         {!known ? (
@@ -949,11 +983,58 @@ export function WatcherConfigEditor({
                     </h3>
                     <p className="watcher-help">
                       Open a source to edit its input, summary rules and Discord destinations.
-                      Changes are shared across this workspace after saving.
+                      Changes are shared across this workspace after saving.{" "}
+                      <Link href="/workspace/sources">Manage catalog sources and content</Link>.
                     </p>
                   </div>
+                  <div
+                    className="config-browse-tools"
+                    role="search"
+                    aria-label="Find workflow sources"
+                  >
+                    <label>
+                      Search accounts or channels
+                      <input
+                        type="search"
+                        value={profileQuery}
+                        placeholder="Name or handle"
+                        onChange={(event) => setProfileQuery(event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Watch status
+                      <select
+                        value={profileStatus}
+                        onChange={(event) => setProfileStatus(event.target.value)}
+                      >
+                        <option value="all">All sources</option>
+                        <option value="enabled">Enabled</option>
+                        <option value="paused">Paused</option>
+                      </select>
+                    </label>
+                    {(profileQuery || profileStatus !== "all") && (
+                      <button
+                        className="button secondary small"
+                        type="button"
+                        onClick={() => {
+                          setProfileQuery("");
+                          setProfileStatus("all");
+                        }}
+                      >
+                        Clear filters
+                      </button>
+                    )}
+                  </div>
+                  <p className="config-search-count" role="status">
+                    {visibleProfiles.length} of {profiles.length} sources
+                  </p>
+                  {visibleProfiles.length === 0 && (
+                    <p role="status">
+                      No sources match these filters. Clear filters to see all sources.
+                    </p>
+                  )}
                   <div className="watcher-profile-list">
-                    {profiles.map((profile, index) => (
+                    {visibleProfiles.map(({ profile, index }) => (
                       <details
                         className="watcher-profile"
                         key={index}
@@ -1043,12 +1124,14 @@ export function WatcherConfigEditor({
                 {savedNotice}
               </p>
             ) : null}
-            <footer className="watcher-editor-actions">
+            <footer
+              className={`watcher-editor-actions config-save-rail${dirty || saving ? " is-active" : ""}`}
+            >
               <p>
                 {saving
                   ? "Saving configuration…"
                   : dirty
-                    ? "Save settings for the watcher’s next check."
+                    ? `${changes} unsaved ${changes === 1 ? "change" : "changes"}. Save for the watcher’s next check.`
                     : "Saved settings do not confirm a source check or message delivery."}
               </p>
               <div>
@@ -1068,10 +1151,10 @@ export function WatcherConfigEditor({
                 >
                   Discard changes
                 </button>
-                <button className="button primary" disabled={!dirty || saving || blocked}>
+                <SaveButton disabled={!dirty || saving || blocked}>
                   <Save size={16} aria-hidden="true" />
                   {saving ? "Saving…" : "Save configuration"}
-                </button>
+                </SaveButton>
               </div>
             </footer>
           </>

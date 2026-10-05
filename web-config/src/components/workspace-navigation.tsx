@@ -47,10 +47,9 @@ export function WorkspaceNavigation({
     // Text enlargement can wrap labels. Reserve the bar's actual height so
     // the final content and footer remain reachable above mobile navigation.
     const reserveNavigationSpace = () => {
-      workspace.style.setProperty(
-        "--connected-navigation-height",
-        `${Math.ceil(element.getBoundingClientRect().height)}px`,
-      );
+      const height = `${Math.ceil(element.getBoundingClientRect().height)}px`;
+      workspace.style.setProperty("--connected-navigation-height", height);
+      document.documentElement.style.setProperty("--workspace-mobile-navigation-height", height);
     };
     reserveNavigationSpace();
     const observer = new ResizeObserver(reserveNavigationSpace);
@@ -58,6 +57,7 @@ export function WorkspaceNavigation({
     return () => {
       observer.disconnect();
       workspace.style.removeProperty("--connected-navigation-height");
+      document.documentElement.style.removeProperty("--workspace-mobile-navigation-height");
     };
   }, []);
 

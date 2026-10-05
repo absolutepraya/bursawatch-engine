@@ -1,11 +1,15 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { WatcherConfigEditor } from "./watcher-config-editor";
 import { operatorFieldCoverage } from "@/lib/operator-control-coverage";
 import type { ConfigSnapshot } from "@/lib/watcher-fields";
+import { setDraftOwner } from "@/lib/workspace-drafts";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  setDraftOwner(null);
+});
 
 const route = [{ key: "id_stocks_news", channel_id: "100000000000000001", description: "News" }];
 const profile = (kind: "x" | "instagram" | "whatsapp") => ({
@@ -135,6 +139,77 @@ function normalize(name: string) {
 }
 
 describe("rendered watcher controls match the field coverage map", () => {
+  it("edits the original account behind a filtered result and preserves hidden siblings and unknown fields", async () => {
+    setDraftOwner("synthetic-filter-operator");
+    const profiles = ["first", "second", "third"].map((handle) => ({
+      ...profile("x"),
+      id: handle,
+      handle,
+      display_name: handle,
+      profile_url: `https://x.com/${handle}`,
+      untouched: { future_setting: true },
+    }));
+    const snapshot: ConfigSnapshot = {
+      api_version: 1,
+      watcher_id: "bursawatch-x-account-watch",
+      revision: 1,
+      config_version: 1,
+      config: { version: 1, profiles, future_option: "preserve" },
+      config_sha256: "a".repeat(64),
+      updated_at: "2026-09-30T00:00:00Z",
+    };
+    const onSave = vi.fn(async (config) => ({ ...snapshot, revision: 2, config }));
+    render(<WatcherConfigEditor snapshot={snapshot} onSave={onSave} />);
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "second" } });
+    expect(document.querySelectorAll(".watcher-profile")).toHaveLength(1);
+    document.querySelector<HTMLDetailsElement>(".watcher-profile")!.open = true;
+    fireEvent.change(screen.getByLabelText("Display name"), {
+      target: { value: "Updated second" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save configuration" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const submitted = onSave.mock.calls[0][0];
+    expect(submitted.profiles[0]).toEqual(profiles[0]);
+    expect(submitted.profiles[1]).toEqual({ ...profiles[1], display_name: "Updated second" });
+    expect(submitted.profiles[2]).toEqual(profiles[2]);
+    expect(submitted.future_option).toBe("preserve");
+  });
+
+  it("reveals filtered-out validation errors before focusing the invalid field", async () => {
+    const broken = {
+      ...profile("x"),
+      display_name: "Broken",
+      handle: "bad handle",
+      profile_url: "https://x.com/example",
+    };
+    const other = {
+      ...profile("x"),
+      id: "other",
+      display_name: "Other",
+      handle: "other",
+      profile_url: "https://x.com/other",
+    };
+    const snapshot: ConfigSnapshot = {
+      api_version: 1,
+      watcher_id: "bursawatch-x-account-watch",
+      revision: 1,
+      config_version: 1,
+      config: { version: 1, profiles: [broken, other] },
+      config_sha256: "a".repeat(64),
+      updated_at: "2026-09-30T00:00:00Z",
+    };
+    const onSave = vi.fn(async () => snapshot);
+    render(<WatcherConfigEditor snapshot={snapshot} onSave={onSave} />);
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Other" } });
+    document.querySelector<HTMLDetailsElement>(".watcher-profile")!.open = true;
+    fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Other updated" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save configuration" }));
+    await waitFor(() => expect(document.activeElement?.getAttribute("aria-invalid")).toBe("true"));
+    expect(screen.getByRole("searchbox")).toHaveProperty("value", "");
+    expect(document.querySelectorAll(".watcher-profile")).toHaveLength(2);
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
   for (const [watcherId, config] of cases) {
     it(watcherId, () => {
       const snapshot: ConfigSnapshot = {
@@ -167,7 +242,9 @@ describe("rendered watcher controls match the field coverage map", () => {
         );
       }
       if (watcherId.includes("ig-account-watch"))
-        expect(screen.getByRole("status").textContent).toContain("has no scheduled job");
+        expect(screen.getByText(/Instagram source settings are saved/).textContent).toContain(
+          "has no scheduled job",
+        );
     });
   }
 });

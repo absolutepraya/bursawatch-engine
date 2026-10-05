@@ -29,9 +29,11 @@
 .app-toast .icon-button {
   flex-shrink: 0;
 }
-@media (max-width: 700px) {
+@media (max-width: 800px) {
   .toast-region {
-    bottom: calc(84px + env(safe-area-inset-bottom));
+    bottom: calc(
+      var(--workspace-mobile-navigation-height, 84px) + 12px + env(safe-area-inset-bottom)
+    );
     right: 16px;
     left: 16px;
     max-width: none;
