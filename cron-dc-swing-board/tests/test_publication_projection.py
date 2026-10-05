@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime
+import pytest
 
 import board_publication_projection as projection
 import discord_forum
@@ -64,6 +65,70 @@ def test_board_reply_links_parent_publication_and_store_recovery(monkeypatch, tm
 def _publication_identity(owner_id: str, owner_key: str) -> str:
     from store import _publication_identity as identity
     return identity(owner_id, owner_key)
+
+
+@pytest.mark.parametrize('action', ['create_thread', 'post_source_reply', 'edit_starter', 'patch_thread'])
+def test_valid_typed_receipt_projects_saved_board_action_without_discord_send(monkeypatch, tmp_path, action):
+    from bursawatch_discord_delivery import OperationReceipt
+    _enable(monkeypatch)
+    store = BoardStore(tmp_path / 'board.sqlite3')
+    episode_id, _ = _completed_starter(store)
+    thread = '1525102458253217890'
+    starter = '1525102458253217891'
+    if action != 'create_thread':
+        payloads = {
+            'post_source_reply':dict(content='Source reply',thread_id=thread),
+            'edit_starter':dict(content='Updated starter',thread_id=thread,message_id=starter),
+            'patch_thread':dict(thread_id=thread,name='BBCA',applied_tag_ids=[],archived=False),
+        }
+        op = store.enqueue_outbox(action, episode_id, payloads[action], 'audit:'+action, at())
+        claimed = store.claim_due_outbox(at())
+        store.complete_outbox(op.id, claimed.claim_token,
+                              {'message_id':starter} if action != 'patch_thread' else {}, at())
+    snapshots = []
+    class Delivery:
+        def status(self, key):
+            for saved in store.all_publication_intents():
+                snapshot = saved['snapshot']
+                intent = discord_forum.DiscordForumClient(no_post=True)._intent(snapshot['_operation'], snapshot['_payload'], snapshot['owner_key'])
+                if intent.key == key:
+                    details = {'thread_id':thread, 'message_id':starter} if snapshot['_operation'] == 'create_thread' else (
+                        {'thread_id':thread} if snapshot['_operation'] == 'patch_thread' else {'message_id':starter,'thread_id':thread})
+                    return OperationReceipt('receipt-1',key,intent.digest,'delivered',details)
+            raise AssertionError('Unknown saved operation')
+        def submit(self, *_args, **_kwargs):
+            raise AssertionError('Projection must never send Discord')
+    class Api:
+        def submit(self, snapshot):
+            snapshots.append(snapshot)
+            return {'publication_id':projection.publication_id(snapshot['owner_key']),'version':1,'digest':'a'*64}
+        def checkpoint(self, comparison):
+            return comparison
+    result = projection.drain(store, at(), publication_client=Api(), delivery_owner=Delivery())
+    assert result['pending'] == 0
+    assert result['accepted'] == len(snapshots) == (1 if action == 'create_thread' else 2)
+    assert all(row['ack'] for row in store.all_publication_intents())
+    assert projection.checkpoint_comparison(store,at())['outstanding_count'] == 0
+
+
+@pytest.mark.parametrize('fault', ['key', 'digest', 'status', 'destination', 'malformed', 'missing'])
+def test_invalid_receipt_keeps_projection_pending(monkeypatch, tmp_path, fault):
+    from bursawatch_discord_delivery import OperationReceipt
+    _enable(monkeypatch)
+    store = BoardStore(tmp_path / 'board.sqlite3')
+    _completed_starter(store)
+    saved = store.pending_publication_intents(at())[0]
+    snapshot = saved['snapshot']
+    intent = discord_forum.DiscordForumClient(no_post=True)._intent(snapshot['_operation'], snapshot['_payload'], snapshot['owner_key'])
+    receipt = OperationReceipt('receipt-1',intent.key,intent.digest,'delivered',
+                               {'thread_id':'1525102458253217890','message_id':'1525102458253217891'})
+    changes = {'key':dict(key='wrong-key'),'digest':dict(digest='b'*64),'status':dict(status='pending'),
+               'destination':dict(receipt={'thread_id':'1525102458253217899','message_id':'1525102458253217891'}),
+               'malformed':dict(receipt={'thread_id':'invalid','message_id':'1525102458253217891'})}
+    raw = None if fault == 'missing' else replace(receipt, **changes[fault])
+    class Delivery:
+        def status(self, _key): return raw
+    assert projection._build_snapshot(saved,Delivery()) is None
 
 
 def test_board_projection_failure_does_not_repost(monkeypatch, tmp_path):

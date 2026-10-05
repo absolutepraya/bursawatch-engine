@@ -58,8 +58,10 @@ Title rules:
   tickers, acronyms, and proper nouns where appropriate.
 - Keep the title source-grounded, one line, 5 to 120 characters, with no URL
   and no ending `.`, `!`, or `?`.
-- Do not add investment advice, BUY or SELL language, targets, stop-losses,
-  valuation, or price-direction claims.
+- Judge advice and education semantically in this same analysis. Exclude
+  advice-only, educational, or promotional material; do not generate investment
+  instructions. Preserve material source-reported targets, transactions, price
+  changes, and attributed research with their periods, units, and uncertainty.
 - Do not add an AI disclaimer. The renderer does not append one.
 
 Summary rules:

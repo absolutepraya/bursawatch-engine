@@ -303,7 +303,6 @@ def test_summary_marker_is_owned_by_the_renderer(load_fixture):
         ("material_facts", ["fact", 7], "material_facts"),
         ("dedupe_facts", "not an array", "dedupe_facts"),
         ("source_evidence", "", "source_evidence"),
-        ("summary", "The facts support a BUY. This is material. The source names the issuer.", "investment language"),
     ],
 )
 def test_agent_submission_rejects_invalid_closed_schema_fields(load_fixture, field, value, error):
@@ -372,6 +371,40 @@ def test_submit_classification_persists_phintraco_macro_route(load_fixture, late
     submit_classification(state, later_candidate, payload, now)
 
     assert state["candidates"][later_candidate.key]["selection"]["route"] == "macro_news"
+
+
+@pytest.mark.parametrize('route,title', [
+    ('id_stocks_news', 'DEWA: Kontrak material terungkap'),
+    ('macro_news', 'Produksi nasional memiliki sasaran baru'),
+])
+def test_phintraco_title_survives_persistence_and_rendering(load_fixture, monkeypatch, route, title):
+    from dataclasses import replace
+    import delivery
+    from selection import pending_selection_candidates
+    candidate = replace(_tuntun_candidate(), provider=Provider.PHINTRACO, source_kind=SourceKind.PHINTRACO_NOTE)
+    now = datetime.now(timezone.utc)
+    state = empty_state()
+    enqueue_candidate(state, candidate, now)
+    claim_oldest_pending_analysis(state, now)
+    payload = json.loads(load_fixture('classification-valid.json'))
+    payload.update(candidate_key=candidate.key, ticker=candidate.ticker, title=title, route=route)
+    submit_classification(state, candidate, payload, now)
+    assert state['candidates'][candidate.key]['selection']['title'] == title
+    monkeypatch.setattr(delivery, 'get_market_snapshot', lambda *_: None)
+    card = delivery.format_news_item(pending_selection_candidates(state)[0])
+    assert card.splitlines()[0].endswith(title)
+
+
+@pytest.mark.parametrize('reported', [
+    'Pemerintah menetapkan target produksi 10 juta ton pada 2027.',
+    'Phintraco memperkirakan valuation emiten meningkat pada 2027.',
+    'Perusahaan berencana sell shares kepada investor strategis.',
+    'Harga minyak naik 10% dibandingkan September 2026.',
+])
+def test_source_reported_news_is_not_rejected_by_advice_keywords(load_fixture, reported):
+    payload = json.loads(load_fixture('classification-valid.json'))
+    payload.update(summary=reported, material_facts=[reported], dedupe_facts=[reported], source_evidence=reported)
+    assert _validate(payload) is EventClass.MATERIAL_CONTRACT
 
 
 def test_flexible_summary_is_accepted(load_fixture):

@@ -105,3 +105,8 @@ See `AGENTS.md` for ownership and detailed safety boundaries.
   Manifest apply creates only Board owner work. Capturing each direct topic URL
   and editing the separately reviewed Yanto-owned All Swing messages are
   distinct, explicitly approved operations.
+
+Published Feed reporting binds the typed Delivery Owner status receipt to the
+saved operation, validating kind, destination, key, digest, and delivered status.
+Saved pending projections may reconcile on natural retries, without a Discord
+submission or source replay. A missing or invalid receipt remains pending.

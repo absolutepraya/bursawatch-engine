@@ -52,8 +52,11 @@ is `not_eligible`. `candidate_key` and `ticker` must exactly match the item.
 Keep summaries factual and source-grounded. Attribute research estimates to
 Phintraco, distinguish estimates from reported results and company guidance,
 and preserve period, units, and forward-looking framing. The summary must not
-include `*(Ringkasan)*`; the renderer adds that marker. Do not include
-investment advice or price-direction language.
+include `*(Ringkasan)*`; the renderer adds that marker. Judge advice and
+education semantically in this same analysis; exclude
+advice-only, educational, or promotional material. Do not generate investment
+instructions. Preserve material source-reported targets, transactions, price
+changes, and attributed research with their periods, units, and uncertainty.
 
 For common and category writing, follow the trusted item instruction from `lib-news-format`. The renderer owns the summary marker.
 

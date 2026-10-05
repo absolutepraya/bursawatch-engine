@@ -389,6 +389,14 @@ and before the revision is accepted; the adapter waits for that settlement. Doma
 deduplicate `(event_key, version, effect_key)` across retry and crash recovery.
 Run summaries remain in `ControlPlaneReporter` and do not contain source payloads.
 
+Source revision requests may include the optional positive integer
+`expected_pending_version`. Under the same event/work transaction locks, the
+server rejects a different latest version or any work that left pending,
+including completed work. Duplicate revision IDs still reconcile their original
+receipt before that precondition is applied. This additive guard lets X repair
+pending news without racing a claim or rewriting an already processed version.
+Other source clients retain the existing unguarded API contract when omitted.
+
 Media bytes never enter Postgres. Source-event media references must be opaque stable
 identities minted by the private Source Media Owner, with bounded digest, kind, MIME,
 size, and filename metadata. The inbox validates those fields and the per-object and

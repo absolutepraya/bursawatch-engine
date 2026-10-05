@@ -53,10 +53,32 @@ raw exceptions, source bodies, media locators, or credentials for diagnostics.
 New optional-news payloads freeze `source_media_policy: optional_news` and a
 hash of the observed source thread. The accepted index retains that hash so
 an unchanged source does not trigger media reuploads or corrections when an
-attachment fails or recovers. Genuine source edits retain the existing
-unclaimed-work correction check. Old accepted payloads and indexes without
-that marker keep their required-media and correction behavior. Never retrofit
-the marker into live state or rewrite pending payloads.
+attachment fails or recovers. Genuine source edits inspect the accepted version
+and its current-version work before preparing media. Claimed, executing, completed, or otherwise
+nonpending work remains frozen and reports a bounded `deferred_frozen`
+correction outcome without holding unrelated intake. Legacy records with
+unchanged sanitized text retain their accepted media and report
+`text_unchanged_media_unverified`; this is not proof that image bytes match.
+For a genuine edit to pending legacy ordinary news, append a new optional-media
+version under the original frozen capabilities. Swing, image-only, and
+ambiguous Swing-capable events keep required images. Never retrofit a marker
+into an accepted payload/index or rewrite a frozen delivery.
+
+New correction requests carry `expected_pending_version`. The Control Plane
+checks that version and all of its work atomically before appending. Retain
+older staged request bytes and revision identities, adding the same atomic
+guard when retrying them through the upgraded adapter. Retain
+the same staged request on transport failure. If a competing claim or
+settlement freezes that work, retire only the unsent correction spool entry
+with a bounded `deferred_frozen` outcome; do not revise source state or send
+Discord. A revision already accepted before an acknowledgement was lost still
+reconciles its original revision identity, even after its work completes.
+Correction inspection failures retain the existing warning fields but do not
+stop subsequent publications' correction checks.
+Retry saved corrections per request, retaining a failed request's bytes and
+revision identity. Each request is attempted at most once in a run. A failed
+event keeps its saved retry rather than staging another version from that
+run's observation; other saved requests and observed publications continue.
 
 The first poll for a direct-X endpoint reads only the account page and stores
 the newest own-post ID as a future-only boundary. It does not fetch or publish

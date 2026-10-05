@@ -358,10 +358,12 @@ class MemoryInboxStore:
             item.update(status="dead_letter", lease_token=None, lease_until=None, error_code="execution_recovered")
             return deepcopy(item)
 
-    def revise(self, key: str, raw: object, kind: str, revision_id: str, actor: str, reason: str) -> dict[str, Any]:
+    def revise(self, key: str, raw: object, kind: str, revision_id: str, actor: str, reason: str, *, expected_pending_version: int | None = None) -> dict[str, Any]:
         if kind not in {"correction", "tombstone"}:
             raise ValueError("invalid revision kind")
         revision_id = _revision_identity(revision_id)
+        if expected_pending_version is not None and (type(expected_pending_version) is not int or expected_pending_version < 1):
+            raise ValueError("expected pending version must be a positive integer")
         envelope = validate_envelope(raw)
         if event_key(envelope) != key:
             raise ValueError("correction must retain provider identity")
@@ -379,6 +381,10 @@ class MemoryInboxStore:
                     version = existing["version"]
                     return {"event_key": key, "version": version, "duplicate": True, "work_keys": [wid for wid, item in self.work.items() if item["event_key"] == key and item["version"] == version]}
             previous = event["versions"][-1]
+            if expected_pending_version is not None:
+                current_work = [item for item in self.work.values() if item["event_key"] == key and item["version"] == len(event["versions"])]
+                if len(event["versions"]) != expected_pending_version or not current_work or any(item["status"] != "pending" for item in current_work):
+                    raise InboxConflict("source correction requires the expected pending version")
             if previous["kind"] == "tombstone":
                 raise InboxConflict("tombstoned source event cannot be revised")
             if any(item["event_key"] == key and item["status"] in {"leased", "executing"} for item in self.work.values()):
@@ -617,10 +623,12 @@ class PostgresInboxStore:
             conn.execute("insert into bursawatch_source_work_audit (work_key,action,actor_id,reason) values (%s,'recover',%s,%s)", (wid, actor, reason))
             return self._work(updated)
 
-    def revise(self, key: str, raw: object, kind: str, revision_id: str, actor: str, reason: str) -> dict[str, Any]:
+    def revise(self, key: str, raw: object, kind: str, revision_id: str, actor: str, reason: str, *, expected_pending_version: int | None = None) -> dict[str, Any]:
         if kind not in {"correction", "tombstone"}:
             raise ValueError("invalid revision kind")
         revision_id = _revision_identity(revision_id)
+        if expected_pending_version is not None and (type(expected_pending_version) is not int or expected_pending_version < 1):
+            raise ValueError("expected pending version must be a positive integer")
         envelope = validate_envelope(raw)
         if event_key(envelope) != key or (kind == "tombstone" and envelope["payload"]):
             raise ValueError("revision identity or tombstone payload is invalid")
@@ -642,6 +650,10 @@ class PostgresInboxStore:
             old = conn.execute("select version,kind,envelope from bursawatch_source_event_versions where event_key=%s order by version desc limit 1 for update", (key,)).fetchone()
             if not old:
                 raise KeyError(key)
+            if expected_pending_version is not None:
+                current_work = conn.execute("select status from bursawatch_source_work where event_key=%s and version=%s for update", (key, old["version"])).fetchall()
+                if old["version"] != expected_pending_version or not current_work or any(item["status"] != "pending" for item in current_work):
+                    raise InboxConflict("source correction requires the expected pending version")
             if old["kind"] == "tombstone":
                 raise InboxConflict("tombstoned source event cannot be revised")
             leased = conn.execute("select 1 from bursawatch_source_work where event_key=%s and status in ('leased','executing') limit 1", (key,)).fetchone()
