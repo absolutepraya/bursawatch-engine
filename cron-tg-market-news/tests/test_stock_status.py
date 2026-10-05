@@ -154,7 +154,7 @@ def test_message_35377_renders_the_approved_discord_message(load_fixture):
         format_stock_status(status, exact_length_url + "x", now)
 
     assert format_stock_status(status, base_url, now) == (
-        "### <:phintraco:1531272488645038091> Stock Status: Mon, 05 Oct 2026\n\n"
+        "### <:phintraco:1531272488645038091> STOCK STATUS: Mon, 05 Oct 2026\n\n"
         "**UMA:**\n(None)\n\n"
         "**Suspend In:**\n(None)\n\n"
         "**Suspend Out:**\n- WAPO\n- NASI\n\n"
@@ -177,7 +177,7 @@ def test_header_uses_jakarta_observation_date_instead_of_future_source_date(obse
     )
     status = parse_stock_information(35594, source)
     content = format_stock_status(status, "https://t.me/phintasprofits/35594", datetime.fromisoformat(observed_at))
-    assert content.splitlines()[0] == f"### <:phintraco:1531272488645038091> Stock Status: {expected_heading}"
+    assert content.splitlines()[0] == f"### <:phintraco:1531272488645038091> STOCK STATUS: {expected_heading}"
     assert "**UMA:**\n- BLTZ" in content
     assert "**Suspend In:**\n- BSWD\n- PTPP" in content
     assert "Web" not in content

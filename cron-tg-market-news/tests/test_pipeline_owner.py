@@ -274,7 +274,7 @@ def test_stock_status_uses_existing_parser_renderer_and_owner_ledger(tmp_path, m
     record = load_state()["stats"]["stock_status_events"]["phintraco-stock-status:35377"]
     assert record["phase"] == "delivered"
     assert record["content"] == (
-        "### <:phintraco:1531272488645038091> Stock Status: Mon, 05 Oct 2026\n\n"
+        "### <:phintraco:1531272488645038091> STOCK STATUS: Mon, 05 Oct 2026\n\n"
         "**UMA:**\n(None)\n\n"
         "**Suspend In:**\n(None)\n\n"
         "**Suspend Out:**\n- WAPO\n- NASI\n\n"
