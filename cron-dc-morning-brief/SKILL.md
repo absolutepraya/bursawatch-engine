@@ -224,13 +224,23 @@ an explicit version. Each attestation declares `kind='caller_attestation'`,
 never derived eligibility or proof from positive rows. Missing evidence excludes
 rotation members or the benchmark without substituting prices. All upstream
 records, versions and attestations freeze in `upstream` before selection.
+`actions_attestation` independently binds the exact complete `actions` list to
+the same attestation fields and cutoff before numerical preparation. An empty
+list must be explicitly present and verified, not inferred from a missing key.
+Absent, unverified, changed or post-cutoff action evidence omits both rotations;
+independently supported benchmark facts remain available. A price attestation
+does not certify the separate action decisions.
 
 Optional `sectors_client`/`sectors_requests` use the shared client's cache-only
 `get` with max_cost zero and retain exact request keys/URLs, payloads, availability
 and provenance. No cache miss permits provider access. Optional
 `chart_client`/`chart_request` use shared `render(..., cache_only=True)`;
 accepted IHSG images require matching external as-of attestation and the
-calendar's immediately preceding session. Unsupported images are explicitly
+calendar's immediately preceding session. The requested cutoff must equal the
+run's exact immutable freeze instant before any cache render; an otherwise valid
+same-day request at another time is omitted. Returned artifact request identity
+must match the selected request, and the frozen image manifest retains that
+identity and cutoff. Unsupported images are explicitly
 omitted before publication. Raw global input rows contain name, Yahoo chart
 payload, retrieval instant and reviewed exchange sessions. Official calendar
 snapshots come from the shared immutable SnapshotCache. Empty calendar/global

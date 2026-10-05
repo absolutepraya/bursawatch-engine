@@ -97,6 +97,10 @@ class MorningRunner:
         records={digest(row) for row in upstream.payload['provider_records']}
         benchmark=data.get('benchmark',{}); proof=data.get('benchmark_attestation',{})
         benchmark_valid=_attested(benchmark,proof,cutoff,records) and bool(proof.get('version'))
+        action_manifest=data.get('actions')
+        actions_valid=(isinstance(action_manifest,list)
+            and _attested(action_manifest,data.get('actions_attestation',{}),cutoff,records))
+        if not actions_valid: gaps.append('actions_attestation_unavailable')
         previous=calendar.last_sessions(date.fromisoformat(run.session),2)[0]
         # Price rows outside the previous closing boundary cannot enter facts.
         if benchmark_valid and previous.isoformat() in benchmark:
@@ -114,12 +118,12 @@ class MorningRunner:
                 attested=_attested(row,data.get('price_attestations',{}).get(symbol,{}),cutoff,records)
                 prices[symbol]=PriceSeries(**{**row,'trading_eligible':row['trading_eligible'] is True and attested})
                 if not attested: gaps.append('price_attestation_unavailable:'+symbol)
-            actions=tuple(ActionDecision(**a) for a in data.get('actions',[]))
+            actions=tuple(ActionDecision(**a) for a in action_manifest) if actions_valid else ()
         except (KeyError,ValueError,TypeError):
             caps=None; prices={}; actions=(); gaps.append('numerical_inputs_unavailable')
         for kind in groups:
             try:
-                if caps is None or not benchmark_valid: raise InputUnavailable('verified inputs unavailable')
+                if caps is None or not benchmark_valid or not actions_valid: raise InputUnavailable('verified inputs unavailable')
                 row=data['memberships'][kind]
                 membership=MembershipSnapshot(**{**row,'provenance':Provenance(**row['provenance']),
                     'collected_at':datetime.fromisoformat(row['collected_at']) if row.get('collected_at') else None,
@@ -152,7 +156,11 @@ class MorningRunner:
             try:
                 if kind=='ihsg':
                     if chart_client is None or chart_request is None: raise ValueError('chart unavailable')
+                    if aware(chart_request.cutoff)!=aware(datetime.fromisoformat(run.freeze_at)):
+                        raise ValueError('chart cutoff differs from frozen run')
                     artifact=chart_client.render(chart_request,cache_only=True)
+                    if artifact.request.identity!=chart_request.identity:
+                        raise ValueError('chart artifact differs from selected request')
                     rendered=render_ihsg(artifact,publication_session=session,latest_close=date.fromisoformat(inputs.payload['previous_session']))
                 else:
                     if not groups[kind]: raise ValueError('rotation unavailable')

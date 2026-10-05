@@ -41,10 +41,12 @@ def numerical():
         'available_at':(FREEZE-timedelta(hours=1)).isoformat(),'source_url':'https://example.test/closes','evidence_ref':'synthetic-eligibility-action-proof'}
     benchmark={s.isoformat():100. for s in sessions}
     benchproof={**proof,'content_sha256':digest(benchmark),'evidence_ref':'synthetic-benchmark-v1','version':'benchmark-v1'}
+    actionsproof={**proof,'content_sha256':digest([]),'evidence_ref':'synthetic-verified-empty-actions'}
     p=Provenance('https://example.test/caps','c'*64,'explicit-synthetic','fixture-cap')
     return {'memberships':{kind:asdict(MembershipSnapshot('members-v1',{kind:('AAAA',)},p)) for kind in ['sectors','konglo']},
         'caps':asdict(CapSnapshot('caps-v1',FREEZE-timedelta(hours=1),None,{'AAAA':100.},p)),
         'prices':{'AAAA':asdict(series)},'price_attestations':{'AAAA':proof},'actions':[],
+        'actions_attestation':actionsproof,
         'benchmark':benchmark,'benchmark_attestation':benchproof}
 
 def test_end_to_end_preview_freezes_inputs_artifacts_and_heartbeat_without_posts(tmp_path,core):
@@ -121,3 +123,82 @@ def test_completed_attempt_releases_fenced_lease_for_immediate_recovery(tmp_path
     assert runner.run(**args)['phase']=='projected'
     assert runner.run(**args)['phase']=='projected'
     assert len(projection.requests)==1
+
+
+@pytest.mark.parametrize('manifest',['empty','raw_split'])
+@pytest.mark.parametrize('proof_state',['valid','missing','unverified','late','changed','absent_manifest'])
+def test_action_manifest_requires_exact_cutoff_attestation(tmp_path,core,manifest,proof_state):
+    r=core('runner'); data=numerical()
+    if manifest=='raw_split':
+        row=data['prices']['AAAA']; effective=sorted(row['closes'])[-4]
+        row['basis']='raw'
+        row['closes']={day:value*2 if day<effective else value for day,value in row['closes'].items()}
+        data['price_attestations']['AAAA']['content_sha256']=digest(row)
+        data['actions']=[dict(symbol='AAAA',identity='synthetic-split',status='resolved',
+            treatment='adjust_raw',ratio=2,evidence='synthetic-action-source',effective_session=effective)]
+        data['actions_attestation']['content_sha256']=digest(data['actions'])
+    if proof_state=='missing': data.pop('actions_attestation')
+    elif proof_state=='unverified': data['actions_attestation']['verified']=False
+    elif proof_state=='late': data['actions_attestation']['available_at']=(FREEZE+timedelta(seconds=1)).isoformat()
+    elif proof_state=='changed':
+        if manifest=='raw_split': data['actions'][0]['ratio']=3
+        else: data['actions_attestation']['content_sha256']='a'*64
+    elif proof_state=='absent_manifest': data.pop('actions')
+    store=RunStore(tmp_path/'runs.sqlite')
+    result=r.MorningRunner(store,Source(),HeartbeatDelivery(),FakeProjection(),clock=lambda:NOW).run(
+        calendar=calendar(),numerical=data,global_inputs=[],calendar_snapshots=[],model=None,
+        model_version='fixture',prompt_version='v1')
+    assert result['phase']=='preview'
+    run=store.create_run('2026-10-05',freeze_at=FREEZE)
+    inputs=store.get_frozen(run.run_id,'inputs').payload
+    selected=store.get_frozen(run.run_id,'selection').payload
+    if proof_state=='valid':
+        assert all(inputs['groups'][kind] for kind in ('sectors','konglo'))
+        assert selected['images'][1] is not None and selected['images'][2] is not None
+        assert store.get_frozen(run.run_id,'upstream').payload['numerical']['actions_attestation']==data['actions_attestation']
+    else:
+        assert inputs['groups']=={'sectors':[],'konglo':[]}
+        assert 'actions_attestation_unavailable' in inputs['gaps']
+        assert selected['images'][1:] == [None,None]
+
+
+@pytest.mark.parametrize('minutes,returned_minutes',[(0,0),(15,15),(-15,-15),(0,15)])
+def test_chart_request_requires_exact_frozen_cutoff(tmp_path,core,minutes,returned_minutes):
+    from datetime import timezone
+    from io import BytesIO
+    from PIL import Image
+    from chart_img_client.models import RenderRequest, AsOfVerification, validate_image
+    def request(offset):
+        return RenderRequest('synthetic','synthetic','IDX:COMPOSITE','1D','3M',
+            (FREEZE+timedelta(minutes=offset)).astimezone(timezone.utc),width=800,height=600)
+    supplied=request(minutes); returned=request(returned_minutes)
+    stream=BytesIO(); Image.new('RGB',(800,600),'white').save(stream,format='PNG')
+    artifact=validate_image(stream.getvalue(),'image/png',returned,returned.cutoff)
+    previous=calendar().last_sessions(NOW.date(),2)[0].isoformat()
+    artifact=artifact.with_verification(AsOfVerification(artifact.sha256,returned.identity,
+        previous,returned.cutoff,'synthetic','synthetic-only','3M'))
+    class Chart:
+        calls=0
+        def render(self,actual,*,cache_only):
+            assert actual==supplied and cache_only is True
+            self.calls+=1
+            return artifact
+    chart=Chart(); delivery=HeartbeatDelivery(); store=RunStore(tmp_path/'runs.sqlite')
+    result=core('runner').MorningRunner(store,Source(),delivery,FakeProjection(),clock=lambda:NOW).run(
+        calendar=calendar(),numerical=numerical(),global_inputs=[],calendar_snapshots=[],model=None,
+        model_version='fixture',prompt_version='v1',chart_client=chart,chart_request=supplied,
+        preview=False,destination=DEST,reviewed_config='local-fake-only')
+    assert result['phase']=='projected'
+    run=store.create_run('2026-10-05',freeze_at=FREEZE)
+    selected=store.get_frozen(run.run_id,'selection').payload
+    ihsg_posts=[op for op in delivery.sent if op.key.endswith(':ihsg_image')]
+    if minutes==0 and returned_minutes==0:
+        assert chart.calls==1 and len(ihsg_posts)==1
+        manifest=selected['images'][0]['manifest']
+        assert datetime.fromisoformat(manifest['request_cutoff'])==FREEZE
+        assert manifest['request_identity']==supplied.identity
+    else:
+        assert chart.calls==(1 if minutes==0 else 0)
+        assert selected['images'][0] is None
+        assert selected['omissions'][0]=='ihsg_image_unavailable'
+        assert not ihsg_posts
