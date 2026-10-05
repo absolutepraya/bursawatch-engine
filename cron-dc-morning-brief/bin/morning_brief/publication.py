@@ -186,7 +186,7 @@ class Publisher:
     def morning_anchor(self,run_id):
         """Closing consumers receive the original selected scenario and receipt."""
         step=self.store.get_frozen(run_id,'operation:ihsg_text')
-        outlook=self.store.get_frozen(run_id,'outlook')
+        outlook=self.store.get_frozen(run_id,'presentation') or self.store.get_frozen(run_id,'outlook')
         if step is None or outlook is None: return None
         receipts=self.store.get_receipts(run_id,step.slot)
         confirmed=next((row for row in reversed(receipts) if row['status']=='delivered'),None)

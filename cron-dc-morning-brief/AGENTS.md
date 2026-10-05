@@ -27,13 +27,21 @@ inputs. Do not infer readiness or natural delivery from these local tests.
 - Globals require explicit regular exchange sessions and prior-close denominator.
   Calendar snapshots require primary URL, cutoff-visible verification and exact
   amendments; dynamic empty pages stay unavailable. No live-fetch fallback.
-- Injected writers return complete attributed source excerpts only. Invocation and
-  validation share a deadline capped at 07:55 WIB, with one daemon worker maximum.
-  Late worker results never mutate the selected fallback or owner state.
+- Injected writers return strict source-grounded conditional scenario/core fields.
+  Quote exact full source context for scenario roles; model-assessed roles never
+  certify source stance, factual truth or consensus. Verified latest IHSG close
+  plus a fresh dated upstream factual driver are required. Invocation, validation
+  and candidate assembly share 07:55 WIB and one daemon worker maximum.
+  Late worker results never mutate the selected fallback or owner state. Missing
+  conditional base/change evidence selects facts-only. Formatting trims claims
+  with citations atomically and freezes actual published mode/scenario in
+  `presentation`; closing anchors must never expose an omitted candidate.
 - `MorningRunner` injects shared source/provider/delivery/publication clients.
   CLI/wrapper defaults to no-post, reads only explicit retained input paths, and
   never discovers credentials. Live injection requires reviewed destination and
-  configuration provenance. All six selections and bytes freeze before submit.
+  configuration provenance. Freeze `run_mode` before all input/capture work; reject
+  preview/live reuse and legacy unknown mode, never relabel immutable old runs.
+  All six selections and bytes freeze before submit.
 - Confirm receipt key, digest, operation ID and destination before advancing.
   Never replace pending/ambiguous images with omissions. After 08:15 WIB, query
   and reconcile earlier attempts only. Projection retries cannot send messages.

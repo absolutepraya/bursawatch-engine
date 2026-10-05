@@ -13,14 +13,16 @@ from test_economic_calendar import saved, page
 
 def frozen_bundle(core,tmp_path,source_text='Laba emiten sintetis naik 10 persen. Kas emiten tetap positif.'):
     store,run,lease=owner(core,tmp_path)
-    core('evidence').freeze_source_evidence(store,run.run_id,CapturedClient(store,run.run_id,[source(1,text=source_text)]),previous_cutoff=LOWER,lease=lease,now=FREEZE)
+    rows=[source(1,text=source_text),source(2,text='Jika likuiditas pulih, IHSG berpotensi bergerak terbatas. Jika tekanan global bertambah, pandangan ini perlu ditinjau ulang.')]
+    capture=manifest(rows,captured_at='2026-10-05T00:30:04.200000+00:00',capture_gap_seconds=4.2)
+    core('evidence').freeze_source_evidence(store,run.run_id,CapturedClient(store,run.run_id,rows,capture),previous_cutoff=LOWER,lease=lease,now=FREEZE)
     globals_module=core('global_markets')
     quote=globals_module.parse_yahoo_chart('QQQ',chart('QQQ','America/New_York',[s for s,e in US_ROWS[:2]],[100,102]),freeze_at=FREEZE,retrieved_at=FREEZE,sessions=schedule('America/New_York',US_ROWS))
     globals_module.freeze_globals(store,run.run_id,[quote],lease=lease,now=FREEZE)
     calendars=core('economic_calendar')
     snapshot=saved(calendars,calendars.SnapshotCache(tmp_path/'calendars'),page([['2026-10-06','Inflasi','September 2026','','release-1',1,'nasional']]))
     calendars.freeze_calendar_events(store,run.run_id,[snapshot],lease=lease,now=FREEZE)
-    store.freeze(run.run_id,'inputs',{'publication_session':'2026-10-05','closing_session':'2026-10-02','facts':[{'label':'IHSG','value':7000,'unit':'poin'}]},lease=lease,now=FREEZE)
+    store.freeze(run.run_id,'inputs',{'publication_session':'2026-10-05','closing_session':'2026-10-02','previous_session':'2026-10-02','benchmark_version':'verified-fixture','facts':[{'label':'IHSG close 2026-10-02','value':7000,'unit':'poin'}]},lease=lease,now=FREEZE)
     bundle=core('outlook').freeze_bundle(store,run.run_id,model_version='injected-fixture-1',prompt_version='extractive-1',lease=lease,now=FREEZE)
     return store,run,lease,bundle
 
@@ -32,10 +34,10 @@ def test_structured_exact_claims_get_inline_attribution_and_native_facts_survive
         assert payload['versions']=={'model':'injected-fixture-1','prompt':'extractive-1'}
         assert payload['cutoff']==run.freeze_at
         row=payload['evidence']['items'][0]
-        return {'claims':[{'evidence_id':row['evidence_id'],'excerpt':'Laba emiten sintetis naik 10 persen.'}]}
+        return with_scenario(payload,[{'evidence_id':row['evidence_id'],'excerpt':'Laba emiten sintetis naik 10 persen.'}])
     result=module.write_outlook(bundle,model,now=FREEZE,timeout_seconds=1)
-    assert result['mode']=='supported' and '[collector](https://example.com/story/1)' in result['text']
-    assert 'QQQ: +2.00 USD (+2.00%)' in result['text'] and 'Inflasi' in result['text'] and 'IHSG: 7000 poin' in result['text']
+    assert result['mode']=='supported' and 'Menurut collector' in result['text'] and '(Sources: <https://example.com/story/1>)' in result['text']
+    assert 'QQQ: +2.00 USD (+2.00%)' in result['text'] and 'Inflasi' in result['text'] and 'IHSG close 2026-10-02: 7000 poin' in result['text']
     assert result['global_facts'][0]['price']==102 and result['calendar_facts'][0]['date']=='2026-10-06'
     assert result['bundle_digest']==bundle.digest
 
@@ -44,7 +46,7 @@ def test_structured_exact_claims_get_inline_attribution_and_native_facts_survive
 def test_source_id_alone_or_partial_excerpt_does_not_support_arbitrary_claim(core,tmp_path,mutation):
     module=core('outlook'); _,_,_,bundle=frozen_bundle(core,tmp_path)
     claim={'evidence_id':bundle.payload['evidence']['items'][0]['evidence_id'],'excerpt':'Laba emiten sintetis naik 10 persen.'}
-    response={'claims':[claim]}
+    response=with_scenario(bundle.payload,[claim])
     if mutation=='unknown_id': claim['evidence_id']='f'*64
     elif mutation=='invented_level': claim['excerpt']='IHSG menuju 8000 karena laba naik.'
     elif mutation=='probability': claim['excerpt']='Peluang IHSG naik 90%.'
@@ -74,7 +76,7 @@ def test_timeout_releases_by_0755_bounds_retries_and_late_mutation_cannot_change
         started.set(); release.wait(5)
         payload['globals']['quotes'][0]['price']=999999
         finished.set()
-        return {'claims':[{'evidence_id':payload['evidence']['items'][0]['evidence_id'],'excerpt':'Laba emiten sintetis naik 10 persen.'}]}
+        return with_scenario(payload,[{'evidence_id':payload['evidence']['items'][0]['evidence_id'],'excerpt':'Laba emiten sintetis naik 10 persen.'}])
     try:
         now=datetime.fromisoformat('2026-10-05T07:54:59.980+07:00')
         start=time.monotonic()
@@ -100,7 +102,7 @@ import sys,time
 sys.path.insert(0,sys.argv[1])
 from morning_brief.outlook import write_outlook
 from datetime import datetime
-bundle={'cutoff':'2026-10-05T00:30:00+00:00','evidence':{'facts_only':False,'items':[]},'globals':{'quotes':[]},'calendar_events':{'events':[]},'inputs':{},'versions':{'model':'test','prompt':'test'}}
+bundle={'cutoff':'2026-10-05T00:30:00+00:00','evidence':{'facts_only':False,'items':[]},'globals':{'quotes':[]},'calendar_events':{'events':[{'event':'Inflasi','reference_period':'September','date':'2026-10-06','time_wib':None,'source':'BPS','source_url':'https://example.test/event'}]},'inputs':{'previous_session':'2026-10-02','benchmark_version':'fixture','facts':[{'label':'IHSG close 2026-10-02','value':7000,'unit':'poin'}]},'versions':{'model':'test','prompt':'test'}}
 r=write_outlook(bundle,lambda _:time.sleep(60),now=datetime.fromisoformat('2026-10-05T07:54:59.999+07:00'),timeout_seconds=10)
 assert r['reason']=='model_timeout'
 print('fallback returned')
@@ -128,7 +130,7 @@ def test_writer_deadline_also_bounds_support_validation(core,tmp_path,monkeypatc
     row=bundle.payload['evidence']['items'][0]
     start=time.monotonic()
     try:
-        result=module.write_outlook(bundle,lambda _: {'claims':[{'evidence_id':row['evidence_id'],'excerpt':'Laba emiten sintetis naik 10 persen.'}]},now=datetime.fromisoformat('2026-10-05T07:54:59.980+07:00'),timeout_seconds=1)
+        result=module.write_outlook(bundle,lambda payload:with_scenario(payload,[{'evidence_id':row['evidence_id'],'excerpt':'Laba emiten sintetis naik 10 persen.'}]),now=datetime.fromisoformat('2026-10-05T07:54:59.980+07:00'),timeout_seconds=1)
         assert result['reason']=='model_timeout' and result['mode']=='facts_only'
         assert time.monotonic()-start<0.1
     finally:
@@ -144,7 +146,7 @@ def test_writer_deadline_also_bounds_support_validation(core,tmp_path,monkeypatc
 def test_source_wrap_cannot_remove_preceding_negation_or_condition(core,tmp_path,source_text,fragment):
     module=core('outlook'); _,_,_,bundle=frozen_bundle(core,tmp_path,source_text)
     row=bundle.payload['evidence']['items'][0]
-    result=module.write_outlook(bundle,lambda _: {'claims':[{'evidence_id':row['evidence_id'],'excerpt':fragment}]},now=FREEZE,timeout_seconds=1)
+    result=module.write_outlook(bundle,lambda payload:with_scenario(payload,[{'evidence_id':row['evidence_id'],'excerpt':fragment}]),now=FREEZE,timeout_seconds=1)
     assert result['mode']=='facts_only' and result['reason']=='unsupported_claim'
     assert result['claims']==[] and 'Menurut ' not in result['text']
     assert result['global_facts'][0]['price']==102 and result['calendar_facts'][0]['date']=='2026-10-06'
@@ -159,10 +161,10 @@ def test_source_wrap_cannot_remove_preceding_negation_or_condition(core,tmp_path
 def test_complete_wrapped_context_and_punctuation_delimited_sentences_remain_supported(core,tmp_path,source_text,excerpt):
     module=core('outlook'); _,_,_,bundle=frozen_bundle(core,tmp_path,source_text)
     row=bundle.payload['evidence']['items'][0]
-    result=module.write_outlook(bundle,lambda _: {'claims':[{'evidence_id':row['evidence_id'],'excerpt':excerpt}]},now=FREEZE,timeout_seconds=1)
+    result=module.write_outlook(bundle,lambda payload:with_scenario(payload,[{'evidence_id':row['evidence_id'],'excerpt':excerpt}]),now=FREEZE,timeout_seconds=1)
     assert result['mode']=='supported' and result['reason'] is None
     assert result['claims'][0]['excerpt']==excerpt
-    assert result['claims'][0]['text']=='Menurut [collector](https://example.com/story/1): '+excerpt
+    assert result['claims'][0]['text']=='Menurut [collector](https://example.com/story/1): '+source_text
 
 
 @pytest.mark.parametrize('source_text', [
@@ -176,7 +178,127 @@ def test_complete_wrapped_context_and_punctuation_delimited_sentences_remain_sup
 def test_complete_wrapped_numerical_probability_falls_back(core,tmp_path,source_text):
     module=core('outlook'); _,_,_,bundle=frozen_bundle(core,tmp_path,source_text)
     row=bundle.payload['evidence']['items'][0]
-    result=module.write_outlook(bundle,lambda _: {'claims':[{'evidence_id':row['evidence_id'],'excerpt':source_text}]},now=FREEZE,timeout_seconds=1)
+    result=module.write_outlook(bundle,lambda payload:with_scenario(payload,[{'evidence_id':row['evidence_id'],'excerpt':source_text}]),now=FREEZE,timeout_seconds=1)
     assert result['mode']=='facts_only' and result['reason']=='unsupported_claim'
     assert result['claims']==[] and 'Menurut ' not in result['text']
     assert result['global_facts'][0]['price']==102 and result['calendar_facts'][0]['date']=='2026-10-06'
+
+
+@pytest.mark.parametrize('missing', ['close','version','wrong_session','dated_driver'])
+def test_evidence_floor_requires_verified_latest_close_and_dated_factual_driver(core,tmp_path,missing):
+    import copy
+    _,_,_,bundle=frozen_bundle(core,tmp_path)
+    payload=copy.deepcopy(bundle.payload)
+    if missing=='close': payload['inputs']['facts']=[]
+    elif missing=='version': payload['inputs'].pop('benchmark_version')
+    elif missing=='wrong_session': payload['inputs']['facts'][0]['label']='IHSG close 2026-10-01'
+    else:
+        payload['globals']['quotes']=[]
+        payload['calendar_events']['events']=[]
+    result=core('outlook').write_outlook(payload,lambda _:pytest.fail('below-floor outlook invoked model'),now=FREEZE)
+    assert result['mode']=='facts_only' and result['reason']=='evidence_floor'
+
+
+def structured_response(payload):
+    rows=payload['evidence']['items']
+    def ref(row): return {'evidence_id':row['evidence_id'],'excerpt':row['text']}
+    return {'claims':[], 'scenario':{'base_case':ref(rows[-1]),'supporting':[ref(rows[0])],
+        'opposing':[],'change_conditions':[ref(rows[-1])],
+        'pulse':{'optimistic':[ref(rows[0])],'cautious':[]}}}
+
+
+def test_conditional_source_grounded_core_reaches_generated_after_nonzero_capture_gap(core,tmp_path):
+    _,_,_,bundle=frozen_bundle(core,tmp_path)
+    result=core('outlook').write_outlook(bundle,structured_response,now=FREEZE,timeout_seconds=1)
+    assert bundle.payload['evidence']['capture_gap_seconds']==4.2
+    assert result['mode']=='supported'
+    scenario=result['scenario']
+    assert scenario['assessment']=='model_assigned_source_roles'
+    assert scenario['base_case']['excerpt']==bundle.payload['evidence']['items'][-1]['text']
+    assert scenario['change_conditions'][0]['source_url']=='https://example.com/story/2'
+    assert scenario['supporting'][0]['published_at']=='2026-10-04T09:00:00+00:00'
+    assert scenario['pulse']['mode']=='single_source' and scenario['opposing']==[]
+    assert scenario['limitations'] and result['bundle_digest']==bundle.digest
+
+
+@pytest.mark.parametrize('mutation',['missing_base','missing_condition','unknown_id','partial_context','freeform','probability','unconditional','unsafe_url'])
+def test_structured_scenario_rejects_unsupported_or_context_losing_output(core,tmp_path,mutation):
+    import copy
+    _,_,_,bundle=frozen_bundle(core,tmp_path)
+    payload=copy.deepcopy(bundle.payload);response=structured_response(payload)
+    if mutation=='missing_base': response['scenario']['base_case']=None
+    elif mutation=='missing_condition': response['scenario']['change_conditions']=[]
+    elif mutation=='unknown_id': response['scenario']['base_case']['evidence_id']='f'*64
+    elif mutation=='partial_context': response['scenario']['base_case']['excerpt']='IHSG berpotensi bergerak terbatas.'
+    elif mutation=='freeform': response['scenario']['summary']='IHSG pasti naik.'
+    elif mutation=='probability':
+        row=payload['evidence']['items'][-1];row['text']='Jika likuiditas pulih, probabilitas IHSG naik 90 persen.'
+        response=structured_response(payload)
+    elif mutation=='unconditional':
+        payload['evidence']['items'][-1]['text']='IHSG pasti naik.'; response=structured_response(payload)
+    else: payload['evidence']['items'][-1]['source_url']='https://example.com/invalid path'
+    result=core('outlook').write_outlook(payload,lambda _:response,now=FREEZE,timeout_seconds=1)
+    assert result['mode']=='facts_only' and result['reason']=='unsupported_claim'
+    assert result.get('scenario') is None and 'IHSG close 2026-10-02' in result['text']
+
+
+def test_bare_extracts_do_not_replace_required_conditional_core(core,tmp_path):
+    _,_,_,bundle=frozen_bundle(core,tmp_path)
+    row=bundle.payload['evidence']['items'][0]
+    result=core('outlook').write_outlook(bundle,lambda _:{'claims':[{'evidence_id':row['evidence_id'],'excerpt':'Laba emiten sintetis naik 10 persen.'}]},now=FREEZE,timeout_seconds=1)
+    assert result['mode']=='facts_only'
+
+
+def with_scenario(payload,claims):
+    result=structured_response(payload); result['claims']=claims
+    return result
+
+
+def test_no_qualifying_pulse_is_omitted_and_opposing_absence_explicit(core,tmp_path):
+    _,_,_,bundle=frozen_bundle(core,tmp_path)
+    response=structured_response(bundle.payload);response['scenario']['pulse']={'optimistic':[],'cautious':[]}
+    result=core('outlook').write_outlook(bundle,lambda _:response,now=FREEZE,timeout_seconds=1)
+    assert result['mode']=='supported' and result['scenario']['pulse']['mode']=='absent'
+    assert 'Bukti penentang dari sumber belum tersedia.' in result['scenario']['limitations']
+
+
+def test_whole_context_retains_sentence_level_negation_and_conditions(core,tmp_path):
+    text='IHSG tidak diperkirakan naik. Jika tekanan reda, IHSG dapat bergerak terbatas.'
+    _,_,_,bundle=frozen_bundle(core,tmp_path,text)
+    result=core('outlook').write_outlook(bundle,lambda payload:with_scenario(payload,[
+        {'evidence_id':payload['evidence']['items'][0]['evidence_id'],'excerpt':'Jika tekanan reda, IHSG dapat bergerak terbatas.'}]),now=FREEZE)
+    assert result['mode']=='supported' and text in result['claims'][0]['text']
+    assert result['scenario']['supporting'][0]['excerpt']==text
+
+
+def test_probability_with_long_qualifier_cannot_evade_whole_context_guard(core,tmp_path):
+    import copy
+    _,_,_,bundle=frozen_bundle(core,tmp_path)
+    payload=copy.deepcopy(bundle.payload)
+    payload['evidence']['items'][-1]['text']='Jika likuiditas pulih, probabilitas '+('berdasarkan kondisi pasar '*3)+'IHSG naik 80 persen.'
+    result=core('outlook').write_outlook(payload,structured_response,now=FREEZE,timeout_seconds=1)
+    assert result['mode']=='facts_only' and result['reason']=='unsupported_claim'
+
+
+def test_two_collecting_publishers_remain_model_assessed_views_not_consensus(core,tmp_path):
+    import copy
+    _,_,_,bundle=frozen_bundle(core,tmp_path)
+    payload=copy.deepcopy(bundle.payload)
+    payload['evidence']['items'][0]['publisher_id']='Tuntun'
+    response=structured_response(payload)
+    response['scenario']['opposing']=[response['scenario']['supporting'][0]]
+    response['scenario']['pulse']['cautious']=[response['scenario']['base_case']]
+    result=core('outlook').write_outlook(payload,lambda _:response,now=FREEZE,timeout_seconds=1)
+    assert result['mode']=='supported' and result['scenario']['pulse']['mode']=='collected_sources'
+    assert 'Bukti berlawanan tersedia; arah sesi tidak dipastikan.' in result['scenario']['limitations']
+    assert 'bukan konsensus' in result['text']
+
+
+def test_complete_context_probability_is_rejected_even_when_selected_sentence_omits_it(core,tmp_path):
+    _,_,_,bundle=frozen_bundle(core,tmp_path,'Probabilitas IHSG naik 80 persen. Likuiditas membaik.')
+    response=with_scenario(bundle.payload,[{'evidence_id':bundle.payload['evidence']['items'][0]['evidence_id'],
+        'excerpt':'Likuiditas membaik.'}])
+    response['scenario']['supporting']=[]
+    response['scenario']['pulse']={'optimistic':[],'cautious':[]}
+    result=core('outlook').write_outlook(bundle,lambda _:response,now=FREEZE,timeout_seconds=1)
+    assert result['mode']=='facts_only' and result['reason']=='unsupported_claim'

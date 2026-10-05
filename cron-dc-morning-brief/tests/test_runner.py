@@ -202,3 +202,84 @@ def test_chart_request_requires_exact_frozen_cutoff(tmp_path,core,minutes,return
         assert selected['images'][0] is None
         assert selected['omissions'][0]=='ihsg_image_unavailable'
         assert not ihsg_posts
+
+
+@pytest.mark.parametrize('first_preview', [True,False])
+def test_preview_and_live_cannot_reuse_each_others_frozen_state(tmp_path,core,first_preview):
+    import json
+    r=core('runner'); store=RunStore(tmp_path/'runs'); delivery=HeartbeatDelivery(); source=Source()
+    runner=r.MorningRunner(store,source,delivery,FakeProjection(),clock=lambda:NOW)
+    args=dict(calendar=calendar(),numerical={},global_inputs=[],calendar_snapshots=[],model=None,
+        model_version='v',prompt_version='v',destination=DEST,reviewed_config='local-fake',preview_dir=tmp_path/'preview')
+    assert runner.run(**args,preview=first_preview)['phase']==('preview' if first_preview else 'projected')
+    before=[op.digest for op in delivery.sent if op.target['channel_id']==DEST]
+    run=store.create_run('2026-10-05',freeze_at=FREEZE)
+    assert store.get_frozen(run.run_id,'run_mode').payload['mode']==('preview' if first_preview else 'live')
+    original=store.get_frozen(run.run_id,'selection').digest
+    result=runner.run(**args,preview=not first_preview)
+    assert result['phase']=='fatal' and result['reason']=='FreezeConflict'
+    assert [op.digest for op in delivery.sent if op.target['channel_id']==DEST]==before
+    assert source.captures==1 and store.get_frozen(run.run_id,'selection').digest==original
+    if first_preview:
+        provenance=json.loads((tmp_path/'preview/selection.json').read_text())
+        assert provenance['mode']=='preview' and 'synthetic_or_attested' not in provenance
+
+
+@pytest.mark.parametrize('overlong',[False,True])
+def test_generated_core_and_anchor_match_published_presentation_after_capture_grace(tmp_path,core,overlong):
+    from datetime import timezone
+    from test_evidence import source, manifest, checksum
+    from test_outlook import structured_response
+    r=core('runner');store=RunStore(tmp_path/'runs');delivery=HeartbeatDelivery()
+    current=FREEZE+timedelta(seconds=4.2)
+    class AvailableSource:
+        def capture_window(self,previous,cutoff,limit=1000):
+            self.rows=[source(1,text='Jika likuiditas pulih, IHSG bergerak terbatas. Jika tekanan bertambah, pandangan ini berubah.',
+                accepted_at=cutoff,published_at=previous,observed_at=cutoff)]
+            if overlong:
+                self.rows=[source(1,text=self.rows[0]['text'],accepted_at=cutoff,published_at=previous,observed_at=cutoff,
+                    source_url='https://example.com/'+('x'*1950))]
+            captured=manifest(self.rows,previous_cutoff=previous,cutoff=cutoff,
+                captured_at=current.astimezone(timezone.utc).isoformat(),capture_gap_seconds=4.2)
+            return captured
+        def read_versions(self,refs): return self.rows
+    runner=r.MorningRunner(store,AvailableSource(),delivery,FakeProjection(),clock=lambda:current)
+    from test_economic_calendar import saved, page
+    calendars=core('economic_calendar')
+    snapshot=saved(calendars,calendars.SnapshotCache(tmp_path/'calendars'),page([['2026-10-06','Inflasi','September 2026','','release-1',1,'nasional']]))
+    result=runner.run(calendar=calendar(),numerical=numerical(),global_inputs=[],calendar_snapshots=[snapshot],
+        model=structured_response,model_version='scenario-fixture',prompt_version='source-scenario-v2',
+        preview=False,destination=DEST,reviewed_config='local-fake')
+    assert result['phase']=='projected'
+    run=store.create_run('2026-10-05',freeze_at=FREEZE)
+    anchor=runner.publisher.morning_anchor(run.run_id)
+    assert anchor['text']==[op for op in delivery.sent if op.key.endswith(':ihsg_text')][0].payload['content']
+    assert store.get_frozen(run.run_id,'evidence').payload['capture_gap_seconds']==4.2
+    assert store.get_frozen(run.run_id,'outlook').payload['mode']=='supported'
+    if overlong:
+        assert result['fallback']=='facts_only' and anchor['scenario']['mode']=='facts_only'
+        assert anchor['scenario']['scenario'] is None and 'bukti belum cukup' in anchor['text']
+        assert 'Jika likuiditas' not in anchor['text']
+    else:
+        assert result['fallback']=='supported' and anchor['scenario']['scenario']['base_case']['excerpt'].startswith('Jika likuiditas')
+        assert '**Skenario IHSG**' in anchor['text'] and '**Pandangan satu sumber**' in anchor['text']
+    frozen_anchor=anchor
+    assert runner.run(calendar=calendar(),numerical={},global_inputs=[],calendar_snapshots=[],
+        model=lambda _:pytest.fail('recovery reran writer'),model_version='changed',prompt_version='changed',
+        preview=False,destination=DEST,reviewed_config='local-fake')['phase']=='projected'
+    assert runner.publisher.morning_anchor(run.run_id)==frozen_anchor
+
+
+def test_unknown_legacy_mode_cannot_be_relabelled_as_live(tmp_path,core):
+    store=RunStore(tmp_path/'legacy');run=store.create_run('2026-10-05',freeze_at=FREEZE)
+    lease=store.acquire_lease(run.run_id,'legacy',now=NOW,seconds=600)
+    original=store.freeze(run.run_id,'upstream',{'legacy':'unclassified'},lease=lease,now=NOW)
+    store.release_lease(lease,now=NOW)
+    delivery=HeartbeatDelivery();source=Source()
+    result=core('runner').MorningRunner(store,source,delivery,FakeProjection(),clock=lambda:NOW).run(
+        calendar=calendar(),numerical={},global_inputs=[],calendar_snapshots=[],model=None,
+        model_version='v',prompt_version='v',preview=False,destination=DEST,reviewed_config='local-fake')
+    assert result['phase']=='fatal' and result['reason']=='FreezeConflict'
+    assert store.get_frozen(run.run_id,'upstream').digest==original.digest
+    assert store.get_frozen(run.run_id,'run_mode') is None and source.captures==0
+    assert not [op for op in delivery.sent if op.target['channel_id']==DEST]

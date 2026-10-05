@@ -197,13 +197,43 @@ lease=..., now=...)` freezes `writer_bundle` from existing `evidence`, `globals`
 `calendar_events` and optional `inputs` slots with their exact dependency digests.
 `write_outlook(bundle, injected_model, now=..., timeout_seconds=30)` accepts the
 frozen record and supplies a serialized isolated JSON bundle. The bounded writer
-may return only up to three `{evidence_id, excerpt}` claims. Exact complete source
-sentences are required, with deterministic inline publisher attribution. Ordinary
-line wraps remain inside the exact sentence span, including preceding negation or
-conditions; only sentence punctuation followed by whitespace ends the span. Freeform
-inferences, partial-context excerpts, unsupported levels and calibrated
-probabilities fail facts-only. This is deliberately extractive; it does not
-certify a source's truth or manufacture an IHSG direction from RSI/SMC overlays.
+uses `source-scenario-v2`: `{claims, scenario}` only. `claims` permits zero to
+three `{evidence_id, excerpt}` exact complete source sentences; their full source
+context is also retained, so selecting a later sentence cannot hide prior
+negation. `scenario` contains `base_case`, `supporting`, `opposing`,
+`change_conditions` and `pulse={optimistic, cautious}`. The base case is one source
+reference, role lists contain at most three refs, and change conditions require
+at least one. Every scenario ref is `{evidence_id, excerpt}` quoting the **entire
+untruncated frozen source text**, at most 600 characters, from at most three
+unique source records. Publication/acceptance timestamps must be within the
+frozen source window. Base and change-condition contexts must include explicit
+sourced conditional language (for example `jika`), otherwise select facts-only.
+A ref carries frozen version/hash, publisher, origin status, URL and timestamps
+into the result. No generated freeform prose or invented levels are accepted.
+Numerical probability statements, including wrapped text, fail facts-only.
+
+Role assignment is the injected model's assessment of attributed source views,
+not certification that the publisher holds a particular stance or that commentary
+is a verified market fact. The brief says this explicitly. Full quoted contexts
+preserve negation and conditions; unsupported roles never introduce extra text.
+Missing supporting/opposing evidence is stated unavailable, conflicting source
+views state that the session direction is not assured. Narrative role refs form
+one section: one available publisher is explicitly a single-source view; multiple
+collecting publishers are collected views, never independent consensus. No
+qualifying narrative refs omit the pulse. The writer never infers a scenario
+from an image, RSI or SMC overlays.
+
+The assessment evidence floor uses the existing runner-produced frozen `inputs`:
+`previous_session`, nonempty `benchmark_version`, and a finite positive
+`{label: "IHSG close <previous_session>", value, unit: "poin"}` fact.
+These fields originate from the exact hash/cutoff-bound `benchmark_attestation`
+and the calendar's immediately previous verified session, not an undated `IHSG`
+label or positive arbitrary row. At least one fresh dated factual driver must
+also exist: a validated frozen global quote with available status and `price_at`
+inside the source lookback window, or a verified upcoming national release from
+frozen `calendar_events.events`. Pure source commentary does not satisfy this
+floor. Inputs below it skip the model with reason `evidence_floor`; no new
+producer-only annotation field is required.
 
 Model invocation and support validation share one daemon worker and one
 process-wide worker gate. Timeout includes both, with a monotonic budget capped
@@ -220,12 +250,23 @@ price visibility or replace `prepare_numerical_inputs` validation.
 
 ## Known scope
 
-The writer is deliberately extractive: at most three verbatim complete source
-sentences attributed to their publisher. It produces no base case,
-counter-evidence, narrative pulse or invalidation text, and
-`morning_anchor()["scenario"]` for the closing review is the claims payload, not
-a derived scenario. This narrower scope is accepted for this local milestone;
-a richer writer contract is follow-up work.
+The local writer implements the conditional base case, supporting/opposing
+source evidence, conditions that change the source view and narrative pulse
+through strict grounded structured refs. It does not certify source truth or
+provide calibrated probabilities. Longer or incomplete contexts, absent sourced
+conditions, unavailable factual-driver/close evidence and oversized final cores
+select deterministic facts-only. Fresh verified facts and supported images remain
+available. This conservative fallback is visible, not an accepted omission of
+the approved core. Live producer permissions, data extraction and injected model
+transport remain separate rollout inputs.
+
+Immutable old bundles/outlooks/selections are not rewritten. A legacy run with
+no trustworthy mode marker cannot be adopted for either mode; use separate state.
+Legacy already-frozen publisher records preserve their text and anchor shape.
+New `presentation` freezes the exact selected text and exposed scenario/mode after
+budgeting; `outlook` retains the original candidate. `morning_anchor()["scenario"]`
+uses `presentation` when present, including `scenario=None` for a published
+facts-only fallback, rather than exposing a generated core dropped by formatting.
 
 ## Integrated owner and receipt-gated publication
 
@@ -235,6 +276,10 @@ calendar_snapshots=..., model=..., model_version=..., prompt_version=..., previe
 is cache-only and no-post by default. `preview=False` additionally requires a
 reviewed `destination` and nonempty `reviewed_config` provenance. This gate records
 caller intent, not external proof of rollout approval or provider rights.
+Before any capture/input work, `run_mode` freezes `preview` or `live`; `upstream`
+also records that mode. Mode mismatches fail closed without brief submissions or
+recapture. Preview `selection.json` records the actual preview mode and explicit
+caller-input provenance, never an invented synthetic/attested assertion.
 Use the shared SourceEvidenceClient, DeliveryClient and PublicationClient for
 reviewed runtime transports; the owner never calls Discord REST directly.
 
@@ -271,7 +316,11 @@ inputs remain gaps, not fabricated dates or zero changes.
 
 One bounded writer uses the frozen bundle. Output selection is fixed by 07:55
 WIB, with facts-only degradation on missing evidence, timeout or unsupported
-claims. Three exact Indonesian texts and all available image bytes/manifests,
+claims. Source-safe URL rendering percent-encodes Markdown delimiters; unsafe URLs
+are rejected at source-ref acceptance. Text budgeting removes complete source
+claims/citations and optional sections atomically, never cuts a URL. A presentable dated factual-driver block is reserved before selecting the core. An
+unrenderable or oversized scenario/core freezes a facts-only `presentation` and
+closing anchor. Three exact Indonesian texts and all available image bytes/manifests,
 letters, global/calendar facts and omissions freeze under the fenced lease.
 Freeze is 07:30 WIB; target delivery is 08:00 WIB. Every brief operation has an
 immutable 08:15 WIB attempt deadline, including retries. Delayed recovery keeps

@@ -18,7 +18,7 @@ from .outlook import freeze_bundle, write_outlook
 from .rendering import RenderedArtifact, render_rotation, render_ihsg
 from .formatting import format_brief, attachment_caption, six_block_markdown
 from .publication import Publisher, OWNER
-from .store import canonical, digest, stamp
+from .store import canonical, digest, stamp, FreezeConflict
 
 ZONE=ZoneInfo('Asia/Jakarta')
 HEARTBEAT_DESTINATION='1505162000420835388'
@@ -174,13 +174,15 @@ class MorningRunner:
                 images.append(None); omissions.append(kind+'_image_unavailable')
         globals_record=self.store.get_frozen(run.run_id,'globals'); calendar_record=self.store.get_frozen(run.run_id,'calendar_events')
         notices={kind:['Gambar belum tersedia.'] if omission else [] for kind,omission in zip(('ihsg','sectors','konglo'),omissions)}
-        texts=format_brief(publication_session=session,cutoff=datetime.fromisoformat(run.freeze_at),
+        texts,presentation=format_brief(publication_session=session,cutoff=datetime.fromisoformat(run.freeze_at),
             target=datetime.combine(session,time(8),tzinfo=ZONE),outlook=outlook.payload,
             globals=globals_record.payload['quotes'],calendar=calendar_record.payload,
-            sectors=groups['sectors'],konglo=groups['konglo'],notices=notices)
+            sectors=groups['sectors'],konglo=groups['konglo'],notices=notices,with_selection=True)
+        presentation_record=self.store.freeze(run.run_id,'presentation',presentation,lease=lease,now=self.clock(),
+            dependencies={'outlook':outlook.digest,'globals':globals_record.digest,'calendar_events':calendar_record.digest})
         deps={'inputs':inputs.digest,'outlook':outlook.digest,'letters':letter_record.digest,
-              'globals':globals_record.digest,'calendar_events':calendar_record.digest}
-        return self.store.freeze(run.run_id,'selection',dict(texts=list(texts),images=images,omissions=omissions),
+              'globals':globals_record.digest,'calendar_events':calendar_record.digest,'presentation':presentation_record.digest}
+        return self.store.freeze(run.run_id,'selection',dict(texts=list(texts),images=images,omissions=omissions,outlook_mode=presentation['mode']),
                                  lease=lease,now=self.clock(),dependencies=deps)
 
     def run(self,*,calendar,numerical,global_inputs,calendar_snapshots,model,model_version,prompt_version,
@@ -199,6 +201,15 @@ class MorningRunner:
             else:
                 run=self.store.create_run(session.isoformat(),freeze_at=cutoff)
                 lease=self.store.acquire_lease(run.run_id,uuid.uuid4().hex,now=now,seconds=600)
+                mode='preview' if preview else 'live'
+                mode_record=self.store.get_frozen(run.run_id,'run_mode')
+                if mode_record is None:
+                    if any(self.store.get_frozen(run.run_id,slot) is not None for slot in
+                           ('upstream','source_manifest','selection','publication')):
+                        raise FreezeConflict('legacy run mode is unknown; use separate state')
+                    mode_record=self.store.freeze(run.run_id,'run_mode',{'mode':mode},lease=lease,now=self.clock())
+                if mode_record.payload.get('mode')!=mode:
+                    raise FreezeConflict('frozen run mode mismatch; use separate preview state')
                 saved=self.store.get_frozen(run.run_id,'publication')
                 if saved and not preview:
                     # Destination correction needs a new reviewed rollout, never retarget an old key.
@@ -227,7 +238,7 @@ class MorningRunner:
                                     records.append(dict(identity=record.identity.key,request_url=record.identity.url,
                                         payload=record.payload,available_at=stamp(record.available_at),provenance=record.provenance))
                                 except Exception: accounting['cache_misses']=accounting.get('cache_misses',0)+1
-                            upstream=self.store.freeze(run.run_id,'upstream',jsonable(dict(calendar=calendar,numerical=numerical,
+                            upstream=self.store.freeze(run.run_id,'upstream',jsonable(dict(mode=mode,calendar=calendar,numerical=numerical,
                                 global_inputs=global_inputs,calendar_snapshots=calendar_snapshots,provider_records=records)),lease=lease,now=self.clock())
                         inputs=self.store.get_frozen(run.run_id,'inputs') or self._inputs(run,upstream,calendar,lease)
                         previous_cutoff=datetime.combine(calendar.last_sessions(session,2)[0],time(7,30),tzinfo=ZONE)
@@ -250,12 +261,12 @@ class MorningRunner:
                                 omissions=selected.payload['omissions'],destination=destination,lease=lease)
                             result=self.publisher.publish(run.run_id,lease=lease)
                         result.update(gaps=len(inputs.payload['gaps'])+len(evidence.payload.get('degraded_reasons',[])),
-                            fallback=self.store.get_frozen(run.run_id,'outlook').payload['mode'],image_omissions=sum(bool(v) for v in selected.payload['omissions']))
+                            fallback=selected.payload.get('outlook_mode',self.store.get_frozen(run.run_id,'outlook').payload['mode']),image_omissions=sum(bool(v) for v in selected.payload['omissions']))
                 result['receipt_outcome']=result.get('receipt_outcome',result['phase'])
                 inputs=self.store.get_frozen(run.run_id,'inputs')
                 evidence=self.store.get_frozen(run.run_id,'evidence')
                 selected=self.store.get_frozen(run.run_id,'selection')
-                outlook=self.store.get_frozen(run.run_id,'outlook')
+                outlook=self.store.get_frozen(run.run_id,'presentation') or self.store.get_frozen(run.run_id,'outlook')
                 if inputs and evidence:
                     result['gaps']=len(inputs.payload['gaps'])+len(evidence.payload.get('degraded_reasons',[]))
                 if selected: result['image_omissions']=sum(bool(v) for v in selected.payload['omissions'])
@@ -279,4 +290,4 @@ class MorningRunner:
             (path/(kind+'-manifest.json')).write_text(canonical(artifact.manifest))
             images.append({'title':attachment_caption(kind,date.fromisoformat(run.session)),'path':kind+'.png'})
         (path/'preview.md').write_text(six_block_markdown(tuple(selected.payload['texts']),images))
-        (path/'selection.json').write_text(canonical({'run_id':run.run_id,'digest':selected.digest,'synthetic_or_attested':True}))
+        (path/'selection.json').write_text(canonical({'run_id':run.run_id,'digest':selected.digest,'mode':'preview','input_provenance':'explicit-caller-inputs'}))

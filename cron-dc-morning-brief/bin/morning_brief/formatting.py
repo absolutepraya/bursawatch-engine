@@ -2,7 +2,7 @@
 from datetime import date, datetime
 import math
 import re
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit, quote
 from zoneinfo import ZoneInfo
 from .calendar import aware
 from .economic_calendar import format_calendar_events
@@ -10,7 +10,7 @@ from .global_markets import format_global_rows
 from .rendering import publication_label
 from .rotation import select_groups
 
-REVISION='bursawatch-text-v1'
+REVISION='bursawatch-text-v2'
 LIMIT=2000
 
 
@@ -30,16 +30,20 @@ def _escape(value):
 def _url(value):
     if not isinstance(value,str):raise ValueError('source URL required')
     parsed=urlsplit(value)
-    if (parsed.scheme not in ('https','http') or not parsed.netloc or parsed.username or parsed.password
-            or re.search(r'[\s<>\[\]()]',value)):
+    if (parsed.scheme not in ('https','http') or not parsed.hostname or parsed.username or parsed.password
+            or re.search(r'[\s<>]',value)):
         raise ValueError('bounded literal source URL required')
-    return value
+    safe=":/?#@!$&'*,;=+-._~%"
+    return urlunsplit((parsed.scheme,parsed.netloc,quote(parsed.path,safe=safe),
+                       quote(parsed.query,safe=safe),quote(parsed.fragment,safe=safe)))
 
 
 def _sources(values):
     seen=[]
     for value in values:
-        if value and _url(value) not in seen:seen.append(value)
+        if value:
+            rendered=_url(value)
+            if rendered not in seen:seen.append(rendered)
     return '(Sources: '+', '.join(f'<{value}>' for value in seen)+')' if seen else ''
 
 
@@ -88,18 +92,57 @@ def _rotation_text(groups,title,publication_session,timing,notices):
             effective=sorted({str(row.provenance['cap_effective_date']) for row in groups if row.provenance.get('cap_effective_date')})
             metadata='tanggal efektif '+', '.join(effective) if effective else 'tanggal efektif belum terverifikasi'
             required.append('**Cap dikumpulkan:** '+', '.join(caps)+' ('+metadata+').')
-    required.append(_sources(url for row in groups for url in _provenance_urls(row.provenance)))
+    try: required.append(_sources(url for row in groups for url in _provenance_urls(row.provenance)))
+    except ValueError:
+        return _fit(required[:2]+['Data rotasi belum tersedia: sumber tidak dapat ditampilkan dengan aman.'],[])
     highlights=[f"**{_escape(row.name)}:** {row.quadrant}. Kekuatan {row.x:+.2f} pp; Momentum {row.y:+.2f} pp." for row in selected]
-    return _fit(required,highlights+list(notices))
+    try: return _fit(required,highlights+list(notices))
+    except MessageTooLong:
+        return _fit(required[:2]+['Data rotasi belum tersedia: rincian sumber melebihi batas pesan.'],[])
+
+
+def _scenario_block(scenario):
+    """One atomic source-attributed core, including roles and optional pulse."""
+    if not isinstance(scenario,dict) or not scenario.get('base_case') or not scenario.get('change_conditions'):
+        raise ValueError('complete selected scenario required')
+    roles={};rows={}
+    def add(role,items):
+        for row in items:
+            identity=row['evidence_id']
+            if identity in rows and rows[identity]!=row: raise ValueError('inconsistent source context')
+            rows[identity]=row;roles.setdefault(identity,[])
+            if role not in roles[identity]: roles[identity].append(role)
+    add('Kasus dasar',[scenario['base_case']])
+    add('Pendukung',scenario['supporting'])
+    add('Penentang',scenario['opposing'])
+    add('Kondisi perubahan',scenario['change_conditions'])
+    pulse=scenario['pulse']
+    add('narasi optimistis',pulse['optimistic'])
+    add('narasi hati-hati',pulse['cautious'])
+    blocks=['**Skenario IHSG** (asesmen model atas pandangan sumber)']
+    for identity,row in rows.items():
+        published=aware(datetime.fromisoformat(row['published_at'])).astimezone(ZoneInfo('Asia/Jakarta'))
+        blocks.append('**'+'; '.join(roles[identity])+':** Menurut '+_escape(row['publisher_id'])+
+            f' · {published:%d/%m %H:%M} WIB: '+row['excerpt']+' '+_sources([row['source_url']]))
+    if not scenario['supporting']: blocks.append('Pendukung belum tersedia.')
+    if not scenario['opposing']: blocks.append('Penentang belum tersedia.')
+    blocks.extend(scenario['limitations'])
+    if pulse['mode']!='absent':
+        heading='Pandangan satu sumber' if pulse['mode']=='single_source' else 'Narasi sumber terkumpul'
+        blocks.append('**'+heading+'** (peran narasi dinilai model, bukan konsensus).')
+        if not pulse['optimistic']: blocks.append('Narasi optimistis belum tersedia.')
+        if not pulse['cautious']: blocks.append('Narasi hati-hati belum tersedia.')
+    return '\n\n'.join(blocks)
 
 
 def format_brief(*,publication_session: date,cutoff: datetime,target: datetime,
                  outlook: dict,globals: list[dict],calendar: dict,sectors,konglo,
-                 logos=None,notices=None) -> tuple[str,str,str]:
+                 logos=None,notices=None,with_selection=False):
     """Use structured frozen writer/quote/event fields exactly once.
 
-    Required facts, all supporting source URLs and frozen time markers survive
-    optional paragraph removal. Callers freeze the returned strings verbatim;
+    Frozen identity/time markers survive optional whole-block removal.
+    Each source claim or scenario is trimmed atomically with its citations.
+    Callers freeze the returned strings verbatim;
     late retries must never refresh their date, times, evidence or prose.
     """
     label=publication_label(publication_session);timing=_timing(publication_session,cutoff,target)
@@ -110,30 +153,79 @@ def format_brief(*,publication_session: date,cutoff: datetime,target: datetime,
     facts=[]
     for fact in outlook.get('market_facts',[]):
         if (type(fact) is not dict or set(fact)!={'label','value','unit'}
+                or not isinstance(fact.get('label'),str) or not isinstance(fact.get('unit'),str)
                 or type(fact['value']) not in (int,float) or not math.isfinite(fact['value'])):
-            raise ValueError('finite frozen market fact required')
+            continue
         facts.append(f"**{_escape(fact['label'])}:** {fact['value']:g} {_escape(fact['unit'])}")
-    required.extend(facts)
-    required.append('**Pasar global**\n'+(format_global_rows(globals,logos=known) or 'Data belum tersedia.'))
-    required.append('**Agenda Indonesia**\n'+(format_calendar_events(calendar) or 'Agenda terverifikasi belum tersedia.'))
-    claims=outlook.get('claims',[])
-    if len(claims)>3 or any(not all(isinstance(claim.get(key),str) and claim[key] for key in
-                                  ('excerpt','publisher_id','source_url')) for claim in claims):
-        raise ValueError('at most three structured attributed writer claims required')
-    urls=[q.get('source_url') for q in globals]
-    urls.extend(e['source_url'] for e in calendar.get('events',[]))
-    urls.extend(e.get('source_url') for e in calendar.get('unavailable',[]))
-    urls.extend(claim['source_url'] for claim in claims)
-    required.append(_sources(urls))
-    if outlook.get('mode')!='supported' or not claims:
-        required.append('**Outlook IHSG:** bukti belum cukup untuk rangkuman pandangan sumber.')
-    # Reconstruct attribution from the selected writer's structured fields,
-    # preserving whole exact excerpts instead of trimming inside source claims.
-    prose=['Menurut '+_escape(claim['publisher_id'])+': '+claim['excerpt'] for claim in claims]
-    first=_fit(required,prose+list(notices.get('ihsg',[])))
+    # Each optional section keeps its supporting citations in the same block.
+    # Unrenderable optional inputs never poison an already frozen session.
+    available=[]
+    global_rows=[];global_driver=False
+    for row in globals:
+        try:
+            global_rows.append(format_global_rows([row],logos=known)+' '+_sources([row.get('source_url')]))
+            if row.get('status')=='available' and row.get('source_url'): global_driver=True
+        except (ValueError,KeyError,TypeError): pass
+    global_block='**Pasar global**\n'+('\n'.join(global_rows) or 'Data belum tersedia.')
+    calendar_rows=[]
+    for event in calendar.get('events',[]):
+        try:
+            normalized={**event,'source_url':_url(event['source_url'])}
+            calendar_rows.append(format_calendar_events({'events':[normalized]}))
+        except (ValueError,KeyError,TypeError): pass
+    unavailable=[]
+    for event in calendar.get('unavailable',[]):
+        try: unavailable.append(_sources([event.get('source_url')]))
+        except ValueError: pass
+    calendar_block='**Agenda Indonesia**\n'+('\n'.join(calendar_rows) or 'Agenda terverifikasi belum tersedia.')
+    if unavailable: calendar_block+=' '+ ' '.join(unavailable)
+    scenario=outlook.get('scenario')
+    scenario_block=None
+    if outlook.get('mode')=='supported' and scenario is not None:
+        try: scenario_block=_scenario_block(scenario)
+        except (ValueError,KeyError,TypeError): pass
+    claims=outlook.get('claims',[]) if scenario is None else []
+    prose=[];prose_claims=[]
+    if isinstance(claims,list) and len(claims)<=3:
+        for claim in claims:
+            try:
+                if any(not isinstance(claim.get(key),str) or not claim[key] for key in
+                       ('excerpt','publisher_id','source_url')): continue
+                prose_claims.append(claim)
+                prose.append('Menurut '+_escape(claim['publisher_id'])+': '+claim.get('context',claim['excerpt'])+' '+_sources([claim['source_url']]))
+            except (ValueError,TypeError): pass
+    limitation='**Outlook IHSG:** bukti belum cukup untuk rangkuman pandangan sumber.'
+    # Reserve a truthful limitation before adding whole optional paragraphs.
+    required.append(limitation)
+    for block in facts+[global_block,calendar_block]+([scenario_block] if scenario_block else [])+prose+list(notices.get('ihsg',[])):
+        if block==scenario_block and not (
+                (global_block in available and global_driver)
+                or (calendar_block in available and calendar_rows)):
+            continue
+        if _length('\n\n'.join(required+available+[block]))<=LIMIT:
+            available.append(block)
+    displayed_claim=any(block in available for block in prose)
+    supported=outlook.get('mode')=='supported' and (displayed_claim or (scenario_block is not None and scenario_block in available))
+    if supported:
+        required.remove(limitation)
+        if scenario_block is not None:
+            available.remove(scenario_block)
+            available.insert(sum(block in available for block in facts),scenario_block)
+    if global_block not in available:
+        available.append('**Pasar global**\nData belum tersedia.')
+    if calendar_block not in available:
+        available.append('**Agenda Indonesia**\nAgenda terverifikasi belum tersedia.')
+    first=_fit(required,available)
+
     sector=_rotation_text(sectors,'### 🏭 ROTASI SEKTOR: ',publication_session,timing,notices.get('sectors',[]))
     conglomerate=_rotation_text(konglo,'### 🐉 ROTASI KONGLO: ',publication_session,timing,notices.get('konglo',[]))
-    return first,sector,conglomerate
+    texts=(first,sector,conglomerate)
+    if not with_selection: return texts
+    selected={**outlook,'mode':'supported' if supported else 'facts_only',
+              'reason':outlook.get('reason') if supported or outlook.get('mode')!='supported' else 'formatting_unavailable',
+              'scenario':scenario if supported else None,
+              'claims':[claim for claim,block in zip(prose_claims,prose) if block in available] if supported else [],'text':first}
+    return texts,selected
 
 
 def attachment_caption(kind: str,publication_session: date) -> str:
