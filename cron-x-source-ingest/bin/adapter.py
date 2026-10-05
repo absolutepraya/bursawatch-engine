@@ -313,42 +313,63 @@ def _text_context(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return [{key:value for key,value in post.items() if key not in {"media", "quoted_media"}} for post in posts]
 
 
-def _flush_corrections(handoff: SourceEventHandoff, inbox: Any, outcomes: list[dict[str, str]]) -> None:
-    """Resolve saved corrections before checking new observations.
+def _flush_correction(request: Any, handoff: SourceEventHandoff, inbox: Any) -> dict[str, str]:
+    payload = request.payload
+    key = request.endpoint.removeprefix("/v1/source-events/").removesuffix("/versions")
+    required = {"envelope", "kind", "revision_id", "reason"}
+    if (request.method != "POST" or type(payload) is not dict
+            or set(payload) not in (required, required | {"expected_pending_version"})
+            or request.endpoint != f"/v1/source-events/{key}/versions"
+            or not re.fullmatch(r"[0-9a-f]{64}", key)
+            or _event_key(payload["envelope"]) != key or payload["kind"] != "correction"
+            or type(payload["revision_id"]) is not str or not 1 <= len(payload["revision_id"]) <= 128
+            or type(payload["reason"]) is not str or not 1 <= len(payload["reason"].strip()) <= 500):
+        raise IntakeBlocked("X saved correction is invalid")
+    expected = payload.get("expected_pending_version")
+    if expected is not None and (type(expected) is not int or expected < 1):
+        raise IntakeBlocked("X saved correction guard is invalid")
+    inspected = inbox.inspect(key)
+    accepted, rows = _current_source(inspected)
+    versions = inspected["event"]["versions"]
+    already_accepted = any(version.get("revision_id") == payload.get("revision_id") for version in versions)
+    if not already_accepted and (not _pending(rows) or expected is not None and accepted["version"] != expected):
+        handoff.spool.acknowledge(request.path)
+        return {"provider_event_id":payload["envelope"]["provider_event_id"],"status":"deferred_frozen"}
+    # Submit this exact request, not the queue's first item. Older saved requests
+    # retain their bytes and identity while receiving the same atomic guard.
+    handoff.client.revise(key, payload["envelope"], payload["kind"], payload["revision_id"], payload["reason"],
+                          expected_pending_version=expected if expected is not None else accepted["version"])
+    handoff.spool.acknowledge(request.path)
+    return {"provider_event_id":payload["envelope"]["provider_event_id"],"status":"revised"}
+
+
+def _flush_corrections(handoff: SourceEventHandoff, inbox: Any, outcomes: list[dict[str, str]], *, attempted: set[Path] | None = None) -> set[str]:
+    """Retry independent saved corrections without losing failed requests.
 
     A raced claim retires the unsent correction, not the accepted source event.
     A lost acknowledgement still reconciles the same accepted revision identity.
     """
+    attempted = attempted if attempted is not None else set()
+    failed_keys: set[str] = set()
     for request in handoff.spool.pending(50):
-        payload = request.payload
-        key = request.endpoint.removeprefix("/v1/source-events/").removesuffix("/versions")
-        required = {"envelope", "kind", "revision_id", "reason"}
-        if (type(payload) is not dict or set(payload) not in (required, required | {"expected_pending_version"})
-                or request.endpoint != f"/v1/source-events/{key}/versions"
-                or not re.fullmatch(r"[0-9a-f]{64}", key)
-                or _event_key(payload["envelope"]) != key or payload["kind"] != "correction"
-                or type(payload["revision_id"]) is not str or not 1 <= len(payload["revision_id"]) <= 128
-                or type(payload["reason"]) is not str or not 1 <= len(payload["reason"].strip()) <= 500):
-            raise IntakeBlocked("X saved correction is invalid")
-        expected = payload.get("expected_pending_version")
-        if expected is not None and (type(expected) is not int or expected < 1):
-            raise IntakeBlocked("X saved correction guard is invalid")
-        inspected = inbox.inspect(key)
-        accepted, rows = _current_source(inspected)
-        versions = inspected["event"]["versions"]
-        already_accepted = any(version.get("revision_id") == payload.get("revision_id") for version in versions)
-        if not already_accepted and (not _pending(rows) or expected is not None and accepted["version"] != expected):
-            handoff.spool.acknowledge(request.path)
-            outcomes.append({"provider_event_id":payload["envelope"]["provider_event_id"],"status":"deferred_frozen"})
+        if request.path in attempted:
             continue
-        if "expected_pending_version" not in payload:
-            # Older saved requests retain their identity and receive the same
-            # atomic guard when retried by this upgraded X adapter.
-            handoff.client.revise(key, payload["envelope"], payload["kind"], payload["revision_id"], payload["reason"], expected_pending_version=accepted["version"])
-            handoff.spool.acknowledge(request.path)
-        else:
-            handoff.flush(limit=1)
-        outcomes.append({"provider_event_id":payload["envelope"]["provider_event_id"],"status":"revised"})
+        attempted.add(request.path)
+        try:
+            outcomes.append(_flush_correction(request, handoff, inbox))
+        except Exception:
+            outcome = {"status":"retry", "error_code":"revision_flush_failed"}
+            try:
+                event = request.payload["envelope"]
+                failed_keys.add(_event_key(event))
+                identity = event["provider_event_id"]
+                if type(identity) is str and identity.isascii() and identity.isdigit() and len(identity) <= 128:
+                    outcome["provider_event_id"] = identity
+            except Exception:
+                pass
+            outcomes.append(outcome)
+    return failed_keys
+
 
 def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Path, inbox: Any, observed_at: datetime, *, fetch_profile: Any = None, fetch_direct_x_head: Any = None, media_store: Any = None, media_preparer: Any = None) -> list[dict[str, Any]]:
     selected, by_endpoint = endpoints(snapshot, profiles)
@@ -415,8 +436,11 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Pa
         handoff = SourceEventHandoff(root / "revisions", tracked)
         correction_outcomes = []
         result["corrections"] = correction_outcomes
+        attempted_corrections: set[Path] = set()
         try:
-            _flush_corrections(handoff, inbox, correction_outcomes)
+            failed_corrections = _flush_corrections(handoff, inbox, correction_outcomes, attempted=attempted_corrections)
+            if any(row["status"] == "retry" for row in correction_outcomes):
+                result.update(status="blocked", reason="correction_handoff_failed", correction_error_code="revision_flush_failed")
             records = tracked.records(endpoint_id)
         except Exception:
             result.update(status="blocked", reason="correction_handoff_failed", correction_error_code="revision_flush_failed")
@@ -429,12 +453,15 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Pa
             prior = records.get(post.post_id)
             if prior is None:
                 continue
+            event_key = hashlib.sha256(json.dumps(["x", endpoint_id, post.post_id], separators=(",", ":")).encode()).hexdigest()
+            if event_key in failed_corrections:
+                # Keep this event's saved retry instead of staging another edit.
+                continue
             correction_error_code = "correction_context_failed"
             try:
                 chain = _within_thread_age(profile, _self_chain(profile, post, by_id, lambda item: is_self_thread_post(profile, item)))
                 if "source_observation_hash" in prior and _source_observation_hash(chain) == prior["source_observation_hash"]:
                     continue
-                event_key = hashlib.sha256(json.dumps(["x", endpoint_id, post.post_id], separators=(",", ":")).encode()).hexdigest()
                 correction_error_code = "source_work_inspection_failed"
                 inspected = inbox.inspect(event_key)
                 accepted, rows = _current_source(inspected)
@@ -473,7 +500,10 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Pa
                 correction_error_code = "revision_stage_failed"
                 handoff.stage_revision(event_key, current, "correction", revision_id, "Observed source post content changed", expected_pending_version=accepted["version"])
                 correction_error_code = "revision_flush_failed"
-                _flush_corrections(handoff, inbox, correction_outcomes)
+                outcome_start = len(correction_outcomes)
+                failed_corrections.update(_flush_corrections(handoff, inbox, correction_outcomes, attempted=attempted_corrections))
+                if any(row["status"] == "retry" for row in correction_outcomes[outcome_start:]):
+                    result.update(status="blocked", reason="correction_handoff_failed", correction_error_code="revision_flush_failed")
                 records = tracked.records(endpoint_id)
             except Exception:
                 result.update(status="blocked", reason="correction_handoff_failed", correction_error_code=correction_error_code)

@@ -901,8 +901,9 @@ def test_older_saved_correction_gets_atomic_guard_without_changing_request(tmp_p
     event = inbox.events[0]
     path = handoff.stage_revision(_event_key(event), event, 'correction', 'legacy-revision', 'Observed edit')
     before = path.read_bytes()
-    with pytest.raises(RuntimeError):
-        _flush_corrections(handoff, inbox, [])
+    retry_outcomes = []
+    assert _flush_corrections(handoff, inbox, retry_outcomes) == {_event_key(event)}
+    assert retry_outcomes == [{'provider_event_id':'101', 'status':'retry', 'error_code':'revision_flush_failed'}]
     assert path.read_bytes() == before
     outcomes = []
     _flush_corrections(handoff, inbox, outcomes)
@@ -939,6 +940,60 @@ def test_failed_correction_does_not_stop_another_pending_news_edit(tmp_path):
     assert any(row['provider_event_id'] == '101' and row['status'] == 'retry' for row in result['corrections'])
     assert any(row['provider_event_id'] == '102' and row['status'] == 'revised' for row in result['corrections'])
     assert inbox.revisions[0][1]['provider_event_id'] == '102'
+
+
+@pytest.mark.parametrize('failed_stage', ['inspect', 'revise'])
+def test_saved_correction_failure_preserves_retry_and_continues_other_posts(tmp_path, failed_stage):
+    class FailingInbox(Inbox):
+        blocked_ids = {'101', '102'}
+        inspect_failure = False
+
+        def inspect(self, event_key):
+            result = super().inspect(event_key)
+            if self.inspect_failure and result['event']['versions'][0]['envelope']['provider_event_id'] == '101':
+                raise OSError('Source inspection unavailable')
+            return result
+
+        def revise(self, event_key, event, *args, **kwargs):
+            if event['provider_event_id'] in self.blocked_ids:
+                raise OSError('Revision unavailable')
+            return super().revise(event_key, event, *args, **kwargs)
+
+    _, _, posts, inbox, index, run = _legacy_news_fixture(tmp_path, FailingInbox())
+    for identity in ('102', '103'):
+        posts.append(replace(posts[1], post_id=identity, url=posts[1].url.replace('/101', '/' + identity),
+                             media=(), content_html='MYOR distribution expanded'))
+    run()
+    for position in (1, 2):
+        posts[position] = replace(posts[position], content_html='MYOR earnings updated')
+    assert run()['status'] == 'blocked'
+    from source_event_client import SourceEventHandoff
+    pending = SourceEventHandoff(index.parent / 'revisions', inbox).spool.pending()
+    assert {request.payload['envelope']['provider_event_id'] for request in pending} == {'101', '102'}
+    failed = next(request for request in pending if request.payload['envelope']['provider_event_id'] == '101')
+    saved_bytes = failed.path.read_bytes()
+
+    inbox.blocked_ids = {'101'}
+    inbox.inspect_failure = failed_stage == 'inspect'
+    posts[3] = replace(posts[3], content_html='MYOR distribution doubled')
+    posts.append(replace(posts[3], post_id='104', url=posts[3].url.replace('/103', '/104'),
+                         content_html='MYOR opened a factory'))
+    result = run()
+
+    assert result['status'] == 'blocked' and result['accepted'] == 1
+    assert result['correction_error_code'] == 'revision_flush_failed'
+    assert {event['provider_event_id'] for event in inbox.events} == {'101', '102', '103', '104'}
+    assert [revision[1]['provider_event_id'] for revision in inbox.revisions] == ['102', '103']
+    assert failed.path.read_bytes() == saved_bytes
+    assert [request.path for request in SourceEventHandoff(index.parent / 'revisions', inbox).spool.pending()] == [failed.path]
+    assert result['corrections'] == [
+        {'provider_event_id':'101', 'status':'retry', 'error_code':'revision_flush_failed'},
+        {'provider_event_id':'102', 'status':'revised'},
+        {'provider_event_id':'103', 'status':'revised'},
+    ]
+    records = json.loads(index.read_text())
+    assert records['101']['version'] == 1
+    assert records['102']['version'] == records['103']['version'] == 2
 
 
 def test_self_chain_source_event_carries_ordered_post_context(tmp_path):

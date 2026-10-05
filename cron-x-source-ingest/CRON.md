@@ -115,6 +115,10 @@ same guard when retried by this adapter. A raced claim retires only the unsent
 correction with a
 bounded deferred outcome; a lost acknowledgement reconciles an already
 accepted revision. Independent intake and other correction checks continue.
+Saved correction failures report a per-event retry and retain the unchanged
+request. Attempt each saved request at most once per run, continue later saved
+requests, and check independent observed posts without staging a second edit
+for an event whose saved correction failed.
 The result's `corrections` array records bounded provider IDs and dispositions,
 never source bodies, media locators, or raw exceptions.
 Required Swing media or a required thread original still makes its work retry.

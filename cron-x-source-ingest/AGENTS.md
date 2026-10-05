@@ -75,6 +75,10 @@ Discord. A revision already accepted before an acknowledgement was lost still
 reconciles its original revision identity, even after its work completes.
 Correction inspection failures retain the existing warning fields but do not
 stop subsequent publications' correction checks.
+Retry saved corrections per request, retaining a failed request's bytes and
+revision identity. Each request is attempted at most once in a run. A failed
+event keeps its saved retry rather than staging another version from that
+run's observation; other saved requests and observed publications continue.
 
 The first poll for a direct-X endpoint reads only the account page and stores
 the newest own-post ID as a future-only boundary. It does not fetch or publish

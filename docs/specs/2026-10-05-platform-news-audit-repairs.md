@@ -96,6 +96,12 @@ per-event deferred/frozen correction outcome must not stop unrelated new
 intake or other correction checks. Keep the authoritative revision guard
 against a claim race and retain the original frozen capabilities.
 
+Saved corrections retry independently. A failed inspection or revision keeps
+that request's bytes and revision identity, reports a per-event retry, and
+does not hold later saved requests or other observed posts. Attempt a request
+at most once per run, and do not stage a second edit for an event whose saved
+correction failed during that run.
+
 Decision Q2: a genuine edit to pending ordinary news may append a text-only
 corrected version when optional images fail. Preserve the original version,
 event identity, and frozen capabilities. Required
