@@ -101,7 +101,10 @@ class UrllibTransport:
                 try:
                     raw.close()
                 except Exception:
-                    failure = 'transport_failed'
+                    # A safely observed 429 still establishes a provider-wide
+                    # throttle even if response cleanup fails.
+                    if result is None or result.status != 429:
+                        failure = 'transport_failed'
         if failure:
             raise ChartImgError(failure) from None
         return result

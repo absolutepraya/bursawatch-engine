@@ -53,7 +53,7 @@ class RenderCache:
                     CREATE INDEX IF NOT EXISTS attempts_started ON attempts(started);
                     CREATE TABLE IF NOT EXISTS throttle (
                         singleton INTEGER PRIMARY KEY CHECK(singleton=1),
-                        blocked_until REAL, unknown_attempt TEXT);
+                        blocked_until REAL);
                     INSERT OR IGNORE INTO throttle(singleton) VALUES(1);
                     CREATE TABLE IF NOT EXISTS audits (
                         attempt_id TEXT NOT NULL, resolved REAL NOT NULL,
@@ -104,7 +104,8 @@ class RenderCache:
                     error = ChartImgError('outcome_unknown')
             else:
                 throttle = db.execute('SELECT * FROM throttle WHERE singleton=1').fetchone()
-                if throttle['unknown_attempt']:
+                unknown_throttle = db.execute("SELECT 1 FROM attempts WHERE state='unknown' AND error_code='throttled' LIMIT 1").fetchone()
+                if unknown_throttle:
                     error = ChartImgError('throttle_unknown')
                 elif throttle['blocked_until'] is not None and throttle['blocked_until'] > stamp:
                     error = ChartImgError('throttled', retry_at=datetime.fromtimestamp(throttle['blocked_until'], timezone.utc))
@@ -149,8 +150,10 @@ class RenderCache:
                        ('unknown' if uncertain or unknown_throttle else 'failed', error.code, attempt_id))
             if error.code == 'throttled':
                 if unknown_throttle:
-                    db.execute('UPDATE throttle SET unknown_attempt=?,blocked_until=? WHERE singleton=1',
-                               (attempt_id, stamp + 86400))
+                    # Every unresolved unknown 429 is a global gate. Keep the
+                    # latest observation's full cooldown for safe recovery.
+                    db.execute('UPDATE throttle SET blocked_until=MAX(COALESCE(blocked_until,0),?) WHERE singleton=1',
+                               (stamp + 86400,))
                 else:
                     db.execute('UPDATE throttle SET blocked_until=MAX(COALESCE(blocked_until,0),?) WHERE singleton=1',
                                (aware(error.retry_at).timestamp(),))
@@ -179,10 +182,9 @@ class RenderCache:
             if row is None or row['state'] not in {'pending', 'unknown'} or (row['state'] == 'pending' and row['lease_until'] > stamp):
                 raise ChartImgError('resolution_not_allowed')
             throttle = db.execute('SELECT * FROM throttle WHERE singleton=1').fetchone()
-            if throttle['unknown_attempt'] == attempt_id:
+            if row['state'] == 'unknown' and row['error_code'] == 'throttled':
                 if stamp < throttle['blocked_until']:
                     raise ChartImgError('resolution_not_allowed')
-                db.execute('UPDATE throttle SET unknown_attempt=NULL WHERE singleton=1')
             db.execute("UPDATE attempts SET state='resolved' WHERE attempt_id=?", (attempt_id,))
             db.execute('INSERT INTO audits VALUES(?,?,?)', (attempt_id, stamp, evidence_ref))
 

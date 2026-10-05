@@ -8,7 +8,7 @@ import pytest
 
 from chart_img_client import ChartImgConfig, ChartImgError
 from chart_img_client.cache import ChartImgClient, RenderCache
-from chart_img_client.transport import HttpResponse, ProviderTransport
+from chart_img_client.transport import HttpResponse, ProviderTransport, UrllibTransport
 from test_models_config import CUTOFF, png, request
 
 
@@ -137,6 +137,47 @@ def test_unknown_throttle_blocks_all_consumers_until_explicit_safe_recovery(tmp_
     cache.resolve_unknown(attempt_id, now=CUTOFF + timedelta(days=1), evidence_ref='review:cooldown-and-writer-stopped')
     assert client(cache, success, CUTOFF + timedelta(days=1)).render(request(), cache_only=False)
     assert cache.audit_log()[0]['attempt_id'] == attempt_id
+
+
+def test_multiple_unknown_throttles_keep_global_gate_until_each_is_resolved(tmp_path):
+    cache = store(tmp_path)
+    first = cache.reserve(request(), now=CUTOFF)
+    second_request = replace(request(), profile_revision='second')
+    second = cache.reserve(second_request, now=CUTOFF + timedelta(seconds=1))
+    cache.fail(first, ChartImgError('throttled'), now=CUTOFF + timedelta(seconds=2))
+    cache.fail(second, ChartImgError('throttled'), now=CUTOFF + timedelta(seconds=3))
+    after_cooldown = CUTOFF + timedelta(days=1, seconds=4)
+    cache.resolve_unknown(second, now=after_cooldown, evidence_ref='review:second-writer-stopped')
+    assert {row['attempt_id'] for row in cache.unresolved()} == {first}
+    third_request = replace(request(), profile_revision='third')
+    with pytest.raises(ChartImgError) as caught:
+        client(cache, success, after_cooldown).render(third_request, cache_only=False)
+    assert caught.value.code == 'throttle_unknown'
+    assert cache.allowance(now=after_cooldown)['used'] == 0
+    cache.resolve_unknown(first, now=after_cooldown, evidence_ref='review:first-writer-stopped')
+    assert client(cache, success, after_cooldown).render(third_request, cache_only=False)
+    assert {row['attempt_id'] for row in cache.audit_log()} == {first, second}
+
+
+@pytest.mark.parametrize('retry_after,blocked_code', [('10', 'throttled'), ('', 'throttle_unknown')])
+def test_close_failure_after_429_keeps_provider_wide_gate(tmp_path, retry_after, blocked_code):
+    cache = store(tmp_path)
+    class Raw:
+        status = 429
+        headers = {'Retry-After': retry_after}
+        def geturl(self):
+            return 'https://api.chart-img.com/v2/tradingview/layout-chart/public123'
+        def close(self):
+            raise OSError('private cleanup detail')
+    provider = ProviderTransport(ChartImgConfig('fake-key'), UrllibTransport(open_url=lambda req, timeout: Raw()))
+    with pytest.raises(ChartImgError) as caught:
+        ChartImgClient(cache, provider, clock=lambda: CUTOFF).render(request(), cache_only=False)
+    assert caught.value.code == 'throttled'
+    with pytest.raises(ChartImgError) as blocked:
+        client(cache, success, CUTOFF + timedelta(seconds=2)).render(
+            replace(request(), profile_revision='other'), cache_only=False)
+    assert blocked.value.code == blocked_code
+    assert cache.allowance(now=CUTOFF + timedelta(seconds=2))['used'] == 1
 
 
 def test_known_throttle_honors_global_retry_after_and_counts_attempt(tmp_path):

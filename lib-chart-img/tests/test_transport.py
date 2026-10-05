@@ -80,6 +80,24 @@ def test_direct_http_boundary_sanitizes_open_read_and_close_errors(failure):
     assert 'secret' not in str(caught.value)
 
 
+@pytest.mark.parametrize('retry_after,expected', [('10', CUTOFF + timedelta(seconds=10)), ('', None)])
+def test_close_failure_preserves_observed_429_and_retry_after(retry_after, expected):
+    class Raw:
+        status = 429
+        headers = {'Retry-After': retry_after}
+        def geturl(self):
+            return 'https://api.chart-img.com/v2/tradingview/layout-chart/public123'
+        def close(self):
+            raise OSError('secret close credential')
+    provider = ProviderTransport(ChartImgConfig('fake-key'),
+                                 UrllibTransport(open_url=lambda req, timeout: Raw()))
+    with pytest.raises(ChartImgError) as caught:
+        provider.render(request(), now=CUTOFF)
+    assert caught.value.code == 'throttled'
+    assert caught.value.retry_at == expected
+    assert 'secret' not in str(caught.value)
+
+
 def test_direct_reader_is_bounded_and_closed_on_oversize():
     closed = []
     class Raw:

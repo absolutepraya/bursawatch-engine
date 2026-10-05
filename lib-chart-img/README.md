@@ -101,6 +101,10 @@ second call. An abandoned lease becomes `outcome_unknown`; it does not allow an
 automatic replacement request. A known 429 honors its `Retry-After` globally.
 A missing/invalid retry header produces a durable unknown throttle and blocks
 new provider requests until explicitly resolved, even after time has passed.
+Every unresolved unknown 429 holds that global block; resolving one of several
+does not release it. Recovery waits at least 24 hours after the latest unknown
+429 observation. An observed 429 and its safe Retry-After value survive a
+response-close failure, so cleanup cannot erase the provider-wide gate.
 Cached images remain readable while new calls are blocked.
 
 Inspect `cache.allowance(now=...)` and `cache.unresolved()`. To resolve an
