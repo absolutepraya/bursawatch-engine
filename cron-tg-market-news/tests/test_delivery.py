@@ -495,9 +495,12 @@ def test_flat_market_change_uses_grey_emoji(monkeypatch, dewa_tier_one):
     assert alert.count("<:grey:1531279158913536182>") == 4
 
 
-def test_investment_language_guard_does_not_reject_the_factual_word_holds():
-    assert not delivery._contains_investment_language("DSSA holds more than 99% of BMT.")
-    assert delivery._contains_investment_language("The source recommends BUY.")
+def test_reported_share_sale_survives_rendering(monkeypatch, dewa_tier_one):
+    summary = "DEWA berencana sell shares kepada investor strategis."
+    candidate = replace(dewa_tier_one.candidate, source_text=summary)
+    item = replace(dewa_tier_one, candidate=candidate, summary=summary, material_facts=(summary,))
+    monkeypatch.setattr(delivery, "get_market_snapshot", lambda *_: None)
+    assert summary in delivery.format_news_item(item)
 
 
 def test_each_news_item_is_a_standalone_message_without_a_shared_heading(monkeypatch, tmp_path, dewa_tier_one):

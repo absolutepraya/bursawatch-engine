@@ -9,7 +9,6 @@ if str(_news_bin) not in _news_sys.path:
     _news_sys.path.insert(0, str(_news_bin))
 import news_format
 
-import re
 
 from config import GREY_EMOJI, GREEN_EMOJI, RED_EMOJI, STOCKBIT_EMOJI
 from market_data import MarketSnapshot
@@ -18,10 +17,6 @@ from models import Analysis, Article, Route
 
 DISCORD_LIMIT = 2000
 RINGKASAN_PREFIX = "*(Ringkasan)* "
-INVESTMENT_LANGUAGE = re.compile(
-    r"\b(?:buy|sell|entry|target|stop[\s-]*loss|valuation|bullish|bearish|upside|downside)\b",
-    re.IGNORECASE,
-)
 
 
 def _idr(value: float, signed: bool = False) -> str:
@@ -64,8 +59,6 @@ def render(article: Article, analysis: Analysis, snapshot: MarketSnapshot | None
         raise ValueError("excluded Stockbit article cannot be rendered")
     if not analysis.title or not analysis.summary:
         raise ValueError("Stockbit analysis title and summary are required")
-    if INVESTMENT_LANGUAGE.search(analysis.summary):
-        raise ValueError("Stockbit summary contains investment language")
     messages = news_format.render_card(f"### {STOCKBIT_EMOJI} {analysis.title}\n-# Stockbit", analysis.summary, article.url, "Stockbit", route=analysis.route.value, snapshot=snapshot)
     result = "\n\n".join(messages)
     if news_format.discord_length(result) > DISCORD_LIMIT:

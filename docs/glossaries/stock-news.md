@@ -25,6 +25,11 @@ The reader-facing presentation of a stock-news item, including its summary,
 source provenance, and market context when a security is identified.
 _Avoid_: Source publication, raw forwarding
 
+**News headline**:
+A short, descriptive statement of the selected news, with a listed security's
+exact ticker when that security is the central subject. A ticker alone is not a descriptive headline.
+_Avoid_: Source account name, ticker repetition, investment instruction
+
 **Independent issuer news item**:
 A source-supported development about one issuer that can be reported without
 borrowing facts from another unrelated story in the same publication.

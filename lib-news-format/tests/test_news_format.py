@@ -7,6 +7,33 @@ import pandas as pd
 import news_format as news
 
 
+@pytest.mark.parametrize('title,route,expected', [
+    ('TLKM: spin off bisnis InfraNexia', 'id_stocks_news', 'TLKM: Spin off bisnis InfraNexia'),
+    ('BRK.B: earnings rise as AI grows', 'us_stocks_news', 'BRK.B: Earnings rise as AI grows'),
+    ('inflasi: BI mempertahankan suku bunga', 'macro_news', 'Inflasi: BI mempertahankan suku bunga'),
+    ('2027: produksi migas meningkat', 'macro_news', '2027: Produksi migas meningkat'),
+    ('📰 “ekspansi InfraNexia dan GPU”', 'id_industry_news', '📰 “Ekspansi InfraNexia dan GPU”'),
+    ('TLKM: AI dan InfraNexia', 'id_stocks_news', 'TLKM: AI dan InfraNexia'),
+    ('', 'macro_news', ''),
+    ('2027 🔼', 'macro_news', '2027 🔼'),
+])
+def test_new_card_headline_preserves_names_and_capitalizes_subject(title, route, expected):
+    heading = f'### <:source:1531272430985937086> {title}\n-# Publisher'
+    rendered = news.render_card(heading, 'Fakta bersumber.', 'https://example.invalid/news', 'Source', route=route)
+    assert rendered[0].splitlines()[0] == f'### <:source:1531272430985937086> {expected}'
+    assert rendered[0].splitlines()[1] == '-# Publisher'
+
+
+def test_freezing_normalizes_new_title_without_mutating_submission_or_saved_cards():
+    item = dict(title='TLKM: spin off InfraNexia', summary='Fakta bersumber.', route='id_stocks_news')
+    cards = news.freeze_cards([item], lambda row: f'### <:source:1531272430985937086> {row["title"]}',
+                              'https://example.invalid/news', 'Source', fetch=lambda *_: None)
+    assert item['title'] == 'TLKM: spin off InfraNexia'
+    assert cards[0]['title'] == 'TLKM: Spin off InfraNexia'
+    saved = [{**cards[0], 'title':item['title'], 'messages':['Previously frozen lowercase headline']}]
+    assert news.validate_cards(saved) == saved
+
+
 def fake_quote(closes, *, currency='USD', latest=None, previous=None, timezone='America/New_York'):
     index = pd.bdate_range(end='2026-10-01', periods=len(closes), tz=timezone)
     history = pd.DataFrame({'Close': closes}, index=index)

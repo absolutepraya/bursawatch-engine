@@ -99,10 +99,15 @@ class SourceEventClient(SourceCatalogClient):
             raise ControlPlaneContractError("source work recovery is invalid")
         return result
 
-    def revise(self, event_key: str, envelope: dict[str, Any], kind: str, revision_id: str, reason: str) -> dict[str, Any]:
+    def revise(self, event_key: str, envelope: dict[str, Any], kind: str, revision_id: str, reason: str, *, expected_pending_version: int | None = None) -> dict[str, Any]:
         if kind not in {"correction", "tombstone"} or not 1 <= len(reason.strip()) <= 500 or type(revision_id) is not str or not 1 <= len(revision_id) <= 128:
             raise ValueError("valid revision kind and bounded reason required")
-        result = self._post(f"/v1/source-events/{_sha_key(event_key)}/versions", {"envelope": envelope, "kind": kind, "revision_id": revision_id, "reason": reason})
+        payload = {"envelope": envelope, "kind": kind, "revision_id": revision_id, "reason": reason}
+        if expected_pending_version is not None:
+            if type(expected_pending_version) is not int or expected_pending_version < 1:
+                raise ValueError("expected pending version must be a positive integer")
+            payload["expected_pending_version"] = expected_pending_version
+        result = self._post(f"/v1/source-events/{_sha_key(event_key)}/versions", payload)
         if type(result) is not dict or result.get("event_key") != event_key or type(result.get("version")) is not int or type(result.get("duplicate")) is not bool:
             raise ControlPlaneContractError("source revision receipt is invalid")
         return result
@@ -142,11 +147,16 @@ class SourceEventHandoff:
     def stage(self, envelope: dict[str, Any]) -> Path:
         return self.spool.append("POST", "/v1/source-events", {"envelope": envelope})
 
-    def stage_revision(self, event_key: str, envelope: dict[str, Any], kind: str, revision_id: str, reason: str) -> Path:
+    def stage_revision(self, event_key: str, envelope: dict[str, Any], kind: str, revision_id: str, reason: str, *, expected_pending_version: int | None = None) -> Path:
         key = _sha_key(event_key)
         if _event_key(envelope) != key or kind not in {"correction", "tombstone"} or type(revision_id) is not str or not 1 <= len(revision_id) <= 128 or type(reason) is not str or not 1 <= len(reason.strip()) <= 500:
             raise ValueError("invalid staged source revision")
-        return self.spool.append("POST", f"/v1/source-events/{key}/versions", {"envelope": envelope, "kind": kind, "revision_id": revision_id, "reason": reason})
+        payload = {"envelope": envelope, "kind": kind, "revision_id": revision_id, "reason": reason}
+        if expected_pending_version is not None:
+            if type(expected_pending_version) is not int or expected_pending_version < 1:
+                raise ValueError("expected pending version must be a positive integer")
+            payload["expected_pending_version"] = expected_pending_version
+        return self.spool.append("POST", f"/v1/source-events/{key}/versions", payload)
 
     def flush(self, limit: int = 50) -> list[dict[str, Any]]:
         receipts = []
@@ -157,9 +167,10 @@ class SourceEventHandoff:
                 receipt = self.client.accept(item.payload["envelope"])
             elif item.endpoint.startswith("/v1/source-events/") and item.endpoint.endswith("/versions"):
                 key = item.endpoint.removeprefix("/v1/source-events/").removesuffix("/versions")
-                if not _valid_sha_key(key) or _event_key(item.payload["envelope"]) != key or set(item.payload) != {"envelope", "kind", "revision_id", "reason"}:
+                if not _valid_sha_key(key) or _event_key(item.payload["envelope"]) != key or set(item.payload) not in ({"envelope", "kind", "revision_id", "reason"}, {"envelope", "kind", "revision_id", "reason", "expected_pending_version"}):
                     raise ControlPlaneContractError("source revision handoff identity is invalid")
-                receipt = self.client.revise(key, item.payload["envelope"], item.payload["kind"], item.payload["revision_id"], item.payload["reason"])
+                kwargs = {"expected_pending_version": item.payload["expected_pending_version"]} if "expected_pending_version" in item.payload else {}
+                receipt = self.client.revise(key, item.payload["envelope"], item.payload["kind"], item.payload["revision_id"], item.payload["reason"], **kwargs)
             else:
                 raise ControlPlaneContractError("source event handoff endpoint is invalid")
             self.spool.acknowledge(item.path)

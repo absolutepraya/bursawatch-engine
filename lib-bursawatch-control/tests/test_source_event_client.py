@@ -24,6 +24,23 @@ class Response:
         return self.body.read()
 
 
+def test_guarded_revision_handoff_preserves_precondition_and_retry_identity(tmp_path):
+    identity = dict(platform='x',endpoint_id='x:writingtorch',provider_event_id='42')
+    key = hashlib.sha256(json.dumps(list(identity.values()),separators=(',',':')).encode()).hexdigest()
+    attempts = []
+    def opener(request, timeout):
+        attempts.append(json.loads(request.data))
+        if len(attempts) == 1: raise OSError('offline')
+        return Response(dict(event_key=key,version=2,duplicate=False,work_keys=[]))
+    handoff = SourceEventHandoff(tmp_path,SourceEventClient('http://127.0.0.1:9120','test-only',opener=opener))
+    handoff.stage_revision(key,identity,'correction','edit-42','Source edit',expected_pending_version=1)
+    with pytest.raises(ControlPlaneUnavailable): handoff.flush()
+    assert handoff.flush()[0]['version'] == 2
+    assert attempts[0] == attempts[1]
+    assert attempts[0]['expected_pending_version'] == 1
+    assert handoff.spool.pending() == []
+
+
 def test_handoff_retains_event_until_durable_receipt(tmp_path):
     attempts = []
     identity = {"platform": "telegram", "endpoint_id": "telegram:phintasprofits", "provider_event_id": "42"}

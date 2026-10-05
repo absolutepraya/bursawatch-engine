@@ -53,6 +53,7 @@ def publication_id(owner_key: str) -> str:
 
 def _build_snapshot(saved: dict[str, Any], delivery: Any) -> dict[str, Any] | None:
     from bursawatch_discord_delivery import OperationReceipt
+    from dataclasses import asdict
 
     snapshot = saved["snapshot"]
     operation_name = snapshot["_operation"]
@@ -64,7 +65,11 @@ def _build_snapshot(saved: dict[str, Any], delivery: Any) -> dict[str, Any] | No
     try:
         operation = adapter._intent(operation_name, payload, dedupe_key)
         raw = delivery.status(operation.key)
-        receipt = OperationReceipt.from_json(raw, operation)
+        if not isinstance(raw, OperationReceipt):
+            return None
+        # status() validates the response shape; bind it to this saved operation
+        # and validate the receipt kind/target before projecting its delivery.
+        receipt = OperationReceipt.from_json(asdict(raw), operation)
     except Exception:
         return None
     details = receipt.receipt

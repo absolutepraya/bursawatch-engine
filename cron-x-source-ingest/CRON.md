@@ -102,7 +102,21 @@ payload. Missing upload or owner read access can omit news images before the
 watcher queue is frozen. The accepted index keeps the source hash, preventing
 media recovery or outages from revising an unchanged accepted post. Genuine
 text or source-media metadata edits still use the existing correction path.
-Old accepted events retain their previous behavior and stable identities.
+Legacy accepted versions remain immutable. Inspect the accepted version and
+its frozen current-version work before correction media preparation. Already
+nonpending work is deferred without editing or resending it. Unchanged legacy
+text retains accepted media without claiming to verify image equality. A
+pending legacy news edit may append an optional-media correction under the
+original frozen capabilities; image-only, Swing, and ambiguous Swing-capable
+sources still require images. New requests carry `expected_pending_version`,
+checked atomically by the Control Plane. Transport retries retain the same
+revision identity. Older saved requests retain their bytes and receive the
+same guard when retried by this adapter. A raced claim retires only the unsent
+correction with a
+bounded deferred outcome; a lost acknowledgement reconciles an already
+accepted revision. Independent intake and other correction checks continue.
+The result's `corrections` array records bounded provider IDs and dispositions,
+never source bodies, media locators, or raw exceptions.
 Required Swing media or a required thread original still makes its work retry.
 Accepted media remains bounded to 16
 refs per event, 8 MiB per object, and 25 MiB aggregate. The adapter does not

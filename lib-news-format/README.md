@@ -27,6 +27,11 @@ before sending and reuse it for retries, handoff plans and feed projections.
 Raw-forwarding and specialized Swing/status output remain owner contracts.
 No model-generated quote tracker or style rejection is introduced.
 
+New generated-news headlines capitalize only their first cased subject
+character, after an exact issuer ticker prefix when applicable. Names,
+acronyms, the remaining casing, and source bylines are preserved. This shared
+normalization adds no rejection and never rewrites old frozen card messages.
+
 `deduplicate_items` keeps the first copy of an identical news item within one
 new submission. Its key is route, headline, summary, ticker and sentiment;
 only whitespace and legacy summary markers are ignored. It preserves order

@@ -55,16 +55,27 @@ def test_operator_instruction_cannot_relax_fixed_protocol(article: Article) -> N
         "candidate_key", "ticker", "title", "summary", "material_facts",
         "dedupe_facts", "eligible", "route", "source_evidence",
     }
-    prohibited = valid_payload(article)
-    prohibited["summary"] = "SWAP memiliki target price tertentu."
-    with pytest.raises(ValueError, match="investment language"):
-        validate_submission(article, prohibited)
+    assert "Judge advice and education semantically" in item['instruction']
+    assert "Do not generate investment instructions".casefold() in item['instruction'].casefold()
 
 
 def test_valid_issuer_submission_is_accepted(article: Article) -> None:
     result = validate_submission(article, valid_payload(article))
     assert result.route is Route.ID_STOCKS_NEWS
     assert result.ticker == "SWAP"
+
+
+@pytest.mark.parametrize('summary', [
+    'Pemerintah menetapkan target produksi 10 juta ton pada 2027.',
+    'Stockbit melaporkan valuation SWAP berdasarkan proyeksi tahun 2027.',
+    'SWAP berencana sell shares kepada investor strategis.',
+])
+def test_source_reported_news_survives_validation_and_rendering(article, summary):
+    from render import render
+    payload = valid_payload(article)
+    payload['summary'] = summary
+    analysis = validate_submission(article, payload)
+    assert summary in render(article, analysis)
 
 
 def test_duplicate_split_analyses_are_removed_before_child_identity_assignment(article):
