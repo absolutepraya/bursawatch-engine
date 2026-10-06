@@ -19,6 +19,7 @@ import {
   getDraftOwner,
   readWorkspaceDraft,
   retainWorkspaceDraft,
+  type WorkspaceDraftScope,
 } from "@/lib/workspace-drafts";
 import { StatusBadge } from "./status-badge";
 import { useToast } from "./toast-provider";
@@ -229,9 +230,10 @@ export function SourceCatalogView({
   activityUnavailable?: boolean;
   sampleMode?: boolean;
 }) {
+  const draftScope: WorkspaceDraftScope = sampleMode ? "sample" : "workspace";
   const [draftOwner] = useState(getDraftOwner);
   const [restored] = useState(() =>
-    readWorkspaceDraft<SourceCatalog["config"], RetainedCatalogDraft>(catalogDraftKey),
+    readWorkspaceDraft<SourceCatalog["config"], RetainedCatalogDraft>(catalogDraftKey, draftScope),
   );
   const mounted = useRef(false);
   const readController = useRef<AbortController | null>(null);
@@ -283,6 +285,7 @@ export function SourceCatalogView({
       },
       dirty || saving || writeRefreshFailed,
       draftOwner,
+      draftScope,
     );
   }, [
     catalog,
@@ -295,6 +298,7 @@ export function SourceCatalogView({
     error,
     dirty,
     draftOwner,
+    draftScope,
   ]);
   const reload = useCallback(
     async (signal?: AbortSignal, recoverDraft = false) => {
@@ -331,7 +335,7 @@ export function SourceCatalogView({
             !controller.signal.aborted &&
             mounted.current
           ) {
-            discardWorkspaceDraft(catalogDraftKey, draftOwner);
+            discardWorkspaceDraft(catalogDraftKey, draftOwner, draftScope);
             setCatalog(null);
             setDraft(null);
             setEffective(null);
@@ -381,7 +385,7 @@ export function SourceCatalogView({
           setDraft(structuredClone(nextCatalog.config.config));
           setSaveBlocked(false);
           setWriteRefreshFailed(false);
-          discardWorkspaceDraft(catalogDraftKey, draftOwner);
+          discardWorkspaceDraft(catalogDraftKey, draftOwner, draftScope);
         }
         return true;
       } catch (failure) {
@@ -389,7 +393,7 @@ export function SourceCatalogView({
         setError(safeReadError(failure));
         setSaveBlocked(true);
         if (failure instanceof WorkspaceError && ["auth", "forbidden"].includes(failure.code)) {
-          discardWorkspaceDraft(catalogDraftKey, draftOwner);
+          discardWorkspaceDraft(catalogDraftKey, draftOwner, draftScope);
           setCatalog(null);
           setDraft(null);
           setEffective(null);
@@ -400,7 +404,7 @@ export function SourceCatalogView({
         if (!signal?.aborted && mounted.current) setLoading(false);
       }
     },
-    [request, restored, draftOwner],
+    [request, restored, draftOwner, draftScope],
   );
   useEffect(() => {
     mounted.current = true;
@@ -472,7 +476,7 @@ export function SourceCatalogView({
       if (!mounted.current) return;
       setError(message(failure));
       if (failure instanceof WorkspaceError && ["auth", "forbidden"].includes(failure.code)) {
-        discardWorkspaceDraft(catalogDraftKey, draftOwner);
+        discardWorkspaceDraft(catalogDraftKey, draftOwner, draftScope);
         setCatalog(null);
         setDraft(null);
         setEffective(null);
@@ -620,7 +624,7 @@ export function SourceCatalogView({
             disabled={loading || saving}
             onClick={() => {
               if (
-                (!dirty && !readWorkspaceDraft(catalogDraftKey)) ||
+                (!dirty && !readWorkspaceDraft(catalogDraftKey, draftScope)) ||
                 window.confirm("Discard unsaved changes and reload the current catalog?")
               )
                 void reload();

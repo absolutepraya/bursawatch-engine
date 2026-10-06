@@ -19,6 +19,7 @@ import {
   getDraftOwner,
   readWorkspaceDraft,
   retainWorkspaceDraft,
+  type WorkspaceDraftScope,
   type WorkspaceDraftKey,
 } from "@/lib/workspace-drafts";
 import {
@@ -777,10 +778,11 @@ export function WatcherConfigEditor({
   onDirtyChange?: (dirty: boolean) => void;
   sampleMode?: boolean;
 }) {
+  const draftScope: WorkspaceDraftScope = sampleMode ? "sample" : "workspace";
   const draftKey: WorkspaceDraftKey = `config:${snapshot.watcher_id}`;
   const [draftOwner] = useState(getDraftOwner);
   const [restored] = useState(() =>
-    readWorkspaceDraft<ConfigSnapshot, Record<string, unknown>>(draftKey),
+    readWorkspaceDraft<ConfigSnapshot, Record<string, unknown>>(draftKey, draftScope),
   );
   const restoredConflict = Boolean(restored && restored.base.revision !== snapshot.revision);
   const [saved, setSaved] = useState(restored?.base ?? snapshot);
@@ -829,8 +831,9 @@ export function WatcherConfigEditor({
       },
       dirty,
       draftOwner,
+      draftScope,
     );
-  }, [draftKey, draftOwner, saved, draft, blocked, saving, failure, dirty]);
+  }, [draftKey, draftOwner, draftScope, saved, draft, blocked, saving, failure, dirty]);
   useEffect(() => {
     onDirtyChange?.(dirty || saving);
     return () => onDirtyChange?.(false);
@@ -882,7 +885,7 @@ export function WatcherConfigEditor({
     setSaving(true);
     try {
       const result = await onSave(structuredClone(draft));
-      discardWorkspaceDraft(draftKey, draftOwner);
+      discardWorkspaceDraft(draftKey, draftOwner, draftScope);
       setSaved(result);
       setDraft(structuredClone(result.config));
       setRestoredNotice(false);
@@ -1072,7 +1075,7 @@ export function WatcherConfigEditor({
                   disabled={!dirty || saving || blocked}
                   onClick={() => {
                     if (window.confirm("Discard your unsaved changes?")) {
-                      discardWorkspaceDraft(draftKey, draftOwner);
+                      discardWorkspaceDraft(draftKey, draftOwner, draftScope);
                       setDraft(structuredClone(saved.config));
                       setRestoredNotice(false);
                       setErrors({});
