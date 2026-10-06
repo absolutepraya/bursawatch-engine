@@ -29,6 +29,7 @@ candidate. Return exactly this JSON shape, including a source-grounded
   "candidate_key": "<supplied candidate_key>",
   "ticker": "<supplied ticker>",
   "event_class": "<allowed event class>",
+  "title": "<source-grounded headline, prefixed with TICKER: for issuer news>",
   "summary": "<source-grounded Indonesian summary>",
   "material_facts": ["<source-supported fact>"],
   "ranking_band": 1,
@@ -162,7 +163,8 @@ outside the state root.
 Both News providers now request a source-grounded headline. Issuer headlines
 start with the supplied ticker and colon; macro headlines stay natural.
 Phintraco submissions without a title remain accepted for older leases, with
-a source-name fallback. The shared `lib-news-format` renderer owns source
+a descriptive source-headline fallback when available, then the source name.
+The shared `lib-news-format` renderer owns source
 bylines and the quote block. Swing and deterministic Stock Information keep
 their existing contracts.
 

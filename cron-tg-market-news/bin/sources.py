@@ -491,6 +491,23 @@ class TuntunNewsAdapter:
         ]
 
 
+def phintraco_news_headline(candidate: CompanyCandidate) -> str:
+    """Read the headline slot of supported branded news, never body text."""
+    if candidate.provider is not Provider.PHINTRACO:
+        return ""
+    lines = candidate.source_text.strip().splitlines()
+    if not lines:
+        return ""
+    header = lines[0].strip()
+    if not (
+        _PHINTRACO_BRANDED_NOTES.match(header)
+        or _PHINTRACO_QUICK_NOTES.match(header)
+        or _PHINTRACO_COMPANY_UPDATE.match(header)
+    ):
+        return ""
+    return next((line.strip() for line in lines[1:] if line.strip()), "")
+
+
 class PhintracoNewsAdapter:
     provider = Provider.PHINTRACO
 

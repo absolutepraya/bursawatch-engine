@@ -395,6 +395,50 @@ def test_phintraco_title_survives_persistence_and_rendering(load_fixture, monkey
     assert card.splitlines()[0].endswith(title)
 
 
+@pytest.mark.parametrize('header', [
+    'PHINTAS Quick Notes | 6 Oktober 2026',
+    'Phintraco Sekuritas Notes | 6 Oktober 2026',
+    'Phintraco Sekuritas Company Update',
+])
+@pytest.mark.parametrize('route', ['id_stocks_news', 'macro_news'])
+def test_missing_phintraco_title_uses_source_headline_after_submission(
+    load_fixture, monkeypatch, header, route,
+):
+    import delivery
+    from selection import pending_selection_candidates
+    from sources import PhintracoNewsAdapter
+
+    now = datetime(2026, 10, 6, 1, 43, tzinfo=timezone.utc)
+    headline = 'MGLV Berikan Pinjaman Rp4 Triliun untuk Pengembangan Data Center'
+    text = header + '\n\n' + headline + '\n\nPT Nextier Askara Center menerima pinjaman.'
+    candidate = PhintracoNewsAdapter().extract_candidates(35620, text, now, False)[0]
+    state = empty_state()
+    enqueue_candidate(state, candidate, now)
+    claim_oldest_pending_analysis(state, now)
+    payload = json.loads(load_fixture('classification-valid.json'))
+    payload.update(candidate_key=candidate.key, ticker='MGLV', route=route,
+                   event_class='financing_or_ownership',
+                   summary='MGLV memberikan fasilitas pinjaman Rp4 triliun.')
+    payload.pop('title')
+    submit_classification(state, candidate, payload, now)
+    monkeypatch.setattr(delivery, 'get_market_snapshot', lambda *_: None)
+    card = delivery.format_news_item(pending_selection_candidates(state)[0])
+    expected = 'MGLV: Berikan Pinjaman Rp4 Triliun untuk Pengembangan Data Center' if route == 'id_stocks_news' else headline
+    assert card.splitlines()[0].endswith(expected)
+    assert '*(Ringkasan)* MGLV memberikan fasilitas pinjaman Rp4 triliun.' in card
+    assert 'https://t.me/phintasprofits/35620' in card
+
+
+def test_active_telegram_news_prompt_example_includes_title():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    skill = (root / 'cron-tg-source-ingest' / 'SKILL.md').read_text()
+    example = skill.split('For `agent_target: market_news`', 1)[1].split('```json\n', 1)[1].split('```', 1)[0]
+    payload = json.loads(example)
+    assert 'title' in payload
+
+
 @pytest.mark.parametrize('reported', [
     'Pemerintah menetapkan target produksi 10 juta ton pada 2027.',
     'Phintraco memperkirakan valuation emiten meningkat pada 2027.',
