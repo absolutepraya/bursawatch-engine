@@ -32,6 +32,11 @@
       "paths": ["web-config/**", "web-landing/**"]
     },
     {
+      "id": "launch-video",
+      "handler": "metadata",
+      "paths": ["launch-video/**"]
+    },
+    {
       "id": "lib-bursawatch-control",
       "handler": "runtime",
       "runtime": "lib-bursawatch-control",

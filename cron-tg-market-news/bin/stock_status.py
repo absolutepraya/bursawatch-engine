@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 import re
+from zoneinfo import ZoneInfo
 
 
 _SOURCE_SECTIONS = {
@@ -173,16 +174,18 @@ def parse_stock_information(source_message_id: int, text: str) -> StockStatus:
     )
 
 
-def format_stock_status(status: StockStatus, source_url: str) -> str:
-    """Render the fixed grouped Discord message for a parsed status post."""
-    effective_date = status.effective_date
+def format_stock_status(status: StockStatus, source_url: str, observed_at: datetime) -> str:
+    """Render once using the owner's observation date in Jakarta."""
+    if observed_at.tzinfo is None or observed_at.utcoffset() is None:
+        raise ValueError("stock status observation requires a timezone")
+    heading_day = observed_at.astimezone(ZoneInfo("Asia/Jakarta")).date()
     heading_date = (
-        f"{_WEEKDAYS[effective_date.weekday()]}, "
-        f"{effective_date.day:02d} {_MONTHS[effective_date.month - 1]} "
-        f"{effective_date.year}"
+        f"{_WEEKDAYS[heading_day.weekday()]}, "
+        f"{heading_day.day:02d} {_MONTHS[heading_day.month - 1]} "
+        f"{heading_day.year}"
     )
     content = [
-        f"### <:phintraco:1531272488645038091> Stock Status: Web, {heading_date}"
+        f"### <:phintraco:1531272488645038091> STOCK STATUS: {heading_date}"
     ]
     for label, tickers in (
         ("UMA", status.uma),

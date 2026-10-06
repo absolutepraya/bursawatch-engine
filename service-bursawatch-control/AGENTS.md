@@ -7,6 +7,11 @@ API contract consumed by the separate web repository.
 It also owns durable normalized source-event acceptance and independent leased
 pipeline work. These are separate from structured run events and their retry
 state is held in Postgres.
+Source revision requests can carry `expected_pending_version`: require that
+exact latest version and pending current-version work atomically under existing
+locks. Keep revision-ID duplicate reconciliation ahead of that guard, and
+preserve the existing contract for clients that omit it. No schema migration
+or accepted-envelope rewrite is introduced.
 The publication read model in `publication_model.py`, `publication_store.py`,
 and migration `020_publications.sql` is a separate forward-only projection of
 confirmed Discord output. An owner submits only after all required Delivery

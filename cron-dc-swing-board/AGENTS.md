@@ -136,6 +136,12 @@ Projection failures never reopen an outbox operation or create a Discord post.
 The API URL is `BURSAWATCH_PUBLICATION_CONTROL_PLANE_URL`, and the scoped
 credential path is `IDX_SWING_PLAN_BOARD_PUBLICATION_TOKEN_FILE`.
 
+The Delivery Owner status client returns a typed OperationReceipt. Bind it
+to the saved operation and validate its receipt kind, target, key, digest,
+and delivered status before projection. Natural retries may reconcile saved
+pending projection intents; they must never resend Discord or replay source
+intake to obtain a receipt.
+
 Set `IDX_SWING_PLAN_BOARD_NO_POST=1` with isolated `IDX_SWING_PLAN_BOARD_STATE_PATH` and `IDX_SWING_PLAN_BOARD_MEDIA_ROOT` paths for every smoke test. This selects a local fake before any Delivery Owner client configuration is read, so no-post tests never contact the service. Never reset, hand-edit, initialize, or replay production state.
 
 `bin/delivery_handoff.py --plan <private-plan-path>` captures a payload-free,

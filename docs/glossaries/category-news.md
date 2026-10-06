@@ -31,6 +31,11 @@ A prediction or estimate attributed to its source for a stated period or
 horizon; a consensus forecast is attributed to the reported consensus.
 _Avoid_: Actual figure, unattributed expectation
 
+**Reported target**:
+A goal stated by a company, government, or other identified source for a
+specified activity or period. It is distinct from a trading setup's price target.
+_Avoid_: Actual result, guaranteed forecast, trading instruction
+
 **Reference period**:
 The period a reported figure describes, distinct from the publication date or
 the date of an upcoming event.

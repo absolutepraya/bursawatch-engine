@@ -252,7 +252,7 @@ def test_stock_status_event_round_trips_without_changing_provider_cursors(
     )
     now = datetime.fromisoformat("2026-09-23T08:30:00+07:00")
     source_url = "https://t.me/phintasprofits/35377"
-    content = format_stock_status(status, source_url)
+    content = format_stock_status(status, source_url, now)
 
     assert enqueue_stock_status(state, status, source_url, "123", content, now) is True
     save_state(state, state_path)
@@ -305,7 +305,7 @@ def test_duplicate_status_event_is_idempotent_and_payload_collision_blocks(
     )
     now = datetime.fromisoformat("2026-09-23T08:30:00+07:00")
     source_url = "https://t.me/phintasprofits/35377"
-    content = format_stock_status(status, source_url)
+    content = format_stock_status(status, source_url, now)
 
     assert enqueue_stock_status(state, status, source_url, "123", content, now) is True
     assert enqueue_stock_status(state, status, source_url, "123", content, now) is False
@@ -324,7 +324,7 @@ def test_stock_status_retry_metadata_and_frozen_payload_survive_reload(
     )
     now = datetime.fromisoformat("2026-09-23T08:30:00+07:00")
     source_url = "https://t.me/phintasprofits/35377"
-    content = format_stock_status(status, source_url)
+    content = format_stock_status(status, source_url, now)
     enqueue_stock_status(state, status, source_url, "123", content, now)
     schedule_stock_status_retry(
         state,
@@ -360,7 +360,7 @@ def test_stock_status_delivery_transition_persists_success(tmp_path, monkeypatch
     source_url = "https://t.me/phintasprofits/35377"
     now = datetime.fromisoformat("2026-09-23T08:30:00+07:00")
     enqueue_stock_status(
-        state, status, source_url, "123", format_stock_status(status, source_url), now
+        state, status, source_url, "123", format_stock_status(status, source_url, now), now
     )
 
     mark_stock_status_delivered(
@@ -389,13 +389,14 @@ def test_load_state_rejects_malformed_stock_status_event(tmp_path, monkeypatch, 
         35377, load_fixture("phintraco-stock-status-35377.txt")
     )
     source_url = "https://t.me/phintasprofits/35377"
+    now = datetime.fromisoformat("2026-09-23T08:30:00+07:00")
     enqueue_stock_status(
         state,
         status,
         source_url,
         "123",
-        format_stock_status(status, source_url),
-        datetime.fromisoformat("2026-09-23T08:30:00+07:00"),
+        format_stock_status(status, source_url, now),
+        now,
     )
     persisted = json.loads(state_path.read_text(encoding="utf-8"))
     mutate(persisted["stats"]["stock_status_events"]["phintraco-stock-status:35377"])

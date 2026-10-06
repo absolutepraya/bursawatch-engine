@@ -7,6 +7,7 @@ import json
 import os
 import re
 import sys
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -105,7 +106,7 @@ def _identity(work: dict[str, Any], profiles: tuple[Any, ...]) -> tuple[Any, dic
     return profile, envelope, dispatch_context
 
 
-def _posts(profile: Any, envelope: dict[str, Any]) -> tuple[tuple[Any, ...], dict[str, dict[str, Any]]]:
+def _posts(profile: Any, envelope: dict[str, Any], enabled_capabilities: frozenset[str] | None = None) -> tuple[tuple[Any, ...], dict[str, dict[str, Any]]]:
     payload = envelope.get("payload")
     raw_posts = payload.get("thread_posts") if type(payload) is dict else None
     if type(raw_posts) is not list or not 1 <= len(raw_posts) <= profile.thread_handling.max_posts:
@@ -151,7 +152,11 @@ def _posts(profile: Any, envelope: dict[str, Any]) -> tuple[tuple[Any, ...], dic
         if parsed.post_id != str(int(parsed.post_id)) or parsed.url != f"https://x.com/{profile.handle}/status/{parsed.post_id}":
             raise ValueError("X source post identity is invalid")
         converted.append(parsed)
-    if ordered_refs != [ref["ref"] for ref in refs] or bool(refs) != envelope.get("media_required"):
+    optional_media = payload.get("source_media_policy") == "optional_news"
+    if payload.get("source_media_policy") not in {None, "optional_news"}:
+        raise ValueError("X source media policy is invalid")
+    required = False if optional_media else bool(refs)
+    if ordered_refs != [ref["ref"] for ref in refs] or required != envelope.get("media_required"):
         raise ValueError("X source media completeness is invalid")
     latest = converted[-1]
     if (latest.post_id != envelope["provider_event_id"] or latest.url != envelope["source_url"]
@@ -163,6 +168,12 @@ def _posts(profile: Any, envelope: dict[str, Any]) -> tuple[tuple[Any, ...], dic
     expected = state._within_thread_age(profile, state._self_chain(profile, latest, by_id, lambda item: rsshub.is_self_thread_post(profile, item)))
     if [item.post_id for item in expected] != [item.post_id for item in converted]:
         raise ValueError("X source thread relations are invalid")
+    if optional_media:
+        from agent_protocol import optional_news_media
+        if (not optional_news_media(profile, latest, tuple(converted), enabled_capabilities)
+                or type(payload.get("source_observation_hash")) is not str
+                or not re.fullmatch(r"[0-9a-f]{64}", payload["source_observation_hash"])):
+            raise ValueError("X optional media requires an ordinary-news source")
     return tuple(converted), by_ref
 
 
@@ -175,13 +186,28 @@ def accept_source_work(work: dict[str, Any], *, now: datetime | None = None, no_
             raise ValueError("X owner requires a live watcher config revision")
         profiles = loaded.config.profiles
     profile, envelope, dispatch_context = _identity(work, profiles)
-    posts, refs = _posts(profile, envelope)
+    enabled_capabilities = frozenset(item["capability_id"] for item in dispatch_context["subscriptions"]) if dispatch_context is not None else None
+    posts, refs = _posts(profile, envelope, enabled_capabilities)
     if work.get("event_kind") not in {"original", "correction"} or (work["event_kind"] == "original") != (work["version"] == 1):
         raise ValueError("X source revision kind is invalid")
     now = now or datetime.now(timezone.utc)
     cached_paths = {}
+    optional_media = envelope["payload"].get("source_media_policy") == "optional_news"
+    unavailable_refs = set()
     for ref, metadata in refs.items():
-        cached_paths[ref] = str(cache_reference(storage, metadata, media_client or client_from_environment()))
+        try:
+            cached_paths[ref] = str(cache_reference(storage, metadata, media_client or client_from_environment()))
+        except Exception:
+            if not optional_media:
+                raise
+            unavailable_refs.add(ref)
+    if unavailable_refs:
+        from source_media import reference_id
+        posts = tuple(replace(post,
+                              media=tuple(item for item in post.media if reference_id(item.url) not in unavailable_refs),
+                              quoted_media=tuple(item for item in post.quoted_media if reference_id(item.url) not in unavailable_refs))
+                      for post in posts)
+        refs = {ref: metadata for ref, metadata in refs.items() if ref not in unavailable_refs}
     storage.parent.mkdir(parents=True, exist_ok=True)
     with (storage.parent / "run.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -230,6 +256,9 @@ def accept_source_work(work: dict[str, Any], *, now: datetime | None = None, no_
             if updating:
                 existing["source_media_refs"] = refs
                 existing["source_media_paths"] = cached_paths
+                if optional_media:
+                    existing["source_media_policy"] = "optional_news"
+                    existing["source_media_degraded"] = bool(unavailable_refs) or bool(envelope["payload"].get("media_degraded"))
                 existing["source_event_key"] = event_key
                 if dispatch_context is not None:
                     existing["dispatch_context"] = dispatch_context

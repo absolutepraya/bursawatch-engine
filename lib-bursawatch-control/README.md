@@ -33,6 +33,14 @@ Corrections and tombstones use `stage_revision` with a stable provider revision 
 A 409 while an older work item is leased leaves that staged revision pending for retry;
 the adapter must retain its source cursor until a revision receipt is validated.
 
+`stage_revision` and `revise` optionally carry a positive
+`expected_pending_version`. The server atomically requires that exact latest
+version and all its work to remain pending, while duplicate revision identities
+still return the original receipt. The precondition remains in the identical
+durable retry request. X may explicitly retire an unsent correction after a
+verified competing claim or settlement, reporting a deferred disposition;
+this does not acknowledge a new source version or modify accepted event state.
+
 Claims require explicit supported pipeline IDs. Claimed work includes a stable
 `effect_key` and event version. Domain handlers must send both to their owner to
 deduplicate effects and reject stale versions across retries, lease expiry, and

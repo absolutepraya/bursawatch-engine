@@ -14,6 +14,9 @@ export type PublishedFilter = {
 export function PublishedList({
   items,
   coverage,
+  coverageLoading = false,
+  coverageError = "",
+  onRetryCoverage,
   cursor,
   filter,
   loading,
@@ -24,6 +27,9 @@ export function PublishedList({
 }: {
   items: Publication[];
   coverage: PublicationCoverage | null;
+  coverageLoading?: boolean;
+  coverageError?: string;
+  onRetryCoverage?: () => void;
   cursor: string | null;
   filter: PublishedFilter;
   loading: boolean;
@@ -33,7 +39,11 @@ export function PublishedList({
   onSelect: (publicationId: string) => void;
 }) {
   const boundary = coverage?.cutover?.boundary;
-  const coverageProblem = coverage === null || coverage.overall_status !== "complete";
+  const coverageProblem =
+    coverageLoading ||
+    Boolean(coverageError) ||
+    coverage === null ||
+    coverage.overall_status !== "complete";
   const shown = items.filter((item) => {
     if (filter.group === "news" && isSwing(item.type)) return false;
     if (filter.group === "swing" && !isSwing(item.type)) return false;
@@ -43,7 +53,13 @@ export function PublishedList({
     <section className="published-feed" aria-label="Published records">
       <div className="published-coverage" role="status">
         <strong>
-          {boundary ? `Published since ${dateTime(boundary)}` : "Publication feed not started"}
+          {coverageLoading
+            ? "Loading publisher coverage…"
+            : !coverage || coverageError
+              ? "Publisher coverage unavailable"
+              : boundary
+                ? `Published since ${dateTime(boundary)}`
+                : "Publication feed not started"}
         </strong>
         <p>
           {coverageProblem
@@ -73,6 +89,21 @@ export function PublishedList({
           </details>
         ) : null}
       </div>
+      {coverageError ? (
+        <div className="control-alert" role="alert">
+          <p>{coverageError}</p>
+          {onRetryCoverage ? (
+            <button
+              type="button"
+              className="button secondary"
+              disabled={coverageLoading}
+              onClick={onRetryCoverage}
+            >
+              Retry publisher coverage
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <div className="published-filters">
         <div role="group" aria-label="Publication group" className="published-group">
           {(["all", "news", "swing"] as const).map((group) => (
@@ -115,7 +146,9 @@ export function PublishedList({
           <p>
             {boundary
               ? "No confirmed publications in this view since the cutover."
-              : "The forward-only feed has not been activated."}
+              : coverage && !coverageError && !coverageLoading
+                ? "The forward-only feed has not been activated."
+                : "No confirmed publications loaded in this view."}
           </p>
           {coverageProblem ? (
             <p>Check publisher coverage before treating this as a complete result.</p>

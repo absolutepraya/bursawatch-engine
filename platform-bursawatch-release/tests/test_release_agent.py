@@ -500,6 +500,7 @@ def test_manifest_rejects_an_unmapped_changed_path():
         (".github/workflows/web.yml", "repository-metadata"),
         ("web-config/src/app/page.tsx", "web-applications"),
         ("web-landing/src/app/page.tsx", "web-applications"),
+        ("launch-video/index.html", "launch-video"),
     ],
 )
 def test_web_migration_paths_require_no_vps_deployment(path: str, expected_unit: str):

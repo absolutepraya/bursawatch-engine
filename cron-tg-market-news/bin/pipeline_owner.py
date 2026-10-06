@@ -271,7 +271,7 @@ def submit_stock_status(work: dict[str, Any], *, no_post: bool = False) -> str:
             if not has_stock_status_event(state, message_id):
                 try:
                     parsed = parse_stock_information(message_id, text)
-                    content = format_stock_status(parsed, envelope["source_url"])
+                    content = format_stock_status(parsed, envelope["source_url"], now)
                 except StockStatusError as error:
                     code = "message_too_long" if "exceeds Discord limit" in str(error) else "invalid_status"
                     reject_stock_status(state, message_id, envelope["source_url"], code, now)

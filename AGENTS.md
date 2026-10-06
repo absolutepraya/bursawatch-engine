@@ -104,6 +104,7 @@ this contract:
 - `platform-hermes-schedule-reconciler/AGENTS.md`
 - `web-config/AGENTS.md`
 - `web-landing/AGENTS.md`
+- `launch-video/AGENTS.md`
 
 ## Documentation model
 

@@ -114,6 +114,7 @@ class WorkRecover(WorkAction):
 
 
 class SourceRevisionWrite(WorkAction):
+    expected_pending_version: int | None = Field(default=None, ge=1, strict=True)
     envelope: dict[str, Any]
     kind: Literal["correction", "tombstone"]
     revision_id: str = Field(min_length=1, max_length=128)
@@ -699,7 +700,7 @@ def create_app(
         if current.kind == "source_machine" and payload.envelope.get("endpoint_id") != current.subject:
             raise HTTPException(status_code=403, detail="source endpoint credential mismatch")
         try:
-            return inbox_store.revise(event_key, payload.envelope, payload.kind, payload.revision_id, current.subject, payload.reason)
+            return inbox_store.revise(event_key, payload.envelope, payload.kind, payload.revision_id, current.subject, payload.reason, expected_pending_version=payload.expected_pending_version)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="source event not found") from exc
         except InboxConflict as exc:

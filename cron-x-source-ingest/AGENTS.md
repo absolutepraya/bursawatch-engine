@@ -17,7 +17,14 @@ to this package. Never copy or initialize them from the live X watcher state
 without a separately approved cutover. When media storage is configured, the
 adapter uploads bounded `pbs.twimg.com` images through the shared Source Media
 Owner before inbox acceptance. It stores only validated opaque refs in the
-event. Unsupported media and upload failures retain the endpoint cursor. The
+event. Ordinary news with authored text uses optional media: unsupported media,
+failed fetches or uploads, and missing upload access fall back to sanitized
+text and any usable bounded images. A failed attachment does not discard its
+healthy siblings; source positions and upload keys remain unchanged.
+Image-only posts and Swing routes retain required-media handling. An unresolved
+route also requires media when its effective subscriptions allow Swing. If
+Swing is disabled for that event, unknown news routes may use fallback and the
+existing frozen capability gate prevents a later Swing delivery. The
 existing watcher remains the queue owner, agent wake owner, renderer, Board
 handoff, and Discord Delivery Owner client. For verified
 X endpoints, `company_news`, `macro_news`, and `swing_chart_context` are
@@ -42,6 +49,36 @@ multi-image delivery through All and the Board.
 Correction failures retain the existing `correction_handoff_failed` reason and
 add a bounded `correction_error_code` identifying the failed stage. Never log
 raw exceptions, source bodies, media locators, or credentials for diagnostics.
+
+New optional-news payloads freeze `source_media_policy: optional_news` and a
+hash of the observed source thread. The accepted index retains that hash so
+an unchanged source does not trigger media reuploads or corrections when an
+attachment fails or recovers. Genuine source edits inspect the accepted version
+and its current-version work before preparing media. Claimed, executing, completed, or otherwise
+nonpending work remains frozen and reports a bounded `deferred_frozen`
+correction outcome without holding unrelated intake. Legacy records with
+unchanged sanitized text retain their accepted media and report
+`text_unchanged_media_unverified`; this is not proof that image bytes match.
+For a genuine edit to pending legacy ordinary news, append a new optional-media
+version under the original frozen capabilities. Swing, image-only, and
+ambiguous Swing-capable events keep required images. Never retrofit a marker
+into an accepted payload/index or rewrite a frozen delivery.
+
+New correction requests carry `expected_pending_version`. The Control Plane
+checks that version and all of its work atomically before appending. Retain
+older staged request bytes and revision identities, adding the same atomic
+guard when retrying them through the upgraded adapter. Retain
+the same staged request on transport failure. If a competing claim or
+settlement freezes that work, retire only the unsent correction spool entry
+with a bounded `deferred_frozen` outcome; do not revise source state or send
+Discord. A revision already accepted before an acknowledgement was lost still
+reconciles its original revision identity, even after its work completes.
+Correction inspection failures retain the existing warning fields but do not
+stop subsequent publications' correction checks.
+Retry saved corrections per request, retaining a failed request's bytes and
+revision identity. Each request is attempted at most once in a run. A failed
+event keeps its saved retry rather than staging another version from that
+run's observation; other saved requests and observed publications continue.
 
 The first poll for a direct-X endpoint reads only the account page and stores
 the newest own-post ID as a future-only boundary. It does not fetch or publish

@@ -235,6 +235,21 @@ def deterministic_route(
     return None
 
 
+def optional_news_media(profile: Profile, post: SourcePost, thread_posts: tuple[SourcePost, ...], enabled_capabilities: set[str] | frozenset[str] | None = None) -> bool:
+    """Allow fallback only when this event cannot subsequently route to Swing."""
+    configured = {channel.key for channel in profile.discord_channels}
+    if not configured.intersection({"macro_news", "id_stocks_news", "us_stocks_news"}):
+        return False
+    route = deterministic_route(profile, post, thread_posts) if profile.enable_llm_routing else profile.discord_channels[0].key
+    if route == "id_stocks_swing":
+        return False
+    swing_enabled = "id_stocks_swing" in configured and (enabled_capabilities is None or "swing_chart_context" in enabled_capabilities)
+    if route is None and swing_enabled:
+        return False
+    from scan import source_visible_text
+    return any(source_visible_text(item.content_html).strip() for item in thread_posts)
+
+
 def requires_relevance(
     post: SourcePost,
     thread_posts: tuple[SourcePost, ...] | None = None,

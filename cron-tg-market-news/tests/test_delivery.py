@@ -495,9 +495,12 @@ def test_flat_market_change_uses_grey_emoji(monkeypatch, dewa_tier_one):
     assert alert.count("<:grey:1531279158913536182>") == 4
 
 
-def test_investment_language_guard_does_not_reject_the_factual_word_holds():
-    assert not delivery._contains_investment_language("DSSA holds more than 99% of BMT.")
-    assert delivery._contains_investment_language("The source recommends BUY.")
+def test_reported_share_sale_survives_rendering(monkeypatch, dewa_tier_one):
+    summary = "DEWA berencana sell shares kepada investor strategis."
+    candidate = replace(dewa_tier_one.candidate, source_text=summary)
+    item = replace(dewa_tier_one, candidate=candidate, summary=summary, material_facts=(summary,))
+    monkeypatch.setattr(delivery, "get_market_snapshot", lambda *_: None)
+    assert summary in delivery.format_news_item(item)
 
 
 def test_each_news_item_is_a_standalone_message_without_a_shared_heading(monkeypatch, tmp_path, dewa_tier_one):
@@ -938,7 +941,7 @@ def status_event(load_fixture, tmp_state, monkeypatch):
     )
     now = datetime.fromisoformat("2026-09-23T08:30:00+07:00")
     source_url = "https://t.me/phintasprofits/35377"
-    content = format_stock_status(status, source_url)
+    content = format_stock_status(status, source_url, now)
     event_key = "phintraco-stock-status:35377"
     enqueue_stock_status(state, status, source_url, "123", content, now)
     return SimpleNamespace(
@@ -1008,7 +1011,7 @@ def test_status_delivery_transient_failure_keeps_same_owner_operation_for_retry(
     assert event["retry"]["attempts"] == 1
     assert event["retry"]["last_error"]
 
-    later = status_event.now + timedelta(minutes=1)
+    later = status_event.now + timedelta(days=1)
     assert asyncio.run(
         delivery.deliver_stock_status_event(
             status_event.state,
@@ -1020,6 +1023,8 @@ def test_status_delivery_transient_failure_keeps_same_owner_operation_for_retry(
     assert len(owner.submissions) == 2
     assert owner.submissions[0].key == owner.submissions[1].key
     assert owner.submissions[0].digest == owner.submissions[1].digest
+    assert owner.submissions[0].payload["content"] == status_event.content
+    assert owner.submissions[1].payload["content"] == status_event.content
 
 
 def test_accepted_status_retry_stays_with_owner_without_local_backoff(status_event):

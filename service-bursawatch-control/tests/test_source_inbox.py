@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import hashlib
+import pytest
 
 from fastapi.testclient import TestClient
 
@@ -31,6 +32,38 @@ def setup():
 
 def envelope(provider="42"):
     return {"version": 1, "endpoint_id": "telegram:phintasprofits", "publisher_id": "phintraco", "platform": "telegram", "provider_event_id": provider, "published_at": "2026-09-24T07:00:00+07:00", "observed_at": "2026-09-24T07:01:00+07:00", "source_url": "https://t.me/phintasprofits/42", "parser_version": "parser-1", "content_hash": hashlib.sha256(b"content").hexdigest(), "payload": {"text": "source"}, "media_refs": [], "media_required": False}
+
+
+@pytest.mark.parametrize('status', ['leased', 'executing', 'done', 'suppressed', 'dead_letter'])
+def test_guarded_correction_cannot_revise_work_that_left_pending(status):
+    api, _, inbox = setup()
+    original = api.post('/v1/source-events',headers=SOURCE,json={'envelope':envelope()}).json()
+    # Simulate the competing claim/settlement between adapter GET and POST.
+    for row in inbox.work.values(): row['status'] = status
+    corrected = envelope()
+    corrected.update(payload={'text':'Edited source'},content_hash='b'*64)
+    response = api.post(f'/v1/source-events/{original["event_key"]}/versions',headers=SOURCE,
+                        json=dict(envelope=corrected,kind='correction',revision_id='edit-1',reason='Observed source edit',expected_pending_version=1))
+    assert response.status_code == 409
+    assert len(inbox.inspect(original['event_key'])['event']['versions']) == 1
+
+
+def test_guarded_correction_preserves_duplicate_receipt_after_work_finishes():
+    api, _, inbox = setup()
+    original = api.post('/v1/source-events',headers=SOURCE,json={'envelope':envelope()}).json()
+    corrected = envelope()
+    corrected.update(payload={'text':'Edited source'},content_hash='b'*64)
+    payload = dict(envelope=corrected,kind='correction',revision_id='edit-1',reason='Observed source edit',expected_pending_version=1)
+    path = f'/v1/source-events/{original["event_key"]}/versions'
+    first = api.post(path,headers=SOURCE,json=payload)
+    assert first.status_code == 200 and first.json()['version'] == 2
+    for row in inbox.work.values(): row['status'] = 'done'
+    retried = api.post(path,headers=SOURCE,json=payload)
+    assert retried.status_code == 200
+    assert retried.json()['duplicate'] is True
+    assert retried.json()['version'] == 2
+    different = {**payload,'revision_id':'edit-2'}
+    assert api.post(path,headers=SOURCE,json=different).status_code == 409
 
 
 def kelas_envelope(provider: str):

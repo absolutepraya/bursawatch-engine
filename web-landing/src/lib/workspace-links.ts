@@ -7,9 +7,9 @@ export function getWorkspaceLinks() {
     process.env.NODE_ENV === "production",
   );
   return {
-    setup: workspaceUrl(origin, "/workspace"),
-    home: workspaceUrl(origin, "/workspace"),
-    discover: workspaceUrl(origin, "/app/discover"),
-    createWatch: workspaceUrl(origin, "/workspace"),
+    /** The authenticated workspace; it handles sign-in itself. */
+    workspace: workspaceUrl(origin, "/workspace"),
+    /** The sample workspace: no sign-in, data stays in the browser. */
+    demo: workspaceUrl(origin, "/app"),
   };
 }

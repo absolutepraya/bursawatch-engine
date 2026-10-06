@@ -62,16 +62,6 @@ _DISCORD_MESSAGE_LIMIT = 2_000
 _DELIVERY_OWNER_PREFIX = "bursawatch-market-news"
 _DELIVERY_OWNER_URL = "http://127.0.0.1:9140"
 _DELIVERY_OWNER_TOKEN_FILE = ".hermes/secrets/bursawatch-discord-delivery-client-token"
-_INVESTMENT_TERMS = (
-    "buy",
-    "sell",
-    "hold",
-    "target price",
-    "stop loss",
-    "entry price",
-    "recommend",
-    "recommendation",
-)
 _PROVIDER_EMOJIS = {
     "Tuntun": "<:tuntun:1531272430985937086>",
     "Phintraco": "<:phintraco:1531272488645038091>",
@@ -93,11 +83,6 @@ def _require_selection_candidate(item: object) -> SelectionCandidate:
 
 def _source_name(item: SelectionCandidate) -> str:
     return item.provider.value.title()
-
-
-def _contains_investment_language(value: str) -> bool:
-    normalized = " ".join(value.casefold().split())
-    return any(re.search(rf"\b{re.escape(term)}\b", normalized) is not None for term in _INVESTMENT_TERMS)
 
 
 def _idr(value: float, *, signed: bool = False) -> str:
@@ -127,8 +112,6 @@ def _render_tuntun_summary(item: SelectionCandidate) -> str:
 
 def _legacy_entry(item: SelectionCandidate) -> str:
     summary = item.summary
-    if _contains_investment_language(summary):
-        raise ValueError("delivery facts must not contain investment language")
     snapshot = get_market_snapshot(item.ticker, item.candidate.source_text)
     company_name = snapshot.company_name if snapshot is not None else fallback_company_name(item.ticker, item.candidate.source_text)
     lines = [
@@ -166,8 +149,6 @@ def _issuer_entry(
     market_metadata: dict | None = None,
 ) -> str:
     summary = _render_tuntun_summary(item)
-    if _contains_investment_language(summary):
-        raise ValueError("delivery facts must not contain investment language")
     if load_market_data and item.route is Destination.ID_STOCKS_NEWS and item.ticker is not None:
         snapshot = get_market_snapshot(item.ticker, item.candidate.source_text)
     if market_metadata is not None:

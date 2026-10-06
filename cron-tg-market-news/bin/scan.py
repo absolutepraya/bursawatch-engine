@@ -416,7 +416,7 @@ async def _ingest_provider(
                 source_url = source_message_url(source)
                 try:
                     status = parse_stock_information(message_id, text)
-                    content = format_stock_status(status, source_url)
+                    content = format_stock_status(status, source_url, now)
                 except StockStatusError as error:
                     reason_code = (
                         "message_too_long"

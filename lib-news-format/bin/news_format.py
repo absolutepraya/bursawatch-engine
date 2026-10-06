@@ -51,6 +51,27 @@ def ticker_from_title(title: str | None, route: str | None) -> str | None:
     return match.group(1) if match else None
 
 
+def normalize_headline(title: str, route: str | None = None) -> str:
+    """Capitalize the subject without changing names or rejecting unusual prose."""
+    ticker = ticker_from_title(title, route)
+    start = len(ticker) + 1 if ticker else 0
+    for index in range(start, len(title)):
+        character = title[index]
+        if character.lower() != character.upper():
+            upper = character.upper()
+            # Expanding a Unicode character must not consume more transport space.
+            return title[:index] + upper + title[index + 1:] if len(upper) == 1 else title
+    return title
+
+
+def _normalize_heading(heading: str, route: str | None) -> str:
+    first, separator, rest = heading.partition("\n")
+    match = re.match(r"^###\s+(?:<a?:[^:>]+:\d+>\s+)?", first)
+    if match is None:
+        return heading
+    return first[:match.end()] + normalize_headline(first[match.end():], route) + separator + rest
+
+
 def _number(value) -> float | None:
     if isinstance(value, bool):
         return None
@@ -211,6 +232,7 @@ def _fit_index(value: str, limit: int) -> int:
 
 
 def render_card(heading: str, summary: str, source_url: str, source_label: str, *, route=None, snapshot=None) -> list[str]:
+    heading = _normalize_heading(heading, route)
     body = normalize_summary(summary, marked=True)
     sections = [heading, body]
     if route in {"id_stocks_news", "us_stocks_news"}:
@@ -246,6 +268,8 @@ def freeze_cards(items: list[dict], heading_for, source_url: str, source_label: 
     quote_deadline = time.monotonic() + 9.0
     for item in deduplicate_items(items):
         route, title = item.get("route"), item.get("title") or ""
+        title = normalize_headline(title, route)
+        item = {**item, "title": title}
         ticker = ticker_from_title(title, route)
         try:
             snapshot = _bounded_quote(fetch, ticker, route, min(3.0, max(0, quote_deadline - time.monotonic()))) if ticker and time.monotonic() < quote_deadline else None

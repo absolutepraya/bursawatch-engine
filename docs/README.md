@@ -152,6 +152,13 @@ is implemented natively in a separate development branch. Validation and
 release remain separate steps. These documents make no current production
 claims.
 
+The [platform news audit repair design](specs/2026-10-05-platform-news-audit-repairs.md)
+and [ADR 0033](adr/0033-semantic-news-and-pending-corrections.md) record the
+2026-10-05 fixes for generated headlines, semantic advice filtering, Board
+receipt projection, and pending legacy X corrections. The user confirmed
+existing LLM judgment and text-only pending news corrections. Release and
+historical message edits remain separate from this development work.
+
 The split decision and the current Bursawatch to Hermes Personal boundary are
 recorded in [`adr/0024-separate-bursawatch-and-hermes-personal.md`](adr/0024-separate-bursawatch-and-hermes-personal.md).
 The physical state-cutover decision is recorded in

@@ -18,7 +18,7 @@ from runner import format_fatal, format_heartbeat, process_pending
 
 sys.path.insert(0, str(ROOT / "cron-x-account-watch" / "bin"))
 from config import REVIEWED_PUBLISHERS, load_watch_config
-from models import PostKind, SourceMedia, SourcePost
+from models import DiscordChannel, PostKind, SourceMedia, SourcePost
 import pipeline_owner
 import state
 from compatible_catalog_transition import _require_x_transition_chain
@@ -209,18 +209,29 @@ def test_route_group_handoff_is_acknowledged_once_with_fake_owner(monkeypatch):
 
 
 class Inbox:
-    def __init__(self):
+    def __init__(self, capabilities=("company_news",)):
         self.events = []
         self.revisions = []
+        self.capabilities = capabilities
+        self.work_status = "pending"
     def accept(self, event):
         self.events.append(event)
         identity = [event[key] for key in ("platform", "endpoint_id", "provider_event_id")]
         return {"event_key": hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest(), "version": 1, "duplicate": False, "work_keys": []}
-    def revise(self, event_key, event, kind, revision_id, reason):
+    def revise(self, event_key, event, kind, revision_id, reason, *, expected_pending_version=None):
+        for index, (key, saved, saved_kind, identity, _) in enumerate(self.revisions):
+            if key == event_key and identity == revision_id:
+                assert saved == event and saved_kind == kind
+                return {"event_key":event_key,"version":index+2,"duplicate":True,"work_keys":[]}
         self.revisions.append((event_key, event, kind, revision_id, reason))
-        return {"event_key": event_key, "version": 2, "duplicate": False, "work_keys": []}
+        return {"event_key": event_key, "version": 1+sum(row[0] == event_key for row in self.revisions), "duplicate": False, "work_keys": []}
     def inspect(self, event_key):
-        return {"event": {"event_key": event_key}, "work": [{"status": "pending"}]}
+        event = next(event for event in self.events if hashlib.sha256(json.dumps([event[field] for field in ("platform","endpoint_id","provider_event_id")], separators=(",",":")).encode()).hexdigest() == event_key)
+        versions = [{"version":1,"kind":"original","envelope":event}]
+        for key, revised, kind, revision_id, reason in self.revisions:
+            if key == event_key:
+                versions.append({"version":len(versions)+1,"kind":kind,"revision_id":revision_id,"envelope":revised})
+        return {"event": {"event_key": event_key,"versions":versions}, "work": [{"version":len(versions),"status":self.work_status,"capability_id":capability} for capability in self.capabilities]}
 
 
 class MediaStore:
@@ -447,7 +458,8 @@ def test_x_media_upload_is_durable_and_payload_keeps_no_media_locator(tmp_path):
     assert event["payload"]["post"]["media"][0]["media_ref_id"] == event["media_refs"][0]["ref"]
 
 
-def test_unsupported_x_video_media_holds_cursor(tmp_path):
+@pytest.mark.parametrize("failure", ["video", "fetch", "upload", "no_store"])
+def test_news_media_failure_accepts_text_and_unblocks_later_posts(tmp_path, failure):
     profile = replace(load_watch_config(ROOT / "cron-x-account-watch" / "config" / "watches.json").profiles[0], enabled=True)
     endpoint_id = f"x:{profile.handle.casefold()}"
     row = {"platform": "x", "endpoint_id": endpoint_id, "publisher_id": "x-kutekians", "address": profile.handle, "provider_id": None, "capability_id": "company_news", "verification_status": "verified", "enabled": True}
@@ -457,12 +469,197 @@ def test_unsupported_x_video_media_holds_cursor(tmp_path):
     inbox = Inbox()
     store = MediaStore()
     run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
-    posts.append(post("11", (SourceMedia("https://video.twimg.com/ext_tw_video/11/pu/vid/avc1/480x270/video.mp4", 0),)))
-    result = run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts, media_store=store, media_preparer=fake_image_prepare)[0]
-    assert result == {"endpoint_id": endpoint_id, "status": "blocked", "reason": "media_blocked"}
+    media_url = "https://video.twimg.com/ext_tw_video/11/pu/vid/avc1/480x270/video.mp4" if failure == "video" else "https://pbs.twimg.com/media/image.jpg"
+    posts.append(post("11", (SourceMedia(media_url, 0),)))
+    posts.append(post("12"))
+    def unavailable(*_args, **_kwargs):
+        raise RuntimeError("unavailable")
+    if failure == "upload":
+        store.upload = unavailable
+    prepare = unavailable if failure == "fetch" else fake_image_prepare
+    result = run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts, media_store=None if failure == "no_store" else store, media_preparer=prepare)[0]
+    assert result["accepted"] == 2
     cursor = json.loads((tmp_path / endpoint_id.replace(":", "-") / "cursor.json").read_text())
-    assert cursor["anchor"] == "10"
+    assert cursor["anchor"] == "12"
     assert store.uploads == []
+    event = inbox.events[0]
+    assert event["media_required"] is False
+    assert event["media_refs"] == []
+    assert event["payload"]["post"]["media"] == []
+    assert media_url not in json.dumps(event)
+    converted, refs = pipeline_owner._posts(profile, event)
+    assert converted[-1].content_html == "Video post"
+    assert refs == {}
+
+
+@pytest.mark.parametrize("settings", [
+    {"BURSAWATCH_SOURCE_MEDIA_URL": "http://127.0.0.1:9130"},
+    {"BURSAWATCH_SOURCE_MEDIA_UPLOAD_TOKEN_FILE": "/unavailable/token"},
+    {"BURSAWATCH_SOURCE_MEDIA_URL": "invalid-url", "BURSAWATCH_SOURCE_MEDIA_UPLOAD_TOKEN_FILE": "/unavailable/token"},
+])
+def test_unavailable_media_configuration_does_not_abort_text_intake(monkeypatch, settings):
+    for name in ("BURSAWATCH_SOURCE_MEDIA_URL", "BURSAWATCH_SOURCE_MEDIA_UPLOAD_TOKEN_FILE"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in settings.items():
+        monkeypatch.setenv(name, value)
+    assert runner._media_client() is None
+
+
+@pytest.mark.parametrize("source_text", ["KPIG: support 100, target 120", "BBCA buy area 8000, TP 9000, SL 7800"])
+def test_swing_media_failure_still_holds_cursor(tmp_path, source_text):
+    profile = replace(next(p for p in load_watch_config(ROOT / "cron-x-account-watch/config/watches.json").profiles if p.id == "writingtorch"), enabled=True)
+    profile = replace(profile, discord_channels=profile.discord_channels + (DiscordChannel("id_stocks_swing", "123", "Swing"),))
+    snapshot = {"revision": 3, "subscriptions": [{"platform": "x", "endpoint_id": "x:writingtorch", "publisher_id": "x-writingtorch", "address": profile.handle, "provider_id": None, "capability_id": "swing_chart_context", "verification_status": "verified", "enabled": True}]}
+    post = lambda identity, media=(): SourcePost(profile.id, identity, f"https://x.com/{profile.handle}/status/{identity}", NOW, source_text, PostKind.NORMAL, None, None, tuple(media), ())
+    posts = [post("10")]
+    inbox = Inbox()
+    run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
+    posts.append(post("11", (SourceMedia("https://pbs.twimg.com/media/chart.jpg", 0),)))
+    result = run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)[0]
+    assert result["reason"] == "media_blocked"
+    assert inbox.events == []
+    assert json.loads((tmp_path / "x-writingtorch/cursor.json").read_text())["anchor"] == "10"
+
+
+@pytest.mark.parametrize("swing_enabled", [False, True])
+@pytest.mark.parametrize("source_text, known_news", [("BBCA buy area 8000, TP 9000, SL 7800", False), ("IHSG technical chart shows broad market support", True)])
+def test_mixed_profile_fallback_uses_effective_swing_subscription(tmp_path, swing_enabled, source_text, known_news):
+    profile = replace(next(p for p in load_watch_config(ROOT / "cron-x-account-watch/config/watches.json").profiles if p.id == "doktermarket"), enabled=True)
+    endpoint = f"x:{profile.handle.casefold()}"
+    snapshot = {"revision": 3, "subscriptions": [
+        {"platform": "x", "endpoint_id": endpoint, "publisher_id": REVIEWED_PUBLISHERS[profile.id],
+         "address": profile.handle, "provider_id": None, "capability_id": capability,
+         "verification_status": "verified", "enabled": capability != "swing_chart_context" or swing_enabled}
+        for capability in ("company_news", "macro_news", "swing_chart_context")
+    ]}
+    posts = [SourcePost(profile.id, "10", f"https://x.com/{profile.handle}/status/10", NOW, "Boundary", PostKind.NORMAL, None, None, (), ())]
+    inbox = Inbox()
+    run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
+    posts.append(replace(posts[0], post_id="11", url=f"https://x.com/{profile.handle}/status/11",
+                         content_html=source_text,
+                         media=(SourceMedia("https://pbs.twimg.com/media/chart.jpg", 0),)))
+    result = run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)[0]
+    if swing_enabled and not known_news:
+        assert result["reason"] == "media_blocked"
+        assert inbox.events == []
+    else:
+        assert result["accepted"] == 1
+        assert inbox.events[0]["media_required"] is False
+
+
+@pytest.mark.parametrize("failure", ["fetch", "upload", "unsupported", "invalid_asset"])
+@pytest.mark.parametrize("failed_index", [0, 1])
+@pytest.mark.parametrize("optional", [False, True])
+def test_partial_media_preserves_healthy_source_identity_and_order(failure, failed_index, optional):
+    profile = load_watch_config(ROOT / "cron-x-account-watch/config/watches.json").profiles[0]
+    media = tuple(SourceMedia(f"https://pbs.twimg.com/media/{index}.jpg", index) for index in range(3))
+    if failure == "unsupported":
+        media = tuple(replace(item, url="https://video.twimg.com/clip.mp4") if item.index == failed_index else item for item in media)
+    post = SourcePost(profile.id, "101", f"https://x.com/{profile.handle}/status/101", NOW, "MYOR earnings increased", PostKind.NORMAL, None, None, media, ())
+    def prepare(source_post, root):
+        bundle = fake_image_prepare(source_post, root)
+        if failure == "fetch":
+            bundle = replace(bundle, assets=tuple(asset for asset in bundle.assets if asset.index != failed_index), unavailable_count=1)
+        if failure == "invalid_asset":
+            next(asset for asset in bundle.assets if asset.index == failed_index).path.write_bytes(b"")
+        return bundle
+    class Store(MediaStore):
+        def upload(self, key, data, **kwargs):
+            if failure == "upload" and key.endswith(f":{failed_index}"):
+                raise RuntimeError("isolated upload failure")
+            result = super().upload(key, data, **kwargs)
+            result["ref"] = f"20000000-0000-4000-8000-{int(key.rsplit(':', 1)[1]) + 1:012d}"
+            return result
+    store = Store()
+    item = _item(post, f"x:{profile.handle.casefold()}", store, upload_media=True,
+                 media_preparer=prepare, optional_media=optional)
+    if not optional:
+        assert item["media_refs"] == []
+        assert item["media_required"] is True
+        return
+    healthy = [index for index in range(3) if index != failed_index]
+    assert [ref["ref"] for ref in item["media_refs"]] == [f"20000000-0000-4000-8000-{index + 1:012d}" for index in healthy]
+    assert [item["index"] for item in item["payload"]["post"]["media"]] == healthy
+    assert item["payload"]["media_degraded"] is True
+    assert item["media_required"] is False
+    assert "pbs.twimg.com" not in json.dumps(item["payload"])
+
+
+def test_partial_news_images_stay_frozen_when_failed_upload_recovers(tmp_path):
+    profile = replace(load_watch_config(ROOT / "cron-x-account-watch/config/watches.json").profiles[0], enabled=True)
+    endpoint = f"x:{profile.handle.casefold()}"
+    snapshot = {"revision": 3, "subscriptions": [{"platform": "x", "endpoint_id": endpoint,
+        "publisher_id": REVIEWED_PUBLISHERS[profile.id], "address": profile.handle, "provider_id": None,
+        "capability_id": "company_news", "verification_status": "verified", "enabled": True}]}
+    posts = [SourcePost(profile.id, "10", f"https://x.com/{profile.handle}/status/10", NOW, "Boundary", PostKind.NORMAL, None, None, (), ())]
+    inbox = Inbox()
+    run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
+    posts.append(replace(posts[0], post_id="11", url=f"https://x.com/{profile.handle}/status/11", content_html="MYOR earnings increased",
+                         media=(SourceMedia("https://pbs.twimg.com/media/a.jpg", 0),),
+                         quoted_media=(SourceMedia("https://pbs.twimg.com/media/b.jpg", 0), SourceMedia("https://pbs.twimg.com/media/c.jpg", 1))))
+    class Store(MediaStore):
+        recovered = False
+        def upload(self, key, data, **kwargs):
+            if key.endswith(":1") and not self.recovered:
+                raise RuntimeError("isolated upload failure")
+            result = super().upload(key, data, **kwargs)
+            result["ref"] = f"20000000-0000-4000-8000-{int(key.rsplit(':', 1)[1]) + 1:012d}"
+            return result
+    store = Store()
+    assert run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts,
+                    media_store=store, media_preparer=fake_image_prepare)[0]["accepted"] == 1
+    event = inbox.events[0]
+    assert len(event["media_refs"]) == 2
+    assert event["payload"]["post"]["media"][0]["media_ref_id"].endswith("000000000001")
+    assert event["payload"]["post"]["quoted_media"] == [{"index": 1, "media_ref_id": "20000000-0000-4000-8000-000000000003"}]
+    assert event["payload"]["media_degraded"] is True
+    frozen = json.dumps(event, sort_keys=True)
+    uploads = list(store.uploads)
+    store.recovered = True
+    assert run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts,
+                    media_store=store, media_preparer=fake_image_prepare)[0]["accepted"] == 0
+    assert store.uploads == uploads
+    assert inbox.revisions == []
+    assert json.dumps(event, sort_keys=True) == frozen
+
+
+def test_image_only_source_cannot_use_news_fallback(tmp_path):
+    profile = replace(load_watch_config(ROOT / "cron-x-account-watch/config/watches.json").profiles[0], enabled=True)
+    endpoint = f"x:{profile.handle.casefold()}"
+    snapshot = {"revision": 3, "subscriptions": [{"platform": "x", "endpoint_id": endpoint, "publisher_id": "x-kutekians", "address": profile.handle, "provider_id": None, "capability_id": "company_news", "verification_status": "verified", "enabled": True}]}
+    post = lambda identity, text, media=(): SourcePost(profile.id, identity, f"https://x.com/{profile.handle}/status/{identity}", NOW, text, PostKind.NORMAL, None, None, tuple(media), ())
+    posts = [post("10", "Boundary")]
+    inbox = Inbox()
+    run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
+    posts.append(post("11", "<br> ", (SourceMedia("https://pbs.twimg.com/media/image.jpg", 0),)))
+    result = run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)[0]
+    assert result["reason"] == "media_blocked"
+    assert inbox.events == []
+    assert json.loads((tmp_path / endpoint.replace(":", "-") / "cursor.json").read_text())["anchor"] == "10"
+
+
+def test_news_text_fallback_stays_frozen_when_media_recovers(tmp_path):
+    profile = replace(load_watch_config(ROOT / "cron-x-account-watch/config/watches.json").profiles[0], enabled=True)
+    endpoint = f"x:{profile.handle.casefold()}"
+    snapshot = {"revision": 3, "subscriptions": [{"platform": "x", "endpoint_id": endpoint, "publisher_id": "x-kutekians", "address": profile.handle, "provider_id": None, "capability_id": "company_news", "verification_status": "verified", "enabled": True}]}
+    post = lambda identity, text, media=(): SourcePost(profile.id, identity, f"https://x.com/{profile.handle}/status/{identity}", NOW, text, PostKind.NORMAL, None, None, tuple(media), ())
+    posts = [post("10", "Boundary")]
+    inbox = Inbox()
+    run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
+    posts.append(post("11", "MYOR earnings increased", (SourceMedia("https://pbs.twimg.com/media/image.jpg", 0),)))
+    assert run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)[0]["accepted"] == 1
+    frozen = json.dumps(inbox.events[0], sort_keys=True)
+    store = MediaStore()
+    result = run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts, media_store=store, media_preparer=fake_image_prepare)[0]
+    assert result["status"] == "accepted"
+    assert result["accepted"] == 0
+    assert inbox.revisions == []
+    assert store.uploads == []
+    assert json.dumps(inbox.events[0], sort_keys=True) == frozen
+    # A genuine text edit still uses the existing correction handoff.
+    posts[-1] = replace(posts[-1], content_html="MYOR earnings doubled")
+    run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
+    assert len(inbox.revisions) == 1
 
 
 def test_two_x_images_are_accepted_in_source_order(tmp_path):
@@ -551,7 +748,10 @@ def test_x_correction_after_original_work_claim_stays_at_source_boundary(tmp_pat
 
     class CompletedInbox(Inbox):
         def inspect(self, event_key):
-            return {"event": {"event_key": event_key}, "work": [{"status": "done"}]}
+            result = super().inspect(event_key)
+            for row in result["work"]:
+                row["status"] = "done"
+            return result
 
     inbox = CompletedInbox()
     run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
@@ -559,13 +759,13 @@ def test_x_correction_after_original_work_claim_stays_at_source_boundary(tmp_pat
     run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
     posts[-1] = replace(posts[-1], content_html="Edited")
     result = run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts)
-    assert result[0]["status"] == "blocked"
-    assert result[0]["reason"] == "correction_handoff_failed"
-    assert result[0]["correction_error_code"] == "source_work_not_pending"
+    assert result[0]["status"] == "accepted"
+    assert result[0]["corrections"] == [{"provider_event_id":"101","status":"deferred_frozen"}]
     assert inbox.revisions == []
 
 
-def test_correction_media_failure_identifies_stage_without_advancing_or_revising(tmp_path):
+@pytest.mark.parametrize("legacy", [False, True])
+def test_media_outage_preserves_frozen_news_without_reuploading_legacy_media(tmp_path, legacy):
     from vision_media import VisionBundle
 
     profile = replace(load_watch_config(ROOT / "cron-x-account-watch/config/watches.json").profiles[0], enabled=True)
@@ -580,15 +780,220 @@ def test_correction_media_failure_identifies_stage_without_advancing_or_revising
              media_store=MediaStore(), media_preparer=fake_image_prepare)
     cursor_path = tmp_path / endpoint_id.replace(":", "-") / "cursor.json"
     before = cursor_path.read_bytes()
+    if legacy:
+        index = cursor_path.parent / "accepted-events.json"
+        records = json.loads(index.read_text())
+        records["101"].pop("source_observation_hash")
+        index.write_text(json.dumps(records))
 
     result = run_once(snapshot, (profile,), tmp_path, inbox, NOW, fetch_profile=lambda *_args, **_kwargs: posts,
                       media_store=MediaStore(), media_preparer=lambda _post, root: VisionBundle(root, (), 1))
 
-    assert result[0]["reason"] == "correction_handoff_failed"
-    assert result[0]["correction_error_code"] == "correction_media_unavailable"
+    assert result[0]["status"] == "accepted"
+    assert result[0]["accepted"] == 0
+    if legacy:
+        assert result[0]["corrections"] == [{"provider_event_id":"101","status":"text_unchanged_media_unverified"}]
+        assert "source_observation_hash" not in json.loads(index.read_text())["101"]
     assert cursor_path.read_bytes() == before
     assert inbox.revisions == []
     assert len(inbox.events) == 1
+
+
+def _legacy_news_fixture(root, inbox=None):
+    profile = replace(next(p for p in load_watch_config(ROOT / 'cron-x-account-watch/config/watches.json').profiles if p.id == 'writingtorch'),enabled=True)
+    endpoint = f'x:{profile.handle.casefold()}'
+    snapshot = {'revision':3,'subscriptions':[dict(platform='x',endpoint_id=endpoint,
+        publisher_id=REVIEWED_PUBLISHERS[profile.id],address=profile.handle,provider_id=None,
+        capability_id='company_news',verification_status='verified',enabled=True)]}
+    posts = [SourcePost(profile.id,'100',f'https://x.com/{profile.handle}/status/100',NOW,'Boundary',PostKind.NORMAL,None,None,(),())]
+    inbox = inbox or Inbox()
+    run = lambda **kwargs: run_once(snapshot,(profile,),root,inbox,NOW,
+        fetch_profile=lambda *_args,**_kwargs: posts,**kwargs)[0]
+    run()
+    posts.append(replace(posts[0],post_id='101',url=f'https://x.com/{profile.handle}/status/101',content_html='MYOR earnings increased',
+                         media=(SourceMedia('https://pbs.twimg.com/media/image.jpg',0),)))
+    run(media_store=MediaStore(),media_preparer=fake_image_prepare)
+    index = root / endpoint.replace(':','-') / 'accepted-events.json'
+    records = json.loads(index.read_text())
+    records['101'].pop('source_observation_hash')
+    index.write_text(json.dumps(records))
+    return profile, snapshot, posts, inbox, index, run
+
+
+def test_pending_legacy_news_edit_accepts_text_when_images_fail(tmp_path):
+    from vision_media import VisionBundle
+    _, _, posts, inbox, index, run = _legacy_news_fixture(tmp_path)
+    original = json.dumps(inbox.events[0],sort_keys=True)
+    posts[-1] = replace(posts[-1],content_html='MYOR earnings doubled')
+    result = run(media_store=MediaStore(),media_preparer=lambda _post,root: VisionBundle(root,(),1))
+    assert result['status'] == 'accepted'
+    revised = inbox.revisions[0][1]
+    assert revised['media_required'] is False and revised['media_refs'] == []
+    assert revised['payload']['source_media_policy'] == 'optional_news'
+    assert revised['payload']['post']['content_html'] == 'MYOR earnings doubled'
+    assert 'pbs.twimg.com' not in json.dumps(revised['payload'])
+    assert json.dumps(inbox.events[0],sort_keys=True) == original
+    assert json.loads(index.read_text())['101']['version'] == 2
+
+
+@pytest.mark.parametrize('status',['leased','executing','done','dead_letter','suppressed'])
+def test_completed_legacy_news_skips_media_and_keeps_new_intake_running(tmp_path,status):
+    _, _, posts, inbox, index, run = _legacy_news_fixture(tmp_path)
+    before = index.read_bytes()
+    inbox.work_status = status
+    posts[-1] = replace(posts[-1],content_html='MYOR earnings doubled')
+    posts.append(replace(posts[0],post_id='102',url=posts[0].url.replace('/100','/102'),content_html='New company announcement'))
+    result = run(media_preparer=lambda *_: pytest.fail('Frozen correction downloaded media'))
+    assert result['status'] == 'accepted' and result['accepted'] == 1
+    assert any(row['status'] == 'deferred_frozen' for row in result['corrections'])
+    assert inbox.revisions == []
+    assert json.loads(index.read_text())['101'] == json.loads(before)['101']
+
+
+@pytest.mark.parametrize('original_swing,configured_swing',[(False,True),(True,True),(True,False)])
+def test_legacy_correction_uses_frozen_capabilities_not_current_catalog(tmp_path,original_swing,configured_swing):
+    from vision_media import VisionBundle
+    inbox = Inbox(('company_news','swing_chart_context') if original_swing else ('company_news',))
+    profile,snapshot,posts,inbox,_,_ = _legacy_news_fixture(tmp_path,inbox)
+    if configured_swing:
+        profile = replace(profile,discord_channels=profile.discord_channels + (DiscordChannel('id_stocks_swing','123','Swing'),))
+    snapshot['subscriptions'].append({**snapshot['subscriptions'][0],'capability_id':'swing_chart_context','enabled':not original_swing})
+    posts[-1] = replace(posts[-1],content_html='MYOR operating results updated')
+    result = run_once(snapshot,(profile,),tmp_path,inbox,NOW,fetch_profile=lambda *_args,**_kwargs:posts,
+                      media_store=MediaStore(),media_preparer=lambda _post,root:VisionBundle(root,(),1))[0]
+    if original_swing:
+        assert result['correction_error_code'] == 'correction_media_unavailable'
+        assert inbox.revisions == []
+    else:
+        assert result['status'] == 'accepted'
+        assert inbox.revisions[0][1]['media_required'] is False
+
+
+def test_raced_claim_retires_saved_unsent_correction_without_rewriting_source(tmp_path):
+    class RacingInbox(Inbox):
+        def revise(self,*args,**kwargs):
+            assert kwargs['expected_pending_version'] == 1
+            self.work_status = 'done'
+            raise RuntimeError('Simulated authoritative pending-version conflict')
+    _,_,posts,inbox,index,run = _legacy_news_fixture(tmp_path,RacingInbox())
+    before = index.read_bytes()
+    posts[-1] = replace(posts[-1],content_html='MYOR earnings doubled')
+    assert run()['correction_error_code'] == 'revision_flush_failed'
+    result = run()
+    assert result['status'] == 'accepted'
+    assert any(row['status'] == 'deferred_frozen' for row in result['corrections'])
+    assert inbox.revisions == [] and index.read_bytes() == before
+    assert not list(index.parent.joinpath('revisions').glob('**/*.json'))
+
+
+def test_older_saved_correction_gets_atomic_guard_without_changing_request(tmp_path):
+    from adapter import _flush_corrections
+    from source_event_client import SourceEventHandoff, _event_key
+
+    class RacingInbox(Inbox):
+        def revise(self, *args, **kwargs):
+            assert kwargs['expected_pending_version'] == 1
+            self.work_status = 'done'
+            raise RuntimeError('Concurrent completion rejects this correction')
+
+    _, _, _, inbox, index, _ = _legacy_news_fixture(tmp_path, RacingInbox())
+    handoff = SourceEventHandoff(index.parent / 'revisions', inbox)
+    event = inbox.events[0]
+    path = handoff.stage_revision(_event_key(event), event, 'correction', 'legacy-revision', 'Observed edit')
+    before = path.read_bytes()
+    retry_outcomes = []
+    assert _flush_corrections(handoff, inbox, retry_outcomes) == {_event_key(event)}
+    assert retry_outcomes == [{'provider_event_id':'101', 'status':'retry', 'error_code':'revision_flush_failed'}]
+    assert path.read_bytes() == before
+    outcomes = []
+    _flush_corrections(handoff, inbox, outcomes)
+    assert outcomes == [{'provider_event_id':'101', 'status':'deferred_frozen'}]
+    assert inbox.revisions == [] and not path.exists()
+
+
+def test_lost_revision_ack_reconciles_same_identity_even_after_work_done(tmp_path):
+    class LostAckInbox(Inbox):
+        failed = False
+        def revise(self,*args,**kwargs):
+            receipt = super().revise(*args,**kwargs)
+            if not self.failed:
+                self.failed = True
+                self.work_status = 'done'
+                raise OSError('Lost acknowledgement')
+            return receipt
+    _,_,posts,inbox,index,run = _legacy_news_fixture(tmp_path,LostAckInbox())
+    posts[-1] = replace(posts[-1],content_html='MYOR earnings doubled')
+    assert run()['correction_error_code'] == 'revision_flush_failed'
+    assert run()['status'] == 'accepted'
+    assert len(inbox.revisions) == 1
+    assert json.loads(index.read_text())['101']['version'] == 2
+
+
+def test_failed_correction_does_not_stop_another_pending_news_edit(tmp_path):
+    profile,snapshot,posts,inbox,_,run = _legacy_news_fixture(tmp_path)
+    posts.append(replace(posts[-1],post_id='102',url=posts[-1].url.replace('/101','/102'),media=(),content_html='MYOR distribution expanded'))
+    run()
+    posts[-2] = replace(posts[-2],kind=PostKind.REPLY,related_url=posts[-2].url.replace('/101','/90'),content_html='Updated reply')
+    posts[-1] = replace(posts[-1],content_html='MYOR distribution doubled')
+    result = run()
+    assert result['status'] == 'blocked'
+    assert any(row['provider_event_id'] == '101' and row['status'] == 'retry' for row in result['corrections'])
+    assert any(row['provider_event_id'] == '102' and row['status'] == 'revised' for row in result['corrections'])
+    assert inbox.revisions[0][1]['provider_event_id'] == '102'
+
+
+@pytest.mark.parametrize('failed_stage', ['inspect', 'revise'])
+def test_saved_correction_failure_preserves_retry_and_continues_other_posts(tmp_path, failed_stage):
+    class FailingInbox(Inbox):
+        blocked_ids = {'101', '102'}
+        inspect_failure = False
+
+        def inspect(self, event_key):
+            result = super().inspect(event_key)
+            if self.inspect_failure and result['event']['versions'][0]['envelope']['provider_event_id'] == '101':
+                raise OSError('Source inspection unavailable')
+            return result
+
+        def revise(self, event_key, event, *args, **kwargs):
+            if event['provider_event_id'] in self.blocked_ids:
+                raise OSError('Revision unavailable')
+            return super().revise(event_key, event, *args, **kwargs)
+
+    _, _, posts, inbox, index, run = _legacy_news_fixture(tmp_path, FailingInbox())
+    for identity in ('102', '103'):
+        posts.append(replace(posts[1], post_id=identity, url=posts[1].url.replace('/101', '/' + identity),
+                             media=(), content_html='MYOR distribution expanded'))
+    run()
+    for position in (1, 2):
+        posts[position] = replace(posts[position], content_html='MYOR earnings updated')
+    assert run()['status'] == 'blocked'
+    from source_event_client import SourceEventHandoff
+    pending = SourceEventHandoff(index.parent / 'revisions', inbox).spool.pending()
+    assert {request.payload['envelope']['provider_event_id'] for request in pending} == {'101', '102'}
+    failed = next(request for request in pending if request.payload['envelope']['provider_event_id'] == '101')
+    saved_bytes = failed.path.read_bytes()
+
+    inbox.blocked_ids = {'101'}
+    inbox.inspect_failure = failed_stage == 'inspect'
+    posts[3] = replace(posts[3], content_html='MYOR distribution doubled')
+    posts.append(replace(posts[3], post_id='104', url=posts[3].url.replace('/103', '/104'),
+                         content_html='MYOR opened a factory'))
+    result = run()
+
+    assert result['status'] == 'blocked' and result['accepted'] == 1
+    assert result['correction_error_code'] == 'revision_flush_failed'
+    assert {event['provider_event_id'] for event in inbox.events} == {'101', '102', '103', '104'}
+    assert [revision[1]['provider_event_id'] for revision in inbox.revisions] == ['102', '103']
+    assert failed.path.read_bytes() == saved_bytes
+    assert [request.path for request in SourceEventHandoff(index.parent / 'revisions', inbox).spool.pending()] == [failed.path]
+    assert result['corrections'] == [
+        {'provider_event_id':'101', 'status':'retry', 'error_code':'revision_flush_failed'},
+        {'provider_event_id':'102', 'status':'revised'},
+        {'provider_event_id':'103', 'status':'revised'},
+    ]
+    records = json.loads(index.read_text())
+    assert records['101']['version'] == 1
+    assert records['102']['version'] == records['103']['version'] == 2
 
 
 def test_self_chain_source_event_carries_ordered_post_context(tmp_path):
@@ -674,7 +1079,7 @@ def test_self_quote_keeps_durable_quoted_image_when_parent_is_absent(tmp_path):
 
     assert result[0]["status"] == "accepted"
     event = inbox.events[0]
-    assert event["media_required"] is True
+    assert event["media_required"] is False
     assert len(event["media_refs"]) == 1
     converted, refs = pipeline_owner._posts(profile, event)
     assert len(converted[0].quoted_media) == 1

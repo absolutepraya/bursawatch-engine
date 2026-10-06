@@ -164,7 +164,11 @@ contracts remain owner-specific.
 The LLM owns semantic relevance. Market-keyword signals are advisory and
 cannot veto `is_relevant: false`. Generic investing education remains
 excluded even when it mentions earnings, dividends, charting, or an issuer.
-There is no deterministic education denylist.
+There is no deterministic education or investment-language denylist. The
+existing LLM analysis excludes advice-only, educational, or promotional
+material without another model stage. Source-reported targets, transactions,
+price changes, and attributed research retain their periods, units, and
+uncertainty; a word such as target, buy, or sell alone cannot reject news.
 
 Stockbit accepts the ordinary scalar schema or `{candidate_key, items}`.
 Each item has the scalar fields except `candidate_key`. A split parent keeps
