@@ -23,6 +23,7 @@ from tempfile import NamedTemporaryFile
 from domain import CompanyCandidate, Destination, Provider, retry_delay_minutes, source_message_url
 from market_data import fallback_company_name, get_market_snapshot
 from selection import SelectionCandidate
+from sources import phintraco_news_headline
 from state import (
     StateBlockedError,
     clear_retry,
@@ -162,6 +163,23 @@ def _tuntun_entry(item: SelectionCandidate, market_metadata=None) -> str:
     return _issuer_entry(item, f"### {_PROVIDER_EMOJIS['Tuntun']} {item.title}\n-# Tuntun", market_metadata=market_metadata)
 
 
+def _phintraco_source_title(item: SelectionCandidate) -> str:
+    """Optional display fallback, without reclassification or another model."""
+    headline = " ".join(phintraco_news_headline(item.candidate).split()).rstrip(".!?")
+    if not headline:
+        return ""
+    if item.route is Destination.ID_STOCKS_NEWS and item.ticker:
+        subject = re.sub(rf"^{re.escape(item.ticker)}(?:\s*:\s*|\s+)", "", headline)
+        if not subject or subject == item.ticker:
+            return ""
+        headline = f"{item.ticker}: {subject}"
+    elif re.match(r"^[A-Z]{4}:\s", headline):
+        headline = headline.replace(":", "", 1)
+    if not 5 <= len(headline) <= 120 or re.search(r"https?://", headline, re.IGNORECASE):
+        return ""
+    return news_format.normalize_headline(headline, item.route.value)
+
+
 def _phintraco_entry(item: SelectionCandidate, market_metadata=None) -> str:
     if item.route is not Destination.ID_STOCKS_NEWS or item.ticker is None:
         raise ValueError("Phintraco issuer entries require a ticker")
@@ -173,7 +191,7 @@ def _phintraco_entry(item: SelectionCandidate, market_metadata=None) -> str:
     )
     return _issuer_entry(
         item,
-        f"### {_PROVIDER_EMOJIS['Phintraco']} {item.title or f'{item.ticker}: {company_name}'}\n-# Phintraco",
+        f"### {_PROVIDER_EMOJIS['Phintraco']} {item.title or _phintraco_source_title(item) or f'{item.ticker}: {company_name}'}\n-# Phintraco",
         snapshot=snapshot,
         load_market_data=False,
         market_metadata=market_metadata,
@@ -185,7 +203,7 @@ def _phintraco_macro_entry(item: SelectionCandidate, market_metadata=None) -> st
         raise ValueError("Phintraco macro entries require the macro_news route")
     return _issuer_entry(
         item,
-        f"### {_PROVIDER_EMOJIS['Phintraco']} {item.title or 'Phintraco Sekuritas'}\n-# Phintraco",
+        f"### {_PROVIDER_EMOJIS['Phintraco']} {item.title or _phintraco_source_title(item) or 'Phintraco Sekuritas'}\n-# Phintraco",
         load_market_data=False,
         market_metadata=market_metadata,
     )
