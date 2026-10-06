@@ -1,6 +1,10 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
+import { countConfigChanges, matchesConfigSearch } from "@/lib/config-changes";
+import { watcherNames } from "@/lib/watcher-fields";
+import { SaveButton } from "./save-button";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { controlBrowser } from "@/lib/control-browser";
 import type { OperatorComponent, OperatorComponentActivity } from "@/lib/operator-inventory";
@@ -59,7 +63,7 @@ function RegisteredEndpointList({
 }) {
   if (endpoints.length === 0) return null;
   return (
-    <ul className="source-endpoint-list" aria-label="Registered platform endpoints">
+    <ul className="source-endpoint-list" aria-label="Registered accounts and channels">
       {endpoints.map((endpoint) => (
         <li className="source-endpoint-row" key={endpoint.id}>
           <div className="source-endpoint-detail">
@@ -259,9 +263,15 @@ export function SourceCatalogView({
   const [selectedEndpoint, setSelectedEndpoint] = useState("");
   const [selectedCapability, setSelectedCapability] = useState("");
   const [level, setLevel] = useState<"publisher" | "endpoint">("endpoint");
-  const [enabled, setEnabled] = useState(false);
+  const [choiceEdit, setChoiceEdit] = useState<{ key: string; value: string } | null>(null);
+  const [query, setQuery] = useState("");
+  const [platformFilter, setPlatformFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [focusedPublisher, setFocusedPublisher] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const id = useId();
   const toast = useToast();
+  const changes = countConfigChanges(catalog?.config.config, draft);
   const dirty = Boolean(
     catalog && draft && JSON.stringify(catalog.config.config) !== JSON.stringify(draft),
   );
@@ -385,6 +395,11 @@ export function SourceCatalogView({
           setDraft(structuredClone(nextCatalog.config.config));
           setSaveBlocked(false);
           setWriteRefreshFailed(false);
+          setFieldErrors({});
+          setChoiceEdit(null);
+          setFocusedPublisher("");
+          setSelectedEndpoint("");
+          setSelectedCapability("");
           discardWorkspaceDraft(catalogDraftKey, draftOwner, draftScope);
         }
         return true;
@@ -422,6 +437,7 @@ export function SourceCatalogView({
     if (!canEdit || saveBlocked || saving) return;
     setDraft(value);
     setError("");
+    setFieldErrors({});
   };
   const publishers = catalog ? [...catalog.institutions, ...catalog.people_org] : [];
   const endpoints = catalog?.endpoints ?? [];
@@ -446,7 +462,21 @@ export function SourceCatalogView({
     if (!catalog || !draft || !canEdit || saveBlocked || saving) return;
     const parsed = catalogConfig.safeParse(draft);
     if (!parsed.success) {
-      setError("Review the identity, endpoint, and asset fields before saving.");
+      const errors: Record<string, string> = {};
+      for (const issue of parsed.error.issues) errors[issue.path.join(".")] = issue.message;
+      setFieldErrors(errors);
+      setTab("people");
+      const identityIssue = parsed.error.issues.find((issue) => issue.path[0] === "people_org");
+      setFocusedPublisher(
+        identityIssue ? (draft.people_org[Number(identityIssue.path[1])]?.id ?? "") : "",
+      );
+      setQuery("");
+      setPlatformFilter("all");
+      setStatusFilter("all");
+      setError("Review the marked source fields before saving.");
+      requestAnimationFrame(() =>
+        document.querySelector<HTMLElement>('.source-catalog [aria-invalid="true"]')?.focus(),
+      );
       return;
     }
     setSaving(true);
@@ -504,11 +534,11 @@ export function SourceCatalogView({
       publishers.some((item) => item.id === slug) ||
       draft.people_org.some((item) => item.id === slug)
     ) {
-      setError("Use a unique name of at least two letters for this identity.");
+      invalidField("new-name", "Use a unique name of at least two letters for this identity.");
       return;
     }
     if (assetUrl && !/^https:\/\/[A-Za-z0-9.-]+\//.test(assetUrl)) {
-      setError("Use a public HTTPS image URL, or leave the asset empty.");
+      invalidField("new-image", "Use a public HTTPS image URL, or leave the asset empty.");
       return;
     }
     update({
@@ -550,8 +580,9 @@ export function SourceCatalogView({
             item.address.toLowerCase() === address.toLowerCase()),
       )
     ) {
-      setError(
-        "Choose a People & Org identity and a unique canonical handle (letters, numbers, dot or underscore).",
+      invalidField(
+        publisherId ? "new-handle" : "new-publisher",
+        "Choose a source and a unique handle using letters, numbers, dots or underscores.",
       );
       return;
     }
@@ -571,48 +602,181 @@ export function SourceCatalogView({
     setEndpointAddress("");
     setSelectedEndpoint(endpointId);
   }
+  const allEndpoints = [
+    ...endpoints,
+    ...(draft?.endpoints ?? [])
+      .filter((item) => !endpoints.some((entry) => entry.id === item.id))
+      .map((item) => ({ ...item, provider_id: null, system_owned: false, verified: false })),
+  ];
+  const currentSetting =
+    level === "endpoint"
+      ? draft?.endpoint_overrides.find(
+          (item) =>
+            item.endpoint_id === selectedEndpoint && item.capability_id === selectedCapability,
+        )
+      : draft?.publisher_defaults.find(
+          (item) =>
+            item.publisher_id === selected?.publisher_id &&
+            item.capability_id === selectedCapability,
+        );
+  const choiceKey = `${selectedEndpoint}:${selectedCapability}:${level}`;
+  const savedChoice = currentSetting ? (currentSetting.enabled ? "on" : "off") : "default";
+  const choice = choiceEdit?.key === choiceKey ? choiceEdit.value : savedChoice;
+  const focusedSource = [...(draft?.people_org ?? []), ...publishers].find(
+    (item) => item.id === focusedPublisher,
+  );
+  function invalidField(key: string, value: string) {
+    setFieldErrors({ [key]: value });
+    setError(value);
+    requestAnimationFrame(() => document.getElementById(`${id}-${key}`)?.focus());
+  }
+  function fieldProps(key: string, label: string) {
+    return {
+      id: `${id}-${key}`,
+      "aria-label": label,
+      "aria-invalid": Boolean(fieldErrors[key]),
+      "aria-describedby": fieldErrors[key] ? `${id}-${key}-error` : undefined,
+    };
+  }
+  function fieldError(key: string) {
+    return fieldErrors[key] ? (
+      <small className="source-field-error" id={`${id}-${key}-error`}>
+        {fieldErrors[key]}
+      </small>
+    ) : null;
+  }
+  function openSource(publisherId: string) {
+    setFocusedPublisher(publisherId);
+    setEndpointPublisher(publisherId);
+    setSelectedEndpoint(allEndpoints.find((item) => item.publisher_id === publisherId)?.id ?? "");
+    setSelectedCapability("");
+    setChoiceEdit(null);
+    requestAnimationFrame(() => {
+      const heading = document.getElementById(`${id}-configuration`);
+      heading?.focus();
+      heading?.scrollIntoView({ block: "start", behavior: "instant" });
+    });
+  }
+  function showPublisher(item: { id: string; name: string }) {
+    if (focusedPublisher) return item.id === focusedPublisher;
+    const accounts = allEndpoints.filter((entry) => entry.publisher_id === item.id);
+    return (
+      matchesConfigSearch(
+        `${item.name} ${accounts.map((entry) => `${entry.platform} ${entry.address}`).join(" ")}`,
+        query,
+      ) &&
+      (platformFilter === "all" || accounts.some((entry) => entry.platform === platformFilter)) &&
+      (statusFilter === "all" ||
+        accounts.some((entry) =>
+          statusFilter === "verified"
+            ? entry.verified
+            : statusFilter === "pending"
+              ? !entry.verified
+              : compatibleCapabilities(catalog!, entry.id).some(
+                  (capability) =>
+                    entry.verified &&
+                    effectiveChoice(draft!, item.id, entry.id, capability.id).enabled,
+                ),
+        ))
+    );
+  }
+  const relatedWorkflows =
+    focusedPublisher && catalog
+      ? components
+          .filter(
+            (component) =>
+              component.kind === "domain_owner" &&
+              component.pipeline_ids.some((pipeline) =>
+                allEndpoints
+                  .filter((item) => item.publisher_id === focusedPublisher)
+                  .some((endpoint) =>
+                    compatibleCapabilities(catalog, endpoint.id).some(
+                      (capability) => capability.pipeline === pipeline,
+                    ),
+                  ),
+              ),
+          )
+          .flatMap((component) => {
+            const ids = [
+              ...new Set(
+                component.config_resource_ids
+                  .map((resource) => resource.replace(/^watcher:/, ""))
+                  .filter((watcherId) => Object.hasOwn(watcherNames, watcherId)),
+              ),
+            ];
+            return ids.length === 1 ? ids : [];
+          })
+      : [];
   function applyChoice() {
-    if (!draft || !selectedCapability || !selected || !canEdit || saveBlocked || saving) return;
-    const supported = compatible.some((item) => item.id === selectedCapability);
-    if (!supported) {
-      setError("This endpoint does not support that capability.");
+    if (
+      !draft ||
+      !selectedCapability ||
+      !selected ||
+      !canEdit ||
+      saveBlocked ||
+      saving ||
+      choice === savedChoice
+    )
       return;
+    if (!compatible.some((item) => item.id === selectedCapability)) return;
+    if (level === "endpoint") {
+      const rows = draft.endpoint_overrides.filter(
+        (item) => item.endpoint_id !== selected.id || item.capability_id !== selectedCapability,
+      );
+      update({
+        ...draft,
+        endpoint_overrides:
+          choice === "default"
+            ? rows
+            : currentSetting
+              ? draft.endpoint_overrides.map((item) =>
+                  item === currentSetting ? { ...item, enabled: choice === "on" } : item,
+                )
+              : [
+                  ...rows,
+                  {
+                    endpoint_id: selected.id,
+                    capability_id: selectedCapability,
+                    enabled: choice === "on",
+                    settings: {},
+                  },
+                ],
+      });
+    } else {
+      const rows = draft.publisher_defaults.filter(
+        (item) =>
+          item.publisher_id !== selected.publisher_id || item.capability_id !== selectedCapability,
+      );
+      update({
+        ...draft,
+        publisher_defaults:
+          choice === "default"
+            ? rows
+            : currentSetting
+              ? draft.publisher_defaults.map((item) =>
+                  item === currentSetting ? { ...item, enabled: choice === "on" } : item,
+                )
+              : [
+                  ...rows,
+                  {
+                    publisher_id: selected.publisher_id,
+                    capability_id: selectedCapability,
+                    enabled: choice === "on",
+                    settings: {},
+                  },
+                ],
+      });
     }
-    if (level === "endpoint")
-      update({
-        ...draft,
-        endpoint_overrides: [
-          ...draft.endpoint_overrides.filter(
-            (item) => item.endpoint_id !== selected.id || item.capability_id !== selectedCapability,
-          ),
-          { endpoint_id: selected.id, capability_id: selectedCapability, enabled, settings: {} },
-        ],
-      });
-    else
-      update({
-        ...draft,
-        publisher_defaults: [
-          ...draft.publisher_defaults.filter(
-            (item) =>
-              item.publisher_id !== selected.publisher_id ||
-              item.capability_id !== selectedCapability,
-          ),
-          {
-            publisher_id: selected.publisher_id,
-            capability_id: selectedCapability,
-            enabled,
-            settings: {},
-          },
-        ],
-      });
+    setChoiceEdit(null);
   }
   return (
     <section className="connected-source-library source-catalog" aria-label="Source catalog">
       <div className="connected-library-heading">
         <h2>Source Catalog</h2>
         <p>
-          Engine supported sources and saved configuration. Changes to this catalog do not change
-          the fixed workflow editors or prove delivery.
+          Choose catalog sources and content here.{" "}
+          <Link href="/workspace/workflows">Workflows</Link> manage their own inputs, processing and
+          destinations. <Link href="/workspace/jobs">Jobs</Link> controls schedules.
         </p>
       </div>
       {error && (
@@ -643,12 +807,6 @@ export function SourceCatalogView({
       )}
       {catalog && draft && (
         <>
-          <SourceAdapterEvidence
-            components={components}
-            activity={activity}
-            unavailable={activityUnavailable}
-            sampleMode={sampleMode}
-          />
           {!canEdit && (
             <p role="status" className="connected-panel-intro">
               View access. An admin can change source catalog settings.
@@ -669,7 +827,12 @@ export function SourceCatalogView({
                 aria-controls={`${id}-${value}-panel`}
                 aria-selected={tab === value}
                 tabIndex={tab === value ? 0 : -1}
-                onClick={() => setTab(value)}
+                onClick={() => {
+                  setTab(value);
+                  setFocusedPublisher("");
+                  setSelectedEndpoint("");
+                  setSelectedCapability("");
+                }}
                 onKeyDown={(event) => {
                   const tabs: Tab[] = ["securities", "institutions", "people"];
                   const index = tabs.indexOf(value);
@@ -686,6 +849,9 @@ export function SourceCatalogView({
                   if (next) {
                     event.preventDefault();
                     setTab(next);
+                    setFocusedPublisher("");
+                    setSelectedEndpoint("");
+                    setSelectedCapability("");
                     document.getElementById(`${id}-${next}-tab`)?.focus();
                   }
                 }}
@@ -694,6 +860,86 @@ export function SourceCatalogView({
               </button>
             ))}
           </div>
+          {focusedSource ? (
+            <div className="source-catalog-focus-heading">
+              <button
+                className="button secondary small"
+                type="button"
+                onClick={() => {
+                  setFocusedPublisher("");
+                  setSelectedEndpoint("");
+                  setSelectedCapability("");
+                  requestAnimationFrame(() =>
+                    document.getElementById(`${id}-source-${focusedSource.id}`)?.focus(),
+                  );
+                }}
+              >
+                Back to all sources
+              </button>
+              <p>
+                Accounts and content for <strong>{focusedSource.name}</strong>
+              </p>
+            </div>
+          ) : (
+            <div className="config-browse-tools" role="search" aria-label="Find catalog sources">
+              <label>
+                Search {tab === "securities" ? "securities" : "sources"}
+                <input
+                  type="search"
+                  value={query}
+                  placeholder={
+                    tab === "securities" ? "Symbol or company name" : "Name, platform or handle"
+                  }
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+              </label>
+              {tab !== "securities" && (
+                <>
+                  <label>
+                    Platform
+                    <select
+                      value={platformFilter}
+                      onChange={(event) => setPlatformFilter(event.target.value)}
+                    >
+                      <option value="all">All platforms</option>
+                      {[...new Set(allEndpoints.map((endpoint) => endpoint.platform))]
+                        .sort()
+                        .map((platform) => (
+                          <option key={platform} value={platform}>
+                            {platform}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <label>
+                    Source status
+                    <select
+                      value={statusFilter}
+                      onChange={(event) => setStatusFilter(event.target.value)}
+                    >
+                      <option value="all">All sources</option>
+                      <option value="included">Content included</option>
+                      <option value="verified">Identity verified</option>
+                      <option value="pending">Identity pending</option>
+                    </select>
+                  </label>
+                </>
+              )}
+              {(query || platformFilter !== "all" || statusFilter !== "all") && (
+                <button
+                  className="button secondary small"
+                  type="button"
+                  onClick={() => {
+                    setQuery("");
+                    setPlatformFilter("all");
+                    setStatusFilter("all");
+                  }}
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+          )}
           <section
             id={`${id}-securities-panel`}
             role="tabpanel"
@@ -705,30 +951,42 @@ export function SourceCatalogView({
               Only engine supported securities can be enabled.
             </p>
             {catalog.securities.length ? (
-              <ul className="source-catalog-list">
-                {catalog.securities.map((item) => (
-                  <li key={item.symbol}>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={draft.selected_securities.includes(item.symbol)}
-                        disabled={!canEdit || saveBlocked || saving}
-                        onChange={(event) =>
-                          update({
-                            ...draft,
-                            selected_securities: event.target.checked
-                              ? [...draft.selected_securities, item.symbol]
-                              : draft.selected_securities.filter(
-                                  (symbol) => symbol !== item.symbol,
-                                ),
-                          })
-                        }
-                      />{" "}
-                      {item.symbol} · {item.name}
-                    </label>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <p role="status" className="config-search-count">
+                  {
+                    catalog.securities.filter((item) =>
+                      matchesConfigSearch(`${item.symbol} ${item.name}`, query),
+                    ).length
+                  }{" "}
+                  of {catalog.securities.length} securities
+                </p>
+                <ul className="source-catalog-list">
+                  {catalog.securities
+                    .filter((item) => matchesConfigSearch(`${item.symbol} ${item.name}`, query))
+                    .map((item) => (
+                      <li key={item.symbol}>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={draft.selected_securities.includes(item.symbol)}
+                            disabled={!canEdit || saveBlocked || saving}
+                            onChange={(event) =>
+                              update({
+                                ...draft,
+                                selected_securities: event.target.checked
+                                  ? [...draft.selected_securities, item.symbol]
+                                  : draft.selected_securities.filter(
+                                      (symbol) => symbol !== item.symbol,
+                                    ),
+                              })
+                            }
+                          />{" "}
+                          {item.symbol} · {item.name}
+                        </label>
+                      </li>
+                    ))}
+                </ul>
+              </>
             ) : (
               <p role="status" className="connected-library-empty">
                 No engine supported securities are available yet. Securities can be enabled when
@@ -744,12 +1002,17 @@ export function SourceCatalogView({
             className="connected-library-panel"
           >
             <p className="connected-panel-intro">
-              Curated institutions and their registered platform endpoints. Institution records are
-              managed by the engine. Endpoint badges show identity verification, not subscription
-              state or run health.
+              Open an institution to choose content from its accounts and channels. Institutions are
+              managed by the engine. Identity verification is separate from content inclusion and
+              run health.
             </p>
-            <ul className="connected-securities-grid">
-              {catalog.institutions.map((item) => (
+            {catalog.institutions.filter(showPublisher).length === 0 && (
+              <p role="status" className="connected-library-empty">
+                No institutions match these filters.
+              </p>
+            )}
+            <ul className={`connected-securities-grid${focusedPublisher ? " is-focused" : ""}`}>
+              {catalog.institutions.filter(showPublisher).map((item) => (
                 <li key={item.id}>
                   <article className="connected-security-card">
                     {institutionImages[item.id] && (
@@ -760,19 +1023,32 @@ export function SourceCatalogView({
                     )}
                     <div className="connected-security-content">
                       <h3>{item.name}</h3>
+                      {!focusedPublisher && (
+                        <button
+                          id={`${id}-source-${item.id}`}
+                          className="button secondary small"
+                          type="button"
+                          aria-label={`View accounts and content for ${item.name}`}
+                          onClick={() => openSource(item.id)}
+                        >
+                          View accounts and content
+                        </button>
+                      )}
                       <p>
                         Tier {item.tier} ·{" "}
                         {endpoints.filter((entry) => entry.publisher_id === item.id).length}{" "}
-                        registered endpoints
+                        registered accounts
                       </p>
                       <p>
                         4:3 banner or logo:{" "}
                         {item.asset_ref?.url ? "Registered" : "No registered asset"}
                       </p>
-                      <RegisteredEndpointList
-                        endpoints={endpoints.filter((entry) => entry.publisher_id === item.id)}
-                        effective={effective?.subscriptions ?? []}
-                      />
+                      {focusedPublisher && (
+                        <RegisteredEndpointList
+                          endpoints={allEndpoints.filter((entry) => entry.publisher_id === item.id)}
+                          effective={effective?.subscriptions ?? []}
+                        />
+                      )}
                     </div>
                   </article>
                 </li>
@@ -787,12 +1063,25 @@ export function SourceCatalogView({
             className="connected-library-panel"
           >
             <p className="connected-panel-intro">
-              People, groups and communities. New endpoints remain pending identity verification and
-              are not effective subscriptions. Endpoint badges show identity verification only.
+              People, groups and communities. Open a source to choose accounts and content. New
+              accounts remain pending verification before their content can be included.
             </p>
-            <ul className="connected-people-grid">
+            {[
+              ...catalog.people_org.filter(
+                (item) => !draft.people_org.some((entry) => entry.id === item.id),
+              ),
+              ...draft.people_org,
+            ].filter(showPublisher).length === 0 && (
+              <p role="status" className="connected-library-empty">
+                No people or organizations match these filters.
+              </p>
+            )}
+            <ul className={`connected-people-grid${focusedPublisher ? " is-focused" : ""}`}>
               {catalog.people_org
-                .filter((item) => !draft.people_org.some((entry) => entry.id === item.id))
+                .filter(
+                  (item) =>
+                    !draft.people_org.some((entry) => entry.id === item.id) && showPublisher(item),
+                )
                 .map((item) => (
                   <li key={item.id}>
                     <article className="connected-person-card">
@@ -807,12 +1096,23 @@ export function SourceCatalogView({
                           />
                         )}
                         <h3>{item.name}</h3>
+                        {!focusedPublisher && (
+                          <button
+                            id={`${id}-source-${item.id}`}
+                            className="button secondary small"
+                            type="button"
+                            aria-label={`View accounts and content for ${item.name}`}
+                            onClick={() => openSource(item.id)}
+                          >
+                            View accounts and content
+                          </button>
+                        )}
                         <p>
                           {item.kind ?? "Type unverified"} · Tier {item.tier}
                         </p>
                         <p>
                           {endpoints.filter((entry) => entry.publisher_id === item.id).length}{" "}
-                          registered endpoints
+                          registered accounts
                         </p>
                         <p>
                           {item.asset_ref?.kind === "logo"
@@ -821,137 +1121,169 @@ export function SourceCatalogView({
                               ? "Profile picture"
                               : "No registered image"}
                         </p>
-                        <RegisteredEndpointList
-                          endpoints={endpoints.filter((entry) => entry.publisher_id === item.id)}
-                          effective={effective?.subscriptions ?? []}
-                        />
+                        {focusedPublisher && (
+                          <RegisteredEndpointList
+                            endpoints={allEndpoints.filter(
+                              (entry) => entry.publisher_id === item.id,
+                            )}
+                            effective={effective?.subscriptions ?? []}
+                          />
+                        )}
                       </div>
                     </article>
                   </li>
                 ))}
-              {draft.people_org.map((item) => (
-                <li key={item.id}>
-                  <article className="connected-person-card">
-                    <div className="connected-security-content">
-                      <h3>{item.name}</h3>
-                      <p>
-                        {item.kind} ·{" "}
-                        {catalog.people_org.some((entry) => entry.id === item.id)
-                          ? "User managed"
-                          : "Unsaved"}
-                      </p>
-                      <RegisteredEndpointList
-                        endpoints={endpoints.filter((entry) => entry.publisher_id === item.id)}
-                        effective={effective?.subscriptions ?? []}
-                      />
-                      {canEdit && !saveBlocked && (
-                        <>
-                          <label>
-                            Name
-                            <input
-                              value={item.name}
-                              onChange={(event) =>
-                                update({
-                                  ...draft,
-                                  people_org: draft.people_org.map((entry) =>
-                                    entry.id === item.id
-                                      ? { ...entry, name: event.target.value }
-                                      : entry,
-                                  ),
-                                })
-                              }
-                            />
-                          </label>
-                          <label>
-                            Type
-                            <select
-                              value={item.kind}
-                              onChange={(event) =>
-                                update({
-                                  ...draft,
-                                  people_org: draft.people_org.map((entry) =>
-                                    entry.id === item.id
-                                      ? { ...entry, kind: event.target.value as typeof item.kind }
-                                      : entry,
-                                  ),
-                                })
-                              }
-                            >
-                              <option value="person">Person</option>
-                              <option value="group">Group</option>
-                              <option value="community">Community</option>
-                            </select>
-                          </label>
-                          <label>
-                            Image type
-                            <select
-                              value={item.asset_ref?.kind === "logo" ? "logo" : "profile_picture"}
-                              onChange={(event) =>
-                                update({
-                                  ...draft,
-                                  people_org: draft.people_org.map((entry) =>
-                                    entry.id === item.id && entry.asset_ref
-                                      ? {
-                                          ...entry,
-                                          asset_ref: {
-                                            ...entry.asset_ref,
-                                            kind: event.target.value as "logo" | "profile_picture",
-                                          },
-                                        }
-                                      : entry,
-                                  ),
-                                })
-                              }
-                            >
-                              <option value="profile_picture">Profile picture</option>
-                              <option value="logo">Logo</option>
-                            </select>
-                          </label>
-                          <label>
-                            Image URL
-                            <input
-                              type="url"
-                              value={item.asset_ref?.url ?? ""}
-                              onChange={(event) =>
-                                update({
-                                  ...draft,
-                                  people_org: draft.people_org.map((entry) =>
-                                    entry.id === item.id
-                                      ? {
-                                          ...entry,
-                                          asset_ref: event.target.value
-                                            ? {
-                                                url: event.target.value,
-                                                kind:
-                                                  item.asset_ref?.kind === "logo"
-                                                    ? "logo"
-                                                    : "profile_picture",
-                                              }
-                                            : null,
-                                        }
-                                      : entry,
-                                  ),
-                                })
-                              }
-                            />
-                          </label>
-                        </>
-                      )}
-                    </div>
-                  </article>
-                </li>
-              ))}
+              {draft.people_org
+                .map((item, index) => ({ item, index }))
+                .filter(({ item }) => showPublisher(item))
+                .map(({ item, index }) => (
+                  <li key={item.id}>
+                    <article className="connected-person-card">
+                      <div className="connected-security-content">
+                        <h3>{item.name}</h3>
+                        {!focusedPublisher && (
+                          <button
+                            id={`${id}-source-${item.id}`}
+                            className="button secondary small"
+                            type="button"
+                            aria-label={`View accounts and content for ${item.name}`}
+                            onClick={() => openSource(item.id)}
+                          >
+                            View accounts and content
+                          </button>
+                        )}
+                        <p>
+                          {item.kind} ·{" "}
+                          {catalog.people_org.some((entry) => entry.id === item.id)
+                            ? "User managed"
+                            : "Unsaved"}
+                        </p>
+                        {focusedPublisher && (
+                          <RegisteredEndpointList
+                            endpoints={allEndpoints.filter(
+                              (entry) => entry.publisher_id === item.id,
+                            )}
+                            effective={effective?.subscriptions ?? []}
+                          />
+                        )}
+                        {canEdit && !saveBlocked && focusedPublisher === item.id && (
+                          <>
+                            <label>
+                              Name
+                              <input
+                                {...fieldProps(`people_org.${index}.name`, "Name")}
+                                value={item.name}
+                                onChange={(event) =>
+                                  update({
+                                    ...draft,
+                                    people_org: draft.people_org.map((entry) =>
+                                      entry.id === item.id
+                                        ? { ...entry, name: event.target.value }
+                                        : entry,
+                                    ),
+                                  })
+                                }
+                              />
+                              {fieldError(`people_org.${index}.name`)}
+                            </label>
+                            <label>
+                              Type
+                              <select
+                                value={item.kind}
+                                onChange={(event) =>
+                                  update({
+                                    ...draft,
+                                    people_org: draft.people_org.map((entry) =>
+                                      entry.id === item.id
+                                        ? { ...entry, kind: event.target.value as typeof item.kind }
+                                        : entry,
+                                    ),
+                                  })
+                                }
+                              >
+                                <option value="person">Person</option>
+                                <option value="group">Group</option>
+                                <option value="community">Community</option>
+                              </select>
+                            </label>
+                            <label>
+                              Image type
+                              <select
+                                value={item.asset_ref?.kind === "logo" ? "logo" : "profile_picture"}
+                                onChange={(event) =>
+                                  update({
+                                    ...draft,
+                                    people_org: draft.people_org.map((entry) =>
+                                      entry.id === item.id && entry.asset_ref
+                                        ? {
+                                            ...entry,
+                                            asset_ref: {
+                                              ...entry.asset_ref,
+                                              kind: event.target.value as
+                                                "logo" | "profile_picture",
+                                            },
+                                          }
+                                        : entry,
+                                    ),
+                                  })
+                                }
+                              >
+                                <option value="profile_picture">Profile picture</option>
+                                <option value="logo">Logo</option>
+                              </select>
+                            </label>
+                            <label>
+                              Image URL
+                              <input
+                                {...fieldProps(`people_org.${index}.asset_ref.url`, "Image URL")}
+                                type="url"
+                                value={item.asset_ref?.url ?? ""}
+                                onChange={(event) =>
+                                  update({
+                                    ...draft,
+                                    people_org: draft.people_org.map((entry) =>
+                                      entry.id === item.id
+                                        ? {
+                                            ...entry,
+                                            asset_ref: event.target.value
+                                              ? {
+                                                  url: event.target.value,
+                                                  kind:
+                                                    item.asset_ref?.kind === "logo"
+                                                      ? "logo"
+                                                      : "profile_picture",
+                                                }
+                                              : null,
+                                          }
+                                        : entry,
+                                    ),
+                                  })
+                                }
+                              />
+                              {fieldError(`people_org.${index}.asset_ref.url`)}
+                            </label>
+                          </>
+                        )}
+                      </div>
+                    </article>
+                  </li>
+                ))}
             </ul>
-            {canEdit && !saveBlocked && (
+            {canEdit && !saveBlocked && !focusedPublisher && (
               <fieldset className="source-catalog-form">
                 <legend>Add People & Org identity</legend>
                 <label>
                   Name
                   <input
+                    {...fieldProps("new-name", "Name")}
                     value={name}
                     maxLength={120}
-                    onChange={(event) => setName(event.target.value)}
+                    onChange={(event) => {
+                      setName(event.target.value);
+                      setFieldErrors({});
+                    }}
                   />
+                  {fieldError("new-name")}
                 </label>
                 <label>
                   Type
@@ -967,11 +1299,13 @@ export function SourceCatalogView({
                 <label>
                   Public image URL (optional)
                   <input
+                    {...fieldProps("new-image", "Public image URL (optional)")}
                     type="url"
                     value={assetUrl}
                     onChange={(event) => setAssetUrl(event.target.value)}
                     placeholder="https://…"
                   />
+                  {fieldError("new-image")}
                 </label>
                 <label>
                   Image type
@@ -989,33 +1323,184 @@ export function SourceCatalogView({
               </fieldset>
             )}
           </section>
-          <section className="source-catalog-config" aria-labelledby={`${id}-configuration`}>
-            <h2 id={`${id}-configuration`}>Endpoint configuration</h2>
+          <section
+            className="source-catalog-config"
+            aria-labelledby={`${id}-configuration`}
+            hidden={tab === "securities"}
+          >
+            <h2 id={`${id}-configuration`} tabIndex={-1}>
+              Accounts and content{focusedSource ? ` · ${focusedSource.name}` : ""}
+            </h2>
             <p>
-              Publisher defaults apply to compatible endpoints. Endpoint overrides take precedence.
-              This saves catalog intent only.
+              Choose which content to include from each account or channel. Account choices override
+              source defaults. Save the catalog to use your changes; identity verification and
+              delivery are separate.
             </p>
-            {canEdit && !saveBlocked && (
+            <fieldset className="source-catalog-form">
+              <legend>Content choices</legend>
+              <label>
+                Account or channel
+                <select
+                  aria-label="Account or channel"
+                  value={selectedEndpoint}
+                  onChange={(event) => {
+                    setSelectedEndpoint(event.target.value);
+                    setSelectedCapability("");
+                    setChoiceEdit(null);
+                  }}
+                >
+                  <option value="">Choose an account or channel</option>
+                  {[
+                    ...endpoints,
+                    ...draft.endpoints
+                      .filter((item) => !endpoints.some((entry) => entry.id === item.id))
+                      .map((item) => ({
+                        ...item,
+                        provider_id: null,
+                        system_owned: false,
+                        verified: false,
+                      })),
+                  ]
+                    .filter((item) => !focusedPublisher || item.publisher_id === focusedPublisher)
+                    .map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {publishers.find((publisher) => publisher.id === item.publisher_id)?.name ??
+                          draft.people_org.find((publisher) => publisher.id === item.publisher_id)
+                            ?.name ??
+                          item.publisher_id}{" "}
+                        · {item.platform} · {item.address}
+                        {item.verified ? "" : " (pending)"}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label>
+                Content type
+                <select
+                  aria-label="Content type"
+                  value={selectedCapability}
+                  onChange={(event) => {
+                    setSelectedCapability(event.target.value);
+                    setChoiceEdit(null);
+                  }}
+                  disabled={!selectedEndpoint}
+                >
+                  <option value="">Choose a supported content type</option>
+                  {compatible.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {selected && !catalog.endpoints.some((item) => item.id === selected.id) && (
+                <p role="status">
+                  Save this pending account first to load its supported content types.
+                </p>
+              )}
+              {chosen && (
+                <p role="status">
+                  Source default:{" "}
+                  {draft.publisher_defaults.find(
+                    (item) =>
+                      item.publisher_id === selected?.publisher_id &&
+                      item.capability_id === selectedCapability,
+                  )?.enabled
+                    ? "On"
+                    : draft.publisher_defaults.some(
+                          (item) =>
+                            item.publisher_id === selected?.publisher_id &&
+                            item.capability_id === selectedCapability,
+                        )
+                      ? "Off"
+                      : "Unset"}
+                  . Account override:{" "}
+                  {draft.endpoint_overrides.find(
+                    (item) =>
+                      item.endpoint_id === selectedEndpoint &&
+                      item.capability_id === selectedCapability,
+                  )?.enabled === true
+                    ? "On"
+                    : draft.endpoint_overrides.some(
+                          (item) =>
+                            item.endpoint_id === selectedEndpoint &&
+                            item.capability_id === selectedCapability,
+                        )
+                      ? "Off"
+                      : "Unset"}
+                  . Effective draft: {chosen.enabled && selected?.verified ? "On" : "Off"} (
+                  {chosen.source}). Saved: {subscription?.enabled ? "On" : "Off"} (
+                  {subscription?.source ?? "unset"},{" "}
+                  {subscription?.verification_status ?? "pending"}).
+                </p>
+              )}
+              {canEdit && !saveBlocked && (
+                <>
+                  <label>
+                    Apply to
+                    <select
+                      value={level}
+                      onChange={(event) => {
+                        setLevel(event.target.value as typeof level);
+                        setChoiceEdit(null);
+                      }}
+                    >
+                      <option value="publisher">Source default (all compatible accounts)</option>
+                      <option value="endpoint">This account only</option>
+                    </select>
+                  </label>
+                  <label>
+                    Include this content
+                    <select
+                      value={choice}
+                      disabled={!selectedCapability || saving}
+                      onChange={(event) =>
+                        setChoiceEdit({ key: choiceKey, value: event.target.value })
+                      }
+                    >
+                      <option value="default">
+                        {level === "endpoint" ? "Use source default" : "No default (off)"}
+                      </option>
+                      <option value="on">On</option>
+                      <option value="off">Off</option>
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="button secondary"
+                    disabled={!selectedCapability || saving || choice === savedChoice}
+                    onClick={applyChoice}
+                  >
+                    Apply setting to draft
+                  </button>
+                </>
+              )}
+            </fieldset>
+            {canEdit && !saveBlocked && tab === "people" && (
               <fieldset className="source-catalog-form">
-                <legend>Add an endpoint for People & Org</legend>
+                <legend>Add an account or channel</legend>
                 <label>
-                  Publisher
+                  Source
                   <select
+                    {...fieldProps("new-publisher", "Source")}
                     value={endpointPublisher}
                     onChange={(event) => setEndpointPublisher(event.target.value)}
                   >
-                    <option value="">Choose a publisher</option>
+                    <option value="">Choose a source</option>
                     {[
                       ...catalog.people_org,
                       ...draft.people_org
                         .filter((item) => !catalog.people_org.some((entry) => entry.id === item.id))
                         .map((item) => ({ ...item, tier: 3 })),
-                    ].map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name}
-                      </option>
-                    ))}
+                    ]
+                      .filter((item) => !focusedPublisher || item.id === focusedPublisher)
+                      .map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
                   </select>
+                  {fieldError("new-publisher")}
                 </label>
                 <label>
                   Platform
@@ -1033,154 +1518,90 @@ export function SourceCatalogView({
                   </select>
                 </label>
                 <label>
-                  Canonical handle
+                  Handle (without @)
                   <input
+                    {...fieldProps("new-handle", "Handle (without @)")}
                     value={endpointAddress}
                     onChange={(event) => setEndpointAddress(event.target.value)}
                     maxLength={64}
                   />
+                  {fieldError("new-handle")}
                 </label>
                 <button className="button secondary" type="button" onClick={addEndpoint}>
-                  Add pending endpoint to draft
+                  Add pending account to draft
                 </button>
               </fieldset>
             )}
-            <fieldset className="source-catalog-form">
-              <legend>Capability setting</legend>
-              <label>
-                Endpoint
-                <select
-                  aria-label="Endpoint"
-                  value={selectedEndpoint}
-                  onChange={(event) => {
-                    setSelectedEndpoint(event.target.value);
-                    setSelectedCapability("");
-                  }}
-                >
-                  <option value="">Choose an endpoint</option>
-                  {[
-                    ...endpoints,
-                    ...draft.endpoints
-                      .filter((item) => !endpoints.some((entry) => entry.id === item.id))
-                      .map((item) => ({
-                        ...item,
-                        provider_id: null,
-                        system_owned: false,
-                        verified: false,
-                      })),
-                  ].map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {publishers.find((publisher) => publisher.id === item.publisher_id)?.name ??
-                        draft.people_org.find((publisher) => publisher.id === item.publisher_id)
-                          ?.name ??
-                        item.publisher_id}{" "}
-                      · {item.platform} · {item.address}
-                      {item.verified ? "" : " (pending)"}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Capability
-                <select
-                  aria-label="Capability"
-                  value={selectedCapability}
-                  onChange={(event) => setSelectedCapability(event.target.value)}
-                  disabled={!selectedEndpoint}
-                >
-                  <option value="">Choose a compatible capability</option>
-                  {compatible.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {selected && !catalog.endpoints.some((item) => item.id === selected.id) && (
-                <p role="status">
-                  Save this pending endpoint first to load its backend-supported capabilities.
+            {relatedWorkflows.length > 0 && (
+              <nav className="source-related-workflows" aria-label="Related workflow settings">
+                <strong>Workflows for supported content</strong>
+                <p>
+                  These workflows support this source’s content types. Their processing rules are
+                  configured separately.
                 </p>
-              )}
-              {canEdit && !saveBlocked && (
-                <>
-                  <label>
-                    Set at
-                    <select
-                      value={level}
-                      onChange={(event) => setLevel(event.target.value as typeof level)}
-                    >
-                      <option value="publisher">Publisher default</option>
-                      <option value="endpoint">Endpoint override</option>
-                    </select>
-                  </label>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={enabled}
-                      onChange={(event) => setEnabled(event.target.checked)}
-                    />{" "}
-                    Enabled intent
-                  </label>
-                  {chosen && (
-                    <p role="status">
-                      Publisher default:{" "}
-                      {draft.publisher_defaults.find(
-                        (item) =>
-                          item.publisher_id === selected?.publisher_id &&
-                          item.capability_id === selectedCapability,
-                      )?.enabled
-                        ? "On"
-                        : "Off or unset"}
-                      . Endpoint override:{" "}
-                      {draft.endpoint_overrides.find(
-                        (item) =>
-                          item.endpoint_id === selectedEndpoint &&
-                          item.capability_id === selectedCapability,
-                      )?.enabled === true
-                        ? "On"
-                        : draft.endpoint_overrides.some(
-                              (item) =>
-                                item.endpoint_id === selectedEndpoint &&
-                                item.capability_id === selectedCapability,
-                            )
-                          ? "Off"
-                          : "Unset"}
-                      . Effective draft: {chosen.enabled && selected?.verified ? "On" : "Off"} (
-                      {chosen.source}). Saved: {subscription?.enabled ? "On" : "Off"} (
-                      {subscription?.source ?? "unset"},{" "}
-                      {subscription?.verification_status ?? "pending"}).
-                    </p>
-                  )}
-                  <button
-                    type="button"
-                    className="button secondary"
-                    disabled={!selectedCapability}
-                    onClick={applyChoice}
+                {[...new Set(relatedWorkflows)].map((watcherId) => (
+                  <Link
+                    key={watcherId}
+                    href={`/workspace/workflows?watcher=${encodeURIComponent(watcherId)}`}
                   >
-                    Apply setting to draft
-                  </button>
-                </>
-              )}
-            </fieldset>
+                    {watcherNames[watcherId]}
+                  </Link>
+                ))}
+              </nav>
+            )}
           </section>
-          <div className="source-catalog-save">
+          <details className="source-collection-status">
+            <summary>Collection status and intake evidence</summary>
+            <SourceAdapterEvidence
+              components={components}
+              activity={activity}
+              unavailable={activityUnavailable}
+              sampleMode={sampleMode}
+            />
+            {!components.some((item) => item.kind === "source_adapter") && !activityUnavailable && (
+              <p>No source adapter records are available.</p>
+            )}
+          </details>
+          <div
+            className={`source-catalog-save config-save-rail${dirty || saving ? " is-active" : ""}`}
+          >
             <p role="status">
               Revision {catalog.config.revision} ·{" "}
               {writeRefreshFailed
                 ? "Save acknowledged, refresh unconfirmed"
                 : dirty
-                  ? "Unsaved changes"
+                  ? `${changes} unsaved ${changes === 1 ? "change" : "changes"}`
                   : "Saved catalog"}
             </p>
             {canEdit && (
-              <button
-                type="button"
-                className="button"
-                disabled={!dirty || saving || saveBlocked}
-                onClick={() => void save()}
-              >
-                {saving ? "Saving…" : "Save catalog"}
-              </button>
+              <div className="config-save-actions">
+                <button
+                  className="button secondary"
+                  type="button"
+                  disabled={!dirty || saving || saveBlocked}
+                  onClick={() => {
+                    if (window.confirm("Discard your unsaved catalog changes?")) {
+                      discardWorkspaceDraft(catalogDraftKey, draftOwner, draftScope);
+                      setDraft(structuredClone(catalog.config.config));
+                      setError("");
+                      setFieldErrors({});
+                      setChoiceEdit(null);
+                      setFocusedPublisher("");
+                      setSelectedEndpoint("");
+                      setSelectedCapability("");
+                    }
+                  }}
+                >
+                  Discard changes
+                </button>
+                <SaveButton
+                  type="button"
+                  disabled={!dirty || saving || saveBlocked}
+                  onClick={() => void save()}
+                >
+                  {saving ? "Saving…" : "Save catalog"}
+                </SaveButton>
+              </div>
             )}
           </div>
         </>

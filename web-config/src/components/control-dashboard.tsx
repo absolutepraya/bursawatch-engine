@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { workflowDescriptions } from "@/lib/workflow-descriptions";
 import {
   Activity,
   ArrowUpRight,
@@ -800,6 +801,13 @@ export function ControlWatcherList({
               </span>
               <span className="control-watcher-identity">
                 <strong>{watcher.display_name}</strong>
+                {workflowDescriptions[watcher.watcher_id] && (
+                  <span className="control-watcher-description">
+                    {workflowDescriptions[watcher.watcher_id].input} →{" "}
+                    {workflowDescriptions[watcher.watcher_id].processing} →{" "}
+                    {workflowDescriptions[watcher.watcher_id].output}
+                  </span>
+                )}
                 <span>
                   {sampleMode
                     ? `Sample configuration v${watcher.current_revision ?? "unknown"}`

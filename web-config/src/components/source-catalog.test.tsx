@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { controlBrowser } from "@/lib/control-browser";
 import { WorkspaceError } from "@/lib/control-browser";
 import type { CatalogConfig, EffectiveCatalog, SourceCatalog } from "@/lib/source-catalog";
@@ -10,7 +10,13 @@ import { SourceCatalogView } from "./source-catalog";
 const toast = vi.hoisted(() => vi.fn());
 vi.mock("./toast-provider", () => ({ useToast: () => toast }));
 
-beforeEach(() => setDraftOwner("fixture-operator"));
+beforeEach(() => {
+  setDraftOwner("fixture-operator");
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: vi.fn(),
+  });
+});
 
 afterEach(() => {
   cleanup();
@@ -18,6 +24,7 @@ afterEach(() => {
   vi.useRealTimers();
   toast.mockReset();
   vi.restoreAllMocks();
+  Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
 });
 
 function deferred<T>() {
@@ -125,6 +132,144 @@ function renderCatalog(request: ReturnType<typeof controlBrowser>) {
 }
 
 describe("SourceCatalogView", () => {
+  it("filters registered RSS sources without allowing user-created RSS accounts", async () => {
+    const fixture = catalog(true);
+    fixture.people_org.push({
+      id: "stockbit",
+      name: "Stockbit",
+      kind: null,
+      tier: 3,
+      asset_ref: null,
+    });
+    fixture.endpoints.push({
+      id: "rss:stockbit:unboxing",
+      publisher_id: "stockbit",
+      platform: "rss",
+      address: "https://snips.example.test/unboxing?format=rss",
+      provider_id: "unboxing",
+      credential_ref: null,
+      system_owned: true,
+      verified: true,
+    });
+    const request = vi.fn(async (path: string) =>
+      path === "source-catalog" ? fixture : effective(),
+    ) as unknown as ReturnType<typeof controlBrowser>;
+    renderCatalog(request);
+    await screen.findByText(/Revision 1/);
+    fireEvent.click(screen.getByRole("tab", { name: "People & Org" }));
+    const browse = within(screen.getByRole("search", { name: "Find catalog sources" }));
+    fireEvent.change(browse.getByLabelText("Platform"), { target: { value: "rss" } });
+    expect(screen.getByRole("heading", { name: "Stockbit" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "My Group" })).toBeNull();
+    const add = within(screen.getByRole("group", { name: "Add an account or channel" }));
+    expect(
+      [...add.getByLabelText("Platform").querySelectorAll("option")].map((option) => option.value),
+    ).not.toContain("rss");
+    fireEvent.click(browse.getByRole("button", { name: "Clear filters" }));
+    expect(screen.getByRole("heading", { name: "My Group" })).toBeTruthy();
+  });
+
+  it("initializes saved choices, switches scope safely and removes overrides to restore inheritance", async () => {
+    let config: CatalogConfig = structuredClone(emptyConfig);
+    config.publisher_defaults = [
+      { publisher_id: "my-group", capability_id: "company_news", enabled: true, settings: {} },
+    ];
+    config.endpoint_overrides = [
+      { endpoint_id: "x:test", capability_id: "company_news", enabled: false, settings: {} },
+    ];
+    let revision = 1;
+    const request = vi.fn(async (path: string, body?: { config: CatalogConfig }) => {
+      if (path === "source-catalog/config") {
+        config = body!.config;
+        revision += 1;
+        return {};
+      }
+      return path === "source-catalog" ? catalog(true, config, revision) : effective(revision);
+    }) as unknown as ReturnType<typeof controlBrowser>;
+    renderCatalog(request);
+    await screen.findByText(/Revision 1/);
+    fireEvent.click(screen.getByRole("tab", { name: "People & Org" }));
+    fireEvent.change(screen.getByLabelText("Account or channel"), { target: { value: "x:test" } });
+    fireEvent.change(screen.getByLabelText("Content type"), { target: { value: "company_news" } });
+    expect(screen.getByLabelText("Include this content")).toHaveProperty("value", "off");
+    expect(screen.getByRole("button", { name: "Apply setting to draft" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    fireEvent.change(screen.getByLabelText("Apply to"), { target: { value: "publisher" } });
+    expect(screen.getByLabelText("Include this content")).toHaveProperty("value", "on");
+    fireEvent.change(screen.getByLabelText("Content type"), {
+      target: { value: "swing_chart_context" },
+    });
+    expect(screen.getByLabelText("Include this content")).toHaveProperty("value", "default");
+    fireEvent.change(screen.getByLabelText("Content type"), { target: { value: "company_news" } });
+    fireEvent.change(screen.getByLabelText("Apply to"), { target: { value: "endpoint" } });
+    fireEvent.change(screen.getByLabelText("Include this content"), { target: { value: "on" } });
+    fireEvent.change(screen.getByLabelText("Content type"), {
+      target: { value: "swing_chart_context" },
+    });
+    fireEvent.change(screen.getByLabelText("Content type"), { target: { value: "company_news" } });
+    expect(screen.getByLabelText("Include this content")).toHaveProperty("value", "off");
+    fireEvent.change(screen.getByLabelText("Include this content"), {
+      target: { value: "default" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Apply setting to draft" }));
+    expect(screen.getByRole("group", { name: "Content choices" }).textContent).toContain(
+      "Effective draft: On",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save catalog" }));
+    await waitFor(() => expect(toast).toHaveBeenCalled());
+    expect(config.endpoint_overrides).toEqual([]);
+    expect(config.publisher_defaults[0].enabled).toBe(true);
+    expect(
+      vi.mocked(request).mock.calls.filter(([path]) => path === "source-catalog/config"),
+    ).toHaveLength(1);
+  });
+
+  it("searches platform identities, opens source-specific accounts and returns focus to the card", async () => {
+    const request = vi.fn(async (path: string) =>
+      path === "source-catalog" ? catalog(true) : effective(),
+    ) as unknown as ReturnType<typeof controlBrowser>;
+    renderCatalog(request);
+    await screen.findByText(/Revision 1/);
+    fireEvent.click(screen.getByRole("tab", { name: "People & Org" }));
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "x test" } });
+    const open = screen.getByRole("button", { name: "View accounts and content for My Group" });
+    fireEvent.click(open);
+    expect(screen.getByLabelText("Account or channel")).toHaveProperty("value", "x:test");
+    expect(screen.getByRole("heading", { name: "Accounts and content · My Group" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Back to all sources" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: "View accounts and content for My Group" }),
+      ),
+    );
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "missing identity" } });
+    expect(screen.getByText("No people or organizations match these filters.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(
+      screen.getByRole("button", { name: "View accounts and content for My Group" }),
+    ).toBeTruthy();
+  });
+
+  it("marks invalid identity fields and moves focus to the correction", async () => {
+    const request = vi.fn(async (path: string) =>
+      path === "source-catalog" ? catalog(true) : effective(),
+    ) as unknown as ReturnType<typeof controlBrowser>;
+    renderCatalog(request);
+    await screen.findByText(/Revision 1/);
+    fireEvent.click(screen.getByRole("tab", { name: "People & Org" }));
+    const add = within(screen.getByRole("group", { name: "Add People & Org identity" }));
+    fireEvent.click(add.getByRole("button", { name: "Add identity to draft" }));
+    const input = add.getByLabelText("Name");
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(document.getElementById(input.getAttribute("aria-describedby")!)?.textContent).toContain(
+      "unique name",
+    );
+    await waitFor(() => expect(document.activeElement).toBe(input));
+    expect(vi.mocked(request).mock.calls).toHaveLength(2);
+  });
+
   it("offers X Swing Chart Context while showing its unset state as off", async () => {
     const request = vi.fn(async (path: string) =>
       path === "source-catalog" ? catalog(true) : effective(),
@@ -132,17 +277,19 @@ describe("SourceCatalogView", () => {
     renderCatalog(request);
     await screen.findByText(/Revision 1/);
     fireEvent.click(screen.getByRole("tab", { name: "People & Org" }));
-    const setting = screen.getByRole("group", { name: "Capability setting" });
-    fireEvent.change(setting.querySelector('select[aria-label="Endpoint"]')!, {
+    const setting = screen.getByRole("group", { name: "Content choices" });
+    fireEvent.change(setting.querySelector('select[aria-label="Account or channel"]')!, {
       target: { value: "x:test" },
     });
     expect(setting.querySelector('option[value="swing_chart_context"]')?.textContent).toBe(
       "Swing Chart Context",
     );
-    fireEvent.change(setting.querySelector('select[aria-label="Capability"]')!, {
+    fireEvent.change(setting.querySelector('select[aria-label="Content type"]')!, {
       target: { value: "swing_chart_context" },
     });
-    expect((screen.getByLabelText("Enabled intent") as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByLabelText("Include this content") as HTMLSelectElement).value).toBe(
+      "default",
+    );
     expect(setting.textContent).toContain("Unset");
   });
   it("keeps the skeleton visible and counts each catalog read as it settles", async () => {
@@ -219,7 +366,7 @@ describe("SourceCatalogView", () => {
     fireEvent.click(screen.getByRole("tab", { name: "People & Org" }));
     expect(screen.getByRole("heading", { name: "My Group" })).toBeTruthy();
     expect(screen.queryByRole("group", { name: "Add People & Org identity" })).toBeNull();
-    expect(screen.queryByRole("group", { name: "Add an endpoint for People & Org" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Add an account or channel" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Apply setting to draft" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Save catalog" })).toBeNull();
     expect(screen.queryByRole("textbox", { name: "Name" })).toBeNull();
@@ -343,7 +490,7 @@ it("restores source drafts across history visits and drops them after explicit r
   first.unmount();
   renderCatalog(first.request);
   expect(await screen.findByRole("heading", { name: "Unsaved Analyst" })).toBeTruthy();
-  expect(screen.getByText(/Unsaved changes/)).toBeTruthy();
+  expect(screen.getByText(/unsaved change/i)).toBeTruthy();
   expect((screen.getByRole("button", { name: "Save catalog" }) as HTMLButtonElement).disabled).toBe(
     false,
   );

@@ -852,14 +852,6 @@ function WatcherDetail({
         basePath={basePath}
         sampleMode={sampleMode}
       />
-      <SourceProfiles
-        key={watcherId}
-        watcherId={watcherId}
-        request={request}
-        canEdit={!sampleMode && status === "ready"}
-        sampleMode={sampleMode}
-        onDirtyChange={updatePhotoDirty}
-      />
       {status === "loading" ? <WorkspaceLoading title="Loading configuration…" compact /> : null}
       {status === "viewer" ? (
         <div className="control-access">
@@ -917,6 +909,14 @@ function WatcherDetail({
           />
         </>
       ) : null}
+      <SourceProfiles
+        key={watcherId}
+        watcherId={watcherId}
+        request={request}
+        canEdit={!sampleMode && status === "ready"}
+        sampleMode={sampleMode}
+        onDirtyChange={updatePhotoDirty}
+      />
       <div className="control-detail-actions">
         <button
           className="button ghost"

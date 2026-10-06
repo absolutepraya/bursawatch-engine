@@ -73,19 +73,19 @@ try {
   await page.getByRole("tab", { name: "People & Org", exact: true }).click();
   await page.getByRole("heading", { name: "Ricky Ho", exact: true }).waitFor();
   await page.getByText(/People & Org identity is not attached to a watcher profile\./).waitFor();
-  const capabilitySetting = page.getByRole("group", { name: "Capability setting", exact: true });
-  await capabilitySetting.getByLabel("Endpoint", { exact: true }).selectOption("x-rickyho1989");
-  await capabilitySetting.getByLabel("Capability", { exact: true }).selectOption("company_news");
-  await capabilitySetting.getByLabel("Enabled intent", { exact: true }).check();
-  await capabilitySetting.getByRole("button", { name: "Apply setting to draft", exact: true }).click();
+  const contentChoices = page.getByRole("group", { name: "Content choices", exact: true });
+  await contentChoices.getByLabel("Account or channel", { exact: true }).selectOption("x-rickyho1989");
+  await contentChoices.getByLabel("Content type", { exact: true }).selectOption("company_news");
+  await contentChoices.getByLabel("Include this content").selectOption("on");
+  await contentChoices.getByRole("button", { name: "Apply setting to draft", exact: true }).click();
   await page.getByRole("tab", { name: "Securities", exact: true }).click();
   const enrg = page.getByLabel("ENRG · PT Energi Mega Persada Tbk", { exact: true });
   await enrg.check();
   await page.getByRole("button", { name: "Save catalog", exact: true }).click();
   await page.getByText("Sample source catalog saved for this session.", { exact: true }).waitFor();
   await page.getByRole("tab", { name: "People & Org", exact: true }).click();
-  await capabilitySetting.getByLabel("Endpoint", { exact: true }).selectOption("x-rickyho1989");
-  await capabilitySetting.getByLabel("Capability", { exact: true }).selectOption("company_news");
+  await contentChoices.getByLabel("Account or channel", { exact: true }).selectOption("x-rickyho1989");
+  await contentChoices.getByLabel("Content type", { exact: true }).selectOption("company_news");
   await page.getByText(/Saved: On \(endpoint_override, verified\)/).waitFor();
 
   await goToView("Workflows");
