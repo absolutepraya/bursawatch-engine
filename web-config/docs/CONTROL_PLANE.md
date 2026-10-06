@@ -240,8 +240,12 @@ Private admin config stays in the signed-in session's memory, not public
 fixtures or persistent browser storage. Unsaved drafts survive same-document
 Back/Forward; they clear on sign-out, identity change or page reload. Returning
 to a draft based on an older server revision blocks saving until review.
-`/app` is a separate sample experience;
-its local custom workflows and connection preferences are not uploaded.
+`/app` is a no-login mirror of the seven `/workspace` destinations. It uses
+synthetic in-memory fixtures through an injected request function and makes no
+request to `/api/control` or other network write. Supported configuration
+edits update the fixture and confirm with a subsequent read. Jobs and History
+remain read-only. See [EXPERIENCE.md](EXPERIENCE.md) for sample records and
+unsupported controls.
 
 Configuration GETs require admin authorization for human users. PUTs save a
 complete `{config_version, config}` object through the backend, which records

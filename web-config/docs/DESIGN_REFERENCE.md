@@ -106,7 +106,7 @@ components:
 
 **Creative North Star: "The Quiet Market Desk"**
 
-Bursawatch is a minimal, dark workspace for market-source workflows. Its Sectors-inspired restraint comes from charcoal surfaces, clear rows, compact headings, and generous separation between tasks. The approved copper Signal Fold mark supplies identity.
+Bursawatch is a minimal, dark workspace for market-source workflows. Its restraint comes from charcoal surfaces, clear rows, compact headings, and generous separation between tasks. The approved copper Signal Fold mark supplies identity.
 
 ### Authenticated workspace
 
@@ -122,13 +122,11 @@ it does not claim a shadcn or Efferd package installation.
 
 The Sources destination sits below Overview. Securities uses a two-column thumbnail grid and People a three-column profile grid where space permits; both collapse to readable single-column layouts on narrow screens. Dated public brokerage photographs, illustrative thumbnails, brand plates, social avatars and identity descriptions remain references. Search and platform filters help browse them; settings links appear only for watcher IDs returned by the API. Added/to-add preview styling never establishes saved membership, a configured, enabled or healthy source. BRI Danareksa can open WhatsApp settings; Phintraco has separate swing and market-news settings. Configuration rows require admin access and use reviewed public avatars only after consistent platform and canonical URL/handle matching. Separately, the selected workflow's Source profiles panel loads real engine metadata on demand for signed-in users. Admins can edit automatic/manual photos or explicitly request a refresh, with uncertain writes blocked until a fresh metadata read. A refresh request is not proof of completion. Unknown or failed images retain initials. Catalog provenance remains in `public/brokers/PROVENANCE.md` and `public/sources/PROVENANCE.md`.
 
-### Sample brokerage workspace
+### Sample workspace
 
-The separate `/app` concept has Insights, Discover, Following, Workflows and Settings. These sample navigation labels do not replace the live workspace's seven destinations. Discover unifies public sources and brokerage identity; Following owns browser-local preferences. Sample Workflows opens Your workflows, with Library, Schedules and History alongside it. Settings contains Delivery, Bot and Account. Connection forms use a compact input/output switch and expand beneath the selected provider without configuring the live backend. Brokerage cards retain official logos on white brand plates, paired leader/building photographs with factual captions and a local Follow action. Individual brokerage configuration remains a plain form beside a neutral preview. Fabricated AUM/CAGR metrics are prohibited.
+`/app` mirrors the authenticated workspace's seven destinations, labels, components and layout. It is visibly labelled Sample workspace and uses synthetic in-memory data through a fixture-backed request function. It does not load Auth state or call `/api/control`. Sample-only presentation and notices stay under `src/app/app/`.
 
-### Sample sources workspace
-
-Within `/app`, Discover separates finding sources from configuring the browser-local collection in Following. Rows pair public avatars or institution logos with coverage and optional About this source details. Team selections and official institutions retain distinct labels. Shared interests and brief style are established during sample setup, then recommendation follows give toast feedback. Following opens source-specific inline configuration. Removal alone uses a focused native confirmation dialog, with failures reported inside it. A saved preference never implies a verified connection. `INTEGRATION.md` describes this sample surface; `CONTROL_PLANE.md` defines the live API integration.
+Sources uses the same Securities, Institutions and People & Org tabs, with public catalog identities and logos. Published uses public Bursawatch examples from the landing page and labels every item as a sample record. The Bursawatch Pagi example keeps the `BURSAWATCH PAGI`, `ROTASI SEKTOR` and `ROTASI KONGLO` structure, labels its figures as dummy data and does not look like a delivery receipt. Synthetic Jobs and History records remain read-only and do not imply live schedules, runs, source connections or deliveries.
 
 Controls feel direct and measured. Data, source context, and the consequence of a condition carry the visual interest; illustrative records remain distinct from a user's saved settings.
 
@@ -172,11 +170,11 @@ At the mobile breakpoint, page titles become (26px). Visible field labels remain
 
 The authenticated workspace uses a fixed (224px) sidebar and content capped at (1392px), with (44px) horizontal gutters, reduced to (28px) below (1200px). At (800px) and below, the brand and sign-out move to the header, seven labeled destinations form an adaptive grid in the bottom bar, and content gutters become (20px). At 375px the bar uses two rows at normal text size and reduces its column count as text grows, keeping labels whole and all destinations visible. Reserve the bar's actual measured height, including safe areas and additional rows at enlarged text sizes. Public source rows and brokerage photographs reflow without narrowing editable fields.
 
-The sample `/app` uses fixed desktop navigation at (216px); content caps at (1440px), with (36px) side padding. At (1200px) and below, its navigation narrows to (194px) and padding to (26px). Sample detail grids stack at (960px); brokerage configuration stacks at (940px). At (700px), its sidebar becomes a header/menu plus five labeled bottom destinations, side padding becomes (20px), and content reserves bottom space. At (1600px) and above, sample side padding increases to (48px).
+The sample `/app` uses the same fixed (224px) desktop navigation and content capped at (1392px), with (44px) horizontal gutters as `/workspace`. At (800px) and below, the seven labeled destinations form the same adaptive bottom grid. At 375px the bar uses two rows at normal text size and reduces its column count as text grows, keeping all destinations visible. Reserve its measured height, including safe areas and extra rows at enlarged text sizes.
 
-In the sample, Discover and Settings cap at (1192px); Insights caps at (1120px). Opening source configuration replaces the list with a focused inline editor capped at (720px). Across both experiences, source rows separate identity, useful context and action; use divided rows and selective panels, with readable form and prose measures. Landing layout belongs to the independent `web-landing` package.
+In the sample, each destination uses the shared workspace content width and task-grouped components. Source rows separate identity, useful context and action; use divided rows and selective panels, with readable form and prose measures. Landing layout belongs to the independent `web-landing` package.
 
-Sample onboarding uses Interests, Brief style and Follow in a form capped at (640px). Its stock-workflow creation retains a four-step form and review preview. Sample Settings uses Delivery / Bot / Account links; delivery edits one channel at a time and Bot pairs its form with a preview. These forms do not represent available control-plane write endpoints. Common gaps use the recorded spacing steps without forcing every layout onto one rigid scale.
+Sample-only notices explain which real workspace changes the schemas support. Do not add sample controls for an evening digest, adding a People & Org identity directly to a watcher, changing the fixed morning brief time or setting a weekly interval. Common gaps use the recorded spacing steps without forcing every layout onto one rigid scale.
 
 ## Elevation & Depth
 
@@ -200,11 +198,11 @@ Fields use the canvas fill, control border, and visible label. Hover strengthens
 
 ### Navigation
 
-Desktop links pair small SVG icons with text and a minimum (44px) hit area. Active links use a brighter surface and copper icon. Live desktop and mobile navigation expose Overview, Sources, Workflows, Jobs, History, Published and Account in that order; the sample retains Insights, Discover, Following, Workflows and Settings. Mobile links retain labels and copper selection, with a minimum (54px) height in the live workspace and (48px) in the sample. Global schedule controls live only in Jobs. Workflow catalog rows show configuration and Configure; runtime evidence belongs in Overview and selected workflow details. Expose current location with `aria-current`.
+Desktop links pair small SVG icons with text and a minimum (44px) hit area. Active links use a brighter surface and copper icon. Both live and sample desktop and mobile navigation expose Overview, Sources, Workflows, Jobs, History, Published and Account in that order. Mobile links retain labels and copper selection, with a minimum (54px) height and an adaptive grid. Global schedule controls live only in Jobs. Workflow catalog rows show configuration and Configure; runtime evidence belongs in Overview and selected workflow details. Expose current location with `aria-current`.
 
 ### Chips
 
-Status badges combine a semantic soft background and text label. Selected stock chips include a (44px) remove control. The sample `/app` topbar carries one quiet “Sample workspace” indicator in hosted mode; do not repeat global demo warnings on every section. The authenticated workspace identifies current API state and dates its public reference catalog.
+Status badges combine a semantic soft background and text label. Selected stock chips include a (44px) remove control. The sample navigation and each view carry a clear Sample workspace label and a short notice about its example data. The authenticated workspace identifies current API state and dates its public reference catalog.
 
 ### Cards / Containers
 
@@ -212,7 +210,7 @@ Use bordered surface panels for forms, source details, grouped watches, and sett
 
 ### Watch and Message Previews
 
-The sample setup message preview includes the chosen language and tone, destination context, and source links. These personal preferences have no live control-plane fields. “Preview” and sample labels identify illustrative content without dominating it. The authenticated workspace's input, processing and output summary describes supported workflow capabilities, not a delivery preview or proof of execution. The public website owns its own example interactions.
+The sample Bursawatch Pagi card shows the public landing example and labels its figures as dummy data. Published detail labels source material as sample content and hides destination identifiers and receipt claims. The authenticated workspace's input, processing and output summary describes supported workflow capabilities, not a delivery preview or proof of execution. The public website owns its own example interactions.
 
 State colors use (160ms ease-out). The motion budget allows one (180ms) page-entry opacity fade plus primary-button press feedback. Reduced-motion preferences remove animations and transitions and disable smooth scrolling. Loading indicators must only communicate actual pending work, never decorate an idle page.
 
