@@ -42,6 +42,15 @@ def test_native_regular_periods_and_completed_us_closes_are_bound_to_source():
     assert proof['evidence_kind']=='native_regular_trading_periods'
 
 
+def test_actual_yahoo_hour_alias_is_accepted_without_accepting_other_intervals():
+    cutoff=datetime(2026,10,3,0,30,tzinfo=timezone.utc)
+    payload=native(granularity='1h')
+    assert yahoo_sessions('SPY',payload,retrieved_at=cutoff,cutoff=cutoff)['symbol']=='SPY'
+    payload['chart']['result'][0]['meta']['dataGranularity']='1m'
+    with pytest.raises(ValueError):
+        yahoo_sessions('SPY',payload,retrieved_at=cutoff,cutoff=cutoff)
+
+
 @pytest.mark.parametrize('change',['missing_periods','wrong_symbol','wrong_zone','after_cutoff','overlap'])
 def test_native_schedule_failure_never_supplies_weekday_or_hour_defaults(change):
     cutoff=datetime(2026,10,3,0,30,tzinfo=timezone.utc); observed=cutoff

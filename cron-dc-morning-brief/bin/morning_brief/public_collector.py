@@ -14,7 +14,7 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 from .calendar import SessionCalendar, aware
 from .config import load_operator_config_data, timing_for
-from .global_markets import WATCHLIST
+from .global_markets import WATCHLIST, parse_yahoo_chart
 from .host import private_file
 from .public_sources import yahoo_sessions, ihsg_benchmark
 from .store import canonical, stamp
@@ -115,6 +115,10 @@ def collect_public(config, *, snapshot, calendar_path, source_cache, now, transp
                     retrieved_at=datetime.fromisoformat(daily['retrieved_at']),cutoff=cutoff)
             else:
                 globals.append(dict(name=name,payload=daily['payload'],retrieved_at=daily['retrieved_at'],sessions=proof))
+                checked_quote=parse_yahoo_chart(name,daily['payload'],freeze_at=cutoff,
+                    retrieved_at=datetime.fromisoformat(daily['retrieved_at']),sessions=proof)
+                if checked_quote['status']!='available':
+                    failures.append(name+':quote:'+(checked_quote.get('reason') or checked_quote['status']))
         except (KeyError,ValueError,TypeError,OverflowError) as error:
             failures.append(name+':verification:'+type(error).__name__)
             if name!='IHSG':

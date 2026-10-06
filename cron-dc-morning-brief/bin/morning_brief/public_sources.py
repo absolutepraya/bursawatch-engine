@@ -16,7 +16,8 @@ def yahoo_result(payload, *, symbol, granularity):
     if payload['chart']['error'] is not None or len(results) != 1:
         raise ValueError('single successful native Yahoo result required')
     result = results[0]
-    if result['meta']['symbol'] != symbol or result['meta']['dataGranularity'] != granularity:
+    native_intervals={'60m','1h'} if granularity=='60m' else {granularity}
+    if result['meta']['symbol'] != symbol or result['meta']['dataGranularity'] not in native_intervals:
         raise ValueError('native Yahoo identity mismatch')
     return result
 
