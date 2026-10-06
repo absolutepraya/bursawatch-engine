@@ -323,6 +323,28 @@ class DeliveryStore:
         retain uncertainty so expiry cannot incorrectly imply a safe rejection.
         """
         with self._transaction():
+            # Native creates persist their exact request before Discord mutation.
+            # A claim interrupted before that snapshot cannot have been sent.
+            # Adopted work can predate this service and must still reconcile.
+            unstarted = 0
+            for row in self.db.execute("""SELECT operation_key, create_recovery_json
+                    FROM discord_operations WHERE kind LIKE '%_create'
+                    AND (status='delivering' OR
+                        (status='ambiguous' AND error_category='reconciliation_inconclusive'))""").fetchall():
+                snapshot = json.loads(row['create_recovery_json'])
+                if ('request' not in snapshot and
+                        snapshot.get('reconcile_before_first_create') is False and
+                        snapshot.get('legacy_nonce') is None):
+                    self.db.execute("""UPDATE discord_operations
+                        SET status='pending', next_attempt_at=NULL, error_category=NULL,
+                            uncertain_attempt=0,
+                            updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                        WHERE operation_key=?""", (row['operation_key'],))
+                    # A prior recovery pass may have added this flag without a send.
+                    snapshot.pop('reconciliation_required', None)
+                    self.db.execute('UPDATE discord_operations SET create_recovery_json=? WHERE operation_key=?',
+                                    (json.dumps(snapshot), row['operation_key']))
+                    unstarted += 1
             creates = self.db.execute("""UPDATE discord_operations
                 SET status='pending_reconciliation', next_attempt_at=NULL,
                     uncertain_attempt=CASE WHEN attempt_deadline IS NOT NULL THEN 1 ELSE uncertain_attempt END,
@@ -333,7 +355,7 @@ class DeliveryStore:
                     uncertain_attempt=CASE WHEN attempt_deadline IS NOT NULL THEN 1 ELSE uncertain_attempt END,
                     updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
                 WHERE status='delivering' AND kind NOT LIKE '%_create'""").rowcount
-            return {"pending_reconciliation": creates, "pending": mutations}
+            return {"pending_reconciliation": creates, "pending": mutations + unstarted}
 
     def claim_next(self, now: str | None = None) -> OperationRecord | None:
         """Claim the earliest ready operation whose ordering chain is unblocked."""

@@ -185,6 +185,9 @@ def test_interrupted_create_reconciles_before_another_create(tmp_path):
     store, session, delivery = worker(tmp_path, [Response(body=[{"id": "456", "content": "exact content", "nonce": DiscordGateway.nonce("one")}])])
     store.accept(operation())
     assert store.claim_next().status == "delivering"
+    intent = store.load_intent("one")
+    method, path, body = delivery.gateway.request_spec(intent)
+    store.save_create_snapshot("one", {"request": {"method": method, "path": path, "body": body}})
     assert delivery.run_once(NOW).status == "delivered"
     assert [call[0] for call in session.calls] == ["GET"]
 

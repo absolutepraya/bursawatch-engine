@@ -219,7 +219,9 @@ def test_interrupted_attempt_after_expiry_never_becomes_safe_rejection(tmp_path,
         {'channel_id': '123', 'message_id': '456'}, {'content': 'edit'})
     intent = replace(original, attempt_deadline=NOW + timedelta(seconds=1))
     store.accept(intent)
-    store.claim_next()  # Simulates a crash before a durable result; outcome unknown.
+    store.claim_next()  # Simulates a crash after a send may have begun.
+    if kind == 'create':
+        store.save_create_snapshot(intent.key, {'request': {'method': 'POST'}})
     store.db.close()
     reopened = DeliveryStore(tmp_path / 'state.sqlite3', tmp_path / 'media')
     clock.now += timedelta(seconds=2)
@@ -228,6 +230,17 @@ def test_interrupted_attempt_after_expiry_never_becomes_safe_rejection(tmp_path,
     assert reopened.get_by_key('one').receipt is None
     assert reopened.get_by_key('one').error_category != 'attempt_deadline_expired'
     assert all(item[0] == 'GET' for item in session.calls)
+
+
+def test_interrupted_native_create_before_snapshot_expires_without_sending(tmp_path):
+    store, session, delivery, clock = deadline_worker(tmp_path, [])
+    intent = replace(operation(), attempt_deadline=NOW + timedelta(seconds=1))
+    store.accept(intent)
+    store.claim_next()
+    clock.now += timedelta(seconds=2)
+    assert delivery.run_once(clock.now).status == 'rejected'
+    assert store.get_by_key(intent.key).error_category == 'attempt_deadline_expired'
+    assert not session.calls
 
 
 def test_uncertain_noncreate_retry_expiry_retains_unknown_outcome(tmp_path):
