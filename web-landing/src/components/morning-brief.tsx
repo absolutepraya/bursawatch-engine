@@ -39,6 +39,7 @@ function Rotation({
 }) {
   return (
     <BotMessage time={time} title={`${emoji} ${title}: ${BRIEF.date}`}>
+      <p className="dc-text dc-note">{BRIEF.timing}</p>
       <p className="dc-text">{lead}</p>
       <ul className="dc-list">
         {rows.map(([name, phase, detail]) => (
@@ -50,6 +51,7 @@ function Rotation({
           </li>
         ))}
       </ul>
+      <p className="dc-text dc-note">{BRIEF.rotationBasis}</p>
       <BriefImage {...image} />
     </BotMessage>
   );
@@ -66,6 +68,7 @@ export function MorningBrief() {
       scrollable
     >
       <BotMessage time="Senin 08.00" title={`🌇 BURSAWATCH PAGI: ${BRIEF.date}`}>
+        <p className="dc-text dc-note">{BRIEF.timing}</p>
         <p className="dc-text">
           <b>IHSG: {BRIEF.verdict}</b> {BRIEF.scenario}
         </p>

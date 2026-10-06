@@ -128,11 +128,11 @@ export const SOURCES = [
   { name: "BRI Danareksa", logo: src("bridanareksa") },
   { name: "Samuel Sekuritas", logo: src("samuel") },
   { name: "Tuntun Sekuritas", logo: src("tuntun") },
-  { name: "IDX Keterbukaan Informasi", logo: src("idx") },
   { name: "Stockbit", logo: src("stockbit") },
   { name: "Ricky Ho", logo: src("rickyho1989") },
   { name: "The Kobeissi Letter", logo: src("kobeissiletter") },
   { name: "IHSG Journal", logo: src("aldotjahjadi") },
+  { name: "Aksi korporasi IDX", logo: src("idx"), soon: true },
 ] as const;
 
 export type ForumTag =
@@ -224,6 +224,9 @@ export const ENRG_PLAN = {
 /** Bursawatch Pagi example (preview of 5 Oct 2026). Figures are dummy data. */
 export const BRIEF = {
   date: "Mon, 5 Oct 2026",
+  timing: "Cutoff data: 07:30 WIB · Target terbit: 08:00 WIB",
+  rotationBasis:
+    "Basis: ilustrasi historis, bobot cap snapshot tetap. Data harga dan kapitalisasi: Sectors.",
   verdict: "tunggu konfirmasi pemulihan.",
   scenario:
     "Pergerakan di atas 6.100 membuka ruang pemulihan, sementara kehilangan 6.000 mengembalikan tekanan.",

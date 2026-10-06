@@ -15,6 +15,11 @@ version: v3-build
 
 Layout confirmed by the user on 2026-10-01 (storyboard v2). Built in compositions/ from scenes-src/ via tools/build_scenes.py.
 
+## Changes for the hackathon submission (2026-10-06)
+
+- Scene 5 (brief) adds the real message format's details from the morning-brief package: the "Cutoff data 07.30 WIB, Target terbit 08.00 WIB" line under the title, "Data harga dan kapitalisasi: Sectors" on the two rotation parts, the Yahoo Finance source on the global-markets note, and a small "pratinjau, angka contoh" tag so the dummy figures are not presented as live output. Timing and beat lock are unchanged.
+- The film is a trailer with recreated UI. The hackathon's one-minute teaser must be a screen recording of the product working, so record that separately.
+
 ## Changes from the Bursawatch Pagi format (2026-10-05)
 
 - Brief rebuilt on the real message format (preview `Bursawatch-Pagi-preview-2026-10-05.md`): "🌇 BURSAWATCH PAGI" with Pasar global (KOSPI, NIKKEI, QQQ emoji) and Agenda Indonesia, then "🏭 Rotasi sektor", "🐉 Rotasi konglo", and IHSG hari ini as the conclusion. Same four beat-locked parts (2.5 / 2.0 / 2.5 / 3.0s), so the SFX plan is unchanged. Figures are the preview's dummy data.

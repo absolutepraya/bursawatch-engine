@@ -148,6 +148,10 @@
         .lv span { font-size: 26px; color: #b8bbc0; }
         #s5-verdict { position: relative; margin-top: 24px; height: 84px; overflow: hidden; display: inline-block; border-radius: 14px; background: #DEA777; padding: 0 28px; min-width: 760px; }
         .vt { position: absolute; left: 28px; top: 0; height: 84px; line-height: 84px; font-family: "Hanken Grotesk"; font-weight: 900; font-size: 46px; letter-spacing: -0.03em; color: #111311; white-space: nowrap; }
+        #s5-timing { margin-top: 10px; font-size: 24px; color: #949BA4; letter-spacing: .01em; }
+        #s5-pre { position: absolute; right: 34px; top: 44px; padding: 5px 16px; border: 2px solid #DEA777; border-radius: 99px; font-family: "Hanken Grotesk"; font-weight: 700; font-size: 20px; letter-spacing: .06em; color: #F0BE91; text-transform: uppercase; }
+        #s5-src { position: absolute; left: 34px; bottom: 14px; font-size: 22px; color: #949BA4; }
+        #s5-src b { color: #DEA777; font-family: "Hanken Grotesk"; font-weight: 700; }
         .cap2 { position: absolute; left: 116px; top: 830px; font-weight: 700; font-size: 40px; line-height: 1.35; max-width: 600px; color: #EEEAE3; }
         .cap2 .c1 { color: #DEA777; }
         .crt { display: inline-block; width: 18px; height: 40px; background: #DEA777; vertical-align: -6px; margin-left: 6px; }
@@ -163,6 +167,9 @@
           <div id="s5-card">
             <div class="dhead"><span class="av" style="width:3.333cqw;height:3.333cqw"><img src="assets/brand/cropped_circle.png" style="border-radius:50%"></span><div><span class="botname">Bursawatch</span><span class="app">APP</span><span class="dtime">Senin, 5 Okt 2026 · 08.00 WIB</span></div></div>
             <div id="s5-title">&#127751; BURSAWATCH PAGI</div>
+            <div id="s5-timing">Cutoff data: 07.30 WIB &middot; Target terbit: 08.00 WIB</div>
+            <span id="s5-pre">pratinjau &middot; angka contoh</span>
+            <div id="s5-src">Data harga dan kapitalisasi: <b>Sectors</b> &middot; basis: bobot cap snapshot tetap</div>
             <div class="ph" id="s5-p0">
               <div class="lab">Pasar global</div>
               <div class="tiles">
@@ -170,7 +177,7 @@
                 <div class="tile"><div class="tn"><img src="assets/sources/emoji/nikkei.png">NIKKEI</div><div class="tv down" id="s5-v1">-0,00</div><div class="tc down">(-0,31%) <img src="assets/sources/emoji/red.png"></div></div>
                 <div class="tile"><div class="tn"><img src="assets/sources/emoji/qqq.png">QQQ</div><div class="tv up" id="s5-v2">+$0,00</div><div class="tc up">(+0,28%) <img src="assets/sources/emoji/green.png"></div></div>
               </div>
-              <div class="note">Acuan: Asia 07.30 WIB &middot; AS penutupan Jum, 2 Okt 2026</div>
+              <div class="note">Acuan: Asia 07.30 WIB &middot; AS penutupan Jum, 2 Okt 2026 &middot; Sumber: Yahoo Finance</div>
               <div class="agenda">
                 <div class="lab">Agenda Indonesia</div>
                 <div class="ag" id="s5-a0"><b>Rab, 7 Okt</b>Cadangan devisa <span>BI</span></div>
@@ -246,6 +253,11 @@
             tl.fromTo(o, { n: 0 }, { n: v, duration: 0.9, ease: "expo.out", onUpdate: fmt }, 0.45 + i * 0.12);
             tl.call(fmt, null, 0);
           });
+
+          // real-format details: the "pratinjau" tag arrives with the card, the Sectors data line holds for both rotation parts
+          tl.fromTo("#s5-pre", { opacity: 0 }, { opacity: 1, duration: 0.3 }, 0.5);
+          tl.fromTo("#s5-src", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.3, ease: "expo.out" }, P[1] + 0.3);
+          tl.to("#s5-src", { opacity: 0, duration: 0.2 }, P[3] - 0.12);
 
           // rotations: a slow push into the quadrant chart while it holds
           tl.fromTo("#s5-r0", { scale: 1 }, { scale: 1.12, duration: 2.0, ease: "sine.inOut" }, P[1]);
