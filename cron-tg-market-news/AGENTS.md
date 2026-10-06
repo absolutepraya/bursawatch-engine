@@ -98,7 +98,10 @@ Selection normalizes whitespace within paragraphs while preserving blank-line
 boundaries. Fact and deduplication normalization is unchanged.
 
 Persist a valid supplied generated title for both Phintraco and Tuntun.
-Older Phintraco submissions without titles remain compatible. The shared
+Older Phintraco submissions without titles remain compatible. When preparing a
+new card, use the explicit headline from a supported branded Notes, Quick
+Notes, or Company Update source before the issuer-name or brand fallback.
+Do not infer a headline from body text or change a frozen delivery payload. The shared
 news component normalizes the first headline subject character without
 altering ticker, acronym, or proper-name casing. No news keyword alone can
 reject a supported submission or its rendered card; advice and education
@@ -131,7 +134,7 @@ Harga terakhir (IDR): **<price>**
 [View on Telegram](<https://t.me/tuntunsekuritas/<source_message_id>>)
 ```
 
-Every macro-routed item omits ticker and market data. Both providers use generated titles and a source byline. Older Phintraco leases without titles use a brand or issuer-name fallback. Both show `*(Ringkasan)*`, then the Telegram link. Every issuer-routed Tuntun and Phintraco item uses the same market-card structure: provider-specific heading, the generated headline, with source-name fallback for old Phintraco leases, `*(Ringkasan)*` body, bold price, bold 1D/1W/1M/3M values, dot-decimal percentages, and a Telegram link. Phintraco research estimates are attributed within the summary; the byline identifies the publisher. Every summary is prefixed with `*(Ringkasan)* ` because every eligible item is summarized by the LLM. Direction emoji markup has one following space. A missing value is rendered as bold `-` with the grey direction emoji. There is no tier, session, per-entry timestamp, source image, separator, italic price, or follow-up media message. A Tier One or Tier Two issuer item uses the same standalone layout within its provider contract, and each candidate is posted as exactly one Discord text message.
+Every macro-routed item omits ticker and market data. Both providers use generated titles and a source byline. Older Phintraco leases without titles prefer a bounded descriptive source headline when available, then a brand or issuer-name fallback. Both show `*(Ringkasan)*`, then the Telegram link. Every issuer-routed Tuntun and Phintraco item uses the same market-card structure: provider-specific heading, the generated headline, with descriptive source-headline fallback when available for old Phintraco leases, `*(Ringkasan)*` body, bold price, bold 1D/1W/1M/3M values, dot-decimal percentages, and a Telegram link. Phintraco research estimates are attributed within the summary; the byline identifies the publisher. Every summary is prefixed with `*(Ringkasan)* ` because every eligible item is summarized by the LLM. Direction emoji markup has one following space. A missing value is rendered as bold `-` with the grey direction emoji. There is no tier, session, per-entry timestamp, source image, separator, italic price, or follow-up media message. A Tier One or Tier Two issuer item uses the same standalone layout within its provider contract, and each candidate is posted as exactly one Discord text message.
 
 The renderer places the single Ringkasan marker before the first summary
 paragraph. Both issuer providers keep exactly one shared deterministic tracker.

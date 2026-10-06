@@ -160,3 +160,8 @@ bound. Paragraph style does not introduce rejection, withholding, or another
 model call. The Market News owner preserves paragraph breaks and owns the
 single Ringkasan marker, deterministic tracker, and spacing-only fallback near
 Discord's content limit; this source runner does not format news cards.
+
+The Market News JSON example includes `title` for both news providers. Keep
+that executable example aligned with its surrounding instruction. Missing
+Phintraco titles remain compatible and use the owner's bounded source-headline
+fallback when preparing a new card, without changing already frozen output.

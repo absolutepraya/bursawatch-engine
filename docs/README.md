@@ -159,6 +159,10 @@ receipt projection, and pending legacy X corrections. The user confirmed
 existing LLM judgment and text-only pending news corrections. Release and
 historical message edits remain separate from this development work.
 
+The [Phintraco missing-headline repair](specs/2026-10-06-phintraco-missing-headline.md)
+records the active prompt JSON omission and the compatible source-headline
+fallback for new cards, with frozen retries preserved.
+
 The split decision and the current Bursawatch to Hermes Personal boundary are
 recorded in [`adr/0024-separate-bursawatch-and-hermes-personal.md`](adr/0024-separate-bursawatch-and-hermes-personal.md).
 The physical state-cutover decision is recorded in

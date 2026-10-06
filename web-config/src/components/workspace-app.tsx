@@ -731,13 +731,6 @@ function WatcherDetail({
           (issue) => issue.componentId === watcherId && issue.resource === "observations",
         )}
       />
-      <SourceProfiles
-        key={watcherId}
-        watcherId={watcherId}
-        request={request}
-        canEdit={status === "ready"}
-        onDirtyChange={updatePhotoDirty}
-      />
       {status === "loading" ? <WorkspaceLoading title="Loading configuration…" compact /> : null}
       {status === "viewer" ? (
         <div className="control-access">
@@ -792,6 +785,13 @@ function WatcherDetail({
           />
         </>
       ) : null}
+      <SourceProfiles
+        key={watcherId}
+        watcherId={watcherId}
+        request={request}
+        canEdit={status === "ready"}
+        onDirtyChange={updatePhotoDirty}
+      />
       <div className="control-detail-actions">
         <button
           className="button ghost"
