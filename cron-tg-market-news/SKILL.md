@@ -65,7 +65,8 @@ After every required delivery receipt is durably confirmed, the Market News owne
 Both News providers now request a source-grounded headline. Issuer headlines
 start with the supplied ticker and colon; macro headlines stay natural.
 Phintraco submissions without a title remain accepted for older leases, with
-a source-name fallback. The shared `lib-news-format` renderer owns source
+a descriptive source-headline fallback when available, then the source name.
+The shared `lib-news-format` renderer owns source
 bylines and the quote block. Swing and deterministic Stock Information keep
 their existing contracts.
 

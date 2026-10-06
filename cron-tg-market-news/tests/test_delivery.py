@@ -291,7 +291,7 @@ def test_phintraco_anak_usaha_quick_note_uses_the_issuer_market_card(monkeypatch
     alert = delivery.format_news_item(item)
 
     assert alert == (
-        "### <:phintraco:1531272488645038091> ARKO: PT Arkora Hydro Tbk\n-# Phintraco\n\n"
+        "### <:phintraco:1531272488645038091> ARKO: Anak Usaha ARKO Peroleh Pembiayaan US$9.8 Juta untuk Proyek PLTS\n-# Phintraco\n\n"
         "*(Ringkasan)* Anak usaha ARKO memperoleh fasilitas pembiayaan US$9,8 juta untuk proyek PLTS.\n\n"
         "Harga terakhir (IDR): **1.234**\n"
         "<:green:1531274822221434911> 1D: **+24 (+1.98%)**, "
@@ -751,6 +751,42 @@ def test_paragraph_upgrade_retries_an_existing_payload_verbatim(provider, monkey
     assert asyncio.run(delivery.deliver_event(restored, updated_item, "123", now + timedelta(minutes=10), delivery_client=owner))
     assert owner.submissions[0].payload["content"] == frozen_content
     assert f"*(Ringkasan)* {summary}\n\n" in frozen_content
+
+
+@pytest.mark.parametrize('headline', ['MGLV', 'MGLV ' + 'x' * 121, 'MGLV https://example.test/news'])
+def test_unusable_source_headline_keeps_missing_title_delivery_nonblocking(headline):
+    now = datetime(2026, 10, 6, tzinfo=timezone.utc)
+    item = _item(Provider.PHINTRACO, 35620, "MGLV", EventClass.FINANCING_OR_OWNERSHIP, now,
+                 source_text="PHINTAS Quick Notes | 6 Oktober 2026\n" + headline)
+    assert delivery.format_news_item(item).splitlines()[0].endswith("MGLV: MGLV")
+
+
+def test_missing_title_fallback_never_rewrites_a_frozen_duplicate_ticker(monkeypatch, tmp_path):
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_path / "state.json"))
+    now = datetime(2026, 10, 6, tzinfo=timezone.utc)
+    item = _item(Provider.PHINTRACO, 35620, "MGLV", EventClass.FINANCING_OR_OWNERSHIP, now,
+                 source_text="PHINTAS Quick Notes | 6 Oktober 2026\nMGLV Berikan Pinjaman Rp4 Triliun")
+    state = empty_state()
+    enqueue_candidate(state, item.candidate, now)
+    state["candidates"][item.key]["phase"] = "pending_delivery"
+
+    class UnavailableOwner:
+        def status(self, operation_key):
+            raise delivery.DeliveryClientError("timeout")
+
+    # Simulate the previous formatter freezing the operation before the upgrade.
+    original = delivery.phintraco_news_headline
+    monkeypatch.setattr(delivery, "phintraco_news_headline", lambda _: "")
+    assert not asyncio.run(delivery.deliver_event(state, item, "123", now, delivery_client=UnavailableOwner()))
+    frozen = state["stats"]["delivery_payloads"][item.key]["content"]
+    assert frozen.splitlines()[0].endswith("MGLV: MGLV")
+    monkeypatch.setattr(delivery, "phintraco_news_headline", original)
+    assert delivery.format_news_item(item).splitlines()[0].endswith("MGLV: Berikan Pinjaman Rp4 Triliun")
+    monkeypatch.setattr(delivery, "phintraco_news_headline", lambda _: pytest.fail("retry extracted a new title"))
+    monkeypatch.setattr(delivery, "get_market_snapshot", lambda *_: pytest.fail("retry fetched prices"))
+    owner = DeliveredOwner()
+    assert asyncio.run(delivery.deliver_event(load_state(), item, "123", now + timedelta(minutes=10), delivery_client=owner))
+    assert owner.submissions[0].payload["content"] == frozen
 
 
 def test_text_only_immediate_delivery_never_attempts_source_image(

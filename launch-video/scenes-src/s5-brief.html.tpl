@@ -16,32 +16,36 @@
         .ph { position: absolute; left: 34px; right: 34px; top: 230px; bottom: 34px; }
         .lab { font-family: "Hanken Grotesk"; font-weight: 700; font-size: 24px; letter-spacing: .1em; color: #DEA777; text-transform: uppercase; }
         .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 22px; }
-        .tile { background: #242429; border-radius: 16px; padding: 30px 28px; }
-        .tn { font-family: "Hanken Grotesk"; font-weight: 700; font-size: 26px; letter-spacing: .08em; color: #949BA4; }
-        .tv { font-family: "Hanken Grotesk"; font-weight: 800; font-size: 60px; letter-spacing: -0.03em; margin-top: 10px; font-feature-settings: "tnum"; }
-        .tc { font-family: "Hanken Grotesk"; font-weight: 800; font-size: 48px; margin-top: 4px; font-feature-settings: "tnum"; }
+        .tile { background: #242429; border-radius: 16px; padding: 28px 28px 30px; }
+        .tn { display: flex; align-items: center; gap: 14px; font-family: "Hanken Grotesk"; font-weight: 700; font-size: 28px; letter-spacing: .06em; color: #DBDEE1; }
+        .tn img { width: 52px; height: 52px; border-radius: 50%; }
+        .tv { font-family: "Hanken Grotesk"; font-weight: 800; font-size: 58px; letter-spacing: -0.03em; margin-top: 18px; font-feature-settings: "tnum"; white-space: nowrap; }
+        .tc { display: flex; align-items: center; gap: 10px; font-family: "Hanken Grotesk"; font-weight: 800; font-size: 34px; margin-top: 6px; font-feature-settings: "tnum"; }
+        .tc img { width: 30px; height: 30px; }
         .up { color: #2EE65F; } .down { color: #F23F43; }
-        .note { margin-top: 22px; font-size: 24px; color: #949BA4; }
-        .night { margin-top: 22px; background: #242429; border-radius: 18px; padding: 40px 40px; }
-        .nh { font-weight: 800; font-size: 54px; line-height: 1.16; letter-spacing: -0.01em; }
-        .ns { margin-top: 26px; font-size: 34px; color: #b8bbc0; line-height: 1.3; }
-        .take { display: flex; gap: 22px; align-items: flex-start; background: #242429; border-radius: 16px; padding: 26px 28px; margin-top: 18px; }
-        .take img.a { width: 70px; height: 70px; border-radius: 50%; }
-        .take .who { font-weight: 800; font-size: 26px; color: #EEEAE3; }
-        .take .who span { color: #949BA4; font-weight: 600; }
-        .take p { font-size: 36px; font-weight: 600; margin-top: 6px; color: #EEEAE3; }
-        .pill { display: inline-block; margin-top: 12px; font-family: "Hanken Grotesk"; font-weight: 700; font-size: 22px; border-radius: 99px; padding: 4px 16px; }
-        .pill.warn { color: #DEA777; border: 2px solid #DEA777; } .pill.ok { color: #2EE65F; border: 2px solid #2EE65F; }
-        .avb { position: relative; flex: none; }
-        .avb img.b { position: absolute; right: -4px; bottom: -4px; width: 28px; height: 28px; border-radius: 6px; outline: 3px solid #242429; }
-        .bal { display: flex; align-items: center; gap: 20px; margin-top: 30px; font-family: "Hanken Grotesk"; font-weight: 700; font-size: 26px; color: #949BA4; }
-        .track { position: relative; flex: 1; height: 18px; background: #3a3a41; border-radius: 99px; overflow: hidden; }
-        #s5-ok { position: absolute; left: 0; top: 0; bottom: 0; width: 36%; background: #2EE65F; transform-origin: 0 50%; }
-        #s5-warn { position: absolute; right: 0; top: 0; bottom: 0; width: 64%; background: #DEA777; transform-origin: 100% 50%; }
-        .chartbox { margin-top: 18px; background: #242429; border-radius: 16px; padding: 26px 30px 20px; }
-        .s5chart { width: 100%; height: auto; display: block; }
-        #s5-verdict { position: relative; margin-top: 24px; height: 84px; overflow: hidden; display: inline-block; border-radius: 14px; background: #DEA777; padding: 0 28px; min-width: 520px; }
-        .vt { position: absolute; left: 28px; top: 0; height: 84px; line-height: 84px; font-family: "Hanken Grotesk"; font-weight: 900; font-size: 48px; letter-spacing: -0.03em; color: #111311; white-space: nowrap; }
+        .note { margin-top: 24px; font-size: 24px; color: #949BA4; }
+        .rhead { margin-top: 14px; font-weight: 800; font-size: 36px; line-height: 1.2; letter-spacing: -0.01em; color: #EEEAE3; }
+        .rot { display: flex; gap: 26px; margin-top: 18px; }
+        .rimg { flex: none; width: 450px; height: 459px; border-radius: 12px; overflow: hidden; }
+        .rimg img { width: 100%; height: 100%; display: block; transform-origin: 70% 40%; }
+        .rrows { display: flex; flex-direction: column; gap: 14px; flex: 1; }
+        .rr { background: #242429; border-radius: 14px; padding: 18px 22px; }
+        .rr b { display: block; font-weight: 800; font-size: 34px; color: #EEEAE3; }
+        .rr i { font-style: normal; font-family: "Hanken Grotesk"; font-weight: 700; font-size: 24px; letter-spacing: .04em; }
+        .rr span { display: block; margin-top: 6px; font-size: 24px; color: #b8bbc0; font-feature-settings: "tnum"; }
+        .q-lead { color: #2EE65F; } .q-imp { color: #7AA7F5; } .q-weak { color: #F0BE91; }
+        .agenda { margin-top: 30px; }
+        .ag { display: flex; gap: 18px; align-items: baseline; font-size: 30px; margin-top: 14px; color: #DBDEE1; }
+        .ag b { font-family: "Hanken Grotesk"; font-weight: 800; color: #DEA777; min-width: 190px; font-feature-settings: "tnum"; }
+        .ag span { color: #949BA4; font-size: 24px; }
+        .ihsg { display: flex; gap: 30px; margin-top: 18px; }
+        .ihsg > img { width: 470px; height: 411px; border-radius: 12px; display: block; }
+        .lvls { display: flex; flex-direction: column; gap: 18px; padding-top: 6px; }
+        .lv { background: #242429; border-radius: 14px; padding: 20px 24px; }
+        .lv b { display: block; font-family: "Hanken Grotesk"; font-weight: 800; font-size: 46px; letter-spacing: -0.02em; font-feature-settings: "tnum"; }
+        .lv span { font-size: 26px; color: #b8bbc0; }
+        #s5-verdict { position: relative; margin-top: 24px; height: 84px; overflow: hidden; display: inline-block; border-radius: 14px; background: #DEA777; padding: 0 28px; min-width: 760px; }
+        .vt { position: absolute; left: 28px; top: 0; height: 84px; line-height: 84px; font-family: "Hanken Grotesk"; font-weight: 900; font-size: 46px; letter-spacing: -0.03em; color: #111311; white-space: nowrap; }
         .cap2 { position: absolute; left: 116px; top: 830px; font-weight: 700; font-size: 40px; line-height: 1.35; max-width: 600px; color: #EEEAE3; }
         .cap2 .c1 { color: #DEA777; }
         .crt { display: inline-block; width: 18px; height: 40px; background: #DEA777; vertical-align: -6px; margin-left: 6px; }
@@ -56,41 +60,50 @@
         <div id="s5-box">
           <div id="s5-card">
             {{BOTHEAD}}
-            <div id="s5-title">Morning brief</div>
+            <div id="s5-title">&#127751; BURSAWATCH PAGI</div>
             <div class="ph" id="s5-p0">
-              <div class="lab">Indeks global semalam</span></div>
+              <div class="lab">Pasar global</div>
               <div class="tiles">
-                <div class="tile"><div class="tn">NASDAQ</div><div class="tv" id="s5-v0">0</div><div class="tc up">+0,24%</div></div>
-                <div class="tile"><div class="tn">NIKKEI</div><div class="tv" id="s5-v1">0</div><div class="tc up">+1,94%</div></div>
-                <div class="tile"><div class="tn">KOSPI</div><div class="tv" id="s5-v2">0</div><div class="tc down">-0,48%</div></div>
+                <div class="tile"><div class="tn"><img src="assets/sources/emoji/kospi.png">KOSPI</div><div class="tv up" id="s5-v0">+0,00</div><div class="tc up">(+0,42%) <img src="assets/sources/emoji/green.png"></div></div>
+                <div class="tile"><div class="tn"><img src="assets/sources/emoji/nikkei.png">NIKKEI</div><div class="tv down" id="s5-v1">-0,00</div><div class="tc down">(-0,31%) <img src="assets/sources/emoji/red.png"></div></div>
+                <div class="tile"><div class="tn"><img src="assets/sources/emoji/qqq.png">QQQ</div><div class="tv up" id="s5-v2">+$0,00</div><div class="tc up">(+0,28%) <img src="assets/sources/emoji/green.png"></div></div>
               </div>
-              <div class="note">Penutupan 30 Sep 2026</div>
+              <div class="note">Acuan: Asia 07.30 WIB &middot; AS penutupan Jum, 2 Okt 2026</div>
+              <div class="agenda">
+                <div class="lab">Agenda Indonesia</div>
+                <div class="ag" id="s5-a0"><b>Rab, 7 Okt</b>Cadangan devisa <span>BI</span></div>
+                <div class="ag" id="s5-a1"><b>Kam, 15 Okt</b>Neraca perdagangan <span>BPS</span></div>
+                <div class="ag" id="s5-a2"><b>Rab, 21 Okt</b>Keputusan BI-Rate <span>BI</span></div>
+              </div>
             </div>
             <div class="ph" id="s5-p1">
-              <div class="lab">Semalam</div>
-              <div class="night">
-                <div class="nh">Inflasi AS melandai, peluang The Fed naikin bunga turun ke 37%.</div>
-                <div class="ns">Brent masih di atas US$100, Selat Hormuz masih panas.</div>
-              </div>
+              <div class="lab">&#127981; Rotasi sektor</div>
+              <div class="rhead">Energy masih memimpin; Financials mulai mengejar.</div>
+              <div class="rot"><div class="rimg"><img id="s5-r0" src="assets/brief/sector-rrg.png"></div><div class="rrows"><div class="rr" id="s5-q00"><b>Energy <i class="q-lead">Leading</i></b><span>kekuatan +2,3 pp &middot; momentum +1,1 pp</span></div><div class="rr" id="s5-q01"><b>Financials <i class="q-imp">Improving</i></b><span>kekuatan -0,6 pp &middot; momentum +0,9 pp</span></div><div class="rr" id="s5-q02"><b>Technology <i class="q-weak">Weakening</i></b><span>kekuatan +1,6 pp &middot; momentum -0,8 pp</span></div></div></div>
             </div>
             <div class="ph" id="s5-p2">
-              <div class="lab">Kata trader di X</div>
-              <div class="take" id="s5-k0"><span class="avb"><img class="a" src="assets/brief/dedewizard-avatar.png"><img class="b" src="assets/sources/emoji/twitter.png"></span><div><div class="who">dedewizard <span>@dedewizard19</span></div><p>Support 5800-5900, RSI udah oversold. Sesi 2 mulai ada respon positif.</p><span class="pill ok">optimis</span></div></div>
-              <div class="take" id="s5-k1"><span class="avb"><img class="a" src="assets/brief/elliot-avatar.png"><img class="b" src="assets/sources/emoji/twitter.png"></span><div><div class="who">Elliot Alderson <span>@senimemancing</span></div><p>Mantul naik bikin wave 4, lalu lanjut breakdown prev low.</p><span class="pill warn">hati-hati</span></div></div>
-              <div class="bal"><span>optimis</span><div class="track"><i id="s5-ok"></i><i id="s5-warn"></i></div><span>hati-hati</span></div>
+              <div class="lab">&#128009; Rotasi konglo</div>
+              <div class="rhead">Barito memimpin, Djarum membaik, Astra melemah.</div>
+              <div class="rot"><div class="rimg"><img id="s5-r1" src="assets/brief/konglo-rrg.png"></div><div class="rrows"><div class="rr" id="s5-q10"><b>Barito <i class="q-lead">Leading</i></b><span>kekuatan +2,5 pp &middot; momentum +1,4 pp</span></div><div class="rr" id="s5-q11"><b>Djarum <i class="q-imp">Improving</i></b><span>kekuatan -0,5 pp &middot; momentum +1,1 pp</span></div><div class="rr" id="s5-q12"><b>Astra / Jardine <i class="q-weak">Weakening</i></b><span>kekuatan +1,7 pp &middot; momentum -0,9 pp</span></div></div></div>
             </div>
             <div class="ph" id="s5-p3">
               <div class="lab">IHSG hari ini</div>
-              <div class="chartbox">{{CANDLES}}</div>
-              <div id="s5-verdict"><span class="vt" id="s5-vt0">Hijau</span><span class="vt" id="s5-vt1">Merah</span><span class="vt" id="s5-vt2">Sideways, rawan turun.</span></div>
+              <div class="ihsg">
+                <img id="s5-chart" src="assets/brief/ihsg-branded.png">
+                <div class="lvls">
+                  <div class="lv" id="s5-lv0"><b class="up">&gt; 6.100</b><span>ruang pemulihan terbuka</span></div>
+                  <div class="lv" id="s5-lv1"><b class="down">&lt; 6.000</b><span>tekanan balik lagi</span></div>
+                </div>
+              </div>
+              <div id="s5-verdict"><span class="vt" id="s5-vt0">Hijau</span><span class="vt" id="s5-vt1">Merah</span><span class="vt" id="s5-vt2">Tunggu konfirmasi pemulihan.</span></div>
             </div>
           </div>
         </div>
         <div id="s5-line"></div>
         <div id="s5-list">
-          <div class="bi" id="s5-b0"><span class="dot"></span><span>Indeks global semalam</span></div>
-          <div class="bi" id="s5-b1"><span class="dot"></span><span>Berita penting semalam</span></div>
-          <div class="bi" id="s5-b2"><span class="dot"></span><span>Sentimen trader di X</span></div>
+          <div class="bi" id="s5-b0"><span class="dot"></span><span>Pasar global</span></div>
+          <div class="bi" id="s5-b1"><span class="dot"></span><span>Rotasi sektor</span></div>
+          <div class="bi" id="s5-b2"><span class="dot"></span><span>Rotasi konglo</span></div>
           <div class="bi" id="s5-b3"><span class="dot"></span><span>Proyeksi IHSG hari ini</span></div>
         </div>
       </div>
@@ -122,29 +135,26 @@
             tl.fromTo("#s5-p" + i, { opacity: 0, y: 24, filter: "blur(12px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.34, ease: "expo.out", immediateRender: false }, p + (i === 0 ? 0.3 : 0.04));
           });
 
-          // P1: index tiles count up to the real 30 Sep closes
-          const vals = [26861, 66754, 6838];
-          vals.forEach((v, i) => {
+          // Pasar global: the overnight moves count up (dummy figures from the Bursawatch Pagi preview)
+          const moves = [[28.6, "+", ""], [210.0, "-", ""], [2.1, "+", "$"]];
+          moves.forEach(([v, sign, cur], i) => {
             const o = { n: 0 };
             const el = document.getElementById("s5-v" + i);
-            const fmt = () => (el.textContent = String(Math.round(o.n)).replace(/\B(?=(\d{3})+(?!\d))/g, "."));
-            tl.fromTo(o, { n: v * 0.9 }, { n: v, duration: 0.9, ease: "expo.out", onUpdate: fmt }, 0.45 + i * 0.12);
+            const fmt = () => (el.textContent = sign + cur + o.n.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/g, "."));
+            tl.fromTo(o, { n: 0 }, { n: v, duration: 0.9, ease: "expo.out", onUpdate: fmt }, 0.45 + i * 0.12);
             tl.call(fmt, null, 0);
           });
 
-          // P3: two takes, balance tips toward hati-hati
-          tl.fromTo("#s5-k0", { x: 60, opacity: 0 }, { x: 0, opacity: 1, duration: 0.3, ease: "expo.out", immediateRender: false }, P[2] + 0.15);
-          tl.fromTo("#s5-k1", { x: 60, opacity: 0 }, { x: 0, opacity: 1, duration: 0.3, ease: "expo.out", immediateRender: false }, P[2] + 0.45);
-          tl.fromTo("#s5-ok", { scaleX: 0 }, { scaleX: 1, duration: 0.6, ease: "expo.out" }, P[2] + 0.9);
-          tl.fromTo("#s5-warn", { scaleX: 0 }, { scaleX: 1, duration: 0.6, ease: "expo.out" }, P[2] + 0.9);
+          // rotations: a slow push into the quadrant chart while it holds
+          tl.fromTo("#s5-r0", { scale: 1 }, { scale: 1.12, duration: 2.0, ease: "sine.inOut" }, P[1]);
+          tl.fromTo("#s5-r1", { scale: 1 }, { scale: 1.12, duration: 2.5, ease: "sine.inOut" }, P[2]);
+          [1, 2].forEach((ph) => [0, 1, 2].forEach((k) => tl.fromTo("#s5-q" + (ph - 1) + k, { x: 40, opacity: 0 }, { x: 0, opacity: 1, duration: 0.28, ease: "expo.out", immediateRender: false }, P[ph] + 0.35 + k * 0.16)));
+          [0, 1, 2].forEach((k) => tl.fromTo("#s5-a" + k, { x: -24, opacity: 0 }, { x: 0, opacity: 1, duration: 0.26, ease: "expo.out", immediateRender: false }, 1.0 + k * 0.14));
 
-          // P4: candles draw left to right, levels draw, verdict ticks and lands on the beat
-          gsap.utils.toArray("#s5-p3 .cdl").forEach((c, i) => tl.fromTo(c, { opacity: 0, scaleY: 0.2, transformOrigin: "50% 50%" }, { opacity: 1, scaleY: 1, duration: 0.18, ease: "expo.out" }, P[3] + 0.12 + i * 0.012));
-          [0, 1, 2].forEach((k) => {
-            tl.fromTo("#s5-lv" + k + " line", { strokeDashoffset: 1000, strokeDasharray: "1000 1000" }, { strokeDashoffset: 0, duration: 0.45, ease: "power2.out" }, P[3] + 0.7 + k * 0.12);
-            tl.fromTo("#s5-lv" + k + " text", { opacity: 0 }, { opacity: 1, duration: 0.2 }, P[3] + 0.95 + k * 0.12);
-            tl.set("#s5-lv" + k + " line", { strokeDasharray: "14 10" }, P[3] + 1.15 + k * 0.12);
-          });
+          // IHSG: the chart settles, the two levels land, then the verdict ticks and lands on the beat
+          tl.fromTo("#s5-chart", { scale: 1.06 }, { scale: 1, duration: 0.6, ease: "expo.out" }, P[3]);
+          tl.fromTo("#s5-lv0", { x: 40, opacity: 0 }, { x: 0, opacity: 1, duration: 0.3, ease: "expo.out", immediateRender: false }, P[3] + 0.6);
+          tl.fromTo("#s5-lv1", { x: 40, opacity: 0 }, { x: 0, opacity: 1, duration: 0.3, ease: "expo.out", immediateRender: false }, P[3] + 0.85);
           tl.set(".vt", { yPercent: 100 }, 0);
           tl.fromTo("#s5-verdict", { opacity: 0, scale: 0.9 }, { opacity: 1, scale: 1, duration: 0.2, ease: "back.out(2)" }, P[3] + 1.45);
           tl.fromTo("#s5-vt0", { yPercent: 100 }, { yPercent: 0, duration: 0.12, ease: "expo.out", immediateRender: false }, P[3] + 1.5);
