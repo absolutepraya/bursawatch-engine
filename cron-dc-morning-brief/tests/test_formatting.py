@@ -14,15 +14,15 @@ def inputs():
     return dict(publication_session=PUBLICATION,cutoff=CUTOFF,target=TARGET,outlook=outlook,globals=quotes,calendar=calendar,sectors=[],konglo=[])
 
 
-def test_titles_hard_line_breaks_sources_and_frozen_times(core):
+def test_titles_hard_line_breaks_sources_without_timing_labels(core):
     f=core('formatting'); result=f.format_brief(**inputs(),logos={'KOSPI':'<:kospi:123456789012345678>'})
     assert len(result)==3 and all(len(x)<=2000 for x in result)
     assert result[0].startswith('### 🌇 BURSAWATCH PAGI: Mon, 5 Oct 2026')
     assert result[1].startswith('### 🏭 ROTASI SEKTOR: Mon, 5 Oct 2026')
     assert result[2].startswith('### 🐉 ROTASI KONGLO: Mon, 5 Oct 2026')
-    assert all('07:30 WIB' in x and '08:00 WIB' in x for x in result)
+    assert all('Cutoff data' not in x and 'Target terbit' not in x for x in result)
     assert '**Pasar global**\n<:kospi:123456789012345678> KOSPI:' in result[0]
-    assert GREEN in result[0] and '**Agenda Indonesia**' in result[0]
+    assert GREEN in result[0] and '**Agenda Ekonomi Indonesia**' in result[0]
     for url in ['https://example.org/actual-source','https://finance.yahoo.com/quote/%5EKS11/','https://www.bps.go.id/id/calendar']:
         assert url in result[0]
     markdown=f.six_block_markdown(result,[{'title':'IDX Composite Index','path':'ihsg.png'},None,{'title':'Rotasi Konglo','path':'konglo.png'}])

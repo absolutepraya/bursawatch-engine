@@ -65,7 +65,7 @@ def _facts_text(payload):
     globals_text=format_global_rows(payload.get('globals',{}).get('quotes',[]),logos={})
     if globals_text: sections.append('Pasar global\n'+globals_text)
     calendar_text=format_calendar_events(payload.get('calendar_events',{'events':[]}))
-    if calendar_text: sections.append('Agenda Indonesia\n'+calendar_text)
+    if calendar_text: sections.append('Agenda Ekonomi Indonesia\n'+calendar_text)
     return '\n\n'.join(sections)
 
 

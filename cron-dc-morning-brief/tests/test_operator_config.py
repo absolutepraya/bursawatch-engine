@@ -43,7 +43,8 @@ def test_database_snapshot_freezes_timing_and_delivery_waits_until_target(tmp_pa
     assert store.get_frozen(run.run_id,'operator_config').payload['revision']==1
     assert store.get_frozen(run.run_id,'writer_bundle').payload['fallback_at'].startswith('2026-10-05T06:55:00')
     selected=store.get_frozen(run.run_id,'selection')
-    assert '06:00 WIB' in selected.payload['texts'][0] and '07:00 WIB' in selected.payload['texts'][0]
+    assert datetime.fromisoformat(run.freeze_at).astimezone(ZONE).strftime('%H:%M')=='06:00'
+    assert all('Cutoff data' not in text and 'Target terbit' not in text for text in selected.payload['texts'])
     operation=store.get_frozen(run.run_id,'operation:ihsg_text')
     assert datetime.fromisoformat(operation.payload['attempt_deadline']).astimezone(ZONE).strftime('%H:%M')=='07:15'
     now[0]=now[0].replace(hour=7,minute=1)

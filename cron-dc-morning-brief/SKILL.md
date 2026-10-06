@@ -357,7 +357,10 @@ letters, global/calendar facts and omissions freeze under the fenced lease.
 The configured defaults freeze at 07:30 WIB and target delivery at 08:00 WIB.
 Every brief operation has an immutable attempt deadline (default 08:15 WIB),
 including retries. Delayed recovery keeps
-the original visible cutoff/target labels and records actual lateness.
+the original frozen timing and records actual lateness. Message bodies omit the
+cutoff/target timing line in all three sections. The agenda heading is
+`Agenda Ekonomi Indonesia`. Timing remains in attachment captions and private
+run provenance.
 
 `publication.Publisher.freeze` persists all six alternating IHSG text/image,
 sector text/image and konglo text/image steps before submission. Attachment bytes

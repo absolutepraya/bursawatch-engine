@@ -10,7 +10,7 @@ from .global_markets import format_global_rows
 from .rendering import publication_label
 from .rotation import select_groups
 
-REVISION='bursawatch-text-v2'
+REVISION='bursawatch-text-v3'
 LIMIT=2000
 
 
@@ -57,12 +57,11 @@ def _fit(required,optional):
         optional.pop()  # Whole paragraphs/highlights only, deterministic priority.
 
 
-def _timing(publication_session,cutoff,target):
+def _validate_timing(publication_session,cutoff,target):
     zone=ZoneInfo('Asia/Jakarta');cutoff=aware(cutoff).astimezone(zone);target=aware(target).astimezone(zone)
     if (cutoff.date()!=publication_session or target.date()!=publication_session or cutoff>=target
             or cutoff.second or cutoff.microsecond or target.second or target.microsecond):
         raise ValueError('same-session minute-aligned cutoff before publication target required')
-    return f'**Cutoff data:** {cutoff:%H:%M} WIB · **Target terbit:** {target:%H:%M} WIB'
 
 
 def _provenance_urls(value):
@@ -74,10 +73,10 @@ def _provenance_urls(value):
         for item in value:yield from _provenance_urls(item)
 
 
-def _rotation_text(groups,title,publication_session,timing,notices):
+def _rotation_text(groups,title,publication_session,notices):
     groups=tuple(groups)
     selected=select_groups(groups,limit=3)
-    required=[title+publication_label(publication_session),timing]
+    required=[title+publication_label(publication_session)]
     if not groups:required.append('Data rotasi belum tersedia.')
     else:
         coverage=min(row.coverage for row in groups)
@@ -93,11 +92,11 @@ def _rotation_text(groups,title,publication_session,timing,notices):
             required.append('**Cap dikumpulkan:** '+', '.join(caps)+' ('+metadata+').')
     try: required.append(_sources(url for row in groups for url in _provenance_urls(row.provenance)))
     except ValueError:
-        return _fit(required[:2]+['Data rotasi belum tersedia: sumber tidak dapat ditampilkan dengan aman.'],[])
+        return _fit(required[:1]+['Data rotasi belum tersedia: sumber tidak dapat ditampilkan dengan aman.'],[])
     highlights=[f"**{_escape(row.name)}:** {row.quadrant}. Kekuatan {row.x:+.2f} pp; Momentum {row.y:+.2f} pp." for row in selected]
     try: return _fit(required,highlights+list(notices))
     except MessageTooLong:
-        return _fit(required[:2]+['Data rotasi belum tersedia: rincian sumber melebihi batas pesan.'],[])
+        return _fit(required[:1]+['Data rotasi belum tersedia: rincian sumber melebihi batas pesan.'],[])
 
 
 def _scenario_block(scenario):
@@ -144,11 +143,11 @@ def format_brief(*,publication_session: date,cutoff: datetime,target: datetime,
     Callers freeze the returned strings verbatim;
     late retries must never refresh their date, times, evidence or prose.
     """
-    label=publication_label(publication_session);timing=_timing(publication_session,cutoff,target)
+    label=publication_label(publication_session);_validate_timing(publication_session,cutoff,target)
     notices=notices or {};logos=logos or {}
     # Missing/unrecognised provisioned markup falls back to the readable name.
     known={name:markup for name,markup in logos.items() if isinstance(markup,str) and re.fullmatch(r'<:[A-Za-z0-9_]+:[0-9]{15,22}>',markup)}
-    required=['### 🌇 BURSAWATCH PAGI: '+label,timing]
+    required=['### 🌇 BURSAWATCH PAGI: '+label]
     facts=[]
     for fact in outlook.get('market_facts',[]):
         if (type(fact) is not dict or set(fact)!={'label','value','unit'}
@@ -178,7 +177,7 @@ def format_brief(*,publication_session: date,cutoff: datetime,target: datetime,
     for event in calendar.get('unavailable',[]):
         try: unavailable.append(_sources([event.get('source_url')]))
         except ValueError: pass
-    calendar_block='**Agenda Indonesia**\n'+('\n'.join(calendar_rows) or 'Agenda terverifikasi belum tersedia.')
+    calendar_block='**Agenda Ekonomi Indonesia**\n'+('\n'.join(calendar_rows) or 'Agenda terverifikasi belum tersedia.')
     if unavailable: calendar_block+=' '+ ' '.join(unavailable)
     scenario=outlook.get('scenario')
     scenario_block=None
@@ -215,11 +214,11 @@ def format_brief(*,publication_session: date,cutoff: datetime,target: datetime,
     if global_block not in available:
         available.append('**Pasar global**\nData belum tersedia.')
     if calendar_block not in available:
-        available.append('**Agenda Indonesia**\nAgenda terverifikasi belum tersedia.')
+        available.append('**Agenda Ekonomi Indonesia**\nAgenda terverifikasi belum tersedia.')
     first=_fit(required,available)
 
-    sector=_rotation_text(sectors,'### 🏭 ROTASI SEKTOR: ',publication_session,timing,notices.get('sectors',[]))
-    conglomerate=_rotation_text(konglo,'### 🐉 ROTASI KONGLO: ',publication_session,timing,notices.get('konglo',[]))
+    sector=_rotation_text(sectors,'### 🏭 ROTASI SEKTOR: ',publication_session,notices.get('sectors',[]))
+    conglomerate=_rotation_text(konglo,'### 🐉 ROTASI KONGLO: ',publication_session,notices.get('konglo',[]))
     texts=(first,sector,conglomerate)
     if not with_selection: return texts
     selected={**outlook,'mode':'supported' if supported else 'facts_only',
@@ -234,7 +233,7 @@ def attachment_caption(kind: str,publication_session: date, *, cutoff=None, targ
     if cutoff is None and target is None:
         timing='Cutoff 07:30 WIB · Target 08:00 WIB'  # Historical local artifacts.
     else:
-        _timing(publication_session,cutoff,target)
+        _validate_timing(publication_session,cutoff,target)
         zone=ZoneInfo('Asia/Jakarta')
         timing=f'Cutoff {cutoff.astimezone(zone):%H:%M} WIB · Target {target.astimezone(zone):%H:%M} WIB'
     return titles[kind]+' | '+publication_label(publication_session)+' | '+timing
