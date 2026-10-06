@@ -127,8 +127,9 @@ Run `npm ci` then `npm run check` in this package and validate `web-landing`
 before the PR handoff. Add behavioral tests for changed validation,
 storage, source identity and interactions. Check keyboard access, toast
 feedback, 375px layouts, reduced motion and enlarged text for UI changes.
-Keep all seven mobile destinations visible in an adaptive grid with whole-word
-labels; reserve its measured height as rows increase with text size.
+Keep the seven mobile destinations in one horizontally scrollable row with
+whole-word labels, and keep the active destination in view. Reserve the row's
+measured height for page content and sticky actions.
 Activity endpoint identities use the bounded, case-sensitive Source Catalog
 validator, separate from component/job IDs. Jobs resolves a single supported
 watcher resource before linking to its editor; unresolved or ambiguous
