@@ -91,7 +91,7 @@ export function MorningBrief() {
         </ul>
         <p className="dc-text dc-note">{BRIEF.snapshot}</p>
         <p className="dc-text dc-subhead">
-          <b>Agenda Indonesia · 3 rilis berikutnya</b>
+          <Emoji name="bankindonesia" /> <b>Agenda Indonesia · 3 rilis berikutnya</b>
         </p>
         <ul className="dc-list">
           {BRIEF.agenda.map(([when, what, source]) => (
