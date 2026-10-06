@@ -79,6 +79,8 @@ Callers retry only the same immutable key and payload until the service acknowle
 
 `bin/manage.py status` prints paginated sanitized rows. For a `blocked` row, repair the destination first, inspect the exact key and digest, then use `bin/manage.py retry <key> --expected-digest <digest>` to preview. Applying the retry additionally requires `--apply` and an operator-approved recovery. This command does not edit the operation payload. `ambiguous` operations require investigation and must not be converted into a new create by operator guesswork.
 
+The worker persists every native create's exact request snapshot before its Discord mutation. Recovery returns a native create interrupted before that snapshot to the pending queue on the same immutable key. This also repairs an earlier `reconciliation_inconclusive` result for that provably unstarted request. Adopted work, legacy nonces and creates with a saved request retain reconciliation. An expired unstarted request is rejected without sending; a potentially sent request retains uncertainty.
+
 ## Configuration and private data
 
 Copy the tracked field names from [`env.example`](env.example) into the dedicated VPS environment file `/home/praya/.hermes/bursawatch-discord-delivery.env` with mode `0600`. Do not commit or print its values. Keep client, admin, emoji, and bot credentials separate:
