@@ -173,7 +173,7 @@ try {
     const box = await link.boundingBox();
     assert.ok(box, "Every mobile destination is visible.");
     assert.ok(box.x >= 0 && box.x + box.width <= 375, `Navigation target fits 375px: ${JSON.stringify(box)}`);
-    assert.ok(box.height >= 44, `Navigation target is at least 44px high: ${JSON.stringify(box)}`);
+    assert.ok(box.height >= 54, `Mobile navigation target is at least 54px high: ${JSON.stringify(box)}`);
   }
   await assertNoHorizontalOverflow("Sample workspace overflows at 375px");
   await page.evaluate(() => {
@@ -189,8 +189,8 @@ try {
       `Navigation target fits at 200% text: ${JSON.stringify(box)}`,
     );
     assert.ok(
-      box.height >= 44,
-      `Navigation target stays at least 44px high at 200% text: ${JSON.stringify(box)}`,
+      box.height >= 54,
+      `Mobile navigation target stays at least 54px high at 200% text: ${JSON.stringify(box)}`,
     );
   }
   await page.setViewportSize({ width: 1440, height: 1000 });
