@@ -312,6 +312,7 @@ Optional `logos` maps instrument names to provisioned custom emoji markup. It
 freezes in `upstream` and is passed to the formatter; later changes cannot alter
 selected text on recovery. Missing or malformed markup retains readable names.
 The no-post CLI accepts this mapping in its explicit input manifest.
+Direct live injection also waits until the default 08:00 target, including on recovery.
 Use the shared SourceEvidenceClient, DeliveryClient and PublicationClient for
 reviewed runtime transports; the owner never calls Discord REST directly.
 
@@ -403,6 +404,8 @@ or separately reviewed shared clients. `--as-of` is an explicit aware fixture
 instant, never a production currentness assertion. Runtime model transport and
 its own request deadline remain separate provisioning inputs.
 
+Live heartbeats wait up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` on the same
+operation key when an accepted receipt is nonterminal; they never resubmit for the wait.
 Every attempted session, non-session, no-data, degraded and fatal run emits or
 simulates the repository heartbeat destination `1505162000420835388` (#hermes).
 Shape: `🫀 bursawatch-dc-morning-brief · HH:MM WIB · <safe tokens>[ ⚠️]`;

@@ -13,7 +13,7 @@ from bursawatch_discord_delivery import OperationReceipt, DeliveryClientError
 from morning_brief.store import RunStore, FreezeConflict
 from morning_brief.rendering import RenderedArtifact
 
-NOW = datetime(2026,10,5,7,56,tzinfo=ZoneInfo('Asia/Jakarta'))
+NOW = datetime(2026,10,5,8,0,tzinfo=ZoneInfo('Asia/Jakarta'))
 DEST = '123456789012345678'
 
 class FakeDelivery:
@@ -83,6 +83,15 @@ def test_response_loss_and_restart_never_duplicate_accepted_operation(owner):
     restarted=type(pub)(RunStore(store.path),delivery,projection,clock=lambda:NOW)
     assert restarted.publish(run.run_id,lease=lease)['phase']=='projected'
     assert len(delivery.sent)==6
+
+def test_direct_publisher_waits_until_default_target_without_operator_config(owner):
+    freeze(owner); pub,store,run,lease,delivery,projection=owner
+    pub.clock=lambda:NOW-timedelta(seconds=1)
+    assert pub.publish(run.run_id,lease=lease)['phase']=='prepared'
+    assert not delivery.sent and not projection.requests
+    pub.clock=lambda:NOW
+    assert pub.publish(run.run_id,lease=lease)['phase']=='projected'
+    assert len(delivery.sent)==6 and len(projection.requests)==1
 
 def test_projection_outage_retries_projection_alone_and_keeps_original(owner):
     freeze(owner); pub,store,run,lease,delivery,projection=owner

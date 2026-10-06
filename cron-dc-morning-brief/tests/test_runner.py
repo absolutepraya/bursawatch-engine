@@ -12,7 +12,7 @@ from morning_brief.inputs import Provenance, MembershipSnapshot, CapSnapshot, Pr
 from morning_brief.store import RunStore, digest
 from test_publication import NOW, DEST, FakeDelivery, FakeProjection
 
-FREEZE=NOW.replace(minute=30)
+FREEZE=NOW.replace(hour=7,minute=30)
 
 class Source:
     def __init__(self): self.captures=0
@@ -123,6 +123,40 @@ def test_completed_attempt_releases_fenced_lease_for_immediate_recovery(tmp_path
     assert runner.run(**args)['phase']=='projected'
     assert runner.run(**args)['phase']=='projected'
     assert len(projection.requests)==1
+
+def test_direct_live_preparation_and_recovery_wait_until_default_target(tmp_path,core):
+    clock=[NOW-timedelta(minutes=4)]
+    delivery=HeartbeatDelivery(); projection=FakeProjection(); source=Source()
+    runner=core('runner').MorningRunner(RunStore(tmp_path/'runs'),source,delivery,projection,clock=lambda:clock[0])
+    args=dict(calendar=calendar(),numerical={},global_inputs=[],calendar_snapshots=[],model=None,
+        model_version='v',prompt_version='v',preview=False,destination=DEST,reviewed_config='reviewed-injection')
+    assert runner.run(**args)['phase']=='prepared'
+    assert runner.run(**args)['phase']=='prepared'
+    assert not [op for op in delivery.sent if op.target['channel_id']==DEST]
+    assert not projection.requests and source.captures==1
+    clock[0]=NOW
+    assert runner.run(**args)['phase']=='projected'
+    assert len([op for op in delivery.sent if op.target['channel_id']==DEST])==3
+    assert len(projection.requests)==1 and source.captures==1
+
+@pytest.mark.parametrize('accepted,after_wait',[
+    ('pending','delivered'),('pending_reconciliation','pending_reconciliation'),
+    ('retrying','retrying'),('delivering','delivered'),('delivered',None),('failed',None),
+])
+def test_heartbeat_waits_on_same_operation_only_for_nonterminal_receipts(tmp_path,core,accepted,after_wait):
+    from dataclasses import replace
+    from bursawatch_discord_delivery import DELIVERY_RECEIPT_WAIT_SECONDS
+    class Delivery(FakeDelivery):
+        def wait(self,key,timeout_seconds):
+            self.waits.append((key,timeout_seconds))
+            receipt=self.status(key)
+            return replace(receipt,status=after_wait)
+    delivery=Delivery(); delivery.statuses[1]=accepted
+    runner=core('runner').MorningRunner(RunStore(tmp_path/'runs'),Source(),delivery,FakeProjection(),clock=lambda:NOW)
+    result=runner._heartbeat({'phase':'prepared'},preview=False,preview_dir=None,accounting={})
+    assert len(delivery.sent)==1
+    assert delivery.waits==([(delivery.sent[0].key,DELIVERY_RECEIPT_WAIT_SECONDS)] if after_wait else [])
+    assert result['heartbeat']['status']==(after_wait or accepted)
 
 
 @pytest.mark.parametrize('manifest',['empty','raw_split'])
@@ -250,7 +284,12 @@ def test_generated_core_and_anchor_match_published_presentation_after_capture_gr
     result=runner.run(calendar=calendar(),numerical=numerical(),global_inputs=[],calendar_snapshots=[snapshot],
         model=structured_response,model_version='scenario-fixture',prompt_version='source-scenario-v2',
         preview=False,destination=DEST,reviewed_config='local-fake')
-    assert result['phase']=='projected'
+    assert result['phase']=='prepared'
+    assert not runner.projection.requests
+    current=NOW
+    assert runner.run(calendar=calendar(),numerical={},global_inputs=[],calendar_snapshots=[],
+        model=lambda _:pytest.fail('delivery reran writer'),model_version='changed',prompt_version='changed',
+        preview=False,destination=DEST,reviewed_config='local-fake')['phase']=='projected'
     run=store.create_run('2026-10-05',freeze_at=FREEZE)
     anchor=runner.publisher.morning_anchor(run.run_id)
     assert anchor['text']==[op for op in delivery.sent if op.key.endswith(':ihsg_text')][0].payload['content']

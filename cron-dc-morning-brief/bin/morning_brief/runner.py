@@ -6,7 +6,8 @@ import json
 from pathlib import Path
 import uuid
 from zoneinfo import ZoneInfo
-from bursawatch_discord_delivery import OperationIntent
+from bursawatch_discord_delivery import OperationIntent, DELIVERY_RECEIPT_WAIT_SECONDS
+from bursawatch_discord_delivery.client import NON_TERMINAL_STATUSES
 from .calendar import aware, SessionCalendar
 from .config import load_operator_config_data, retained_operator_config, timing_for
 from .inputs import (Provenance, MembershipSnapshot, CapSnapshot, PriceSeries, ActionDecision,
@@ -109,6 +110,8 @@ class MorningRunner:
                     ordering_key=f'{OWNER}:heartbeat',target={'channel_id':HEARTBEAT_DESTINATION},
                     payload={'content':content,'allowed_mentions':{'parse':[]}})
                 receipt=self.delivery.submit(operation)
+                if receipt.status in NON_TERMINAL_STATUSES:
+                    receipt=self.delivery.wait(operation.key,DELIVERY_RECEIPT_WAIT_SECONDS) or receipt
                 result['heartbeat']['status']=receipt.status
             except Exception: result['heartbeat']['status']='unresolved'
         return result
@@ -258,7 +261,7 @@ class MorningRunner:
                 if saved and not preview:
                     # Destination correction needs a new reviewed rollout, never retarget an old key.
                     if destination!=saved.payload['destination']: raise ValueError('frozen destination mismatch')
-                    result=self.publisher.publish(run.run_id,lease=lease) if operator_snapshot is None or self.clock()>=times['target'] else {'phase':'prepared'}
+                    result=self.publisher.publish(run.run_id,lease=lease) if self.clock()>=times['target'] else {'phase':'prepared'}
                 else:
                     upstream=self.store.get_frozen(run.run_id,'upstream')
                     if upstream:
@@ -306,7 +309,7 @@ class MorningRunner:
                         else:
                             self.publisher.freeze(run.run_id,texts=selected.payload['texts'],images=tuple(_artifact(row) for row in selected.payload['images']),
                                 omissions=selected.payload['omissions'],destination=destination,lease=lease)
-                            result=self.publisher.publish(run.run_id,lease=lease) if operator_snapshot is None or self.clock()>=times['target'] else {'phase':'prepared'}
+                            result=self.publisher.publish(run.run_id,lease=lease) if self.clock()>=times['target'] else {'phase':'prepared'}
                         result.update(gaps=len(inputs.payload['gaps'])+len(evidence.payload.get('degraded_reasons',[])),
                             fallback=selected.payload.get('outlook_mode',self.store.get_frozen(run.run_id,'outlook').payload['mode']),image_omissions=sum(bool(v) for v in selected.payload['omissions']))
                 result['receipt_outcome']=result.get('receipt_outcome',result['phase'])

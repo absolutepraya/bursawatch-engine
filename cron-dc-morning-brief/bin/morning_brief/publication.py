@@ -125,7 +125,7 @@ class Publisher:
         frozen=self.store.get_frozen(run_id,'publication')
         if frozen is None: raise ValueError('publication selection not frozen')
         run=self.store.get_run(run_id)
-        if self.store.get_frozen(run_id,'operator_config') is not None and self.clock()<timing_for(datetime.fromisoformat(run.session).date(),retained_operator_config(self.store,run_id))['target']:
+        if self.clock()<timing_for(datetime.fromisoformat(run.session).date(),retained_operator_config(self.store,run_id))['target']:
             return self._summary(run_id,'prepared',lease)
         manifest=frozen.payload; omissions=sum(bool(s['omission']) for s in manifest['steps'])
         if self.store.get_checkpoint(run_id,'projection_ack') is not None:
