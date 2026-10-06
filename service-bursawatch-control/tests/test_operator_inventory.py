@@ -38,7 +38,7 @@ def test_inventory_has_all_migrated_owners():
     components = list_components()
     domain_owners = [component for component in components if component.kind == "domain_owner"]
 
-    assert len(domain_owners) == 8
+    assert len(domain_owners) == 9
     assert {item.component_id for item in components if item.kind == "source_adapter"} == {
         "bursawatch-tg-source-ingest",
         "bursawatch-x-source-ingest",

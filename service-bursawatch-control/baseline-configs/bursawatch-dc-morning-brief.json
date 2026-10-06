@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "timezone": "Asia/Jakarta",
+  "cutoff_time": "07:30",
+  "delivery_time": "08:00",
+  "fallback_minutes": 5,
+  "retry_minutes": 15,
+  "destination_channel_id": null,
+  "instruments": [
+    "KOSPI",
+    "Nikkei",
+    "SPY",
+    "QQQ",
+    "EIDO",
+    "USDIDR"
+  ],
+  "logos": {
+    "KOSPI": "<:kospi:1556946123862835280>",
+    "Nikkei": "<:nikkei:1556946135690510357>",
+    "SPY": "<:spy:1556946147774439444>",
+    "QQQ": "<:qqq:1556946167789649920>",
+    "EIDO": "<:eido:1556946180070576138>",
+    "USDIDR": "<:usdidr:1556946192364085331>"
+  }
+}

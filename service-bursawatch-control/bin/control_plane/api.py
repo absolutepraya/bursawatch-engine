@@ -6,7 +6,7 @@ import json
 import os
 from typing import Any, Callable, Literal
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, status
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
@@ -54,6 +54,18 @@ from .source_catalog import (
 )
 from .source_inbox import InboxConflict, MemoryInboxStore, PostgresInboxStore
 from .validators import validators_from_environment
+
+
+class SourceEvidenceCapture(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    previous_cutoff: str = Field(max_length=64)
+    cutoff: str = Field(max_length=64)
+    limit: int = Field(default=1000, ge=1, le=1000, strict=True)
+
+
+class SourceEvidenceBatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version_refs: list[str] = Field(min_length=1, max_length=100)
 
 
 class ConfigWrite(BaseModel):
@@ -283,6 +295,7 @@ def create_app(
     inbox_store: MemoryInboxStore | PostgresInboxStore | None = None,
     observation_store: ObservationStore | None = None,
     publication_store: MemoryPublicationStore | PostgresPublicationStore | None = None,
+    source_history_available_from: str | None = None,
 ) -> FastAPI:
     store = store or InMemoryStore()
     auth = auth or StaticTokenAuth.from_environment()
@@ -315,9 +328,12 @@ def create_app(
             allow_headers=["Authorization", "Content-Type"],
         )
 
-    def principal(authorization: str | None = Header(default=None)) -> Principal:
+    def principal(request: Request, authorization: str | None = Header(default=None)) -> Principal:
         try:
-            return auth.authenticate(authorization)
+            current = auth.authenticate(authorization)
+            if current.kind == "source_reader" and request.url.path not in {"/v1/source-evidence/capture", "/v1/source-evidence/versions"}:
+                raise HTTPException(status_code=403, detail="source evidence read role only")
+            return current
         except AuthenticationError as exc:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
@@ -586,6 +602,28 @@ def create_app(
         except (ValueError, TypeError, KeyError) as exc:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
+    def evidence_reader(current: Principal = Depends(principal)) -> Principal:
+        if current.kind not in {"source_reader", "admin"}:
+            raise HTTPException(status_code=403, detail="source evidence read role required")
+        return current
+
+    @app.post("/v1/source-evidence/capture")
+    def capture_source_evidence(payload: SourceEvidenceCapture, _current: Principal = Depends(evidence_reader)) -> dict[str, Any]:
+        try:
+            return inbox_store.capture_window(payload.previous_cutoff, payload.cutoff, payload.limit,
+                                             history_available_from=source_history_available_from)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/v1/source-evidence/versions")
+    def read_source_evidence_versions(payload: SourceEvidenceBatch, _current: Principal = Depends(evidence_reader)) -> dict[str, Any]:
+        try:
+            return {"api_version": 1, "items": inbox_store.read_versions(payload.version_refs)}
+        except KeyError as exc:
+            raise HTTPException(status_code=410, detail="immutable source history is unavailable") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     @app.post("/v1/source-events")
     def accept_source_event(payload: SourceEventWrite, current: Principal = Depends(source_event_principal)) -> dict[str, Any]:
         if current.kind == "source_machine" and payload.envelope.get("endpoint_id") != current.subject:
@@ -841,6 +879,8 @@ def create_app(
         try:
             canonical_json_bytes(payload.config)
             validator(payload.config)
+            if watcher_id == "bursawatch-dc-morning-brief" and payload.config_version != 1:
+                raise ValueError("morning configuration version must be 1")
             profiles = profile_inputs_from_config(payload.config)
             snapshot = store.put_config(watcher_id, payload.config_version, payload.config, current.subject)
             records = store.sync_profile_metadata(watcher_id, profiles)
@@ -1036,6 +1076,7 @@ def create_app_from_environment() -> FastAPI:
         validators=validators_from_environment(),
         allowed_origins=origins,
         avatar_resolver=RssHubAvatarResolver.from_environment(),
+        source_history_available_from=os.environ.get("CONTROL_PLANE_SOURCE_HISTORY_AVAILABLE_FROM") or None,
     )
 
 

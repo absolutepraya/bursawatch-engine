@@ -140,3 +140,11 @@ Never delete a build directory while its server is running.
 Do not commit `.env*` (except reviewed `.env.example`), `.vercel`, local preferences, databases, `node_modules`,
 build output or review screenshots. Publishing a feature branch is not
 deployment approval. Retain the feature branch for review.
+
+Morning brief timing is domain configuration in Workflows, saved through the
+existing watcher-config API with its own revision. It defaults in the backend to
+07:30 cutoff and 08:00 delivery in WIB. Cutoff, delivery, fallback/retry windows,
+destination, instruments and emojis affect the next unfrozen session only.
+Saving these settings does not create or activate a job. Job enablement/cadence
+remains in Jobs. Credentials, shared provider stores and proof/rights inputs
+remain host-owned; never expose them as web fields.

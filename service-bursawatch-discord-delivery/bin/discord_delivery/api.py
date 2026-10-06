@@ -14,7 +14,10 @@ from starlette.concurrency import run_in_threadpool
 
 from .config import Config
 from .discord_gateway import GatewayError
-from .models import Attachment, OperationIntent, ValidationError, validate_preflight, validate_query
+from .models import (
+    Attachment, OperationIntent, ValidationError, parse_attempt_deadline,
+    validate_preflight, validate_query,
+)
 from .store import DeliveryStore, OperationKeyConflict, OperationStateConflict
 
 QueryExecutor = Callable[[dict[str, Any]], Any]
@@ -41,7 +44,7 @@ def _parse_intent(data: dict[str, Any], attachments: tuple[Attachment, ...] = ()
                   *, allow_legacy_nonce: bool = False) -> OperationIntent:
     if not isinstance(data, dict) or not {"key", "kind", "ordering_key", "target", "payload"} <= set(data):
         raise ValidationError("missing operation fields")
-    allowed = {"key", "kind", "ordering_key", "target", "payload", "reconcile_before_first_create"}
+    allowed = {"key", "kind", "ordering_key", "target", "payload", "reconcile_before_first_create", "attempt_deadline"}
     if allow_legacy_nonce:
         allowed.add("legacy_nonce")
     if set(data) - allowed:
@@ -51,6 +54,7 @@ def _parse_intent(data: dict[str, Any], attachments: tuple[Attachment, ...] = ()
         target=data["target"], payload=data["payload"], attachments=attachments,
         reconcile_before_first_create=data.get("reconcile_before_first_create", False),
         legacy_nonce=data.get("legacy_nonce"),
+        attempt_deadline=parse_attempt_deadline(data.get("attempt_deadline")),
     )
 
 

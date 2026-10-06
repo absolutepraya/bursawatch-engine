@@ -38,11 +38,42 @@ Operations move through these states:
 - `retrying`: a transient failure such as a rate limit or network timeout has a scheduled retry time.
 - `delivering`: claimed by the single service worker.
 - `delivered`: completed with a durable receipt containing the Discord identifiers needed by the caller.
-- `rejected`: Discord definitively rejected the operation for a non-retryable request problem.
+- `rejected`: Discord definitively rejected the operation for a non-retryable request problem, or its attempt deadline expired without an unresolved earlier attempt.
 - `blocked`: the destination, permission, or local state needs operator repair.
-- `ambiguous`: read-back could not safely prove whether a create succeeded.
+- `ambiguous`: read-back could not safely prove whether a create succeeded, or a deadline-bound mutation retains an unknown outcome at expiry.
 
 After a create request has an unknown outcome, the worker uses bounded read-back. A unique match records the receipt; a proven absence may permit one create; an inconclusive or conflicting result stays `ambiguous` and is never blindly recreated. Transient errors use service-owned backoff and honor Discord retry delays. Earlier nonterminal operations with the same ordering key block later operations.
+
+### Optional attempt deadline
+
+`attempt_deadline` is an optional timezone-aware ISO-8601 timestamp on an
+operation intent. Python clients pass an aware `datetime`. It is normalized to
+UTC with microsecond precision and included in the immutable digest only when
+present. Omission preserves existing payload digests and retry behavior. SQLite
+adds nullable deadline and uncertainty columns transactionally on startup;
+existing operation keys, receipts, staged bytes, and status constraints remain
+intact on repeated opening.
+
+At or after the deadline, no fresh mutation may begin, including retries. The
+worker checks a fresh clock after readback and snapshots; the gateway also
+checks immediately before mutation transport, after attachment preparation and
+any edit attachment read. A mutation started earlier retains its normal result,
+including a receipt returned after expiry. A deadline with no unresolved earlier
+attempt finishes as `rejected` with category `attempt_deadline_expired`.
+
+Expiry does not establish absence. An earlier uncertain create may still use
+bounded read-only reconciliation: a unique match records `delivered`; a complete
+readback proving absence permits expiry rejection; an inconclusive result stays
+`ambiguous`. Transient reads retain reconciliation backoff, while permission or
+destination failures stay `blocked`. Operator retry of such blocked creates
+must reconcile, including when a receipt failed to persist locally. Interrupted
+and response-lost deadline-bound edits/deletes retain uncertainty and become
+`ambiguous` at expiry because the worker has no proof of their outcome. Existing
+mutations without deadlines retain their recovery behavior.
+
+Queue ordering considers a rejected expiry a completed predecessor. A domain
+publisher must still require matching confirmed receipts before releasing its
+dependent operations. Neither expiry nor queue ordering supplies such a receipt.
 
 Callers retry only the same immutable key and payload until the service acknowledges acceptance. After acceptance, the service owns retry and recovery; a caller should query the same key and apply a matching receipt before advancing its source outbox. A changed or corrected source operation receives a new canonical revision key. Existing caller-owned outboxes are transferred only through their package's read-only plan and separately approved, paused-writer handoff. This service release helper does not adopt or migrate watcher or Board state.
 

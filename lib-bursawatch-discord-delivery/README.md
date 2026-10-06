@@ -58,6 +58,21 @@ current = client.status(operation.key)
 
 Attachments are immutable in-memory byte values, not caller paths. `submit` sends the operation as multipart form data so binary bytes survive unchanged. Media adoption also sends the ordered attachment bytes with its administrative envelope, preserving the original payload digest. `query` accepts only the service's seven allowlisted read kinds. `wait` first performs one status lookup using the normal client request timeout. Its `timeout_seconds` value bounds only the polling phase after that lookup; each polling request is capped to the remaining budget, and the latest receipt is returned when that budget expires. It never sends another create.
 
+`attempt_deadline` optionally accepts a timezone-aware Python `datetime` on
+`OperationIntent`. The client emits a canonical UTC ISO-8601 timestamp and binds
+it into the digest. Equivalent timezone offsets yield the same digest. Keep the
+original deadline along with the key, payload, and attachment bytes for retries;
+changing or extending it conflicts with an already accepted operation. Omitting
+it preserves existing digests and behavior.
+
+The deadline prevents new service mutation attempts at or after that instant;
+it does not bound `wait`, cancel an attempt already started, or establish that
+an uncertain earlier attempt failed. Such creates can still receive confirmed
+receipts through read-only reconciliation. Unresolved results remain pending,
+blocked, or ambiguous. Safe expiry uses existing terminal `rejected` status,
+so receipt parsing and `DELIVERY_RECEIPT_WAIT_SECONDS` remain unchanged. Advance
+dependent publication steps only from matching confirmed receipts.
+
 `legacy_nonce` is accepted only for a pending historical import with `reconcile_before_first_create=True`. It participates in the immutable operation digest, is sent only in `adopt_pending`, and is never included in a new submitted operation.
 
 ## Handoff primitives
