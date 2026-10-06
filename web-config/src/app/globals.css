@@ -1,10 +1,8 @@
-/* Bursawatch — restrained market workspace.
-   THESIS: a configurable daily watch, not another trading terminal.
-   OWN-WORLD: charcoal surfaces, warm white controls, copper identity, semantic green.
-   STORY: choose stocks, set a condition, inspect its result.
-   FIRST VIEWPORT: compact 216px navigation; task heading, personal settings, example records.
-   FORM: user-pinned Sectors restraint; seed aeb8c571; code-first.
-   FINISH: inspect desktop/mobile, independent review, document the shipped system. */
+/* Bursawatch operator workspace.
+   Palette: charcoal surfaces, clear rows, copper identity, semantic state colors.
+   Navigation: seven shared destinations on desktop and mobile.
+   Product: configure supported source workflows and review their recorded evidence.
+   Keep the public sample isolated under /app. */
 :root {
   color-scheme: dark;
   --bg: #141615;

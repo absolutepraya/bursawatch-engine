@@ -45,9 +45,13 @@ const blankFilter: PublishedFilter & {
 export function PublishedWorkspace({
   request,
   onSignIn,
+  basePath = "/workspace",
+  sampleMode = false,
 }: {
   request: Requester;
   onSignIn?: () => void;
+  basePath?: string;
+  sampleMode?: boolean;
 }) {
   const router = useRouter();
   const search = useSearchParams();
@@ -96,14 +100,14 @@ export function PublishedWorkspace({
       ...(value.route === "all" ? {} : { route: value.route }),
       ...(value.ticker.trim() ? { ticker: value.ticker.trim().toUpperCase() } : {}),
       ...(value.source.trim() ? { source: value.source.trim() } : {}),
-      ...(value.dateFrom
+      ...(!sampleMode && value.dateFrom
         ? { date_from: new Date(`${value.dateFrom}T00:00:00+07:00`).toISOString() }
         : {}),
-      ...(value.dateTo
+      ...(!sampleMode && value.dateTo
         ? { date_to: new Date(`${value.dateTo}T23:59:59.999+07:00`).toISOString() }
         : {}),
     } satisfies Omit<PublicationFilters, "cursor" | "limit">;
-  }, [filterKey]);
+  }, [filterKey, sampleMode]);
 
   const revokeAccess = useCallback((failure: unknown): boolean => {
     if (!(failure instanceof WorkspaceError) || !["auth", "forbidden"].includes(failure.code))
@@ -183,6 +187,12 @@ export function PublishedWorkspace({
   }, [filterKey, loadPage, readRetry]);
 
   const loadCoverage = useCallback(async () => {
+    if (sampleMode) {
+      setCoverageLoading(false);
+      setCoverage(null);
+      setCoverageError("");
+      return;
+    }
     if (accessBlocked.current) return;
     coverageController.current?.abort();
     const controller = new AbortController();
@@ -202,7 +212,7 @@ export function PublishedWorkspace({
     } finally {
       if (!controller.signal.aborted) setCoverageLoading(false);
     }
-  }, [request, revokeAccess]);
+  }, [request, revokeAccess, sampleMode]);
 
   useEffect(() => {
     // Start the external read after mount; state changes belong to that request.
@@ -241,15 +251,19 @@ export function PublishedWorkspace({
   }, [selectedId, request, detailRetry, readRetry, revokeAccess]);
 
   const openDetail = (id: string) =>
-    router.push(`/workspace/published?publication=${encodeURIComponent(id)}`);
-  const closeDetail = () => router.push("/workspace/published");
+    router.push(`${basePath}/published?publication=${encodeURIComponent(id)}`);
+  const closeDetail = () => router.push(`${basePath}/published`);
   const retryDetail = () => setDetailRetry((value) => value + 1);
 
   return (
     <>
       <div className="control-page-heading">
         <h1>Published</h1>
-        <p>Confirmed News and Swing deliveries since the recorded feed boundary.</p>
+        <p>
+          {sampleMode
+            ? "Public examples from the Bursawatch landing page. This sample does not check live delivery or publisher coverage."
+            : "Confirmed News and Swing deliveries since the recorded feed boundary."}
+        </p>
       </div>
       {accessFailure ? (
         <div className="control-alert" role="alert">
@@ -289,7 +303,12 @@ export function PublishedWorkspace({
             </button>
           </div>
         ) : currentDetail ? (
-          <PublishedDetail detail={currentDetail} onBack={closeDetail} onSelect={openDetail} />
+          <PublishedDetail
+            detail={currentDetail}
+            onBack={closeDetail}
+            onSelect={openDetail}
+            sampleMode={sampleMode}
+          />
         ) : null
       ) : (
         <>
@@ -326,22 +345,26 @@ export function PublishedWorkspace({
                 ))}
               </select>
             </label>
-            <label>
-              Delivered from
-              <input
-                type="date"
-                value={filter.dateFrom}
-                onChange={(event) => setFilter({ ...filter, dateFrom: event.target.value })}
-              />
-            </label>
-            <label>
-              Delivered to
-              <input
-                type="date"
-                value={filter.dateTo}
-                onChange={(event) => setFilter({ ...filter, dateTo: event.target.value })}
-              />
-            </label>
+            {!sampleMode ? (
+              <>
+                <label>
+                  Delivered from
+                  <input
+                    type="date"
+                    value={filter.dateFrom}
+                    onChange={(event) => setFilter({ ...filter, dateFrom: event.target.value })}
+                  />
+                </label>
+                <label>
+                  Delivered to
+                  <input
+                    type="date"
+                    value={filter.dateTo}
+                    onChange={(event) => setFilter({ ...filter, dateTo: event.target.value })}
+                  />
+                </label>
+              </>
+            ) : null}
           </div>
           <PublishedList
             items={items}
@@ -356,6 +379,7 @@ export function PublishedWorkspace({
             onFilter={(next) => setFilter({ ...filter, ...next })}
             onMore={() => void loadPage(true, cursor)}
             onSelect={openDetail}
+            sampleMode={sampleMode}
           />
         </>
       )}

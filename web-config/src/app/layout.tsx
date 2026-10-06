@@ -5,11 +5,11 @@ import type { Metadata, Viewport } from "next";
 
 export const metadata: Metadata = {
   title: {
-    default: "Bursawatch — Know what changed",
+    default: "Bursawatch: Know what changed",
     template: "%s · Bursawatch",
   },
   description:
-    "Follow the securities firms you trust. Configure your research brief, investment horizon and market summaries in one workspace.",
+    "Configure source-backed market workflows, review jobs and run history, and inspect published records.",
 };
 
 export const viewport: Viewport = {

@@ -32,10 +32,14 @@ export function WorkspaceNavigation({
   view,
   onSignOut,
   signingOut,
+  basePath = "/workspace",
+  sampleMode = false,
 }: {
   view: WorkspaceView;
-  onSignOut: () => void;
+  onSignOut?: () => void;
   signingOut: boolean;
+  basePath?: string;
+  sampleMode?: boolean;
 }) {
   const navigation = useRef<HTMLElement>(null);
 
@@ -62,41 +66,54 @@ export function WorkspaceNavigation({
   }, []);
 
   return (
-    <aside className="connected-navigation">
+    <aside className={`connected-navigation${sampleMode ? " sample-workspace-navigation" : ""}`}>
       <Link
-        href="/workspace"
+        href={basePath}
         className="connected-navigation-brand"
-        aria-label="Bursawatch workspace"
+        aria-label={sampleMode ? "Bursawatch sample workspace" : "Bursawatch workspace"}
       >
         <BrandMark />
         <span>Bursawatch</span>
       </Link>
+      {sampleMode ? <span className="sample-workspace-nav-label">Sample workspace</span> : null}
 
       <nav
         ref={navigation}
         className="connected-navigation-links"
         aria-label="Workspace navigation"
       >
-        {destinations.map(({ id, label, href, icon: Icon }) => (
-          <Link key={id} href={href} aria-current={view === id ? "page" : undefined}>
+        {destinations.map(({ id, label, icon: Icon }) => (
+          <Link
+            key={id}
+            href={workspaceHref(basePath, id)}
+            aria-current={view === id ? "page" : undefined}
+          >
             <Icon size={19} strokeWidth={1.8} aria-hidden="true" />
             <span>{label}</span>
           </Link>
         ))}
       </nav>
 
-      <div className="connected-navigation-footer">
-        <button
-          type="button"
-          className="connected-navigation-signout"
-          onClick={onSignOut}
-          disabled={signingOut}
-          aria-busy={signingOut}
-        >
-          <LogOut size={19} strokeWidth={1.8} aria-hidden="true" />
-          <span>{signingOut ? "Signing out…" : "Sign out"}</span>
-        </button>
-      </div>
+      {!sampleMode && onSignOut ? (
+        <div className="connected-navigation-footer">
+          <button
+            type="button"
+            className="connected-navigation-signout"
+            onClick={onSignOut}
+            disabled={signingOut}
+            aria-busy={signingOut}
+          >
+            <LogOut size={19} strokeWidth={1.8} aria-hidden="true" />
+            <span>{signingOut ? "Signing out…" : "Sign out"}</span>
+          </button>
+        </div>
+      ) : null}
     </aside>
   );
+}
+
+export function workspaceHref(basePath: string, view: WorkspaceView) {
+  if (view === "overview") return basePath;
+  if (view === "settings") return `${basePath}/${basePath === "/app" ? "account" : "settings"}`;
+  return `${basePath}/${view}`;
 }

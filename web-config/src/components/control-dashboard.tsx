@@ -74,12 +74,20 @@ const statusIcons = {
   running: Activity,
 };
 
-export function ControlRunStatus({ status }: { status: ControlRun["status"] }) {
+export function ControlRunStatus({
+  status,
+  sampleMode = false,
+}: {
+  status: ControlRun["status"];
+  sampleMode?: boolean;
+}) {
   const Icon = statusIcons[status];
   return (
     <span className={`control-status control-status-${status}`}>
       <Icon size={14} aria-hidden="true" />
-      {controlStatusLabels[status]}
+      {sampleMode
+        ? `Example ${controlStatusLabels[status].toLowerCase()}`
+        : controlStatusLabels[status]}
     </span>
   );
 }
@@ -99,6 +107,8 @@ export type ControlDashboardProps = {
   operatorJobs?: OperatorJob[];
   observations?: OperatorObservation[];
   operatorIssues?: { resource: string; message: string }[];
+  basePath?: string;
+  sampleMode?: boolean;
 };
 
 export function ControlDashboard({
@@ -116,6 +126,8 @@ export function ControlDashboard({
   operatorJobs = [],
   observations = [],
   operatorIssues = [],
+  basePath = "/workspace",
+  sampleMode = false,
 }: ControlDashboardProps) {
   const [range, setRange] = useState<ControlRange>("7d");
   const report = useMemo(
@@ -148,11 +160,21 @@ export function ControlDashboard({
       <header className="control-overview-heading">
         <div>
           <h1>Overview</h1>
-          <p>Your watchers, schedules and latest activity.</p>
+          <p>
+            {sampleMode
+              ? "Sample watchers, schedules and example activity."
+              : "Your watchers, schedules and latest activity."}
+          </p>
         </div>
         <div className="control-refresh">
           <span>
-            Updated <time dateTime={updatedAt}>{formatTime(updatedAt)} WIB</time>
+            {sampleMode ? (
+              "Synthetic examples"
+            ) : (
+              <>
+                Updated <time dateTime={updatedAt}>{formatTime(updatedAt)} WIB</time>
+              </>
+            )}
           </span>
           <button
             className="button secondary"
@@ -161,7 +183,7 @@ export function ControlDashboard({
             aria-busy={refreshing}
           >
             <RefreshCw size={16} aria-hidden="true" />
-            {refreshing ? "Refreshing…" : "Refresh"}
+            {refreshing ? "Refreshing…" : sampleMode ? "Reload examples" : "Refresh"}
           </button>
         </div>
       </header>
@@ -182,16 +204,18 @@ export function ControlDashboard({
           <strong>{number.format(watchers.length)}</strong>
           <small>
             {number.format(watchers.filter((watcher) => watcher.current_revision !== null).length)}{" "}
-            with saved configuration
+            {sampleMode ? "with example configuration" : "with saved configuration"}
           </small>
         </div>
         <div className="control-metric">
-          <span>Recorded runs</span>
+          <span>{sampleMode ? "Sample run records" : "Recorded runs"}</span>
           <strong>{number.format(report.total)}</strong>
           <small>{range === "7d" ? "Last 7 calendar days" : "Last 24 hours"} · WIB</small>
         </div>
         <div className={`control-metric${report.attention ? " control-metric-attention" : ""}`}>
-          <span>Historical runs needing attention</span>
+          <span>
+            {sampleMode ? "Sample runs needing attention" : "Historical runs needing attention"}
+          </span>
           <strong>{number.format(report.attention)}</strong>
           <small>
             {range === "7d" ? "Last 7 calendar days" : "Last 24 hours"}, not a current incident
@@ -199,14 +223,21 @@ export function ControlDashboard({
           </small>
         </div>
         <div className="control-metric">
-          <span>Observed active jobs</span>
+          <span>{sampleMode ? "Sample job records" : "Observed active jobs"}</span>
           <strong>
-            {operatorJobsUnavailable ? "Unavailable" : number.format(observedJobs.active)}
-            {!operatorJobsUnavailable ? <span> / {number.format(observedJobs.total)}</span> : null}
+            {sampleMode
+              ? number.format(operatorJobs.length)
+              : operatorJobsUnavailable
+                ? "Unavailable"
+                : number.format(observedJobs.active)}
+            {!sampleMode && !operatorJobsUnavailable ? (
+              <span> / {number.format(observedJobs.total)}</span>
+            ) : null}
           </strong>
           <small>
-            {number.format(observedJobs.stale)} stale · {number.format(observedJobs.unknown)}{" "}
-            unknown · {number.format(currentFailures.length)} fresh failed executions
+            {sampleMode
+              ? "Example records only, with no live job status"
+              : `${number.format(observedJobs.stale)} stale · ${number.format(observedJobs.unknown)} unknown · ${number.format(currentFailures.length)} fresh failed executions`}
           </small>
         </div>
       </section>
@@ -217,6 +248,7 @@ export function ControlDashboard({
         jobs={operatorJobs}
         observations={observationById}
         issues={operatorIssues}
+        sampleMode={sampleMode}
       />
 
       <div className="control-chart-grid">
@@ -226,8 +258,10 @@ export function ControlDashboard({
         >
           <div className="control-section-heading">
             <div>
-              <h2 id="control-activity-title">Run activity</h2>
-              <p>Recorded outcomes over time</p>
+              <h2 id="control-activity-title">
+                {sampleMode ? "Sample run activity" : "Run activity"}
+              </h2>
+              <p>{sampleMode ? "Example records over time" : "Recorded outcomes over time"}</p>
             </div>
             <fieldset className="control-range">
               <legend className="sr-only">Activity date range</legend>
@@ -248,14 +282,16 @@ export function ControlDashboard({
           <div className="control-chart-summary">
             <strong>{number.format(report.total)}</strong>
             <span>
-              recorded runs
+              {sampleMode ? "sample run records" : "recorded runs"}
               <span className="control-chart-period">
                 {formatTime(report.start)} – {formatTime(report.end)} WIB
               </span>
             </span>
           </div>
           <p className="control-chart-coverage">
-            Up to 50 latest runs per watcher. This range may be incomplete.
+            {sampleMode
+              ? "Synthetic example records only. This view does not check real runs."
+              : "Up to 50 latest runs per watcher. This range may be incomplete."}
           </p>
 
           {report.total === 0 ? (
@@ -272,7 +308,7 @@ export function ControlDashboard({
             <div
               className={`control-chart control-chart-${range}`}
               role="img"
-              aria-label={`${report.total} recorded runs. ${controlStatuses.map((status) => `${report.statuses[status]} ${controlStatusLabels[status].toLowerCase()}`).join(", ")}. Full values are available in the activity table below.`}
+              aria-label={`${sampleMode ? `${report.total} sample run records` : `${report.total} recorded runs`}. ${controlStatuses.map((status) => `${report.statuses[status]} ${controlStatusLabels[status].toLowerCase()}`).join(", ")}. Full values are available in the activity table below.`}
             >
               <div className="control-chart-axis" aria-hidden="true">
                 <span>{number.format(report.chartCeiling)}</span>
@@ -287,7 +323,7 @@ export function ControlDashboard({
                     <div
                       className="control-chart-column"
                       key={bucket.start}
-                      title={`${formatTime(bucket.start)} – ${formatTime(bucket.end)} WIB: ${bucket.count} recorded runs`}
+                      title={`${formatTime(bucket.start)} – ${formatTime(bucket.end)} WIB: ${bucket.count} ${sampleMode ? "sample run records" : "recorded runs"}`}
                     >
                       {bucket.count > 0 ? (
                         <div
@@ -344,9 +380,9 @@ export function ControlDashboard({
             </summary>
             <table>
               <caption>
-                Returned runs by start time, in WIB.{" "}
-                {range === "7d" ? "Today is a partial day. " : ""}
-                Empty intervals do not establish that a check ran.
+                {sampleMode
+                  ? "Synthetic sample records by start time, in WIB. They do not represent real runs."
+                  : `Returned runs by start time, in WIB. ${range === "7d" ? "Today is a partial day. " : ""}Empty intervals do not establish that a check ran.`}
               </caption>
               <thead>
                 <tr>
@@ -388,46 +424,63 @@ export function ControlDashboard({
         >
           <div className="control-section-heading">
             <div>
-              <h2 id="control-schedules-title">Schedule status</h2>
-              <p>Legacy watcher schedule reconciliation, not live registry proof</p>
+              <h2 id="control-schedules-title">
+                {sampleMode ? "Sample schedule records" : "Schedule status"}
+              </h2>
+              <p>
+                {sampleMode
+                  ? "Example records only, with no current scheduler status."
+                  : "Legacy watcher schedule reconciliation, not live registry proof"}
+              </p>
             </div>
             <Clock3 size={19} aria-hidden="true" />
           </div>
-          <div className="control-schedule-total">
-            <strong>{number.format(schedules.active)}</strong>
-            <span>active {schedules.active === 1 ? "schedule" : "schedules"}</span>
-          </div>
-          <div className="control-schedule-bar" aria-hidden="true">
-            {scheduleSegments
-              .filter((segment) => segment.count > 0)
-              .map((segment) => (
-                <span
-                  className={`control-fill-${segment.tone}`}
-                  style={{ flexGrow: segment.count }}
-                  key={segment.label}
-                />
-              ))}
-          </div>
-          <dl className="control-schedule-breakdown">
-            {scheduleSegments.map((segment) => (
-              <div key={segment.label}>
-                <dt>
-                  <span
-                    className={`control-legend-mark control-fill-${segment.tone}`}
-                    aria-hidden="true"
-                  />
-                  {segment.label}
-                </dt>
-                <dd>{number.format(segment.count)}</dd>
+          {sampleMode ? (
+            <div className="control-schedule-total">
+              <strong>{number.format(operatorJobs.length)}</strong>
+              <span>example job records</span>
+            </div>
+          ) : (
+            <>
+              <div className="control-schedule-total">
+                <strong>{number.format(schedules.active)}</strong>
+                <span>active {schedules.active === 1 ? "schedule" : "schedules"}</span>
               </div>
-            ))}
-          </dl>
+              <div className="control-schedule-bar" aria-hidden="true">
+                {scheduleSegments
+                  .filter((segment) => segment.count > 0)
+                  .map((segment) => (
+                    <span
+                      className={`control-fill-${segment.tone}`}
+                      style={{ flexGrow: segment.count }}
+                      key={segment.label}
+                    />
+                  ))}
+              </div>
+              <dl className="control-schedule-breakdown">
+                {scheduleSegments.map((segment) => (
+                  <div key={segment.label}>
+                    <dt>
+                      <span
+                        className={`control-legend-mark control-fill-${segment.tone}`}
+                        aria-hidden="true"
+                      />
+                      {segment.label}
+                    </dt>
+                    <dd>{number.format(segment.count)}</dd>
+                  </div>
+                ))}
+              </dl>
+            </>
+          )}
           <p className="control-panel-note">
-            {schedules.pending > 0
-              ? "Saved changes stay pending until the scheduler confirms them."
-              : schedules.total === 0
-                ? "No schedule records are available yet."
-                : "Active means the enabled schedule matches its applied revision."}
+            {sampleMode
+              ? "These records do not represent live jobs or scheduler state."
+              : schedules.pending > 0
+                ? "Saved changes stay pending until the scheduler confirms them."
+                : schedules.total === 0
+                  ? "No schedule records are available yet."
+                  : "Active means the enabled schedule matches its applied revision."}
           </p>
         </section>
       </div>
@@ -438,8 +491,14 @@ export function ControlDashboard({
       >
         <div className="control-section-heading">
           <div>
-            <h2 id="control-watchers-title">Watcher status</h2>
-            <p>Latest recorded run for each watcher</p>
+            <h2 id="control-watchers-title">
+              {sampleMode ? "Sample workflows" : "Watcher status"}
+            </h2>
+            <p>
+              {sampleMode
+                ? "Example configuration and history records."
+                : "Latest recorded run for each watcher"}
+            </p>
           </div>
           <span className="control-section-count">
             {number.format(watchers.length)} {watchers.length === 1 ? "watcher" : "watchers"}
@@ -456,6 +515,8 @@ export function ControlDashboard({
           operatorJobs={operatorJobs}
           observations={observations}
           operatorIssues={operatorIssues}
+          basePath={basePath}
+          sampleMode={sampleMode}
         />
       </section>
 
@@ -465,8 +526,12 @@ export function ControlDashboard({
       >
         <div className="control-section-heading">
           <div>
-            <h2 id="control-recent-title">Recent activity</h2>
-            <p>Open a run to inspect its recorded events</p>
+            <h2 id="control-recent-title">{sampleMode ? "Sample activity" : "Recent activity"}</h2>
+            <p>
+              {sampleMode
+                ? "Open an example record to inspect its synthetic events."
+                : "Open a run to inspect its recorded events"}
+            </p>
           </div>
           <Activity size={19} aria-hidden="true" />
         </div>
@@ -476,11 +541,13 @@ export function ControlDashboard({
           onSelectRun={onSelectRun}
           limit={6}
           emptyMessage="No run records in the selected range."
+          sampleMode={sampleMode}
         />
       </section>
       <p className="control-data-note">
-        A completed run does not confirm message delivery. Run samples are bounded history; gaps do
-        not establish uptime.
+        {sampleMode
+          ? "These synthetic examples do not represent a real run, message delivery or current system state."
+          : "A completed run does not confirm message delivery. Run samples are bounded history; gaps do not establish uptime."}
       </p>
     </div>
   );
@@ -492,12 +559,14 @@ function OperatorEvidencePanel({
   jobs,
   observations,
   issues,
+  sampleMode = false,
 }: {
   components: OperatorComponent[];
   activity: OperatorComponentActivity[];
   jobs: OperatorJob[];
   observations: Map<string, OperatorObservation>;
   issues: { resource: string; message: string }[];
+  sampleMode?: boolean;
 }) {
   const activityById = new Map(activity.map((row) => [row.component_id, row]));
   const states: Record<string, string> = {
@@ -516,9 +585,13 @@ function OperatorEvidencePanel({
     >
       <div className="control-section-heading">
         <div>
-          <h2 id="control-operator-evidence-title">Current engine evidence</h2>
+          <h2 id="control-operator-evidence-title">
+            {sampleMode ? "Sample workflow relationships" : "Current engine evidence"}
+          </h2>
           <p>
-            Source Inbox intake, pipeline work and job observations are separate from run history.
+            {sampleMode
+              ? "Synthetic records only. Live intake, pipeline work, jobs and deliveries are not checked."
+              : "Source Inbox intake, pipeline work and job observations are separate from run history."}
           </p>
         </div>
       </div>
@@ -532,7 +605,9 @@ function OperatorEvidencePanel({
       ) : null}
       <div className="control-evidence-grid">
         <section aria-labelledby="control-component-evidence-title">
-          <h3 id="control-component-evidence-title">Components</h3>
+          <h3 id="control-component-evidence-title">
+            {sampleMode ? "Sample components" : "Components"}
+          </h3>
           {components.map((component) => {
             const row = activityById.get(component.component_id);
             const accepted =
@@ -549,36 +624,52 @@ function OperatorEvidencePanel({
               <article key={component.component_id}>
                 <strong>{component.display_name}</strong>
                 <span>
-                  Last accepted input:{" "}
-                  {lastAccepted ? (
-                    <time dateTime={lastAccepted}>{formatTime(lastAccepted)} WIB</time>
-                  ) : row ? (
-                    "No accepted input recorded"
+                  {sampleMode ? (
+                    "Sample input status is not represented."
                   ) : (
-                    "Unavailable"
+                    <>
+                      Last accepted input:{" "}
+                      {lastAccepted ? (
+                        <time dateTime={lastAccepted}>{formatTime(lastAccepted)} WIB</time>
+                      ) : row ? (
+                        "No accepted input recorded"
+                      ) : (
+                        "Unavailable"
+                      )}
+                    </>
                   )}
                 </span>
                 <span>
-                  Last pipeline work:{" "}
-                  {row?.pipelines.length ? (
-                    pipelineTime ? (
-                      <time dateTime={pipelineTime}>{formatTime(pipelineTime)} WIB</time>
-                    ) : (
-                      "Not recorded"
-                    )
-                  ) : component.pipeline_ids.length ? (
-                    "Unknown"
+                  {sampleMode ? (
+                    "Sample pipeline work is not represented."
                   ) : (
-                    "Not applicable"
+                    <>
+                      Last pipeline work:{" "}
+                      {row?.pipelines.length ? (
+                        pipelineTime ? (
+                          <time dateTime={pipelineTime}>{formatTime(pipelineTime)} WIB</time>
+                        ) : (
+                          "Not recorded"
+                        )
+                      ) : component.pipeline_ids.length ? (
+                        "Unknown"
+                      ) : (
+                        "Not applicable"
+                      )}
+                    </>
                   )}
                 </span>
-                <span>Delivery: {row?.delivery_status ?? "Not instrumented"}</span>
+                <span>
+                  {sampleMode
+                    ? "Delivery: not represented"
+                    : `Delivery: ${row?.delivery_status ?? "Not instrumented"}`}
+                </span>
               </article>
             );
           })}
         </section>
         <section aria-labelledby="control-job-evidence-title">
-          <h3 id="control-job-evidence-title">Jobs</h3>
+          <h3 id="control-job-evidence-title">{sampleMode ? "Sample jobs" : "Jobs"}</h3>
           {jobs.map((job) => {
             const observation = observations.get(`job:${job.job_id}`);
             const state = observedJobState(job, observation);
@@ -586,26 +677,38 @@ function OperatorEvidencePanel({
             return (
               <article key={job.job_id}>
                 <strong>{job.display_name}</strong>
-                <span>
-                  {states[state]} · {job.job_id}
-                </span>
-                <span>
-                  Observed:{" "}
-                  {observation ? `${formatTime(observation.observed_at)} WIB` : "No observation"}
-                </span>
-                <span>
-                  Last execution:{" "}
-                  {last?.at
-                    ? `${last.status ?? "Status unavailable"}, ${formatTime(last.at)} WIB`
-                    : "Not reported"}
-                </span>
+                {sampleMode ? (
+                  <span>
+                    Example job record only. No live job status or execution is represented.
+                  </span>
+                ) : (
+                  <>
+                    <span>
+                      {states[state]} · {job.job_id}
+                    </span>
+                    <span>
+                      Observed:{" "}
+                      {observation
+                        ? `${formatTime(observation.observed_at)} WIB`
+                        : "No observation"}
+                    </span>
+                    <span>
+                      Last execution:{" "}
+                      {last?.at
+                        ? `${last.status ?? "Status unavailable"}, ${formatTime(last.at)} WIB`
+                        : "Not reported"}
+                    </span>
+                  </>
+                )}
               </article>
             );
           })}
         </section>
       </div>
       <p className="control-panel-note">
-        Input means accepted into Source Inbox. Pipeline work does not confirm Discord delivery.
+        {sampleMode
+          ? "The sample shows workflow relationships only, with no live input, processing, job or delivery evidence."
+          : "Input means accepted into Source Inbox. Pipeline work does not confirm Discord delivery."}
       </p>
     </section>
   );
@@ -624,6 +727,8 @@ export function ControlWatcherList({
   operatorJobs = [],
   observations = [],
   operatorIssues = [],
+  basePath = "/workspace",
+  sampleMode = false,
 }: {
   watchers: ControlWatcher[];
   runs: ControlRun[];
@@ -637,6 +742,8 @@ export function ControlWatcherList({
   operatorJobs?: OperatorJob[];
   observations?: OperatorObservation[];
   operatorIssues?: { resource: string; message: string }[];
+  basePath?: string;
+  sampleMode?: boolean;
 }) {
   const latest = useMemo(
     () => latestControlRuns(watchers, runs, updatedAt),
@@ -694,14 +801,20 @@ export function ControlWatcherList({
               <span className="control-watcher-identity">
                 <strong>{watcher.display_name}</strong>
                 <span>
-                  {watcher.current_revision === null
-                    ? "Configuration not saved"
-                    : `Configuration v${watcher.current_revision}`}
+                  {sampleMode
+                    ? `Sample configuration v${watcher.current_revision ?? "unknown"}`
+                    : watcher.current_revision === null
+                      ? "Configuration not saved"
+                      : `Configuration v${watcher.current_revision}`}
                   {!statusLoaded
-                    ? " · Open to review settings"
-                    : jobsUnavailable
-                      ? " · Schedules unavailable"
-                      : ` · ${schedules.active} active ${schedules.active === 1 ? "schedule" : "schedules"}`}
+                    ? sampleMode
+                      ? " · Open to review sample settings"
+                      : " · Open to review settings"
+                    : sampleMode
+                      ? " · Example history only"
+                      : jobsUnavailable
+                        ? " · Schedules unavailable"
+                        : ` · ${schedules.active} active ${schedules.active === 1 ? "schedule" : "schedules"}`}
                 </span>
               </span>
               <span className="control-watcher-outcome">
@@ -713,14 +826,14 @@ export function ControlWatcherList({
                     History unavailable
                   </span>
                 ) : lastRun ? (
-                  <ControlRunStatus status={lastRun.status} />
+                  <ControlRunStatus status={lastRun.status} sampleMode={sampleMode} />
                 ) : (
                   <span className="control-status control-status-muted">
                     <CircleDashed size={14} aria-hidden="true" />
-                    No recorded run
+                    {sampleMode ? "No sample run" : "No recorded run"}
                   </span>
                 )}
-                {statusLoaded && lastRun && !runUnavailable && (
+                {statusLoaded && lastRun && !runUnavailable && !sampleMode && (
                   <time dateTime={lastRun.started_at}>{formatTime(lastRun.started_at)} WIB</time>
                 )}
               </span>
@@ -729,7 +842,11 @@ export function ControlWatcherList({
             {statusLoaded && (
               <div className="control-watcher-operator-evidence">
                 <span>
-                  {runUnavailable ? "Configuration use unavailable" : configEvidence.label}
+                  {sampleMode
+                    ? "Sample configuration record"
+                    : runUnavailable
+                      ? "Configuration use unavailable"
+                      : configEvidence.label}
                 </span>
                 {relationshipsUnavailable ? (
                   <span>Shared job relationship unavailable</span>
@@ -742,14 +859,16 @@ export function ControlWatcherList({
                         <span key={job.job_id}>
                           {index ? ", " : ""}
                           {job.display_name} (
-                          {observationsUnavailable
-                            ? "status unavailable"
-                            : formatObservedJobState(state)}
+                          {sampleMode
+                            ? "sample record"
+                            : observationsUnavailable
+                              ? "status unavailable"
+                              : formatObservedJobState(state)}
                           )
                         </span>
                       );
                     })}{" "}
-                    <Link href="/workspace/jobs">View Jobs</Link>
+                    <Link href={`${basePath}/jobs`}>View Jobs</Link>
                   </span>
                 ) : (
                   <span>Shared job relationship unavailable</span>
@@ -782,12 +901,14 @@ export function ControlRunList({
   onSelectRun,
   limit,
   emptyMessage = "No run records are available yet.",
+  sampleMode = false,
 }: {
   runs: ControlRun[];
   watchers: ControlWatcher[];
   onSelectRun: (runId: string) => void;
   limit?: number;
   emptyMessage?: string;
+  sampleMode?: boolean;
 }) {
   const names = new Map(watchers.map((watcher) => [watcher.watcher_id, watcher.display_name]));
   const recent = [...runs]
@@ -804,10 +925,10 @@ export function ControlRunList({
   return (
     <div className="control-run-list">
       <div className="control-run-columns" aria-hidden="true">
-        <span>Watcher / trigger</span>
-        <span>Outcome</span>
-        <span>Started · WIB</span>
-        <span>Duration</span>
+        <span>{sampleMode ? "Sample workflow record" : "Watcher / trigger"}</span>
+        <span>{sampleMode ? "Example outcome" : "Outcome"}</span>
+        <span>{sampleMode ? "Example time" : "Started · WIB"}</span>
+        <span>{sampleMode ? "Example duration" : "Duration"}</span>
         <span />
       </div>
       <ul>
@@ -818,12 +939,14 @@ export function ControlRunList({
               <span className="control-run-identity">
                 <strong>{names.get(run.watcher_id) ?? run.watcher_id}</strong>
                 <span>
-                  {run.trigger.replaceAll("_", " ")} · Configuration v{run.config_revision}
+                  {sampleMode
+                    ? "Sample record · Sample configuration"
+                    : `${run.trigger.replaceAll("_", " ")} · Configuration v${run.config_revision}`}
                 </span>
               </span>
-              <ControlRunStatus status={run.status} />
+              <ControlRunStatus status={run.status} sampleMode={sampleMode} />
               <time dateTime={run.started_at}>
-                <span className="sr-only">Started </span>
+                <span className="sr-only">{sampleMode ? "Example time " : "Started "}</span>
                 {formatTime(run.started_at)}
                 <span className="sr-only"> WIB</span>
               </time>

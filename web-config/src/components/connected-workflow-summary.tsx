@@ -62,12 +62,16 @@ export function ConnectedWorkflowSummary({
   observations = [],
   jobsUnavailable = false,
   observationsUnavailable = false,
+  basePath = "/workspace",
+  sampleMode = false,
 }: {
   watcherId: string;
   jobs?: OperatorJob[];
   observations?: OperatorObservation[];
   jobsUnavailable?: boolean;
   observationsUnavailable?: boolean;
+  basePath?: string;
+  sampleMode?: boolean;
 }) {
   const workflow = workflows[watcherId];
   if (!workflow) return null;
@@ -101,7 +105,7 @@ export function ConnectedWorkflowSummary({
       </section>
       <section className="control-workflow-runtime" aria-label="Runtime relationships">
         <div>
-          <strong>Shared jobs</strong>
+          <strong>{sampleMode ? "Sample job records" : "Shared jobs"}</strong>
           {jobsUnavailable ? (
             <span>Job records unavailable. Reload to check their status.</span>
           ) : jobs.length ? (
@@ -110,10 +114,12 @@ export function ConnectedWorkflowSummary({
                 const observation = observationById.get(`job:${job.job_id}`);
                 const state = observationsUnavailable
                   ? "Observation unavailable"
-                  : stateLabels[observedJobState(job, observation)];
+                  : sampleMode
+                    ? "Example record, no live status"
+                    : stateLabels[observedJobState(job, observation)];
                 return (
                   <li key={job.job_id}>
-                    <Link href={`/workspace/jobs#job-${job.job_id}`}>{job.display_name}</Link>
+                    <Link href={`${basePath}/jobs#job-${job.job_id}`}>{job.display_name}</Link>
                     <span>{state}</span>
                   </li>
                 );

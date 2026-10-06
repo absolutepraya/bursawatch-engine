@@ -770,10 +770,12 @@ export function WatcherConfigEditor({
   snapshot,
   onSave,
   onDirtyChange,
+  sampleMode = false,
 }: {
   snapshot: ConfigSnapshot;
   onSave: (config: Record<string, unknown>) => Promise<ConfigSnapshot>;
   onDirtyChange?: (dirty: boolean) => void;
+  sampleMode?: boolean;
 }) {
   const draftKey: WorkspaceDraftKey = `config:${snapshot.watcher_id}`;
   const [draftOwner] = useState(getDraftOwner);
@@ -884,8 +886,16 @@ export function WatcherConfigEditor({
       setSaved(result);
       setDraft(structuredClone(result.config));
       setRestoredNotice(false);
-      setSavedNotice(`Configuration saved as revision ${result.revision}.`);
-      toast("Watcher configuration saved.");
+      setSavedNotice(
+        sampleMode
+          ? `Sample configuration saved as revision ${result.revision}.`
+          : `Configuration saved as revision ${result.revision}.`,
+      );
+      toast(
+        sampleMode
+          ? "Sample configuration saved for this session."
+          : "Watcher configuration saved.",
+      );
     } catch (error) {
       const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
       const fields = error && typeof error === "object" && "fields" in error ? error.fields : [];
@@ -1048,8 +1058,12 @@ export function WatcherConfigEditor({
                 {saving
                   ? "Saving configuration…"
                   : dirty
-                    ? "Save settings for the watcher’s next check."
-                    : "Saved settings do not confirm a source check or message delivery."}
+                    ? sampleMode
+                      ? "Save sample settings to this visit’s in-memory workspace."
+                      : "Save settings for the watcher’s next check."
+                    : sampleMode
+                      ? "Sample settings do not change a real watcher or send a message."
+                      : "Saved settings do not confirm a source check or message delivery."}
               </p>
               <div>
                 <button

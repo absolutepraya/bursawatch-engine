@@ -98,10 +98,12 @@ function SourceAdapterEvidence({
   components,
   activity,
   unavailable,
+  sampleMode = false,
 }: {
   components: OperatorComponent[];
   activity: OperatorComponentActivity[];
   unavailable: boolean;
+  sampleMode?: boolean;
 }) {
   const sourceAdapters = components.filter((item) => item.kind === "source_adapter");
   const activityById = new Map(activity.map((item) => [item.component_id, item]));
@@ -109,10 +111,13 @@ function SourceAdapterEvidence({
   return (
     <section className="source-adapter-evidence" aria-labelledby="source-adapter-evidence-title">
       <div>
-        <h2 id="source-adapter-evidence-title">Adapter and intake evidence</h2>
+        <h2 id="source-adapter-evidence-title">
+          {sampleMode ? "Sample source relationships" : "Adapter and intake evidence"}
+        </h2>
         <p>
-          Catalog choices show intent. Adapter binding and accepted Source Inbox input are reported
-          separately.
+          {sampleMode
+            ? "Synthetic catalog relationships only. Live input, processing and delivery are not checked."
+            : "Catalog choices show intent. Adapter binding and accepted Source Inbox input are reported separately."}
         </p>
       </div>
       {unavailable ? (
@@ -133,32 +138,38 @@ function SourceAdapterEvidence({
           return (
             <li key={adapter.component_id}>
               <strong>{adapter.display_name}</strong>
-              <span>
-                Adapter binding:{" "}
-                {binding.length
-                  ? `${enabled} of ${total} enabled catalog endpoints`
-                  : "unavailable"}
-              </span>
-              <span>
-                Last accepted input:{" "}
-                {latest?.accepted_at ? (
-                  <time dateTime={latest.accepted_at}>
-                    {new Date(latest.accepted_at).toLocaleString("en-GB", {
-                      timeZone: "Asia/Jakarta",
-                    })}{" "}
-                    WIB
-                  </time>
-                ) : status === "unknown" ? (
-                  "Unknown"
-                ) : (
-                  "No accepted input recorded"
-                )}
-              </span>
-              <span>
-                Input status:{" "}
-                {status === "observed" ? "Observed" : status === "stale" ? "Stale" : "Unknown"}
-              </span>
-              <span>Delivery: {row?.delivery_status ?? "Not instrumented"}</span>
+              {sampleMode ? (
+                <span>Sample adapter record only. No live connection or intake status.</span>
+              ) : (
+                <>
+                  <span>
+                    Adapter binding:{" "}
+                    {binding.length
+                      ? `${enabled} of ${total} enabled catalog endpoints`
+                      : "unavailable"}
+                  </span>
+                  <span>
+                    Last accepted input:{" "}
+                    {latest?.accepted_at ? (
+                      <time dateTime={latest.accepted_at}>
+                        {new Date(latest.accepted_at).toLocaleString("en-GB", {
+                          timeZone: "Asia/Jakarta",
+                        })}{" "}
+                        WIB
+                      </time>
+                    ) : status === "unknown" ? (
+                      "Unknown"
+                    ) : (
+                      "No accepted input recorded"
+                    )}
+                  </span>
+                  <span>
+                    Input status:{" "}
+                    {status === "observed" ? "Observed" : status === "stale" ? "Stale" : "Unknown"}
+                  </span>
+                  <span>Delivery: {row?.delivery_status ?? "Not instrumented"}</span>
+                </>
+              )}
               {adapter.component_id === "bursawatch-ig-source-ingest" &&
               adapter.job_ids.length === 0 ? (
                 <span>Schedule: no registered source job</span>
@@ -209,12 +220,14 @@ export function SourceCatalogView({
   components = [],
   activity = [],
   activityUnavailable = false,
+  sampleMode = false,
 }: {
   request: Request;
   onDirtyChange: (dirty: boolean) => void;
   components?: OperatorComponent[];
   activity?: OperatorComponentActivity[];
   activityUnavailable?: boolean;
+  sampleMode?: boolean;
 }) {
   const [draftOwner] = useState(getDraftOwner);
   const [restored] = useState(() =>
@@ -443,7 +456,11 @@ export function SourceCatalogView({
       const refreshed = await reload();
       if (!mounted.current) return;
       if (refreshed) {
-        toast("Source catalog saved. Pending endpoints still require identity verification.");
+        toast(
+          sampleMode
+            ? "Sample source catalog saved for this session."
+            : "Source catalog saved. Pending endpoints still require identity verification.",
+        );
       } else {
         setSaveBlocked(true);
         setWriteRefreshFailed(true);
@@ -626,6 +643,7 @@ export function SourceCatalogView({
             components={components}
             activity={activity}
             unavailable={activityUnavailable}
+            sampleMode={sampleMode}
           />
           {!canEdit && (
             <p role="status" className="connected-panel-intro">
