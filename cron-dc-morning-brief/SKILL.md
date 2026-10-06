@@ -7,9 +7,9 @@ description: Proposed receipt-gated IHSG morning brief with frozen evidence and 
 
 This local package implements the numerical, frozen-evidence and bounded-writer
 owners for a proposed morning brief. It does not register or activate a production job.
-The database-configured default freezes at 06:00 WIB on verified IDX sessions,
-selects a facts-only fallback by 06:55 when necessary, and targets delivery at
-07:00. Preparation waits until the frozen target before any brief submission.
+The database-configured default freezes at 07:30 WIB on verified IDX sessions,
+selects a facts-only fallback by 07:55 when necessary, and targets delivery at
+08:00. Preparation waits until the frozen target before any brief submission.
 A non-session is a no-op, with a heartbeat. Engineering documentation is English;
 brief prose is concise Indonesian. Model transport, rendering and publication integration remain explicit caller
 inputs. The writer and source/calendar/quote adapters perform no network IO.
@@ -265,7 +265,7 @@ producer-only annotation field is required.
 
 Model invocation and support validation share one daemon worker and one
 process-wide worker gate. Timeout includes both, with a monotonic budget capped
-at the frozen fallback deadline (default 06:55 WIB) and a prebuilt fallback. A still-running worker cannot mutate selected
+at the frozen fallback deadline (default 07:55 WIB) and a prebuilt fallback. A still-running worker cannot mutate selected
 output or owner state, blocks new model workers rather than accumulating retries,
 and never delays interpreter exit through an executor join. Python does not
 cancel the external callable; its transport must impose its own request limits.
@@ -347,15 +347,15 @@ snapshots come from the shared immutable SnapshotCache. Empty calendar/global
 inputs remain gaps, not fabricated dates or zero changes.
 
 One bounded writer uses the frozen bundle. Output selection is fixed by the
-frozen fallback deadline (default 06:55 WIB), with facts-only degradation on missing evidence, timeout or unsupported
+frozen fallback deadline (default 07:55 WIB), with facts-only degradation on missing evidence, timeout or unsupported
 claims. Source-safe URL rendering percent-encodes Markdown delimiters; unsafe URLs
 are rejected at source-ref acceptance. Text budgeting removes complete source
 claims/citations and optional sections atomically, never cuts a URL. A presentable dated factual-driver block is reserved before selecting the core. An
 unrenderable or oversized scenario/core freezes a facts-only `presentation` and
 closing anchor. Three exact Indonesian texts and all available image bytes/manifests,
 letters, global/calendar facts and omissions freeze under the fenced lease.
-The configured defaults freeze at 06:00 WIB and target delivery at 07:00 WIB.
-Every brief operation has an immutable attempt deadline (default 07:15 WIB),
+The configured defaults freeze at 07:30 WIB and target delivery at 08:00 WIB.
+Every brief operation has an immutable attempt deadline (default 08:15 WIB),
 including retries. Delayed recovery keeps
 the original visible cutoff/target labels and records actual lateness.
 

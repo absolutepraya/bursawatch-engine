@@ -140,7 +140,7 @@ deployment approval. Retain the feature branch for review.
 
 Morning brief timing is domain configuration in Workflows, saved through the
 existing watcher-config API with its own revision. It defaults in the backend to
-06:00 cutoff and 07:00 delivery in WIB. Cutoff, delivery, fallback/retry windows,
+07:30 cutoff and 08:00 delivery in WIB. Cutoff, delivery, fallback/retry windows,
 destination, instruments and emojis affect the next unfrozen session only.
 Saving these settings does not create or activate a job. Job enablement/cadence
 remains in Jobs. Credentials, shared provider stores and proof/rights inputs

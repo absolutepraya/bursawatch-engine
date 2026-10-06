@@ -521,5 +521,5 @@ canonical parser validates WIB cutoff/delivery, fallback/retry windows, the
 nullable destination, selected global instruments and emoji mappings. Its
 built-in isolated validator needs no host environment change; an explicit
 `CONTROL_PLANE_MORNING_CONFIG_VALIDATOR_DIR` may select a reviewed bundle path.
-The baseline defaults to 06:00/07:00 WIB with no destination. Saving settings
+The baseline defaults to 07:30/08:00 WIB with no destination. Saving settings
 does not create a job, activate a schedule or authorize provider requests.

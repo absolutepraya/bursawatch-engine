@@ -531,8 +531,8 @@ describe("morning brief operator configuration", () => {
   const config = () => ({
     version: 1,
     timezone: "Asia/Jakarta",
-    cutoff_time: "06:00",
-    delivery_time: "07:00",
+    cutoff_time: "07:30",
+    delivery_time: "08:00",
     fallback_minutes: 5,
     retry_minutes: 15,
     destination_channel_id: null,

@@ -26,7 +26,7 @@ def test_invalid_operator_settings_fail_closed(changes):
 def test_defaults_and_optional_emoji_are_durable_data():
     config=default_operator_config();config['logos']={'SPY':None}
     times=timing_for(datetime(2026,10,5).date(),config)
-    assert [times[k].strftime('%H:%M') for k in ['cutoff','fallback','target','deadline']]==['06:00','06:55','07:00','07:15']
+    assert [times[k].strftime('%H:%M') for k in ['cutoff','fallback','target','deadline']]==['07:30','07:55','08:00','08:15']
     assert load_operator_config_data(config)['logos']['SPY'] is None
 
 def test_database_snapshot_freezes_timing_and_delivery_waits_until_target(tmp_path,core):
@@ -35,7 +35,7 @@ def test_database_snapshot_freezes_timing_and_delivery_waits_until_target(tmp_pa
     runner=r.MorningRunner(store,source,delivery,projection,clock=lambda:now[0])
     args=dict(calendar=calendar(),numerical={},global_inputs=[{'name':'KOSPI','payload':'unselected-invalid'}],
         calendar_snapshots=[],model=None,model_version='fixture',prompt_version='fixture',preview=False)
-    first=snapshot(instruments=['SPY'],logos={'SPY':'<:spy:123456789012345678>'})
+    first=snapshot(cutoff_time='06:00',delivery_time='07:00',instruments=['SPY'],logos={'SPY':'<:spy:123456789012345678>'})
     assert runner.run_from_snapshot(first,**args)['phase']=='prepared'
     assert source.captures==1 and not projection.requests
     assert all(op.target['channel_id']!=DEST for op in delivery.sent)
@@ -83,7 +83,7 @@ def test_cutoff_edit_uses_previous_sessions_actual_freeze(tmp_path,core):
     prior=datetime(2026,10,4,5,30,tzinfo=ZONE)
     store.create_run('2026-10-04',freeze_at=prior)
     source=RecordingSource()
-    runner=core('runner').MorningRunner(store,source,HeartbeatDelivery(),FakeProjection(),clock=lambda:datetime(2026,10,5,6,0,30,tzinfo=ZONE))
+    runner=core('runner').MorningRunner(store,source,HeartbeatDelivery(),FakeProjection(),clock=lambda:datetime(2026,10,5,7,30,30,tzinfo=ZONE))
     result=runner.run_from_snapshot(snapshot(),calendar=calendar(),numerical={},global_inputs=[],calendar_snapshots=[],model=None,model_version='fixture',prompt_version='fixture',preview=True)
     assert result['phase']=='preview'
     assert datetime.fromisoformat(source.previous)==prior
