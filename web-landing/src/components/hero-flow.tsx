@@ -10,7 +10,7 @@ const HERO_SOURCES = [
   { name: "Phintraco", logo: "phintraco" },
   { name: "BRI Danareksa", logo: "bridanareksa" },
   { name: "Tuntun", logo: "tuntun" },
-  { name: "Stockbit", logo: "stockbit" },
+  { name: "IDX", logo: "idx" },
   { name: "IHSG Journal", logo: "aldotjahjadi", badge: "twitter" },
   { name: "Kobeissi", logo: "kobeissiletter", badge: "twitter" },
 ];

@@ -65,8 +65,8 @@ export default function LandingPage() {
               <span> Biar Bursawatch yang mantau.</span>
             </h1>
             <p className="lp-lede">
-              Sekuritas dan analis terpercaya dipantau 24 jam, dirangkum AI, terus dikirim langsung
-              ke Discord kamu.
+              Sekuritas, analis dan keterbukaan informasi IDX dipantau 24 jam, dirangkum AI, terus
+              dikirim langsung ke Discord kamu.
             </p>
             <div className="lp-actions">
               <DemoButton />
@@ -129,7 +129,6 @@ export default function LandingPage() {
                 <li key={source.name}>
                   <Image src={source.logo} alt="" width={28} height={28} />
                   {source.name}
-                  {"soon" in source ? <span className="lp-soon-tag">segera hadir</span> : null}
                 </li>
               ))}
               <li className="lp-sources-more">

@@ -990,15 +990,6 @@ time,
   object-fit: cover;
   background: var(--brand-plate);
 }
-.lp-soon-tag {
-  margin-left: 2px;
-  padding: 1px 8px;
-  border: 1px solid var(--accent);
-  border-radius: 999px;
-  color: var(--accent-strong);
-  font-size: 0.6875rem;
-  font-weight: 700;
-}
 .lp-sources-more {
   color: var(--muted);
   border-style: dashed !important;
