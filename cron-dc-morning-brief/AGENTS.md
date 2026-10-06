@@ -75,3 +75,15 @@ delivery from local tests or an installed dispatcher.
   A frozen writer bundle retains its original version on recovery.
   Chart request and proof freeze in upstream before rendering; verified cached
   bytes use `lib-chart-img`, without a live fetch in the publication dispatcher.
+- `collect_public_inputs.py --collect-public` is a separate explicit no-post
+  producer. It may fetch at most fourteen bounded Yahoo responses, without
+  retries, redirects, paid requests, writer calls or publication calls. Native
+  hourly `tradingPeriods` establish session windows; daily timestamps cannot
+  establish schedules. Preserve unavailable configured instruments as visible
+  rows. The IHSG facts benchmark requires the previous official IDX session and
+  a matching completed native bar; never substitute Yahoo for Sectors rotation
+  inputs. Preparation after cutoff cannot backdate a live manifest.
+- BPS native Arc release responses are retained verbatim and parsed separately
+  from table fixtures. Publication records are not statistical releases. Missing
+  reference periods and times remain unknown. Public action IDs rotate with
+  frontend deployments and are not hardcoded in the production collector.

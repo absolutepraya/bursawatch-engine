@@ -300,6 +300,11 @@ class MorningRunner:
                                 if row['name'] not in settings['instruments']: continue
                                 quotes.append(parse_yahoo_chart(row['name'],row['payload'],freeze_at=cutoff,
                                     retrieved_at=datetime.fromisoformat(row['retrieved_at']),sessions=row['sessions']))
+                            present={quote['name'] for quote in quotes}
+                            for name in settings['instruments']:
+                                if name not in present:
+                                    quotes.append(dict(name=name,status='unavailable',
+                                        reason='configured_source_unavailable',cutoff=stamp(cutoff)))
                             freeze_globals(self.store,run.run_id,quotes,lease=lease,now=self.clock())
                         if self.store.get_frozen(run.run_id,'calendar_events') is None:
                             freeze_calendar_events(self.store,run.run_id,upstream.payload['calendar_snapshots'],lease=lease,now=self.clock())

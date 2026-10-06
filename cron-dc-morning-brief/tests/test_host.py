@@ -165,3 +165,17 @@ def test_changed_model_cannot_relabel_frozen_writer_bundle(tmp_path):
         writer_factory=lambda:(lambda _:pytest.fail('changed writer called'),'current-model'),clock=lambda:NOW)
     assert host.tick()['phase']=='projected'
     assert store.get_frozen(run.run_id,'writer_bundle').payload['versions']['model']=='previous-model'
+
+
+def test_configured_markets_without_upstream_records_remain_visible_and_unavailable(tmp_path):
+    config,_=setup_host(tmp_path);store=RunStore(config.run_store);source=Source()
+    delivery=HeartbeatDelivery();clock=lambda:FREEZE+timedelta(seconds=30)
+    runner=MorningRunner(store,source,delivery,FakeProjection(),clock=clock)
+    host=HostRuntime(config,store,runner,fetch_snapshot=snapshot,
+        writer_factory=lambda:(None,'current-model'),clock=clock)
+    assert host.tick()['phase']=='prepared'
+    run=store.get_run_for_session('2026-10-05')
+    quotes=store.get_frozen(run.run_id,'globals').payload['quotes']
+    assert {row['name'] for row in quotes}==set(snapshot()['config']['instruments'])
+    assert all(row['status']=='unavailable' and 'price' not in row for row in quotes)
+    assert not [operation for operation in delivery.sent if operation.target['channel_id']==DEST]

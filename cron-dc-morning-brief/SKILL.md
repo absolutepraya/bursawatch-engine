@@ -299,6 +299,65 @@ facts-only fallback, rather than exposing a generated core dropped by formatting
 
 ## Integrated owner and receipt-gated publication
 
+The explicit `collect_public_inputs.py` producer is separate from publication:
+
+```sh
+python collect_public_inputs.py --collect-public \
+  --runtime-config /private/host-config.json \
+  --calendar-snapshot /private/verified-idx-calendar.json \
+  --source-cache /private/morning-sources
+```
+
+It reads operator timing and instruments from the revisioned database, selects
+the next verified session whose configured cutoff has not passed, and makes at
+most fourteen fixed-origin Yahoo requests (daily and hourly for IHSG and the
+configured global instruments). There are no retries, redirects, Sectors or
+Chart-IMG requests, source captures, model calls, run-store creation or posts.
+The private content-addressed source records and manifest versions remain
+immutable; only the input-manifest pointer advances. Missing latest IHSG close
+or preparation completed after the cutoff cannot replace that pointer.
+
+`public_sources.yahoo_sessions` consumes the actual hourly response's
+`tradingPeriods` and `currentTradingPeriod.regular`, with strict identity,
+timezone, interval, overlap and coverage checks. No weekday, trading-hour or FX
+rollover defaults are used. `ihsg_benchmark` verifies the latest completed close
+against the immediately preceding official IDX session for independent facts.
+It does not provide Sectors rotation prices, action compatibility or weights.
+Missing configured global inputs become explicit unavailable rows, including
+when an operator adds an instrument after source preparation.
+
+Optional repeated `--economic-snapshot /private/source-snapshot.json` arguments
+attach explicit retained primary snapshots. The existing snapshot integrity,
+cutoff visibility and freshness checks still govern them. `SnapshotCache.put`
+accepts `source_format='bps-native-flight-v1'` for a verbatim national BPS Arc
+`getArcBrs` response. The parser requires native `brs` records, preserves BPS
+local release identities, and leaves absent period/time fields unknown. It
+never promotes a publication schedule into a statistical release. Native
+frontend action discovery and automated BI/BPS retrieval remain producer work.
+
+The producer's `manifest_written=true` only proves that it retained a verified
+IHSG facts input. Its output explicitly lists incomplete calendar, rotation and
+chart sections; it is not a full-brief activation or delivery-readiness claim.
+An official calendar amendment refresh and a scheduled pre-cutoff producer are
+still required for an unattended rollout.
+
+`import_idx_calendar.py --pdf <private-file> --listing-envelope <private-file>
+--output <absolute-new-file>` imports retained primary evidence without network
+requests or posts. It uses installed `pdftotext` to extract the exact PDF bytes,
+requires the complete native IDX `GetAllAnnouncement` response in the envelope,
+and binds the PDF's announcement reference to its sole matching attachment.
+The complete monthly table, explicit weekend rule, listed closures, twelve
+published monthly counts and annual count must reconcile. Missing source rows
+never fall back to weekdays. A partial listing or a separate amendment rejects
+the base PDF for a separately reviewed amended import. Verification age uses
+the listing's actual retrieval timestamp, not the import time. The source PDF,
+listing, extracted-text and imported-snapshot digests remain distinct.
+
+This import is repeatable and versioned. It does not automate primary-source
+retrieval or waive the seven-day amendment policy. Keep retained primary source
+files private and outside Git. Installing the collector/importer does not add
+or enable a Hermes job.
+
 `morning_brief.runner.MorningRunner(store, source, delivery, projection, clock=...)`
 uses explicit injected clients. `run(calendar=..., numerical=..., global_inputs=...,
 calendar_snapshots=..., model=..., model_version=..., prompt_version=..., preview=True)`

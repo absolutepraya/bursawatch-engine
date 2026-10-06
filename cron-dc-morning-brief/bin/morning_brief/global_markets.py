@@ -31,13 +31,13 @@ def _number(value):
     return float(value)
 
 
-def _sessions(snapshot, cutoff, zone, *, fx=False):
+def _sessions(snapshot, cutoff, zone, *, fx=False, coverage_day=None):
     if fx and (snapshot.get('market_type') != 'fx' or snapshot.get('baseline_policy') != 'provider_daily_close'):
         raise ValueError('reviewed FX daily comparison windows required')
     if (snapshot.get('verified') is not True or snapshot['timezone'] != zone
             or not snapshot['version'] or re.fullmatch('[0-9a-f]{64}',snapshot['digest']) is None
             or _instant(snapshot['verified_at']) > cutoff
-            or not date.fromisoformat(snapshot['valid_from']) <= cutoff.astimezone(ZoneInfo(zone)).date() <= date.fromisoformat(snapshot['valid_through'])):
+            or not date.fromisoformat(snapshot['valid_from']) <= (coverage_day or cutoff.astimezone(ZoneInfo(zone)).date()) <= date.fromisoformat(snapshot['valid_through'])):
         raise ValueError('verified covering exchange sessions required')
     rows = [(_instant(row['start']),_instant(row['end'])) for row in snapshot['sessions']]
     if len(rows) < 2 or rows != sorted(set(rows)) or any(s >= e for s,e in rows):
