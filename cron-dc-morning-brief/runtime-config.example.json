@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "run_store": "/home/praya/.hermes/state/bursawatch-morning/runs.sqlite3",
+  "input_manifest": "/home/praya/.hermes/state/bursawatch-morning/inputs/current.json",
+  "config_token_file": "/home/praya/.hermes/secrets/bursawatch-morning-config-token",
+  "source_token_file": "/home/praya/.hermes/secrets/bursawatch-morning-source-reader-token",
+  "publication_token_file": "/home/praya/.hermes/secrets/bursawatch-morning-publication-token",
+  "delivery_token_file": "/home/praya/.hermes/secrets/bursawatch-discord-delivery-client-token",
+  "hermes_root": "/home/praya/.hermes/hermes-agent",
+  "chart_store": "/home/praya/.hermes/state/bursawatch-chart-img/render.sqlite3"
+}

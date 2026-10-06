@@ -213,7 +213,8 @@ class MorningRunner:
 
     def run(self,*,calendar,numerical,global_inputs,calendar_snapshots,model,model_version,prompt_version,
             preview=True,preview_dir=None,destination=None,reviewed_config=None,
-            sectors_client=None,sectors_requests=(),chart_client=None,chart_request=None,accounting=None,logos=None,operator_snapshot=None):
+            sectors_client=None,sectors_requests=(),chart_client=None,chart_request=None,accounting=None,logos=None,operator_snapshot=None,
+            chart_context=None):
         if type(preview) is not bool or (operator_snapshot is None and not preview and (not reviewed_config or not destination)):
             raise ValueError('live injection requires reviewed configuration and destination')
         accounting=dict(accounting or {})
@@ -286,7 +287,8 @@ class MorningRunner:
                                         payload=record.payload,available_at=stamp(record.available_at),provenance=record.provenance))
                                 except Exception: accounting['cache_misses']=accounting.get('cache_misses',0)+1
                             upstream=self.store.freeze(run.run_id,'upstream',jsonable(dict(mode=mode,calendar=calendar,numerical=numerical,
-                                global_inputs=global_inputs,calendar_snapshots=calendar_snapshots,provider_records=records,logos=dict(logos or {}))),lease=lease,now=self.clock())
+                                global_inputs=global_inputs,calendar_snapshots=calendar_snapshots,provider_records=records,logos=dict(logos or {}),
+                                chart_context=chart_context)),lease=lease,now=self.clock())
                         inputs=self.store.get_frozen(run.run_id,'inputs') or self._inputs(run,upstream,calendar,lease)
                         previous_session=calendar.last_sessions(session,2)[0]
                         previous_run=self.store.get_run_for_session(previous_session.isoformat())

@@ -1,10 +1,10 @@
 # Morning brief owner
 
 Read the repository instructions and this package's single root `SKILL.md`.
-This package is a local implementation of the proposed
-`bursawatch-dc-morning-brief` runtime. Scheduler activation, destination selection,
-provider permissions, credentials and service provisioning are separate rollout
-inputs. Do not infer readiness or natural delivery from these local tests.
+This package contains the cache-only owner and an explicitly configured live
+dispatcher for `bursawatch-dc-morning-brief`. Scheduler activation and verified
+provider inputs remain separate rollout steps. Do not infer readiness or natural
+delivery from local tests or an installed dispatcher.
 
 - Imports perform no IO. Constructors and caller configuration are explicit.
 - Default mode is cache-only. Synthetic fixtures require explicit preview inputs;
@@ -62,3 +62,16 @@ inputs. Do not infer readiness or natural delivery from these local tests.
   before and last new attempt fifteen minutes after. Future edits cannot rewrite
   an existing session. Preparation must never submit before the frozen target.
   Host credentials, provider stores and calendar attestations remain separate.
+
+- `live_runner.py --check --runtime-config <private-file>` reads the database
+  configuration and explicit private inputs only. It must not initialize stores,
+  capture source evidence, resolve model credentials, fetch providers or post.
+  `--live` is a separate required switch. Host configuration contains absolute
+  paths, never credential values or replacements for database operator settings.
+  Retained input manifests require `provenance='live-retained'`, cutoff visibility,
+  and a checksum-bound verified IDX calendar. Never promote a preview manifest.
+- The writer follows the installed Hermes model/provider through its existing
+  router. No separate model pin, provider fallback or SDK retry is allowed.
+  A frozen writer bundle retains its original version on recovery.
+  Chart request and proof freeze in upstream before rendering; verified cached
+  bytes use `lib-chart-img`, without a live fetch in the publication dispatcher.

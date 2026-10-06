@@ -1,12 +1,13 @@
 ---
 name: bursawatch-dc-morning-brief
-description: Proposed receipt-gated IHSG morning brief with frozen evidence and fixed-cap rotation illustrations.
+description: Receipt-gated IHSG morning brief with frozen evidence and fixed-cap rotation illustrations.
 ---
 
 # Morning brief contract
 
-This local package implements the numerical, frozen-evidence and bounded-writer
-owners for a proposed morning brief. It does not register or activate a production job.
+This package implements the numerical, frozen-evidence and bounded-writer owners
+and an explicit production dispatcher. Installing it does not register or
+activate a production job. Verified input production is a separate prerequisite.
 The database-configured default freezes at 07:30 WIB on verified IDX sessions,
 selects a facts-only fallback by 07:55 when necessary, and targets delivery at
 08:00. Preparation waits until the frozen target before any brief submission.
@@ -429,6 +430,58 @@ VPS package-scoped credentials, provider/run state paths, source-reader access,
 service inputs, scheduler wrapper mode 0755, emoji onboarding, destination and
 activation are separate provisioning/deployment approvals. Do not copy Mac state
 or credentials to a runtime. No live validation is implied by local fixtures.
+
+## Production dispatcher
+
+The original `runner.py` and `bursawatch-dc-morning-brief.sh` remain explicit
+offline previews. `live_runner.py` composes the existing `MorningRunner` with
+`SourceEvidenceClient`, `DeliveryClient`, and `PublicationClient`. All APIs are
+the established VPS loopback owners. The private host JSON follows
+[`runtime-config.example.json`](runtime-config.example.json); it contains paths
+to distinct host-local credentials, the private run store, the shared Chart-IMG
+store and the independently prepared live-input manifest. Operator timing,
+destination, instruments and emojis continue to come from the database.
+
+Run `bursawatch-dc-morning-brief-live.sh --check` first. It reads the current
+database configuration, checks private credentials and verified live inputs,
+and reports bounded readiness gaps. It does not create a run/provider store,
+capture a source window, call a model or provider, or contact Discord. This
+check is a baseline input/configuration check, not end-to-end delivery proof.
+
+`--live` is required for a scheduled dispatcher tick. Each tick uses the real
+clock and the database timing. It cannot accept `--as-of`, a preview state path
+or a different destination. Before cutoff it emits a no-op heartbeat. A first
+tick after the last-new-attempt deadline reports a missed session without
+freezing a late brief. Existing publication attempts still reconcile under
+the original deadline. A persisted publication or upstream snapshot recovers
+without reopening changing input files. Its frozen database config also remains
+authoritative when the configuration API is unavailable. All source and receipt
+recovery remains with the existing owner.
+
+The writer reads the installed Hermes default model/provider and uses its
+existing auxiliary client router. It issues one structured request, with a
+30-second transport timeout and no SDK retries or tools. The core's fallback
+deadline and validation remain authoritative. A changed Hermes model cannot
+relabel an already frozen bundle; recovery uses the original writer version
+and a facts-only fallback when that model is no longer selected.
+
+The live input manifest has version 1 and `provenance='live-retained'`, with an
+aware cutoff-visible `available_at`. It contains `calendar` (`path`, `sha256`,
+`version`, `amendment`), `numerical`, `global_inputs`, `calendar_snapshots` and
+optional `chart` (`request`, `verification`). All JSON files must be private
+regular files. Numerical, Yahoo and agenda sections use the existing owner
+shapes and retain their original independent verification rules. An optional
+chart uses the shared cache and an exact image/request-bound external proof,
+verified by cutoff. Its request/proof freeze in upstream before rendering.
+It is never fetched by the dispatcher. Missing optional images remain explicit
+omissions; missing authoritative session input cannot be repaired by weekdays.
+
+The dispatcher does not implement a live numerical/calendar producer or
+authorize historical initialization. Complete 18-session closing data,
+memberships, caps, split/action evidence, exchange/FX sessions, official agenda
+snapshots and fresh chart proofs must be supplied by a reviewed producer before
+activation. Provider access failures cannot turn preview fixtures into live
+inputs. Unknown source retention continues to select facts-only.
 
 ## Verification
 
