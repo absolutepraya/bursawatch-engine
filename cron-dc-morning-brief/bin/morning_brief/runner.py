@@ -8,6 +8,7 @@ import uuid
 from zoneinfo import ZoneInfo
 from bursawatch_discord_delivery import OperationIntent
 from .calendar import aware, SessionCalendar
+from .config import load_operator_config_data, retained_operator_config, timing_for
 from .inputs import (Provenance, MembershipSnapshot, CapSnapshot, PriceSeries, ActionDecision,
                      prepare_numerical_inputs, InputUnavailable)
 from .rotation import BasketResult, Position, calculate_from_inputs, UnsupportedBasket, select_groups, unselected_letters
@@ -59,6 +60,27 @@ class MorningRunner:
     def __init__(self,store,source,delivery,projection,*,clock):
         self.store,self.source,self.delivery,self.projection,self.clock=store,source,delivery,projection,clock
         self.publisher=Publisher(store,delivery,projection,clock=clock)
+
+    def run_from_control_plane(self, *, base_url, token, timeout=5, **inputs):
+        from control_plane_client import fetch_config
+        try:
+            snapshot = fetch_config(base_url, OWNER, token, timeout=timeout)
+        except Exception as error:
+            return self._heartbeat({'phase':'fatal','reason':type(error).__name__},
+                preview=inputs.get('preview', True), preview_dir=inputs.get('preview_dir'), accounting={})
+        return self.run_from_snapshot(snapshot, **inputs)
+
+    def run_from_snapshot(self, snapshot, **inputs):
+        from control_plane_client import ConfigSnapshot
+        raw = {'api_version':1, **jsonable(snapshot)} if is_dataclass(snapshot) else snapshot
+        snapshot = ConfigSnapshot.from_payload(raw)
+        if snapshot.watcher_id != OWNER or snapshot.config_version != 1:
+            raise ValueError('morning configuration identity/version mismatch')
+        settings = load_operator_config_data(snapshot.config)
+        if any(key in inputs for key in ('destination', 'reviewed_config', 'logos', 'operator_snapshot')):
+            raise ValueError('operator settings cannot be overridden by caller inputs')
+        return self.run(**inputs, destination=settings['destination_channel_id'],
+            reviewed_config=snapshot.config_sha256, logos=settings['logos'], operator_snapshot=raw)
 
     def _heartbeat(self,result,*,preview,preview_dir,accounting):
         now=aware(self.clock()).astimezone(ZONE)
@@ -175,7 +197,7 @@ class MorningRunner:
         globals_record=self.store.get_frozen(run.run_id,'globals'); calendar_record=self.store.get_frozen(run.run_id,'calendar_events')
         notices={kind:['Gambar belum tersedia.'] if omission else [] for kind,omission in zip(('ihsg','sectors','konglo'),omissions)}
         texts,presentation=format_brief(publication_session=session,cutoff=datetime.fromisoformat(run.freeze_at),
-            target=datetime.combine(session,time(8),tzinfo=ZONE),outlook=outlook.payload,
+            target=timing_for(session,retained_operator_config(self.store,run.run_id))['target'],outlook=outlook.payload,
             globals=globals_record.payload['quotes'],calendar=calendar_record.payload,
             sectors=groups['sectors'],konglo=groups['konglo'],notices=notices,
             logos=self.store.get_frozen(run.run_id,'upstream').payload.get('logos',{}),with_selection=True)
@@ -188,20 +210,41 @@ class MorningRunner:
 
     def run(self,*,calendar,numerical,global_inputs,calendar_snapshots,model,model_version,prompt_version,
             preview=True,preview_dir=None,destination=None,reviewed_config=None,
-            sectors_client=None,sectors_requests=(),chart_client=None,chart_request=None,accounting=None,logos=None):
-        if type(preview) is not bool or (not preview and (not reviewed_config or not destination)):
+            sectors_client=None,sectors_requests=(),chart_client=None,chart_request=None,accounting=None,logos=None,operator_snapshot=None):
+        if type(preview) is not bool or (operator_snapshot is None and not preview and (not reviewed_config or not destination)):
             raise ValueError('live injection requires reviewed configuration and destination')
         accounting=dict(accounting or {})
         result={'phase':'fatal','reason':'owner_unavailable'}
         lease=None
         try:
             now=aware(self.clock()); session=now.astimezone(ZONE).date()
-            cutoff=datetime.combine(session,time(7,30),tzinfo=ZONE)
+            existing=self.store.get_run_for_session(session.isoformat())
+            frozen_config=self.store.get_frozen(existing.run_id,'operator_config') if existing else None
+            if frozen_config:
+                operator_snapshot=frozen_config.payload
+                destination=operator_snapshot['config']['destination_channel_id']
+                logos=operator_snapshot['config']['logos']
+            if operator_snapshot is not None:
+                settings=load_operator_config_data(operator_snapshot['config'])
+            else:
+                # Compatibility for previously reviewed caller-injected local runs.
+                settings=retained_operator_config(self.store,existing.run_id) if existing else dict(
+                    version=1,timezone='Asia/Jakarta',cutoff_time='07:30',delivery_time='08:00',
+                    fallback_minutes=5,retry_minutes=15,destination_channel_id=destination,
+                    instruments=['KOSPI','Nikkei','SPY','QQQ','EIDO','USDIDR'],logos=dict(logos or {}))
+            if not preview and (not reviewed_config or not destination):
+                raise ValueError('live injection requires reviewed configuration and destination')
+            times=timing_for(session,settings)
+            cutoff=times['cutoff']
             if now<cutoff:
                 result={'phase':'before_freeze'}
             else:
                 run=self.store.create_run(session.isoformat(),freeze_at=cutoff)
                 lease=self.store.acquire_lease(run.run_id,uuid.uuid4().hex,now=now,seconds=600)
+                if operator_snapshot is not None and frozen_config is None:
+                    if self.store.get_frozen(run.run_id,'run_mode') is not None:
+                        raise FreezeConflict('legacy session cannot acquire a new operator configuration')
+                    self.store.freeze(run.run_id,'operator_config',operator_snapshot,lease=lease,now=self.clock())
                 mode='preview' if preview else 'live'
                 mode_record=self.store.get_frozen(run.run_id,'run_mode')
                 if mode_record is None:
@@ -215,7 +258,7 @@ class MorningRunner:
                 if saved and not preview:
                     # Destination correction needs a new reviewed rollout, never retarget an old key.
                     if destination!=saved.payload['destination']: raise ValueError('frozen destination mismatch')
-                    result=self.publisher.publish(run.run_id,lease=lease)
+                    result=self.publisher.publish(run.run_id,lease=lease) if operator_snapshot is None or self.clock()>=times['target'] else {'phase':'prepared'}
                 else:
                     upstream=self.store.get_frozen(run.run_id,'upstream')
                     if upstream:
@@ -242,11 +285,14 @@ class MorningRunner:
                             upstream=self.store.freeze(run.run_id,'upstream',jsonable(dict(mode=mode,calendar=calendar,numerical=numerical,
                                 global_inputs=global_inputs,calendar_snapshots=calendar_snapshots,provider_records=records,logos=dict(logos or {}))),lease=lease,now=self.clock())
                         inputs=self.store.get_frozen(run.run_id,'inputs') or self._inputs(run,upstream,calendar,lease)
-                        previous_cutoff=datetime.combine(calendar.last_sessions(session,2)[0],time(7,30),tzinfo=ZONE)
+                        previous_session=calendar.last_sessions(session,2)[0]
+                        previous_run=self.store.get_run_for_session(previous_session.isoformat())
+                        previous_cutoff=datetime.fromisoformat(previous_run.freeze_at) if previous_run else timing_for(previous_session,settings)['cutoff']
                         evidence=freeze_source_evidence(self.store,run.run_id,self.source,previous_cutoff=stamp(previous_cutoff),lease=lease,now=self.clock())
                         if self.store.get_frozen(run.run_id,'globals') is None:
                             quotes=[]
                             for row in upstream.payload['global_inputs']:
+                                if row['name'] not in settings['instruments']: continue
                                 quotes.append(parse_yahoo_chart(row['name'],row['payload'],freeze_at=cutoff,
                                     retrieved_at=datetime.fromisoformat(row['retrieved_at']),sessions=row['sessions']))
                             freeze_globals(self.store,run.run_id,quotes,lease=lease,now=self.clock())
@@ -260,7 +306,7 @@ class MorningRunner:
                         else:
                             self.publisher.freeze(run.run_id,texts=selected.payload['texts'],images=tuple(_artifact(row) for row in selected.payload['images']),
                                 omissions=selected.payload['omissions'],destination=destination,lease=lease)
-                            result=self.publisher.publish(run.run_id,lease=lease)
+                            result=self.publisher.publish(run.run_id,lease=lease) if operator_snapshot is None or self.clock()>=times['target'] else {'phase':'prepared'}
                         result.update(gaps=len(inputs.payload['gaps'])+len(evidence.payload.get('degraded_reasons',[])),
                             fallback=selected.payload.get('outlook_mode',self.store.get_frozen(run.run_id,'outlook').payload['mode']),image_omissions=sum(bool(v) for v in selected.payload['omissions']))
                 result['receipt_outcome']=result.get('receipt_outcome',result['phase'])
@@ -281,14 +327,13 @@ class MorningRunner:
                 except Exception: pass
         return self._heartbeat(result,preview=preview,preview_dir=preview_dir,accounting=accounting)
 
-    @staticmethod
-    def _preview(run,selected,directory):
+    def _preview(self,run,selected,directory):
         path=Path(directory); path.mkdir(parents=True,exist_ok=True,mode=0o700); images=[]
         for kind,row in zip(('ihsg','sectors','konglo'),selected.payload['images']):
             if row is None: images.append(None); continue
             artifact=_artifact(row)
             (path/(kind+'.png')).write_bytes(artifact.data)
             (path/(kind+'-manifest.json')).write_text(canonical(artifact.manifest))
-            images.append({'title':attachment_caption(kind,date.fromisoformat(run.session)),'path':kind+'.png'})
+            images.append({'title':attachment_caption(kind,date.fromisoformat(run.session),cutoff=datetime.fromisoformat(run.freeze_at),target=timing_for(date.fromisoformat(run.session),retained_operator_config(self.store,run.run_id))['target']),'path':kind+'.png'})
         (path/'preview.md').write_text(six_block_markdown(tuple(selected.payload['texts']),images))
         (path/'selection.json').write_text(canonical({'run_id':run.run_id,'digest':selected.digest,'mode':'preview','input_provenance':'explicit-caller-inputs'}))

@@ -49,6 +49,11 @@ const workflows: Record<string, { input: string; processing: string; output: str
     processing: "Closing-price checks and plan status",
     output: "Discord swing board",
   },
+  "bursawatch-dc-morning-brief": {
+    input: "Frozen source and market evidence",
+    processing: "Factual brief and rotation charts",
+    output: "Discord morning brief",
+  },
   "bursawatch-stockbit-snips": {
     input: "Four Stockbit Snips feeds",
     processing: "Article analysis and source summaries",

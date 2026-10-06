@@ -59,11 +59,10 @@ def _fit(required,optional):
 
 def _timing(publication_session,cutoff,target):
     zone=ZoneInfo('Asia/Jakarta');cutoff=aware(cutoff).astimezone(zone);target=aware(target).astimezone(zone)
-    if (cutoff.date()!=publication_session or target.date()!=publication_session
-            or (cutoff.hour,cutoff.minute,cutoff.second,cutoff.microsecond)!=(7,30,0,0)
-            or (target.hour,target.minute,target.second,target.microsecond)!=(8,0,0,0)):
-        raise ValueError('frozen publication 07:30 cutoff and 08:00 target required')
-    return '**Cutoff data:** 07:30 WIB · **Target terbit:** 08:00 WIB'
+    if (cutoff.date()!=publication_session or target.date()!=publication_session or cutoff>=target
+            or cutoff.second or cutoff.microsecond or target.second or target.microsecond):
+        raise ValueError('same-session minute-aligned cutoff before publication target required')
+    return f'**Cutoff data:** {cutoff:%H:%M} WIB · **Target terbit:** {target:%H:%M} WIB'
 
 
 def _provenance_urls(value):
@@ -230,9 +229,15 @@ def format_brief(*,publication_session: date,cutoff: datetime,target: datetime,
     return texts,selected
 
 
-def attachment_caption(kind: str,publication_session: date) -> str:
+def attachment_caption(kind: str,publication_session: date, *, cutoff=None, target=None) -> str:
     titles={'ihsg':'IDX Composite Index','sectors':'Rotasi Sektor','konglo':'Rotasi Konglo'}
-    return titles[kind]+' | '+publication_label(publication_session)+' | Cutoff 07:30 WIB · Target 08:00 WIB'
+    if cutoff is None and target is None:
+        timing='Cutoff 07:30 WIB · Target 08:00 WIB'  # Historical local artifacts.
+    else:
+        _timing(publication_session,cutoff,target)
+        zone=ZoneInfo('Asia/Jakarta')
+        timing=f'Cutoff {cutoff.astimezone(zone):%H:%M} WIB · Target {target.astimezone(zone):%H:%M} WIB'
+    return titles[kind]+' | '+publication_label(publication_session)+' | '+timing
 
 
 def six_block_markdown(texts,images) -> str:

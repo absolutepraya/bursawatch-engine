@@ -7,8 +7,9 @@ description: Proposed receipt-gated IHSG morning brief with frozen evidence and 
 
 This local package implements the numerical, frozen-evidence and bounded-writer
 owners for a proposed morning brief. It does not register or activate a production job.
-The planned schedule freezes at 07:30 WIB on verified IDX sessions, selects a
-facts-only fallback by 07:55 when necessary, and targets publication by 08:00.
+The database-configured default freezes at 06:00 WIB on verified IDX sessions,
+selects a facts-only fallback by 06:55 when necessary, and targets delivery at
+07:00. Preparation waits until the frozen target before any brief submission.
 A non-session is a no-op, with a heartbeat. Engineering documentation is English;
 brief prose is concise Indonesian. Model transport, rendering and publication integration remain explicit caller
 inputs. The writer and source/calendar/quote adapters perform no network IO.
@@ -264,7 +265,7 @@ producer-only annotation field is required.
 
 Model invocation and support validation share one daemon worker and one
 process-wide worker gate. Timeout includes both, with a monotonic budget capped
-at 07:55 WIB and a prebuilt fallback. A still-running worker cannot mutate selected
+at the frozen fallback deadline (default 06:55 WIB) and a prebuilt fallback. A still-running worker cannot mutate selected
 output or owner state, blocks new model workers rather than accumulating retries,
 and never delays interpreter exit through an executor join. Python does not
 cancel the external callable; its transport must impose its own request limits.
@@ -345,16 +346,17 @@ payload, retrieval instant and reviewed exchange sessions. Official calendar
 snapshots come from the shared immutable SnapshotCache. Empty calendar/global
 inputs remain gaps, not fabricated dates or zero changes.
 
-One bounded writer uses the frozen bundle. Output selection is fixed by 07:55
-WIB, with facts-only degradation on missing evidence, timeout or unsupported
+One bounded writer uses the frozen bundle. Output selection is fixed by the
+frozen fallback deadline (default 06:55 WIB), with facts-only degradation on missing evidence, timeout or unsupported
 claims. Source-safe URL rendering percent-encodes Markdown delimiters; unsafe URLs
 are rejected at source-ref acceptance. Text budgeting removes complete source
 claims/citations and optional sections atomically, never cuts a URL. A presentable dated factual-driver block is reserved before selecting the core. An
 unrenderable or oversized scenario/core freezes a facts-only `presentation` and
 closing anchor. Three exact Indonesian texts and all available image bytes/manifests,
 letters, global/calendar facts and omissions freeze under the fenced lease.
-Freeze is 07:30 WIB; target delivery is 08:00 WIB. Every brief operation has an
-immutable 08:15 WIB attempt deadline, including retries. Delayed recovery keeps
+The configured defaults freeze at 06:00 WIB and target delivery at 07:00 WIB.
+Every brief operation has an immutable attempt deadline (default 07:15 WIB),
+including retries. Delayed recovery keeps
 the original visible cutoff/target labels and records actual lateness.
 
 `publication.Publisher.freeze` persists all six alternating IHSG text/image,
@@ -431,3 +433,49 @@ which is insufficient for an 18-level rotation trail. Retained cache gaps must
 remain gaps. Run `bash scripts/test-all` after touched package suites. Deployment review is
 separate; natural source-to-visible-delivery verification requires a separately
 approved rollout and cannot be established by these offline tests.
+
+
+## Durable operator configuration
+
+The Control Plane registers `bursawatch-dc-morning-brief` as a configuration-only
+watcher. Migration 023 adds no scheduler entry. Its absent-only baseline seeds
+version 1 into the existing private Postgres configuration revisions, preserving
+any dashboard-authored revision. The baseline has no destination and cannot
+publish until a channel and host runtime are separately reviewed.
+
+Workflows in web config exposes cutoff and delivery in WIB, fallback lead time
+(1 to 30 minutes), the new-attempt grace after delivery (1 to 60 minutes), a
+nullable Discord destination, the six supported global instruments and nullable
+custom emoji mappings. The approved instrument IDs live in the private backend
+baseline, never in browser bundles. Keys and HH:MM values are validated by the
+canonical owner parser; the isolated Control Plane bundle has byte-parity tests.
+The fixed timezone is Asia/Jakarta. Require cutoff before fallback before target,
+with the attempt deadline on the same date. Scheduler enablement/cadence stays
+in Jobs and requires a separately provisioned job; saving settings cannot create
+or activate it.
+
+A host adapter calls `MorningRunner.run_from_control_plane(base_url=..., token=...,
+**inputs)` using the shared `control_plane_client.fetch_config`. Configuration
+read or checksum failure stops work; it never falls back to source defaults.
+Credentials stay in host configuration, outside operator settings. The adapter
+must inject the existing shared `SectorsClient`, shared `ChartImgClient`, source
+reader, Delivery Owner and publication client with their reviewed host stores and
+provider policies. Configuration cannot authorize provider spend or bypass
+calendar/image attestations. The Sectors and Chart-IMG caches/allowances remain
+separate and account-shared, never duplicated in morning state.
+
+`run_from_snapshot(snapshot, **inputs)` accepts a retained shared API snapshot
+for no-post review. The CLI input manifest supports `config_snapshot` for this
+purpose. Before data capture, freeze the snapshot revision, checksum and values
+in `operator_config`. Capture, selection, writer fallback, attachment captions,
+last-attempt deadlines and lateness use that record. Restarting after a dashboard
+edit resumes the same settings and destination. The previous verified session's
+actual frozen cutoff bounds the next source window when available, preventing a
+cutoff edit from skipping source history. Missing original history still degrades
+honestly. Legacy explicitly injected local callers retain their old 07:30/08:00
+contract; do not promote those sessions into the database-backed runtime.
+
+This configuration implementation does not supply live Yahoo/BI/BPS adapters,
+verified IDX calendars, shared provider stores, TradingView layouts or host
+credentials. Those are production rollout gates, as are reviewed schedule
+activation and the first natural delivery. No synthetic post validates them.

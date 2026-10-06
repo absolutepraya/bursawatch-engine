@@ -510,3 +510,16 @@ These are integrity checks, not authorization credentials. Keep opaque refs
 unchanged; their encoding is an implementation detail. Both POST routes only
 read existing source tables and never persist work, manifests, audits, schedules,
 publications or intake. No database migration or second source database is added.
+
+
+### Morning brief configuration
+
+`bursawatch-dc-morning-brief` uses the existing authenticated watcher-config
+GET/PUT API and private revision tables. Migration 023 registers configuration
+only, and absent-only seeding preserves operator-authored revisions. The bundled
+canonical parser validates WIB cutoff/delivery, fallback/retry windows, the
+nullable destination, selected global instruments and emoji mappings. Its
+built-in isolated validator needs no host environment change; an explicit
+`CONTROL_PLANE_MORNING_CONFIG_VALIDATOR_DIR` may select a reviewed bundle path.
+The baseline defaults to 06:00/07:00 WIB with no destination. Saving settings
+does not create a job, activate a schedule or authorize provider requests.

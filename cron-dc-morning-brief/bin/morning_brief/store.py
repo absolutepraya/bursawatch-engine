@@ -136,6 +136,12 @@ class RunStore:
             db.execute('INSERT INTO runs VALUES(?,?,?,?,NULL)',(identity,session,freeze,'created'))
             return RunRecord(identity,session,freeze,'created',None)
 
+    def get_run_for_session(self, session: str):
+        iso_date(session)
+        with self._db() as db:
+            row = db.execute('SELECT * FROM runs WHERE session=?', (session,)).fetchone()
+            return RunRecord(**dict(row)) if row else None
+
     def get_run(self, run_id: str) -> RunRecord:
         with self._db() as db:
             row = db.execute('SELECT * FROM runs WHERE run_id=?',(run_id,)).fetchone()

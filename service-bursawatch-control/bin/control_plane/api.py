@@ -879,6 +879,8 @@ def create_app(
         try:
             canonical_json_bytes(payload.config)
             validator(payload.config)
+            if watcher_id == "bursawatch-dc-morning-brief" and payload.config_version != 1:
+                raise ValueError("morning configuration version must be 1")
             profiles = profile_inputs_from_config(payload.config)
             snapshot = store.put_config(watcher_id, payload.config_version, payload.config, current.subject)
             records = store.sync_profile_metadata(watcher_id, profiles)

@@ -7,6 +7,7 @@ from threading import BoundedSemaphore, Event, Thread
 from time import monotonic
 from zoneinfo import ZoneInfo
 from .calendar import aware
+from .config import retained_operator_config, timing_for
 from .store import canonical, digest, FreezeConflict
 from .global_markets import format_global_rows
 from .economic_calendar import format_calendar_events
@@ -45,7 +46,10 @@ def freeze_bundle(store,run_id,*,model_version: str,prompt_version: str,lease,no
         record=store.get_frozen(run_id,slot)
         fields[slot]=record.payload if record else default
         if record: dependencies[slot]=record.digest
+    configuration=store.get_frozen(run_id,'operator_config')
+    if configuration: dependencies['operator_config']=configuration.digest
     payload=dict(fields,cutoff=run.freeze_at,publication_session=run.session,
+                 fallback_at=timing_for(datetime.fromisoformat(run.session).date(),retained_operator_config(store,run_id))['fallback'].isoformat(),
                  versions={'model':model_version,'prompt':prompt_version},claim_contract=_CLAIM_CONTRACT)
     return store.freeze(run_id,'writer_bundle',payload,lease=lease,now=now,dependencies=dependencies)
 
@@ -200,7 +204,7 @@ def write_outlook(bundle,model,*,now: datetime,timeout_seconds: float=30) -> dic
                 versions=payload['versions'])
     cutoff=aware(datetime.fromisoformat(payload['cutoff']))
     day=cutoff.astimezone(ZoneInfo('Asia/Jakarta')).date()
-    deadline=datetime.combine(day,time(7,55),tzinfo=ZoneInfo('Asia/Jakarta'))
+    deadline=aware(datetime.fromisoformat(payload['fallback_at'])) if 'fallback_at' in payload else datetime.combine(day,time(7,55),tzinfo=ZoneInfo('Asia/Jakarta'))
     remaining=(deadline-instant).total_seconds()
     if remaining<=monotonic()-started_at:
         result['reason']='fallback_deadline'; return result

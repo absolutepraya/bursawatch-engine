@@ -33,7 +33,7 @@ inputs. Do not infer readiness or natural delivery from these local tests.
   Quote exact full source context for scenario roles; model-assessed roles never
   certify source stance, factual truth or consensus. Verified latest IHSG close
   plus a fresh dated upstream factual driver are required. Invocation, validation
-  and candidate assembly share 07:55 WIB and one daemon worker maximum.
+  and candidate assembly share the frozen fallback deadline (default 06:55 WIB) and one daemon worker maximum.
   Late worker results never mutate the selected fallback or owner state. Missing
   conditional base/change evidence selects facts-only. Formatting trims claims
   with citations atomically and freezes actual published mode/scenario in
@@ -45,7 +45,7 @@ inputs. Do not infer readiness or natural delivery from these local tests.
   preview/live reuse and legacy unknown mode, never relabel immutable old runs.
   All six selections and bytes freeze before submit.
 - Confirm receipt key, digest, operation ID and destination before advancing.
-  Never replace pending/ambiguous images with omissions. After 08:15 WIB, query
+  Never replace pending/ambiguous images with omissions. After the frozen attempt deadline (default 07:15 WIB), query
   and reconcile earlier attempts only. Projection retries cannot send messages.
 - Every completed/no-op/degraded/fatal attempt emits or simulates the safe
   #hermes heartbeat. Retain original text/scenario for closing consumers.
@@ -53,3 +53,12 @@ inputs. Do not infer readiness or natural delivery from these local tests.
   Full repository verification belongs to the final integration task.
 - Tests use injected dependencies and temporary state. No live model, provider,
   Discord, VPS or scheduler operations are part of package development.
+
+- Operator settings use the existing Control Plane revisioned watcher-config API.
+  `run_from_control_plane` uses the shared configuration client; never silently
+  substitute a source file after an API read failure. `run_from_snapshot` validates
+  the shared snapshot checksum and freezes `operator_config` before preparation.
+  Default cutoff is 06:00 WIB and delivery is 07:00 WIB, with fallback five minutes
+  before and last new attempt fifteen minutes after. Future edits cannot rewrite
+  an existing session. Preparation must never submit before the frozen target.
+  Host credentials, provider stores and calendar attestations remain separate.

@@ -115,6 +115,20 @@ const cases: Array<[string, Record<string, unknown>]> = [
     { version: 1, destinations: { heartbeat_discord_channel_id: "100000000000000001" } },
   ],
   [
+    "bursawatch-dc-morning-brief",
+    {
+      version: 1,
+      timezone: "Asia/Jakarta",
+      cutoff_time: "06:00",
+      delivery_time: "07:00",
+      fallback_minutes: 5,
+      retry_minutes: 15,
+      destination_channel_id: null,
+      instruments: ["SPY"],
+      logos: {},
+    },
+  ],
+  [
     "bursawatch-stockbit-snips",
     {
       version: 1,

@@ -60,6 +60,7 @@ export const watcherNames: Record<string, string> = {
   "bursawatch-tg-phintraco-swing": "Phintraco swing calls",
   "bursawatch-dc-swing-board": "Discord swing board",
   "bursawatch-stockbit-snips": "Stockbit Snips",
+  "bursawatch-dc-morning-brief": "Morning brief",
 };
 
 export function profileKind(watcherId: string): ProfileKind | null {
@@ -215,6 +216,56 @@ export function validateWatcherConfig(
   }
   if (!supportsWatcherConfig(watcherId, config.version))
     error(["version"], "This configuration version is not supported by this editor.");
+  if (watcherId === "bursawatch-dc-morning-brief") {
+    const allowed = [
+      "version",
+      "timezone",
+      "cutoff_time",
+      "delivery_time",
+      "fallback_minutes",
+      "retry_minutes",
+      "destination_channel_id",
+      "instruments",
+      "logos",
+    ];
+    for (const key of Object.keys(config))
+      if (!allowed.includes(key)) error([key], "Unsupported setting.");
+    choice(["timezone"], ["Asia/Jakarta"]);
+    const timePattern = /^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/;
+    text(["cutoff_time"], timePattern, "Use HH:MM in WIB.");
+    text(["delivery_time"], timePattern, "Use HH:MM in WIB.");
+    numeric(["fallback_minutes"], 1, 30);
+    numeric(["retry_minutes"], 1, 60);
+    const minutes = (value: unknown) =>
+      typeof value === "string" && timePattern.test(value)
+        ? Number(value.slice(0, 2)) * 60 + Number(value.slice(3))
+        : NaN;
+    const cutoff = minutes(config.cutoff_time),
+      target = minutes(config.delivery_time);
+    if (Number.isFinite(cutoff) && Number.isFinite(target)) {
+      if (cutoff >= target - Number(config.fallback_minutes))
+        error(["delivery_time"], "Allow time between cutoff and the fallback deadline.");
+      if (target + Number(config.retry_minutes) >= 1440)
+        error(["retry_minutes"], "The retry deadline must stay on the same WIB date.");
+    }
+    if (config.destination_channel_id !== null) discord(["destination_channel_id"]);
+    const supported = ["KOSPI", "Nikkei", "SPY", "QQQ", "EIDO", "USDIDR"];
+    if (
+      !Array.isArray(config.instruments) ||
+      !config.instruments.length ||
+      config.instruments.some((item) => typeof item !== "string" || !supported.includes(item)) ||
+      new Set(config.instruments).size !== config.instruments.length
+    )
+      error(["instruments"], "Choose at least one supported instrument, each once.");
+    if (!config.logos || typeof config.logos !== "object" || Array.isArray(config.logos))
+      error(["logos"], "Use instrument emoji settings.");
+    else
+      for (const key of Object.keys(config.logos)) {
+        if (!supported.includes(key)) error(["logos", key], "Unsupported instrument.");
+        else emoji(["logos", key], true);
+      }
+    return errors;
+  }
   if (watcherId === "bursawatch-stockbit-snips") {
     const exactKeys = (value: unknown, path: ConfigPath, allowed: string[]) => {
       if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -366,7 +417,11 @@ export function validateWatcherConfig(
             `Use https://${kind === "x" ? "x.com" : "instagram.com"}/${handle || "handle"} with no trailing slash.`,
           );
         }
-        choice(at("source"), kind === "x" ? ["rsshub", "hybrid", "direct_x"] : ["rsshub"], kind === "x");
+        choice(
+          at("source"),
+          kind === "x" ? ["rsshub", "hybrid", "direct_x"] : ["rsshub"],
+          kind === "x",
+        );
         if (kind === "x") {
           if (get(at("show_quoted_post")) !== undefined) bool(at("show_quoted_post"));
           emoji(at("emoji"));

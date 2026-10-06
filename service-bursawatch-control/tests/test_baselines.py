@@ -72,7 +72,7 @@ def test_checked_in_baselines_are_exactly_the_reviewed_watcher_set():
     baselines = load_baselines(BASELINES)
 
     assert [baseline.watcher_id for baseline in baselines] == sorted(BASELINE_FILES)
-    assert len(baselines) == 8
+    assert len(baselines) == 9
     assert all(len(baseline.config_sha256) == 64 for baseline in baselines)
 
 

@@ -11,6 +11,7 @@ from bursawatch_discord_delivery import (
 from bursawatch_discord_delivery.client import NON_TERMINAL_STATUSES
 from bursawatch_discord_delivery.models import validate_receipt, parse_attempt_deadline
 from .formatting import attachment_caption
+from .config import retained_operator_config, timing_for
 from .store import FreezeConflict, canonical, stamp
 
 OWNER = 'bursawatch-dc-morning-brief'
@@ -33,8 +34,10 @@ class Publisher:
         if not isinstance(destination, str) or re.fullmatch(r'[0-9]{17,20}',destination) is None:
             raise ValueError('reviewed brief destination required')
         session = datetime.fromisoformat(run.session).date()
-        deadline = datetime.combine(session,time(8,15),tzinfo=ZoneInfo('Asia/Jakarta'))
-        dependencies = {}
+        times = timing_for(session, retained_operator_config(self.store,run_id))
+        deadline = times['deadline']
+        configuration=self.store.get_frozen(run_id,'operator_config')
+        dependencies = {'operator_config':configuration.digest} if configuration else {}
         for slot in ('inputs','outlook','globals','calendar_events'):
             record = self.store.get_frozen(run_id,slot)
             if record is None: raise ValueError('selected inputs must freeze before publication')
@@ -58,7 +61,7 @@ class Publisher:
                     media = dict(data=base64.b64encode(image.data).decode('ascii'),sha256=image.sha256,
                                  filename=kind+'.png',mime_type=image.content_type,manifest=image.manifest)
                     attachments = (Attachment(media['filename'],media['mime_type'],image.data),)
-                content = texts[index] if form == 'text' else attachment_caption(kind,session)
+                content = texts[index] if form == 'text' else attachment_caption(kind,session,cutoff=datetime.fromisoformat(run.freeze_at),target=times['target'])
                 operation = OperationIntent(key=f'{OWNER}:{run.session}:{name}',kind='channel_message_create',
                     ordering_key=f'{OWNER}:{run.session}',target={'channel_id':destination},
                     payload={'content':content,'allowed_mentions':{'parse':[]}},attachments=attachments,
@@ -111,7 +114,7 @@ class Publisher:
 
     def _summary(self,run_id,phase,lease,*,reason=None,omissions=0):
         now=self.clock(); run=self.store.get_run(run_id)
-        target=datetime.combine(datetime.fromisoformat(run.session).date(),time(8),tzinfo=ZoneInfo('Asia/Jakarta'))
+        target=timing_for(datetime.fromisoformat(run.session).date(),retained_operator_config(self.store,run_id))['target']
         result=dict(phase=phase,reason=reason,image_omissions=omissions,
                     lateness_seconds=max(0,int((now-target).total_seconds())),observed_at=stamp(now))
         self.store.set_checkpoint(run_id,'publication_summary',canonical(result),lease=lease,now=now)
@@ -121,6 +124,9 @@ class Publisher:
     def publish(self,run_id,*,lease):
         frozen=self.store.get_frozen(run_id,'publication')
         if frozen is None: raise ValueError('publication selection not frozen')
+        run=self.store.get_run(run_id)
+        if self.store.get_frozen(run_id,'operator_config') is not None and self.clock()<timing_for(datetime.fromisoformat(run.session).date(),retained_operator_config(self.store,run_id))['target']:
+            return self._summary(run_id,'prepared',lease)
         manifest=frozen.payload; omissions=sum(bool(s['omission']) for s in manifest['steps'])
         if self.store.get_checkpoint(run_id,'projection_ack') is not None:
             return self._summary(run_id,'projected',lease,omissions=omissions)
@@ -165,11 +171,12 @@ class Publisher:
         selected=self.store.get_frozen(run_id,'projection')
         if selected is None:
             run=self.store.get_run(run_id)
+            configuration=self.store.get_frozen(run_id,'operator_config')
             payload=dict(api_version=1,owner_key=manifest['owner_key'],version=1,supersedes_version=None,
                 type='morning_brief',route='morning_brief',source_event_key=None,source_name='Bursawatch morning brief',
                 source_url=None,source_published_at=None,market_data_as_of=run.freeze_at,delivery_confirmed_at=stamp(self.clock()),
                 title='Morning brief '+run.session,ticker=None,broker_levels=None,parent_publication_id=None,
-                board_episode_id=None,config_revision=None,renderer_version='morning-v1',source_version=frozen.digest,
+                board_episode_id=None,config_revision=configuration.payload['revision'] if configuration else None,renderer_version='morning-v1',source_version=frozen.digest,
                 required_operation_keys=[leg['operation_key'] for leg in legs],legs=legs)
             selected=self.store.freeze(run_id,'projection',payload,lease=lease,now=self.clock(),dependencies={'publication':frozen.digest})
         try:
