@@ -11,7 +11,7 @@ from test_global_markets import chart, schedule, US_ROWS
 from test_economic_calendar import saved, page
 
 
-def frozen_bundle(core,tmp_path,source_text='Laba emiten sintetis naik 10 persen. Kas emiten tetap positif.'):
+def frozen_bundle(core,tmp_path,source_text='Laba emiten sintetis naik 10 persen. Kas emiten tetap positif. IHSG bergerak terbatas.'):
     store,run,lease=owner(core,tmp_path)
     rows=[source(1,text=source_text),source(2,text='Jika likuiditas pulih, IHSG berpotensi bergerak terbatas. Jika tekanan global bertambah, pandangan ini perlu ditinjau ulang.')]
     capture=manifest(rows,captured_at='2026-10-05T00:30:04.200000+00:00',capture_gap_seconds=4.2)
@@ -155,7 +155,7 @@ def test_source_wrap_cannot_remove_preceding_negation_or_condition(core,tmp_path
 @pytest.mark.parametrize('source_text,excerpt', [
     ('IHSG tidak\nnaik.', 'IHSG tidak\nnaik.'),
     ('Jika likuiditas pulih,\nIHSG naik.', 'Jika likuiditas pulih,\nIHSG naik.'),
-    ('Laba emiten naik.\nKas emiten tetap positif.', 'Kas emiten tetap positif.'),
+    ('IHSG: laba emiten naik.\nKas emiten tetap positif.', 'Kas emiten tetap positif.'),
     ('IHSG tidak\nnaik. Kas emiten tetap positif.', 'IHSG tidak\nnaik.'),
 ])
 def test_complete_wrapped_context_and_punctuation_delimited_sentences_remain_supported(core,tmp_path,source_text,excerpt):

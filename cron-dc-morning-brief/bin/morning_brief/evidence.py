@@ -7,7 +7,7 @@ from .calendar import aware
 from .store import FreezeConflict, digest, stamp
 
 
-CAPTURE_RETRIES = 2
+IHSG_ALIASES = re.compile(r'\b(?:IHSG|JKSE|JCI|Jakarta\s+Composite\s+Index|IDX\s+Composite)\b', re.IGNORECASE)
 
 
 class SourceReader(Protocol):
@@ -47,7 +47,12 @@ def select_evidence(rows: list[dict]) -> dict:
     """
     selected, omissions, reasons = [], Counter(), set()
     publishers, stories = Counter(), set()
-    for row in rows:
+    def recent_key(row):
+        value = row.get('published_at') or row['observed_at']
+        instant = aware(datetime.fromisoformat(value.replace('Z', '+00:00')))
+        return (-instant.timestamp(), row['event_key'], row['version_ref'])
+
+    for row in sorted(rows, key=recent_key):
         if row.get('kind') == 'tombstone':
             omissions['tombstone'] += 1
             continue
@@ -55,6 +60,9 @@ def select_evidence(rows: list[dict]) -> dict:
         if row.get('content_unavailable') or not isinstance(text, str) or not text.strip():
             omissions['content_unavailable'] += 1
             reasons.add('content_unavailable')
+            continue
+        if IHSG_ALIASES.search(text) is None:
+            omissions['irrelevant'] += 1
             continue
         if row.get('text_truncated'):
             reasons.add('truncated_content')
@@ -107,16 +115,11 @@ def freeze_source_evidence(store, run_id: str, client: SourceReader, *, previous
         raise ValueError('previous verified session cutoff must precede current cutoff')
     frozen = store.get_frozen(run_id, 'source_manifest')
     if frozen is None:
-        manifest = None
-        # Bounded retries stay far inside the 07:55 cap; the server query is bounded
-        # by the cutoff, so a retry cannot observe newer committed evidence.
-        for _ in range(1 + CAPTURE_RETRIES):
-            try:
-                manifest = client.capture_window(previous, run.freeze_at)
-                break
-            except Exception:
-                continue
-        if manifest is None:
+        # Capture is not idempotent: even an ambiguous transport failure must
+        # not trigger a new database snapshot with a different visible corpus.
+        try:
+            manifest = client.capture_window(previous, run.freeze_at)
+        except Exception:
             manifest = {'status':'unavailable', 'previous_cutoff':previous, 'cutoff':run.freeze_at}
         frozen = store.freeze(run_id, 'source_manifest', manifest, lease=lease, now=now)
     manifest = frozen.payload

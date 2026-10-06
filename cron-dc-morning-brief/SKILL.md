@@ -136,8 +136,15 @@ manifest slot digest as its dependency. Recovery keeps exact refs/hashes and
 never recaptures a changing source query. A complete saved evidence slot is
 reused. Missing/corrupt batches freeze facts-only without source mutation/replay.
 
-Selection reads all bounded manifest batches first, then keeps at most 30 stories
-and three per publisher across routes. Exact content hashes or normalized copied
+Selection reads all bounded manifest batches first, then admits only text with
+case-insensitive whole-term IHSG, JKSE or JCI aliases, Jakarta Composite Index,
+or IDX Composite. Bare Composite and unrelated records are omitted with an
+`irrelevant` count before publisher/total caps; this is not a coverage failure.
+The current immutable read surface has no reviewed relevance tags, so no tag-only
+admission is inferred. Relevant stories sort by publication instant descending
+(observation instant when no publication time exists), then event key/version
+reference for deterministic ties. Keep at most 30 stories and three per publisher
+across routes, preferring recent items for both caps. Exact content hashes or normalized copied
 text collapse to one story. Verified original identity is used when available;
 otherwise collecting publisher/unknown origin is retained. Missing publisher,
 truncated/unavailable text and invalid durable media metadata are explicit gaps.
@@ -149,9 +156,12 @@ Capture can never precede its cutoff, so the Control Plane and its client share
 one `CAPTURE_GRACE_SECONDS = 120` constant: a capture 0 to 120 seconds after the
 cutoff is `on_time`, a larger gap is `late` and facts-only, and the signed
 `capture_gap_seconds` stays in the frozen evidence. `freeze_source_evidence`
-retries a failed `capture_window` at most `CAPTURE_RETRIES = 2` times (three
-attempts, each bounded by the client's own timeout, well inside the 07:55 WIB
-selection cap) before freezing `{'status': 'unavailable'}`.
+attempts `capture_window` once. Any capture failure freezes `{'status': 'unavailable'}`
+and selects facts-only, including on recovery. Capture has no idempotent snapshot
+handle: a repeated request could observe a newly committed transaction whose
+creation timestamp precedes the cutoff. This supersedes the earlier two-retry
+ruling and agrees with the shared reader contract. The successful first-capture
+grace remains a timing policy, not proof of exact cutoff database visibility.
 
 Rollout input: `history_status` is `unknown`, and the run therefore facts-only,
 unless the Control Plane is provisioned with
@@ -185,7 +195,10 @@ not live page extraction. Dynamic empty pages and unknown structures are
 unavailable. Verification must be cutoff-visible and at most seven days old,
 a conservative owner policy rather than an official release schedule. BI
 multi-day decision dates require explicitly verified `decision_day='last'`.
-Amendments resolve before future filtering. Joint release IDs collapse briefings;
+Amendments resolve before future filtering. Explicit shared release IDs with
+matching date/time collapse joint BI/BPS briefings before the three-event cap.
+Retain both authorities' snapshot metadata and links. Coincident dates or similar
+labels alone do not establish joint identity;
 only national relevant releases are selected, next three across dates. Unknown
 future-date time is labeled; unknown same-day time cannot prove future eligibility.
 No consensus or monthly-habit dates are generated. `freeze_calendar_events`
@@ -280,6 +293,10 @@ Before any capture/input work, `run_mode` freezes `preview` or `live`; `upstream
 also records that mode. Mode mismatches fail closed without brief submissions or
 recapture. Preview `selection.json` records the actual preview mode and explicit
 caller-input provenance, never an invented synthetic/attested assertion.
+Optional `logos` maps instrument names to provisioned custom emoji markup. It
+freezes in `upstream` and is passed to the formatter; later changes cannot alter
+selected text on recovery. Missing or malformed markup retains readable names.
+The no-post CLI accepts this mapping in its explicit input manifest.
 Use the shared SourceEvidenceClient, DeliveryClient and PublicationClient for
 reviewed runtime transports; the owner never calls Discord REST directly.
 

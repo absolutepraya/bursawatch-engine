@@ -20,8 +20,8 @@ def source(n, publisher='collector', text=None, platform='rss', **extras):
                published_at='2026-10-04T09:00:00+00:00', observed_at=UPPER,
                endpoint_id=f'{platform}:{n}', publisher_id=publisher, platform=platform,
                source_url=f'https://example.com/story/{n}', parser_version='synthetic-1',
-               content_hash=checksum(text or f'Fakta sintetis {n}.'), payload_hash=f'{n+1:064x}',
-               original_publisher_id=None, origin_status='unknown', text=text or f'Fakta sintetis {n}.',
+               content_hash=checksum(text or f'IHSG fakta sintetis {n}.'), payload_hash=f'{n+1:064x}',
+               original_publisher_id=None, origin_status='unknown', text=text or f'IHSG fakta sintetis {n}.',
                text_truncated=False, content_unavailable=False, media_refs=[])
     row.update(extras)
     row['evidence_hash'] = checksum(row)
@@ -66,7 +66,7 @@ def test_manifest_persisted_before_selection_and_recovery_never_recaptures(core,
     first = source(1)
     client = CapturedClient(store, run.run_id, [first])
     result = module.freeze_source_evidence(store, run.run_id, client, previous_cutoff=LOWER, lease=lease, now=FREEZE)
-    assert result.payload['items'][0]['text'] == 'Fakta sintetis 1.'
+    assert result.payload['items'][0]['text'] == 'IHSG fakta sintetis 1.'
     assert result.dependencies == {'source_manifest': store.get_frozen(run.run_id, 'source_manifest').digest}
     class Recovery(CapturedClient):
         def capture_window(self, *_args, **_kwargs):
@@ -255,20 +255,20 @@ class FlakyCapture(CapturedClient):
         return super().capture_window(previous, cutoff, limit)
 
 
-def test_transient_capture_failures_retry_at_most_twice(core, tmp_path):
+def test_transient_capture_failure_freezes_facts_only_without_retry(core, tmp_path):
     module = core('evidence')
     store, run, lease = owner(core, tmp_path)
     rows = [source(1)]
     client = FlakyCapture(store, run.run_id, rows, failures=2)
     result = module.freeze_source_evidence(store, run.run_id, client, previous_cutoff=LOWER, lease=lease, now=FREEZE).payload
-    assert client.calls == 3 and result['facts_only'] is False and len(result['items']) == 1
+    assert client.calls == 1 and result['facts_only'] is True and result['items'] == []
 
 
-def test_capture_unavailable_is_frozen_only_after_bounded_retries(core, tmp_path):
+def test_capture_unavailable_is_frozen_after_first_failure(core, tmp_path):
     module = core('evidence')
     store, run, lease = owner(core, tmp_path)
     client = FlakyCapture(store, run.run_id, [source(1)], failures=99)
     result = module.freeze_source_evidence(store, run.run_id, client, previous_cutoff=LOWER, lease=lease, now=FREEZE).payload
-    assert client.calls == 3
+    assert client.calls == 1
     assert 'capture_unavailable' in result['degraded_reasons'] and result['facts_only']
     assert store.get_frozen(run.run_id, 'source_manifest').payload['status'] == 'unavailable'

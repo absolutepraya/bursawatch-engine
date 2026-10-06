@@ -171,6 +171,8 @@ def format_brief(*,publication_session: date,cutoff: datetime,target: datetime,
     for event in calendar.get('events',[]):
         try:
             normalized={**event,'source_url':_url(event['source_url'])}
+            if event.get('sources'):
+                normalized['sources']=[{**p,'source_url':_url(p['source_url'])} for p in event['sources']]
             calendar_rows.append(format_calendar_events({'events':[normalized]}))
         except (ValueError,KeyError,TypeError): pass
     unavailable=[]

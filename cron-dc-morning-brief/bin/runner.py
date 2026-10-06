@@ -63,7 +63,7 @@ def main(argv=None):
             runner=MorningRunner(RunStore(args.state),transport,transport,transport,clock=lambda:now)
             result=runner.run(calendar=calendar,numerical=fields.get('numerical',{}),global_inputs=fields.get('global_inputs',[]),
                 calendar_snapshots=fields.get('calendar_snapshots',[]),model=None,model_version=fields['model_version'],
-                prompt_version=fields['prompt_version'],preview=True,preview_dir=args.preview_dir)
+                prompt_version=fields['prompt_version'],logos=fields.get('logos',{}),preview=True,preview_dir=args.preview_dir)
             result.update(network=False,credentials=False)
     except Exception as error:
         result=safe_preview_result('fatal',datetime.now(timezone.utc),args.preview_dir,reason=type(error).__name__)

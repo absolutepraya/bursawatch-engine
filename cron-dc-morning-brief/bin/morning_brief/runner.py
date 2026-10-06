@@ -177,7 +177,8 @@ class MorningRunner:
         texts,presentation=format_brief(publication_session=session,cutoff=datetime.fromisoformat(run.freeze_at),
             target=datetime.combine(session,time(8),tzinfo=ZONE),outlook=outlook.payload,
             globals=globals_record.payload['quotes'],calendar=calendar_record.payload,
-            sectors=groups['sectors'],konglo=groups['konglo'],notices=notices,with_selection=True)
+            sectors=groups['sectors'],konglo=groups['konglo'],notices=notices,
+            logos=self.store.get_frozen(run.run_id,'upstream').payload.get('logos',{}),with_selection=True)
         presentation_record=self.store.freeze(run.run_id,'presentation',presentation,lease=lease,now=self.clock(),
             dependencies={'outlook':outlook.digest,'globals':globals_record.digest,'calendar_events':calendar_record.digest})
         deps={'inputs':inputs.digest,'outlook':outlook.digest,'letters':letter_record.digest,
@@ -187,7 +188,7 @@ class MorningRunner:
 
     def run(self,*,calendar,numerical,global_inputs,calendar_snapshots,model,model_version,prompt_version,
             preview=True,preview_dir=None,destination=None,reviewed_config=None,
-            sectors_client=None,sectors_requests=(),chart_client=None,chart_request=None,accounting=None):
+            sectors_client=None,sectors_requests=(),chart_client=None,chart_request=None,accounting=None,logos=None):
         if type(preview) is not bool or (not preview and (not reviewed_config or not destination)):
             raise ValueError('live injection requires reviewed configuration and destination')
         accounting=dict(accounting or {})
@@ -239,7 +240,7 @@ class MorningRunner:
                                         payload=record.payload,available_at=stamp(record.available_at),provenance=record.provenance))
                                 except Exception: accounting['cache_misses']=accounting.get('cache_misses',0)+1
                             upstream=self.store.freeze(run.run_id,'upstream',jsonable(dict(mode=mode,calendar=calendar,numerical=numerical,
-                                global_inputs=global_inputs,calendar_snapshots=calendar_snapshots,provider_records=records)),lease=lease,now=self.clock())
+                                global_inputs=global_inputs,calendar_snapshots=calendar_snapshots,provider_records=records,logos=dict(logos or {}))),lease=lease,now=self.clock())
                         inputs=self.store.get_frozen(run.run_id,'inputs') or self._inputs(run,upstream,calendar,lease)
                         previous_cutoff=datetime.combine(calendar.last_sessions(session,2)[0],time(7,30),tzinfo=ZONE)
                         evidence=freeze_source_evidence(self.store,run.run_id,self.source,previous_cutoff=stamp(previous_cutoff),lease=lease,now=self.clock())

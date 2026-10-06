@@ -153,7 +153,7 @@ def _parse(snapshot,cutoff):
         identity=fields.get('id') or digest({'event':label.casefold(),'period':period.casefold()})
         revision=int(fields.get('revision','1') or '1')
         if revision<1: raise ValueError('invalid_calendar_revision')
-        events.append(dict(event_id=snapshot['authority']+':'+identity,event=label,reference_period=period,
+        events.append(dict(event_id=snapshot['authority']+':'+identity,release_id=fields.get('id') or None,event=label,reference_period=period,
                            date=release.isoformat(),time_wib=event_time.strftime('%H:%M') if event_time else None,
                            scheduled_at=stamp(scheduled) if scheduled else None,decision_day=decision,revision=revision,
                            source=snapshot['authority'],source_url=snapshot['source_url'],
@@ -193,12 +193,30 @@ def select_calendar_events(snapshots: list[dict],*,freeze_at: datetime) -> dict:
     # Resolve amendments first, so a release moved into the past removes its old future date.
     # An unknown same-day time cannot be established as after the freeze.
     future=[e for e in releases.values() if (_instant(e['scheduled_at'])>cutoff if e['scheduled_at'] else date.fromisoformat(e['date'])>cutoff.astimezone(ZoneInfo('Asia/Jakarta')).date())]
-    events=sorted(future,key=lambda e:(e['date'],e['time_wib'] or '00:00',e['event_id']))[:3]
-    return {'events':events,'unavailable':failures,'cutoff':stamp(cutoff),'snapshot_ids':[s.get('snapshot_digest') for s in latest.values()]}
+    # Only an explicit shared release ID and matching schedule establish a joint
+    # briefing. Similar labels or coincident times alone are not identity proof.
+    joint={}
+    for event in sorted(future,key=lambda e:e['event_id']):
+        key=(event.get('release_id') or event['event_id'],event['date'],event['time_wib'])
+        proof={k:event[k] for k in ('source','source_url','source_digest','snapshot_digest',
+                                    'retrieved_at','verified_at','amendment','revision')}
+        if key not in joint:
+            joint[key]=dict(event,sources=[proof])
+        else:
+            old=joint[key]
+            old['sources'].append(proof)
+            for field in ('event','reference_period'):
+                old[field]=' / '.join(sorted(set(old[field].split(' / ')+event[field].split(' / '))))
+            old['source']=' / '.join(sorted({p['source'] for p in old['sources']}))
+    events=sorted(joint.values(),key=lambda e:(e['date'],e['time_wib'] or '00:00',e['event_id']))[:3]
+    return {'events':events,'unavailable':failures,'cutoff':stamp(cutoff),'snapshot_ids':[s.get('snapshot_digest') for _,s in sorted(latest.items())]}
 
 
 def format_calendar_events(calendar: dict) -> str:
-    return '\n'.join(f"{e['event']} ({e['reference_period']}) · {e['date']} · {e['time_wib']+' WIB' if e['time_wib'] else 'jam belum diumumkan'} · [{e['source']}]({e['source_url']})" for e in calendar['events'])
+    def citations(event):
+        sources=event.get('sources') or [event]
+        return ' '.join(f"[{p['source']}]({p['source_url']})" for p in sources)
+    return '\n'.join(f"{e['event']} ({e['reference_period']}) · {e['date']} · {e['time_wib']+' WIB' if e['time_wib'] else 'jam belum diumumkan'} · {citations(e)}" for e in calendar['events'])
 
 
 def freeze_calendar_events(store,run_id,snapshots,*,lease,now):
