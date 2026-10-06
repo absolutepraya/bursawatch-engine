@@ -173,12 +173,13 @@ never triggers. This is a separate reviewed Control Plane provisioning input.
 sessions=...)` parses an injected daily Yahoo chart response. `sessions` requires
 reviewed regular start/end instants, timezone, version, source digest, verification
 time and explicit date coverage, including holidays and daylight saving. There is
-no weekday fallback. Names are KOSPI, Nikkei, QQQ, EIDO and USDIDR, maximum five rows.
+no weekday fallback. Names are KOSPI, Nikkei, SPY, QQQ, EIDO and USDIDR, maximum six rows.
 Asia uses timestamped open regular metadata or its latest completed session;
-QQQ and EIDO use the latest completed regular US session even during the current
+SPY, QQQ and EIDO use the latest completed regular US session even during the current
 US session. EIDO represents the iShares MSCI Indonesia ETF, not an IHSG index quote.
 The prior regular close is the percentage denominator. Indices retain points;
-QQQ and EIDO require USD. USDIDR is the USD/IDR pair (`IDR=X`), denominated in
+SPY, QQQ and EIDO require USD. SPY is the S&P 500 ETF proxy; its USD
+price change is not an S&P 500 index-point change. USDIDR is the USD/IDR pair (`IDR=X`), denominated in
 IDR per USD. Its injected session snapshot must explicitly declare
 `market_type='fx'` and `baseline_policy='provider_daily_close'`; its reviewed
 provider timezone must match quote metadata. FX day windows may cross midnight

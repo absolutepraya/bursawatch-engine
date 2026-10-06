@@ -108,14 +108,15 @@ def test_quote_cannot_claim_observation_after_retrieval_and_freeze_rejects_other
     with pytest.raises(ValueError): module.freeze_globals(store,run.run_id,[quote],lease=lease,now=FREEZE)
 
 
-def test_eido_uses_completed_us_close_and_usd_units_even_during_open_session(core):
+@pytest.mark.parametrize('name',['EIDO','SPY'])
+def test_us_etfs_use_completed_close_and_usd_units_even_during_open_session(core,name):
     module=core('global_markets')
     freeze=at('2026-10-05T10:00:00-04:00')
-    raw=chart('EIDO','America/New_York',[s for s,e in US_ROWS[:2]],[20,21],price=99,quote_at='2026-10-05T09:50:00-04:00')
-    quote=module.parse_yahoo_chart('EIDO',raw,freeze_at=freeze,retrieved_at=freeze,sessions=schedule('America/New_York',US_ROWS))
+    raw=chart(name,'America/New_York',[s for s,e in US_ROWS[:2]],[20,21],price=99,quote_at='2026-10-05T09:50:00-04:00')
+    quote=module.parse_yahoo_chart(name,raw,freeze_at=freeze,retrieved_at=freeze,sessions=schedule('America/New_York',US_ROWS))
     assert quote['status']=='available' and quote['comparison']=='completed_regular_session'
     assert (quote['price'],quote['change'],quote['percent'])==(21,1,5)
-    assert 'EIDO: +1.00 USD (+5.00%)' in module.format_global_rows([quote],logos={})
+    assert f'{name}: +1.00 USD (+5.00%)' in module.format_global_rows([quote],logos={})
 
 
 def fx_fixture():
@@ -152,7 +153,7 @@ def test_fx_missing_or_wrong_provenance_never_becomes_a_valid_quote(core,mutatio
     assert quote['status']==('stale' if mutation=='stale' else 'unavailable')
 
 
-def test_all_five_rows_can_freeze_and_render_with_supplied_logo_ids(core,tmp_path):
+def test_all_six_rows_can_freeze_and_render_with_supplied_logo_ids(core,tmp_path):
     from test_evidence import owner
     module=core('global_markets');raw,sessions=fx_fixture()
     fx=module.parse_yahoo_chart('USDIDR',raw,freeze_at=FREEZE,retrieved_at=FREEZE,sessions=sessions)
@@ -166,13 +167,13 @@ def test_all_five_rows_can_freeze_and_render_with_supplied_logo_ids(core,tmp_pat
         quotes.append(module.parse_yahoo_chart(name,payload,freeze_at=FREEZE,retrieved_at=FREEZE,sessions=schedule(zone,rows)))
     assert all(q['status']=='available' for q in quotes)
     store,run,lease=owner(core,tmp_path)
-    assert len(module.freeze_globals(store,run.run_id,quotes,lease=lease,now=FREEZE).payload['quotes'])==5
+    assert len(module.freeze_globals(store,run.run_id,quotes,lease=lease,now=FREEZE).payload['quotes'])==6
     logos={name:f'<:market_{i}:12345678901234567{i}>' for i,name in enumerate(module.WATCHLIST)}
     text=module.format_global_rows(quotes,logos=logos)
-    assert len(text.splitlines())==5 and all(logo in text for logo in logos.values())
+    assert len(text.splitlines())==6 and all(logo in text for logo in logos.values())
     from test_formatting import inputs
     fields=inputs();fields['globals']=quotes
     first=core('formatting').format_brief(**fields,logos=logos)[0]
-    assert all(name+':' in first for name in ('KOSPI','Nikkei','QQQ','EIDO','USD/IDR'))
+    assert all(name+':' in first for name in ('KOSPI','Nikkei','SPY','QQQ','EIDO','USD/IDR'))
     assert len(first.encode('utf-16-le'))//2<=2000
     with pytest.raises(ValueError): module.format_global_rows(quotes+[fx],logos=logos)

@@ -609,3 +609,13 @@ market context, not proof of a causal or guaranteed IHSG move. Preserve the
 Each supplied instrument logo follows the circular transparent preparation
 contract. Actual guild emoji IDs remain separately provisioned rollout inputs;
 local implementation does not create or verify guild assets.
+
+
+### 6 October follow-up: S&P 500 context and supplied logos
+
+The user added SPY as S&P 500 context, expanding the watchlist to six instruments.
+SPY follows the same latest-completed-regular-US-session, signed USD and percentage
+change contract as QQQ and EIDO. It is an ETF proxy, not an index-point quote.
+The user supplied the S&P 500 and QQQ logo images; these replace sourced/default
+assets for the pending circular emoji onboarding. Actual guild creation remains
+pending the reviewed VPS helper and dedicated creation credential provisioning.

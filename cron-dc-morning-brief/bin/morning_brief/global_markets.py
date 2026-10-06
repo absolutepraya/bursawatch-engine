@@ -12,6 +12,7 @@ from .store import digest, stamp
 
 WATCHLIST = {'KOSPI': ('^KS11','Asia/Seoul','points'),
              'Nikkei': ('^N225','Asia/Tokyo','points'),
+             'SPY': ('SPY','America/New_York','USD'),
              'QQQ': ('QQQ','America/New_York','USD'),
              'EIDO': ('EIDO','America/New_York','USD'),
              'USDIDR': ('IDR=X',None,'IDR per USD')}
@@ -60,7 +61,7 @@ def parse_yahoo_chart(name: str, payload: dict, *, freeze_at: datetime, retrieve
     and DST. FX additionally requires an explicit provider daily-close policy.
     """
     if name not in WATCHLIST:
-        raise ValueError('market is outside the five-row watchlist')
+        raise ValueError('market is outside the six-row watchlist')
     symbol,zone,unit = WATCHLIST[name]
     fx = name == 'USDIDR'
     if fx: zone = sessions.get('timezone')
@@ -106,7 +107,7 @@ def parse_yahoo_chart(name: str, payload: dict, *, freeze_at: datetime, retrieve
                 bars[index] = (timestamp, close)
         complete = [i for i,(_,end) in enumerate(intervals) if end <= cutoff]
         opened = [i for i,(start,end) in enumerate(intervals) if start <= cutoff < end]
-        use_open = name not in {'QQQ','EIDO'} and bool(opened)
+        use_open = name not in {'SPY','QQQ','EIDO'} and bool(opened)
         if use_open:
             index = opened[-1]
             raw_time = meta['regularMarketTime']
@@ -149,7 +150,7 @@ def parse_yahoo_chart(name: str, payload: dict, *, freeze_at: datetime, retrieve
 def format_global_rows(quotes: list[dict], *, logos: dict[str,str], markdown=False) -> str:
     """Supplied real logo IDs only; existing status IDs and Unicode exact-flat."""
     if len(quotes) > MAX_GLOBAL_ROWS or len({q['name'] for q in quotes}) != len(quotes):
-        raise ValueError('at most five distinct global rows')
+        raise ValueError('at most six distinct global rows')
     rows = []
     for quote in quotes:
         name = quote['name']
@@ -177,7 +178,7 @@ def format_global_rows(quotes: list[dict], *, logos: dict[str,str], markdown=Fal
 
 def freeze_globals(store,run_id,quotes: list[dict],*,lease,now):
     if len(quotes)>MAX_GLOBAL_ROWS or len({q['name'] for q in quotes}) != len(quotes):
-        raise ValueError('at most five distinct global rows')
+        raise ValueError('at most six distinct global rows')
     run = store.get_run(run_id)
     if any(q['name'] not in WATCHLIST or q['cutoff'] != run.freeze_at for q in quotes):
         raise ValueError('quote watchlist/cutoff does not match run')
