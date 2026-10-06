@@ -1010,7 +1010,11 @@ async function scenario(role) {
       await page.getByRole("heading", { name: "Fixture Analyst", exact: true }).waitFor();
       await page.getByRole("group", { name: "Content choices" }).locator("select").nth(0).selectOption("x-fixture-analyst");
       await page.getByRole("group", { name: "Content choices" }).locator("select").nth(1).selectOption("company_news");
-      await page.getByText("pending", { exact: false }).first().waitFor();
+      const savedSubscriptionStatus = page
+        .getByRole("status")
+        .filter({ hasText: "Saved:" });
+      await savedSubscriptionStatus.waitFor();
+      assert.match(await savedSubscriptionStatus.innerText(), /pending/);
     }
     await securitiesTab.click();
     await capture("source-library-desktop");
