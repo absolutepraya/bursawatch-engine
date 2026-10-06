@@ -169,23 +169,44 @@
     position: fixed;
     inset: auto 0 0;
     z-index: 20;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 5rem), 1fr));
+    display: flex;
+    flex-wrap: nowrap;
     align-items: stretch;
-    gap: 8px;
-    padding: 8px max(8px, env(safe-area-inset-right, 0px))
-      max(8px, env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px));
+    gap: 4px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scroll-padding-inline: 12px;
+    scroll-snap-type: x proximity;
+    scrollbar-color: var(--border) transparent;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+    padding: 6px max(12px, env(safe-area-inset-right, 0px))
+      max(8px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px));
     border-top: 1px solid var(--border);
     background: var(--surface);
   }
 
+  .connected-navigation-links::-webkit-scrollbar {
+    height: 4px;
+  }
+
+  .connected-navigation-links::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: var(--border);
+  }
+
   .connected-navigation-links a {
     flex-direction: column;
-    justify-content: flex-start;
-    gap: 6px;
-    min-height: 54px;
-    padding: 8px 2px;
+    flex: 0 0 auto;
+    justify-content: center;
+    gap: 4px;
+    min-width: 72px;
+    min-height: 52px;
+    padding: 6px 8px;
     font-size: 0.75rem;
     line-height: 1.25;
+    scroll-snap-align: center;
     text-align: center;
   }
 
@@ -196,6 +217,7 @@
 
   .connected-navigation-links a span {
     overflow-wrap: normal;
+    white-space: nowrap;
   }
 
   .connected-navigation-links a[aria-current="page"] {

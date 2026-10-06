@@ -61,10 +61,10 @@ authenticated workspace.
 
 ## Interaction and accessibility
 
-Use the shared workspace components and Hanken Grotesk visual system. Keep all
-seven labeled destinations visible in the mobile adaptive grid, preserve 44px
-minimum targets with 54px mobile navigation links and visible focus. Support
-375px layouts, enlarged text and reduced motion. Sample-only styling stays
+Use the shared workspace components and Hanken Grotesk visual system. Keep the
+seven labeled destinations in one horizontally scrollable mobile row, bring
+the active destination into view, and preserve 44px minimum targets and visible
+focus. Support 375px layouts, enlarged text and reduced motion. Sample-only styling stays
 under `src/app/app/`; it does not add motion beyond the workspace motion budget.
 
 Behavioral checks cover fixture validation, read-after-write updates, sample

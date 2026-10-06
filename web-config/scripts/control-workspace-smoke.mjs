@@ -714,13 +714,19 @@ async function scenario(role) {
       actual: document.documentElement.scrollWidth,
       textSize: document.documentElement.style.fontSize,
       overflowing: [...document.querySelectorAll("main *, .connected-navigation *")]
-        .filter((element) => element.getBoundingClientRect().right > innerWidth + 1)
+        .filter((element) => {
+          if (
+            window.matchMedia("(max-width: 800px)").matches &&
+            element.closest(".connected-navigation-links")
+          ) return false;
+          return element.getBoundingClientRect().right > innerWidth + 1;
+        })
         .slice(0, 8)
         .map((element) => ({ tag: element.tagName, class: element.className })),
     }));
     assert.ok(report.actual <= report.width, `${label}: ${JSON.stringify(report)}`);
   };
-  const readableMobileNavigation = async (textSize) => {
+  const readableMobileNavigation = async () => {
     await page.evaluate(() => document.fonts.ready);
     await page.waitForFunction(() => {
       const bar = document.querySelector(".connected-navigation-links");
@@ -729,31 +735,46 @@ async function scenario(role) {
     });
     const layout = await navigation.evaluate((bar) => {
       const links = [...bar.querySelectorAll("a")];
-      return links.map((link) => {
-        const box = link.getBoundingClientRect();
-        const label = link.querySelector("span");
-        const range = document.createRange();
-        range.selectNodeContents(label);
-        return {
-          label: label.textContent,
-          width: box.width, height: box.height, top: box.top, bottom: box.bottom,
-          left: box.left, right: box.right,
-          textLines: range.getClientRects().length,
-        };
-      });
+      return {
+        clientWidth: bar.clientWidth,
+        scrollWidth: bar.scrollWidth,
+        overflowX: getComputedStyle(bar).overflowX,
+        links: links.map((link) => {
+          const box = link.getBoundingClientRect();
+          const label = link.querySelector("span");
+          const range = document.createRange();
+          range.selectNodeContents(label);
+          return {
+            label: label.textContent,
+            width: box.width,
+            height: box.height,
+            top: box.top,
+            bottom: box.bottom,
+            textLines: range.getClientRects().length,
+          };
+        }),
+      };
     });
-    assert.deepEqual(layout.map((link) => link.label), ["Overview", "Sources", "Workflows", "Jobs", "History", "Published", "Account"]);
-    assert.equal(new Set(layout.map((link) => link.top)).size, textSize === "100%" ? 2 : 4);
-    for (const link of layout) {
+    assert.deepEqual(
+      layout.links.map((link) => link.label),
+      ["Overview", "Sources", "Workflows", "Jobs", "History", "Published", "Account"],
+    );
+    assert.equal(layout.overflowX, "auto");
+    assert.ok(
+      layout.scrollWidth > layout.clientWidth,
+      "The seven destinations must scroll on one row.",
+    );
+    assert.equal(new Set(layout.links.map((link) => link.top)).size, 1);
+    for (const link of layout.links) {
       assert.ok(link.width >= 44 && link.height >= 44, `${link.label}: target too small`);
-      assert.ok(link.top >= 0 && link.bottom <= 900 && link.left >= 0 && link.right <= 375, `${link.label}: target clipped`);
+      assert.ok(link.top >= 0 && link.bottom <= 900, `${link.label}: vertical target clipped`);
       assert.equal(link.textLines, 1, `${link.label}: label split across lines`);
     }
     assert.equal(await navigation.getByRole("link", { name: "Overview", exact: true }).getAttribute("aria-current"), "page");
     await navigation.getByRole("link", { name: "Overview", exact: true }).focus();
     await page.keyboard.press("Tab");
     await page.keyboard.press("Shift+Tab");
-    for (const { label } of layout) {
+    for (const { label } of layout.links) {
       assert.equal(await page.evaluate(() => document.activeElement.textContent), label);
       assert.equal(await page.evaluate(() => getComputedStyle(document.activeElement).outlineStyle), "solid");
       await page.keyboard.press("Tab");
@@ -1335,7 +1356,7 @@ async function scenario(role) {
       if (textSize === "100%") await capture("jobs-375");
       await navigate("Overview", "Overview");
       await noOverflow(`${role} ${textSize} overview`);
-      await readableMobileNavigation(textSize);
+      await readableMobileNavigation();
       await capture(textSize === "100%" ? "overview-375" : "overview-375-text-200");
       await page.getByText("View activity table", { exact: true }).click();
       await noOverflow(`${role} ${textSize} activity table`);

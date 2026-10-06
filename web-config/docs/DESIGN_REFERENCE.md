@@ -168,9 +168,9 @@ At the mobile breakpoint, page titles become (26px). Visible field labels remain
 
 ## Layout
 
-The authenticated workspace uses a fixed (224px) sidebar and content capped at (1392px), with (44px) horizontal gutters, reduced to (28px) below (1200px). At (800px) and below, the brand and sign-out move to the header, seven labeled destinations form an adaptive grid in the bottom bar, and content gutters become (20px). At 375px the bar uses two rows at normal text size and reduces its column count as text grows, keeping labels whole and all destinations visible. Reserve the bar's actual measured height, including safe areas and additional rows at enlarged text sizes. Public source rows and brokerage photographs reflow without narrowing editable fields.
+The authenticated workspace uses a fixed (224px) sidebar and content capped at (1392px), with (44px) horizontal gutters, reduced to (28px) below (1200px). At (800px) and below, the brand and sign-out move to the header, seven labeled destinations stay in one horizontally scrollable row, and content gutters become (20px). Keep whole-word labels and bring the active destination into view. Reserve the row's measured height, including safe areas and text enlargement. Public source rows and brokerage photographs reflow without narrowing editable fields.
 
-The sample `/app` uses the same fixed (224px) desktop navigation and content capped at (1392px), with (44px) horizontal gutters as `/workspace`. At (800px) and below, the seven labeled destinations form the same adaptive bottom grid. At 375px the bar uses two rows at normal text size and reduces its column count as text grows, keeping all destinations visible. Reserve its measured height, including safe areas and extra rows at enlarged text sizes.
+The sample `/app` uses the same fixed (224px) desktop navigation and content capped at (1392px), with (44px) horizontal gutters as `/workspace`. At (800px) and below, the seven labeled destinations use the same horizontally scrollable row, with whole-word labels and the active destination in view. Reserve its measured height, including safe areas and text enlargement.
 
 In the sample, each destination uses the shared workspace content width and task-grouped components. Source rows separate identity, useful context and action; use divided rows and selective panels, with readable form and prose measures. Landing layout belongs to the independent `web-landing` package.
 
@@ -198,7 +198,7 @@ Fields use the canvas fill, control border, and visible label. Hover strengthens
 
 ### Navigation
 
-Desktop links pair small SVG icons with text and a minimum (44px) hit area. Active links use a brighter surface and copper icon. Both live and sample desktop and mobile navigation expose Overview, Sources, Workflows, Jobs, History, Published and Account in that order. Mobile links retain labels and copper selection, with a minimum (54px) height and an adaptive grid. Global schedule controls live only in Jobs. Workflow catalog rows show configuration and Configure; runtime evidence belongs in Overview and selected workflow details. Expose current location with `aria-current`.
+Desktop links pair small SVG icons with text and a minimum (44px) hit area. Active links use a brighter surface and copper icon. Both live and sample desktop and mobile navigation expose Overview, Sources, Workflows, Jobs, History, Published and Account in that order. The mobile row scrolls horizontally, retains whole-word labels, and brings the active link into view. Mobile links have a minimum (52px) height. Global schedule controls live only in Jobs. Workflow catalog rows show configuration and Configure; runtime evidence belongs in Overview and selected workflow details. Expose current location with `aria-current`.
 
 ### Chips
 

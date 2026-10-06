@@ -48,12 +48,37 @@ export function WorkspaceNavigation({
     const workspace = element?.closest<HTMLElement>(".has-connected-navigation");
     if (!element || !workspace) return;
 
-    // Text enlargement can wrap labels. Reserve the bar's actual height so
-    // the final content and footer remain reachable above mobile navigation.
+    // Text enlargement can increase the row height. Reserve it and keep the
+    // current destination in view so content remains reachable above the bar.
+    const keepCurrentDestinationVisible = () => {
+      const activeLink = element.querySelector<HTMLElement>('[aria-current="page"]');
+      if (!activeLink) return;
+
+      const navigationStyle = window.getComputedStyle(element);
+      const navigationBounds = element.getBoundingClientRect();
+      const contentLeft =
+        navigationBounds.left +
+        element.clientLeft +
+        (Number.parseFloat(navigationStyle.paddingLeft) || 0);
+      const contentRight =
+        navigationBounds.left +
+        element.clientLeft +
+        element.clientWidth -
+        (Number.parseFloat(navigationStyle.paddingRight) || 0);
+      const activeBounds = activeLink.getBoundingClientRect();
+
+      if (activeBounds.left < contentLeft) {
+        element.scrollLeft += activeBounds.left - contentLeft;
+      } else if (activeBounds.right > contentRight) {
+        element.scrollLeft += activeBounds.right - contentRight;
+      }
+    };
+
     const reserveNavigationSpace = () => {
       const height = `${Math.ceil(element.getBoundingClientRect().height)}px`;
       workspace.style.setProperty("--connected-navigation-height", height);
       document.documentElement.style.setProperty("--workspace-mobile-navigation-height", height);
+      keepCurrentDestinationVisible();
     };
     reserveNavigationSpace();
     const observer = new ResizeObserver(reserveNavigationSpace);
@@ -63,7 +88,7 @@ export function WorkspaceNavigation({
       workspace.style.removeProperty("--connected-navigation-height");
       document.documentElement.style.removeProperty("--workspace-mobile-navigation-height");
     };
-  }, []);
+  }, [view]);
 
   return (
     <aside className={`connected-navigation${sampleMode ? " sample-workspace-navigation" : ""}`}>

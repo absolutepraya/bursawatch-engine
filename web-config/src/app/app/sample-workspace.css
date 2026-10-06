@@ -122,11 +122,6 @@
 }
 
 @media (max-width: 800px) {
-  .sample-workspace-navigation .connected-navigation-links a,
-  .sample-workspace-navigation .connected-navigation-signout {
-    min-height: 54px;
-  }
-
   .sample-workspace-navigation {
     justify-content: flex-start;
   }
