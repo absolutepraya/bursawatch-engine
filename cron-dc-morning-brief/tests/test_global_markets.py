@@ -106,3 +106,73 @@ def test_quote_cannot_claim_observation_after_retrieval_and_freeze_rejects_other
     store,run,lease=owner(core,tmp_path)
     quote['cutoff']='2026-10-06T00:30:00+00:00'
     with pytest.raises(ValueError): module.freeze_globals(store,run.run_id,[quote],lease=lease,now=FREEZE)
+
+
+def test_eido_uses_completed_us_close_and_usd_units_even_during_open_session(core):
+    module=core('global_markets')
+    freeze=at('2026-10-05T10:00:00-04:00')
+    raw=chart('EIDO','America/New_York',[s for s,e in US_ROWS[:2]],[20,21],price=99,quote_at='2026-10-05T09:50:00-04:00')
+    quote=module.parse_yahoo_chart('EIDO',raw,freeze_at=freeze,retrieved_at=freeze,sessions=schedule('America/New_York',US_ROWS))
+    assert quote['status']=='available' and quote['comparison']=='completed_regular_session'
+    assert (quote['price'],quote['change'],quote['percent'])==(21,1,5)
+    assert 'EIDO: +1.00 USD (+5.00%)' in module.format_global_rows([quote],logos={})
+
+
+def fx_fixture():
+    rows=[('2026-10-01T00:00:00+00:00','2026-10-02T00:00:00+00:00'),
+          ('2026-10-02T00:00:00+00:00','2026-10-03T00:00:00+00:00'),
+          ('2026-10-05T00:00:00+00:00','2026-10-06T00:00:00+00:00')]
+    sessions=dict(schedule('UTC',rows),market_type='fx',baseline_policy='provider_daily_close')
+    raw=chart('IDR=X','UTC',[s for s,e in rows[:2]],[16000,16100],price=16150,quote_at='2026-10-05T07:29:00+07:00',currency='IDR')
+    return raw,sessions
+
+
+def test_usdidr_uses_verified_fx_windows_previous_close_and_rupiah_direction(core):
+    module=core('global_markets'); raw,sessions=fx_fixture()
+    quote=module.parse_yahoo_chart('USDIDR',raw,freeze_at=FREEZE,retrieved_at=FREEZE,sessions=sessions)
+    assert quote['status']=='available' and quote['comparison']=='open_fx_snapshot'
+    assert (quote['price'],quote['previous_close'],quote['change'])==(16150,16100,50)
+    assert quote['percent']==pytest.approx(100*50/16100)
+    text=module.format_global_rows([quote],logos={})
+    assert 'USD/IDR: +50.00 IDR per USD' in text and module.RED in text and 'IDR melemah' in text
+    raw['chart']['result'][0]['meta']['regularMarketPrice']=16050
+    down=module.parse_yahoo_chart('USDIDR',raw,freeze_at=FREEZE,retrieved_at=FREEZE,sessions=sessions)
+    assert module.GREEN in module.format_global_rows([down],logos={}) and 'IDR menguat' in module.format_global_rows([down],logos={})
+
+
+@pytest.mark.parametrize('mutation',['policy','currency','future','stale','denominator'])
+def test_fx_missing_or_wrong_provenance_never_becomes_a_valid_quote(core,mutation):
+    module=core('global_markets');raw,sessions=fx_fixture()
+    if mutation=='policy': sessions.pop('baseline_policy')
+    if mutation=='currency': raw['chart']['result'][0]['meta']['currency']='USD'
+    if mutation=='future': raw['chart']['result'][0]['meta']['regularMarketTime']=unix('2026-10-05T07:31:00+07:00')
+    if mutation=='stale': raw['chart']['result'][0]['meta']['regularMarketTime']=unix('2026-10-05T07:00:00+07:00')
+    if mutation=='denominator': raw['chart']['result'][0]['indicators']['quote'][0]['close'][1]=None
+    quote=module.parse_yahoo_chart('USDIDR',raw,freeze_at=FREEZE,retrieved_at=FREEZE,sessions=sessions)
+    assert quote['status']==('stale' if mutation=='stale' else 'unavailable')
+
+
+def test_all_five_rows_can_freeze_and_render_with_supplied_logo_ids(core,tmp_path):
+    from test_evidence import owner
+    module=core('global_markets');raw,sessions=fx_fixture()
+    fx=module.parse_yahoo_chart('USDIDR',raw,freeze_at=FREEZE,retrieved_at=FREEZE,sessions=sessions)
+    quotes=[]
+    for name,(symbol,zone,unit) in module.WATCHLIST.items():
+        if name=='USDIDR': quotes.append(fx); continue
+        rows=US_ROWS if unit=='USD' else ASIA_ROWS
+        currency='USD' if unit=='USD' else 'KRW' if name=='KOSPI' else 'JPY'
+        payload=chart(symbol,zone,[s for s,e in rows[:2]],[100,102],price=103,
+                      quote_at='2026-10-05T07:29:00+07:00',currency=currency)
+        quotes.append(module.parse_yahoo_chart(name,payload,freeze_at=FREEZE,retrieved_at=FREEZE,sessions=schedule(zone,rows)))
+    assert all(q['status']=='available' for q in quotes)
+    store,run,lease=owner(core,tmp_path)
+    assert len(module.freeze_globals(store,run.run_id,quotes,lease=lease,now=FREEZE).payload['quotes'])==5
+    logos={name:f'<:market_{i}:12345678901234567{i}>' for i,name in enumerate(module.WATCHLIST)}
+    text=module.format_global_rows(quotes,logos=logos)
+    assert len(text.splitlines())==5 and all(logo in text for logo in logos.values())
+    from test_formatting import inputs
+    fields=inputs();fields['globals']=quotes
+    first=core('formatting').format_brief(**fields,logos=logos)[0]
+    assert all(name+':' in first for name in ('KOSPI','Nikkei','QQQ','EIDO','USD/IDR'))
+    assert len(first.encode('utf-16-le'))//2<=2000
+    with pytest.raises(ValueError): module.format_global_rows(quotes+[fx],logos=logos)

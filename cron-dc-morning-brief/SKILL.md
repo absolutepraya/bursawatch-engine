@@ -173,11 +173,24 @@ never triggers. This is a separate reviewed Control Plane provisioning input.
 sessions=...)` parses an injected daily Yahoo chart response. `sessions` requires
 reviewed regular start/end instants, timezone, version, source digest, verification
 time and explicit date coverage, including holidays and daylight saving. There is
-no weekday fallback. Initial names are KOSPI, Nikkei and QQQ, maximum three rows.
+no weekday fallback. Names are KOSPI, Nikkei, QQQ, EIDO and USDIDR, maximum five rows.
 Asia uses timestamped open regular metadata or its latest completed session;
-QQQ uses the latest completed regular session even during the current US session.
+QQQ and EIDO use the latest completed regular US session even during the current
+US session. EIDO represents the iShares MSCI Indonesia ETF, not an IHSG index quote.
 The prior regular close is the percentage denominator. Indices retain points;
-QQQ requires USD. Retrieval and price must be cutoff-visible. A missing expected
+QQQ and EIDO require USD. USDIDR is the USD/IDR pair (`IDR=X`), denominated in
+IDR per USD. Its injected session snapshot must explicitly declare
+`market_type='fx'` and `baseline_policy='provider_daily_close'`; its reviewed
+provider timezone must match quote metadata. FX day windows may cross midnight
+and meet at their boundaries, but are ordered, non-overlapping and at most 24
+hours each. The producer verifies the provider's daily rollover, weekend/holiday
+coverage and previous daily close. No stock-exchange schedule or implicit weekday
+baseline is reused for FX. An open FX snapshot compares its timestamped rate with
+the immediately preceding verified daily close; a closed window uses its verified
+completed daily bar. Missing FX provenance is unavailable. USD/IDR displays signed
+IDR-per-USD and percentage changes, with rising rates labeled `IDR melemah` in red
+and falling rates `IDR menguat` in green. This states currency direction, not a
+predicted or measured causal IHSG effect. Retrieval and price must be cutoff-visible. A missing expected
 session bar is stale; missing timestamp/denominator is unavailable. After-hours
 metadata does not enter completed-session calculations. Quote delay comes from
 explicit `exchangeDataDelayedBy` minutes; absent delay is unknown, never assumed

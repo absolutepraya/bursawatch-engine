@@ -24,7 +24,9 @@ inputs. Do not infer readiness or natural delivery from these local tests.
   cap snapshot and consistent members. Preserve exclusions and original coverage.
 - Source manifests freeze before version reads/selection. Recovery compares every
   immutable hash/ref and never recaptures; incomplete corpora force facts-only.
-- Globals require explicit regular exchange sessions and prior-close denominator.
+- Global equities require explicit regular exchange sessions and prior-close denominator.
+  USD/IDR requires separately verified provider FX day windows and daily-close
+  policy, never an inferred stock-exchange schedule.
   Calendar snapshots require primary URL, cutoff-visible verification and exact
   amendments; dynamic empty pages stay unavailable. No live-fetch fallback.
 - Injected writers return strict source-grounded conditional scenario/core fields.

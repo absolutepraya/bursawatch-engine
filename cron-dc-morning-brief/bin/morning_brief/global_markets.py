@@ -1,4 +1,4 @@
-"""Bounded Yahoo chart parsing with explicit regular exchange session evidence.
+"""Bounded Yahoo parsing with explicit exchange-session or FX-day evidence.
 
 No network transport or weekday/holiday inference. Yahoo access and display
 permissions remain a separately verified rollout input.
@@ -12,7 +12,10 @@ from .store import digest, stamp
 
 WATCHLIST = {'KOSPI': ('^KS11','Asia/Seoul','points'),
              'Nikkei': ('^N225','Asia/Tokyo','points'),
-             'QQQ': ('QQQ','America/New_York','USD')}
+             'QQQ': ('QQQ','America/New_York','USD'),
+             'EIDO': ('EIDO','America/New_York','USD'),
+             'USDIDR': ('IDR=X',None,'IDR per USD')}
+MAX_GLOBAL_ROWS = len(WATCHLIST)
 GREEN = '<:green:1531274822221434911>'
 RED = '<:red:1531274756853202974>'
 
@@ -27,7 +30,9 @@ def _number(value):
     return float(value)
 
 
-def _sessions(snapshot, cutoff, zone):
+def _sessions(snapshot, cutoff, zone, *, fx=False):
+    if fx and (snapshot.get('market_type') != 'fx' or snapshot.get('baseline_policy') != 'provider_daily_close'):
+        raise ValueError('reviewed FX daily comparison windows required')
     if (snapshot.get('verified') is not True or snapshot['timezone'] != zone
             or not snapshot['version'] or re.fullmatch('[0-9a-f]{64}',snapshot['digest']) is None
             or _instant(snapshot['verified_at']) > cutoff
@@ -37,24 +42,28 @@ def _sessions(snapshot, cutoff, zone):
     if len(rows) < 2 or rows != sorted(set(rows)) or any(s >= e for s,e in rows):
         raise ValueError('ordered regular exchange sessions required')
     for index,(start,end) in enumerate(rows):
-        if (start.astimezone(ZoneInfo(zone)).date() != end.astimezone(ZoneInfo(zone)).date()
+        if ((not fx and start.astimezone(ZoneInfo(zone)).date() != end.astimezone(ZoneInfo(zone)).date())
+                or (fx and end-start > timedelta(days=1))
                 or not date.fromisoformat(snapshot['valid_from']) <= start.astimezone(ZoneInfo(zone)).date() <= date.fromisoformat(snapshot['valid_through'])
-                or (index and rows[index-1][1] >= start)):
+                or (index and (rows[index-1][1] > start if fx else rows[index-1][1] >= start))):
             raise ValueError('invalid regular session intervals')
     return rows
 
 
 def parse_yahoo_chart(name: str, payload: dict, *, freeze_at: datetime, retrieved_at: datetime,
                       sessions: dict) -> dict:
-    """Read daily Yahoo chart bars, plus timestamped regular meta for open Asia.
+    """Read daily Yahoo bars and timestamped open Asian-equity or FX snapshots.
 
     Daily bar timestamps identify the session; a completed price is explicitly
     stamped at that verified session's end, never presented as a live quote.
-    The caller supplies reviewed exchange coverage including holidays and DST.
+    The caller supplies reviewed exchange or FX-day coverage, including holidays
+    and DST. FX additionally requires an explicit provider daily-close policy.
     """
     if name not in WATCHLIST:
-        raise ValueError('market is outside the three-row watchlist')
+        raise ValueError('market is outside the five-row watchlist')
     symbol,zone,unit = WATCHLIST[name]
+    fx = name == 'USDIDR'
+    if fx: zone = sessions.get('timezone')
     cutoff, retrieved = aware(freeze_at), aware(retrieved_at)
     base = dict(name=name,symbol=symbol,timezone=zone,unit=unit,status='unavailable',reason=None,
                 price=None,previous_close=None,change=None,percent=None,price_at=None,previous_close_at=None,
@@ -65,7 +74,7 @@ def parse_yahoo_chart(name: str, payload: dict, *, freeze_at: datetime, retrieve
         base['source_digest'] = digest(payload)
         if retrieved > cutoff:
             raise ValueError('snapshot_retrieved_after_cutoff')
-        intervals = _sessions(sessions,cutoff,zone)
+        intervals = _sessions(sessions,cutoff,zone,fx=fx)
         results = payload['chart']['result']
         if payload['chart']['error'] is not None or len(results) != 1:
             raise ValueError('chart_unavailable')
@@ -73,7 +82,7 @@ def parse_yahoo_chart(name: str, payload: dict, *, freeze_at: datetime, retrieve
         meta = result['meta']
         if meta['symbol'] != symbol or meta['exchangeTimezoneName'] != zone or meta['dataGranularity'] != '1d':
             raise ValueError('chart_provenance_mismatch')
-        if unit == 'USD' and meta['currency'] != 'USD':
+        if unit in {'USD','IDR per USD'} and meta['currency'] != ('IDR' if fx else 'USD'):
             raise ValueError('quote_currency_mismatch')
         delay = meta.get('exchangeDataDelayedBy')
         if delay is not None:
@@ -97,7 +106,7 @@ def parse_yahoo_chart(name: str, payload: dict, *, freeze_at: datetime, retrieve
                 bars[index] = (timestamp, close)
         complete = [i for i,(_,end) in enumerate(intervals) if end <= cutoff]
         opened = [i for i,(start,end) in enumerate(intervals) if start <= cutoff < end]
-        use_open = name != 'QQQ' and bool(opened)
+        use_open = name not in {'QQQ','EIDO'} and bool(opened)
         if use_open:
             index = opened[-1]
             raw_time = meta['regularMarketTime']
@@ -107,7 +116,7 @@ def parse_yahoo_chart(name: str, payload: dict, *, freeze_at: datetime, retrieve
             if not intervals[index][0] <= price_at <= cutoff:
                 raise ValueError('regular_timestamp_outside_cutoff_session')
             price = _number(meta['regularMarketPrice'])
-            comparison, market_status = 'open_regular_snapshot', 'open'
+            comparison, market_status = ('open_fx_snapshot' if fx else 'open_regular_snapshot'), 'open'
             base['status'] = 'stale' if cutoff-price_at > timedelta(minutes=(delay or 0)+5) else 'available'
             if base['status'] == 'stale': base['reason'] = 'regular_snapshot_stale'
             bar_at = None
@@ -120,7 +129,7 @@ def parse_yahoo_chart(name: str, payload: dict, *, freeze_at: datetime, retrieve
                 return base
             bar_at, raw = bars[index]
             price, price_at = _number(raw), intervals[index][1]
-            comparison, market_status = 'completed_regular_session', 'closed' if not opened else 'open'
+            comparison, market_status = ('completed_fx_day' if fx else 'completed_regular_session'), 'closed' if not opened else 'open'
             base['status'] = 'available'
         if price_at > retrieved:
             raise ValueError('quote_observed_after_retrieval')
@@ -139,8 +148,8 @@ def parse_yahoo_chart(name: str, payload: dict, *, freeze_at: datetime, retrieve
 
 def format_global_rows(quotes: list[dict], *, logos: dict[str,str], markdown=False) -> str:
     """Supplied real logo IDs only; existing status IDs and Unicode exact-flat."""
-    if len(quotes) > 3 or len({q['name'] for q in quotes}) != len(quotes):
-        raise ValueError('at most three distinct global rows')
+    if len(quotes) > MAX_GLOBAL_ROWS or len({q['name'] for q in quotes}) != len(quotes):
+        raise ValueError('at most five distinct global rows')
     rows = []
     for quote in quotes:
         name = quote['name']
@@ -150,20 +159,25 @@ def format_global_rows(quotes: list[dict], *, logos: dict[str,str], markdown=Fal
             raise ValueError('actual custom-logo markup required')
         prefix = (logo+' ') if logo else ''
         if quote['status'] != 'available':
-            rows.append(prefix+name+': '+('data kedaluwarsa' if quote['status']=='stale' else 'data belum tersedia'))
+            rows.append(prefix+('USD/IDR' if name=='USDIDR' else name)+': '+('data kedaluwarsa' if quote['status']=='stale' else 'data belum tersedia'))
             continue
         change, percent = quote['change'],quote['percent']
         marker = GREEN if change > 0 else RED if change < 0 else '⚪'
-        unit = 'USD' if quote['unit']=='USD' else 'poin'
+        unit = quote['unit'] if quote['unit'] in {'USD','IDR per USD'} else 'poin'
+        label = 'USD/IDR' if name == 'USDIDR' else name
+        direction = ''
+        if name == 'USDIDR':
+            marker = RED if change > 0 else GREEN if change < 0 else '⚪'
+            direction = ' · IDR melemah' if change > 0 else ' · IDR menguat' if change < 0 else ' · IDR tetap'
         local = _instant(quote['price_at']).astimezone(ZoneInfo('Asia/Jakarta'))
         delay = f"delayed {quote['delay_minutes']:g}m" if quote['delay_status']=='delayed' else quote['delay_status']
-        rows.append(f"{prefix}{name}: {change:+.2f} {unit} ({percent:+.2f}%) {marker} · {local:%d/%m %H:%M} WIB · {quote['market_status']} · {delay}")
+        rows.append(f"{prefix}{label}: {change:+.2f} {unit} ({percent:+.2f}%) {marker} · {local:%d/%m %H:%M} WIB · {quote['market_status']} · {delay}{direction}")
     return ('  \n' if markdown else '\n').join(rows)
 
 
 def freeze_globals(store,run_id,quotes: list[dict],*,lease,now):
-    if len(quotes)>3 or len({q['name'] for q in quotes}) != len(quotes):
-        raise ValueError('at most three distinct global rows')
+    if len(quotes)>MAX_GLOBAL_ROWS or len({q['name'] for q in quotes}) != len(quotes):
+        raise ValueError('at most five distinct global rows')
     run = store.get_run(run_id)
     if any(q['name'] not in WATCHLIST or q['cutoff'] != run.freeze_at for q in quotes):
         raise ValueError('quote watchlist/cutoff does not match run')

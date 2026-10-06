@@ -592,3 +592,20 @@ The user accepted the remaining global-market/calendar recommendations and asked
 Remove the newly introduced decorative emojis from the `Pasar global` and `Agenda Indonesia` subsection labels. Preserve the explicitly requested market-logo/status markers in the global rows and the previously specified message titles. Each market row has its own newline: `:kospi: KOSPI: +xxx (+x%) :green:`, followed by the corresponding Nikkei and QQQ rows. The review Markdown uses hard line breaks to preserve that display. Runtime uses actual custom-emoji markup with existing IDs, not invented IDs. This interprets the latest no-emoji correction as applying to added decorative subsection icons, with the user's explicit market/status example taking precedence.
 
 The behavior/presentation design is settled for planning. External feasibility gaps do not silently become verified implementation capabilities. The [implementation plan](2026-10-05-bursawatch-morning-brief-implementation-plan.md) separates local no-post development, bounded evidence validation and later approved production work. No paid fetch, product implementation, deployment, live schedule, custom emoji creation or Discord publication is authorized by this planning request.
+
+
+### 6 October implementation amendment: EIDO and USD/IDR
+
+The user expanded the global context to five instruments, retaining KOSPI,
+Nikkei and QQQ and adding EIDO (iShares MSCI Indonesia ETF) and USD/IDR. This
+supersedes the initial three-row cap. EIDO uses the latest completed regular US
+session and signed USD/percentage price changes. USD/IDR uses separately verified
+provider FX daily comparison windows, its cutoff-visible rate and preceding
+daily close; display signed IDR-per-USD and percentage changes. A rise means IDR
+weakening, shown red; a fall means strengthening, shown green. These are relevant
+market context, not proof of a causal or guaranteed IHSG move. Preserve the
+2,000-character message limit and honest unavailable/facts-only fallback.
+
+Each supplied instrument logo follows the circular transparent preparation
+contract. Actual guild emoji IDs remain separately provisioned rollout inputs;
+local implementation does not create or verify guild assets.
