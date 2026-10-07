@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="bursawatch.png" alt="Bursawatch logo" width="44" align="absmiddle">
+  <img src="bursawatch.png" alt="Bursawatch logo" width="33" align="absmiddle">
   Bursawatch
 </h1>
 
