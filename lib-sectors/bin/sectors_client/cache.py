@@ -16,6 +16,10 @@ from .models import (CachedResponse, CacheMiss, ValidationError, RequestInFlight
 def validate_payload(identity, payload):
     if not isinstance(payload, (dict, list)):
         raise ValidationError('invalid provider payload shape')
+    if identity.path.startswith('/v2/company/report/'):
+        if not isinstance(payload, dict) or payload.get('symbol') not in (identity.path.split('/')[4], identity.path.split('/')[4] + '.JK'):
+            raise ValidationError('company report symbol does not match request')
+        return
     if identity.path != '/v2/close/':
         return
     query = dict(identity.query)

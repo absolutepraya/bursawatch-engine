@@ -107,6 +107,14 @@ def _direction_emoji(value: float | None) -> str:
     return _DIRECTION_EMOJIS["flat"]
 
 
+def get_company_context(ticker: str, route: str):
+    """Optional analyst and company context; any provider failure leaves the card unchanged."""
+    try:
+        return news_format.get_company_context(ticker, route)
+    except Exception:
+        return None
+
+
 def _render_tuntun_summary(item: SelectionCandidate) -> str:
     return f"{_RINGKASAN_PREFIX}{item.summary}"
 
@@ -154,7 +162,8 @@ def _issuer_entry(
         snapshot = get_market_snapshot(item.ticker, item.candidate.source_text)
     if market_metadata is not None:
         market_metadata.update(market_data_as_of=getattr(snapshot, "as_of", None), renderer_version=news_format.VERSION)
-    messages = news_format.render_card(heading, summary, source_message_url(item.candidate), "Telegram", route=item.route.value, snapshot=snapshot)
+    context = get_company_context(item.ticker, item.route.value) if item.route is Destination.ID_STOCKS_NEWS and item.ticker is not None else None
+    messages = news_format.render_card(heading, summary, source_message_url(item.candidate), "Telegram", route=item.route.value, snapshot=snapshot, ticker=item.ticker, context=context)
     # This owner's historical contract remains one card per candidate.
     return "\n\n".join(messages)
 

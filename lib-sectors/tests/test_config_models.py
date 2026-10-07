@@ -68,6 +68,18 @@ def test_generation_changes_only_local_identity_and_preserves_default_keys():
             RequestIdentity('/v2/companies/',generation=value)
 
 
+def test_company_report_identity_requires_canonical_known_sections():
+    a = RequestIdentity('/v2/company/report/AADI/', {'sections': 'overview,future'})
+    b = RequestIdentity('/v2/company/report/AADI/', {'sections': 'future,overview'})
+    assert a.key == b.key and a.url.startswith('https://api.sectors.app/v2/company/report/AADI/?sections=future')
+    for path, query in [('/v2/company/report/AADI/', {}), ('/v2/company/report/AADI/', {'sections': 'bogus'}),
+                        ('/v2/company/report/AADI/', {'sections': 'overview,overview'}), ('/v2/company/report/AADI/', {'sections': ''}),
+                        ('/v2/company/report/aadi/', {'sections': 'overview'}), ('/v2/company/report/AADI.JK/', {'sections': 'overview'}),
+                        ('/v2/close/', {'date': '2026-10-02', 'sections': 'overview'})]:
+        with pytest.raises(ValidationError):
+            RequestIdentity(path, query)
+
+
 def test_credit_limits_are_optional_and_have_no_fixed_provider_ceiling(tmp_path):
     values = dict(store_path=tmp_path/'cache.sqlite3', caller='morning', billing_window='oct')
     config = Config(**values)

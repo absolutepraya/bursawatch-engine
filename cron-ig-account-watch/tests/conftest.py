@@ -59,3 +59,4 @@ def config_path(tmp_path: Path, profile_payload: dict) -> Path:
 def isolated_news_quotes(monkeypatch):
     import render
     monkeypatch.setattr(render.news_format, "get_market_snapshot", lambda *args: None)
+    monkeypatch.setattr(render.news_format, "get_company_context", lambda *args: None)

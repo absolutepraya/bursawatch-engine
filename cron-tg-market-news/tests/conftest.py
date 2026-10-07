@@ -17,6 +17,7 @@ def no_network_market_data(monkeypatch):
     import delivery
 
     monkeypatch.setattr(delivery, "get_market_snapshot", lambda ticker, source_text: None)
+    monkeypatch.setattr(delivery, "get_company_context", lambda ticker, route: None)
 
 @pytest.fixture
 def load_fixture():

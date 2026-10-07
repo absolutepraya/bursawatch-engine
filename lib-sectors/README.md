@@ -39,7 +39,10 @@ Layout IDs and profile revisions remain caller-owned.
 identity at
 `https://api.sectors.app`. It supports full-universe close pages, the companies
 screener, IHSG index history, per-symbol daily data, per-symbol corporate actions,
-and the marketwide stock-split calendar. Split-calendar identities require
+the marketwide stock-split calendar, and IDX company reports. A report identity
+requires an explicit `sections` list drawn from the eight documented sections,
+canonically sorted so equal sets share one cache key; each section costs one
+credit, so declare `max_cost` accordingly. Split-calendar identities require
 `type=stock_split` plus a range of at most 90 inclusive calendar days, avoiding
 an implicit request for all action types. Query pagination, ISO dates and symbol
 path segments are validated. Provider-origin overrides are rejected.

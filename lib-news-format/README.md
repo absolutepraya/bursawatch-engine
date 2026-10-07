@@ -21,6 +21,28 @@ slots, and a batch stops optional quote lookup after nine seconds. A stalled
 provider cannot consume an unbounded number of workers. Currency mismatch makes the optional quote unavailable. `as_of`
 is the UTC quote observation time, not a claim about source publication time.
 
+Indonesian issuer cards add an optional company context block after the price
+tracker: an analyst consensus (Sectors `future.analyst_rating_breakdown`, with
+`UP`, `HOLD` and `DOWN` emoji and a `DD Mon YYYY` update date) and a `Tentang`
+line made of Yahoo's `longBusinessSummary` first sentence plus Sectors sector,
+sub-industry and Indonesian-formatted market cap. Sectors data goes through
+`lib-sectors`, never direct HTTP: one `sections=overview,future` company report
+per ticker, costing 2 credits, under caller `news-context` with no configured credit limit (an explicit
+`max_cost=2` is the ledger estimate). The seven-day cache is the caller-owned
+ISO-week generation `news-context:<year>-W<week>`: the shared store never
+refetches an identity, and a new week is a new, separately budgeted fetch. The
+client reads `SECTORS_API_KEY` from `~/.hermes/bursawatch-sectors.env` (mode 0600,
+beside the other Bursawatch service credentials), falling back to the package-local
+`lib-sectors/.env` for Mac development, and shares `~/.hermes/state/sectors-client.sqlite3`
+with a WIB-month billing window. Without the library, key file, budget or
+provider data, only the Sectors lines disappear. Yahoo and each field are also
+optional, absent data drops only its own line, and nothing blocks the card.
+Context lookups share a nine-second batch deadline, each capped at six seconds,
+so a stalled provider or injected callback cannot stall card creation. Context stays inside frozen `messages`, so the card schema is unchanged.
+`freeze_cards` fetches context only when it is not given a custom `fetch`, or when
+`context_fetch` is injected. Direct `render_card` callers pass `ticker` and
+`context` to opt in.
+
 `freeze_cards` records each accepted item's exact messages, source owner
 selected destination, ticker and quote timestamp. Owners persist this bundle
 before sending and reuse it for retries, handoff plans and feed projections.

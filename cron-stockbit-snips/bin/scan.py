@@ -13,7 +13,7 @@ import config
 import discord
 import state
 from agent_protocol import analysis_payload, build_wake_payload, validate_submissions
-from market_data import get_market_snapshot
+from market_data import get_company_context, get_market_snapshot
 from models import Analysis, Article, Route, StockbitWatchConfig
 from render import render
 from rss import fetch_feed
@@ -220,7 +220,8 @@ def _render_record(record: dict[str, object], article: Article, analysis: Analys
     if isinstance(existing, str) and existing:
         return existing
     snapshot = get_market_snapshot(analysis.ticker) if load_market_data and analysis.route is Route.ID_STOCKS_NEWS else None
-    content = render(article, analysis, snapshot)
+    context = get_company_context(analysis.ticker, analysis.route.value) if load_market_data and analysis.route is Route.ID_STOCKS_NEWS and analysis.ticker else None
+    content = render(article, analysis, snapshot, context=context)
     record["rendered"] = content
     record["market_data_as_of"] = snapshot.as_of if snapshot is not None else None
     record["renderer_version"] = "stock-news-v1"

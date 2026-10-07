@@ -1131,3 +1131,32 @@ def test_oversized_status_payload_never_reaches_discord(monkeypatch, status_even
                 status_event.state, status_event.event_key, status_event.now
             )
         )
+
+
+def test_tuntun_entry_adds_optional_company_context_after_prices(monkeypatch):
+    item = _item(
+        Provider.TUNTUN,
+        14040,
+        "RAJA",
+        EventClass.MNA_OR_ASSET_TRANSACTION,
+        datetime(2026, 7, 23, 5, 51, tzinfo=timezone.utc),
+        facts=("RAJA acquired a 5% stake.",),
+        source_text="RAJA: Akuisisi Layar Nusantara Gas\nRAJA mengakuisisi 5% saham.",
+        title="RAJA: Akuisisi Layar Nusantara Gas",
+    )
+    seen = []
+    context = {"rating": {"buy": 3, "hold": 1, "sell": 0, "strong_buy": 0, "strong_sell": 0, "updated_on": "2026-09-02"},
+               "overview": {"sector": "Energy", "market_cap": 5.7e12}, "business_summary": "Gas distributor."}
+    monkeypatch.setattr(delivery, "get_company_context", lambda ticker, route: seen.append((ticker, route)) or context)
+
+    alert = delivery.format_news_item(item)
+
+    assert seen == [("RAJA", "id_stocks_news")]
+    assert alert.index("Harga terakhir") < alert.index("Konsensus analis") < alert.index("Tentang RAJA:") < alert.index("[View on Telegram]")
+    assert "Gas distributor. Sektor Energy, kapitalisasi pasar Rp5,7 T." in alert
+
+
+def test_company_context_failure_leaves_the_card_unchanged(monkeypatch):
+    monkeypatch.undo()
+    monkeypatch.setattr(delivery.news_format, "get_company_context", lambda *_: 1 / 0)
+    assert delivery.get_company_context("RAJA", "id_stocks_news") is None
