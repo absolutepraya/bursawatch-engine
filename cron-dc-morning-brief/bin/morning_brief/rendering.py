@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw, ImageFont
 from .rotation import quadrant, select_groups, table_order, unselected_letters
 
 ASSETS = Path(__file__).parent/'assets'
-REVISION = 'bursawatch-render-v2'
+REVISION = 'bursawatch-render-v3'
 BG, PANEL, GOLD, FG, MUTED = '#111311', '#1C1F1D', '#DEA777', '#EEEAE3', '#9C978E'
 COLORS = {'Leading':'#2EE65F','Improving':'#78ACF2','Weakening':'#F0BE91','Lagging':'#F23F43','Neutral':MUTED}
 FILLS = {'Leading':'#17271D','Improving':'#19232F','Weakening':'#2B241C','Lagging':'#2A1C20'}
@@ -87,7 +87,7 @@ def _wrap(value,width,font):
 
 def _logo(canvas,x,y,size=52):
     # The packaged supplied SVG has only absolute M/H/V/L/C/Z paths and one
-    # translate(-2 -2) group. Sample its cubic Beziers, never market trails.
+    # translate(-2 -2) group. Sample its cubic Beziers for the logo.
     for node in ET.parse(ASSETS/'bursawatch.svg').getroot().iter():
         if not node.tag.endswith('path'):continue
         tokens=re.findall(r'[A-Za-z]|-?\d+(?:\.\d+)?',node.attrib['d'])
@@ -132,6 +132,96 @@ def _intersects(a,b):
     return a[0]<b[2]+7 and a[2]+7>b[0] and a[1]<b[3]+7 and a[3]+7>b[1]
 
 
+def _smooth_trail(points, samples=48):
+    """Display-only cubic curves through observed points, without overshoot.
+
+    Each coordinate's tangent is zero at reversals and bounded by both adjacent
+    steps. Controls stay inside the segment rectangle, so a curve cannot invent
+    an excursion outside either pair of observed coordinates.
+    """
+    if len(points)<2:return list(points)
+    tangents=[]
+    for i,p in enumerate(points):
+        tangent=[]
+        for axis in (0,1):
+            before=p[axis]-points[i-1][axis] if i else points[1][axis]-p[axis]
+            after=points[i+1][axis]-p[axis] if i<len(points)-1 else before
+            tangent.append(math.copysign(min(abs(before),abs(after)),before) if before*after>0 else 0.)
+        tangents.append(tangent)
+    curve=[points[0]]
+    for i,(a,b) in enumerate(zip(points,points[1:])):
+        c1=tuple(a[k]+tangents[i][k]/3 for k in (0,1))
+        c2=tuple(b[k]-tangents[i+1][k]/3 for k in (0,1))
+        for n in range(1,samples+1):
+            if n==samples:curve.append(b);continue
+            t=n/samples;u=1-t
+            curve.append(tuple(u**3*a[k]+3*u*u*t*c1[k]+3*u*t*t*c2[k]+t**3*b[k] for k in (0,1)))
+    return curve
+
+
+def _faded(color, strength=.55):
+    rgb=tuple(int(color[i:i+2],16) for i in (1,3,5))
+    bg=tuple(int(BG[i:i+2],16) for i in (1,3,5))
+    return tuple(round(a*strength+b*(1-strength)) for a,b in zip(rgb,bg))
+
+
+def _label_box(canvas,x,y,label,size,bounds,occupied):
+    left,top,right,bottom=bounds
+    measured=canvas.draw.multiline_textbbox((0,0),label,font=_font(size,True),spacing=2)
+    width,height=measured[2],measured[3]
+    candidates=[]
+    for distance in (12,35,65,100,145,210,280,360,450):
+        for dx,dy in ((distance,-height-8),(distance,8),(-width-distance,-height-8),(-width-distance,8),(-width/2,-height-distance),(-width/2,distance)):
+            bx=min(max(left+8,x+dx),right-width-8);by=min(max(top+55,y+dy),bottom-height-55)
+            candidates.append((bx,by,bx+width,by+height))
+    box=next((b for b in candidates if not any(_intersects(b,other) for other in occupied)),None)
+    if box is None:raise ValueError('collision-free labels unavailable; omit unsupported visual')
+    occupied.append(box)
+    if abs(box[0]-x)>18 or abs(box[1]-y)>18:
+        endpoint=(min(max(x,box[0]),box[2]),min(max(y,box[1]),box[3]))
+        canvas.draw.line(((x,y),endpoint),fill=MUTED,width=1)
+    return box
+
+
+def _central_zoom(canvas,groups,codes,full_extent):
+    # A separate lower panel cannot obscure the full-range observations.
+    left,top,width,height=160,1770,1260,560
+    def extent(axis):
+        values=sorted(abs(getattr(r,axis)) for r in groups)
+        return min(full_extent,max(1.,values[max(0,math.ceil(.8*len(values))-1)]*1.15))
+    ex,ey=extent('x'),extent('y')
+    rows=[r for r in groups if abs(r.x)<=ex and abs(r.y)<=ey]
+    canvas.text(left,1700,'ZOOM PUSAT: POSISI TERAKHIR',25,FG,True)
+    canvas.text(left,1737,f'X ±{ex:.1f} pp · Y ±{ey:.1f} pp · {len(rows)}/{len(groups)} kelompok dalam zoom',21,MUTED)
+    for box,q in [((left,top,left+width/2,top+height/2),'Improving'),
+                  ((left+width/2,top,left+width,top+height/2),'Leading'),
+                  ((left,top+height/2,left+width/2,top+height),'Lagging'),
+                  ((left+width/2,top+height/2,left+width,top+height),'Weakening')]:
+        canvas.draw.rectangle(box,fill=FILLS[q])
+    canvas.draw.line((left,top+height/2,left+width,top+height/2),fill=MUTED,width=1)
+    canvas.draw.line((left+width/2,top,left+width/2,top+height),fill=MUTED,width=1)
+    canvas.draw.rounded_rectangle((left,top,left+width,top+height),radius=12,outline=GOLD,width=2)
+    occupied=[];labels=[]
+    for r in sorted(rows,key=lambda r:r.name):
+        x=left+width/2+width*r.x/(2*ex);y=top+height/2-height*r.y/(2*ey)
+        canvas.draw.ellipse((x-7,y-7,x+7,y+7),fill=COLORS[r.quadrant],outline=BG,width=2)
+        label=codes[r.name]
+        box=_label_box(canvas,x,y,label,23,(left,top,left+width,top+height),occupied)
+        canvas.text(box[0],box[1],label,23,COLORS[r.quadrant],True)
+        labels.append(dict(name=r.name,label=label,bounds=list(box),latest_pixel=[x,y]))
+    for value in (-ex,0,ex):
+        canvas.text(left+width/2+width*value/(2*ex),top+height+12,f'{value:.1f}',20,MUTED,anchor='mt')
+    for value in (-ey,0,ey):
+        canvas.text(left-12,top+height/2-height*value/(2*ey),f'{value:.1f}',20,MUTED,anchor='rm')
+    canvas.text(1500,1780,'Cara membaca',25,FG,True)
+    canvas.text(1500,1830,'Nomor sesuai tabel sorotan; huruf sesuai kelompok lain.',22,MUTED)
+    canvas.text(1500,1870,'Zoom memperbesar posisi terakhir di sekitar titik nol.',22,MUTED)
+    canvas.text(1500,1910,'Kelompok di luar zoom tetap terlihat pada plot utama.',22,MUTED)
+    return dict(bounds=[left,top,left+width,top+height],x_extent=ex,y_extent=ey,
+        names=[r.name for r in rows],outside_names=sorted(r.name for r in groups if r not in rows),
+        mode='latest-observed-position',labels=labels)
+
+
 def render_rotation(groups, *, kind: str, publication_session: date, letters=None) -> RenderedArtifact:
     """Render validated BasketResults without modifying their observed positions.
 
@@ -162,7 +252,7 @@ def render_rotation(groups, *, kind: str, publication_session: date, letters=Non
     chosen={r.name for r in selected}
     visible=[p for r in groups for p in (r.trail if r.name in chosen else r.trail[-1:])]
     extent=max(1.,max(max(abs(p.x),abs(p.y)) for p in visible)*1.22)
-    canvas=_Canvas(2600,1660);_header(canvas,'Rotasi Sektor' if kind=='sectors' else 'Rotasi Konglo',publication_session)
+    canvas=_Canvas(2600,2400 if kind=='konglo' else 1660);_header(canvas,'Rotasi Sektor' if kind=='sectors' else 'Rotasi Konglo',publication_session)
     partial=sum(bool(r.excluded) for r in groups)
     stale=any(r.provenance.get('cap_collection_status')=='stale' for r in groups)
     coverage=min(r.coverage for r in groups)
@@ -182,36 +272,28 @@ def render_rotation(groups, *, kind: str, publication_session: date, letters=Non
     mask=Image.new('L',(size,size));ImageDraw.Draw(mask).rounded_rectangle((0,0,size-1,size-1),radius=20,fill=255)
     canvas.image.paste(plot,(left,top),mask)
     def point(position):return (left+size/2+size*position.x/(2*extent),top+size/2-size*position.y/(2*extent))
-    plotted={};labels=[]
+    codes={r.name:str(i+1) for i,r in enumerate(ordered)} if kind=='konglo' else {}
+    codes.update(expected)
+    plotted={};labels=[];visual_trails={}
     occupied=[(160,260,420,310),(1140,260,1420,310),(160,1470,420,1520),(1140,1470,1420,1520)]
     for row in sorted(groups,key=lambda r:(r.name not in chosen,r.name)):
         xy=[point(p) for p in row.trail];x,y=xy[-1];color=COLORS[row.quadrant]
         if row.name in chosen:
-            canvas.draw.line(xy,fill=color,width=3)
-            for n,(hx,hy) in enumerate(xy[:-1]):canvas.draw.ellipse((hx-3-n,hy-3-n,hx+3+n,hy+3+n),fill=color)
-            # An arrow follows only the actual final segment, without adding points.
-            dx,dy=x-xy[-2][0],y-xy[-2][1];length=math.hypot(dx,dy)
+            curve=_smooth_trail(xy)
+            visual_trails[row.name]=curve
+            canvas.draw.line(curve,fill=_faded(color) if kind=='konglo' else color,width=2 if kind=='konglo' else 3)
+            for n,(hx,hy) in enumerate(xy[:-1]):canvas.draw.ellipse((hx-3-n,hy-3-n,hx+3+n,hy+3+n),fill=_faded(color) if kind=='konglo' else color)
+            # The arrow follows the displayed tangent and ends at the actual point.
+            dx,dy=x-curve[-2][0],y-curve[-2][1];length=math.hypot(dx,dy)
             if length>0:
                 ux,uy=dx/length,dy/length
-                head=min(14,length/2)
+                head=min(14,math.hypot(x-xy[-2][0],y-xy[-2][1])/2)
                 canvas.draw.polygon([(x,y),(x-ux*head-uy*5,y-uy*head+ux*5),(x-ux*head+uy*5,y-uy*head-ux*5)],fill=color)
-        radius=7 if row.name in chosen else 5
+        radius=(10 if row.name in chosen else 7) if kind=='konglo' else 7
         canvas.draw.ellipse((x-radius,y-radius,x+radius,y+radius),fill=color,outline=BG,width=2)
-        label=_wrap(row.name,220,_font(23,True)) if row.name in chosen else expected[row.name]
-        label_size=23 if row.name in chosen else 21
-        bounds=canvas.draw.multiline_textbbox((0,0),label,font=_font(label_size,True),spacing=2)
-        width,height=bounds[2],bounds[3]
-        candidates=[]
-        for distance in (12,35,65,100,145,210,280,360,450):
-            for dx,dy in ((distance,-height-8),(distance,8),(-width-distance,-height-8),(-width-distance,8),(-width/2,-height-distance),(-width/2,distance)):
-                bx=min(max(left+8,x+dx),left+size-width-8);by=min(max(top+55,y+dy),top+size-height-55)
-                candidates.append((bx,by,bx+width,by+height))
-        box=next((b for b in candidates if not any(_intersects(b,other) for other in occupied)),None)
-        if box is None:raise ValueError('collision-free labels unavailable; omit unsupported visual')
-        occupied.append(box)
-        if abs(box[0]-x)>18 or abs(box[1]-y)>18:
-            endpoint=(min(max(x,box[0]),box[2]),min(max(y,box[1]),box[3]))
-            canvas.draw.line(((x,y),endpoint),fill=MUTED,width=1)
+        label=codes[row.name] if kind=='konglo' else _wrap(row.name,220,_font(23,True))
+        label_size=23
+        box=_label_box(canvas,x,y,label,label_size,(left,top,left+size,top+size),occupied)
         canvas.text(box[0],box[1],label,label_size,FG if row.name in chosen else '#BDB9B1',True)
         plotted[row.name]=[[p.session,p.x,p.y] for p in row.trail]
         labels.append({'name':row.name,'label':label,'bounds':list(box),'latest_pixel':[x,y]})
@@ -223,6 +305,7 @@ def render_rotation(groups, *, kind: str, publication_session: date, letters=Non
         canvas.text(x,1536,f'{value:.1f}',22,MUTED,anchor='mt')
         canvas.text(145,y,f'{value:.1f}',22,MUTED,anchor='rm')
     canvas.text(790,1580,'Kekuatan relatif terhadap IHSG (pp)',28,MUTED,anchor='mt')
+    canvas.text(160,1630,'Garis lengkung hanya visual; titik menunjukkan sesi aktual.',18,MUTED)
     # Rotate the Y-axis label outside the plot.
     label=Image.new('RGBA',(600,40));ImageDraw.Draw(label).text((0,0),'Momentum relatif (pp)',font=_font(28),fill=MUTED)
     canvas.image.paste(label.rotate(90,expand=True),(65,650),label.rotate(90,expand=True))
@@ -236,12 +319,14 @@ def render_rotation(groups, *, kind: str, publication_session: date, letters=Non
         canvas.text(x+20,327,q,25,COLORS[q],True);canvas.text(x+20,367,str(distribution[q]),37,FG,True)
     if distribution['Neutral']:canvas.text(1500,447,f"Neutral: {distribution['Neutral']}",22,MUTED)
     canvas.text(1500,514,'SOROTAN SEKTOR' if kind=='sectors' else 'SOROTAN KONGLO',22,MUTED,True)
-    for x,value in zip((1520,1950,2180,2370),('Kelompok','Kuadran','Kekuatan (pp)','Momentum (pp)')):canvas.text(x,568,value,19,MUTED,True)
+    for x,value in zip((1520,1950,2180,2370),('ID / Kelompok' if kind=='konglo' else 'Kelompok','Kuadran','Kekuatan (pp)','Momentum (pp)')):canvas.text(x,568,value,19,MUTED,True)
     row_height=40 if kind=='konglo' else min(68,720//len(ordered))
     for i,row in enumerate(ordered):
         y=626+i*row_height
         if i%2==0:canvas.draw.rounded_rectangle((1500,y-8,2520,y+row_height-9),radius=7,fill=PANEL)
-        canvas.fitted(1520,y,row.name,400,row_height-3,22,True)
+        if kind=='konglo':
+            canvas.text(1520,y,codes[row.name],22,COLORS[row.quadrant],True)
+        canvas.fitted(1560 if kind=='konglo' else 1520,y,row.name,360 if kind=='konglo' else 400,row_height-3,22,True)
         canvas.text(1950,y,row.quadrant,22,COLORS[row.quadrant])
         canvas.text(2180,y,f'{row.x:+.2f}',22);canvas.text(2370,y,f'{row.y:+.2f}',22)
     if expected:
@@ -250,10 +335,12 @@ def render_rotation(groups, *, kind: str, publication_session: date, letters=Non
             col=i//8;line=i%8;x=1500+col*520;y=1412+line*27
             canvas.text(x+12,y,letter,20,COLORS[next(r.quadrant for r in groups if r.name==name)],True)
             canvas.fitted(x+48,y,name,460,26,18,color=MUTED)
+    zoom=_central_zoom(canvas,groups,codes,extent) if kind=='konglo' else None
     manifest=dict(kind=kind,publication_session=publication_session.isoformat(),trail_sessions=list(sessions),
                   plot_bounds=[160,260,1420,1520],axis_extent=extent,colors=COLORS.copy(),distribution=distribution,
                   selection_names=[r.name for r in selected],table_names=[r.name for r in ordered],
-                  secondary_letters=dict(expected),trails_drawn=[r.name for r in selected],labels=labels,
+                  secondary_letters=dict(expected),marker_codes=codes,central_zoom=zoom,
+                  curve_policy='bounded-cubic/display-only/observed-points-unchanged',visual_trails=visual_trails,trails_drawn=[r.name for r in selected],labels=labels,
                   groups={r.name:dict(coordinates=plotted[r.name],coverage=r.coverage,excluded=dict(r.excluded),
                                      weights=dict(r.weights),aligned_closes=r.aligned_closes,
                                      action_decisions=[asdict(a) for a in r.action_decisions],provenance=dict(r.provenance)) for r in groups})

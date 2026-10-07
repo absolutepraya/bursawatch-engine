@@ -127,6 +127,25 @@ Unselected letters are assigned alphabetically and frozen by the owner, A to P
 when 34 qualify and 18 are selected. Numerical results retain the eligible
 weights, excluded members, original coverage, aligned closes and action decisions.
 
+## Rotation visual trails
+
+Renderer revision `bursawatch-render-v3` draws display-only cubic curves through
+all five observed session markers. Coordinate tangents are bounded by adjacent
+steps and zero at reversals, keeping each curve within its segment's observed
+coordinate rectangle. No numerical prices, returns, quadrants or frozen
+coordinates are smoothed. Direction arrows follow the displayed final tangent.
+
+Sector images retain full-name labels and the 2600 by 1660 composition. Konglo
+images use compact numbers matching the existing sorted 18-row full-name table;
+other groups keep the owner's frozen alphabetical letters. Trails are thinner
+and faded, with larger latest markers. The 2600 by 2400 composition adds a
+separate central zoom panel below the full-range plot, so it never covers
+observations. The zoom shows latest positions, with explicitly labelled separate
+X/Y ranges based on the 80th percentile of absolute latest coordinates plus
+15 percent padding, at least 1 pp and at most the full-range extent. It records
+visible and outside groups; all groups remain represented in the full-range
+plot/table/letter key. Zoom geometry and marker mappings freeze in the manifest.
+
 ## Durable run state
 
 `RunStore(path)` creates private local state and restart-safe schema version 1.

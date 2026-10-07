@@ -31,6 +31,11 @@ delivery from local tests or an installed dispatcher.
   Conflicting freezes fail closed. Corrections cannot rewrite prior publications.
 - All 18 levels use aligned sessions, compatible split-adjusted returns, a fixed
   cap snapshot and consistent members. Preserve exclusions and original coverage.
+- Rotation curves are display-only interpolation through observed markers,
+  bounded against overshoot. Preserve numerical coordinates and quadrants.
+  Konglo numbered markers match the full-name table; preserve frozen secondary
+  letters. Its separately labelled central zoom must not cover the full-range
+  plot or silently drop outliers. Freeze curve, code and zoom geometry metadata.
 - Source manifests freeze before version reads/selection. Recovery compares every
   immutable hash/ref and never recaptures; incomplete corpora force facts-only.
 - Global equities require explicit regular exchange sessions and prior-close denominator.
