@@ -1,9 +1,15 @@
-<h1>
+<h1 align="center">
   <img src="bursawatch.png" alt="Bursawatch logo" width="44" align="absmiddle">
   Bursawatch
 </h1>
 
-[![CI](https://github.com/absolutepraya/bursawatch-engine/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/absolutepraya/bursawatch-engine/actions/workflows/ci.yml)
+<p align="center">
+  <a href="https://github.com/absolutepraya/bursawatch-engine/actions/workflows/ci.yml"><img src="https://github.com/absolutepraya/bursawatch-engine/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+</p>
+
+<p align="center">
+  <img src="docs/images/overview.png" alt="Bursawatch collects sources, applies your rules and schedule, and delivers a market brief, company news and trading ideas to Discord">
+</p>
 
 **Indonesian stock-market information, curated and delivered to Discord.**
 Bursawatch watches the places Indonesian retail investors already read
