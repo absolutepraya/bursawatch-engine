@@ -1,7 +1,7 @@
 <h1 align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/title-dark.png">
-    <img src="docs/images/title-light.png" alt="Bursawatch" height="36">
+    <img src="docs/images/title-light.png" alt="Bursawatch" height="58">
   </picture>
 </h1>
 
