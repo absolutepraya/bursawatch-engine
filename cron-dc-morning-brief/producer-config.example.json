@@ -3,5 +3,7 @@
   "calendar_snapshot": "/home/praya/.hermes/state/bursawatch-morning/calendars/current.json",
   "references": "/home/praya/.hermes/state/bursawatch-morning/primary/membership-references.json",
   "source_cache": "/home/praya/.hermes/state/bursawatch-morning/inputs/sources",
-  "economic_snapshots": []
+  "economic_snapshots": [],
+  "sectors_store_path": "/home/praya/.hermes/state/sectors-client.sqlite3",
+  "sectors_key_file": "/home/praya/.agents/skills/lib-sectors/.env"
 }

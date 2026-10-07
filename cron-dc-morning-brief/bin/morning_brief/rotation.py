@@ -60,14 +60,16 @@ def calculate_basket(name: str, members: tuple[str,...], caps: CapSnapshot,
         raise ValueError('exactly 18 aligned verified closing levels required')
     members = tuple(sorted(symbol(m) for m in members))
     if not name or not members or len(set(members)) != len(members): raise ValueError('unique basket members required')
-    try:
-        original = {m: positive(caps.values[m]) for m in members}
-    except (KeyError,ValueError): raise UnsupportedBasket('complete valid original cap inputs required') from None
+    original, excluded = {}, {}
+    for member in members:
+        try: original[member] = positive(caps.values[member])
+        except (KeyError, ValueError): excluded[member] = 'missing_or_invalid_cap'
     dates = tuple(s.isoformat() for s in sessions)
     try: index = tuple(positive(benchmark[d]) for d in dates)
     except (KeyError,ValueError): raise UnsupportedBasket('missing benchmark session') from None
-    aligned, excluded = {}, {}
+    aligned = {}
     for member in members:
+        if member not in original: continue
         if member not in prices:
             excluded[member] = 'missing_price_series'; continue
         if prices[member].symbol != member:
@@ -80,7 +82,7 @@ def calculate_basket(name: str, members: tuple[str,...], caps: CapSnapshot,
         aligned[member] = tuple(adjusted[d] for d in dates)
     covered = math.fsum(original[m] for m in sorted(aligned))
     total = math.fsum(original.values())
-    if covered < .9*total or not aligned: raise UnsupportedBasket('eligible cap coverage below 90 percent')
+    if not aligned or covered <= 0: raise UnsupportedBasket('no usable cap and aligned price members')
     weights = {m:original[m]/covered for m in sorted(aligned)}
     daily = [math.fsum(weights[m]*(aligned[m][t]/aligned[m][t-1]-1.) for m in weights) for t in range(1,18)]
     x = {}
@@ -97,6 +99,8 @@ def calculate_basket(name: str, members: tuple[str,...], caps: CapSnapshot,
                 cap_collected_at=caps.collected_at.isoformat(), cap_effective_date=caps.effective_date.isoformat() if caps.effective_date else None,
                 price_versions={m:prices[m].version for m in sorted(aligned)},
                 action_identities=tuple(sorted(a.identity for a in actions if a.symbol in members)),
+                missing_cap_members=tuple(m for m in members if m not in original),
+                coverage_basis='known-original-caps',
                 illustration='fixed-current-cap/not-unbiased-backtest')
     trail = tuple(positions.values())
     return BasketResult(name,trail,trail[-2].quadrant,trail[-1].quadrant!=trail[-2].quadrant,

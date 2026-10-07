@@ -24,10 +24,10 @@ mode='cache_only')` requires separate paths and accepts only cache-only or
 explicit synthetic-preview mode. It does not load environment credentials or
 construct a provider client. `from_mapping` rejects unknown fields.
 
-Retained legacy Sectors consumers must share one explicitly configured private host-local
+Sectors consumers must share one explicitly configured private host-local
 provider coordination store and billing window. `lib-sectors` owns budgets,
-leases, immutable cache versions and request generations. Weekly caps use a
-caller-owned generation such as `caps:2026-W41`. A morning run's SQLite database
+leases, immutable cache versions and request generations. The morning producer owns stable 30-day cap request generations,
+separate from other consumers' report generations. A morning run's SQLite database
 is separate. Never erase provider state to refresh a snapshot. Select source
 cache versions using the run's cutoff before preparing the numerical inputs.
 Imported pages create no new reservations and never reveal an account balance.
@@ -73,20 +73,21 @@ older than seven days are rejected. This is a conservative local check policy,
 not a claim about an official amendment schedule. The caller must verify the
 source and check amendments, rather than merely setting the flag.
 
-`cap_refresh_due` is true only on the first verified session of a week.
-`cap_status` uses complete verified calendar weeks, including holiday amendments:
-current week, one extra preceding week, expired or future. Snapshot collection
-time is retained; the companies screener's underlying cap effective date is
-unverified and remains `None`. Missing calendar coverage cannot be repaired with
-weekdays. Expired caps omit unsupported rotation.
+`cap_refresh_due` checks for a missing snapshot or a snapshot at least 30 days
+old. `cap_status` reports `fresh`, `stale` or `future` against the frozen cutoff.
+A snapshot remains fresh for less than 30 days from its original collection
+instant. Failed or incomplete refreshes retain the last successful snapshot,
+with its original date and an explicit stale label after expiry. Unknown cap
+effective dates remain `None`. A stale cap never permits stale prices or an
+unverified trading calendar. Missing calendar coverage cannot be repaired with
+weekdays.
 
 `prepare_numerical_inputs(calendar, membership, caps, prices, benchmark,
 through=..., publication_session=..., freeze_at=..., actions=())` requires an
 explicit verified publication session matching the freeze's Jakarta date.
 `through` must be the immediately preceding verified session and only defines
-the closing window. Weekly cap age is assessed against the publication session,
-so a fresh first-session cap snapshot is valid before the freeze while a snapshot
-from two publication weeks ago is expired. Preparation revalidates publication
+the closing window. Cap age is assessed at the actual frozen cutoff, independently of calendar
+weeks. Cutoff-visible older snapshots remain usable with a stale label. Preparation revalidates publication
 calendar coverage and amendment visibility/freshness at the freeze, even when
 that calendar object was loaded earlier or later for another caller.
 It validates an 18-level aligned benchmark window and cutoff-visible
@@ -104,10 +105,13 @@ reconstructing shares from cap/price ratios.
 
 `calculate_from_inputs(group_name, inputs)` preserves calendar/amendment,
 membership, publication/closing sessions, cap and price/action version identities.
-Every original member needs
-a valid positive cap. Eligible members must have compatible prices in every
-aligned session and cover at least 90 percent of original basket cap. Weights
-renormalize over eligible caps and remain fixed across the whole trail.
+Members with missing/invalid caps or prices are excluded with reasons. At least
+one member must have a positive cap and compatible prices in every aligned
+session. There is no minimum coverage gate. Weights renormalize over the usable
+subset and stay fixed across the whole trail. Partial-basket returns describe
+that subset. Coverage uses known original caps as its denominator; unknown-cap
+member counts are separate, never represented as zero caps. Text and images
+label partial baskets, coverage and stale caps.
 
 Daily weighted returns compound over ten sessions. X is 100 times the basket
 return minus IHSG return; Y is X minus X three sessions earlier. Five positions
@@ -122,6 +126,42 @@ Neutral; then descending X, descending Y and name. Neutral remains qualifying.
 Unselected letters are assigned alphabetically and frozen by the owner, A to P
 when 34 qualify and 18 are selected. Numerical results retain the eligible
 weights, excluded members, original coverage, aligned closes and action decisions.
+
+## Rotation visual trails
+
+Renderer revision `bursawatch-render-v4` draws display-only cubic curves through
+all five observed session markers. Coordinate tangents are bounded by adjacent
+steps and zero at reversals, keeping each curve within its segment's observed
+coordinate rectangle. No numerical prices, returns, quadrants or frozen
+coordinates are smoothed. Direction arrows follow the displayed final tangent.
+
+Sector images retain full-name labels and the 2600 by 1660 logical layout. Konglo
+images use compact numbers matching the existing sorted 18-row full-name table;
+other groups keep the owner's frozen alphabetical letters. Trails are thinner
+and faded, with larger latest markers. The 2600 by 2400 logical layout adds a
+separate central zoom panel below the full-range plot, so it never covers
+observations. The zoom shows latest positions, with explicitly labelled separate
+X/Y ranges based on the 80th percentile of absolute latest coordinates plus
+15 percent padding, at least 1 pp and at most that axis's full-range absolute bound. It records
+visible and outside groups; all groups remain represented in the full-range
+plot/table/letter key. Zoom geometry and marker mappings freeze in the manifest.
+
+Both rotation charts fit independent asymmetric linear X/Y limits to every
+visible trail point, including zero and at least 1 percentage point of padding
+on each side. Bounds round outward to tenths; tick spacing uses readable decimal
+steps. Zero determines the quadrant rectangles and benchmark marker rather than
+being fixed at the plot centre. Group count does not control quadrant area.
+Full historical trails remain visible, including outliers. The central zoom
+stays a separately labelled latest-position panel. Labels may use a nearest
+available grid position with a leader when corner clusters exhaust local options.
+
+Rotation geometry, fonts and strokes render directly at pixel ratio 2, without
+resizing a completed raster. Sector PNGs are 5200 by 3320; konglo PNGs are 5200
+by 4800. Table/marker text is also larger in logical layout units. Other charts
+retain their existing native rendering. Manifests declare `logical-pixels`,
+logical dimensions and pixel ratio; display bounds and points stay in logical
+units while artifact width/height describe the actual PNG. Freeze separate
+axis limits, padding policy and zero position with each rendered artifact.
 
 ## Durable run state
 
@@ -388,33 +428,50 @@ python collect_rotation_inputs.py --collect-public \
   --runtime-config /private/host-config.json \
   --calendar-snapshot /private/verified-idx-calendar.json \
   --references /private/fixed-membership-references.json \
-  --source-cache /private/morning-sources --request-limit 24
+  --source-cache /private/morning-sources --request-limit 24 \
+  --producer-config /private/morning-producer.json
 ```
 
-Each pass permits 3 to 64 HTTP calls, default 24, including two public guest
-handshake calls when native cap quotes first need them. Exact 100-symbol quote
-batches avoid an incomplete regional screener. Cookies and guest crumbs stay
-in memory and never enter retained sources. Stock daily responses request
-three months and native dividends/splits. `lib-yahoo-market-data` validates
-all 18 official aligned closing sessions, ordinary split-adjusted Close and
-positive trading volume on every required day. Never apply native splits a
-second time or add dividends; unknown actions reject that stock. Native
-`tradeable` is not an IDX eligibility check. Collection runs after the prior
-closing date and before the upcoming configured cutoff. No paid provider,
-writer, source-capture, run-store or publication calls occur.
-Only members of baskets with a complete usable cap snapshot need historical
-price requests; unsupported sectors do not generate unnecessary daily calls.
+Each pass permits 3 to 64 provider request attempts, default 24, shared between
+Sectors cap pages and Yahoo stock history. Configure `--producer-config` with
+explicit `sectors_store_path` and `sectors_key_file` paths. They must point at the
+same host-local coordination store and credential file used by participating
+Sectors consumers. No default credit ceiling is imposed. Missing configuration
+omits caps unless this producer already has a successful retained snapshot.
 
-A private producer lock prevents concurrent mutation. Content-addressed native
-records are immutable; the compact index contains only checksum-bound refs.
-Each closing window resumes without refetching completed or invalid stocks.
-All Yahoo calls share the HTTP lock and 429 cooldown with the global/chart
-collector. Stop a pass after a provider failure, without retries or source
-switching. Caps refresh in a stable weekly generation. Each complete basket
-retains its own immutable cap identity and original collection time; a partial
-refresh can reuse a valid prior-week basket, then expires it under the existing
-policy. Missing native caps remain missing. Each basket still requires a cap
-for every original member and at least 90-percent eligible price coverage.
+The producer uses `lib-sectors` to collect the structured companies endpoint in
+200-row pages, with `sector IS NOT NULL`, `order_by=market_cap` and query values.
+Complete pagination, stable totals, unique symbols and native cutoff-visible
+sources are required before a new snapshot replaces the last successful one.
+One bulk snapshot supplies both sector and conglomerate weights. It stays cached
+for 30 days. No per-company overview calls or shares reconstruction are needed
+for the verified current membership. Missing/invalid caps remain exclusions.
+The compact producer index references an immutable checksum-bound cap artifact;
+source pages retain their original availability and hashes in the shared cache.
+
+Refreshes use a caller-owned pending generation that survives incomplete ticks.
+Only cache misses invoke the shared client, with `retry=False` and the existing
+conservative provider ledger. Failed requests never silently retry or erase
+reservations. Reuse the last successful snapshot, even after expiry, and visibly
+label its original date and stale status. A blocked/uncertain pending generation
+requires explicit provider reconciliation/recovery before it can be retried;
+ordinary ticks continue with retained caps. `sectors_request_attempts` counts
+cache-miss calls into the shared client, not confirmed provider billing.
+
+Yahoo supplies three-month daily stock responses with native dividends/splits.
+`lib-yahoo-market-data` validates all 18 official aligned sessions, ordinary
+split-adjusted Close and positive trading volume on every required day. Never
+apply splits twice or add dividends; unknown actions exclude that stock. Request
+only members with usable caps. Missing members do not prevent a partial basket.
+Collection runs after the prior closing date and before the configured cutoff,
+without writer, source-capture, run-store or publication calls.
+
+A private producer lock prevents concurrent mutation. Content-addressed Yahoo
+records remain immutable; completed and invalid responses are reused for their
+closing window. Yahoo calls share the HTTP lock and 429 cooldown with the
+chart/global collector. A Yahoo failure stops remaining Yahoo calls in that pass.
+A Sectors refresh failure does not stop independent Yahoo collection for retained
+caps. Neither publication nor preview rendering performs provider requests.
 
 The producer advances only `rotation-current.json` and retains each manifest
 version. Pass this explicit file to `collect_public_inputs.py` using
@@ -661,7 +718,9 @@ inputs. Unknown source retention continues to select facts-only.
 `scheduled_runner.py` requires explicit private `--runtime-config` and
 `--producer-config` files and exactly one of `--check` or `--live`. The producer
 configuration is version 1 and contains absolute distinct `calendar_snapshot`,
-`references`, `source_cache` paths plus optional `economic_snapshots` paths.
+`references`, `source_cache` paths plus optional `economic_snapshots` paths and
+a paired `sectors_store_path` / `sectors_key_file`. The pair enables Sectors cap
+collection through the shared library; construction is lazy and pre-cutoff only.
 It contains no credentials or replacements for database operator timings.
 `producer-config.example.json` is a path-only provisioning template, not proof
 that those files exist or that primary-source refresh is configured.

@@ -82,7 +82,10 @@ def _rotation_text(groups,title,publication_session,notices):
         coverage=min(row.coverage for row in groups)
         excluded=sum(len(row.excluded) for row in groups)
         if coverage<1 or excluded:
-            required.append(f'**Cakupan:** minimum {coverage:.1%} kapitalisasi awal; {excluded} pengecualian anggota basket.')
+            unknown=sum(len(row.provenance.get('missing_cap_members',())) for row in groups)
+            required.append(f'**Basket parsial:** cakupan minimum {coverage:.1%} cap diketahui; {excluded} pengecualian anggota, termasuk {unknown} cap tidak tersedia.')
+        if any(row.provenance.get('cap_collection_status')=='stale' for row in groups):
+            required.append('**Snapshot cap lama (stale):** pembaruan belum berhasil; tanggal pengumpulan asli dipertahankan.')
         required.append('**Basis:** ilustrasi historis, bobot cap snapshot tetap.')
         caps=sorted({aware(datetime.fromisoformat(row.provenance['cap_collected_at'])).astimezone(ZoneInfo('Asia/Jakarta')).strftime('%d/%m/%Y %H:%M WIB')
                      for row in groups if row.provenance.get('cap_collected_at')})
