@@ -1,6 +1,8 @@
 <h1 align="center">
-  <img src="bursawatch.png" alt="Bursawatch logo" width="33" align="absmiddle">
-  Bursawatch
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/title-dark.png">
+    <img src="docs/images/title-light.png" alt="Bursawatch" height="36">
+  </picture>
 </h1>
 
 <p align="center">
