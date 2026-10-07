@@ -628,6 +628,43 @@ inputs. Unknown source retention continues to select facts-only.
 
 ## Verification
 
+### Recurring composition, staged paused
+
+`scheduled_runner.py` requires explicit private `--runtime-config` and
+`--producer-config` files and exactly one of `--check` or `--live`. The producer
+configuration is version 1 and contains absolute distinct `calendar_snapshot`,
+`references`, `source_cache` paths plus optional `economic_snapshots` paths.
+It contains no credentials or replacements for database operator timings.
+
+Check mode validates retained membership references and the existing dispatcher
+readiness without creating stores, HTTP provider requests, model resolution,
+source capture or posts. Live mode takes a private exclusive process lock.
+Before the configured cutoff on a verified session, it runs one bounded rotation
+chunk per tick. In the last ten minutes it also refreshes the global/benchmark
+manifest, including eligible retained rotation and agenda inputs. After cutoff
+it invokes only the existing dispatcher. Frozen recovery bypasses producers
+and a changing configuration API. The same database configuration snapshot
+governs the first dispatch; it is not fetched twice across a timing change.
+Non-sessions produce a no-op heartbeat. Missing or stale official calendars
+produce a fatal heartbeat, without inferring weekdays or extending verification.
+
+`bursawatch-dc-morning-brief-scheduled.sh` is the reviewed wrapper for the exact
+`bursawatch-dc-morning-brief` runtime job name. The source schedule is a paused
+60-second interval in manual migration 024 and the reconciler allowlist.
+Default cutoff/delivery remain 07:30/08:00 WIB. Jobs controls can change desired
+enabled state; morning timing, instruments and logos remain in its watcher
+configuration. The minute interval itself is fixed so the source-capture
+on-time grace is meaningful.
+
+Installing the wrapper at mode 0755, registering a paused Hermes command job,
+applying the manual migration and reconciler code, checking source/input
+readiness, and enabling the authenticated desired schedule are separate reviewed
+rollout steps. Do not hand-edit the registry or manually trigger a live run.
+Verify the next natural preparation and receipt-gated delivery. No paused row,
+successful check, local preview or component health check substitutes for that
+evidence. Official calendar/agenda acquisition must be resolved independently;
+the scheduler does not make unavailable primary sources fresh.
+
 Run `python -m pytest -q cron-dc-morning-brief/tests` with the repository
 interpreter. The analytical fixtures explicitly use synthetic sessions/prices.
 The private retained cache has four complete sessions and one partial session,

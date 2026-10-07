@@ -110,3 +110,10 @@ delivery from local tests or an installed dispatcher.
   from table fixtures. Publication records are not statistical releases. Missing
   reference periods and times remain unknown. Public action IDs rotate with
   frontend deployments and are not hardcoded in the production collector.
+- `scheduled_runner.py` composes the producer and dispatcher behind one private
+  process lock. `--check` never initializes stores, fetches providers or posts.
+  `--live` before cutoff uses bounded rotation chunks, then refreshes global and
+  benchmark inputs in the last ten minutes. At/after cutoff or during frozen
+  recovery, never run producers. Read timing from the database, not fixed cron
+  times. Missing/stale official calendars remain fatal with a safe heartbeat;
+  an installed wrapper or paused desired schedule does not prove readiness.

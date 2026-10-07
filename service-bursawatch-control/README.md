@@ -514,6 +514,14 @@ publications or intake. No database migration or second source database is added
 
 ### Morning brief configuration
 
+Manual migration 024 stages one paused `bursawatch-dc-morning-brief` interval
+job at exactly 60 seconds. It never creates or enables a Hermes job. Existing
+desired revisions are preserved. The scheduler's minute tick uses the morning
+watcher configuration for cutoff and delivery; those timings are not cron
+expressions. Jobs controls own enabled state through separate schedule revisions
+and require a matching reconciler report before they are effective. The reviewed
+reconciler mapping and executable wrapper are separate host deployment inputs.
+
 `bursawatch-dc-morning-brief` uses the existing authenticated watcher-config
 GET/PUT API and private revision tables. Migration 023 registers configuration
 only, and absent-only seeding preserves operator-authored revisions. The bundled

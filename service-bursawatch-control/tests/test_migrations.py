@@ -5,6 +5,16 @@ from pathlib import Path
 from control_plane.contract import schedule_checksum
 
 
+def test_morning_schedule_is_paused_bounded_and_preserves_existing_revisions():
+    migration=(Path(__file__).resolve().parents[1]/'migrations/024_morning_brief_schedule.sql').read_text()
+    checksum=schedule_checksum(False,60,'Asia/Jakarta')
+    assert migration.startswith('-- bursawatch-release: manual')
+    assert f"'bursawatch-dc-morning-brief', 1, false, 60, 'Asia/Jakarta', '{checksum}'" in migration
+    assert "'bursawatch-dc-morning-brief', 'interval', 60, 60)" in migration
+    assert 'and current_schedule_revision is null;' in migration
+    assert 'on conflict (job_id) do nothing;' in migration
+
+
 def test_supabase_hardening_enables_rls_and_revokes_browser_roles():
     migration = (
         Path(__file__).resolve().parents[1]

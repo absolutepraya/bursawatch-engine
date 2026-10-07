@@ -122,13 +122,13 @@ class HostRuntime:
         self.config, self.store, self.runner = config, store, runner
         self.fetch_snapshot, self.writer_factory, self.clock = fetch_snapshot, writer_factory, clock
 
-    def tick(self):
+    def tick(self, *, operator_snapshot=None):
         now = aware(self.clock()); session = now.astimezone(ZONE).date()
         try:
             run = self.store.get_run_for_session(session.isoformat())
             frozen = self.store.get_frozen(run.run_id, 'operator_config') if run else None
             # Frozen database configuration remains authoritative during API outages.
-            snapshot = frozen.payload if frozen else self.fetch_snapshot()
+            snapshot = frozen.payload if frozen else (operator_snapshot if operator_snapshot is not None else self.fetch_snapshot())
             from control_plane_client import ConfigSnapshot
             checked = ConfigSnapshot.from_payload(snapshot)
             if checked.watcher_id != OWNER:

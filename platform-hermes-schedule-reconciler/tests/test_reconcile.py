@@ -16,6 +16,18 @@ sys.path.insert(0, str(BIN))
 import reconcile
 
 
+def test_morning_tick_is_exactly_minute_bounded_and_paused_by_default():
+    payload=desired_job(enabled=False)
+    owner='bursawatch-dc-morning-brief'
+    payload.update(job_id=owner,watcher_id=owner,runtime_job_key=owner,max_interval_seconds=60)
+    payload['schedule']['job_id']=owner
+    result=reconcile.parse_desired_schedule(payload)
+    assert result.runtime_job_key==owner and result.enabled is False
+    payload['schedule'].update(interval_seconds=120,
+        schedule_sha256=reconcile.schedule_checksum(False,120,'Asia/Jakarta'))
+    with pytest.raises(reconcile.ContractError):reconcile.parse_desired_schedule(payload)
+
+
 def schedule_payload(*, revision: int = 1, enabled: bool = True, interval_seconds: int = 60) -> dict[str, object]:
     return {
         "api_version": 1,
