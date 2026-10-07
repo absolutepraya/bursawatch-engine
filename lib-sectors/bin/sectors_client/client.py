@@ -1,4 +1,4 @@
-"""Cache-backed client. Network use requires explicit configuration and cost."""
+"""Cache-backed client. Network use requires explicit configuration. Credit limits are optional."""
 from datetime import datetime, timezone
 import time
 from .cache import CacheStore
@@ -16,7 +16,7 @@ class SectorsClient:
         self.transport = transport if transport is not None else HTTPTransport(config)
         self.clock = clock if clock is not None else lambda: datetime.now(timezone.utc)
 
-    def get(self, identity, *, cutoff, max_cost, retry=False):
+    def get(self, identity, *, cutoff, max_cost=1, retry=False):
         cutoff = instant(cutoff)
         deadline = time.monotonic() + self.config.wait_seconds
         while True:
