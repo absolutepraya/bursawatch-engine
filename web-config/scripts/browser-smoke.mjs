@@ -102,12 +102,24 @@ try {
   await goToView("Workflows");
   await page.getByRole("button", { name: /Open watcher details: X accounts/ }).click();
   assert.equal(await page.getByLabel("Summarize posts", { exact: true }).isChecked(), true);
-  await page.getByText(/no evening digest/i).waitFor();
+  await page.getByText(/no separate evening digest/i).waitFor();
+
+  await goToView("Workflows");
+  await page.getByRole("button", { name: /Open watcher details: Morning brief/ }).click();
+  const deliveryTarget = page.getByLabel("Delivery target (WIB)", { exact: true });
+  await deliveryTarget.fill("08:15");
+  await page.getByRole("button", { name: "Save configuration", exact: true }).click();
+  await page.getByText("Sample configuration saved for this session.", { exact: true }).waitFor();
 
   await goToView("Jobs");
   await page.getByRole("heading", { name: "Jobs", exact: true }).waitFor();
-  await page.getByText(/no weekly interval or clock-time morning schedule/i).waitFor();
+  await page.getByText(/no weekly interval/i).waitFor();
+  await page.getByText(/Morning Brief timing is configured in its workflow editor/i).waitFor();
   assert.equal(await page.getByRole("button", { name: /save schedule|run now|run job/i }).count(), 0);
+
+  await goToView("Workflows");
+  await page.getByRole("button", { name: /Open watcher details: Morning brief/ }).click();
+  assert.equal(await page.getByLabel("Delivery target (WIB)", { exact: true }).inputValue(), "08:15");
 
   await goToView("History");
   await page.getByRole("heading", { name: "Run history", exact: true }).waitFor();
@@ -229,7 +241,7 @@ try {
   assert.deepEqual(controlRequests, [], "The sample workspace must never call /api/control.");
   assert.deepEqual(networkWrites, [], "The sample workspace must not send network writes.");
   assert.deepEqual(pageErrors, [], "The sample workspace should not produce browser errors.");
-  console.log("Sample workspace smoke passed: shared seven-view navigation, horizontally scrollable mobile destinations, in-memory catalog and watcher saves, read-only Jobs and History, public sample records, legacy redirects, zero /api/control requests, and 375px plus enlarged-text layouts.");
+  console.log("Sample workspace smoke passed: shared seven-view navigation, horizontally scrollable mobile destinations, in-memory catalog, watcher and Morning Brief saves, read-only Jobs and History, public sample records, legacy redirects, zero /api/control requests, and 375px plus enlarged-text layouts.");
 } finally {
   await browser.close();
 }

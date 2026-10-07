@@ -9,17 +9,61 @@ describe("sample workspace request fixture", () => {
     vi.restoreAllMocks();
   });
 
-  it("serves the eight real watcher editors with schema-valid sample configs", async () => {
+  it("serves the nine real watcher editors with schema-valid sample configs", async () => {
     const request = createDemoRequester();
     const watchers = await request<ControlWatcher[]>("watchers");
 
-    expect(watchers).toHaveLength(8);
+    expect(watchers).toHaveLength(9);
     for (const watcher of watchers) {
       const snapshot = await request<ControlConfigSnapshot>(
         `watchers/${watcher.watcher_id}/config`,
       );
       expect(validateWatcherConfig(watcher.watcher_id, snapshot.config)).toEqual({});
     }
+  });
+
+  it("saves supported Morning Brief timing in memory and confirms it with a later read", async () => {
+    const request = createDemoRequester();
+    const path = "watchers/bursawatch-dc-morning-brief/config";
+    const initial = await request<ControlConfigSnapshot>(path);
+    expect(initial.config).toMatchObject({
+      timezone: "Asia/Jakarta",
+      cutoff_time: "07:30",
+      delivery_time: "08:00",
+      destination_channel_id: null,
+      instruments: ["SPY", "EIDO", "USDIDR"],
+      logos: {},
+    });
+    const config = { ...initial.config, delivery_time: "08:15" };
+
+    const saved = await request<ControlConfigSnapshot>(path, {
+      expectedRevision: initial.revision,
+      config_version: initial.config_version,
+      config,
+    });
+    const confirmed = await request<ControlConfigSnapshot>(path);
+
+    expect(saved.revision).toBe(initial.revision + 1);
+    expect(confirmed).toEqual(saved);
+    expect(confirmed.config.delivery_time).toBe("08:15");
+  });
+
+  it("rejects unsupported Morning Brief values without changing the sample revision", async () => {
+    const request = createDemoRequester();
+    const path = "watchers/bursawatch-dc-morning-brief/config";
+    const initial = await request<ControlConfigSnapshot>(path);
+
+    await expect(
+      request(path, {
+        expectedRevision: initial.revision,
+        config_version: initial.config_version,
+        config: { ...initial.config, delivery_time: "25:60" },
+      }),
+    ).rejects.toMatchObject({ code: "validation" });
+    await expect(request<ControlConfigSnapshot>(path)).resolves.toMatchObject({
+      revision: initial.revision,
+      config: { delivery_time: "08:00" },
+    });
   });
 
   it("saves a supported watcher edit in memory and confirms it with a later read", async () => {

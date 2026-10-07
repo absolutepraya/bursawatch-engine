@@ -151,6 +151,17 @@ function initialConfigs(): Record<string, Record<string, unknown>> {
       },
       additional_prompt_instruction: "",
     },
+    "bursawatch-dc-morning-brief": {
+      version: 1,
+      timezone: "Asia/Jakarta",
+      cutoff_time: "07:30",
+      delivery_time: "08:00",
+      fallback_minutes: 5,
+      retry_minutes: 15,
+      destination_channel_id: null,
+      instruments: ["SPY", "EIDO", "USDIDR"],
+      logos: {},
+    },
   };
 }
 
@@ -259,7 +270,7 @@ const operatorJobs: OperatorJob[] = [
     job_id: "sample-morning-brief-job",
     can_edit: false,
     watcher_id: null,
-    component_ids: ["bursawatch-tg-market-news"],
+    component_ids: ["bursawatch-dc-morning-brief"],
     display_name: "Bursawatch Pagi example",
     runtime_job_key: "sample.morning-brief",
     schedule_kind: "fixed",
