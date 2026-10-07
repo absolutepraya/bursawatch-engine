@@ -10,7 +10,7 @@ class Config:
     store_path: Path
     caller: str
     billing_window: str
-    caller_limit: int
+    caller_limit: int | None = None
     host_limit: int = 1000
     api_key: str = field(default='', repr=False)
     cache_only: bool = True
@@ -29,6 +29,9 @@ class Config:
         for value in (self.caller, self.billing_window):
             if not re.fullmatch(r'[A-Za-z0-9_.:-]{1,100}', value):
                 raise ValidationError('invalid coordination identity')
+        if self.caller_limit is None:
+            # No caller cap: only the shared host ceiling applies.
+            object.__setattr__(self, 'caller_limit', self.host_limit)
         for value in (self.caller_limit, self.host_limit, self.max_bytes, self.max_attempts):
             if type(value) is not int or value <= 0:
                 raise ValidationError('invalid positive limit')

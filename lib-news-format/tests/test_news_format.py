@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from types import SimpleNamespace
 import sys
 
@@ -323,19 +323,42 @@ def test_get_company_context_survives_either_provider_missing(monkeypatch):
     assert news.get_company_context('AADI') is None
 
 
-def test_sectors_fetch_requires_key_and_sends_authorization(monkeypatch):
-    monkeypatch.delenv('SECTORS_API_KEY', raising=False)
+def sectors_client_for(tmp_path, transport):
+    news._sectors_library()
+    import sectors_client as sc
+    config = sc.Config(store_path=tmp_path / 'cache.sqlite3', caller='news-context', billing_window='2026-10', cache_only=False, api_key='fake')
+    return sc.SectorsClient(config, transport=transport)
+
+
+class FakeTransport:
+    def __init__(self, *payloads):
+        self.payloads, self.requests = list(payloads), []
+    def get(self, identity):
+        self.requests.append(identity)
+        return self.payloads.pop(0)
+
+
+def test_sectors_fetch_uses_shared_client_with_weekly_generation_and_cache(monkeypatch, tmp_path):
+    report = {'symbol': 'AADI.JK', 'overview': OVERVIEW, 'future': {'analyst_rating_breakdown': RATING}}
+    transport = FakeTransport(report, {**report, 'overview': {'sector': 'Next week'}})
+    monkeypatch.setattr(news, '_sectors_client', lambda now: sectors_client_for(tmp_path, transport))
+    assert news._fetch_sectors('AADI', 'id_stocks_news') == {'overview': OVERVIEW, 'rating': RATING}
+    assert news._fetch_sectors('AADI', 'id_stocks_news')['overview'] == OVERVIEW
+    assert len(transport.requests) == 1
+    assert transport.requests[0].url.startswith('https://api.sectors.app/v2/company/report/AADI/?sections=future')
+    assert transport.requests[0].generation.startswith('news-context:')
+    # A later ISO week is a new caller-owned generation and a separately budgeted fetch.
+    class Later(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2099, 1, 5, tzinfo=timezone.utc)
+    monkeypatch.setattr(news, 'datetime', Later)
+    news._fetch_sectors('AADI', 'id_stocks_news')
+    assert len(transport.requests) == 2
+
+
+def test_sectors_lines_are_skipped_without_library_or_key_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(news, '_sectors_library', lambda: None)
     assert news._fetch_sectors('AADI', 'id_stocks_news') is None
-    monkeypatch.setenv('SECTORS_API_KEY', 'secret')
-    seen = {}
-    payload = b'{"overview":{"sector":"Energy"},"future":{"analyst_rating_breakdown":{"buy":1}}}'
-    class Response:
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-        def read(self): return payload
-    def fake_open(request, timeout):
-        seen.update(ua=request.get_header('User-agent'), url=request.full_url, auth=request.get_header('Authorization'), timeout=timeout)
-        return Response()
-    monkeypatch.setattr(news.urllib.request, 'urlopen', fake_open)
-    assert news._fetch_sectors('AADI', 'id_stocks_news') == {'overview': {'sector': 'Energy'}, 'rating': {'buy': 1}}
-    assert seen['ua'] and seen['auth'] == 'secret' and seen['timeout'] == 3 and 'sections=overview,future' in seen['url']
+    monkeypatch.setattr(news, '_sectors_library', lambda: tmp_path)
+    assert news._fetch_sectors('AADI', 'id_stocks_news') is None

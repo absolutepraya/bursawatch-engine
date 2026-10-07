@@ -356,3 +356,21 @@ def test_generation_cache_cutoffs_and_uncertain_reservations_are_isolated(tmp_pa
     assert a.get(first,cutoff=NOW+timedelta(days=7),max_cost=1).payload['results'][0]['market_cap']==100
     assert a.get(next_week,cutoff=NOW+timedelta(days=7),max_cost=1).payload['results'][0]['market_cap']==110
     assert a.store.usage('oct','morning')['host_reserved']==3
+
+
+def report_identity(generation=None):
+    return sc.RequestIdentity('/v2/company/report/AADI/', {'sections': 'overview,future'}, generation=generation)
+
+
+def test_company_report_is_cached_per_generation_and_checks_symbol(tmp_path):
+    fake = Fake([{'symbol': 'AADI.JK', 'overview': {}}, {'symbol': 'AADI.JK', 'overview': {'week': 2}}, {'symbol': 'BBCA.JK'}])
+    c = client(tmp_path, fake, caller_limit=None)
+    later = NOW + timedelta(minutes=1)
+    assert c.get(report_identity('w1'), cutoff=later, max_cost=2).payload['overview'] == {}
+    assert c.get(report_identity('w1'), cutoff=later, max_cost=2).payload['overview'] == {}
+    assert len(fake.requests) == 1
+    assert c.get(report_identity('w2'), cutoff=later, max_cost=2).payload['overview'] == {'week': 2}
+    assert len(fake.requests) == 2
+    with pytest.raises(sc.ValidationError):
+        c.get(report_identity('w3'), cutoff=later, max_cost=2)
+    assert c.store.usage('oct', 'morning')['host_reserved'] == 6

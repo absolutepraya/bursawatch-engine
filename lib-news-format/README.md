@@ -25,15 +25,21 @@ Indonesian issuer cards add an optional company context block after the price
 tracker: an analyst consensus (Sectors `future.analyst_rating_breakdown`, with
 `UP`, `HOLD` and `DOWN` emoji and a `DD Mon YYYY` update date) and a `Tentang`
 line made of Yahoo's `longBusinessSummary` first sentence plus Sectors sector,
-sub-industry and Indonesian-formatted market cap. `get_company_context` needs
-`SECTORS_API_KEY` in the environment, sends an explicit User-Agent (Cloudflare
-rejects urllib's default), costs two Sectors credits per ticker and WIB day
-through an in-process cache, and bounds each provider to three seconds. Either
-provider or any field may be missing; absent data drops only its own line and
-never blocks the card. Context stays inside frozen `messages`, so the card
-schema is unchanged. `freeze_cards` fetches context only when it is not given a
-custom `fetch`, or when `context_fetch` is injected. `render_card` callers pass
-`ticker` and `context` to opt in.
+sub-industry and Indonesian-formatted market cap. Sectors data goes through
+`lib-sectors`, never direct HTTP: one `sections=overview,future` company report
+per ticker, costing 2 credits, under caller `news-context` with no caller cap, so
+only the shared host ceiling applies. The seven-day cache is the caller-owned
+ISO-week generation `news-context:<year>-W<week>`: the shared store never
+refetches an identity, and a new week is a new, separately budgeted fetch. The
+client reads `SECTORS_API_KEY` from `lib-sectors/.env` beside this checkout or at
+`~/.agents/skills/lib-sectors/.env`, and shares `~/.hermes/state/sectors-client.sqlite3`
+with a WIB-month billing window. Without the library, key file, budget or
+provider data, only the Sectors lines disappear. Yahoo and each field are also
+optional, absent data drops only its own line, and nothing blocks the card.
+Context stays inside frozen `messages`, so the card schema is unchanged.
+`freeze_cards` fetches context only when it is not given a custom `fetch`, or when
+`context_fetch` is injected. Direct `render_card` callers pass `ticker` and
+`context` to opt in.
 
 `freeze_cards` records each accepted item's exact messages, source owner
 selected destination, ticker and quote timestamp. Owners persist this bundle

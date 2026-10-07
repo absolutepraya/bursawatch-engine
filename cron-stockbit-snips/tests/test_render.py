@@ -48,3 +48,12 @@ def test_macro_article_omits_market_card() -> None:
 
     assert "Harga terakhir" not in content
     assert "<:grey:1531279158913536182>" not in content
+
+
+
+def test_company_context_is_between_prices_and_source_for_idr_cards_only() -> None:
+    context = {"rating": {"buy": 5, "hold": 0, "sell": 0, "strong_buy": 0, "strong_sell": 0, "updated_on": "2026-09-02"},
+               "business_summary": "Health products maker.", "overview": {"sector": "Healthcare"}}
+    content = render(article(), analysis(), None, context=context)
+    assert content.index("Harga terakhir") < content.index("Konsensus analis") < content.index("Tentang SWAP:") < content.index("[View on Stockbit]")
+    assert "Konsensus" not in render(article(), analysis(Route.MACRO_NEWS), None, context=context)

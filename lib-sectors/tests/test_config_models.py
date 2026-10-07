@@ -66,3 +66,23 @@ def test_generation_changes_only_local_identity_and_preserves_default_keys():
     for value in ('','a'*101,'generation with spaces','../../other','secret\nvalue',3,False):
         with pytest.raises(ValidationError):
             RequestIdentity('/v2/companies/',generation=value)
+
+
+def test_caller_limit_is_optional_and_defaults_to_the_host_ceiling(tmp_path):
+    config = Config(store_path=tmp_path / 'cache.sqlite3', caller='news', billing_window='2026-10')
+    assert config.caller_limit == config.host_limit == 1000
+    assert Config(store_path=tmp_path / 'cache.sqlite3', caller='news', billing_window='2026-10', host_limit=300).caller_limit == 300
+    with pytest.raises(ValidationError):
+        Config(store_path=tmp_path / 'cache.sqlite3', caller='news', billing_window='2026-10', caller_limit=0)
+
+
+def test_company_report_identity_requires_canonical_known_sections():
+    a = RequestIdentity('/v2/company/report/AADI/', {'sections': 'overview,future'})
+    b = RequestIdentity('/v2/company/report/AADI/', {'sections': 'future,overview'})
+    assert a.key == b.key and a.url.startswith('https://api.sectors.app/v2/company/report/AADI/?sections=future')
+    for path, query in [('/v2/company/report/AADI/', {}), ('/v2/company/report/AADI/', {'sections': 'bogus'}),
+                        ('/v2/company/report/AADI/', {'sections': 'overview,overview'}), ('/v2/company/report/AADI/', {'sections': ''}),
+                        ('/v2/company/report/aadi/', {'sections': 'overview'}), ('/v2/company/report/AADI.JK/', {'sections': 'overview'}),
+                        ('/v2/close/', {'date': '2026-10-02', 'sections': 'overview'})]:
+        with pytest.raises(ValidationError):
+            RequestIdentity(path, query)

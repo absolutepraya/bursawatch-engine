@@ -6,13 +6,12 @@ This module never submits messages or decides whether a source is news.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
-import json
 import math
-import os
 import re
-import urllib.request
+import sys
 import threading
 import time
 
@@ -228,7 +227,9 @@ def market_block(snapshot, currency: str = "IDR") -> str:
 _CONTEXT_SLOTS = threading.BoundedSemaphore(4)
 _CONTEXT_CACHE: dict = {}
 _CONTEXT_LOCK = threading.Lock()
-SECTORS_REPORT_URL = "https://api.sectors.app/v2/company/report/{symbol}/?sections=overview,future"
+SECTORS_STORE_PATH = Path.home() / ".hermes" / "state" / "sectors-client.sqlite3"
+SECTORS_CALLER = "news-context"
+SECTORS_REPORT_COST = 2
 _RATING_LEVELS = (("strong_buy", "Strong Buy", UP), ("buy", "Buy", UP), ("hold", "Hold", HOLD),
                   ("sell", "Sell", DOWN), ("strong_sell", "Strong Sell", DOWN))
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
@@ -236,14 +237,44 @@ _NON_TERMINAL = {"tbk", "pt", "inc", "ltd", "co", "corp", "persero", "no", "st"}
 MAX_ABOUT_SENTENCE = 300
 
 
-def _fetch_sectors(ticker: str, route: str) -> dict | None:
-    """Optional Sectors analyst consensus and overview. Every failure is a missing field."""
-    key = os.environ.get("SECTORS_API_KEY")
-    if not key:
+def _sectors_library():
+    """Locate lib-sectors beside this checkout or in the installed runtime. Absent means no Sectors lines."""
+    here = Path(__file__).resolve()
+    for base in (here.parents[2] / "lib-sectors", Path.home() / ".agents" / "skills" / "lib-sectors"):
+        if (base / "bin" / "sectors_client").is_dir():
+            if str(base / "bin") not in sys.path:
+                sys.path.append(str(base / "bin"))
+            return base
+    return None
+
+
+def _sectors_client(now: datetime):
+    base = _sectors_library()
+    if base is None or not (base / ".env").is_file():
         return None
-    request = urllib.request.Request(SECTORS_REPORT_URL.format(symbol=ticker), headers={"Authorization": key, "User-Agent": "bursawatch-news-format/1", "Accept": "application/json"})
-    with urllib.request.urlopen(request, timeout=3) as response:
-        report = json.loads(response.read())
+    from sectors_client import Config, SectorsClient
+    window = now.astimezone(ZoneInfo("Asia/Jakarta")).strftime("%Y-%m")
+    config = Config.from_env_file(base / ".env", store_path=SECTORS_STORE_PATH, caller=SECTORS_CALLER,
+                                  billing_window=window, cache_only=False, timeout_seconds=3, wait_seconds=1)
+    return SectorsClient(config)
+
+
+def _fetch_sectors(ticker: str, route: str) -> dict | None:
+    """Optional Sectors analyst consensus and overview through the shared coordinated client.
+
+    One report identity per ticker and ISO week gives the seven-day cache: the shared store
+    never refetches an identity, and a new week is a new caller-owned generation.
+    """
+    now = datetime.now(timezone.utc)
+    client = _sectors_client(now)
+    if client is None:
+        return None
+    from sectors_client import RequestIdentity
+    week = now.astimezone(ZoneInfo("Asia/Jakarta")).isocalendar()
+    identity = RequestIdentity(f"/v2/company/report/{ticker}/", {"sections": "overview,future"},
+                               generation=f"news-context:{week[0]}-W{week[1]:02d}")
+    # The cutoff is "visible now": a response fetched during this call must be readable by it.
+    report = client.get(identity, cutoff=now + timedelta(minutes=1), max_cost=SECTORS_REPORT_COST).payload
     overview = report.get("overview") if isinstance(report, Mapping) else None
     future = report.get("future") if isinstance(report, Mapping) else None
     rating = future.get("analyst_rating_breakdown") if isinstance(future, Mapping) else None

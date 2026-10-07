@@ -54,12 +54,12 @@ def _market_block(snapshot: MarketSnapshot | None) -> str:
     )
 
 
-def render(article: Article, analysis: Analysis, snapshot: MarketSnapshot | None = None) -> str:
+def render(article: Article, analysis: Analysis, snapshot: MarketSnapshot | None = None, context: dict | None = None) -> str:
     if analysis.route is Route.EXCLUDE:
         raise ValueError("excluded Stockbit article cannot be rendered")
     if not analysis.title or not analysis.summary:
         raise ValueError("Stockbit analysis title and summary are required")
-    messages = news_format.render_card(f"### {STOCKBIT_EMOJI} {analysis.title}\n-# Stockbit", analysis.summary, article.url, "Stockbit", route=analysis.route.value, snapshot=snapshot)
+    messages = news_format.render_card(f"### {STOCKBIT_EMOJI} {analysis.title}\n-# Stockbit", analysis.summary, article.url, "Stockbit", route=analysis.route.value, snapshot=snapshot, ticker=analysis.ticker, context=context)
     result = "\n\n".join(messages)
     if news_format.discord_length(result) > DISCORD_LIMIT:
         raise ValueError("Stockbit Discord content exceeds 2,000 characters")

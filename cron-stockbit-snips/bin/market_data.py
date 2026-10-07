@@ -48,3 +48,11 @@ def get_market_snapshot(ticker: str) -> MarketSnapshot | None:
     if snapshot is None:
         return None
     return MarketSnapshot(**{key: snapshot[key] for key in MarketSnapshot.__dataclass_fields__})
+
+
+def get_company_context(ticker: str, route: str):
+    """Optional analyst and company context; any provider failure leaves the card unchanged."""
+    try:
+        return news_format.get_company_context(ticker, route)
+    except Exception:
+        return None

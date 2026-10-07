@@ -6,6 +6,7 @@ import re
 from urllib.parse import urlencode
 
 ORIGIN = 'https://api.sectors.app'
+REPORT_SECTIONS = frozenset({'overview', 'valuation', 'future', 'peers', 'financials', 'dividend', 'management', 'ownership'})
 
 
 class SectorsError(Exception):
@@ -86,11 +87,12 @@ class RequestIdentity:
         patterns = [r'/v2/close/', r'/v2/companies/', r'/v2/company/screener/',
                     r'/v2/stock-screener/', r'/v2/index-daily/ihsg/', r'/v2/corporate-actions/',
                     r'/v2/daily/[A-Z][A-Z0-9]{0,11}/',
-                    r'/v2/company/corporate-actions/[A-Z][A-Z0-9]{0,11}/']
+                    r'/v2/company/corporate-actions/[A-Z][A-Z0-9]{0,11}/',
+                    r'/v2/company/report/[A-Z]{4}/']
         if not isinstance(path, str) or not any(re.fullmatch(p, path) for p in patterns):
             raise ValidationError('unsupported provider path')
         q = dict(query or {})
-        if set(q) - {'date','start','end','offset','limit','sector','sub_sector','min_market_cap','max_market_cap','filter','where','order_by','include_query_values','type'}:
+        if set(q) - {'date','start','end','offset','limit','sector','sub_sector','min_market_cap','max_market_cap','filter','where','order_by','include_query_values','type','sections'}:
             raise ValidationError('unsupported query field')
         for name in ('date', 'start', 'end'):
             if name in q:
@@ -104,6 +106,16 @@ class RequestIdentity:
             if type(q['include_query_values']) is not bool:
                 raise ValidationError('invalid query-values flag')
             q['include_query_values'] = 'true' if q['include_query_values'] else 'false'
+        if 'sections' in q:
+            if not path.startswith('/v2/company/report/') or not isinstance(q['sections'], str):
+                raise ValidationError('sections apply only to company reports')
+            names = q['sections'].split(',')
+            if not names or len(set(names)) != len(names) or set(names) - REPORT_SECTIONS:
+                raise ValidationError('invalid company report sections')
+            # Canonical order keeps equivalent section sets on one cache identity.
+            q['sections'] = ','.join(sorted(names))
+        elif path.startswith('/v2/company/report/'):
+            raise ValidationError('company report requires explicit sections')
         if path == '/v2/corporate-actions/':
             if q.get('type') != 'stock_split' or 'start' not in q or 'end' not in q:
                 raise ValidationError('split calendar requires explicit type and date range')
