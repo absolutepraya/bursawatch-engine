@@ -10,13 +10,31 @@ export function XDeliveryStatus({
   runs,
   loading,
   unavailable,
+  basePath = "/workspace",
+  sampleMode = false,
 }: {
   snapshot: ControlConfigSnapshot;
   jobs: ControlJob[];
   runs: ControlRun[];
   loading: boolean;
   unavailable: boolean;
+  basePath?: string;
+  sampleMode?: boolean;
 }) {
+  if (sampleMode)
+    return (
+      <section className="x-delivery-check" aria-labelledby="x-delivery-title">
+        <div className="x-delivery-heading">
+          <Info size={18} aria-hidden="true" />
+          <h2 id="x-delivery-title">X to Discord checks</h2>
+        </div>
+        <p>
+          This is a sample X profile configuration. It does not poll X, run a watcher, or deliver to
+          Discord.
+        </p>
+        <Link href={`${basePath}/jobs`}>Review sample Jobs</Link>
+      </section>
+    );
   const state = xDeliveryStatus(snapshot.revision, jobs, runs);
   const latest = state.latestSourceRun;
   return (
@@ -89,15 +107,15 @@ export function XDeliveryStatus({
         </p>
       </details>
       <div className="x-delivery-links">
-        <Link href="/workspace/jobs">
+        <Link href={`${basePath}/jobs`}>
           Review Jobs <ArrowUpRight size={15} aria-hidden="true" />
         </Link>
         {latest ? (
-          <Link href={`/workspace/history?run=${encodeURIComponent(latest.run_id)}`}>
+          <Link href={`${basePath}/history?run=${encodeURIComponent(latest.run_id)}`}>
             Inspect source run <ArrowUpRight size={15} aria-hidden="true" />
           </Link>
         ) : (
-          <Link href="/workspace/history">
+          <Link href={`${basePath}/history`}>
             Open run history <ArrowUpRight size={15} aria-hidden="true" />
           </Link>
         )}

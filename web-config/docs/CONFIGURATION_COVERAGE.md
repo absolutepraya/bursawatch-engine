@@ -21,14 +21,14 @@ strict empty object because no typed consumer has been approved. Catalog enable
 intent does not override endpoint verification, adapter binding, or the owner's
 enabled profile gate.
 
-The workspace exposes eight watcher editors. Seven originate from the
+The workspace exposes nine watcher editors. Seven originate from the
 `absolutepraya/bursawatch` control-plane commit
 `25079b3465a97de132ed977ffec3ce3a488a867a`. The additional optional X
 `show_quoted_post` field follows main commit
 `103a4856901c51f145851af8768506124f83c174`.
 Review at `f426e24f447961d1371638735ccc6e3a060ef43e` on 22 September 2026
 corrected an earlier missed WhatsApp v2 schema change. The WhatsApp editor now
-accepts version 2 only; the other seven editors accept version 1. The unified
+accepts version 2 only; the other eight editors accept version 1. The unified
 workspace exposes the configuration fields below with input, processing and
 output summaries. The follow-up engine review at `a343ec4d` also connects the
 separate profile/avatar endpoints through an on-demand Source profiles panel.
@@ -38,6 +38,11 @@ state are bundled in these forms or their tests.
 
 Stockbit Snips is the eighth editor, added under its version 1 control-plane
 contract. It appears only when the authenticated API lists that watcher.
+
+Morning Brief is the ninth editor. Its version 1 settings cover the WIB data
+cutoff and delivery target, fallback and retry windows, nullable Discord
+destination, supported market instruments and instrument emojis. Saving applies
+to the next unfrozen session and does not activate or schedule a job.
 
 ## Account and channel watchers
 
@@ -148,7 +153,7 @@ the bounds returned for its job; its initial desired cadence is 15 minutes.
 `src/lib/operator-control-coverage.ts` is the machine-readable inventory used by
 the focused coverage tests. It records each JSON field path (with `[]` for
 repeated rows), editor, validation boundary, API, migrated consumer, and effect
-limit. It includes Source Catalog defaults and overrides, all eight watcher
+limit. It includes Source Catalog defaults and overrides, all nine watcher
 editors, interval job `enabled` and `interval_seconds`, and the read-only
 Phintraco/GTW legacy Telegram fields. Profile coverage includes shared identity,
 route, media, processing, prompt and poll-limit fields plus platform-specific X,

@@ -93,6 +93,23 @@ describe("private in-memory workspace drafts", () => {
     expect(readWorkspaceDraft("config:watcher-a")).toBeNull();
   });
 
+  it("isolates sample drafts from authenticated drafts with the same key", () => {
+    const realDraft = config();
+    const sampleDraft = {
+      base: { revision: 1, config: { profiles: [{ name: "Sample source" }] } },
+      draft: { profiles: [{ name: "Edited sample source" }] },
+    };
+    retainWorkspaceDraft("config:watcher-a", realDraft, true);
+    retainWorkspaceDraft("config:watcher-a", sampleDraft, true, null, "sample");
+
+    expect(readWorkspaceDraft("config:watcher-a")).toEqual(realDraft);
+    expect(readWorkspaceDraft("config:watcher-a", "sample")).toEqual(sampleDraft);
+
+    discardWorkspaceDraft("config:watcher-a", null, "sample");
+    expect(readWorkspaceDraft("config:watcher-a")).toEqual(realDraft);
+    expect(readWorkspaceDraft("config:watcher-a", "sample")).toBeNull();
+  });
+
   it("rejects late writes and clears from an editor belonging to an earlier account", () => {
     const oldOwner = getDraftOwner();
     setDraftOwner("operator-b");

@@ -2,6 +2,7 @@
  * They never survive a reload, sign-out, or a change of signed-in user.
  */
 export type WorkspaceDraftKey = `config:${string}` | `schedule:${string}` | "source-catalog";
+export type WorkspaceDraftScope = "workspace" | "sample";
 
 export type WorkspaceDraft<Base, Draft> = {
   base: Base;
@@ -12,6 +13,11 @@ export type WorkspaceDraft<Base, Draft> = {
 
 let draftOwner: string | null = null;
 const drafts = new Map<WorkspaceDraftKey, WorkspaceDraft<unknown, unknown>>();
+const sampleDrafts = new Map<WorkspaceDraftKey, WorkspaceDraft<unknown, unknown>>();
+
+function draftStore(scope: WorkspaceDraftScope) {
+  return scope === "sample" ? sampleDrafts : drafts;
+}
 
 export function getDraftOwner(): string | null {
   return typeof window === "undefined" ? null : draftOwner;
@@ -19,6 +25,7 @@ export function getDraftOwner(): string | null {
 
 export function clearWorkspaceDrafts(): void {
   drafts.clear();
+  sampleDrafts.clear();
 }
 
 export function hasWorkspaceDrafts(): boolean {
@@ -34,16 +41,18 @@ export function setDraftOwner(userId: string | null): void {
 export function discardWorkspaceDraft(
   key: WorkspaceDraftKey,
   owner: string | null = getDraftOwner(),
+  scope: WorkspaceDraftScope = "workspace",
 ): void {
-  if (owner !== getDraftOwner()) return;
-  drafts.delete(key);
+  if (scope === "workspace" && owner !== getDraftOwner()) return;
+  draftStore(scope).delete(key);
 }
 
 export function readWorkspaceDraft<Base, Draft>(
   key: WorkspaceDraftKey,
+  scope: WorkspaceDraftScope = "workspace",
 ): WorkspaceDraft<Base, Draft> | null {
-  if (!getDraftOwner()) return null;
-  const entry = drafts.get(key);
+  if (scope === "workspace" && !getDraftOwner()) return null;
+  const entry = draftStore(scope).get(key);
   return entry ? (structuredClone(entry) as WorkspaceDraft<Base, Draft>) : null;
 }
 
@@ -55,8 +64,10 @@ export function retainWorkspaceDraft<Base, Draft>(
   entry: WorkspaceDraft<Base, Draft>,
   dirty: boolean,
   owner: string | null = getDraftOwner(),
+  scope: WorkspaceDraftScope = "workspace",
 ): void {
-  if (!owner || owner !== getDraftOwner()) return;
-  if (dirty) drafts.set(key, structuredClone(entry));
-  else drafts.delete(key);
+  if (scope === "workspace" && (!owner || owner !== getDraftOwner())) return;
+  const store = draftStore(scope);
+  if (dirty) store.set(key, structuredClone(entry));
+  else store.delete(key);
 }

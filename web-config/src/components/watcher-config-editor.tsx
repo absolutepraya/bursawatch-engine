@@ -22,6 +22,7 @@ import {
   getDraftOwner,
   readWorkspaceDraft,
   retainWorkspaceDraft,
+  type WorkspaceDraftScope,
   type WorkspaceDraftKey,
 } from "@/lib/workspace-drafts";
 import {
@@ -846,15 +847,18 @@ export function WatcherConfigEditor({
   snapshot,
   onSave,
   onDirtyChange,
+  sampleMode = false,
 }: {
   snapshot: ConfigSnapshot;
   onSave: (config: Record<string, unknown>) => Promise<ConfigSnapshot>;
   onDirtyChange?: (dirty: boolean) => void;
+  sampleMode?: boolean;
 }) {
+  const draftScope: WorkspaceDraftScope = sampleMode ? "sample" : "workspace";
   const draftKey: WorkspaceDraftKey = `config:${snapshot.watcher_id}`;
   const [draftOwner] = useState(getDraftOwner);
   const [restored] = useState(() =>
-    readWorkspaceDraft<ConfigSnapshot, Record<string, unknown>>(draftKey),
+    readWorkspaceDraft<ConfigSnapshot, Record<string, unknown>>(draftKey, draftScope),
   );
   const restoredConflict = Boolean(restored && restored.base.revision !== snapshot.revision);
   const [saved, setSaved] = useState(restored?.base ?? snapshot);
@@ -907,8 +911,9 @@ export function WatcherConfigEditor({
       },
       dirty,
       draftOwner,
+      draftScope,
     );
-  }, [draftKey, draftOwner, saved, draft, blocked, saving, failure, dirty]);
+  }, [draftKey, draftOwner, draftScope, saved, draft, blocked, saving, failure, dirty]);
   useEffect(() => {
     onDirtyChange?.(dirty || saving);
     return () => onDirtyChange?.(false);
@@ -988,12 +993,20 @@ export function WatcherConfigEditor({
     setSaving(true);
     try {
       const result = await onSave(structuredClone(draft));
-      discardWorkspaceDraft(draftKey, draftOwner);
+      discardWorkspaceDraft(draftKey, draftOwner, draftScope);
       setSaved(result);
       setDraft(structuredClone(result.config));
       setRestoredNotice(false);
-      setSavedNotice(`Configuration saved as revision ${result.revision}.`);
-      toast("Watcher configuration saved.");
+      setSavedNotice(
+        sampleMode
+          ? `Sample configuration saved as revision ${result.revision}.`
+          : `Configuration saved as revision ${result.revision}.`,
+      );
+      toast(
+        sampleMode
+          ? "Sample configuration saved for this session."
+          : "Watcher configuration saved.",
+      );
     } catch (error) {
       const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
       const fields = error && typeof error === "object" && "fields" in error ? error.fields : [];
@@ -1231,8 +1244,12 @@ export function WatcherConfigEditor({
                 {saving
                   ? "Saving configuration…"
                   : dirty
-                    ? `${changes} unsaved ${changes === 1 ? "change" : "changes"}. Save for the watcher’s next check.`
-                    : "Saved settings do not confirm a source check or message delivery."}
+                    ? sampleMode
+                      ? `${changes} unsaved ${changes === 1 ? "change" : "changes"}. Save sample settings to this visit’s in-memory workspace.`
+                      : `${changes} unsaved ${changes === 1 ? "change" : "changes"}. Save for the watcher’s next check.`
+                    : sampleMode
+                      ? "Sample settings do not change a real watcher or send a message."
+                      : "Saved settings do not confirm a source check or message delivery."}
               </p>
               <div>
                 <button
@@ -1241,7 +1258,7 @@ export function WatcherConfigEditor({
                   disabled={!dirty || saving || blocked}
                   onClick={() => {
                     if (window.confirm("Discard your unsaved changes?")) {
-                      discardWorkspaceDraft(draftKey, draftOwner);
+                      discardWorkspaceDraft(draftKey, draftOwner, draftScope);
                       setDraft(structuredClone(saved.config));
                       setRestoredNotice(false);
                       setErrors({});

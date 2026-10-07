@@ -169,9 +169,9 @@ and sample browser preferences separate.
   Securities shows two-column thumbnail previews; People uses a three-column
   profile layout where space permits. Illustrative added/to-add presentation is
   not saved membership, an enabled source, a health check or database state.
-- Workflows: live catalog and eight schema-specific admin editors for X,
+- Workflows: live catalog and nine schema-specific admin editors for X,
   Instagram, WhatsApp Channels, market news, daily Phintraco swing calls,
-  GTW investment classes, the swing board and Stockbit Snips. Each supported workflow explains
+  GTW investment classes, the swing board, Stockbit Snips and Morning Brief. Each supported workflow explains
   its input, processing and output. All existing editor fields remain available;
   unknown keys are preserved when a known field changes. No private config is
   bundled as defaults. Each selected workflow links to its related jobs and
@@ -240,8 +240,12 @@ Private admin config stays in the signed-in session's memory, not public
 fixtures or persistent browser storage. Unsaved drafts survive same-document
 Back/Forward; they clear on sign-out, identity change or page reload. Returning
 to a draft based on an older server revision blocks saving until review.
-`/app` is a separate sample experience;
-its local custom workflows and connection preferences are not uploaded.
+`/app` is a no-login mirror of the seven `/workspace` destinations. It uses
+synthetic in-memory fixtures through an injected request function and makes no
+request to `/api/control` or other network write. Supported configuration
+edits update the fixture and confirm with a subsequent read. Jobs and History
+remain read-only. See [EXPERIENCE.md](EXPERIENCE.md) for sample records and
+unsupported controls.
 
 Configuration GETs require admin authorization for human users. PUTs save a
 complete `{config_version, config}` object through the backend, which records

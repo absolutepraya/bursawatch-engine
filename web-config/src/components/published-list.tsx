@@ -24,6 +24,7 @@ export function PublishedList({
   onFilter,
   onMore,
   onSelect,
+  sampleMode = false,
 }: {
   items: Publication[];
   coverage: PublicationCoverage | null;
@@ -37,6 +38,7 @@ export function PublishedList({
   onFilter: (next: PublishedFilter) => void;
   onMore: () => void;
   onSelect: (publicationId: string) => void;
+  sampleMode?: boolean;
 }) {
   const boundary = coverage?.cutover?.boundary;
   const coverageProblem =
@@ -51,44 +53,50 @@ export function PublishedList({
   });
   return (
     <section className="published-feed" aria-label="Published records">
-      <div className="published-coverage" role="status">
-        <strong>
-          {coverageLoading
-            ? "Loading publisher coverage…"
-            : !coverage || coverageError
-              ? "Publisher coverage unavailable"
-              : boundary
-                ? `Published since ${dateTime(boundary)}`
-                : "Publication feed not started"}
-        </strong>
-        <p>
-          {coverageProblem
-            ? "Coverage is incomplete or unverified. A missing item does not prove nothing was published."
-            : "All required publishers reported a current comparison. Coverage ends at each publisher's last check."}
+      {sampleMode ? (
+        <p className="published-coverage" role="note">
+          Sample records only. No live publisher coverage or delivery is checked here.
         </p>
-        <p>
-          {"A confirmed record documents delivery at that time. "}
-          {"Check Discord to see whether it is still visible."}
-        </p>
-        {coverage?.owners.length ? (
-          <details>
-            <summary>Publisher coverage</summary>
-            <ul>
-              {coverage.owners.map((owner) => (
-                <li key={owner.owner_id}>
-                  <span>{publicationOwnerLabels[owner.owner_id]}</span>
-                  <strong>{owner.status}</strong>
-                  {owner.checkpoint ? (
-                    <time dateTime={owner.checkpoint.compared_at}>
-                      {dateTime(owner.checkpoint.compared_at)}
-                    </time>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </details>
-        ) : null}
-      </div>
+      ) : (
+        <div className="published-coverage" role="status">
+          <strong>
+            {coverageLoading
+              ? "Loading publisher coverage…"
+              : !coverage || coverageError
+                ? "Publisher coverage unavailable"
+                : boundary
+                  ? `Published since ${dateTime(boundary)}`
+                  : "Publication feed not started"}
+          </strong>
+          <p>
+            {coverageProblem
+              ? "Coverage is incomplete or unverified. A missing item does not prove nothing was published."
+              : "All required publishers reported a current comparison. Coverage ends at each publisher's last check."}
+          </p>
+          <p>
+            {"A confirmed record documents delivery at that time. "}
+            {"Check Discord to see whether it is still visible."}
+          </p>
+          {coverage?.owners.length ? (
+            <details>
+              <summary>Publisher coverage</summary>
+              <ul>
+                {coverage.owners.map((owner) => (
+                  <li key={owner.owner_id}>
+                    <span>{publicationOwnerLabels[owner.owner_id]}</span>
+                    <strong>{owner.status}</strong>
+                    {owner.checkpoint ? (
+                      <time dateTime={owner.checkpoint.compared_at}>
+                        {dateTime(owner.checkpoint.compared_at)}
+                      </time>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+        </div>
+      )}
       {coverageError ? (
         <div className="control-alert" role="alert">
           <p>{coverageError}</p>
@@ -162,10 +170,12 @@ export function PublishedList({
                 <span className="published-row-top">
                   <strong>{item.title}</strong>
                   <span>{publicationTypeLabels[item.type]}</span>
+                  {sampleMode ? <span className="sample-record-label">Sample record</span> : null}
                 </span>
                 <span className="published-row-meta">
-                  {publicationOwnerLabels[item.owner_id]} · {item.ticker ?? item.source_name} ·
-                  Delivered {dateTime(item.delivery_confirmed_at)}
+                  {sampleMode ? "Public example · " : ""}
+                  {publicationOwnerLabels[item.owner_id]} · {item.ticker ?? item.source_name}
+                  {sampleMode ? "" : ` · Delivered ${dateTime(item.delivery_confirmed_at)}`}
                 </span>
               </button>
             </li>
@@ -177,7 +187,11 @@ export function PublishedList({
           {loading ? "Loading…" : "Load more"}
         </button>
       ) : null}
-      {loading && shown.length === 0 ? <p role="status">Loading confirmed publications…</p> : null}
+      {loading && shown.length === 0 ? (
+        <p role="status">
+          {sampleMode ? "Loading sample records…" : "Loading confirmed publications…"}
+        </p>
+      ) : null}
     </section>
   );
 }

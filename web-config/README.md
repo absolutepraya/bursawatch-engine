@@ -29,12 +29,14 @@ backend is required by this proxy design.
 ## Authenticated workspace
 
 - **Overview**: recorded activity chart/table, reconciliation and recent runs.
-- **Sources**: Securities and People reference tabs with illustrated previews.
-  Preview status does not imply a saved or enabled source; configuration links
-  require a matching watcher returned by the authenticated API.
-- **Workflows**: eight schema-specific watcher editors for authorized admins.
-  Each workflow detail also contains its job schedules: API-bounded intervals,
-  pending/effective state and fixed jobs. Config and schedule saves are separate.
+- **Sources**: Securities, Institutions and People & Org with public references
+  and catalog settings. Configuration links require a matching watcher returned
+  by the authenticated API.
+- **Workflows**: nine schema-specific watcher editors for authorized admins.
+  Morning Brief timing and content settings are saved separately from job
+  activation and cadence in Jobs.
+- **Jobs**: shared schedules, pending/effective state and fixed jobs. Config and
+  schedule saves are separate.
 - **History**: actual returned run metadata and event timelines.
 - **Account**: signed-in identity, UUID sharing and sign-out.
 
@@ -45,25 +47,15 @@ Uncertain saves are never silently retried. Revision preflight is best effort,
 not an atomic concurrency lock. Coordinate one editor per record until the API
 supports revision preconditions. A completed scan is not proof of delivery.
 
-## Separate sample workspace (`/app`)
+## Sample workspace (`/app`)
 
-This earlier consumer concept remains available without credentials. Its
-records are fixed examples and its preferences stay local; it cannot configure
-live crons, connect providers or send messages.
-
-- **Insights**: dated runs, evidence and accessible chart/table views.
-- **Discover**: public research profiles, institutions and brokerage identity cards.
-- **Following**: owned sources and their individual settings.
-- **Workflows**: seven backend workflow descriptions, contextual source setup,
-  price-watch preferences and sample run history.
-- **Settings**: delivery preferences, bot style and integration status.
-
-Setup establishes shared interests and brief style once. Recommended sources
-can then be followed in one click, with toast feedback. Instagram has post/reel
-preferences; X has original/quote/reply/repost and thread-grouping preferences.
-Delivery forms cover WhatsApp, Telegram, Discord, Slack and email. Discord is
-supported by the reviewed backend; other outbound providers are planned. None
-is connected to this workspace yet.
+The no-login sample mirrors the seven authenticated destinations and reuses
+their workspace components. It renders synthetic in-memory records through a
+fixture-backed request function, makes no `/api/control` requests or network
+writes, and labels the sample clearly. Supported watcher and Source Catalog
+edits confirm through the same read-after-write flow as the authenticated UI.
+Jobs and History remain read-only. Legacy consumer URLs redirect to their
+closest current destination.
 
 ## Validation
 
