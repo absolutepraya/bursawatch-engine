@@ -155,6 +155,7 @@ function initialConfigs(): Record<string, Record<string, unknown>> {
       version: 1,
       timezone: "Asia/Jakarta",
       cutoff_time: "07:30",
+      delivery_days: "weekdays",
       delivery_time: "08:00",
       fallback_minutes: 5,
       retry_minutes: 15,

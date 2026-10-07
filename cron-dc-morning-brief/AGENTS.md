@@ -19,8 +19,12 @@ delivery from local tests or an installed dispatcher.
 - Use a verified, versioned IDX calendar and amendment check. Never infer sessions
   from weekdays. Revalidate calendar visibility and amendment age at the freeze.
   The explicit publication session governs cap age; the immediately preceding
-  verified session ends the closing window. Non-sessions produce a no-op
-  heartbeat under the planned runner.
+  verified session ends the closing window. Delivery days are separate operator
+  configuration: new defaults use Monday to Friday, including IDX holidays.
+  Never use publication weekdays as numerical trading sessions. Missing/stale
+  calendars omit IHSG facts, charts and rotation, without suppressing a weekday
+  factual brief. Legacy configurations without `delivery_days` retain IDX-only
+  delivery and frozen recovery semantics.
 - Freeze evidence and publication artifacts under the session's fenced lease.
   Conflicting freezes fail closed. Corrections cannot rewrite prior publications.
 - All 18 levels use aligned sessions, compatible split-adjusted returns, a fixed
@@ -71,8 +75,10 @@ delivery from local tests or an installed dispatcher.
   capture source evidence, resolve model credentials, fetch providers or post.
   `--live` is a separate required switch. Host configuration contains absolute
   paths, never credential values or replacements for database operator settings.
-  Retained input manifests require `provenance='live-retained'`, cutoff visibility,
-  and a checksum-bound verified IDX calendar. Never promote a preview manifest.
+  Retained input manifests require `provenance='live-retained'` and cutoff visibility.
+  Numerical facts require a checksum-bound verified IDX calendar. Weekday delivery
+  may use independently verified globals/agenda without that calendar; missing
+  or rejected manifests degrade to unavailable sections. Never promote preview data.
 - The writer follows the installed Hermes model/provider through its existing
   router. No separate model pin, provider fallback or SDK retry is allowed.
   A frozen writer bundle retains its original version on recovery.
@@ -115,5 +121,6 @@ delivery from local tests or an installed dispatcher.
   `--live` before cutoff uses bounded rotation chunks, then refreshes global and
   benchmark inputs in the last ten minutes. At/after cutoff or during frozen
   recovery, never run producers. Read timing from the database, not fixed cron
-  times. Missing/stale official calendars remain fatal with a safe heartbeat;
-  an installed wrapper or paused desired schedule does not prove readiness.
+  times. Missing/stale official calendars remain fatal for `idx_sessions`;
+  `weekdays` keeps global preparation and factual delivery with visible omissions.
+  An installed wrapper or paused desired schedule does not prove readiness.

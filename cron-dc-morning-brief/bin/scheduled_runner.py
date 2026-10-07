@@ -15,7 +15,7 @@ for name in ('lib-sectors','lib-chart-img','lib-yahoo-market-data','lib-bursawat
     sys.path.insert(0,str(ROOT/name/'bin'))
 
 from collect_rotation_inputs import load_references
-from morning_brief.config import OWNER
+from morning_brief.config import OWNER, load_operator_config_data, weekday_delivery
 from morning_brief.host import HostConfig, CONTROL_URL, readiness, token, production_runtime, failure_heartbeat
 from morning_brief.public_collector import collect_public
 from morning_brief.rotation_collector import collect_rotation
@@ -35,8 +35,13 @@ def main(argv=None):
         if args.check:
             from control_plane_client import fetch_config
             snapshot={'api_version':1,**asdict(fetch_config(CONTROL_URL,OWNER,token(config.config_token_file)))}
-            load_references(producer.references)
+            reference_gap=False
+            try:load_references(producer.references)
+            except (OSError,ValueError,KeyError,TypeError):
+                if not weekday_delivery(load_operator_config_data(snapshot['config'])):raise
+                reference_gap=True
             result=readiness(config,snapshot=snapshot,now=datetime.now(timezone.utc))
+            if reference_gap:result['gaps'].append('rotation_membership_references_unavailable')
             status=0 if result['ready'] else 2
         else:
             cache=Path(producer.source_cache)

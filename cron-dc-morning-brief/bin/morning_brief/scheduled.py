@@ -7,7 +7,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .calendar import aware, SessionCalendar
-from .config import load_operator_config_data, timing_for
+from .config import load_operator_config_data, timing_for, weekday_delivery
 from .host import private_file
 
 
@@ -52,16 +52,24 @@ class ScheduledRuntime:
             if checked.watcher_id!='bursawatch-dc-morning-brief':
                 raise ValueError('morning operator identity mismatch')
             settings=load_operator_config_data(checked.config);times=timing_for(session,settings)
+            if weekday_delivery(settings) and session.weekday()>=5:
+                return self.host.beat(dict(phase='no_op',reason='weekend'))
             if now>=times['cutoff']:
                 return self.host.tick(operator_snapshot=snapshot)
-            raw=private_file(self.producer.calendar_snapshot,max_bytes=512_000);reference=json.loads(raw)
-            calendar=SessionCalendar.from_file(self.producer.calendar_snapshot,expected_version=reference['version'],
-                expected_amendment=reference['amendment'],as_of=now)
-            if calendar.import_digest!=hashlib.sha256(raw).hexdigest():
-                raise ValueError('calendar changed during scheduler tick')
-            if not calendar.is_session(session):
+            try:
+                raw=private_file(self.producer.calendar_snapshot,max_bytes=512_000);reference=json.loads(raw)
+                calendar=SessionCalendar.from_file(self.producer.calendar_snapshot,expected_version=reference['version'],
+                    expected_amendment=reference['amendment'],as_of=now)
+                if calendar.import_digest!=hashlib.sha256(raw).hexdigest():
+                    raise ValueError('calendar changed during scheduler tick')
+                trading=calendar.is_session(session)
+            except (OSError,ValueError,KeyError,TypeError):
+                if not weekday_delivery(settings):raise
+                calendar=None;trading=False
+            if not trading and not weekday_delivery(settings):
                 return self.host.beat(dict(phase='no_op',reason='non_session'))
             try:
+                if not trading:raise ValueError('verified IDX publication session unavailable')
                 rotation=self.rotation(memberships=self.memberships(self.producer.references),calendar=calendar,
                     publication_session=session,cutoff=times['cutoff'],source_cache=self.producer.source_cache,now=now,
                     clock=self.clock)

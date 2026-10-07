@@ -138,3 +138,22 @@ morning cutoff, so the generated output is explicitly a visual preview, not a
 live morning manifest. The in-progress 7 October candle is excluded. Yahoo's
 null holiday placeholders are filtered by the official IDX calendar, while
 missing/null candles on required trading sessions reject the image.
+
+### Publication days: user override on 7 October
+
+The user accepts delivery every Monday to Friday, including IDX holidays, and
+prefers factual delivery with missing sections over suppressing the whole brief.
+This overrides the earlier trading-day-only publication requirement. It does
+not change the 07:30/08:00 WIB defaults or any numerical verification rules.
+The new `delivery_days` operator field supports `weekdays` and `idx_sessions`;
+existing v1 records without that field keep the old rule until explicitly edited.
+Its web control and backend validator share the existing revisioned config API.
+
+Yahoo supplies candle timestamps and native session metadata. These are retained
+from the source, not reconstructed from a weekday calendar. An unavailable IDX
+calendar removes IHSG facts, conditional outlook, charts and rotations; verified
+global rows and economic agenda can still publish. A verified IDX holiday gets
+an explicit notice. Unavailable agenda reads `Agenda terverifikasi belum tersedia.`
+Source capture uses the previous publication weekday's cutoff, respecting an
+existing run's actual freeze, while preserving the existing history/immutability
+checks. A publication weekday never becomes an inferred trading session.

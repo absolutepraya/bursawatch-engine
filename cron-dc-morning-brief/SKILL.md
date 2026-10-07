@@ -8,10 +8,11 @@ description: Receipt-gated IHSG morning brief with frozen evidence and fixed-cap
 This package implements the numerical, frozen-evidence and bounded-writer owners
 and an explicit production dispatcher. Installing it does not register or
 activate a production job. Verified input production is a separate prerequisite.
-The database-configured default freezes at 07:30 WIB on verified IDX sessions,
+The database-configured default freezes at 07:30 WIB on Monday to Friday,
 selects a facts-only fallback by 07:55 when necessary, and targets delivery at
 08:00. Preparation waits until the frozen target before any brief submission.
-A non-session is a no-op, with a heartbeat. Engineering documentation is English;
+Weekends are a no-op, with a heartbeat. IDX-only mode also skips exchange holidays.
+Engineering documentation is English;
 brief prose is concise Indonesian. Model transport, rendering and publication integration remain explicit caller
 inputs. The writer and source/calendar/quote adapters perform no network IO.
 
@@ -41,6 +42,25 @@ current ownership. Membership is imported once, with an explicit official-first
 check reference for the Sectors IDX-IC fallback, without periodic refresh.
 
 ## Authoritative calendar and caps
+
+Delivery-day selection is independent of numerical session verification.
+New operator defaults use `delivery_days='weekdays'`, Monday to Friday in WIB,
+including IDX holidays. `idx_sessions` preserves the strict trading-day rule;
+existing version-1 records without the field retain that rule until explicitly
+edited. Both are stored in the revisioned watcher configuration and editable in
+Workflows. Frozen records and already published sessions keep their old settings.
+Default cutoff and delivery times remain 07:30 and 08:00 WIB.
+
+In weekday mode, an unavailable/stale official calendar or missing input
+manifest cannot suppress factual delivery. It removes unverified IHSG facts,
+outlook direction, charts and rotations, while independently verified Yahoo
+globals and agenda remain usable. An IDX holiday gets a dated holiday notice;
+an unavailable calendar gets an explicit verification notice. Weekends emit a
+no-op heartbeat without provider collection or a new run. Source lookback uses
+the previous publication weekday's actual frozen cutoff when available, or its
+configured cutoff otherwise. This is a publication window, never an inferred
+market session or a claim of source-history completeness. Recovery keeps all
+frozen evidence, configuration, omissions and receipt operations.
 
 `SessionCalendar.from_file(path, expected_version=..., expected_amendment=...,
 as_of=...)` imports an explicitly reviewed JSON snapshot with fields:
@@ -132,7 +152,8 @@ step dependencies, including text anchors, before submission.
 `evidence.freeze_source_evidence(store, run_id, client, previous_cutoff=...,
 lease=..., now=...)` consumes `SourceEvidenceClient` from
 `lib-bursawatch-control/bin/source_evidence_client.py`. The lower bound is the
-previous verified session cutoff, including weekend/holiday lookback. It freezes
+previous publication weekday cutoff in weekday mode, or the previous verified
+session cutoff in IDX-only mode, including weekend lookback. It freezes
 `source_manifest` before any version batch read, then freezes `evidence` with the
 manifest slot digest as its dependency. Recovery keeps exact refs/hashes and
 never recaptures a changing source query. A complete saved evidence slot is
@@ -308,8 +329,8 @@ python collect_public_inputs.py --collect-public \
   --source-cache /private/morning-sources
 ```
 
-It reads operator timing and instruments from the revisioned database, selects
-the next verified session whose configured cutoff has not passed, and makes at
+It reads operator timing, delivery days and instruments from the revisioned database,
+selects the next eligible publication day whose configured cutoff has not passed, and makes at
 most fourteen fixed-origin Yahoo requests (daily and hourly for IHSG and the
 configured global instruments). There are no retries, redirects, Sectors or
 Chart-IMG requests, source captures, model calls, run-store creation or posts.
@@ -321,8 +342,11 @@ The explicit private source-cache directory coordinates HTTP and persists a
 429 cooldown across process restarts. Honor Retry-After; an absent or malformed
 value blocks new requests for 24 hours. No automatic retry occurs.
 The private content-addressed source records and manifest versions remain
-immutable; only the input-manifest pointer advances. Missing latest IHSG close
-or preparation completed after the cutoff cannot replace that pointer.
+immutable; only the input-manifest pointer advances. Preparation completed after
+the cutoff cannot replace that pointer. Missing latest IHSG close blocks the
+strict IDX-mode manifest; weekday mode can retain independently verified globals
+and agenda with empty numerical inputs. An unavailable calendar is recorded as
+`calendar=null`, without changing any price's source timestamp.
 
 `public_sources.yahoo_sessions` consumes the actual hourly response's
 `tradingPeriods` and `currentTradingPeriod.regular`, with strict identity,
@@ -617,7 +641,11 @@ New Yahoo chart contexts use the provider/profile/daily/sessions/cutoff shape
 described above instead of request/verification. The dispatcher renders them
 from frozen data without a provider store. It is never fetched by the
 dispatcher. Missing optional images remain explicit
-omissions; missing authoritative session input cannot be repaired by weekdays.
+omissions; missing authoritative numerical sessions cannot be repaired by weekdays.
+Weekday mode accepts a calendar gap only for independently verified sections,
+and discards numerical/chart inputs when its calendar cannot be verified.
+Readiness reports these optional gaps while checking destination, credentials
+and the installed Hermes runtime. It does not imply full data coverage.
 
 The dispatcher never performs producer HTTP requests or
 authorizes paid historical initialization. The separate bounded Yahoo producer supplies 18-session closing data,
@@ -647,8 +675,11 @@ manifest, including eligible retained rotation and agenda inputs. After cutoff
 it invokes only the existing dispatcher. Frozen recovery bypasses producers
 and a changing configuration API. The same database configuration snapshot
 governs the first dispatch; it is not fetched twice across a timing change.
-Non-sessions produce a no-op heartbeat. Missing or stale official calendars
-produce a fatal heartbeat, without inferring weekdays or extending verification.
+Strict IDX mode produces a no-op heartbeat on non-sessions, and a fatal
+heartbeat for a missing/stale calendar. Weekday mode skips weekends, omits
+rotation preparation without a verified trading session, and still prepares
+global/agenda inputs near cutoff. No mode extends calendar verification or
+infers numerical sessions from weekdays.
 
 `bursawatch-dc-morning-brief-scheduled.sh` is the reviewed wrapper for the exact
 `bursawatch-dc-morning-brief` runtime job name. The source schedule is a paused
@@ -710,7 +741,7 @@ for no-post review. The CLI input manifest supports `config_snapshot` for this
 purpose. Before data capture, freeze the snapshot revision, checksum and values
 in `operator_config`. Capture, selection, writer fallback, attachment captions,
 last-attempt deadlines and lateness use that record. Restarting after a dashboard
-edit resumes the same settings and destination. The previous verified session's
+edit resumes the same settings and destination. The previous eligible publication day's
 actual frozen cutoff bounds the next source window when available, preventing a
 cutoff edit from skipping source history. Missing original history still degrades
 honestly. Legacy explicitly injected local callers retain their old 07:30/08:00
@@ -718,5 +749,6 @@ contract; do not promote those sessions into the database-backed runtime.
 
 This configuration implementation does not activate the separate Yahoo producers or supply live BI/BPS acquisition,
 verified IDX calendars, shared provider stores, TradingView layouts or host
-credentials. Those are production rollout gates, as are reviewed schedule
-activation and the first natural delivery. No synthetic post validates them.
+credentials. Complete numerical output needs its verified inputs; factual
+weekday delivery may omit unavailable sections. Reviewed schedule activation
+and the first natural delivery remain rollout gates. No synthetic post validates them.

@@ -150,7 +150,11 @@ deployment approval. Retain the feature branch for review.
 Morning brief timing is domain configuration in Workflows, saved through the
 existing watcher-config API with its own revision. It defaults in the backend to
 07:30 cutoff and 08:00 delivery in WIB. Cutoff, delivery, fallback/retry windows,
-destination, instruments and emojis affect the next unfrozen session only.
+destination, delivery days, instruments and emojis affect the next unfrozen brief only.
+Delivery days supports Monday to Friday including IDX holidays, or verified IDX
+sessions only. Legacy records without the field display IDX-only. Weekday
+delivery permits factual output with explicit unavailable market sections;
+it does not certify trading sessions or data freshness.
 Saving these settings does not create or activate a job. Job enablement/cadence
 remains in Jobs. Credentials, shared provider stores and proof/rights inputs
 remain host-owned; never expose them as web fields.

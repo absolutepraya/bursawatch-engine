@@ -19,7 +19,7 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler, HTTPCooki
 from http.cookiejar import CookieJar
 
 from .calendar import SessionCalendar, aware
-from .config import load_operator_config_data, timing_for
+from .config import load_operator_config_data, timing_for, weekday_delivery
 from .global_markets import WATCHLIST, parse_yahoo_chart
 from .host import private_file
 from .public_sources import yahoo_sessions, ihsg_benchmark
@@ -157,18 +157,31 @@ def collect_public(config, *, snapshot, calendar_path, source_cache, now, transp
     settings=load_operator_config_data(checked.config); now=aware(now)
     if type(economic_snapshots) not in (list,tuple) or len(economic_snapshots)>32:
         raise ValueError('bounded explicit economic snapshots required')
-    raw_calendar=private_file(calendar_path,max_bytes=512_000); p=json.loads(raw_calendar)
-    calendar=SessionCalendar.from_file(calendar_path,expected_version=p['version'],
-        expected_amendment=p['amendment'],as_of=now)
-    if calendar.import_digest != hashlib.sha256(raw_calendar).hexdigest():
-        raise ValueError('calendar changed during collection')
-    candidates=[day for day in calendar.sessions if timing_for(day,settings)['cutoff']>now]
-    if not candidates:
-        raise ValueError('verified upcoming publication session unavailable')
-    session=candidates[0]; cutoff=timing_for(session,settings)['cutoff']
-    # A future freeze must still be inside the calendar's amendment check policy.
-    SessionCalendar.from_file(calendar_path,expected_version=p['version'],
-        expected_amendment=p['amendment'],as_of=cutoff)
+    if weekday_delivery(settings):
+        from zoneinfo import ZoneInfo
+        from datetime import timedelta
+        session=now.astimezone(ZoneInfo(settings['timezone'])).date()
+        while session.weekday()>=5 or timing_for(session,settings)['cutoff']<=now:
+            session+=timedelta(days=1)
+        cutoff=timing_for(session,settings)['cutoff']
+    try:
+        raw_calendar=private_file(calendar_path,max_bytes=512_000); p=json.loads(raw_calendar)
+        calendar=SessionCalendar.from_file(calendar_path,expected_version=p['version'],
+            expected_amendment=p['amendment'],as_of=now)
+        if calendar.import_digest != hashlib.sha256(raw_calendar).hexdigest():
+            raise ValueError('calendar changed during collection')
+        if not weekday_delivery(settings):
+            candidates=[day for day in calendar.sessions if timing_for(day,settings)['cutoff']>now]
+            if not candidates:
+                raise ValueError('verified upcoming publication session unavailable')
+            session=candidates[0]; cutoff=timing_for(session,settings)['cutoff']
+        # A future freeze must still be inside the amendment check policy.
+        SessionCalendar.from_file(calendar_path,expected_version=p['version'],
+            expected_amendment=p['amendment'],as_of=cutoff)
+        trading=calendar.is_session(session)
+    except (OSError,ValueError,KeyError,TypeError):
+        if not weekday_delivery(settings):raise
+        calendar=None;trading=False
     cache=Path(source_cache)
     if not cache.is_absolute() or cache.is_symlink():
         raise ValueError('explicit private source cache required')
@@ -177,11 +190,12 @@ def collect_public(config, *, snapshot, calendar_path, source_cache, now, transp
         raise ValueError('private source cache required')
     transport=transport or YahooTransport(cache); clock=clock or (lambda:datetime.now(timezone.utc))
     fetches_before=getattr(transport,'fetches',0)
-    records={}; failures=[]
+    records={}; failures=[] if trading else ['IDX:calendar_unavailable' if calendar is None else 'IDX:non_session']
     # Reuse only history that already passed the full chart/completed-close
     # gate for this same final session. Never cache a still-open daily bar as a
     # final close. Retain original retrieval and provenance on every reuse.
     try:
+        if not trading:raise ValueError('verified IDX session unavailable')
         from .yahoo_chart import prepare_chart
         retained=json.loads(private_file(config.input_manifest))
         candidate={**retained['chart'],'cutoff':stamp(cutoff)}
@@ -191,7 +205,8 @@ def collect_public(config, *, snapshot, calendar_path, source_cache, now, transp
         records[('IHSG','1d')]=candidate['daily']
     except (OSError,ValueError,KeyError,TypeError,OverflowError):
         pass
-    requests=[(name,interval) for name in ['IHSG',*settings['instruments']] for interval in ('1d','60m')]
+    markets=(['IHSG'] if trading else [])+settings['instruments']
+    requests=[(name,interval) for name in markets for interval in ('1d','60m')]
     requests=[key for key in requests if key not in records]
     # Fourteen bounded requests maximum, no retries or alternate source routes.
     with ThreadPoolExecutor(max_workers=3) as pool:
@@ -209,7 +224,7 @@ def collect_public(config, *, snapshot, calendar_path, source_cache, now, transp
             except Exception as error:
                 failures.append(key[0]+':'+key[1]+':'+type(error).__name__)
     globals=[]; numerical={}; chart=None
-    for name in ['IHSG',*settings['instruments']]:
+    for name in markets:
         try:
             daily,hourly=records[(name,'1d')],records[(name,'60m')]
             proof=yahoo_sessions(name,hourly['payload'],
@@ -240,10 +255,10 @@ def collect_public(config, *, snapshot, calendar_path, source_cache, now, transp
     result={'session':session.isoformat(),'cutoff':stamp(cutoff),'provider_fetches':getattr(transport,'fetches',fetches_before+len(requests))-fetches_before,
             'history_cache_hits':int(('IHSG','1d') not in requests),
             'posts':False,'paid_requests':0,'gaps':sorted(failures),'manifest_written':False}
-    if not numerical:
+    if not numerical and not weekday_delivery(settings):
         return result
     rotation_ready=False
-    if rotation_snapshot is not None:
+    if rotation_snapshot is not None and numerical and trading:
         try:
             from .rotation_collector import retained_rotation, unsupported_sections
             rotation=retained_rotation(rotation_snapshot,calendar=calendar,publication_session=session,cutoff=cutoff,observed_at=now)
@@ -260,7 +275,7 @@ def collect_public(config, *, snapshot, calendar_path, source_cache, now, transp
     value=dict(version=1,provenance='live-retained',
         available_at=stamp(completed),
         calendar={'path':str(Path(calendar_path).resolve()),'version':calendar.version,
-                  'amendment':calendar.amendment,'sha256':calendar.import_digest},
+                  'amendment':calendar.amendment,'sha256':calendar.import_digest} if calendar else None,
         numerical=numerical,global_inputs=globals,calendar_snapshots=list(economic_snapshots))
     if chart is not None:
         value['chart']=chart

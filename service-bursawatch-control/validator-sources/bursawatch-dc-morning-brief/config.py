@@ -33,13 +33,18 @@ OWNER = 'bursawatch-dc-morning-brief'
 def default_operator_config():
     return dict(version=1, timezone='Asia/Jakarta', cutoff_time='07:30',
                 delivery_time='08:00', fallback_minutes=5, retry_minutes=15,
-                destination_channel_id=None, instruments=list(INSTRUMENTS), logos={})
+                destination_channel_id=None, instruments=list(INSTRUMENTS), logos={},
+                delivery_days='weekdays')
 
 
 def load_operator_config_data(value):
     import re
-    if type(value) is not dict or set(value) != set(default_operator_config()):
+    fields=set(default_operator_config())
+    if type(value) is not dict or set(value) not in (fields,fields-{'delivery_days'}):
         raise ValueError('morning configuration fields do not match version 1')
+    # Existing v1 records, including frozen sessions, retain their original rule.
+    if value.get('delivery_days','idx_sessions') not in ('weekdays','idx_sessions'):
+        raise ValueError('delivery_days must be weekdays or idx_sessions')
     if type(value['version']) is not int or value['version'] != 1:
         raise ValueError('version must be 1')
     if value['timezone'] != 'Asia/Jakarta':
@@ -84,11 +89,24 @@ def timing_for(session, config):
                 deadline=target+timedelta(minutes=config['retry_minutes']))
 
 
+def weekday_delivery(config):
+    return config.get('delivery_days','idx_sessions')=='weekdays'
+
+
+def previous_weekday(day):
+    """Publication lookback only, never an inferred exchange session."""
+    from datetime import timedelta
+    day-=timedelta(days=1)
+    while day.weekday()>=5:
+        day-=timedelta(days=1)
+    return day
+
+
 def retained_operator_config(store, run_id):
     record = store.get_frozen(run_id, 'operator_config')
     if record is not None:
         return load_operator_config_data(record.payload['config'])
     # Historical local runs retain the originally reviewed timing.
     config = default_operator_config()
-    config.update(cutoff_time='07:30', delivery_time='08:00')
+    config.update(cutoff_time='07:30', delivery_time='08:00',delivery_days='idx_sessions')
     return config

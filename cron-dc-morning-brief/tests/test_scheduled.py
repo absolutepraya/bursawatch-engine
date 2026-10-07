@@ -57,14 +57,14 @@ def test_cutoff_and_frozen_recovery_never_fetch_sources(tmp_path):
 
 
 def test_non_session_never_collects_or_dispatches(tmp_path):
-    runtime,calls=setup(tmp_path,FREEZE+timedelta(days=1,minutes=-5))
+    runtime,calls=setup(tmp_path,FREEZE+timedelta(days=1,minutes=-5),operator=snapshot(delivery_days='idx_sessions'))
     result=runtime.tick()
     assert result==dict(phase='no_op',reason='non_session')
     assert [name for name,_ in calls]==['beat']
 
 
 def test_missing_calendar_stays_fatal_without_guessing_weekdays(tmp_path):
-    runtime,calls=setup(tmp_path,FREEZE-timedelta(minutes=5))
+    runtime,calls=setup(tmp_path,FREEZE-timedelta(minutes=5),operator=snapshot(delivery_days='idx_sessions'))
     Path(runtime.producer.calendar_snapshot).unlink()
     assert runtime.tick()['phase']=='fatal'
     assert [name for name,_ in calls]==['beat']
@@ -86,3 +86,18 @@ def test_optional_rotation_failure_does_not_block_core_quote_collection(tmp_path
     assert result['phase']=='input_preparation' and result['gaps']==1
     assert [name for name,_ in calls]==['public','beat']
     assert result['producer']['rotation']['gaps']==['rotation:ValueError']
+
+
+def test_weekday_missing_calendar_still_collects_globals_without_rotation(tmp_path):
+    runtime,calls=setup(tmp_path,FREEZE-timedelta(minutes=5))
+    Path(runtime.producer.calendar_snapshot).unlink()
+    result=runtime.tick()
+    assert result['phase']=='input_preparation' and result['gaps']==1
+    assert [name for name,_ in calls]==['public','beat']
+
+
+def test_weekend_never_collects_or_dispatches_even_with_missing_calendar(tmp_path):
+    runtime,calls=setup(tmp_path,FREEZE+timedelta(days=5))
+    Path(runtime.producer.calendar_snapshot).unlink()
+    assert runtime.tick()==dict(phase='no_op',reason='weekend')
+    assert [name for name,_ in calls]==['beat']

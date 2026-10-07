@@ -81,7 +81,7 @@ def test_missing_live_calendar_fails_before_any_macro_message(tmp_path):
     config,_=setup_host(tmp_path);Path(config.input_manifest).unlink()
     store=RunStore(config.run_store);source=Source();delivery=HeartbeatDelivery()
     runner=MorningRunner(store,source,delivery,FakeProjection(),clock=lambda:NOW)
-    result=HostRuntime(config,store,runner,fetch_snapshot=snapshot,
+    result=HostRuntime(config,store,runner,fetch_snapshot=lambda:snapshot(delivery_days='idx_sessions'),
         writer_factory=lambda:pytest.fail('missing input resolved writer'),clock=lambda:NOW).tick()
     assert result['phase']=='fatal' and result['reason']=='FileNotFoundError'
     assert source.captures==0 and all(op.target['channel_id']!=DEST for op in delivery.sent)
@@ -125,7 +125,7 @@ def test_readiness_is_read_only_and_does_not_accept_a_bare_positive_benchmark(tm
     assert not Path(config.run_store).exists()
     inputs['numerical']['benchmark_attestation']={}
     private_json(Path(config.input_manifest),inputs)
-    assert readiness(config,snapshot=snapshot(),now=NOW)['gaps']==['benchmark_unavailable']
+    assert readiness(config,snapshot=snapshot(delivery_days='idx_sessions'),now=NOW)['gaps']==['benchmark_unavailable']
     assert not Path(config.run_store).exists()
 
 
@@ -179,3 +179,61 @@ def test_configured_markets_without_upstream_records_remain_visible_and_unavaila
     assert {row['name'] for row in quotes}==set(snapshot()['config']['instruments'])
     assert all(row['status']=='unavailable' and 'price' not in row for row in quotes)
     assert not [operation for operation in delivery.sent if operation.target['channel_id']==DEST]
+
+
+@pytest.mark.parametrize('gap',['missing_manifest','missing_calendar','stale_calendar','holiday'])
+def test_weekday_brief_delivers_honest_fallback_without_idx_verification(tmp_path,gap):
+    config,inputs=setup_host(tmp_path)
+    path=Path(inputs['calendar']['path'])
+    if gap=='missing_manifest':Path(config.input_manifest).unlink()
+    elif gap=='missing_calendar':path.unlink()
+    else:
+        value=json.loads(path.read_text())
+        if gap=='stale_calendar':value['amendment_checked_at']=(FREEZE-timedelta(days=8)).isoformat()
+        else:value['sessions'].remove('2026-10-05')
+        private_json(path,value)
+        inputs['calendar']['sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
+        private_json(Path(config.input_manifest),inputs)
+    store=RunStore(config.run_store);source=Source();delivery=HeartbeatDelivery();projection=FakeProjection()
+    runner=MorningRunner(store,source,delivery,projection,clock=lambda:NOW)
+    host=HostRuntime(config,store,runner,fetch_snapshot=snapshot,
+        writer_factory=lambda:pytest.fail('unverified market session must remain factual'),clock=lambda:NOW)
+    assert host.tick()['phase']=='projected'
+    run=store.get_run_for_session('2026-10-05')
+    frozen=store.get_frozen(run.run_id,'inputs').payload
+    assert frozen['facts']==[] and frozen['groups']=={'sectors':[],'konglo':[]}
+    assert frozen['previous_session'] is None and frozen['benchmark_version'] is None
+    text=store.get_frozen(run.run_id,'selection').payload['texts'][0]
+    assert ('Bursa IDX libur' if gap=='holiday' else 'Hari perdagangan IDX belum terverifikasi') in text
+    assert len(projection.requests)==1 and source.captures==1
+    assert len([op for op in delivery.sent if op.target['channel_id']==DEST])==3
+    Path(config.input_manifest).unlink(missing_ok=True)
+    host.fetch_snapshot=lambda:pytest.fail('recovery must retain weekday configuration')
+    assert host.tick()['phase']=='projected' and source.captures==1
+    assert len(projection.requests)==1
+
+
+def test_weekend_does_not_read_provider_files_capture_or_resolve_writer(tmp_path):
+    config,_=setup_host(tmp_path);Path(config.input_manifest).unlink()
+    now=NOW+timedelta(days=5);store=RunStore(config.run_store);source=Source()
+    runner=MorningRunner(store,source,HeartbeatDelivery(),FakeProjection(),clock=lambda:now)
+    result=HostRuntime(config,store,runner,fetch_snapshot=snapshot,
+        writer_factory=lambda:pytest.fail('weekend writer'),clock=lambda:now).tick()
+    assert result['phase']=='no_op' and result['reason']=='weekend'
+    assert source.captures==0 and store.get_run_for_session('2026-10-10') is None
+
+
+def test_legacy_v1_without_policy_still_skips_idx_holiday(tmp_path):
+    config,inputs=setup_host(tmp_path);path=Path(inputs['calendar']['path'])
+    value=json.loads(path.read_text());value['sessions'].remove('2026-10-05')
+    private_json(path,value);inputs['calendar']['sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
+    private_json(Path(config.input_manifest),inputs)
+    legacy=snapshot();legacy['config'].pop('delivery_days')
+    from morning_brief.store import digest
+    legacy['config_sha256']=digest(legacy['config'])
+    store=RunStore(config.run_store);source=Source();delivery=HeartbeatDelivery()
+    runner=MorningRunner(store,source,delivery,FakeProjection(),clock=lambda:NOW)
+    host=HostRuntime(config,store,runner,fetch_snapshot=lambda:legacy,
+        writer_factory=lambda:pytest.fail('holiday writer'),clock=lambda:NOW)
+    assert host.tick()['phase']=='no_session'
+    assert source.captures==0 and all(op.target['channel_id']!=DEST for op in delivery.sent)

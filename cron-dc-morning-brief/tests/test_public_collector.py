@@ -28,7 +28,7 @@ class Transport:
 
 
 def prepared(tmp_path):
-    config,_=setup_host(tmp_path);snap=snapshot();snap['config']['instruments']=['SPY']
+    config,_=setup_host(tmp_path);snap=snapshot(delivery_days='idx_sessions');snap['config']['instruments']=['SPY']
     from morning_brief.store import digest
     snap['config_sha256']=digest(snap['config'])
     import json
@@ -176,3 +176,19 @@ def test_bad_or_stale_rotation_cannot_override_verified_benchmark(tmp_path):
     assert result['manifest_written'] and 'rotation:retained_window_unavailable' in result['gaps']
     actual=json.loads(Path(config.input_manifest).read_text())
     assert actual['numerical']['benchmark']['2026-10-02']==102.
+
+
+def test_weekday_globals_manifest_does_not_require_or_invent_idx_calendar(tmp_path):
+    config,snap,reference=prepared(tmp_path)
+    snap['config']['delivery_days']='weekdays'
+    from morning_brief.store import digest
+    snap['config_sha256']=digest(snap['config'])
+    Path(reference).unlink();observed=FREEZE-timedelta(minutes=1);transport=Transport(observed)
+    result=collect_public(config,snapshot=snap,calendar_path=reference,source_cache=tmp_path/'sources',
+        now=observed,transport=transport,clock=lambda:observed)
+    assert result['manifest_written'] and result['posts'] is False
+    assert set(transport.calls)=={('SPY','1d'),('SPY','60m')}
+    calendar,manifest=load_inputs(config.input_manifest,cutoff=FREEZE,allow_calendar_gap=True)
+    assert calendar is None and manifest['calendar'] is None
+    assert manifest['numerical']=={} and 'chart' not in manifest
+    assert len(manifest['global_inputs'])==1 and 'IDX:calendar_unavailable' in result['gaps']

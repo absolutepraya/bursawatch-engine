@@ -13,7 +13,7 @@ import stat
 from zoneinfo import ZoneInfo
 
 from .calendar import SessionCalendar, aware, restored_calendar
-from .config import OWNER, load_operator_config_data, timing_for
+from .config import OWNER, load_operator_config_data, timing_for, weekday_delivery
 from .runner import MorningRunner
 from .store import RunStore
 
@@ -67,7 +67,7 @@ class HostConfig:
         return cls(**json.loads(private_file(path, max_bytes=16_384)))
 
 
-def load_inputs(path, *, cutoff):
+def load_inputs(path, *, cutoff, allow_calendar_gap=False):
     value = json.loads(private_file(path))
     if (set(value) - {'version', 'provenance', 'available_at', 'calendar', 'numerical',
                      'global_inputs', 'calendar_snapshots', 'chart'}
@@ -75,19 +75,26 @@ def load_inputs(path, *, cutoff):
             or value.get('provenance') != 'live-retained'
             or aware(datetime.fromisoformat(value['available_at'])) > cutoff):
         raise ValueError('cutoff-visible live input manifest required')
-    reference = value['calendar']
-    if type(reference['path']) is not str or not Path(reference['path']).is_absolute():
-        raise ValueError('explicit absolute calendar path required')
-    raw = private_file(reference['path'], max_bytes=512_000)
-    if hashlib.sha256(raw).hexdigest() != reference['sha256']:
-        raise ValueError('calendar snapshot checksum mismatch')
-    calendar = SessionCalendar.from_file(reference['path'],
-        expected_version=reference['version'], expected_amendment=reference['amendment'], as_of=cutoff)
-    if calendar.import_digest != reference['sha256']:
-        raise ValueError('calendar changed while loading')
     for name, kind in [('numerical', dict), ('global_inputs', list), ('calendar_snapshots', list)]:
         if type(value.get(name)) is not kind:
             raise ValueError('explicit live input sections required')
+    try:
+        reference = value['calendar']
+        if type(reference['path']) is not str or not Path(reference['path']).is_absolute():
+            raise ValueError('explicit absolute calendar path required')
+        raw = private_file(reference['path'], max_bytes=512_000)
+        if hashlib.sha256(raw).hexdigest() != reference['sha256']:
+            raise ValueError('calendar snapshot checksum mismatch')
+        calendar = SessionCalendar.from_file(reference['path'],
+            expected_version=reference['version'], expected_amendment=reference['amendment'], as_of=cutoff)
+        if calendar.import_digest != reference['sha256']:
+            raise ValueError('calendar changed while loading')
+    except (OSError,ValueError,KeyError,TypeError):
+        if not allow_calendar_gap:
+            raise
+        calendar=None
+        value={**value,'numerical':{}}
+        value.pop('chart',None)
     return calendar, value
 
 
@@ -135,6 +142,8 @@ class HostRuntime:
                 raise ValueError('morning configuration identity mismatch')
             settings = load_operator_config_data(checked.config)
             times = timing_for(session, settings)
+            if weekday_delivery(settings) and session.weekday()>=5 and not run:
+                return self.beat({'phase':'no_op','reason':'weekend'})
             if not settings['destination_channel_id']:
                 raise ValueError('morning destination unavailable')
             if now < times['cutoff']:
@@ -145,17 +154,26 @@ class HostRuntime:
             if publication:
                 calendar, inputs = None, {}
             elif upstream:
-                calendar = restored_calendar(upstream.payload['calendar'])
+                calendar = restored_calendar(upstream.payload['calendar']) if upstream.payload['calendar'] else None
                 inputs = {**upstream.payload, 'chart': upstream.payload.get('chart_context')}
             else:
                 if now > times['deadline']:
                     return self.beat({'phase': 'missed_session', 'gaps': 1})
-                calendar, inputs = load_inputs(self.config.input_manifest, cutoff=times['cutoff'])
+                try:
+                    calendar, inputs = load_inputs(self.config.input_manifest, cutoff=times['cutoff'],
+                        allow_calendar_gap=weekday_delivery(settings))
+                except (OSError,ValueError,KeyError,TypeError):
+                    if not weekday_delivery(settings):
+                        raise
+                    # Missing inputs degrade to explicit unavailable sections, never
+                    # fabricated quotes or replacement source evidence.
+                    calendar,inputs=None,{}
             selected = self.store.get_frozen(run.run_id, 'selection') if run else None
             bundle = self.store.get_frozen(run.run_id, 'writer_bundle') if run else None
             model, version = None, 'hermes-current-unavailable'
             prompt_version = 'source-scenario-v2'
-            if not publication and not selected and calendar.is_session(session):
+            if (not publication and not selected and calendar is not None
+                    and calendar.is_session(session)):
                 model, version = self.writer_factory()
             if bundle:
                 retained_version = bundle.payload['versions']['model']
@@ -226,8 +244,11 @@ def readiness(config, *, snapshot, now):
         except (OSError, ValueError):
             gaps.append(field + '_unavailable')
     try:
-        calendar, values = load_inputs(config.input_manifest, cutoff=cutoff)
-        if calendar.is_session(now.astimezone(ZONE).date()):
+        calendar, values = load_inputs(config.input_manifest, cutoff=cutoff,
+            allow_calendar_gap=weekday_delivery(settings))
+        if calendar is None:
+            gaps.append('idx_calendar_unavailable')
+        elif calendar.is_session(now.astimezone(ZONE).date()):
             # Readiness is conservative. Per-section gaps still degrade at runtime.
             from .runner import _attested
             numerical = values['numerical']
@@ -242,6 +263,8 @@ def readiness(config, *, snapshot, now):
         gaps.append('verified_live_inputs_unavailable')
     if not Path(config.hermes_root, 'hermes_cli', 'config.py').is_file():
         gaps.append('hermes_runtime_unavailable')
-    return {'ready': not gaps, 'gaps': gaps, 'config_revision': checked.revision,
+    optional={'verified_live_inputs_unavailable','idx_calendar_unavailable','benchmark_unavailable'} if weekday_delivery(settings) else set()
+    return {'ready': not (set(gaps)-optional), 'gaps': gaps, 'config_revision': checked.revision,
+            'delivery_days':settings.get('delivery_days','idx_sessions'),
             'cutoff_time': settings['cutoff_time'], 'delivery_time': settings['delivery_time'],
             'network': 'configuration_read_only', 'posts': False, 'provider_fetches': False}

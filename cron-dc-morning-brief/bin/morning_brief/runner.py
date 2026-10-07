@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from bursawatch_discord_delivery import OperationIntent, DELIVERY_RECEIPT_WAIT_SECONDS
 from bursawatch_discord_delivery.client import NON_TERMINAL_STATUSES
 from .calendar import aware, SessionCalendar, restored_calendar
-from .config import load_operator_config_data, retained_operator_config, timing_for
+from .config import load_operator_config_data, retained_operator_config, timing_for, weekday_delivery, previous_weekday
 from .inputs import (Provenance, MembershipSnapshot, CapSnapshot, PriceSeries, ActionDecision,
                      prepare_numerical_inputs, InputUnavailable)
 from .rotation import BasketResult, Position, calculate_from_inputs, UnsupportedBasket, select_groups, unselected_letters
@@ -119,6 +119,11 @@ class MorningRunner:
     def _inputs(self,run,upstream,calendar,lease):
         data=upstream.payload['numerical']; cutoff=aware(datetime.fromisoformat(run.freeze_at))
         groups={'sectors':[],'konglo':[]}; gaps=[]; facts=[]
+        if calendar is None or not calendar.is_session(date.fromisoformat(run.session)):
+            reason='idx_calendar_unavailable' if calendar is None else 'idx_non_session'
+            return self.store.freeze(run.run_id,'inputs',dict(groups=groups,gaps=[reason],facts=[],
+                cutoff=run.freeze_at,previous_session=None,benchmark_version=None,
+                upstream_digest=upstream.digest),lease=lease,now=self.clock(),dependencies={'upstream':upstream.digest})
         records={digest(row) for row in upstream.payload['provider_records']}
         benchmark=data.get('benchmark',{}); proof=data.get('benchmark_attestation',{})
         benchmark_valid=_attested(benchmark,proof,cutoff,records) and bool(proof.get('version'))
@@ -215,6 +220,10 @@ class MorningRunner:
                 images.append(None); omissions.append(kind+'_image_unavailable')
         globals_record=self.store.get_frozen(run.run_id,'globals'); calendar_record=self.store.get_frozen(run.run_id,'calendar_events')
         notices={kind:['Gambar belum tersedia.'] if omission else [] for kind,omission in zip(('ihsg','sectors','konglo'),omissions)}
+        if 'idx_calendar_unavailable' in inputs.payload['gaps']:
+            notices['ihsg'].insert(0,'Hari perdagangan IDX belum terverifikasi. Data IHSG dan rotasi belum tersedia.')
+        elif 'idx_non_session' in inputs.payload['gaps']:
+            notices['ihsg'].insert(0,'Bursa IDX libur hari ini. Ringkasan disampaikan sesuai jadwal hari kerja.')
         texts,presentation=format_brief(publication_session=session,cutoff=datetime.fromisoformat(run.freeze_at),
             target=timing_for(session,retained_operator_config(self.store,run.run_id))['target'],outlook=outlook.payload,
             globals=globals_record.payload['quotes'],calendar=calendar_record.payload,
@@ -282,10 +291,16 @@ class MorningRunner:
                 else:
                     upstream=self.store.get_frozen(run.run_id,'upstream')
                     if upstream:
-                        calendar=restored_calendar(upstream.payload['calendar'])
-                    checked=aware(calendar.amendment_checked_at)
-                    if checked>cutoff or cutoff-checked>timedelta(days=7): raise ValueError('calendar amendment unavailable')
-                    if not calendar.is_session(session):
+                        calendar=restored_calendar(upstream.payload['calendar']) if upstream.payload['calendar'] else None
+                    if calendar is not None:
+                        checked=aware(calendar.amendment_checked_at)
+                        if checked>cutoff or cutoff-checked>timedelta(days=7):
+                            if not weekday_delivery(settings): raise ValueError('calendar amendment unavailable')
+                            calendar=None
+                    eligible=session.weekday()<5 if weekday_delivery(settings) else calendar is not None and calendar.is_session(session)
+                    if calendar is None and not weekday_delivery(settings):
+                        raise ValueError('calendar amendment unavailable')
+                    if not eligible:
                         result={'phase':'no_session'}
                         self.store.transition(run.run_id,'no_session',lease=lease,now=self.clock())
                     else:
@@ -303,7 +318,7 @@ class MorningRunner:
                                 global_inputs=global_inputs,calendar_snapshots=calendar_snapshots,provider_records=records,logos=dict(logos or {}),
                                 chart_context=chart_context)),lease=lease,now=self.clock())
                         inputs=self.store.get_frozen(run.run_id,'inputs') or self._inputs(run,upstream,calendar,lease)
-                        previous_session=calendar.last_sessions(session,2)[0]
+                        previous_session=previous_weekday(session) if weekday_delivery(settings) else calendar.last_sessions(session,2)[0]
                         previous_run=self.store.get_run_for_session(previous_session.isoformat())
                         previous_cutoff=datetime.fromisoformat(previous_run.freeze_at) if previous_run else timing_for(previous_session,settings)['cutoff']
                         evidence=freeze_source_evidence(self.store,run.run_id,self.source,previous_cutoff=stamp(previous_cutoff),lease=lease,now=self.clock())

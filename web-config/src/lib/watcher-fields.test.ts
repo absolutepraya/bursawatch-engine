@@ -542,8 +542,12 @@ describe("morning brief operator configuration", () => {
   it("accepts reviewed WIB timing without enabling delivery", () => {
     expect(validateWatcherConfig("bursawatch-dc-morning-brief", config())).toEqual({});
   });
+  it.each(["weekdays", "idx_sessions"])("accepts persisted delivery policy %s", (delivery_days) => {
+    expect(validateWatcherConfig("bursawatch-dc-morning-brief", { ...config(), delivery_days })).toEqual({});
+  });
   it.each([
     { delivery_time: "06:05" },
+    { delivery_days: "everyday" },
     { retry_minutes: 90 },
     { instruments: [] },
     { instruments: ["SPY", "SPY"] },
