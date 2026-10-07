@@ -324,7 +324,7 @@ def test_get_company_context_survives_either_provider_missing(monkeypatch):
 
 
 def sectors_client_for(tmp_path, transport):
-    news._sectors_library()
+    import sys; sys.path.append(str(__import__("pathlib").Path(news.__file__).resolve().parents[2] / "lib-sectors" / "bin"))
     import sectors_client as sc
     config = sc.Config(store_path=tmp_path / 'cache.sqlite3', caller='news-context', billing_window='2026-10', cache_only=False, api_key='fake')
     return sc.SectorsClient(config, transport=transport)
@@ -365,9 +365,8 @@ def test_sectors_lines_are_skipped_without_library_or_key_file(monkeypatch, tmp_
 
 
 def test_sectors_key_file_prefers_hermes_credential_then_package_env(monkeypatch, tmp_path):
-    news._sectors_library()
+    import sys; sys.path.append(str(__import__("pathlib").Path(news.__file__).resolve().parents[2] / "lib-sectors" / "bin"))
     package = tmp_path / 'lib-sectors'
-    package.mkdir()
     monkeypatch.setattr(news, '_sectors_library', lambda: package)
     seen = []
     import sectors_client as sc
