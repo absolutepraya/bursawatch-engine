@@ -1,47 +1,75 @@
-# Product experience: sources to brief
+# Product experience: sample workspace
 
 ## Scope
 
-The landing explains the product through a finite, controllable sources →
-rules → Discord brief illustration. The workspace lets users prepare their own
-workflows and clearly separates input access from output delivery. The backend
-repository is untouched. These are local preferences, not active schedules or
-verified connections.
+`/workspace` is the authenticated operator workspace. Its seven destinations
+are Overview, Sources, Workflows, Jobs, History, Published and Account, in that
+order. Supabase Auth and the same-origin `/api/control` proxy supply its
+protected records and supported writes.
 
-## User paths
+`/app` is the no-login Sample workspace linked from the landing. It uses the
+same navigation, layout and workspace components with synthetic in-memory
+fixtures. Its request function has the same shape and `WorkspaceError`
+behavior as `controlBrowser()`. It does not create an Auth client, call
+`/api/control`, or perform network writes. Watcher configuration and Source
+Catalog edits use the real schemas, update the fixture, and confirm by reading
+the updated fixture.
 
-- Landing: the walkthrough plays once when visible; users can inspect a stage,
-  pause or replay it, then enter
-  the workspace through the server-validated application URL. Reduced motion
-  keeps all stages available without animation.
-- Workflows opens Your workflows: create, edit, duplicate or remove a workflow.
-  Choose input platforms, research topics, event/daily/interval timing, timezone,
-  summary style, language and destinations. Source attribution stays required.
-  Unsaved drafts recover in the same browser tab; saved workflows use versioned
-  browser storage. Revisions prevent stale editors from overwriting later saves.
-- Settings → Account: prepare separately named input and output setups, or
-  rename the local workspace. Connecting providers will require a future API
-  and explicit account authorization. No credentials are collected here.
-  An editor opens directly beneath its provider. Incomplete display names
-  recover when that editor is reopened in the same tab; a newer saved version
-  takes precedence over an older draft. Keep/discard confirmations manage focus.
+## Navigation and routes
 
-## Acceptance and integration
+The sample presents the same seven destinations and order as `/workspace`:
 
-Native controls, visible labels, keyboard focus, local-save toasts, inline
-validation and confirmation before removal are required. Forms must fit 375px,
-landscape and desktop viewports with 200% text. Corrupt storage must remain
-intact; failed and stale saves must report an actionable error.
+- Overview
+- Sources, with Securities, Institutions, and People & Org
+- Workflows, with the nine supported watcher editors and their input,
+  processing and output summaries
+- Jobs
+- History
+- Published
+- Account
 
-Only Discord is a reviewed backend delivery adapter. Other output preferences
-are planned and must not acquire a connected badge simply because a label is
-saved. Custom trigger combinations are frontend proposals, not a claim that
-the current backend supports user-defined schedules. The backend owner must
-agree on authenticated, tenant-scoped APIs, provider capabilities and schedule
-validation before these records can be applied. No browser accesses a shared
-database, and no web action starts a cron or sends a message.
+The landing destination remains `/app`. Legacy Insights and Overview paths
+redirect to Overview; Discover, Following and Securities paths redirect to
+Sources; Automations and configuration paths redirect to Workflows; Activity
+and Logs redirect to History; Settings paths redirect to Account. Existing
+`/workspace` routing is unchanged.
 
-The UI/UX Pro Max review prioritizes legibility and predictable controls over
-decoration. Apple-inspired grouping and restrained motion preserve the existing
-Signal Fold identity and Hanken Grotesk typography; they do not introduce a
-second visual system.
+## Sample records and edits
+
+Use public landing examples for Sources and Published, including TRUK, HRTA,
+the ENRG plan and its target update. Mark every record as a sample. The
+Bursawatch Pagi example uses the landing's `BURSAWATCH PAGI`, `ROTASI SEKTOR`
+and `ROTASI KONGLO` format, with its dummy figures and an example label.
+The reviewed public source fixture is approved sample input. Do not include
+private configuration, destinations, credentials, sessions or runtime state.
+
+Only real supported editor fields are interactive. Per-source post summaries
+and compatible Source Catalog endpoint capabilities can be changed in the
+sample. Catalog capability settings record source intent only, they do not
+create a live source connection or attach a People & Org identity to a watcher
+profile. Morning Brief cutoff, delivery target, fallback and retry windows,
+destination, instruments and logos are supported workflow settings. Saving
+confirms the next-unfrozen-session configuration but does not activate a job.
+There is no separate evening digest or weekly interval control. Explain these
+limits in the sample and keep Jobs read-only. Source Catalog and watcher edits
+remain in the current in-memory sample session, use revision validation and
+read-after-write confirmation, and never create an active source connection.
+
+Jobs and History are read-only sample records. Fixed jobs and viewer sessions
+have no save controls. Label synthetic records so they cannot be mistaken for
+real jobs, runs, deliveries or connections. The Account view contains no
+session or account identifier. Account access and Discord setup belong to the
+authenticated workspace.
+
+## Interaction and accessibility
+
+Use the shared workspace components and Hanken Grotesk visual system. Keep the
+seven labeled destinations in one horizontally scrollable mobile row, bring
+the active destination into view, and preserve 44px minimum targets and visible
+focus. Support 375px layouts, enlarged text and reduced motion. Sample-only styling stays
+under `src/app/app/`; it does not add motion beyond the workspace motion budget.
+
+Behavioral checks cover fixture validation, read-after-write updates, sample
+navigation, read-only Jobs and History, legacy redirects, and zero requests to
+`/api/control`. The authenticated `/workspace` smoke check continues to use
+intercepted synthetic Auth and API responses.

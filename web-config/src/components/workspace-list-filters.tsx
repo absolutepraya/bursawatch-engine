@@ -40,6 +40,7 @@ export function SearchableWorkflowList({
   components = [],
   operatorJobs = [],
   observations = [],
+  sampleMode = false,
 }: {
   watchers: ControlWatcher[];
   runs: ControlRun[];
@@ -51,6 +52,7 @@ export function SearchableWorkflowList({
   components?: OperatorComponent[];
   operatorJobs?: OperatorJob[];
   observations?: OperatorObservation[];
+  sampleMode?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [configuration, setConfiguration] = useState<WorkflowConfigurationFilter>("all");
@@ -120,6 +122,7 @@ export function SearchableWorkflowList({
           components={components}
           operatorJobs={operatorJobs}
           observations={observations}
+          sampleMode={sampleMode}
         />
       )}
     </section>
@@ -130,10 +133,12 @@ export function SearchableRunHistory({
   runs,
   watchers,
   onSelectRun,
+  sampleMode = false,
 }: {
   runs: ControlRun[];
   watchers: ControlWatcher[];
   onSelectRun: (runId: string) => void;
+  sampleMode?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [watcherId, setWatcherId] = useState("all");
@@ -203,7 +208,9 @@ export function SearchableRunHistory({
       </div>
       <div className="workspace-list-feedback">
         <p role="status" aria-live="polite">
-          Showing {visible.length} of {runs.length} returned runs
+          {sampleMode
+            ? `Showing ${visible.length} of ${runs.length} sample run records`
+            : `Showing ${visible.length} of ${runs.length} returned runs`}
         </p>
         {(query || watcherId !== "all" || outcome !== "all") && visible.length > 0 ? (
           <button type="button" onClick={clear}>
@@ -214,7 +221,12 @@ export function SearchableRunHistory({
       {visible.length === 0 && runs.length > 0 ? (
         <FilteredEmpty kind="runs" onClear={clear} />
       ) : (
-        <ControlRunList runs={visible} watchers={watchers} onSelectRun={onSelectRun} />
+        <ControlRunList
+          runs={visible}
+          watchers={watchers}
+          onSelectRun={onSelectRun}
+          sampleMode={sampleMode}
+        />
       )}
     </section>
   );

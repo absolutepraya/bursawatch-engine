@@ -40,9 +40,9 @@ Sources supports name/handle search and platform, content-inclusion and identity
 Display publisher defaults, endpoint overrides and the resolved status separately. Do not infer identity from a
 display name or internal ID. Public curated images remain static assets until
 an object-storage owner and upload policy are approved. No browser-local source
-preferences count as saved catalog records. Preserve all eight watcher editors and their input, processing and output
+preferences count as saved catalog records. Preserve all nine watcher editors and their input, processing and output
 summaries. WhatsApp requires configuration version 2 and explicit observe/forward
-modes; the other seven editors require version 1. Stockbit's v1 editor exposes
+modes; the other eight editors require version 1. Stockbit's v1 editor exposes
 only four fixed feed switches, two distinct Discord route IDs and an optional
 800-code-point additive instruction. RSS URLs, the heartbeat, credentials,
 parser behavior and agent rules remain system-owned. Mode changes must not silently
@@ -112,12 +112,18 @@ when applying new-source defaults. See `docs/X_DELIVERY_TROUBLESHOOTING.md`.
 Do not add a Sectors key or consume paid data credits for stock research; the
 reviewed backend has no reusable Sectors research API.
 
-`/app` retains sample records and browser-local preferences. Its connection
-forms and custom workflows cannot alter the live backend or send messages.
-Do not translate those consumer preferences into runtime config automatically.
-The backend owns all scheduler implementations and the shared database.
-It grants shared viewer/admin roles, not tenant-isolated personal ownership.
-Do not expose this operator workspace as a general consumer service.
+`/app` is the no-login Sample workspace linked from the landing. It reuses the
+seven `/workspace` destinations and components with a fixture-backed request
+function held in memory. It must never call `/api/control`, Supabase Auth, or
+another network write. Preserve the real request path for `/workspace`.
+Supported watcher and catalog edits save to the fixture and confirm by reading
+the updated fixture. Keep Jobs and History read-only. Public records and
+synthetic runtime examples must be labelled as samples. Do not add fields,
+delivery channels, connections, workflow creation, or browser watches that the
+real workspace does not support. The backend owns all scheduler
+implementations and the shared database. It grants shared viewer/admin roles,
+not tenant-isolated personal ownership. Do not expose this operator workspace
+as a general consumer service.
 Tests use a pinned allowlisted public source fixture; do not read backend
 configuration or require backend services to build or test.
 
@@ -127,8 +133,9 @@ Run `npm ci` then `npm run check` in this package and validate `web-landing`
 before the PR handoff. Add behavioral tests for changed validation,
 storage, source identity and interactions. Check keyboard access, toast
 feedback, 375px layouts, reduced motion and enlarged text for UI changes.
-Keep all seven mobile destinations visible in an adaptive grid with whole-word
-labels; reserve its measured height as rows increase with text size.
+Keep the seven mobile destinations in one horizontally scrollable row with
+whole-word labels, and keep the active destination in view. Reserve the row's
+measured height for page content and sticky actions.
 Activity endpoint identities use the bounded, case-sensitive Source Catalog
 validator, separate from component/job IDs. Jobs resolves a single supported
 watcher resource before linking to its editor; unresolved or ambiguous
@@ -139,3 +146,11 @@ Never delete a build directory while its server is running.
 Do not commit `.env*` (except reviewed `.env.example`), `.vercel`, local preferences, databases, `node_modules`,
 build output or review screenshots. Publishing a feature branch is not
 deployment approval. Retain the feature branch for review.
+
+Morning brief timing is domain configuration in Workflows, saved through the
+existing watcher-config API with its own revision. It defaults in the backend to
+07:30 cutoff and 08:00 delivery in WIB. Cutoff, delivery, fallback/retry windows,
+destination, instruments and emojis affect the next unfrozen session only.
+Saving these settings does not create or activate a job. Job enablement/cadence
+remains in Jobs. Credentials, shared provider stores and proof/rights inputs
+remain host-owned; never expose them as web fields.

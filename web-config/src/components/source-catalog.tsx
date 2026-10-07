@@ -23,6 +23,7 @@ import {
   getDraftOwner,
   readWorkspaceDraft,
   retainWorkspaceDraft,
+  type WorkspaceDraftScope,
 } from "@/lib/workspace-drafts";
 import { StatusBadge } from "./status-badge";
 import { useToast } from "./toast-provider";
@@ -102,10 +103,12 @@ function SourceAdapterEvidence({
   components,
   activity,
   unavailable,
+  sampleMode = false,
 }: {
   components: OperatorComponent[];
   activity: OperatorComponentActivity[];
   unavailable: boolean;
+  sampleMode?: boolean;
 }) {
   const sourceAdapters = components.filter((item) => item.kind === "source_adapter");
   const activityById = new Map(activity.map((item) => [item.component_id, item]));
@@ -113,10 +116,13 @@ function SourceAdapterEvidence({
   return (
     <section className="source-adapter-evidence" aria-labelledby="source-adapter-evidence-title">
       <div>
-        <h2 id="source-adapter-evidence-title">Adapter and intake evidence</h2>
+        <h2 id="source-adapter-evidence-title">
+          {sampleMode ? "Sample source relationships" : "Adapter and intake evidence"}
+        </h2>
         <p>
-          Catalog choices show intent. Adapter binding and accepted Source Inbox input are reported
-          separately.
+          {sampleMode
+            ? "Synthetic catalog relationships only. Live input, processing and delivery are not checked."
+            : "Catalog choices show intent. Adapter binding and accepted Source Inbox input are reported separately."}
         </p>
       </div>
       {unavailable ? (
@@ -137,32 +143,38 @@ function SourceAdapterEvidence({
           return (
             <li key={adapter.component_id}>
               <strong>{adapter.display_name}</strong>
-              <span>
-                Adapter binding:{" "}
-                {binding.length
-                  ? `${enabled} of ${total} enabled catalog endpoints`
-                  : "unavailable"}
-              </span>
-              <span>
-                Last accepted input:{" "}
-                {latest?.accepted_at ? (
-                  <time dateTime={latest.accepted_at}>
-                    {new Date(latest.accepted_at).toLocaleString("en-GB", {
-                      timeZone: "Asia/Jakarta",
-                    })}{" "}
-                    WIB
-                  </time>
-                ) : status === "unknown" ? (
-                  "Unknown"
-                ) : (
-                  "No accepted input recorded"
-                )}
-              </span>
-              <span>
-                Input status:{" "}
-                {status === "observed" ? "Observed" : status === "stale" ? "Stale" : "Unknown"}
-              </span>
-              <span>Delivery: {row?.delivery_status ?? "Not instrumented"}</span>
+              {sampleMode ? (
+                <span>Sample adapter record only. No live connection or intake status.</span>
+              ) : (
+                <>
+                  <span>
+                    Adapter binding:{" "}
+                    {binding.length
+                      ? `${enabled} of ${total} enabled catalog endpoints`
+                      : "unavailable"}
+                  </span>
+                  <span>
+                    Last accepted input:{" "}
+                    {latest?.accepted_at ? (
+                      <time dateTime={latest.accepted_at}>
+                        {new Date(latest.accepted_at).toLocaleString("en-GB", {
+                          timeZone: "Asia/Jakarta",
+                        })}{" "}
+                        WIB
+                      </time>
+                    ) : status === "unknown" ? (
+                      "Unknown"
+                    ) : (
+                      "No accepted input recorded"
+                    )}
+                  </span>
+                  <span>
+                    Input status:{" "}
+                    {status === "observed" ? "Observed" : status === "stale" ? "Stale" : "Unknown"}
+                  </span>
+                  <span>Delivery: {row?.delivery_status ?? "Not instrumented"}</span>
+                </>
+              )}
               {adapter.component_id === "bursawatch-ig-source-ingest" &&
               adapter.job_ids.length === 0 ? (
                 <span>Schedule: no registered source job</span>
@@ -213,16 +225,19 @@ export function SourceCatalogView({
   components = [],
   activity = [],
   activityUnavailable = false,
+  sampleMode = false,
 }: {
   request: Request;
   onDirtyChange: (dirty: boolean) => void;
   components?: OperatorComponent[];
   activity?: OperatorComponentActivity[];
   activityUnavailable?: boolean;
+  sampleMode?: boolean;
 }) {
+  const draftScope: WorkspaceDraftScope = sampleMode ? "sample" : "workspace";
   const [draftOwner] = useState(getDraftOwner);
   const [restored] = useState(() =>
-    readWorkspaceDraft<SourceCatalog["config"], RetainedCatalogDraft>(catalogDraftKey),
+    readWorkspaceDraft<SourceCatalog["config"], RetainedCatalogDraft>(catalogDraftKey, draftScope),
   );
   const mounted = useRef(false);
   const readController = useRef<AbortController | null>(null);
@@ -280,6 +295,7 @@ export function SourceCatalogView({
       },
       dirty || saving || writeRefreshFailed,
       draftOwner,
+      draftScope,
     );
   }, [
     catalog,
@@ -292,6 +308,7 @@ export function SourceCatalogView({
     error,
     dirty,
     draftOwner,
+    draftScope,
   ]);
   const reload = useCallback(
     async (signal?: AbortSignal, recoverDraft = false) => {
@@ -328,7 +345,7 @@ export function SourceCatalogView({
             !controller.signal.aborted &&
             mounted.current
           ) {
-            discardWorkspaceDraft(catalogDraftKey, draftOwner);
+            discardWorkspaceDraft(catalogDraftKey, draftOwner, draftScope);
             setCatalog(null);
             setDraft(null);
             setEffective(null);
@@ -383,7 +400,7 @@ export function SourceCatalogView({
           setFocusedPublisher("");
           setSelectedEndpoint("");
           setSelectedCapability("");
-          discardWorkspaceDraft(catalogDraftKey, draftOwner);
+          discardWorkspaceDraft(catalogDraftKey, draftOwner, draftScope);
         }
         return true;
       } catch (failure) {
@@ -391,7 +408,7 @@ export function SourceCatalogView({
         setError(safeReadError(failure));
         setSaveBlocked(true);
         if (failure instanceof WorkspaceError && ["auth", "forbidden"].includes(failure.code)) {
-          discardWorkspaceDraft(catalogDraftKey, draftOwner);
+          discardWorkspaceDraft(catalogDraftKey, draftOwner, draftScope);
           setCatalog(null);
           setDraft(null);
           setEffective(null);
@@ -402,7 +419,7 @@ export function SourceCatalogView({
         if (!signal?.aborted && mounted.current) setLoading(false);
       }
     },
-    [request, restored, draftOwner],
+    [request, restored, draftOwner, draftScope],
   );
   useEffect(() => {
     mounted.current = true;
@@ -473,7 +490,11 @@ export function SourceCatalogView({
       const refreshed = await reload();
       if (!mounted.current) return;
       if (refreshed) {
-        toast("Source catalog saved. Pending endpoints still require identity verification.");
+        toast(
+          sampleMode
+            ? "Sample source catalog saved for this session."
+            : "Source catalog saved. Pending endpoints still require identity verification.",
+        );
       } else {
         setSaveBlocked(true);
         setWriteRefreshFailed(true);
@@ -485,7 +506,7 @@ export function SourceCatalogView({
       if (!mounted.current) return;
       setError(message(failure));
       if (failure instanceof WorkspaceError && ["auth", "forbidden"].includes(failure.code)) {
-        discardWorkspaceDraft(catalogDraftKey, draftOwner);
+        discardWorkspaceDraft(catalogDraftKey, draftOwner, draftScope);
         setCatalog(null);
         setDraft(null);
         setEffective(null);
@@ -767,7 +788,7 @@ export function SourceCatalogView({
             disabled={loading || saving}
             onClick={() => {
               if (
-                (!dirty && !readWorkspaceDraft(catalogDraftKey)) ||
+                (!dirty && !readWorkspaceDraft(catalogDraftKey, draftScope)) ||
                 window.confirm("Discard unsaved changes and reload the current catalog?")
               )
                 void reload();
@@ -1535,6 +1556,7 @@ export function SourceCatalogView({
               components={components}
               activity={activity}
               unavailable={activityUnavailable}
+              sampleMode={sampleMode}
             />
             {!components.some((item) => item.kind === "source_adapter") && !activityUnavailable && (
               <p>No source adapter records are available.</p>
@@ -1559,7 +1581,7 @@ export function SourceCatalogView({
                   disabled={!dirty || saving || saveBlocked}
                   onClick={() => {
                     if (window.confirm("Discard your unsaved catalog changes?")) {
-                      discardWorkspaceDraft(catalogDraftKey, draftOwner);
+                      discardWorkspaceDraft(catalogDraftKey, draftOwner, draftScope);
                       setDraft(structuredClone(catalog.config.config));
                       setError("");
                       setFieldErrors({});

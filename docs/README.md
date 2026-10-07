@@ -1,5 +1,23 @@
 # Documentation guide
 
+## Market brief design specifications
+
+- [Morning brief design spec](notes/2026-09-27-bursawatch-morning-brief-design-spec.md): active design focus, including the 07:30 WIB evidence cutoff, 08:00 publication deadline, three morning images, retained source research, and open choices.
+- [After-close review design spec](notes/2026-10-04-bursawatch-after-close-review-design-spec.md): deferred extension, retaining the closing discussion with an 18:00 WIB target, one LLM run, daily group rankings, and a 20-session foreign-flow visual.
+- [Shared design glossary](../GLOSSARY.md): vocabulary for the proposed brief and review.
+
+The morning design has an authorized local implementation in the managed feature
+branch, described by the [implementation plan](notes/2026-10-05-bursawatch-morning-brief-implementation-plan.md)
+and [package contract](../cron-dc-morning-brief/SKILL.md). It has no production
+activation approval. Provider permissions, source retention, credentials,
+destination onboarding, service release and natural visible delivery remain
+separate rollout gates. The after-close extension and competition integration
+remain deferred. Dated research checkpoints retain their original scope.
+The morning spec replaces the former Sectors hackathon working-note filename;
+the immediate Industry company-impact design remains in its separate managed worktree.
+
+## Operating guidance and retained history
+
 Current operating guidance is deliberately kept close to the source it governs:
 
 - Repository-wide rules: [`../AGENTS.md`](../AGENTS.md) and [`../README.md`](../README.md).

@@ -32,10 +32,14 @@ export function WorkspaceNavigation({
   view,
   onSignOut,
   signingOut,
+  basePath = "/workspace",
+  sampleMode = false,
 }: {
   view: WorkspaceView;
-  onSignOut: () => void;
+  onSignOut?: () => void;
   signingOut: boolean;
+  basePath?: string;
+  sampleMode?: boolean;
 }) {
   const navigation = useRef<HTMLElement>(null);
 
@@ -44,12 +48,37 @@ export function WorkspaceNavigation({
     const workspace = element?.closest<HTMLElement>(".has-connected-navigation");
     if (!element || !workspace) return;
 
-    // Text enlargement can wrap labels. Reserve the bar's actual height so
-    // the final content and footer remain reachable above mobile navigation.
+    // Text enlargement can increase the row height. Reserve it and keep the
+    // current destination in view so content remains reachable above the bar.
+    const keepCurrentDestinationVisible = () => {
+      const activeLink = element.querySelector<HTMLElement>('[aria-current="page"]');
+      if (!activeLink) return;
+
+      const navigationStyle = window.getComputedStyle(element);
+      const navigationBounds = element.getBoundingClientRect();
+      const contentLeft =
+        navigationBounds.left +
+        element.clientLeft +
+        (Number.parseFloat(navigationStyle.paddingLeft) || 0);
+      const contentRight =
+        navigationBounds.left +
+        element.clientLeft +
+        element.clientWidth -
+        (Number.parseFloat(navigationStyle.paddingRight) || 0);
+      const activeBounds = activeLink.getBoundingClientRect();
+
+      if (activeBounds.left < contentLeft) {
+        element.scrollLeft += activeBounds.left - contentLeft;
+      } else if (activeBounds.right > contentRight) {
+        element.scrollLeft += activeBounds.right - contentRight;
+      }
+    };
+
     const reserveNavigationSpace = () => {
       const height = `${Math.ceil(element.getBoundingClientRect().height)}px`;
       workspace.style.setProperty("--connected-navigation-height", height);
       document.documentElement.style.setProperty("--workspace-mobile-navigation-height", height);
+      keepCurrentDestinationVisible();
     };
     reserveNavigationSpace();
     const observer = new ResizeObserver(reserveNavigationSpace);
@@ -59,44 +88,57 @@ export function WorkspaceNavigation({
       workspace.style.removeProperty("--connected-navigation-height");
       document.documentElement.style.removeProperty("--workspace-mobile-navigation-height");
     };
-  }, []);
+  }, [view]);
 
   return (
-    <aside className="connected-navigation">
+    <aside className={`connected-navigation${sampleMode ? " sample-workspace-navigation" : ""}`}>
       <Link
-        href="/workspace"
+        href={basePath}
         className="connected-navigation-brand"
-        aria-label="Bursawatch workspace"
+        aria-label={sampleMode ? "Bursawatch sample workspace" : "Bursawatch workspace"}
       >
         <BrandMark />
         <span>Bursawatch</span>
       </Link>
+      {sampleMode ? <span className="sample-workspace-nav-label">Sample workspace</span> : null}
 
       <nav
         ref={navigation}
         className="connected-navigation-links"
         aria-label="Workspace navigation"
       >
-        {destinations.map(({ id, label, href, icon: Icon }) => (
-          <Link key={id} href={href} aria-current={view === id ? "page" : undefined}>
+        {destinations.map(({ id, label, icon: Icon }) => (
+          <Link
+            key={id}
+            href={workspaceHref(basePath, id)}
+            aria-current={view === id ? "page" : undefined}
+          >
             <Icon size={19} strokeWidth={1.8} aria-hidden="true" />
             <span>{label}</span>
           </Link>
         ))}
       </nav>
 
-      <div className="connected-navigation-footer">
-        <button
-          type="button"
-          className="connected-navigation-signout"
-          onClick={onSignOut}
-          disabled={signingOut}
-          aria-busy={signingOut}
-        >
-          <LogOut size={19} strokeWidth={1.8} aria-hidden="true" />
-          <span>{signingOut ? "Signing out…" : "Sign out"}</span>
-        </button>
-      </div>
+      {!sampleMode && onSignOut ? (
+        <div className="connected-navigation-footer">
+          <button
+            type="button"
+            className="connected-navigation-signout"
+            onClick={onSignOut}
+            disabled={signingOut}
+            aria-busy={signingOut}
+          >
+            <LogOut size={19} strokeWidth={1.8} aria-hidden="true" />
+            <span>{signingOut ? "Signing out…" : "Sign out"}</span>
+          </button>
+        </div>
+      ) : null}
     </aside>
   );
+}
+
+export function workspaceHref(basePath: string, view: WorkspaceView) {
+  if (view === "overview") return basePath;
+  if (view === "settings") return `${basePath}/${basePath === "/app" ? "account" : "settings"}`;
+  return `${basePath}/${view}`;
 }

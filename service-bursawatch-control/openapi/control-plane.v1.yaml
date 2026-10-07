@@ -8,6 +8,63 @@ servers:
 security:
   - bearerAuth: []
 paths:
+  /v1/source-evidence/capture:
+    post:
+      summary: Capture a bounded immutable source-version manifest without claiming work.
+      description: Dedicated source_reader or admin only. Uses one read-only repeatable-read snapshot. The owner must persist this manifest before selecting evidence. Highest accepted/observed eligible versions are selected before the publication window; selected tombstones are omitted. Early/late capture, unknown/unavailable history and overflow are incomplete. Does not reproduce earlier committed-state visibility on a late capture.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceEvidenceCapture'
+      responses:
+        '200':
+          description: Deterministically ordered immutable identities and honest capture availability.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceEvidenceManifest'
+        '403':
+          description: Dedicated source-reader or admin role required.
+        '422':
+          description: Invalid timezone-aware window or candidate bound.
+  /v1/source-evidence/versions:
+    post:
+      summary: Read explicit immutable source versions from a persisted manifest.
+      description: Dedicated source_reader or admin only. All requested references must be unique and retain their envelope hashes. Returns requested order; no partial batch, moving timestamp query, latest-version fallback or work mutation. Consumers compare evidence_hash with the persisted manifest.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceEvidenceBatch'
+      responses:
+        '200':
+          description: Safe bounded text and opaque durable media metadata for every requested version.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [api_version, items]
+                properties:
+                  api_version:
+                    const: 1
+                  items:
+                    type: array
+                    minItems: 1
+                    maxItems: 100
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/SourceEvidenceItem'
+                        - required: [text, media_refs]
+        '403':
+          description: Dedicated source-reader or admin role required.
+        '410':
+          description: At least one immutable version is unavailable. Evidence is incomplete.
+        '422':
+          description: Invalid, duplicate, over-bound or integrity-mismatched references.
   /v1/components:
     get:
       summary: List the versioned declared component inventory.
@@ -1645,3 +1702,152 @@ components:
         error:
           type: [string, 'null']
           maxLength: 500
+    SourceEvidenceCapture:
+      type: object
+      additionalProperties: false
+      required: [previous_cutoff, cutoff]
+      properties:
+        previous_cutoff:
+          type: string
+          format: date-time
+          maxLength: 64
+          description: Previous verified session cutoff, exclusive. Spans weekends and holidays.
+        cutoff:
+          type: string
+          format: date-time
+          maxLength: 64
+          description: Current cutoff, inclusive; must be later than previous_cutoff.
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 1000
+    SourceEvidenceBatch:
+      type: object
+      additionalProperties: false
+      required: [version_refs]
+      properties:
+        version_refs:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            maxLength: 256
+            description: Opaque immutable version identity copied unchanged from the persisted manifest.
+    SourceEvidenceManifest:
+      type: object
+      additionalProperties: false
+      required: [api_version, previous_cutoff, cutoff, captured_at, capture_status, capture_gap_seconds, history_available_from, history_status, overflow, candidate_limit, complete, items, manifest_hash]
+      properties:
+        api_version:
+          const: 1
+        previous_cutoff:
+          type: string
+          format: date-time
+        cutoff:
+          type: string
+          format: date-time
+        captured_at:
+          type: string
+          format: date-time
+        capture_status:
+          enum: [early, on_time, late]
+        capture_gap_seconds:
+          type: number
+          description: Signed capture time minus cutoff, including subsecond gaps.
+        history_available_from:
+          type: [string, 'null']
+          format: date-time
+          description: Verified deployment-owned retained-history boundary. Unset is unknown.
+        history_status:
+          enum: [unknown, available, unavailable]
+        overflow:
+          type: boolean
+          description: More eligible candidates existed than the ceiling. No moving-query continuation.
+        candidate_limit:
+          type: integer
+          minimum: 1
+          maximum: 1000
+        complete:
+          type: boolean
+          description: True only for on-time capture, available retained history and no overflow. Does not prove upstream intake completeness or full article text.
+        manifest_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: SHA-256 of UTF-8 sorted compact finite JSON manifest excluding this field.
+        items:
+          type: array
+          maxItems: 1000
+          description: Ordered by publication timestamp, event key and version. Text and media_refs omitted here.
+          items:
+            $ref: '#/components/schemas/SourceEvidenceItem'
+    SourceEvidenceItem:
+      type: object
+      additionalProperties: false
+      required: [event_key, version, kind, accepted_at, published_at, observed_at, endpoint_id, publisher_id, platform, source_url, parser_version, content_hash, payload_hash, original_publisher_id, origin_status, text_truncated, content_unavailable, evidence_hash, version_ref]
+      properties:
+        event_key:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        version:
+          type: integer
+          minimum: 1
+        kind:
+          enum: [original, correction, tombstone]
+        accepted_at:
+          type: string
+          format: date-time
+        published_at:
+          type: string
+          format: date-time
+        observed_at:
+          type: string
+          format: date-time
+        endpoint_id:
+          type: string
+        publisher_id:
+          type: string
+          description: Canonical collecting publisher; limits must span its routes and lanes.
+        platform:
+          enum: [telegram, x, instagram, whatsapp, rss]
+        source_url:
+          type: string
+          format: uri
+        parser_version:
+          type: string
+        content_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: Adapter-owned content hash retained as provenance.
+        payload_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: SHA-256 of the exact normalized accepted envelope, using sorted compact finite UTF-8 JSON.
+        original_publisher_id:
+          type: 'null'
+          description: No verified original identity exists in the current strict envelope.
+        origin_status:
+          const: unknown
+        text_truncated:
+          type: boolean
+        content_unavailable:
+          type: boolean
+        evidence_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: SHA-256 of the full safe item including text/media_refs, excluding evidence_hash and version_ref. Compare against the persisted manifest.
+        version_ref:
+          type: string
+          maxLength: 256
+        text:
+          type: string
+          maxLength: 12000
+          description: Present only in version batches; safe known source text, no unrelated payload configuration.
+        media_refs:
+          type: array
+          maxItems: 16
+          description: Present only in version batches; durable opaque metadata, no private object URLs or media bytes.
+          items:
+            type: object

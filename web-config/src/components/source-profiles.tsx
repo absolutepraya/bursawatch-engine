@@ -14,11 +14,13 @@ export function SourceProfiles({
   watcherId,
   request,
   canEdit,
+  sampleMode = false,
   onDirtyChange,
 }: {
   watcherId: string;
   request: Requester;
   canEdit: boolean;
+  sampleMode?: boolean;
   onDirtyChange: (dirty: boolean) => void;
 }) {
   const [profiles, setProfiles] = useState<ControlProfile[] | null>(null);
@@ -76,8 +78,12 @@ export function SourceProfiles({
     <section className="source-profiles" aria-labelledby={`${id}-heading`}>
       <div className="source-profiles-heading">
         <div>
-          <h2 id={`${id}-heading`}>Source profiles</h2>
-          <p>Saved identities and photos from the connected engine.</p>
+          <h2 id={`${id}-heading`}>{sampleMode ? "Sample source profiles" : "Source profiles"}</h2>
+          <p>
+            {sampleMode
+              ? "Synthetic identity rows only. Photo state and source connections are not checked."
+              : "Saved identities and photos from the connected engine."}
+          </p>
         </div>
         <button
           className="button secondary"
@@ -85,7 +91,13 @@ export function SourceProfiles({
           disabled={loading || busy}
           onClick={() => void load()}
         >
-          {profiles ? "Reload profiles" : "Load profiles"}
+          {profiles
+            ? sampleMode
+              ? "Reload sample profiles"
+              : "Reload profiles"
+            : sampleMode
+              ? "Load sample profiles"
+              : "Load profiles"}
         </button>
       </div>
       {loading ? <WorkspaceLoading title="Loading source profiles…" compact /> : null}
@@ -123,14 +135,19 @@ export function SourceProfiles({
                     <h3>{profile.display_name || profile.profile_id}</h3>
                     <p>
                       {profile.handle || profile.profile_id} ·{" "}
-                      {profile.enabled ? "Enabled" : "Paused"}
+                      {sampleMode
+                        ? profile.enabled
+                          ? "Enabled in sample"
+                          : "Paused in sample"
+                        : profile.enabled
+                          ? "Enabled"
+                          : "Paused"}
                     </p>
-                    <small>Source ID: {profile.profile_id}</small>
+                    {!sampleMode ? <small>Source ID: {profile.profile_id}</small> : null}
                     <p className="source-photo-status">
-                      Photo: {profile.avatar.mode === "auto" ? "automatic" : "custom"} ·{" "}
-                      {profile.avatar.last_success_at
-                        ? `Last successful refresh ${new Date(profile.avatar.last_success_at).toLocaleString("en-GB", { timeZone: "Asia/Jakarta" })} WIB`
-                        : "No successful refresh recorded"}
+                      {sampleMode
+                        ? "Example photo state, no refresh recorded"
+                        : `Photo: ${profile.avatar.mode === "auto" ? "automatic" : "custom"} · ${profile.avatar.last_success_at ? `Last successful refresh ${new Date(profile.avatar.last_success_at).toLocaleString("en-GB", { timeZone: "Asia/Jakarta" })} WIB` : "No successful refresh recorded"}`}
                     </p>
                   </div>
                   {canEdit ? (

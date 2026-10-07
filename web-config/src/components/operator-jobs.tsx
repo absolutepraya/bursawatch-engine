@@ -31,6 +31,8 @@ export function OperatorJobs({
   request,
   onDirtyChange,
   unavailable = false,
+  basePath = "/workspace",
+  sampleMode = false,
 }: {
   jobs: OperatorJob[];
   components: OperatorComponent[];
@@ -38,6 +40,8 @@ export function OperatorJobs({
   request: Requester;
   onDirtyChange: (dirty: boolean) => void;
   unavailable?: boolean;
+  basePath?: string;
+  sampleMode?: boolean;
 }) {
   const [jobs, setJobs] = useState(initialJobs);
   const [dirtyRows, setDirtyRows] = useState<string[]>([]);
@@ -78,7 +82,11 @@ export function OperatorJobs({
     <>
       <div className="control-page-heading">
         <h1>Jobs</h1>
-        <p>Schedule observations and last execution do not confirm a post reached Discord.</p>
+        <p>
+          {sampleMode
+            ? "These sample job records are read-only and do not represent live schedules or runs."
+            : "Schedule observations and last execution do not confirm a post reached Discord."}
+        </p>
       </div>
       {jobs.length ? (
         <ol className="operator-job-list">
@@ -101,36 +109,44 @@ export function OperatorJobs({
                       <p>{job.runtime_job_key}</p>
                     </div>
                     <span className={`operator-job-state operator-job-state-${state}`}>
-                      {stateLabel[state]}
+                      {sampleMode ? "Sample record" : stateLabel[state]}
                     </span>
                   </div>
                   <dl className="operator-job-evidence">
                     <div>
-                      <dt>Desired</dt>
+                      <dt>{sampleMode ? "Example desired" : "Desired"}</dt>
                       <dd>
                         {job.schedule
-                          ? `${job.schedule.enabled ? "Enabled" : "Paused"} · every ${job.schedule.interval_seconds / 60} minutes · revision ${job.schedule.revision}`
+                          ? sampleMode
+                            ? `Example interval · every ${job.schedule.interval_seconds / 60} minutes`
+                            : `${job.schedule.enabled ? "Enabled" : "Paused"} · every ${job.schedule.interval_seconds / 60} minutes · revision ${job.schedule.revision}`
                           : "No desired interval"}
                       </dd>
                     </div>
                     <div>
-                      <dt>Applied</dt>
-                      <dd>{appliedScheduleLabel(job)}</dd>
-                    </div>
-                    <div>
-                      <dt>Observed</dt>
+                      <dt>{sampleMode ? "Example applied" : "Applied"}</dt>
                       <dd>
-                        {observation
-                          ? `${observation.evidence.enabled ? "Enabled" : "Paused"} · ${formatObservedSchedule(observation)} · ${formatTime(observation.observed_at)} WIB`
-                          : "No observation"}
+                        {sampleMode ? "Not represented in sample" : appliedScheduleLabel(job)}
                       </dd>
                     </div>
                     <div>
-                      <dt>Last execution</dt>
+                      <dt>{sampleMode ? "Example observation" : "Observed"}</dt>
                       <dd>
-                        {lastExecution?.at
-                          ? `${lastExecution.status ?? "Status unavailable"} · ${formatTime(lastExecution.at)} WIB`
-                          : "Not reported"}
+                        {sampleMode
+                          ? "Not represented in sample"
+                          : observation
+                            ? `${observation.evidence.enabled ? "Enabled" : "Paused"} · ${formatObservedSchedule(observation)} · ${formatTime(observation.observed_at)} WIB`
+                            : "No observation"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>{sampleMode ? "Example last execution" : "Last execution"}</dt>
+                      <dd>
+                        {sampleMode
+                          ? "Not represented in sample"
+                          : lastExecution?.at
+                            ? `${lastExecution.status ?? "Status unavailable"} · ${formatTime(lastExecution.at)} WIB`
+                            : "Not reported"}
                       </dd>
                     </div>
                     <div>
@@ -139,7 +155,7 @@ export function OperatorJobs({
                         {related.length ? (
                           <ul className="operator-job-components">
                             {related.map((item) => {
-                              const href = componentHref(item);
+                              const href = componentHref(item, basePath);
                               return (
                                 <li key={item.component_id}>
                                   {href ? (
@@ -159,7 +175,9 @@ export function OperatorJobs({
                   </dl>
                   {job.schedule_kind === "fixed" ? (
                     <p className="operator-job-readonly">
-                      Fixed system schedule. It can be reviewed here but not changed.
+                      {sampleMode
+                        ? "Fixed job example. No real job or schedule is represented."
+                        : "Fixed system schedule. It can be reviewed here but not changed."}
                     </p>
                   ) : null}
                   {job.schedule_kind === "interval" && job.can_edit && job.schedule ? (
@@ -195,7 +213,9 @@ export function OperatorJobs({
                   ) : null}
                   {job.schedule_kind === "interval" && !job.can_edit ? (
                     <p className="operator-job-readonly">
-                      You have view access. An administrator can change this schedule.
+                      {sampleMode
+                        ? "Sample job. Schedule changes are not available in this demo."
+                        : "You have view access. An administrator can change this schedule."}
                     </p>
                   ) : null}
                   {job.schedule_kind === "interval" && job.can_edit && !job.schedule ? (
@@ -219,8 +239,8 @@ export function OperatorJobs({
   );
 }
 
-function componentHref(component: OperatorComponent): string | null {
-  if (component.kind === "source_adapter") return "/workspace/sources";
+function componentHref(component: OperatorComponent, basePath: string): string | null {
+  if (component.kind === "source_adapter") return `${basePath}/sources`;
   if (component.kind !== "domain_owner") return null;
   const watcherIds = new Set(
     component.config_resource_ids
@@ -231,7 +251,7 @@ function componentHref(component: OperatorComponent): string | null {
   );
   // Never guess which editor a missing or ambiguous relationship refers to.
   if (watcherIds.size !== 1) return null;
-  return `/workspace/workflows?watcher=${encodeURIComponent([...watcherIds][0])}`;
+  return `${basePath}/workflows?watcher=${encodeURIComponent([...watcherIds][0])}`;
 }
 
 function toControlJob(job: OperatorJob): ControlJob {

@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 
 API_VERSION = 1
 OWNER_ROUTES: dict[str, dict[str, set[str]]] = {
+    "bursawatch-dc-morning-brief": {"morning_brief": {"morning_brief"}},
     "bursawatch-tg-market-news": {
         "idx_company_news": {"id_stocks_news"},
         "industry_news": {"id_industry_news"},

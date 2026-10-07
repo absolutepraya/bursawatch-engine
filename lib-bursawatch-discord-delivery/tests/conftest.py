@@ -20,7 +20,7 @@ sys.path.insert(0, str(PACKAGE_ROOT / "bin"))
 
 
 def _parse_operation(content_type: str, body: bytes) -> tuple[dict[str, Any], tuple[Any, ...]]:
-    from bursawatch_discord_delivery.models import Attachment, OperationIntent
+    from bursawatch_discord_delivery.models import Attachment, OperationIntent, parse_attempt_deadline
 
     envelope = BytesParser(policy=default).parsebytes(
         b"MIME-Version: 1.0\r\nContent-Type: "
@@ -58,12 +58,13 @@ def _parse_operation(content_type: str, body: bytes) -> tuple[dict[str, Any], tu
         attachments=tuple(attachments),
         reconcile_before_first_create=operation.get("reconcile_before_first_create", False),
         legacy_nonce=operation.get("legacy_nonce"),
+        attempt_deadline=parse_attempt_deadline(operation.get("attempt_deadline")),
     )
     return operation, (intent,)
 
 
 def _parse_adoption(content_type: str, body: bytes) -> tuple[dict[str, Any], tuple[Any, ...]]:
-    from bursawatch_discord_delivery.models import Attachment, OperationIntent
+    from bursawatch_discord_delivery.models import Attachment, OperationIntent, parse_attempt_deadline
 
     document: dict[str, Any] | None = None
     attachments = []
@@ -101,6 +102,7 @@ def _parse_adoption(content_type: str, body: bytes) -> tuple[dict[str, Any], tup
         attachments=tuple(attachments),
         reconcile_before_first_create=operation.get("reconcile_before_first_create", False),
         legacy_nonce=operation.get("legacy_nonce"),
+        attempt_deadline=parse_attempt_deadline(operation.get("attempt_deadline")),
     )
     return document, (intent, tuple(attachments))
 

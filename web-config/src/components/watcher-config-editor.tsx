@@ -22,6 +22,7 @@ import {
   getDraftOwner,
   readWorkspaceDraft,
   retainWorkspaceDraft,
+  type WorkspaceDraftScope,
   type WorkspaceDraftKey,
 } from "@/lib/workspace-drafts";
 import {
@@ -72,7 +73,7 @@ function Field({
   path: ConfigPath;
   label: string;
   hint?: string;
-  type?: "text" | "number" | "url";
+  type?: "text" | "number" | "url" | "time";
   min?: number;
   max?: number;
   step?: number;
@@ -682,6 +683,79 @@ function TelegramFields({ watcherId }: { watcherId: string }) {
   );
 }
 
+function MorningFields() {
+  const { draft, update, errors } = useEditor();
+  const instruments = Array.isArray(draft.instruments) ? draft.instruments : [];
+  const supported = ["KOSPI", "Nikkei", "SPY", "QQQ", "EIDO", "USDIDR"];
+  return (
+    <>
+      <Group
+        title="Morning timing"
+        hint="Times use WIB (Asia/Jakarta). Changes apply to the next unfrozen session. Saving does not activate a job; scheduler controls remain in Jobs."
+      >
+        <Field path={["cutoff_time"]} label="Data cutoff (WIB)" type="time" />
+        <Field path={["delivery_time"]} label="Delivery target (WIB)" type="time" />
+        <Field
+          path={["fallback_minutes"]}
+          label="Select factual fallback before delivery (minutes)"
+          type="number"
+          min={1}
+          max={30}
+        />
+        <Field
+          path={["retry_minutes"]}
+          label="Stop new delivery attempts after target (minutes)"
+          type="number"
+          min={1}
+          max={60}
+        />
+      </Group>
+      <Group
+        title="Discord destination"
+        hint="Leave empty until a destination is reviewed. A saved destination does not publish a brief."
+      >
+        <Field path={["destination_channel_id"]} label="Brief channel ID" nullable />
+      </Group>
+      <Group
+        title="Global markets"
+        hint="Choose rows to include. An unavailable quote remains unavailable; selecting a row does not fetch paid data."
+      >
+        {supported.map((name) => (
+          <label className="watcher-toggle" key={name}>
+            <input
+              type="checkbox"
+              name="instruments"
+              checked={instruments.includes(name)}
+              onChange={(event) =>
+                update(
+                  ["instruments"],
+                  supported.filter((item) =>
+                    item === name ? event.target.checked : instruments.includes(item),
+                  ),
+                )
+              }
+            />
+            {name === "USDIDR" ? "USD/IDR" : name}
+          </label>
+        ))}
+        {errors.instruments ? (
+          <p className="watcher-field-error" role="alert">
+            {errors.instruments}
+          </p>
+        ) : null}
+      </Group>
+      <Group
+        title="Instrument emojis"
+        hint="Use existing Discord custom emoji markup. Leave empty to show the instrument name without a logo."
+      >
+        {supported.map((name) => (
+          <Field key={name} path={["logos", name]} label={`${name} emoji`} nullable />
+        ))}
+      </Group>
+    </>
+  );
+}
+
 function StockbitFields() {
   const { draft, errors } = useEditor();
   const feeds = Array.isArray(draft.feeds) ? draft.feeds : [];
@@ -773,15 +847,18 @@ export function WatcherConfigEditor({
   snapshot,
   onSave,
   onDirtyChange,
+  sampleMode = false,
 }: {
   snapshot: ConfigSnapshot;
   onSave: (config: Record<string, unknown>) => Promise<ConfigSnapshot>;
   onDirtyChange?: (dirty: boolean) => void;
+  sampleMode?: boolean;
 }) {
+  const draftScope: WorkspaceDraftScope = sampleMode ? "sample" : "workspace";
   const draftKey: WorkspaceDraftKey = `config:${snapshot.watcher_id}`;
   const [draftOwner] = useState(getDraftOwner);
   const [restored] = useState(() =>
-    readWorkspaceDraft<ConfigSnapshot, Record<string, unknown>>(draftKey),
+    readWorkspaceDraft<ConfigSnapshot, Record<string, unknown>>(draftKey, draftScope),
   );
   const restoredConflict = Boolean(restored && restored.base.revision !== snapshot.revision);
   const [saved, setSaved] = useState(restored?.base ?? snapshot);
@@ -834,8 +911,9 @@ export function WatcherConfigEditor({
       },
       dirty,
       draftOwner,
+      draftScope,
     );
-  }, [draftKey, draftOwner, saved, draft, blocked, saving, failure, dirty]);
+  }, [draftKey, draftOwner, draftScope, saved, draft, blocked, saving, failure, dirty]);
   useEffect(() => {
     onDirtyChange?.(dirty || saving);
     return () => onDirtyChange?.(false);
@@ -915,12 +993,20 @@ export function WatcherConfigEditor({
     setSaving(true);
     try {
       const result = await onSave(structuredClone(draft));
-      discardWorkspaceDraft(draftKey, draftOwner);
+      discardWorkspaceDraft(draftKey, draftOwner, draftScope);
       setSaved(result);
       setDraft(structuredClone(result.config));
       setRestoredNotice(false);
-      setSavedNotice(`Configuration saved as revision ${result.revision}.`);
-      toast("Watcher configuration saved.");
+      setSavedNotice(
+        sampleMode
+          ? `Sample configuration saved as revision ${result.revision}.`
+          : `Configuration saved as revision ${result.revision}.`,
+      );
+      toast(
+        sampleMode
+          ? "Sample configuration saved for this session."
+          : "Watcher configuration saved.",
+      );
     } catch (error) {
       const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
       const fields = error && typeof error === "object" && "fields" in error ? error.fields : [];
@@ -1127,6 +1213,8 @@ export function WatcherConfigEditor({
                     Add {kind === "whatsapp" ? "channel" : "account"}
                   </button>
                 </>
+              ) : saved.watcher_id === "bursawatch-dc-morning-brief" ? (
+                <MorningFields />
               ) : saved.watcher_id === "bursawatch-stockbit-snips" ? (
                 <StockbitFields />
               ) : (
@@ -1156,8 +1244,12 @@ export function WatcherConfigEditor({
                 {saving
                   ? "Saving configuration…"
                   : dirty
-                    ? `${changes} unsaved ${changes === 1 ? "change" : "changes"}. Save for the watcher’s next check.`
-                    : "Saved settings do not confirm a source check or message delivery."}
+                    ? sampleMode
+                      ? `${changes} unsaved ${changes === 1 ? "change" : "changes"}. Save sample settings to this visit’s in-memory workspace.`
+                      : `${changes} unsaved ${changes === 1 ? "change" : "changes"}. Save for the watcher’s next check.`
+                    : sampleMode
+                      ? "Sample settings do not change a real watcher or send a message."
+                      : "Saved settings do not confirm a source check or message delivery."}
               </p>
               <div>
                 <button
@@ -1166,7 +1258,7 @@ export function WatcherConfigEditor({
                   disabled={!dirty || saving || blocked}
                   onClick={() => {
                     if (window.confirm("Discard your unsaved changes?")) {
-                      discardWorkspaceDraft(draftKey, draftOwner);
+                      discardWorkspaceDraft(draftKey, draftOwner, draftScope);
                       setDraft(structuredClone(saved.config));
                       setRestoredNotice(false);
                       setErrors({});

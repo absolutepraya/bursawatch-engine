@@ -425,3 +425,101 @@ cursors or state, replay work, or post production messages as an implicit part
 of such a change. The original cutover preflight remains historical guidance;
 for a new state transition, collect its sanitized, read-only evidence before
 changing the live reader or its state.
+
+## Immutable source evidence reads
+
+This additive API supports research from accepted Source Inbox versions. It does
+not claim work or use the Published Feed as the source corpus. The dedicated
+`CONTROL_PLANE_SOURCE_READER_TOKEN` (at least 32 characters, no whitespace,
+distinct from every other static credential) maps to `source_reader` in both
+static and Supabase/composite modes. That principal can access only these two
+routes. Admins may also inspect them; general machine, viewer, source adapter,
+publication owner, observer and reconciler principals are denied.
+
+`POST /v1/source-evidence/capture` accepts exactly `previous_cutoff`, `cutoff`
+(timezone-aware ISO timestamps) and optional `limit` (default 1000, range 1 to
+1000). Under one repeatable-read, read-only transaction borrowed from the existing
+shared pool, it selects each event's highest version accepted and observed at or
+before cutoff, suppresses selected tombstones, then applies the publication
+window `(previous_cutoff, cutoff]`. Corrections published outside the window do
+not resurrect earlier versions. Order is publication time, event key, version.
+The memory test store mirrors acceptance timestamps per version under its lock.
+
+The response includes `api_version=1`, normalized window timestamps,
+`captured_at`, `capture_status` (`early`, `on_time`, `late`), signed
+`capture_gap_seconds` (capture minus cutoff), `candidate_limit`, `overflow`,
+`history_available_from`, `history_status`, `complete`, `items`, and
+`manifest_hash`. A capture up to `CAPTURE_GRACE_SECONDS` (120) after cutoff is
+`on_time` because capture cannot precede its cutoff; a larger gap is explicitly
+late and the signed gap is always retained. It cannot reproduce the earlier committed-state snapshot because
+an acceptance timestamp may precede commit. An early capture is also incomplete.
+`overflow=true` means more candidates existed than the bound; there is no moving
+query continuation. The morning owner must persist this exact manifest in its
+private run state before reading or selecting evidence. Recovery must reuse its
+references rather than recapture and claim to recover the original snapshot.
+
+Each manifest item includes `event_key`, `version`, `kind`, `accepted_at`,
+`published_at`, `observed_at`, `endpoint_id`, `publisher_id`, `platform`,
+`source_url`, `parser_version`, `content_hash`, `payload_hash`,
+`original_publisher_id`, `origin_status`, `text_truncated`,
+`content_unavailable`, `evidence_hash`, and opaque `version_ref`. Current strict
+source envelopes carry collecting publisher identity but no verified original
+publisher field, so `original_publisher_id=null` and `origin_status=unknown`.
+Consumers must preserve this uncertainty. Selection, copied-story deduplication,
+and the 30-item/three-per-publisher cross-route cap belong to the morning owner.
+
+`POST /v1/source-evidence/versions` accepts exactly `version_refs`, containing
+1 to 100 unique opaque references from the persisted manifest. The response is
+`{"api_version":1,"items":[...]}` in requested order. Each item adds only `text`
+and `media_refs` to the manifest fields. References bind event identity, version
+and a canonical SHA-256 of the exact accepted envelope, independent of the
+adapter's `content_hash`. The full safe evidence view has its own SHA-256.
+Consumers also compare `evidence_hash` against the persisted manifest item.
+An unavailable version fails the entire batch with 410; malformed references,
+duplicate identities or a changed envelope fail with 422. No partial success or
+fallback to the latest event is allowed. Later corrections and tombstones leave
+previously captured immutable versions readable.
+
+Only known Telegram/WhatsApp text, Stockbit article title/text and X visible
+post/thread/quoted text are returned, bounded to 12,000 characters. HTML attributes,
+script/style content, private configuration snapshots, provider media URLs and
+unrelated payload fields are omitted. Durable media metadata remains opaque.
+`text_truncated` also flags Stockbit text already at its upstream 12,000-character
+ceiling. Missing supported text is `content_unavailable=true`, never fabricated.
+These flags describe content availability; `complete` describes window capture,
+not proof of provider intake coverage or untruncated source content.
+
+The existing version store has no purge path; this change adds none and retains
+versions for lookback and run recovery. Minimum historical availability is not
+inferred from the first or last event, which cannot prove an empty interval.
+Only a separately verified, deployment-owned
+`CONTROL_PLANE_SOURCE_HISTORY_AVAILABLE_FROM` ISO timestamp can assert a retained
+history boundary. Unset means `history_status=unknown`; a boundary after the
+requested lower cutoff means `unavailable`. Both make `complete=false`, as do
+late/early capture and overflow. The timestamp is an operator assertion about
+retained history, not a guarantee that every upstream post was collected. Any
+future retention policy must preserve the full verified session lookback plus
+owner recovery and surface missing versions as incomplete evidence. Never
+backfill or replay source intake through this read API.
+
+Hashes use UTF-8 JSON with sorted keys, compact separators, literal Unicode and
+finite numbers. `payload_hash` hashes the normalized stored envelope;
+`evidence_hash` hashes the full safe item excluding `evidence_hash` and
+`version_ref`; `manifest_hash` hashes the complete manifest excluding itself.
+These are integrity checks, not authorization credentials. Keep opaque refs
+unchanged; their encoding is an implementation detail. Both POST routes only
+read existing source tables and never persist work, manifests, audits, schedules,
+publications or intake. No database migration or second source database is added.
+
+
+### Morning brief configuration
+
+`bursawatch-dc-morning-brief` uses the existing authenticated watcher-config
+GET/PUT API and private revision tables. Migration 023 registers configuration
+only, and absent-only seeding preserves operator-authored revisions. The bundled
+canonical parser validates WIB cutoff/delivery, fallback/retry windows, the
+nullable destination, selected global instruments and emoji mappings. Its
+built-in isolated validator needs no host environment change; an explicit
+`CONTROL_PLANE_MORNING_CONFIG_VALIDATOR_DIR` may select a reviewed bundle path.
+The baseline defaults to 07:30/08:00 WIB with no destination. Saving settings
+does not create a job, activate a schedule or authorize provider requests.
