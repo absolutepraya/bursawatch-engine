@@ -159,7 +159,7 @@ def _rotation_header(canvas,title,session):
     _logo(canvas,word[0]-18-size,(word[1]+word[3])/2-size/2+2,size)
 
 
-def _gold_padding(canvas,inset=24):
+def _gold_padding(canvas,inset=12):
     """Solid gold margin around the dark rounded content area."""
     canvas.draw.rectangle((0,0,canvas.width,canvas.height),fill=GOLD)
     canvas.draw.rounded_rectangle((inset,inset,canvas.width-inset,canvas.height-inset),radius=28,fill=BG)
