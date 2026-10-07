@@ -1,8 +1,7 @@
-<p align="center">
-  <img src="bursawatch.png" alt="Bursawatch logo" width="120">
-</p>
-
-# Bursawatch
+<h1>
+  <img src="bursawatch.png" alt="Bursawatch logo" width="44" align="absmiddle">
+  Bursawatch
+</h1>
 
 [![CI](https://github.com/absolutepraya/bursawatch-engine/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/absolutepraya/bursawatch-engine/actions/workflows/ci.yml)
 
