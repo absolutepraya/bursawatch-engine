@@ -16,6 +16,7 @@ import observe
 
 RUNTIME_NAMES = {"bursawatch-tg-source-ingest", "bursawatch-x-account-watch"}
 EXPECTED_RUNTIME_JOB_IDS = {
+    "bursawatch-dc-morning-brief": "bursawatch-dc-morning-brief",
     "bursawatch-tg-source-ingest": "bursawatch-tg-source-ingest",
     "bursawatch-tg-market-news-watchdog": "bursawatch-tg-market-news-watchdog",
     "bursawatch-dc-swing-board-lifecycle": "bursawatch-dc-swing-board-lifecycle",

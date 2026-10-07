@@ -16,6 +16,7 @@ from urllib.request import Request, urlopen
 MAX_REGISTRY_BYTES = 5_000_000
 MAX_RESPONSE_BYTES = 32_000
 RUNTIME_JOB_IDS = {
+    "bursawatch-dc-morning-brief": "bursawatch-dc-morning-brief",
     "bursawatch-tg-source-ingest": "bursawatch-tg-source-ingest",
     "bursawatch-tg-market-news-watchdog": "bursawatch-tg-market-news-watchdog",
     "bursawatch-dc-swing-board-lifecycle": "bursawatch-dc-swing-board-lifecycle",
