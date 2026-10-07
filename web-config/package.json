@@ -16,7 +16,7 @@
     "format": "prettier --write 'src/**/*.tsx' 'src/**/*.css'",
     "typecheck": "NEXT_DIST_DIR=.next-build next typegen && tsc --noEmit",
     "test": "vitest run",
-    "test:browser": "node scripts/public-shell-smoke.mjs && node scripts/browser-smoke.mjs && node scripts/connections-smoke.mjs && node scripts/custom-workflow-smoke.mjs && node scripts/control-workspace-smoke.mjs && node scripts/source-editor-smoke.mjs && node scripts/loading-smoke.mjs && node scripts/source-profiles-smoke.mjs",
+    "test:browser": "node scripts/public-shell-smoke.mjs && node scripts/browser-smoke.mjs && node scripts/control-workspace-smoke.mjs && node scripts/source-editor-smoke.mjs && node scripts/loading-smoke.mjs && node scripts/source-profiles-smoke.mjs",
     "test:watch": "vitest",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build"
   },

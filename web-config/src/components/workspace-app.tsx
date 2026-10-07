@@ -21,7 +21,11 @@ import { ToastProvider, useToast } from "@/components/toast-provider";
 import { ControlDashboard } from "@/components/control-dashboard";
 import { SearchableRunHistory, SearchableWorkflowList } from "@/components/workspace-list-filters";
 import { WatcherConfigEditor } from "@/components/watcher-config-editor";
-import { WorkspaceNavigation, type WorkspaceView } from "@/components/workspace-navigation";
+import {
+  WorkspaceNavigation,
+  workspaceHref,
+  type WorkspaceView,
+} from "@/components/workspace-navigation";
 import { SourceCatalogView } from "@/components/source-catalog";
 import { ConnectedWorkflowSummary } from "@/components/connected-workflow-summary";
 import { WorkspaceLoading } from "@/components/workspace-loading";
@@ -34,6 +38,12 @@ import { loadWorkspaceRecords, type WorkspaceProgress } from "@/lib/workspace-lo
 import "@/app/workspace.css";
 
 type View = WorkspaceView;
+type Requester = ReturnType<typeof controlBrowser>;
+type WorkspaceDemo = {
+  request: Requester;
+  notices: Partial<Record<View, string>>;
+  children?: React.ReactNode;
+};
 const browserClients = new Map<string, SupabaseClient>();
 function authClient(settings: WebAuthSettings) {
   const key = `${settings.supabaseUrl}:${settings.publishableKey}`;
@@ -48,10 +58,28 @@ function authClient(settings: WebAuthSettings) {
 }
 type Records = WorkspaceRecords;
 
-export function WorkspaceApp(props: { settings: WebAuthSettings | null; view: View }) {
+export function WorkspaceApp(props: {
+  settings: WebAuthSettings | null;
+  view: View;
+  demo?: WorkspaceDemo;
+}) {
   return (
     <ToastProvider>
-      <WorkspaceSession {...props} />
+      {props.demo ? (
+        <SignedInWorkspace
+          client={null}
+          session={null}
+          view={props.view}
+          demoRequest={props.demo.request}
+          demoNotices={props.demo.notices}
+          demoChildren={props.demo.children}
+          sampleMode
+          signingOut={false}
+          sessionError=""
+        />
+      ) : (
+        <WorkspaceSession settings={props.settings} view={props.view} />
+      )}
     </ToastProvider>
   );
 }
@@ -130,7 +158,7 @@ function WorkspaceSession({ settings, view }: { settings: WebAuthSettings | null
       <SignInShell>
         <h1>Sign-in is being set up.</h1>
         <p>This workspace will be available when its owner finishes connecting sign-in.</p>
-        <Link className="button secondary" href="/app/insights">
+        <Link className="button secondary" href="/app">
           Explore the sample workspace <ArrowRight size={17} />
         </Link>
       </SignInShell>
@@ -246,7 +274,7 @@ function SignInForm({ client, notice }: { client: SupabaseClient; notice: string
         </button>
       </form>
       <p className="workspace-access-note">Access is provided by your workspace owner.</p>
-      <Link className="workspace-sample-link" href="/app/insights">
+      <Link className="workspace-sample-link" href="/app">
         Explore the sample workspace <ArrowRight size={15} />
       </Link>
     </SignInShell>
@@ -257,18 +285,30 @@ function SignedInWorkspace({
   client,
   session,
   view,
+  demoRequest,
+  demoNotices,
+  demoChildren,
+  sampleMode = false,
   onSignOut,
   signingOut,
   sessionError,
 }: {
-  client: SupabaseClient;
-  session: Session;
+  client: SupabaseClient | null;
+  session: Session | null;
   view: View;
-  onSignOut: () => Promise<void>;
+  demoRequest?: Requester;
+  demoNotices?: Partial<Record<View, string>>;
+  demoChildren?: React.ReactNode;
+  sampleMode?: boolean;
+  onSignOut?: () => Promise<void>;
   signingOut: boolean;
   sessionError: string;
 }) {
-  const [request] = useState(() => controlBrowser(client));
+  const [request] = useState(() => {
+    if (demoRequest) return demoRequest;
+    if (!client) throw new Error("A workspace request function is required.");
+    return controlBrowser(client);
+  });
   const [loadedRecords, setRecords] = useState<Records | null>(null);
   const [recordScope, setRecordScope] = useState("");
   const [progress, setProgress] = useState<WorkspaceProgress | null>(null);
@@ -282,6 +322,7 @@ function SignedInWorkspace({
     dirty.current = value;
   }, []);
   const guardedSignOut = () => {
+    if (!onSignOut) return;
     if (
       (!dirty.current && !hasWorkspaceDrafts()) ||
       window.confirm("Discard unsaved changes and sign out?")
@@ -294,6 +335,7 @@ function SignedInWorkspace({
   const params = useSearchParams();
   const watcherId = params.get("watcher");
   const runId = params.get("run");
+  const basePath = sampleMode ? "/app" : "/workspace";
   const legacySourceLibrary = view === "workflows" && params.get("tab") === "sources" && !watcherId;
   const scope = `${view}:${view === "workflows" ? (watcherId ?? "") : ""}`;
   const records = recordScope === scope ? loadedRecords : null;
@@ -388,18 +430,33 @@ function SignedInWorkspace({
     heading.current?.focus();
   }, [pathname, watcherId, runId]);
   useEffect(() => {
-    if (legacySourceLibrary) router.replace("/workspace/sources");
-  }, [legacySourceLibrary, router]);
+    if (legacySourceLibrary) router.replace(workspaceHref(basePath, "sources"));
+  }, [legacySourceLibrary, router, basePath]);
   const selectWatcher = (id: string) =>
-    router.push(`/workspace/workflows?watcher=${encodeURIComponent(id)}`);
-  const selectRun = (id: string) => router.push(`/workspace/history?run=${encodeURIComponent(id)}`);
+    router.push(`${basePath}/workflows?watcher=${encodeURIComponent(id)}`);
+  const selectRun = (id: string) =>
+    router.push(`${basePath}/history?run=${encodeURIComponent(id)}`);
   return (
     <div className="control-workspace has-connected-navigation">
       <a className="skip-link" href="#workspace-main">
         Skip to main content
       </a>
-      <WorkspaceNavigation view={view} onSignOut={guardedSignOut} signingOut={signingOut} />
+      <WorkspaceNavigation
+        view={view}
+        onSignOut={onSignOut ? guardedSignOut : undefined}
+        signingOut={signingOut}
+        basePath={basePath}
+        sampleMode={sampleMode}
+      />
       <main id="workspace-main" ref={heading} tabIndex={-1} className="control-main">
+        {sampleMode ? (
+          <div className="sample-workspace-banner" role="note">
+            <strong>Sample workspace</strong>
+            <span>
+              {demoNotices?.[view] ?? "Synthetic examples only. No live workspace data is loaded."}
+            </span>
+          </div>
+        ) : null}
         {sessionError ? (
           <p role="alert" className="workspace-error">
             {sessionError}
@@ -480,6 +537,8 @@ function SignedInWorkspace({
         {records && view === "overview" ? (
           <ControlDashboard
             {...records}
+            basePath={basePath}
+            sampleMode={sampleMode}
             refreshing={refreshing}
             onRefresh={() => void refresh()}
             onSelectWatcher={selectWatcher}
@@ -503,7 +562,15 @@ function SignedInWorkspace({
                     issue.resource === "components" || issue.resource === "component-activity",
                 ) ?? false
               }
+              sampleMode={sampleMode}
             />
+            {sampleMode ? (
+              <p className="control-data-note">
+                Catalog edits stay in this sample session. Endpoint capability settings record
+                source intent only, and a People &amp; Org identity is not attached to a watcher
+                profile.
+              </p>
+            ) : null}
           </>
         ) : null}
         {records && view === "workflows" ? (
@@ -515,6 +582,8 @@ function SignedInWorkspace({
               request={request}
               onDirtyChange={onDirtyChange}
               loadingStatus={refreshing}
+              basePath={basePath}
+              sampleMode={sampleMode}
             />
           ) : legacySourceLibrary ? null : (
             <>
@@ -529,6 +598,7 @@ function SignedInWorkspace({
                 observations={records.observations}
                 onSelectWatcher={selectWatcher}
                 statusLoaded={false}
+                sampleMode={sampleMode}
               />
             </>
           )
@@ -540,6 +610,8 @@ function SignedInWorkspace({
             records={loadedRecords}
             request={request}
             onAccessFailure={onTimelineAccessFailure}
+            basePath={basePath}
+            sampleMode={sampleMode}
           />
         ) : records && view === "history" && !runId ? (
           <>
@@ -548,13 +620,15 @@ function SignedInWorkspace({
               description="Up to 50 recent checks per workflow. A completed check may have nothing new to deliver."
             />
             <p className="control-data-note">
-              Source-adapter run telemetry is unavailable here. This page shows bounded workflow run
-              records, not a count of source polls or deliveries.
+              {sampleMode
+                ? "These are synthetic example timelines, not real runs or deliveries."
+                : "Source-adapter run telemetry is unavailable here. This page shows bounded workflow run records, not a count of source polls or deliveries."}
             </p>
             <SearchableRunHistory
               runs={records.runs}
               watchers={records.watchers}
               onSelectRun={selectRun}
+              sampleMode={sampleMode}
             />
           </>
         ) : null}
@@ -566,56 +640,89 @@ function SignedInWorkspace({
             request={request}
             onDirtyChange={onDirtyChange}
             unavailable={records.operatorIssues.some((issue) => issue.resource === "operator-jobs")}
+            basePath={basePath}
+            sampleMode={sampleMode}
           />
         ) : null}
         {view === "published" ? (
-          <PublishedWorkspace request={request} onSignIn={guardedSignOut} />
+          <PublishedWorkspace
+            request={request}
+            onSignIn={onSignOut ? guardedSignOut : undefined}
+            basePath={basePath}
+            sampleMode={sampleMode}
+          />
         ) : null}
         {view === "settings" ? (
           <>
             <WorkspaceHeading
               title="Account"
-              description="Your access to this shared research workspace."
+              description={
+                sampleMode
+                  ? "Account access in the authenticated workspace."
+                  : "Your access to this shared research workspace."
+              }
             />
             <section className="control-account">
-              <h2>Signed in</h2>
-              <p>{session.user.email ?? "Workspace member"}</p>
-              <p className="control-muted">
-                Your workspace owner manages configuration permissions.
-              </p>
-              <div className="control-account-id">
-                <span>Account ID</span>
-                <code>{session.user.id}</code>
-                <button
-                  className="button secondary small"
-                  onClick={() =>
-                    void navigator.clipboard
-                      .writeText(session.user.id)
-                      .then(() => toast("Account ID copied."))
-                      .catch(() => toast("Copy unavailable. Select your account ID to copy it."))
-                  }
-                >
-                  <Copy size={16} />
-                  Copy
-                </button>
-              </div>
-              <details>
-                <summary>About workspace access</summary>
-                <p>
-                  Members can view shared workflows and run history. Administrators can also change
-                  source configuration and supported schedules. Share your account ID with the owner
-                  if you need editing access.
-                </p>
-              </details>
-              <button className="button secondary" onClick={guardedSignOut} disabled={signingOut}>
-                Sign out
-              </button>
+              {sampleMode ? (
+                <>
+                  <h2>Sample account</h2>
+                  <p>No account is signed in to this sample workspace.</p>
+                  <p className="control-muted">
+                    Account access and Discord setup belong to the authenticated workspace.
+                  </p>
+                  <Link className="button secondary" href="/workspace">
+                    Open the real workspace
+                  </Link>
+                </>
+              ) : session ? (
+                <>
+                  <h2>Signed in</h2>
+                  <p>{session.user.email ?? "Workspace member"}</p>
+                  <p className="control-muted">
+                    Your workspace owner manages configuration permissions.
+                  </p>
+                  <div className="control-account-id">
+                    <span>Account ID</span>
+                    <code>{session.user.id}</code>
+                    <button
+                      className="button secondary small"
+                      onClick={() =>
+                        void navigator.clipboard
+                          .writeText(session.user.id)
+                          .then(() => toast("Account ID copied."))
+                          .catch(() =>
+                            toast("Copy unavailable. Select your account ID to copy it."),
+                          )
+                      }
+                    >
+                      <Copy size={16} />
+                      Copy
+                    </button>
+                  </div>
+                  <details>
+                    <summary>About workspace access</summary>
+                    <p>
+                      Members can view shared workflows and run history. Administrators can also
+                      change source configuration and supported schedules. Share your account ID
+                      with the owner if you need editing access.
+                    </p>
+                  </details>
+                  <button
+                    className="button secondary"
+                    onClick={guardedSignOut}
+                    disabled={signingOut}
+                  >
+                    Sign out
+                  </button>
+                </>
+              ) : null}
             </section>
           </>
         ) : null}
+        {sampleMode ? demoChildren : null}
       </main>
       <footer className="control-footer">
-        <span>Asia/Jakarta · Shared workspace</span>
+        <span>Asia/Jakarta · {sampleMode ? "Sample workspace" : "Shared workspace"}</span>
         <span>Information and analysis. No automated trading.</span>
       </footer>
     </div>
@@ -630,20 +737,22 @@ function WorkspaceHeading({ title, description }: { title: string; description: 
     </div>
   );
 }
-type Requester = ReturnType<typeof controlBrowser>;
-
 function WatcherDetail({
   watcherId,
   records,
   request,
   onDirtyChange,
   loadingStatus,
+  basePath,
+  sampleMode,
 }: {
   watcherId: string;
   records: Records;
   request: Requester;
   onDirtyChange: (dirty: boolean) => void;
   loadingStatus: boolean;
+  basePath: string;
+  sampleMode: boolean;
 }) {
   const watcher = records.watchers.find((item) => item.watcher_id === watcherId);
   const hasWatcher = Boolean(watcher);
@@ -707,19 +816,29 @@ function WatcherDetail({
     return (
       <div className="control-empty">
         <h1>Workflow not found</h1>
-        <Link href="/workspace/workflows">Back to workflows</Link>
+        <Link href={`${basePath}/workflows`}>Back to workflows</Link>
       </div>
     );
   return (
     <>
-      <Link className="control-back" href="/workspace/workflows">
+      <Link className="control-back" href={`${basePath}/workflows`}>
         <ArrowLeft size={17} />
         Workflows
       </Link>
       <WorkspaceHeading
         title={watcher.display_name}
-        description={`Configuration revision ${snapshot?.revision ?? watcher.current_revision ?? "not available"}`}
+        description={
+          sampleMode
+            ? "Sample configuration"
+            : `Configuration revision ${snapshot?.revision ?? watcher.current_revision ?? "not available"}`
+        }
       />
+      {sampleMode ? (
+        <p className="control-data-note">
+          Supported editor changes are held in memory for this sample session. The source catalog
+          lists public identities separately and does not add them to this watcher.
+        </p>
+      ) : null}
       <ConnectedWorkflowSummary
         watcherId={watcherId}
         jobs={records.operatorJobs}
@@ -730,6 +849,8 @@ function WatcherDetail({
         observationsUnavailable={records.operatorIssues.some(
           (issue) => issue.componentId === watcherId && issue.resource === "observations",
         )}
+        basePath={basePath}
+        sampleMode={sampleMode}
       />
       {status === "loading" ? <WorkspaceLoading title="Loading configuration…" compact /> : null}
       {status === "viewer" ? (
@@ -741,7 +862,7 @@ function WatcherDetail({
               You can review this workflow’s runs and related jobs. Configuration editing is
               available to workspace administrators.
             </p>
-            <Link className="button secondary small" href="/workspace/settings">
+            <Link className="button secondary small" href={workspaceHref(basePath, "settings")}>
               View your account
             </Link>
           </div>
@@ -764,12 +885,15 @@ function WatcherDetail({
               runs={records.runs}
               loading={loadingStatus}
               unavailable={records.issues.some((issue) => issue.watcherId === watcherId)}
+              basePath={basePath}
+              sampleMode={sampleMode}
             />
           ) : null}
           <WatcherConfigEditor
             key={snapshot.watcher_id}
             snapshot={snapshot}
             onDirtyChange={updateDirty}
+            sampleMode={sampleMode}
             onSave={async (config) => {
               const result = await request<ControlConfigSnapshot>(
                 `watchers/${encodeURIComponent(watcherId)}/config`,
@@ -789,7 +913,8 @@ function WatcherDetail({
         key={watcherId}
         watcherId={watcherId}
         request={request}
-        canEdit={status === "ready"}
+        canEdit={!sampleMode && status === "ready"}
+        sampleMode={sampleMode}
         onDirtyChange={updatePhotoDirty}
       />
       <div className="control-detail-actions">
@@ -852,11 +977,15 @@ function RunDetail({
   records,
   request,
   onAccessFailure,
+  basePath,
+  sampleMode,
 }: {
   runId: string;
   records: Records | null;
   request: Requester;
   onAccessFailure: (failure: WorkspaceError) => void;
+  basePath: string;
+  sampleMode: boolean;
 }) {
   const [events, setEvents] = useState<ControlEvent[] | null>(null);
   const [error, setError] = useState("");
@@ -882,7 +1011,7 @@ function RunDetail({
   }, [request, runId, attempt, onAccessFailure]);
   return (
     <>
-      <Link className="control-back" href="/workspace/history">
+      <Link className="control-back" href={`${basePath}/history`}>
         <ArrowLeft size={17} />
         Run history
       </Link>
@@ -896,20 +1025,26 @@ function RunDetail({
       />
       {run ? (
         <div className="control-run-meta">
-          <span>{run.status === "ok" ? "Completed" : run.status}</span>
+          <span>
+            {sampleMode
+              ? `Example status: ${run.status}`
+              : run.status === "ok"
+                ? "Completed"
+                : run.status}
+          </span>
           <span>{run.trigger}</span>
           <time dateTime={run.started_at}>
             {new Date(run.started_at).toLocaleString("en-GB", { timeZone: "Asia/Jakarta" })} WIB
           </time>
         </div>
       ) : null}
-      {run?.watcher_id === xWatcherId && run.trigger === "queue" ? (
+      {!sampleMode && run?.watcher_id === xWatcherId && run.trigger === "queue" ? (
         <div className="control-alert" role="note" aria-label="Queue check, not a source poll">
           <p>
             This run checked queued posts. It did not fetch X. A completed queue check does not
             confirm that your account was fetched or that Discord received a message.
           </p>
-          <Link className="button secondary" href={`/workspace/workflows?watcher=${xWatcherId}`}>
+          <Link className="button secondary" href={`${basePath}/workflows?watcher=${xWatcherId}`}>
             Check X source polling
           </Link>
         </div>
