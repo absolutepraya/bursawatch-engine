@@ -204,7 +204,7 @@ def deduplicate_items(items):
     return unique
 
 
-def market_block(snapshot, currency: str = "IDR") -> str:
+def market_block(snapshot, currency: str = "IDR", *, price_label: str = "Harga terakhir", missing_marker: bool = True) -> str:
     def amount(value, signed=False):
         prefix = "+" if signed and value > 0 else "-" if signed and value < 0 else ""
         text = f"{round(abs(value)):,}".replace(",", ".") if currency == "IDR" else f"{abs(value):,.2f}"
@@ -213,13 +213,14 @@ def market_block(snapshot, currency: str = "IDR") -> str:
     def metric(label, key):
         change, percent = _number(_field(snapshot, key + "_change")), _number(_field(snapshot, key + "_percent"))
         if change is None or percent is None:
-            return f"{GREY} {label}: **-**"
+            prefix = GREY + " " if missing_marker else ""
+            return f"{prefix}{label}: **-**"
         direction = GREEN if change > 0 else RED if change < 0 else GREY
         return f"{direction} {label}: **{amount(change, True)} ({percent:+.2f}%)**"
 
     latest = _number(_field(snapshot, "latest_price"))
     price = amount(latest) if latest is not None and latest > 0 else "-"
-    return (f"Harga terakhir ({currency}): **{price}**\n"
+    return (f"{price_label} ({currency}): **{price}**\n"
             f"{metric('1D', 'one_day')}, {metric('1W', 'one_week')},\n"
             f"{metric('1M', 'one_month')}, {metric('3M', 'three_month')}")
 

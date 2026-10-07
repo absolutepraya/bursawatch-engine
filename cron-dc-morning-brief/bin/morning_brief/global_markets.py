@@ -102,12 +102,24 @@ def parse_yahoo_chart(name: str, payload: dict, *, freeze_at: datetime, retrieve
             matches = [i for i,(start,end) in enumerate(intervals) if start <= timestamp < end]
             if len(matches) == 1:
                 index = matches[0]
+                # Native FX daily responses can contain a null day-start
+                # placeholder followed by the timestamped rolling quote.
+                if fx and close is None:
+                    continue
                 if index in bars:
                     raise ValueError('duplicate_session_bars')
                 bars[index] = (timestamp, close)
         complete = [i for i,(_,end) in enumerate(intervals) if end <= cutoff]
         opened = [i for i,(start,end) in enumerate(intervals) if start <= cutoff < end]
         use_open = name not in {'SPY','QQQ','EIDO'} and bool(opened)
+        if fx and use_open:
+            raw_time = meta.get('regularMarketTime')
+            if type(raw_time) in (int,float) and math.isfinite(raw_time):
+                observed_quote = datetime.fromtimestamp(raw_time,timezone.utc)
+                # An old FX tick is not a live quote. Prefer the native last
+                # completed day over displaying an unverifiably fresh snapshot.
+                if intervals[opened[-1]][0] <= observed_quote <= cutoff and cutoff-observed_quote > timedelta(minutes=(delay or 0)+5):
+                    use_open = False
         if use_open:
             index = opened[-1]
             raw_time = meta['regularMarketTime']
@@ -159,20 +171,19 @@ def format_global_rows(quotes: list[dict], *, logos: dict[str,str], markdown=Fal
         if logo and re.fullmatch(r'<:[A-Za-z0-9_]+:[0-9]{15,22}>',logo) is None:
             raise ValueError('actual custom-logo markup required')
         prefix = (logo+' ') if logo else ''
+        label = 'USD/IDR' if name == 'USDIDR' else name
         if quote['status'] != 'available':
-            rows.append(prefix+('USD/IDR' if name=='USDIDR' else name)+': '+('data kedaluwarsa' if quote['status']=='stale' else 'data belum tersedia'))
+            rows.append(prefix+label+': -')
             continue
         change, percent = quote['change'],quote['percent']
+        if any(type(value) not in (int,float) or not math.isfinite(value) for value in (change,percent)):
+            rows.append(prefix+label+': -')
+            continue
         marker = GREEN if change > 0 else RED if change < 0 else '⚪'
-        unit = quote['unit'] if quote['unit'] in {'USD','IDR per USD'} else 'poin'
-        label = 'USD/IDR' if name == 'USDIDR' else name
-        direction = ''
         if name == 'USDIDR':
             marker = RED if change > 0 else GREEN if change < 0 else '⚪'
-            direction = ' · IDR melemah' if change > 0 else ' · IDR menguat' if change < 0 else ' · IDR tetap'
-        local = _instant(quote['price_at']).astimezone(ZoneInfo('Asia/Jakarta'))
-        delay = f"delayed {quote['delay_minutes']:g}m" if quote['delay_status']=='delayed' else quote['delay_status']
-        rows.append(f"{prefix}{label}: {change:+.2f} {unit} ({percent:+.2f}%) {marker} · {local:%d/%m %H:%M} WIB · {quote['market_status']} · {delay}{direction}")
+        unit = 'IDR' if name == 'USDIDR' else quote['unit'] if quote['unit']=='USD' else 'poin'
+        rows.append(f"{prefix}{label}: {change:+.2f} {unit} ({percent:+.2f}%) {marker}")
     return ('  \n' if markdown else '\n').join(rows)
 
 

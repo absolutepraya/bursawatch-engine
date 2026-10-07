@@ -97,3 +97,66 @@ def wilder_rsi(closes, period=14):
             losses = (losses * (period - 1) + max(-change, 0)) / period
         result[index] = 50.0 if gains == losses == 0 else 100.0 if losses == 0 else 100 - 100 / (1 + gains / losses)
     return tuple(result)
+
+
+
+def parse_closes(payload, *, symbol, exchange_timezone, through, session_dates):
+    """Ordinary daily closes with explicit null/missing anchors, for trackers."""
+    if type(through) is not date:
+        raise ValueError('explicit closing session required')
+    allowed = frozenset(session_dates)
+    if not 1 <= len(allowed) <= 2000 or any(type(day) is not date for day in allowed):
+        raise ValueError('explicit bounded sessions required')
+    try:
+        chart = payload['chart']
+        if chart['error'] is not None or len(chart['result']) != 1:
+            raise ValueError('single native Yahoo result required')
+        row = chart['result'][0]; meta = row['meta']
+        if (meta['symbol'] != symbol or meta['exchangeTimezoneName'] != exchange_timezone
+                or meta['dataGranularity'] != '1d'):
+            raise ValueError('native daily close identity mismatch')
+        stamps = row['timestamp']; quotes = row['indicators']['quote']
+        if len(quotes) != 1 or not 1 <= len(stamps) <= 2000:
+            raise ValueError('bounded daily closes required')
+        closes = quotes[0]['close']
+        if len(closes) != len(stamps):
+            raise ValueError('matching daily close arrays required')
+        zone = ZoneInfo(exchange_timezone); values = {}; previous = None; previous_day = None
+        for stamp, close in zip(stamps, closes, strict=True):
+            if type(stamp) is not int or previous is not None and stamp <= previous:
+                raise ValueError('ordered native close timestamps required')
+            previous = stamp
+            day = datetime.fromtimestamp(stamp, timezone.utc).astimezone(zone).date()
+            if previous_day is not None and day <= previous_day:
+                raise ValueError('unique native daily sessions required')
+            previous_day = day
+            if day > through or day not in allowed:
+                continue
+            values[day.isoformat()] = (float(close) if type(close) in (int,float)
+                and math.isfinite(close) and close > 0 else None)
+        return values
+    except (KeyError, TypeError, IndexError, OverflowError) as error:
+        raise ValueError('invalid native close response') from error
+
+def close_performance(closes, *, sessions, through):
+    """Pure 1/5/22/66-session changes, preserving explicit missing anchors."""
+    sessions = tuple(sessions)
+    if type(through) is not date or any(type(day) is not date for day in sessions):
+        raise ValueError('explicit dates required')
+    days = tuple(day for day in sessions if day <= through)
+    if (not days or days[-1] != through
+            or len(days) > 2000 or any(type(day) is not date for day in days)
+            or days != tuple(sorted(set(days)))):
+        raise ValueError('ordered explicit closing sessions required')
+    def value(day):
+        raw = closes.get(day.isoformat())
+        return float(raw) if type(raw) in (int, float) and math.isfinite(raw) and raw > 0 else None
+    latest = value(through)
+    result = dict(latest_price=latest, session=through.isoformat(), basis='ordinary-close',
+                  horizon_policy='1-5-22-66-verified-sessions')
+    for name, offset in (('one_day', 1), ('one_week', 5), ('one_month', 22), ('three_month', 66)):
+        baseline = value(days[-offset-1]) if len(days) > offset else None
+        change = latest-baseline if latest is not None and baseline is not None else None
+        result[name+'_change'] = change
+        result[name+'_percent'] = 100*change/baseline if change is not None else None
+    return result

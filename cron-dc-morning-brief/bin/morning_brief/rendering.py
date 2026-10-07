@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw, ImageFont
 from .rotation import quadrant, select_groups, table_order, unselected_letters
 
 ASSETS = Path(__file__).parent/'assets'
-REVISION = 'bursawatch-render-v4'
+REVISION = 'bursawatch-render-v5'
 BG, PANEL, GOLD, FG, MUTED = '#111311', '#1C1F1D', '#DEA777', '#EEEAE3', '#9C978E'
 COLORS = {'Leading':'#2EE65F','Improving':'#78ACF2','Weakening':'#F0BE91','Lagging':'#F23F43','Neutral':MUTED}
 FILLS = {'Leading':'#17271D','Improving':'#19232F','Weakening':'#2B241C','Lagging':'#2A1C20'}
@@ -95,6 +95,18 @@ class _Canvas:
         raise ValueError('name exceeds readable table bounds')
 
 
+    def line_fit(self,x,y,value,width,size=24,bold=False,color=FG,anchor='lm',minimum=18,height=None):
+        """One unwrapped line, shrunk only as far as needed to fit the column.
+
+        A name still too long at the minimum size wraps rather than being clipped.
+        """
+        for candidate in range(size,minimum-1,-1):
+            if _font(candidate*self.scale,bold).getlength(value)/self.scale<=width:
+                return self.text(x,y,value,candidate,color,bold,anchor)
+        if height is None:raise ValueError('name exceeds readable table bounds')
+        return self.fitted(x,y-height/2,value,width,height,minimum,bold,color)
+
+
 def _wrap(value,width,font):
     lines=[];line=''
     for word in value.split():
@@ -136,6 +148,21 @@ def _header(canvas,title,session):
     canvas.text(82,161,publication_label(session),max(18,round(25*scale)),MUTED)
     _logo(canvas,width-80-round(270*scale),87,round(52*scale))
     canvas.text(width-80,94,'Bursawatch',round(40*scale),GOLD,True,anchor='rt')
+
+
+def _rotation_header(canvas,title,session):
+    right=canvas.width-80
+    canvas.text(80,64,title,76,FG,True)
+    canvas.text(82,168,publication_label(session),36,MUTED)
+    word=canvas.text(right,78,'Bursawatch',58,GOLD,True,anchor='rt')
+    size=78
+    _logo(canvas,word[0]-18-size,(word[1]+word[3])/2-size/2+2,size)
+
+
+def _gold_padding(canvas,inset=12):
+    """Solid gold margin around the dark rounded content area."""
+    canvas.draw.rectangle((0,0,canvas.width,canvas.height),fill=GOLD)
+    canvas.draw.rounded_rectangle((inset,inset,canvas.width-inset,canvas.height-inset),radius=64,fill=BG)
 
 
 def _artifact(canvas,manifest):
@@ -234,14 +261,13 @@ def _map_position(x,y,bounds,x_limits,y_limits):
 
 def _central_zoom(canvas,groups,codes,axis_limits):
     # A separate lower panel cannot obscure the full-range observations.
-    left,top,width,height=160,1770,1260,560
+    left,top,width,height=160,1715,1260,560
     def extent(axis):
         values=sorted(abs(getattr(r,axis)) for r in groups)
         return min(max(abs(v) for v in axis_limits[axis]),max(1.,values[max(0,math.ceil(.8*len(values))-1)]*1.15))
     ex,ey=extent('x'),extent('y')
     rows=[r for r in groups if abs(r.x)<=ex and abs(r.y)<=ey]
-    canvas.text(left,1700,'ZOOM PUSAT: POSISI TERAKHIR',25,FG,True)
-    canvas.text(left,1737,f'X ±{ex:.1f} pp · Y ±{ey:.1f} pp · {len(rows)}/{len(groups)} kelompok dalam zoom',21,MUTED)
+    canvas.text(left,1660,'ZOOM PUSAT: POSISI TERAKHIR',25,FG,True)
     for box,q in [((left,top,left+width/2,top+height/2),'Improving'),
                   ((left+width/2,top,left+width,top+height/2),'Leading'),
                   ((left,top+height/2,left+width/2,top+height),'Lagging'),
@@ -262,10 +288,11 @@ def _central_zoom(canvas,groups,codes,axis_limits):
         canvas.text(left+width/2+width*value/(2*ex),top+height+12,f'{value:.1f}',20,MUTED,anchor='mt')
     for value in (-ey,0,ey):
         canvas.text(left-12,top+height/2-height*value/(2*ey),f'{value:.1f}',20,MUTED,anchor='rm')
-    canvas.text(1500,1780,'Cara membaca',25,FG,True)
-    canvas.text(1500,1830,'Nomor sesuai tabel sorotan; huruf sesuai kelompok lain.',22,MUTED)
-    canvas.text(1500,1870,'Zoom memperbesar posisi terakhir di sekitar titik nol.',22,MUTED)
-    canvas.text(1500,1910,'Kelompok di luar zoom tetap terlihat pada plot utama.',22,MUTED)
+    canvas.text(1500,1900,'Cara membaca',28,FG,True)
+    for n,line in enumerate(('Nomor sesuai tabel sorotan; huruf sesuai kelompok lain.',
+                             'Zoom memperbesar posisi terakhir di sekitar titik nol.',
+                             'Kelompok di luar zoom tetap terlihat pada plot utama.')):
+        canvas.text(1500,1952+n*44,line,25,MUTED)
     return dict(bounds=[left,top,left+width,top+height],x_extent=ex,y_extent=ey,
         names=[r.name for r in rows],outside_names=sorted(r.name for r in groups if r not in rows),
         mode='latest-observed-position',labels=labels)
@@ -301,18 +328,7 @@ def render_rotation(groups, *, kind: str, publication_session: date, letters=Non
     chosen={r.name for r in selected}
     visible=[p for r in groups for p in (r.trail if r.name in chosen else r.trail[-1:])]
     limits={axis:_axis_limits([getattr(p,axis) for p in visible]) for axis in ('x','y')}
-    canvas=_Canvas(2600,2400 if kind=='konglo' else 1660,scale=2);_header(canvas,'Rotasi Sektor' if kind=='sectors' else 'Rotasi Konglo',publication_session)
-    partial=sum(bool(r.excluded) for r in groups)
-    stale=any(r.provenance.get('cap_collection_status')=='stale' for r in groups)
-    coverage=min(r.coverage for r in groups)
-    unknown=sum(len(r.provenance.get('missing_cap_members',())) for r in groups)
-    caption=f'Basket parsial: {partial}/{len(groups)} | Cakupan cap diketahui: min. {coverage:.1%} | Cap tidak tersedia: {unknown}'
-    cap_dates=sorted({datetime.fromisoformat(r.provenance['cap_collected_at']).astimezone(ZoneInfo('Asia/Jakarta')).strftime('%d/%m/%Y')
-        for r in groups if r.provenance.get('cap_collected_at')})
-    if cap_dates:
-        caption+=' | Cap: '+(cap_dates[0] if len(cap_dates)==1 else cap_dates[0]+' sampai '+cap_dates[-1])
-    if stale: caption+=' | Snapshot cap lama (stale)'
-    canvas.text(82,210,caption,24,MUTED)
+    canvas=_Canvas(2600,2400 if kind=='konglo' else 1660,scale=2);_gold_padding(canvas);_rotation_header(canvas,'Rotasi Sektor' if kind=='sectors' else 'Rotasi Konglo',publication_session)
     left,top,size=160,260,1260
     bounds=(left,top,left+size,top+size)
     zero=_map_position(0,0,bounds,limits['x'],limits['y'])
@@ -345,7 +361,9 @@ def render_rotation(groups, *, kind: str, publication_session: date, letters=Non
             curve=_smooth_trail(xy)
             visual_trails[row.name]=curve
             canvas.draw.line(curve,fill=_faded(color) if kind=='konglo' else color,width=2 if kind=='konglo' else 3)
-            for n,(hx,hy) in enumerate(xy[:-1]):canvas.draw.ellipse((hx-3-n,hy-3-n,hx+3+n,hy+3+n),fill=_faded(color) if kind=='konglo' else color)
+            for n,(hx,hy) in enumerate(xy[:-1]):
+                radius=1.8+.35*n
+                canvas.draw.ellipse((hx-radius,hy-radius,hx+radius,hy+radius),fill=_faded(color,.4))
             # The arrow follows the displayed tangent and ends at the actual point.
             dx,dy=x-curve[-2][0],y-curve[-2][1];length=math.hypot(dx,dy)
             if length>0:
@@ -367,8 +385,7 @@ def render_rotation(groups, *, kind: str, publication_session: date, letters=Non
     for value in _axis_ticks(*limits['y']):
         _,y=_map_position(0,value,bounds,limits['x'],limits['y'])
         canvas.text(145,y,f'{value:g}',24,MUTED,anchor='rm')
-    canvas.text(790,1580,'Kekuatan relatif terhadap IHSG (pp)',28,MUTED,anchor='mt')
-    canvas.text(160,1630,'Garis lengkung hanya visual; titik menunjukkan sesi aktual.',18,MUTED)
+    canvas.text(790,1572,'Kekuatan relatif terhadap IHSG (pp)',28,MUTED,anchor='mt')
     # Rotate the Y-axis label outside the plot.
     label=Image.new('RGBA',(600*canvas.scale,40*canvas.scale))
     ImageDraw.Draw(label).text((0,0),'Momentum relatif (pp)',font=_font(30*canvas.scale),fill=MUTED)
@@ -379,30 +396,53 @@ def render_rotation(groups, *, kind: str, publication_session: date, letters=Non
     # Keep the benchmark label inside the plot even when zero is near an edge.
     canvas.text(min(x+12,left+size-60),min(y+12,top+size-30),'IHSG',20,MUTED)
     distribution={q:sum(r.quadrant==q for r in groups) for q in COLORS}
-    canvas.text(1500,260,'DISTRIBUSI',22,MUTED,True)
+    px0,px1=1500,2520
+    canvas.text(px0,260,'DISTRIBUSI',24,MUTED,True)
     for i,q in enumerate(FILLS):
-        x=1500+i*259
-        canvas.draw.rounded_rectangle((x,307,x+243,425),radius=14,fill=FILLS[q])
-        canvas.text(x+20,327,q,25,COLORS[q],True);canvas.text(x+20,367,str(distribution[q]),37,FG,True)
-    if distribution['Neutral']:canvas.text(1500,447,f"Neutral: {distribution['Neutral']}",22,MUTED)
-    canvas.text(1500,475,f"X: {limits['x'][0]:+g} hingga {limits['x'][1]:+g} pp | Y: {limits['y'][0]:+g} hingga {limits['y'][1]:+g} pp",21,MUTED)
-    canvas.text(1500,514,'SOROTAN SEKTOR' if kind=='sectors' else 'SOROTAN KONGLO',22,MUTED,True)
-    for x,value in zip((1520,1950,2180,2370),('ID / Kelompok' if kind=='konglo' else 'Kelompok','Kuadran','Kekuatan (pp)','Momentum (pp)')):canvas.text(x,568,value,21,MUTED,True)
+        x=px0+i*259
+        canvas.draw.rounded_rectangle((x,307,x+243,435),radius=14,fill=FILLS[q])
+        canvas.text(x+20,322,q,28,COLORS[q],True);canvas.text(x+20,366,str(distribution[q]),42,FG,True)
+    if distribution['Neutral']:canvas.text(px0,447,f"Neutral: {distribution['Neutral']}",24,MUTED)
+    canvas.text(px0,490,'SOROTAN SEKTOR' if kind=='sectors' else 'SOROTAN KONGLO',24,MUTED,True)
+    table_top,header_height=530,56
     row_height=42 if kind=='konglo' else min(68,720//len(ordered))
+    rows_top=table_top+header_height+6
+    table_bottom=rows_top+len(ordered)*row_height+6
+    for i in range(0,len(ordered),2):
+        y=rows_top+i*row_height
+        canvas.draw.rectangle((px0+3,y,px1-3,y+row_height),fill=PANEL)
+    header_size,body_size=23,28
+    momentum_width=_font(header_size*canvas.scale,True).getlength('Momentum (pp)')/canvas.scale
+    strength_width=_font(header_size*canvas.scale,True).getlength('Kekuatan (pp)')/canvas.scale
+    quadrant_width=max(_font(body_size*canvas.scale).getlength(q)/canvas.scale for q in ('Improving','Weakening','Leading','Lagging'))
+    momentum_right=px1-22
+    strength_right=momentum_right-momentum_width-28
+    quadrant_x=strength_right-strength_width-28-quadrant_width
+    name_x=px0+68 if kind=='konglo' else px0+22
+    name_width=quadrant_x-24-name_x
+    middle=table_top+header_height/2
+    canvas.text(name_x if kind=='sectors' else px0+22,middle,'ID / Kelompok' if kind=='konglo' else 'Kelompok',header_size,MUTED,True,anchor='lm')
+    canvas.text(quadrant_x,middle,'Kuadran',header_size,MUTED,True,anchor='lm')
+    canvas.text(strength_right,middle,'Kekuatan (pp)',header_size,MUTED,True,anchor='rm')
+    canvas.text(momentum_right,middle,'Momentum (pp)',header_size,MUTED,True,anchor='rm')
     for i,row in enumerate(ordered):
-        y=626+i*row_height
-        if i%2==0:canvas.draw.rounded_rectangle((1500,y-8,2520,y+row_height-9),radius=7,fill=PANEL)
-        if kind=='konglo':
-            canvas.text(1520,y,codes[row.name],25,COLORS[row.quadrant],True)
-        canvas.fitted(1560 if kind=='konglo' else 1520,y,row.name,360 if kind=='konglo' else 400,row_height-3,25,True)
-        canvas.text(1950,y,row.quadrant,25,COLORS[row.quadrant])
-        canvas.text(2180,y,f'{row.x:+.2f}',25);canvas.text(2370,y,f'{row.y:+.2f}',25)
+        y=rows_top+i*row_height+row_height/2
+        if kind=='konglo':canvas.text(px0+22,y,codes[row.name],body_size,COLORS[row.quadrant],True,anchor='lm')
+        canvas.line_fit(name_x,y,row.name,name_width,body_size,True,height=row_height-3)
+        canvas.text(quadrant_x,y,row.quadrant,body_size,COLORS[row.quadrant],anchor='lm')
+        canvas.text(strength_right,y,f'{row.x:+.2f}',body_size,anchor='rm');canvas.text(momentum_right,y,f'{row.y:+.2f}',body_size,anchor='rm')
+    canvas.draw.line((px0,table_top+header_height,px1,table_top+header_height),fill=GOLD,width=2)
+    canvas.draw.rounded_rectangle((px0,table_top,px1,table_bottom),radius=14,outline=GOLD,width=3)
+    legend_y=table_bottom+34
+    canvas.text(px0,legend_y,'LEGENDA',24,MUTED,True)
+    canvas.text(px0,legend_y+40,'pp = poin persentase',26,MUTED)
     if expected:
-        canvas.text(1500,1390,'KELOMPOK LAIN',22,MUTED,True)
+        other_y=legend_y+112
+        canvas.text(px0,other_y,'KELOMPOK LAIN',24,MUTED,True)
         for i,(name,letter) in enumerate(sorted(expected.items(),key=lambda pair:pair[1])):
-            col=i//8;line=i%8;x=1500+col*520;y=1433+line*27
-            canvas.text(x+12,y,letter,20,COLORS[next(r.quadrant for r in groups if r.name==name)],True)
-            canvas.fitted(x+48,y,name,460,26,21,color=MUTED)
+            col=i//8;line=i%8;x=px0+col*510;y=other_y+58+line*32
+            canvas.text(x+12,y,letter,24,COLORS[next(r.quadrant for r in groups if r.name==name)],True,anchor='lm')
+            canvas.line_fit(x+50,y,name,450,24,False,MUTED)
     zoom=_central_zoom(canvas,groups,codes,limits) if kind=='konglo' else None
     manifest=dict(kind=kind,publication_session=publication_session.isoformat(),trail_sessions=list(sessions),
                   plot_bounds=list(bounds),axis_limits=limits,axis_padding_pp=1.,zero_pixel=list(zero),

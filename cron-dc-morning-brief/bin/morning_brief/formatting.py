@@ -2,15 +2,22 @@
 from datetime import date, datetime
 import math
 import re
+import sys
+from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit, quote
 from zoneinfo import ZoneInfo
 from .calendar import aware
 from .economic_calendar import format_calendar_events
 from .global_markets import format_global_rows
 from .rendering import publication_label
-from .rotation import select_groups
 
-REVISION='bursawatch-text-v3'
+# Use the existing stock-card tracker, without its Yahoo fetching surface.
+_news_bin = Path(__file__).resolve().parents[3] / 'lib-news-format' / 'bin'
+if str(_news_bin) not in sys.path:
+    sys.path.insert(0, str(_news_bin))
+from news_format import market_block
+
+REVISION='bursawatch-text-v4'
 LIMIT=2000
 
 
@@ -64,42 +71,9 @@ def _validate_timing(publication_session,cutoff,target):
         raise ValueError('same-session minute-aligned cutoff before publication target required')
 
 
-def _provenance_urls(value):
-    if isinstance(value,dict):
-        for key,item in value.items():
-            if key.endswith('url') and isinstance(item,str):yield item
-            elif isinstance(item,(dict,list,tuple)):yield from _provenance_urls(item)
-    elif isinstance(value,(list,tuple)):
-        for item in value:yield from _provenance_urls(item)
-
-
-def _rotation_text(groups,title,publication_session,notices):
-    groups=tuple(groups)
-    selected=select_groups(groups,limit=3)
-    required=[title+publication_label(publication_session)]
-    if not groups:required.append('Data rotasi belum tersedia.')
-    else:
-        coverage=min(row.coverage for row in groups)
-        excluded=sum(len(row.excluded) for row in groups)
-        if coverage<1 or excluded:
-            unknown=sum(len(row.provenance.get('missing_cap_members',())) for row in groups)
-            required.append(f'**Basket parsial:** cakupan minimum {coverage:.1%} cap diketahui; {excluded} pengecualian anggota, termasuk {unknown} cap tidak tersedia.')
-        if any(row.provenance.get('cap_collection_status')=='stale' for row in groups):
-            required.append('**Snapshot cap lama (stale):** pembaruan belum berhasil; tanggal pengumpulan asli dipertahankan.')
-        required.append('**Basis:** ilustrasi historis, bobot cap snapshot tetap.')
-        caps=sorted({aware(datetime.fromisoformat(row.provenance['cap_collected_at'])).astimezone(ZoneInfo('Asia/Jakarta')).strftime('%d/%m/%Y %H:%M WIB')
-                     for row in groups if row.provenance.get('cap_collected_at')})
-        if caps:
-            effective=sorted({str(row.provenance['cap_effective_date']) for row in groups if row.provenance.get('cap_effective_date')})
-            metadata='tanggal efektif '+', '.join(effective) if effective else 'tanggal efektif belum terverifikasi'
-            required.append('**Cap dikumpulkan:** '+', '.join(caps)+' ('+metadata+').')
-    try: required.append(_sources(url for row in groups for url in _provenance_urls(row.provenance)))
-    except ValueError:
-        return _fit(required[:1]+['Data rotasi belum tersedia: sumber tidak dapat ditampilkan dengan aman.'],[])
-    highlights=[f"**{_escape(row.name)}:** {row.quadrant}. Kekuatan {row.x:+.2f} pp; Momentum {row.y:+.2f} pp." for row in selected]
-    try: return _fit(required,highlights+list(notices))
-    except MessageTooLong:
-        return _fit(required[:1]+['Data rotasi belum tersedia: rincian sumber melebihi batas pesan.'],[])
+def _rotation_text(title,publication_session):
+    """Heading only. Coverage, basis and cap details stay in the frozen manifest."""
+    return title+publication_label(publication_session)
 
 
 def _scenario_block(scenario):
@@ -136,110 +110,121 @@ def _scenario_block(scenario):
     return '\n\n'.join(blocks)
 
 
+def _outlook_paragraph(outlook):
+    """Retain exact conditional source context, with attribution but no links."""
+    if outlook.get('mode') != 'supported':
+        return '-', None, []
+    scenario = outlook.get('scenario')
+    if scenario is not None:
+        # Preserve the existing consistency/role validation used by the writer.
+        _scenario_block(scenario)
+        rows = [scenario['base_case'], *scenario['supporting'], *scenario['opposing'],
+                *scenario['change_conditions']]
+    else:
+        rows = outlook.get('claims', [])
+    seen = set(); rendered = []; shown = []
+    for row in rows:
+        identity = row.get('evidence_id') or (row.get('publisher_id'), row.get('excerpt'))
+        if identity in seen:
+            continue
+        seen.add(identity)
+        excerpt = row.get('context', row.get('excerpt'))
+        if not isinstance(excerpt, str) or not excerpt.strip() or not row.get('publisher_id'):
+            raise ValueError('complete attributed paragraph required')
+        _url(row['source_url'])  # Provenance stays validated and retained privately.
+        excerpt = ' '.join(excerpt.split()).replace('·', ',')
+        rendered.append('Menurut '+_escape(row['publisher_id'])+': '+excerpt)
+        shown.append(row)
+    if not rendered:
+        return '-', None, []
+    displayed_scenario = ({**scenario, 'pulse':{'mode':'absent','optimistic':[],'cautious':[]},
+                           'limitations':[]} if scenario is not None else None)
+    return ' '.join(rendered), displayed_scenario, shown if scenario is None else []
+
+
+def _agenda_block(calendar):
+    rows = []; sources = []
+    for event in calendar.get('events', [])[:3]:
+        try:
+            label = _escape(event['event']).replace('·', ',')
+            when = date.fromisoformat(event['date']).strftime('%a, %d %b %Y')
+            citations = event.get('sources') or [event]
+            links = []
+            for source in citations:
+                link = '['+_escape(source['source'])+']('+_url(source['source_url'])+')'
+                if link not in links: links.append(link)
+            if not links:
+                raise ValueError('agenda source required')
+            row = '* '+label+' - '+when
+            # Keep names and source links atomic. One malformed/oversized event
+            # cannot hide the other agenda entries or overflow the main message.
+            if _length(row+' '.join(links)) > 350:
+                continue
+            rows.append(row)
+            for link in links:
+                if link not in sources: sources.append(link)
+        except (ValueError, KeyError, TypeError):
+            continue
+    citations = ' '.join('\\['+link+'\\]' for link in sources)
+    title = 'Agenda Ekonomi Indonesia'+(' '+citations if citations else '')+':'
+    return title+'\n'+('\n'.join(rows) or '-')
+
+
 def format_brief(*,publication_session: date,cutoff: datetime,target: datetime,
                  outlook: dict,globals: list[dict],calendar: dict,sectors,konglo,
-                 logos=None,notices=None,with_selection=False):
-    """Use structured frozen writer/quote/event fields exactly once.
-
-    Frozen identity/time markers survive optional whole-block removal.
-    Each source claim or scenario is trimmed atomically with its citations.
-    Callers freeze the returned strings verbatim;
-    late retries must never refresh their date, times, evidence or prose.
-    """
-    label=publication_label(publication_session);_validate_timing(publication_session,cutoff,target)
-    notices=notices or {};logos=logos or {}
-    # Missing/unrecognised provisioned markup falls back to the readable name.
-    known={name:markup for name,markup in logos.items() if isinstance(markup,str) and re.fullmatch(r'<:[A-Za-z0-9_]+:[0-9]{15,22}>',markup)}
-    required=['### 🌇 BURSAWATCH PAGI: '+label]
-    facts=[]
-    for fact in outlook.get('market_facts',[]):
-        if (type(fact) is not dict or set(fact)!={'label','value','unit'}
-                or not isinstance(fact.get('label'),str) or not isinstance(fact.get('unit'),str)
-                or type(fact['value']) not in (int,float) or not math.isfinite(fact['value'])):
-            continue
-        facts.append(f"**{_escape(fact['label'])}:** {fact['value']:g} {_escape(fact['unit'])}")
-    # Each optional section keeps its supporting citations in the same block.
-    # Unrenderable optional inputs never poison an already frozen session.
-    available=[]
-    global_rows=[];global_driver=False
+                 logos=None,notices=None,ihsg_tracker=None,with_selection=False):
+    """Compact public layout; audit sources and session metadata stay frozen."""
+    _validate_timing(publication_session,cutoff,target)
+    logos=logos or {};notices=notices or {}
+    known={name:markup for name,markup in logos.items() if isinstance(markup,str)
+           and re.fullmatch(r'<:[A-Za-z0-9_]+:[0-9]{15,22}>',markup)}
+    tracker=dict(ihsg_tracker or {})
+    if not ihsg_tracker:
+        for fact in outlook.get('market_facts', []):
+            if (isinstance(fact,dict) and str(fact.get('label','')).startswith('IHSG')
+                    and type(fact.get('value')) in (int,float)
+                    and math.isfinite(fact['value']) and fact['value']>0):
+                tracker['latest_price']=fact['value'];break
+    close_block=market_block(tracker, 'IDR', price_label='Penutupan IHSG terakhir', missing_marker=False)
+    quotes=[]
     for row in globals:
         try:
-            global_rows.append(format_global_rows([row],logos=known)+' '+_sources([row.get('source_url')]))
-            if row.get('status')=='available' and row.get('source_url'): global_driver=True
-        except (ValueError,KeyError,TypeError): pass
-    global_block='**Pasar global**\n'+('\n'.join(global_rows) or 'Data belum tersedia.')
-    calendar_rows=[]
-    for event in calendar.get('events',[]):
-        try:
-            normalized={**event,'source_url':_url(event['source_url'])}
-            if event.get('sources'):
-                normalized['sources']=[{**p,'source_url':_url(p['source_url'])} for p in event['sources']]
-            calendar_rows.append(format_calendar_events({'events':[normalized]}))
-        except (ValueError,KeyError,TypeError): pass
-    unavailable=[]
-    for event in calendar.get('unavailable',[]):
-        try: unavailable.append(_sources([event.get('source_url')]))
-        except ValueError: pass
-    calendar_block='**Agenda Ekonomi Indonesia**\n'+('\n'.join(calendar_rows) or 'Agenda terverifikasi belum tersedia.')
-    if unavailable: calendar_block+=' '+ ' '.join(unavailable)
-    scenario=outlook.get('scenario')
-    scenario_block=None
-    if outlook.get('mode')=='supported' and scenario is not None:
-        try: scenario_block=_scenario_block(scenario)
-        except (ValueError,KeyError,TypeError): pass
-    claims=outlook.get('claims',[]) if scenario is None else []
-    prose=[];prose_claims=[]
-    if isinstance(claims,list) and len(claims)<=3:
-        for claim in claims:
-            try:
-                if any(not isinstance(claim.get(key),str) or not claim[key] for key in
-                       ('excerpt','publisher_id','source_url')): continue
-                prose_claims.append(claim)
-                prose.append('Menurut '+_escape(claim['publisher_id'])+': '+claim.get('context',claim['excerpt'])+' '+_sources([claim['source_url']]))
-            except (ValueError,TypeError): pass
-    limitation='**Outlook IHSG:** bukti belum cukup untuk rangkuman pandangan sumber.'
-    # Reserve a truthful limitation before adding whole optional paragraphs.
-    required.append(limitation)
-    for block in facts+[global_block,calendar_block]+([scenario_block] if scenario_block else [])+prose+list(notices.get('ihsg',[])):
-        if block==scenario_block and not (
-                (global_block in available and global_driver)
-                or (calendar_block in available and calendar_rows)):
-            continue
-        if _length('\n\n'.join(required+available+[block]))<=LIMIT:
-            available.append(block)
-    displayed_claim=any(block in available for block in prose)
-    supported=outlook.get('mode')=='supported' and (displayed_claim or (scenario_block is not None and scenario_block in available))
-    if supported:
-        required.remove(limitation)
-        if scenario_block is not None:
-            available.remove(scenario_block)
-            available.insert(sum(block in available for block in facts),scenario_block)
-    if global_block not in available:
-        available.append('**Pasar global**\nData belum tersedia.')
-    if calendar_block not in available:
-        available.append('**Agenda Ekonomi Indonesia**\nAgenda terverifikasi belum tersedia.')
-    first=_fit(required,available)
-
-    sector=_rotation_text(sectors,'### 🏭 ROTASI SEKTOR: ',publication_session,notices.get('sectors',[]))
-    conglomerate=_rotation_text(konglo,'### 🐉 ROTASI KONGLO: ',publication_session,notices.get('konglo',[]))
-    texts=(first,sector,conglomerate)
-    if not with_selection: return texts
-    selected={**outlook,'mode':'supported' if supported else 'facts_only',
-              'reason':outlook.get('reason') if supported or outlook.get('mode')!='supported' else 'formatting_unavailable',
-              'scenario':scenario if supported else None,
-              'claims':[claim for claim,block in zip(prose_claims,prose) if block in available] if supported else [],'text':first}
-    return texts,selected
+            quotes.append(format_global_rows([row],logos=known))
+        except (ValueError, KeyError, TypeError):
+            if row.get('name') in ('KOSPI','Nikkei','SPY','QQQ','EIDO','USDIDR'):
+                quotes.append(format_global_rows([dict(name=row['name'],status='unavailable')],logos=known))
+    global_block='Pasar global:\n'+('\n'.join(quotes) or '-')
+    agenda=_agenda_block(calendar)
+    try:
+        paragraph,scenario,claims=_outlook_paragraph(outlook)
+    except (ValueError, KeyError, TypeError):
+        paragraph,scenario,claims='-',None,[]
+    header='### 🌇 BURSAWATCH PAGI: '+publication_label(publication_session)
+    def assemble(prose):
+        return '\n\n'.join((header,close_block,'Outlook IHSG:\n'+prose,global_block,agenda))
+    first=assemble(paragraph)
+    if _length(first)>LIMIT:
+        paragraph,scenario,claims='-',None,[]
+        first=assemble(paragraph)
+    if _length(first)>LIMIT:
+        raise MessageTooLong('bounded tracker, markets and agenda exceed message limit')
+    texts=(first,
+           _rotation_text('### 🏭 ROTASI SEKTOR: ',publication_session),
+           _rotation_text('### 🐉 ROTASI KONGLO: ',publication_session))
+    if not with_selection:
+        return texts
+    supported=paragraph!='-'
+    presentation={**outlook,'mode':'supported' if supported else 'facts_only',
+                  'reason':outlook.get('reason') if supported or outlook.get('mode')!='supported' else 'formatting_unavailable',
+                  'scenario':scenario,'claims':claims,'text':first}
+    return texts,presentation
 
 
 def attachment_caption(kind: str,publication_session: date, *, cutoff=None, target=None) -> str:
-    titles={'ihsg':'IDX Composite Index','sectors':'Rotasi Sektor','konglo':'Rotasi Konglo'}
-    if cutoff is None and target is None:
-        timing='Cutoff 07:30 WIB · Target 08:00 WIB'  # Historical local artifacts.
-    else:
+    if cutoff is not None or target is not None:
         _validate_timing(publication_session,cutoff,target)
-        zone=ZoneInfo('Asia/Jakarta')
-        timing=f'Cutoff {cutoff.astimezone(zone):%H:%M} WIB · Target {target.astimezone(zone):%H:%M} WIB'
-    return titles[kind]+' | '+publication_label(publication_session)+' | '+timing
+    # Offline alt text only. Discord image messages carry no content.
+    return {'ihsg':'IDX Composite Index','sectors':'Rotasi Sektor','konglo':'Rotasi Konglo'}[kind]
 
 
 def six_block_markdown(texts,images) -> str:

@@ -204,7 +204,8 @@ def test_weekday_brief_delivers_honest_fallback_without_idx_verification(tmp_pat
     assert frozen['facts']==[] and frozen['groups']=={'sectors':[],'konglo':[]}
     assert frozen['previous_session'] is None and frozen['benchmark_version'] is None
     text=store.get_frozen(run.run_id,'selection').payload['texts'][0]
-    assert ('Bursa IDX libur' if gap=='holiday' else 'Hari perdagangan IDX belum terverifikasi') in text
+    assert 'Outlook IHSG:\n-' in text and 'KOSPI: -' in text and 'USD/IDR: -' in text
+    assert 'Bursa IDX libur' not in text and 'belum terverifikasi' not in text
     assert len(projection.requests)==1 and source.captures==1
     assert len([op for op in delivery.sent if op.target['channel_id']==DEST])==3
     Path(config.input_manifest).unlink(missing_ok=True)

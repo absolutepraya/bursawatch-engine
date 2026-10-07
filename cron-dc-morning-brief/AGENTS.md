@@ -56,6 +56,13 @@ delivery from local tests or an installed dispatcher.
   conditional base/change evidence selects facts-only. Formatting trims claims
   with citations atomically and freezes actual published mode/scenario in
   `presentation`; closing anchors must never expose an omitted candidate.
+  The main message follows formatter revision `bursawatch-text-v4`: no IHSG/global
+  source links, timestamps, delays, missing-data prose, pulse/scenario headings or
+  middots; missing numbers are `-`; image messages are attachment-only. The IHSG
+  tracker comes from the shared Yahoo `parse_closes`/`close_performance` over the
+  retained daily source (1/5/22/66 verified sessions, gaps retained) and is frozen
+  only with its hash, cutoff and benchmark-equality attestation. Build native
+  session proof at actual collection time, never a future provisional cutoff.
 - `MorningRunner` injects shared source/provider/delivery/publication clients.
   CLI/wrapper defaults to no-post, reads only explicit retained input paths, and
   never discovers credentials. Live injection requires reviewed destination and

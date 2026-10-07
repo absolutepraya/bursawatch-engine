@@ -5,7 +5,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / name / 'bin') for name in (
-    'cron-dc-morning-brief', 'lib-sectors', 'lib-chart-img', 'lib-yahoo-market-data',
+    'cron-dc-morning-brief', 'lib-news-format', 'lib-sectors', 'lib-chart-img', 'lib-yahoo-market-data',
     'lib-bursawatch-control', 'lib-bursawatch-discord-delivery')]
 
 @pytest.fixture
