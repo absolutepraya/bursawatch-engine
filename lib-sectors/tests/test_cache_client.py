@@ -356,3 +356,32 @@ def test_generation_cache_cutoffs_and_uncertain_reservations_are_isolated(tmp_pa
     assert a.get(first,cutoff=NOW+timedelta(days=7),max_cost=1).payload['results'][0]['market_cap']==100
     assert a.get(next_week,cutoff=NOW+timedelta(days=7),max_cost=1).payload['results'][0]['market_cap']==110
     assert a.store.usage('oct','morning')['host_reserved']==3
+
+
+def test_uncapped_calls_need_no_cap_or_cost_and_keep_accounting(tmp_path):
+    fake = Fake([page(), page(2)])
+    config = sc.Config(store_path=tmp_path/'cache.sqlite3', caller='morning',
+                       billing_window='oct', cache_only=False, api_key='fake-key')
+    a = sc.SectorsClient(config, transport=fake, clock=lambda: NOW)
+    assert a.close_session('2026-10-02', cutoff=NOW, page_limit=2).complete
+    assert a.get(identity(), cutoff=NOW).payload == page()
+    assert len(fake.requests) == 2
+    assert a.store.usage('oct', 'morning') == {'host_reserved': 2, 'caller_reserved': 2}
+
+
+def test_uncapped_configuration_does_not_inherit_old_optional_limits(tmp_path):
+    fake = Fake([page(), page(2)])
+    capped = client(tmp_path, fake, caller_limit=1, host_limit=1)
+    capped.get(identity(), cutoff=NOW)
+    uncapped = client(tmp_path, fake, caller_limit=None, host_limit=None)
+    assert uncapped.get(identity(2), cutoff=NOW).payload == page(2)
+    assert len(fake.requests) == 2
+
+
+def test_optional_caller_limit_still_applies_without_host_limit(tmp_path):
+    fake = Fake([page()])
+    a = client(tmp_path, fake, caller_limit=1, host_limit=None)
+    a.get(identity(), cutoff=NOW)
+    with pytest.raises(sc.BudgetDenied):
+        a.get(identity(2), cutoff=NOW)
+    assert len(fake.requests) == 1
