@@ -8,7 +8,7 @@ import sys
 from zoneinfo import ZoneInfo
 
 ROOT=Path(__file__).resolve().parents[2]
-for name in ('lib-sectors','lib-chart-img','lib-bursawatch-control','lib-bursawatch-discord-delivery'):
+for name in ('lib-sectors','lib-chart-img','lib-yahoo-market-data','lib-bursawatch-control','lib-bursawatch-discord-delivery'):
     sys.path.insert(0,str(ROOT/name/'bin'))
 from morning_brief.calendar import SessionCalendar
 from morning_brief.runner import MorningRunner, HEARTBEAT_DESTINATION, OWNER
@@ -65,7 +65,8 @@ def main(argv=None):
             optional={} if 'config_snapshot' in fields else {'logos':fields.get('logos',{})}
             result=execute(calendar=calendar,numerical=fields.get('numerical',{}),global_inputs=fields.get('global_inputs',[]),
                 calendar_snapshots=fields.get('calendar_snapshots',[]),model=None,model_version=fields['model_version'],
-                prompt_version=fields['prompt_version'],preview=True,preview_dir=args.preview_dir,**optional)
+                prompt_version=fields['prompt_version'],preview=True,preview_dir=args.preview_dir,
+                chart_context=fields.get('chart'),**optional)
             result.update(network=False,credentials=False)
     except Exception as error:
         result=safe_preview_result('fatal',datetime.now(timezone.utc),args.preview_dir,reason=type(error).__name__)

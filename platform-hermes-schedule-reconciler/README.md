@@ -17,6 +17,14 @@ outcome. The web application cannot call this worker or the Hermes CLI.
 | `bursawatch-tg-kelas-investasi-gtw` | `bursawatch-tg-kelas-investasi-gtw` | 300 to 21,600 |
 | `bursawatch-wa-channel-watch` | `bursawatch-wa-channel-watch` | 60 to 21,600 |
 | `bursawatch-stockbit-snips` | `cron-stockbit-snips` | 300 to 3,600 |
+| `bursawatch-dc-morning-brief` | `bursawatch-dc-morning-brief` | 60 only |
+
+Morning timing comes from its revisioned operator configuration. The minute
+tick performs bounded preparation before cutoff, freezes once at cutoff and
+waits until the configured delivery target. The source schedule baseline is
+paused; the manual migration does not create a Hermes job. Installing the
+reviewed wrapper, creating a paused job and enabling its desired revision remain
+separate host rollout steps after input readiness checks.
 
 The Instagram source adapter currently has no registered production job. A
 desired row alone does not create one. Paused legacy Telegram reader jobs stay

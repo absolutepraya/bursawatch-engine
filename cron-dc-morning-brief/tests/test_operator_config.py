@@ -18,7 +18,7 @@ def snapshot(**changes):
     {'cutoff_time':'7:00'}, {'delivery_time':'06:05'}, {'retry_minutes':True},
     {'timezone':'UTC'}, {'instruments':['SPY','SPY']}, {'instruments':['UNKNOWN']},
     {'delivery_time':'23:55'}, {'logos':{'SPY':':spy:'}}, {'extra':'ignored'},
-    {'destination_channel_id':'no'}, {'fallback_minutes':0},
+    {'destination_channel_id':'no'}, {'fallback_minutes':0}, {'delivery_days':'daily'},
 ])
 def test_invalid_operator_settings_fail_closed(changes):
     with pytest.raises(ValueError): load_operator_config_data({**default_operator_config(),**changes})
@@ -28,6 +28,13 @@ def test_defaults_and_optional_emoji_are_durable_data():
     times=timing_for(datetime(2026,10,5).date(),config)
     assert [times[k].strftime('%H:%M') for k in ['cutoff','fallback','target','deadline']]==['07:30','07:55','08:00','08:15']
     assert load_operator_config_data(config)['logos']['SPY'] is None
+    assert config['delivery_days']=='weekdays'
+
+
+def test_legacy_config_keeps_idx_rule_without_rewriting_frozen_payload():
+    from morning_brief.config import weekday_delivery
+    legacy=default_operator_config();legacy.pop('delivery_days')
+    assert load_operator_config_data(legacy)==legacy and not weekday_delivery(legacy)
 
 def test_database_snapshot_freezes_timing_and_delivery_waits_until_target(tmp_path,core):
     r=core('runner');now=[datetime(2026,10,5,6,0,30,tzinfo=ZONE)]
@@ -81,8 +88,8 @@ def test_cutoff_edit_uses_previous_sessions_actual_freeze(tmp_path,core):
             self.previous=previous
             return super().capture_window(previous,cutoff,limit)
     store=RunStore(tmp_path/'runs')
-    prior=datetime(2026,10,4,5,30,tzinfo=ZONE)
-    store.create_run('2026-10-04',freeze_at=prior)
+    prior=datetime(2026,10,2,5,30,tzinfo=ZONE)
+    store.create_run('2026-10-02',freeze_at=prior)
     source=RecordingSource()
     runner=core('runner').MorningRunner(store,source,HeartbeatDelivery(),FakeProjection(),clock=lambda:datetime(2026,10,5,7,30,30,tzinfo=ZONE))
     result=runner.run_from_snapshot(snapshot(),calendar=calendar(),numerical={},global_inputs=[],calendar_snapshots=[],model=None,model_version='fixture',prompt_version='fixture',preview=True)

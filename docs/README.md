@@ -6,13 +6,17 @@
 - [After-close review design spec](notes/2026-10-04-bursawatch-after-close-review-design-spec.md): deferred extension, retaining the closing discussion with an 18:00 WIB target, one LLM run, daily group rankings, and a 20-session foreign-flow visual.
 - [Shared design glossary](../GLOSSARY.md): vocabulary for the proposed brief and review.
 
-The morning design has an authorized local implementation in the managed feature
-branch, described by the [implementation plan](notes/2026-10-05-bursawatch-morning-brief-implementation-plan.md)
-and [package contract](../cron-dc-morning-brief/SKILL.md). It has no production
-activation approval. Provider permissions, source retention, credentials,
-destination onboarding, service release and natural visible delivery remain
-separate rollout gates. The after-close extension and competition integration
-remain deferred. Dated research checkpoints retain their original scope.
+The morning implementation is described by the
+[implementation plan](notes/2026-10-05-bursawatch-morning-brief-implementation-plan.md)
+and [package contract](../cron-dc-morning-brief/SKILL.md). Production rollout was
+authorized on 6 October. The destination and scoped source/publication credentials
+have been provisioned; this does not establish verified live inputs or delivery.
+The read-only production snapshot at 22:11 WIB on 6 October showed no registered
+morning job, published main and release SHA `69c1b9b` matching, and all eight
+desired interval schedules matching the existing registry. Live input producers,
+source-retention coverage and the first natural visible brief remain unfinished.
+The after-close extension and competition integration remain deferred. Dated
+research checkpoints retain their original scope.
 The morning spec replaces the former Sectors hackathon working-note filename;
 the immediate Industry company-impact design remains in its separate managed worktree.
 

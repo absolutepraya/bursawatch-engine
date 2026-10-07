@@ -64,6 +64,26 @@ def test_end_to_end_preview_freezes_inputs_artifacts_and_heartbeat_without_posts
     assert (tmp_path/'preview/heartbeat.json').exists()
     assert source.captures==1
 
+def test_basket_cap_fallback_preserves_age_and_omits_only_unsupported_baskets(tmp_path,core):
+    r=core('runner');store=RunStore(tmp_path/'runs.sqlite');data=numerical()
+    current=data.pop('caps')
+    prior={**current,'identity':'previous-week','collected_at':FREEZE-timedelta(days=4)}
+    expired={**current,'identity':'expired','collected_at':FREEZE-timedelta(days=15)}
+    data['memberships']['sectors']['groups']={name:('AAAA',) for name in ('Current','Previous','Expired','Missing')}
+    data['caps_by_basket']={'sectors':{'Current':current,'Previous':prior,'Expired':expired},
+                            'konglo':{'konglo':current}}
+    runner=r.MorningRunner(store,Source(),HeartbeatDelivery(),FakeProjection(),clock=lambda:NOW)
+    result=runner.run(calendar=calendar(),numerical=data,global_inputs=[],calendar_snapshots=[],
+        model=None,model_version='fixture',prompt_version='v1',preview=True)
+    assert result['phase']=='preview'
+    run=store.create_run('2026-10-05',freeze_at=FREEZE)
+    actual=store.get_frozen(run.run_id,'inputs').payload
+    groups={row['name']:row for row in actual['groups']['sectors']}
+    assert set(groups)=={'Current','Previous'}
+    assert groups['Previous']['provenance']['cap_collection_status']=='extra_week'
+    assert groups['Previous']['provenance']['cap_snapshot']=='previous-week'
+    assert 'sectors:unsupported:Expired' in actual['gaps'] and 'sectors:unsupported:Missing' in actual['gaps']
+
 def test_reviewed_live_injection_projects_and_restart_ignores_later_input_correction(tmp_path,core):
     r=core('runner'); store=RunStore(tmp_path/'runs.sqlite'); source=Source(); clock=[NOW]
     delivery=HeartbeatDelivery(); projection=FakeProjection()

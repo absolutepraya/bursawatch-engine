@@ -8,8 +8,8 @@ import uuid
 from zoneinfo import ZoneInfo
 from bursawatch_discord_delivery import OperationIntent, DELIVERY_RECEIPT_WAIT_SECONDS
 from bursawatch_discord_delivery.client import NON_TERMINAL_STATUSES
-from .calendar import aware, SessionCalendar
-from .config import load_operator_config_data, retained_operator_config, timing_for
+from .calendar import aware, SessionCalendar, restored_calendar
+from .config import load_operator_config_data, retained_operator_config, timing_for, weekday_delivery, previous_weekday
 from .inputs import (Provenance, MembershipSnapshot, CapSnapshot, PriceSeries, ActionDecision,
                      prepare_numerical_inputs, InputUnavailable)
 from .rotation import BasketResult, Position, calculate_from_inputs, UnsupportedBasket, select_groups, unselected_letters
@@ -17,7 +17,7 @@ from .evidence import freeze_source_evidence
 from .global_markets import parse_yahoo_chart, freeze_globals
 from .economic_calendar import freeze_calendar_events
 from .outlook import freeze_bundle, write_outlook
-from .rendering import RenderedArtifact, render_rotation, render_ihsg
+from .rendering import RenderedArtifact, render_rotation, render_ihsg, render_yahoo_ihsg
 from .formatting import format_brief, attachment_caption, six_block_markdown
 from .publication import Publisher, OWNER
 from .store import canonical, digest, stamp, FreezeConflict
@@ -119,6 +119,11 @@ class MorningRunner:
     def _inputs(self,run,upstream,calendar,lease):
         data=upstream.payload['numerical']; cutoff=aware(datetime.fromisoformat(run.freeze_at))
         groups={'sectors':[],'konglo':[]}; gaps=[]; facts=[]
+        if calendar is None or not calendar.is_session(date.fromisoformat(run.session)):
+            reason='idx_calendar_unavailable' if calendar is None else 'idx_non_session'
+            return self.store.freeze(run.run_id,'inputs',dict(groups=groups,gaps=[reason],facts=[],
+                cutoff=run.freeze_at,previous_session=None,benchmark_version=None,
+                upstream_digest=upstream.digest),lease=lease,now=self.clock(),dependencies={'upstream':upstream.digest})
         records={digest(row) for row in upstream.payload['provider_records']}
         benchmark=data.get('benchmark',{}); proof=data.get('benchmark_attestation',{})
         benchmark_valid=_attested(benchmark,proof,cutoff,records) and bool(proof.get('version'))
@@ -134,10 +139,13 @@ class MorningRunner:
                 facts=[dict(label=f'IHSG close {previous.isoformat()}',value=value,unit='poin')]
         else: gaps.append('benchmark_attestation_unavailable')
         try:
-            raw_caps=data['caps']
-            caps=CapSnapshot(**{**raw_caps,'collected_at':datetime.fromisoformat(raw_caps['collected_at']),
-                'effective_date':date.fromisoformat(raw_caps['effective_date']) if raw_caps['effective_date'] else None,
-                'provenance':Provenance(**raw_caps['provenance'])})
+            def restore_caps(raw_caps):
+                return CapSnapshot(**{**raw_caps,'collected_at':datetime.fromisoformat(raw_caps['collected_at']),
+                    'effective_date':date.fromisoformat(raw_caps['effective_date']) if raw_caps['effective_date'] else None,
+                    'provenance':Provenance(**raw_caps['provenance'])})
+            caps=restore_caps(data['caps']) if data.get('caps') else None
+            basket_caps={kind:{name:restore_caps(raw) for name,raw in rows.items()}
+                         for kind,rows in data.get('caps_by_basket',{}).items()}
             prices={}
             for symbol,row in data.get('prices',{}).items():
                 attested=_attested(row,data.get('price_attestations',{}).get(symbol,{}),cutoff,records)
@@ -145,20 +153,25 @@ class MorningRunner:
                 if not attested: gaps.append('price_attestation_unavailable:'+symbol)
             actions=tuple(ActionDecision(**a) for a in action_manifest) if actions_valid else ()
         except (KeyError,ValueError,TypeError):
-            caps=None; prices={}; actions=(); gaps.append('numerical_inputs_unavailable')
+            caps=None; basket_caps={}; prices={}; actions=(); gaps.append('numerical_inputs_unavailable')
         for kind in groups:
             try:
-                if caps is None or not benchmark_valid or not actions_valid: raise InputUnavailable('verified inputs unavailable')
+                if not benchmark_valid or not actions_valid: raise InputUnavailable('verified inputs unavailable')
                 row=data['memberships'][kind]
                 membership=MembershipSnapshot(**{**row,'provenance':Provenance(**row['provenance']),
                     'collected_at':datetime.fromisoformat(row['collected_at']) if row.get('collected_at') else None,
                     'ownership_as_of':date.fromisoformat(row['ownership_as_of']) if row.get('ownership_as_of') else None,
                     'groups':{k:tuple(v) for k,v in row['groups'].items()}})
-                validated=prepare_numerical_inputs(calendar,membership,caps,prices,benchmark,through=previous,
-                    publication_session=date.fromisoformat(run.session),freeze_at=cutoff,actions=actions)
                 for name in sorted(membership.groups):
-                    try: groups[kind].append(jsonable(calculate_from_inputs(name,validated)))
-                    except UnsupportedBasket: gaps.append(kind+':unsupported:'+name)
+                    try:
+                        selected_caps=basket_caps.get(kind,{}).get(name,caps)
+                        if selected_caps is None: raise InputUnavailable('basket caps unavailable')
+                        selected_membership=MembershipSnapshot(**{**membership.__dict__,
+                            'groups':{name:membership.groups[name]}})
+                        validated=prepare_numerical_inputs(calendar,selected_membership,selected_caps,prices,benchmark,through=previous,
+                            publication_session=date.fromisoformat(run.session),freeze_at=cutoff,actions=actions)
+                        groups[kind].append(jsonable(calculate_from_inputs(name,validated)))
+                    except (UnsupportedBasket,InputUnavailable,ValueError): gaps.append(kind+':unsupported:'+name)
             except (InputUnavailable,ValueError,KeyError,TypeError): gaps.append(kind+':unavailable')
         payload=dict(groups=groups,gaps=sorted(set(gaps)),facts=facts,cutoff=run.freeze_at,
             previous_session=previous.isoformat(),attestation_policy='external-caller/hash-and-cutoff-bound',
@@ -180,13 +193,21 @@ class MorningRunner:
         for kind in ('ihsg','sectors','konglo'):
             try:
                 if kind=='ihsg':
-                    if chart_client is None or chart_request is None: raise ValueError('chart unavailable')
-                    if aware(chart_request.cutoff)!=aware(datetime.fromisoformat(run.freeze_at)):
-                        raise ValueError('chart cutoff differs from frozen run')
-                    artifact=chart_client.render(chart_request,cache_only=True)
-                    if artifact.request.identity!=chart_request.identity:
-                        raise ValueError('chart artifact differs from selected request')
-                    rendered=render_ihsg(artifact,publication_session=session,latest_close=date.fromisoformat(inputs.payload['previous_session']))
+                    upstream=self.store.get_frozen(run.run_id,'upstream').payload
+                    context=upstream.get('chart_context')
+                    if isinstance(context,dict) and context.get('provider')=='yahoo':
+                        from .yahoo_chart import prepare_chart
+                        series=prepare_chart(context,restored_calendar(upstream['calendar']),
+                            publication_session=session,cutoff=datetime.fromisoformat(run.freeze_at))
+                        rendered=render_yahoo_ihsg(series,publication_session=session)
+                    else:
+                        if chart_client is None or chart_request is None: raise ValueError('chart unavailable')
+                        if aware(chart_request.cutoff)!=aware(datetime.fromisoformat(run.freeze_at)):
+                            raise ValueError('chart cutoff differs from frozen run')
+                        artifact=chart_client.render(chart_request,cache_only=True)
+                        if artifact.request.identity!=chart_request.identity:
+                            raise ValueError('chart artifact differs from selected request')
+                        rendered=render_ihsg(artifact,publication_session=session,latest_close=date.fromisoformat(inputs.payload['previous_session']))
                 else:
                     if not groups[kind]: raise ValueError('rotation unavailable')
                     rendered=render_rotation(groups[kind],kind=kind,publication_session=session,letters=letters if kind=='konglo' else None)
@@ -199,6 +220,10 @@ class MorningRunner:
                 images.append(None); omissions.append(kind+'_image_unavailable')
         globals_record=self.store.get_frozen(run.run_id,'globals'); calendar_record=self.store.get_frozen(run.run_id,'calendar_events')
         notices={kind:['Gambar belum tersedia.'] if omission else [] for kind,omission in zip(('ihsg','sectors','konglo'),omissions)}
+        if 'idx_calendar_unavailable' in inputs.payload['gaps']:
+            notices['ihsg'].insert(0,'Hari perdagangan IDX belum terverifikasi. Data IHSG dan rotasi belum tersedia.')
+        elif 'idx_non_session' in inputs.payload['gaps']:
+            notices['ihsg'].insert(0,'Bursa IDX libur hari ini. Ringkasan disampaikan sesuai jadwal hari kerja.')
         texts,presentation=format_brief(publication_session=session,cutoff=datetime.fromisoformat(run.freeze_at),
             target=timing_for(session,retained_operator_config(self.store,run.run_id))['target'],outlook=outlook.payload,
             globals=globals_record.payload['quotes'],calendar=calendar_record.payload,
@@ -213,7 +238,8 @@ class MorningRunner:
 
     def run(self,*,calendar,numerical,global_inputs,calendar_snapshots,model,model_version,prompt_version,
             preview=True,preview_dir=None,destination=None,reviewed_config=None,
-            sectors_client=None,sectors_requests=(),chart_client=None,chart_request=None,accounting=None,logos=None,operator_snapshot=None):
+            sectors_client=None,sectors_requests=(),chart_client=None,chart_request=None,accounting=None,logos=None,operator_snapshot=None,
+            chart_context=None):
         if type(preview) is not bool or (operator_snapshot is None and not preview and (not reviewed_config or not destination)):
             raise ValueError('live injection requires reviewed configuration and destination')
         accounting=dict(accounting or {})
@@ -265,13 +291,16 @@ class MorningRunner:
                 else:
                     upstream=self.store.get_frozen(run.run_id,'upstream')
                     if upstream:
-                        raw=upstream.payload['calendar']
-                        calendar=SessionCalendar(**{**raw,'amendment_checked_at':datetime.fromisoformat(raw['amendment_checked_at']),
-                            'valid_from':date.fromisoformat(raw['valid_from']),'valid_through':date.fromisoformat(raw['valid_through']),
-                            'sessions':tuple(date.fromisoformat(s) for s in raw['sessions'])})
-                    checked=aware(calendar.amendment_checked_at)
-                    if checked>cutoff or cutoff-checked>timedelta(days=7): raise ValueError('calendar amendment unavailable')
-                    if not calendar.is_session(session):
+                        calendar=restored_calendar(upstream.payload['calendar']) if upstream.payload['calendar'] else None
+                    if calendar is not None:
+                        checked=aware(calendar.amendment_checked_at)
+                        if checked>cutoff or cutoff-checked>timedelta(days=7):
+                            if not weekday_delivery(settings): raise ValueError('calendar amendment unavailable')
+                            calendar=None
+                    eligible=session.weekday()<5 if weekday_delivery(settings) else calendar is not None and calendar.is_session(session)
+                    if calendar is None and not weekday_delivery(settings):
+                        raise ValueError('calendar amendment unavailable')
+                    if not eligible:
                         result={'phase':'no_session'}
                         self.store.transition(run.run_id,'no_session',lease=lease,now=self.clock())
                     else:
@@ -286,9 +315,10 @@ class MorningRunner:
                                         payload=record.payload,available_at=stamp(record.available_at),provenance=record.provenance))
                                 except Exception: accounting['cache_misses']=accounting.get('cache_misses',0)+1
                             upstream=self.store.freeze(run.run_id,'upstream',jsonable(dict(mode=mode,calendar=calendar,numerical=numerical,
-                                global_inputs=global_inputs,calendar_snapshots=calendar_snapshots,provider_records=records,logos=dict(logos or {}))),lease=lease,now=self.clock())
+                                global_inputs=global_inputs,calendar_snapshots=calendar_snapshots,provider_records=records,logos=dict(logos or {}),
+                                chart_context=chart_context)),lease=lease,now=self.clock())
                         inputs=self.store.get_frozen(run.run_id,'inputs') or self._inputs(run,upstream,calendar,lease)
-                        previous_session=calendar.last_sessions(session,2)[0]
+                        previous_session=previous_weekday(session) if weekday_delivery(settings) else calendar.last_sessions(session,2)[0]
                         previous_run=self.store.get_run_for_session(previous_session.isoformat())
                         previous_cutoff=datetime.fromisoformat(previous_run.freeze_at) if previous_run else timing_for(previous_session,settings)['cutoff']
                         evidence=freeze_source_evidence(self.store,run.run_id,self.source,previous_cutoff=stamp(previous_cutoff),lease=lease,now=self.clock())
@@ -298,6 +328,11 @@ class MorningRunner:
                                 if row['name'] not in settings['instruments']: continue
                                 quotes.append(parse_yahoo_chart(row['name'],row['payload'],freeze_at=cutoff,
                                     retrieved_at=datetime.fromisoformat(row['retrieved_at']),sessions=row['sessions']))
+                            present={quote['name'] for quote in quotes}
+                            for name in settings['instruments']:
+                                if name not in present:
+                                    quotes.append(dict(name=name,status='unavailable',
+                                        reason='configured_source_unavailable',cutoff=stamp(cutoff)))
                             freeze_globals(self.store,run.run_id,quotes,lease=lease,now=self.clock())
                         if self.store.get_frozen(run.run_id,'calendar_events') is None:
                             freeze_calendar_events(self.store,run.run_id,upstream.payload['calendar_snapshots'],lease=lease,now=self.clock())

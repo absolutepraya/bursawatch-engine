@@ -1,16 +1,18 @@
 ---
 name: bursawatch-dc-morning-brief
-description: Proposed receipt-gated IHSG morning brief with frozen evidence and fixed-cap rotation illustrations.
+description: Receipt-gated IHSG morning brief with frozen evidence and fixed-cap rotation illustrations.
 ---
 
 # Morning brief contract
 
-This local package implements the numerical, frozen-evidence and bounded-writer
-owners for a proposed morning brief. It does not register or activate a production job.
-The database-configured default freezes at 07:30 WIB on verified IDX sessions,
+This package implements the numerical, frozen-evidence and bounded-writer owners
+and an explicit production dispatcher. Installing it does not register or
+activate a production job. Verified input production is a separate prerequisite.
+The database-configured default freezes at 07:30 WIB on Monday to Friday,
 selects a facts-only fallback by 07:55 when necessary, and targets delivery at
 08:00. Preparation waits until the frozen target before any brief submission.
-A non-session is a no-op, with a heartbeat. Engineering documentation is English;
+Weekends are a no-op, with a heartbeat. IDX-only mode also skips exchange holidays.
+Engineering documentation is English;
 brief prose is concise Indonesian. Model transport, rendering and publication integration remain explicit caller
 inputs. The writer and source/calendar/quote adapters perform no network IO.
 
@@ -22,7 +24,7 @@ mode='cache_only')` requires separate paths and accepts only cache-only or
 explicit synthetic-preview mode. It does not load environment credentials or
 construct a provider client. `from_mapping` rejects unknown fields.
 
-All Sectors consumers must share one explicitly configured private host-local
+Retained legacy Sectors consumers must share one explicitly configured private host-local
 provider coordination store and billing window. `lib-sectors` owns budgets,
 leases, immutable cache versions and request generations. Weekly caps use a
 caller-owned generation such as `caps:2026-W41`. A morning run's SQLite database
@@ -40,6 +42,25 @@ current ownership. Membership is imported once, with an explicit official-first
 check reference for the Sectors IDX-IC fallback, without periodic refresh.
 
 ## Authoritative calendar and caps
+
+Delivery-day selection is independent of numerical session verification.
+New operator defaults use `delivery_days='weekdays'`, Monday to Friday in WIB,
+including IDX holidays. `idx_sessions` preserves the strict trading-day rule;
+existing version-1 records without the field retain that rule until explicitly
+edited. Both are stored in the revisioned watcher configuration and editable in
+Workflows. Frozen records and already published sessions keep their old settings.
+Default cutoff and delivery times remain 07:30 and 08:00 WIB.
+
+In weekday mode, an unavailable/stale official calendar or missing input
+manifest cannot suppress factual delivery. It removes unverified IHSG facts,
+outlook direction, charts and rotations, while independently verified Yahoo
+globals and agenda remain usable. An IDX holiday gets a dated holiday notice;
+an unavailable calendar gets an explicit verification notice. Weekends emit a
+no-op heartbeat without provider collection or a new run. Source lookback uses
+the previous publication weekday's actual frozen cutoff when available, or its
+configured cutoff otherwise. This is a publication window, never an inferred
+market session or a claim of source-history completeness. Recovery keeps all
+frozen evidence, configuration, omissions and receipt operations.
 
 `SessionCalendar.from_file(path, expected_version=..., expected_amendment=...,
 as_of=...)` imports an explicitly reviewed JSON snapshot with fields:
@@ -131,7 +152,8 @@ step dependencies, including text anchors, before submission.
 `evidence.freeze_source_evidence(store, run_id, client, previous_cutoff=...,
 lease=..., now=...)` consumes `SourceEvidenceClient` from
 `lib-bursawatch-control/bin/source_evidence_client.py`. The lower bound is the
-previous verified session cutoff, including weekend/holiday lookback. It freezes
+previous publication weekday cutoff in weekday mode, or the previous verified
+session cutoff in IDX-only mode, including weekend lookback. It freezes
 `source_manifest` before any version batch read, then freezes `evidence` with the
 manifest slot digest as its dependency. Recovery keeps exact refs/hashes and
 never recaptures a changing source query. A complete saved evidence slot is
@@ -298,6 +320,127 @@ facts-only fallback, rather than exposing a generated core dropped by formatting
 
 ## Integrated owner and receipt-gated publication
 
+The explicit `collect_public_inputs.py` producer is separate from publication:
+
+```sh
+python collect_public_inputs.py --collect-public \
+  --runtime-config /private/host-config.json \
+  --calendar-snapshot /private/verified-idx-calendar.json \
+  --source-cache /private/morning-sources
+```
+
+It reads operator timing, delivery days and instruments from the revisioned database,
+selects the next eligible publication day whose configured cutoff has not passed, and makes at
+most fourteen fixed-origin Yahoo requests (daily and hourly for IHSG and the
+configured global instruments). There are no retries, redirects, Sectors or
+Chart-IMG requests, source captures, model calls, run-store creation or posts.
+IHSG daily history uses `range=1y`; the same retained response supplies both
+benchmark facts and the local chart. Other daily/hourly requests keep their
+existing one-month windows. A completed history snapshot can be reused for the
+same required latest session with its original retrieval/provenance intact.
+The explicit private source-cache directory coordinates HTTP and persists a
+429 cooldown across process restarts. Honor Retry-After; an absent or malformed
+value blocks new requests for 24 hours. No automatic retry occurs.
+The private content-addressed source records and manifest versions remain
+immutable; only the input-manifest pointer advances. Preparation completed after
+the cutoff cannot replace that pointer. Missing latest IHSG close blocks the
+strict IDX-mode manifest; weekday mode can retain independently verified globals
+and agenda with empty numerical inputs. An unavailable calendar is recorded as
+`calendar=null`, without changing any price's source timestamp.
+
+`public_sources.yahoo_sessions` consumes the actual hourly response's
+`tradingPeriods` and `currentTradingPeriod.regular`, with strict identity,
+timezone, interval, overlap and coverage checks. No weekday, trading-hour or FX
+rollover defaults are used. `ihsg_benchmark` verifies the latest completed close
+against the immediately preceding official IDX session for independent facts.
+It does not independently provide rotation prices, action compatibility or weights.
+Missing configured global inputs become explicit unavailable rows, including
+when an operator adds an instrument after source preparation.
+
+Optional repeated `--economic-snapshot /private/source-snapshot.json` arguments
+attach explicit retained primary snapshots. The existing snapshot integrity,
+cutoff visibility and freshness checks still govern them. `SnapshotCache.put`
+accepts `source_format='bps-native-flight-v1'` for a verbatim national BPS Arc
+`getArcBrs` response. The parser requires native `brs` records, preserves BPS
+local release identities, and leaves absent period/time fields unknown. It
+never promotes a publication schedule into a statistical release. Native
+frontend action discovery and automated BI/BPS retrieval remain producer work.
+
+The producer's `manifest_written=true` only proves that it retained a verified
+IHSG facts input. Its output explicitly lists incomplete calendar and rotation
+sections, plus the chart when unsupported; it is not a full-brief activation or
+delivery-readiness claim.
+An official calendar amendment refresh and a scheduled pre-cutoff producer are
+still required for an unattended rollout.
+
+### Bounded Yahoo rotation production
+
+The separate `collect_rotation_inputs.py --collect-public` command reads the
+same revisioned operator timing and an explicit private `--references` file.
+That file contains `sectors` and `konglo` entries with absolute `path`, exact
+`sha256`, stable `version` and `source_url`; sectors also requires
+`official_check_reference`. Original membership bytes remain private retained
+inputs. Keep the imported 11-sector/962-stock universe and the supplied
+34-group/188-stock CSV overlaps unchanged.
+
+```sh
+python collect_rotation_inputs.py --collect-public \
+  --runtime-config /private/host-config.json \
+  --calendar-snapshot /private/verified-idx-calendar.json \
+  --references /private/fixed-membership-references.json \
+  --source-cache /private/morning-sources --request-limit 24
+```
+
+Each pass permits 3 to 64 HTTP calls, default 24, including two public guest
+handshake calls when native cap quotes first need them. Exact 100-symbol quote
+batches avoid an incomplete regional screener. Cookies and guest crumbs stay
+in memory and never enter retained sources. Stock daily responses request
+three months and native dividends/splits. `lib-yahoo-market-data` validates
+all 18 official aligned closing sessions, ordinary split-adjusted Close and
+positive trading volume on every required day. Never apply native splits a
+second time or add dividends; unknown actions reject that stock. Native
+`tradeable` is not an IDX eligibility check. Collection runs after the prior
+closing date and before the upcoming configured cutoff. No paid provider,
+writer, source-capture, run-store or publication calls occur.
+Only members of baskets with a complete usable cap snapshot need historical
+price requests; unsupported sectors do not generate unnecessary daily calls.
+
+A private producer lock prevents concurrent mutation. Content-addressed native
+records are immutable; the compact index contains only checksum-bound refs.
+Each closing window resumes without refetching completed or invalid stocks.
+All Yahoo calls share the HTTP lock and 429 cooldown with the global/chart
+collector. Stop a pass after a provider failure, without retries or source
+switching. Caps refresh in a stable weekly generation. Each complete basket
+retains its own immutable cap identity and original collection time; a partial
+refresh can reuse a valid prior-week basket, then expires it under the existing
+policy. Missing native caps remain missing. Each basket still requires a cap
+for every original member and at least 90-percent eligible price coverage.
+
+The producer advances only `rotation-current.json` and retains each manifest
+version. Pass this explicit file to `collect_public_inputs.py` using
+`--rotation-snapshot /private/morning-sources/rotation-current.json`. It must
+match the upcoming publication/closing session, calendar checksum and cutoff;
+preview, future or stale windows cannot replace numerical inputs. The runner
+assesses caps separately for each basket, preserving mixed snapshot ages and
+omitting only unsupported baskets. Manifests do not certify full coverage.
+
+`import_idx_calendar.py --pdf <private-file> --listing-envelope <private-file>
+--output <absolute-new-file>` imports retained primary evidence without network
+requests or posts. It uses installed `pdftotext` to extract the exact PDF bytes,
+requires the complete native IDX `GetAllAnnouncement` response in the envelope,
+and binds the PDF's announcement reference to its sole matching attachment.
+The complete monthly table, explicit weekend rule, listed closures, twelve
+published monthly counts and annual count must reconcile. Missing source rows
+never fall back to weekdays. A partial listing or a separate amendment rejects
+the base PDF for a separately reviewed amended import. Verification age uses
+the listing's actual retrieval timestamp, not the import time. The source PDF,
+listing, extracted-text and imported-snapshot digests remain distinct.
+
+This import is repeatable and versioned. It does not automate primary-source
+retrieval or waive the seven-day amendment policy. Keep retained primary source
+files private and outside Git. Installing the collector/importer does not add
+or enable a Hermes job.
+
 `morning_brief.runner.MorningRunner(store, source, delivery, projection, clock=...)`
 uses explicit injected clients. `run(calendar=..., numerical=..., global_inputs=...,
 calendar_snapshots=..., model=..., model_version=..., prompt_version=..., preview=True)`
@@ -346,6 +489,28 @@ omitted before publication. Raw global input rows contain name, Yahoo chart
 payload, retrieval instant and reviewed exchange sessions. Official calendar
 snapshots come from the shared immutable SnapshotCache. Empty calendar/global
 inputs remain gaps, not fabricated dates or zero changes.
+
+New IHSG images use `chart.provider='yahoo'` and
+`profile_revision='ihsg-yahoo-candles-sma-rsi-v1'`. This profile replaces the
+TradingView/LuxAlgo primary for new prepared inputs. The context freezes the
+exact daily payload, canonical payload checksum, original source checksum/URL,
+retrieval, native regular-period proof and exact cutoff in `upstream`.
+`yahoo_chart.prepare_chart` validates the latest completed bar against the
+official preceding IDX session and selects exactly the official sessions in
+the three-calendar-month window ending on that close. The shared
+`lib-yahoo-market-data` parses ordinary OHLC and computes simple MA 10/20/50/100
+and Wilder RSI(14) locally. Every visible MA100 value requires 99 preceding
+verified sessions; all intervening candles must exist. The chart omits when
+calendar coverage, historical warm-up, checksum, completed close or cutoff is
+unsupported. Year boundaries may require a calendar spanning the prior year.
+
+`render_yahoo_ihsg` renders a light candlestick/MA panel and RSI panel inside the
+dark branded frame, without Volume or SMC/divergence overlays. It retains exact
+visible OHLC and indicator values, history sessions, calendar/source digests,
+profile and asset revisions in the image manifest. It makes no HTTP requests
+and has no Chart-IMG store requirement. A failed Yahoo image never triggers an
+automatic provider fallback. Legacy frozen/injected Chart-IMG requests retain
+their existing proof and immutable recovery contract.
 
 One bounded writer uses the frozen bundle. Output selection is fixed by the
 frozen fallback deadline (default 07:55 WIB), with facts-only degradation on missing evidence, timeout or unsupported
@@ -430,7 +595,117 @@ service inputs, scheduler wrapper mode 0755, emoji onboarding, destination and
 activation are separate provisioning/deployment approvals. Do not copy Mac state
 or credentials to a runtime. No live validation is implied by local fixtures.
 
+## Production dispatcher
+
+The original `runner.py` and `bursawatch-dc-morning-brief.sh` remain explicit
+offline previews. `live_runner.py` composes the existing `MorningRunner` with
+`SourceEvidenceClient`, `DeliveryClient`, and `PublicationClient`. All APIs are
+the established VPS loopback owners. The private host JSON follows
+[`runtime-config.example.json`](runtime-config.example.json); it contains paths
+to distinct host-local credentials, the private run store, an optional legacy
+Chart-IMG store and the independently prepared live-input manifest. Operator timing,
+destination, instruments and emojis continue to come from the database.
+
+Run `bursawatch-dc-morning-brief-live.sh --check` first. It reads the current
+database configuration, checks private credentials and verified live inputs,
+and reports bounded readiness gaps. It does not create a run/provider store,
+capture a source window, call a model or provider, or contact Discord. This
+check is a baseline input/configuration check, not end-to-end delivery proof.
+
+`--live` is required for a scheduled dispatcher tick. Each tick uses the real
+clock and the database timing. It cannot accept `--as-of`, a preview state path
+or a different destination. Before cutoff it emits a no-op heartbeat. A first
+tick after the last-new-attempt deadline reports a missed session without
+freezing a late brief. Existing publication attempts still reconcile under
+the original deadline. A persisted publication or upstream snapshot recovers
+without reopening changing input files. Its frozen database config also remains
+authoritative when the configuration API is unavailable. All source and receipt
+recovery remains with the existing owner.
+
+The writer reads the installed Hermes default model/provider and uses its
+existing auxiliary client router. It issues one structured request, with a
+30-second transport timeout and no SDK retries or tools. The core's fallback
+deadline and validation remain authoritative. A changed Hermes model cannot
+relabel an already frozen bundle; recovery uses the original writer version
+and a facts-only fallback when that model is no longer selected.
+
+The live input manifest has version 1 and `provenance='live-retained'`, with an
+aware cutoff-visible `available_at`. It contains `calendar` (`path`, `sha256`,
+`version`, `amendment`), `numerical`, `global_inputs`, `calendar_snapshots` and
+optional `chart` (Yahoo context or legacy `request`/`verification`). All JSON files must be private
+regular files. Numerical, Yahoo and agenda sections use the existing owner
+shapes and retain their original independent verification rules. A legacy
+chart uses the shared cache and an exact image/request-bound external proof,
+verified by cutoff. Its request/proof freeze in upstream before rendering.
+New Yahoo chart contexts use the provider/profile/daily/sessions/cutoff shape
+described above instead of request/verification. The dispatcher renders them
+from frozen data without a provider store. It is never fetched by the
+dispatcher. Missing optional images remain explicit
+omissions; missing authoritative numerical sessions cannot be repaired by weekdays.
+Weekday mode accepts a calendar gap only for independently verified sections,
+and discards numerical/chart inputs when its calendar cannot be verified.
+Readiness reports these optional gaps while checking destination, credentials
+and the installed Hermes runtime. It does not imply full data coverage.
+
+The dispatcher never performs producer HTTP requests or
+authorizes paid historical initialization. The separate bounded Yahoo producer supplies 18-session closing data,
+memberships, caps, split/action evidence, exchange/FX sessions, official agenda
+snapshots and verified chart inputs must be supplied by a reviewed producer before
+activation. Provider access failures cannot turn preview fixtures into live
+inputs. Unknown source retention continues to select facts-only.
+
 ## Verification
+
+### Recurring composition, staged paused
+
+`scheduled_runner.py` requires explicit private `--runtime-config` and
+`--producer-config` files and exactly one of `--check` or `--live`. The producer
+configuration is version 1 and contains absolute distinct `calendar_snapshot`,
+`references`, `source_cache` paths plus optional `economic_snapshots` paths.
+It contains no credentials or replacements for database operator timings.
+`producer-config.example.json` is a path-only provisioning template, not proof
+that those files exist or that primary-source refresh is configured.
+
+Check mode validates retained membership references and the existing dispatcher
+readiness without creating stores, HTTP provider requests, model resolution,
+source capture or posts. Live mode takes a private exclusive process lock.
+Before the configured cutoff on a verified session, it runs one bounded rotation
+chunk per tick. In the last ten minutes it also refreshes the global/benchmark
+manifest, including eligible retained rotation and agenda inputs. After cutoff
+it invokes only the existing dispatcher. Frozen recovery bypasses producers
+and a changing configuration API. The same database configuration snapshot
+governs the first dispatch; it is not fetched twice across a timing change.
+Strict IDX mode produces a no-op heartbeat on non-sessions, and a fatal
+heartbeat for a missing/stale calendar. Weekday mode skips weekends, omits
+rotation preparation without a verified trading session, and still prepares
+global/agenda inputs near cutoff. No mode extends calendar verification or
+infers numerical sessions from weekdays.
+
+`bursawatch-dc-morning-brief-scheduled.sh` is the reviewed dispatcher wrapper for the exact
+`bursawatch-dc-morning-brief` runtime job name. The source schedule is a paused
+60-second interval in manual migration 024 and the reconciler allowlist.
+Default cutoff/delivery remain 07:30/08:00 WIB. Jobs controls can change desired
+enabled state; morning timing, instruments and logos remain in its watcher
+configuration. The minute interval itself is fixed so the source-capture
+on-time grace is meaningful.
+
+Hermes command jobs do not forward script arguments. Their explicit live
+entrypoint is `bursawatch-dc-morning-brief-job.sh`, installed under
+`~/.hermes/scripts/` at mode 0755. It accepts no arguments and invokes the
+scheduled wrapper with `--live`. Register this one job with `--no-agent
+--deliver local`; the morning owner performs any bounded model call internally
+and exclusively delivers through the shared Delivery Owner. Hermes must not
+forward the command's JSON stdout into a Discord channel. Manual no-post checks
+continue to use the scheduled wrapper with `--check`.
+
+Installing the wrapper at mode 0755, registering a paused Hermes command job,
+applying the manual migration and reconciler code, checking source/input
+readiness, and enabling the authenticated desired schedule are separate reviewed
+rollout steps. Do not hand-edit the registry or manually trigger a live run.
+Verify the next natural preparation and receipt-gated delivery. No paused row,
+successful check, local preview or component health check substitutes for that
+evidence. Official calendar/agenda acquisition must be resolved independently;
+the scheduler does not make unavailable primary sources fresh.
 
 Run `python -m pytest -q cron-dc-morning-brief/tests` with the repository
 interpreter. The analytical fixtures explicitly use synthetic sessions/prices.
@@ -467,7 +742,7 @@ Credentials stay in host configuration, outside operator settings. The adapter
 must inject the existing shared `SectorsClient`, shared `ChartImgClient`, source
 reader, Delivery Owner and publication client with their reviewed host stores and
 provider policies. Configuration cannot authorize provider spend or bypass
-calendar/image attestations. The Sectors and Chart-IMG caches/allowances remain
+calendar/image verification. The Sectors and Chart-IMG caches/allowances remain
 separate and account-shared, never duplicated in morning state.
 
 `run_from_snapshot(snapshot, **inputs)` accepts a retained shared API snapshot
@@ -475,13 +750,14 @@ for no-post review. The CLI input manifest supports `config_snapshot` for this
 purpose. Before data capture, freeze the snapshot revision, checksum and values
 in `operator_config`. Capture, selection, writer fallback, attachment captions,
 last-attempt deadlines and lateness use that record. Restarting after a dashboard
-edit resumes the same settings and destination. The previous verified session's
+edit resumes the same settings and destination. The previous eligible publication day's
 actual frozen cutoff bounds the next source window when available, preventing a
 cutoff edit from skipping source history. Missing original history still degrades
 honestly. Legacy explicitly injected local callers retain their old 07:30/08:00
 contract; do not promote those sessions into the database-backed runtime.
 
-This configuration implementation does not supply live Yahoo/BI/BPS adapters,
+This configuration implementation does not activate the separate Yahoo producers or supply live BI/BPS acquisition,
 verified IDX calendars, shared provider stores, TradingView layouts or host
-credentials. Those are production rollout gates, as are reviewed schedule
-activation and the first natural delivery. No synthetic post validates them.
+credentials. Complete numerical output needs its verified inputs; factual
+weekday delivery may omit unavailable sections. Reviewed schedule activation
+and the first natural delivery remain rollout gates. No synthetic post validates them.

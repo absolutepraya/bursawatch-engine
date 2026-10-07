@@ -696,6 +696,16 @@ function MorningFields() {
         <Field path={["cutoff_time"]} label="Data cutoff (WIB)" type="time" />
         <Field path={["delivery_time"]} label="Delivery target (WIB)" type="time" />
         <Field
+          path={["delivery_days"]}
+          label="Delivery days"
+          fallback="idx_sessions"
+          options={[
+            ["weekdays", "Monday to Friday, including IDX holidays"],
+            ["idx_sessions", "Verified IDX trading days only"],
+          ]}
+          hint="Weekday delivery continues when the IDX calendar is unavailable. Unverified market sections remain unavailable."
+        />
+        <Field
           path={["fallback_minutes"]}
           label="Select factual fallback before delivery (minutes)"
           type="number"

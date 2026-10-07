@@ -8,10 +8,10 @@ ROOT=Path(__file__).resolve().parents[1]
 def test_unprovisioned_morning_and_provider_units_are_manual_and_depend_on_owners():
     manifest=json.loads((ROOT/'platform-bursawatch-release/release-manifest.json').read_text())
     units={unit['id']:unit for unit in manifest['units']}
-    for name in ['lib-sectors','lib-chart-img','cron-dc-morning-brief']:
+    for name in ['lib-sectors','lib-chart-img','lib-yahoo-market-data','cron-dc-morning-brief']:
         assert name in units
         assert units[name]['handler']=='manual'
-    assert {'lib-sectors','lib-chart-img','lib-bursawatch-control','lib-bursawatch-discord-delivery','manual-discord-delivery-owner'} <= set(units['cron-dc-morning-brief']['depends_on'])
+    assert {'lib-sectors','lib-chart-img','lib-yahoo-market-data','lib-bursawatch-control','lib-bursawatch-discord-delivery','manual-discord-delivery-owner'} <= set(units['cron-dc-morning-brief']['depends_on'])
     assert sum('GLOSSARY.md' in unit['paths'] for unit in units.values())==1
 
 def test_provider_env_links_preserve_conflicts_without_reading_contents(tmp_path):
@@ -31,7 +31,7 @@ def test_provider_env_links_preserve_conflicts_without_reading_contents(tmp_path
 
 def test_new_package_suites_and_postgres_source_contract_are_registered():
     suites=(ROOT/'scripts/test-all').read_text()
-    for name in ['lib-sectors','lib-chart-img','cron-dc-morning-brief']:
+    for name in ['lib-sectors','lib-chart-img','lib-yahoo-market-data','cron-dc-morning-brief']:
         assert f'run_suite {name} {name} tests' in suites
     assert 'test_source_evidence_postgres.py' in (ROOT/'.github/workflows/ci.yml').read_text()
 

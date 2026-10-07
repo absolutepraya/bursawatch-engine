@@ -124,6 +124,7 @@ const cases: Array<[string, Record<string, unknown>]> = [
       version: 1,
       timezone: "Asia/Jakarta",
       cutoff_time: "07:30",
+      delivery_days: "weekdays",
       delivery_time: "08:00",
       fallback_minutes: 5,
       retry_minutes: 15,
@@ -153,6 +154,28 @@ function normalize(name: string) {
 }
 
 describe("rendered watcher controls match the field coverage map", () => {
+  it("keeps legacy IDX delivery until weekday delivery is explicitly saved", async () => {
+    const config = { ...cases.find(([id]) => id === "bursawatch-dc-morning-brief")![1] };
+    delete config.delivery_days;
+    const snapshot: ConfigSnapshot = {
+      api_version: 1,
+      watcher_id: "bursawatch-dc-morning-brief",
+      revision: 1,
+      config_version: 1,
+      config,
+      config_sha256: "a".repeat(64),
+      updated_at: "2026-10-07T00:00:00Z",
+    };
+    const onSave = vi.fn(async (config) => ({ ...snapshot, revision: 2, config }));
+    render(<WatcherConfigEditor snapshot={snapshot} onSave={onSave} />);
+    expect(screen.getByLabelText("Delivery days")).toHaveProperty("value", "idx_sessions");
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Delivery days"), { target: { value: "weekdays" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save configuration" }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0]).toEqual({ ...config, delivery_days: "weekdays" });
+  });
+
   it("keeps the focused source mounted while its name stops matching the search", () => {
     const snapshot: ConfigSnapshot = {
       api_version: 1,

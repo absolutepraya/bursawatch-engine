@@ -50,6 +50,13 @@ A portfolio of stocks associated with one conglomerate under the dated membershi
 **Daily basket return**:
 The change in a basket over one trading session, calculated from member returns and the agreed dated weights.
 
+**Price return**:
+The change in an investment's price on compatible split-adjusted units, excluding cash dividend reinvestment. This is the agreed basis for comparing basket performance with the IHSG price index.
+_Avoid_: Total return, dividend-adjusted return.
+
+**Market-cap snapshot**:
+A retained collection of member market-cap values used as a weighting reference. Its collection time is distinct from the underlying economic date of those values, which may be unknown.
+
 **Top daily performers**:
 The sectors or conglomerate baskets with the highest daily basket returns within their category. The ranking includes negative returns when they are among the strongest available performances.
 _Avoid_: Gainers when ranked returns are negative.

@@ -19,6 +19,15 @@ def iso_date(value: str) -> date:
     return result
 
 
+def restored_calendar(payload):
+    """Restore only an already frozen, checksum-bound owner snapshot."""
+    return SessionCalendar(**{**payload,
+        'amendment_checked_at': datetime.fromisoformat(payload['amendment_checked_at']),
+        'valid_from': date.fromisoformat(payload['valid_from']),
+        'valid_through': date.fromisoformat(payload['valid_through']),
+        'sessions': tuple(date.fromisoformat(s) for s in payload['sessions'])})
+
+
 @dataclass(frozen=True)
 class SessionCalendar:
     version: str

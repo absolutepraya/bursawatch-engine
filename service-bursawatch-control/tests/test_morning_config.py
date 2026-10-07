@@ -17,7 +17,7 @@ def test_authenticated_operator_revisions_and_machine_read_use_existing_config_a
     app=create_app(store=store,auth=StaticTokenAuth(machine_token='fixture-machine',admin_token='fixture-admin'),validators=validators)
     client=TestClient(app);url='/v1/watchers/'+OWNER+'/config'
     assert client.put(url,json={'config_version':1,'config':CONFIG},headers={'Authorization':'Bearer fixture-machine'}).status_code==403
-    updated={**CONFIG,'cutoff_time':'06:00','delivery_time':'07:00'}
+    updated={**CONFIG,'cutoff_time':'06:00','delivery_time':'07:00','delivery_days':'weekdays'}
     saved=client.put(url,json={'config_version':1,'config':updated},headers={'Authorization':'Bearer fixture-admin'})
     assert saved.status_code==200 and saved.json()['revision']==2
     assert client.get(url,headers={'Authorization':'Bearer fixture-machine'}).json()['config']==updated

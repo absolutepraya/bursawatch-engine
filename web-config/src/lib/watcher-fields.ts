@@ -222,6 +222,7 @@ export function validateWatcherConfig(
       "timezone",
       "cutoff_time",
       "delivery_time",
+      "delivery_days",
       "fallback_minutes",
       "retry_minutes",
       "destination_channel_id",
@@ -231,6 +232,8 @@ export function validateWatcherConfig(
     for (const key of Object.keys(config))
       if (!allowed.includes(key)) error([key], "Unsupported setting.");
     choice(["timezone"], ["Asia/Jakarta"]);
+    if (config.delivery_days !== undefined)
+      choice(["delivery_days"], ["weekdays", "idx_sessions"]);
     const timePattern = /^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/;
     text(["cutoff_time"], timePattern, "Use HH:MM in WIB.");
     text(["delivery_time"], timePattern, "Use HH:MM in WIB.");

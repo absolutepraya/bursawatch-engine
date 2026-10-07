@@ -4,7 +4,9 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path[:0] = [str(ROOT / 'cron-dc-morning-brief/bin'), str(ROOT / 'lib-sectors/bin')]
+sys.path[:0] = [str(ROOT / name / 'bin') for name in (
+    'cron-dc-morning-brief', 'lib-sectors', 'lib-chart-img', 'lib-yahoo-market-data',
+    'lib-bursawatch-control', 'lib-bursawatch-discord-delivery')]
 
 @pytest.fixture
 def core():

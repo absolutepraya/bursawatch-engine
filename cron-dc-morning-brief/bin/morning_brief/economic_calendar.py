@@ -47,12 +47,15 @@ class SnapshotCache:
         if self.path.is_symlink(): raise ValueError('calendar cache cannot be a symlink')
         self.path.mkdir(parents=True,exist_ok=True,mode=0o700)
 
-    def put(self,*,authority,source_url,html,retrieved_at,verified_at,amendment,verified,decision_day=None):
+    def put(self,*,authority,source_url,html,retrieved_at,verified_at,amendment,verified,decision_day=None,
+            source_format=None):
         _official(authority,source_url)
         if type(html) is not str or len(html.encode()) > 2*1024*1024 or not amendment:
             raise ValueError('bounded identified calendar snapshot required')
         if type(verified) is not bool or decision_day not in (None,'last'):
             raise ValueError('explicit verification and decision structure required')
+        if source_format not in (None, 'bps-native-flight-v1') or (source_format and authority != 'BPS'):
+            raise ValueError('reviewed native calendar format required')
         retrieved,checked=_instant(retrieved_at),_instant(verified_at)
         if checked < retrieved: raise ValueError('verification precedes retrieval')
         raw=html.encode()
@@ -60,6 +63,8 @@ class SnapshotCache:
         metadata=dict(authority=authority,source_url=source_url,source_digest=source_digest,
                       retrieved_at=stamp(retrieved),verified_at=stamp(checked),amendment=amendment,
                       verified=verified,decision_day=decision_day)
+        if source_format:
+            metadata['source_format']=source_format
         identity=digest(metadata)
         _write_once(self.path/(source_digest+'.html'),raw)
         _write_once(self.path/(identity+'.json'),canonical(metadata).encode())
@@ -112,6 +117,10 @@ def _parse(snapshot,cutoff):
     checked,retrieved=_instant(snapshot['verified_at']),_instant(snapshot['retrieved_at'])
     if snapshot['verified'] is not True or not retrieved<=checked<=cutoff or cutoff-checked>timedelta(days=7):
         raise ValueError('snapshot_unverified_future_or_stale')
+    if snapshot.get('source_format') == 'bps-native-flight-v1':
+        return _bps_native(snapshot)
+    if snapshot.get('source_format') is not None:
+        raise ValueError('calendar_native_format_unknown')
     parser=_Tables(); parser.feed(snapshot['html'])
     header=None; events=[]
     aliases={'tanggal':'date','jadwal':'date','kegiatan':'event','rilis':'event','agenda':'event',
@@ -160,6 +169,47 @@ def _parse(snapshot,cutoff):
                            source_digest=snapshot['source_digest'],snapshot_digest=snapshot['snapshot_digest'],
                            retrieved_at=snapshot['retrieved_at'],verified_at=snapshot['verified_at'],amendment=snapshot['amendment']))
     if header is None: raise ValueError('calendar_dynamic_empty_or_unknown_structure')
+    return events
+
+
+def _bps_native(snapshot):
+    """Read the national Arc's actual release records, preserving unknown fields.
+
+    getArcBrs is a public Next server action. Its immutable response is retained
+    verbatim, rather than inventing HTML rows from a rendered calendar. Action
+    IDs are deployment-dependent and belong to source discovery, not this parser.
+    """
+    if snapshot['authority'] != 'BPS' or snapshot['source_url'] != PRIMARY_URLS['BPS'][0]:
+        raise ValueError('national BPS Arc response required')
+    candidates=[]
+    for line in snapshot['html'].splitlines():
+        prefix, separator, body=line.partition(':')
+        if separator and prefix == '1':
+            candidates.append(json.loads(body))
+    if len(candidates) != 1 or type(candidates[0]) is not list or not 1 <= len(candidates[0]) <= 1000:
+        raise ValueError('bounded native BPS releases required')
+    events=[]; seen=set()
+    for row in candidates[0]:
+        if type(row) is not dict or row.get('type') != 'brs':
+            raise ValueError('BPS release action contains a non-release record')
+        identity, label, raw_date=row['id'], row['title'], row['date']
+        if (type(identity) is not str or re.fullmatch('[0-9]{1,12}',identity) is None
+                or identity in seen or type(label) is not str or not 1 <= len(label) <= 500
+                or row.get('status') not in {'Rilis','Belum Rilis'}):
+            raise ValueError('native BPS release identity unavailable')
+        release=date.fromisoformat(raw_date)
+        if release.isoformat() != raw_date:
+            raise ValueError('canonical native BPS release date required')
+        seen.add(identity)
+        if not any(word in label.casefold() for word in ('indeks harga konsumen','inflasi','ekspor','impor',
+                'neraca perdagangan','pertumbuhan ekonomi','keadaan ketenagakerjaan','pengangguran')):
+            continue
+        # Native BPS IDs are local to BPS, not joint BI/BPS release identities.
+        events.append(dict(event_id='BPS:'+identity, release_id=None,event=label,
+            reference_period='periode belum diumumkan', date=release.isoformat(),time_wib=None,
+            scheduled_at=None,decision_day=False,revision=1,source='BPS',
+            **{k:snapshot[k] for k in ('source_url','source_digest','snapshot_digest',
+                'retrieved_at','verified_at','amendment')}))
     return events
 
 

@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "calendar_snapshot": "/home/praya/.hermes/state/bursawatch-morning/calendars/current.json",
+  "references": "/home/praya/.hermes/state/bursawatch-morning/primary/membership-references.json",
+  "source_cache": "/home/praya/.hermes/state/bursawatch-morning/inputs/sources",
+  "economic_snapshots": []
+}

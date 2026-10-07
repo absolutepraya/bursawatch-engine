@@ -170,6 +170,7 @@ const coverage: OperatorFieldCoverage[] = [
     [
       "cutoff_time",
       "delivery_time",
+      "delivery_days",
       "fallback_minutes",
       "retry_minutes",
       "destination_channel_id",
@@ -177,7 +178,7 @@ const coverage: OperatorFieldCoverage[] = [
       ...["KOSPI", "Nikkei", "SPY", "QQQ", "EIDO", "USDIDR"].map((name) => `logos.${name}`),
     ],
     "cron-dc-morning-brief runner and immutable operator_config",
-    "Next unfrozen verified session only; saving neither creates nor activates a scheduler job.",
+    "Next unfrozen brief only; saving neither creates nor activates a scheduler job.",
   ),
   ...watcher(
     "bursawatch-stockbit-snips",

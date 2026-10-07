@@ -122,8 +122,10 @@ def test_discover_migrations_uses_the_checked_legacy_eligibility_registry():
         "021_phintas_swing_compatibility.sql",
         "022_rename_x_source_display_names.sql",
         "023_morning_brief_configuration.sql",
+        "024_morning_brief_schedule.sql",
     }
     assert next(m.release_eligibility for m in migrations if m.name == "023_morning_brief_configuration.sql") == "automatic"
+    assert next(m.release_eligibility for m in migrations if m.name == "024_morning_brief_schedule.sql") == "manual"
     assert {migration.release_eligibility for migration in migrations} == {"automatic", "manual"}
     assert next(
         migration.release_eligibility

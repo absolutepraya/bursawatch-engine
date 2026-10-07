@@ -514,12 +514,24 @@ publications or intake. No database migration or second source database is added
 
 ### Morning brief configuration
 
+Manual migration 024 stages one paused `bursawatch-dc-morning-brief` interval
+job at exactly 60 seconds. It never creates or enables a Hermes job. Existing
+desired revisions are preserved. The scheduler's minute tick uses the morning
+watcher configuration for cutoff and delivery; those timings are not cron
+expressions. Jobs controls own enabled state through separate schedule revisions
+and require a matching reconciler report before they are effective. The reviewed
+reconciler mapping and executable wrapper are separate host deployment inputs.
+
 `bursawatch-dc-morning-brief` uses the existing authenticated watcher-config
 GET/PUT API and private revision tables. Migration 023 registers configuration
 only, and absent-only seeding preserves operator-authored revisions. The bundled
-canonical parser validates WIB cutoff/delivery, fallback/retry windows, the
+canonical parser validates WIB cutoff/delivery, delivery days, fallback/retry windows, the
 nullable destination, selected global instruments and emoji mappings. Its
 built-in isolated validator needs no host environment change; an explicit
 `CONTROL_PLANE_MORNING_CONFIG_VALIDATOR_DIR` may select a reviewed bundle path.
-The baseline defaults to 07:30/08:00 WIB with no destination. Saving settings
+The baseline defaults to 07:30/08:00 WIB, Monday to Friday including IDX holidays,
+with no destination. `delivery_days` accepts `weekdays` or `idx_sessions`; existing
+v1 configurations without the field retain the original IDX-only rule. The field
+uses the same authenticated revision API, without rewriting old frozen sessions.
+Weekday publication does not establish numerical session verification. Saving settings
 does not create a job, activate a schedule or authorize provider requests.
