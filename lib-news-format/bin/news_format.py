@@ -225,6 +225,9 @@ def market_block(snapshot, currency: str = "IDR") -> str:
 
 
 _CONTEXT_SLOTS = threading.BoundedSemaphore(4)
+_CONTEXT_FETCH_SLOTS = threading.BoundedSemaphore(4)
+CONTEXT_BATCH_SECONDS = 9.0
+CONTEXT_LOOKUP_SECONDS = 6.0
 _CONTEXT_CACHE: dict = {}
 _CONTEXT_LOCK = threading.Lock()
 SECTORS_STORE_PATH = Path.home() / ".hermes" / "state" / "sectors-client.sqlite3"
@@ -443,7 +446,7 @@ def freeze_cards(items: list[dict], heading_for, source_url: str, source_label: 
     fetch = fetch or get_market_snapshot
     cards = []
     quote_deadline = time.monotonic() + 9.0
-    context_deadline = time.monotonic() + 9.0
+    context_deadline = time.monotonic() + CONTEXT_BATCH_SECONDS
     for item in deduplicate_items(items):
         route, title = item.get("route"), item.get("title") or ""
         title = normalize_headline(title, route)
@@ -456,7 +459,9 @@ def freeze_cards(items: list[dict], heading_for, source_url: str, source_label: 
         context = None
         if context_fetch and ticker and route == "id_stocks_news" and time.monotonic() < context_deadline:
             try:
-                context = context_fetch(ticker, route)
+                # Bounded like quotes: a slow or injected lookup cannot stall card creation.
+                context = _bounded_quote(context_fetch, ticker, route,
+                                         min(CONTEXT_LOOKUP_SECONDS, max(0, context_deadline - time.monotonic())), _CONTEXT_FETCH_SLOTS)
             except Exception:
                 context = None
         cards.append({"destination": target_for(item) if target_for else None, "title": title, "summary": normalize_summary(item["summary"]), "route": route, "ticker": ticker,

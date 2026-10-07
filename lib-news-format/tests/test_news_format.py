@@ -380,3 +380,16 @@ def test_sectors_key_file_prefers_hermes_credential_then_package_env(monkeypatch
     (tmp_path / 'bursawatch-sectors.env').write_text('SECTORS_API_KEY=b\n')
     news._sectors_client(now)
     assert seen == [package / '.env', tmp_path / 'bursawatch-sectors.env']
+
+
+def test_blocking_context_fetch_cannot_stall_card_creation(monkeypatch):
+    import threading
+    release = threading.Event()
+    monkeypatch.setattr(news, 'CONTEXT_LOOKUP_SECONDS', 0.05)
+    item = dict(title='AADI: batu bara', summary='Fakta bersumber.', route='id_stocks_news')
+    started = news.time.monotonic()
+    cards = news.freeze_cards([item], lambda row: f'### {row["title"]}', 'https://t.me/x/1', 'Telegram', fetch=lambda *_: None,
+                              context_fetch=lambda *_: release.wait(5) or {'rating': RATING})
+    release.set()
+    assert news.time.monotonic() - started < 2
+    assert 'Konsensus' not in cards[0]['messages'][0] and 'Harga terakhir' in cards[0]['messages'][0]

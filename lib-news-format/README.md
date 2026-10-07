@@ -37,7 +37,8 @@ beside the other Bursawatch service credentials), falling back to the package-lo
 with a WIB-month billing window. Without the library, key file, budget or
 provider data, only the Sectors lines disappear. Yahoo and each field are also
 optional, absent data drops only its own line, and nothing blocks the card.
-Context stays inside frozen `messages`, so the card schema is unchanged.
+Context lookups share a nine-second batch deadline, each capped at six seconds,
+so a stalled provider or injected callback cannot stall card creation. Context stays inside frozen `messages`, so the card schema is unchanged.
 `freeze_cards` fetches context only when it is not given a custom `fetch`, or when
 `context_fetch` is injected. Direct `render_card` callers pass `ticker` and
 `context` to opt in.
