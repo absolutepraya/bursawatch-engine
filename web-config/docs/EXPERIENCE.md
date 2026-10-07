@@ -21,7 +21,7 @@ The sample presents the same seven destinations and order as `/workspace`:
 
 - Overview
 - Sources, with Securities, Institutions, and People & Org
-- Workflows, with the eight supported watcher editors and their input,
+- Workflows, with the nine supported watcher editors and their input,
   processing and output summaries
 - Jobs
 - History
@@ -47,11 +47,13 @@ Only real supported editor fields are interactive. Per-source post summaries
 and compatible Source Catalog endpoint capabilities can be changed in the
 sample. Catalog capability settings record source intent only, they do not
 create a live source connection or attach a People & Org identity to a watcher
-profile. The product has no separate evening digest or clock-time or weekly
-interval control for the fixed morning brief. Explain these limits in the
-sample and leave them read-only. Source Catalog and watcher edits remain in the
-current in-memory sample session, use revision validation and read-after-write
-confirmation, and never create an active source connection.
+profile. Morning Brief cutoff, delivery target, fallback and retry windows,
+destination, instruments and logos are supported workflow settings. Saving
+confirms the next-unfrozen-session configuration but does not activate a job.
+There is no separate evening digest or weekly interval control. Explain these
+limits in the sample and keep Jobs read-only. Source Catalog and watcher edits
+remain in the current in-memory sample session, use revision validation and
+read-after-write confirmation, and never create an active source connection.
 
 Jobs and History are read-only sample records. Fixed jobs and viewer sessions
 have no save controls. Label synthetic records so they cannot be mistaken for

@@ -40,9 +40,9 @@ Sources supports name/handle search and platform, content-inclusion and identity
 Display publisher defaults, endpoint overrides and the resolved status separately. Do not infer identity from a
 display name or internal ID. Public curated images remain static assets until
 an object-storage owner and upload policy are approved. No browser-local source
-preferences count as saved catalog records. Preserve all eight watcher editors and their input, processing and output
+preferences count as saved catalog records. Preserve all nine watcher editors and their input, processing and output
 summaries. WhatsApp requires configuration version 2 and explicit observe/forward
-modes; the other seven editors require version 1. Stockbit's v1 editor exposes
+modes; the other eight editors require version 1. Stockbit's v1 editor exposes
 only four fixed feed switches, two distinct Discord route IDs and an optional
 800-code-point additive instruction. RSS URLs, the heartbeat, credentials,
 parser behavior and agent rules remain system-owned. Mode changes must not silently

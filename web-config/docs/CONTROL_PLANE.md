@@ -169,9 +169,9 @@ and sample browser preferences separate.
   Securities shows two-column thumbnail previews; People uses a three-column
   profile layout where space permits. Illustrative added/to-add presentation is
   not saved membership, an enabled source, a health check or database state.
-- Workflows: live catalog and eight schema-specific admin editors for X,
+- Workflows: live catalog and nine schema-specific admin editors for X,
   Instagram, WhatsApp Channels, market news, daily Phintraco swing calls,
-  GTW investment classes, the swing board and Stockbit Snips. Each supported workflow explains
+  GTW investment classes, the swing board, Stockbit Snips and Morning Brief. Each supported workflow explains
   its input, processing and output. All existing editor fields remain available;
   unknown keys are preserved when a known field changes. No private config is
   bundled as defaults. Each selected workflow links to its related jobs and
