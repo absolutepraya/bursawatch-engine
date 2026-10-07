@@ -118,8 +118,23 @@ def test_omitted_image_is_explicit_and_only_available_operations_project(owner):
     pub,store,run,lease,delivery,projection=owner
     assert manifest.payload['steps'][1]['omission']=='unsupported_image'
     assert pub.publish(run.run_id,lease=lease)['phase']=='projected'
-    assert len(delivery.sent)==3
-    assert len(projection.requests[0]['required_operation_keys'])==3
+    # Only the main IHSG message goes out. A rotation heading without its image is skipped.
+    assert [op.key.rsplit(':',1)[1] for op in delivery.sent]==['ihsg_text']
+    assert manifest.payload['steps'][2]['omission']=='sectors_text_skipped'
+    assert manifest.payload['steps'][4]['omission']=='konglo_text_skipped'
+    assert len(projection.requests[0]['required_operation_keys'])==1
+
+def test_rotation_heading_is_skipped_only_with_its_own_missing_image(owner):
+    raw=b'controlled-frozen-PNG-bytes'
+    artifact=RenderedArtifact(raw,'image/png',hashlib.sha256(raw).hexdigest(),1000,500,{'fixture':True})
+    manifest=freeze(owner,images=(artifact,artifact,None))
+    pub,store,run,lease,delivery,projection=owner
+    omissions={step['name']:step['omission'] for step in manifest.payload['steps']}
+    assert omissions['sectors_text'] is None and omissions['sectors_image'] is None
+    assert omissions['konglo_text']=='konglo_text_skipped' and omissions['konglo_image']=='unsupported_image'
+    assert pub.publish(run.run_id,lease=lease)['image_omissions']==1
+    assert [op.key.rsplit(':',1)[1] for op in delivery.sent]==['ihsg_text','ihsg_image','sectors_text','sectors_image']
+    assert len(projection.requests[0]['required_operation_keys'])==4
 
 def test_pending_image_stays_unresolved_and_is_never_omitted(owner):
     freeze(owner); pub,store,run,lease,delivery,projection=owner

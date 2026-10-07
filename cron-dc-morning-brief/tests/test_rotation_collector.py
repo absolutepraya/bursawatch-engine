@@ -160,3 +160,38 @@ def test_network_latency_does_not_reject_cutoff_visible_fresh_prices(tmp_path):
         cutoff=cutoff,source_cache=cache,now=now,transport=Transport(observed,calendar,session),
         clock=lambda:observed,sectors_client=cap_client(cache,observed))
     assert result['prices_verified']==2 and not result['gaps']
+
+
+def test_unknown_stock_is_skipped_once_and_never_blocks_later_stocks(tmp_path):
+    from email.message import Message
+    from io import BytesIO
+    from urllib.error import HTTPError
+    values=setup();calendar,session,cutoff,now,_=values;cache=tmp_path/'sources'
+    class Unknown(Transport):
+        def stock_history(self,ticker):
+            if ticker=='BBCA':
+                self.fetches+=1;self.calls.append(('history',ticker))
+                raise HTTPError('https://query1.finance.yahoo.com/',404,'not found',Message(),BytesIO(b''))
+            return super().stock_history(ticker)
+    first=Unknown(now,calendar,session)
+    result=collect(cache,values,first)
+    assert set(read(cache)['numerical']['prices'])=={'DSSA'} and result['prices_verified']==1
+    assert 'BBCA:provider_unavailable' in result['gaps'] and not any(g.startswith('history:') for g in result['gaps'])
+    second=Unknown(now,calendar,session)
+    result=collect(cache,values,second)
+    assert second.calls==[] and 'BBCA:provider_unavailable' in result['gaps'] and result['prices_verified']==1
+
+
+def test_rate_limit_still_stops_the_pass_without_marking_stocks_unavailable(tmp_path):
+    from email.message import Message
+    from io import BytesIO
+    from urllib.error import HTTPError
+    values=setup();calendar,session,cutoff,now,_=values;cache=tmp_path/'sources'
+    class Limited(Transport):
+        def stock_history(self,ticker):
+            self.fetches+=1;self.calls.append(('history',ticker))
+            raise HTTPError('https://query1.finance.yahoo.com/',429,'limited',Message(),BytesIO(b''))
+    transport=Limited(now,calendar,session)
+    result=collect(cache,values,transport)
+    assert len(transport.calls)==1 and 'history:HTTPError' in result['gaps']
+    assert not json.loads((cache/'rotation-index.json').read_text()).get('unavailable')

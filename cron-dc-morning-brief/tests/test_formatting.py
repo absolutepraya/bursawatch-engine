@@ -48,7 +48,7 @@ def test_missing_fields_are_only_hyphens(core):
     fields=inputs();fields.update(globals=[dict(name='KOSPI',status='stale')],calendar={'events':[]},outlook={'mode':'facts_only','market_facts':[]})
     text=core('formatting').format_brief(**fields)[0]
     assert 'Penutupan IHSG terakhir (IDR): **-**\n1D: **-**, 1W: **-**,\n1M: **-**, 3M: **-**' in text
-    assert 'Outlook IHSG:\n-' in text and 'KOSPI: -' in text and 'Agenda Ekonomi Indonesia:\n-' in text
+    assert 'Outlook IHSG:\n(Analisis outlook gagal dimuat)' in text and 'KOSPI: -' in text and 'Agenda Ekonomi Indonesia:\n-' in text
     assert 'belum tersedia' not in text and 'kedaluwarsa' not in text
 
 
@@ -65,7 +65,7 @@ def test_overlong_outlook_falls_back_atomically_preserving_required_sections(cor
     fields['notices']={'ihsg':['Unexpected extra '+('n'*2200)]}
     text,presentation=core('formatting').format_brief(**fields,with_selection=True)
     assert len(text[0].encode('utf-16-le'))//2<=2000
-    assert 'Outlook IHSG:\n-' in text[0] and 'long prose' not in text[0] and 'Unexpected extra' not in text[0]
+    assert 'Outlook IHSG:\n(Analisis outlook gagal dimuat)' in text[0] and 'long prose' not in text[0] and 'Unexpected extra' not in text[0]
     assert presentation['mode']=='facts_only' and not presentation['claims']
     assert 'Pasar global:' in text[0] and 'Agenda Ekonomi Indonesia' in text[0]
 
@@ -91,7 +91,7 @@ def test_source_conditions_negations_and_attribution_survive_in_one_paragraph(co
 def test_invalid_source_or_conflicting_context_falls_back_without_partial_direction(core):
     fields=scenario_inputs();fields['outlook']['scenario']['opposing'][0]['source_url']='https://invalid.org/has space'
     texts,presentation=core('formatting').format_brief(**fields,with_selection=True)
-    assert 'Outlook IHSG:\n-' in texts[0] and 'Jika likuiditas pulih' not in texts[0]
+    assert 'Outlook IHSG:\n(Analisis outlook gagal dimuat)' in texts[0] and 'Jika likuiditas pulih' not in texts[0]
     assert presentation['mode']=='facts_only' and presentation['scenario'] is None
 
 
@@ -135,3 +135,12 @@ def test_rotation_messages_are_only_dated_headings_whatever_the_basket_provenanc
     assert texts[1]=='### 🏭 ROTASI SEKTOR: '+core('rendering').publication_label(PUBLICATION)
     assert texts[2]=='### 🐉 ROTASI KONGLO: '+core('rendering').publication_label(PUBLICATION)
     assert all(word not in texts[1]+texts[2] for word in ('parsial','Basis','Cap ','Kekuatan','Momentum','stale','tersedia'))
+
+
+def test_outlook_failure_is_explained_not_hyphenated_and_never_claims_a_direction(core):
+    f=core('formatting')
+    for outlook in ({'mode':'facts_only','market_facts':[]},{'mode':'supported','scenario':{'broken':True}}):
+        fields=inputs();fields['outlook']=outlook
+        text,presentation=f.format_brief(**fields,with_selection=True)[0][0],f.format_brief(**fields,with_selection=True)[1]
+        assert 'Outlook IHSG:\n(Analisis outlook gagal dimuat)' in text
+        assert presentation['mode']=='facts_only' and presentation['scenario'] is None

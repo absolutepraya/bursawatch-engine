@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import stat
 import tempfile
+from urllib.error import HTTPError
 from zoneinfo import ZoneInfo
 
 from yahoo_market_data.rotation import parse_rotation_history
@@ -46,6 +47,13 @@ def _proof(value, *, available_at, evidence, method):
     return dict(kind='caller_attestation',verified=True,content_sha256=digest(value),
         available_at=stamp(available_at),source_url='https://query1.finance.yahoo.com/v8/finance/chart/',
         evidence_ref=evidence,method=method)
+
+
+def _symbol_unavailable(error):
+    """A response about this one stock, not a sign that the provider is limiting us."""
+    if isinstance(error,HTTPError):
+        return error.code in (400,404,410)
+    return isinstance(error,(json.JSONDecodeError,UnicodeDecodeError)) or str(error)=='public quote response exceeds bound'
 
 
 def _reference(record):
@@ -138,11 +146,21 @@ def _collect(cache,memberships,calendar,session,cutoff,now,limit,transport,clock
         key=digest(dict(symbol=ticker,sessions=[s.isoformat() for s in sessions]))
         reference=index['history'].get(key)
         record=_source(cache,reference) if reference is not None else None
+        # A stock the provider does not know stays unavailable for this closing
+        # window without another request, and never blocks the remaining stocks.
+        if record is None and key in index.setdefault('unavailable',{}):
+            history_gaps.append(ticker+':provider_unavailable'); continue
         if record is None and not failures and transport.fetches-before<limit and aware(clock())<cutoff:
             try:
                 record=_retain(cache,transport.stock_history(ticker),now=aware(clock()),cutoff=cutoff)
                 index['history'][key]=_reference(record); _replace(index_path,index)
             except Exception as error:
+                if _symbol_unavailable(error):
+                    index['unavailable'][key]=dict(reason=type(error).__name__,code=getattr(error,'code',None),
+                                                   observed_at=stamp(aware(clock())))
+                    _replace(index_path,index)
+                    history_gaps.append(ticker+':provider_unavailable'); continue
+                # Rate limits, cooldowns and transport faults still stop further requests.
                 failures.append('history:'+type(error).__name__)
         elif record is not None:
             cache_hits+=1

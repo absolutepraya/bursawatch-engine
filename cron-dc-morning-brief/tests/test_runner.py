@@ -154,7 +154,7 @@ def test_every_noop_degraded_and_fatal_attempt_has_safe_heartbeat(tmp_path,core,
     beats=[op for op in delivery.sent if op.target['channel_id']=='1505162000420835388']
     assert len(beats)==1
     assert 'reserved=' in beats[0].payload['content'] or mode=='fatal'
-    assert len([op for op in delivery.sent if op.target['channel_id']==DEST])==(3 if mode=='no_data' else 0)
+    assert len([op for op in delivery.sent if op.target['channel_id']==DEST])==(1 if mode=='no_data' else 0)
 
 def test_unattested_positive_prices_cannot_qualify_rotations(tmp_path,core):
     r=core('runner'); data=numerical(); data['price_attestations']={}
@@ -195,7 +195,7 @@ def test_direct_live_preparation_and_recovery_wait_until_default_target(tmp_path
     assert not projection.requests and source.captures==1
     clock[0]=NOW
     assert runner.run(**args)['phase']=='projected'
-    assert len([op for op in delivery.sent if op.target['channel_id']==DEST])==3
+    assert len([op for op in delivery.sent if op.target['channel_id']==DEST])==1
     assert len(projection.requests)==1 and source.captures==1
 
 @pytest.mark.parametrize('accepted,after_wait',[
