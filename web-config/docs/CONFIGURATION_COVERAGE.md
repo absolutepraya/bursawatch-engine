@@ -40,9 +40,10 @@ Stockbit Snips is the eighth editor, added under its version 1 control-plane
 contract. It appears only when the authenticated API lists that watcher.
 
 Morning Brief is the ninth editor. Its version 1 settings cover the WIB data
-cutoff and delivery target, fallback and retry windows, nullable Discord
-destination, supported market instruments and instrument emojis. Saving applies
-to the next unfrozen session and does not activate or schedule a job.
+cutoff and delivery target, delivery-day policy, fallback and retry windows,
+nullable Discord destination, supported market instruments and instrument
+emojis. Saving applies to the next unfrozen brief and does not activate or
+schedule a job.
 
 ## Account and channel watchers
 

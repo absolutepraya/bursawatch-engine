@@ -47,9 +47,10 @@ Only real supported editor fields are interactive. Per-source post summaries
 and compatible Source Catalog endpoint capabilities can be changed in the
 sample. Catalog capability settings record source intent only, they do not
 create a live source connection or attach a People & Org identity to a watcher
-profile. Morning Brief cutoff, delivery target, fallback and retry windows,
-destination, instruments and logos are supported workflow settings. Saving
-confirms the next-unfrozen-session configuration but does not activate a job.
+profile. Morning Brief cutoff, delivery target, delivery-day policy, fallback
+and retry windows, destination, instruments and logos are supported workflow
+settings. Saving confirms sample configuration for the next unfrozen brief but
+does not activate a job.
 There is no separate evening digest or weekly interval control. Explain these
 limits in the sample and keep Jobs read-only. Source Catalog and watcher edits
 remain in the current in-memory sample session, use revision validation and
