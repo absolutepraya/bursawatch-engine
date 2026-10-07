@@ -137,12 +137,16 @@
         .rr span { display: block; margin-top: 6px; font-size: 24px; color: #b8bbc0; font-feature-settings: "tnum"; }
         .q-lead { color: #2EE65F; } .q-imp { color: #7AA7F5; } .q-weak { color: #F0BE91; }
         .agenda { margin-top: 30px; }
+        .lab { display: flex; align-items: center; }
+        .sbadge { display: inline-flex; align-items: center; gap: 10px; margin-left: auto; padding: 5px 18px 5px 6px; border-radius: 99px; background: #242429; border: 2px solid #3a3a41; font-family: "Hanken Grotesk"; font-weight: 800; font-size: 24px; letter-spacing: .02em; text-transform: none; color: #EEEAE3; opacity: 0; }
+        .sbadge img { width: 36px; height: 36px; border-radius: 10px; display: block; }
+        .sbadge i { font-style: normal; font-weight: 700; color: #949BA4; }
         .bi-ico { width: 32px; height: 32px; border-radius: 50%; vertical-align: -9px; margin-right: 12px; }
         .ag { display: flex; gap: 18px; align-items: baseline; font-size: 30px; margin-top: 14px; color: #DBDEE1; }
         .ag b { font-family: "Hanken Grotesk"; font-weight: 800; color: #DEA777; min-width: 190px; font-feature-settings: "tnum"; }
         .ag span { color: #949BA4; font-size: 24px; }
         .ihsg { display: flex; gap: 30px; margin-top: 18px; }
-        .ihsg > img { width: 470px; height: 411px; border-radius: 12px; display: block; }
+        .ihsg > img { width: 520px; height: 377px; border-radius: 12px; display: block; }
         .lvls { display: flex; flex-direction: column; gap: 18px; padding-top: 6px; }
         .lv { background: #242429; border-radius: 14px; padding: 20px 24px; }
         .lv b { display: block; font-family: "Hanken Grotesk"; font-weight: 800; font-size: 46px; letter-spacing: -0.02em; font-feature-settings: "tnum"; }
@@ -187,19 +191,19 @@
               </div>
             </div>
             <div class="ph" id="s5-p1">
-              <div class="lab">&#127981; Rotasi sektor</div>
+              <div class="lab">&#127981; Rotasi sektor<span class="sbadge" id="s5-sb0"><img src="assets/sources/emoji/sectors-mark.png">Sectors <i>&middot; rotasi sektor</i></span></div>
               <div class="rhead">Energy masih memimpin; Financials mulai mengejar.</div>
               <div class="rot"><div class="rimg"><img id="s5-r0" src="assets/brief/sector-rrg.png"></div><div class="rrows"><div class="rr" id="s5-q00"><b>Energy <i class="q-lead">Leading</i></b><span>kekuatan +2,3 pp &middot; momentum +1,1 pp</span></div><div class="rr" id="s5-q01"><b>Financials <i class="q-imp">Improving</i></b><span>kekuatan -0,6 pp &middot; momentum +0,9 pp</span></div><div class="rr" id="s5-q02"><b>Technology <i class="q-weak">Weakening</i></b><span>kekuatan +1,6 pp &middot; momentum -0,8 pp</span></div></div></div>
             </div>
             <div class="ph" id="s5-p2">
-              <div class="lab">&#128009; Rotasi konglo</div>
+              <div class="lab">&#128009; Rotasi konglo<span class="sbadge" id="s5-sb1"><img src="assets/sources/emoji/sectors-mark.png">Sectors <i>&middot; rotasi konglo</i></span></div>
               <div class="rhead">Barito memimpin, Djarum membaik, Astra melemah.</div>
               <div class="rot"><div class="rimg"><img id="s5-r1" src="assets/brief/konglo-rrg.png"></div><div class="rrows"><div class="rr" id="s5-q10"><b>Barito <i class="q-lead">Leading</i></b><span>kekuatan +2,5 pp &middot; momentum +1,4 pp</span></div><div class="rr" id="s5-q11"><b>Djarum <i class="q-imp">Improving</i></b><span>kekuatan -0,5 pp &middot; momentum +1,1 pp</span></div><div class="rr" id="s5-q12"><b>Astra / Jardine <i class="q-weak">Weakening</i></b><span>kekuatan +1,7 pp &middot; momentum -0,9 pp</span></div></div></div>
             </div>
             <div class="ph" id="s5-p3">
-              <div class="lab">IHSG hari ini</div>
+              <div class="lab">IHSG hari ini<span class="sbadge" id="s5-sb2"><img src="assets/sources/emoji/sectors-mark.png">Sectors <i>&middot; outlook IHSG</i></span></div>
               <div class="ihsg">
-                <img id="s5-chart" src="assets/brief/ihsg-branded.png">
+                <img id="s5-chart" src="assets/brief/ihsg-real-yahoo.png">
                 <div class="lvls">
                   <div class="lv" id="s5-lv0"><b class="up">&gt; 6.100</b><span>ruang pemulihan terbuka</span></div>
                   <div class="lv" id="s5-lv1"><b class="down">&lt; 6.000</b><span>tekanan balik lagi</span></div>
@@ -259,6 +263,12 @@
           tl.fromTo("#s5-pre", { opacity: 0 }, { opacity: 1, duration: 0.3 }, 0.5);
           tl.fromTo("#s5-src", { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.3, ease: "expo.out" }, P[1] + 0.3);
           tl.to("#s5-src", { opacity: 0, duration: 0.2 }, P[3] - 0.12);
+
+          // Sectors badges: each analysis part is stamped as it lands (sector rotation, konglo rotation, IHSG outlook)
+          [[0, P[1]], [1, P[2]], [2, P[3]]].forEach(([i, p]) => {
+            tl.fromTo("#s5-sb" + i, { opacity: 0, scale: 0.5, x: 20 }, { opacity: 1, scale: 1, x: 0, duration: 0.3, ease: "back.out(2.4)", immediateRender: false }, p + 0.5);
+            tl.fromTo("#s5-sb" + i + " img", { boxShadow: "0 0 0 0 rgba(247,100,0,.8)" }, { boxShadow: "0 0 0 14px rgba(247,100,0,0)", duration: 0.5, ease: "power2.out", immediateRender: false }, p + 0.62);
+          });
 
           // rotations: a slow push into the quadrant chart while it holds
           tl.fromTo("#s5-r0", { scale: 1 }, { scale: 1.12, duration: 2.0, ease: "sine.inOut" }, P[1]);
