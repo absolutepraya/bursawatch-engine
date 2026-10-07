@@ -38,7 +38,6 @@ FORBIDDEN_SUFFIXES = (
 FORBIDDEN_PREFIXES = ("hermes-agent-starter/",)
 FORBIDDEN_EXACT = {
     ".env",
-    "service-cobalt/compose/cookies.json",
 }
 
 

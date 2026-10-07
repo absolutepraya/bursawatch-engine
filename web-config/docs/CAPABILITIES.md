@@ -81,10 +81,7 @@ the two newer commits affect these Board date/archival rules, not web APIs.
 
 Keep these in a secondary disclosure, not extra primary navigation:
 
-- `skill-guess-stock`: evidence-bound, non-scheduled IDX ticker identification
-  from charts, financial fields or clues. Confidence, dates and mismatches must
-  be explicit. No working web upload/identification endpoint is supplied here.
-- `skill-profile-emoji`: reviewed static X/Instagram identity snapshots for
+- `profile-emoji` skill: reviewed static X/Instagram identity snapshots for
   Discord. Creation requires operator approval; it is not avatar synchronization.
 - `lib-swing-format`: consistent provider-neutral Swing rendering. The BRI
   normalized adapter is future-only, not connected to the WhatsApp watcher.
@@ -92,8 +89,6 @@ Keep these in a secondary disclosure, not extra primary navigation:
   backoff. It does not own a user destination or login interface.
 - `service-rsshub`: backend-owned feed transport; credentials and source-health
   details are not browser settings.
-- `service-cobalt`: backend media extraction service. It is not the Instagram
-  watcher's fallback source or a general dashboard download API.
 
 ## Acceptance boundary
 

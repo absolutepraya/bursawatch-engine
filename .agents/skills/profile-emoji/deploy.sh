@@ -3,7 +3,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")" && pwd)"
-"$repo_root/../scripts/require-published-commit"
+"$repo_root/../../../scripts/require-published-commit"
 
 ssh vps 'install -d -m 700 "$HOME/.agents/skills/profile-emoji/bin"'
 rsync -a --exclude='__pycache__/' --exclude='*.pyc' "$repo_root/bin/" "vps:.agents/skills/profile-emoji/bin/"

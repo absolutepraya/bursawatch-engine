@@ -78,7 +78,6 @@ this contract:
 - `lib-chart-img/AGENTS.md`
 - `lib-yahoo-market-data/AGENTS.md`
 - `cron-dc-morning-brief/AGENTS.md`
-- `service-cobalt/AGENTS.md`
 - `service-bursawatch-discord-delivery/AGENTS.md`
 - `service-bursawatch-source-media/AGENTS.md`
 - `service-bursawatch-control/AGENTS.md`
@@ -95,8 +94,7 @@ this contract:
 - `cron-tg-phintraco-swing/AGENTS.md`
 - `cron-ig-account-watch/AGENTS.md`
 - `cron-tg-kelas-investasi-gtw/AGENTS.md`
-- `skill-guess-stock/AGENTS.md`
-- `skill-profile-emoji/AGENTS.md`
+- `.agents/skills/profile-emoji/AGENTS.md`
 - `cron-wa-channel-watch/AGENTS.md`
 - `cron-x-account-watch/AGENTS.md`
 - `cron-stockbit-snips/AGENTS.md`
@@ -193,8 +191,7 @@ sequence. Do not move web environment values into the backend service, copy
 backend credentials into either app, or infer that a successful web build or
 sign commit proves live delivery.
 
-`service-cobalt/deploy.sh` owns Cobalt deployment. `skill-profile-emoji/deploy.sh`
-owns its skill deployment. The generic deploy helper supports cron and library
+`.agents/skills/profile-emoji/deploy.sh` owns its skill deployment. The generic deploy helper supports cron and library
 packages only.
 
 `service-bursawatch-control/deploy.sh` owns repeat releases of the already

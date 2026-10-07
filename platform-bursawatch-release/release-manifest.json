@@ -5,7 +5,7 @@
       "id": "repository-metadata",
       "handler": "metadata",
       "paths": [
-        ".agents/**",
+        ".agents/skills/finish-workflow/**",
         ".gitattributes",
         ".github/**",
         ".gitignore",
@@ -17,8 +17,6 @@
         "README.md",
         "deploy.sh",
         "docs/**",
-        "hermes.svg",
-        "hermes.webp",
         "pytest.ini",
         "requirements-dev.txt",
         "scripts/**",
@@ -379,11 +377,6 @@
       "paths": ["service-bursawatch-source-media/**"]
     },
     {
-      "id": "manual-cobalt",
-      "handler": "manual",
-      "paths": ["service-cobalt/**"]
-    },
-    {
       "id": "manual-rsshub",
       "handler": "manual",
       "paths": ["service-rsshub/**"]
@@ -392,12 +385,7 @@
       "id": "manual-profile-emoji",
       "handler": "manual",
       "depends_on": ["lib-bursawatch-discord-delivery", "manual-discord-delivery-owner"],
-      "paths": ["skill-profile-emoji/**"]
-    },
-    {
-      "id": "manual-guess-stock",
-      "handler": "manual",
-      "paths": ["skill-guess-stock/**"]
+      "paths": [".agents/skills/profile-emoji/**"]
     },
     {
       "id": "lib-sectors",

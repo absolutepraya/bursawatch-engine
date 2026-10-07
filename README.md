@@ -68,8 +68,8 @@ service's versioned OpenAPI contract. The service can store a catalogued job's
 desired interval schedule, but only a separately approved VPS reconciler may
 apply that intent to Hermes.
 
-`skill-guess-stock` and `skill-profile-emoji` are reusable, non-scheduled
-market skills. `service-cobalt` is the tracked media-download service.
+`.agents/skills/profile-emoji` is a reusable, non-scheduled skill, and
+`.agents/skills/finish-workflow` is the review handoff skill.
 `platform-bursawatch-observer` contains read-only VPS job-observation code.
 Its first host install, separate credential, and timer activation were
 completed as a manual VPS operation on 2026-09-30. The package remains outside
@@ -159,10 +159,9 @@ production credentials or prove a live watcher run.
 
 ## Repository boundaries
 
-- This private repository is the canonical development source for Bursawatch market automation, its web applications, shared libraries, reusable skills, and Cobalt.
+- This private repository is the canonical development source for Bursawatch market automation, its web applications, shared libraries, and reusable skills.
 - `hermes-agent-starter/` remains an independent repository and is intentionally ignored here.
 - Runtime state, credentials, caches, worktrees, generated previews, and MM backfill outputs are never tracked.
-- Cobalt cookies remain machine-local at `service-cobalt/compose/cookies.json`; the reviewed compose definition stays tracked.
 - Dotfiles owns machine configuration and scrubbed VPS runtime snapshots, not duplicate Hermes development source.
 
 ## Validation and deployment
