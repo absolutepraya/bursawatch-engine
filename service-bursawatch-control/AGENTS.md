@@ -212,3 +212,25 @@ For Stockbit, the reviewed dedicated API environment must set
 `CONTROL_PLANE_STOCKBIT_CONFIG_VALIDATOR_DIR=/home/praya/.hermes/bursawatch-control-plane/validator-sources/bursawatch-stockbit-snips`.
 Stockbit configuration PUTs remain unavailable until that setting is deployed
 and the API service is restarted. Do not point it at the live cron directory.
+
+## Read-only source evidence capture
+
+`source_evidence.py` and the Source Inbox stores own the least-privilege
+`/v1/source-evidence/capture` and `/v1/source-evidence/versions` contracts.
+`source_reader` credentials can use only those two routes, in both auth modes;
+never add claim, intake, publication, scheduling or admin authority to that role.
+Capture uses the existing pool in one repeatable-read/read-only transaction,
+selecting the highest accepted/observed eligible version before the publication
+window. Batch reads use explicit immutable refs and verify the exact envelope
+hash. The owner persists the returned manifest before selecting evidence.
+
+Keep timing, overflow, content truncation and unknown/unavailable history honest.
+A late capture cannot recreate earlier commit visibility. Never infer retained
+coverage from event minimum timestamps or enable replay to fill history gaps.
+There is no version purge in this package; preserve full session lookback and
+owner run recovery if retention is later introduced. The optional verified
+`CONTROL_PLANE_SOURCE_HISTORY_AVAILABLE_FROM` boundary is deployment-owned;
+without it capture reports unknown history and incomplete evidence. The API
+limits candidates to 1000 and explicit batch reads to 100; final selection and
+cross-route publisher caps belong to the morning owner. See README for the
+stable response fields, hash convention and provenance limitations.

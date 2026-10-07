@@ -11,7 +11,7 @@ AGENT_BACKED_CRONS = {
     "cron-tg-market-news", "cron-tg-kelas-investasi-gtw",
     "cron-ig-account-watch", "cron-wa-channel-watch", "cron-x-account-watch",
     "cron-stockbit-snips", "cron-tg-source-ingest", "cron-ig-source-ingest",
-    "cron-wa-source-ingest", "cron-rss-source-ingest",
+    "cron-wa-source-ingest", "cron-rss-source-ingest", "cron-dc-morning-brief",
 }
 ALL_CRONS = NO_AGENT_CRONS | AGENT_BACKED_CRONS
 REDUNDANT_ROOT_DOCS = {
@@ -73,7 +73,7 @@ def test_cron_classification_is_complete_and_disjoint() -> None:
     assert NO_AGENT_CRONS.isdisjoint(AGENT_BACKED_CRONS), "cron classes overlap"
     assert "cron-dc-swing-board" in NO_AGENT_CRONS
     assert len(NO_AGENT_CRONS) == 3, "update the deterministic package classification"
-    assert len(ALL_CRONS) == 13, "update the reviewed cron package classification"
+    assert len(ALL_CRONS) == 14, "update the reviewed cron package classification"
     assert all((ROOT / cron).is_dir() for cron in ALL_CRONS), "missing cron source directory"
     assert readme_cron_inventory() == ALL_CRONS, (
         "README.md cron inventory must match the reviewed cron classification"
@@ -98,6 +98,9 @@ def test_cron_directories_have_no_redundant_or_nested_markdown() -> None:
         redundant_docs = root_markdown_names(cron) & REDUNDANT_ROOT_DOCS
         assert not redundant_docs, f"{cron}: redundant root documents {sorted(redundant_docs)}"
         nested_markdown = nested_markdown_names(ROOT / cron)
+        if cron == "cron-dc-morning-brief":
+            # Packaged runtime asset provenance accompanies the fonts/logo.
+            nested_markdown -= {Path("bin/morning_brief/assets/README.md")}
         assert not nested_markdown, f"{cron}: nested Markdown {sorted(nested_markdown)}"
 
 

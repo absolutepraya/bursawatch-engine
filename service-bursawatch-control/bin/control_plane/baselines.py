@@ -11,6 +11,7 @@ from .contract import canonical_json_bytes, config_checksum, validate_watcher_id
 
 
 BASELINE_FILES = {
+    "bursawatch-dc-morning-brief": "bursawatch-dc-morning-brief.json",
     "bursawatch-dc-swing-board": "bursawatch-dc-swing-board.json",
     "bursawatch-ig-account-watch": "bursawatch-ig-account-watch.json",
     "bursawatch-stockbit-snips": "bursawatch-stockbit-snips.json",

@@ -7,7 +7,7 @@ import json
 import base64
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 import requests
 
@@ -85,7 +85,8 @@ class DiscordGateway:
         raise ValidationError("invalid operation kind")
 
     def _request(self, method: str, path: str, *, body: Mapping[str, Any] | None = None,
-                 attachments: Sequence[StoredAttachment] = (), params: Mapping[str, Any] | None = None) -> Any:
+                 attachments: Sequence[StoredAttachment] = (), params: Mapping[str, Any] | None = None,
+                 before_mutation: Callable[[], None] | None = None) -> Any:
         options: dict[str, Any] = {
             "headers": {"Authorization": f"Bot {self._token}"}, "timeout": TIMEOUT,
         }
@@ -119,6 +120,8 @@ class DiscordGateway:
             options["files"] = files
         elif body is not None and method != "DELETE":
             options["json"] = dict(body)
+        if before_mutation is not None:
+            before_mutation()
         try:
             response = self._session.request(method, BASE_URL + path, **options)
         except requests.Timeout as exc:
@@ -156,7 +159,8 @@ class DiscordGateway:
         except ValueError as exc:
             raise GatewayError("invalid_response") from exc
 
-    def execute(self, intent: OperationIntent, attachments: Sequence[StoredAttachment]) -> dict[str, str]:
+    def execute(self, intent: OperationIntent, attachments: Sequence[StoredAttachment],
+                *, before_mutation: Callable[[], None] | None = None) -> dict[str, str]:
         method, path, body = self.request_spec(intent)
         if intent.kind == "guild_emoji_create":
             if len(attachments) != 1:
@@ -167,7 +171,7 @@ class DiscordGateway:
             if not 8 <= len(data) <= 256 * 1024 or not data.startswith(b"\x89PNG\r\n\x1a\n"):
                 raise GatewayError("invalid_attachment_state")
             body["image"] = "data:image/png;base64," + base64.b64encode(data).decode("ascii")
-            result = self._request(method, path, body=body)
+            result = self._request(method, path, body=body, before_mutation=before_mutation)
             if not isinstance(result, dict) or result.get("name") != intent.payload["name"]:
                 raise GatewayError("invalid_response")
             try:
@@ -188,7 +192,8 @@ class DiscordGateway:
                 body["attachments"] = self._attachment_refs(current)
             else:
                 body["attachments"] = []
-        result = self._request(method, path, body=body, attachments=attachments)
+        result = self._request(method, path, body=body, attachments=attachments,
+                               before_mutation=before_mutation)
         target = intent.target
         if method == "DELETE":
             if intent.kind.endswith("message_delete"):

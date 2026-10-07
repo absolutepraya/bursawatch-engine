@@ -166,6 +166,20 @@ const coverage: OperatorFieldCoverage[] = [
     "Changes operational heartbeat routing, not publication routing.",
   ),
   ...watcher(
+    "bursawatch-dc-morning-brief",
+    [
+      "cutoff_time",
+      "delivery_time",
+      "fallback_minutes",
+      "retry_minutes",
+      "destination_channel_id",
+      "instruments",
+      ...["KOSPI", "Nikkei", "SPY", "QQQ", "EIDO", "USDIDR"].map((name) => `logos.${name}`),
+    ],
+    "cron-dc-morning-brief runner and immutable operator_config",
+    "Next unfrozen verified session only; saving neither creates nor activates a scheduler job.",
+  ),
+  ...watcher(
     "bursawatch-stockbit-snips",
     [
       "feeds[].enabled",

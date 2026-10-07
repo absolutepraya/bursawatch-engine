@@ -34,7 +34,10 @@ class StaticTokenAuth:
         source_endpoint_tokens: dict[str, str] | None = None,
         observer_token: str | None = None,
         publication_owner_tokens: dict[str, str] | None = None,
+        source_reader_token: str | None = None,
     ) -> None:
+        if source_reader_token is not None and (type(source_reader_token) is not str or len(source_reader_token) < 32 or any(char.isspace() for char in source_reader_token)):
+            raise ValueError("source reader credential must be at least 32 characters")
         source_endpoint_tokens = source_endpoint_tokens or {}
         publication_owner_tokens = publication_owner_tokens or {}
         from .publication_model import OWNER_ROUTES
@@ -50,11 +53,12 @@ class StaticTokenAuth:
             raise ValueError("source endpoint credentials are invalid")
         configured_tokens = [
             token
-            for token in (machine_token, admin_token, reconciler_token, observer_token)
+            for token in (machine_token, admin_token, reconciler_token, observer_token, source_reader_token)
             if token is not None and token.strip()
         ] + list(source_endpoint_tokens.values()) + list(publication_owner_tokens.values())
         if len(configured_tokens) != len(set(configured_tokens)):
             raise ValueError("control-plane static credentials must use distinct token values")
+        self.source_reader_token = source_reader_token
         self.machine_token = machine_token
         self.admin_token = admin_token
         self.reconciler_token = reconciler_token
@@ -71,6 +75,7 @@ class StaticTokenAuth:
             observer_token=os.environ.get("CONTROL_PLANE_OBSERVER_TOKEN"),
             source_endpoint_tokens=_source_endpoint_tokens_from_environment(),
             publication_owner_tokens=_publication_owner_tokens_from_environment(),
+            source_reader_token=os.environ.get("CONTROL_PLANE_SOURCE_READER_TOKEN") or None,
         )
 
     def authenticate(self, authorization: str | None) -> Principal:
@@ -79,6 +84,8 @@ class StaticTokenAuth:
         token = authorization.removeprefix("Bearer ").strip()
         if not token:
             raise AuthenticationError("bearer authentication is required")
+        if self.source_reader_token and secrets_equal(token, self.source_reader_token):
+            return Principal(subject="source-evidence-reader", kind="source_reader")
         if self.machine_token and secrets_equal(token, self.machine_token):
             return Principal(subject="machine", kind="machine")
         for endpoint, endpoint_token in self.source_endpoint_tokens.items():
@@ -186,6 +193,7 @@ class CompositeAuth:
 
 
 def auth_from_environment() -> Authenticator:
+    source_reader_token = os.environ.get("CONTROL_PLANE_SOURCE_READER_TOKEN") or None
     machine_token = os.environ.get("CONTROL_PLANE_MACHINE_TOKEN")
     static_admin_token = os.environ.get("CONTROL_PLANE_ADMIN_TOKEN")
     reconciler_token = os.environ.get("CONTROL_PLANE_RECONCILER_TOKEN")
@@ -201,13 +209,14 @@ def auth_from_environment() -> Authenticator:
             observer_token=observer_token,
             source_endpoint_tokens=source_endpoint_tokens,
             publication_owner_tokens=publication_owner_tokens,
+            source_reader_token=source_reader_token,
         )
     if static_admin_token:
         raise RuntimeError("CONTROL_PLANE_ADMIN_TOKEN must be unset when Supabase Auth is enabled")
     authenticators: list[Authenticator] = [
         SupabaseJwtAuth(supabase_url, parse_admin_user_ids(os.environ.get("CONTROL_PLANE_ADMIN_USER_IDS")))
     ]
-    if machine_token or reconciler_token or observer_token or source_endpoint_tokens or publication_owner_tokens:
+    if machine_token or reconciler_token or observer_token or source_endpoint_tokens or publication_owner_tokens or source_reader_token:
         authenticators.insert(
             0,
             StaticTokenAuth(
@@ -217,6 +226,7 @@ def auth_from_environment() -> Authenticator:
                 observer_token=observer_token,
                 source_endpoint_tokens=source_endpoint_tokens,
                 publication_owner_tokens=publication_owner_tokens,
+                source_reader_token=source_reader_token,
             ),
         )
     return CompositeAuth(authenticators)

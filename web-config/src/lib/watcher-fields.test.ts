@@ -66,8 +66,9 @@ describe("watcher configuration drafts", () => {
     const x = { ...profile("x"), source: "hybrid" };
     expect(validateWatcherConfig(watcherFor.x, { version: 1, profiles: [x] })).toEqual({});
     const instagram = { ...profile("instagram"), source: "hybrid" };
-    expect(validateWatcherConfig(watcherFor.instagram, { version: 1, profiles: [instagram] }))
-      .toHaveProperty("profiles.0.source");
+    expect(
+      validateWatcherConfig(watcherFor.instagram, { version: 1, profiles: [instagram] }),
+    ).toHaveProperty("profiles.0.source");
   });
 
   it("validates the exact Stockbit v1 configuration shape", () => {
@@ -523,5 +524,35 @@ describe("schedule confirmation", () => {
     for (const value of ["", "4", "61", "5.5", "NaN", "Infinity"])
       expect(validateScheduleMinutes(value, 300, 3600)).not.toBeNull();
     expect(validateScheduleMinutes("1441", null, null)).not.toBeNull();
+  });
+});
+
+describe("morning brief operator configuration", () => {
+  const config = () => ({
+    version: 1,
+    timezone: "Asia/Jakarta",
+    cutoff_time: "07:30",
+    delivery_time: "08:00",
+    fallback_minutes: 5,
+    retry_minutes: 15,
+    destination_channel_id: null,
+    instruments: ["SPY", "USDIDR"],
+    logos: { SPY: "<:example:100000000000000003>" },
+  });
+  it("accepts reviewed WIB timing without enabling delivery", () => {
+    expect(validateWatcherConfig("bursawatch-dc-morning-brief", config())).toEqual({});
+  });
+  it.each([
+    { delivery_time: "06:05" },
+    { retry_minutes: 90 },
+    { instruments: [] },
+    { instruments: ["SPY", "SPY"] },
+    { logos: { SPY: ":spy:" } },
+    { timezone: "UTC" },
+    { destination_channel_id: "invalid" },
+  ])("rejects invalid future-session settings %j", (change) => {
+    expect(
+      Object.keys(validateWatcherConfig("bursawatch-dc-morning-brief", { ...config(), ...change })),
+    ).not.toHaveLength(0);
   });
 });

@@ -155,6 +155,7 @@ def test_recover_interrupted_claims_reconciles_creates_and_retries_mutations(tmp
     store.accept(edit)
     assert store.claim_next().key in {create.key, edit.key}
     assert store.claim_next().key in {create.key, edit.key}
+    store.save_create_snapshot(create.key, {"request": {"method": "POST"}})
     reopened = DeliveryStore(path, tmp_path / "media")
     recovered = reopened.recover_interrupted()
     assert recovered == {"pending_reconciliation": 1, "pending": 1}
@@ -162,6 +163,38 @@ def test_recover_interrupted_claims_reconciles_creates_and_retries_mutations(tmp
     assert reopened.get_by_key(edit.key).status == "pending"
     assert reopened.claim_next().key == edit.key
     assert reopened.recover_interrupted() == {"pending_reconciliation": 0, "pending": 1}
+
+
+@pytest.mark.parametrize('ambiguous', [False, True])
+def test_native_create_interrupted_before_request_snapshot_does_not_block_chain(tmp_path, ambiguous):
+    store = DeliveryStore(tmp_path / 'delivery.sqlite3', tmp_path / 'media')
+    first = make_operation('first')
+    second = make_operation('second')
+    store.accept(first)
+    store.accept(second)
+    assert store.claim_next().key == first.key
+    if ambiguous:
+        store.save_create_snapshot(first.key, {
+            'reconcile_before_first_create': False, 'legacy_nonce': None,
+            'reconciliation_required': True,
+        })
+        store.finish(first.key, 'ambiguous', error_category='reconciliation_inconclusive')
+    assert store.claim_next() is None
+    assert store.recover_interrupted() == {'pending_reconciliation': 0, 'pending': 1}
+    assert 'reconciliation_required' not in store.create_snapshot(first.key)
+    assert store.claim_next().key == first.key
+    store.finish(first.key, 'delivered', receipt={'message_id': '456'})
+    assert store.claim_next().key == second.key
+
+
+def test_adopted_create_without_request_snapshot_remains_uncertain(tmp_path):
+    store = DeliveryStore(tmp_path / 'delivery.sqlite3', tmp_path / 'media')
+    intent = OperationIntent('adopted', 'channel_message_create', 'channel:123',
+                             {'channel_id': '123'}, {'content': 'Old'}, (), True)
+    store.adopt_pending(intent)
+    assert store.claim_reconciliation().key == intent.key
+    assert store.recover_interrupted() == {'pending_reconciliation': 1, 'pending': 0}
+    assert store.get_by_key(intent.key).status == 'pending_reconciliation'
 
 
 @pytest.mark.parametrize("kind,target,payload,valid_receipt,invalid_receipt", [

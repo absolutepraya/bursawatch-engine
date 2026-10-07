@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Literal, Mapping
 
 
@@ -112,6 +113,25 @@ class ValidationError(ValueError):
     """Raised for an invalid operation or query shape."""
 
 
+def serialize_attempt_deadline(value: datetime) -> str:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        raise ValidationError("invalid attempt deadline: timezone required")
+    return value.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def parse_attempt_deadline(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValidationError("invalid attempt deadline")
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValidationError("invalid attempt deadline") from exc
+    serialize_attempt_deadline(parsed)
+    return parsed.astimezone(timezone.utc)
+
+
 def _snowflake(value: Any, name: str) -> None:
     if not isinstance(value, str) or not SNOWFLAKE.fullmatch(value):
         raise ValidationError(f"invalid {name}")
@@ -151,8 +171,11 @@ class OperationIntent:
     attachments: tuple[Attachment, ...] = ()
     reconcile_before_first_create: bool = False
     legacy_nonce: str | None = None
+    attempt_deadline: datetime | None = None
 
     def __post_init__(self) -> None:
+        if self.attempt_deadline is not None:
+            serialize_attempt_deadline(self.attempt_deadline)
         if not isinstance(self.key, str) or not KEY.fullmatch(self.key):
             raise ValidationError("invalid operation key")
         if not isinstance(self.kind, str) or self.kind not in KINDS:
@@ -257,6 +280,8 @@ class OperationIntent:
             ],
             "reconcile_before_first_create": self.reconcile_before_first_create,
         }
+        if self.attempt_deadline is not None:
+            canonical["attempt_deadline"] = serialize_attempt_deadline(self.attempt_deadline)
         if self.legacy_nonce is not None:
             canonical["legacy_nonce"] = self.legacy_nonce
         serialized = json.dumps(canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -273,6 +298,8 @@ class OperationIntent:
             "payload": dict(self.payload),
             "reconcile_before_first_create": self.reconcile_before_first_create,
         }
+        if self.attempt_deadline is not None:
+            result["attempt_deadline"] = serialize_attempt_deadline(self.attempt_deadline)
         if include_legacy_nonce and self.legacy_nonce is not None:
             result["legacy_nonce"] = self.legacy_nonce
         return result

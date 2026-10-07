@@ -23,6 +23,10 @@ class ValidatorSpec:
 
 
 VALIDATOR_SPECS = {
+    "bursawatch-dc-morning-brief": ValidatorSpec(
+        watcher_id="bursawatch-dc-morning-brief", loader_name="load_operator_config_data",
+        directory_environment_key="CONTROL_PLANE_MORNING_CONFIG_VALIDATOR_DIR",
+    ),
     "bursawatch-x-account-watch": ValidatorSpec(
         watcher_id="bursawatch-x-account-watch",
         loader_name="load_watch_config_data",
@@ -123,7 +127,9 @@ def validators_from_directories(
 
 
 def validators_from_environment() -> dict[str, Callable[[dict[str, Any]], None]]:
-    directories: dict[str, Path] = {}
+    directories: dict[str, Path] = {
+        "bursawatch-dc-morning-brief": Path(__file__).resolve().parents[2] / "validator-sources/bursawatch-dc-morning-brief",
+    }
     for watcher_id, spec in VALIDATOR_SPECS.items():
         configured = os.environ.get(spec.directory_environment_key, "").strip()
         if configured:

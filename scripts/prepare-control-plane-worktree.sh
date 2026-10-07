@@ -21,21 +21,21 @@ if [[ "$project_root" == "$worktree_path" ]]; then
   exit 0
 fi
 
-package_dir="$worktree_path/service-bursawatch-control"
-source_env="$project_root/service-bursawatch-control/.env"
-target_env="$package_dir/.env"
+# Link only package-local ignored configuration, never replace a caller path.
+for package in service-bursawatch-control lib-sectors lib-chart-img; do
+  package_dir="$worktree_path/$package"
+  source_env="$project_root/$package/.env"
+  target_env="$package_dir/.env"
 
-if [[ ! -d "$package_dir" || ! -f "$source_env" ]]; then
-  exit 0
-fi
-
-if [[ -L "$target_env" ]] && [[ "$(readlink "$target_env")" == "$source_env" ]]; then
-  exit 0
-fi
-
-if [[ -e "$target_env" || -L "$target_env" ]]; then
-  printf 'refusing to replace existing service-bursawatch-control/.env\n' >&2
-  exit 1
-fi
-
-ln -s "$source_env" "$target_env"
+  if [[ ! -d "$package_dir" || ! -f "$source_env" ]]; then
+    continue
+  fi
+  if [[ -L "$target_env" ]] && [[ "$(readlink "$target_env")" == "$source_env" ]]; then
+    continue
+  fi
+  if [[ -e "$target_env" || -L "$target_env" ]]; then
+    printf 'refusing to replace existing %s/.env\n' "$package" >&2
+    exit 1
+  fi
+  ln -s "$source_env" "$target_env"
+done

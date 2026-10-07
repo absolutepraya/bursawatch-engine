@@ -9,6 +9,7 @@ from control_plane.validators import validators_from_directories
 ROOT = Path(__file__).resolve().parents[1]
 VALIDATOR_SOURCES = ROOT / "validator-sources"
 SOURCE_FILES = {
+    "bursawatch-dc-morning-brief": ["cron-dc-morning-brief/bin/morning_brief/config.py"],
     "bursawatch-x-account-watch": [
         "cron-x-account-watch/bin/config.py",
         "cron-x-account-watch/bin/models.py",

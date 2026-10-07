@@ -83,3 +83,31 @@ boundary, accepted boundary, and outstanding count using `checkpoint`. Keep
 these ledgers owner-specific. A missing or stale checkpoint means coverage is
 unknown, not an empty complete feed. The client does not create a shared
 cross-owner state file.
+
+## Immutable source evidence client
+
+`bin/source_evidence_client.py` provides the standard-library-only
+`SourceEvidenceClient(base_url, token, timeout=5.0, opener=urlopen)` with a dedicated
+source-reader token. It has no environment loading or import-time network/state
+access, and no intake, work claim, scheduler, publication or delivery methods.
+
+`capture_window(previous_cutoff, cutoff, limit=1000)` accepts timezone-aware ISO
+strings and returns the validated manifest from `POST /v1/source-evidence/capture`.
+Persist the entire result in the morning owner's private durable run state before
+selection or payload reads. Then pass saved `version_ref` values to
+`read_versions(version_refs)`, in batches of 1 to 100 unique references. It
+returns a validated list in exact requested order, with bounded `text` and opaque
+`media_refs`. Compare each returned `evidence_hash` with its saved manifest item.
+The client validates manifest hashes/windows/eligibility, reference identities,
+full evidence hashes, timing/history/overflow metadata and batch completeness;
+malformed or changed results raise `ControlPlaneContractError`.
+
+Capture is never silently retried because a retry observes a newer committed
+state. Transport/HTTP failure raises a sanitized `ControlPlaneUnavailable`.
+Recover persisted captures by rereading identical immutable references. Missing
+retained history is an incomplete run, never a reason to claim work or replay
+intake. Unset verified retention boundaries, early/late capture or corpus overflow
+remain incomplete even if some useful records are available. Origin is currently
+unknown because the canonical envelope carries only collecting publisher IDs;
+selection and copied-story deduplication must preserve that uncertainty.
+The full field/hash contract is in the Control Plane README and versioned OpenAPI.
