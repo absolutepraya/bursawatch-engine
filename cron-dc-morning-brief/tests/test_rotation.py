@@ -32,7 +32,7 @@ def test_fixed_weights_compound_ten_sessions_and_five_positions(core):
     with pytest.raises(ValueError): r.calculate_basket('Fixture',('AAAA','BBBB'),c,p,b,s[:-1],provenance={})
 
 
-def test_coverage_exactly_90_and_consistent_missing_member_exclusion(core):
+def test_partial_coverage_and_unknown_caps_preserve_exclusions(core):
     r,s,c,p,b=fixture(core,missing=True)
     result=r.calculate_basket('Fixture',('AAAA','BBBB'),c,p,b,s,provenance={})
     assert result.coverage==.9
@@ -40,9 +40,16 @@ def test_coverage_exactly_90_and_consistent_missing_member_exclusion(core):
     assert result.excluded['BBBB']=='missing_session'
     assert result.trail[-1].x==pytest.approx(10.46221254112045)
     r,s,c,p,b=fixture(core,missing=True,caps=(89.9,10.1))
-    with pytest.raises(r.UnsupportedBasket): r.calculate_basket('Fixture',('AAAA','BBBB'),c,p,b,s,provenance={})
+    result=r.calculate_basket('Fixture',('AAAA','BBBB'),c,p,b,s,provenance={})
+    assert result.coverage==pytest.approx(.899)
+    assert result.weights=={'AAAA':1.}
     del c.values['BBBB']
-    with pytest.raises(r.UnsupportedBasket): r.calculate_basket('Fixture',('AAAA','BBBB'),c,p,b,s,provenance={})
+    result=r.calculate_basket('Fixture',('AAAA','BBBB'),c,p,b,s,provenance={})
+    assert result.coverage==1.
+    assert result.excluded=={'BBBB':'missing_or_invalid_cap'}
+    assert result.provenance['missing_cap_members']==('BBBB',)
+    p.clear()
+    with pytest.raises(r.UnsupportedBasket):r.calculate_basket('Fixture',('AAAA','BBBB'),c,p,b,s,provenance={})
 
 
 def test_compounding_axes_changes_and_quadrants(core):

@@ -122,3 +122,14 @@ def test_render_manifest_detaches_caller_provenance(core):
     artifact=core('rendering').render_rotation(rows,kind='sectors',publication_session=date(2026,10,5))
     rows[0].provenance['price_versions']['X']='mutated'
     assert artifact.manifest['groups'][rows[0].name]['provenance']['price_versions']['X']=='fixture-v'
+
+
+def test_tiny_partial_coverage_and_stale_caps_are_visible(core):
+    rows=(replace(baskets(1)[0],coverage=.0183,excluded={'ZZZZ':'missing_price_series'},
+        provenance={'cap_collection_status':'stale','missing_cap_members':('YYYY',),'cap_collected_at':'2026-08-01T07:00:00+07:00'}),)
+    artifact=core('rendering').render_rotation(rows,kind='sectors',publication_session=date(2026,10,5))
+    assert artifact.manifest['groups'][rows[0].name]['coverage']==.0183
+    from morning_brief.formatting import _rotation_text
+    text=_rotation_text(rows,'Rotasi Sektor ',date(2026,10,5),[])
+    assert 'Basket parsial' in text and '1.8%' in text and '(stale)' in text
+    assert '1 cap tidak tersedia' in text

@@ -18,9 +18,14 @@ class ProducerConfig:
     references: str
     source_cache: str
     economic_snapshots: tuple[str,...] = ()
+    sectors_store_path: str | None = None
+    sectors_key_file: str | None = None
 
     def __post_init__(self):
+        if (self.sectors_store_path is None)!=(self.sectors_key_file is None):
+            raise ValueError('shared Sectors store and credential paths must be configured together')
         paths=[self.calendar_snapshot,self.references,self.source_cache,*self.economic_snapshots]
+        if self.sectors_store_path is not None: paths.extend([self.sectors_store_path,self.sectors_key_file])
         if (type(self.version) is not int or self.version!=1
                 or len(self.economic_snapshots)>32
                 or any(type(path) is not str or not Path(path).is_absolute() for path in paths)

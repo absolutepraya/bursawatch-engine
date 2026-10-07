@@ -21,6 +21,7 @@ from morning_brief.public_collector import collect_public
 from morning_brief.rotation_collector import collect_rotation
 from morning_brief.scheduled import ProducerConfig, ScheduledRuntime
 from morning_brief.store import canonical
+from morning_brief.sectors_caps import configured_rotation
 
 
 def main(argv=None):
@@ -42,6 +43,8 @@ def main(argv=None):
                 reference_gap=True
             result=readiness(config,snapshot=snapshot,now=datetime.now(timezone.utc))
             if reference_gap:result['gaps'].append('rotation_membership_references_unavailable')
+            if producer.sectors_store_path is None:
+                result['gaps'].append('rotation_sectors_configuration_unavailable')
             status=0 if result['ready'] else 2
         else:
             cache=Path(producer.source_cache)
@@ -61,7 +64,7 @@ def main(argv=None):
                 else:
                     clock=lambda:datetime.now(timezone.utc)
                     host=production_runtime(config,clock=clock)
-                    result=ScheduledRuntime(host,producer,collect_rotation=collect_rotation,collect_public=collect_public,
+                    result=ScheduledRuntime(host,producer,collect_rotation=configured_rotation(producer,collect_rotation),collect_public=collect_public,
                         load_memberships=load_references,clock=clock).tick()
                     status=1 if result['phase']=='fatal' else 0
     except Exception as error:

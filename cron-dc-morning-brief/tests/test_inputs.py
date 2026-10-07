@@ -1,5 +1,5 @@
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 import pytest
 from test_calendar_state import NOW, calendar_file
@@ -30,14 +30,14 @@ def test_membership_and_caps_validate_retained_shape(core,tmp_path):
     with pytest.raises(ValueError): m.load_cap_snapshot(path,identity='caps:2026-W41',source_url='sectors')
 
 
-def test_caps_allow_current_or_one_extra_verified_week(core,tmp_path):
+def test_caps_freshness_is_thirty_days(core,tmp_path):
     m=core('inputs'); calmod=core('calendar')
     cal=calmod.SessionCalendar.from_file(calendar_file(tmp_path),expected_version='idx-2026-v2',expected_amendment='amend-2',as_of=NOW)
     provenance=m.Provenance('fixture','d'*64,'fixture','fixture')
     def cap(collected): return m.CapSnapshot('caps-v1',datetime.fromisoformat(collected),None,{'AAAA':100.},provenance)
-    assert m.cap_status(cap('2026-09-29T01:00:00+00:00'),date(2026,10,6),cal)=='extra_week'
-    assert m.cap_status(cap('2026-09-25T01:00:00+00:00'),date(2026,10,6),cal)=='expired'
-    assert m.cap_status(cap('2026-10-06T01:00:00+00:00'),date(2026,10,7),cal)=='current_week'
+    assert m.cap_status(cap('2026-09-29T01:00:00+00:00'),date(2026,10,6),cal)=='fresh'
+    assert m.cap_status(cap('2026-09-25T01:00:00+00:00'),date(2026,10,6),cal)=='fresh'
+    assert m.cap_status(cap('2026-10-06T01:00:00+00:00'),date(2026,10,7),cal)=='fresh'
     assert m.cap_status(cap('2026-10-07T01:00:00+00:00'),date(2026,10,6),cal)=='future'
 
 
@@ -68,12 +68,13 @@ def test_typed_inputs_reject_unversioned_and_duplicate_action_evidence(core):
     with pytest.raises(ValueError):m.compatible_closes(raw,[])
 
 
-def test_refresh_caps_only_on_first_verified_session_of_week(core,tmp_path):
+def test_refresh_caps_when_missing_or_thirty_days_old(core,tmp_path):
     m=core('inputs');c=core('calendar').SessionCalendar.from_file(calendar_file(tmp_path),expected_version='idx-2026-v2',expected_amendment='amend-2',as_of=NOW)
-    assert m.cap_refresh_due(date(2026,10,6),c)
-    assert not m.cap_refresh_due(date(2026,10,7),c)
+    snapshot=m.CapSnapshot('caps',NOW-timedelta(days=29),None,{'AAAA':100.},m.Provenance('fixture','a'*64,'fixture','fixture'))
+    assert not m.cap_refresh_due(date(2026,10,6),c,snapshot,as_of=NOW)
+    assert m.cap_refresh_due(date(2026,10,6),c,snapshot,as_of=NOW+timedelta(days=1))
+    assert m.cap_refresh_due(date(2026,10,7),c)
     assert not m.cap_refresh_due(date(2026,10,5),c)
-    assert m.cap_refresh_due(date(2026,9,29),c)
 
 
 def prepared_fixture(core, tmp_path, *, publication='2026-10-05',
@@ -127,20 +128,27 @@ def test_first_session_after_weekend_or_holiday_accepts_fresh_caps(core,tmp_path
     m=core('inputs')
     arguments=prepared_fixture(core,tmp_path,publication=publication,
                                caps_collected=publication+'T07:00:00+07:00')
-    assert m.prepare_numerical_inputs(**arguments).cap_collection_status=='current_week'
+    assert m.prepare_numerical_inputs(**arguments).cap_collection_status=='fresh'
 
 
 @pytest.mark.parametrize('publication', ['2026-10-05','2026-10-06'])
-def test_publication_week_rejects_caps_two_weeks_old(core,tmp_path,publication):
+def test_recent_caps_remain_fresh_after_two_weeks(core,tmp_path,publication):
     m=core('inputs')
     arguments=prepared_fixture(core,tmp_path,publication=publication,
                                caps_collected='2026-09-21T07:00:00+07:00')
-    with pytest.raises(m.InputUnavailable):m.prepare_numerical_inputs(**arguments)
+    assert m.prepare_numerical_inputs(**arguments).cap_collection_status=='fresh'
+
+
+def test_stale_caps_keep_original_age_for_output(core,tmp_path):
+    m=core('inputs');arguments=prepared_fixture(core,tmp_path,caps_collected='2026-08-01T07:00:00+07:00')
+    result=m.prepare_numerical_inputs(**arguments)
+    assert result.cap_collection_status=='stale'
+    assert result.caps.collected_at.isoformat()=='2026-08-01T07:00:00+07:00'
 
 
 def test_one_extra_publication_week_caps_remain_supported(core,tmp_path):
     m=core('inputs');arguments=prepared_fixture(core,tmp_path,caps_collected='2026-09-28T07:00:00+07:00')
-    assert m.prepare_numerical_inputs(**arguments).cap_collection_status=='extra_week'
+    assert m.prepare_numerical_inputs(**arguments).cap_collection_status=='fresh'
 
 
 def test_preparation_rejects_calendar_checked_after_frozen_cutoff(core,tmp_path):

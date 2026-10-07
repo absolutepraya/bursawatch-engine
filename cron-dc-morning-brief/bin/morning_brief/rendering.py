@@ -1,6 +1,6 @@
 """Pure local branded composition. No provider retrieval or numerical smoothing."""
 from dataclasses import asdict, dataclass
-from datetime import date
+from datetime import date, datetime
 from hashlib import sha256
 from io import BytesIO
 import json
@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw, ImageFont
 from .rotation import quadrant, select_groups, table_order, unselected_letters
 
 ASSETS = Path(__file__).parent/'assets'
-REVISION = 'bursawatch-render-v1'
+REVISION = 'bursawatch-render-v2'
 BG, PANEL, GOLD, FG, MUTED = '#111311', '#1C1F1D', '#DEA777', '#EEEAE3', '#9C978E'
 COLORS = {'Leading':'#2EE65F','Improving':'#78ACF2','Weakening':'#F0BE91','Lagging':'#F23F43','Neutral':MUTED}
 FILLS = {'Leading':'#17271D','Improving':'#19232F','Weakening':'#2B241C','Lagging':'#2A1C20'}
@@ -150,7 +150,7 @@ def render_rotation(groups, *, kind: str, publication_session: date, letters=Non
         raise ValueError('frozen secondary letters mismatch')
     sessions=None
     for row in groups:
-        if len(row.trail)!=5 or not row.name or len(row.name)>180 or not math.isfinite(row.coverage) or not .9<=row.coverage<=1:
+        if len(row.trail)!=5 or not row.name or len(row.name)>180 or not math.isfinite(row.coverage) or not 0<row.coverage<=1:
             raise ValueError('five positions and qualifying coverage required')
         current=tuple(p.session for p in row.trail)
         if current!=tuple(sorted(set(current))) or (sessions is not None and current!=sessions):
@@ -163,6 +163,17 @@ def render_rotation(groups, *, kind: str, publication_session: date, letters=Non
     visible=[p for r in groups for p in (r.trail if r.name in chosen else r.trail[-1:])]
     extent=max(1.,max(max(abs(p.x),abs(p.y)) for p in visible)*1.22)
     canvas=_Canvas(2600,1660);_header(canvas,'Rotasi Sektor' if kind=='sectors' else 'Rotasi Konglo',publication_session)
+    partial=sum(bool(r.excluded) for r in groups)
+    stale=any(r.provenance.get('cap_collection_status')=='stale' for r in groups)
+    coverage=min(r.coverage for r in groups)
+    unknown=sum(len(r.provenance.get('missing_cap_members',())) for r in groups)
+    caption=f'Basket parsial: {partial}/{len(groups)} | Cakupan cap diketahui: min. {coverage:.1%} | Cap tidak tersedia: {unknown}'
+    cap_dates=sorted({datetime.fromisoformat(r.provenance['cap_collected_at']).astimezone(ZoneInfo('Asia/Jakarta')).strftime('%d/%m/%Y')
+        for r in groups if r.provenance.get('cap_collected_at')})
+    if cap_dates:
+        caption+=' | Cap: '+(cap_dates[0] if len(cap_dates)==1 else cap_dates[0]+' sampai '+cap_dates[-1])
+    if stale: caption+=' | Snapshot cap lama (stale)'
+    canvas.text(82,210,caption,22,MUTED)
     left,top,size=160,260,1260
     plot=Image.new('RGB',(size,size),BG);draw=ImageDraw.Draw(plot)
     for box,q in [((0,0,630,630),'Improving'),((630,0,1260,630),'Leading'),((0,630,630,1260),'Lagging'),((630,630,1260,1260),'Weakening')]:

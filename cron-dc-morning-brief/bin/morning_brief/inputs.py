@@ -146,18 +146,15 @@ def load_cap_snapshot(path, *, identity: str, source_url: str) -> CapSnapshot:
     return CapSnapshot(identity, completed, None, values, Provenance(source_url,digest,'sectors-companies-cap/effective-date-unverified',identity))
 
 
-def cap_refresh_due(session: date, calendar: SessionCalendar) -> bool:
-    return calendar.is_session(session) and session == calendar.first_session_of_week(session)
+def cap_refresh_due(session: date, calendar: SessionCalendar, snapshot=None, *, as_of=None) -> bool:
+    return calendar.is_session(session) and (snapshot is None or cap_status(snapshot,session,calendar,as_of=as_of)=='stale')
 
 
-def cap_status(snapshot: CapSnapshot, session: date, calendar: SessionCalendar) -> str:
+def cap_status(snapshot: CapSnapshot, session: date, calendar: SessionCalendar, *, as_of=None) -> str:
     if not calendar.is_session(session): raise ValueError('cap assessment needs verified session')
-    collected = snapshot.collected_at.astimezone(ZoneInfo('Asia/Jakarta')).date()
-    if collected > session: return 'future'
-    first = calendar.first_session_of_week(session)
-    if collected >= first: return 'current_week'
-    previous = calendar.first_session_of_week(first - timedelta(days=7))
-    return 'extra_week' if collected >= previous else 'expired'
+    observed = aware(as_of) if as_of is not None else datetime.combine(session,datetime.max.time(),ZoneInfo('Asia/Jakarta'))
+    if snapshot.collected_at > observed: return 'future'
+    return 'fresh' if observed-snapshot.collected_at < timedelta(days=30) else 'stale'
 
 
 def compatible_closes(series: PriceSeries, actions: list[ActionDecision]) -> dict[str,float]:
@@ -243,10 +240,10 @@ def prepare_numerical_inputs(calendar: SessionCalendar, membership: MembershipSn
         if through != previous_session:
             raise InputUnavailable('closing window must end at previous verified session')
         sessions = calendar.last_sessions(through,18)
-        status = cap_status(caps,publication_session,calendar)
+        status = cap_status(caps,publication_session,calendar,as_of=freeze_at)
     except ValueError as exc:
         raise InputUnavailable(str(exc)) from None
-    if (caps.collected_at > freeze_at or status not in {'current_week','extra_week'}
+    if (caps.collected_at > freeze_at or status not in {'fresh','stale'}
             or (membership.collected_at is not None and membership.collected_at > freeze_at)
             or not membership.version or not membership.groups
             or not membership.provenance.digest or not membership.provenance.reference):

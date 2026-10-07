@@ -10,10 +10,12 @@ delivery from local tests or an installed dispatcher.
 - Default mode is cache-only. Synthetic fixtures require explicit preview inputs;
   never replace missing real evidence with synthetic prices, calendars or text.
 - New numerical production uses the shared Yahoo parser and the explicit private
-  producer cache. Exact native cap quotes and ordinary split-adjusted Close are
-  required. Do not reconstruct missing caps or automatically switch providers.
-  Retained legacy Sectors consumers still use `lib-sectors` and its shared
-  provider ledger. The morning run database is separate from both caches.
+  producer cache for prices and `lib-sectors` for 30-day bulk cap snapshots.
+  Use the existing shared Sectors coordination store and billing window. Ordinary
+  split-adjusted Close and positive caps are required for usable members. Missing
+  members remain exclusions, never reconstructed values or zero prices. Cap
+  refresh failure reuses the last successful snapshot with its original date and
+  a stale label. Do not automatically switch providers or retry paid requests. The morning run database is separate from both caches.
 - Preserve supplied CSV bytes and overlap semantics. Sector membership is imported
   once with official-first fallback provenance, without an automatic refresh.
 - Use a verified, versioned IDX calendar and amendment check. Never infer sessions
@@ -102,16 +104,17 @@ delivery from local tests or an installed dispatcher.
   Coordinate live HTTP through the explicit private source cache; a 429 records
   Retry-After (or a 24-hour unknown cooldown), and remaining calls stop without
   retries. Publication and previews never fetch indicators separately.
-- `collect_rotation_inputs.py --collect-public` resumes at most 24 HTTP calls
-  by default, with an explicit limit of 3 to 64. Count public guest-session
-  handshake calls. Use the same Yahoo HTTP lock/cooldown; no credentials or
-  cookies are persisted. Keep missing native caps missing. Reuse each complete
-  basket's current/previous-week snapshot without changing its collection date;
-  expired snapshots omit that basket. Preserve original memberships and require
-  90-percent cap coverage by verified trading-price series. Retain invalid stock
-  responses for the closing window, so every tick cannot refetch halted stocks.
-  New closing sessions use new immutable history sources. A producer manifest
-  proves retained inputs, not a supported basket or natural delivery.
+- `collect_rotation_inputs.py --collect-public` resumes at most 24 provider
+  request attempts by default, with an explicit limit of 3 to 64 shared by Sectors
+  cap pages and Yahoo stock histories. Sectors access requires paired absolute
+  credential/store paths in producer config and the shared library. Commit only
+  complete validated bulk pagination; preserve pending generations and original
+  page provenance. Cache caps for 30 days, retaining the last successful snapshot
+  with a stale label on failure. No coverage percentage blocks publication: one
+  usable cap/price member is sufficient. Display partial baskets, known-cap
+  coverage and unknown-cap counts. Retain invalid stock responses for the closing
+  window, so ticks cannot refetch halted stocks. New closing sessions use new
+  immutable history sources. A manifest is not natural-delivery proof.
 - BPS native Arc release responses are retained verbatim and parsed separately
   from table fixtures. Publication records are not statistical releases. Missing
   reference periods and times remain unknown. Public action IDs rotate with

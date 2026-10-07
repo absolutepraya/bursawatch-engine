@@ -1,4 +1,4 @@
-"""Bounded, resumable Yahoo input production; no writer or publication calls."""
+"""Bounded, resumable Sectors-cap and Yahoo-price production; no writer or publication calls."""
 from dataclasses import asdict
 from datetime import datetime, timezone, timedelta
 import fcntl
@@ -11,13 +11,14 @@ import stat
 import tempfile
 from zoneinfo import ZoneInfo
 
-from yahoo_market_data.rotation import parse_caps, parse_rotation_history
+from yahoo_market_data.rotation import parse_rotation_history
 from .calendar import aware
 from .host import private_file
-from .inputs import CapSnapshot, Provenance, cap_status, symbol
+from .inputs import symbol
 from .public_collector import YahooTransport, write_once
 from .runner import jsonable
 from .store import canonical, digest, stamp
+from .sectors_caps import collect_caps
 
 
 def _replace(path, value):
@@ -47,11 +48,6 @@ def _proof(value, *, available_at, evidence, method):
         evidence_ref=evidence,method=method)
 
 
-def _cap_snapshot(raw):
-    return CapSnapshot(**{**raw,'collected_at':aware(datetime.fromisoformat(raw['collected_at'])),
-        'effective_date':None,'provenance':Provenance(**raw['provenance'])})
-
-
 def _reference(record):
     return {key:record[key] for key in ('artifact_path','record_sha256')}
 
@@ -70,12 +66,11 @@ def _source(cache, reference):
 
 
 def collect_rotation(*, memberships, calendar, publication_session, cutoff, source_cache,
-                     now, request_limit=24, transport=None, clock=None):
+                     now, request_limit=24, transport=None, clock=None, sectors_client=None):
     """Resume at most request_limit HTTP calls in one explicit no-post pass.
 
-    A cap quote batch needs two guest-handshake calls on the first use. Partial
-    refreshes never overwrite a complete basket's current/previous-week caps.
-    The cache stores original sources and immutable per-basket snapshots.
+    Shared Sectors caps refresh every 30 days; a failed refresh retains the
+    original snapshot. Yahoo stock requests resume within the remaining budget.
     """
     now=aware(now); cutoff=aware(cutoff)
     if (now>cutoff or not calendar.is_session(publication_session)
@@ -106,76 +101,44 @@ def collect_rotation(*, memberships, calendar, publication_session, cutoff, sour
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         return _collect(cache,memberships,calendar,publication_session,cutoff,now,request_limit,
                         transport or YahooTransport(cache),clock or (lambda:datetime.now(timezone.utc)),
-                        all_symbols,sessions)
+                        all_symbols,sessions,sectors_client)
 
 
-def _collect(cache,memberships,calendar,session,cutoff,now,limit,transport,clock,tickers,sessions):
+def _collect(cache,memberships,calendar,session,cutoff,now,limit,transport,clock,tickers,sessions,sectors_client):
     index_path=cache/'rotation-index.json'
-    index=json.loads(private_file(index_path)) if index_path.exists() else dict(version=1,history={},caps={},baskets={})
+    index=json.loads(private_file(index_path)) if index_path.exists() else dict(version=1,history={})
     if index.get('version')!=1:
         raise ValueError('rotation cache version mismatch')
-    week=calendar.first_session_of_week(session).isoformat()
-    generation=digest(dict(week=week,symbols=tickers))
-    refresh=index['caps'].setdefault(generation,dict(week=week,batches={}))
-    before=transport.fetches; failures=[]; cache_hits=0
-
-    # Stable exact quote batches avoid the incomplete Indonesia screener and
-    # retain missing native cap rows as missing, with no shares reconstruction.
-    for offset in range(0,len(tickers),100):
-        batch=tickers[offset:offset+100]; key=digest(batch)
-        if key in refresh['batches']: continue
-        cost=3 if getattr(transport,'crumb',None) is None else 1
-        if transport.fetches-before+cost>limit: break
-        try:
-            record=transport.cap_quotes(batch)
-            record=_retain(cache,record,now=aware(clock()),cutoff=cutoff)
-            parse_caps(record['payload'],symbols=[s+'.JK' for s in batch])
-            refresh['batches'][key]=dict(record=_reference(record),symbols=batch)
-            _replace(index_path,index)
-        except Exception as error:
-            failures.append('caps:'+type(error).__name__)
-            # Stop this pass after a provider failure. Do not cycle other symbols
-            # through a failed guest session, retry or silently switch routes.
-            break
-
-    values={}; cap_sources=[]
-    for entry in refresh['batches'].values():
-        record=_source(cache,entry['record'])
-        if aware(datetime.fromisoformat(record['retrieved_at']))<=now:
-            values.update(parse_caps(record['payload'],symbols=[s+'.JK' for s in entry['symbols']]))
-            cap_sources.append(record)
-    caps_by_basket={kind:{} for kind in memberships}; cap_gaps=[]
+    before=transport.fetches; cache_hits=0
+    raw,cap_attempts,failures=collect_caps(sectors_client,cache=cache,index=index,
+        persist=lambda:_replace(index_path,index),now=now,cutoff=cutoff,request_limit=limit,clock=clock)
+    values=raw['values'] if raw else {}
+    caps_by_basket={kind:{} for kind in memberships};cap_gaps=[]
     membership_key=digest({kind:jsonable(asdict(m)) for kind,m in memberships.items()})
-    saved=index['baskets'].setdefault(membership_key,{})
     for kind,membership in memberships.items():
         for name,members in membership.groups.items():
-            key=digest(dict(kind=kind,name=name,members=members))
-            if all(s in values for s in members):
-                collected=max(aware(datetime.fromisoformat(r['retrieved_at'])) for r in cap_sources)
-                raw=dict(identity=digest(dict(generation=generation,members=members,values={s:values[s] for s in members})),
-                    collected_at=stamp(collected),effective_date=None,values={s:values[s] for s in members},
-                    provenance=dict(source_url='https://query1.finance.yahoo.com/v7/finance/quote',
-                        digest=digest(cap_sources),method='yahoo-native-cap/collection-date-economic-date-unverified',
-                        reference=','.join(r['artifact_path'] for r in cap_sources)))
-                saved[key]=raw
-            raw=saved.get(key)
-            if raw and aware(datetime.fromisoformat(raw['collected_at']))<=now and cap_status(_cap_snapshot(raw),session,calendar) in {'current_week','extra_week'}:
-                caps_by_basket[kind][name]=raw
-            else: cap_gaps.append(kind+':caps_unavailable:'+name)
+            subset={s:values[s] for s in members if s in values}
+            if raw and subset:
+                caps_by_basket[kind][name]={**raw,'values':subset}
+                if len(subset)<len(members):cap_gaps.append(kind+':cap_members_unavailable:'+name)
+            else:cap_gaps.append(kind+':caps_unavailable:'+name)
     _replace(index_path,index)
+    # Cap failures do not stop independent Yahoo price collection for retained caps.
+    cap_failures=failures;failures=[]
+    limit-=cap_attempts
 
     # History is keyed by the actual final close, not by collection wall time.
     # Even invalid native responses are retained for this window, so a halted
     # stock cannot cause a request on every tick. The next close gets a new key.
     price_symbols=sorted({ticker for kind,membership in memberships.items()
         for name,members in membership.groups.items() if name in caps_by_basket[kind]
-        for ticker in members})
+        for ticker in members if ticker in caps_by_basket[kind][name]['values']})
     prices={}; proofs={}; actions=[]; history_gaps=[]
     for ticker in price_symbols:
         key=digest(dict(symbol=ticker,sessions=[s.isoformat() for s in sessions]))
         reference=index['history'].get(key)
         record=_source(cache,reference) if reference is not None else None
-        if record is None and not failures and transport.fetches-before<limit:
+        if record is None and not failures and transport.fetches-before<limit and aware(clock())<cutoff:
             try:
                 record=_retain(cache,transport.stock_history(ticker),now=aware(clock()),cutoff=cutoff)
                 index['history'][key]=_reference(record); _replace(index_path,index)
@@ -186,7 +149,7 @@ def _collect(cache,memberships,calendar,session,cutoff,now,limit,transport,clock
         if record is None:
             history_gaps.append(ticker+':not_collected'); continue
         try:
-            if aware(datetime.fromisoformat(record['retrieved_at']))>now:
+            if aware(datetime.fromisoformat(record['retrieved_at']))>min(aware(clock()),cutoff):
                 raise ValueError('future history record')
             parsed=parse_rotation_history(record['payload'],symbol=ticker+'.JK',sessions=sessions)
             price=dict(symbol=ticker,closes=parsed['closes'],basis=parsed['basis'],
@@ -200,7 +163,7 @@ def _collect(cache,memberships,calendar,session,cutoff,now,limit,transport,clock
     completed=aware(clock())
     if not now<=completed<=cutoff:
         return dict(manifest_written=False,reason='preparation_not_visible_at_cutoff',posts=False,
-                    paid_requests=0,provider_fetches=transport.fetches-before)
+                    sectors_request_attempts=cap_attempts,provider_fetches=transport.fetches-before)
     actions=sorted(actions,key=lambda a:a['identity'])
     evidence=cache/('actions-'+digest(dict(actions=actions,proofs=proofs))+'.json')
     write_once(evidence,canonical(dict(actions=actions,price_sources=proofs)).encode())
@@ -213,11 +176,11 @@ def _collect(cache,memberships,calendar,session,cutoff,now,limit,transport,clock
         calendar_sha256=calendar.import_digest,membership_sha256=membership_key,numerical=numerical)
     identity=digest(value); write_once(cache/('rotation-'+identity+'.json'),canonical(value).encode())
     _replace(cache/'rotation-current.json',value)
-    return dict(manifest_written=True,manifest_sha256=identity,posts=False,paid_requests=0,
+    return dict(manifest_written=True,manifest_sha256=identity,posts=False,sectors_request_attempts=cap_attempts,
         provider_fetches=transport.fetches-before,history_cache_hits=cache_hits,
         prices_verified=len(prices),symbols_required=len(price_symbols),cap_symbols_required=len(tickers),
         cap_baskets_verified=sum(len(v) for v in caps_by_basket.values()),
-        gaps=sorted([*failures,*cap_gaps,*history_gaps]))
+        gaps=sorted([*cap_failures,*failures,*cap_gaps,*history_gaps]))
 
 
 def retained_rotation(value, *, calendar, publication_session, cutoff, observed_at=None):
@@ -239,11 +202,7 @@ def unsupported_sections(numerical):
         caps=numerical['caps_by_basket'].get(kind,{})
         for name,members in groups.items():
             raw=caps.get(name)
-            if raw is None or any(member not in raw['values'] for member in members):
-                result.append(label);break
-            total=sum(raw['values'][member] for member in members)
-            eligible=sum(raw['values'][member] for member in members if member in numerical['prices'])
-            if total<=0 or eligible/total<0.9:
+            if raw is None or not any(member in raw['values'] and member in numerical['prices'] for member in members):
                 result.append(label);break
         if not groups:result.append(label)
     return result

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect a bounded Yahoo rotation chunk, never publish or invoke a writer."""
+"""Collect a bounded Sectors-cap and Yahoo-price rotation chunk, never publish or invoke a writer."""
 import argparse
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -17,6 +17,8 @@ from morning_brief.config import OWNER, load_operator_config_data, timing_for
 from morning_brief.host import HostConfig, CONTROL_URL, private_file, token
 from morning_brief.inputs import load_sector_membership, load_konglo_csv
 from morning_brief.rotation_collector import collect_rotation
+from morning_brief.scheduled import ProducerConfig
+from morning_brief.sectors_caps import configured_rotation
 
 
 def load_references(path):
@@ -41,6 +43,7 @@ def main(argv=None):
     parser.add_argument('--calendar-snapshot',type=Path,required=True)
     parser.add_argument('--references',type=Path,required=True)
     parser.add_argument('--source-cache',type=Path,required=True)
+    parser.add_argument('--producer-config',type=Path,required=True)
     parser.add_argument('--request-limit',type=int,default=24)
     parser.add_argument('--collect-public',action='store_true',required=True)
     args=parser.parse_args(argv)
@@ -56,11 +59,14 @@ def main(argv=None):
         candidates=[day for day in calendar.sessions if timing_for(day,settings)['cutoff']>now]
         if not candidates: raise ValueError('verified upcoming publication session unavailable')
         session=candidates[0]
-        result=collect_rotation(memberships=load_references(args.references),calendar=calendar,
+        producer=ProducerConfig.from_file(args.producer_config)
+        if str(args.source_cache)!=producer.source_cache:
+            raise ValueError('producer source cache must match configured cache')
+        result=configured_rotation(producer,collect_rotation)(memberships=load_references(args.references),calendar=calendar,
             publication_session=session,cutoff=timing_for(session,settings)['cutoff'],
             source_cache=args.source_cache,now=now,request_limit=args.request_limit)
     except Exception as error:
-        result=dict(manifest_written=False,reason=type(error).__name__,posts=False,paid_requests=0)
+        result=dict(manifest_written=False,reason=type(error).__name__,posts=False)
     print(json.dumps(result,sort_keys=True))
     return 0 if result['manifest_written'] else 2
 
