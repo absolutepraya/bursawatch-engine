@@ -11,6 +11,9 @@ the exact runtime identity, enabled state, bounded schedule, and optional
 last-execution timestamp/status. Duplicate, missing, malformed, or oversized
 registry content fails closed. Raw commands, errors, paths, credentials, and
 provider fields are discarded.
+The declared names include `bursawatch-dc-morning-brief`. Register its reviewed
+Hermes job before installing this allowlist update; the observer reports its
+natural last execution and never creates or enables it.
 
 ## Local checks
 

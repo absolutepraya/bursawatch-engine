@@ -2,8 +2,8 @@
 
 A standard-library Python library for cache-backed Sectors evidence. Every
 consumer explicitly selects the same private host-local SQLite coordination
-store, billing-window identity and conservative request cost. Importing the
-package performs no IO. Constructing `Config` performs no IO; constructing
+store and billing-window identity. Credit limits are optional and default to no
+local spending ceiling. Importing the package performs no IO. Constructing `Config` performs no IO; constructing
 `CacheStore` or `SectorsClient` creates or migrates the configured store.
 
 Add `lib-sectors/bin` to the importing application's Python module path.
@@ -17,8 +17,6 @@ config = Config(
     store_path=Path("lib-sectors/state/provider.sqlite3"),
     caller="morning-brief",
     billing_window="2026-10",
-    caller_limit=830,
-    host_limit=1000,
     cache_only=True,
 )
 client = SectorsClient(config)
@@ -26,13 +24,9 @@ result = client.close_session(
     "2026-10-02",
     cutoff=datetime.now(timezone.utc),
     page_limit=30,
-    max_cost=1,
 )
 # result.complete is false and missing_offsets names gaps when pages are absent.
 ```
-
-`Config(caller_limit=None)` is valid: with no caller cap only the shared host
-ceiling applies. A positive value tightens it.
 
 `Config.from_env_file(path, **configuration)` reads only `SECTORS_API_KEY` from
 an explicit file, without shell expansion or loading process environment values.
@@ -64,7 +58,7 @@ revision explicitly; the library has no automatic freshness policy or fetch.
 Each generation keeps its own immutable versions, cutoff checks, attempts and
 uncertain reservations, while all generations share host/caller window limits.
 
-`SectorsClient.get(identity, cutoff=..., max_cost=..., retry=False)` returns a
+`SectorsClient.get(identity, cutoff=..., max_cost=1, retry=False)` returns a
 `CachedResponse` with payload, available-at timestamp, provenance and imported
 flag. Cache versions are append-only; later corrections do not overwrite older
 cutoff-visible evidence. A cached response after the caller's cutoff causes a
@@ -99,13 +93,19 @@ resolution. Retry count is shared per request identity. The client never sleeps
 through a provider cooldown or automatically repeats a request.
 
 `CacheStore.usage(window, caller)` reports locally reserved/spent costs, not an
-account balance. Limits are durable: another consumer cannot raise an already
-established host or caller allowance. Limits can be tightened. Choose one
-billing-window identifier across consumers; the store does not infer a billing
-period or coordinate unrelated clients on another host. Manual top-up and future
-window configuration belong to the fetch authority. The maximum configured host
-allowance is 1,000 credits. Endpoint-cost or universe changes require caller
-recalculation before spending, including any retry reserve.
+account balance. Calls need no cap argument: `caller_limit` and `host_limit`
+default to `None`, and `get` defaults its accounting estimate to one credit.
+Set `max_cost` only when an endpoint needs a different conservative estimate;
+this ledger estimate is not a provider balance or verified charge.
+
+Optional caller/host limits remain available for existing consumers. An explicit
+limit is durable and can be tightened, but another capped consumer cannot raise
+it. An uncapped configuration does not enforce previously stored optional limits;
+it retains all usage and reconciliation records. There is no built-in 1,000-credit
+ceiling. Sectors still enforces its own account allowance and rate limits. Choose
+one billing-window identifier across consumers; the store does not infer a
+billing period or coordinate unrelated clients on another host.
+
 
 `request_status(identity)` returns safe lease metadata. Administrative
 `reconcile(identity, token=..., charged_cost=..., evidence_digest=..., now=...)`

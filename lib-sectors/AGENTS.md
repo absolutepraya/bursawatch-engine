@@ -20,8 +20,11 @@ provider URL, and must not implement automatic freshness fetching. Cache-only
 mode is the default. No fetch is authorized by an import, cache miss, preview
 regeneration or stale historical setup allowance.
 
-Before any explicitly authorized network request, reserve the caller's declared
-conservative maximum cost against both caller and host limits. Preserve uncertain
+Before any explicitly authorized network request, record a conservative cost
+reservation (one credit by default, overridable for other endpoint costs). Caller
+and host limits are optional, with no default ceiling. Enforce only explicitly
+configured limits; uncapped configurations do not inherit old optional limits.
+Preserve uncertain
 reservations and expired leases until explicit billing reconciliation. Do not
 infer a provider account balance from this ledger. Do not add automatic retries,
 redirects or provider-origin overrides.

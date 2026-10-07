@@ -22,7 +22,7 @@ def test_only_documented_dotenv_key_is_loaded_without_shell_execution(tmp_path):
 
 def test_rejects_origin_override_and_invalid_limits(tmp_path):
     values = dict(store_path=tmp_path / 'cache.sqlite3', caller='morning', billing_window='2026-10', caller_limit=40)
-    for changes in [{'origin': 'https://evil.test'}, {'host_limit': 1001}, {'caller_limit': 0}, {'timeout_seconds': 0}, {'max_bytes': 0}]:
+    for changes in [{'origin': 'https://evil.test'}, {'host_limit': 0}, {'caller_limit': 0}, {'timeout_seconds': 0}, {'max_bytes': 0}]:
         with pytest.raises(ValidationError):
             Config(**(values | changes))
 
@@ -68,14 +68,6 @@ def test_generation_changes_only_local_identity_and_preserves_default_keys():
             RequestIdentity('/v2/companies/',generation=value)
 
 
-def test_caller_limit_is_optional_and_defaults_to_the_host_ceiling(tmp_path):
-    config = Config(store_path=tmp_path / 'cache.sqlite3', caller='news', billing_window='2026-10')
-    assert config.caller_limit == config.host_limit == 1000
-    assert Config(store_path=tmp_path / 'cache.sqlite3', caller='news', billing_window='2026-10', host_limit=300).caller_limit == 300
-    with pytest.raises(ValidationError):
-        Config(store_path=tmp_path / 'cache.sqlite3', caller='news', billing_window='2026-10', caller_limit=0)
-
-
 def test_company_report_identity_requires_canonical_known_sections():
     a = RequestIdentity('/v2/company/report/AADI/', {'sections': 'overview,future'})
     b = RequestIdentity('/v2/company/report/AADI/', {'sections': 'future,overview'})
@@ -86,3 +78,13 @@ def test_company_report_identity_requires_canonical_known_sections():
                         ('/v2/close/', {'date': '2026-10-02', 'sections': 'overview'})]:
         with pytest.raises(ValidationError):
             RequestIdentity(path, query)
+
+
+def test_credit_limits_are_optional_and_have_no_fixed_provider_ceiling(tmp_path):
+    values = dict(store_path=tmp_path/'cache.sqlite3', caller='morning', billing_window='oct')
+    config = Config(**values)
+    assert config.caller_limit is None and config.host_limit is None
+    assert Config(**values, host_limit=5000, caller_limit=4000).host_limit == 5000
+    for changes in ({'caller_limit': True}, {'host_limit': -1}, {'caller_limit': 2, 'host_limit': 1}):
+        with pytest.raises(ValidationError):
+            Config(**values, **changes)

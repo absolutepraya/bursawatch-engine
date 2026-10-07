@@ -27,8 +27,8 @@ tracker: an analyst consensus (Sectors `future.analyst_rating_breakdown`, with
 line made of Yahoo's `longBusinessSummary` first sentence plus Sectors sector,
 sub-industry and Indonesian-formatted market cap. Sectors data goes through
 `lib-sectors`, never direct HTTP: one `sections=overview,future` company report
-per ticker, costing 2 credits, under caller `news-context` with no caller cap, so
-only the shared host ceiling applies. The seven-day cache is the caller-owned
+per ticker, costing 2 credits, under caller `news-context` with no configured credit limit (an explicit
+`max_cost=2` is the ledger estimate). The seven-day cache is the caller-owned
 ISO-week generation `news-context:<year>-W<week>`: the shared store never
 refetches an identity, and a new week is a new, separately budgeted fetch. The
 client reads `SECTORS_API_KEY` from `~/.hermes/bursawatch-sectors.env` (mode 0600,

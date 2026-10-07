@@ -11,7 +11,7 @@ class Config:
     caller: str
     billing_window: str
     caller_limit: int | None = None
-    host_limit: int = 1000
+    host_limit: int | None = None
     api_key: str = field(default='', repr=False)
     cache_only: bool = True
     origin: str = ORIGIN
@@ -29,14 +29,14 @@ class Config:
         for value in (self.caller, self.billing_window):
             if not re.fullmatch(r'[A-Za-z0-9_.:-]{1,100}', value):
                 raise ValidationError('invalid coordination identity')
-        if self.caller_limit is None:
-            # No caller cap: only the shared host ceiling applies.
-            object.__setattr__(self, 'caller_limit', self.host_limit)
-        for value in (self.caller_limit, self.host_limit, self.max_bytes, self.max_attempts):
+        for value in (self.max_bytes, self.max_attempts):
             if type(value) is not int or value <= 0:
                 raise ValidationError('invalid positive limit')
-        if self.host_limit > 1000 or self.caller_limit > self.host_limit:
-            raise ValidationError('credit limit exceeds host allowance')
+        for value in (self.caller_limit, self.host_limit):
+            if value is not None and (type(value) is not int or value <= 0):
+                raise ValidationError('invalid optional credit limit')
+        if self.caller_limit is not None and self.host_limit is not None and self.caller_limit > self.host_limit:
+            raise ValidationError('caller credit limit exceeds host allowance')
         if not 0 < self.timeout_seconds <= 120 or not 0 < self.lease_seconds <= 3600 or not 0 <= self.wait_seconds <= 60:
             raise ValidationError('invalid bounded timeout')
         if not self.user_agent or '\n' in self.user_agent or '\r' in self.user_agent:

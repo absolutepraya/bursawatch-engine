@@ -5,8 +5,11 @@ from .models import BudgetDenied, ValidationError
 def reserve_credits(db, config, request_key, token, max_cost):
     if type(max_cost) is not int or max_cost <= 0:
         raise ValidationError('request requires a positive conservative credit cost')
-    # A later client can tighten a limit, but cannot enlarge an existing allowance.
+    # Only explicitly configured limits apply. No implicit provider quota.
+    # A capped client can tighten a durable limit, but cannot enlarge it.
     for caller, maximum in (('*host*', config.host_limit), (config.caller, config.caller_limit)):
+        if maximum is None:
+            continue
         db.execute('INSERT INTO limits VALUES (?,?,?) ON CONFLICT(window,caller) DO UPDATE SET maximum=MIN(maximum,excluded.maximum)', (config.billing_window, caller, maximum))
         ceiling = db.execute('SELECT maximum FROM limits WHERE window=? AND caller=?', (config.billing_window, caller)).fetchone()[0]
         if caller == '*host*':

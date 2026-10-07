@@ -22,7 +22,7 @@ class ComponentDefinition:
 
 
 _COMPONENTS = (
-    ComponentDefinition("bursawatch-dc-morning-brief", "domain_owner", "Morning brief", ("morning_brief",), (), ("watcher:bursawatch-dc-morning-brief",), ("bursawatch-discord-delivery",), ()),
+    ComponentDefinition("bursawatch-dc-morning-brief", "domain_owner", "Morning brief", ("morning_brief",), (), ("watcher:bursawatch-dc-morning-brief",), ("bursawatch-discord-delivery",), ("bursawatch-dc-morning-brief",)),
     ComponentDefinition("bursawatch-tg-source-ingest", "source_adapter", "Telegram Source Adapter", ("telegram_source_intake",), (), ("source-catalog",), ("bursawatch-tg-market-news", "bursawatch-tg-phintraco-swing", "bursawatch-tg-kelas-investasi-gtw"), ("bursawatch-tg-source-ingest",)),
     ComponentDefinition("bursawatch-x-source-ingest", "source_adapter", "X Source Adapter", ("x_source_intake",), (), ("source-catalog",), ("bursawatch-x-account-watch",), ("bursawatch-x-account-watch-source",)),
     ComponentDefinition("bursawatch-ig-source-ingest", "source_adapter", "Instagram Source Adapter", ("instagram_source_intake",), (), ("source-catalog",), ("bursawatch-ig-account-watch",), ()),
