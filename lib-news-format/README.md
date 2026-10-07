@@ -31,8 +31,9 @@ per ticker, costing 2 credits, under caller `news-context` with no caller cap, s
 only the shared host ceiling applies. The seven-day cache is the caller-owned
 ISO-week generation `news-context:<year>-W<week>`: the shared store never
 refetches an identity, and a new week is a new, separately budgeted fetch. The
-client reads `SECTORS_API_KEY` from `lib-sectors/.env` beside this checkout or at
-`~/.agents/skills/lib-sectors/.env`, and shares `~/.hermes/state/sectors-client.sqlite3`
+client reads `SECTORS_API_KEY` from `~/.hermes/bursawatch-sectors.env` (mode 0600,
+beside the other Bursawatch service credentials), falling back to the package-local
+`lib-sectors/.env` for Mac development, and shares `~/.hermes/state/sectors-client.sqlite3`
 with a WIB-month billing window. Without the library, key file, budget or
 provider data, only the Sectors lines disappear. Yahoo and each field are also
 optional, absent data drops only its own line, and nothing blocks the card.

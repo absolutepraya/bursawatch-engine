@@ -362,3 +362,22 @@ def test_sectors_lines_are_skipped_without_library_or_key_file(monkeypatch, tmp_
     assert news._fetch_sectors('AADI', 'id_stocks_news') is None
     monkeypatch.setattr(news, '_sectors_library', lambda: tmp_path)
     assert news._fetch_sectors('AADI', 'id_stocks_news') is None
+
+
+def test_sectors_key_file_prefers_hermes_credential_then_package_env(monkeypatch, tmp_path):
+    news._sectors_library()
+    package = tmp_path / 'lib-sectors'
+    package.mkdir()
+    monkeypatch.setattr(news, '_sectors_library', lambda: package)
+    seen = []
+    import sectors_client as sc
+    monkeypatch.setattr(sc.Config, 'from_env_file', classmethod(lambda cls, path, **kw: seen.append(path) or cls(api_key='k', **kw)))
+    monkeypatch.setattr(news, 'SECTORS_STORE_PATH', tmp_path / 'store.sqlite3')
+    monkeypatch.setattr(news, 'SECTORS_KEY_FILE', tmp_path / 'bursawatch-sectors.env')
+    now = datetime(2026, 10, 7, tzinfo=timezone.utc)
+    assert news._sectors_client(now) is None
+    (package / '.env').write_text('SECTORS_API_KEY=a\n')
+    news._sectors_client(now)
+    (tmp_path / 'bursawatch-sectors.env').write_text('SECTORS_API_KEY=b\n')
+    news._sectors_client(now)
+    assert seen == [package / '.env', tmp_path / 'bursawatch-sectors.env']

@@ -228,6 +228,7 @@ _CONTEXT_SLOTS = threading.BoundedSemaphore(4)
 _CONTEXT_CACHE: dict = {}
 _CONTEXT_LOCK = threading.Lock()
 SECTORS_STORE_PATH = Path.home() / ".hermes" / "state" / "sectors-client.sqlite3"
+SECTORS_KEY_FILE = Path.home() / ".hermes" / "bursawatch-sectors.env"
 SECTORS_CALLER = "news-context"
 SECTORS_REPORT_COST = 2
 _RATING_LEVELS = (("strong_buy", "Strong Buy", UP), ("buy", "Buy", UP), ("hold", "Hold", HOLD),
@@ -250,11 +251,12 @@ def _sectors_library():
 
 def _sectors_client(now: datetime):
     base = _sectors_library()
-    if base is None or not (base / ".env").is_file():
+    key_file = next((path for path in (SECTORS_KEY_FILE, base / ".env" if base else None) if path is not None and path.is_file()), None)
+    if base is None or key_file is None:
         return None
     from sectors_client import Config, SectorsClient
     window = now.astimezone(ZoneInfo("Asia/Jakarta")).strftime("%Y-%m")
-    config = Config.from_env_file(base / ".env", store_path=SECTORS_STORE_PATH, caller=SECTORS_CALLER,
+    config = Config.from_env_file(key_file, store_path=SECTORS_STORE_PATH, caller=SECTORS_CALLER,
                                   billing_window=window, cache_only=False, timeout_seconds=3, wait_seconds=1)
     return SectorsClient(config)
 
