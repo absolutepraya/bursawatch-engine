@@ -521,6 +521,9 @@ watcher configuration for cutoff and delivery; those timings are not cron
 expressions. Jobs controls own enabled state through separate schedule revisions
 and require a matching reconciler report before they are effective. The reviewed
 reconciler mapping and executable wrapper are separate host deployment inputs.
+Automatic migration 025 links this existing job to the morning workflow in
+`bursawatch_component_jobs`, matching the code-owned inventory. It adds only the
+relationship and preserves enabled state, schedule and configuration revisions.
 
 `bursawatch-dc-morning-brief` uses the existing authenticated watcher-config
 GET/PUT API and private revision tables. Migration 023 registers configuration

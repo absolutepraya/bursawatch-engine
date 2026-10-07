@@ -10,6 +10,7 @@ from control_plane.store import InMemoryStore
 
 
 EXISTING_OR_PLANNED_JOB_IDS = {
+    "bursawatch-dc-morning-brief",
     "bursawatch-tg-source-ingest",
     "bursawatch-tg-market-news",
     "bursawatch-tg-phintraco-swing",
