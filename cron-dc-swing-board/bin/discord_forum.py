@@ -480,7 +480,26 @@ def _attachment(value: object) -> Attachment | None:
         raise DiscordForumError("Board attachment is unavailable") from None
     if not path.is_file() or not data:
         raise DiscordForumError("Board attachment is unavailable")
-    return Attachment(path.name, mimetypes.guess_type(path.name)[0] or "application/octet-stream", data)
+    filename, content_type = _attachment_metadata(path, data)
+    return Attachment(filename, content_type, data)
+
+
+def _attachment_metadata(path: Path, data: bytes) -> tuple[str, str]:
+    """Prefer recognized media bytes over stale or extensionless archive names."""
+    header = data[:16]
+    if header.startswith(b"\xff\xd8\xff"):
+        suffix, content_type = ".jpg", "image/jpeg"
+    elif header.startswith(b"\x89PNG\r\n\x1a\n"):
+        suffix, content_type = ".png", "image/png"
+    elif header.startswith((b"GIF87a", b"GIF89a")):
+        suffix, content_type = ".gif", "image/gif"
+    elif header.startswith(b"RIFF") and header[8:12] == b"WEBP":
+        suffix, content_type = ".webp", "image/webp"
+    elif header[4:8] == b"ftyp":
+        suffix, content_type = ".mp4", "video/mp4"
+    else:
+        return path.name, mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    return path.with_suffix(suffix).name, content_type
 
 
 def _tag_names(payload: Mapping[str, object]) -> tuple[str, ...]:

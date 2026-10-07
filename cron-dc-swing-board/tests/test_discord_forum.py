@@ -181,6 +181,26 @@ def test_typed_forum_and_message_reads_preserve_existing_remote_ids():
     assert forum_thread_url(thread["id"]).endswith("/1550000000000000001")
 
 
+def test_history_reply_infers_jpeg_metadata_from_bytes_when_legacy_path_is_bin(tmp_path):
+    owner = RecordingOwner()
+    client = DiscordForumClient(delivery_client=owner, no_post=False)
+    media = tmp_path / "018cc22704a6327cfafb97e9d1c61b3285b5d91bde718464f79b3f5f67da746f.bin"
+    jpeg_bytes = b"\xff\xd8\xff\xe0legacy jpeg bytes"
+    media.write_bytes(jpeg_bytes)
+
+    client.execute("post_history_reply", {
+        "thread_id": "1550000000000000001",
+        "content": "",
+        "media": str(media),
+        "_delivery_key": "history:legacy-jpeg-bin",
+    })
+
+    attachment = owner.submitted[0].attachments[0]
+    assert attachment.filename == media.with_suffix(".jpg").name
+    assert attachment.mime_type == "image/jpeg"
+    assert attachment.data == jpeg_bytes
+
+
 @pytest.mark.parametrize("mode", ["keep", "clear", "replace"])
 def test_starter_edit_maps_explicit_attachment_mode(mode, tmp_path):
     owner = RecordingOwner()
