@@ -227,3 +227,115 @@ def test_deduplication_is_per_submission_and_preserves_specialized_items():
     saved = [card, dict(card)]
     assert news.validate_cards(saved) is saved
     assert len(saved) == 2
+
+
+RATING = {'strong_buy': 0, 'buy': 20, 'hold': 0, 'sell': 0, 'strong_sell': 0, 'n_analyst': 20, 'updated_on': '2026-09-02 17:00:00'}
+OVERVIEW = {'sector': 'Energy', 'sub_industry': 'Coal Production', 'market_cap': 94416062590000}
+
+
+def test_analyst_block_uses_consensus_emoji_and_padded_date():
+    assert news.analyst_block(RATING) == (
+        f'Konsensus analis: {news.UP} **BUY** (20 analis, 100% Buy)\n'
+        'Strong Buy 0, Buy 20, Hold 0, Sell 0, Strong Sell 0 (per 02 Sep 2026)')
+    mixed = {**RATING, 'buy': 3, 'hold': 4, 'sell': 1, 'updated_on': '2026-05-01'}
+    assert news.analyst_block(mixed).startswith(f'Konsensus analis: {news.HOLD} **HOLD** (8 analis, 50% Hold)')
+    assert news.analyst_block({**RATING, 'buy': 0, 'sell': 2}).startswith(f'Konsensus analis: {news.DOWN} **SELL**')
+    assert news.analyst_block({**RATING, 'updated_on': None}).endswith('Strong Sell 0')
+
+
+@pytest.mark.parametrize('rating', [None, {}, {**RATING, 'buy': 0}, {**RATING, 'buy': None}, {**RATING, 'buy': -1}, 'x'])
+def test_analyst_block_is_omitted_for_missing_or_invalid_coverage(rating):
+    assert news.analyst_block(rating) is None
+
+
+def test_about_block_combines_first_sentence_and_indonesian_market_cap():
+    context = {'overview': OVERVIEW, 'business_summary': 'PT Foo Tbk. engages in coal mining. It also runs ports.'}
+    assert news.about_block('AADI', context) == (
+        'Tentang AADI:\nPT Foo Tbk. engages in coal mining. Sektor Energy (Coal Production), kapitalisasi pasar Rp94,4 T.')
+    assert news.about_block('BULL', {'overview': {'market_cap': 5763930412596}}) == 'Tentang BULL:\nKapitalisasi pasar Rp5,8 T.'
+    assert news.about_block('BULL', {'overview': {'market_cap': 850e9}}).endswith('Rp850,0 M.')
+
+
+def test_about_block_handles_partial_coverage():
+    assert news.about_block('AADI', {'business_summary': 'Only Yahoo covers this.'}) == 'Tentang AADI:\nOnly Yahoo covers this.'
+    assert news.about_block('AADI', {'overview': {'sector': 'Energy'}}) == 'Tentang AADI:\nSektor Energy.'
+    assert news.about_block('AADI', {'overview': None, 'business_summary': None}) is None
+    long = 'word ' * 100
+    assert len(news.about_block('AADI', {'business_summary': long})) < 330
+
+
+def test_card_inserts_context_after_prices_and_before_source_anchor():
+    snapshot = {'latest_price': 12075, 'one_day_change': -50, 'one_day_percent': -0.41}
+    context = {'rating': RATING, 'overview': OVERVIEW, 'business_summary': 'Coal miner.'}
+    message = news.render_card('### AADI: Judul\n-# Tuntun', 'Fakta.', 'https://t.me/x/1', 'Telegram',
+                               route='id_stocks_news', snapshot=snapshot, ticker='AADI', context=context)[0]
+    assert message.index('Harga terakhir') < message.index('Konsensus analis') < message.index('Tentang AADI:') < message.index('[View on')
+    assert '\n\nKonsensus analis' in message and '\n\nTentang AADI:' in message
+
+
+def test_context_is_idr_only_and_optional():
+    context = {'rating': RATING, 'overview': OVERVIEW}
+    us = news.render_card('### BRK.B: x', 'Fakta.', 'https://t.me/x/1', 'Telegram', route='us_stocks_news', ticker='BRK.B', context=context)[0]
+    macro = news.render_card('### x', 'Fakta.', 'https://t.me/x/1', 'Telegram', route='macro_news', ticker=None, context=context)[0]
+    none = news.render_card('### AADI: x', 'Fakta.', 'https://t.me/x/1', 'Telegram', route='id_stocks_news', ticker='AADI', context=None)[0]
+    assert 'Konsensus' not in us + macro + none and 'Tentang' not in us + macro + none
+
+
+def test_freeze_cards_persists_context_in_messages_only():
+    item = dict(title='AADI: batu bara', summary='Fakta bersumber.', route='id_stocks_news')
+    calls = []
+    cards = news.freeze_cards([item], lambda row: f'### {row["title"]}', 'https://t.me/x/1', 'Telegram', fetch=lambda *_: None,
+                              context_fetch=lambda ticker, route: calls.append((ticker, route)) or {'rating': RATING})
+    assert calls == [('AADI', 'id_stocks_news')]
+    assert 'Konsensus analis' in cards[0]['messages'][0]
+    assert set(cards[0]) == {'title', 'summary', 'route', 'ticker', 'market_data_as_of', 'messages', 'destination'}
+    news.validate_cards(cards)
+
+
+def test_injected_quote_fetch_keeps_legacy_cards_and_context_failure_is_ignored(monkeypatch):
+    monkeypatch.setattr(news, 'get_company_context', lambda *_: pytest.fail('context fetched'))
+    item = dict(title='AADI: batu bara', summary='Fakta bersumber.', route='id_stocks_news')
+    cards = news.freeze_cards([item], lambda row: f'### {row["title"]}', 'https://t.me/x/1', 'Telegram', fetch=lambda *_: None)
+    assert 'Konsensus' not in cards[0]['messages'][0]
+    boom = news.freeze_cards([item], lambda row: f'### {row["title"]}', 'https://t.me/x/1', 'Telegram', fetch=lambda *_: None,
+                             context_fetch=lambda *_: 1 / 0)
+    assert 'Konsensus' not in boom[0]['messages'][0]
+
+
+def test_get_company_context_merges_sources_and_caches(monkeypatch):
+    news._CONTEXT_CACHE.clear()
+    calls = []
+    monkeypatch.setattr(news, '_fetch_sectors', lambda ticker, route: calls.append('sectors') or {'overview': OVERVIEW, 'rating': RATING})
+    monkeypatch.setattr(news, '_fetch_business_summary', lambda ticker, route: calls.append('yahoo') or 'Coal miner.')
+    first = news.get_company_context('AADI')
+    assert first == {'overview': OVERVIEW, 'rating': RATING, 'business_summary': 'Coal miner.'}
+    assert news.get_company_context('AADI') == first and calls == ['sectors', 'yahoo']
+    assert news.get_company_context('BRK.B', 'us_stocks_news') is None and news.get_company_context('toolong') is None
+
+
+def test_get_company_context_survives_either_provider_missing(monkeypatch):
+    news._CONTEXT_CACHE.clear()
+    monkeypatch.setattr(news, '_fetch_sectors', lambda *_: 1 / 0)
+    monkeypatch.setattr(news, '_fetch_business_summary', lambda *_: 'Yahoo only.')
+    assert news.get_company_context('AADI') == {'overview': None, 'rating': None, 'business_summary': 'Yahoo only.'}
+    news._CONTEXT_CACHE.clear()
+    monkeypatch.setattr(news, '_fetch_business_summary', lambda *_: None)
+    assert news.get_company_context('AADI') is None
+
+
+def test_sectors_fetch_requires_key_and_sends_authorization(monkeypatch):
+    monkeypatch.delenv('SECTORS_API_KEY', raising=False)
+    assert news._fetch_sectors('AADI', 'id_stocks_news') is None
+    monkeypatch.setenv('SECTORS_API_KEY', 'secret')
+    seen = {}
+    payload = b'{"overview":{"sector":"Energy"},"future":{"analyst_rating_breakdown":{"buy":1}}}'
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return payload
+    def fake_open(request, timeout):
+        seen.update(ua=request.get_header('User-agent'), url=request.full_url, auth=request.get_header('Authorization'), timeout=timeout)
+        return Response()
+    monkeypatch.setattr(news.urllib.request, 'urlopen', fake_open)
+    assert news._fetch_sectors('AADI', 'id_stocks_news') == {'overview': {'sector': 'Energy'}, 'rating': {'buy': 1}}
+    assert seen['ua'] and seen['auth'] == 'secret' and seen['timeout'] == 3 and 'sections=overview,future' in seen['url']

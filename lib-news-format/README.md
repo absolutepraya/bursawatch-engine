@@ -21,6 +21,20 @@ slots, and a batch stops optional quote lookup after nine seconds. A stalled
 provider cannot consume an unbounded number of workers. Currency mismatch makes the optional quote unavailable. `as_of`
 is the UTC quote observation time, not a claim about source publication time.
 
+Indonesian issuer cards add an optional company context block after the price
+tracker: an analyst consensus (Sectors `future.analyst_rating_breakdown`, with
+`UP`, `HOLD` and `DOWN` emoji and a `DD Mon YYYY` update date) and a `Tentang`
+line made of Yahoo's `longBusinessSummary` first sentence plus Sectors sector,
+sub-industry and Indonesian-formatted market cap. `get_company_context` needs
+`SECTORS_API_KEY` in the environment, sends an explicit User-Agent (Cloudflare
+rejects urllib's default), costs two Sectors credits per ticker and WIB day
+through an in-process cache, and bounds each provider to three seconds. Either
+provider or any field may be missing; absent data drops only its own line and
+never blocks the card. Context stays inside frozen `messages`, so the card
+schema is unchanged. `freeze_cards` fetches context only when it is not given a
+custom `fetch`, or when `context_fetch` is injected. `render_card` callers pass
+`ticker` and `context` to opt in.
+
 `freeze_cards` records each accepted item's exact messages, source owner
 selected destination, ticker and quote timestamp. Owners persist this bundle
 before sending and reuse it for retries, handoff plans and feed projections.
