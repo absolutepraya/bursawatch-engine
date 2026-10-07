@@ -174,7 +174,7 @@ The sample `/app` uses the same fixed (224px) desktop navigation and content cap
 
 In the sample, each destination uses the shared workspace content width and task-grouped components. Source rows separate identity, useful context and action; use divided rows and selective panels, with readable form and prose measures. Landing layout belongs to the independent `web-landing` package.
 
-Sample-only notices explain which real workspace changes the schemas support. Morning Brief timing and content fields use the real watcher editor. Do not add sample controls for an evening digest, adding a People & Org identity directly to a watcher or setting a weekly interval. Common gaps use the recorded spacing steps without forcing every layout onto one rigid scale.
+Sample-only notices explain which real workspace changes the schemas support. Morning Brief timing, delivery-day policy and content fields use the real watcher editor. Do not add sample controls for an evening digest, adding a People & Org identity directly to a watcher or setting a weekly interval. Common gaps use the recorded spacing steps without forcing every layout onto one rigid scale.
 
 ## Elevation & Depth
 

@@ -691,7 +691,7 @@ function MorningFields() {
     <>
       <Group
         title="Morning timing"
-        hint="Times use WIB (Asia/Jakarta). Changes apply to the next unfrozen session. Saving does not activate a job; scheduler controls remain in Jobs."
+        hint="Times use WIB (Asia/Jakarta). Changes apply to the next unfrozen brief. Saving does not activate a job; scheduler controls remain in Jobs."
       >
         <Field path={["cutoff_time"]} label="Data cutoff (WIB)" type="time" />
         <Field path={["delivery_time"]} label="Delivery target (WIB)" type="time" />

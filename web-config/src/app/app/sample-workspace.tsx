@@ -14,7 +14,7 @@ const notices: Record<WorkspaceView, string> = {
   sources:
     "Public catalog entries and synthetic selections. Compatible endpoint capabilities can be saved as sample intent, with no live source connection.",
   workflows:
-    "Only fields supported by the real editor can be changed here. Source Catalog settings do not attach identities to watcher profiles. Morning Brief timing, destination and instrument settings can be saved for the next unfrozen session. There is no separate evening digest, and saving does not activate a job.",
+    "Only fields supported by the real editor can be changed here. Source Catalog settings do not attach identities to watcher profiles. Morning Brief timing, delivery-day policy, destination and instrument settings can be saved for the next unfrozen brief. There is no separate evening digest, and saving does not activate a job.",
   jobs: "Read-only sample jobs. Real interval schedules run from 1 minute to 24 hours, with no weekly interval. Morning Brief timing is configured in its workflow editor; job activation remains read-only here.",
   history:
     "Synthetic example records only. No real runs, source polls, or deliveries are represented.",
