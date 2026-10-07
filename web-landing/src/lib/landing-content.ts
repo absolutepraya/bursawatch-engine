@@ -123,6 +123,28 @@ export const CHANNELS = [
   },
 ] as const;
 
+/** Measured on Bursawatch deliveries, 25 Aug to 5 Oct 2026. Re-measure before changing the numbers. */
+export const PROOF = {
+  note: "Diukur dari pesan Bursawatch 25 Agu sampai 5 Okt 2026: 269 pesan di lima channel, dan 154 pos X untuk kecepatan.",
+  items: [
+    {
+      figure: "100%",
+      label: "pesan punya link ke sumber aslinya",
+      detail: "269 dari 269 pesan yang diukur",
+    },
+    {
+      figure: "22 menit",
+      label: "median dari pos asli sampai ke Discord kamu",
+      detail: "7 dari 10 pos X sampai dalam 30 menit",
+    },
+    {
+      figure: "Dari teks sumber",
+      label: "ringkasan berdasar isi sumber, bukan tebakan AI",
+      detail: "Harga diambil dari data pasar",
+    },
+  ],
+} as const;
+
 export const SOURCES = [
   { name: "Phintraco Sekuritas", logo: src("phintraco") },
   { name: "BRI Danareksa", logo: src("bridanareksa") },

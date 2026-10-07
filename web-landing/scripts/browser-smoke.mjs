@@ -54,6 +54,9 @@ try {
     await page.getByRole("figure", { name: label }).waitFor();
   }
   assert.equal(await page.getByRole("img", { name: /^Contoh pengaturan:/ }).count(), 4);
+  const proof = page.getByRole("region", { name: "Bukti dari pesan nyata" });
+  await proof.getByText("269 dari 269 pesan yang diukur").waitFor();
+  await proof.getByText("Diukur dari pesan Bursawatch", { exact: false }).waitFor();
   await page.getByText("contoh dengan angka dummy", { exact: false }).waitFor();
   for (const image of await page.locator("img").all()) {
     await image.scrollIntoViewIfNeeded();

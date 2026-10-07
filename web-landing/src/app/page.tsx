@@ -17,6 +17,7 @@ import {
   CHANNELS,
   DEMO_DISCORD_URL,
   ENRG_PLAN,
+  PROOF,
   FORUM_POSTS,
   SOURCES,
   src,
@@ -76,6 +77,19 @@ export default function LandingPage() {
             </div>
           </div>
           <HeroFlow />
+        </section>
+
+        <section className="lp-proof" aria-label="Bukti dari pesan nyata">
+          <ul data-stagger>
+            {PROOF.items.map((item) => (
+              <li key={item.figure}>
+                <strong>{item.figure}</strong>
+                <span>{item.label}</span>
+                <small>{item.detail}</small>
+              </li>
+            ))}
+          </ul>
+          <p>{PROOF.note}</p>
         </section>
 
         <section className="lp-section lp-pain" aria-labelledby="pain-title">

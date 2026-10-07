@@ -703,6 +703,49 @@ time,
 }
 
 /* ---- pain ---- */
+.lp-proof {
+  width: min(1180px, calc(100% - 64px));
+  margin: 0 auto;
+  padding-bottom: clamp(48px, 7vw, 88px);
+}
+.lp-proof ul {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.lp-proof li {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 22px 24px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.lp-proof strong {
+  color: var(--accent);
+  font-size: clamp(1.5rem, 2.6vw, 2.125rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+.lp-proof li span {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.lp-proof small {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+.lp-proof > p {
+  margin: 14px 0 0;
+  color: var(--subtle);
+  font-size: 0.75rem;
+}
 .lp-pain h2 {
   max-width: 15em;
 }
@@ -1407,7 +1450,15 @@ time,
     gap: 12px;
   }
 }
+@media (max-width: 860px) {
+  .lp-proof ul {
+    grid-template-columns: 1fr;
+  }
+}
 @media (max-width: 600px) {
+  .lp-proof {
+    width: calc(100% - 32px);
+  }
   .lp-header,
   .lp-hero,
   .lp-section,
