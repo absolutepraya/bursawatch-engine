@@ -49,6 +49,9 @@ class Publisher:
                 name = kind+'_'+form
                 image = images[index] if form == 'image' else None
                 omission = omissions[index] if form == 'image' else None
+                if form == 'text' and kind != 'ihsg' and images[index] is None:
+                    # A rotation heading without its image is noise; skip both legs.
+                    omission = kind+'_text_skipped'
                 if form == 'image' and ((image is None) != bool(omission)):
                     raise ValueError('missing image needs a pre-submission omission')
                 if omission is not None and (not isinstance(omission,str) or re.fullmatch(r'[a-z0-9_]{1,80}',omission) is None):
@@ -127,7 +130,7 @@ class Publisher:
         run=self.store.get_run(run_id)
         if self.clock()<timing_for(datetime.fromisoformat(run.session).date(),retained_operator_config(self.store,run_id))['target']:
             return self._summary(run_id,'prepared',lease)
-        manifest=frozen.payload; omissions=sum(bool(s['omission']) for s in manifest['steps'])
+        manifest=frozen.payload; omissions=sum(bool(s['omission']) for s in manifest['steps'] if s['name'].endswith('_image'))
         if self.store.get_checkpoint(run_id,'projection_ack') is not None:
             return self._summary(run_id,'projected',lease,omissions=omissions)
         legs=[]

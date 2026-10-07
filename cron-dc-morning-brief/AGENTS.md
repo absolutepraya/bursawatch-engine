@@ -56,9 +56,10 @@ delivery from local tests or an installed dispatcher.
   conditional base/change evidence selects facts-only. Formatting trims claims
   with citations atomically and freezes actual published mode/scenario in
   `presentation`; closing anchors must never expose an omitted candidate.
-  The main message follows formatter revision `bursawatch-text-v4`: no IHSG/global
+  The main message follows formatter revision `bursawatch-text-v5`: no IHSG/global
   source links, timestamps, delays, missing-data prose, pulse/scenario headings or
-  middots; missing numbers are `-`; image messages are attachment-only. The IHSG
+  middots; missing numbers are `-`; an unavailable Outlook paragraph reads `(Analisis outlook gagal dimuat)`;
+  image messages are attachment-only and a rotation heading is skipped with its missing image. The IHSG
   tracker comes from the shared Yahoo `parse_closes`/`close_performance` over the
   retained daily source (1/5/22/66 verified sessions, gaps retained) and is frozen
   only with its hash, cutoff and benchmark-equality attestation. Build native
@@ -128,7 +129,9 @@ delivery from local tests or an installed dispatcher.
   page provenance. Cache caps for 30 days, retaining the last successful snapshot
   with a stale label on failure. No coverage percentage blocks publication: one
   usable cap/price member is sufficient. Display partial baskets, known-cap
-  coverage and unknown-cap counts. Retain invalid stock responses for the closing
+  coverage and unknown-cap counts. A provider 400/404/410 or unparseable response for one stock is retained as unavailable for
+  the closing window without blocking later stocks; a 429, cooldown or transport fault still
+  stops the pass. Retain invalid stock responses for the closing
   window, so ticks cannot refetch halted stocks. New closing sessions use new
   immutable history sources. A manifest is not natural-delivery proof.
 - BPS native Arc release responses are retained verbatim and parsed separately

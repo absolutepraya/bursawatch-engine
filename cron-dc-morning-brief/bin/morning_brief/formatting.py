@@ -17,8 +17,9 @@ if str(_news_bin) not in sys.path:
     sys.path.insert(0, str(_news_bin))
 from news_format import market_block
 
-REVISION='bursawatch-text-v4'
+REVISION='bursawatch-text-v5'
 LIMIT=2000
+OUTLOOK_UNAVAILABLE='(Analisis outlook gagal dimuat)'
 
 
 class MessageTooLong(ValueError):
@@ -113,7 +114,7 @@ def _scenario_block(scenario):
 def _outlook_paragraph(outlook):
     """Retain exact conditional source context, with attribution but no links."""
     if outlook.get('mode') != 'supported':
-        return '-', None, []
+        return OUTLOOK_UNAVAILABLE, None, []
     scenario = outlook.get('scenario')
     if scenario is not None:
         # Preserve the existing consistency/role validation used by the writer.
@@ -136,7 +137,7 @@ def _outlook_paragraph(outlook):
         rendered.append('Menurut '+_escape(row['publisher_id'])+': '+excerpt)
         shown.append(row)
     if not rendered:
-        return '-', None, []
+        return OUTLOOK_UNAVAILABLE, None, []
     displayed_scenario = ({**scenario, 'pulse':{'mode':'absent','optimistic':[],'cautious':[]},
                            'limitations':[]} if scenario is not None else None)
     return ' '.join(rendered), displayed_scenario, shown if scenario is None else []
@@ -198,13 +199,13 @@ def format_brief(*,publication_session: date,cutoff: datetime,target: datetime,
     try:
         paragraph,scenario,claims=_outlook_paragraph(outlook)
     except (ValueError, KeyError, TypeError):
-        paragraph,scenario,claims='-',None,[]
+        paragraph,scenario,claims=OUTLOOK_UNAVAILABLE,None,[]
     header='### 🌇 BURSAWATCH PAGI: '+publication_label(publication_session)
     def assemble(prose):
         return '\n\n'.join((header,close_block,'Outlook IHSG:\n'+prose,global_block,agenda))
     first=assemble(paragraph)
     if _length(first)>LIMIT:
-        paragraph,scenario,claims='-',None,[]
+        paragraph,scenario,claims=OUTLOOK_UNAVAILABLE,None,[]
         first=assemble(paragraph)
     if _length(first)>LIMIT:
         raise MessageTooLong('bounded tracker, markets and agenda exceed message limit')
@@ -213,7 +214,7 @@ def format_brief(*,publication_session: date,cutoff: datetime,target: datetime,
            _rotation_text('### 🐉 ROTASI KONGLO: ',publication_session))
     if not with_selection:
         return texts
-    supported=paragraph!='-'
+    supported=paragraph!=OUTLOOK_UNAVAILABLE
     presentation={**outlook,'mode':'supported' if supported else 'facts_only',
                   'reason':outlook.get('reason') if supported or outlook.get('mode')!='supported' else 'formatting_unavailable',
                   'scenario':scenario,'claims':claims,'text':first}

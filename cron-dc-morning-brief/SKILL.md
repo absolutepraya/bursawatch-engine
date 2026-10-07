@@ -594,11 +594,12 @@ Every brief operation has an immutable attempt deadline (default 08:15 WIB),
 including retries. Delayed recovery keeps
 the original frozen timing and records actual lateness. Message bodies omit the
 cutoff/target timing line in all three sections. Formatter revision
-`bursawatch-text-v4` renders the main message as: dated heading; the Indonesian-
+`bursawatch-text-v5` renders the main message as: dated heading; the Indonesian-
 formatted last IHSG close with 1D/1W then 1M/3M changes; one `Outlook IHSG`
 paragraph; six compact global rows (KOSPI, Nikkei, SPY, QQQ, EIDO, USD/IDR); and
 `Agenda Ekonomi Indonesia` with the agenda source links in its header and at most
-three dated bullets. Any missing number renders `-`. The message carries no IHSG
+three dated bullets. Any missing number renders `-`. When the outlook cannot be produced or formatted, the
+paragraph reads `(Analisis outlook gagal dimuat)` and the run publishes as facts-only. The message carries no IHSG
 or global source links, quote timestamps, delays, missing-data explanations,
 pulse/scenario headings or middots. The outlook paragraph keeps each source's
 attribution and full conditional context but no link. If the whole paragraph
@@ -606,7 +607,8 @@ cannot fit it is replaced atomically with `-`, never clipped. Source URLs, hashe
 and timing stay in private run provenance, so a long hidden URL never degrades
 the visible text. Image messages are attachments only: publication freezes their
 content as empty text, projection sends null text for those legs, and a missing
-image leg is skipped. Plot labels inside the images are unchanged.
+image leg is skipped. A sektor or konglo heading is skipped with its own missing image
+instead of posting alone; the IHSG message always posts. Plot labels inside the images are unchanged.
 
 The IHSG tracker uses `yahoo_market_data.parse_closes` and `close_performance` on
 the same retained daily source as the verified benchmark: exactly 1, 5, 22 and 66
