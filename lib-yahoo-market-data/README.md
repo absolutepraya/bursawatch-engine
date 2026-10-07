@@ -14,6 +14,14 @@ OHLC rather than dividend-adjusted Close. It does not
 certify official sessions, corporate actions, publication rights or price-return
 compatibility for basket calculations.
 
+`parse_closes(payload, symbol=, exchange_timezone=, through=, session_dates=)`
+returns ordinary daily closes keyed by explicit session date, keeping null or
+invalid closes as `None` instead of dropping the session. `close_performance(closes,
+sessions=, through=)` computes the latest close and 1D, 1W, 1M and 3M changes
+against exactly 1, 5, 22 and 66 prior verified sessions. A missing anchor leaves
+that horizon `None` rather than sliding to an older close. Both are pure and make
+no requests.
+
 `simple_moving_average(closes, period)` returns an aligned tuple with `None`
 during warm-up. `wilder_rsi(closes, period=14)` seeds with the first period's
 average gains/losses and uses Wilder smoothing thereafter. Flat windows return

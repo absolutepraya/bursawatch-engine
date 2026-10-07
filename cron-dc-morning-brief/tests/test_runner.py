@@ -49,6 +49,44 @@ def numerical():
         'actions_attestation':actionsproof,
         'benchmark':benchmark,'benchmark_attestation':benchproof}
 
+def _tracker_run(tmp_path,core,tracker,*,attest=True,mutate=None):
+    r=core('runner'); store=RunStore(tmp_path/'runs.sqlite')
+    data=numerical()
+    if tracker is not None:
+        data['ihsg_tracker']=tracker
+        if attest: data['ihsg_tracker_attestation']={**data['benchmark_attestation'],'content_sha256':digest(tracker)}
+    if mutate: mutate(data)
+    runner=r.MorningRunner(store,Source(),HeartbeatDelivery(),FakeProjection(),clock=lambda:NOW)
+    runner.run(calendar=calendar(),numerical=data,global_inputs=[],calendar_snapshots=[],
+        model=lambda _:pytest.fail('missing evidence uses facts only'),model_version='fixture-model',prompt_version='v1',
+        preview=True,preview_dir=tmp_path/'preview')
+    run=store.create_run('2026-10-05',freeze_at=FREEZE)
+    return store.get_frozen(run.run_id,'inputs').payload,store.get_frozen(run.run_id,'selection').payload['texts'][0]
+
+
+def _tracker(**changes):
+    return {'latest_price':100.,'session':'2026-10-04','basis':'ordinary-close','horizon_policy':'1-5-22-66-verified-sessions',
+            'one_day_change':-1.,'one_day_percent':-1.,'one_week_change':2.,'one_week_percent':2.,
+            'one_month_change':None,'one_month_percent':None,'three_month_change':3.,'three_month_percent':3.,**changes}
+
+
+def test_attested_tracker_is_frozen_and_horizon_gaps_stay_hyphens(tmp_path,core):
+    frozen,text=_tracker_run(tmp_path,core,_tracker())
+    assert frozen['ihsg_tracker']==_tracker()
+    assert '1M: **-**' in text and '1D: **-1 (-1.00%)**' in text
+
+
+@pytest.mark.parametrize('case',['unattested','wrong_hash','other_session','price_differs','invalid_benchmark'])
+def test_unattested_or_inconsistent_tracker_is_never_frozen_or_displayed(tmp_path,core,case):
+    tracker=_tracker(session='2026-10-02') if case=='other_session' else _tracker(latest_price=101.) if case=='price_differs' else _tracker()
+    def mutate(data):
+        if case=='wrong_hash': data['ihsg_tracker_attestation']['content_sha256']='0'*64
+        if case=='invalid_benchmark': data['benchmark_attestation']['verified']=False
+    frozen,text=_tracker_run(tmp_path,core,tracker,attest=case!='unattested',mutate=mutate)
+    assert frozen['ihsg_tracker'] is None
+    assert '1D: **-1' not in text and '101' not in text
+
+
 def test_end_to_end_preview_freezes_inputs_artifacts_and_heartbeat_without_posts(tmp_path,core):
     r=core('runner'); store=RunStore(tmp_path/'runs.sqlite'); source=Source()
     delivery=HeartbeatDelivery(); projection=FakeProjection()
@@ -316,13 +354,11 @@ def test_generated_core_and_anchor_match_published_presentation_after_capture_gr
     assert anchor['text']==[op for op in delivery.sent if op.key.endswith(':ihsg_text')][0].payload['content']
     assert store.get_frozen(run.run_id,'evidence').payload['capture_gap_seconds']==4.2
     assert store.get_frozen(run.run_id,'outlook').payload['mode']=='supported'
-    if overlong:
-        assert result['fallback']=='facts_only' and anchor['scenario']['mode']=='facts_only'
-        assert anchor['scenario']['scenario'] is None and 'bukti belum cukup' in anchor['text']
-        assert 'Jika likuiditas' not in anchor['text']
-    else:
-        assert result['fallback']=='supported' and anchor['scenario']['scenario']['base_case']['excerpt'].startswith('Jika likuiditas')
-        assert '**Skenario IHSG**' in anchor['text'] and '**Pandangan satu sumber**' in anchor['text']
+    # A long hidden source URL stays frozen privately and must not degrade the compact public paragraph.
+    assert result['fallback']=='supported' and anchor['scenario']['scenario']['base_case']['excerpt'].startswith('Jika likuiditas')
+    assert 'Menurut collector: Jika likuiditas' in anchor['text'] and 'Outlook IHSG:\n-' not in anchor['text']
+    assert 'Skenario' not in anchor['text'] and 'Pandangan satu sumber' not in anchor['text'] and '·' not in anchor['text']
+    assert 'example.com/' not in anchor['text']
     frozen_anchor=anchor
     assert runner.run(calendar=calendar(),numerical={},global_inputs=[],calendar_snapshots=[],
         model=lambda _:pytest.fail('recovery reran writer'),model_version='changed',prompt_version='changed',

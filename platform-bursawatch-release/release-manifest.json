@@ -417,7 +417,7 @@
     {
       "id": "cron-dc-morning-brief",
       "handler": "manual",
-      "depends_on": ["lib-sectors", "lib-chart-img", "lib-yahoo-market-data", "lib-bursawatch-control", "lib-bursawatch-discord-delivery", "manual-discord-delivery-owner"],
+      "depends_on": ["lib-news-format", "lib-sectors", "lib-chart-img", "lib-yahoo-market-data", "lib-bursawatch-control", "lib-bursawatch-discord-delivery", "manual-discord-delivery-owner"],
       "paths": ["cron-dc-morning-brief/**"]
     }
   ]

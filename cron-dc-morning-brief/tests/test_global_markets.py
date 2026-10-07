@@ -71,7 +71,7 @@ def test_holiday_closed_asia_uses_reviewed_previous_session_not_weekdays(core):
     result = module.parse_yahoo_chart('KOSPI',raw,freeze_at=FREEZE,retrieved_at=FREEZE,sessions=schedule('Asia/Seoul',ASIA_ROWS[:2]))
     assert result['comparison'] == 'completed_regular_session' and result['percent'] == 0
     row = module.format_global_rows([result],logos={'KOSPI':'<:kospi:123456789012345678>'})
-    assert '⚪' in row and '+0.00' in row and 'closed' in row
+    assert '⚪' in row and '+0.00' in row and 'closed' not in row
 
 
 def test_dst_qqq_close_timestamp_follows_verified_offset_and_gap_is_stale(core):
@@ -135,10 +135,10 @@ def test_usdidr_uses_verified_fx_windows_previous_close_and_rupiah_direction(cor
     assert (quote['price'],quote['previous_close'],quote['change'])==(16150,16100,50)
     assert quote['percent']==pytest.approx(100*50/16100)
     text=module.format_global_rows([quote],logos={})
-    assert 'USD/IDR: +50.00 IDR per USD' in text and module.RED in text and 'IDR melemah' in text
+    assert 'USD/IDR: +50.00 IDR' in text and module.RED in text and 'IDR melemah' not in text
     raw['chart']['result'][0]['meta']['regularMarketPrice']=16050
     down=module.parse_yahoo_chart('USDIDR',raw,freeze_at=FREEZE,retrieved_at=FREEZE,sessions=sessions)
-    assert module.GREEN in module.format_global_rows([down],logos={}) and 'IDR menguat' in module.format_global_rows([down],logos={})
+    assert module.GREEN in module.format_global_rows([down],logos={}) and 'IDR menguat' not in module.format_global_rows([down],logos={})
 
 
 @pytest.mark.parametrize('mutation',['policy','currency','future','stale','denominator'])
@@ -150,7 +150,9 @@ def test_fx_missing_or_wrong_provenance_never_becomes_a_valid_quote(core,mutatio
     if mutation=='stale': raw['chart']['result'][0]['meta']['regularMarketTime']=unix('2026-10-05T07:00:00+07:00')
     if mutation=='denominator': raw['chart']['result'][0]['indicators']['quote'][0]['close'][1]=None
     quote=module.parse_yahoo_chart('USDIDR',raw,freeze_at=FREEZE,retrieved_at=FREEZE,sessions=sessions)
-    assert quote['status']==('stale' if mutation=='stale' else 'unavailable')
+    assert quote['status']==('available' if mutation=='stale' else 'unavailable')
+    if mutation=='stale':
+        assert quote['comparison']=='completed_fx_day' and quote['change']==100 and quote['price']==16100
 
 
 def test_all_six_rows_can_freeze_and_render_with_supplied_logo_ids(core,tmp_path):
@@ -177,3 +179,25 @@ def test_all_six_rows_can_freeze_and_render_with_supplied_logo_ids(core,tmp_path
     assert all(name+':' in first for name in ('KOSPI','Nikkei','SPY','QQQ','EIDO','USD/IDR'))
     assert len(first.encode('utf-16-le'))//2<=2000
     with pytest.raises(ValueError): module.format_global_rows(quotes+[fx],logos=logos)
+
+
+def test_fx_null_day_placeholder_and_rolling_tick_are_not_duplicate_prices(core):
+    module=core('global_markets');raw,sessions=fx_fixture();result=raw['chart']['result'][0]
+    result['timestamp'] += [unix('2026-10-05T00:00:00+00:00'),unix('2026-10-05T07:29:00+07:00')]
+    # Keep the native timestamps ordered: 00:29 UTC is after the day start.
+    result['indicators']['quote'][0]['close'] += [None,16150]
+    parsed=module.parse_yahoo_chart('USDIDR',raw,freeze_at=FREEZE,retrieved_at=FREEZE,sessions=sessions)
+    assert parsed['status']=='available' and parsed['change']==50
+    result['indicators']['quote'][0]['close'][-2]=16140
+    rejected=module.parse_yahoo_chart('USDIDR',raw,freeze_at=FREEZE,retrieved_at=FREEZE,sessions=sessions)
+    assert rejected['status']=='unavailable' and rejected['change'] is None
+
+
+def test_fx_stale_tick_falls_back_only_to_a_verified_completed_day(core):
+    module=core('global_markets');raw,sessions=fx_fixture()
+    raw['chart']['result'][0]['meta']['regularMarketTime']=unix('2026-10-05T07:00:00+07:00')
+    parsed=module.parse_yahoo_chart('USDIDR',raw,freeze_at=FREEZE,retrieved_at=FREEZE,sessions=sessions)
+    assert parsed['comparison']=='completed_fx_day' and parsed['price']==16100 and parsed['previous_close']==16000
+    raw['chart']['result'][0]['indicators']['quote'][0]['close'][1]=None
+    missing=module.parse_yahoo_chart('USDIDR',raw,freeze_at=FREEZE,retrieved_at=FREEZE,sessions=sessions)
+    assert missing['status']!='available' and module.format_global_rows([missing],logos={})=='USD/IDR: -'

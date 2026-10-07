@@ -208,3 +208,15 @@ def test_uncertain_status_after_expiry_never_becomes_omission_or_new_create(owne
     result=pub.publish(run.run_id,lease=lease)
     assert result['reason']=='receipt_ambiguous' and result['lateness_seconds']==960
     assert len(delivery.sent)==1
+
+
+def test_attachment_only_messages_project_without_caption_and_recover_exact_bytes(owner):
+    manifest=freeze(owner);pub,store,run,lease,delivery,projection=owner
+    for step in manifest.payload['steps']:
+        if step['name'].endswith('_image'):
+            op=store.get_frozen(run.run_id,step['slot']).payload
+            assert op['payload']['content']=='' and op['media'] is not None
+    assert pub.publish(run.run_id,lease=lease)['phase']=='projected'
+    image_legs=[leg for leg in projection.requests[0]['legs'] if leg['attachments']]
+    assert len(image_legs)==3 and all(leg['text'] is None for leg in image_legs)
+    assert all(op.payload['content']=='' for op in delivery.sent if op.attachments)

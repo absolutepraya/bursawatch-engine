@@ -124,15 +124,43 @@ def test_render_manifest_detaches_caller_provenance(core):
     assert artifact.manifest['groups'][rows[0].name]['provenance']['price_versions']['X']=='fixture-v'
 
 
-def test_tiny_partial_coverage_and_stale_caps_are_visible(core):
+def test_tiny_partial_coverage_stays_in_manifest_not_in_image_text(core,monkeypatch):
+    render=core('rendering');seen=[]
+    real=render._Canvas.text
+    def spy(self,x,y,value,*args,**kwargs):
+        seen.append(value);return real(self,x,y,value,*args,**kwargs)
+    monkeypatch.setattr(render._Canvas,'text',spy)
     rows=(replace(baskets(1)[0],coverage=.0183,excluded={'ZZZZ':'missing_price_series'},
         provenance={'cap_collection_status':'stale','missing_cap_members':('YYYY',),'cap_collected_at':'2026-08-01T07:00:00+07:00'}),)
-    artifact=core('rendering').render_rotation(rows,kind='sectors',publication_session=date(2026,10,5))
+    artifact=render.render_rotation(rows,kind='sectors',publication_session=date(2026,10,5))
     assert artifact.manifest['groups'][rows[0].name]['coverage']==.0183
-    from morning_brief.formatting import _rotation_text
-    text=_rotation_text(rows,'Rotasi Sektor ',date(2026,10,5),[])
-    assert 'Basket parsial' in text and '1.8%' in text and '(stale)' in text
-    assert '1 cap tidak tersedia' in text
+    assert artifact.manifest['groups'][rows[0].name]['provenance']['cap_collection_status']=='stale'
+    text=' | '.join(seen)
+    for removed in ('Basket parsial','Cakupan','Cap:','stale','Garis lengkung','hingga'):assert removed not in text
+    assert 'LEGENDA' in seen and 'pp = poin persentase' in seen and 'Wed, 5 Oct 2026'.replace('Wed','Mon') in seen
+
+
+def test_konglo_drops_zoom_range_subtitle_and_keeps_legend_before_other_groups(core,monkeypatch):
+    render=core('rendering');seen=[]
+    real=render._Canvas.text
+    def spy(self,x,y,value,*args,**kwargs):
+        seen.append((value,y));return real(self,x,y,value,*args,**kwargs)
+    monkeypatch.setattr(render._Canvas,'text',spy)
+    rows=baskets();letters=unselected_letters(rows,select_groups(rows))
+    render.render_rotation(rows,kind='konglo',publication_session=date(2026,10,5),letters=letters)
+    values=[v for v,_ in seen]
+    assert not any('kelompok dalam zoom' in v or 'hingga' in v for v in values)
+    positions=dict(seen)
+    assert positions['LEGENDA']<positions['KELOMPOK LAIN']
+
+
+def test_right_panel_long_names_still_render_inside_bounds(core):
+    render=core('rendering')
+    rows=tuple(replace(row,name='Properties and Real Estate Extended Holdings '+row.name) for row in baskets(11))
+    artifact=render.render_rotation(rows,kind='sectors',publication_session=date(2026,10,5))
+    assert artifact.manifest['table_names']
+    assert all(0<=x0<x1<=2600 for x0,y0,x1,y1 in artifact.manifest['text_bounds'])
+    assert all('\n' not in name for name in artifact.manifest['table_names'])
 
 
 def test_visual_curves_interpolate_observations_without_segment_overshoot(core):

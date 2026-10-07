@@ -393,3 +393,12 @@ def test_blocking_context_fetch_cannot_stall_card_creation(monkeypatch):
     release.set()
     assert news.time.monotonic() - started < 2
     assert 'Konsensus' not in cards[0]['messages'][0] and 'Harga terakhir' in cards[0]['messages'][0]
+
+
+def test_shared_tracker_can_use_ihsg_heading_without_changing_stock_defaults():
+    import news_format
+    default=news_format.market_block({'latest_price':9175})
+    custom=news_format.market_block({'latest_price':9175},price_label='Penutupan IHSG terakhir',missing_marker=False)
+    assert default.startswith('Harga terakhir (IDR): **9.175**') and news_format.GREY in default
+    assert custom.startswith('Penutupan IHSG terakhir (IDR): **9.175**') and '1W: **-**' in custom
+    assert news_format.GREY not in custom

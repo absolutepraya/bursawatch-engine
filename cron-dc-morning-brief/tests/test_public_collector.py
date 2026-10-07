@@ -192,3 +192,19 @@ def test_weekday_globals_manifest_does_not_require_or_invent_idx_calendar(tmp_pa
     assert calendar is None and manifest['calendar'] is None
     assert manifest['numerical']=={} and 'chart' not in manifest
     assert len(manifest['global_inputs'])==1 and 'IDX:calendar_unavailable' in result['gaps']
+
+
+def test_native_session_proof_uses_actual_collection_time_not_future_cutoff(tmp_path,monkeypatch):
+    import morning_brief.public_collector as module
+    config,snap,reference=prepared(tmp_path);observed=FREEZE-timedelta(hours=3)
+    seen=[];real=module.yahoo_sessions
+    def spy(name,payload,*,retrieved_at,cutoff):
+        seen.append(cutoff);return real(name,payload,retrieved_at=retrieved_at,cutoff=cutoff)
+    monkeypatch.setattr(module,'yahoo_sessions',spy)
+    collect_public(config,snapshot=snap,calendar_path=reference,source_cache=tmp_path/'sources',
+        now=observed,transport=Transport(observed),clock=lambda:observed)
+    assert seen and all(value==observed for value in seen) and all(value<FREEZE for value in seen)
+    seen.clear()
+    collect_public(config,snapshot=snap,calendar_path=reference,source_cache=tmp_path/'sources2',
+        now=observed,transport=Transport(observed),clock=lambda:FREEZE+timedelta(hours=1))
+    assert seen and all(value<=FREEZE for value in seen)

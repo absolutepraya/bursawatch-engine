@@ -228,7 +228,7 @@ def collect_public(config, *, snapshot, calendar_path, source_cache, now, transp
         try:
             daily,hourly=records[(name,'1d')],records[(name,'60m')]
             proof=yahoo_sessions(name,hourly['payload'],
-                retrieved_at=datetime.fromisoformat(hourly['retrieved_at']),cutoff=cutoff)
+                retrieved_at=datetime.fromisoformat(hourly['retrieved_at']),cutoff=min(aware(clock()),cutoff))
             proof['evidence_ref']=hourly['artifact_path']
             if name=='IHSG':
                 numerical=ihsg_benchmark(daily['payload'],proof,calendar,publication_session=session,

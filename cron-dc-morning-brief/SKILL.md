@@ -110,8 +110,8 @@ one member must have a positive cap and compatible prices in every aligned
 session. There is no minimum coverage gate. Weights renormalize over the usable
 subset and stay fixed across the whole trail. Partial-basket returns describe
 that subset. Coverage uses known original caps as its denominator; unknown-cap
-member counts are separate, never represented as zero caps. Text and images
-label partial baskets, coverage and stale caps.
+member counts are separate, never represented as zero caps. Partial baskets,
+coverage and stale caps are retained in the manifest, not shown in public text or images.
 
 Daily weighted returns compound over ten sessions. X is 100 times the basket
 return minus IHSG return; Y is X minus X three sessions earlier. Five positions
@@ -129,7 +129,7 @@ weights, excluded members, original coverage, aligned closes and action decision
 
 ## Rotation visual trails
 
-Renderer revision `bursawatch-render-v4` draws display-only cubic curves through
+Renderer revision `bursawatch-render-v5` draws display-only cubic curves through
 all five observed session markers. Coordinate tangents are bounded by adjacent
 steps and zero at reversals, keeping each curve within its segment's observed
 coordinate rectangle. No numerical prices, returns, quadrants or frozen
@@ -145,6 +145,18 @@ X/Y ranges based on the 80th percentile of absolute latest coordinates plus
 15 percent padding, at least 1 pp and at most that axis's full-range absolute bound. It records
 visible and outside groups; all groups remain represented in the full-range
 plot/table/letter key. Zoom geometry and marker mappings freeze in the manifest.
+
+Rotation text messages are only the dated heading (`### 🏭 ROTASI SEKTOR: <date>` or
+`### 🐉 ROTASI KONGLO: <date>`) followed by the attachment-only image message. Basket
+coverage, excluded members, cap collection dates, stale-cap status and basis stay in
+the frozen manifest and numerical provenance, not in public text or in the image.
+The images omit the coverage caption, the X/Y range line, the curve footnote and the
+konglo zoom range subtitle. Revision v5 adds a larger title, date and Bursawatch
+mark, a gold inset frame, history dots that are smaller and more faded than the
+latest marker, larger right-panel text kept on one line per row (a name shrinks to
+fit, and wraps only if it cannot fit at the minimum size), a gold-bordered table with
+a gold rule under the header row, and a `LEGENDA` section (`pp = poin persentase`)
+below the table. Plot labels, axes and quadrant geometry are unchanged.
 
 Both rotation charts fit independent asymmetric linear X/Y limits to every
 visible trail point, including zero and at least 1 percentage point of padding
@@ -581,9 +593,32 @@ The configured defaults freeze at 07:30 WIB and target delivery at 08:00 WIB.
 Every brief operation has an immutable attempt deadline (default 08:15 WIB),
 including retries. Delayed recovery keeps
 the original frozen timing and records actual lateness. Message bodies omit the
-cutoff/target timing line in all three sections. The agenda heading is
-`Agenda Ekonomi Indonesia`. Timing remains in attachment captions and private
-run provenance.
+cutoff/target timing line in all three sections. Formatter revision
+`bursawatch-text-v4` renders the main message as: dated heading; the Indonesian-
+formatted last IHSG close with 1D/1W then 1M/3M changes; one `Outlook IHSG`
+paragraph; six compact global rows (KOSPI, Nikkei, SPY, QQQ, EIDO, USD/IDR); and
+`Agenda Ekonomi Indonesia` with the agenda source links in its header and at most
+three dated bullets. Any missing number renders `-`. The message carries no IHSG
+or global source links, quote timestamps, delays, missing-data explanations,
+pulse/scenario headings or middots. The outlook paragraph keeps each source's
+attribution and full conditional context but no link. If the whole paragraph
+cannot fit it is replaced atomically with `-`, never clipped. Source URLs, hashes
+and timing stay in private run provenance, so a long hidden URL never degrades
+the visible text. Image messages are attachments only: publication freezes their
+content as empty text, projection sends null text for those legs, and a missing
+image leg is skipped. Plot labels inside the images are unchanged.
+
+The IHSG tracker uses `yahoo_market_data.parse_closes` and `close_performance` on
+the same retained daily source as the verified benchmark: exactly 1, 5, 22 and 66
+verified prior sessions, with a gap kept as a gap instead of sliding to an older
+close. The collector attests the tracker hash, cutoff and benchmark equality, and
+the runner freezes the tracker only when those checks pass and its latest price
+equals the verified close. Native global session proof is built at the actual
+collection time, bounded by the configured cutoff, because a future provisional
+cutoff can cross into the next Tokyo/Seoul day and reject valid native sessions.
+The FX parser ignores null day placeholders, still rejects duplicate non-null
+quotes, and uses the latest verified completed native FX day when the live
+timestamp is stale.
 
 `publication.Publisher.freeze` persists all six alternating IHSG text/image,
 sector text/image and konglo text/image steps before submission. Attachment bytes

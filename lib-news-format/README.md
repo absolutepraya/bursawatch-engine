@@ -15,7 +15,10 @@ a stale history leaves those horizons unavailable while preserving the latest
 quote and an explicit previous-close 1D change. A history-only quote uses its
 own final session as the anchor. Missing closes retain their session positions.
 Partial history preserves the latest
-price and available horizons. Unknown or failed values use grey placeholders,
+price and available horizons. `market_block` accepts an optional
+`price_label` (default `Harga terakhir`) and `missing_marker` (default true; false
+drops the grey placeholder emoji and keeps `**-**`), so existing consumers render
+unchanged. Unknown or failed values use grey placeholders,
 never zero. Each quote waits at most three seconds with four daemon worker
 slots, and a batch stops optional quote lookup after nine seconds. A stalled
 provider cannot consume an unbounded number of workers. Currency mismatch makes the optional quote unavailable. `as_of`

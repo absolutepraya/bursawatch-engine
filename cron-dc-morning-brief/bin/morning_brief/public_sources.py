@@ -113,4 +113,19 @@ def ihsg_benchmark(payload, sessions, calendar, *, publication_session, retrieve
         source_url='https://finance.yahoo.com/quote/%5EJKSE/',
         evidence_ref='native-yahoo:'+digest(payload)+':'+sessions['digest'],
         version='yahoo-ihsg-close-v1:'+digest(payload))
-    return {'benchmark': benchmark, 'benchmark_attestation': proof}
+    numerical = {'benchmark': benchmark, 'benchmark_attestation': proof}
+    # The same retained daily source supplies the tracker. No independent quote
+    # fetch, adjusted-close substitution or sliding across a missing baseline.
+    try:
+        from yahoo_market_data import parse_closes, close_performance
+        closes = parse_closes(payload, symbol='^JKSE', exchange_timezone='Asia/Jakarta',
+                              through=previous, session_dates=calendar.sessions)
+        tracker = close_performance(closes,
+                                    sessions=calendar.sessions, through=previous)
+        if tracker['latest_price'] != benchmark[previous.isoformat()]:
+            raise ValueError('tracker and verified close differ')
+        numerical['ihsg_tracker'] = tracker
+        numerical['ihsg_tracker_attestation'] = {**proof, 'content_sha256':digest(tracker)}
+    except (ValueError, KeyError, TypeError):
+        pass
+    return numerical

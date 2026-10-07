@@ -61,7 +61,7 @@ class Publisher:
                     media = dict(data=base64.b64encode(image.data).decode('ascii'),sha256=image.sha256,
                                  filename=kind+'.png',mime_type=image.content_type,manifest=image.manifest)
                     attachments = (Attachment(media['filename'],media['mime_type'],image.data),)
-                content = texts[index] if form == 'text' else attachment_caption(kind,session,cutoff=datetime.fromisoformat(run.freeze_at),target=times['target'])
+                content = texts[index] if form == 'text' else '' if image is not None else '-'
                 operation = OperationIntent(key=f'{OWNER}:{run.session}:{name}',kind='channel_message_create',
                     ordering_key=f'{OWNER}:{run.session}',target={'channel_id':destination},
                     payload={'content':content,'allowed_mentions':{'parse':[]}},attachments=attachments,
@@ -166,7 +166,7 @@ class Publisher:
             media=step['media']
             legs.append(dict(operation_key=result.key,operation_digest=result.digest,receipt_operation_id=result.id,
                 destination=step['target']['channel_id'],receipt_id=result.receipt['message_id'],status='delivered',
-                message_url=None,text=step['payload']['content'],attachments=[] if media is None else [
+                message_url=None,text=step['payload']['content'] or None,attachments=[] if media is None else [
                     dict(filename=media['filename'],content_type=media['mime_type'],discord_url=None)]))
         selected=self.store.get_frozen(run_id,'projection')
         if selected is None:

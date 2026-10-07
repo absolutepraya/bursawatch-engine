@@ -173,7 +173,13 @@ class MorningRunner:
                         groups[kind].append(jsonable(calculate_from_inputs(name,validated)))
                     except (UnsupportedBasket,InputUnavailable,ValueError): gaps.append(kind+':unsupported:'+name)
             except (InputUnavailable,ValueError,KeyError,TypeError): gaps.append(kind+':unavailable')
-        payload=dict(groups=groups,gaps=sorted(set(gaps)),facts=facts,cutoff=run.freeze_at,
+        tracker=data.get('ihsg_tracker')
+        if not (benchmark_valid and isinstance(tracker,dict)
+                and _attested(tracker,data.get('ihsg_tracker_attestation',{}),cutoff,records)
+                and tracker.get('session')==previous.isoformat()
+                and tracker.get('latest_price')==benchmark.get(previous.isoformat())):
+            tracker=None
+        payload=dict(groups=groups,gaps=sorted(set(gaps)),facts=facts,ihsg_tracker=tracker,cutoff=run.freeze_at,
             previous_session=previous.isoformat(),attestation_policy='external-caller/hash-and-cutoff-bound',
             upstream_digest=upstream.digest,benchmark_version=proof.get('version') if benchmark_valid else None)
         return self.store.freeze(run.run_id,'inputs',payload,lease=lease,now=self.clock(),dependencies={'upstream':upstream.digest})
@@ -228,7 +234,8 @@ class MorningRunner:
             target=timing_for(session,retained_operator_config(self.store,run.run_id))['target'],outlook=outlook.payload,
             globals=globals_record.payload['quotes'],calendar=calendar_record.payload,
             sectors=groups['sectors'],konglo=groups['konglo'],notices=notices,
-            logos=self.store.get_frozen(run.run_id,'upstream').payload.get('logos',{}),with_selection=True)
+            logos=self.store.get_frozen(run.run_id,'upstream').payload.get('logos',{}),
+            ihsg_tracker=inputs.payload.get('ihsg_tracker'),with_selection=True)
         presentation_record=self.store.freeze(run.run_id,'presentation',presentation,lease=lease,now=self.clock(),
             dependencies={'outlook':outlook.digest,'globals':globals_record.digest,'calendar_events':calendar_record.digest})
         deps={'inputs':inputs.digest,'outlook':outlook.digest,'letters':letter_record.digest,
