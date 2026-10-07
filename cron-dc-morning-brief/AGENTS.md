@@ -35,7 +35,11 @@ delivery from local tests or an installed dispatcher.
   bounded against overshoot. Preserve numerical coordinates and quadrants.
   Konglo numbered markers match the full-name table; preserve frozen secondary
   letters. Its separately labelled central zoom must not cover the full-range
-  plot or silently drop outliers. Freeze curve, code and zoom geometry metadata.
+  plot or silently drop outliers. Fit independent asymmetric axes to all visible
+  history, include zero and 1 pp padding; quadrant area follows ranges, not counts.
+  Draw rotation fonts/strokes/geometry natively at 2x density. Record logical
+  coordinate space and pixel ratio; preserve native IHSG/chart pixels. Freeze
+  axis, zero, curve, marker and zoom geometry metadata.
 - Source manifests freeze before version reads/selection. Recovery compares every
   immutable hash/ref and never recaptures; incomplete corpora force facts-only.
 - Global equities require explicit regular exchange sessions and prior-close denominator.

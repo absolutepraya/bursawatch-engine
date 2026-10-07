@@ -129,22 +129,39 @@ weights, excluded members, original coverage, aligned closes and action decision
 
 ## Rotation visual trails
 
-Renderer revision `bursawatch-render-v3` draws display-only cubic curves through
+Renderer revision `bursawatch-render-v4` draws display-only cubic curves through
 all five observed session markers. Coordinate tangents are bounded by adjacent
 steps and zero at reversals, keeping each curve within its segment's observed
 coordinate rectangle. No numerical prices, returns, quadrants or frozen
 coordinates are smoothed. Direction arrows follow the displayed final tangent.
 
-Sector images retain full-name labels and the 2600 by 1660 composition. Konglo
+Sector images retain full-name labels and the 2600 by 1660 logical layout. Konglo
 images use compact numbers matching the existing sorted 18-row full-name table;
 other groups keep the owner's frozen alphabetical letters. Trails are thinner
-and faded, with larger latest markers. The 2600 by 2400 composition adds a
+and faded, with larger latest markers. The 2600 by 2400 logical layout adds a
 separate central zoom panel below the full-range plot, so it never covers
 observations. The zoom shows latest positions, with explicitly labelled separate
 X/Y ranges based on the 80th percentile of absolute latest coordinates plus
-15 percent padding, at least 1 pp and at most the full-range extent. It records
+15 percent padding, at least 1 pp and at most that axis's full-range absolute bound. It records
 visible and outside groups; all groups remain represented in the full-range
 plot/table/letter key. Zoom geometry and marker mappings freeze in the manifest.
+
+Both rotation charts fit independent asymmetric linear X/Y limits to every
+visible trail point, including zero and at least 1 percentage point of padding
+on each side. Bounds round outward to tenths; tick spacing uses readable decimal
+steps. Zero determines the quadrant rectangles and benchmark marker rather than
+being fixed at the plot centre. Group count does not control quadrant area.
+Full historical trails remain visible, including outliers. The central zoom
+stays a separately labelled latest-position panel. Labels may use a nearest
+available grid position with a leader when corner clusters exhaust local options.
+
+Rotation geometry, fonts and strokes render directly at pixel ratio 2, without
+resizing a completed raster. Sector PNGs are 5200 by 3320; konglo PNGs are 5200
+by 4800. Table/marker text is also larger in logical layout units. Other charts
+retain their existing native rendering. Manifests declare `logical-pixels`,
+logical dimensions and pixel ratio; display bounds and points stay in logical
+units while artifact width/height describe the actual PNG. Freeze separate
+axis limits, padding policy and zero position with each rendered artifact.
 
 ## Durable run state
 
