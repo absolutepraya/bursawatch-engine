@@ -76,6 +76,7 @@ this contract:
 
 - `lib-sectors/AGENTS.md`
 - `lib-chart-img/AGENTS.md`
+- `lib-yahoo-market-data/AGENTS.md`
 - `cron-dc-morning-brief/AGENTS.md`
 - `service-cobalt/AGENTS.md`
 - `service-bursawatch-discord-delivery/AGENTS.md`

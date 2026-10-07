@@ -4,12 +4,17 @@ This producer never spends Sectors/Chart-IMG credits, reads Discord credentials,
 captures source evidence, invokes a writer, initializes run state or posts.
 """
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from email.utils import parsedate_to_datetime
+import fcntl
 import hashlib
 import json
 import os
+import stat
+import tempfile
 from pathlib import Path
 from urllib.parse import quote
+from urllib.error import HTTPError
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 from .calendar import SessionCalendar, aware
@@ -18,6 +23,7 @@ from .global_markets import WATCHLIST, parse_yahoo_chart
 from .host import private_file
 from .public_sources import yahoo_sessions, ihsg_benchmark
 from .store import canonical, stamp
+from .store import digest
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -37,15 +43,59 @@ def write_once(path, raw):
 
 
 class YahooTransport:
+    def __init__(self, source_cache):
+        self.cache=Path(source_cache)
+        self.fetches=0
+
     def get(self, name, granularity):
         symbol=WATCHLIST[name][0] if name in WATCHLIST else '^JKSE'
         if name not in WATCHLIST and name != 'IHSG' or granularity not in ('1d','60m'):
             raise ValueError('bounded public quote request required')
+        history_range='1y' if name=='IHSG' and granularity=='1d' else '1mo'
         url=('https://query1.finance.yahoo.com/v8/finance/chart/'+quote(symbol,safe='')
-            +'?interval='+granularity+'&range=1mo&includePrePost=false&includeTradingPeriods=true')
+            +'?interval='+granularity+'&range='+history_range+'&includePrePost=false&includeTradingPeriods=true')
         request=Request(url,headers={'User-Agent':'Bursawatch-Morning/1.0'})
-        with build_opener(NoRedirect()).open(request,timeout=5) as response:
-            raw=response.read(2_000_001)
+        # One explicit shared source directory coordinates the producer's
+        # concurrent requests and persists 429 cooldown across process restarts.
+        if not self.cache.is_absolute() or self.cache.is_symlink() or self.cache.stat().st_mode & 0o077:
+            raise ValueError('private shared Yahoo source cache required')
+        fd=os.open(self.cache/'yahoo-http.lock',os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600)
+        with os.fdopen(fd,'r+b') as lock:
+            details=os.fstat(lock.fileno())
+            if not stat.S_ISREG(details.st_mode) or details.st_mode & 0o077:
+                raise ValueError('private Yahoo lock required')
+            fcntl.flock(lock,fcntl.LOCK_EX)
+            policy=self.cache/'yahoo-rate-limit.json'
+            now=datetime.now(timezone.utc)
+            if policy.exists():
+                not_before=aware(datetime.fromisoformat(json.loads(private_file(policy,max_bytes=2048))['not_before']))
+                if now<not_before:
+                    raise ValueError('Yahoo source cooldown active')
+            self.fetches+=1
+            try:
+                with build_opener(NoRedirect()).open(request,timeout=5) as response:
+                    raw=response.read(2_000_001)
+            except HTTPError as error:
+                try:
+                    if error.code==429:
+                        observed=datetime.now(timezone.utc)
+                        not_before=observed+timedelta(hours=24)
+                        header=error.headers.get('Retry-After','')[:256]
+                        try:
+                            if header.isdecimal():
+                                not_before=observed+timedelta(seconds=max(60,int(header)))
+                            elif header:
+                                not_before=max(observed+timedelta(seconds=60),aware(parsedate_to_datetime(header)))
+                        except (ValueError,TypeError,OverflowError):
+                            pass
+                        raw_policy=canonical({'observed_at':stamp(observed),'not_before':stamp(not_before)}).encode()
+                        with tempfile.NamedTemporaryFile(dir=self.cache,delete=False) as temporary:
+                            temporary.write(raw_policy)
+                            temporary_path=Path(temporary.name)
+                        os.replace(temporary_path,policy)
+                finally:
+                    error.close()
+                raise
         if len(raw)>2_000_000:
             raise ValueError('public quote response exceeds bound')
         return {'source_url':url,'retrieved_at':stamp(datetime.now(timezone.utc)),
@@ -85,9 +135,24 @@ def collect_public(config, *, snapshot, calendar_path, source_cache, now, transp
     cache.mkdir(parents=True,exist_ok=True,mode=0o700)
     if cache.stat().st_mode & 0o077:
         raise ValueError('private source cache required')
-    transport=transport or YahooTransport(); clock=clock or (lambda:datetime.now(timezone.utc))
+    transport=transport or YahooTransport(cache); clock=clock or (lambda:datetime.now(timezone.utc))
+    fetches_before=getattr(transport,'fetches',0)
     records={}; failures=[]
+    # Reuse only history that already passed the full chart/completed-close
+    # gate for this same final session. Never cache a still-open daily bar as a
+    # final close. Retain original retrieval and provenance on every reuse.
+    try:
+        from .yahoo_chart import prepare_chart
+        retained=json.loads(private_file(config.input_manifest))
+        candidate={**retained['chart'],'cutoff':stamp(cutoff)}
+        if aware(datetime.fromisoformat(candidate['daily']['retrieved_at']))>now:
+            raise ValueError('future retained history')
+        prepare_chart(candidate,calendar,publication_session=session,cutoff=cutoff)
+        records[('IHSG','1d')]=candidate['daily']
+    except (OSError,ValueError,KeyError,TypeError,OverflowError):
+        pass
     requests=[(name,interval) for name in ['IHSG',*settings['instruments']] for interval in ('1d','60m')]
+    requests=[key for key in requests if key not in records]
     # Fourteen bounded requests maximum, no retries or alternate source routes.
     with ThreadPoolExecutor(max_workers=3) as pool:
         work={pool.submit(transport.get,name,interval):(name,interval) for name,interval in requests}
@@ -103,7 +168,7 @@ def collect_public(config, *, snapshot, calendar_path, source_cache, now, transp
                 records[key]=dict(record,artifact_path=str(cache/(identity+'.json')))
             except Exception as error:
                 failures.append(key[0]+':'+key[1]+':'+type(error).__name__)
-    globals=[]; numerical={}
+    globals=[]; numerical={}; chart=None
     for name in ['IHSG',*settings['instruments']]:
         try:
             daily,hourly=records[(name,'1d')],records[(name,'60m')]
@@ -113,6 +178,14 @@ def collect_public(config, *, snapshot, calendar_path, source_cache, now, transp
             if name=='IHSG':
                 numerical=ihsg_benchmark(daily['payload'],proof,calendar,publication_session=session,
                     retrieved_at=datetime.fromisoformat(daily['retrieved_at']),cutoff=cutoff)
+                try:
+                    from .yahoo_chart import prepare_chart, PROFILE
+                    candidate=dict(provider='yahoo',profile_revision=PROFILE,cutoff=stamp(cutoff),
+                        daily={**daily,'payload_sha256':digest(daily['payload'])},sessions=proof)
+                    prepare_chart(candidate,calendar,publication_session=session,cutoff=cutoff)
+                    chart=candidate
+                except (KeyError,ValueError,TypeError,OverflowError) as error:
+                    failures.append('IHSG:chart:'+type(error).__name__)
             else:
                 globals.append(dict(name=name,payload=daily['payload'],retrieved_at=daily['retrieved_at'],sessions=proof))
                 checked_quote=parse_yahoo_chart(name,daily['payload'],freeze_at=cutoff,
@@ -124,7 +197,8 @@ def collect_public(config, *, snapshot, calendar_path, source_cache, now, transp
             if name!='IHSG':
                 # Preserve a visible unavailable row for every configured market.
                 globals.append(dict(name=name,payload={},retrieved_at=stamp(now),sessions={'verified':False}))
-    result={'session':session.isoformat(),'cutoff':stamp(cutoff),'provider_fetches':len(requests),
+    result={'session':session.isoformat(),'cutoff':stamp(cutoff),'provider_fetches':getattr(transport,'fetches',fetches_before+len(requests))-fetches_before,
+            'history_cache_hits':int(('IHSG','1d') not in requests),
             'posts':False,'paid_requests':0,'gaps':sorted(failures),'manifest_written':False}
     if not numerical:
         return result
@@ -136,6 +210,8 @@ def collect_public(config, *, snapshot, calendar_path, source_cache, now, transp
         calendar={'path':str(Path(calendar_path).resolve()),'version':calendar.version,
                   'amendment':calendar.amendment,'sha256':calendar.import_digest},
         numerical=numerical,global_inputs=globals,calendar_snapshots=list(economic_snapshots))
+    if chart is not None:
+        value['chart']=chart
     # Each version is immutable; only this private pointer can advance before a
     # freeze. The dispatcher restores its frozen upstream after preparation.
     encoded=canonical(value).encode(); identity=hashlib.sha256(encoded).hexdigest()
@@ -148,4 +224,4 @@ def collect_public(config, *, snapshot, calendar_path, source_cache, now, transp
     write_once(temporary,encoded)
     os.replace(temporary,target)
     return dict(result,manifest_written=True,manifest_sha256=identity,
-                incomplete_sections=['economic_calendar','sector_rotation','konglo_rotation','ihsg_chart'])
+                incomplete_sections=['economic_calendar','sector_rotation','konglo_rotation']+([] if chart else ['ihsg_chart']))

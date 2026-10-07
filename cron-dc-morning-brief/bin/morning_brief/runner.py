@@ -8,7 +8,7 @@ import uuid
 from zoneinfo import ZoneInfo
 from bursawatch_discord_delivery import OperationIntent, DELIVERY_RECEIPT_WAIT_SECONDS
 from bursawatch_discord_delivery.client import NON_TERMINAL_STATUSES
-from .calendar import aware, SessionCalendar
+from .calendar import aware, SessionCalendar, restored_calendar
 from .config import load_operator_config_data, retained_operator_config, timing_for
 from .inputs import (Provenance, MembershipSnapshot, CapSnapshot, PriceSeries, ActionDecision,
                      prepare_numerical_inputs, InputUnavailable)
@@ -17,7 +17,7 @@ from .evidence import freeze_source_evidence
 from .global_markets import parse_yahoo_chart, freeze_globals
 from .economic_calendar import freeze_calendar_events
 from .outlook import freeze_bundle, write_outlook
-from .rendering import RenderedArtifact, render_rotation, render_ihsg
+from .rendering import RenderedArtifact, render_rotation, render_ihsg, render_yahoo_ihsg
 from .formatting import format_brief, attachment_caption, six_block_markdown
 from .publication import Publisher, OWNER
 from .store import canonical, digest, stamp, FreezeConflict
@@ -180,13 +180,21 @@ class MorningRunner:
         for kind in ('ihsg','sectors','konglo'):
             try:
                 if kind=='ihsg':
-                    if chart_client is None or chart_request is None: raise ValueError('chart unavailable')
-                    if aware(chart_request.cutoff)!=aware(datetime.fromisoformat(run.freeze_at)):
-                        raise ValueError('chart cutoff differs from frozen run')
-                    artifact=chart_client.render(chart_request,cache_only=True)
-                    if artifact.request.identity!=chart_request.identity:
-                        raise ValueError('chart artifact differs from selected request')
-                    rendered=render_ihsg(artifact,publication_session=session,latest_close=date.fromisoformat(inputs.payload['previous_session']))
+                    upstream=self.store.get_frozen(run.run_id,'upstream').payload
+                    context=upstream.get('chart_context')
+                    if isinstance(context,dict) and context.get('provider')=='yahoo':
+                        from .yahoo_chart import prepare_chart
+                        series=prepare_chart(context,restored_calendar(upstream['calendar']),
+                            publication_session=session,cutoff=datetime.fromisoformat(run.freeze_at))
+                        rendered=render_yahoo_ihsg(series,publication_session=session)
+                    else:
+                        if chart_client is None or chart_request is None: raise ValueError('chart unavailable')
+                        if aware(chart_request.cutoff)!=aware(datetime.fromisoformat(run.freeze_at)):
+                            raise ValueError('chart cutoff differs from frozen run')
+                        artifact=chart_client.render(chart_request,cache_only=True)
+                        if artifact.request.identity!=chart_request.identity:
+                            raise ValueError('chart artifact differs from selected request')
+                        rendered=render_ihsg(artifact,publication_session=session,latest_close=date.fromisoformat(inputs.payload['previous_session']))
                 else:
                     if not groups[kind]: raise ValueError('rotation unavailable')
                     rendered=render_rotation(groups[kind],kind=kind,publication_session=session,letters=letters if kind=='konglo' else None)
@@ -266,10 +274,7 @@ class MorningRunner:
                 else:
                     upstream=self.store.get_frozen(run.run_id,'upstream')
                     if upstream:
-                        raw=upstream.payload['calendar']
-                        calendar=SessionCalendar(**{**raw,'amendment_checked_at':datetime.fromisoformat(raw['amendment_checked_at']),
-                            'valid_from':date.fromisoformat(raw['valid_from']),'valid_through':date.fromisoformat(raw['valid_through']),
-                            'sessions':tuple(date.fromisoformat(s) for s in raw['sessions'])})
+                        calendar=restored_calendar(upstream.payload['calendar'])
                     checked=aware(calendar.amendment_checked_at)
                     if checked>cutoff or cutoff-checked>timedelta(days=7): raise ValueError('calendar amendment unavailable')
                     if not calendar.is_session(session):

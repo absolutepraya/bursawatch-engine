@@ -74,7 +74,11 @@ delivery from local tests or an installed dispatcher.
   router. No separate model pin, provider fallback or SDK retry is allowed.
   A frozen writer bundle retains its original version on recovery.
   Chart request and proof freeze in upstream before rendering; verified cached
-  bytes use `lib-chart-img`, without a live fetch in the publication dispatcher.
+  legacy provider bytes use `lib-chart-img`, without a live fetch in the dispatcher.
+  New IHSG charts use the retained Yahoo daily snapshot and
+  `lib-yahoo-market-data` for ordinary OHLC, SMA 10/20/50/100 and Wilder RSI(14).
+  Require the official preceding close, a complete three-month visible window
+  and MA100 warm-up sessions. Missing candles stay gaps, never interpolated.
 - `collect_public_inputs.py --collect-public` is a separate explicit no-post
   producer. It may fetch at most fourteen bounded Yahoo responses, without
   retries, redirects, paid requests, writer calls or publication calls. Native
@@ -83,6 +87,11 @@ delivery from local tests or an installed dispatcher.
   rows. The IHSG facts benchmark requires the previous official IDX session and
   a matching completed native bar; never substitute Yahoo for Sectors rotation
   inputs. Preparation after cutoff cannot backdate a live manifest.
+  IHSG daily collection requests one year, shared by benchmark and chart. Reuse
+  completed, verified history for the same final session with original provenance.
+  Coordinate live HTTP through the explicit private source cache; a 429 records
+  Retry-After (or a 24-hour unknown cooldown), and remaining calls stop without
+  retries. Publication and previews never fetch indicators separately.
 - BPS native Arc release responses are retained verbatim and parsed separately
   from table fixtures. Publication records are not statistical releases. Missing
   reference periods and times remain unknown. Public action IDs rotate with

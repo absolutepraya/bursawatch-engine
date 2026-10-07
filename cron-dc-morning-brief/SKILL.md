@@ -313,6 +313,13 @@ the next verified session whose configured cutoff has not passed, and makes at
 most fourteen fixed-origin Yahoo requests (daily and hourly for IHSG and the
 configured global instruments). There are no retries, redirects, Sectors or
 Chart-IMG requests, source captures, model calls, run-store creation or posts.
+IHSG daily history uses `range=1y`; the same retained response supplies both
+benchmark facts and the local chart. Other daily/hourly requests keep their
+existing one-month windows. A completed history snapshot can be reused for the
+same required latest session with its original retrieval/provenance intact.
+The explicit private source-cache directory coordinates HTTP and persists a
+429 cooldown across process restarts. Honor Retry-After; an absent or malformed
+value blocks new requests for 24 hours. No automatic retry occurs.
 The private content-addressed source records and manifest versions remain
 immutable; only the input-manifest pointer advances. Missing latest IHSG close
 or preparation completed after the cutoff cannot replace that pointer.
@@ -336,8 +343,9 @@ never promotes a publication schedule into a statistical release. Native
 frontend action discovery and automated BI/BPS retrieval remain producer work.
 
 The producer's `manifest_written=true` only proves that it retained a verified
-IHSG facts input. Its output explicitly lists incomplete calendar, rotation and
-chart sections; it is not a full-brief activation or delivery-readiness claim.
+IHSG facts input. Its output explicitly lists incomplete calendar and rotation
+sections, plus the chart when unsupported; it is not a full-brief activation or
+delivery-readiness claim.
 An official calendar amendment refresh and a scheduled pre-cutoff producer are
 still required for an unattended rollout.
 
@@ -406,6 +414,28 @@ omitted before publication. Raw global input rows contain name, Yahoo chart
 payload, retrieval instant and reviewed exchange sessions. Official calendar
 snapshots come from the shared immutable SnapshotCache. Empty calendar/global
 inputs remain gaps, not fabricated dates or zero changes.
+
+New IHSG images use `chart.provider='yahoo'` and
+`profile_revision='ihsg-yahoo-candles-sma-rsi-v1'`. This profile replaces the
+TradingView/LuxAlgo primary for new prepared inputs. The context freezes the
+exact daily payload, canonical payload checksum, original source checksum/URL,
+retrieval, native regular-period proof and exact cutoff in `upstream`.
+`yahoo_chart.prepare_chart` validates the latest completed bar against the
+official preceding IDX session and selects exactly the official sessions in
+the three-calendar-month window ending on that close. The shared
+`lib-yahoo-market-data` parses ordinary OHLC and computes simple MA 10/20/50/100
+and Wilder RSI(14) locally. Every visible MA100 value requires 99 preceding
+verified sessions; all intervening candles must exist. The chart omits when
+calendar coverage, historical warm-up, checksum, completed close or cutoff is
+unsupported. Year boundaries may require a calendar spanning the prior year.
+
+`render_yahoo_ihsg` renders a light candlestick/MA panel and RSI panel inside the
+dark branded frame, without Volume or SMC/divergence overlays. It retains exact
+visible OHLC and indicator values, history sessions, calendar/source digests,
+profile and asset revisions in the image manifest. It makes no HTTP requests
+and has no Chart-IMG store requirement. A failed Yahoo image never triggers an
+automatic provider fallback. Legacy frozen/injected Chart-IMG requests retain
+their existing proof and immutable recovery contract.
 
 One bounded writer uses the frozen bundle. Output selection is fixed by the
 frozen fallback deadline (default 07:55 WIB), with facts-only degradation on missing evidence, timeout or unsupported
@@ -497,8 +527,8 @@ offline previews. `live_runner.py` composes the existing `MorningRunner` with
 `SourceEvidenceClient`, `DeliveryClient`, and `PublicationClient`. All APIs are
 the established VPS loopback owners. The private host JSON follows
 [`runtime-config.example.json`](runtime-config.example.json); it contains paths
-to distinct host-local credentials, the private run store, the shared Chart-IMG
-store and the independently prepared live-input manifest. Operator timing,
+to distinct host-local credentials, the private run store, an optional legacy
+Chart-IMG store and the independently prepared live-input manifest. Operator timing,
 destination, instruments and emojis continue to come from the database.
 
 Run `bursawatch-dc-morning-brief-live.sh --check` first. It reads the current
@@ -527,18 +557,21 @@ and a facts-only fallback when that model is no longer selected.
 The live input manifest has version 1 and `provenance='live-retained'`, with an
 aware cutoff-visible `available_at`. It contains `calendar` (`path`, `sha256`,
 `version`, `amendment`), `numerical`, `global_inputs`, `calendar_snapshots` and
-optional `chart` (`request`, `verification`). All JSON files must be private
+optional `chart` (Yahoo context or legacy `request`/`verification`). All JSON files must be private
 regular files. Numerical, Yahoo and agenda sections use the existing owner
-shapes and retain their original independent verification rules. An optional
+shapes and retain their original independent verification rules. A legacy
 chart uses the shared cache and an exact image/request-bound external proof,
 verified by cutoff. Its request/proof freeze in upstream before rendering.
-It is never fetched by the dispatcher. Missing optional images remain explicit
+New Yahoo chart contexts use the provider/profile/daily/sessions/cutoff shape
+described above instead of request/verification. The dispatcher renders them
+from frozen data without a provider store. It is never fetched by the
+dispatcher. Missing optional images remain explicit
 omissions; missing authoritative session input cannot be repaired by weekdays.
 
 The dispatcher does not implement a live numerical/calendar producer or
 authorize historical initialization. Complete 18-session closing data,
 memberships, caps, split/action evidence, exchange/FX sessions, official agenda
-snapshots and fresh chart proofs must be supplied by a reviewed producer before
+snapshots and verified chart inputs must be supplied by a reviewed producer before
 activation. Provider access failures cannot turn preview fixtures into live
 inputs. Unknown source retention continues to select facts-only.
 
@@ -579,7 +612,7 @@ Credentials stay in host configuration, outside operator settings. The adapter
 must inject the existing shared `SectorsClient`, shared `ChartImgClient`, source
 reader, Delivery Owner and publication client with their reviewed host stores and
 provider policies. Configuration cannot authorize provider spend or bypass
-calendar/image attestations. The Sectors and Chart-IMG caches/allowances remain
+calendar/image verification. The Sectors and Chart-IMG caches/allowances remain
 separate and account-shared, never duplicated in morning state.
 
 `run_from_snapshot(snapshot, **inputs)` accepts a retained shared API snapshot

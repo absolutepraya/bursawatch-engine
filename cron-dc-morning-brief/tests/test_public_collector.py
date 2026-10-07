@@ -86,3 +86,61 @@ def test_late_preparation_never_backdates_manifest_availability(tmp_path):
         now=observed,transport=Transport(observed),clock=lambda:FREEZE+timedelta(seconds=1))
     assert not result['manifest_written'] and 'preparation_not_visible_at_cutoff' in result['gaps']
     assert Path(config.input_manifest).read_bytes()==previous
+
+
+def test_full_ihsg_history_is_shared_with_chart_and_reused_without_another_daily_fetch(tmp_path):
+    from dataclasses import asdict
+    import json
+    from morning_brief.runner import jsonable
+    from test_yahoo_chart import fixture
+    config,snap,reference=prepared(tmp_path)
+    calendar,context=fixture()
+    cal=jsonable(asdict(calendar));cal.pop('import_digest');cal['verified']=True
+    Path(reference).write_text(json.dumps(cal));Path(reference).chmod(0o600)
+    observed=FREEZE-timedelta(minutes=1)
+    class FullHistory(Transport):
+        def get(self,name,interval):
+            record=super().get(name,interval)
+            if name=='IHSG' and interval=='1d':
+                record['payload']=context['daily']['payload']
+                record['source_url']=context['daily']['source_url']
+            return record
+    first=FullHistory(observed)
+    result=collect_public(config,snapshot=snap,calendar_path=reference,source_cache=tmp_path/'sources',
+        now=observed,transport=first,clock=lambda:observed)
+    assert result['manifest_written'] and 'ihsg_chart' not in result['incomplete_sections']
+    manifest=json.loads(Path(config.input_manifest).read_text())
+    assert manifest['chart']['provider']=='yahoo' and len(first.calls)==4
+    original=manifest['chart']['daily']
+    second=FullHistory(observed+timedelta(seconds=10))
+    result=collect_public(config,snapshot=snap,calendar_path=reference,source_cache=tmp_path/'sources',
+        now=second.observed,transport=second,clock=lambda:second.observed)
+    assert result['provider_fetches']==3 and result['history_cache_hits']==1
+    assert ('IHSG','1d') not in second.calls
+    assert json.loads(Path(config.input_manifest).read_text())['chart']['daily']==original
+
+
+def test_yahoo_429_persists_shared_cooldown_without_retry_or_next_symbol_fetch(tmp_path,monkeypatch):
+    from email.message import Message
+    from io import BytesIO
+    import json
+    from urllib.error import HTTPError
+    import pytest
+    import morning_brief.public_collector as module
+    cache=tmp_path/'source-cache';cache.mkdir(mode=0o700)
+    headers=Message();headers['Retry-After']='3600'
+    calls=[]
+    class Opener:
+        def open(self,request,timeout):
+            calls.append(request.full_url)
+            raise HTTPError(request.full_url,429,'rate limited',headers,BytesIO(b''))
+    monkeypatch.setattr(module,'build_opener',lambda *_:Opener())
+    transport=module.YahooTransport(cache)
+    with pytest.raises(HTTPError):transport.get('IHSG','1d')
+    assert 'range=1y' in calls[0] and transport.fetches==1
+    policy=json.loads((cache/'yahoo-rate-limit.json').read_text())
+    assert datetime.fromisoformat(policy['not_before'])-datetime.fromisoformat(policy['observed_at'])==timedelta(hours=1)
+    assert (cache/'yahoo-rate-limit.json').stat().st_mode & 0o077==0
+    restarted=module.YahooTransport(cache)
+    with pytest.raises(ValueError,match='cooldown'):restarted.get('SPY','1d')
+    assert len(calls)==1 and restarted.fetches==0

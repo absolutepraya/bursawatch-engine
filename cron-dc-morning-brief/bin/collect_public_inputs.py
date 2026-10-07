@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 
 ROOT=Path(__file__).resolve().parents[2]
-for name in ('lib-sectors','lib-chart-img','lib-bursawatch-control','lib-bursawatch-discord-delivery'):
+for name in ('lib-sectors','lib-chart-img','lib-yahoo-market-data','lib-bursawatch-control','lib-bursawatch-discord-delivery'):
     sys.path.insert(0,str(ROOT/name/'bin'))
 
 from morning_brief.host import HostConfig, CONTROL_URL, token, private_file

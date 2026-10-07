@@ -286,3 +286,59 @@ def render_ihsg(image, *, publication_session: date, latest_close: date) -> Rend
                                 request_cutoff=checked.request.cutoff.isoformat(),retrieved_at=checked.retrieved_at.isoformat(),
                                 profile_revision=checked.request.profile_revision,layout_revision=checked.request.layout_revision,
                                 as_of=proof,provider_pixels='native unchanged',external_profile_validation='caller gate'))
+
+
+def render_yahoo_ihsg(series, *, publication_session: date) -> RenderedArtifact:
+    """Draw actual daily candles and locally calculated SMA/Wilder RSI values."""
+    bars = series['bars']; averages = series['averages']; rsi = series['rsi']
+    if not 1 <= len(bars) <= 100 or any(len(values) != len(bars) for values in (*averages.values(), rsi)):
+        raise UnsupportedImage('bounded aligned chart values required')
+    canvas = _Canvas(1600, 1160)
+    _header(canvas, 'IDX Composite Index', publication_session)
+    left, right, top, bottom = 100, 1450, 300, 790
+    rsi_top, rsi_bottom = 860, 1060
+    ink = '#343B39'; muted = '#66706C'
+    up, down = '#159C75', '#D84951'
+    colors = {'10': '#D78019', '20': '#2775C9', '50': '#8B56B5', '100': '#3D8D77'}
+    for bounds in ((80, 240, 1520, 825), (80, 845, 1520, 1080)):
+        canvas.draw.rounded_rectangle(bounds, radius=16, fill='#F8FAF9', outline=GOLD, width=2)
+    for index, (period, color) in enumerate(colors.items()):
+        canvas.text(110 + 325 * index, 259, f'MA {period}  {averages[period][-1]:,.2f}', 22, color, True)
+    values = [value for bar in bars for value in (bar.low, bar.high)]
+    values.extend(value for row in averages.values() for value in row)
+    low, high = min(values), max(values)
+    padding = max((high - low) * .08, high * .003)
+    low -= padding; high += padding
+    step = (right - left) / len(bars)
+    xs = [left + (index + .5) * step for index in range(len(bars))]
+    def price_y(value): return bottom - (value - low) / (high - low) * (bottom - top)
+    body_width = min(12, step * .65)
+    for x, bar in zip(xs, bars):
+        color = up if bar.close >= bar.open else down
+        canvas.draw.line((x, price_y(bar.high), x, price_y(bar.low)), fill=color, width=2)
+        y0, y1 = sorted((price_y(bar.open), price_y(bar.close)))
+        canvas.draw.rectangle((x - body_width / 2, y0, x + body_width / 2, max(y1, y0 + 1)), fill=color)
+    for period, color in colors.items():
+        canvas.draw.line([(x, price_y(value)) for x, value in zip(xs, averages[period])], fill=color, width=3)
+    for fraction in (0, .25, .5, .75, 1):
+        value = low + fraction * (high - low)
+        canvas.text(1500, price_y(value), f'{value:,.0f}', 19, muted, anchor='rm')
+    def rsi_y(value): return rsi_bottom - value / 100 * (rsi_bottom - rsi_top)
+    for level in (30, 70):
+        y = rsi_y(level)
+        for x in range(left, right, 16):
+            canvas.draw.line((x, y, min(x + 8, right), y), fill='#CAD3CE', width=1)
+        canvas.text(1500, y, str(level), 19, muted, anchor='rm')
+    canvas.draw.line([(x, rsi_y(value)) for x, value in zip(xs, rsi)], fill='#8656A5', width=3)
+    canvas.text(110, 870, f'RSI (14)  {rsi[-1]:.2f}', 22, ink, True)
+    indexes = sorted({round(index * (len(bars) - 1) / 4) for index in range(5)})
+    for index in indexes:
+        canvas.text(xs[index], 1095, bars[index].session.strftime('%d %b'), 20, MUTED, anchor='mt')
+    canvas.text(80, 1130, f'Yahoo Finance · Daily · Close {bars[-1].session.isoformat()}', 18, MUTED)
+    manifest = dict(kind='ihsg', provider='yahoo', publication_session=publication_session.isoformat(),
+        price_bounds=[left, top, right, bottom], rsi_bounds=[left, rsi_top, right, rsi_bottom],
+        candles=[dict(session=bar.session.isoformat(), open=bar.open, high=bar.high,
+                      low=bar.low, close=bar.close) for bar in bars],
+        moving_averages={key: list(values) for key, values in averages.items()}, rsi=list(rsi),
+        ma_colors=colors, provenance=series['provenance'])
+    return _artifact(canvas, manifest)

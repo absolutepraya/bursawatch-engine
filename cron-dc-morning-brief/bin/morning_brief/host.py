@@ -12,7 +12,7 @@ from pathlib import Path
 import stat
 from zoneinfo import ZoneInfo
 
-from .calendar import SessionCalendar, aware
+from .calendar import SessionCalendar, aware, restored_calendar
 from .config import OWNER, load_operator_config_data, timing_for
 from .runner import MorningRunner
 from .store import RunStore
@@ -67,14 +67,6 @@ class HostConfig:
         return cls(**json.loads(private_file(path, max_bytes=16_384)))
 
 
-def restored_calendar(payload):
-    return SessionCalendar(**{**payload,
-        'amendment_checked_at': datetime.fromisoformat(payload['amendment_checked_at']),
-        'valid_from': date.fromisoformat(payload['valid_from']),
-        'valid_through': date.fromisoformat(payload['valid_through']),
-        'sessions': tuple(date.fromisoformat(s) for s in payload['sessions'])})
-
-
 def load_inputs(path, *, cutoff):
     value = json.loads(private_file(path))
     if (set(value) - {'version', 'provenance', 'available_at', 'calendar', 'numerical',
@@ -112,7 +104,7 @@ class VerifiedChartCache:
 
 def chart_inputs(config, value, cutoff):
     chart = value.get('chart')
-    if chart is None:
+    if chart is None or isinstance(chart, dict) and chart.get('provider') == 'yahoo':
         return None, None
     if not config.chart_store or not Path(config.chart_store).is_file():
         raise ValueError('shared chart store unavailable')
