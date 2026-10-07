@@ -681,13 +681,22 @@ rotation preparation without a verified trading session, and still prepares
 global/agenda inputs near cutoff. No mode extends calendar verification or
 infers numerical sessions from weekdays.
 
-`bursawatch-dc-morning-brief-scheduled.sh` is the reviewed wrapper for the exact
+`bursawatch-dc-morning-brief-scheduled.sh` is the reviewed dispatcher wrapper for the exact
 `bursawatch-dc-morning-brief` runtime job name. The source schedule is a paused
 60-second interval in manual migration 024 and the reconciler allowlist.
 Default cutoff/delivery remain 07:30/08:00 WIB. Jobs controls can change desired
 enabled state; morning timing, instruments and logos remain in its watcher
 configuration. The minute interval itself is fixed so the source-capture
 on-time grace is meaningful.
+
+Hermes command jobs do not forward script arguments. Their explicit live
+entrypoint is `bursawatch-dc-morning-brief-job.sh`, installed under
+`~/.hermes/scripts/` at mode 0755. It accepts no arguments and invokes the
+scheduled wrapper with `--live`. Register this one job with `--no-agent
+--deliver local`; the morning owner performs any bounded model call internally
+and exclusively delivers through the shared Delivery Owner. Hermes must not
+forward the command's JSON stdout into a Discord channel. Manual no-post checks
+continue to use the scheduled wrapper with `--check`.
 
 Installing the wrapper at mode 0755, registering a paused Hermes command job,
 applying the manual migration and reconciler code, checking source/input

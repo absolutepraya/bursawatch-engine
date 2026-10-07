@@ -124,3 +124,7 @@ delivery from local tests or an installed dispatcher.
   times. Missing/stale official calendars remain fatal for `idx_sessions`;
   `weekdays` keeps global preparation and factual delivery with visible omissions.
   An installed wrapper or paused desired schedule does not prove readiness.
+- The Hermes command job uses `bursawatch-dc-morning-brief-job.sh`, which accepts
+  no arguments and explicitly invokes the installed scheduled wrapper with
+  `--live`. Register with `--no-agent --deliver local` so the owner alone handles
+  Discord delivery. The scheduled wrapper's manual `--check` remains no-post.
