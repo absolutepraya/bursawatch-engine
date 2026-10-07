@@ -58,7 +58,7 @@ export function HeroFlow() {
       </div>
       <DiscordWindow
         className="hero-message"
-        label="Contoh pesan asli Bursawatch di channel id-stocks-news"
+        label="Contoh pesan Bursawatch di channel id-stocks-news, dengan data sektor dari Sectors"
         title={<># id-stocks-news</>}
       >
         <FeedItem message={NEWS_FEED[0]} />

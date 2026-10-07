@@ -38,7 +38,7 @@ export function DiscordWindow({
   );
 }
 
-function BotHeader({ time }: { time: string }) {
+function BotHeader({ time, via }: { time: string; via?: string }) {
   return (
     <div className="dc-head">
       <Image className="dc-avatar" src="/landing/bot-avatar.png" alt="" width={40} height={40} />
@@ -46,6 +46,7 @@ function BotHeader({ time }: { time: string }) {
         <span className="dc-bot">Bursawatch</span>
         <span className="dc-app">APP</span>
         <span className="dc-time">{time}</span>
+        {via ? <span className="dc-via">· {via}</span> : null}
       </div>
     </div>
   );
@@ -55,10 +56,19 @@ export function SourceIcon({ name, size = 20 }: { name: string; size?: number })
   return <Image className="dc-src" src={src(name)} alt="" width={size} height={size} />;
 }
 
-export function PriceBlock({ last, rows }: { last: string; rows: PriceRow[] }) {
+export function PriceBlock({ last, rows, cap }: { last: string; rows: PriceRow[]; cap?: string }) {
   return (
     <div className="dc-price">
-      Harga terakhir (IDR): <b>{last}</b>
+      <div className="dc-price-head">
+        <span>
+          Harga terakhir (IDR): <b>{last}</b>
+        </span>
+        {cap ? (
+          <span>
+            Kapitalisasi pasar: <b>{cap}</b>
+          </span>
+        ) : null}
+      </div>
       <ul>
         {rows.map((row) => (
           <li key={row.label}>
@@ -71,14 +81,58 @@ export function PriceBlock({ last, rows }: { last: string; rows: PriceRow[] }) {
   );
 }
 
+const SENTIMENT_GLYPH = { up: "\u25B2", down: "\u25BC", flat: "\u25CF" } as const;
+
+/** Sector from Sectors, analyst consensus and a sentiment read (samples are marked "contoh"). */
+export function SectorsCard({ sector, consensus, sentiment }: NonNullable<FeedMessage["sectors"]>) {
+  return (
+    <div className="dc-sectors-card" data-tone={sentiment.tone}>
+      <Image className="dc-sectors-ico" src={src("sectors-mark")} alt="" width={28} height={28} />
+      <dl>
+        <div>
+          <dt>Sektor</dt>
+          <dd>{sector}</dd>
+        </div>
+        <div className="dc-sectors-cons">
+          <dt>Konsensus analis</dt>
+          <dd>
+            {"\u25B2"} {consensus.rating} <span>({consensus.detail})</span>
+          </dd>
+        </div>
+        <div className="dc-sectors-sent">
+          <dt>Sentimen</dt>
+          <dd>
+            {SENTIMENT_GLYPH[sentiment.tone]} {sentiment.label}
+          </dd>
+        </div>
+      </dl>
+      <em className="dc-sectors-sample">contoh</em>
+    </div>
+  );
+}
+
+/** Marks an analysis part that is computed with Sectors data. */
+export function SectorsBadge({ label }: { label: string }) {
+  return (
+    <p className="dc-text dc-sectors-badge">
+      <Image className="dc-sectors-ico" src={src("sectors-mark")} alt="" width={20} height={20} />
+      <span>
+        Sectors <i>· {label}</i>
+      </span>
+    </p>
+  );
+}
+
 export function BotMessage({
   time,
+  via,
   source,
   title,
   children,
   className = "",
 }: {
   time: string;
+  via?: string;
   source?: string;
   title: ReactNode;
   children?: ReactNode;
@@ -86,7 +140,7 @@ export function BotMessage({
 }) {
   return (
     <article className={`dc-msg ${className}`.trim()}>
-      <BotHeader time={time} />
+      <BotHeader time={time} via={via} />
       <div className="dc-body">
         <h3 className="dc-title">
           {source ? <SourceIcon name={source} /> : null}
@@ -100,7 +154,7 @@ export function BotMessage({
 
 export function FeedItem({ message }: { message: FeedMessage }) {
   return (
-    <BotMessage time={message.time} source={message.source} title={message.title}>
+    <BotMessage time={message.time} via={message.via} source={message.source} title={message.title}>
       {message.author ? (
         <div className="dc-author">
           <span className="dc-author-av">
@@ -121,7 +175,8 @@ export function FeedItem({ message }: { message: FeedMessage }) {
       <p className="dc-text">
         <i>(Ringkasan)</i> {message.summary}
       </p>
-      {message.price ? <PriceBlock {...message.price} /> : null}
+      {message.price ? <PriceBlock {...message.price} cap={message.cap} /> : null}
+      {message.sectors ? <SectorsCard {...message.sectors} /> : null}
       {message.image ? (
         <Image
           className="dc-img"

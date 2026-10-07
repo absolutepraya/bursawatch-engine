@@ -12,32 +12,49 @@ export const src = (name: string) => `${SRC}/${name}.png`;
 export type PriceTone = "up" | "down";
 export type PriceRow = { label: string; value: string; tone: PriceTone };
 
+export type Sentiment = { tone: "up" | "down" | "flat"; label: string };
+
 export type FeedMessage = {
   time: string;
   source: string;
   title: string;
   author?: { name: string; avatar: string; badge?: string };
+  via: string;
   summary: string;
   price?: { last: string; rows: PriceRow[] };
+  cap?: string;
+  sectors?: {
+    sector: string;
+    consensus: { rating: string; detail: string; sample?: boolean };
+    sentiment: Sentiment;
+  };
   image?: { src: string; alt: string; width: number; height: number };
 };
 
-/** The hero delivery: a real #id-stocks-news message. */
+/** The hero delivery: a real #id-stocks-news message (7 Oct 2026, title and summary shortened) in the current format. */
 export const NEWS_FEED: FeedMessage[] = [
   {
-    time: "Hari ini 18.00",
+    time: "Hari ini 09.22",
     source: "tuntun",
-    title: "TRUK: PT Pukul Rata Kanan mengajukan VTO maksimal 65,25 juta saham",
+    via: "Tuntun",
+    title: "REAL: Bersiap akuisisi HIGEN untuk ekspansi data center",
     summary:
-      "PT Pukul Rata Kanan mengajukan VTO maksimal 65,25 juta saham atau 15% saham TRUK pada harga Rp740 per saham.",
+      "REAL bersiap mengakuisisi PT Quanta Tunas Abadi (HIGEN) untuk masuk ke data center dan managed service. Anak usahanya, RGST, meneken MoU dengan HIGEN pada 6 Oktober 2026.",
     price: {
-      last: "2.580",
+      last: "52",
       rows: [
-        { label: "1D", value: "+510 (+24,64%)", tone: "up" },
-        { label: "1W", value: "+1.160 (+81,69%)", tone: "up" },
-        { label: "1M", value: "+1.815 (+237,25%)", tone: "up" },
-        { label: "3M", value: "+2.158 (+511,37%)", tone: "up" },
+        { label: "1D", value: "+9 (+20,93%)", tone: "up" },
+        { label: "1W", value: "+17 (+48,57%)", tone: "up" },
+        { label: "1M", value: "+2 (+4,00%)", tone: "up" },
+        { label: "3M", value: "+2 (+4,00%)", tone: "up" },
       ],
+    },
+    cap: "Rp285,2 M",
+    // Sector comes from Sectors; the analyst numbers and the sentiment read are samples until they feed in.
+    sectors: {
+      sector: "Properties & Real Estate",
+      consensus: { rating: "BUY", detail: "2 analis, 100% Buy", sample: true },
+      sentiment: { tone: "up", label: "Positif" },
     },
   },
 ];

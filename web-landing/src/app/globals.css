@@ -1123,6 +1123,121 @@ time,
   color: var(--dc-muted);
   font-size: 0.75rem;
 }
+.dc-sectors-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 10px 0 0;
+  padding: 3px 12px 3px 4px;
+  border: 1px solid #3a3a41;
+  border-radius: 999px;
+  background: #242429;
+  color: var(--dc-text) !important;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.dc-sectors-badge i {
+  color: var(--dc-muted);
+  font-style: normal;
+  font-weight: 600;
+}
+.dc-sectors-ico {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+}
+.dc-via {
+  margin-left: 6px;
+  color: var(--dc-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.dc-price-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 12px;
+}
+.dc-sectors-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 8px 14px 8px 16px;
+  overflow: hidden;
+  border: 1px solid #34343b;
+  border-radius: 8px;
+  background: #202026;
+}
+.dc-sectors-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(180deg, #e0003c, #f76400);
+}
+.dc-sectors-card .dc-sectors-ico {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}
+.dc-sectors-card dl {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 0;
+  padding-top: 6px;
+}
+.dc-sectors-card dl > div {
+  white-space: nowrap;
+}
+.dc-sectors-card dt {
+  color: var(--dc-muted);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.dc-sectors-card .dc-sectors-cons dd {
+  color: #2ee65f;
+}
+.dc-sectors-card .dc-sectors-cons dd span {
+  color: var(--dc-muted);
+  font-weight: 600;
+}
+.dc-sectors-sample {
+  position: absolute;
+  top: 3px;
+  right: 8px;
+  color: #6f747b;
+  font-size: 0.625rem;
+  font-style: normal;
+  font-weight: 600;
+}
+.dc-sectors-card dd {
+  margin: 0;
+  color: #eeeae3;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+.dc-sectors-sent {
+  margin-left: auto;
+}
+.dc-sectors-card[data-tone="up"] .dc-sectors-sent dd {
+  color: #2ee65f;
+}
+.dc-sectors-card[data-tone="down"] .dc-sectors-sent dd {
+  color: #f23f43;
+}
+.dc-sectors-card[data-tone="flat"] .dc-sectors-sent dd {
+  color: #c9ccd0;
+}
 .dc-link {
   color: #4a9bf5;
 }
@@ -1665,6 +1780,9 @@ time,
 }
 .hero-message .dc-price li:nth-child(4) {
   --n: 3;
+}
+.hero-message .dc-sectors-card {
+  animation: hero-chip-in 0.3s ease-out 1.75s both;
 }
 .lp-hero-copy > * {
   animation: hero-copy-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;

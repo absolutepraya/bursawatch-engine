@@ -1,6 +1,6 @@
 import Image from "next/image";
 import type { ReactNode } from "react";
-import { BotMessage, DiscordWindow } from "@/components/discord";
+import { BotMessage, DiscordWindow, SectorsBadge } from "@/components/discord";
 import { BRIEF, src, type PriceTone } from "@/lib/landing-content";
 
 /** The Bursawatch Pagi example: one brief and two rotation posts. Dummy figures. */
@@ -16,7 +16,7 @@ function BriefImage({ file, alt }: { file: string; alt: string }) {
       src={`/landing/brief/${file}.png`}
       alt={alt}
       width={1400}
-      height={file === "ihsg-branded" ? 1225 : 894}
+      height={file === "ihsg-real-yahoo" ? 1160 : 894}
       sizes="(max-width: 700px) 85vw, 440px"
     />
   );
@@ -26,6 +26,7 @@ function Rotation({
   time,
   emoji,
   title,
+  badge,
   lead,
   rows,
   image,
@@ -33,6 +34,7 @@ function Rotation({
   time: string;
   emoji: string;
   title: string;
+  badge: string;
   lead: ReactNode;
   rows: readonly (readonly [string, string, string])[];
   image: { file: string; alt: string };
@@ -40,6 +42,7 @@ function Rotation({
   return (
     <BotMessage time={time} title={`${emoji} ${title}: ${BRIEF.date}`}>
       <p className="dc-text dc-note">{BRIEF.timing}</p>
+      <SectorsBadge label={badge} />
       <p className="dc-text">{lead}</p>
       <ul className="dc-list">
         {rows.map(([name, phase, detail]) => (
@@ -69,6 +72,7 @@ export function MorningBrief() {
     >
       <BotMessage time="Senin 08.00" title={`🌇 BURSAWATCH PAGI: ${BRIEF.date}`}>
         <p className="dc-text dc-note">{BRIEF.timing}</p>
+        <SectorsBadge label="outlook IHSG" />
         <p className="dc-text">
           <b>IHSG: {BRIEF.verdict}</b> {BRIEF.scenario}
         </p>
@@ -100,12 +104,16 @@ export function MorningBrief() {
             </li>
           ))}
         </ul>
-        <BriefImage file="ihsg-branded" alt="Chart harian IHSG dengan RSI 14 di area 30" />
+        <BriefImage
+          file="ihsg-real-yahoo"
+          alt="Chart harian IHSG dengan rata-rata bergerak MA 10, 20, 50, 100 dan RSI 14 di 43"
+        />
       </BotMessage>
       <Rotation
         time="Senin 08.00"
         emoji="🏭"
         title="ROTASI SEKTOR"
+        badge="rotasi sektor"
         lead={
           <>
             <b>Energy masih memimpin; Financials mulai mengejar.</b> Technology tetap unggul
@@ -122,6 +130,7 @@ export function MorningBrief() {
         time="Senin 08.00"
         emoji="🐉"
         title="ROTASI KONGLO"
+        badge="rotasi konglo"
         lead={
           <>
             <b>Barito memimpin, Djarum membaik, Astra kehilangan momentum.</b> Ketiganya menunjukkan
