@@ -20,11 +20,15 @@ Packages use these names:
   own an independent job or provide an adapter called by an existing job.
 - `bursawatch-<surface>-<purpose>` is its VPS runtime identity.
 - `lib-<purpose>` is shared imported code.
-- `skill-<purpose>` is a reusable non-scheduled skill.
+- Reusable non-scheduled skills live under `.agents/skills/<name>/`, not in top-level `skill-*` directories.
 - `service-<purpose>` is a deployable daemon or service definition.
 - `platform-<purpose>` is host-bound supporting code.
 
 The package inventory and its current production roles are in `README.md`.
+`README.md` is also the public entry point: keep its overview, architecture
+diagrams (`docs/images/`, plus the Mermaid system map) and package inventory
+aligned with the code in the same change, and keep its cron inventory table
+header intact because `tests/test_documentation_contract.py` parses it.
 The production schedule is not one job per package: the active Telegram
 source-ingest job owns Telegram intake, while the X, WhatsApp, and Stockbit
 adapters run through their existing watcher jobs. The Instagram source adapter

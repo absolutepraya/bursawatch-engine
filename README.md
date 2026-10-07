@@ -1,8 +1,127 @@
+<p align="center">
+  <img src="bursawatch.png" alt="Bursawatch logo" width="120">
+</p>
+
 # Bursawatch
 
 [![CI](https://github.com/absolutepraya/bursawatch-engine/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/absolutepraya/bursawatch-engine/actions/workflows/ci.yml)
 
-Bursawatch is the Mac development source for market-focused Hermes automation
+**Indonesian stock-market information, curated and delivered to Discord.**
+Bursawatch watches the places Indonesian retail investors already read
+(Telegram channels, X, WhatsApp, Instagram, Stockbit, RSS, IDX disclosures),
+filters out the noise with an AI judgment step, writes a short Indonesian
+summary with a source link, and posts it to Discord exactly once. It also keeps
+a live board of analyst swing-trading plans and publishes a pre-market morning
+brief.
+
+Product site: [bursawatch.abhipraya.dev](https://bursawatch.abhipraya.dev/) ·
+Operator workspace: [dash.bursawatch.abhipraya.dev](https://dash.bursawatch.abhipraya.dev/workspace)
+
+## What it does
+
+| Product | What you get |
+|---|---|
+| **News pipeline** | Company, industry and macro news as separate cards, each with a source link. Company news carries 1D, 1W, 1M and 3M price moves. |
+| **Swing trading plan** | Analyst calls (Phintraco, Kelas Investasi, X analysts and more) normalized into one format and tracked on a board, one thread per plan, as price moves from entry toward target or stop-loss. |
+| **Morning brief** | A frozen-evidence pre-market brief for the IHSG session with sector and conglomerate rotation charts, published only after delivery receipts confirm each step. |
+
+## Architecture
+
+Every product shares one skeleton: **sources, intake, durable inbox, AI
+judgment, delivery owner, Discord**. Rules and configuration live in a database
+that the web config app edits, so changing a rule in the web app takes effect
+on the next run. No send is ever duplicated: every message has an operation key
+and a receipt, so retries are safe.
+
+### 1. News pipeline
+
+![News pipeline architecture](docs/images/news-pipeline.png)
+
+Sources are polled by Python cron adapters, saved in a durable SQLite inbox
+(timestamped, linked and deduplicated), judged by an AI step for relevance with
+an Indonesian title and summary, and sent through the delivery owner to
+Discord. A company catalog (Sectors data and filings) lets the impact check
+name a company only when it can state a mechanism, which then shapes the
+industry, company and macro cards.
+
+### 2. Swing trading plan
+
+![Swing trading plan architecture](docs/images/swing-trading-plan.png)
+
+Source watchers parse qualifying calls from analyst sources and dedupe them.
+AI summarizes the X and Kelas Investasi calls, and one shared swing format
+renders every alert. The swing board itself is rule-based: it uses no AI and
+infers no prices. It updates each plan's status from market data, from entry to
+target or stop-loss.
+
+### 3. Morning brief
+
+![Morning brief architecture](docs/images/morning-brief.png)
+
+The morning brief owner freezes its evidence at the 07:30 WIB cutoff, targets
+delivery at 08:00 WIB and builds sector and konglo rotation views from cached
+Sectors price and market-cap data. Publication is receipt-gated: each step
+waits for a confirmed delivery before the next one runs, and the frozen attempt
+deadline is 08:15 WIB.
+
+### System map
+
+```mermaid
+flowchart LR
+  subgraph Config["Configuration"]
+    Web["web-config<br/>Next.js on Vercel"] --> API["service-bursawatch-control<br/>config + observability API"]
+    API --> DB[("Supabase<br/>rules and schedules")]
+  end
+
+  subgraph Sources["Sources"]
+    TG[Telegram]
+    X[X]
+    WA[WhatsApp]
+    IG[Instagram]
+    RSS[Stockbit RSS]
+  end
+
+  subgraph Runtime["VPS runtime (Hermes crons)"]
+    Intake["cron-*-source-ingest<br/>adapters"] --> Inbox[("Durable inbox")]
+    Inbox --> Owners["Domain owners<br/>news, swing, morning brief"]
+    Owners --> Media["service-bursawatch-source-media<br/>private media storage"]
+  end
+
+  Sources --> Intake
+  DB -. "rules, live" .-> Intake
+  DB -. "rules, live" .-> Owners
+  Owners --> Delivery["service-bursawatch-discord-delivery<br/>key, retries, receipt"]
+  Delivery --> Discord[(Discord)]
+
+  subgraph Release["Release"]
+    CI["GitHub Actions CI"] --> Agent["platform-bursawatch-release<br/>VPS release agent"]
+  end
+  Agent -. "deploys allowlisted units" .-> Runtime
+```
+
+## Tech stack
+
+Python (standard-library-first crons and services), Hermes agent scheduler,
+SQLite durable inboxes, Supabase (database, auth and private storage),
+Next.js web apps (Node 24) on Vercel, Discord bot delivery, Yahoo Finance and Sectors
+market data, GitHub Actions CI with a VPS-local pull-based release agent.
+
+## Repository guide
+
+- **Crons** (`cron-<surface>-<purpose>`): one package per source adapter or
+  domain owner. See the inventory below.
+- **Services** (`service-bursawatch-*`): the control API, Discord delivery
+  owner and source-media owner, each with its own README.
+- **Libraries** (`lib-*`): shared clients and formatters.
+- **Platform** (`platform-*`): release agent, observer and schedule reconciler.
+- **Web** (`web-landing`, `web-config`): the public site and operator workspace.
+- **Skills** (`.agents/skills/`): reusable, non-scheduled agent skills.
+- **Docs** (`docs/`): ADRs, specs and history. Start at the
+  [documentation guide](docs/README.md).
+
+## Package inventory and engineering notes
+
+This repository is the Mac development source for market-focused Hermes automation
 and its two web applications.
 Its scheduled packages deploy to the VPS as `bursawatch-<slug>`. Hermes
 Personal is a separate repository at `~/Documents/Projects/Hermes-Personal`,
