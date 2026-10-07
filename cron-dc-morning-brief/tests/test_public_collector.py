@@ -144,3 +144,35 @@ def test_yahoo_429_persists_shared_cooldown_without_retry_or_next_symbol_fetch(t
     restarted=module.YahooTransport(cache)
     with pytest.raises(ValueError,match='cooldown'):restarted.get('SPY','1d')
     assert len(calls)==1 and restarted.fetches==0
+
+
+def test_cap_guest_handshake_is_counted_and_never_retained_in_source_url(tmp_path,monkeypatch):
+    import json
+    import morning_brief.public_collector as module
+    cache=tmp_path/'source-cache';cache.mkdir(mode=0o700)
+    transport=module.YahooTransport(cache);calls=[]
+    def download(url):
+        calls.append(url);transport.fetches+=1
+        if url.endswith('/getcrumb'):return b'private-guest-value'
+        if url=='https://fc.yahoo.com':return b''
+        return json.dumps(dict(quoteResponse=dict(error=None,result=[]))).encode()
+    monkeypatch.setattr(transport,'_download',download)
+    record=transport.cap_quotes(['BBCA'])
+    assert transport.fetches==3 and 'crumb=' in calls[-1]
+    assert 'private-guest-value' not in json.dumps(record) and 'crumb=' not in record['source_url']
+    transport.cap_quotes(['DSSA'])
+    assert transport.fetches==4 and not list(cache.iterdir())
+
+
+def test_bad_or_stale_rotation_cannot_override_verified_benchmark(tmp_path):
+    import json
+    config,snap,reference=prepared(tmp_path);observed=FREEZE-timedelta(minutes=1)
+    from morning_brief.store import digest
+    wrong=dict(version=1,provenance='live-retained',available_at=observed.isoformat(),
+        calendar_sha256=digest({}),publication_session='2026-10-05',closing_session='2026-10-02',
+        numerical={'benchmark':{'2026-10-02':99999}})
+    result=collect_public(config,snapshot=snap,calendar_path=reference,source_cache=tmp_path/'sources',
+        now=observed,transport=Transport(observed),clock=lambda:observed,rotation_snapshot=wrong)
+    assert result['manifest_written'] and 'rotation:retained_window_unavailable' in result['gaps']
+    actual=json.loads(Path(config.input_manifest).read_text())
+    assert actual['numerical']['benchmark']['2026-10-02']==102.

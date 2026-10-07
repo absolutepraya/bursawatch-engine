@@ -22,6 +22,7 @@ def main(argv=None):
     parser.add_argument('--calendar-snapshot',type=Path,required=True)
     parser.add_argument('--source-cache',type=Path,required=True)
     parser.add_argument('--economic-snapshot',type=Path,action='append',default=[])
+    parser.add_argument('--rotation-snapshot',type=Path)
     parser.add_argument('--collect-public',action='store_true',required=True)
     args=parser.parse_args(argv)
     try:
@@ -30,7 +31,8 @@ def main(argv=None):
         snapshot={'api_version':1,**asdict(fetch_config(CONTROL_URL,OWNER,token(config.config_token_file)))}
         result=collect_public(config,snapshot=snapshot,calendar_path=args.calendar_snapshot,
             source_cache=args.source_cache,now=datetime.now(timezone.utc),
-            economic_snapshots=[json.loads(private_file(path,max_bytes=2_000_000)) for path in args.economic_snapshot])
+            economic_snapshots=[json.loads(private_file(path,max_bytes=2_000_000)) for path in args.economic_snapshot],
+            rotation_snapshot=json.loads(private_file(args.rotation_snapshot)) if args.rotation_snapshot else None)
     except Exception as error:
         result={'manifest_written':False,'reason':type(error).__name__,'posts':False}
     print(json.dumps(result,sort_keys=True))

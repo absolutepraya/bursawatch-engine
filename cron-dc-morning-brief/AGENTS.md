@@ -9,8 +9,11 @@ delivery from local tests or an installed dispatcher.
 - Imports perform no IO. Constructors and caller configuration are explicit.
 - Default mode is cache-only. Synthetic fixtures require explicit preview inputs;
   never replace missing real evidence with synthetic prices, calendars or text.
-- Use the existing `lib-sectors` shared provider store and immutable generations.
-  The morning run database is separate. Do not duplicate its budget/cache ledger.
+- New numerical production uses the shared Yahoo parser and the explicit private
+  producer cache. Exact native cap quotes and ordinary split-adjusted Close are
+  required. Do not reconstruct missing caps or automatically switch providers.
+  Retained legacy Sectors consumers still use `lib-sectors` and its shared
+  provider ledger. The morning run database is separate from both caches.
 - Preserve supplied CSV bytes and overlap semantics. Sector membership is imported
   once with official-first fallback provenance, without an automatic refresh.
 - Use a verified, versioned IDX calendar and amendment check. Never infer sessions
@@ -85,13 +88,24 @@ delivery from local tests or an installed dispatcher.
   hourly `tradingPeriods` establish session windows; daily timestamps cannot
   establish schedules. Preserve unavailable configured instruments as visible
   rows. The IHSG facts benchmark requires the previous official IDX session and
-  a matching completed native bar; never substitute Yahoo for Sectors rotation
-  inputs. Preparation after cutoff cannot backdate a live manifest.
+  a matching completed native bar. The separately bounded Yahoo rotation
+  producer supplies all eighteen stock levels, action/trading evidence and
+  basket-specific cap snapshots. Preparation after cutoff cannot backdate a live manifest.
   IHSG daily collection requests one year, shared by benchmark and chart. Reuse
   completed, verified history for the same final session with original provenance.
   Coordinate live HTTP through the explicit private source cache; a 429 records
   Retry-After (or a 24-hour unknown cooldown), and remaining calls stop without
   retries. Publication and previews never fetch indicators separately.
+- `collect_rotation_inputs.py --collect-public` resumes at most 24 HTTP calls
+  by default, with an explicit limit of 3 to 64. Count public guest-session
+  handshake calls. Use the same Yahoo HTTP lock/cooldown; no credentials or
+  cookies are persisted. Keep missing native caps missing. Reuse each complete
+  basket's current/previous-week snapshot without changing its collection date;
+  expired snapshots omit that basket. Preserve original memberships and require
+  90-percent cap coverage by verified trading-price series. Retain invalid stock
+  responses for the closing window, so every tick cannot refetch halted stocks.
+  New closing sessions use new immutable history sources. A producer manifest
+  proves retained inputs, not a supported basket or natural delivery.
 - BPS native Arc release responses are retained verbatim and parsed separately
   from table fixtures. Publication records are not statistical releases. Missing
   reference periods and times remain unknown. Public action IDs rotate with

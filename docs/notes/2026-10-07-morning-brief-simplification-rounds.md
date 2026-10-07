@@ -67,6 +67,21 @@ the weekly Yahoo refresh is incomplete. Otherwise omit the affected basket,
 disclose its unavailability and continue the other brief sections. Do not
 substitute equal weights, invent caps or automatically query Sectors.
 
+### Full native cap check and confirmed omission policy
+
+On 7 October, twelve bounded public Yahoo requests (two guest-session calls
+and ten exact quote batches) returned valid native IDR caps for 917 of the fixed
+962 stock symbols. All 34 conglomerate baskets had complete caps. Each of the
+11 sector baskets lacked at least one native cap. The private retained responses
+are validation inputs, not production snapshots or price-coverage proof.
+
+The user explicitly confirmed keeping Yahoo and omitting unsupported sectors.
+Do not replace missing native caps, remove members from the fixed mapping or
+automatically spend Sectors credits. The bounded producer now retains native
+quotes and daily action/trading evidence with restart-safe chunking, per-basket
+cap fallback and the original age/90-percent coverage rules. Activation and
+natural delivery remain separate verification work.
+
 ## Problem 3: IHSG chart dependencies
 
 ### Facts checked

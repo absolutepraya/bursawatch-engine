@@ -134,10 +134,13 @@ class MorningRunner:
                 facts=[dict(label=f'IHSG close {previous.isoformat()}',value=value,unit='poin')]
         else: gaps.append('benchmark_attestation_unavailable')
         try:
-            raw_caps=data['caps']
-            caps=CapSnapshot(**{**raw_caps,'collected_at':datetime.fromisoformat(raw_caps['collected_at']),
-                'effective_date':date.fromisoformat(raw_caps['effective_date']) if raw_caps['effective_date'] else None,
-                'provenance':Provenance(**raw_caps['provenance'])})
+            def restore_caps(raw_caps):
+                return CapSnapshot(**{**raw_caps,'collected_at':datetime.fromisoformat(raw_caps['collected_at']),
+                    'effective_date':date.fromisoformat(raw_caps['effective_date']) if raw_caps['effective_date'] else None,
+                    'provenance':Provenance(**raw_caps['provenance'])})
+            caps=restore_caps(data['caps']) if data.get('caps') else None
+            basket_caps={kind:{name:restore_caps(raw) for name,raw in rows.items()}
+                         for kind,rows in data.get('caps_by_basket',{}).items()}
             prices={}
             for symbol,row in data.get('prices',{}).items():
                 attested=_attested(row,data.get('price_attestations',{}).get(symbol,{}),cutoff,records)
@@ -145,20 +148,25 @@ class MorningRunner:
                 if not attested: gaps.append('price_attestation_unavailable:'+symbol)
             actions=tuple(ActionDecision(**a) for a in action_manifest) if actions_valid else ()
         except (KeyError,ValueError,TypeError):
-            caps=None; prices={}; actions=(); gaps.append('numerical_inputs_unavailable')
+            caps=None; basket_caps={}; prices={}; actions=(); gaps.append('numerical_inputs_unavailable')
         for kind in groups:
             try:
-                if caps is None or not benchmark_valid or not actions_valid: raise InputUnavailable('verified inputs unavailable')
+                if not benchmark_valid or not actions_valid: raise InputUnavailable('verified inputs unavailable')
                 row=data['memberships'][kind]
                 membership=MembershipSnapshot(**{**row,'provenance':Provenance(**row['provenance']),
                     'collected_at':datetime.fromisoformat(row['collected_at']) if row.get('collected_at') else None,
                     'ownership_as_of':date.fromisoformat(row['ownership_as_of']) if row.get('ownership_as_of') else None,
                     'groups':{k:tuple(v) for k,v in row['groups'].items()}})
-                validated=prepare_numerical_inputs(calendar,membership,caps,prices,benchmark,through=previous,
-                    publication_session=date.fromisoformat(run.session),freeze_at=cutoff,actions=actions)
                 for name in sorted(membership.groups):
-                    try: groups[kind].append(jsonable(calculate_from_inputs(name,validated)))
-                    except UnsupportedBasket: gaps.append(kind+':unsupported:'+name)
+                    try:
+                        selected_caps=basket_caps.get(kind,{}).get(name,caps)
+                        if selected_caps is None: raise InputUnavailable('basket caps unavailable')
+                        selected_membership=MembershipSnapshot(**{**membership.__dict__,
+                            'groups':{name:membership.groups[name]}})
+                        validated=prepare_numerical_inputs(calendar,selected_membership,selected_caps,prices,benchmark,through=previous,
+                            publication_session=date.fromisoformat(run.session),freeze_at=cutoff,actions=actions)
+                        groups[kind].append(jsonable(calculate_from_inputs(name,validated)))
+                    except (UnsupportedBasket,InputUnavailable,ValueError): gaps.append(kind+':unsupported:'+name)
             except (InputUnavailable,ValueError,KeyError,TypeError): gaps.append(kind+':unavailable')
         payload=dict(groups=groups,gaps=sorted(set(gaps)),facts=facts,cutoff=run.freeze_at,
             previous_session=previous.isoformat(),attestation_policy='external-caller/hash-and-cutoff-bound',

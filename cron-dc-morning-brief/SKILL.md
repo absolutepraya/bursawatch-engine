@@ -23,7 +23,7 @@ mode='cache_only')` requires separate paths and accepts only cache-only or
 explicit synthetic-preview mode. It does not load environment credentials or
 construct a provider client. `from_mapping` rejects unknown fields.
 
-All Sectors consumers must share one explicitly configured private host-local
+Retained legacy Sectors consumers must share one explicitly configured private host-local
 provider coordination store and billing window. `lib-sectors` owns budgets,
 leases, immutable cache versions and request generations. Weekly caps use a
 caller-owned generation such as `caps:2026-W41`. A morning run's SQLite database
@@ -329,7 +329,7 @@ or preparation completed after the cutoff cannot replace that pointer.
 timezone, interval, overlap and coverage checks. No weekday, trading-hour or FX
 rollover defaults are used. `ihsg_benchmark` verifies the latest completed close
 against the immediately preceding official IDX session for independent facts.
-It does not provide Sectors rotation prices, action compatibility or weights.
+It does not independently provide rotation prices, action compatibility or weights.
 Missing configured global inputs become explicit unavailable rows, including
 when an operator adds an instrument after source preparation.
 
@@ -348,6 +348,57 @@ sections, plus the chart when unsupported; it is not a full-brief activation or
 delivery-readiness claim.
 An official calendar amendment refresh and a scheduled pre-cutoff producer are
 still required for an unattended rollout.
+
+### Bounded Yahoo rotation production
+
+The separate `collect_rotation_inputs.py --collect-public` command reads the
+same revisioned operator timing and an explicit private `--references` file.
+That file contains `sectors` and `konglo` entries with absolute `path`, exact
+`sha256`, stable `version` and `source_url`; sectors also requires
+`official_check_reference`. Original membership bytes remain private retained
+inputs. Keep the imported 11-sector/962-stock universe and the supplied
+34-group/188-stock CSV overlaps unchanged.
+
+```sh
+python collect_rotation_inputs.py --collect-public \
+  --runtime-config /private/host-config.json \
+  --calendar-snapshot /private/verified-idx-calendar.json \
+  --references /private/fixed-membership-references.json \
+  --source-cache /private/morning-sources --request-limit 24
+```
+
+Each pass permits 3 to 64 HTTP calls, default 24, including two public guest
+handshake calls when native cap quotes first need them. Exact 100-symbol quote
+batches avoid an incomplete regional screener. Cookies and guest crumbs stay
+in memory and never enter retained sources. Stock daily responses request
+three months and native dividends/splits. `lib-yahoo-market-data` validates
+all 18 official aligned closing sessions, ordinary split-adjusted Close and
+positive trading volume on every required day. Never apply native splits a
+second time or add dividends; unknown actions reject that stock. Native
+`tradeable` is not an IDX eligibility check. Collection runs after the prior
+closing date and before the upcoming configured cutoff. No paid provider,
+writer, source-capture, run-store or publication calls occur.
+Only members of baskets with a complete usable cap snapshot need historical
+price requests; unsupported sectors do not generate unnecessary daily calls.
+
+A private producer lock prevents concurrent mutation. Content-addressed native
+records are immutable; the compact index contains only checksum-bound refs.
+Each closing window resumes without refetching completed or invalid stocks.
+All Yahoo calls share the HTTP lock and 429 cooldown with the global/chart
+collector. Stop a pass after a provider failure, without retries or source
+switching. Caps refresh in a stable weekly generation. Each complete basket
+retains its own immutable cap identity and original collection time; a partial
+refresh can reuse a valid prior-week basket, then expires it under the existing
+policy. Missing native caps remain missing. Each basket still requires a cap
+for every original member and at least 90-percent eligible price coverage.
+
+The producer advances only `rotation-current.json` and retains each manifest
+version. Pass this explicit file to `collect_public_inputs.py` using
+`--rotation-snapshot /private/morning-sources/rotation-current.json`. It must
+match the upcoming publication/closing session, calendar checksum and cutoff;
+preview, future or stale windows cannot replace numerical inputs. The runner
+assesses caps separately for each basket, preserving mixed snapshot ages and
+omitting only unsupported baskets. Manifests do not certify full coverage.
 
 `import_idx_calendar.py --pdf <private-file> --listing-envelope <private-file>
 --output <absolute-new-file>` imports retained primary evidence without network
@@ -568,8 +619,8 @@ from frozen data without a provider store. It is never fetched by the
 dispatcher. Missing optional images remain explicit
 omissions; missing authoritative session input cannot be repaired by weekdays.
 
-The dispatcher does not implement a live numerical/calendar producer or
-authorize historical initialization. Complete 18-session closing data,
+The dispatcher never performs producer HTTP requests or
+authorizes paid historical initialization. The separate bounded Yahoo producer supplies 18-session closing data,
 memberships, caps, split/action evidence, exchange/FX sessions, official agenda
 snapshots and verified chart inputs must be supplied by a reviewed producer before
 activation. Provider access failures cannot turn preview fixtures into live
@@ -626,7 +677,7 @@ cutoff edit from skipping source history. Missing original history still degrade
 honestly. Legacy explicitly injected local callers retain their old 07:30/08:00
 contract; do not promote those sessions into the database-backed runtime.
 
-This configuration implementation does not supply live Yahoo/BI/BPS adapters,
+This configuration implementation does not activate the separate Yahoo producers or supply live BI/BPS acquisition,
 verified IDX calendars, shared provider stores, TradingView layouts or host
 credentials. Those are production rollout gates, as are reviewed schedule
 activation and the first natural delivery. No synthetic post validates them.

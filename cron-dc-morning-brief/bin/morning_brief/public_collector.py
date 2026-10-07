@@ -13,9 +13,10 @@ import os
 import stat
 import tempfile
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from urllib.error import HTTPError
-from urllib.request import Request, build_opener, HTTPRedirectHandler
+from urllib.request import Request, build_opener, HTTPRedirectHandler, HTTPCookieProcessor
+from http.cookiejar import CookieJar
 
 from .calendar import SessionCalendar, aware
 from .config import load_operator_config_data, timing_for
@@ -46,6 +47,9 @@ class YahooTransport:
     def __init__(self, source_cache):
         self.cache=Path(source_cache)
         self.fetches=0
+        self.cookies=CookieJar()
+        self.crumb=None
+        self.opener=build_opener(NoRedirect(),HTTPCookieProcessor(self.cookies))
 
     def get(self, name, granularity):
         symbol=WATCHLIST[name][0] if name in WATCHLIST else '^JKSE'
@@ -54,7 +58,44 @@ class YahooTransport:
         history_range='1y' if name=='IHSG' and granularity=='1d' else '1mo'
         url=('https://query1.finance.yahoo.com/v8/finance/chart/'+quote(symbol,safe='')
             +'?interval='+granularity+'&range='+history_range+'&includePrePost=false&includeTradingPeriods=true')
-        request=Request(url,headers={'User-Agent':'Bursawatch-Morning/1.0'})
+        return self._record(url)
+
+    def stock_history(self, symbol):
+        from .inputs import symbol as validate_symbol
+        ticker=validate_symbol(symbol)+'.JK'
+        url=('https://query1.finance.yahoo.com/v8/finance/chart/'+quote(ticker,safe='')
+             +'?interval=1d&range=3mo&events=div%2Csplits&includePrePost=false')
+        return self._record(url)
+
+    def cap_quotes(self, symbols):
+        from .inputs import symbol as validate_symbol
+        symbols=tuple(validate_symbol(s)+'.JK' for s in symbols)
+        if not 1<=len(symbols)<=100 or len(set(symbols))!=len(symbols):
+            raise ValueError('bounded exact cap request required')
+        if self.crumb is None:
+            # Public guest session only, no personal authentication or persisted
+            # cookies. Handshake calls count toward this producer's request cap.
+            try:
+                self._download('https://fc.yahoo.com')
+            except HTTPError as error:
+                if error.code!=404: raise
+            raw=self._download('https://query1.finance.yahoo.com/v1/test/getcrumb')
+            crumb=raw.decode('utf-8')
+            if not crumb or len(crumb)>64 or '<' in crumb or '\n' in crumb:
+                raise ValueError('public guest session unavailable')
+            self.crumb=crumb
+        source_url='https://query1.finance.yahoo.com/v7/finance/quote?'+urlencode({'symbols':','.join(symbols)})
+        raw=self._download(source_url+'&'+urlencode({'crumb':self.crumb}))
+        # Never retain the guest crumb, cookies or authenticated request URL.
+        return self._record(source_url,raw=raw)
+
+    def _record(self, url, *, raw=None):
+        raw=self._download(url) if raw is None else raw
+        return {'source_url':url,'retrieved_at':stamp(datetime.now(timezone.utc)),
+                'source_sha256':hashlib.sha256(raw).hexdigest(),'payload':json.loads(raw)}
+
+    def _download(self, url):
+        request=Request(url,headers={'User-Agent':'Mozilla/5.0 (Bursawatch-Morning)'})
         # One explicit shared source directory coordinates the producer's
         # concurrent requests and persists 429 cooldown across process restarts.
         if not self.cache.is_absolute() or self.cache.is_symlink() or self.cache.stat().st_mode & 0o077:
@@ -73,7 +114,7 @@ class YahooTransport:
                     raise ValueError('Yahoo source cooldown active')
             self.fetches+=1
             try:
-                with build_opener(NoRedirect()).open(request,timeout=5) as response:
+                with self.opener.open(request,timeout=5) as response:
                     raw=response.read(2_000_001)
             except HTTPError as error:
                 try:
@@ -98,12 +139,11 @@ class YahooTransport:
                 raise
         if len(raw)>2_000_000:
             raise ValueError('public quote response exceeds bound')
-        return {'source_url':url,'retrieved_at':stamp(datetime.now(timezone.utc)),
-                'source_sha256':hashlib.sha256(raw).hexdigest(),'payload':json.loads(raw)}
+        return raw
 
 
 def collect_public(config, *, snapshot, calendar_path, source_cache, now, transport=None, clock=None,
-                   economic_snapshots=()):
+                   economic_snapshots=(), rotation_snapshot=None):
     """Collect actual snapshots for the next configured, verified IDX freeze.
 
     Collected data after today's freeze is for a future session, never a current
@@ -202,6 +242,18 @@ def collect_public(config, *, snapshot, calendar_path, source_cache, now, transp
             'posts':False,'paid_requests':0,'gaps':sorted(failures),'manifest_written':False}
     if not numerical:
         return result
+    rotation_ready=False
+    if rotation_snapshot is not None:
+        try:
+            from .rotation_collector import retained_rotation, unsupported_sections
+            rotation=retained_rotation(rotation_snapshot,calendar=calendar,publication_session=session,cutoff=cutoff,observed_at=now)
+            if set(rotation)-{'memberships','caps_by_basket','prices','price_attestations','actions','actions_attestation'}:
+                raise ValueError('unexpected rotation fields')
+            rotation_sections=unsupported_sections(rotation)
+            numerical={**numerical,**rotation}
+            rotation_ready=True
+        except (ValueError,KeyError,TypeError,OverflowError):
+            failures.append('rotation:retained_window_unavailable')
     completed=aware(clock())
     if not now <= completed <= cutoff or any(datetime.fromisoformat(r['retrieved_at'])>completed for r in records.values()):
         return dict(result,gaps=sorted([*failures,'preparation_not_visible_at_cutoff']))
@@ -223,5 +275,6 @@ def collect_public(config, *, snapshot, calendar_path, source_cache, now, transp
     temporary=target.with_name(target.name+'.'+identity+'.tmp')
     write_once(temporary,encoded)
     os.replace(temporary,target)
-    return dict(result,manifest_written=True,manifest_sha256=identity,
-                incomplete_sections=['economic_calendar','sector_rotation','konglo_rotation']+([] if chart else ['ihsg_chart']))
+    rotations=rotation_sections if rotation_ready else ['sector_rotation','konglo_rotation']
+    return dict(result,manifest_written=True,manifest_sha256=identity,gaps=sorted(failures),
+                incomplete_sections=['economic_calendar',*rotations]+([] if chart else ['ihsg_chart']))
