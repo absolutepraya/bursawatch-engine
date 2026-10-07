@@ -635,6 +635,8 @@ inputs. Unknown source retention continues to select facts-only.
 configuration is version 1 and contains absolute distinct `calendar_snapshot`,
 `references`, `source_cache` paths plus optional `economic_snapshots` paths.
 It contains no credentials or replacements for database operator timings.
+`producer-config.example.json` is a path-only provisioning template, not proof
+that those files exist or that primary-source refresh is configured.
 
 Check mode validates retained membership references and the existing dispatcher
 readiness without creating stores, HTTP provider requests, model resolution,
