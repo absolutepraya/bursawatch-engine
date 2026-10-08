@@ -438,52 +438,106 @@ time,
   bottom: -3px;
   border-radius: 3px;
 }
-.hero-merge {
+.hero-funnel {
   position: relative;
-  height: 112px;
 }
-.hero-merge > svg {
-  position: absolute;
-  inset: 0 0 auto;
+.hero-funnel > svg {
+  display: block;
   width: 100%;
-  height: 64px;
+  height: auto;
+  overflow: visible;
 }
-.hero-merge > svg path {
+.fn-thread {
   fill: none;
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+}
+.fn-in {
+  stroke: url(#fn-in);
+}
+.fn-out {
+  stroke: url(#fn-out);
+}
+.fn-streak {
+  fill: none;
+  stroke: var(--accent-strong);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-dasharray: 0.1 1.2;
+  opacity: 0;
+}
+.fn-frag {
+  opacity: 0;
+}
+.fn-glow {
+  transform-origin: 270px 120px;
+}
+.fn-frag rect {
+  fill: var(--surface-soft);
   stroke: var(--accent);
-  stroke-width: 2;
-  stroke-dasharray: 4 5;
-  vector-effect: non-scaling-stroke;
-  opacity: 0.7;
+  stroke-width: 1;
+}
+.fn-frag path {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.4;
+  stroke-linecap: round;
 }
 .hero-node {
   position: absolute;
   left: 50%;
-  top: 56px;
+  top: 47.6%;
   display: grid;
   place-items: center;
-  width: 48px;
-  height: 48px;
-  margin-left: -24px;
+  width: 64px;
+  height: 64px;
+  margin: -32px 0 0 -32px;
   border: 1px solid var(--accent);
   border-radius: 50%;
   background: var(--accent-soft);
+  box-shadow: 0 0 36px rgb(222 167 119 / 0.28);
   color: var(--accent);
 }
 .hero-node svg {
-  width: 26px;
-  height: 26px;
+  width: 34px;
+  height: 34px;
 }
-.hero-merge::after {
-  content: "";
+.hero-enrich {
+  position: relative;
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: -1px 28px 0 0;
+  overflow: hidden;
+  padding: 7px 16px 7px 9px;
+  border-radius: 0 0 14px 14px;
+  background: linear-gradient(90deg, #e0003c, #f76400);
+  box-shadow: 0 10px 24px rgb(247 100 0 / 0.3);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+.hero-enrich img {
+  border-radius: 6px;
+  background: #fff;
+}
+.hero-enrich i {
   position: absolute;
-  left: 50%;
-  top: 104px;
-  bottom: 0;
-  width: 2px;
-  margin-left: -1px;
-  background: var(--accent);
-  opacity: 0.7;
+  inset: 0 auto 0 0;
+  width: 40%;
+  background: linear-gradient(
+    100deg,
+    rgb(255 255 255 / 0),
+    rgb(255 255 255 / 0.8),
+    rgb(255 255 255 / 0)
+  );
+  opacity: 0;
+  transform: translateX(-120%) skewX(-20deg);
 }
 
 /* ---- Discord recreation ---- */
@@ -703,6 +757,49 @@ time,
 }
 
 /* ---- pain ---- */
+.lp-proof {
+  width: min(1180px, calc(100% - 64px));
+  margin: 0 auto;
+  padding-bottom: clamp(48px, 7vw, 88px);
+}
+.lp-proof ul {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.lp-proof li {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 22px 24px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.lp-proof strong {
+  color: var(--accent);
+  font-size: clamp(1.5rem, 2.6vw, 2.125rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+.lp-proof li span {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.lp-proof small {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+.lp-proof > p {
+  margin: 14px 0 0;
+  color: var(--subtle);
+  font-size: 0.75rem;
+}
 .lp-pain h2 {
   max-width: 15em;
 }
@@ -1080,6 +1177,112 @@ time,
   color: var(--dc-muted);
   font-size: 0.75rem;
 }
+.dc-sectors-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 10px 0 0;
+  padding: 3px 12px 3px 4px;
+  border: 1px solid #3a3a41;
+  border-radius: 999px;
+  background: #242429;
+  color: var(--dc-text) !important;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.dc-sectors-badge i {
+  color: var(--dc-muted);
+  font-style: normal;
+  font-weight: 600;
+}
+.dc-sectors-ico {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+}
+.dc-via {
+  margin-left: 6px;
+  color: var(--dc-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.dc-price-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 12px;
+}
+.dc-sectors-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 8px 14px 8px 16px;
+  overflow: hidden;
+  border: 1px solid #34343b;
+  border-radius: 8px;
+  background: #202026;
+}
+.dc-sectors-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(180deg, #e0003c, #f76400);
+}
+.dc-sectors-card .dc-sectors-ico {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}
+.dc-sectors-card dl {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 0;
+  padding-top: 6px;
+}
+.dc-sectors-card dl > div {
+  white-space: nowrap;
+}
+.dc-sectors-card dt {
+  color: var(--dc-muted);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.dc-sectors-card .dc-sectors-cons dd {
+  color: #2ee65f;
+}
+.dc-sectors-card .dc-sectors-cons dd span {
+  color: var(--dc-muted);
+  font-weight: 600;
+}
+.dc-sectors-card dd {
+  margin: 0;
+  color: #eeeae3;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+.dc-sectors-sent {
+  margin-left: auto;
+}
+.dc-sectors-card[data-tone="up"] .dc-sectors-sent dd {
+  color: #2ee65f;
+}
+.dc-sectors-card[data-tone="down"] .dc-sectors-sent dd {
+  color: #f23f43;
+}
+.dc-sectors-card[data-tone="flat"] .dc-sectors-sent dd {
+  color: #c9ccd0;
+}
 .dc-link {
   color: #4a9bf5;
 }
@@ -1109,7 +1312,7 @@ time,
   border-radius: 50%;
 }
 .brief-img {
-  width: min(100%, 440px);
+  width: 100%;
 }
 
 /* ---- config ---- */
@@ -1407,7 +1610,15 @@ time,
     gap: 12px;
   }
 }
+@media (max-width: 860px) {
+  .lp-proof ul {
+    grid-template-columns: 1fr;
+  }
+}
 @media (max-width: 600px) {
+  .lp-proof {
+    width: calc(100% - 32px);
+  }
   .lp-header,
   .lp-hero,
   .lp-section,
@@ -1489,22 +1700,6 @@ time,
     background: var(--surface);
   }
 }
-@keyframes hero-fade-70 {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 0.7;
-  }
-}
-@keyframes hero-pulse {
-  from {
-    stroke-dashoffset: 0.16;
-  }
-  to {
-    stroke-dashoffset: -1;
-  }
-}
 @keyframes hero-node-in {
   from {
     opacity: 0;
@@ -1533,14 +1728,6 @@ time,
     transform: scale(2.4);
   }
 }
-@keyframes hero-stem {
-  from {
-    transform: scaleY(0);
-  }
-  to {
-    transform: scaleY(1);
-  }
-}
 @keyframes hero-rise {
   from {
     opacity: 0;
@@ -1567,22 +1754,139 @@ time,
     hero-chip-lit 0.8s ease-out both;
   animation-delay: calc(0.08s + var(--i) * 0.05s), calc(0.08s + var(--i) * 0.05s);
 }
-.hero-merge > svg path:not(.hero-pulse) {
-  animation: hero-fade-70 0.3s ease-out 0.4s both;
+@keyframes hero-glow {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
 }
-.hero-pulse {
-  fill: none;
-  stroke: var(--accent-strong);
-  stroke-width: 3;
-  stroke-linecap: round;
-  stroke-dasharray: 0.16 2;
-  animation: hero-pulse 0.45s ease-in-out both;
-  animation-delay: calc(0.5s + var(--i) * 0.07s);
+@keyframes fn-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+@keyframes fn-streak {
+  from {
+    stroke-dashoffset: 0.1;
+    opacity: 1;
+  }
+  to {
+    stroke-dashoffset: -1.1;
+    opacity: 1;
+  }
+}
+@keyframes fn-frag {
+  0% {
+    offset-distance: 0%;
+    opacity: 0;
+    transform: scale(1);
+  }
+  15% {
+    opacity: 1;
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+    transform: scale(0.35);
+  }
+}
+@keyframes hero-enrich-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scaleY(0.4);
+  }
+}
+@keyframes hero-sheen {
+  0% {
+    opacity: 1;
+    transform: translateX(-120%) skewX(-20deg);
+  }
+  22%,
+  100% {
+    opacity: 1;
+    transform: translateX(320%) skewX(-20deg);
+  }
+}
+@keyframes hero-ring-loop {
+  0% {
+    opacity: 0;
+    transform: scale(1);
+  }
+  6% {
+    opacity: 0.7;
+  }
+  30%,
+  100% {
+    opacity: 0;
+    transform: scale(2.4);
+  }
+}
+@keyframes fn-frag-loop {
+  0% {
+    offset-distance: 0%;
+    opacity: 0;
+    transform: scale(1);
+  }
+  4% {
+    opacity: 1;
+  }
+  26% {
+    opacity: 1;
+  }
+  33%,
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+    transform: scale(0.35);
+  }
+}
+@keyframes fn-breathe {
+  from {
+    opacity: 0.7;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.fn-glow {
+  animation:
+    hero-glow 0.9s ease-out 0.5s backwards,
+    fn-breathe 3.2s ease-in-out 1.4s infinite alternate;
+}
+.fn-in {
+  animation: fn-draw 0.7s ease-out backwards;
+  animation-delay: calc(0.35s + var(--i) * 0.025s);
+}
+.fn-streak:not(.fn-streak-out) {
+  animation: fn-streak 2.6s ease-in-out infinite;
+  animation-delay: calc(0.6s + var(--i) * 0.17s);
+}
+.fn-frag {
+  animation: fn-frag-loop 3.6s ease-in infinite;
+  animation-delay: calc(0.55s + var(--i) * 0.6s);
+}
+.fn-out {
+  animation: fn-draw 0.55s ease-out backwards;
+  animation-delay: calc(1.45s + var(--i) * 0.03s);
+}
+.fn-streak-out {
+  animation: fn-streak 2.2s ease-in-out infinite;
+  animation-delay: calc(1.65s + var(--i) * 0.24s);
+}
+.hero-enrich {
+  transform-origin: 50% 0;
+  animation: hero-enrich-in 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.3) 2.3s backwards;
+}
+.hero-enrich i {
+  animation: hero-sheen 4.5s ease-in-out 2.7s infinite;
 }
 .hero-node {
   animation:
     hero-node-in 0.25s ease-out 0.45s both,
-    hero-node-pop 0.35s ease-in-out 1s both;
+    hero-node-pop 0.4s ease-in-out 1.3s both;
 }
 .hero-node::after {
   content: "";
@@ -1590,18 +1894,14 @@ time,
   inset: -1px;
   border: 1px solid var(--accent);
   border-radius: 50%;
-  animation: hero-ring 0.7s ease-out 1s both;
-}
-.hero-merge::after {
-  transform-origin: top;
-  animation: hero-stem 0.2s ease-out 1.05s both;
+  animation: hero-ring-loop 3s ease-out 1.3s infinite;
 }
 .hero-message {
-  animation: hero-rise 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) 1.1s both;
+  animation: hero-rise 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) 1.9s both;
 }
 .hero-message .dc-price li {
   animation: hero-chip-in 0.3s ease-out both;
-  animation-delay: calc(1.4s + var(--n, 0) * 0.06s);
+  animation-delay: calc(2.2s + var(--n, 0) * 0.06s);
 }
 .hero-message .dc-price li:nth-child(1) {
   --n: 0;
@@ -1614,6 +1914,9 @@ time,
 }
 .hero-message .dc-price li:nth-child(4) {
   --n: 3;
+}
+.hero-message .dc-sectors-card {
+  animation: hero-chip-in 0.3s ease-out 2.55s both;
 }
 .lp-hero-copy > * {
   animation: hero-copy-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;

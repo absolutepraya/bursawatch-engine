@@ -46,7 +46,7 @@ try {
   }
 
   for (const label of [
-    "Contoh pesan asli Bursawatch di channel id-stocks-news",
+    "Contoh pesan Bursawatch di channel id-stocks-news, dengan data sektor dari Sectors",
     "Contoh forum swing board Bursawatch",
     "Contoh thread trading plan ENRG",
     "Contoh morning brief Bursawatch Pagi",
@@ -54,7 +54,15 @@ try {
     await page.getByRole("figure", { name: label }).waitFor();
   }
   assert.equal(await page.getByRole("img", { name: /^Contoh pengaturan:/ }).count(), 4);
-  await page.getByText("contoh dengan angka dummy", { exact: false }).waitFor();
+  const proof = page.getByRole("region", { name: "Bukti dari pesan nyata" });
+  await proof.getByText("269 dari 269 pesan yang diukur").waitFor();
+  await proof.getByText("Diukur dari pesan Bursawatch", { exact: false }).waitFor();
+  await page.getByText("pratinjau dengan data pasar", { exact: false }).waitFor();
+  await page.getByText("Konsensus analis", { exact: true }).first().waitFor();
+  const brief = page.getByRole("figure", { name: "Contoh morning brief Bursawatch Pagi" });
+  for (const part of ["outlook IHSG", "rotasi sektor", "rotasi konglo"]) {
+    await brief.getByText(`· ${part}`).waitFor();
+  }
   for (const image of await page.locator("img").all()) {
     await image.scrollIntoViewIfNeeded();
     assert.ok(
@@ -131,7 +139,7 @@ try {
     "Beats below the fold wait for the viewport",
   );
   for (const beat of await motion.locator("[data-reveal], [data-stagger], [data-seq]").all()) {
-    await beat.scrollIntoViewIfNeeded();
+    await beat.evaluate((el) => el.scrollIntoView({ block: "center" }));
     const handle = await beat.elementHandle();
     await motion.waitForFunction((el) => el.hasAttribute("data-inview"), handle);
   }

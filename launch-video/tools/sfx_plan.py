@@ -32,9 +32,13 @@ E += [(19.6, "whoosh", 0.3)]
 E.append((19.78, "pop", 0.38))
 for i in range(5):
     E.append((20.23 + 0.25 * i + 0.06, "pop", 0.28))
+# "Enriched by Sectors" tab drops under each pill
+for i in range(5):
+    E.append((19.73 + 1.9 + i * 0.17 + 0.12, "click-soft", 0.24))
 E.append((23.12, "whoosh", 0.35))
 for i in range(3):
     E.append((23.48 + 0.5 * i + 0.08, "ping", 0.3))
+    E.append((24.19 + 0.5 * i, "click-soft", 0.2))  # Sectors card resolves
 # s4: open, scroll, search keys, click, thread, punch
 E += [(26.08, "whoosh-short", 0.28), (26.5, "whoosh", 0.25)]
 for i in range(4):
@@ -43,6 +47,7 @@ E += [(30.55, "click", 0.55), (30.8, "whoosh-short", 0.28), (32.26, "impact-bass
 # s5 (34.27): open, phase morphs (2.5 / 2.0 / 2.5 / 3.0s), verdict
 E += [(34.1, "whoosh-short", 0.28)]
 E += [(36.81, "whoosh-short", 0.18), (38.81, "whoosh-short", 0.18), (41.31, "whoosh-short", 0.18)]
+E += [(36.77 + 0.62, "click-soft", 0.22), (38.77 + 0.62, "click-soft", 0.22), (41.27 + 0.62, "click-soft", 0.22)]  # Sectors badges
 E += [(42.79, "key-press", 0.4), (43.05, "key-press", 0.4), (43.29, "pop", 0.4)]
 # s6 (44.29): one click and one stamp per quadrant, then the "lainnya" pill
 for q in [44.29, 45.79, 47.29, 48.79]:

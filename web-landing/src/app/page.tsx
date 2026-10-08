@@ -17,6 +17,7 @@ import {
   CHANNELS,
   DEMO_DISCORD_URL,
   ENRG_PLAN,
+  PROOF,
   FORUM_POSTS,
   SOURCES,
   src,
@@ -76,6 +77,19 @@ export default function LandingPage() {
             </div>
           </div>
           <HeroFlow />
+        </section>
+
+        <section className="lp-proof" aria-label="Bukti dari pesan nyata">
+          <ul data-stagger>
+            {PROOF.items.map((item) => (
+              <li key={item.figure}>
+                <strong>{item.figure}</strong>
+                <span>{item.label}</span>
+                <small>{item.detail}</small>
+              </li>
+            ))}
+          </ul>
+          <p>{PROOF.note}</p>
         </section>
 
         <section className="lp-section lp-pain" aria-labelledby="pain-title">
@@ -232,13 +246,12 @@ export default function LandingPage() {
             </h2>
             <p>Sebelum market buka, satu rangkuman buat nentuin langkah hari ini:</p>
             <ol className="lp-brief-list">
-              <li>Arah IHSG, level kunci dan rencana pantau.</li>
-              <li>Katalis yang perlu diperhatikan hari ini.</li>
-              <li>Pasar global: KOSPI, NIKKEI dan QQQ.</li>
-              <li>Agenda rilis data Indonesia berikutnya.</li>
+              <li>Penutupan IHSG terakhir, level kunci dan outlook dari media.</li>
+              <li>Pasar global: KOSPI, Nikkei, SPY, QQQ, EIDO dan USD/IDR.</li>
+              <li>Agenda ekonomi Indonesia berikutnya.</li>
               <li>Rotasi sektor dan rotasi konglo terhadap IHSG.</li>
             </ol>
-            <p className="lp-brief-note">Contoh di samping pakai angka dummy.</p>
+            <p className="lp-brief-note">Pratinjau di samping pakai data pasar 7 Okt 2026.</p>
           </div>
           <div data-reveal style={{ "--d": "120ms" } as CSSProperties}>
             <MorningBrief />
@@ -283,8 +296,8 @@ export default function LandingPage() {
         <Brand />
         <p>
           Berita dan trading plan di halaman ini diambil dari pengiriman asli Bursawatch, 16 Sep
-          sampai 1 Okt 2026. Morning brief di atas adalah contoh dengan angka dummy. Informasi,
-          bukan ajakan jual/beli saham.
+          sampai 1 Okt 2026. Morning brief di atas adalah pratinjau dengan data pasar 7 Okt 2026.
+          Informasi, bukan ajakan jual/beli saham.
         </p>
         <nav className="lp-footer-links" aria-label="Workspace">
           <a href={workspace.demo}>Workspace demo</a>

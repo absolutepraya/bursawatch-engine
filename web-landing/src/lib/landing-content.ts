@@ -12,32 +12,49 @@ export const src = (name: string) => `${SRC}/${name}.png`;
 export type PriceTone = "up" | "down";
 export type PriceRow = { label: string; value: string; tone: PriceTone };
 
+export type Sentiment = { tone: "up" | "down" | "flat"; label: string };
+
 export type FeedMessage = {
   time: string;
   source: string;
   title: string;
   author?: { name: string; avatar: string; badge?: string };
+  via: string;
   summary: string;
   price?: { last: string; rows: PriceRow[] };
+  cap?: string;
+  sectors?: {
+    sector: string;
+    consensus: { rating: string; detail: string };
+    sentiment: Sentiment;
+  };
   image?: { src: string; alt: string; width: number; height: number };
 };
 
-/** The hero delivery: a real #id-stocks-news message. */
+/** The hero delivery: a real #id-stocks-news message (7 Oct 2026, title and summary shortened) in the current format. */
 export const NEWS_FEED: FeedMessage[] = [
   {
-    time: "Hari ini 18.00",
+    time: "Hari ini 09.22",
     source: "tuntun",
-    title: "TRUK: PT Pukul Rata Kanan mengajukan VTO maksimal 65,25 juta saham",
+    via: "Tuntun",
+    title: "REAL: Bersiap akuisisi HIGEN untuk ekspansi data center",
     summary:
-      "PT Pukul Rata Kanan mengajukan VTO maksimal 65,25 juta saham atau 15% saham TRUK pada harga Rp740 per saham.",
+      "REAL bersiap mengakuisisi PT Quanta Tunas Abadi (HIGEN) untuk masuk ke data center dan managed service. Anak usahanya, RGST, meneken MoU dengan HIGEN pada 6 Oktober 2026.",
     price: {
-      last: "2.580",
+      last: "52",
       rows: [
-        { label: "1D", value: "+510 (+24,64%)", tone: "up" },
-        { label: "1W", value: "+1.160 (+81,69%)", tone: "up" },
-        { label: "1M", value: "+1.815 (+237,25%)", tone: "up" },
-        { label: "3M", value: "+2.158 (+511,37%)", tone: "up" },
+        { label: "1D", value: "+9 (+20,93%)", tone: "up" },
+        { label: "1W", value: "+17 (+48,57%)", tone: "up" },
+        { label: "1M", value: "+2 (+4,00%)", tone: "up" },
+        { label: "3M", value: "+2 (+4,00%)", tone: "up" },
       ],
+    },
+    cap: "Rp285,2 M",
+    // Sector comes from Sectors; the analyst numbers and the sentiment read are samples until they feed in.
+    sectors: {
+      sector: "Properties & Real Estate",
+      consensus: { rating: "BUY", detail: "8 analis, 100% Buy" },
+      sentiment: { tone: "up", label: "Positif" },
     },
   },
 ];
@@ -123,6 +140,28 @@ export const CHANNELS = [
   },
 ] as const;
 
+/** Measured on Bursawatch deliveries, 25 Aug to 5 Oct 2026. Re-measure before changing the numbers. */
+export const PROOF = {
+  note: "Diukur dari pesan Bursawatch 25 Agu sampai 5 Okt 2026: 269 pesan di lima channel, dan 154 pos X untuk kecepatan.",
+  items: [
+    {
+      figure: "100%",
+      label: "pesan punya link ke sumber aslinya",
+      detail: "269 dari 269 pesan yang diukur",
+    },
+    {
+      figure: "22 menit",
+      label: "median dari pos asli sampai ke Discord kamu",
+      detail: "7 dari 10 pos X sampai dalam 30 menit",
+    },
+    {
+      figure: "Dari teks sumber",
+      label: "ringkasan berdasar isi sumber, bukan tebakan AI",
+      detail: "Harga diambil dari data pasar",
+    },
+  ],
+} as const;
+
 export const SOURCES = [
   { name: "Phintraco Sekuritas", logo: src("phintraco") },
   { name: "BRI Danareksa", logo: src("bridanareksa") },
@@ -133,6 +172,7 @@ export const SOURCES = [
   { name: "Ricky Ho", logo: src("rickyho1989") },
   { name: "The Kobeissi Letter", logo: src("kobeissiletter") },
   { name: "IHSG Journal", logo: src("aldotjahjadi") },
+  { name: "Kalender Ekonomi Indonesia", logo: src("bankindonesia") },
 ] as const;
 
 export type ForumTag =
@@ -223,32 +263,29 @@ export const ENRG_PLAN = {
 
 /** Bursawatch Pagi example (preview of 5 Oct 2026). Figures are dummy data. */
 export const BRIEF = {
-  date: "Mon, 5 Oct 2026",
-  verdict: "tunggu konfirmasi pemulihan.",
-  scenario:
-    "Pergerakan di atas 6.100 membuka ruang pemulihan, sementara kehilangan 6.000 mengembalikan tekanan.",
-  watch:
-    "Rilis cadangan devisa September minggu ini. Cadangan yang naik bisa menahan tekanan rupiah dan memberi ruang IHSG pulih.",
-  plan: "lihat respons harga di area kunci sebelum menyimpulkan arah. RSI mendekati oversold sendiri belum cukup untuk memastikan pembalikan.",
+  date: "Wed, 7 Oct 2026",
+  close: {
+    last: "6.193",
+    rows: [
+      { label: "1D", value: "+74 (+1.21%)", tone: "up" },
+      { label: "1W", value: "+71 (+1.16%)", tone: "up" },
+      { label: "1M", value: "-444 (-6.68%)", tone: "down" },
+      { label: "3M", value: "+448 (+7.81%)", tone: "up" },
+    ] as PriceRow[],
+  },
+  outlook:
+    "Jika momentum beli semakin kuat, IHSG berpotensi menguji level 6.370. Sebaliknya, risiko koreksi kembali meningkat jika IHSG turun di bawah 6.120. Head of Retail Research BNI Sekuritas, Fanny Suherman menuturkan, IHSG berpotensi naik untuk tes resistance di 6200-6250 seiring FTSE pertahankan secondary emerging status Indonesia. \u201CHati-hati jika gagal break 6.250, IHSG potensi koreksi kembali,\u201D kata Fanny. IDXChannel - Pergerakan Indeks Harga Saham Gabungan (IHSG) diproyeksi berada dalam rentang 5.800 hingga 6.200 pada akhir 2026. Proyeksi ini skenario terburuk (worst case) apabila berbagai katalis positif yang dinantikan pasar modal gagal terealisasi.",
   global: [
-    { emoji: "kospi", name: "KOSPI", change: "+28,60 (+0,42%)", tone: "up" },
-    { emoji: "nikkei", name: "NIKKEI", change: "-210,00 (-0,31%)", tone: "down" },
-    { emoji: "qqq", name: "QQQ", change: "+$2,10 (+0,28%)", tone: "up" },
+    { emoji: "kospi", name: "KOSPI", change: "-137.49 poin (-1.98%)", tone: "down" },
+    { emoji: "nikkei", name: "Nikkei", change: "-648.27 poin (-0.92%)", tone: "down" },
+    { emoji: "spy", name: "SPY", change: "+4.26 USD (+0.55%)", tone: "up" },
+    { emoji: "qqq", name: "QQQ", change: "+3.46 USD (+0.46%)", tone: "up" },
+    { emoji: "eido", name: "EIDO", change: "+0.01 USD (+0.08%)", tone: "up" },
+    { emoji: "usdidr", name: "USD/IDR", change: "-21.10 IDR (-0.12%)", tone: "up" },
   ] as { emoji: string; name: string; change: string; tone: PriceTone }[],
-  snapshot: "Acuan: Asia 07.30 WIB · AS penutupan Fri, 2 Oct 2026. (Sources: Yahoo Finance)",
   agenda: [
-    ["Rab, 7 Okt", "Cadangan devisa September", "BI"],
-    ["Kam, 15 Okt", "Neraca perdagangan September", "BPS"],
-    ["Rab, 21 Okt", "Keputusan BI-Rate", "BI"],
-  ],
-  sectors: [
-    ["Energy", "Leading", "kekuatan relatif +2,3 pp; momentum +1,1 pp."],
-    ["Financials", "Improving", "kekuatan relatif -0,6 pp; momentum +0,9 pp."],
-    ["Technology", "Weakening", "kekuatan relatif +1,6 pp; momentum -0,8 pp."],
-  ],
-  konglo: [
-    ["Barito", "Leading", "kekuatan relatif +2,5 pp; momentum +1,4 pp."],
-    ["Djarum", "Improving", "kekuatan relatif -0,5 pp; momentum +1,1 pp."],
-    ["Astra / Jardine", "Weakening", "kekuatan relatif +1,7 pp; momentum -0,9 pp."],
+    ["Perkembangan Indeks Harga Konsumen", "Mon, 02 Nov 2026"],
+    ["Perkembangan Ekspor dan Impor", "Mon, 02 Nov 2026"],
+    ["Pertumbuhan Ekonomi", "Thu, 05 Nov 2026"],
   ],
 } as const;

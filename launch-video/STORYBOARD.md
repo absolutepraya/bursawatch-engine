@@ -15,6 +15,18 @@ version: v3-build
 
 Layout confirmed by the user on 2026-10-01 (storyboard v2). Built in compositions/ from scenes-src/ via tools/build_scenes.py.
 
+## Changes for the Sectors cues (2026-10-07)
+
+- Burst (frame 10): pills keep the original look. After they park, an "Enriched by Sectors" tab (Sectors red-to-orange, mark icon) drops under each pill, a white sheen crosses the tab while an orange sheen crosses the pill, and the pill rim glows once. No tickers or beams.
+- Proof (frame 11): the three messages are real deliveries from 7 Oct 2026 (ENRG via Phintraco, REAL via Tuntun, JARR via X/Torch; titles and summaries shortened, in time order) in the current production format: source beside the time, one-row price block with market cap on the right, and a Sectors card (sector from Sectors, analyst consensus, sentiment read) that scans in with a Sectors-coloured sweep. ENRG's consensus is real; the REAL and JARR analyst numbers and all three sentiment reads are demo values (no tag, by choice). Two feed scrolls keep the last card in frame.
+- Brief (frames 15 to 18) rebuilt from the production example (7 Oct 2026, `bursawatch-full-example-20261007-224413`): header "Rabu, 7 Okt 2026", the cutoff line and "angka contoh" removed, pill now "pratinjau · data 7 Okt". Pasar global is six tiles with the real moves (KOSPI, Nikkei, SPY, QQQ, EIDO, USD/IDR), Agenda Ekonomi Indonesia comes from BPS (2 Nov, 2 Nov, 5 Nov). Rotasi sektor and konglo use crops of the real rendered charts and rows from their tables (Energy, Technology, Properties; TNT-Saratoga-Adaro, Astra - Jardine Matheson, Djarum Group). IHSG shows the closing 6.193 (+74, +1.21%), the levels from the outlook (6.370, 6.200 to 6.250, 6.120) and the Yahoo Finance chart. A Sectors badge sits in the header of the sector, konglo and IHSG parts. Beat lock unchanged.
+- Sound: a soft click per "Enriched by Sectors" tab and per Sectors card. Landing mirror: the hero message in the same format, the badges on the Pagi card, the new IHSG chart. Assets: `assets/brand/sectors-logo.png`, `assets/sources/emoji/sectors-mark.png` (from the supplied Sectors logo).
+
+## Changes for the hackathon submission (2026-10-06)
+
+- Scene 5 (brief) adds the real message format's details from the morning-brief package: the "Cutoff data 07.30 WIB, Target terbit 08.00 WIB" line under the title, "Data harga dan kapitalisasi: Sectors" on the two rotation parts, the Yahoo Finance source on the global-markets note, and a small "pratinjau, angka contoh" tag so the dummy figures are not presented as live output. Timing and beat lock are unchanged.
+- The film is a trailer with recreated UI. The hackathon's one-minute teaser must be a screen recording of the product working, so record that separately.
+
 ## Changes from the Bursawatch Pagi format (2026-10-05)
 
 - Brief rebuilt on the real message format (preview `Bursawatch-Pagi-preview-2026-10-05.md`): "🌇 BURSAWATCH PAGI" with Pasar global (KOSPI, NIKKEI, QQQ emoji) and Agenda Indonesia, then "🏭 Rotasi sektor", "🐉 Rotasi konglo", and IHSG hari ini as the conclusion. Same four beat-locked parts (2.5 / 2.0 / 2.5 / 3.0s), so the SFX plan is unchanged. Figures are the preview's dummy data.

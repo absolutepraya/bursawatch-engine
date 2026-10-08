@@ -34,21 +34,45 @@ def sheet_css(*names):
 
 
 def proof():
-    """Scene 3: the real #id-stocks-news channel, messages tagged s3-m0..2."""
-    E, MEDIA = SB.E, SB.MEDIA
+    """Scene 3: the #id-stocks-news channel in the current production format, messages tagged s3-m0..2.
+
+    Real messages from 7 Oct 2026 (summaries shortened). The Sectors card is the production
+    "Tentang" block (sector and market cap come from Sectors) restyled for the film; the
+    analyst consensus and the sentiment read on it are samples until those feed in.
+    """
+    E = SB.E
     msgs = [
-        SB.TRUK,
-        SB.dmsg("bridanareksa", "HRTA: Perkuat Pasokan Emas Domestik lewat Kerja Sama dengan Freeport Indonesia", "",
-                "Hartadinata Abadi memperkuat bisnis bullion melalui kerja sama dengan PT Freeport Indonesia.",
-                "Today at 18:02", f'<img class="dimg" src="assets/product/hrta-freeport.jpg">'),
-        SB.dmsg("twitter", "IHSG Masih Lemah, Belum Ada Sinyal Pembalikan",
-                f'{SB.avatar(f"{E}/aldotjahjadi.png", 30)} IHSG Journal',
-                "Level 6.071 hingga 6.257 jadi area penting untuk menjaga pantulan; gagal bertahan membuka ruang ke 5.825.",
-                "Today at 07:10"),
+        dict(icon="phintraco", time="08:45", title="ENRG: Investasi US$200 juta di HighPeak Energy, migas asal AS",
+             src='Phintraco', body="ENRG berekspansi ke Amerika Serikat lewat investasi US$200 juta (sekitar Rp3,6 triliun) di HighPeak Energy, perusahaan migas di Midland Basin, West Texas, dengan membeli saham preferen konversi.",
+             last="1.080", rows=[("1D", "+50 (+4.85%)", "green"), ("1W", "+102 (+10.38%)", "green"), ("1M", "-260 (-19.40%)", "red"), ("3M", "-45 (-4.00%)", "red")],
+             sector="Energy (Oil &amp; Gas)", cap="Rp28,7 T", cons=("up", "&#9650; BUY", "13 analis, 100% Buy", False), tone="flat", label="&#9679; Netral"),
+        dict(icon="tuntun", time="09:22", title="REAL: Bersiap akuisisi HIGEN untuk ekspansi data center",
+             src='Tuntun', body="REAL bersiap mengakuisisi PT Quanta Tunas Abadi (HIGEN) untuk masuk ke data center dan managed service. Anak usahanya, RGST, meneken MoU dengan HIGEN pada 6 Oktober 2026.",
+             last="52", rows=[("1D", "+9 (+20.93%)", "green"), ("1W", "+17 (+48.57%)", "green"), ("1M", "+2 (+4.00%)", "green"), ("3M", "+2 (+4.00%)", "green")],
+             sector="Properties &amp; Real Estate", cap="Rp285,2 M", cons=("up", "&#9650; BUY", "8 analis, 100% Buy", True), tone="up", label="&#9650; Positif"),
+        dict(icon="twitter", time="15:37", title="JARR: Pengendali gadaikan 100% sahamnya ke Bank Mandiri",
+             src=f'<img src="{E}/writingtorch.png">Torch', body="PT Eshan Agro Sentosa, pengendali JARR, menjaminkan 7.997.556.204 saham atau 100% kepemilikannya kepada Bank Mandiri atas fasilitas kredit afiliasi.",
+             last="3.480", rows=[("1D", "-20 (-0.57%)", "red"), ("1W", "-100 (-2.79%)", "red"), ("1M", "+310 (+9.78%)", "green"), ("3M", "+1.640 (+89.13%)", "green")],
+             sector="Consumer Non-Cyclicals", cap="Rp32,3 T", cons=("flat", "&#9679; HOLD", "3 analis, 33% Buy", True), tone="down", label="&#9660; Negatif"),
     ]
     out = []
     for i, m in enumerate(msgs):
-        out.append(m.replace('<div class="dmsg">', f'<div class="dmsg" id="s3-m{i}">', 1))
+        ctone, crate, cdet, _sample = m["cons"]
+        cells = "".join(f'<span class="pr"><img src="{E}/{kind}.png">{lab}: <b>{val}</b></span>' for lab, val, kind in m["rows"])
+        card = (f'<div class="dsec" id="s3-s{i}">'
+                f'<div class="sw"><img src="assets/sources/emoji/sectors-mark.png"><span>Sectors &middot; menganalisis sektor dan sentimen&hellip;</span></div>'
+                f'<div class="sd"><img src="assets/sources/emoji/sectors-mark.png">'
+                f'<span><span class="k">Sektor</span><span class="v">{m["sector"]}</span></span>'
+                f'<span class="cv {ctone}"><span class="k">Konsensus analis</span><span class="v">{crate} <small>({cdet})</small></span></span>'
+                f'<span class="sv {m["tone"]}"><span class="k">Sentimen</span><span class="v">{m["label"]}</span></span></div>'
+                f'<i class="scan"></i></div>')
+        head = SB.bot_header("", "Today at " + m["time"]).replace("</span></div></div>", f'</span><span class="dvia">&middot; {m["src"]}</span></div></div>')
+        out.append(
+            f'<div class="dmsg" id="s3-m{i}">{head}<div class="dbody">'
+            f'<div class="dtitle"><img src="{E}/{m["icon"]}.png">{m["title"]}</div>'
+            f'<div class="dtext"><i>(Ringkasan)</i> {m["body"]}</div>'
+            f'<div class="price"><div class="phd"><span>Harga terakhir (IDR): <b>{m["last"]}</b></span><span class="dcap">Kapitalisasi pasar: <b>{m["cap"]}</b></span></div><div class="prow4">{cells}</div></div>'
+            f'{card}</div></div>')
     return '<div class="dch" data-layout-allow-overlap data-layout-allow-occlusion># id-stocks-news</div><div id="s3-feed">' + "".join(out) + "</div>"
 
 
@@ -274,7 +298,7 @@ def main():
         "{{TRUE_CUT}}": str(true_chart()[1]),
         "{{TRUE_W}}": str(true_chart()[2]),
         "{{KETR_SPARK}}": ketr_spark(),
-        "{{BOTHEAD}}": SB.bot_header("", "Senin, 5 Okt 2026 · 08.00 WIB"),
+        "{{BOTHEAD}}": SB.bot_header("", "Rabu, 7 Okt 2026 · 08.00 WIB"),
     }
     for src in sorted((ROOT / "scenes-src").glob("*.html.tpl")):
         text = src.read_text()
