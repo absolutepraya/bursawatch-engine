@@ -21,8 +21,12 @@ class HermesWriter:
                     'Do not use tools, outside knowledge, or freeform prose. Quote only exact '
                     'frozen evidence. Scenario references must quote the entire source text, '
                     'including conditions and negations. Do not invent a conditional base case '
-                    'or invalidation. If the evidence cannot support the contract, return '
-                    '{"claims":[],"scenario":null}.')},
+                    'or invalidation. scenario.base_case and every change_conditions excerpt '
+                    'must be an entire source text that contains an explicit conditional word '
+                    '(jika, bila, apabila, selama, asalkan); claims must be complete sentences. '
+                    'Never state or copy numeric probabilities. If retry_feedback is present, '
+                    'correct exactly that problem. If the evidence cannot support the contract, '
+                    'return {"claims":[],"scenario":null}.')},
                 {'role': 'user', 'content': canonical(bundle)},
             ])
         content = response.choices[0].message.content

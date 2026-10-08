@@ -272,3 +272,38 @@ def test_capture_unavailable_is_frozen_after_first_failure(core, tmp_path):
     assert client.calls == 1
     assert 'capture_unavailable' in result['degraded_reasons'] and result['facts_only']
     assert store.get_frozen(run.run_id, 'source_manifest').payload['status'] == 'unavailable'
+
+
+def test_media_only_items_are_omitted_and_counted_without_disabling_the_outlook(core, tmp_path):
+    module = core('evidence')
+    store, run, lease = owner(core, tmp_path)
+    rows = [source(1), source(2, text='', content_unavailable=True), source(3, text='', content_unavailable=True)]
+    result = module.freeze_source_evidence(store, run.run_id, CapturedClient(store, run.run_id, rows), previous_cutoff=LOWER, lease=lease, now=FREEZE).payload
+    assert result['facts_only'] is False and result['degraded_reasons'] == []
+    assert result['omissions']['content_unavailable'] == 2 and len(result['items']) == 1
+
+
+def _partial(hours, **extra):
+    from datetime import datetime, timedelta
+    start = (datetime.fromisoformat(UPPER) - timedelta(hours=hours)).isoformat() if hours is not None else None
+    return {'history_status': 'unavailable', 'history_available_from': start, 'complete': False, **extra}
+
+
+def test_a_long_enough_partial_history_is_accepted_and_noted(core, tmp_path):
+    module = core('evidence')
+    store, run, lease = owner(core, tmp_path)
+    rows = [source(1)]
+    result = module.freeze_source_evidence(store, run.run_id, CapturedClient(store, run.run_id, rows, manifest(rows, **_partial(10))),
+                                           previous_cutoff=LOWER, lease=lease, now=FREEZE).payload
+    assert result['facts_only'] is False and result['notes'] == ['history_partial_hours:10.0']
+    assert result['history_status'] == 'unavailable'
+
+
+@pytest.mark.parametrize('hours', [1, 5.9, None])
+def test_a_short_or_unknown_history_still_forces_facts_only(core, tmp_path, hours):
+    module = core('evidence')
+    store, run, lease = owner(core, tmp_path)
+    rows = [source(1)]
+    result = module.freeze_source_evidence(store, run.run_id, CapturedClient(store, run.run_id, rows, manifest(rows, **_partial(hours))),
+                                           previous_cutoff=LOWER, lease=lease, now=FREEZE).payload
+    assert result['facts_only'] is True and 'history_unavailable' in result['degraded_reasons'] and result['notes'] == []
