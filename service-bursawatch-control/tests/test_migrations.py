@@ -251,3 +251,14 @@ def test_publications_migration_is_forward_only_private_and_immutable():
     assert "bursawatch_publication_cutover_immutable" in migration
     assert "bursawatch_source_events" not in migration
     assert "bursawatch_runs" not in migration
+
+
+def test_publication_owner_additions_migration_is_append_only_private_and_leaves_the_cutover_alone():
+    migration = (Path(__file__).resolve().parents[1] / "migrations/026_publication_cutover_owners.sql").read_text(encoding="utf-8")
+    assert migration.startswith("-- bursawatch-release: manual\n")
+    assert "create table bursawatch_publication_cutover_owners" in migration
+    assert "alter table bursawatch_publication_cutover_owners enable row level security" in migration
+    assert "revoke all privileges on table public.bursawatch_publication_cutover_owners from public" in migration
+    assert "bursawatch_publication_cutover_owners_immutable" in migration and "bursawatch_reject_publication_mutation" in migration
+    lowered = migration.lower()
+    assert "update bursawatch_publication_cutover " not in lowered and "drop trigger" not in lowered and "delete from" not in lowered
