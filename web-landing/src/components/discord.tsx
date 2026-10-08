@@ -56,12 +56,22 @@ export function SourceIcon({ name, size = 20 }: { name: string; size?: number })
   return <Image className="dc-src" src={src(name)} alt="" width={size} height={size} />;
 }
 
-export function PriceBlock({ last, rows, cap }: { last: string; rows: PriceRow[]; cap?: string }) {
+export function PriceBlock({
+  last,
+  rows,
+  cap,
+  label = "Harga terakhir (IDR)",
+}: {
+  last: string;
+  rows: PriceRow[];
+  cap?: string;
+  label?: string;
+}) {
   return (
     <div className="dc-price">
       <div className="dc-price-head">
         <span>
-          Harga terakhir (IDR): <b>{last}</b>
+          {label}: <b>{last}</b>
         </span>
         {cap ? (
           <span>

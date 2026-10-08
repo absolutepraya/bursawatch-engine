@@ -263,35 +263,29 @@ export const ENRG_PLAN = {
 
 /** Bursawatch Pagi example (preview of 5 Oct 2026). Figures are dummy data. */
 export const BRIEF = {
-  date: "Mon, 5 Oct 2026",
-  timing: "Cutoff data: 07:30 WIB · Target terbit: 08:00 WIB",
-  rotationBasis:
-    "Basis: ilustrasi historis, bobot cap snapshot tetap. Data harga dan kapitalisasi: Sectors.",
-  verdict: "tunggu konfirmasi pemulihan.",
-  scenario:
-    "Pergerakan di atas 6.100 membuka ruang pemulihan, sementara kehilangan 6.000 mengembalikan tekanan.",
-  watch:
-    "Rilis cadangan devisa September minggu ini. Cadangan yang naik bisa menahan tekanan rupiah dan memberi ruang IHSG pulih.",
-  plan: "lihat respons harga di area kunci sebelum menyimpulkan arah. RSI mendekati oversold sendiri belum cukup untuk memastikan pembalikan.",
+  date: "Wed, 7 Oct 2026",
+  close: {
+    last: "6.193",
+    rows: [
+      { label: "1D", value: "+74 (+1.21%)", tone: "up" },
+      { label: "1W", value: "+71 (+1.16%)", tone: "up" },
+      { label: "1M", value: "-444 (-6.68%)", tone: "down" },
+      { label: "3M", value: "+448 (+7.81%)", tone: "up" },
+    ] as PriceRow[],
+  },
+  outlook:
+    "Jika momentum beli semakin kuat, IHSG berpotensi menguji level 6.370. Sebaliknya, risiko koreksi kembali meningkat jika IHSG turun di bawah 6.120. Head of Retail Research BNI Sekuritas, Fanny Suherman menuturkan, IHSG berpotensi naik untuk tes resistance di 6200-6250 seiring FTSE pertahankan secondary emerging status Indonesia. \u201CHati-hati jika gagal break 6.250, IHSG potensi koreksi kembali,\u201D kata Fanny. IDXChannel - Pergerakan Indeks Harga Saham Gabungan (IHSG) diproyeksi berada dalam rentang 5.800 hingga 6.200 pada akhir 2026. Proyeksi ini skenario terburuk (worst case) apabila berbagai katalis positif yang dinantikan pasar modal gagal terealisasi.",
   global: [
-    { emoji: "kospi", name: "KOSPI", change: "+28,60 (+0,42%)", tone: "up" },
-    { emoji: "nikkei", name: "NIKKEI", change: "-210,00 (-0,31%)", tone: "down" },
-    { emoji: "qqq", name: "QQQ", change: "+$2,10 (+0,28%)", tone: "up" },
+    { emoji: "kospi", name: "KOSPI", change: "-137.49 poin (-1.98%)", tone: "down" },
+    { emoji: "nikkei", name: "Nikkei", change: "-648.27 poin (-0.92%)", tone: "down" },
+    { emoji: "spy", name: "SPY", change: "+4.26 USD (+0.55%)", tone: "up" },
+    { emoji: "qqq", name: "QQQ", change: "+3.46 USD (+0.46%)", tone: "up" },
+    { emoji: "eido", name: "EIDO", change: "+0.01 USD (+0.08%)", tone: "up" },
+    { emoji: "usdidr", name: "USD/IDR", change: "-21.10 IDR (-0.12%)", tone: "up" },
   ] as { emoji: string; name: string; change: string; tone: PriceTone }[],
-  snapshot: "Acuan: Asia 07.30 WIB · AS penutupan Fri, 2 Oct 2026. (Sources: Yahoo Finance)",
   agenda: [
-    ["Rab, 7 Okt", "Cadangan devisa September", "BI"],
-    ["Kam, 15 Okt", "Neraca perdagangan September", "BPS"],
-    ["Rab, 21 Okt", "Keputusan BI-Rate", "BI"],
-  ],
-  sectors: [
-    ["Energy", "Leading", "kekuatan relatif +2,3 pp; momentum +1,1 pp."],
-    ["Financials", "Improving", "kekuatan relatif -0,6 pp; momentum +0,9 pp."],
-    ["Technology", "Weakening", "kekuatan relatif +1,6 pp; momentum -0,8 pp."],
-  ],
-  konglo: [
-    ["Barito", "Leading", "kekuatan relatif +2,5 pp; momentum +1,4 pp."],
-    ["Djarum", "Improving", "kekuatan relatif -0,5 pp; momentum +1,1 pp."],
-    ["Astra / Jardine", "Weakening", "kekuatan relatif +1,7 pp; momentum -0,9 pp."],
+    ["Perkembangan Indeks Harga Konsumen", "Mon, 02 Nov 2026"],
+    ["Perkembangan Ekspor dan Impor", "Mon, 02 Nov 2026"],
+    ["Pertumbuhan Ekonomi", "Thu, 05 Nov 2026"],
   ],
 } as const;

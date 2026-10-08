@@ -1267,7 +1267,7 @@ time,
   border-radius: 50%;
 }
 .brief-img {
-  width: min(100%, 440px);
+  width: 100%;
 }
 
 /* ---- config ---- */

@@ -1,23 +1,28 @@
 import Image from "next/image";
-import type { ReactNode } from "react";
-import { BotMessage, DiscordWindow, SectorsBadge } from "@/components/discord";
+import { BotMessage, DiscordWindow, PriceBlock, SectorsBadge } from "@/components/discord";
 import { BRIEF, src, type PriceTone } from "@/lib/landing-content";
 
-/** The Bursawatch Pagi example: one brief and two rotation posts. Dummy figures. */
+/** The Bursawatch Pagi preview: one brief and two rotation images, 7 Oct 2026 data from the preview run. */
 
 function Emoji({ name }: { name: string }) {
   return <Image className="dc-em" src={src(name)} alt="" width={18} height={18} />;
 }
 
-function BriefImage({ file, alt }: { file: string; alt: string }) {
+const IMAGES = {
+  "ihsg-real-yahoo": { width: 1600, height: 1160 },
+  "sector-rotation": { width: 1800, height: 1149 },
+  "konglo-rotation": { width: 1800, height: 1662 },
+} as const;
+
+function BriefImage({ file, alt }: { file: keyof typeof IMAGES; alt: string }) {
   return (
     <Image
       className="dc-img brief-img"
       src={`/landing/brief/${file}.png`}
       alt={alt}
-      width={1400}
-      height={file === "ihsg-real-yahoo" ? 1160 : 894}
-      sizes="(max-width: 700px) 85vw, 440px"
+      width={IMAGES[file].width}
+      height={IMAGES[file].height}
+      sizes="(max-width: 700px) 85vw, 520px"
     />
   );
 }
@@ -27,34 +32,17 @@ function Rotation({
   emoji,
   title,
   badge,
-  lead,
-  rows,
   image,
 }: {
   time: string;
   emoji: string;
   title: string;
   badge: string;
-  lead: ReactNode;
-  rows: readonly (readonly [string, string, string])[];
-  image: { file: string; alt: string };
+  image: { file: keyof typeof IMAGES; alt: string };
 }) {
   return (
     <BotMessage time={time} title={`${emoji} ${title}: ${BRIEF.date}`}>
-      <p className="dc-text dc-note">{BRIEF.timing}</p>
       <SectorsBadge label={badge} />
-      <p className="dc-text">{lead}</p>
-      <ul className="dc-list">
-        {rows.map(([name, phase, detail]) => (
-          <li key={name}>
-            <b>
-              {name} · {phase}:
-            </b>{" "}
-            {detail}
-          </li>
-        ))}
-      </ul>
-      <p className="dc-text dc-note">{BRIEF.rotationBasis}</p>
       <BriefImage {...image} />
     </BotMessage>
   );
@@ -70,20 +58,18 @@ export function MorningBrief() {
       title={<># morning-brief</>}
       scrollable
     >
-      <BotMessage time="Senin 08.00" title={`🌇 BURSAWATCH PAGI: ${BRIEF.date}`}>
-        <p className="dc-text dc-note">{BRIEF.timing}</p>
+      <BotMessage time="Rabu 08.00" title={`🌇 BURSAWATCH PAGI: ${BRIEF.date}`}>
+        <PriceBlock
+          label="Penutupan IHSG terakhir (IDR)"
+          last={BRIEF.close.last}
+          rows={BRIEF.close.rows}
+        />
         <SectorsBadge label="outlook IHSG" />
         <p className="dc-text">
-          <b>IHSG: {BRIEF.verdict}</b> {BRIEF.scenario}
-        </p>
-        <p className="dc-text">
-          <b>Yang diperhatikan:</b> {BRIEF.watch}
-        </p>
-        <p className="dc-text">
-          <b>Rencana pantau:</b> {BRIEF.plan}
+          <b>Outlook IHSG:</b> {BRIEF.outlook}
         </p>
         <p className="dc-text dc-subhead">
-          <b>Pasar global</b>
+          <b>Pasar global:</b>
         </p>
         <ul className="dc-quotes">
           {BRIEF.global.map((quote) => (
@@ -93,14 +79,13 @@ export function MorningBrief() {
             </li>
           ))}
         </ul>
-        <p className="dc-text dc-note">{BRIEF.snapshot}</p>
         <p className="dc-text dc-subhead">
-          <Emoji name="bankindonesia" /> <b>Agenda Indonesia · 3 rilis berikutnya</b>
+          <b>Agenda Ekonomi Indonesia</b> <span className="dc-link">[BPS]</span>
         </p>
         <ul className="dc-list">
-          {BRIEF.agenda.map(([when, what, source]) => (
+          {BRIEF.agenda.map(([what, when]) => (
             <li key={what}>
-              {when} · {what}. <span className="dc-link">(Sources: {source})</span>
+              {what} - {when}
             </li>
           ))}
         </ul>
@@ -110,37 +95,23 @@ export function MorningBrief() {
         />
       </BotMessage>
       <Rotation
-        time="Senin 08.00"
+        time="Rabu 08.00"
         emoji="🏭"
         title="ROTASI SEKTOR"
         badge="rotasi sektor"
-        lead={
-          <>
-            <b>Energy masih memimpin; Financials mulai mengejar.</b> Technology tetap unggul
-            terhadap IHSG, tetapi momentumnya melemah.
-          </>
-        }
-        rows={BRIEF.sectors}
         image={{
-          file: "sector-rotation-dummy",
-          alt: "Grafik rotasi sektor: kuadran Leading, Improving, Weakening dan Lagging",
+          file: "sector-rotation",
+          alt: "Rotasi sektor: Energy dan Technology di kuadran Leading, Basic Materials dan Properties & Real Estate Improving, tiga sektor Weakening dan tiga Lagging, dengan tabel kekuatan dan momentum",
         }}
       />
       <Rotation
-        time="Senin 08.00"
+        time="Rabu 08.00"
         emoji="🐉"
         title="ROTASI KONGLO"
         badge="rotasi konglo"
-        lead={
-          <>
-            <b>Barito memimpin, Djarum membaik, Astra kehilangan momentum.</b> Ketiganya menunjukkan
-            fase relatif yang berbeda terhadap IHSG.
-          </>
-        }
-        rows={BRIEF.konglo}
         image={{
-          file: "konglo-rotation-dummy",
-          alt: "Grafik rotasi grup konglomerasi terhadap IHSG",
+          file: "konglo-rotation",
+          alt: "Rotasi konglo: empat grup Leading, lima Improving, satu Weakening dan enam Lagging, dengan tabel kekuatan dan momentum",
         }}
       />
     </DiscordWindow>
