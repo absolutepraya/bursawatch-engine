@@ -356,7 +356,7 @@ def test_generated_core_and_anchor_match_published_presentation_after_capture_gr
     assert store.get_frozen(run.run_id,'outlook').payload['mode']=='supported'
     # A long hidden source URL stays frozen privately and must not degrade the compact public paragraph.
     assert result['fallback']=='supported' and anchor['scenario']['scenario']['base_case']['excerpt'].startswith('Jika likuiditas')
-    assert 'Menurut collector: Jika likuiditas' in anchor['text'] and 'Outlook IHSG:\n-' not in anchor['text']
+    assert 'Outlook IHSG:\nJika likuiditas' in anchor['text'] and 'Menurut' not in anchor['text'] and 'Outlook IHSG:\n-' not in anchor['text']
     assert 'Skenario' not in anchor['text'] and 'Pandangan satu sumber' not in anchor['text'] and '·' not in anchor['text']
     assert 'example.com/' not in anchor['text']
     frozen_anchor=anchor

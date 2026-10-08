@@ -60,7 +60,7 @@ delivery from local tests or an installed dispatcher.
   conditional base/change evidence selects facts-only. Formatting trims claims
   with citations atomically and freezes actual published mode/scenario in
   `presentation`; closing anchors must never expose an omitted candidate.
-  The main message follows formatter revision `bursawatch-text-v5`: no IHSG/global
+  The main message follows formatter revision `bursawatch-text-v6`: no IHSG/global
   source links, timestamps, delays, missing-data prose, pulse/scenario headings or
   middots; missing numbers are `-`; an unavailable Outlook paragraph reads `(Analisis outlook gagal dimuat)`;
   image messages are attachment-only and a rotation heading is skipped with its missing image. The IHSG

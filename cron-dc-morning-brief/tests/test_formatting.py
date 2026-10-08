@@ -36,7 +36,7 @@ def test_exact_requested_main_layout_and_tracker(core):
         'Penutupan IHSG terakhir (IDR): **9.175**\n'
         f'{RED} 1D: **-125 (-1.34%)**, {RED} 1W: **-575 (-5.90%)**,\n'
         f'{RED} 1M: **-475 (-4.92%)**, {GREEN} 3M: **+2.175 (+31.07%)**\n\n'
-        'Outlook IHSG:\nMenurut Phintraco: Likuiditas membaik.\n\n'
+        'Outlook IHSG:\nLikuiditas membaik.\n\n'
         f'Pasar global:\n<:kospi:123456789012345678> KOSPI: +23.40 poin (+0.50%) {GREEN}\n\n'
         'Agenda Ekonomi Indonesia \\[[BPS](https://www.bps.go.id/id/calendar)\\]:\n'
         '* Inflasi nasional - Tue, 06 Oct 2026')
@@ -74,14 +74,16 @@ def test_hidden_source_urls_cannot_overflow_or_leak_into_main_message(core):
     fields=inputs();fields['globals'][0]['source_url']='https://example.org/'+('g'*3000)
     fields['outlook']['claims'][0]['source_url']='https://example.org/'+('c'*3000)
     text=core('formatting').format_brief(**fields)[0]
-    assert 'Menurut Phintraco:' in text and 'KOSPI: +23.40' in text and len(text)<2000
+    assert 'Likuiditas membaik.' in text and 'Menurut' not in text and 'KOSPI: +23.40' in text and len(text)<2000
     assert 'example.org' not in text
 
 
-def test_source_conditions_negations_and_attribution_survive_in_one_paragraph(core):
+def test_source_conditions_and_negations_survive_in_one_paragraph_without_a_prefix_while_publishers_stay_frozen(core):
     fields=scenario_inputs();texts,presentation=core('formatting').format_brief(**fields,with_selection=True)
     text=texts[0];paragraph=text.split('Outlook IHSG:\n')[1].split('\n\n')[0]
-    assert '\n' not in paragraph and 'Menurut Phintraco:' in paragraph and 'Menurut Tuntun:' in paragraph
+    assert '\n' not in paragraph and 'Menurut' not in paragraph and 'Phintraco' not in paragraph and 'Tuntun' not in paragraph
+    frozen=presentation['scenario'];refs=[frozen['base_case'],*frozen['supporting'],*frozen['opposing'],*frozen['change_conditions']]
+    assert {'Phintraco','Tuntun'} <= {ref['publisher_id'] for ref in refs} and all(ref['source_url'] for ref in refs)
     assert 'Jika tekanan global bertambah, pandangan berubah.' in paragraph
     assert 'IHSG tidak bebas tekanan global.' in paragraph and paragraph.count('Jika likuiditas pulih')==1
     assert 'Skenario IHSG' not in text and 'Narasi sumber' not in text and '04/10 16:00' not in text
