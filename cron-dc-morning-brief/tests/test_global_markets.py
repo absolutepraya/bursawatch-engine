@@ -48,7 +48,7 @@ def test_open_asian_regular_snapshot_preserves_time_points_and_delay(core):
     assert quote['price_at'] == '2026-10-05T00:15:00+00:00'
 
 
-@pytest.mark.parametrize('mutation,status', [('stale','stale'),('future','unavailable'),('no_time','unavailable'),('zero_close','unavailable'),('nan','unavailable'),('coverage','unavailable')])
+@pytest.mark.parametrize('mutation,status', [('future','unavailable'),('no_time','unavailable'),('zero_close','unavailable'),('nan','unavailable'),('coverage','unavailable')])
 def test_missing_stale_or_future_open_quote_is_not_fabricated_zero(core, mutation, status):
     module = core('global_markets')
     raw = chart('^N225','Asia/Tokyo',[s for s,e in ASIA_ROWS[:2]],[40000,41000],price=41410,quote_at='2026-10-05T09:20:00+09:00',currency='JPY')
@@ -63,6 +63,18 @@ def test_missing_stale_or_future_open_quote_is_not_fabricated_zero(core, mutatio
     result = module.parse_yahoo_chart('Nikkei',raw,freeze_at=FREEZE,retrieved_at=FREEZE,sessions=sessions)
     assert result['status'] == status
     if status == 'unavailable': assert result['price'] is None and result['percent'] is None
+
+
+def test_stale_open_asian_snapshot_falls_back_to_the_last_completed_session_never_a_guess(core):
+    module = core('global_markets')
+    raw = chart('^N225','Asia/Tokyo',[s for s,e in ASIA_ROWS[:2]],[40000,41000],price=41410,quote_at='2026-10-05T09:20:00+09:00',currency='JPY')
+    raw['chart']['result'][0]['meta']['regularMarketTime'] = unix('2026-10-05T09:00:00+09:00')  # 20 minutes old
+    result = module.parse_yahoo_chart('Nikkei',raw,freeze_at=FREEZE,retrieved_at=FREEZE,sessions=schedule('Asia/Tokyo',ASIA_ROWS))
+    assert result['status'] == 'available' and result['comparison'] == 'completed_regular_session'
+    assert (result['price'],result['previous_close']) == (41000,40000)   # the stale 41410 is not used
+    raw['chart']['result'][0]['indicators']['quote'][0]['close'][1] = None   # no completed close to fall back on
+    result = module.parse_yahoo_chart('Nikkei',raw,freeze_at=FREEZE,retrieved_at=FREEZE,sessions=schedule('Asia/Tokyo',ASIA_ROWS))
+    assert result['status'] != 'available' and result['price'] is None
 
 
 def test_holiday_closed_asia_uses_reviewed_previous_session_not_weekdays(core):

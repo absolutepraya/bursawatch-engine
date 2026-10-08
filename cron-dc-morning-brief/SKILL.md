@@ -127,6 +127,25 @@ Unselected letters are assigned alphabetically and frozen by the owner, A to P
 when 34 qualify and 18 are selected. Numerical results retain the eligible
 weights, excluded members, original coverage, aligned closes and action decisions.
 
+## Null latest-session close
+
+Yahoo's daily series can return `close = null` for the most recent completed session shortly
+after it ends. On 2026-10-08 every 07:29 WIB response had it (IHSG, ~960 stock histories, SPY,
+QQQ, EIDO, KOSPI and Nikkei), while evening and later responses carried the real value. The
+collector and rotation parser now fill only that one bar through
+`yahoo_market_data.latest_close.fill_latest_close`, and only from agreeing native evidence:
+
+1. the same response's `regularMarketPrice`, when its time is in the closing window and the
+   bar's high, low and volume equal the response's day high, low and volume;
+2. the hourly series' last bar, only when that closing-window price confirms it (the hourly
+   series can stop before a closing auction, so it is never trusted alone);
+3. `chartPreviousClose` of a later one-day chart request, for a market already in its next session.
+
+The original source hash, method and value are retained with the record (`repair` on the global
+row and chart daily record; the stock price attestation method). An interior gap, a disagreement
+or a missing source keeps `-` and the member excluded. A stale open Asian or FX quote now shows the
+last completed session instead of `-`.
+
 ## Rotation visual trails
 
 Renderer revision `bursawatch-render-v5` draws display-only cubic curves through
@@ -384,7 +403,8 @@ python collect_public_inputs.py --collect-public \
 It reads operator timing, delivery days and instruments from the revisioned database,
 selects the next eligible publication day whose configured cutoff has not passed, and makes at
 most fourteen fixed-origin Yahoo requests (daily and hourly for IHSG and the
-configured global instruments). There are no retries, redirects, Sectors or
+configured global instruments), plus at most one one-day previous-close chart for each non-FX
+market whose latest completed close is still null after other evidence. There are no retries, redirects, Sectors or
 Chart-IMG requests, source captures, model calls, run-store creation or posts.
 IHSG daily history uses `range=1y`; the same retained response supplies both
 benchmark facts and the local chart. Other daily/hourly requests keep their

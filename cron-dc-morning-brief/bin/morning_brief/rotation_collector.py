@@ -12,6 +12,7 @@ import tempfile
 from urllib.error import HTTPError
 from zoneinfo import ZoneInfo
 
+from yahoo_market_data.latest_close import fill_latest_close
 from yahoo_market_data.rotation import parse_rotation_history
 from .calendar import aware
 from .host import private_file
@@ -169,12 +170,18 @@ def _collect(cache,memberships,calendar,session,cutoff,now,limit,transport,clock
         try:
             if aware(datetime.fromisoformat(record['retrieved_at']))>min(aware(clock()),cutoff):
                 raise ValueError('future history record')
-            parsed=parse_rotation_history(record['payload'],symbol=ticker+'.JK',sessions=sessions)
+            # A null close for the latest completed session is filled only when the same
+            # response's closing-window price agrees with the bar; the method is attested.
+            closing=datetime(sessions[-1].year,sessions[-1].month,sessions[-1].day,tzinfo=ZoneInfo('Asia/Jakarta'))
+            payload,repair=fill_latest_close(record['payload'],session_start=closing+timedelta(hours=9),
+                                             session_end=closing+timedelta(hours=16))
+            parsed=parse_rotation_history(payload,symbol=ticker+'.JK',sessions=sessions)
             price=dict(symbol=ticker,closes=parsed['closes'],basis=parsed['basis'],
                        version=record['record_sha256'],trading_eligible=True)
             prices[ticker]=price
             proofs[ticker]=_proof(price,available_at=datetime.fromisoformat(record['retrieved_at']),
-                evidence=record['artifact_path'],method=parsed['eligibility_method'])
+                evidence=record['artifact_path'],
+                method=parsed['eligibility_method']+('; latest close from '+repair['method'] if repair else ''))
             actions.extend(dict(a,symbol=ticker,status='resolved',evidence=record['artifact_path']) for a in parsed['actions'])
         except (KeyError,ValueError,TypeError,OverflowError):
             history_gaps.append(ticker+':native_price_or_trading_evidence_unavailable')

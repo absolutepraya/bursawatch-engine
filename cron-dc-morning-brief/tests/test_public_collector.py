@@ -208,3 +208,46 @@ def test_native_session_proof_uses_actual_collection_time_not_future_cutoff(tmp_
     collect_public(config,snapshot=snap,calendar_path=reference,source_cache=tmp_path/'sources2',
         now=observed,transport=Transport(observed),clock=lambda:FREEZE+timedelta(hours=1))
     assert seen and all(value<=FREEZE for value in seen)
+
+
+def _repair_fixture(*, close=None, volume=1000):
+    from datetime import datetime as dt
+    stamp=lambda text:int(dt.fromisoformat(text).timestamp())
+    rows=[(stamp('2026-10-06T09:00:00+07:00'),99.,101.,98.,100.,900),(stamp('2026-10-07T09:00:00+07:00'),100.,103.,99.,close,volume)]
+    meta=dict(symbol='^JKSE',exchangeTimezoneName='Asia/Jakarta',dataGranularity='1d',regularMarketPrice=102.5,
+              regularMarketTime=stamp('2026-10-07T16:00:00+07:00'),regularMarketDayHigh=103.,regularMarketDayLow=99.,regularMarketVolume=1000)
+    quote={name:[row[i] for row in rows] for i,name in enumerate(('open','high','low','close','volume'),start=1)}
+    payload={'chart':{'error':None,'result':[dict(meta=meta,timestamp=[r[0] for r in rows],indicators={'quote':[quote]})]}}
+    proof={'sessions':[{'start':'2026-10-06T02:00:00+00:00','end':'2026-10-06T09:00:00+00:00'},
+                       {'start':'2026-10-07T02:00:00+00:00','end':'2026-10-07T09:00:00+00:00'}]}
+    return dict(payload=payload,source_sha256='a'*64,retrieved_at='2026-10-08T00:29:00+00:00'),dict(payload={},source_sha256='b'*64),proof
+
+
+def test_null_latest_close_is_filled_with_provenance_and_the_raw_source_hash_is_kept():
+    from morning_brief.public_collector import repaired_daily, needs_previous_close
+    daily,hourly,proof=_repair_fixture();as_of=datetime(2026,10,8,0,29,tzinfo=timezone.utc)
+    assert needs_previous_close('IHSG',daily,proof,as_of) is True
+    fixed=repaired_daily('IHSG',daily,hourly,proof,as_of)
+    assert fixed['payload']['chart']['result'][0]['indicators']['quote'][0]['close']==[100.,102.5]
+    assert fixed['repair']['method']=='meta_regular_market_price' and fixed['repair']['source_sha256']=='a'*64
+    assert fixed['source_sha256']=='a'*64 and needs_previous_close('IHSG',fixed,proof,as_of) is False
+    assert daily['payload']['chart']['result'][0]['indicators']['quote'][0]['close'][-1] is None
+
+
+def test_disagreeing_payload_and_fx_are_left_untouched():
+    from morning_brief.public_collector import repaired_daily
+    daily,hourly,proof=_repair_fixture(volume=500);as_of=datetime(2026,10,8,0,29,tzinfo=timezone.utc)
+    assert repaired_daily('IHSG',daily,hourly,proof,as_of) is daily
+    daily,hourly,proof=_repair_fixture()
+    assert repaired_daily('USDIDR',daily,hourly,proof,as_of) is daily
+
+
+def test_previous_close_request_is_a_single_one_day_chart(tmp_path,monkeypatch):
+    import morning_brief.public_collector as module
+    cache=tmp_path/'cache';cache.mkdir(mode=0o700)
+    transport=module.YahooTransport(cache);urls=[]
+    monkeypatch.setattr(transport,'_record',lambda url,**_:urls.append(url) or {})
+    transport.get('KOSPI','prev');transport.get('KOSPI','1d')
+    assert 'interval=1d&range=1d&' in urls[0] and 'interval=1d&range=1mo&' in urls[1]
+    import pytest
+    with pytest.raises(ValueError):transport.get('KOSPI','5d')
