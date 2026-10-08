@@ -22,6 +22,13 @@ against exactly 1, 5, 22 and 66 prior verified sessions. A missing anchor leaves
 that horizon `None` rather than sliding to an older close. Both are pure and make
 no requests.
 
+`latest_close.fill_latest_close(payload, session_start=, session_end=, intraday=, previous_close=)`
+returns a copy with the one null close of the latest completed session filled, plus a `repair`
+record naming the method, or the original payload and `None`. It accepts only evidence that
+agrees with the bar: the response's closing-window market price (day high, low and volume must
+equal the bar's), an hourly series confirmed by that price, or the previous close of a later
+one-day chart. It never fills an interior gap and never mutates its input.
+
 `simple_moving_average(closes, period)` returns an aligned tuple with `None`
 during warm-up. `wilder_rsi(closes, period=14)` seeds with the first period's
 average gains/losses and uses Wilder smoothing thereafter. Flat windows return

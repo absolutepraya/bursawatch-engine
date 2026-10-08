@@ -107,9 +107,18 @@ delivery from local tests or an installed dispatcher.
   `lib-yahoo-market-data` for ordinary OHLC, SMA 10/20/50/100 and Wilder RSI(14).
   Require the official preceding close, a complete three-month visible window
   and MA100 warm-up sessions. Missing candles stay gaps, never interpolated.
+- Yahoo can return `close = null` for the latest completed session (seen in every 07:29 WIB
+  response on 2026-10-08, while evening and later responses had it). Fill only that one bar via
+  `yahoo_market_data.latest_close`, from evidence that agrees with the bar: the response's own
+  closing-window price when its day high/low/volume match, or the hourly series when that price
+  confirms it, or `chartPreviousClose` of a later one-day chart. The hourly series alone is not
+  trusted: it can stop before a closing auction (KOSPI/Nikkei differed by 0.2%-0.3%). Retain the
+  method and source hashes; any disagreement keeps `-`. A stale open Asian or FX snapshot shows
+  the last completed session instead.
 - `collect_public_inputs.py --collect-public` is a separate explicit no-post
-  producer. It may fetch at most fourteen bounded Yahoo responses, without
-  retries, redirects, paid requests, writer calls or publication calls. Native
+  producer. It may fetch at most fourteen bounded Yahoo responses, plus at most one
+  one-day previous-close chart per non-FX market whose latest completed close is still null,
+  without retries, redirects, paid requests, writer calls or publication calls. Native
   hourly `tradingPeriods` establish session windows; daily timestamps cannot
   establish schedules. Preserve unavailable configured instruments as visible
   rows. The IHSG facts benchmark requires the previous official IDX session and

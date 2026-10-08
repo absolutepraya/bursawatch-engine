@@ -112,12 +112,12 @@ def parse_yahoo_chart(name: str, payload: dict, *, freeze_at: datetime, retrieve
         complete = [i for i,(_,end) in enumerate(intervals) if end <= cutoff]
         opened = [i for i,(start,end) in enumerate(intervals) if start <= cutoff < end]
         use_open = name not in {'SPY','QQQ','EIDO'} and bool(opened)
-        if fx and use_open:
+        if use_open:
             raw_time = meta.get('regularMarketTime')
             if type(raw_time) in (int,float) and math.isfinite(raw_time):
                 observed_quote = datetime.fromtimestamp(raw_time,timezone.utc)
-                # An old FX tick is not a live quote. Prefer the native last
-                # completed day over displaying an unverifiably fresh snapshot.
+                # An old live tick is not a live quote (Asian and FX feeds can lag by tens of
+                # minutes). Prefer the native last completed session over a stale snapshot.
                 if intervals[opened[-1]][0] <= observed_quote <= cutoff and cutoff-observed_quote > timedelta(minutes=(delay or 0)+5):
                     use_open = False
         if use_open:

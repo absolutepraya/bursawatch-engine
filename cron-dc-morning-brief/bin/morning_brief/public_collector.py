@@ -53,11 +53,12 @@ class YahooTransport:
 
     def get(self, name, granularity):
         symbol=WATCHLIST[name][0] if name in WATCHLIST else '^JKSE'
-        if name not in WATCHLIST and name != 'IHSG' or granularity not in ('1d','60m'):
+        if name not in WATCHLIST and name != 'IHSG' or granularity not in ('1d','60m','prev'):
             raise ValueError('bounded public quote request required')
-        history_range='1y' if name=='IHSG' and granularity=='1d' else '1mo'
+        history_range='1y' if name=='IHSG' and granularity=='1d' else '1d' if granularity=='prev' else '1mo'
+        interval='1d' if granularity=='prev' else granularity
         url=('https://query1.finance.yahoo.com/v8/finance/chart/'+quote(symbol,safe='')
-            +'?interval='+granularity+'&range='+history_range+'&includePrePost=false&includeTradingPeriods=true')
+            +'?interval='+interval+'&range='+history_range+'&includePrePost=false&includeTradingPeriods=true')
         return self._record(url)
 
     def stock_history(self, symbol):
@@ -140,6 +141,50 @@ class YahooTransport:
         if len(raw)>2_000_000:
             raise ValueError('public quote response exceeds bound')
         return raw
+
+
+def latest_completed_window(proof, as_of):
+    windows=[(aware(datetime.fromisoformat(row['start'])),aware(datetime.fromisoformat(row['end'])))
+             for row in proof['sessions']]
+    completed=[window for window in windows if window[1]<=aware(as_of)]
+    return completed[-1] if completed else None
+
+
+def needs_previous_close(name, daily, proof, as_of):
+    """True when the latest completed session's close is still a null after other evidence."""
+    window=latest_completed_window(proof,as_of)
+    if name=='USDIDR' or window is None:
+        return False
+    try:
+        row=daily['payload']['chart']['result'][0]
+        stamps,closes=row['timestamp'],row['indicators']['quote'][0]['close']
+        return any(close is None and window[0]<=datetime.fromtimestamp(stamp,timezone.utc)<window[1]
+                   for stamp,close in zip(stamps,closes))
+    except (KeyError,IndexError,TypeError):
+        return False
+
+
+def repaired_daily(name, daily, hourly, proof, as_of, previous=None):
+    """Fill only the latest completed session's null close, from agreeing native evidence.
+
+    Yahoo can return a null close for the most recent completed session in the daily
+    series. The shared helper fills it from the same response's closing-window price
+    or from the native hourly series, and only when they agree with the bar. FX keeps
+    its own provider-day rules. The original source hash and the method are retained.
+    """
+    from yahoo_market_data.latest_close import fill_latest_close
+    if name == 'USDIDR':
+        return daily
+    window=latest_completed_window(proof,as_of)
+    if window is None:
+        return daily
+    start,end=window
+    payload,repair=fill_latest_close(daily['payload'],session_start=start,session_end=end,intraday=hourly['payload'],
+                                     previous_close=previous['payload'] if previous else None)
+    if repair is None:
+        return daily
+    return {**daily,'payload':payload,'repair':dict(repair,source_sha256=daily['source_sha256'],
+        intraday_sha256=hourly['source_sha256'],**({'previous_close_sha256':previous['source_sha256']} if previous else {}))}
 
 
 def collect_public(config, *, snapshot, calendar_path, source_cache, now, transport=None, clock=None,
@@ -230,6 +275,18 @@ def collect_public(config, *, snapshot, calendar_path, source_cache, now, transp
             proof=yahoo_sessions(name,hourly['payload'],
                 retrieved_at=datetime.fromisoformat(hourly['retrieved_at']),cutoff=min(aware(clock()),cutoff))
             proof['evidence_ref']=hourly['artifact_path']
+            as_of=min(aware(clock()),cutoff)
+            daily=repaired_daily(name,daily,hourly,proof,as_of)
+            if 'repair' not in daily and needs_previous_close(name,daily,proof,as_of):
+                try:
+                    # One bounded extra request for a market whose baseline is still null.
+                    fetched=transport.get(name,'prev'); observed=aware(datetime.fromisoformat(fetched['retrieved_at']))
+                    if observed>cutoff: raise ValueError('source response arrived after freeze')
+                    fetched={**fetched,'retrieved_at':stamp(observed)}
+                    encoded=canonical(fetched).encode(); write_once(cache/(hashlib.sha256(encoded).hexdigest()+'.json'),encoded)
+                    daily=repaired_daily(name,daily,hourly,proof,as_of,previous=fetched)
+                except Exception as error:
+                    failures.append(name+':previous_close:'+type(error).__name__)
             if name=='IHSG':
                 numerical=ihsg_benchmark(daily['payload'],proof,calendar,publication_session=session,
                     retrieved_at=datetime.fromisoformat(daily['retrieved_at']),cutoff=cutoff)
@@ -242,7 +299,8 @@ def collect_public(config, *, snapshot, calendar_path, source_cache, now, transp
                 except (KeyError,ValueError,TypeError,OverflowError) as error:
                     failures.append('IHSG:chart:'+type(error).__name__)
             else:
-                globals.append(dict(name=name,payload=daily['payload'],retrieved_at=daily['retrieved_at'],sessions=proof))
+                globals.append(dict(name=name,payload=daily['payload'],retrieved_at=daily['retrieved_at'],sessions=proof,
+                    **({'repair':daily['repair']} if 'repair' in daily else {})))
                 checked_quote=parse_yahoo_chart(name,daily['payload'],freeze_at=cutoff,
                     retrieved_at=datetime.fromisoformat(daily['retrieved_at']),sessions=proof)
                 if checked_quote['status']!='available':

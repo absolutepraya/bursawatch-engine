@@ -195,3 +195,34 @@ def test_rate_limit_still_stops_the_pass_without_marking_stocks_unavailable(tmp_
     result=collect(cache,values,transport)
     assert len(transport.calls)==1 and 'history:HTTPError' in result['gaps']
     assert not json.loads((cache/'rotation-index.json').read_text()).get('unavailable')
+
+
+def _null_close_transport(now,calendar,session,*,volume_matches=True):
+    """The latest completed session has every field but close, as in the 2026-10-08 morning responses."""
+    class NullClose(Transport):
+        def stock_history(self,ticker):
+            record=super().stock_history(ticker)
+            row=record['payload']['chart']['result'][0];quote=row['indicators']['quote'][0]
+            for field in ('open','high','low','close'): quote[field]=list(quote[field])  # the fixture aliases one list
+            quote['close'][-1]=None;quote['high'][-1]=120.0;quote['low'][-1]=115.0
+            row['meta'].update(regularMarketPrice=118.0,regularMarketTime=row['timestamp'][-1]+7*3600+12*60,
+                regularMarketDayHigh=120.0,regularMarketDayLow=115.0,
+                regularMarketVolume=quote['volume'][-1]+(0 if volume_matches else 5))
+            return record
+    return NullClose(now,calendar,session)
+
+
+def test_null_latest_stock_close_is_filled_from_the_agreeing_closing_window_price_and_attested(tmp_path):
+    values=setup();calendar,session,cutoff,now,_=values
+    result=collect(tmp_path/'agree',values,_null_close_transport(now,calendar,session))
+    numerical=read(tmp_path/'agree')['numerical']
+    assert result['prices_verified']==2
+    assert all(price['closes'][max(price['closes'])]==118.0 for price in numerical['prices'].values())
+    assert all('meta_regular_market_price' in proof['method'] for proof in numerical['price_attestations'].values())
+
+
+def test_null_latest_stock_close_stays_excluded_when_the_payload_disagrees(tmp_path):
+    values=setup();calendar,session,cutoff,now,_=values
+    result=collect(tmp_path/'disagree',values,_null_close_transport(now,calendar,session,volume_matches=False))
+    assert result['prices_verified']==0
+    assert {'BBCA:native_price_or_trading_evidence_unavailable','DSSA:native_price_or_trading_evidence_unavailable'}<=set(result['gaps'])
