@@ -1,8 +1,12 @@
 """Synthetic payloads shaped like the 2026-10-08 07:29 WIB Yahoo responses, no network."""
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import datetime
+from pathlib import Path
+import sys
+
 import pytest
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'bin'))
 from yahoo_market_data.latest_close import fill_latest_close
 
 
