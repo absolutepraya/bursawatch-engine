@@ -45,7 +45,6 @@ run_suite lib-swing-format lib-swing-format tests
 run_suite cron-dc-swing-board cron-dc-swing-board tests
 run_suite cron-ig-account-watch cron-ig-account-watch tests
 run_suite cron-tg-kelas-investasi-gtw cron-tg-kelas-investasi-gtw tests
-run_suite skill-guess-stock skill-guess-stock tests
 run_suite lib-telegram-resilience lib-telegram-resilience tests
 run_suite lib-bursawatch-control lib-bursawatch-control tests
 run_suite lib-bursawatch-pipeline-runtime lib-bursawatch-pipeline-runtime tests
@@ -65,7 +64,7 @@ if [[ "${SKIP_WHATSAPP_CHANNEL_WATCH:-0}" != "1" ]]; then
   printf '\n== cron-wa-channel-watch JavaScript sink ==\n'
   node --test "$repo_root/cron-wa-channel-watch/tests/channel_sink.test.mjs"
 fi
-run_suite skill-profile-emoji skill-profile-emoji tests
+run_suite profile-emoji .agents/skills/profile-emoji tests
 
 run_suite lib-sectors lib-sectors tests
 run_suite lib-chart-img lib-chart-img tests

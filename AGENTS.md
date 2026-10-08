@@ -20,11 +20,15 @@ Packages use these names:
   own an independent job or provide an adapter called by an existing job.
 - `bursawatch-<surface>-<purpose>` is its VPS runtime identity.
 - `lib-<purpose>` is shared imported code.
-- `skill-<purpose>` is a reusable non-scheduled skill.
+- Reusable non-scheduled skills live under `.agents/skills/<name>/`, not in top-level `skill-*` directories.
 - `service-<purpose>` is a deployable daemon or service definition.
 - `platform-<purpose>` is host-bound supporting code.
 
 The package inventory and its current production roles are in `README.md`.
+`README.md` is also the public entry point: keep its overview, architecture
+diagrams (`docs/images/`, plus the Mermaid system map) and package inventory
+aligned with the code in the same change, and keep its cron inventory table
+header intact because `tests/test_documentation_contract.py` parses it.
 The production schedule is not one job per package: the active Telegram
 source-ingest job owns Telegram intake, while the X, WhatsApp, and Stockbit
 adapters run through their existing watcher jobs. The Instagram source adapter
@@ -78,7 +82,6 @@ this contract:
 - `lib-chart-img/AGENTS.md`
 - `lib-yahoo-market-data/AGENTS.md`
 - `cron-dc-morning-brief/AGENTS.md`
-- `service-cobalt/AGENTS.md`
 - `service-bursawatch-discord-delivery/AGENTS.md`
 - `service-bursawatch-source-media/AGENTS.md`
 - `service-bursawatch-control/AGENTS.md`
@@ -95,8 +98,7 @@ this contract:
 - `cron-tg-phintraco-swing/AGENTS.md`
 - `cron-ig-account-watch/AGENTS.md`
 - `cron-tg-kelas-investasi-gtw/AGENTS.md`
-- `skill-guess-stock/AGENTS.md`
-- `skill-profile-emoji/AGENTS.md`
+- `.agents/skills/profile-emoji/AGENTS.md`
 - `cron-wa-channel-watch/AGENTS.md`
 - `cron-x-account-watch/AGENTS.md`
 - `cron-stockbit-snips/AGENTS.md`
@@ -193,8 +195,7 @@ sequence. Do not move web environment values into the backend service, copy
 backend credentials into either app, or infer that a successful web build or
 sign commit proves live delivery.
 
-`service-cobalt/deploy.sh` owns Cobalt deployment. `skill-profile-emoji/deploy.sh`
-owns its skill deployment. The generic deploy helper supports cron and library
+`.agents/skills/profile-emoji/deploy.sh` owns its skill deployment. The generic deploy helper supports cron and library
 packages only.
 
 `service-bursawatch-control/deploy.sh` owns repeat releases of the already

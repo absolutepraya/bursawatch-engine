@@ -20,7 +20,11 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, unquote, urljoin, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-_DELIVERY_BIN = Path(__file__).resolve().parents[2] / "lib-bursawatch-discord-delivery" / "bin"
+_HERE = Path(__file__).resolve()
+_DELIVERY_BIN = _HERE.parents[2] / "lib-bursawatch-discord-delivery" / "bin"
+if not _DELIVERY_BIN.exists():
+    # Source checkout: .agents/skills/profile-emoji/bin sits four levels below the repo root.
+    _DELIVERY_BIN = _HERE.parents[4] / "lib-bursawatch-discord-delivery" / "bin"
 if not _DELIVERY_BIN.exists():
     _DELIVERY_BIN = Path.home() / ".agents" / "skills" / "lib-bursawatch-discord-delivery" / "bin"
 if str(_DELIVERY_BIN) not in sys.path:

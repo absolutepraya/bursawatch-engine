@@ -1,6 +1,6 @@
 # Profile emoji helper instructions
 
-This file supplements the repository root `AGENTS.md`. `skill-profile-emoji` is a
+This file supplements the repository root `AGENTS.md`. `profile-emoji` is a
 reusable agent skill, not a scheduled Hermes cron.
 
 ## Contract
