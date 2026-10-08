@@ -105,8 +105,11 @@ class Publisher:
             if any(row['id'] != result.id for row in previous):
                 raise ValueError('receipt operation id changed')
             if result.status == 'delivered':
-                if result.receipt is None or result.receipt.get('channel_id') != step['target']['channel_id']:
-                    raise ValueError('receipt destination mismatch')
+                # The Delivery Owner's channel_message receipt is {message_id}; channel_id is
+                # optional and, when present, must equal the frozen target. The shared
+                # validator owns both rules, so the real receipt shape is not rejected.
+                if result.receipt is None:
+                    raise ValueError('delivered receipt required')
                 validate_receipt(result.receipt,'channel_message_create',step['target'])
                 if any(row['status']=='delivered' and row['receipt']!=result.receipt for row in previous):
                     raise ValueError('receipt message changed')

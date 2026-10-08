@@ -136,6 +136,34 @@ def test_rotation_heading_is_skipped_only_with_its_own_missing_image(owner):
     assert [op.key.rsplit(':',1)[1] for op in delivery.sent]==['ihsg_text','ihsg_image','sectors_text','sectors_image']
     assert len(projection.requests[0]['required_operation_keys'])==4
 
+class MessageIdOnlyDelivery(FakeDelivery):
+    """The real Delivery Owner channel_message receipt: message_id only, channel_id optional."""
+    def __init__(self,channel=None):
+        super().__init__();self.channel=channel
+    def submit(self,operation):
+        result=super().submit(operation)
+        if result.receipt is not None:
+            receipt={'message_id':result.receipt['message_id']}
+            if self.channel: receipt['channel_id']=self.channel
+            result=OperationReceipt(result.id,result.key,result.digest,result.status,receipt)
+            self.operations[operation.key]=result
+        return result
+
+def test_real_delivery_owner_receipt_without_channel_id_is_accepted(owner):
+    pub,store,run,lease,_,projection=owner
+    pub.delivery=MessageIdOnlyDelivery()
+    freeze(owner,images=(None,None,None))
+    assert pub.publish(run.run_id,lease=lease)['phase']=='projected'
+    assert len(projection.requests[0]['legs'])==1
+    assert projection.requests[0]['legs'][0]['destination']==DEST
+
+def test_receipt_naming_a_different_channel_is_still_rejected(owner):
+    pub,store,run,lease,_,projection=owner
+    pub.delivery=MessageIdOnlyDelivery(channel='999999999999999999')
+    freeze(owner,images=(None,None,None))
+    with pytest.raises(FreezeConflict):pub.publish(run.run_id,lease=lease)
+    assert not projection.requests
+
 def test_pending_image_stays_unresolved_and_is_never_omitted(owner):
     freeze(owner); pub,store,run,lease,delivery,projection=owner
     delivery.statuses[2]='pending'
