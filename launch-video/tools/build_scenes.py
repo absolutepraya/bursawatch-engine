@@ -49,7 +49,7 @@ def proof():
         dict(icon="tuntun", time="09:22", title="REAL: Bersiap akuisisi HIGEN untuk ekspansi data center",
              src='Tuntun', body="REAL bersiap mengakuisisi PT Quanta Tunas Abadi (HIGEN) untuk masuk ke data center dan managed service. Anak usahanya, RGST, meneken MoU dengan HIGEN pada 6 Oktober 2026.",
              last="52", rows=[("1D", "+9 (+20.93%)", "green"), ("1W", "+17 (+48.57%)", "green"), ("1M", "+2 (+4.00%)", "green"), ("3M", "+2 (+4.00%)", "green")],
-             sector="Properties &amp; Real Estate", cap="Rp285,2 M", cons=("up", "&#9650; BUY", "2 analis, 100% Buy", True), tone="up", label="&#9650; Positif"),
+             sector="Properties &amp; Real Estate", cap="Rp285,2 M", cons=("up", "&#9650; BUY", "8 analis, 100% Buy", True), tone="up", label="&#9650; Positif"),
         dict(icon="twitter", time="15:37", title="JARR: Pengendali gadaikan 100% sahamnya ke Bank Mandiri",
              src=f'<img src="{E}/writingtorch.png">Torch', body="PT Eshan Agro Sentosa, pengendali JARR, menjaminkan 7.997.556.204 saham atau 100% kepemilikannya kepada Bank Mandiri atas fasilitas kredit afiliasi.",
              last="3.480", rows=[("1D", "-20 (-0.57%)", "red"), ("1W", "-100 (-2.79%)", "red"), ("1M", "+310 (+9.78%)", "green"), ("3M", "+1.640 (+89.13%)", "green")],
@@ -57,15 +57,14 @@ def proof():
     ]
     out = []
     for i, m in enumerate(msgs):
-        ctone, crate, cdet, csample = m["cons"]
-        ctag = " <em>contoh</em>" if csample else ""
+        ctone, crate, cdet, _sample = m["cons"]
         cells = "".join(f'<span class="pr"><img src="{E}/{kind}.png">{lab}: <b>{val}</b></span>' for lab, val, kind in m["rows"])
         card = (f'<div class="dsec" id="s3-s{i}">'
                 f'<div class="sw"><img src="assets/sources/emoji/sectors-mark.png"><span>Sectors &middot; menganalisis sektor dan sentimen&hellip;</span></div>'
                 f'<div class="sd"><img src="assets/sources/emoji/sectors-mark.png">'
                 f'<span><span class="k">Sektor</span><span class="v">{m["sector"]}</span></span>'
-                f'<span class="cv {ctone}"><span class="k">Konsensus analis{ctag}</span><span class="v">{crate} <small>({cdet})</small></span></span>'
-                f'<span class="sv {m["tone"]}"><span class="k">Sentimen <em>contoh</em></span><span class="v">{m["label"]}</span></span></div>'
+                f'<span class="cv {ctone}"><span class="k">Konsensus analis</span><span class="v">{crate} <small>({cdet})</small></span></span>'
+                f'<span class="sv {m["tone"]}"><span class="k">Sentimen</span><span class="v">{m["label"]}</span></span></div>'
                 f'<i class="scan"></i></div>')
         head = SB.bot_header("", "Today at " + m["time"]).replace("</span></div></div>", f'</span><span class="dvia">&middot; {m["src"]}</span></div></div>')
         out.append(

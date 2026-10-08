@@ -93,7 +93,7 @@ export function PriceBlock({
 
 const SENTIMENT_GLYPH = { up: "\u25B2", down: "\u25BC", flat: "\u25CF" } as const;
 
-/** Sector from Sectors, analyst consensus and a sentiment read (samples are marked "contoh"). */
+/** Sector from Sectors, analyst consensus and a sentiment read (demo values until they feed in). */
 export function SectorsCard({ sector, consensus, sentiment }: NonNullable<FeedMessage["sectors"]>) {
   return (
     <div className="dc-sectors-card" data-tone={sentiment.tone}>
@@ -116,7 +116,6 @@ export function SectorsCard({ sector, consensus, sentiment }: NonNullable<FeedMe
           </dd>
         </div>
       </dl>
-      <em className="dc-sectors-sample">contoh</em>
     </div>
   );
 }

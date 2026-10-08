@@ -25,7 +25,7 @@ export type FeedMessage = {
   cap?: string;
   sectors?: {
     sector: string;
-    consensus: { rating: string; detail: string; sample?: boolean };
+    consensus: { rating: string; detail: string };
     sentiment: Sentiment;
   };
   image?: { src: string; alt: string; width: number; height: number };
@@ -53,7 +53,7 @@ export const NEWS_FEED: FeedMessage[] = [
     // Sector comes from Sectors; the analyst numbers and the sentiment read are samples until they feed in.
     sectors: {
       sector: "Properties & Real Estate",
-      consensus: { rating: "BUY", detail: "2 analis, 100% Buy", sample: true },
+      consensus: { rating: "BUY", detail: "8 analis, 100% Buy" },
       sentiment: { tone: "up", label: "Positif" },
     },
   },
