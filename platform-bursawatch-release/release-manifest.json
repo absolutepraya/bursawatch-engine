@@ -37,7 +37,7 @@
     {
       "id": "retired-packages",
       "handler": "metadata",
-      "paths": ["service-cobalt/**", "skill-guess-stock/**"]
+      "paths": ["service-cobalt/**", "skill-guess-stock/**", "skill-profile-emoji/**"]
     },
     {
       "id": "lib-bursawatch-control",
