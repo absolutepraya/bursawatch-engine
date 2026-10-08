@@ -110,3 +110,58 @@ def test_linked_broker_update_is_in_swing_group():
     page = store.list_page(limit=10, filters={"group": "swing"})
 
     assert [item["type"] for item in page["items"]] == ["broker_swing_update"]
+
+
+def test_owner_added_later_is_accepted_only_after_its_own_boundary_and_the_original_cutover_is_untouched():
+    store = MemoryPublicationStore()
+    store.activate(BOUNDARY, ("bursawatch-stockbit-snips",))
+    with pytest.raises(ValueError, match="outside the cutover set"):
+        store.accept(OWNER, publication())
+    original = store.cutover()
+    own = "2026-10-08T00:00:00+00:00"
+    store.add_owner(OWNER, own)
+    after = store.cutover()
+    assert after["boundary"] == original["boundary"] and after["owner_ids"] == ("bursawatch-stockbit-snips", OWNER)
+    assert after["owner_boundaries"] == {OWNER: own}
+    with pytest.raises(ValueError, match="cutover"):
+        store.accept(OWNER, publication(delivery_confirmed_at=own))
+    ack = store.accept(OWNER, publication(delivery_confirmed_at="2026-10-08T01:29:16+00:00"))
+    assert store.get(ack["publication_id"])["versions"][0]["version"] == 1
+    # The pre-existing owner still uses the original boundary.
+    assert store.cutover()["owner_boundaries"].get("bursawatch-stockbit-snips") is None
+
+
+def test_owner_addition_is_validated_and_never_repeats_or_precedes_the_cutover():
+    store = MemoryPublicationStore()
+    with pytest.raises(PublicationConflict, match="not active"):
+        store.add_owner(OWNER, BOUNDARY)
+    store.activate(BOUNDARY, ("bursawatch-stockbit-snips",))
+    with pytest.raises(ValueError, match="invalid"):
+        store.add_owner("not-an-owner", BOUNDARY)
+    with pytest.raises(ValueError, match="timezone"):
+        store.add_owner(OWNER, "2026-10-08T00:00:00")
+    with pytest.raises(ValueError, match="precedes"):
+        store.add_owner(OWNER, "2026-09-01T00:00:00+00:00")
+    with pytest.raises(PublicationConflict, match="already"):
+        store.add_owner("bursawatch-stockbit-snips", "2026-10-08T00:00:00+00:00")
+    store.add_owner(OWNER, "2026-10-08T00:00:00+00:00")
+    with pytest.raises(PublicationConflict, match="already"):
+        store.add_owner(OWNER, "2026-10-09T00:00:00+00:00")
+
+
+def test_added_owner_checkpoints_use_its_own_boundary_and_appear_in_coverage():
+    from datetime import datetime, timedelta, timezone
+    from control_plane.publication_coverage import coverage_view
+    store = MemoryPublicationStore()
+    store.activate(BOUNDARY, ("bursawatch-stockbit-snips",))
+    now = datetime.now(timezone.utc)
+    own = (now - timedelta(hours=2)).isoformat()
+    store.add_owner(OWNER, own)
+    comparison = {"compared_at": (now - timedelta(minutes=1)).isoformat(), "confirmed_through_at": (now - timedelta(minutes=30)).isoformat(),
+                  "accepted_through_at": (now - timedelta(minutes=30)).isoformat(), "outstanding_count": 0}
+    assert store.checkpoint(OWNER, comparison)["outstanding_count"] == 0
+    early = dict(comparison, compared_at=(now - timedelta(hours=3)).isoformat())
+    with pytest.raises(ValueError, match="boundary"):
+        store.checkpoint(OWNER, early)   # before this owner's own boundary
+    view = coverage_view(store.cutover(), store.checkpoints())
+    assert [row["owner_id"] for row in view["owners"]] == ["bursawatch-stockbit-snips", OWNER]

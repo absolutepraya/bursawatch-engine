@@ -102,6 +102,16 @@ def _sort_key(row: dict[str, Any]) -> tuple[str, str, int]:
     return row["delivery_confirmed_at"], row["publication_id"], row["version"]
 
 
+def _boundary(value: str) -> datetime:
+    try:
+        at = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (AttributeError, ValueError) as exc:
+        raise ValueError("publication cutover boundary is invalid") from exc
+    if at.tzinfo is None:
+        raise ValueError("publication cutover boundary needs timezone")
+    return at
+
+
 class MemoryPublicationStore:
     def __init__(self) -> None:
         self._cutover: dict[str, Any] | None = None
@@ -121,15 +131,32 @@ class MemoryPublicationStore:
             raise ValueError("publication cutover boundary needs timezone")
         self._cutover = {"boundary": at.isoformat(), "owner_ids": tuple(owner_ids)}
 
-    def cutover(self) -> dict[str, Any] | None:
-        return deepcopy(self._cutover)
+    def add_owner(self, owner_id: str, boundary: str) -> None:
+        """Append one owner with its own forward-only boundary; the original cutover is untouched."""
+        if self._cutover is None:
+            raise PublicationConflict("publication cutover is not active")
+        if owner_id not in OWNER_ROUTES:
+            raise ValueError("publication owner is invalid")
+        if owner_id in self._cutover["owner_ids"]:
+            raise PublicationConflict("publication owner is already in the cutover set")
+        at = _boundary(boundary)
+        if at < datetime.fromisoformat(self._cutover["boundary"]):
+            raise ValueError("publication owner boundary precedes the cutover")
+        self._cutover = {**self._cutover, "owner_ids": (*self._cutover["owner_ids"], owner_id),
+                         "owner_boundaries": {**self._cutover.get("owner_boundaries", {}), owner_id: at.isoformat()}}
 
-    def checkpoint(self, owner_id: str, comparison: dict[str, Any]) -> dict[str, Any]:
+    def _owner_boundary(self, owner_id: str) -> str:
         if self._cutover is None:
             raise PublicationConflict("publication cutover is not active")
         if owner_id not in self._cutover["owner_ids"]:
             raise ValueError("publication owner is outside the cutover set")
-        safe = validate_checkpoint(comparison, self._cutover["boundary"])
+        return self._cutover.get("owner_boundaries", {}).get(owner_id, self._cutover["boundary"])
+
+    def cutover(self) -> dict[str, Any] | None:
+        return deepcopy(self._cutover)
+
+    def checkpoint(self, owner_id: str, comparison: dict[str, Any]) -> dict[str, Any]:
+        safe = validate_checkpoint(comparison, self._owner_boundary(owner_id))
         previous = self._checkpoints.get(owner_id)
         if previous is not None and safe["compared_at"] < previous["compared_at"]:
             return deepcopy(previous)
@@ -142,12 +169,9 @@ class MemoryPublicationStore:
         return deepcopy(self._checkpoints)
 
     def accept(self, owner_id: str, snapshot: dict[str, Any]) -> dict[str, Any]:
-        if self._cutover is None:
-            raise PublicationConflict("publication cutover is not active")
-        if owner_id not in self._cutover["owner_ids"]:
-            raise ValueError("publication owner is outside the cutover set")
+        boundary = self._owner_boundary(owner_id)
         record = validate_publication(snapshot, owner_id)
-        if datetime.fromisoformat(record["delivery_confirmed_at"]) <= datetime.fromisoformat(self._cutover["boundary"]):
+        if datetime.fromisoformat(record["delivery_confirmed_at"]) <= datetime.fromisoformat(boundary):
             raise ValueError("publication delivery is before or at cutover")
         publication_id = record["publication_id"]
         key = (publication_id, record["version"])
@@ -245,20 +269,50 @@ class PostgresPublicationStore:
             row = conn.execute(
                 "select boundary_at, owner_ids from bursawatch_publication_cutover where singleton = true"
             ).fetchone()
-        if row is None:
-            return None
+            if row is None:
+                return None
+            added = conn.execute(
+                "select owner_id, boundary_at from bursawatch_publication_cutover_owners order by created_at, owner_id"
+            ).fetchall()
         owner_ids = row["owner_ids"]
         if type(owner_ids) is str:
             owner_ids = json.loads(owner_ids)
-        return {"boundary": row["boundary_at"].isoformat(), "owner_ids": tuple(owner_ids)}
+        result = {"boundary": row["boundary_at"].isoformat(), "owner_ids": (*owner_ids, *(item["owner_id"] for item in added))}
+        if added:
+            result["owner_boundaries"] = {item["owner_id"]: item["boundary_at"].isoformat() for item in added}
+        return result
 
-    def checkpoint(self, owner_id: str, comparison: dict[str, Any]) -> dict[str, Any]:
-        cutover = self.cutover()
+    def add_owner(self, owner_id: str, boundary: str) -> None:
+        """Append one owner with its own forward-only boundary; never touches the original cutover."""
+        candidate = MemoryPublicationStore()
+        current = self.cutover()
+        if current is None:
+            raise PublicationConflict("publication cutover is not active")
+        candidate._cutover = {"boundary": current["boundary"], "owner_ids": tuple(current["owner_ids"]),
+                              **({"owner_boundaries": current["owner_boundaries"]} if "owner_boundaries" in current else {})}
+        candidate.add_owner(owner_id, boundary)
+        at = _boundary(boundary)
+        import psycopg
+
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    "insert into bursawatch_publication_cutover_owners (owner_id, boundary_at) values (%s, %s::timestamptz)",
+                    (owner_id, at.isoformat()),
+                )
+        except psycopg.errors.UniqueViolation as exc:
+            raise PublicationConflict("publication owner is already in the cutover set") from exc
+
+    @staticmethod
+    def _owner_boundary(cutover: dict[str, Any] | None, owner_id: str) -> str:
         if cutover is None:
             raise PublicationConflict("publication cutover is not active")
         if owner_id not in cutover["owner_ids"]:
             raise ValueError("publication owner is outside the cutover set")
-        safe = validate_checkpoint(comparison, cutover["boundary"])
+        return cutover.get("owner_boundaries", {}).get(owner_id, cutover["boundary"])
+
+    def checkpoint(self, owner_id: str, comparison: dict[str, Any]) -> dict[str, Any]:
+        safe = validate_checkpoint(comparison, self._owner_boundary(self.cutover(), owner_id))
         with self._connect() as conn:
             row = conn.execute(
                 "insert into bursawatch_publication_checkpoints "
@@ -311,9 +365,13 @@ class PostgresPublicationStore:
             owners = cutover["owner_ids"]
             if type(owners) is str:
                 owners = json.loads(owners)
-            if owner_id not in owners:
+            added = conn.execute(
+                "select boundary_at from bursawatch_publication_cutover_owners where owner_id = %s", (owner_id,)
+            ).fetchone()
+            if owner_id not in owners and added is None:
                 raise ValueError("publication owner is outside the cutover set")
-            if datetime.fromisoformat(record["delivery_confirmed_at"]) <= cutover["boundary_at"]:
+            boundary = added["boundary_at"] if added is not None and owner_id not in owners else cutover["boundary_at"]
+            if datetime.fromisoformat(record["delivery_confirmed_at"]) <= boundary:
                 raise ValueError("publication delivery is before or at cutover")
             conn.execute("select pg_advisory_xact_lock(hashtextextended(%s, 0))", (publication_id,))
             existing = conn.execute(
