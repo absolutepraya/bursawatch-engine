@@ -35,6 +35,11 @@
       "paths": ["launch-video/**"]
     },
     {
+      "id": "retired-packages",
+      "handler": "metadata",
+      "paths": ["service-cobalt/**", "skill-guess-stock/**"]
+    },
+    {
       "id": "lib-bursawatch-control",
       "handler": "runtime",
       "runtime": "lib-bursawatch-control",
