@@ -70,7 +70,8 @@ def test_capture_validates_window_and_keeps_late_incomplete_metadata():
     assert requests[0].get_header('Authorization') == 'Bearer reader-secret'
 
 
-@pytest.mark.parametrize('gap,status', [(0, 'on_time'), (3, 'on_time'), (120, 'on_time'), (121, 'late')])
+@pytest.mark.parametrize('gap,status', [(0, 'on_time'), (3, 'on_time'), (120, 'on_time'), (121, 'late'),
+                                        (-1, 'on_time'), (-15, 'on_time'), (-16, 'early')])
 def test_capture_grace_window_matches_service_and_keeps_gap(gap, status):
     response = capture(gap=gap, status=status)
     result = client(lambda request, timeout: Response(response)).capture_window('2026-10-02T00:30:00Z', '2026-10-05T00:30:00Z')
@@ -79,7 +80,7 @@ def test_capture_grace_window_matches_service_and_keeps_gap(gap, status):
 
 def test_capture_rejects_on_time_claim_beyond_grace_and_late_within_grace():
     from control_plane_client import ControlPlaneContractError
-    for gap, status in ((121, 'on_time'), (3, 'late')):
+    for gap, status in ((121, 'on_time'), (3, 'late'), (-16, 'on_time'), (-3, 'early')):
         response = capture(gap=gap, status=status)
         with pytest.raises(ControlPlaneContractError):
             client(lambda request, timeout: Response(response)).capture_window('2026-10-02T00:30:00Z', '2026-10-05T00:30:00Z')
@@ -87,9 +88,10 @@ def test_capture_rejects_on_time_claim_beyond_grace_and_late_within_grace():
 
 def test_grace_constant_is_identical_in_service_and_client():
     import re
-    from source_evidence_client import CAPTURE_GRACE_SECONDS
+    from source_evidence_client import CAPTURE_GRACE_SECONDS, EARLY_TOLERANCE_SECONDS
     service = (Path(__file__).resolve().parents[2] / 'service-bursawatch-control/bin/control_plane/source_evidence.py').read_text()
     assert re.search(rf'^CAPTURE_GRACE_SECONDS = {CAPTURE_GRACE_SECONDS}$', service, re.M)
+    assert re.search(rf'^EARLY_TOLERANCE_SECONDS = {EARLY_TOLERANCE_SECONDS}$', service, re.M)
 
 
 @pytest.mark.parametrize('mutation', ['hash', 'window', 'ref', 'ceiling'])

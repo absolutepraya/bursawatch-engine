@@ -246,10 +246,17 @@ No selected record establishes independent opinion counts. Late/early capture,
 overflow and unknown/unavailable history force facts-only, while independently
 valid globals/calendar/numerical facts remain usable.
 
-Capture can never precede its cutoff, so the Control Plane and its client share
-one `CAPTURE_GRACE_SECONDS = 120` constant: a capture 0 to 120 seconds after the
-cutoff is `on_time`, a larger gap is `late` and facts-only, and the signed
-`capture_gap_seconds` stays in the frozen evidence. `freeze_source_evidence`
+The capture instant is the database server's clock, which reads about ten seconds behind the
+host. The Control Plane and its client therefore share `CAPTURE_GRACE_SECONDS = 120` and
+`EARLY_TOLERANCE_SECONDS = 15`: a capture from 15 seconds before to 120 seconds after the cutoff
+is `on_time`, a larger gap is `late`, an earlier one `early`, both facts-only, and the signed
+`capture_gap_seconds` stays in the frozen evidence.
+
+An item with no quotable text (a photo-only post) is omitted and counted under
+`omissions.content_unavailable`; it no longer forces facts-only. While the store holds less than
+a full window, `history_status = unavailable` is accepted when its history reaches at least six
+hours before the cutoff, and the span is noted in `notes` (`history_partial_hours:N`). A shorter
+or unknown history still forces facts-only. `freeze_source_evidence`
 attempts `capture_window` once. Any capture failure freezes `{'status': 'unavailable'}`
 and selects facts-only, including on recovery. Capture has no idempotent snapshot
 handle: a repeated request could observe a newly committed transaction whose
@@ -331,7 +338,14 @@ frozen source window. Base and change-condition contexts must include explicit
 sourced conditional language (for example `jika`), otherwise select facts-only.
 A ref carries frozen version/hash, publisher, origin status, URL and timestamps
 into the result. No generated freeform prose or invented levels are accepted.
-Numerical probability statements, including wrapped text, fail facts-only.
+A numeric probability statement fails facts-only, judged per sentence: the word `probabilitas` or
+`probability` with any number, or `peluang`/`berpeluang` with a percentage. Index levels beside
+"berpeluang" ("berpeluang menguji 6.280") are ordinary views and pass.
+
+The writer gets one bounded correction pass inside the same worker, deadline and gate: after an
+answer that fails validation, the model is called once more with `retry_feedback` carrying only
+our own fixed validation message. A model or transport failure is not retried. The worker budget
+is 75 seconds, always capped by the frozen fallback deadline.
 
 Role assignment is the injected model's assessment of attributed source views,
 not certification that the publisher holds a particular stance or that commentary

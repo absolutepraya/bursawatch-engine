@@ -69,6 +69,29 @@ def _facts_text(payload):
     return '\n\n'.join(sections)
 
 
+_PROBABILITY_WORD=re.compile(r'\b(?:probabilitas|probability)\b',re.I)
+_LIKELIHOOD_WORD=re.compile(r'\b(?:peluang|berpeluang)\b',re.I)
+_PERCENT=re.compile(r'\d+(?:[.,]\d+)?\s*(?:%|persen\b|percent\b)',re.I)
+
+
+def states_probability(text):
+    """True for a numeric probability claim, never for an index level beside "berpeluang".
+
+    Judged per sentence, so a long qualifier cannot hide the number. A sentence states a
+    probability when it has the word probabilitas/probability and any number, or the word
+    peluang/berpeluang and a percentage. "berpeluang menguji 6.280" is a view about a level.
+    """
+    for sentence in re.split(r'(?<=[.!?])\s+',text):
+        if _PROBABILITY_WORD.search(sentence) and re.search(r'\d',sentence):
+            return True
+        if _LIKELIHOOD_WORD.search(sentence) and _PERCENT.search(sentence):
+            return True
+    return False
+
+
+MODEL_ATTEMPTS = 2
+
+
 def _claims(response,payload):
     if type(response) is not dict or set(response)!={'claims','scenario'} or type(response['claims']) is not list or not 0<=len(response['claims'])<=3:
         raise ValueError('structured supported claims required')
@@ -87,7 +110,7 @@ def _claims(response,payload):
         if excerpt not in sentences or row.get('text_truncated'):
             raise ValueError('claim is not a complete supported excerpt')
         # Forbidden numerical probabilities remain forbidden across source wraps.
-        if re.search(r'(?:probabilitas|probability|peluang).*\d|\d.*(?:probabilitas|probability|peluang)',row['text'],re.I|re.S):
+        if states_probability(row['text']):
             raise ValueError('calibrated probability is outside writer contract')
         if (identity,excerpt) in seen: raise ValueError('duplicate claim')
         seen.add((identity,excerpt))
@@ -117,7 +140,7 @@ def _scenario(response,payload):
         row=rows[identity]
         if row.get('text_truncated') or not 1<=len(text)<=600 or text!=row['text'].strip():
             raise ValueError('full untruncated source context required')
-        if re.search(r'(?:probabilitas|probability|peluang).*\d|\d.*(?:probabilitas|probability|peluang)',text,re.I|re.S):
+        if states_probability(text):
             raise ValueError('numerical probability forbidden')
         if conditional and not re.search(r'\b(?:jika|bila|apabila|selama|asalkan|if|unless|provided)\b',text,re.I):
             raise ValueError('sourced conditional language required')
@@ -182,7 +205,7 @@ def _evidence_floor(payload):
     return False
 
 
-def write_outlook(bundle,model,*,now: datetime,timeout_seconds: float=30) -> dict:
+def write_outlook(bundle,model,*,now: datetime,timeout_seconds: float=75) -> dict:
     """Pass a JSON-isolated frozen bundle to one bounded injected callable.
 
     Timeout selects an already-built facts-only result; late worker output never
@@ -219,14 +242,21 @@ def write_outlook(bundle,model,*,now: datetime,timeout_seconds: float=30) -> dic
     model_input=json.loads(canonical(payload))
     def worker():
         try:
-            response=model(model_input)
-            try:
-                claims=_claims(response,payload)
-                scenario=_scenario(response,payload)
-                encoded=canonical({'claims':claims,'scenario':scenario,'text':_scenario_block(scenario)})
-                output.append(('supported',encoded) if len(encoded.encode())<=32768 else ('unsupported_claim',None))
-            except (ValueError,KeyError,TypeError):
-                output.append(('unsupported_claim',None))
+            feedback=None
+            for attempt in range(MODEL_ATTEMPTS):
+                # One bounded correction pass inside the same worker, deadline and gate. The
+                # retry carries only our own fixed validation message, never source or model text.
+                response=model(model_input if feedback is None else {**model_input,'retry_feedback':feedback})
+                try:
+                    claims=_claims(response,payload)
+                    scenario=_scenario(response,payload)
+                    encoded=canonical({'claims':claims,'scenario':scenario,'text':_scenario_block(scenario)})
+                    output.append(('supported',encoded) if len(encoded.encode())<=32768 else ('unsupported_claim',None))
+                    break
+                except (ValueError,KeyError,TypeError) as error:
+                    feedback=str(error)[:160] if isinstance(error,ValueError) else 'structure invalid'
+                    if attempt+1==MODEL_ATTEMPTS:
+                        output.append(('unsupported_claim',None))
         except Exception:
             output.append(('model_unavailable',None))
         finally:

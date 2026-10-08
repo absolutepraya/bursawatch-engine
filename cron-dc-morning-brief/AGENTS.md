@@ -52,7 +52,11 @@ delivery from local tests or an installed dispatcher.
   certify source stance, factual truth or consensus. Verified latest IHSG close
   plus a fresh dated upstream factual driver are required. Invocation, validation
   and candidate assembly share the frozen fallback deadline (default 07:55 WIB) and one daemon worker maximum.
-  Late worker results never mutate the selected fallback or owner state. Missing
+  The writer may retry once after a validation failure (never after a model failure), inside the
+  same worker and deadline. A numeric probability is `probabilitas`/`probability` with a number or
+  `peluang`/`berpeluang` with a percentage in one sentence; levels beside "berpeluang" pass.
+  Media-only items are omitted and counted, not disabling; partial history of at least six hours is
+  accepted and noted. Late worker results never mutate the selected fallback or owner state. Missing
   conditional base/change evidence selects facts-only. Formatting trims claims
   with citations atomically and freezes actual published mode/scenario in
   `presentation`; closing anchors must never expose an omitted candidate.

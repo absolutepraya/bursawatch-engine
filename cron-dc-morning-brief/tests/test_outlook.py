@@ -334,3 +334,60 @@ def test_number_before_peluang_cannot_enter_claim_or_scenario_even_across_wraps(
     texts,presentation=core('formatting').format_brief(**values,with_selection=True)
     assert presentation['mode']=='facts_only' and presentation['scenario'] is None
     assert '80 persen' not in texts[0]
+
+
+@pytest.mark.parametrize('text,expected',[
+    ('IHSG berpeluang menguji level 6.370. Jika turun di bawah 6.120, risiko koreksi meningkat.',False),
+    ('Peluang IHSG untuk melanjutkan penguatan menuju 6.297-6.339 terbuka, terutama jika volume beli tetap dominan.',False),
+    ('Berpeluang menguat. Support 6.100 dan resistance 6.300.',False),
+    ('Ada peluang 70% IHSG naik.',True),
+    ('IHSG berpeluang naik 70 persen hari ini.',True),
+    ('Probabilitas sebesar 70 persen.',True),
+    ('The probability of 0.7 is high.',True),
+    ('70% probability of a rally.',True),
+    ('Jika likuiditas pulih, probabilitas '+('berdasarkan kondisi pasar '*3)+'IHSG naik 80 persen.',True),
+])
+def test_only_numeric_probability_claims_are_rejected_not_levels_beside_berpeluang(core,text,expected):
+    assert core('outlook').states_probability(text) is expected
+
+
+def test_a_real_analyst_sentence_with_berpeluang_and_index_levels_reaches_a_supported_outlook(core,tmp_path):
+    import copy
+    _,_,_,bundle=frozen_bundle(core,tmp_path)
+    payload=copy.deepcopy(bundle.payload)
+    payload['evidence']['items'][-1]['text']='Jika momentum beli semakin kuat, IHSG berpeluang menguji level 6.370. Jika turun di bawah 6.120, risiko koreksi meningkat.'
+    result=core('outlook').write_outlook(payload,structured_response,now=FREEZE,timeout_seconds=1)
+    assert result['mode']=='supported'
+
+
+def _two_attempt_model(payload,*,first,second=None):
+    calls=[]
+    def model(request):
+        calls.append(request)
+        return first if len(calls)==1 else (second if second is not None else first)
+    return model,calls
+
+
+def test_one_correction_pass_recovers_an_invalid_first_answer_and_carries_only_our_message(core,tmp_path):
+    _,_,_,bundle=frozen_bundle(core,tmp_path)
+    good=structured_response(bundle.payload)
+    model,calls=_two_attempt_model(bundle.payload,first={'claims':[],'scenario':None},second=good)
+    result=core('outlook').write_outlook(bundle,model,now=FREEZE,timeout_seconds=5)
+    assert result['mode']=='supported' and len(calls)==2
+    assert 'retry_feedback' not in calls[0] and calls[1]['retry_feedback']=='complete structured scenario required'
+
+
+def test_two_invalid_answers_fall_back_after_exactly_two_calls(core,tmp_path):
+    _,_,_,bundle=frozen_bundle(core,tmp_path)
+    model,calls=_two_attempt_model(bundle.payload,first={'claims':[],'scenario':None})
+    result=core('outlook').write_outlook(bundle,model,now=FREEZE,timeout_seconds=5)
+    assert result['mode']=='facts_only' and result['reason']=='unsupported_claim' and len(calls)==2
+
+
+def test_a_model_failure_is_not_retried(core,tmp_path):
+    _,_,_,bundle=frozen_bundle(core,tmp_path)
+    calls=[]
+    def broken(request):
+        calls.append(request); raise OSError('provider down')
+    result=core('outlook').write_outlook(bundle,broken,now=FREEZE,timeout_seconds=5)
+    assert result['reason']=='model_unavailable' and len(calls)==1

@@ -58,8 +58,9 @@ def select_evidence(rows: list[dict]) -> dict:
             continue
         text = row.get('text')
         if row.get('content_unavailable') or not isinstance(text, str) or not text.strip():
+            # A photo-only or empty item has nothing to quote. It is omitted and counted, and it
+            # does not stop the outlook from using the items that do carry text.
             omissions['content_unavailable'] += 1
-            reasons.add('content_unavailable')
             continue
         if IHSG_ALIASES.search(text) is None:
             omissions['irrelevant'] += 1
@@ -102,6 +103,25 @@ def select_evidence(rows: list[dict]) -> dict:
     return {'items': selected, 'omissions': dict(omissions), 'degraded_reasons': sorted(reasons)}
 
 
+PARTIAL_HISTORY_MIN_HOURS = 6
+
+
+def _partial_history_span(manifest, cutoff):
+    """Hours of source history before the cutoff when the store began inside the window.
+
+    While the store holds less than a full window, a long enough partial window is accepted
+    and noted. A store that began only just before the cutoff is still treated as incomplete.
+    """
+    if manifest.get('history_status') != 'unavailable' or not manifest.get('history_available_from'):
+        return None
+    try:
+        start = aware(datetime.fromisoformat(manifest['history_available_from'].replace('Z', '+00:00')))
+        hours = (aware(datetime.fromisoformat(cutoff.replace('Z', '+00:00'))) - start).total_seconds() / 3600
+    except (ValueError, TypeError, AttributeError):
+        return None
+    return hours if hours >= PARTIAL_HISTORY_MIN_HOURS else None
+
+
 def freeze_source_evidence(store, run_id: str, client: SourceReader, *, previous_cutoff: str,
                            lease, now: datetime):
     """Persist capture first; recover only its immutable versions, never recapture.
@@ -131,6 +151,7 @@ def freeze_source_evidence(store, run_id: str, client: SourceReader, *, previous
             raise FreezeConflict('saved evidence dependency does not match source manifest')
         return saved
     reasons = set()
+    notes = []
     rows = []
     if manifest.get('status') == 'unavailable':
         reasons.add('capture_unavailable')
@@ -140,7 +161,11 @@ def freeze_source_evidence(store, run_id: str, client: SourceReader, *, previous
         if manifest.get('overflow'):
             reasons.add('corpus_overflow')
         if manifest.get('history_status') != 'available':
-            reasons.add('history_' + manifest.get('history_status','unknown'))
+            span = _partial_history_span(manifest, run.freeze_at)
+            if span is None:
+                reasons.add('history_' + manifest.get('history_status','unknown'))
+            else:
+                notes.append('history_partial_hours:' + format(span, '.1f'))
         try:
             if digest({k:v for k,v in manifest.items() if k != 'manifest_hash'}) != manifest['manifest_hash']:
                 raise ValueError('manifest hash changed')
@@ -165,6 +190,6 @@ def freeze_source_evidence(store, run_id: str, client: SourceReader, *, previous
                    capture_status=manifest.get('capture_status','unavailable'),
                    capture_gap_seconds=manifest.get('capture_gap_seconds'),
                    history_status=manifest.get('history_status','unknown'), overflow=manifest.get('overflow'),
-                   facts_only=bool(reasons), degraded_reasons=sorted(reasons))
+                   facts_only=bool(reasons), degraded_reasons=sorted(reasons), notes=notes)
     return store.freeze(run_id, 'evidence', payload, lease=lease, now=now,
                         dependencies={'source_manifest': frozen.digest})

@@ -95,7 +95,8 @@ def test_boundaries_observation_acceptance_overflow_and_history_are_honest(monke
 
 @pytest.mark.parametrize('gap,status,complete', [
     (0, 'on_time', True), (3, 'on_time', True), (120, 'on_time', True),
-    (120.5, 'late', False), (121, 'late', False), (-1, 'early', False)])
+    (120.5, 'late', False), (121, 'late', False),
+    (-1, 'on_time', True), (-15, 'on_time', True), (-15.5, 'early', False), (-16, 'early', False)])
 def test_capture_grace_window_counts_realistic_gap_as_on_time(monkeypatch, gap, status, complete):
     from datetime import timedelta
     from control_plane.source_evidence import CAPTURE_GRACE_SECONDS
