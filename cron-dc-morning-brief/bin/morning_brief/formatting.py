@@ -17,7 +17,7 @@ if str(_news_bin) not in sys.path:
     sys.path.insert(0, str(_news_bin))
 from news_format import market_block
 
-REVISION='bursawatch-text-v5'
+REVISION='bursawatch-text-v6'
 LIMIT=2000
 OUTLOOK_UNAVAILABLE='(Analisis outlook gagal dimuat)'
 
@@ -134,7 +134,8 @@ def _outlook_paragraph(outlook):
             raise ValueError('complete attributed paragraph required')
         _url(row['source_url'])  # Provenance stays validated and retained privately.
         excerpt = ' '.join(excerpt.split()).replace('·', ',')
-        rendered.append('Menurut '+_escape(row['publisher_id'])+': '+excerpt)
+        # The quote stands alone; publisher, URL and hashes stay in the frozen private claim.
+        rendered.append(excerpt)
         shown.append(row)
     if not rendered:
         return OUTLOOK_UNAVAILABLE, None, []
