@@ -14,12 +14,14 @@
 </p>
 
 **Indonesian stock-market information, curated and delivered to Discord.**
-Bursawatch watches the places Indonesian retail investors already read
-(Telegram channels, X, WhatsApp, Instagram, Stockbit, RSS, IDX disclosures),
-filters out the noise with an AI judgment step, writes a short Indonesian
-summary with a source link, and posts it to Discord exactly once. It also keeps
-a live board of analyst swing-trading plans and publishes a pre-market morning
-brief.
+Bursawatch covers Indonesian retail-investor sources (Telegram channels, X,
+WhatsApp, Instagram, Stockbit, RSS, and IDX disclosures). Production intake uses
+one dedicated Telegram job plus X, WhatsApp, and RSS adapters under existing
+owner jobs; Instagram source ingest is unscheduled, and standalone Telegram
+owner jobs are paused. News is filtered with an AI judgment step, summarized in
+Indonesian with a source link, and posted to Discord exactly once. It also keeps
+a board of analyst swing-trading plans and has a proposed pre-market morning
+brief whose rollout and activation are separately gated.
 
 Product site: [bursawatch.abhipraya.dev](https://bursawatch.abhipraya.dev/) ·
 Operator workspace: [dash.bursawatch.abhipraya.dev](https://dash.bursawatch.abhipraya.dev/workspace)
@@ -34,8 +36,8 @@ Operator workspace: [dash.bursawatch.abhipraya.dev](https://dash.bursawatch.abhi
 
 ## Architecture
 
-Every product shares one skeleton: **sources, intake, durable inbox, AI
-judgment, delivery owner, Discord**. Rules and configuration live in a database
+Every product shares one skeleton: **sources, intake, durable inbox,
+product-specific judgment, delivery owner, Discord**. Rules and configuration live in a database
 that the web config app edits, so changing a rule in the web app takes effect
 on the next run. No send is ever duplicated: every message has an operation key
 and a receipt, so retries are safe.
@@ -57,17 +59,19 @@ industry, company and macro cards.
 
 Source watchers parse qualifying calls from analyst sources and dedupe them.
 AI summarizes the X and Kelas Investasi calls, and one shared swing format
-renders every alert. The swing board itself is rule-based: it uses no AI and
-infers no prices. It updates each plan's status from market data, from entry to
-target or stop-loss.
+renders every alert. On the swing board, only a complete Phintraco Daily BUY
+creates a Primary Plan (one thread per plan). Kelas Investasi supplies
+Supporting setup, and X and other social or chart sources supply Chart context.
+The board itself is rule-based: it uses no AI and infers no prices. It updates
+each plan's status from market data, from entry to target or stop-loss.
 
 ### 3. Morning brief
 
 ![Morning brief architecture](docs/images/morning-brief.png)
 
 The morning brief owner freezes its evidence at the 07:30 WIB cutoff, targets
-delivery at 08:00 WIB and builds sector and konglo rotation views from cached
-Sectors price and market-cap data. Publication is receipt-gated: each step
+delivery at 08:00 WIB and builds sector and konglo rotation views from Yahoo
+price and IHSG inputs and cached Sectors bulk market-cap snapshots. Publication is receipt-gated: each step
 waits for a confirmed delivery before the next one runs, and the frozen attempt
 deadline is 08:15 WIB.
 
@@ -91,8 +95,11 @@ flowchart LR
   subgraph Runtime["VPS runtime (Hermes crons)"]
     Intake["cron-*-source-ingest<br/>adapters"] --> Inbox[("Durable inbox")]
     Inbox --> Owners["Domain owners<br/>news, swing, morning brief"]
-    Owners --> Media["service-bursawatch-source-media<br/>private media storage"]
   end
+
+  Media["service-bursawatch-source-media<br/>contract only; no live bucket or service bootstrap"]
+  Intake -- "adapter upload" --> Media
+  Media -- "domain-owner read" --> Owners
 
   Sources --> Intake
   DB -. "rules, live" .-> Intake

@@ -44,6 +44,7 @@ htmlcov/
 *.pem
 *.key
 *.p12
+service-cobalt/compose/cookies.json
 
 # Runtime state and logs
 state/
