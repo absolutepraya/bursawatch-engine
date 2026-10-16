@@ -2,7 +2,7 @@
 
 A scheduled Hermes job runs on a serial lane shared with unrelated jobs, so a degraded
 Delivery Owner must not be able to stretch a Board run. Every attempt (an outbox
-operation, a heartbeat, or a publication projection) is charged here before it begins,
+operation, a heartbeat, or a publication projection) is charged here once it is claimed,
 and the receipt wait is clamped to the time that remains. Work that is refused stays in
 its durable queue and is retried by the next natural run.
 """
@@ -77,14 +77,28 @@ class DrainBudget:
     def remaining_seconds(self) -> float:
         return max(0.0, self.max_seconds - self.elapsed_seconds())
 
+    def reached(self) -> str | None:
+        """The limit that has been hit, without charging or recording anything."""
+        if self.reason is not None:
+            return self.reason
+        if self.elapsed_seconds() >= self.max_seconds:
+            return "elapsed"
+        if self.attempts >= self.max_attempts:
+            return "attempts"
+        return None
+
+    def refuse(self) -> None:
+        """Record that work was turned away. Every later request is refused."""
+        self.reason = self.reached()
+
+    def charge(self) -> None:
+        """Charge an attempt for work that has already been claimed."""
+        self.attempts += 1
+
     def allow(self) -> bool:
         """Charge one attempt. Once refused, every later request is refused."""
-        if self.reason is None:
-            if self.elapsed_seconds() >= self.max_seconds:
-                self.reason = "elapsed"
-            elif self.attempts >= self.max_attempts:
-                self.reason = "attempts"
+        self.refuse()
         if self.reason is not None:
             return False
-        self.attempts += 1
+        self.charge()
         return True

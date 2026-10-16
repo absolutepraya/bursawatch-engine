@@ -62,7 +62,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.command == "drain":
         health = _health(engine, engine.drain())
         print(json.dumps(health, separators=(",", ":")))
-        return int(health["pending"] > 0 or health["failed"] > 0)
+        return int(health["pending"] > 0 or health["failed"] > 0 or "stopped" in health)
     if arguments.command == "reconcile-lifecycle":
         return _reconcile_lifecycle(engine, loaded_config)
     if arguments.command == "migrate-format":
@@ -76,7 +76,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         scheduled = engine.schedule_format_migration(datetime.now(WIB))
         health = {"scheduled": scheduled, **_health(engine, engine.drain())}
         print(json.dumps(health, separators=(",", ":")))
-        return int(health["pending"] > 0 or health["failed"] > 0)
+        return int(health["pending"] > 0 or health["failed"] > 0 or "stopped" in health)
     if arguments.command == "cleanup-history":
         if not arguments.apply:
             print(json.dumps({
@@ -90,7 +90,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         scheduled = engine.schedule_history_cleanup(datetime.now(WIB))
         health = {"scheduled": scheduled, **_health(engine, engine.drain())}
         print(json.dumps(health, separators=(",", ":")))
-        return int(health["pending"] > 0 or health["failed"] > 0)
+        return int(health["pending"] > 0 or health["failed"] > 0 or "stopped" in health)
     if arguments.command == "migrate-titles":
         if not arguments.apply:
             print(json.dumps({
@@ -108,7 +108,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if "stopped" in health:
             result["stopped"] = health["stopped"]
         print(json.dumps(result, separators=(",", ":")))
-        return int(result["pending"] > 0 or result["failed"] > 0)
+        return int(result["pending"] > 0 or result["failed"] > 0 or "stopped" in result)
     if arguments.command == "migrate-tags":
         if not arguments.apply:
             print(json.dumps({
@@ -123,7 +123,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if engine.drain_stopped():
             result["stopped"] = engine.drain_stopped()
         print(json.dumps(result, separators=(",", ":")))
-        return int(result["pending"] > 0 or result["failed"] > 0 or result["blocked"] > 0)
+        return int(result["pending"] > 0 or result["failed"] > 0 or result["blocked"] > 0 or "stopped" in result)
     return _after_close(engine, arguments.phase, loaded_config)
 
 
@@ -585,7 +585,7 @@ def _queue_heartbeat(engine: BoardEngine, channel_id: str, content: str, phase: 
     identity = f"scheduled-heartbeat:v1:{phase}:{uuid4().hex}"
     engine.enqueue_heartbeat(channel_id, content, identity, datetime.now(WIB))
     # Forum work was already drained under the shared budget; the signal itself draws on reserved headroom.
-    engine.drain(heartbeats_only=True)
+    engine.drain(heartbeats_only=True, priority_heartbeat=identity)
 
 
 def _health(engine: BoardEngine, drained: int) -> dict[str, int | str]:

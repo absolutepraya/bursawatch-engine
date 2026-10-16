@@ -259,3 +259,81 @@ def test_budget_exhaustion_is_visible_in_the_scheduled_heartbeat(tmp_path, monke
     heartbeat = capsys.readouterr().out
     assert "⚠️" in heartbeat
     assert "drain=attempts" in heartbeat
+
+
+def test_an_empty_outbox_does_not_consume_the_attempt_a_due_heartbeat_needs(tmp_path, clock):
+    from drain_budget import DrainBudget
+
+    client = stalled_client(clock, seconds=1.0)
+    engine = BoardEngine(BoardStore(tmp_path / "board.sqlite3"), client)
+    engine.budget = DrainBudget(max_attempts=1, max_seconds=600, clock=clock.monotonic)
+    engine.enqueue_heartbeat("1505162000420835388", "🫀 board", "heartbeat:1", clock.wall())
+
+    engine.drain()
+
+    assert client.post_heartbeat.call_count == 1
+    assert engine.budget.reason is None
+
+
+def test_a_drained_queue_is_not_reported_as_stopped(tmp_path, clock):
+    from drain_budget import DrainBudget
+
+    client = Mock(spec=DiscordForumClient)
+    client.post_heartbeat.return_value = {"message_id": "1"}
+    engine = BoardEngine(BoardStore(tmp_path / "board.sqlite3"), client)
+    engine.budget = DrainBudget(max_attempts=1, max_seconds=600, clock=clock.monotonic)
+    engine.enqueue_heartbeat("1505162000420835388", "🫀 board", "heartbeat:1", clock.wall())
+
+    assert engine.drain() == 1
+    assert engine.drain_stopped() is None
+
+
+def test_the_scheduled_heartbeat_is_reached_before_older_due_heartbeats(tmp_path, clock):
+    from drain_budget import DrainBudget
+
+    client = stalled_client(clock, seconds=1.0)
+    engine = BoardEngine(BoardStore(tmp_path / "board.sqlite3"), client)
+    engine.budget = DrainBudget(max_attempts=100, max_seconds=600, clock=clock.monotonic)
+    for index in range(5):
+        engine.enqueue_heartbeat("1505162000420835388", f"🫀 old {index}", f"old:{index}", clock.wall())
+    engine.enqueue_heartbeat("1505162000420835388", "🫀 scheduled", "scheduled:1", clock.wall())
+    sent = []
+    client.post_heartbeat.side_effect = lambda _channel, content, operation_key: (
+        sent.append(operation_key), {"message_id": str(len(sent))})[1]
+
+    engine.drain(heartbeats_only=True, priority_heartbeat="scheduled:1")
+
+    assert sent[0] == "scheduled:1"
+    assert len(sent) == 2  # reserved headroom is two attempts
+
+
+def test_budget_stop_with_publication_work_pending_exits_nonzero(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("IDX_SWING_PLAN_BOARD_NO_POST", "1")
+    monkeypatch.setenv("IDX_SWING_PLAN_BOARD_STATE_PATH", str(tmp_path / "board.sqlite3"))
+    monkeypatch.setenv("IDX_SWING_PLAN_BOARD_MEDIA_ROOT", str(tmp_path / "media"))
+    monkeypatch.setenv("IDX_SWING_PLAN_BOARD_DRAIN_MAX_ATTEMPTS", "1")
+    monkeypatch.setattr(BoardStore, "outbox_health", lambda self: {"pending": 0, "failed": 0})
+    monkeypatch.setattr(engine_module.BoardEngine, "drain_stopped", lambda self: "attempts")
+
+    assert board.main(["drain"]) == 1
+    assert json.loads(capsys.readouterr().out)["stopped"] == "attempts"
+
+
+def test_checkpoint_is_not_called_after_the_budget_stops_projection(tmp_path, clock, monkeypatch):
+    from drain_budget import DrainBudget
+
+    monkeypatch.setenv("IDX_SWING_PLAN_BOARD_PUBLICATION_ENABLED", "1")
+    monkeypatch.setenv("BURSAWATCH_PUBLICATION_CUTOVER_AT", "2026-09-30T00:00:00Z")
+    store = BoardStore(tmp_path / "board.sqlite3")
+    intents = [{"owner_key": f"owner:{index}", "snapshot": {}} for index in range(3)]
+    monkeypatch.setattr(store, "pending_publication_intents", lambda _now: list(intents))
+    monkeypatch.setattr(store, "fail_publication_intent", lambda *_a, **_k: None)
+    monkeypatch.setattr(store, "all_publication_intents", lambda: [])
+    monkeypatch.setattr(projection, "_build_snapshot", lambda *_a: None)
+    publication = Mock()
+    budget = DrainBudget(max_attempts=1, max_seconds=600, clock=clock.monotonic)
+
+    projection.drain(store, clock.wall(), publication_client=publication, delivery_owner=Mock(), budget=budget)
+
+    assert budget.reason == "attempts"
+    publication.checkpoint.assert_not_called()

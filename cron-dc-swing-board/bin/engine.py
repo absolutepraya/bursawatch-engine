@@ -933,12 +933,14 @@ class BoardEngine:
         tx.enqueue_outbox(operation, active.id, {**payload, "nonce_value": dedupe_key}, dedupe_key, now)
 
     def drain(self, now: datetime | None = None, *, limit: int = 100,
-              heartbeats_only: bool = False) -> int:
+              heartbeats_only: bool = False, priority_heartbeat: str | None = None) -> int:
         """Execute due intents in episode order, retaining failures for retry.
 
         With a budget, each attempt is charged first and the drain stops, leaving the rest
         pending, once the budget refuses one. ``heartbeats_only`` is the scheduled run's
-        final signal: it ignores forum work and draws on the budget's reserved headroom.
+        final signal: it ignores forum work and draws on the budget's reserved headroom, and
+        ``priority_heartbeat`` names the identity it must reach before any older due heartbeat.
+        Work is claimed before it is charged, so an empty queue never consumes an attempt.
         """
         if limit < 1:
             raise ValueError("drain limit must be positive")
@@ -949,7 +951,7 @@ class BoardEngine:
             previous = getattr(self.client, "budget", None)
             self.client.budget = budget
             try:
-                completed = self._drain_owned(now, limit, budget, heartbeats_only)
+                completed = self._drain_owned(now, limit, budget, heartbeats_only, priority_heartbeat)
                 if not heartbeats_only:
                     from board_publication_projection import drain as drain_publications
 
@@ -967,17 +969,20 @@ class BoardEngine:
         return None if self.budget is None else self.budget.reason
 
     def _drain_owned(self, now: datetime | None, limit: int, budget: DrainBudget | None = None,
-                     heartbeats_only: bool = False) -> int:
+                     heartbeats_only: bool = False, priority_heartbeat: str | None = None) -> int:
         completed = 0
         # Due-ness is judged once, at the start: work whose backoff lapses while this drain
         # is running waits for the next run instead of being retried in the same one.
         due_at = now or datetime.now(timezone.utc)
         for _ in range(0 if heartbeats_only else limit):
-            if budget is not None and not budget.allow():
+            if budget is not None and budget.reached() and self.store.has_due_outbox(due_at):
+                budget.refuse()
                 return completed
             operation = self.store.claim_due_outbox(due_at)
             if operation is None:
                 break
+            if budget is not None:
+                budget.charge()
             try:
                 payload = dict(operation.payload)
                 if payload.get("media_url") and not getattr(self.client, "no_post", False):
@@ -1033,11 +1038,14 @@ class BoardEngine:
                     now or datetime.now(timezone.utc),
                 )
         for _ in range(limit):
-            if budget is not None and not budget.allow():
+            if budget is not None and budget.reached() and self.store.has_due_heartbeat(due_at):
+                budget.refuse()
                 break
-            operation = self.store.claim_due_heartbeat(due_at)
+            operation = self.store.claim_due_heartbeat(due_at, priority_heartbeat)
             if operation is None:
                 break
+            if budget is not None:
+                budget.charge()
             try:
                 receipt = self.client.post_heartbeat(
                     operation.channel_id,
