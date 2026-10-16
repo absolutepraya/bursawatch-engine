@@ -95,6 +95,9 @@ def stable_nonce(value: str) -> str:
 class DiscordForumClient:
     """Board-shaped typed adapter over the shared Delivery Owner client."""
 
+    # Set by the engine for the length of a drain so receipt waits cannot outlast it.
+    budget = None
+
     def __init__(self, *, delivery_client: object | None = None, no_post: bool | None = None) -> None:
         self.no_post = (
             os.environ.get("IDX_SWING_PLAN_BOARD_NO_POST") == "1"
@@ -327,8 +330,12 @@ class DiscordForumClient:
                 imported_legacy_nonce=imported_legacy_nonce,
             )
             if receipt.status in _NON_TERMINAL:
+                wait_seconds = (
+                    DELIVERY_RECEIPT_WAIT_SECONDS if self.budget is None
+                    else min(DELIVERY_RECEIPT_WAIT_SECONDS, self.budget.remaining_seconds())
+                )
                 receipt = self._delivery.wait(
-                    intent.key, DELIVERY_RECEIPT_WAIT_SECONDS
+                    intent.key, wait_seconds
                 )  # type: ignore[attr-defined]
                 self._require_matching_receipt(intent, receipt, expected_digest)
         except DeliveryClientError:

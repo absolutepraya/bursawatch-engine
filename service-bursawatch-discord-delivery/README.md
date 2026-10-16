@@ -42,7 +42,7 @@ Operations move through these states:
 - `blocked`: the destination, permission, or local state needs operator repair.
 - `ambiguous`: read-back could not safely prove whether a create succeeded, or a deadline-bound mutation retains an unknown outcome at expiry.
 
-After a create request has an unknown outcome, the worker uses bounded read-back. A unique match records the receipt; a proven absence may permit one create; an inconclusive or conflicting result stays `ambiguous` and is never blindly recreated. Transient errors use service-owned backoff and honor Discord retry delays. Earlier nonterminal operations with the same ordering key block later operations.
+After a create request has an unknown outcome, the worker uses bounded read-back. A unique match records the receipt; a proven absence may permit one create; an inconclusive or conflicting result stays `ambiguous` and is never blindly recreated. Transient errors use service-owned backoff and honor Discord retry delays. Earlier nonterminal operations with the same ordering key block later operations, so an `ambiguous` operation at the head of a shared chain (for example `channel:<id>` heartbeats) holds back every later operation in that chain until an operator resolves it. Claiming considers only open operations: `discord_operations_open` is a partial index over non-terminal rows, and the claim query ranks only those rows per ordering key, so its cost follows open work rather than chain history (before this index a 61,000-row heartbeat chain with 689 queued behind an ambiguous head cost about 70 seconds per claim and starved the API). Submit, adopt, and retry run their store writes off the event loop.
 
 ### Optional attempt deadline
 

@@ -80,6 +80,10 @@ class DeliveryStore:
             );
             CREATE INDEX IF NOT EXISTS discord_operations_order ON discord_operations(ordering_key, created_at);
             CREATE INDEX IF NOT EXISTS discord_operations_status ON discord_operations(status, created_at);
+            -- Ordering decisions only ever consider operations that are not terminal. Indexing
+            -- just those keeps claim cost proportional to open work, not to chain history.
+            CREATE INDEX IF NOT EXISTS discord_operations_open ON discord_operations(ordering_key, created_at)
+                WHERE status NOT IN ('delivered','rejected');
         """)
         # Additive migration preserves old rows, status CHECK, receipts and media.
         # Serialize schema checks with other openers so repeated startup is safe.
@@ -357,35 +361,34 @@ class DeliveryStore:
                 WHERE status='delivering' AND kind NOT LIKE '%_create'""").rowcount
             return {"pending_reconciliation": creates, "pending": mutations + unstarted}
 
-    def claim_next(self, now: str | None = None) -> OperationRecord | None:
-        """Claim the earliest ready operation whose ordering chain is unblocked."""
-        with self._transaction():
-            row = self.db.execute("""SELECT d.* FROM discord_operations d WHERE d.status IN ('pending','retrying')
-                AND (d.next_attempt_at IS NULL OR d.next_attempt_at <= ?)
-                AND NOT EXISTS (SELECT 1 FROM discord_operations earlier WHERE earlier.ordering_key=d.ordering_key
-                    AND (earlier.created_at<d.created_at OR (earlier.created_at=d.created_at AND earlier.rowid<d.rowid))
-                    AND earlier.status NOT IN ('delivered','rejected'))
-                ORDER BY d.created_at,d.rowid LIMIT 1""", (now or self.db.execute("SELECT strftime('%Y-%m-%dT%H:%M:%fZ','now')").fetchone()[0],)).fetchone()
-            if not row:
-                return None
-            self.db.execute("""UPDATE discord_operations SET status='delivering',attempt_count=attempt_count+1,
-                updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?""", (row["id"],))
-            return self.get_by_key(row["operation_key"])
+    # An operation may be claimed only while it is the earliest non-terminal operation of its
+    # ordering chain. Ranking just the open rows (served by ``discord_operations_open``) selects
+    # exactly those chain heads without rescanning each chain's delivered history per candidate.
+    _CLAIM_HEAD = """WITH open_operations AS (
+            SELECT id, operation_key, status, next_attempt_at, created_at, rowid AS row_order,
+                   ROW_NUMBER() OVER (PARTITION BY ordering_key ORDER BY created_at, rowid) AS position
+            FROM discord_operations WHERE status NOT IN ('delivered','rejected'))
+        SELECT id, operation_key FROM open_operations
+        WHERE position=1 AND status IN ({statuses}) AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+        ORDER BY created_at, row_order LIMIT 1"""
 
-    def claim_reconciliation(self, now: str | None = None) -> OperationRecord | None:
+    def _claim(self, statuses: tuple[str, ...], now: str | None) -> OperationRecord | None:
+        query = self._CLAIM_HEAD.format(statuses=",".join("?" * len(statuses)))
         with self._transaction():
-            row = self.db.execute("""SELECT d.* FROM discord_operations d
-                WHERE d.status='pending_reconciliation'
-                AND (d.next_attempt_at IS NULL OR d.next_attempt_at <= ?)
-                AND NOT EXISTS (SELECT 1 FROM discord_operations earlier WHERE earlier.ordering_key=d.ordering_key
-                    AND (earlier.created_at<d.created_at OR (earlier.created_at=d.created_at AND earlier.rowid<d.rowid))
-                    AND earlier.status NOT IN ('delivered','rejected'))
-                ORDER BY d.created_at,d.rowid LIMIT 1""", (now or self.db.execute("SELECT strftime('%Y-%m-%dT%H:%M:%fZ','now')").fetchone()[0],)).fetchone()
+            row = self.db.execute(query, (*statuses, now or self.db.execute(
+                "SELECT strftime('%Y-%m-%dT%H:%M:%fZ','now')").fetchone()[0])).fetchone()
             if row is None:
                 return None
             self.db.execute("""UPDATE discord_operations SET status='delivering',attempt_count=attempt_count+1,
                 updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?""", (row["id"],))
             return self.get_by_key(row["operation_key"])
+
+    def claim_next(self, now: str | None = None) -> OperationRecord | None:
+        """Claim the earliest ready operation whose ordering chain is unblocked."""
+        return self._claim(("pending", "retrying"), now)
+
+    def claim_reconciliation(self, now: str | None = None) -> OperationRecord | None:
+        return self._claim(("pending_reconciliation",), now)
 
     def finish(self, operation_key: str, status: str, *, receipt: Mapping[str, str] | None = None,
                error_category: str | None = None, create_recovery: Mapping[str, str] | None = None,

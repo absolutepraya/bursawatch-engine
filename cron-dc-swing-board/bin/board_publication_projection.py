@@ -140,7 +140,7 @@ def checkpoint_comparison(store: BoardStore, compared_at: datetime) -> dict[str,
 
 
 def drain(store: BoardStore, now: datetime, *, publication_client: Any | None = None,
-          delivery_owner: Any | None = None) -> dict[str, int]:
+          delivery_owner: Any | None = None, budget: Any | None = None) -> dict[str, int]:
     if not enabled():
         return {"accepted": 0, "pending": len(store.all_publication_intents())}
     try:
@@ -152,6 +152,8 @@ def drain(store: BoardStore, now: datetime, *, publication_client: Any | None = 
         return {"accepted": 0, "pending": len(store.all_publication_intents())}
     accepted = 0
     for saved in store.pending_publication_intents(now):
+        if budget is not None and not budget.allow():
+            break
         owner_key = saved["owner_key"]
         try:
             snapshot = _build_snapshot(saved, delivery_owner)

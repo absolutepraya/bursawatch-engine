@@ -19,6 +19,7 @@ from uuid import uuid4
 from calendar import CalendarCoverageError
 import config
 from discord_forum import DiscordForumClient, forum_thread_url
+from drain_budget import DrainBudget
 from engine import BoardEngine
 from models import SourceEvent
 from render import WIB, episode_title
@@ -48,7 +49,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _bootstrap_dry_run(arguments.lookback_sessions, arguments.manifest)
         return _bootstrap_apply(arguments.lookback_sessions, arguments.manifest)
     loaded_config = config.load_board_config_for_run()
-    engine = BoardEngine(BoardStore(_state_path()), DiscordForumClient())
+    engine = BoardEngine(BoardStore(_state_path()), DiscordForumClient(), DrainBudget.from_environment())
     if arguments.command == "submit-source-event":
         return _submit_source_event(engine, loaded_config)
     if arguments.command == "repair-starter-media":
@@ -59,7 +60,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             apply=arguments.apply,
         )
     if arguments.command == "drain":
-        health = {"drained": engine.drain(), **engine.store.outbox_health()}
+        health = _health(engine, engine.drain())
         print(json.dumps(health, separators=(",", ":")))
         return int(health["pending"] > 0 or health["failed"] > 0)
     if arguments.command == "reconcile-lifecycle":
@@ -73,7 +74,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             }, separators=(",", ":")))
             return 0
         scheduled = engine.schedule_format_migration(datetime.now(WIB))
-        health = {"scheduled": scheduled, "drained": engine.drain(), **engine.store.outbox_health()}
+        health = {"scheduled": scheduled, **_health(engine, engine.drain())}
         print(json.dumps(health, separators=(",", ":")))
         return int(health["pending"] > 0 or health["failed"] > 0)
     if arguments.command == "cleanup-history":
@@ -87,7 +88,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(json.dumps({"error": "cleanup-history requires live Discord", "apply_required": True}, separators=(",", ":")))
             return 2
         scheduled = engine.schedule_history_cleanup(datetime.now(WIB))
-        health = {"scheduled": scheduled, "drained": engine.drain(), **engine.store.outbox_health()}
+        health = {"scheduled": scheduled, **_health(engine, engine.drain())}
         print(json.dumps(health, separators=(",", ":")))
         return int(health["pending"] > 0 or health["failed"] > 0)
     if arguments.command == "migrate-titles":
@@ -102,8 +103,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             }, separators=(",", ":")))
             return 0
         result = engine.schedule_title_migration(datetime.now(WIB))
-        health = {"drained": engine.drain(), **engine.store.outbox_health()}
+        health = _health(engine, engine.drain())
         result.update({"pending": health["pending"], "failed": health["failed"]})
+        if "stopped" in health:
+            result["stopped"] = health["stopped"]
         print(json.dumps(result, separators=(",", ":")))
         return int(result["pending"] > 0 or result["failed"] > 0)
     if arguments.command == "migrate-tags":
@@ -117,6 +120,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         engine.drain()
         result["pending"] = engine.store.pending_outbox_count()
         result["failed"] = engine.store.outbox_health()["failed"]
+        if engine.drain_stopped():
+            result["stopped"] = engine.drain_stopped()
         print(json.dumps(result, separators=(",", ":")))
         return int(result["pending"] > 0 or result["failed"] > 0 or result["blocked"] > 0)
     return _after_close(engine, arguments.phase, loaded_config)
@@ -246,14 +251,16 @@ def _submit_source_event(
         health = engine.store.outbox_health()
         pending = int(health["pending"])
         failed = int(health["failed"])
-        outcome = "degraded" if pending or failed else "ok"
+        stopped = engine.drain_stopped()
+        outcome = "degraded" if pending or failed or stopped else "ok"
         control_run.event(
             "source-event-delivery-drain-completed",
             level="warning" if outcome == "degraded" else "info",
             phase="delivery",
             event_type="delivery.drain.completed",
             message="Discord Swing Board source-event delivery drain completed",
-            attributes={"drained": drained, "pending": pending, "failed": failed},
+            attributes={"drained": drained, "pending": pending, "failed": failed,
+                        **({"drain_stopped": stopped} if stopped else {})},
         )
         episode = engine.store.episode_for_event(event.event_key)
         board_url = None
@@ -504,10 +511,11 @@ def _after_close(
         # ``pending`` describes retained owner work after this invocation, not
         # the number of operations just completed.
         result["pending"] = engine.store.pending_outbox_count()
-        heartbeat = _heartbeat(phase, result)
+        stopped = engine.drain_stopped()
+        heartbeat = _heartbeat(phase, result, stopped)
         _queue_heartbeat(engine, loaded_config.config.heartbeat_discord_channel_id, heartbeat, phase)
         outcome = "degraded" if (
-            result["unavailable"] or result["pending"] or result.get("invalid", 0)
+            result["unavailable"] or result["pending"] or result.get("invalid", 0) or stopped
         ) else "ok"
         control_run.event(
             "after-close-evaluated",
@@ -519,11 +527,11 @@ def _after_close(
         )
         control_run.event(
             "delivery-drain-completed",
-            level="warning" if result["pending"] else "info",
+            level="warning" if result["pending"] or stopped else "info",
             phase="delivery",
             event_type="delivery.drain.completed",
             message="Discord Swing Board delivery drain completed",
-            attributes={"pending": result["pending"]},
+            attributes={"pending": result["pending"], **({"drain_stopped": stopped} if stopped else {})},
         )
         print(heartbeat)
         return 0
@@ -560,10 +568,12 @@ def _reconcile_lifecycle(engine: BoardEngine, loaded_config: config.LoadedBoardC
         return 1
     drained = engine.drain()
     health = engine.store.outbox_health()
-    warning = " ⚠️" if health["pending"] or health["failed"] else ""
+    stopped = engine.drain_stopped()
+    warning = " ⚠️" if health["pending"] or health["failed"] or stopped else ""
+    stop_note = f" drain={stopped}" if stopped else ""
     content = (f"🫀 swing-board-lifecycle · {now:%H:%M} WIB · "
                f"resolved={result['resolved']} quiet={result['quiet_started']} "
-               f"archive={result['archived']} drained={drained} pending={health['pending']}{warning}")
+               f"archive={result['archived']} drained={drained} pending={health['pending']}{stop_note}{warning}")
     _queue_heartbeat(engine, loaded_config.config.heartbeat_discord_channel_id,
                      content, "lifecycle")
     print(content)
@@ -574,7 +584,17 @@ def _queue_heartbeat(engine: BoardEngine, channel_id: str, content: str, phase: 
     """Commit a stable channel intent before handing it to Delivery Owner."""
     identity = f"scheduled-heartbeat:v1:{phase}:{uuid4().hex}"
     engine.enqueue_heartbeat(channel_id, content, identity, datetime.now(WIB))
-    engine.drain()
+    # Forum work was already drained under the shared budget; the signal itself draws on reserved headroom.
+    engine.drain(heartbeats_only=True)
+
+
+def _health(engine: BoardEngine, drained: int) -> dict[str, int | str]:
+    """Drain report that names the budget limit when it cut delivery short."""
+    health: dict[str, int | str] = {"drained": drained, **engine.store.outbox_health()}
+    stopped = engine.drain_stopped()
+    if stopped:
+        health["stopped"] = stopped
+    return health
 
 
 def _failure_reason(error: object) -> str:
@@ -645,14 +665,15 @@ def _media_root() -> Path:
     ))
 
 
-def _heartbeat(phase: str, result: dict[str, int]) -> str:
+def _heartbeat(phase: str, result: dict[str, int], stopped: str | None = None) -> str:
     clock = "16:30" if phase == "initial" else "17:00"
-    warning = " ⚠️" if result["unavailable"] or result["pending"] or result.get("invalid", 0) else ""
+    warning = " ⚠️" if result["unavailable"] or result["pending"] or result.get("invalid", 0) or stopped else ""
     invalid = f" invalid={result['invalid']}" if result.get("invalid", 0) else ""
+    drain = f" drain={stopped}" if stopped else ""
     return (
         f"🫀 bursawatch-dc-swing-board · {clock} WIB · active={result['active']} "
         f"checked={result['checked']} unavailable={result['unavailable']} "
-        f"pending={result['pending']}{invalid}{warning}"
+        f"pending={result['pending']}{invalid}{drain}{warning}"
     )
 
 

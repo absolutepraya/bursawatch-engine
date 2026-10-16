@@ -178,7 +178,7 @@ def create_app(config: Config, store: DeliveryStore | None = None,
         intent = await _multipart_operation(request)
         if (intent.kind == "guild_emoji_create") != (scope == "emoji"):
             raise HTTPException(403, "operation not authorized for token")
-        return _public(store.accept(intent))
+        return _public(await run_in_threadpool(store.accept, intent))
 
     @app.post("/v1/operations/adopt", status_code=202)
     async def adopt(request: Request, authorization: str | None = Header(default=None)) -> dict[str, Any]:
@@ -216,14 +216,15 @@ def create_app(config: Config, store: DeliveryStore | None = None,
         if "payload_digest" in data and data["payload_digest"] != intent.digest:
             raise ValidationError("import payload digest mismatch")
         if data["action"] == "completed" and "receipt" in data:
-            return _public(store.adopt_completed(intent, data["receipt"]))
+            return _public(await run_in_threadpool(store.adopt_completed, intent, data["receipt"]))
         if data["action"] == "pending" and "receipt" not in data:
             preflight = None
             if "preflight" in data:
                 preflight = validate_preflight(data["preflight"], str(intent.kind))
                 if preflight is None:
                     raise ValidationError("invalid preflight boundary")
-            return _public(store.adopt_pending(intent, preflight=preflight))
+            return _public(await run_in_threadpool(
+                lambda: store.adopt_pending(intent, preflight=preflight)))
         raise ValidationError("invalid import action")
 
     @app.get("/v1/operations/by-key/{operation_key:path}")
@@ -270,6 +271,7 @@ def create_app(config: Config, store: DeliveryStore | None = None,
             raise ValidationError("invalid JSON") from exc
         if not isinstance(data, dict) or set(data) != {"expected_digest"}:
             raise ValidationError("expected digest required")
-        return _summary(store.retry_blocked(operation_key, data["expected_digest"]))
+        return _summary(await run_in_threadpool(
+            store.retry_blocked, operation_key, data["expected_digest"]))
 
     return app
