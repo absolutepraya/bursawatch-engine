@@ -6,8 +6,10 @@ through the Hermes CLI, reads the registry again, and reports the revision
 outcome. The web application cannot call this worker or the Hermes CLI.
 
 Stockbit naming cutover: migration `027_stockbit_scheduler_prefix.sql`, the Hermes
-job rename, and this worker mapping must be deployed together under a reviewed
-manual rollout. The live snapshot on 2026-10-18 still used `cron-stockbit-snips`.
+job rename, and this worker mapping were deployed together under an approved
+manual rollout on 2026-10-18. The 11:58 WIB read-only production snapshot
+confirmed `bursawatch-stockbit-snips` active every 15 minutes and all nine
+desired interval schedules matching the registry.
 The observer mapping must advance with the same cutover if installed.
 
 The read-only registry check on 2026-10-18 identified job `0c6b17e4c944` as
