@@ -158,19 +158,7 @@ class DeliveryWorker:
         return snapshot
 
     def _matches_message(self, item: object, snapshot: dict) -> bool:
-        if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"].isdigit():
-            return False
-        body = snapshot["request"]["body"]
-        if item.get("content") != body.get("content"):
-            return False
-        nonce = item.get("nonce")
-        if nonce is None or str(nonce) != snapshot.get("match_nonce", body.get("nonce")):
-            return False
-        attachments = snapshot.get("attachments", [])
-        found = item.get("attachments", [])
-        return (isinstance(found, list) and
-                [value.get("filename") for value in found if isinstance(value, dict)] ==
-                [value["filename"] for value in attachments])
+        return matches_message(item, snapshot)
 
     def reconcile(self, operation: OperationRecord) -> ReconcileResult:
         if not operation.kind.endswith("_create"):
@@ -385,3 +373,54 @@ class DeliveryWorker:
             if record is None:
                 return WorkerResult("idle")
             return self._process(record, now, reconciling)
+
+
+def matches_message(item: object, snapshot: dict) -> bool:
+    """True when a Discord message carries this create's exact content, nonce and attachments."""
+    if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"].isdigit():
+        return False
+    body = snapshot["request"]["body"]
+    if item.get("content") != body.get("content"):
+        return False
+    nonce = item.get("nonce")
+    if nonce is None or str(nonce) != snapshot.get("match_nonce", body.get("nonce")):
+        return False
+    attachments = snapshot.get("attachments", [])
+    found = item.get("attachments", [])
+    return (isinstance(found, list) and
+            [value.get("filename") for value in found if isinstance(value, dict)] ==
+            [value["filename"] for value in attachments])
+
+
+RESOLVABLE_CATEGORIES = {"create_outcome_unknown", "reconciliation_inconclusive"}
+
+
+def resolve_ambiguous_create(store: DeliveryStore, read_message: Callable[[dict], object],
+                             operation_key: str, expected_digest: str, message_id: str) -> OperationRecord:
+    """Settle an ambiguous message create from one operator-named Discord message.
+
+    Automatic read-back only inspects the newest few hundred messages, so a busy channel can push a
+    lost-response create beyond its reach. The operator names the message; this reads it from
+    Discord and accepts it only when it is newer than the saved pre-send boundary and carries the
+    saved request's exact content, nonce and attachment names. Anything else leaves the
+    operation ambiguous. It never sends a create.
+    """
+    record = store.get_by_key(operation_key)
+    if (record is None or record.digest != expected_digest or record.status != "ambiguous"
+            or record.kind not in {"channel_message_create", "thread_message_create"}
+            or record.error_category not in RESOLVABLE_CATEGORIES):
+        raise OperationStateConflict("ambiguous message create and digest must match")
+    snapshot = store.create_snapshot(operation_key)
+    boundary = snapshot.get("boundary")
+    if ("request" not in snapshot or snapshot.get("boundary_observed") is not True
+            or not isinstance(boundary, str) or not boundary.isdigit()
+            or not isinstance(message_id, str) or not message_id.isdigit()
+            or int(message_id) <= int(boundary)):
+        raise OperationStateConflict("saved request does not bound this message")
+    destination = record.target.get("channel_id", record.target.get("thread_id"))
+    message = read_message({"kind": "thread_message_read", "thread_id": destination, "message_id": message_id})
+    if (not isinstance(message, dict) or message.get("id") != message_id
+            or message.get("channel_id", destination) != destination
+            or not matches_message(message, snapshot)):
+        raise OperationStateConflict("message does not prove this operation was delivered")
+    return store.resolve_ambiguous_create(operation_key, expected_digest, {"message_id": message_id})

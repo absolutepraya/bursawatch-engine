@@ -19,6 +19,7 @@ from .models import (
     validate_preflight, validate_query,
 )
 from .store import DeliveryStore, OperationKeyConflict, OperationStateConflict
+from .worker import resolve_ambiguous_create
 
 QueryExecutor = Callable[[dict[str, Any]], Any]
 MAX_REQUEST_BYTES = 26 * 1024 * 1024
@@ -273,5 +274,24 @@ def create_app(config: Config, store: DeliveryStore | None = None,
             raise ValidationError("expected digest required")
         return _summary(await run_in_threadpool(
             store.retry_blocked, operation_key, data["expected_digest"]))
+
+    @app.post("/v1/admin/operations/{operation_key:path}/resolve")
+    async def resolve(operation_key: str, request: Request,
+                      authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        _authorized(authorization, config.admin_token)
+        try:
+            data = await request.json()
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise ValidationError("invalid JSON") from exc
+        if not isinstance(data, dict) or set(data) != {"expected_digest", "message_id"}:
+            raise ValidationError("expected digest and message id required")
+        if query_executor is None:
+            raise HTTPException(503, "query gateway unavailable")
+        try:
+            return _summary(await run_in_threadpool(
+                resolve_ambiguous_create, store, query_executor, operation_key,
+                data["expected_digest"], data["message_id"]))
+        except GatewayError:
+            raise HTTPException(503, "Discord query unavailable") from None
 
     return app

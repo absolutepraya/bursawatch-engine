@@ -307,6 +307,34 @@ class DeliveryStore:
                 WHERE operation_key=?""", (status, operation_key))
             return self.get_by_key(operation_key)
 
+    def resolve_ambiguous_create(self, operation_key: str, expected_digest: str,
+                                 receipt: Mapping[str, str]) -> OperationRecord:
+        """Record a receipt for an ambiguous message create that the caller has proven delivered.
+
+        The proof is checked by the caller (``worker.resolve_ambiguous_create``); this only moves
+        the row, and only from ``ambiguous`` with the exact digest, never to a new create attempt.
+        A message that already backs another operation's receipt cannot be claimed twice.
+        """
+        if not isinstance(expected_digest, str) or not DIGEST.fullmatch(expected_digest):
+            raise ValidationError("invalid expected digest")
+        with self._transaction():
+            existing = self.get_by_key(operation_key)
+            if (not existing or existing.digest != expected_digest or existing.status != "ambiguous"
+                    or existing.kind not in {"channel_message_create", "thread_message_create"}):
+                raise OperationStateConflict("ambiguous message create and digest must match")
+            validated = validate_receipt(receipt, existing.kind, existing.target)
+            taken = self.db.execute(
+                "SELECT 1 FROM discord_operations WHERE status='delivered' AND kind=? "
+                "AND json_extract(receipt_json,'$.message_id')=? LIMIT 1",
+                (existing.kind, validated["message_id"])).fetchone()
+            if taken is not None:
+                raise OperationStateConflict("message already backs another delivered operation")
+            self.db.execute("""UPDATE discord_operations SET status='delivered', receipt_json=?,
+                error_category=NULL, next_attempt_at=NULL, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+                WHERE operation_key=? AND status='ambiguous'""",
+                            (json.dumps(validated, sort_keys=True), operation_key))
+            return self.get_by_key(operation_key)
+
     def list_summaries(self, limit: int = 50, offset: int = 0) -> list[OperationRecord]:
         if not 1 <= limit <= 100 or not 0 <= offset <= 100000:
             raise ValidationError("invalid pagination")
