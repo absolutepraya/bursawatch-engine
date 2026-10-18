@@ -57,6 +57,15 @@ def test_lifecycle_command_queues_noop_heartbeat_and_drains(owner, monkeypatch, 
     monkeypatch.setenv("IDX_SWING_PLAN_BOARD_NO_POST", "1")
     monkeypatch.setenv("IDX_SWING_PLAN_BOARD_STATE_PATH", str(owner.store.path))
     monkeypatch.setenv("IDX_SWING_PLAN_BOARD_MEDIA_ROOT", str(owner.store.path.parent / "media"))
+
+    class FixedDatetime(datetime):
+        """The fixture episode is from September; pin the run to the day after its submission."""
+
+        @classmethod
+        def now(cls, tz=None):
+            return at("2026-09-22T10:00:00+07:00").astimezone(tz)
+
+    monkeypatch.setattr(board, "datetime", FixedDatetime)
     assert board.main(["reconcile-lifecycle"]) == 0
     output = capsys.readouterr().out
     assert "swing-board-lifecycle" in output

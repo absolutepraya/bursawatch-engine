@@ -12,6 +12,7 @@ import re
 
 from calendar import is_idx_trading_day, trading_sessions_since
 from discord_forum import DiscordForumClient, DiscordForumError
+from drain_budget import DrainBudget
 from models import Checkpoint, Episode, MarketState, SourceEvent
 from media_store import acquire_media
 from prices import classify_close, fetch_session_close, parse_plan_levels
@@ -122,9 +123,11 @@ def _updated_target_ladder(plan: SourceEvent, event: SourceEvent) -> tuple[str, 
 
 
 class BoardEngine:
-    def __init__(self, store: BoardStore, client: DiscordForumClient) -> None:
+    def __init__(self, store: BoardStore, client: DiscordForumClient,
+                 budget: DrainBudget | None = None) -> None:
         self.store = store
         self.client = client
+        self.budget = budget
 
     def submit(self, event: SourceEvent, now: datetime) -> str:
         """Persist source identity, then atomically decide and enqueue its effects.
@@ -929,30 +932,57 @@ class BoardEngine:
         dedupe_key = f"event:{event.event_key}:{operation}{suffix}"
         tx.enqueue_outbox(operation, active.id, {**payload, "nonce_value": dedupe_key}, dedupe_key, now)
 
-    def drain(self, now: datetime | None = None, *, limit: int = 100) -> int:
-        """Execute due intents in episode order, retaining failures for retry."""
+    def drain(self, now: datetime | None = None, *, limit: int = 100,
+              heartbeats_only: bool = False, priority_heartbeat: str | None = None) -> int:
+        """Execute due intents in episode order, retaining failures for retry.
+
+        With a budget, each attempt is charged first and the drain stops, leaving the rest
+        pending, once the budget refuses one. ``heartbeats_only`` is the scheduled run's
+        final signal: it ignores forum work and draws on the budget's reserved headroom, and
+        ``priority_heartbeat`` names the identity it must reach before any older due heartbeat.
+        Work is claimed before it is charged, so an empty queue never consumes an attempt.
+        """
         if limit < 1:
             raise ValueError("drain limit must be positive")
         with self.store.delivery_lock() as acquired:
             if not acquired:
                 return 0
-            completed = self._drain_owned(now, limit)
-            from board_publication_projection import drain as drain_publications
+            budget = self.budget.reserve() if heartbeats_only and self.budget is not None else self.budget
+            previous = getattr(self.client, "budget", None)
+            self.client.budget = budget
+            try:
+                completed = self._drain_owned(now, limit, budget, heartbeats_only, priority_heartbeat)
+                if not heartbeats_only:
+                    from board_publication_projection import drain as drain_publications
 
-            drain_publications(self.store, now or datetime.now(timezone.utc))
+                    drain_publications(self.store, now or datetime.now(timezone.utc), budget=budget)
+            finally:
+                self.client.budget = previous
             return completed
 
     def enqueue_heartbeat(self, channel_id: str, content: str, dedupe_key: str, now: datetime):
         """Persist one scheduled channel intent before the owner can submit it."""
         return self.store.enqueue_heartbeat(channel_id, content, dedupe_key, now)
 
-    def _drain_owned(self, now: datetime | None, limit: int) -> int:
+    def drain_stopped(self) -> str | None:
+        """Why the shared budget refused work, or None while the drain was not cut short."""
+        return None if self.budget is None else self.budget.reason
+
+    def _drain_owned(self, now: datetime | None, limit: int, budget: DrainBudget | None = None,
+                     heartbeats_only: bool = False, priority_heartbeat: str | None = None) -> int:
         completed = 0
-        for _ in range(limit):
-            instant = now or datetime.now(timezone.utc)
-            operation = self.store.claim_due_outbox(instant)
+        # Due-ness is judged once, at the start: work whose backoff lapses while this drain
+        # is running waits for the next run instead of being retried in the same one.
+        due_at = now or datetime.now(timezone.utc)
+        for _ in range(0 if heartbeats_only else limit):
+            if budget is not None and budget.reached() and self.store.has_due_outbox(due_at):
+                budget.refuse()
+                return completed
+            operation = self.store.claim_due_outbox(due_at)
             if operation is None:
                 break
+            if budget is not None:
+                budget.charge()
             try:
                 payload = dict(operation.payload)
                 if payload.get("media_url") and not getattr(self.client, "no_post", False):
@@ -967,7 +997,7 @@ class BoardEngine:
                         if episode.archived_at is not None or expected != actual:
                             self.store.complete_outbox(
                                 operation.id, operation.claim_token,
-                                {"cancelled": "quiet period changed"}, instant,
+                                {"cancelled": "quiet period changed"}, now or datetime.now(timezone.utc),
                             )
                             completed += 1
                             continue
@@ -996,18 +1026,26 @@ class BoardEngine:
                     completion.get(key) for key in ("thread_id", "starter_message_id")
                 ):
                     raise DiscordForumError("Discord thread identity is unavailable")
-                self.store.complete_outbox(operation.id, operation.claim_token, completion, instant)
+                self.store.complete_outbox(
+                    operation.id, operation.claim_token, completion, now or datetime.now(timezone.utc)
+                )
                 completed += 1
             except Exception as exc:
                 # Store only a safe category, never provider bodies or credentials.
+                # Backoff counts from the failure, not from before a slow attempt began.
                 self.store.fail_outbox(
-                    operation.id, operation.claim_token, type(exc).__name__, instant,
+                    operation.id, operation.claim_token, type(exc).__name__,
+                    now or datetime.now(timezone.utc),
                 )
-        while completed < limit:
-            instant = now or datetime.now(timezone.utc)
-            operation = self.store.claim_due_heartbeat(instant)
+        for _ in range(limit):
+            if budget is not None and budget.reached() and self.store.has_due_heartbeat(due_at):
+                budget.refuse()
+                break
+            operation = self.store.claim_due_heartbeat(due_at, priority_heartbeat)
             if operation is None:
                 break
+            if budget is not None:
+                budget.charge()
             try:
                 receipt = self.client.post_heartbeat(
                     operation.channel_id,
@@ -1017,12 +1055,13 @@ class BoardEngine:
                 if not isinstance(receipt, dict) or not receipt.get("message_id"):
                     raise DiscordForumError("Delivery Owner returned no heartbeat message ID")
                 self.store.complete_heartbeat(
-                    operation.id, operation.claim_token or "", receipt, instant
+                    operation.id, operation.claim_token or "", receipt, now or datetime.now(timezone.utc)
                 )
                 completed += 1
             except Exception as exc:
                 self.store.fail_heartbeat(
-                    operation.id, operation.claim_token or "", type(exc).__name__, instant
+                    operation.id, operation.claim_token or "", type(exc).__name__,
+                    now or datetime.now(timezone.utc),
                 )
         return completed
 

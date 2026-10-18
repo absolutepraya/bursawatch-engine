@@ -340,16 +340,25 @@ class BoardStore:
                 raise StoreBlockedError("heartbeat identity conflicts with persisted intent")
             return _channel_outbox_from_row(row)
 
-    def claim_due_heartbeat(self, now: datetime) -> ChannelOutboxOperation | None:
+    _DUE_HEARTBEAT = """SELECT id FROM channel_outbox
+                WHERE ((status = 'pending' AND julianday(next_attempt_at) <= julianday(?))
+                   OR (status = 'claimed' AND julianday(claimed_at) <= julianday(?)))
+                ORDER BY dedupe_key = ? DESC, id LIMIT 1"""
+
+    def has_due_heartbeat(self, now: datetime) -> bool:
+        now = _aware(now, "now")
+        with self._connection() as connection:
+            return connection.execute(
+                self._DUE_HEARTBEAT, (_timestamp(now), _timestamp(now - _LEASE), "")
+            ).fetchone() is not None
+
+    def claim_due_heartbeat(self, now: datetime, prefer: str | None = None) -> ChannelOutboxOperation | None:
+        """Claim the oldest due heartbeat, or ``prefer`` first when that identity is due."""
         now = _aware(now, "now")
         stale_before = now - _LEASE
         with self._transaction() as connection:
             row = connection.execute(
-                """SELECT id FROM channel_outbox
-                WHERE ((status = 'pending' AND julianday(next_attempt_at) <= julianday(?))
-                   OR (status = 'claimed' AND julianday(claimed_at) <= julianday(?)))
-                ORDER BY id LIMIT 1""",
-                (_timestamp(now), _timestamp(stale_before)),
+                self._DUE_HEARTBEAT, (_timestamp(now), _timestamp(stale_before), prefer or "")
             ).fetchone()
             if row is None:
                 return None
@@ -568,12 +577,7 @@ class BoardStore:
             now,
         )
 
-    def claim_due_outbox(self, now: datetime) -> OutboxOperation | None:
-        now = _aware(now, "now")
-        stale_before = now - _LEASE
-        with self._transaction() as connection:
-            row = connection.execute(
-                """
+    _DUE_OUTBOX = """
                 SELECT o.id FROM outbox o
                 WHERE ((o.status = 'pending' AND julianday(o.next_attempt_at) <= julianday(?))
                    OR (o.status = 'claimed' AND julianday(o.claimed_at) <= julianday(?)))
@@ -584,8 +588,21 @@ class BoardStore:
                   )
                 ORDER BY o.id
                 LIMIT 1
-                """,
-                (_timestamp(now), _timestamp(stale_before)),
+                """
+
+    def has_due_outbox(self, now: datetime) -> bool:
+        now = _aware(now, "now")
+        with self._connection() as connection:
+            return connection.execute(
+                self._DUE_OUTBOX, (_timestamp(now), _timestamp(now - _LEASE))
+            ).fetchone() is not None
+
+    def claim_due_outbox(self, now: datetime) -> OutboxOperation | None:
+        now = _aware(now, "now")
+        stale_before = now - _LEASE
+        with self._transaction() as connection:
+            row = connection.execute(
+                self._DUE_OUTBOX, (_timestamp(now), _timestamp(stale_before))
             ).fetchone()
             if row is None:
                 return None

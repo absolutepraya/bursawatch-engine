@@ -140,7 +140,7 @@ def checkpoint_comparison(store: BoardStore, compared_at: datetime) -> dict[str,
 
 
 def drain(store: BoardStore, now: datetime, *, publication_client: Any | None = None,
-          delivery_owner: Any | None = None) -> dict[str, int]:
+          delivery_owner: Any | None = None, budget: Any | None = None) -> dict[str, int]:
     if not enabled():
         return {"accepted": 0, "pending": len(store.all_publication_intents())}
     try:
@@ -152,6 +152,9 @@ def drain(store: BoardStore, now: datetime, *, publication_client: Any | None = 
         return {"accepted": 0, "pending": len(store.all_publication_intents())}
     accepted = 0
     for saved in store.pending_publication_intents(now):
+        if budget is not None and not budget.allow():
+            # A refused budget ends the run; the checkpoint is another external call.
+            return {"accepted": accepted, "pending": _pending(store)}
         owner_key = saved["owner_key"]
         try:
             snapshot = _build_snapshot(saved, delivery_owner)
@@ -181,6 +184,9 @@ def drain(store: BoardStore, now: datetime, *, publication_client: Any | None = 
             store.save_publication_checkpoint(comparison, ack)
     except Exception:
         pass
-    return {"accepted": accepted, "pending": len(store.all_publication_intents()) - sum(
-        1 for row in store.all_publication_intents() if row["ack"] is not None
-    )}
+    return {"accepted": accepted, "pending": _pending(store)}
+
+
+def _pending(store: BoardStore) -> int:
+    rows = store.all_publication_intents()
+    return len(rows) - sum(1 for row in rows if row["ack"] is not None)
