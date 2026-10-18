@@ -237,7 +237,7 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
             "earnings, corporate action, fundamentals, or valuation. If removing company names leaves a "
             "broad market thesis, route macro_news. Never duplicate a single story across routes. If an issuer, "
             "exchange, or listing country is uncertain, use the available Yahoo Finance tool first, then "
-            "Serper, then Brave Search. Use lookup results only to identify the issuer, exchange, listing "
+            "Brave Search. Use lookup results only to identify the issuer, exchange, listing "
             "country, exact exchange ticker, and route. Do not add any other lookup fact to the title or "
             f"summary. Choose exactly one configured route key: {channels}. "
         )

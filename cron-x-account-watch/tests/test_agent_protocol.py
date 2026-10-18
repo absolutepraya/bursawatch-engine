@@ -433,7 +433,7 @@ def test_agent_routing_instruction_prioritizes_market_thesis_over_company_exampl
     assert "leverage, derivatives, liquidity" in instruction
     assert "companies or etfs are examples" in instruction
     assert "issuer, exchange, or listing country is unknown or ambiguous" in instruction
-    assert "yahoo finance tool first, then serper, then brave search" in instruction
+    assert "yahoo finance tool first, then brave search" in instruction
     assert "do not add any other lookup fact to the title or summary" in instruction
     assert "lookup remains inconclusive" in instruction
     assert "choose macro_news" in instruction
