@@ -15,6 +15,10 @@ The declared names include `bursawatch-dc-morning-brief`. Register its reviewed
 Hermes job before installing this allowlist update; the observer reports its
 natural last execution and never creates or enables it.
 
+The Stockbit name in this allowlist requires the coordinated manual naming
+cutover documented in `../platform-hermes-schedule-reconciler/README.md`.
+Deploy it only with the Hermes rename and Control Plane runtime-key migration.
+
 ## Local checks
 
 From this directory, run:

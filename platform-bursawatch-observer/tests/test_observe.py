@@ -29,7 +29,7 @@ EXPECTED_RUNTIME_JOB_IDS = {
     "bursawatch-tg-market-news": "bursawatch-tg-market-news",
     "bursawatch-tg-kelas-investasi-gtw": "bursawatch-tg-kelas-investasi-gtw",
     "bursawatch-wa-channel-watch": "bursawatch-wa-channel-watch",
-    "cron-stockbit-snips": "bursawatch-stockbit-snips",
+    "bursawatch-stockbit-snips": "bursawatch-stockbit-snips",
 }
 
 
@@ -91,7 +91,7 @@ def test_full_runtime_job_map_matches_declared_job_ids_and_requires_every_name(t
     rows = observe.read_observed_jobs(registry, set(EXPECTED_RUNTIME_JOB_IDS))
 
     assert {row["runtime_job_key"] for row in rows} == set(EXPECTED_RUNTIME_JOB_IDS)
-    assert observe.RUNTIME_JOB_IDS["cron-stockbit-snips"] == "bursawatch-stockbit-snips"
+    assert observe.RUNTIME_JOB_IDS["bursawatch-stockbit-snips"] == "bursawatch-stockbit-snips"
 
 
 def test_duplicate_runtime_name_blocks_report(tmp_path: Path):

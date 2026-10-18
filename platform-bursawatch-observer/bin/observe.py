@@ -29,7 +29,7 @@ RUNTIME_JOB_IDS = {
     "bursawatch-tg-market-news": "bursawatch-tg-market-news",
     "bursawatch-tg-kelas-investasi-gtw": "bursawatch-tg-kelas-investasi-gtw",
     "bursawatch-wa-channel-watch": "bursawatch-wa-channel-watch",
-    "cron-stockbit-snips": "bursawatch-stockbit-snips",
+    "bursawatch-stockbit-snips": "bursawatch-stockbit-snips",
 }
 RUNTIME_JOB_NAMES = frozenset(RUNTIME_JOB_IDS)
 JOB_NAME_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,99}\Z")

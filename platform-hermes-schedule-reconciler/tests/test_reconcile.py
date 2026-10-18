@@ -388,3 +388,15 @@ def test_systemd_timer_runs_the_reconciler_separately_from_hermes_cron():
     assert "bursawatch-hermes-schedule-reconciler.sh" in unit
     assert "OnUnitActiveSec=1m" in timer
     assert "Unit=bursawatch-schedule-reconciler.service" in timer
+
+
+def test_stockbit_requires_prefixed_runtime_name():
+    payload = desired_job(interval_seconds=900)
+    owner = "bursawatch-stockbit-snips"
+    payload.update(job_id=owner, watcher_id=owner, runtime_job_key=owner,
+                   min_interval_seconds=300, max_interval_seconds=3600)
+    payload["schedule"]["job_id"] = owner
+    assert reconcile.parse_desired_schedule(payload).runtime_job_key == owner
+    payload["runtime_job_key"] = "cron-stockbit-snips"
+    with pytest.raises(reconcile.ContractError, match="reviewed identity"):
+        reconcile.parse_desired_schedule(payload)

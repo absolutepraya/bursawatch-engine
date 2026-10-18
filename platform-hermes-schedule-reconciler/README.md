@@ -5,6 +5,31 @@ matches each to one exact Hermes registry job name, applies a supported change
 through the Hermes CLI, reads the registry again, and reports the revision
 outcome. The web application cannot call this worker or the Hermes CLI.
 
+Stockbit naming cutover: migration `027_stockbit_scheduler_prefix.sql`, the Hermes
+job rename, and this worker mapping must be deployed together under a reviewed
+manual rollout. The live snapshot on 2026-10-18 still used `cron-stockbit-snips`.
+The observer mapping must advance with the same cutover if installed.
+
+The read-only registry check on 2026-10-18 identified job `0c6b17e4c944` as
+active every 15 minutes with script `bursawatch-rss-source-ingest.sh`. The
+reviewed name-only command is:
+
+```sh
+~/.local/bin/hermes cron edit 0c6b17e4c944 --name bursawatch-stockbit-snips
+```
+
+Before any VPS write, compare the deployed worker with source and obtain
+current-session approval. Coordinate the worker mapping, migration, and CLI
+rename between natural reconciler passes, confirming no reconciliation is in
+flight. Do not stop the source writer or change its desired schedule for this
+metadata-only rename. Apply only migration 027 through the migration ledger,
+without applying unrelated pending migrations. Verify the registry retains the
+same ID, enabled state, schedule, script, skills, and next-run timestamp; check
+the worker checksum and dry-run output, then verify the next natural timer
+pass and all nine desired schedule matches. Preserve historical migration 012.
+The observer was absent at the inspected path, so this change does not install
+or activate an observer.
+
 ## Reviewed interval jobs
 
 | Control Plane job ID | Exact Hermes name | Allowed seconds |
@@ -16,7 +41,7 @@ outcome. The web application cannot call this worker or the Hermes CLI.
 | `bursawatch-tg-phintraco-swing` | `bursawatch-tg-phintraco-swing` | 60 to 3,600 |
 | `bursawatch-tg-kelas-investasi-gtw` | `bursawatch-tg-kelas-investasi-gtw` | 300 to 21,600 |
 | `bursawatch-wa-channel-watch` | `bursawatch-wa-channel-watch` | 60 to 21,600 |
-| `bursawatch-stockbit-snips` | `cron-stockbit-snips` | 300 to 3,600 |
+| `bursawatch-stockbit-snips` | `bursawatch-stockbit-snips` | 300 to 3,600 |
 | `bursawatch-dc-morning-brief` | `bursawatch-dc-morning-brief` | 60 only |
 
 Morning timing comes from its revisioned operator configuration. The minute

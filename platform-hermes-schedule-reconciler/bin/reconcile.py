@@ -37,7 +37,7 @@ SUPPORTED_INTERVAL_JOBS: dict[str, tuple[str, str | None, int, int]] = {
     "bursawatch-tg-market-news": ("bursawatch-tg-market-news", "bursawatch-tg-market-news", 60, 3_600),
     "bursawatch-tg-kelas-investasi-gtw": ("bursawatch-tg-kelas-investasi-gtw", "bursawatch-tg-kelas-investasi-gtw", 300, 21_600),
     "bursawatch-wa-channel-watch": ("bursawatch-wa-channel-watch", "bursawatch-wa-channel-watch", 60, 21_600),
-    "bursawatch-stockbit-snips": ("cron-stockbit-snips", "bursawatch-stockbit-snips", 300, 3_600),
+    "bursawatch-stockbit-snips": ("bursawatch-stockbit-snips", "bursawatch-stockbit-snips", 300, 3_600),
     "bursawatch-tg-source-ingest": ("bursawatch-tg-source-ingest", None, 60, 3_600),
     "bursawatch-dc-morning-brief": ("bursawatch-dc-morning-brief", "bursawatch-dc-morning-brief", 60, 60),
 }

@@ -125,11 +125,13 @@ def test_discover_migrations_uses_the_checked_legacy_eligibility_registry():
         "024_morning_brief_schedule.sql",
         "025_morning_brief_job_link.sql",
         "026_publication_cutover_owners.sql",
+        "027_stockbit_scheduler_prefix.sql",
     }
     assert next(m.release_eligibility for m in migrations if m.name == "023_morning_brief_configuration.sql") == "automatic"
     assert next(m.release_eligibility for m in migrations if m.name == "024_morning_brief_schedule.sql") == "manual"
     assert next(m.release_eligibility for m in migrations if m.name == "025_morning_brief_job_link.sql") == "automatic"
     assert next(m.release_eligibility for m in migrations if m.name == "026_publication_cutover_owners.sql") == "manual"
+    assert next(m.release_eligibility for m in migrations if m.name == "027_stockbit_scheduler_prefix.sql") == "manual"
     assert {migration.release_eligibility for migration in migrations} == {"automatic", "manual"}
     assert next(
         migration.release_eligibility
