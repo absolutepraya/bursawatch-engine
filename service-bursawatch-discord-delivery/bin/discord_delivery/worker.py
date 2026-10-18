@@ -158,19 +158,7 @@ class DeliveryWorker:
         return snapshot
 
     def _matches_message(self, item: object, snapshot: dict) -> bool:
-        if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"].isdigit():
-            return False
-        body = snapshot["request"]["body"]
-        if item.get("content") != body.get("content"):
-            return False
-        nonce = item.get("nonce")
-        if nonce is None or str(nonce) != snapshot.get("match_nonce", body.get("nonce")):
-            return False
-        attachments = snapshot.get("attachments", [])
-        found = item.get("attachments", [])
-        return (isinstance(found, list) and
-                [value.get("filename") for value in found if isinstance(value, dict)] ==
-                [value["filename"] for value in attachments])
+        return matches_message(item, snapshot)
 
     def reconcile(self, operation: OperationRecord) -> ReconcileResult:
         if not operation.kind.endswith("_create"):
@@ -385,3 +373,99 @@ class DeliveryWorker:
             if record is None:
                 return WorkerResult("idle")
             return self._process(record, now, reconciling)
+
+
+def matches_message(item: object, snapshot: dict) -> bool:
+    """True when a Discord message carries this create's exact content, nonce and attachments."""
+    if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"].isdigit():
+        return False
+    body = snapshot["request"]["body"]
+    if item.get("content") != body.get("content"):
+        return False
+    nonce = item.get("nonce")
+    if nonce is None or str(nonce) != snapshot.get("match_nonce", body.get("nonce")):
+        return False
+    attachments = snapshot.get("attachments", [])
+    found = item.get("attachments", [])
+    return (isinstance(found, list) and
+            [value.get("filename") for value in found if isinstance(value, dict)] ==
+            [value["filename"] for value in attachments])
+
+
+RESOLVABLE_CATEGORIES = {"create_outcome_unknown", "reconciliation_inconclusive"}
+DISCORD_EPOCH_MS = 1420070400000
+# The service host's clock and Discord's differ by seconds (about 12 s on 2026-10-15), so the
+# operation's lifetime is widened rather than compared exactly.
+CLOCK_MARGIN = timedelta(minutes=2)
+
+
+def _snowflake_time(value: str) -> datetime:
+    return datetime.fromtimestamp(((int(value) >> 22) + DISCORD_EPOCH_MS) / 1000, timezone.utc)
+
+
+def _is_bot_copy(item: object, snapshot: dict) -> bool:
+    """Content, attachments and a bot author. REST reads omit ``nonce``, so it cannot be required."""
+    if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"].isdigit():
+        return False
+    author = item.get("author")
+    if not isinstance(author, dict) or author.get("bot") is not True:
+        return False
+    if item.get("content") != snapshot["request"]["body"].get("content"):
+        return False
+    found = item.get("attachments", [])
+    return (isinstance(found, list) and
+            [value.get("filename") for value in found if isinstance(value, dict)] ==
+            [value["filename"] for value in snapshot.get("attachments", [])])
+
+
+def resolve_ambiguous_create(store: DeliveryStore, read_message: Callable[[dict], object],
+                             operation_key: str, expected_digest: str, message_id: str) -> OperationRecord:
+    """Settle an ambiguous message create from one operator-named Discord message.
+
+    Automatic read-back inspects only the newest few hundred messages, so a busy channel can push a
+    lost-response create beyond its reach. The operator names the message and this reads it from
+    Discord. It is accepted only when all of these hold, and it never sends a create:
+
+    - it is a bot message newer than the saved pre-send boundary, in the target channel, with the
+      saved request's exact content and attachment names;
+    - its Discord timestamp falls within the operation's lifetime (with a clock margin);
+    - it is the only bot message with that content in the first page after the boundary;
+    - no other delivered operation already holds it.
+
+    Discord does not return ``nonce`` on a REST read, so the nonce cannot be part of this proof.
+    """
+    record = store.get_by_key(operation_key)
+    if (record is None or record.digest != expected_digest or record.status != "ambiguous"
+            or record.kind not in {"channel_message_create", "thread_message_create"}
+            or record.error_category not in RESOLVABLE_CATEGORIES):
+        raise OperationStateConflict("ambiguous message create and digest must match")
+    snapshot = store.create_snapshot(operation_key)
+    boundary = snapshot.get("boundary")
+    if ("request" not in snapshot or snapshot.get("boundary_observed") is not True
+            or not isinstance(boundary, str) or not boundary.isdigit()
+            or not isinstance(message_id, str) or not message_id.isdigit()
+            or int(message_id) <= int(boundary)):
+        raise OperationStateConflict("saved request does not bound this message")
+    sent_at = _snowflake_time(message_id)
+
+    def instant(value: str) -> datetime:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+    if not instant(record.created_at) - CLOCK_MARGIN <= sent_at <= instant(record.updated_at) + CLOCK_MARGIN:
+        raise OperationStateConflict("message was not sent during this operation")
+    thread = record.kind == "thread_message_create"
+    destination = record.target["thread_id" if thread else "channel_id"]
+    message = read_message({"kind": "thread_message_read", "thread_id": destination, "message_id": message_id})
+    if (not isinstance(message, dict) or message.get("id") != message_id
+            or message.get("channel_id", destination) != destination
+            or not _is_bot_copy(message, snapshot)):
+        raise OperationStateConflict("message does not prove this operation was delivered")
+    page = read_message({"kind": "thread_messages" if thread else "channel_messages",
+                         "thread_id" if thread else "channel_id": destination,
+                         "after": boundary, "limit": READ_PAGE_SIZE})
+    if not isinstance(page, list) or message_id not in {
+            item.get("id") for item in page if isinstance(item, dict)}:
+        raise OperationStateConflict("message is not within the first page after the send boundary")
+    if sum(1 for item in page if _is_bot_copy(item, snapshot)) != 1:
+        raise OperationStateConflict("another bot message carries identical content")
+    return store.resolve_ambiguous_create(operation_key, expected_digest, {"message_id": message_id})

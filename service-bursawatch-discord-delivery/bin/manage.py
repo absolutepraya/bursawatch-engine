@@ -40,6 +40,12 @@ def main(argv: list[str] | None = None) -> int:
     retry.add_argument("key")
     retry.add_argument("--expected-digest", required=True)
     retry.add_argument("--apply", action="store_true")
+    resolve = subcommands.add_parser(
+        "resolve", help="settle an ambiguous message create from a Discord message the service verifies")
+    resolve.add_argument("key")
+    resolve.add_argument("--expected-digest", required=True)
+    resolve.add_argument("--message-id", required=True)
+    resolve.add_argument("--apply", action="store_true")
     args = parser.parse_args(argv)
     if args.command == "status":
         page = _request("GET", f"/v1/admin/operations?limit={args.limit}&offset={args.offset}")
@@ -57,6 +63,15 @@ def main(argv: list[str] | None = None) -> int:
     if selected is None:
         raise RuntimeError("operation key not found")
     _show(selected)
+    if args.command == "resolve":
+        if selected["status"] != "ambiguous" or selected["digest"] != args.expected_digest:
+            raise RuntimeError("ambiguous status and expected digest must match")
+        if not args.apply:
+            print("Preview only. Pass --apply to have the service verify the message and record the receipt.")
+            return 0
+        path = "/v1/admin/operations/" + urllib.parse.quote(args.key, safe="") + "/resolve"
+        _show(_request("POST", path, {"expected_digest": args.expected_digest, "message_id": args.message_id}))
+        return 0
     if selected["status"] != "blocked" or selected["digest"] != args.expected_digest:
         raise RuntimeError("blocked status and expected digest must match")
     if not args.apply:
