@@ -58,6 +58,33 @@ current = client.status(operation.key)
 
 Attachments are immutable in-memory byte values, not caller paths. `submit` sends the operation as multipart form data so binary bytes survive unchanged. Media adoption also sends the ordered attachment bytes with its administrative envelope, preserving the original payload digest. `query` accepts only the service's seven allowlisted read kinds. `wait` first performs one status lookup using the normal client request timeout. Its `timeout_seconds` value bounds only the polling phase after that lookup; each polling request is capped to the remaining budget, and the latest receipt is returned when that budget expires. It never sends another create.
 
+## Receipt observation
+
+```python
+from bursawatch_discord_delivery import observe_operation
+
+receipt = observe_operation(client, operation)
+if receipt.status == "delivered":
+    pass  # Apply the caller-owned completion policy.
+```
+
+`observe_operation` looks up the exact operation key, submits once only if it
+is absent, validates the receipt against the immutable intent, and waits on
+that same key if the result is nonterminal. It returns a typed
+`OperationReceipt`, including pending, rejected, blocked, and ambiguous results.
+Mismatched receipts raise sanitized `DeliveryClientError("invalid_response")`;
+transport errors propagate without another submission. A later caller-owned
+retry can observe the same intent again after a lost response.
+
+The default wait is the exported `DELIVERY_RECEIPT_WAIT_SECONDS` (10 seconds).
+An explicit `timeout_seconds` retains `wait` semantics described above; it is
+not a bound on total elapsed time. The caller still owns durable retry state,
+submission eligibility and deadlines, ordering, and completion policy. This
+helper does not implement historical adoption or publication recovery.
+Telegram and X source-ingest heartbeats use this helper and still require a
+`delivered` result. Their formatting, destinations, and operation identities
+remain caller-owned.
+
 `attempt_deadline` optionally accepts a timezone-aware Python `datetime` on
 `OperationIntent`. The client emits a canonical UTC ISO-8601 timestamp and binds
 it into the digest. Equivalent timezone offsets yield the same digest. Keep the

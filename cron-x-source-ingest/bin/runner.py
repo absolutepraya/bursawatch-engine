@@ -30,15 +30,13 @@ from source_runner import client, state_root
 from adapter import run_once
 from config import load_watch_config_for_run
 from pipeline_runtime import PipelineRuntime
-from bursawatch_discord_delivery import DeliveryClient, OperationIntent
+from bursawatch_discord_delivery import DeliveryClient, OperationIntent, observe_operation
 
 WATCHER = "bursawatch-x-source-ingest"
 HEARTBEAT_CHANNEL_ID = "1505162000420835388"
-HEARTBEAT_DELIVERY_WAIT_SECONDS = 10
 DELIVERY_OWNER_URL = "http://127.0.0.1:9140"
 DELIVERY_CLIENT_TOKEN_FILE = ".hermes/secrets/bursawatch-discord-delivery-client-token"
 WIB = ZoneInfo("Asia/Jakarta")
-NON_TERMINAL_DELIVERY_STATUSES = frozenset({"pending", "pending_reconciliation", "retrying", "delivering"})
 
 
 def _owner_path() -> Path:
@@ -109,14 +107,8 @@ def post_heartbeat(content: str, now: datetime, *, delivery_client=None) -> None
         target={"channel_id": HEARTBEAT_CHANNEL_ID},
         payload={"content": content, "allowed_mentions": {"parse": []}},
     )
-    receipt = delivery_client.status(operation.key)
-    if receipt is None:
-        receipt = delivery_client.submit(operation)
-    if receipt.key != operation.key or receipt.digest != operation.digest:
-        raise RuntimeError("heartbeat receipt is invalid")
-    if receipt.status in NON_TERMINAL_DELIVERY_STATUSES:
-        receipt = delivery_client.wait(operation.key, HEARTBEAT_DELIVERY_WAIT_SECONDS)
-    if receipt.key != operation.key or receipt.digest != operation.digest or receipt.status != "delivered":
+    receipt = observe_operation(delivery_client, operation)
+    if receipt.status != "delivered":
         raise RuntimeError("heartbeat delivery is incomplete")
 
 
