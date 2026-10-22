@@ -1,14 +1,14 @@
 """Injected cache-only owner pipeline; previews never discover credentials or post."""
 import base64
 from dataclasses import asdict, is_dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime
 import json
 from pathlib import Path
 import uuid
 from zoneinfo import ZoneInfo
 from bursawatch_discord_delivery import OperationIntent, DELIVERY_RECEIPT_WAIT_SECONDS
 from bursawatch_discord_delivery.client import NON_TERMINAL_STATUSES
-from .calendar import aware, SessionCalendar, restored_calendar
+from .calendar import aware, restored_calendar
 from .config import load_operator_config_data, retained_operator_config, timing_for, weekday_delivery, previous_weekday
 from .inputs import (Provenance, MembershipSnapshot, CapSnapshot, PriceSeries, ActionDecision,
                      prepare_numerical_inputs, InputUnavailable)
@@ -20,7 +20,8 @@ from .outlook import freeze_bundle, write_outlook
 from .rendering import RenderedArtifact, render_rotation, render_ihsg, render_yahoo_ihsg
 from .formatting import format_brief, attachment_caption, six_block_markdown
 from .publication import Publisher, OWNER
-from .store import canonical, digest, stamp, FreezeConflict
+from .store import canonical, digest, stamp
+from .session import MorningSession
 
 ZONE=ZoneInfo('Asia/Jakarta')
 HEARTBEAT_DESTINATION='1505162000420835388'
@@ -253,60 +254,26 @@ class MorningRunner:
         result={'phase':'fatal','reason':'owner_unavailable'}
         lease=None
         try:
-            now=aware(self.clock()); session=now.astimezone(ZONE).date()
-            existing=self.store.get_run_for_session(session.isoformat())
-            frozen_config=self.store.get_frozen(existing.run_id,'operator_config') if existing else None
-            if frozen_config:
-                operator_snapshot=frozen_config.payload
-                destination=operator_snapshot['config']['destination_channel_id']
-                logos=operator_snapshot['config']['logos']
-            if operator_snapshot is not None:
-                settings=load_operator_config_data(operator_snapshot['config'])
-            else:
-                # Compatibility for previously reviewed caller-injected local runs.
-                settings=retained_operator_config(self.store,existing.run_id) if existing else dict(
-                    version=1,timezone='Asia/Jakarta',cutoff_time='07:30',delivery_time='08:00',
-                    fallback_minutes=5,retry_minutes=15,destination_channel_id=destination,
-                    instruments=['KOSPI','Nikkei','SPY','QQQ','EIDO','USDIDR'],logos=dict(logos or {}))
+            now=aware(self.clock())
+            lifecycle=MorningSession(self.store,now)
+            session=lifecycle.date
+            config=lifecycle.run_configuration(operator_snapshot,destination,logos)
+            operator_snapshot,destination,logos=config.snapshot,config.destination,config.logos
+            settings,times=config.settings,config.times
             if not preview and (not reviewed_config or not destination):
                 raise ValueError('live injection requires reviewed configuration and destination')
-            times=timing_for(session,settings)
             cutoff=times['cutoff']
             if now<cutoff:
                 result={'phase':'before_freeze'}
             else:
                 run=self.store.create_run(session.isoformat(),freeze_at=cutoff)
                 lease=self.store.acquire_lease(run.run_id,uuid.uuid4().hex,now=now,seconds=600)
-                if operator_snapshot is not None and frozen_config is None:
-                    if self.store.get_frozen(run.run_id,'run_mode') is not None:
-                        raise FreezeConflict('legacy session cannot acquire a new operator configuration')
-                    self.store.freeze(run.run_id,'operator_config',operator_snapshot,lease=lease,now=self.clock())
+                lifecycle.bind_run(run,snapshot=operator_snapshot,preview=preview,lease=lease,now=self.clock)
                 mode='preview' if preview else 'live'
-                mode_record=self.store.get_frozen(run.run_id,'run_mode')
-                if mode_record is None:
-                    if any(self.store.get_frozen(run.run_id,slot) is not None for slot in
-                           ('upstream','source_manifest','selection','publication')):
-                        raise FreezeConflict('legacy run mode is unknown; use separate state')
-                    mode_record=self.store.freeze(run.run_id,'run_mode',{'mode':mode},lease=lease,now=self.clock())
-                if mode_record.payload.get('mode')!=mode:
-                    raise FreezeConflict('frozen run mode mismatch; use separate preview state')
-                saved=self.store.get_frozen(run.run_id,'publication')
-                if saved and not preview:
-                    # Destination correction needs a new reviewed rollout, never retarget an old key.
-                    if destination!=saved.payload['destination']: raise ValueError('frozen destination mismatch')
+                if lifecycle.publication_recovery(preview=preview,destination=destination):
                     result=self.publisher.publish(run.run_id,lease=lease) if self.clock()>=times['target'] else {'phase':'prepared'}
                 else:
-                    upstream=self.store.get_frozen(run.run_id,'upstream')
-                    if upstream:
-                        calendar=restored_calendar(upstream.payload['calendar']) if upstream.payload['calendar'] else None
-                    if calendar is not None:
-                        checked=aware(calendar.amendment_checked_at)
-                        if checked>cutoff or cutoff-checked>timedelta(days=7):
-                            if not weekday_delivery(settings): raise ValueError('calendar amendment unavailable')
-                            calendar=None
-                    eligible=session.weekday()<5 if weekday_delivery(settings) else calendar is not None and calendar.is_session(session)
-                    if calendar is None and not weekday_delivery(settings):
-                        raise ValueError('calendar amendment unavailable')
+                    upstream,calendar,eligible=lifecycle.preparation(calendar,config)
                     if not eligible:
                         result={'phase':'no_session'}
                         self.store.transition(run.run_id,'no_session',lease=lease,now=self.clock())

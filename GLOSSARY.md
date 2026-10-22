@@ -9,6 +9,9 @@ The [morning brief spec](docs/notes/2026-09-27-bursawatch-morning-brief-design-s
 **Morning brief**:
 A dated pre-market publication presenting an IHSG outlook, its evidence, and relevant sector and conglomerate rotation context.
 
+**Morning brief session**:
+One publication date with its chosen timing, evidence and publication selections. Repeated preparation or recovery attempts retain those choices rather than creating a different publication.
+
 **Morning outlook**:
 A conditional assessment covering the coming IHSG trading session as a whole, based on information available at the morning evidence cutoff.
 _Avoid_: Guaranteed prediction, calibrated probability without measured evidence.

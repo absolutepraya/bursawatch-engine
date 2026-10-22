@@ -12,10 +12,11 @@ from pathlib import Path
 import stat
 from zoneinfo import ZoneInfo
 
-from .calendar import SessionCalendar, aware, restored_calendar
+from .calendar import SessionCalendar, aware
 from .config import OWNER, load_operator_config_data, timing_for, weekday_delivery
 from .runner import MorningRunner
 from .store import RunStore
+from .session import MorningSession
 
 CONTROL_URL = 'http://127.0.0.1:9120'
 DELIVERY_URL = 'http://127.0.0.1:9140'
@@ -130,68 +131,13 @@ class HostRuntime:
         self.fetch_snapshot, self.writer_factory, self.clock = fetch_snapshot, writer_factory, clock
 
     def tick(self, *, operator_snapshot=None):
-        now = aware(self.clock()); session = now.astimezone(ZONE).date()
         try:
-            run = self.store.get_run_for_session(session.isoformat())
-            frozen = self.store.get_frozen(run.run_id, 'operator_config') if run else None
-            # Frozen database configuration remains authoritative during API outages.
-            snapshot = frozen.payload if frozen else (operator_snapshot if operator_snapshot is not None else self.fetch_snapshot())
-            from control_plane_client import ConfigSnapshot
-            checked = ConfigSnapshot.from_payload(snapshot)
-            if checked.watcher_id != OWNER:
-                raise ValueError('morning configuration identity mismatch')
-            settings = load_operator_config_data(checked.config)
-            times = timing_for(session, settings)
-            if weekday_delivery(settings) and session.weekday()>=5 and not run:
-                return self.beat({'phase':'no_op','reason':'weekend'})
-            if not settings['destination_channel_id']:
-                raise ValueError('morning destination unavailable')
-            if now < times['cutoff']:
-                return self.beat({'phase': 'before_freeze'})
-            publication = self.store.get_frozen(run.run_id, 'publication') if run else None
-            upstream = self.store.get_frozen(run.run_id, 'upstream') if run else None
-            # Recovery never reopens changing provider/input files or reruns a writer.
-            if publication:
-                calendar, inputs = None, {}
-            elif upstream:
-                calendar = restored_calendar(upstream.payload['calendar']) if upstream.payload['calendar'] else None
-                inputs = {**upstream.payload, 'chart': upstream.payload.get('chart_context')}
-            else:
-                if now > times['deadline']:
-                    return self.beat({'phase': 'missed_session', 'gaps': 1})
-                try:
-                    calendar, inputs = load_inputs(self.config.input_manifest, cutoff=times['cutoff'],
-                        allow_calendar_gap=weekday_delivery(settings))
-                except (OSError,ValueError,KeyError,TypeError):
-                    if not weekday_delivery(settings):
-                        raise
-                    # Missing inputs degrade to explicit unavailable sections, never
-                    # fabricated quotes or replacement source evidence.
-                    calendar,inputs=None,{}
-            selected = self.store.get_frozen(run.run_id, 'selection') if run else None
-            bundle = self.store.get_frozen(run.run_id, 'writer_bundle') if run else None
-            model, version = None, 'hermes-current-unavailable'
-            prompt_version = 'source-scenario-v2'
-            if (not publication and not selected and calendar is not None
-                    and calendar.is_session(session)):
-                model, version = self.writer_factory()
-            if bundle:
-                retained_version = bundle.payload['versions']['model']
-                if version != retained_version:
-                    model = None  # A model change cannot relabel an already frozen request.
-                version = retained_version
-                prompt_version = bundle.payload['versions']['prompt']
-            chart_client, chart_request = None, None
-            if not publication and not selected:
-                try:
-                    chart_client, chart_request = chart_inputs(self.config, inputs, times['cutoff'])
-                except (ValueError, KeyError, OSError):
-                    pass  # Optional chart failures do not suppress otherwise valid text.
-            return self.runner.run_from_snapshot(snapshot, calendar=calendar,
-                numerical=inputs.get('numerical', {}), global_inputs=inputs.get('global_inputs', []),
-                calendar_snapshots=inputs.get('calendar_snapshots', []), model=model,
-                model_version=version, prompt_version=prompt_version, preview=False,
-                chart_client=chart_client, chart_request=chart_request, chart_context=inputs.get('chart'))
+            session = MorningSession(self.store, self.clock())
+            return session.dispatch(fetch_snapshot=self.fetch_snapshot, supplied_snapshot=operator_snapshot,
+                load_inputs=lambda **kwargs: load_inputs(self.config.input_manifest, **kwargs),
+                writer_factory=self.writer_factory,
+                chart_inputs=lambda inputs, cutoff: chart_inputs(self.config, inputs, cutoff),
+                run=self.runner.run_from_snapshot, beat=self.beat)
         except Exception as error:
             return self.beat({'phase': 'fatal', 'reason': type(error).__name__})
 

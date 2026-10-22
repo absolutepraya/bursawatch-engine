@@ -196,6 +196,14 @@ axis limits, padding policy and zero position with each rendered artifact.
 
 ## Durable run state
 
+`MorningSession` in `morning_brief/session.py` owns shared session policy:
+producer permission, retained operator configuration, dispatcher recovery,
+writer identity, calendar eligibility and preview/live mode fencing. The
+scheduler and host adapters do not interpret frozen record slots. `MorningRunner`
+keeps analytical preparation, frozen artifacts, receipt-gated publication and
+lease acquisition/release; it delegates session policy to the same module.
+No state schema, slot name, deadline, schedule or activation setting changes.
+
 `RunStore(path)` creates private local state and restart-safe schema version 1.
 One run identity/freeze instant exists per session. Active session leases reject
 competitors. Expired leases may be recovered with a higher fencing generation;

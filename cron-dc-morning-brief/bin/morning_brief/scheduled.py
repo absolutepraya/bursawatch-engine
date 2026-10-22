@@ -1,14 +1,14 @@
 """A single configured scheduler tick composes pre-cutoff inputs and delivery."""
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import timedelta
 import hashlib
 import json
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from .calendar import aware, SessionCalendar
-from .config import load_operator_config_data, timing_for, weekday_delivery
+from .config import weekday_delivery
 from .host import private_file
+from .session import MorningSession
 
 
 @dataclass(frozen=True)
@@ -47,19 +47,17 @@ class ScheduledRuntime:
 
     def tick(self):
         try:
-            now=aware(self.clock());session=now.astimezone(ZoneInfo('Asia/Jakarta')).date()
-            existing=self.host.store.get_run_for_session(session.isoformat())
-            if existing and self.host.store.get_frozen(existing.run_id,'operator_config') is not None:
+            now=aware(self.clock())
+            lifecycle=MorningSession(self.host.store,now)
+            session=lifecycle.date
+            decision=lifecycle.producers(self.host.fetch_snapshot)
+            if decision.action=='recover':
                 return self.host.tick()
-            snapshot=self.host.fetch_snapshot()
-            from control_plane_client import ConfigSnapshot
-            checked=ConfigSnapshot.from_payload(snapshot)
-            if checked.watcher_id!='bursawatch-dc-morning-brief':
-                raise ValueError('morning operator identity mismatch')
-            settings=load_operator_config_data(checked.config);times=timing_for(session,settings)
-            if weekday_delivery(settings) and session.weekday()>=5:
+            config=decision.configuration
+            snapshot,settings,times=config.snapshot,config.settings,config.times
+            if decision.action=='weekend':
                 return self.host.beat(dict(phase='no_op',reason='weekend'))
-            if now>=times['cutoff']:
+            if decision.action=='dispatch':
                 return self.host.tick(operator_snapshot=snapshot)
             try:
                 raw=private_file(self.producer.calendar_snapshot,max_bytes=512_000);reference=json.loads(raw)
