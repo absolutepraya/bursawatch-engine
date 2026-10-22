@@ -171,3 +171,12 @@ their existing contracts.
 ## Optional image context
 
 Screen ordinary news from supplied text first. Only when that text is eligible, the trusted item instruction may expose `prepare-summary-images`. Call that command with its exact bound request, then use the actual image viewer on returned paths. Paths indicate availability, not inspection. Images are additional context for the same supplied story, never a substitute for eligible text. Do not inspect any other files. On unavailable images or viewer failure, submit the text-supported result without holding delivery or retrying optional context. Specialized Swing and required outgoing media retain their owner contracts.
+
+## Heartbeat receipt observation
+
+The runner uses the shared `observe_operation` helper from
+`lib-bursawatch-discord-delivery` for lookup, submit-if-absent, receipt matching,
+and the shared 10-second receipt wait. Only a matching `delivered` result
+counts as heartbeat success. Pending or terminal failure remains an error; an
+uncertain request does not cause an automatic resubmission. Heartbeat content,
+destination, and operation identity remain owned by this package.

@@ -1139,3 +1139,37 @@ def test_adapter_to_existing_owner_queue_uses_same_event_and_opaque_image(tmp_pa
     assert queued[0]["source_event_key"] == source_key
     assert queued[0]["post"]["media"][0]["url"] == "source-media-ref:20000000-0000-4000-8000-000000000001"
     assert image_url not in json.dumps(queued)
+
+
+@pytest.mark.parametrize("final_status", ["delivered", "pending", "rejected", "blocked", "ambiguous"])
+def test_heartbeat_uses_shared_observation_but_requires_delivery(final_status):
+    from bursawatch_discord_delivery import DELIVERY_RECEIPT_WAIT_SECONDS, OperationReceipt
+
+    class FakeDelivery:
+        def __init__(self):
+            self.operation = None
+            self.waited = []
+
+        def status(self, key):
+            return None
+
+        def submit(self, operation):
+            self.operation = operation
+            return OperationReceipt("heartbeat", operation.key, operation.digest, "pending")
+
+        def wait(self, key, timeout):
+            self.waited.append((key, timeout))
+            details = {"message_id": "123"} if final_status == "delivered" else None
+            return OperationReceipt("heartbeat", key, self.operation.digest, final_status, details)
+
+    delivery = FakeDelivery()
+    content = format_heartbeat(NOW, {"source": [], "work": []})
+    if final_status == "delivered":
+        runner.post_heartbeat(content, NOW, delivery_client=delivery)
+    else:
+        with pytest.raises(RuntimeError, match="heartbeat delivery is incomplete"):
+            runner.post_heartbeat(content, NOW, delivery_client=delivery)
+    assert delivery.operation.key == f"{runner.WATCHER}:heartbeat:20260924T000000000000"
+    assert delivery.operation.target == {"channel_id": runner.HEARTBEAT_CHANNEL_ID}
+    assert delivery.operation.payload == {"content": content, "allowed_mentions": {"parse": []}}
+    assert delivery.waited == [(delivery.operation.key, DELIVERY_RECEIPT_WAIT_SECONDS)]

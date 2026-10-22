@@ -158,3 +158,12 @@ which resolves the same canonical `X_POST_WATCH_STATE_PATH` as the watcher
 scanner. If unset, both use `state/state.json` inside the deployed watcher
 package. Adapter cursors and its accepted-event index remain in the separate
 source-ingest state root.
+
+## Heartbeat receipt observation
+
+The runner uses the shared `observe_operation` helper from
+`lib-bursawatch-discord-delivery` for lookup, submit-if-absent, receipt matching,
+and the shared 10-second receipt wait. Only a matching `delivered` result
+counts as heartbeat success. Pending or terminal failure remains an error; an
+uncertain request does not cause an automatic resubmission. Heartbeat content,
+destination, and operation identity remain owned by this package.

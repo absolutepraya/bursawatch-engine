@@ -15,9 +15,10 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "lib-bursawatch-control" / "bin"))
 sys.path.insert(0, str(ROOT / "cron-tg-source-ingest" / "bin"))
 from adapter import IntakeBlocked, LegacySeedBlocked, endpoints, ingest_all as adapter_ingest_all, ingest_endpoint, plan_legacy_cursor_seed, plan_market_news_catalog_transition, envelope as telegram_envelope
-from runner import AGENT_OWNERS, HEARTBEAT_CHANNEL_ID, HEARTBEAT_DELIVERY_WAIT_SECONDS, PIPELINE_OWNERS, dispatch_agent, format_fatal, format_heartbeat, post_heartbeat, run_once
+from runner import AGENT_OWNERS, HEARTBEAT_CHANNEL_ID, PIPELINE_OWNERS, dispatch_agent, format_fatal, format_heartbeat, post_heartbeat, run_once
 from runner import verify_synthetic
 import runner as source_runner
+from bursawatch_discord_delivery import DELIVERY_RECEIPT_WAIT_SECONDS, OperationReceipt
 
 
 NOW = datetime(2026, 9, 24, tzinfo=timezone.utc)
@@ -934,11 +935,11 @@ def test_heartbeat_is_compact_sanitized_and_uses_shared_delivery_owner():
 
         def submit(self, operation):
             self.operation = operation
-            return SimpleNamespace(key=operation.key, digest=operation.digest, status="pending")
+            return OperationReceipt("heartbeat", operation.key, operation.digest, "pending")
 
         def wait(self, key, timeout):
             self.waited.append((key, timeout))
-            return SimpleNamespace(key=key, digest=self.operation.digest, status="delivered")
+            return OperationReceipt("heartbeat", key, self.operation.digest, "delivered", {"message_id": "123"})
 
     now = datetime(2026, 9, 24, 0, 15, tzinfo=timezone.utc)
     result = {
@@ -957,7 +958,7 @@ def test_heartbeat_is_compact_sanitized_and_uses_shared_delivery_owner():
     assert client.operation.target == {"channel_id": HEARTBEAT_CHANNEL_ID}
     assert client.operation.payload["content"] == content
     assert client.operation.payload["allowed_mentions"] == {"parse": []}
-    assert client.waited == [(client.operation.key, HEARTBEAT_DELIVERY_WAIT_SECONDS)]
+    assert client.waited == [(client.operation.key, DELIVERY_RECEIPT_WAIT_SECONDS)]
     assert format_fatal(now) == "❌ bursawatch-tg-source-ingest · 07:15 WIB · failed: source processing failed"
 
 
@@ -991,3 +992,20 @@ def test_runtime_skill_routes_only_to_the_two_fixed_analysis_owners():
     assert 'bursawatch-tg-market-news.sh" submit-classification' in skill
     assert 'bursawatch-tg-kelas-investasi-gtw.sh" --submit-analysis' in skill
     assert "post to Discord directly" in skill
+
+
+@pytest.mark.parametrize("final_status", ["pending", "rejected", "blocked", "ambiguous"])
+def test_heartbeat_requires_delivery_after_shared_observation(final_status):
+    class FakeDelivery:
+        def status(self, key):
+            return None
+
+        def submit(self, operation):
+            self.operation = operation
+            return OperationReceipt("heartbeat", operation.key, operation.digest, "pending")
+
+        def wait(self, key, timeout):
+            return OperationReceipt("heartbeat", key, self.operation.digest, final_status)
+
+    with pytest.raises(RuntimeError, match="heartbeat delivery is incomplete"):
+        post_heartbeat(format_heartbeat(NOW, {"source": [], "work": []}), NOW, delivery_client=FakeDelivery())
