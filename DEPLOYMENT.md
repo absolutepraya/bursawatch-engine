@@ -55,6 +55,7 @@ with protected input or stdin:
 | Actions variable | `BURSAWATCH_SUPABASE_URL` | Public Supabase URL embedded during dashboard build |
 | Actions variable | `BURSAWATCH_SUPABASE_PUBLISHABLE_KEY` | Public browser publishable key embedded during dashboard build |
 | Actions variable | `BURSAWATCH_PREVIEW_EMAIL` | Exact email permitted through preview Access gates |
+| Actions variable | `BURSAWATCH_PRODUCTION_ENABLED` | `false` until the approved first DNS cutover; `true` enables production releases |
 
 The Cloudflare token needs the target account's Workers deployment permissions
 and Workers Routes access for `abhipraya.dev`. Prefer a token restricted to that
@@ -118,7 +119,8 @@ Changing the reviewer email requires intentionally updating existing preview
 policies or recreating them; routine builds do not silently change access.
 
 `.github/workflows/web-deploy.yml` is the separate production workflow. It runs
-after successful push-based Web CI on `main`, or via a manual dispatch from
+only when `BURSAWATCH_PRODUCTION_ENABLED=true`, after successful push-based
+Web CI on `main`, or via a manual dispatch from
 `main` whose exact SHA already has successful push-based Web CI. It rejects
 foreign repositories, PR events, unsuccessful validation and stale commits.
 It checks the exact current `main` SHA again immediately before publishing.
@@ -138,7 +140,9 @@ Do not wait or poll for CI; inspect a completed run when its result is needed.
 
 1. Validate both packages locally with Node 24: `npm ci`, `npm run check`,
    `npm run typegen:workers`, `npm run check:workers`, and the browser suites
-   against local Workers. Run `bash scripts/test-all` for the repository suite.
+   against local Workers. In the `web-landing` shell, first export
+   `BURSAWATCH_CONFIG_URL=https://config.example.test` for these validation
+   commands. Run `bash scripts/test-all` for the repository suite.
 2. Review the source and workflow changes. Production cutover remains a
    separately approved action after review. Publishing a feature branch does
    not authorize merging or switching DNS.
@@ -149,9 +153,14 @@ Do not wait or poll for CI; inspect a completed run when its result is needed.
    `/Users/absolutepraya/Documents/Backups/bursawatch-web-cutover-yyyymmdd-hhmmss`.
    Do not overwrite or delete unrelated records. The initial observed CNAMEs
    point to Vercel; a Workers Custom Domain cannot be bound over a conflicting
-   CNAME. After approval, remove only those exact two CNAME records and attach
-   the matching Workers custom domains. Record the new Worker version IDs and
-   domain ownership. Preserve Vercel deployments unchanged.
+   CNAME. Keep `BURSAWATCH_PRODUCTION_ENABLED=false` while reviewing and merging
+   the source. After explicit cutover approval and successful current-main Web
+   CI, remove only those exact two CNAME records, set the activation variable
+   to `true`, and dispatch Web Deploy from `main` to attach the matching Worker
+   custom domains. Reserve a short DNS/TLS transition window and verify both
+   origins immediately; existing DNS caches can outlast the record change.
+   Record the new Worker version IDs and domain ownership. Preserve Vercel
+   deployments unchanged. Later validated main pushes deploy automatically.
 5. Verify the landing, active sign-in destination, disabled coming-soon demo
    buttons, HTTPS certificates, security headers, mobile layouts and assets.
    Verify `/workspace` shows its public opening shell, `/app` remains fixture
@@ -163,7 +172,8 @@ Do not wait or poll for CI; inspect a completed run when its result is needed.
    Cloudflare. A manual local upload does not prove unattended CI/CD works.
    Preserve paused Vercel projects until this acceptance is complete.
 
-If cutover fails, stop and inspect the failing version. Restore only the saved
+If cutover fails, set `BURSAWATCH_PRODUCTION_ENABLED=false` and inspect the
+failing version. Restore only the saved
 DNS records and the prior Vercel serving state under the approved rollback
 scope. Workers code rollback does not restore external state, but this web
 migration does not move Supabase data or VPS runtime state. Never weaken the

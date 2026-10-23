@@ -179,6 +179,8 @@ explicitly approved action after review.
    packaging checks. The separate `Web Deploy` workflow deploys only the exact
    current `main` SHA after successful push-based Web CI. It uses the approved
    Cloudflare deployment secret and two package-local Wrangler configurations.
+   Its `BURSAWATCH_PRODUCTION_ENABLED` activation variable remains false until
+   the separately approved first DNS cutover; merging alone cannot activate it.
    Same-repository web PRs deploy separate, email-gated preview Workers only
    after both packages validate. Preview builds use sample data and receive no
    production app settings; only the preview deployment steps receive the
