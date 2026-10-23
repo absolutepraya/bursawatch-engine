@@ -178,8 +178,13 @@ explicitly approved action after review.
    packages with synthetic settings, including local Chromium and Workers
    packaging checks. The separate `Web Deploy` workflow deploys only the exact
    current `main` SHA after successful push-based Web CI. It uses the approved
-   Cloudflare deployment secret and two package-local Wrangler configurations. Never
-   expose this token to pull requests. The former Vercel owner-sign workflow is
+   Cloudflare deployment secret and two package-local Wrangler configurations.
+   Same-repository web PRs deploy separate, email-gated preview Workers only
+   after both packages validate. Preview builds use sample data and receive no
+   production app settings; only the preview deployment steps receive the
+   Cloudflare token. Fork PRs validate without deployment credentials. Closing
+   a PR deletes its preview Workers before removing their Access gates.
+   The former Vercel owner-sign workflow is
    retired. The separately bootstrapped VPS-local release agent remains the
    sole automatic VPS deployment authority after the exact current `main` SHA
    passes `CI / validate`; its allowlist and success gate remain unchanged.

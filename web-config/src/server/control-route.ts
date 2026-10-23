@@ -29,9 +29,11 @@ const scheduleWrite = scheduleInput
 export async function handleControlRequest(
   request: Request,
   path: string[],
-  options: { origin: string; fetchImpl?: typeof fetch },
+  options: { origin: string; fetchImpl?: typeof fetch; preview?: boolean },
 ) {
   const json = (body: unknown, status = 200) => Response.json(body, { status, headers });
+  if (options.preview)
+    return json({ code: "preview", message: "This preview uses sample data only." }, 503);
   const authorization = request.headers.get("authorization") ?? "";
   // Only user-JWT-shaped credentials are forwarded. The upstream validates
   // signature, issuer, role and admin membership on every operation.

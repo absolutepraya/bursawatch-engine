@@ -20,9 +20,9 @@ they are not targets of the new workflow. Do not delete them during cutover.
 ## Configuration and runtime boundaries
 
 Each package owns `wrangler.jsonc` and `open-next.config.ts`. Production uses
-only its explicit custom domain. `workers_dev` and `preview_urls` are disabled,
-so builds do not create an alternate public demo or PR URL. A future PR-preview
-workflow needs its own isolation and access decision.
+only its explicit custom domain. Production `workers_dev` and `preview_urls`
+are disabled. PR previews use separately named Workers and generated
+`.wrangler-preview.json` files with no production routes or bindings.
 
 The dashboard targets Singapore with `placement.region=aws:ap-southeast-1`.
 This minimizes the change from the former Singapore function location, but is
@@ -50,14 +50,16 @@ with protected input or stdin:
 
 | Kind | Name | Use |
 | --- | --- | --- |
-| Actions secret | `BURSAWATCH_CLOUDFLARE_API_TOKEN` | Workers deployment and the two domains |
+| Actions secret | `BURSAWATCH_CLOUDFLARE_API_TOKEN` | Workers deployment, production domains and preview Access applications |
 | Actions secret | `BURSAWATCH_CONTROL_PLANE_API_URL` | Server-only runtime API origin |
 | Actions variable | `BURSAWATCH_SUPABASE_URL` | Public Supabase URL embedded during dashboard build |
 | Actions variable | `BURSAWATCH_SUPABASE_PUBLISHABLE_KEY` | Public browser publishable key embedded during dashboard build |
+| Actions variable | `BURSAWATCH_PREVIEW_EMAIL` | Exact email permitted through preview Access gates |
 
 The Cloudflare token needs the target account's Workers deployment permissions
 and Workers Routes access for `abhipraya.dev`. Prefer a token restricted to that
-account and zone. DNS record changes during first cutover require zone DNS edit
+account and zone. Protected PR previews also require account Access Apps and
+Policies Write. DNS record changes during first cutover require zone DNS edit
 access too. Verify the actual token policy and target before a mutation; being
 logged in does not prove the necessary permissions. Never copy an expiring
 Wrangler OAuth login into CI.
@@ -77,8 +79,43 @@ are carried over; never copy the backend environment wholesale.
 `.github/workflows/web.yml` validates each package with synthetic settings:
 formatting, lint, types, unit tests, a Node production build, Chromium smoke,
 Workers type generation, OpenNext packaging, Wrangler dry run and local Workers
-runtime smoke. No Cloudflare or production application credential is available
-to pull requests.
+runtime smoke. Validation jobs receive no Cloudflare or production application
+credentials. Same-repository PRs then build and smoke-test separate preview
+artifacts with blank Supabase and control-plane settings. Fork PRs only run
+validation and cannot access deployment secrets.
+
+Whenever either web package or its preview workflow changes, both packages
+produce previews. The deployment job requires both validation jobs to succeed
+and verifies that the same-repository PR remains open at the event's head SHA.
+It downloads the validated artifacts rather than rebuilding with credentials.
+Only its Access/deployment steps receive the Cloudflare token. It never reads
+the production application secrets or public Supabase variables.
+
+The Workers are `bursawatch-dash-pr-<number>` and
+`bursawatch-landing-pr-<number>`, under `absolutepraya.workers.dev`. The landing
+links to its matching dashboard. Both hostnames have email-only Cloudflare
+Access applications created and read back before upload; allowlist drift fails
+the deployment instead of widening access. The configured reviewer signs in
+through Cloudflare Access using `BURSAWATCH_PREVIEW_EMAIL`. Native version URLs
+remain disabled, and no production custom domain is attached. Anonymous HTML,
+asset and API requests must redirect to Access before links are published. A
+failed deployment or protection check removes the preview Workers and retains
+their gates.
+
+`BURSAWATCH_PREVIEW_MODE=1` redirects dashboard root and workspace URLs to the
+existing fixture-only `/app`. Every control API read/write returns 503 with
+`no-store` before any forwarding, including requests carrying a user JWT.
+The landing preview adds `noindex`. These settings do not change production
+workspace behavior.
+
+One bot comment contains both preview URLs and the source head SHA, updated on
+each successful run. `.github/workflows/web-preview-cleanup.yml` runs on every
+same-repository PR close or merge, even if web changes were later reverted. It
+uses the base branch helper and serializes with preview deployment. The helper
+deletes only the two fixed PR Worker names, then their owned Access applications;
+missing resources are harmless. A failed Worker deletion leaves Access intact.
+Changing the reviewer email requires intentionally updating existing preview
+policies or recreating them; routine builds do not silently change access.
 
 `.github/workflows/web-deploy.yml` is the separate production workflow. It runs
 after successful push-based Web CI on `main`, or via a manual dispatch from

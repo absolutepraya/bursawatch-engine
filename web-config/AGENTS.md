@@ -145,6 +145,12 @@ Node production output is `.next-build`, development uses `.next-dev`, and
 OpenNext reserves `.next` plus `.open-next` for Workers packaging.
 Never delete a build directory while its server is running.
 
+PR previews use `BURSAWATCH_PREVIEW_MODE=1` at build and runtime. They redirect
+`/` and `/workspace/*` to the fixture-only `/app` and reject all control API
+reads and writes before authentication or forwarding. Preview configuration
+must not inherit production bindings or Supabase settings. Cloudflare Access
+protects the complete preview hostname, including static assets.
+
 Do not commit `.env*` (except reviewed `.env.example`), `.vercel`, local preferences, databases, `node_modules`,
 build output or review screenshots. Publishing a feature branch is not
 deployment approval. Retain the feature branch for review.

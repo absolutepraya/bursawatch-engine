@@ -7,12 +7,20 @@ on:
       - "web-landing/**"
       - ".github/workflows/web.yml"
       - ".github/workflows/web-deploy.yml"
+      - ".github/workflows/web-preview-cleanup.yml"
+      - "scripts/web_preview.py"
+      - "scripts/web-preview-smoke.mjs"
+      - "tests/test_web_preview.py"
   pull_request:
     paths:
       - "web-config/**"
       - "web-landing/**"
       - ".github/workflows/web.yml"
       - ".github/workflows/web-deploy.yml"
+      - ".github/workflows/web-preview-cleanup.yml"
+      - "scripts/web_preview.py"
+      - "scripts/web-preview-smoke.mjs"
+      - "tests/test_web_preview.py"
 
 permissions:
   contents: read
@@ -24,7 +32,7 @@ concurrency:
 jobs:
   web:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -127,3 +135,150 @@ jobs:
             exit 1
           fi
           npm run test:browser
+
+      - name: Build isolated pull request preview
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BURSAWATCH_PREVIEW_MODE: "1"
+          NEXT_PUBLIC_SUPABASE_URL: ""
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ""
+          CONTROL_PLANE_API_URL: ""
+        run: |
+          python3 ../scripts/web_preview.py prepare "$PR_NUMBER"
+          export BURSAWATCH_CONFIG_URL="https://bursawatch-dash-pr-$PR_NUMBER.absolutepraya.workers.dev"
+          npm run build:workers -- --config .wrangler-preview.json
+          npx wrangler deploy --config .wrangler-preview.json --dry-run
+
+      - name: Verify isolated preview in local Workers runtime
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          WEB_PACKAGE: ${{ matrix.package }}
+        run: |
+          set -euo pipefail
+          case "$WEB_PACKAGE" in
+            web-config) preview_port=3100; ready_path=/app ;;
+            web-landing) preview_port=3200; ready_path=/ ;;
+            *) exit 1 ;;
+          esac
+          npm run preview:workers -- --config .wrangler-preview.json -- --ip 127.0.0.1 --port "$preview_port" --local &
+          preview_pid=$!
+          trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
+          preview_ready=0
+          for attempt in {1..30}; do
+            if curl --silent --fail "http://127.0.0.1:$preview_port$ready_path" -o /dev/null; then
+              preview_ready=1
+              break
+            fi
+            if ! kill -0 "$preview_pid" 2>/dev/null; then exit 1; fi
+            sleep 1
+          done
+          test "$preview_ready" = 1
+          node ../scripts/web-preview-smoke.mjs "$WEB_PACKAGE" "http://127.0.0.1:$preview_port"
+
+      - name: Save validated preview artifact
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-${{ matrix.package }}
+          path: |
+            ${{ matrix.package }}/.open-next/
+            ${{ matrix.package }}/.wrangler-preview.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+  deploy-preview:
+    name: Deploy protected PR previews
+    needs: web
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: bursawatch-web-preview-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            web-config/package-lock.json
+            web-landing/package-lock.json
+      - uses: actions/download-artifact@v4
+        with:
+          name: preview-web-config
+          path: web-config
+      - uses: actions/download-artifact@v4
+        with:
+          name: preview-web-landing
+          path: web-landing
+      - name: Install pinned deployment tools without credentials
+        run: |
+          npm ci --prefix web-config
+          npm ci --prefix web-landing
+      - name: Require open PR at the validated head
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+            --jq '{state: .state, sha: .head.sha, repo: .head.repo.full_name}' > "$RUNNER_TEMP/preview-pr.json"
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const pr = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/preview-pr.json`));
+          assert.equal(pr.state, 'open');
+          assert.equal(pr.sha, process.env.HEAD_SHA);
+          assert.equal(pr.repo, process.env.GITHUB_REPOSITORY);
+          NODE
+      - name: Create and verify email-only Access gates before deployment
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.BURSAWATCH_CLOUDFLARE_API_TOKEN }}
+          BURSAWATCH_PREVIEW_EMAIL: ${{ vars.BURSAWATCH_PREVIEW_EMAIL }}
+        run: python3 scripts/web_preview.py protect "$PR_NUMBER"
+      - name: Deploy the two validated preview artifacts
+        id: deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.BURSAWATCH_CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          for package in web-config web-landing; do
+            (cd "$package" && npm run deploy:workers -- --config .wrangler-preview.json -- --tag "${HEAD_SHA:0:12}" --message "$HEAD_SHA")
+          done
+      - name: Verify anonymous requests reach Access instead of the apps
+        id: verify
+        run: python3 scripts/web_preview.py verify "$PR_NUMBER"
+      - name: Remove Workers if deployment or protection verification failed
+        if: failure() && (steps.deploy.outcome == 'failure' || steps.verify.outcome == 'failure')
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.BURSAWATCH_CLOUDFLARE_API_TOKEN }}
+        run: python3 scripts/web_preview.py disable "$PR_NUMBER"
+      - name: Publish protected preview links
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({ ...context.repo, pull_number: context.issue.number });
+            if (pr.data.state !== 'open' || pr.data.head.sha !== process.env.HEAD_SHA) return;
+            const n = context.issue.number;
+            const marker = '<!-- bursawatch-cloudflare-preview -->';
+            const body = [marker, 'Cloudflare PR previews (sign in through Cloudflare Access):', '',
+              `- [Landing](https://bursawatch-landing-pr-${n}.absolutepraya.workers.dev)`,
+              `- [Dashboard](https://bursawatch-dash-pr-${n}.absolutepraya.workers.dev)`, '',
+              `Source: \`${process.env.HEAD_SHA}\`. Dashboard uses sample data only.`,
+              'Both previews update with this PR and are removed when it closes.'].join('\n');
+            const issue = { ...context.repo, issue_number: n };
+            const comments = await github.paginate(github.rest.issues.listComments, { ...issue, per_page: 100 });
+            const existing = comments.find(c => c.user?.type === 'Bot' && c.body?.includes(marker));
+            if (existing) await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment({ ...issue, body });
+            await core.summary.addRaw(body).write();

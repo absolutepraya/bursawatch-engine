@@ -12,6 +12,14 @@ const nextConfig: NextConfig = {
   turbopack: { root: packageRoot },
   outputFileTracingRoot: packageRoot,
   images: { unoptimized: true },
+  async redirects() {
+    return process.env.BURSAWATCH_PREVIEW_MODE === "1"
+      ? [
+          { source: "/", destination: "/app", permanent: false },
+          { source: "/workspace/:path*", destination: "/app", permanent: false },
+        ]
+      : [];
+  },
   async headers() {
     return [
       {

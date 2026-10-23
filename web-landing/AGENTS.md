@@ -26,3 +26,8 @@ check, never for deployment. Node production output is `.next-build`, developmen
 uses `.next-dev`, and OpenNext reserves `.next` plus `.open-next` for Workers packaging. Never
 delete an active server's output. Keep dependencies, local env,
 builds and browser screenshots untracked. Publishing is not deployment approval.
+
+Same-repository PR previews point only to their matching dashboard preview.
+They use `BURSAWATCH_PREVIEW_MODE=1`, add `noindex` response headers, and require
+Cloudflare Access before serving HTML or assets. Production destinations and
+domains must never be inherited by generated PR preview configurations.

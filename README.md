@@ -261,8 +261,11 @@ does not deploy or merge changes. Deployment and post-merge cleanup need
 separate explicit approval.
 
 The two web applications target separate Cloudflare Workers rooted at their
-package directories. Web CI validates them without production credentials or
-deployment authority; Web Deploy publishes only validated current-main source.
+package directories. Web CI validates them without production credentials,
+then deploys paired Cloudflare Access-protected previews for same-repository
+web PRs. The dashboard preview uses sample data. A PR comment links both
+previews, and closing the PR removes them. Fork PRs only validate.
+Web Deploy publishes production only from validated current-main source.
 The VPS release manifest treats web paths as metadata; it never
 copies web files to the VPS. A change to the release manifest itself remains
 subject to the release agent's manual review gate.
