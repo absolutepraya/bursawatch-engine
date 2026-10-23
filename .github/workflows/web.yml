@@ -117,7 +117,7 @@ jobs:
           export BURSAWATCH_TEST_URL="http://127.0.0.1:$web_smoke_port"
           setsid npm run preview:workers -- -- --ip 127.0.0.1 --port "$web_smoke_port" --local &
           web_smoke_pid=$!
-          trap 'kill -- "-$web_smoke_pid" 2>/dev/null || true' EXIT
+          trap 'kill -- "-$web_smoke_pid" 2>/dev/null || true; sleep 1; kill -KILL -- "-$web_smoke_pid" 2>/dev/null || true' EXIT
           web_smoke_ready=0
           for attempt in {1..30}; do
             if curl --fail --silent "$BURSAWATCH_TEST_URL/" > /dev/null; then
@@ -163,7 +163,7 @@ jobs:
           esac
           setsid npm run preview:workers -- --config .wrangler-preview.json -- --ip 127.0.0.1 --port "$preview_port" --inspector-port "$inspector_port" --local &
           preview_pid=$!
-          trap 'kill -- "-$preview_pid" 2>/dev/null || true' EXIT
+          trap 'kill -- "-$preview_pid" 2>/dev/null || true; sleep 1; kill -KILL -- "-$preview_pid" 2>/dev/null || true' EXIT
           preview_ready=0
           for attempt in {1..30}; do
             if curl --silent --fail "http://127.0.0.1:$preview_port$ready_path" -o /dev/null; then
