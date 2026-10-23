@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -120,24 +121,37 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def verify(number: str, opener=None) -> None:
+def verify(number: str, opener=None, *, attempts=13, retry_delay=5) -> None:
     opener = opener or urllib.request.build_opener(NoRedirect)
     for package, target in targets(number).items():
         paths = ["/", "/favicon.ico"]
         if package == "web-config":
             paths += ["/app", "/workspace", "/api/control/watchers"]
         for path in paths:
-            try:
-                response = opener.open("https://" + target["host"] + path, timeout=30)
-            except urllib.error.HTTPError as error:
-                response = error
-            with response:
-                location = urllib.parse.urlparse(response.headers.get("Location", ""))
-                if (response.code != 302 or location.scheme != "https"
-                        or not location.hostname
-                        or not location.hostname.endswith(".cloudflareaccess.com")
-                        or not location.path.startswith("/cdn-cgi/access/login/")):
-                    raise RuntimeError(f"Anonymous access was not gated: {target['host']}{path}")
+            for attempt in range(attempts):
+                try:
+                    request = urllib.request.Request(
+                        "https://" + target["host"] + path,
+                        headers={"User-Agent": "Bursawatch-Preview-CI/1.0"},
+                    )
+                    response = opener.open(request, timeout=30)
+                except urllib.error.HTTPError as error:
+                    response = error
+                with response:
+                    code = response.code
+                    location = urllib.parse.urlparse(response.headers.get("Location", ""))
+                    gated = (code == 302 and location.scheme == "https"
+                             and location.hostname
+                             and location.hostname.endswith(".cloudflareaccess.com")
+                             and location.path.startswith("/cdn-cgi/access/login/"))
+                if gated:
+                    break
+                # New workers.dev routes can return 404 during propagation.
+                # Never retry app content, app redirects, or an unrelated login.
+                if code != 404 or attempt == attempts - 1:
+                    raise RuntimeError(f"Anonymous access was not gated (HTTP {code}): {target['host']}{path}")
+                print(f"Waiting for preview route propagation: {target['host']}", flush=True)
+                time.sleep(retry_delay)
         print(f"Anonymous HTML, assets and API blocked: https://{target['host']}")
 
 

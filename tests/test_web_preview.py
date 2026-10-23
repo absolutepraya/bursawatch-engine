@@ -127,6 +127,8 @@ class AnonymousOpener:
         self.urls = []
 
     def open(self, url, timeout):
+        assert url.get_header("User-agent") == "Bursawatch-Preview-CI/1.0"
+        url = url.full_url
         self.urls.append(url)
         raise HTTPError(url, self.code, "test", {"Location": self.location}, io.BytesIO())
 
@@ -137,6 +139,26 @@ def test_verify_checks_pages_assets_and_api_without_following_login():
     assert len(opener.urls) == 7
     assert any(url.endswith("/api/control/watchers") for url in opener.urls)
     assert sum(url.endswith("/favicon.ico") for url in opener.urls) == 2
+
+
+def test_verify_retries_only_unavailable_routes_during_propagation():
+    class PropagatingOpener(AnonymousOpener):
+        def open(self, url, timeout):
+            if not self.urls:
+                self.urls.append(url.full_url)
+                raise HTTPError(url.full_url, 404, "not propagated", {}, io.BytesIO())
+            return super().open(url, timeout)
+
+    opener = PropagatingOpener()
+    preview.verify("95", opener, attempts=2, retry_delay=0)
+    assert len(opener.urls) == 8
+
+
+def test_verify_does_not_retry_a_public_app_response():
+    opener = AnonymousOpener(200, "")
+    with pytest.raises(RuntimeError, match="HTTP 200"):
+        preview.verify("95", opener, attempts=2, retry_delay=0)
+    assert len(opener.urls) == 1
 
 
 @pytest.mark.parametrize("code,location", [
