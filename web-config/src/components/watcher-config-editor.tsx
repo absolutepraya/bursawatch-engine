@@ -17,14 +17,7 @@ import { countConfigChanges, matchesConfigSearch } from "@/lib/config-changes";
 import { SaveButton } from "./save-button";
 import { matchSourceIdentity } from "@/lib/connected-sources";
 import { useToast } from "@/components/toast-provider";
-import {
-  discardWorkspaceDraft,
-  getDraftOwner,
-  readWorkspaceDraft,
-  retainWorkspaceDraft,
-  type WorkspaceDraftScope,
-  type WorkspaceDraftKey,
-} from "@/lib/workspace-drafts";
+import { useOperatorDraft, type DraftAttempt } from "@/hooks/use-operator-draft";
 import {
   configValue,
   configFieldErrors,
@@ -860,30 +853,38 @@ export function WatcherConfigEditor({
   sampleMode = false,
 }: {
   snapshot: ConfigSnapshot;
-  onSave: (config: Record<string, unknown>) => Promise<ConfigSnapshot>;
+  onSave: (config: Record<string, unknown>, attempt: DraftAttempt) => Promise<ConfigSnapshot>;
   onDirtyChange?: (dirty: boolean) => void;
   sampleMode?: boolean;
 }) {
-  const draftScope: WorkspaceDraftScope = sampleMode ? "sample" : "workspace";
-  const draftKey: WorkspaceDraftKey = `config:${snapshot.watcher_id}`;
-  const [draftOwner] = useState(getDraftOwner);
-  const [restored] = useState(() =>
-    readWorkspaceDraft<ConfigSnapshot, Record<string, unknown>>(draftKey, draftScope),
-  );
-  const restoredConflict = Boolean(restored && restored.base.revision !== snapshot.revision);
-  const [saved, setSaved] = useState(restored?.base ?? snapshot);
-  const [receivedSnapshot, setReceivedSnapshot] = useState(snapshot);
-  const [draft, setDraft] = useState(() => structuredClone(restored?.draft ?? snapshot.config));
+  const recovery = useOperatorDraft({
+    draftKey: `config:${snapshot.watcher_id}`,
+    snapshot,
+    scope: sampleMode ? "sample" : "workspace",
+    toDraft: (value) => value.config,
+    revision: (value) => value.revision,
+    messages: {
+      restoredConflict:
+        "The configuration changed while you were away. Your draft is preserved; reload to review the latest saved configuration.",
+      changed:
+        "The configuration changed elsewhere. Your draft is preserved; reload to review the latest saved configuration.",
+      reload: "Reload the saved configuration before trying to save again.",
+      unconfirmed:
+        "A previous save has not been confirmed here. Reload the saved configuration before trying again.",
+    },
+  });
+  const {
+    base: saved,
+    draft,
+    setDraft,
+    dirty,
+    failure,
+    setFailure,
+    blocked,
+    saving,
+    restoredNotice,
+  } = recovery;
   const [errors, setErrors] = useState<FieldErrors>({});
-  const [failure, setFailure] = useState(
-    restoredConflict
-      ? "The configuration changed while you were away. Your draft is preserved; reload to review the latest saved configuration."
-      : restored?.failure ||
-          (restored?.blocked ? "Reload the saved configuration before trying to save again." : ""),
-  );
-  const [blocked, setBlocked] = useState(restoredConflict || (restored?.blocked ?? false));
-  const [saving, setSaving] = useState(false);
-  const [restoredNotice, setRestoredNotice] = useState(Boolean(restored));
   const [savedNotice, setSavedNotice] = useState("");
   const prefix = useId();
   const form = useRef<HTMLFormElement>(null);
@@ -892,38 +893,7 @@ export function WatcherConfigEditor({
   const [profileStatus, setProfileStatus] = useState("all");
   const [editingProfile, setEditingProfile] = useState<number | null>(null);
   const changes = countConfigChanges(saved.config, draft);
-  const dirty = JSON.stringify(saved.config) !== JSON.stringify(draft);
-  if (snapshot !== receivedSnapshot) {
-    setReceivedSnapshot(snapshot);
-    if (!saving && !blocked) {
-      if (dirty && snapshot.revision !== saved.revision) {
-        setBlocked(true);
-        setFailure(
-          "The configuration changed elsewhere. Your draft is preserved; reload to review the latest saved configuration.",
-        );
-      } else if (!dirty) {
-        setSaved(snapshot);
-        setDraft(structuredClone(snapshot.config));
-      }
-    }
-  }
   useUnsavedWarning(dirty || saving);
-  useEffect(() => {
-    retainWorkspaceDraft(
-      draftKey,
-      {
-        base: saved,
-        draft,
-        blocked: blocked || saving,
-        failure: saving
-          ? "A previous save has not been confirmed here. Reload the saved configuration before trying again."
-          : failure,
-      },
-      dirty,
-      draftOwner,
-      draftScope,
-    );
-  }, [draftKey, draftOwner, draftScope, saved, draft, blocked, saving, failure, dirty]);
   useEffect(() => {
     onDirtyChange?.(dirty || saving);
     return () => onDirtyChange?.(false);
@@ -1000,38 +970,28 @@ export function WatcherConfigEditor({
       focusErrors();
       return;
     }
-    setSaving(true);
-    try {
-      const result = await onSave(structuredClone(draft));
-      discardWorkspaceDraft(draftKey, draftOwner, draftScope);
-      setSaved(result);
-      setDraft(structuredClone(result.config));
-      setRestoredNotice(false);
-      setSavedNotice(
-        sampleMode
-          ? `Sample configuration saved as revision ${result.revision}.`
-          : `Configuration saved as revision ${result.revision}.`,
-      );
-      toast(
-        sampleMode
-          ? "Sample configuration saved for this session."
-          : "Watcher configuration saved.",
-      );
-    } catch (error) {
-      const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
-      const fields = error && typeof error === "object" && "fields" in error ? error.fields : [];
-      setErrors(configFieldErrors(fields));
-      setBlocked(code === "unknown-outcome" || code === "conflict");
-      setFailure(
-        error instanceof Error
-          ? error.message
-          : "Could not save. Your draft is still here; try again shortly.",
-      );
-      focusErrors();
-    } finally {
-      setSaving(false);
-    }
+    await recovery.save((attempt) => onSave(structuredClone(draft), attempt), {
+      failureMessage: "Could not save. Your draft is still here; try again shortly.",
+      onSaved: (result) => {
+        setSavedNotice(
+          sampleMode
+            ? `Sample configuration saved as revision ${result.revision}.`
+            : `Configuration saved as revision ${result.revision}.`,
+        );
+        toast(
+          sampleMode
+            ? "Sample configuration saved for this session."
+            : "Watcher configuration saved.",
+        );
+      },
+      onError: (error) => {
+        const fields = error && typeof error === "object" && "fields" in error ? error.fields : [];
+        setErrors(configFieldErrors(fields));
+        focusErrors();
+      },
+    });
   }
+
   return (
     <Context.Provider value={{ draft, errors, update, touch, prefix }}>
       <form className="watcher-editor" ref={form} onSubmit={submit} noValidate aria-busy={saving}>
@@ -1268,9 +1228,7 @@ export function WatcherConfigEditor({
                   disabled={!dirty || saving || blocked}
                   onClick={() => {
                     if (window.confirm("Discard your unsaved changes?")) {
-                      discardWorkspaceDraft(draftKey, draftOwner, draftScope);
-                      setDraft(structuredClone(saved.config));
-                      setRestoredNotice(false);
+                      recovery.discard();
                       setErrors({});
                       setFailure("");
                     }

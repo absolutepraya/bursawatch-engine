@@ -894,7 +894,7 @@ function WatcherDetail({
             snapshot={snapshot}
             onDirtyChange={updateDirty}
             sampleMode={sampleMode}
-            onSave={async (config) => {
+            onSave={async (config, attempt) => {
               const result = await request<ControlConfigSnapshot>(
                 `watchers/${encodeURIComponent(watcherId)}/config`,
                 {
@@ -903,7 +903,7 @@ function WatcherDetail({
                   config,
                 },
               );
-              setSnapshot(result);
+              if (attempt.isCurrent()) setSnapshot(result);
               return result;
             }}
           />

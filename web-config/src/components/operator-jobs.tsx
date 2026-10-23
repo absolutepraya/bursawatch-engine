@@ -189,25 +189,22 @@ export function OperatorJobs({
                         </p>
                       ) : null}
                       <ScheduleEditor
+                        key={job.job_id}
                         job={controlJobs.get(job.job_id)!}
                         onDirtyChange={(dirty) => updateDirty(job.job_id, dirty)}
-                        onSave={async (input: ScheduleInput) =>
-                          replaceSchedule(
-                            job.job_id,
-                            await request<ControlJob>(
-                              `jobs/${encodeURIComponent(job.job_id)}/schedule`,
-                              { ...input, expectedRevision: job.schedule?.revision },
-                            ),
-                          )
-                        }
-                        onRefresh={async () =>
-                          replaceSchedule(
-                            job.job_id,
-                            await request<ControlJob>(
-                              `jobs/${encodeURIComponent(job.job_id)}/schedule`,
-                            ),
-                          )
-                        }
+                        onSave={async (input: ScheduleInput, attempt) => {
+                          const result = await request<ControlJob>(
+                            `jobs/${encodeURIComponent(job.job_id)}/schedule`,
+                            { ...input, expectedRevision: job.schedule?.revision },
+                          );
+                          return attempt.isCurrent() ? replaceSchedule(job.job_id, result) : result;
+                        }}
+                        onRefresh={async (attempt) => {
+                          const result = await request<ControlJob>(
+                            `jobs/${encodeURIComponent(job.job_id)}/schedule`,
+                          );
+                          return attempt.isCurrent() ? replaceSchedule(job.job_id, result) : result;
+                        }}
                       />
                     </>
                   ) : null}

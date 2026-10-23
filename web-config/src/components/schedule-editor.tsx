@@ -4,13 +4,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { RefreshCw, Save } from "lucide-react";
 import { useToast } from "@/components/toast-provider";
 import { useUnsavedWarning } from "@/components/watcher-config-editor";
-import {
-  discardWorkspaceDraft,
-  getDraftOwner,
-  readWorkspaceDraft,
-  retainWorkspaceDraft,
-  type WorkspaceDraftKey,
-} from "@/lib/workspace-drafts";
+import { useOperatorDraft, type DraftAttempt } from "@/hooks/use-operator-draft";
 import {
   configFieldErrors,
   isScheduleApplied,
@@ -22,6 +16,13 @@ import "@/app/watcher-editor.css";
 type ScheduleInput = { enabled: boolean; interval_seconds: number; timezone: "Asia/Jakarta" };
 type ScheduleDraft = { enabled: boolean; minutes: string };
 
+function scheduleDraft(job: ControlJob): ScheduleDraft {
+  return {
+    enabled: job.schedule?.enabled ?? false,
+    minutes: String((job.schedule?.interval_seconds ?? job.min_interval_seconds ?? 300) / 60),
+  };
+}
+
 export function ScheduleEditor({
   job,
   onSave,
@@ -29,95 +30,72 @@ export function ScheduleEditor({
   onDirtyChange,
 }: {
   job: ControlJob;
-  onSave: (input: ScheduleInput) => Promise<ControlJob>;
-  onRefresh: () => Promise<ControlJob>;
+  onSave: (input: ScheduleInput, attempt: DraftAttempt) => Promise<ControlJob>;
+  onRefresh: (attempt: DraftAttempt) => Promise<ControlJob>;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   const id = useId();
-  const draftKey: WorkspaceDraftKey = `schedule:${job.job_id}`;
-  const [draftOwner] = useState(getDraftOwner);
-  const [restored] = useState(() => readWorkspaceDraft<ControlJob, ScheduleDraft>(draftKey));
-  const restoredConflict = Boolean(
-    restored && restored.base.schedule?.revision !== job.schedule?.revision,
-  );
-  const [current, setCurrent] = useState(restoredConflict ? restored!.base : job);
-  const [receivedJob, setReceivedJob] = useState(job);
-  const [enabled, setEnabled] = useState(restored?.draft.enabled ?? job.schedule?.enabled ?? false);
-  const [minutes, setMinutes] = useState(
-    restored?.draft.minutes ??
-      String((job.schedule?.interval_seconds ?? job.min_interval_seconds ?? 300) / 60),
-  );
-  const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [pollRevision, setPollRevision] = useState<number | null>(
-    !restored && job.schedule && !isScheduleApplied(job) && job.reconciliation.status === "pending"
-      ? job.schedule.revision
-      : null,
-  );
-  const [failure, setFailure] = useState(
-    restoredConflict
-      ? "The schedule changed while you were away. Your draft is preserved; reload to review the latest saved schedule."
-      : restored?.failure ||
-          (restored?.blocked ? "Reload the saved schedule before trying to save again." : ""),
-  );
-  const [fieldError, setFieldError] = useState<string | null>(null);
-  const [blocked, setBlocked] = useState(restoredConflict || (restored?.blocked ?? false));
-  const [restoredNotice, setRestoredNotice] = useState(Boolean(restored));
-  const [timedOut, setTimedOut] = useState(false);
+  const [pollRevision, setPollRevision] = useState<number | null>(null);
   const [awaitingRevision, setAwaitingRevision] = useState<number | null>(null);
+  const recovery = useOperatorDraft<ControlJob, ScheduleDraft>({
+    draftKey: `schedule:${job.job_id}`,
+    snapshot: job,
+    toDraft: scheduleDraft,
+    revision: (value) => value.schedule?.revision,
+    suspendReceive: refreshing || pollRevision !== null,
+    protectRevision: awaitingRevision !== null,
+    refreshBaseWhenDirty: true,
+    messages: {
+      restoredConflict:
+        "The schedule changed while you were away. Your draft is preserved; reload to review the latest saved schedule.",
+      changed:
+        "The schedule changed elsewhere. Your draft is preserved; reload to review the current schedule.",
+      reload: "Reload the saved schedule before trying to save again.",
+      unconfirmed:
+        "A previous save has not been confirmed here. Reload the saved schedule before trying again.",
+    },
+  });
+  const {
+    base: current,
+    setBase: setCurrent,
+    draft,
+    setDraft,
+    dirty,
+    blocked,
+    setBlocked,
+    failure,
+    setFailure,
+    saving,
+    restoredNotice,
+  } = recovery;
+  const beginRead = recovery.beginRead;
+  const { enabled, minutes } = draft;
+  const setEnabled = (value: boolean) => setDraft((previous) => ({ ...previous, enabled: value }));
+  const setMinutes = (value: string) => setDraft((previous) => ({ ...previous, minutes: value }));
+  const [initialPollStarted, setInitialPollStarted] = useState(false);
+  if (!initialPollStarted) {
+    setInitialPollStarted(true);
+    if (
+      !recovery.restored &&
+      job.schedule &&
+      !isScheduleApplied(job) &&
+      job.reconciliation.status === "pending"
+    )
+      setPollRevision(job.schedule.revision);
+  }
+  const [fieldError, setFieldError] = useState<string | null>(null);
+  const [timedOut, setTimedOut] = useState(false);
   const failureRef = useRef<HTMLDivElement>(null);
   const refreshRef = useRef(onRefresh);
   const toast = useToast();
   const toastRef = useRef(toast);
-  const dirty =
-    enabled !== (current.schedule?.enabled ?? false) ||
-    minutes !==
-      String((current.schedule?.interval_seconds ?? current.min_interval_seconds ?? 300) / 60);
   useUnsavedWarning(dirty || saving);
-  useEffect(() => {
-    retainWorkspaceDraft(
-      draftKey,
-      {
-        base: current,
-        draft: { enabled, minutes },
-        blocked: blocked || saving,
-        failure: saving
-          ? "A previous save has not been confirmed here. Reload the saved schedule before trying again."
-          : failure,
-      },
-      dirty,
-      draftOwner,
-    );
-  }, [draftKey, draftOwner, current, enabled, minutes, blocked, saving, failure, dirty]);
   useEffect(() => {
     onDirtyChange?.(dirty || saving);
     return () => onDirtyChange?.(false);
   }, [dirty, saving, onDirtyChange]);
 
-  // A refresh may update the parent's job independently. Keep edits intact and
-  // never adopt a newer revision beneath an unsaved draft.
-  if (job !== receivedJob) {
-    setReceivedJob(job);
-    if (!saving && !refreshing && pollRevision === null && !blocked) {
-      if (
-        job.schedule?.revision !== current.schedule?.revision &&
-        (dirty || awaitingRevision !== null)
-      ) {
-        setBlocked(true);
-        setFailure(
-          "The schedule changed elsewhere. Your draft is preserved; reload to review the current schedule.",
-        );
-      } else {
-        setCurrent(job);
-        if (!dirty) {
-          setEnabled(job.schedule?.enabled ?? false);
-          setMinutes(
-            String((job.schedule?.interval_seconds ?? job.min_interval_seconds ?? 300) / 60),
-          );
-        }
-      }
-    }
-  }
   useEffect(() => {
     refreshRef.current = onRefresh;
     toastRef.current = toast;
@@ -125,6 +103,7 @@ export function ScheduleEditor({
 
   useEffect(() => {
     if (pollRevision === null) return;
+    const attempt = beginRead();
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let attempts = 0;
@@ -141,8 +120,10 @@ export function ScheduleEditor({
       if (cancelled || checking || document.visibilityState === "hidden") return;
       checking = true;
       try {
-        const next = await refreshRef.current();
-        if (cancelled) return;
+        const next = await refreshRef.current({
+          isCurrent: () => !cancelled && attempt.isCurrent(),
+        });
+        if (cancelled || !attempt.isCurrent()) return;
         if (next.schedule?.revision !== pollRevision) {
           setFailure(
             "The schedule changed while you were waiting. Reload to review the latest settings.",
@@ -167,7 +148,7 @@ export function ScheduleEditor({
           return;
         }
       } catch (error) {
-        if (cancelled) return;
+        if (cancelled || !attempt.isCurrent()) return;
         setFailure(
           error instanceof Error
             ? error.message
@@ -193,7 +174,7 @@ export function ScheduleEditor({
       if (timer) clearTimeout(timer);
       document.removeEventListener("visibilitychange", visibilityChanged);
     };
-  }, [pollRevision]);
+  }, [pollRevision, beginRead, setCurrent, setBlocked, setFailure]);
 
   async function refresh(reload = false) {
     if (refreshing || saving || pollRevision !== null) return;
@@ -203,10 +184,12 @@ export function ScheduleEditor({
       !window.confirm("Discard your draft and load the latest saved schedule?")
     )
       return;
+    const attempt = recovery.beginRead();
     setRefreshing(true);
     setFailure("");
     try {
-      const next = await onRefresh();
+      const next = await onRefresh(attempt);
+      if (!attempt.isCurrent()) return;
       if (
         !reload &&
         (dirty || awaitingRevision !== null) &&
@@ -225,9 +208,7 @@ export function ScheduleEditor({
           );
         }
         if (reload) {
-          discardWorkspaceDraft(draftKey, draftOwner);
-          setRestoredNotice(false);
-          setBlocked(false);
+          recovery.reload(next);
           setAwaitingRevision(null);
           setFieldError(null);
           setTimedOut(false);
@@ -254,12 +235,13 @@ export function ScheduleEditor({
         }
       }
     } catch (error) {
+      if (!attempt.isCurrent()) return;
       setFailure(
         error instanceof Error ? error.message : "Could not check the schedule. Try again shortly.",
       );
       requestAnimationFrame(() => failureRef.current?.focus());
     } finally {
-      setRefreshing(false);
+      if (attempt.isCurrent()) setRefreshing(false);
     }
   }
 
@@ -286,46 +268,37 @@ export function ScheduleEditor({
       document.getElementById(`${id}-minutes`)?.focus();
       return;
     }
-    setSaving(true);
     setPollRevision(null);
     setTimedOut(false);
-    try {
-      const next = await onSave({
-        enabled,
-        interval_seconds: Number(minutes) * 60,
-        timezone: "Asia/Jakarta",
-      });
-      discardWorkspaceDraft(draftKey, draftOwner);
-      setRestoredNotice(false);
-      setCurrent(next);
-      setEnabled(next.schedule?.enabled ?? enabled);
-      setMinutes(String((next.schedule?.interval_seconds ?? Number(minutes) * 60) / 60));
-      if (isScheduleApplied(next)) toast("Schedule applied.");
-      else {
-        toast("Schedule saved. Waiting for it to take effect.");
-        setAwaitingRevision(next.schedule?.revision ?? null);
-        if (next.reconciliation.status === "pending")
-          setPollRevision(next.schedule?.revision ?? null);
-      }
-    } catch (error) {
-      const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
-      const fields = configFieldErrors(
-        error && typeof error === "object" && "fields" in error ? error.fields : [],
-      );
-      setFieldError(fields.interval_seconds ?? null);
-      setBlocked(code === "unknown-outcome" || code === "conflict");
-      setFailure(
-        error instanceof Error
-          ? error.message
-          : "Could not save the schedule. Your changes are still here.",
-      );
-      requestAnimationFrame(() => {
-        if (fields.interval_seconds) document.getElementById(`${id}-minutes`)?.focus();
-        else failureRef.current?.focus();
-      });
-    } finally {
-      setSaving(false);
-    }
+    await recovery.save(
+      (attempt) =>
+        onSave(
+          { enabled, interval_seconds: Number(minutes) * 60, timezone: "Asia/Jakarta" },
+          attempt,
+        ),
+      {
+        failureMessage: "Could not save the schedule. Your changes are still here.",
+        onSaved: (next) => {
+          if (isScheduleApplied(next)) toast("Schedule applied.");
+          else {
+            toast("Schedule saved. Waiting for it to take effect.");
+            setAwaitingRevision(next.schedule?.revision ?? null);
+            if (next.reconciliation.status === "pending")
+              setPollRevision(next.schedule?.revision ?? null);
+          }
+        },
+        onError: (error) => {
+          const fields = configFieldErrors(
+            error && typeof error === "object" && "fields" in error ? error.fields : [],
+          );
+          setFieldError(fields.interval_seconds ?? null);
+          requestAnimationFrame(() => {
+            if (fields.interval_seconds) document.getElementById(`${id}-minutes`)?.focus();
+            else failureRef.current?.focus();
+          });
+        },
+      },
+    );
   }
 
   const effective = isScheduleApplied(current);
@@ -488,17 +461,8 @@ export function ScheduleEditor({
                 disabled={!dirty || saving || refreshing || blocked || pollRevision !== null}
                 onClick={() => {
                   if (!window.confirm("Discard your unsaved schedule changes?")) return;
-                  discardWorkspaceDraft(draftKey, draftOwner);
-                  setEnabled(current.schedule?.enabled ?? false);
-                  setMinutes(
-                    String(
-                      (current.schedule?.interval_seconds ?? current.min_interval_seconds ?? 300) /
-                        60,
-                    ),
-                  );
-                  setFailure("");
+                  recovery.discard();
                   setFieldError(null);
-                  setRestoredNotice(false);
                 }}
               >
                 Discard changes

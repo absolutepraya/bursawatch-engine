@@ -12,6 +12,12 @@ export type WorkspaceDraft<Base, Draft> = {
 };
 
 let draftOwner: string | null = null;
+let draftEpoch = 0;
+
+/** Invalidates requests across sign-out, including a later sign-in as the same user. */
+export function getDraftEpoch(): number {
+  return draftEpoch;
+}
 const drafts = new Map<WorkspaceDraftKey, WorkspaceDraft<unknown, unknown>>();
 const sampleDrafts = new Map<WorkspaceDraftKey, WorkspaceDraft<unknown, unknown>>();
 
@@ -24,6 +30,7 @@ export function getDraftOwner(): string | null {
 }
 
 export function clearWorkspaceDrafts(): void {
+  draftEpoch += 1;
   drafts.clear();
   sampleDrafts.clear();
 }
