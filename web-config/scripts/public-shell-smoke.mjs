@@ -9,12 +9,19 @@ assert.ok(!target.username && !target.password);
 for (const path of ["", "/overview", "/sources", "/workflows", "/jobs", "/history", "/settings"]) {
   const response = await fetch(`${target.origin}/workspace${path}`);
   assert.equal(response.status, 200, `Public shell ${path || "/"} must be available.`);
+  assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+  assert.equal(response.headers.get("x-frame-options"), "DENY");
+  assert.match(response.headers.get("x-robots-tag") ?? "", /noindex/);
   assert.match(response.headers.get("cache-control") ?? "", /s-maxage=/);
   const html = await response.text();
   assert.match(html, /Bursawatch/);
   assert.match(html, /Opening your workspace/);
   assert.doesNotMatch(html, /sb_secret_|service_role|\"access_token\"|\"refresh_token\"/);
 }
+const iconResponse = await fetch(`${target.origin}/icon.svg`);
+assert.equal(iconResponse.status, 200);
+assert.equal(iconResponse.headers.get("x-content-type-options"), "nosniff");
+assert.match(iconResponse.headers.get("x-robots-tag") ?? "", /noindex/);
 const legacySchedules = await fetch(`${target.origin}/workspace/schedules`, {
   redirect: "manual",
 });

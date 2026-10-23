@@ -3,10 +3,11 @@
 Independent Next.js landing page in casual Indonesian. Its Discord frames are
 static recreations of real Bursawatch deliveries, built from
 `src/lib/landing-content.ts` and the images in `public/landing/`; the page does
-not request prices, run jobs or deliver messages. The main call to action is
-the demo Discord invite, `DEMO_DISCORD_URL` in that content module. The
-header, config section and footer also link to the sample workspace (`/app`)
-and the authenticated workspace (`/workspace`) on `BURSAWATCH_CONFIG_URL`.
+not request prices, run jobs or deliver messages. The Discord demo buttons
+are muted, disabled and labelled "Demo coming soon". Workspace demo buttons
+are omitted for now.
+The header, config section and footer link to the authenticated workspace
+(`/workspace`) on `BURSAWATCH_CONFIG_URL`.
 The workspace and all configuration live in [`../web-config/`](../web-config/README.md)
 in this repository. The backend packages remain separate deployment units;
 this app does not require their services to run locally.
@@ -37,8 +38,12 @@ That example is a validation placeholder, not a deployment destination.
 Production builds fail unless `BURSAWATCH_CONFIG_URL` names an HTTPS workspace
 origin (not localhost). Set the real origin before building: the static landing
 embeds its navigation URLs at build time. Rebuild to change destinations.
-`npm start` serves the production build on port 3200. The independent Vercel
-project is `bursawatch-web-landing`; Git auto-deployment stays disconnected.
+`npm start` serves the Node production build on port 3200. The Cloudflare
+Worker target is `bursawatch-landing`, configured in `wrangler.jsonc`.
+`npm run check:workers` builds and dry-runs the Workers package;
+`npm run preview:workers` serves that package locally. Development output is
+`.next-dev`, separate from Node production `.next-build` and OpenNext `.next`
+plus `.open-next`. Images use their original assets without a hosted optimizer.
 See [DEPLOYMENT.md](../DEPLOYMENT.md) for environment and release checks.
 
 ## Source and brand provenance
@@ -46,7 +51,7 @@ See [DEPLOYMENT.md](../DEPLOYMENT.md) for environment and release checks.
 For browser checks, install Chromium with `npx playwright install chromium`,
 start the local server, then run `npm run test:browser`. When checking a
 production build, pass the same `BURSAWATCH_CONFIG_URL` used at build time.
-The smoke test checks the skip link, demo and workspace URLs, the labelled
+The smoke test checks the skip link, disabled demo buttons, workspace URLs, the labelled
 Discord recreations, image loading, three viewport sizes, 200% text and 44px
 targets. It never follows links to an external deployment.
 

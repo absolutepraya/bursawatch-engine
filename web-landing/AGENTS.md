@@ -22,6 +22,7 @@ No credentials, private watcher settings or runtime state belong here.
 
 Run `npm ci` and `npm run check` with `BURSAWATCH_CONFIG_URL` set to the target
 workspace origin. CI may use `https://config.example.test` for a build-only
-check, never for deployment. Build output is `.next-build`, distinct from dev
-`.next`; never delete an active server's output. Keep dependencies, local env,
+check, never for deployment. Node production output is `.next-build`, development
+uses `.next-dev`, and OpenNext reserves `.next` plus `.open-next` for Workers packaging. Never
+delete an active server's output. Keep dependencies, local env,
 builds and browser screenshots untracked. Publishing is not deployment approval.

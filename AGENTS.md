@@ -174,29 +174,26 @@ explicitly approved action after review.
    then compare checksums.
    A scheduler wrapper under `~/.hermes/scripts/` must retain mode `0755` and
    pass a direct executability check before a cron is retargeted to it.
-6. GitHub Actions has no VPS credential or access. The narrowly scoped
-   `.github/workflows/web-owner-sign.yml` exception may use the repository
-   owner's GitHub token to create an owner-authored web sign commit on `main`
-   after successful Web CI for web content that lacks a current signature.
-   The first run initializes both package markers and can trigger both Vercel
-   projects; later runs update stale markers. Vercel's Git integration, not
-   that Action, performs the web deployment. After the exact
-   current `main` SHA passes `CI / validate`, the separately bootstrapped
-   VPS-local release agent may deploy only the allowlisted units in
-   `platform-bursawatch-release/release-manifest.json`. It remains the sole
-   automatic VPS deployment authority. See `DEPLOYMENT.md` for the web-only
-   secret, trigger, review and verification contract.
+6. GitHub Actions has no VPS credential or access. Web CI validates both web
+   packages with synthetic settings, including local Chromium and Workers
+   packaging checks. The separate `Web Deploy` workflow deploys only the exact
+   current `main` SHA after successful push-based Web CI. It uses the approved
+   Cloudflare deployment secret and two package-local Wrangler configurations. Never
+   expose this token to pull requests. The former Vercel owner-sign workflow is
+   retired. The separately bootstrapped VPS-local release agent remains the
+   sole automatic VPS deployment authority after the exact current `main` SHA
+   passes `CI / validate`; its allowlist and success gate remain unchanged.
 
-`web-config/` and `web-landing/` are independent Node 24 packages. Their
-source paths are release-manifest metadata, not VPS deployment units. Web CI
-validates both packages; the `personalpraya` Vercel projects deploy them
-separately from their package roots. Follow `DEPLOYMENT.md` for the web release
-sequence. Do not move web environment values into the backend service, copy
-backend credentials into either app, or infer that a successful web build or
-sign commit proves live delivery.
+`web-config/` and `web-landing/` are independent Node 24 packages targeting
+Cloudflare Workers through OpenNext. Their source paths are release-manifest
+metadata, not VPS deployment units. Each package owns its Worker and custom
+domain. Follow `DEPLOYMENT.md` for bootstrap, CI/CD and the separately reviewed
+production cutover. Do not move web environment values into the backend service,
+copy backend credentials into either app, or infer that a successful build proves
+live delivery. Keep VPS backend services and Supabase in their existing homes.
 
-`.agents/skills/profile-emoji/deploy.sh` owns its skill deployment. The generic deploy helper supports cron and library
-packages only.
+`.agents/skills/profile-emoji/deploy.sh` owns its skill deployment. The generic
+deploy helper supports cron and library packages only.
 
 `service-bursawatch-control/deploy.sh` owns repeat releases of the already
 bootstrapped Bursawatch control-plane API. Before deployment approval, use its
@@ -301,8 +298,8 @@ maintenance.
 The Bursawatch web applications live in `web-config/` and `web-landing/` and
 integrate with `service-bursawatch-control` through its versioned API
 contract. The backend release agent does not deploy either web package;
-their Vercel deployment remains a separate web-owned operation. Preserve
-the source migration provenance in `web-config/docs/MIGRATION.md`.
+their Cloudflare Workers deployment remains a separate web-owned operation.
+Preserve the source migration provenance in `web-config/docs/MIGRATION.md`.
 `hermes-agent-starter/` is an ignored independent repository.
 
 Use English for this interactive engineering work unless the user asks for

@@ -6,11 +6,13 @@ on:
       - "web-config/**"
       - "web-landing/**"
       - ".github/workflows/web.yml"
+      - ".github/workflows/web-deploy.yml"
   pull_request:
     paths:
       - "web-config/**"
       - "web-landing/**"
       - ".github/workflows/web.yml"
+      - ".github/workflows/web-deploy.yml"
 
 permissions:
   contents: read
@@ -86,6 +88,42 @@ jobs:
           done
           if [ "$web_smoke_ready" != 1 ]; then
             echo "Web test server did not become ready within 30 seconds."
+            exit 1
+          fi
+          npm run test:browser
+
+      - name: Generate Workers types and validate deployment packaging
+        run: npm run typegen:workers && npm run check:workers
+
+      - name: Verify application in local Workers runtime
+        shell: bash
+        env:
+          WEB_PACKAGE: ${{ matrix.package }}
+        run: |
+          set -euo pipefail
+          case "$WEB_PACKAGE" in
+            web-config) web_smoke_port=3100 ;;
+            web-landing) web_smoke_port=3200 ;;
+            *) exit 1 ;;
+          esac
+          export BURSAWATCH_TEST_URL="http://127.0.0.1:$web_smoke_port"
+          npm run preview:workers -- -- --ip 127.0.0.1 --port "$web_smoke_port" --local &
+          web_smoke_pid=$!
+          trap 'kill "$web_smoke_pid" 2>/dev/null || true' EXIT
+          web_smoke_ready=0
+          for attempt in {1..30}; do
+            if curl --fail --silent "$BURSAWATCH_TEST_URL/" > /dev/null; then
+              web_smoke_ready=1
+              break
+            fi
+            if ! kill -0 "$web_smoke_pid" 2>/dev/null; then
+              echo "Workers test server exited before becoming ready."
+              exit 1
+            fi
+            sleep 1
+          done
+          if [[ "$web_smoke_ready" != 1 ]]; then
+            echo "Workers test server did not become ready within 30 seconds."
             exit 1
           fi
           npm run test:browser

@@ -28,7 +28,13 @@ htmlcov/
 .wt/allocations.json
 **/node_modules/
 **/.next/
+**/.next-dev/
 **/.next-build/
+**/.open-next/
+**/.wrangler/
+**/.dev.vars
+**/.dev.vars.*
+**/cloudflare-env.d.ts
 **/.vercel/
 **/playwright-report/
 **/test-results/
