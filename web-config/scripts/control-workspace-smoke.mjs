@@ -238,6 +238,20 @@ async function scenario(role) {
   const writes = [];
   const attempts = [];
   const failures = { config: [], schedule: [] };
+  const heldSaves = { config: null, schedule: null };
+  function holdNextSave(resource) {
+    let release;
+    let markStarted;
+    const promise = new Promise((resolve) => { release = resolve; });
+    const started = new Promise((resolve) => { markStarted = resolve; });
+    heldSaves[resource] = async () => { markStarted(); await promise; };
+    return { started, release };
+  }
+  async function waitForHeldSave(resource) {
+    const held = heldSaves[resource];
+    heldSaves[resource] = null;
+    if (held) await held();
+  }
   const errors = [];
   const unexpectedRequests = [];
   const publicationRequests = [];
@@ -499,6 +513,7 @@ async function scenario(role) {
             attempts.push({ resource: "config", payload });
             const failure = failures.config.shift();
             if (failure) return json(failure.body, failure.status);
+            await waitForHeldSave("config");
             writes.push({ resource: "config", payload });
             state.snapshot = {
               ...state.snapshot,
@@ -539,6 +554,7 @@ async function scenario(role) {
             attempts.push({ resource: "schedule", payload });
             const failure = failures.schedule.shift();
             if (failure) return json(failure.body, failure.status);
+            await waitForHeldSave("schedule");
             writes.push({ resource: "schedule", payload });
             state.job = {
               ...state.job,
@@ -1492,6 +1508,55 @@ async function scenario(role) {
       await navigate("Workflows", "Workflows");
       await page.getByRole("button", { name: /^Open watcher details: Market news/ }).click();
       await page.getByRole("heading", { name: "Market news", exact: true }).waitFor();
+    }
+    if (role === "admin") {
+      // Hold the original write across Back/Forward. Its eventual acceptance
+      // must not clear the later visit's unconfirmed draft or publish a toast.
+      await navigate("Workflows", "Workflows");
+      await page.getByRole("button", { name: /^Open watcher details: Market news/ }).click();
+      const instructions = page.getByLabel("Additional instructions", { exact: true });
+      for (const resource of ["config", "schedule"]) {
+        if (resource === "schedule") await navigate("Jobs", "Jobs");
+        const editor = resource === "config" ? page.locator(".watcher-editor") : page.locator("#job-fixture-market-news .watcher-schedule");
+        const field = resource === "config" ? instructions : editor.getByLabel("Check every (minutes)", { exact: true });
+        const value = resource === "config" ? "Draft retained across an obsolete save." : "47";
+        const success = resource === "config" ? "Watcher configuration saved." : "Schedule saved. Waiting for it to take effect.";
+        const dismiss = page.getByRole("button", { name: "Dismiss notification" });
+        if (await dismiss.count()) await dismiss.click();
+        await field.fill(value);
+        const held = holdNextSave(resource);
+        await editor.getByRole("button", { name: resource === "config" ? "Save configuration" : "Save schedule", exact: true }).click();
+        await held.started;
+        await page.goBack();
+        await page.getByRole("heading", { name: resource === "config" ? "Workflows" : "Market news", exact: true }).waitFor();
+        await page.goForward();
+        await field.waitFor();
+        assert.equal(await field.inputValue(), value);
+        assert.equal(await field.isDisabled(), true);
+        const path = resource === "config" ? `watchers/${watcherId}/config` : `jobs/${jobId}/schedule`;
+        const completed = page.waitForResponse((response) => response.url().endsWith(path) && response.request().method() === "PUT");
+        held.release();
+        await (await completed).finished();
+        await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        assert.equal(await page.getByText(success, { exact: true }).count(), 0);
+        await page.goBack();
+        await page.getByRole("heading", { name: resource === "config" ? "Workflows" : "Market news", exact: true }).waitFor();
+        await page.goForward();
+        await field.waitFor();
+        assert.equal(await field.inputValue(), value);
+        assert.equal(await field.isDisabled(), true, "Late completion must leave the retained draft locked.");
+        await capture(`obsolete-${resource}-375`);
+        if (resource === "config") {
+          await confirm(/Discard unsaved changes and reload/, true, () => page.getByRole("button", { name: "Reload configuration", exact: true }).click());
+        } else {
+          await confirm(/Discard your draft and load/, true, () => editor.getByRole("button", { name: "Reload schedule", exact: true }).click());
+        }
+        await field.waitFor();
+        await page.waitForFunction((selector) => {
+          const field = document.querySelector(selector);
+          return field && !field.matches(":disabled");
+        }, resource === "config" ? ".watcher-editor textarea" : '#job-fixture-market-news input[type="number"]');
+      }
     }
     const signOut = () =>
       page

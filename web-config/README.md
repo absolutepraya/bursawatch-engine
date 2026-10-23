@@ -43,6 +43,10 @@ backend is required by this proxy design.
 The former `/workspace/schedules` URL remains a compatibility entry point to
 workflow configuration. It is no longer a primary navigation destination.
 
+Watcher and schedule drafts share a memory-only recovery policy. Leaving during
+a save retains a locked draft until an explicit reload confirms the saved
+settings; an obsolete response cannot clear the draft or announce success.
+
 Uncertain saves are never silently retried. Revision preflight is best effort,
 not an atomic concurrency lock. Coordinate one editor per record until the API
 supports revision preconditions. A completed scan is not proof of delivery.

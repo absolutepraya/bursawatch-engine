@@ -170,3 +170,12 @@ snapshot and change only selected fields; unknown fields are preserved for
 service validation rather than silently removed. Unsupported config versions
 cannot be edited. Save conflicts and uncertain outcomes retain the draft and
 require reloading current settings before another write.
+
+Watcher and schedule editors share the memory-only recovery policy in
+`src/hooks/use-operator-draft.ts`. It retains the base revision with the draft,
+locks conflicting or unconfirmed writes, and guards async completions by editor
+visit and signed-in session. Leaving during a save keeps an unconfirmed draft;
+a late response cannot clear it, update the parent snapshot, or announce success
+in a later visit. An explicit reload reads the saved settings before unlocking.
+Schedule application polling remains separate from configuration acceptance.
+Source Catalog retains its own recovery flow.

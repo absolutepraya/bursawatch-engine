@@ -232,7 +232,8 @@ Each package installs and builds independently with Node 24. The workspace
 uses a signed-in user's Supabase token to call the control API through a
 same-origin proxy. The backend owns authorization, persistence, automation and
 delivery. The public `/app` concept uses local sample data; `/workspace` reads
-the control API. See the [web deployment guide](DEPLOYMENT.md) and
+the control API. Watcher and schedule editors share memory-only draft recovery,
+including explicit reload after an unconfirmed save. See the [web deployment guide](DEPLOYMENT.md) and
 [source migration record](web-config/docs/MIGRATION.md). The web source was
 previously developed in `dafandikri/bursawatch-web`; this import preserves
 that provenance and does not rewrite its history.
