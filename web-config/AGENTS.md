@@ -100,7 +100,8 @@ simulated. Never forward arbitrary event attributes or raw provider errors.
 The allowlisted `/workspace` URLs pre-render only the public opening shell and
 validated public Supabase settings. Protected records never enter that HTML or
 the CDN cache; `/api/control` remains authenticated and `no-store`. Public Auth
-setting changes require a fresh build. Deploy web functions in Singapore (`sin1`).
+setting changes require a fresh build. Target Singapore with Workers placement
+(`aws:ap-southeast-1`); this is a placement preference, not a region guarantee.
 Keep sample-only CSS under `/app`; shared toast styling lives with ToastProvider.
 
 X sources added in the editor start paused. Saving does not establish that a
@@ -140,8 +141,15 @@ Activity endpoint identities use the bounded, case-sensitive Source Catalog
 validator, separate from component/job IDs. Jobs resolves a single supported
 watcher resource before linking to its editor; unresolved or ambiguous
 relationships stay readable without an editor link.
-Build output is `.next-build`, separate from the development `.next` tree.
+Node production output is `.next-build`, development uses `.next-dev`, and
+OpenNext reserves `.next` plus `.open-next` for Workers packaging.
 Never delete a build directory while its server is running.
+
+PR previews use `BURSAWATCH_PREVIEW_MODE=1` at build and runtime. They redirect
+`/` and `/workspace/*` to the fixture-only `/app` and reject all control API
+reads and writes before authentication or forwarding. Preview configuration
+must not inherit production bindings or Supabase settings. Cloudflare Access
+protects the complete preview hostname, including static assets.
 
 Do not commit `.env*` (except reviewed `.env.example`), `.vercel`, local preferences, databases, `node_modules`,
 build output or review screenshots. Publishing a feature branch is not

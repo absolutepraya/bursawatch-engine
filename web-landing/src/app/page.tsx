@@ -1,6 +1,6 @@
 import Image from "next/image";
 import type { CSSProperties } from "react";
-import { ArrowDown, ArrowRight, Check } from "lucide-react";
+import { ArrowDown, Check } from "lucide-react";
 import { Brand, BrandMark } from "@/components/brand";
 import {
   BotMessage,
@@ -13,23 +13,15 @@ import { ConfigDemo } from "@/components/config-demo";
 import { MorningBrief } from "@/components/morning-brief";
 import { HeroFlow } from "@/components/hero-flow";
 import { PainCards } from "@/components/pain-cards";
-import {
-  CHANNELS,
-  DEMO_DISCORD_URL,
-  ENRG_PLAN,
-  PROOF,
-  FORUM_POSTS,
-  SOURCES,
-  src,
-} from "@/lib/landing-content";
+import { CHANNELS, ENRG_PLAN, PROOF, FORUM_POSTS, SOURCES, src } from "@/lib/landing-content";
 import { MotionInit } from "@/components/motion-init";
 import { getWorkspaceLinks } from "@/lib/workspace-links";
 
-function DemoButton({ label = "Coba Discord demo" }: { label?: string }) {
+function DemoButton() {
   return (
-    <a className="button copper" href={DEMO_DISCORD_URL} target="_blank" rel="noreferrer">
-      {label} <ArrowRight size={17} aria-hidden="true" />
-    </a>
+    <button type="button" className="button demo-unavailable" disabled>
+      Demo coming soon
+    </button>
   );
 }
 
@@ -49,9 +41,6 @@ export default function LandingPage() {
           <a href="#atur">Atur sendiri</a>
         </nav>
         <div className="lp-header-actions">
-          <a className="button secondary lp-header-demo" href={workspace.demo}>
-            Workspace demo
-          </a>
           <a className="button secondary" href={workspace.workspace}>
             Masuk workspace
           </a>
@@ -269,9 +258,6 @@ export default function LandingPage() {
           <ConfigDemo />
           <p className="lp-config-more">••• dan konfigurasi lainnya</p>
           <div className="lp-config-actions" data-reveal>
-            <a className="button secondary" href={workspace.demo}>
-              Coba workspace demo <ArrowRight size={17} aria-hidden="true" />
-            </a>
             <a className="text-link" href={workspace.workspace}>
               Udah punya akun? Masuk workspace
             </a>
@@ -287,7 +273,7 @@ export default function LandingPage() {
           <h2 id="close-title">
             Dapet duluan, <span>cuan duluan.</span>
           </h2>
-          <p>Gabung server demo Discord buat lihat langsung isinya.</p>
+          <p>Demo Discord lagi disiapin. Segera hadir.</p>
           <DemoButton />
         </section>
       </main>
@@ -300,7 +286,6 @@ export default function LandingPage() {
           Informasi, bukan ajakan jual/beli saham.
         </p>
         <nav className="lp-footer-links" aria-label="Workspace">
-          <a href={workspace.demo}>Workspace demo</a>
           <a href={workspace.workspace}>Masuk workspace</a>
         </nav>
       </footer>

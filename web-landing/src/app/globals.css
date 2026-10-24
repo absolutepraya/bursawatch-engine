@@ -201,6 +201,12 @@ time,
 .button:disabled {
   opacity: 0.45;
 }
+.button.demo-unavailable:disabled {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--muted);
+  opacity: 1;
+}
 .icon-button {
   width: 44px;
   height: 44px;
@@ -1588,9 +1594,6 @@ time,
   }
 }
 @media (max-width: 860px) {
-  .lp-header-demo {
-    display: none !important;
-  }
   .lp-footer-links {
     margin-left: 0;
   }

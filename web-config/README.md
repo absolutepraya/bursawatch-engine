@@ -2,7 +2,7 @@
 
 This independent Next.js package contains the user workspace and configuration
 dashboard. The public website is a separate package at `../web-landing/`.
-The sibling `cron-*` packages own automation; this app does not start a worker.
+The sibling `cron-*` packages own automation; this app does not start a market watcher.
 
 ## Run locally
 
@@ -69,8 +69,9 @@ npm run start -- --port 3100
 ```
 
 `check` runs formatting, lint, route/type checks, unit tests and a production
-build. Production uses `.next-build`; development uses `.next`. Never delete
-either while its server runs. Build/watch roots are confined to this package.
+build. Node production uses `.next-build`; development uses `.next-dev`.
+OpenNext reserves `.next` plus `.open-next` for Workers packaging. Never delete
+a build tree while its server runs. Build/watch roots are confined to this package.
 If file-watcher limits persist, stop development and use
 `npm run dev:safe -- --port 3100`. Validate `web-landing/` separately before
 a PR handoff. Neither app requires Python or running the backend locally.
@@ -106,8 +107,11 @@ Source selection does not certify identity, credentials or investment results.
 Catalog tests compare against a pinned allowlisted public fixture reviewed at
 backend commit `f36823f`; they do not import live or private watcher settings.
 
-Vercel hosts this package independently as `bursawatch-web-config`; the old demo
-project is not reused. See [DEPLOYMENT.md](../DEPLOYMENT.md) for the environment,
+Cloudflare Workers is the hosting target, named `bursawatch-dash` in
+`wrangler.jsonc`. Run `npm run check:workers` for packaging and a deployment
+dry run, then `npm run preview:workers` to exercise the Workers runtime locally.
+Images use their original assets without a hosted optimizer.
+See [DEPLOYMENT.md](../DEPLOYMENT.md) for the environment,
 release sequence and live acceptance checks. Production deployment requires
 explicit approval; pushing the feature branch does not deploy automatically.
 Tenant isolation is not implemented by the current backend; keep authenticated

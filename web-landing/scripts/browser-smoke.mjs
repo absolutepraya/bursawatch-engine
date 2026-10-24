@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { mkdir } from "node:fs/promises";
 import { chromium } from "playwright";
 
 const base = process.env.BURSAWATCH_TEST_URL ?? "http://localhost:3200";
@@ -13,9 +14,17 @@ const browser = await chromium.launch({
 const page = await browser.newPage({ reducedMotion: "reduce" });
 page.setDefaultTimeout(10000);
 const errors = [];
+const screenshotDirectory = new URL("../test-results/landing/", import.meta.url);
+await mkdir(screenshotDirectory, { recursive: true });
 page.on("pageerror", (error) => errors.push(error.message));
 try {
-  await page.goto(base);
+  const response = await page.goto(base);
+  assert.equal(response.status(), 200);
+  assert.equal(response.headers()["x-content-type-options"], "nosniff");
+  assert.equal(response.headers()["x-frame-options"], "DENY");
+  const iconResponse = await page.request.get(new URL("/icon.svg", base).href);
+  assert.equal(iconResponse.status(), 200);
+  assert.equal(iconResponse.headers()["x-content-type-options"], "nosniff");
   assert.equal(await page.locator("html").getAttribute("lang"), "id");
   await page.keyboard.press("Tab");
   const skip = page.getByRole("link", { name: "Langsung ke konten", exact: true });
@@ -29,21 +38,24 @@ try {
   assert.equal(await skip.evaluate((element) => getComputedStyle(element).opacity), "0");
 
   for (const [name, path] of [
-    ["Workspace demo", "/app"],
     ["Masuk workspace", "/workspace"],
-    ["Coba workspace demo", "/app"],
     ["Udah punya akun? Masuk workspace", "/workspace"],
   ]) {
     for (const link of await page.getByRole("link", { name, exact: true }).all()) {
       assert.equal(await link.getAttribute("href"), new URL(path, workspace).href, name);
     }
   }
-  const demoLinks = page.getByRole("link", { name: "Coba Discord demo", exact: true });
-  assert.equal(await demoLinks.count(), 2);
-  for (const link of await demoLinks.all()) {
-    assert.match(await link.getAttribute("href"), /^https:\/\/discord\.(gg|com)\//);
-    assert.equal(await link.getAttribute("rel"), "noreferrer");
+  const demoButtons = page.getByRole("button", { name: "Demo coming soon", exact: true });
+  assert.equal(await demoButtons.count(), 2);
+  for (const button of await demoButtons.all()) {
+    assert.equal(await button.isDisabled(), true);
+    assert.equal(await button.getAttribute("href"), null);
   }
+  assert.equal(
+    await page.getByRole("button", { name: /workspace demo/i, includeHidden: true }).count(),
+    0,
+  );
+  assert.equal(await page.locator('a[href*="discord.gg"], a[href$="/app"]').count(), 0);
 
   for (const label of [
     "Contoh pesan Bursawatch di channel id-stocks-news, dengan data sektor dari Sectors",
@@ -94,6 +106,11 @@ try {
     }
     await page.evaluate(() => {
       document.documentElement.style.fontSize = "";
+      window.scrollTo({ top: 0, behavior: "instant" });
+    });
+    await page.screenshot({
+      path: new URL(`landing-${width}.png`, screenshotDirectory).pathname,
+      animations: "disabled",
     });
   }
   // Reduced motion: no animation anywhere, nothing hidden, motion never armed.
@@ -155,7 +172,7 @@ try {
   await motion.close();
   assert.deepEqual(errors, []);
   console.log(
-    "Landing smoke passed: skip link, Indonesian locale, Discord demo, workspace demo and sign-in URLs, config illustrations, labelled Discord recreations, images, three viewports, 200% text, 44px targets, hero sequence, scroll beats and reduced motion.",
+    "Landing smoke passed: skip link, Indonesian locale, disabled coming-soon demos and sign-in URLs, config illustrations, labelled Discord recreations, images, three viewports, 200% text, 44px targets, hero sequence, scroll beats and reduced motion.",
   );
 } finally {
   await browser.close();

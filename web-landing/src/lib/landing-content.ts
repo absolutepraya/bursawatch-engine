@@ -4,8 +4,6 @@
  * the launch film. The pain cards are illustrative, not real accounts.
  */
 
-export const DEMO_DISCORD_URL = "https://discord.gg/REPLACE_WITH_DEMO_INVITE";
-
 const SRC = "/landing/src";
 export const src = (name: string) => `${SRC}/${name}.png`;
 

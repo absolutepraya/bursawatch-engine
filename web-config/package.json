@@ -7,8 +7,8 @@
     "node": "24.x"
   },
   "scripts": {
-    "dev": "next dev",
-    "dev:safe": "WATCHPACK_POLLING=true WATCHPACK_POLLING_INTERVAL=1000 next dev",
+    "dev": "NEXT_DIST_DIR=.next-dev next dev",
+    "dev:safe": "NEXT_DIST_DIR=.next-dev WATCHPACK_POLLING=true WATCHPACK_POLLING_INTERVAL=1000 next dev",
     "build": "NEXT_DIST_DIR=.next-build next build",
     "start": "NEXT_DIST_DIR=.next-build next start",
     "lint": "eslint .",
@@ -18,13 +18,19 @@
     "test": "vitest run",
     "test:browser": "node scripts/public-shell-smoke.mjs && node scripts/browser-smoke.mjs && node scripts/control-workspace-smoke.mjs && node scripts/source-editor-smoke.mjs && node scripts/loading-smoke.mjs && node scripts/source-profiles-smoke.mjs",
     "test:watch": "vitest",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build"
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build",
+    "build:workers": "NEXT_DIST_DIR=.next opennextjs-cloudflare build",
+    "preview:workers": "opennextjs-cloudflare preview",
+    "deploy:workers": "opennextjs-cloudflare deploy",
+    "typegen:workers": "wrangler types --env-interface CloudflareEnv --include-runtime=false cloudflare-env.d.ts",
+    "check:workers": "npm run build:workers && wrangler deploy --dry-run",
+    "build:next:workers": "NEXT_DIST_DIR=.next next build"
   },
   "dependencies": {
     "@fontsource-variable/hanken-grotesk": "^5.3.0",
     "@supabase/supabase-js": "^2.116.0",
     "lucide-react": "1.45.0",
-    "next": "16.3.5",
+    "next": "16.4.2",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "server-only": "0.0.1",
@@ -36,11 +42,13 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "eslint": "^9.39.0",
-    "eslint-config-next": "16.3.5",
+    "eslint-config-next": "16.4.2",
     "jsdom": "^30.1.1",
     "playwright": "^1.58.2",
     "prettier": "^3.9.6",
     "typescript": "6.0.3",
-    "vitest": "5.0.0"
+    "vitest": "5.0.0",
+    "@opennextjs/cloudflare": "1.20.13",
+    "wrangler": "4.152.0"
   }
 }

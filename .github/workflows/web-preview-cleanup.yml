@@ -1,0 +1,28 @@
+name: Web Preview Cleanup
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: bursawatch-web-preview-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    steps:
+      # Use the base branch implementation, never code from a closed PR.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          persist-credentials: false
+      - name: Delete preview Workers, then their Access gates
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.BURSAWATCH_CLOUDFLARE_API_TOKEN }}
+        run: python3 scripts/web_preview.py cleanup "$PR_NUMBER"
