@@ -350,6 +350,16 @@ A numeric probability statement fails facts-only, judged per sentence: the word 
 `probability` with any number, or `peluang`/`berpeluang` with a percentage. Index levels beside
 "berpeluang" ("berpeluang menguji 6.280") are ordinary views and pass.
 
+`outlook_validation.validate_outlook(response, payload)` owns frozen-source
+claim/scenario grounding and returns validated data. `validate_scenario(scenario)`
+checks source identity consistency and provenance across all roles, including
+pulse-only sources, without invoking a renderer. Formatting consumes this
+validated scenario to retain the attributed candidate text. The public paragraph
+uses the same validation directly, without constructing discarded candidate prose.
+Source URL validation is shared with the formatter. Validation, candidate text
+assembly and encoded-size checks stay inside the writer's existing worker and
+frozen deadline; persisted result fields and selected presentation stay unchanged.
+
 The writer gets one bounded correction pass inside the same worker, deadline and gate: after an
 answer that fails validation, the model is called once more with `retry_feedback` carrying only
 our own fixed validation message. A model or transport failure is not retried. The worker budget

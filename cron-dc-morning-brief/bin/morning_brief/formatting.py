@@ -4,8 +4,8 @@ import math
 import re
 import sys
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit, quote
 from zoneinfo import ZoneInfo
+from .outlook_validation import source_url as _url, validate_scenario, ValidatedScenario
 from .calendar import aware
 from .economic_calendar import format_calendar_events
 from .global_markets import format_global_rows
@@ -33,17 +33,6 @@ def _length(value):
 
 def _escape(value):
     return re.sub(r'([\\\[\]()*_`])',r'\\\1',str(value))
-
-
-def _url(value):
-    if not isinstance(value,str):raise ValueError('source URL required')
-    parsed=urlsplit(value)
-    if (parsed.scheme not in ('https','http') or not parsed.hostname or parsed.username or parsed.password
-            or re.search(r'[\s<>]',value)):
-        raise ValueError('bounded literal source URL required')
-    safe=":/?#@!$&'*,;=+-._~%"
-    return urlunsplit((parsed.scheme,parsed.netloc,quote(parsed.path,safe=safe),
-                       quote(parsed.query,safe=safe),quote(parsed.fragment,safe=safe)))
 
 
 def _sources(values):
@@ -77,29 +66,24 @@ def _rotation_text(title,publication_session):
     return title+publication_label(publication_session)
 
 
-def _scenario_block(scenario):
-    """One atomic source-attributed core, including roles and optional pulse."""
-    if not isinstance(scenario,dict) or not scenario.get('base_case') or not scenario.get('change_conditions'):
-        raise ValueError('complete selected scenario required')
-    roles={};rows={}
-    def add(role,items):
-        for row in items:
-            identity=row['evidence_id']
-            if identity in rows and rows[identity]!=row: raise ValueError('inconsistent source context')
-            rows[identity]=row;roles.setdefault(identity,[])
-            if role not in roles[identity]: roles[identity].append(role)
-    add('Kasus dasar',[scenario['base_case']])
-    add('Pendukung',scenario['supporting'])
-    add('Penentang',scenario['opposing'])
-    add('Kondisi perubahan',scenario['change_conditions'])
-    pulse=scenario['pulse']
-    add('narasi optimistis',pulse['optimistic'])
-    add('narasi hati-hati',pulse['cautious'])
+def format_claims(claims):
+    """Retain the writer result's attributed claim text without changing its context."""
+    return [{**row,'text':f"Menurut [{_escape(row['publisher_id'])}]({_url(row['source_url'])}): {row['context']}"}
+            for row in claims]
+
+
+def format_scenario(validated: ValidatedScenario):
+    """Render the compatible attributed candidate from validated source contexts."""
+    scenario=validated.value
+    labels={'base_case':'Kasus dasar','supporting':'Pendukung','opposing':'Penentang',
+            'change_conditions':'Kondisi perubahan','optimistic':'narasi optimistis','cautious':'narasi hati-hati'}
     blocks=['**Skenario IHSG** (asesmen model atas pandangan sumber)']
-    for identity,row in rows.items():
-        published=aware(datetime.fromisoformat(row['published_at'])).astimezone(ZoneInfo('Asia/Jakarta'))
-        blocks.append('**'+'; '.join(roles[identity])+':** Menurut '+_escape(row['publisher_id'])+
-            f' · {published:%d/%m %H:%M} WIB: '+row['excerpt']+' '+_sources([row['source_url']]))
+    for source in validated.sources:
+        row=source.context
+        published=source.published_at.astimezone(ZoneInfo('Asia/Jakarta'))
+        blocks.append('**'+'; '.join(labels[role] for role in source.roles)+':** Menurut '+_escape(row['publisher_id'])+
+            f' · {published:%d/%m %H:%M} WIB: '+row['excerpt']+' (Sources: <'+source.url+'>)')
+    pulse=scenario['pulse']
     if not scenario['supporting']: blocks.append('Pendukung belum tersedia.')
     if not scenario['opposing']: blocks.append('Penentang belum tersedia.')
     blocks.extend(scenario['limitations'])
@@ -117,8 +101,7 @@ def _outlook_paragraph(outlook):
         return OUTLOOK_UNAVAILABLE, None, []
     scenario = outlook.get('scenario')
     if scenario is not None:
-        # Preserve the existing consistency/role validation used by the writer.
-        _scenario_block(scenario)
+        scenario = validate_scenario(scenario).value
         rows = [scenario['base_case'], *scenario['supporting'], *scenario['opposing'],
                 *scenario['change_conditions']]
     else:
