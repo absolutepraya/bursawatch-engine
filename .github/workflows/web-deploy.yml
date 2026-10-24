@@ -1,0 +1,134 @@
+name: Web Deploy
+
+on:
+  workflow_run:
+    workflows: ["Web CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: web-deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      vars.BURSAWATCH_PRODUCTION_ENABLED == 'true' &&
+      ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [web-config, web-landing]
+    env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      BURSAWATCH_CONFIG_URL: https://dash.bursawatch.abhipraya.dev
+      NEXT_PUBLIC_SUPABASE_URL: ${{ vars.BURSAWATCH_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.BURSAWATCH_SUPABASE_PUBLISHABLE_KEY }}
+      CONTROL_PLANE_API_URL: ${{ secrets.BURSAWATCH_CONTROL_PLANE_API_URL }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.package }}
+    steps:
+      - name: Check out the validated source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+          persist-credentials: false
+
+      - name: Require current main and passing Web CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          if [[ "$DEPLOY_SHA" != "$current_main" ]]; then
+            echo '::error::This deployment is stale. Only the exact current main SHA can deploy.'
+            exit 1
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/web.yml/runs?head_sha=$DEPLOY_SHA&event=push" \
+            --jq '.workflow_runs | any(.head_branch == "main" and .conclusion == "success")' \
+            | grep -qx true
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: ${{ matrix.package }}/package-lock.json
+
+      - name: Validate production settings
+        env:
+          WEB_PACKAGE: ${{ matrix.package }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.BURSAWATCH_CLOUDFLARE_API_TOKEN }}
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          assert.ok(process.env.CLOUDFLARE_API_TOKEN, 'Missing Cloudflare deployment token');
+          if (process.env.WEB_PACKAGE === 'web-config') {
+            for (const key of ['NEXT_PUBLIC_SUPABASE_URL', 'CONTROL_PLANE_API_URL']) {
+              const url = new URL(process.env[key]);
+              assert.equal(url.protocol, 'https:', `${key} must use HTTPS`);
+              assert.ok(!url.username && !url.password && url.pathname === '/' && !url.search && !url.hash, `${key} must be an origin`);
+              assert.ok(!url.hostname.endsWith('.test') && !url.hostname.endsWith('.invalid'), `${key} must not be a test fixture`);
+            }
+            assert.ok(process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, 'Missing Supabase publishable key');
+          }
+          NODE
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and verify the Worker package
+        run: npm run typegen:workers && npm run check:workers
+
+      - name: Deploy the validated Worker
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.BURSAWATCH_CLOUDFLARE_API_TOKEN }}
+          WEB_PACKAGE: ${{ matrix.package }}
+        run: |
+          set -euo pipefail
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          if [[ "$DEPLOY_SHA" != "$current_main" ]]; then
+            echo '::error::Main advanced during the build. This stale Worker will not deploy.'
+            exit 1
+          fi
+          umask 077
+          runtime_file="$(mktemp "$RUNNER_TEMP/bursawatch-runtime.XXXXXX.json")"
+          trap 'rm -f "$runtime_file"' EXIT
+          RUNTIME_FILE="$runtime_file" node --input-type=module <<'NODE'
+          import { writeFileSync } from 'node:fs';
+          const settings = process.env.WEB_PACKAGE === 'web-config'
+            ? { CONTROL_PLANE_API_URL: process.env.CONTROL_PLANE_API_URL }
+            : {};
+          writeFileSync(process.env.RUNTIME_FILE, JSON.stringify(settings), { mode: 0o600 });
+          NODE
+          npm run deploy:workers -- -- --secrets-file "$runtime_file" --tag "${DEPLOY_SHA:0:12}" --message "$DEPLOY_SHA"
+
+      - name: Verify public availability and protected API
+        env:
+          WEB_PACKAGE: ${{ matrix.package }}
+        run: |
+          set -euo pipefail
+          if [[ "$WEB_PACKAGE" == web-config ]]; then
+            origin=https://dash.bursawatch.abhipraya.dev
+            curl --fail --silent --show-error "$origin/workspace" -o /dev/null
+            response_headers="$(mktemp "$RUNNER_TEMP/bursawatch-headers.XXXXXX")"
+            trap 'rm -f "$response_headers"' EXIT
+            code="$(curl --silent --show-error -D "$response_headers" -o /dev/null -w '%{http_code}' "$origin/api/control/watchers")"
+            test "$code" = 401
+            grep -qi 'cache-control:.*no-store' "$response_headers"
+          else
+            curl --fail --silent --show-error https://bursawatch.abhipraya.dev/ -o /dev/null
+          fi

@@ -1,0 +1,24 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "bursawatch-dash",
+  "account_id": "40ffe81c2b657eebc19edd8558b5f5ba",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-10-23",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "placement": {
+    "mode": "targeted",
+    "region": "aws:ap-southeast-1"
+  },
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "routes": [
+    {
+      "pattern": "dash.bursawatch.abhipraya.dev",
+      "custom_domain": true
+    }
+  ]
+}

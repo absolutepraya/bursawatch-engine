@@ -3,6 +3,23 @@ vi.mock("server-only", () => ({}));
 import { handleControlRequest } from "./control-route";
 
 const origin = "https://control.example.test";
+describe("isolated PR preview", () => {
+  it.each(["GET", "PUT", "POST"])("blocks %s before credentials or upstream access", async (method) => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const response = await handleControlRequest(
+      new Request("https://preview.example.test/api/control/watchers", {
+        method,
+        headers: { authorization: "Bearer e30.e30.signature" },
+      }),
+      ["watchers"],
+      { origin, fetchImpl, preview: true },
+    );
+    expect(response.status).toBe(503);
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(await response.json()).toMatchObject({ code: "preview" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
 const time = "2026-09-20T00:00:00Z";
 const snapshot = {
   api_version: 1,

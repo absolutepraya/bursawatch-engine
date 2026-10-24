@@ -80,7 +80,7 @@ deadline is 08:15 WIB.
 ```mermaid
 flowchart LR
   subgraph Config["Configuration"]
-    Web["web-config<br/>Next.js on Vercel"] --> API["service-bursawatch-control<br/>config + observability API"]
+    Web["web-config<br/>Next.js on Workers"] --> API["service-bursawatch-control<br/>config + observability API"]
     API --> DB[("Supabase<br/>rules and schedules")]
   end
 
@@ -117,7 +117,7 @@ flowchart LR
 
 Python (standard-library-first crons and services), Hermes agent scheduler,
 SQLite durable inboxes, Supabase (database, auth and private storage),
-Next.js web apps (Node 24) on Vercel, Discord bot delivery, Yahoo Finance and Sectors
+Next.js web apps (Node 24 builds) targeting Cloudflare Workers, Discord bot delivery, Yahoo Finance and Sectors
 market data, GitHub Actions CI with a VPS-local pull-based release agent.
 
 ## Repository guide
@@ -226,9 +226,11 @@ their owner contracts. This describes source behavior, not a live rollout.
 | `web-landing` | Public product site and sample market walkthrough | [Landing setup](web-landing/README.md) |
 | `web-config` | Signed-in operator workspace for configuration, schedules and run evidence | [Workspace setup](web-config/README.md) |
 
-The current sites are [the landing page](https://bursawatch.abhipraya.dev/)
-and [the workspace](https://dash.bursawatch.abhipraya.dev/workspace). Source
-changes reach them through the separate Vercel web release path.
+The production origins are [the landing page](https://bursawatch.abhipraya.dev/)
+and [the workspace](https://dash.bursawatch.abhipraya.dev/workspace). Both web
+packages target Cloudflare Workers through a separate web release workflow.
+Builds and configuration do not prove the initial hosting cutover is complete;
+see [the deployment guide](DEPLOYMENT.md) for acceptance checks.
 
 Each package installs and builds independently with Node 24. The workspace
 uses a signed-in user's Supabase token to call the control API through a
@@ -260,9 +262,13 @@ opens or updates a pull request. It leaves the branch and worktree intact and
 does not deploy or merge changes. Deployment and post-merge cleanup need
 separate explicit approval.
 
-The two web applications stay in separate Vercel projects rooted at their
-package directories. Web CI validates them without credentials or deployment
-authority. The VPS release manifest treats web paths as metadata; it never
+The two web applications target separate Cloudflare Workers rooted at their
+package directories. Web CI validates them without production credentials,
+then deploys paired Cloudflare Access-protected previews for same-repository
+web PRs. The dashboard preview uses sample data. A PR comment links both
+previews, and closing the PR removes them. Fork PRs only validate.
+Web Deploy publishes production only from validated current-main source.
+The VPS release manifest treats web paths as metadata; it never
 copies web files to the VPS. A change to the release manifest itself remains
 subject to the release agent's manual review gate.
 
@@ -302,11 +308,11 @@ production credentials or prove a live watcher run.
 
 ## Validation and deployment
 
-GitHub Actions runs CI and has no VPS credential or deployment authority. The
+GitHub Actions runs CI and has no VPS credential or VPS deployment authority. The
 VPS-local release agent automatically handles allowlisted backend units only
 after the exact current `main` SHA passes `CI / validate`. Web deployments stay
-under Vercel's separate Git integration. See `DEPLOYMENT.md` for the release
-gates and verification boundaries.
+under the separate Cloudflare Workers Web Deploy workflow. See `DEPLOYMENT.md`
+for the release gates and verification boundaries.
 
 Manual deploy helpers remain separate recovery paths with their documented
 approval gates. Do not run one concurrently with the release agent.
