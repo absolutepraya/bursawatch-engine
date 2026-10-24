@@ -335,7 +335,9 @@ export function createControlPlaneReader(options: {
         },
         body: body === undefined ? undefined : JSON.stringify(body),
         cache: "no-store",
-        redirect: "error",
+        // Workers rejects redirect: "error". Return redirects without following
+        // them; the non-OK response branch below rejects every 3xx response.
+        redirect: "manual",
         credentials: "omit",
         signal: AbortSignal.timeout(10000),
       });

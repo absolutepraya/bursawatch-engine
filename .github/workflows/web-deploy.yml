@@ -126,9 +126,13 @@ jobs:
             curl --fail --silent --show-error "$origin/workspace" -o /dev/null
             response_headers="$(mktemp "$RUNNER_TEMP/bursawatch-headers.XXXXXX")"
             trap 'rm -f "$response_headers"' EXIT
-            code="$(curl --silent --show-error -D "$response_headers" -o /dev/null -w '%{http_code}' "$origin/api/control/watchers")"
-            test "$code" = 401
-            grep -qi 'cache-control:.*no-store' "$response_headers"
+            for credential in '' 'Bearer e30.e30.signature'; do
+              # A JWT-shaped invalid token reaches the backend transport. A
+              # missing token alone only checks the dashboard's local guard.
+              code="$(curl --silent --show-error --header "Authorization: $credential" -D "$response_headers" -o /dev/null -w '%{http_code}' "$origin/api/control/watchers")"
+              test "$code" = 401
+              grep -qi 'cache-control:.*no-store' "$response_headers"
+            done
           else
             curl --fail --silent --show-error https://bursawatch.abhipraya.dev/ -o /dev/null
           fi

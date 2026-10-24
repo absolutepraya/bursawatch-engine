@@ -167,7 +167,7 @@ describe("profile avatar adapter", () => {
       expect.objectContaining({
         method: "POST",
         body: undefined,
-        redirect: "error",
+        redirect: "manual",
         credentials: "omit",
       }),
     ]);
@@ -399,13 +399,45 @@ describe("control-plane read adapter", () => {
       expect.objectContaining({
         method: "GET",
         cache: "no-store",
-        redirect: "error",
+        redirect: "manual",
         credentials: "omit",
         headers: { Authorization: "Bearer user-session-token", Accept: "application/json" },
       }),
     );
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
+
+  it.each([301, 302, 303, 307, 308])(
+    "rejects HTTP %s without following or retrying reads and writes",
+    async (status) => {
+      for (const method of ["GET", "PUT", "POST"] as const) {
+        const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+          new Response(null, {
+            status,
+            headers: { Location: "https://untrusted.example.test/private-provider-details" },
+          }),
+        );
+        const reader = createControlPlaneReader({
+          origin: "https://control.example.test",
+          getAccessToken: async () => "user-session-token",
+          fetchImpl,
+        });
+        const operation = method === "GET"
+          ? reader.listWatchers()
+          : method === "PUT"
+            ? reader.saveProfileAvatar("x-watch", "source_one", { mode: "auto" })
+            : reader.refreshProfileAvatar("x-watch", "source_one");
+        await expect(operation).rejects.toMatchObject({
+          code: method === "GET" ? "unavailable" : "unknown-outcome",
+        });
+        expect(fetchImpl).toHaveBeenCalledTimes(1);
+        expect(fetchImpl.mock.calls[0][0]).toMatch(/^https:\/\/control\.example\.test\//);
+        expect(fetchImpl.mock.calls[0][1]).toMatchObject({
+          method, redirect: "manual", cache: "no-store",
+        });
+      }
+    },
+  );
 
   it.each([
     "http://control.example.test",
