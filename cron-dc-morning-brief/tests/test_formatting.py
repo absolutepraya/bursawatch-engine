@@ -90,8 +90,15 @@ def test_source_conditions_and_negations_survive_in_one_paragraph_without_a_pref
     assert presentation['mode']=='supported' and presentation['scenario']['pulse']['mode']=='absent'
 
 
-def test_invalid_source_or_conflicting_context_falls_back_without_partial_direction(core):
-    fields=scenario_inputs();fields['outlook']['scenario']['opposing'][0]['source_url']='https://invalid.org/has space'
+@pytest.mark.parametrize('invalid', ['url', 'context', 'pulse_timestamp', 'limitations', 'pulse_mode'])
+def test_invalid_source_or_conflicting_context_falls_back_without_partial_direction(core,invalid):
+    fields=scenario_inputs()
+    scenario=fields['outlook']['scenario']
+    if invalid=='url': scenario['opposing'][0]['source_url']='https://invalid.org/has space'
+    elif invalid=='context': scenario['change_conditions']=[{**scenario['base_case'],'excerpt':'Different context.'}]
+    elif invalid=='pulse_timestamp': scenario['pulse']['optimistic']=[{**scenario['base_case'],'evidence_id':'pulse-only','published_at':'not-a-date'}]
+    elif invalid=='limitations': scenario['limitations']=[None]
+    else: del scenario['pulse']['mode']
     texts,presentation=core('formatting').format_brief(**fields,with_selection=True)
     assert 'Outlook IHSG:\n(Analisis outlook gagal dimuat)' in texts[0] and 'Jika likuiditas pulih' not in texts[0]
     assert presentation['mode']=='facts_only' and presentation['scenario'] is None

@@ -119,18 +119,37 @@ def test_at_deadline_never_starts_model(core,tmp_path):
 
 def test_writer_deadline_also_bounds_support_validation(core,tmp_path,monkeypatch):
     module=core('outlook'); _,_,_,bundle=frozen_bundle(core,tmp_path)
-    original=module._claims
+    original=module.validate_outlook
     finished=Event()
     def delayed_support(*args):
         time.sleep(0.15)
         result=original(*args)
         finished.set()
         return result
-    monkeypatch.setattr(module,'_claims',delayed_support)
+    monkeypatch.setattr(module,'validate_outlook',delayed_support)
     row=bundle.payload['evidence']['items'][0]
     start=time.monotonic()
     try:
         result=module.write_outlook(bundle,lambda payload:with_scenario(payload,[{'evidence_id':row['evidence_id'],'excerpt':'Laba emiten sintetis naik 10 persen.'}]),now=datetime.fromisoformat('2026-10-05T07:54:59.980+07:00'),timeout_seconds=1)
+        assert result['reason']=='model_timeout' and result['mode']=='facts_only'
+        assert time.monotonic()-start<0.1
+    finally:
+        assert finished.wait(1)
+
+
+def test_writer_deadline_also_bounds_candidate_rendering(core,tmp_path,monkeypatch):
+    module=core('outlook'); _,_,_,bundle=frozen_bundle(core,tmp_path)
+    original=module.format_scenario
+    finished=Event()
+    def delayed_candidate(*args):
+        time.sleep(0.15)
+        try: return original(*args)
+        finally: finished.set()
+    monkeypatch.setattr(module,'format_scenario',delayed_candidate)
+    start=time.monotonic()
+    try:
+        result=module.write_outlook(bundle,lambda payload:with_scenario(payload,[]),
+            now=datetime.fromisoformat('2026-10-05T07:54:59.980+07:00'),timeout_seconds=1)
         assert result['reason']=='model_timeout' and result['mode']=='facts_only'
         assert time.monotonic()-start<0.1
     finally:
@@ -348,7 +367,7 @@ def test_number_before_peluang_cannot_enter_claim_or_scenario_even_across_wraps(
     ('Jika likuiditas pulih, probabilitas '+('berdasarkan kondisi pasar '*3)+'IHSG naik 80 persen.',True),
 ])
 def test_only_numeric_probability_claims_are_rejected_not_levels_beside_berpeluang(core,text,expected):
-    assert core('outlook').states_probability(text) is expected
+    assert core('outlook_validation').states_probability(text) is expected
 
 
 def test_a_real_analyst_sentence_with_berpeluang_and_index_levels_reaches_a_supported_outlook(core,tmp_path):
