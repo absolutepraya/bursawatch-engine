@@ -186,7 +186,9 @@ and local SMA/RSI calculations. The morning producer retains bounded Yahoo
 sources for the IHSG chart and fixed-membership rotation, with per-basket
 current/previous-week cap fallback and explicit omissions for unsupported data.
 The [morning contract](cron-dc-morning-brief/SKILL.md) describes the local owner,
-private immutable state, offline preview and receipt-gated publication. These
+private immutable state, offline preview and receipt-gated publication. Outlook
+source grounding and scenario consistency share a pure validation interface,
+separate from candidate and publication formatting. These
 provider/morning packages and the Yahoo calculation library are manual release
 units, with provisioning and activation governed by their package contracts.
 
