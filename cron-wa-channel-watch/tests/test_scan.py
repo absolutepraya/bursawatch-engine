@@ -203,6 +203,27 @@ def test_expired_agent_lease_is_reclaimable(tmp_path):
     assert reclaimed["wakeAgent"] is True
 
 
+def test_routing_only_unresolved_post_settles_without_a_macro_card(tmp_path):
+    queue_dir = tmp_path / "queue"
+    config_path = write_config(tmp_path, [profile(enable_llm_relevance_filter=False)])
+    state_path = tmp_path / "state.json"
+    now = datetime(2026, 10, 27, tzinfo=timezone.utc)
+    enqueue(queue_dir, event("baseline", "2026-10-26T00:00:00Z"))
+    scan.run(config_path=config_path, state_path=state_path, queue_dir=queue_dir, now=now, no_post=True)
+    enqueue(queue_dir, event("unresolved", "2026-10-27T00:01:00Z", text="Grup Indofood menyiapkan buyback."))
+    wake = scan.run(config_path=config_path, state_path=state_path, queue_dir=queue_dir, now=now + timedelta(minutes=1), no_post=True)
+    result = scan.submit_analysis(
+        config_path=config_path, state_path=state_path, now=now + timedelta(minutes=2), no_post=True,
+        payload={"event_key": wake["item"]["event_key"], "is_relevant": False},
+    )
+    assert result["agent_phase"] == "filtered"
+    assert result["delivered"] == 0
+    record, = state.load(state_path)["outbox"]
+    assert record["agent_phase"] == "filtered"
+    assert not record.get("news_cards")
+    assert not record.get("text_message_ids")
+
+
 def test_submission_moves_event_to_ready_or_filtered(tmp_path, monkeypatch):
     from test_summary_context import staged_claim
     queue_dir = tmp_path / "queue"

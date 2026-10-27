@@ -450,6 +450,40 @@ def test_phintraco_branded_notes_extracts_ticker_from_the_headline_line():
     assert candidates[0].source_kind.value == "phintraco_note"
 
 
+@pytest.mark.parametrize("header", [
+    "Phintraco Sekuritas Notes | 27 Oktober 2026",
+    "PHINTAS Quick Notes | 27 Oktober 2026",
+    "Phintraco Sekuritas Company Update",
+])
+@pytest.mark.parametrize("headline,ticker", [
+    ("Kinerja Keuangan UNTR 9M26", "UNTR"),
+    ("Kinerja Keuangan ERAL 9M26", "ERAL"),
+    ("Laporan Keuangan ERAL 9M26", "ERAL"),
+    ("Kinerja Keuangan UNTR: LABA NAIK", "UNTR"),
+])
+def test_phintraco_financial_headline_preserves_its_nonleading_issuer(header, headline, ticker):
+    candidate, = PhintracoNewsAdapter().extract_candidates(
+        36033, f"{header}\n{headline}", datetime(2026, 10, 27, tzinfo=timezone.utc), False,
+    )
+    assert candidate.ticker == ticker
+    assert candidate.key == f"phintraco:36033:{ticker}"
+
+
+@pytest.mark.parametrize("headline", [
+    "Kinerja Keuangan BUMN 9M26",
+    "Kinerja Keuangan UNTR dan ERAL 9M26",
+    "Kinerja Keuangan UNTR, ERAL 9M26",
+    "Kinerja Keuangan UNTR / ERAL 9M26",
+    "Reformasi OJK dan BEI untuk pasar modal",
+])
+def test_phintraco_financial_identity_never_comes_from_body_or_a_multi_issuer_headline(headline):
+    candidate, = PhintracoNewsAdapter().extract_candidates(
+        36033, f"Phintraco Sekuritas Notes | 27 Oktober 2026\n{headline}\nUNTR dan ERAL dibahas.",
+        datetime(2026, 10, 27, tzinfo=timezone.utc), False,
+    )
+    assert candidate.ticker is None
+
+
 def test_phintraco_quick_notes_extracts_issuer_from_the_headline():
     content = (
         "PHINTAS Quick Notes | 23 September 2026\n\n"

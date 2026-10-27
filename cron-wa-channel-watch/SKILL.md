@@ -44,16 +44,28 @@ source instead of copying its full bullet format or disclaimer, while
 preserving material source-supported numbers, price levels, ratings, issuers,
 and implications.
 
-Keep one shared-headline macro or market roundup as one item even when it has
+Keep one source-supported shared macro thesis as one item even when it has
 many bullets. Its title is the substantive news, not a category prefix already
 implied by Discord. For example, output `Menkeu Baru dan Revisi HPM Nikel`,
-not `Indonesia Policy & Macro: Menkeu Baru dan Revisi HPM Nikel`. Split a post
-only when it contains clearly independent issuer stories or titled sections
-that retain their meaning alone. Do not duplicate source media across items.
+not `Indonesia Policy & Macro: Menkeu Baru dan Revisi HPM Nikel`.
 
-Choose exactly one configured route when routing is requested, based on the
-central thesis. The exact leading `#TechnicalReview` tag always routes to
-`id_stocks_swing`. Otherwise use `id_stocks_news` for one clear lead issuer,
+A corporate-action calendar or issuer earnings roundup is not
+macro news merely because it has one heading or spans sectors. Split its
+independent issuer developments before routing each item. If more than eight
+qualify, select the eight most material and retain their source order; never
+combine overflow into a macro item. Keep a connected transaction as one story.
+Mere company mentions are not independent developments. Do not duplicate source
+media across items.
+
+Choose exactly one configured route per item when routing is requested, based
+on that item's central thesis. Never use `macro_news` as a fallback for an
+unresolved company identity. For ordinary issuer news only, omit the item when
+supplied evidence cannot establish its exact issuer ticker. A relevant leading
+`#TechnicalReview` still produces one Swing item without a unique ticker; use a
+source-grounded descriptive title and do not invent a ticker prefix. If no
+eligible item remains, return exactly `event_key` and `is_relevant: false`,
+with no `items`, including for routing-only profiles. The exact leading
+`#TechnicalReview` tag always routes to `id_stocks_swing`. Otherwise use `id_stocks_news` for one clear lead issuer,
 including a lead issuer inside a multi-stock post. Use `id_industry_news` for
 news focused on one Indonesian industry or sector, and `macro_news` for
 cross-industry, broad market, or economy theses even when a top pick is named.
