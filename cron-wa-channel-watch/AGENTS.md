@@ -64,8 +64,13 @@ watcher's scope.
   override. A later tag, typo, chart, or technical vocabulary alone never
   selects the swing route.
 - `id_stocks_news` covers a direct IDX issuer and a multi-stock post with one
-  clearly dominant lead issuer. `id_industry_news` covers news focused on one
-  Indonesian industry or sector. `macro_news` covers cross-industry, broad
+  clearly dominant lead issuer. Split independent issuer developments before
+  routing each item, including corporate-action calendars and earnings roundups,
+  even when they share a heading or span sectors. Such collections are not a
+  macro thesis. Select at most eight material items in source order, without
+  aggregating overflow into macro. Unresolved company identities are omitted,
+  never guessed or used as a reason to fall back to macro. `id_industry_news`
+  covers news focused on one Indonesian industry or sector. `macro_news` covers cross-industry, broad
   market, and economy theses, including a broad thesis with a named top pick.
 - Filter minor exchange-rule and market-mechanics changes when the source does
   not support a meaningful consequence. Keep changes with a source-supported

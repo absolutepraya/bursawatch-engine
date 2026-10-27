@@ -146,6 +146,23 @@ def test_macro_roundup_is_one_item_without_category_prefix():
     assert result["items"][0]["title"] == "Menkeu Baru dan Revisi HPM Nikel"
 
 
+def test_wake_prompt_does_not_tell_classifier_to_dump_stock_roundups_or_unknown_issuers_into_macro():
+    source = normalize_bridge_event({
+        "channel_jid": "12345@newsletter", "message_id": "corporate-actions",
+        "published_at": "2026-10-27T01:11:40Z",
+        "text": "*Ringkasan Corporate Action Terdekat*\n*Dividen*\n- SCMA - Rp8,4\n- DMAS - Rp29",
+        "media": [],
+    })
+    wake = build_wake_payload(agent_item(profile(), source))
+    prompt = wake["item"]["instruction"]
+    assert "An equal-weighted multi-stock screen remains macro_news" not in prompt
+    assert "or a multi-sector roundup" not in prompt
+    assert "If the issuer or listing identity is unclear, choose macro_news" not in prompt
+    assert "Split independent issuer developments before routing each item" in prompt
+    assert "Corporate-action calendars and issuer earnings roundups are not macro news" in prompt
+    assert "Never use macro_news as a fallback for an unresolved company identity" in prompt
+
+
 def test_many_items_cannot_reuse_one_source_image():
     assert media_delivery_indexes(item_count=2, media_count=1) == ()
     assert media_delivery_indexes(item_count=1, media_count=1) == (0,)

@@ -63,6 +63,35 @@ class _Inbox:
         return self.inspection
 
 
+@pytest.mark.parametrize("ticker,message_id,summary", [
+    ("UNTR", "36033", "Pendapatan UNTR 9M26 turun 10,08% menjadi Rp90,33 triliun."),
+    ("ERAL", "36037", "Pendapatan ERAL 9M26 naik 44,73% menjadi Rp6,21 triliun."),
+])
+def test_financial_headline_reaches_stock_destination_through_source_owner(tmp_path, monkeypatch, ticker, message_id, summary):
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_path / "news.json"))
+    monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
+    text = f"Phintraco Sekuritas Notes | 27 Oktober 2026\nKinerja Keuangan {ticker} 9M26\n\n{summary}"
+    work, inspection = _news_work("company_news", message_id=message_id, text=text)
+    assert pipeline_owner.submit(work, no_post=True, inbox=_Inbox(inspection)) == "accepted"
+    now = datetime.now(scan.WIB) + timedelta(seconds=1)
+    item, = pipeline_owner.claim_agent(now)["items"]
+    assert item["ticker"] == ticker
+    assert item["candidate_type"] == "issuer"
+    payload = {
+        "candidate_key": item["candidate_key"], "ticker": item["ticker"],
+        "event_class": "financial_results_or_guidance", "summary": summary,
+        "title": f"{ticker}: Kinerja keuangan 9M26", "material_facts": [summary],
+        "ranking_band": 1, "dedupe_facts": [summary], "eligible": True,
+        "route": "id_stocks_news", "source_evidence": summary,
+    }
+    result = asyncio.run(scan.submit_classification_payload(payload, now + timedelta(seconds=30)))
+    assert result["news_delivered"] == 1
+    delivered = load_state()["stats"]["delivery_payloads"][item["candidate_key"]]
+    assert delivered["channel_id"] == "1525102508714889257"
+    assert f"{ticker}: Kinerja keuangan 9M26" in delivered["content"]
+    assert "Harga terakhir (IDR)" in delivered["content"]
+
+
 def test_phintraco_news_sibling_work_claims_one_frozen_agent_item_and_renders_golden(tmp_path, monkeypatch):
     state_path = tmp_path / "news.json"
     monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(state_path))
