@@ -518,14 +518,16 @@ def _phintraco_headline_ticker(headline: str) -> str | None:
     financial = _PHINTRACO_FINANCIAL_HEADLINE.match(headline)
     if financial is None:
         return None
-    # This explicit issuer slot is not a search of the article body. Keep
-    # multi-issuer headlines unresolved rather than selecting the first one.
-    issuers = {
-        ticker for match in _TUNTUN_HEADLINE_TICKER.finditer(headline)
-        if (ticker := _ticker_from_match(match)) is not None
-    }
+    # Read the explicit issuer slot, not uppercase words in headline prose.
+    # An immediately connected second issuer leaves that slot unresolved.
     ticker = _ticker_from_match(financial)
-    return ticker if ticker is not None and issuers == {ticker} else None
+    secondary = re.match(
+        rf"\s*(?:,|/|&|(?i:dan|vs\.?))\s*(?P<ticker>{_IDX_TICKER})(?=\s|:|-|$)",
+        headline[financial.end():],
+    )
+    if secondary is not None and _ticker_from_match(secondary) is not None:
+        return None
+    return ticker
 
 
 class PhintracoNewsAdapter:

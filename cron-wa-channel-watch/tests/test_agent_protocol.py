@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from agent_protocol import agent_item, build_wake_payload, deterministic_route, instruction_for, media_delivery_indexes, validate_submission
@@ -63,6 +65,34 @@ def test_irrelevant_submission_is_exactly_minimal():
     assert result == {"event_key": "12345@newsletter:ABC-001", "is_relevant": False}
     with pytest.raises(ValueError):
         validate_submission(profile(), {"event_key": event().event_key, "is_relevant": False, "title": "extra"})
+
+
+def test_routing_only_profile_can_settle_an_unresolved_only_post_without_macro_fallback():
+    routed = replace(profile(), enable_llm_relevance_filter=False)
+    payload = {"event_key": event().event_key, "is_relevant": False}
+    assert validate_submission(routed, payload, event=event()) == payload
+    with pytest.raises(ValueError):
+        validate_submission(routed, {**payload, "items": []}, event=event())
+    with pytest.raises(ValueError):
+        validate_submission(replace(routed, enable_llm_routing=False), payload, event=event())
+
+
+def test_unknown_ticker_omission_keeps_relevant_technical_review_in_swing():
+    technical = normalize_bridge_event({
+        "channel_jid": "12345@newsletter", "message_id": "ambiguous-technical",
+        "published_at": "2026-10-27T01:11:40Z",
+        "text": "#TechnicalReview\nTINS dan ANTM menguji resistance.", "media": [],
+    })
+    prompt = agent_item(profile(), technical)["instruction"]
+    assert "For ordinary issuer-news items only" in prompt
+    assert "A relevant leading #TechnicalReview remains one id_stocks_swing item even without a unique ticker" in prompt
+    result = validate_submission(profile(), {
+        "event_key": technical.event_key, "is_relevant": True,
+        "items": [{"title": "Dua saham menguji resistance", "summary": "TINS dan ANTM menguji resistance.",
+                   "route": "id_stocks_swing", "sentiment": "Sideways"}],
+    }, event=technical)
+    assert result["items"][0]["ticker"] is None
+    assert result["items"][0]["route"] == "id_stocks_swing"
 
 
 def test_duplicate_news_items_keep_one_item_without_losing_distinct_stories():

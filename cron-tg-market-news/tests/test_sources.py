@@ -459,6 +459,7 @@ def test_phintraco_branded_notes_extracts_ticker_from_the_headline_line():
     ("Kinerja Keuangan UNTR 9M26", "UNTR"),
     ("Kinerja Keuangan ERAL 9M26", "ERAL"),
     ("Laporan Keuangan ERAL 9M26", "ERAL"),
+    ("Kinerja Keuangan UNTR: LABA NAIK", "UNTR"),
 ])
 def test_phintraco_financial_headline_preserves_its_nonleading_issuer(header, headline, ticker):
     candidate, = PhintracoNewsAdapter().extract_candidates(
@@ -471,6 +472,8 @@ def test_phintraco_financial_headline_preserves_its_nonleading_issuer(header, he
 @pytest.mark.parametrize("headline", [
     "Kinerja Keuangan BUMN 9M26",
     "Kinerja Keuangan UNTR dan ERAL 9M26",
+    "Kinerja Keuangan UNTR, ERAL 9M26",
+    "Kinerja Keuangan UNTR / ERAL 9M26",
     "Reformasi OJK dan BEI untuk pasar modal",
 ])
 def test_phintraco_financial_identity_never_comes_from_body_or_a_multi_issuer_headline(headline):

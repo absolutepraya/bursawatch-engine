@@ -59,10 +59,13 @@ media across items.
 
 Choose exactly one configured route per item when routing is requested, based
 on that item's central thesis. Never use `macro_news` as a fallback for an
-unresolved company identity. Omit that company item when supplied evidence
-cannot establish its exact issuer ticker. If no eligible item remains, return
-`is_relevant: false`. The exact leading `#TechnicalReview` tag always routes to
-`id_stocks_swing`. Otherwise use `id_stocks_news` for one clear lead issuer,
+unresolved company identity. For ordinary issuer news only, omit the item when
+supplied evidence cannot establish its exact issuer ticker. A relevant leading
+`#TechnicalReview` still produces one Swing item without a unique ticker; use a
+source-grounded descriptive title and do not invent a ticker prefix. If no
+eligible item remains, return exactly `event_key` and `is_relevant: false`,
+with no `items`, including for routing-only profiles. The exact leading
+`#TechnicalReview` tag always routes to `id_stocks_swing`. Otherwise use `id_stocks_news` for one clear lead issuer,
 including a lead issuer inside a multi-stock post. Use `id_industry_news` for
 news focused on one Indonesian industry or sector, and `macro_news` for
 cross-industry, broad market, or economy theses even when a top pick is named.

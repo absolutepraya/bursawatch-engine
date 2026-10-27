@@ -68,10 +68,14 @@ watcher's scope.
   routing each item, including corporate-action calendars and earnings roundups,
   even when they share a heading or span sectors. Such collections are not a
   macro thesis. Select at most eight material items in source order, without
-  aggregating overflow into macro. Unresolved company identities are omitted,
-  never guessed or used as a reason to fall back to macro. `id_industry_news`
-  covers news focused on one Indonesian industry or sector. `macro_news` covers cross-industry, broad
-  market, and economy theses, including a broad thesis with a named top pick.
+  aggregating overflow into macro. Unresolved ordinary company-news identities
+  are omitted, never guessed or used as a reason to fall back to macro. Relevant
+  leading `#TechnicalReview` items retain their Swing path without a unique
+  ticker. Routing-only profiles may settle an unresolved-only post with exactly
+  `event_key` and `is_relevant: false`, using the existing filtered path.
+  `id_industry_news` covers news focused on one Indonesian industry or sector.
+  `macro_news` covers cross-industry, broad market, and economy theses,
+  including a broad thesis with a named top pick.
 - Filter minor exchange-rule and market-mechanics changes when the source does
   not support a meaningful consequence. Keep changes with a source-supported
   significant effect on trading, liquidity, eligibility, issuers, or investors
