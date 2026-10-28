@@ -92,6 +92,34 @@ def test_financial_headline_reaches_stock_destination_through_source_owner(tmp_p
     assert "Harga terakhir (IDR)" in delivered["content"]
 
 
+def test_bach_issuer_heading_reaches_stock_destination_through_source_owner(tmp_path, monkeypatch, load_fixture):
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_path / "news.json"))
+    monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
+    work, inspection = _news_work(
+        "company_news", message_id="36061", text=load_fixture("phintraco-bach-36061.txt"),
+    )
+    assert pipeline_owner.submit(work, no_post=True, inbox=_Inbox(inspection)) == "accepted"
+    now = datetime.now(scan.WIB) + timedelta(seconds=1)
+    item, = pipeline_owner.claim_agent(now)["items"]
+    assert item["ticker"] == "BACH"
+    assert item["candidate_type"] == "issuer"
+    summary = "BACH membukukan laba periode berjalan Rp136,78 miliar pada 9M26, naik 32,05% YoY."
+    payload = {
+        "candidate_key": item["candidate_key"], "ticker": item["ticker"],
+        "event_class": "financial_results_or_guidance", "summary": summary,
+        "title": "BACH: Laba tumbuh 32,05% pada 9M26", "material_facts": [summary],
+        "ranking_band": 1, "dedupe_facts": [summary], "eligible": True,
+        "route": "id_stocks_news", "source_evidence": summary,
+    }
+    result = asyncio.run(scan.submit_classification_payload(payload, now + timedelta(seconds=30)))
+    assert result["news_delivered"] == 1
+    delivered = load_state()["stats"]["delivery_payloads"][item["candidate_key"]]
+    assert delivered["channel_id"] == "1525102508714889257"
+    assert "BACH: Laba tumbuh 32,05% pada 9M26" in delivered["content"]
+    assert "Harga terakhir (IDR)" in delivered["content"]
+    assert "https://t.me/phintasprofits/36061" in delivered["content"]
+
+
 def test_phintraco_news_sibling_work_claims_one_frozen_agent_item_and_renders_golden(tmp_path, monkeypatch):
     state_path = tmp_path / "news.json"
     monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(state_path))
