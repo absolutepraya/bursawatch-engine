@@ -788,10 +788,16 @@ function StockbitFields() {
       </Group>
       <Group
         title="Discord destinations"
-        hint="These two route names are fixed. Use distinct channel IDs from the Discord server you manage."
+        hint="Route names are fixed. Use distinct channel IDs from the Discord server you manage."
       >
         <Field path={["destinations", "id_stocks_news_channel_id"]} label="Stock news channel ID" />
         <Field path={["destinations", "macro_news_channel_id"]} label="Macro news channel ID" />
+        {configValue(draft, ["destinations", "industry_news_channel_id"]) !== undefined && (
+          <Field
+            path={["destinations", "industry_news_channel_id"]}
+            label="Industry news channel ID"
+          />
+        )}
       </Group>
       <Group title="Analysis guidance">
         <Field

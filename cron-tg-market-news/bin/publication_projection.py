@@ -170,7 +170,7 @@ def _finish_snapshot(
 
 
 def _publication_type(item: SelectionCandidate) -> tuple[str, str]:
-    if item.candidate.source_kind is SourceKind.TUNTUN_UPDATE_INDUSTRY:
+    if item.route is Destination.INDUSTRY_NEWS or (item.subject is None and item.candidate.source_kind is SourceKind.TUNTUN_UPDATE_INDUSTRY):
         return "industry_news", "id_industry_news"
     if item.route is Destination.MACRO_NEWS:
         return "macro_news", "macro_news"

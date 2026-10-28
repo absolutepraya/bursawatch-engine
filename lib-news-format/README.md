@@ -93,7 +93,19 @@ remain authoritative. The legacy `WRITING_INSTRUCTION` export stays available.
 
 Industry guidance distinguishes reported facts from qualified company impacts
 using supplied specific exposure evidence and a direct connecting mechanism.
-It adds no research/discovery call or output field. Unsupported implications
-are omitted while eligible news remains deliverable. Tuntun's owner selects
-Industry presentation by source kind even though its accepted route is
-`macro_news`; delivery and feed routing are unchanged.
+Unsupported implications are omitted while eligible news remains deliverable.
+New subject-classified output selects Industry with the explicit
+`id_industry_news` route. Only legacy selections without a subject retain the
+Tuntun source-kind Industry mapping for backward compatibility.
+
+## Subject and security boundaries
+
+`lib-news-classification` supplies the ordinary-news subject schema and shared
+semantic instruction. Owners classify company, industry and macro from the
+complete source, validate a supporting quotation and route consistency, then
+resolve securities separately. The renderer performs no category classification.
+New frozen cards retain their validated `subject` and explicit `ticker`; an
+uppercase company-name prefix does not imply a ticker. Company-name Stock News
+without a verified ticker has no price tracker. Legacy frozen cards keep their
+original shape, destination and text. Deploy the shared classification library
+before this formatter and the dependent owners.

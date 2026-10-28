@@ -26,6 +26,7 @@ def profile(**overrides):
         },
         "discord_channels": [
             {"key": "macro_news", "channel_id": "1531655369884045382", "description": "Macro"},
+            {"key": "id_industry_news", "channel_id": "1549418098807930880", "description": "Industry"},
             {"key": "id_stocks_news", "channel_id": "1525102508714889257", "description": "IDX news"},
             {"key": "id_stocks_swing", "channel_id": "1525102458253217803", "description": "IDX swing"},
         ],
@@ -405,7 +406,9 @@ def test_no_post_delivery_handles_source_media_without_network(tmp_path, capsys)
             "items": [{
                 "title": "BBCA: Laba Bersih Naik",
                 "summary": "*(Ringkasan)* Laba bersih naik.",
-                "route": "macro_news",
+                "route": "id_stocks_news",
+                "ticker": "BBCA",
+                "subject": {"kind": "company", "name": "BBCA", "evidence": "BBCA mencatat laba bersih naik"},
             }],
         },
     )
@@ -738,6 +741,8 @@ def test_one_macro_item_forwards_its_image_once_after_text(tmp_path, capsys):
                 "title": "Menkeu Baru dan Revisi HPM Nikel",
                 "summary": "*(Ringkasan)* Pemerintah memperbarui kebijakan fiskal dan formula HPM nikel.",
                 "route": "macro_news",
+                "ticker": None,
+                "subject": {"kind": "macro", "name": "Kebijakan pemerintah", "evidence": "Menkeu baru dan revisi HPM nikel efektif"},
             }],
         },
     )
@@ -788,6 +793,8 @@ def test_delivery_never_uses_a_queue_media_path_outside_archive_staging(tmp_path
                 "title": "BBCA: Laba Bersih Naik",
                 "summary": "*(Ringkasan)* BBCA mencatat laba bersih naik.",
                 "route": "id_stocks_news",
+                "ticker": "BBCA",
+                "subject": {"kind": "company", "name": "BBCA", "evidence": "BBCA mencatat laba bersih naik"},
             }],
         },
     )
@@ -968,8 +975,8 @@ def test_many_items_never_duplicate_one_source_image(tmp_path, capsys):
             "event_key": claimed["item"]["event_key"],
             "is_relevant": True,
             "items": [
-                {"title": "BBCA: Laba Bersih Meningkat", "summary": "*(Ringkasan)* BBCA melaporkan laba meningkat.", "route": "id_stocks_news"},
-                {"title": "Revisi Kebijakan Nikel", "summary": "*(Ringkasan)* Pemerintah merevisi kebijakan nikel.", "route": "macro_news"},
+                {"title": "BBCA: Laba Bersih Meningkat", "summary": "*(Ringkasan)* BBCA melaporkan laba meningkat.", "route": "id_stocks_news", "ticker": "BBCA", "subject": {"kind": "company", "name": "BBCA", "evidence": "BBCA melaporkan laba"}},
+                {"title": "Revisi Kebijakan Nikel", "summary": "*(Ringkasan)* Pemerintah merevisi kebijakan nikel.", "route": "id_industry_news", "ticker": None, "subject": {"kind": "industry", "name": "Nikel", "evidence": "Kebijakan nikel direvisi"}},
             ],
         },
     )

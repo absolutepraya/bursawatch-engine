@@ -37,8 +37,7 @@ For relevant events, return only the fields requested by the event. Return one
 ordered `items` array containing one to eight independent News Items. Each item
 has a concise, source-grounded Bahasa Indonesia title, a summary, and one
 configured route. Return plain non-swing summaries without a Ringkasan marker; the renderer adds it once. For
-a direct listed-company thesis, start the title with the exact IDX ticker and a
-colon.
+a company thesis, use its verified IDX ticker and colon when supplied, otherwise its source name without a tracker.
 For a broad market or economy thesis, do not invent a ticker. Summarize the
 source instead of copying its full bullet format or disclaimer, while
 preserving material source-supported numbers, price levels, ratings, issuers,
@@ -57,10 +56,28 @@ combine overflow into a macro item. Keep a connected transaction as one story.
 Mere company mentions are not independent developments. Do not duplicate source
 media across items.
 
+Classify each ordinary item from the complete supplied source meaning before
+choosing its destination. Return `subject` with exactly `kind`, `name`, and
+`evidence`: kind is `company`, `industry`, or `macro`; evidence is a short exact
+quotation from the supplied source. Company news concerns one company's own
+development and uses Stock News. Sector background does not change that.
+Industry news concerns a sector as a whole, including industry-focused policy,
+and uses `id_industry_news` even when named companies are examples or top picks.
+Economy-wide, cross-industry, cross-asset, or overall-market developments use
+`macro_news`. Source headings, publisher, ticker presence and ticker counts do
+not determine the subject. Split independent company developments, while
+keeping a connected transaction or one shared thesis together.
+
+Resolve tickers separately from category. A named company with no verified
+ticker stays in Stock News using its source name, an empty ticker, and no price
+tracker. Never use Macro as a missing-ticker, foreign-company, unavailable-quote,
+or missing-destination fallback. Preserve configured market coverage, relevance
+exclusions, and specialized Swing/status contracts. Do not invent evidence,
+tickers, or facts. Follow the trusted item's shared subject instruction.
+
 Choose exactly one configured route per item when routing is requested, based
 on that item's central thesis. Never use `macro_news` as a fallback for an
-unresolved company identity. For ordinary issuer news only, omit the item when
-supplied evidence cannot establish its exact issuer ticker. A relevant leading
+unresolved company identity. For ordinary company news, retain a clearly named company even when its ticker is unverified, using its source name and no price tracker. A relevant leading
 `#TechnicalReview` still produces one Swing item without a unique ticker; use a
 source-grounded descriptive title and do not invent a ticker prefix. If no
 eligible item remains, return exactly `event_key` and `is_relevant: false`,
@@ -113,6 +130,23 @@ Submit through the watcher wrapper:
 $HOME/.hermes/scripts/bursawatch-wa-channel-watch.sh submit-analysis --json '<payload>'
 ```
 
+## Company identity lookup
+
+The general no-browsing and no-other-program rules allow this one explicit
+read-only exception for a clearly named source company whose ticker is missing:
+
+```bash
+"$HOME/.hermes/scripts/bursawatch-wa-channel-watch.sh" lookup-company --json '{"company":"<exact source company name>","market":"ID"}'
+```
+
+The tool searches Yahoo Finance for a unique company-name and exchange match.
+Use `US` only within configured US coverage. A verified result supplies only
+ticker and exchange for deterministic price enrichment, never extra news facts.
+Use no arbitrary URL or shell helper. The owner independently verifies an
+externally proposed ticker. If lookup is unavailable, ambiguous, or unresolved,
+submit Stock News using the company name and an empty ticker with no tracker.
+The lookup never selects a category, sends a message, or changes source state.
+
 ## Discord delivery receipt wait
 
 After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.
@@ -131,7 +165,7 @@ capability, and source-specific safety checks remain mandatory.
 
 Split independent issuer developments into ordered items, including separate
 issuer dividends and suspension reopenings. Keep a connected transaction or
-one broad thesis as one story. Each generated issuer card has a ticker-led
+one broad thesis as one story. Each generated issuer card with a verified ticker has a ticker-led
 headline, source byline, latest native-currency price and 1D/1W/1M/3M absolute
 and percentage changes, plus the original source link. IDX uses IDR and US
 uses USD. Missing quotes or individual horizons use grey `-` placeholders;

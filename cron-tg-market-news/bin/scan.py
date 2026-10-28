@@ -578,6 +578,8 @@ def _selection_item_from_record(key: str, record: Mapping[str, object]) -> Selec
             summary=selection_data.get("summary", ""),
             title=selection_data.get("title", ""),
             route=Destination(selection_data.get("route", Destination.ID_STOCKS_NEWS.value)),
+            subject=selection_data.get("subject"),
+            resolved_ticker=selection_data.get("ticker") or None,
         )
     except (KeyError, TypeError, ValueError) as error:
         raise StateBlockedError(f"candidate {key!r} has invalid durable selection data") from error
@@ -725,13 +727,19 @@ def _route_pending(state: dict[str, object]) -> int:
             if _is_tuntun_update(item) and item.candidate.source_message_id == source_message_id
         ]
         leads = [item for item in update_items if item.candidate.source_kind is SourceKind.TUNTUN_UPDATE_LEAD]
+        sections = [item for item in update_items if item.candidate.source_kind is not SourceKind.TUNTUN_UPDATE_LEAD]
+        company_sections = [item for item in sections if item.subject is not None and item.route is Destination.ID_STOCKS_NEWS]
         macro_sections = [
-            item for item in update_items if item.candidate.source_kind is SourceKind.TUNTUN_UPDATE_SECTION
+            item for item in sections if (item.route is Destination.MACRO_NEWS if item.subject is not None else item.candidate.source_kind is SourceKind.TUNTUN_UPDATE_SECTION)
         ]
         industry_sections = [
-            item for item in update_items if item.candidate.source_kind is SourceKind.TUNTUN_UPDATE_INDUSTRY
+            item for item in sections if (item.route is Destination.INDUSTRY_NEWS if item.subject is not None else item.candidate.source_kind is SourceKind.TUNTUN_UPDATE_INDUSTRY)
         ]
-        for lead in leads:
+        for excluded in sections:
+            if excluded.subject is not None and excluded.route is Destination.EXCLUDE:
+                mark_terminal(state, excluded.key, "suppressed_ineligible")
+                routed += 1
+        for lead in [*leads, *company_sections]:
             _route_one(state, lead, classified)
             routed += 1
         routed += _route_update_sections(state, macro_sections, classified)
@@ -764,7 +772,7 @@ def _pending_delivery(state: dict[str, object], now: datetime) -> list[Selection
 
 def _delivery_channel(item: SelectionCandidate) -> str:
     watch_config = config.active_watch_config()
-    if item.candidate.source_kind is SourceKind.TUNTUN_UPDATE_INDUSTRY:
+    if item.route is Destination.INDUSTRY_NEWS or (item.subject is None and item.candidate.source_kind is SourceKind.TUNTUN_UPDATE_INDUSTRY):
         return watch_config.industry_news_channel_id
     if item.route is Destination.MACRO_NEWS:
         return watch_config.macro_news_channel_id
@@ -1367,9 +1375,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     backfill.add_argument("--message-id", required=True, type=int)
     images = subparsers.add_parser("prepare-summary-images")
     images.add_argument("--json", required=True, dest="payload")
+    lookup = subparsers.add_parser("lookup-company")
+    lookup.add_argument("--json", required=True, dest="payload")
     arguments = parser.parse_args(argv)
     try:
-        if arguments.command == "prepare-summary-images":
+        if arguments.command == "lookup-company":
+            import news_identity
+            result = news_identity.lookup_payload(json.loads(arguments.payload))
+        elif arguments.command == "prepare-summary-images":
             import summary_context
             result = summary_context.prepare_summary_context(json.loads(arguments.payload))
         elif arguments.command == "submit-classification":

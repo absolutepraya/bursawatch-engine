@@ -8,6 +8,8 @@ if not _news_bin.is_dir():
 if str(_news_bin) not in _news_sys.path:
     _news_sys.path.insert(0, str(_news_bin))
 import news_format
+news_subject = news_format.news_subject
+import news_identity
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime
@@ -75,6 +77,12 @@ SUBMISSION_SCHEMA = {
     },
 }
 
+SUBJECT_SUBMISSION_SCHEMA = {
+    **SUBMISSION_SCHEMA,
+    "required": [*SUBMISSION_SCHEMA["required"], "title", "subject"],
+    "properties": {**SUBMISSION_SCHEMA["properties"], "subject": news_subject.SUBJECT_SCHEMA},
+}
+
 _REQUIRED_SUBMISSION_FIELDS = frozenset(SUBMISSION_SCHEMA["required"])
 _OPTIONAL_SUBMISSION_FIELDS = frozenset({"title"})
 _PROVIDER_NAMES = frozenset(provider.value for provider in Provider)
@@ -93,6 +101,26 @@ _ITEM_FIELDS = frozenset(
 )
 _RINGKASAN_PREFIX = "*(Ringkasan)* "
 
+SUBJECT_INSTRUCTION = _BASE_INSTRUCTION + news_subject.INSTRUCTION + news_subject.lookup_instruction("bursawatch-tg-market-news.sh") + (
+    "Return candidate_key, ticker, subject, event_class, title, summary, material_facts, ranking_band, dedupe_facts, "
+    "eligible, route, and source_evidence. The supplied ticker is only an optional hint: establish the central "
+    "issuer from the full source text, or leave ticker empty. A source-supported name without a verified ticker "
+    "still belongs in id_stocks_news and uses that company name in its headline. For industry and macro, ticker "
+    "is empty. Use id_stocks_news for company, id_industry_news for industry, macro_news for macro, and exclude "
+    "for ineligible material. Include subject for every result, including excluded material, so the routing decision "
+    "remains auditable. A verified ticker starts the headline as TICKER colon. Otherwise use a natural source-grounded "
+    "headline. Do not include a Ringkasan marker or an ending punctuation mark. Preserve Phintraco research attribution "
+    "and distinguish forecasts from reported results."
+)
+
+
+def mark_subject_contract(state: dict[str, object], key: str) -> None:
+    state["stats"].setdefault("news_subject_contracts", {})[key] = news_subject.CONTRACT
+
+
+def subject_contract_required(state: Mapping[str, object], key: str) -> bool:
+    return state.get("stats", {}).get("news_subject_contracts", {}).get(key) == news_subject.CONTRACT
+
 
 def presentation_category(candidate: CompanyCandidate) -> news_format.PresentationCategory:
     if candidate.source_kind is SourceKind.TUNTUN_UPDATE_INDUSTRY:
@@ -104,6 +132,10 @@ def _instruction_for(provider: Provider, category: news_format.PresentationCateg
     instruction = TUNTUN_INSTRUCTION if provider is Provider.TUNTUN else PHINTRACO_INSTRUCTION
     if category != "issuer":
         instruction += f"Selected presentation category: {category}. This does not change the allowed route or destination. "
+    return _with_operator_context(instruction)
+
+
+def _with_operator_context(instruction: str) -> str:
     additional = config.active_watch_config().additional_prompt_instruction
     if not additional:
         return instruction
@@ -116,11 +148,11 @@ def _instruction_for(provider: Provider, category: news_format.PresentationCateg
     )
 
 
-def agent_item(candidate: CompanyCandidate) -> dict[str, str]:
+def agent_item(candidate: CompanyCandidate, *, subject_classification: bool = False) -> dict[str, str]:
     """Return the one bounded, untrusted source item supplied to Hermes."""
     if not isinstance(candidate, CompanyCandidate):
         raise ValueError("candidate must be a CompanyCandidate")
-    return {
+    result = {
         "candidate_key": candidate.key,
         "ticker": candidate.ticker or "",
         "provider": candidate.provider.value,
@@ -131,6 +163,10 @@ def agent_item(candidate: CompanyCandidate) -> dict[str, str]:
         "source_text": candidate.source_text,
         "instruction": _instruction_for(candidate.provider, presentation_category(candidate)),
     }
+    if subject_classification:
+        result.update(candidate_type="unclassified", classification_contract=news_subject.CONTRACT,
+                      instruction=_with_operator_context(SUBJECT_INSTRUCTION))
+    return result
 
 
 def build_wake_payload(items: Sequence[Mapping[str, str]], *, instruction_suffix: str = "") -> dict[str, object]:
@@ -142,7 +178,7 @@ def build_wake_payload(items: Sequence[Mapping[str, str]], *, instruction_suffix
     if isinstance(items, (str, bytes)) or len(items) != 1:
         raise ValueError("wake payload requires exactly one item")
     item = items[0]
-    if not isinstance(item, Mapping) or set(item) != _ITEM_FIELDS:
+    if not isinstance(item, Mapping) or set(item) not in {_ITEM_FIELDS, _ITEM_FIELDS | {"classification_contract"}}:
         raise ValueError("wake payload item has an unexpected schema")
     if any(not isinstance(value, str) for value in item.values()):
         raise ValueError("wake payload item values must be text")
@@ -154,13 +190,16 @@ def build_wake_payload(items: Sequence[Mapping[str, str]], *, instruction_suffix
         source_kind = SourceKind(item["source_kind"])
     except ValueError as error:
         raise ValueError("wake payload source kind is unknown") from error
-    candidate_type = "issuer" if item["ticker"] else "macro"
+    semantic = item.get("classification_contract") == news_subject.CONTRACT
+    if "classification_contract" in item and not semantic:
+        raise ValueError("wake payload classification contract is unknown")
+    candidate_type = "unclassified" if semantic else ("issuer" if item["ticker"] else "macro")
     if item["candidate_type"] != candidate_type:
         raise ValueError("wake payload candidate type is inconsistent")
     category = "industry" if source_kind is SourceKind.TUNTUN_UPDATE_INDUSTRY else candidate_type
     if not isinstance(instruction_suffix, str):
         raise ValueError("wake payload instruction suffix must be text")
-    expected_instruction = _instruction_for(provider, category) + instruction_suffix
+    expected_instruction = (_with_operator_context(SUBJECT_INSTRUCTION) if semantic else _instruction_for(provider, category)) + instruction_suffix
     if item["instruction"] != expected_instruction:
         raise ValueError("wake payload item instruction does not match protocol")
     return {"wakeAgent": True, "items": [dict(item)]}
@@ -179,14 +218,14 @@ def _validate_summary(summary: object) -> str:
     return value
 
 
-def _validate_title(value: object, expected_ticker: str | None) -> str:
+def _validate_title(value: object, expected_ticker: str | None, *, company_name: bool = False) -> str:
     title = _require_text(value, "title").strip()
     title = " ".join(title.split())
     if not 5 <= len(title) <= 120:
         raise ValueError("title must be from 5 to 120 characters")
     if expected_ticker is not None and not title.startswith(f"{expected_ticker}: "):
         raise ValueError("title must start with the exact ticker and colon")
-    if expected_ticker is None and re.match(r"^[A-Z]{4}:\s", title):
+    if expected_ticker is None and not company_name and re.match(r"^[A-Z]{4}:\s", title):
         raise ValueError("macro title must not use a ticker prefix")
     if title[-1] in ".!?":
         raise ValueError("title must not have ending punctuation")
@@ -206,6 +245,13 @@ def _route_from_submission(candidate: CompanyCandidate, payload: Mapping[str, ob
         route = Destination(_require_text(payload.get("route"), "route"))
     except ValueError as error:
         raise ValueError("route is unknown") from error
+    if "subject" in payload:
+        subject = news_subject.validate_subject(payload["subject"], candidate.source_text)
+        if route is not Destination.EXCLUDE:
+            news_subject.validate_route(subject, route.value)
+        return route
+    if route is Destination.INDUSTRY_NEWS:
+        raise ValueError("Industry news requires subject classification")
     if candidate.ticker is None and route is Destination.ID_STOCKS_NEWS:
         raise ValueError("a macro candidate cannot route to id_stocks_news")
     if candidate.source_kind is SourceKind.TUNTUN_UPDATE_INDUSTRY and route not in {
@@ -216,15 +262,16 @@ def _route_from_submission(candidate: CompanyCandidate, payload: Mapping[str, ob
     return route
 
 
-def validate_agent_submission(candidate: CompanyCandidate, payload: Mapping[str, object]) -> EventClass:
+def validate_agent_submission(candidate: CompanyCandidate, payload: Mapping[str, object], *, subject_required: bool = False, verified_ticker: str | None = None) -> EventClass:
     """Reject every nonconforming agent response before durable-state mutation."""
     if not isinstance(candidate, CompanyCandidate):
         raise ValueError("candidate must be a CompanyCandidate")
     if not isinstance(payload, Mapping):
         raise ValueError("submission must be a JSON object")
     keys = set(payload)
-    missing = _REQUIRED_SUBMISSION_FIELDS - keys
-    unexpected = keys - _REQUIRED_SUBMISSION_FIELDS - _OPTIONAL_SUBMISSION_FIELDS
+    required = _REQUIRED_SUBMISSION_FIELDS | ({"subject", "title"} if subject_required else set())
+    missing = required - keys
+    unexpected = keys - required - _OPTIONAL_SUBMISSION_FIELDS - {"subject"}
     if missing:
         raise ValueError(f"submission is missing required fields: {sorted(missing)!r}")
     if unexpected:
@@ -236,7 +283,14 @@ def validate_agent_submission(candidate: CompanyCandidate, payload: Mapping[str,
     is_tuntun = candidate.provider is Provider.TUNTUN
     if is_tuntun and "title" not in keys:
         raise ValueError("submission is missing required fields: ['title']")
-    if not isinstance(payload["ticker"], str) or payload["ticker"] != (candidate.ticker or ""):
+    semantic = "subject" in payload
+    if semantic:
+        subject = news_subject.validate_subject(payload["subject"], candidate.source_text)
+        if subject["kind"] == "company":
+            news_subject.validate_ticker(payload["ticker"], candidate.source_text, verified_ticker=verified_ticker)
+        elif payload["ticker"] != "":
+            raise ValueError("non-company subject must have an empty ticker")
+    elif not isinstance(payload["ticker"], str) or payload["ticker"] != (candidate.ticker or ""):
         raise ValueError("ticker does not match the active candidate")
 
     try:
@@ -246,7 +300,8 @@ def validate_agent_submission(candidate: CompanyCandidate, payload: Mapping[str,
     route = _route_from_submission(candidate, payload)
     summary = _validate_summary(payload["summary"])
     if "title" in payload:
-        _validate_title(payload["title"], candidate.ticker if route is Destination.ID_STOCKS_NEWS else None)
+        _validate_title(payload["title"], (payload["ticker"] or None) if semantic else candidate.ticker if route is Destination.ID_STOCKS_NEWS else None,
+                        company_name=semantic and subject["kind"] == "company")
     material_facts = _validate_fact_array(payload["material_facts"], "material_facts")
     ranking_band = payload["ranking_band"]
     if not isinstance(ranking_band, int) or isinstance(ranking_band, bool) or not 1 <= ranking_band <= 5:
@@ -273,7 +328,10 @@ def submit_classification(
     """Persist a valid response only while its matching agent lease remains active."""
     if not isinstance(candidate, CompanyCandidate):
         raise ValueError("candidate must be a CompanyCandidate")
-    event_class = validate_agent_submission(candidate, payload)
+    verified_ticker = None
+    if "subject" in payload:
+        payload, verified_ticker = news_identity.prepare_item(dict(payload), candidate.source_text)
+    event_class = validate_agent_submission(candidate, payload, subject_required=subject_contract_required(state, candidate.key), verified_ticker=verified_ticker)
     classification = Classification(candidate=candidate, event_class=event_class)
     persist_classification(
         state,
@@ -288,15 +346,17 @@ def submit_classification(
                 {
                     "title": _validate_title(
                         payload["title"],
-                        candidate.ticker
+                        (payload["ticker"] or None) if "subject" in payload else candidate.ticker
                         if _route_from_submission(candidate, payload) is Destination.ID_STOCKS_NEWS
                         else None,
+                        company_name="subject" in payload and payload["subject"]["kind"] == "company",
                     )
                 }
                 if "title" in payload
                 else {}
             ),
             "route": _route_from_submission(candidate, payload).value,
+            **({"subject": news_subject.validate_subject(payload["subject"], candidate.source_text), "ticker": payload["ticker"]} if "subject" in payload else {}),
         },
     )
     return classification

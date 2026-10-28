@@ -104,9 +104,22 @@
       ]
     },
     {
+      "id": "lib-news-classification",
+      "handler": "runtime",
+      "runtime": "lib-news-classification",
+      "paths": ["lib-news-classification/bin/**"],
+      "verification": "checksum-only"
+    },
+    {
+      "id": "lib-news-classification-metadata",
+      "handler": "metadata",
+      "paths": ["lib-news-classification/AGENTS.md", "lib-news-classification/README.md", "lib-news-classification/tests/**"]
+    },
+    {
       "id": "lib-news-format",
       "handler": "runtime",
       "runtime": "lib-news-format",
+      "depends_on": ["lib-news-classification"],
       "paths": ["lib-news-format/bin/**"],
       "verification": "checksum-only"
     },

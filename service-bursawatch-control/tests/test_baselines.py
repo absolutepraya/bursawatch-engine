@@ -149,7 +149,7 @@ def test_stockbit_baseline_matches_source_defaults_and_validates():
         [
             sys.executable,
             "-c",
-            "import config, json; print(json.dumps({'version': config.CONFIG_VERSION, 'feeds': [{'id': feed.lane.value, 'enabled': True} for feed in config.FEEDS], 'destinations': {'id_stocks_news_channel_id': config.ID_STOCKS_NEWS_CHANNEL_ID, 'macro_news_channel_id': config.MACRO_NEWS_CHANNEL_ID}, 'additional_prompt_instruction': ''}, sort_keys=True))",
+            "import config, json; print(json.dumps({'version': config.CONFIG_VERSION, 'feeds': [{'id': feed.lane.value, 'enabled': True} for feed in config.FEEDS], 'destinations': {'id_stocks_news_channel_id': config.ID_STOCKS_NEWS_CHANNEL_ID, 'macro_news_channel_id': config.MACRO_NEWS_CHANNEL_ID, 'industry_news_channel_id': config.INDUSTRY_NEWS_CHANNEL_ID}, 'additional_prompt_instruction': ''}, sort_keys=True))",
         ],
         cwd=config_source,
         text=True,

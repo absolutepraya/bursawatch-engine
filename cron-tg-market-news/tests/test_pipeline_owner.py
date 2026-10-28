@@ -63,6 +63,75 @@ class _Inbox:
         return self.inspection
 
 
+@pytest.mark.parametrize("text,subject,ticker,route,destination", [
+    (
+        "Phintraco Sekuritas Notes | 28 Oktober 2026\nKabar perusahaan\n"
+        "PT Bach Multi Global Tbk membukukan pertumbuhan laba 32,05%.",
+        {"kind": "company", "name": "Bach Multi Global", "evidence": "PT Bach Multi Global Tbk membukukan pertumbuhan laba 32,05%"},
+        "BACH", "id_stocks_news", "1525102508714889257",
+    ),
+    (
+        "Phintraco Sekuritas Notes | 28 Oktober 2026\nHasil sembilan bulan terbaru\n"
+        "PT Bach Multi Global Tbk (BACH) membukukan pertumbuhan laba 32,05%.",
+        {"kind": "company", "name": "Bach Multi Global", "evidence": "PT Bach Multi Global Tbk (BACH) membukukan pertumbuhan laba 32,05%"},
+        "BACH", "id_stocks_news", "1525102508714889257",
+    ),
+    (
+        "Phintraco Sekuritas Notes | 28 Oktober 2026\nKabar perusahaan\n"
+        "Perusahaan Nusantara memperoleh kontrak baru di tengah pertumbuhan sektor pertanian.",
+        {"kind": "company", "name": "Perusahaan Nusantara", "evidence": "Perusahaan Nusantara memperoleh kontrak baru"},
+        "", "id_stocks_news", "1525102508714889257",
+    ),
+    (
+        "Phintraco Sekuritas Notes | 28 Oktober 2026\nAALI dan prospek industri\n"
+        "Permintaan industri kelapa sawit meningkat. AALI dan LSIP disebut sebagai contoh emiten terkait.",
+        {"kind": "industry", "name": "kelapa sawit", "evidence": "Permintaan industri kelapa sawit meningkat"},
+        "", "id_industry_news", "1549418098807930880",
+    ),
+    (
+        "Phintraco Sekuritas Notes | 28 Oktober 2026\nKebijakan pertanian\n"
+        "Pemerintah mengubah aturan ekspor untuk seluruh sektor pertanian.",
+        {"kind": "industry", "name": "pertanian", "evidence": "Pemerintah mengubah aturan ekspor untuk seluruh sektor pertanian"},
+        "", "id_industry_news", "1549418098807930880",
+    ),
+    (
+        "Phintraco Sekuritas Notes | 28 Oktober 2026\nOutlook ekonomi\n"
+        "Inflasi Indonesia turun menjadi 2,4%. Sektor pertanian menjadi salah satu kontributor perubahan harga.",
+        {"kind": "macro", "name": "inflasi", "evidence": "Inflasi Indonesia turun menjadi 2,4%"},
+        "", "macro_news", "1531655369884045382",
+    ),
+])
+def test_subject_classification_routes_complete_story_without_header_identity(tmp_path, monkeypatch, text, subject, ticker, route, destination):
+    import news_identity
+    monkeypatch.setattr(news_identity, "lookup_company", lambda *args: {"status": "verified", "ticker": "BACH"})
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_path / "news.json"))
+    monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
+    work, inspection = _news_work("company_news", text=text)
+    assert pipeline_owner.submit(work, no_post=True, inbox=_Inbox(inspection)) == "accepted"
+    now = datetime.now(scan.WIB) + timedelta(seconds=1)
+    item, = pipeline_owner.claim_agent(now)["items"]
+    assert item["candidate_type"] == "unclassified"
+    assert item["classification_contract"] == "subject-v1"
+    title = f"{ticker}: Laba tumbuh 32,05%" if ticker else f"{subject['name']}: Perkembangan terbaru"
+    payload = {
+        "candidate_key": item["candidate_key"], "ticker": ticker, "subject": subject,
+        "event_class": "financial_results_or_guidance", "summary": subject["evidence"],
+        "title": title, "material_facts": [subject["evidence"]], "ranking_band": 1,
+        "dedupe_facts": [subject["evidence"]], "eligible": True, "route": route,
+        "source_evidence": subject["evidence"],
+    }
+    wrong = {**payload, "route": "macro_news" if route != "macro_news" else "id_stocks_news"}
+    with pytest.raises(ValueError, match="subject"):
+        asyncio.run(scan.submit_classification_payload(wrong, now + timedelta(seconds=10)))
+    result = asyncio.run(scan.submit_classification_payload(payload, now + timedelta(seconds=30)))
+    assert result["news_delivered"] == 1
+    stored = load_state()
+    delivered = stored["stats"]["delivery_payloads"][item["candidate_key"]]
+    assert delivered["channel_id"] == destination
+    assert ("Harga terakhir (IDR)" in delivered["content"]) is bool(ticker)
+    assert stored["candidates"][item["candidate_key"]]["selection"]["subject"] == subject
+
+
 @pytest.mark.parametrize("ticker,message_id,summary", [
     ("UNTR", "36033", "Pendapatan UNTR 9M26 turun 10,08% menjadi Rp90,33 triliun."),
     ("ERAL", "36037", "Pendapatan ERAL 9M26 naik 44,73% menjadi Rp6,21 triliun."),
@@ -76,13 +145,14 @@ def test_financial_headline_reaches_stock_destination_through_source_owner(tmp_p
     now = datetime.now(scan.WIB) + timedelta(seconds=1)
     item, = pipeline_owner.claim_agent(now)["items"]
     assert item["ticker"] == ticker
-    assert item["candidate_type"] == "issuer"
+    assert item["candidate_type"] == "unclassified"
     payload = {
         "candidate_key": item["candidate_key"], "ticker": item["ticker"],
         "event_class": "financial_results_or_guidance", "summary": summary,
         "title": f"{ticker}: Kinerja keuangan 9M26", "material_facts": [summary],
         "ranking_band": 1, "dedupe_facts": [summary], "eligible": True,
         "route": "id_stocks_news", "source_evidence": summary,
+        "subject": {"kind": "company", "name": ticker, "evidence": summary},
     }
     result = asyncio.run(scan.submit_classification_payload(payload, now + timedelta(seconds=30)))
     assert result["news_delivered"] == 1
@@ -102,7 +172,7 @@ def test_bach_issuer_heading_reaches_stock_destination_through_source_owner(tmp_
     now = datetime.now(scan.WIB) + timedelta(seconds=1)
     item, = pipeline_owner.claim_agent(now)["items"]
     assert item["ticker"] == "BACH"
-    assert item["candidate_type"] == "issuer"
+    assert item["candidate_type"] == "unclassified"
     summary = "BACH membukukan laba periode berjalan Rp136,78 miliar pada 9M26, naik 32,05% YoY."
     payload = {
         "candidate_key": item["candidate_key"], "ticker": item["ticker"],
@@ -110,6 +180,7 @@ def test_bach_issuer_heading_reaches_stock_destination_through_source_owner(tmp_
         "title": "BACH: Laba tumbuh 32,05% pada 9M26", "material_facts": [summary],
         "ranking_band": 1, "dedupe_facts": [summary], "eligible": True,
         "route": "id_stocks_news", "source_evidence": summary,
+        "subject": {"kind": "company", "name": "BACH", "evidence": "BACH: Pertumbuhan Laba 32.05% YoY"},
     }
     result = asyncio.run(scan.submit_classification_payload(payload, now + timedelta(seconds=30)))
     assert result["news_delivered"] == 1
@@ -157,18 +228,18 @@ def test_phintraco_news_sibling_work_claims_one_frozen_agent_item_and_renders_go
         "event_class": "material_contract", "summary": "DEWA mendapat kontrak bernilai Rp22 triliun.",
         "material_facts": ["Kontrak DEWA bernilai Rp22 triliun."],
         "ranking_band": 1, "dedupe_facts": ["DEWA kontrak Rp22 triliun"],
-        "eligible": True, "route": "macro_news",
+        "eligible": True, "route": "id_stocks_news", "title": "DEWA: Kontrak bernilai Rp22 triliun",
+        "subject": {"kind": "company", "name": "DEWA", "evidence": "DEWA secures a Rp22 trillion contract"},
         "source_evidence": "Pesan Phintraco menyebut kontrak DEWA bernilai Rp22 triliun.",
     }
     result = asyncio.run(scan.submit_classification_payload(payload, now + timedelta(seconds=30)))
     assert result["news_delivered"] == 1
     delivered = load_state()["stats"]["delivery_payloads"][item["candidate_key"]]
-    assert delivered["content"] == (
-        "### <:phintraco:1531272488645038091> Phintraco Sekuritas\n-# Phintraco\n\n"
-        "*(Ringkasan)* DEWA mendapat kontrak bernilai Rp22 triliun.\n\n"
-        "[View on Telegram](<https://t.me/phintasprofits/35390>)"
-    )
-    assert delivered["channel_id"] == "1531655369884045382"
+    assert delivered["content"].startswith("### <:phintraco:1531272488645038091> DEWA: Kontrak bernilai Rp22 triliun\n-# Phintraco")
+    assert "*(Ringkasan)* DEWA mendapat kontrak bernilai Rp22 triliun." in delivered["content"]
+    assert "Harga terakhir (IDR)" in delivered["content"]
+    assert "https://t.me/phintasprofits/35390" in delivered["content"]
+    assert delivered["channel_id"] == "1525102508714889257"
     assert pipeline_owner.agent_status()["candidates"]["pending_analysis"] == 0
 
 
@@ -312,17 +383,20 @@ def test_expired_news_agent_lease_is_visible_then_reclaimed_after_backoff(tmp_pa
 def test_company_only_subscription_suppresses_a_macro_route(tmp_path, monkeypatch):
     monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_path / "news.json"))
     monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
-    work, inspection = _news_work("company_news", enabled=("company_news",))
+    work, inspection = _news_work("company_news", enabled=("company_news",),
+        text="Notes: DEWA dan pasar\nBank Indonesia menurunkan suku bunga untuk seluruh perekonomian.")
     assert pipeline_owner.submit(work, no_post=True, inbox=_Inbox(inspection)) == "accepted"
     now = datetime.now(scan.WIB) + timedelta(seconds=1)
     item = pipeline_owner.claim_agent(now)["items"][0]
     payload = {
-        "candidate_key": item["candidate_key"], "ticker": item["ticker"],
-        "event_class": "material_contract", "summary": "DEWA mendapat kontrak bernilai Rp22 triliun.",
-        "material_facts": ["Kontrak DEWA bernilai Rp22 triliun."],
-        "ranking_band": 1, "dedupe_facts": ["DEWA kontrak Rp22 triliun"],
+        "candidate_key": item["candidate_key"], "ticker": "",
+        "event_class": "listing_legal_regulatory_or_credit", "summary": "Bank Indonesia menurunkan suku bunga untuk seluruh perekonomian.",
+        "material_facts": ["Bank Indonesia menurunkan suku bunga."],
+        "ranking_band": 1, "dedupe_facts": ["Bank Indonesia suku bunga turun"],
         "eligible": True, "route": "macro_news",
-        "source_evidence": "Pesan Phintraco menyebut kontrak DEWA bernilai Rp22 triliun.",
+        "title": "Bank Indonesia menurunkan suku bunga",
+        "subject": {"kind": "macro", "name": "suku bunga", "evidence": "Bank Indonesia menurunkan suku bunga untuk seluruh perekonomian"},
+        "source_evidence": "Bank Indonesia menurunkan suku bunga untuk seluruh perekonomian.",
     }
     assert asyncio.run(scan.submit_classification_payload(payload, now + timedelta(seconds=30)))["news_delivered"] == 0
     state = load_state()
@@ -396,8 +470,8 @@ def test_native_category_claim_accepts_bound_image_instruction(tmp_path, monkeyp
     item = wake["items"][0]
     assert item["candidate_key"] == candidate.key
     assert "prepare-summary-images" in item["instruction"]
-    if category != "issuer":
-        assert f"Selected presentation category: {category}." in item["instruction"]
+    assert item["candidate_type"] == "unclassified"
+    assert "Selected presentation category:" not in item["instruction"]
 
 
 def test_split_tuntun_image_context_remains_candidate_bound(tmp_path, monkeypatch, load_fixture):

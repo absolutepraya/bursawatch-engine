@@ -8,7 +8,7 @@ user-invocable: false
 
 The scanner requires a valid live control-plane configuration revision for
 new RSS intake. The four RSS sources and their lane IDs remain fixed in code.
-The live revision controls lane enabled switches, the two news destinations,
+The live revision controls lane enabled switches, the company, industry, and macro destinations,
 and the bounded additional operator instruction. Local state version 2
 preserves version 1 cursors and pending work. Each dispatched article carries
 its frozen revision, instruction, and destinations through submission and
@@ -35,21 +35,33 @@ Return exactly this JSON object with no extra fields:
   "summary":"<source-grounded summary>",
   "material_facts":["<source-supported fact>"],
   "dedupe_facts":["<normalized source-supported fact>"],
+  "subject": {"kind": "<company | industry | macro>", "name": "<central subject>", "evidence": "<short exact source quotation>"},
   "eligible":true,
-  "route":"<id_stocks_news | macro_news | exclude>",
+  "route":"<id_stocks_news | id_industry_news | macro_news | exclude>",
   "source_evidence":"<source-supported evidence>"
 }
 ```
 
-Use the central thesis, not every named ticker:
+Classify each ordinary item from the complete supplied source meaning before
+choosing its destination. Return `subject` with exactly `kind`, `name`, and
+`evidence`: kind is `company`, `industry`, or `macro`; evidence is a short exact
+quotation from the supplied source. Company news concerns one company's own
+development and uses Stock News. Sector background does not change that.
+Industry news concerns a sector as a whole, including industry-focused policy,
+and uses `id_industry_news` even when named companies are examples or top picks.
+Economy-wide, cross-industry, cross-asset, or overall-market developments use
+`macro_news`. Source headings, publisher, ticker presence and ticker counts do
+not determine the subject. Split independent company developments, while
+keeping a connected transaction or one shared thesis together.
 
-- Use `id_stocks_news` only when one IDX-listed issuer is central. Return its
-  exact ticker and begin the title with `TICKER: `.
-- Use `macro_news` for macro, sector, commodity, market-wide, or multi-issuer
-  material. Return an empty ticker and do not invent a ticker prefix.
-- Supporting ticker mentions do not change a macro route.
-- Use `exclude` with `eligible: false` for irrelevant, promotional, generic
-  educational, or unsupported material.
+Resolve tickers separately from category. A named company with no verified
+ticker stays in Stock News using its source name, an empty ticker, and no price
+tracker. Never use Macro as a missing-ticker, foreign-company, unavailable-quote,
+or missing-destination fallback. Preserve configured market coverage, relevance
+exclusions, and specialized Swing/status contracts. Do not invent evidence,
+tickers, or facts. Follow the trusted item's shared subject instruction.
+
+Use `exclude` with `eligible: false` for ineligible material.
 
 Title rules:
 
@@ -90,6 +102,23 @@ Discord bot token. Delivery-state migration is an explicit operator action via
 separately gated `--apply <private-path>`. Handoff uses each article's frozen
 live destination snapshot and does not load static destinations.
 
+## Company identity lookup
+
+The general no-browsing and no-other-program rules allow this one explicit
+read-only exception for a clearly named source company whose ticker is missing:
+
+```bash
+"$HOME/.hermes/scripts/bursawatch-stockbit-snips.sh" lookup-company --json '{"company":"<exact source company name>","market":"ID"}'
+```
+
+The tool searches Yahoo Finance for a unique company-name and exchange match.
+Use `US` only within configured US coverage. A verified result supplies only
+ticker and exchange for deterministic price enrichment, never extra news facts.
+Use no arbitrary URL or shell helper. The owner independently verifies an
+externally proposed ticker. If lookup is unavailable, ambiguous, or unresolved,
+submit Stock News using the company name and an empty ticker with no tracker.
+The lookup never selects a category, sends a message, or changes source state.
+
 ## Discord delivery receipt wait
 
 After an accepted operation returns a nonterminal receipt, the sender waits for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) on that same stable operation. If it remains pending, the existing durable retry path continues without a new operation key.
@@ -121,7 +150,7 @@ capability, and source-specific safety checks remain mandatory.
 
 Split independent issuer developments into ordered items, including separate
 issuer dividends and suspension reopenings. Keep a connected transaction or
-one broad thesis as one story. Each generated issuer card has a ticker-led
+one broad thesis as one story. Each generated issuer card with a verified ticker has a ticker-led
 headline, source byline, latest native-currency price and 1D/1W/1M/3M absolute
 and percentage changes, plus the original source link. IDX uses IDR and US
 uses USD. Missing quotes or individual horizons use grey `-` placeholders;
@@ -152,7 +181,7 @@ For independent stories, use `{"candidate_key":"<supplied key>","items":[<analys
 Return one to sixteen items, each containing exactly the scalar analysis
 fields except `candidate_key`. Keep a connected company or macro thesis in
 the ordinary scalar schema. Each independent issuer item gets its own tracker;
-a combined policy or sector thesis stays one macro item.
+a combined policy thesis uses its actual industry or macro subject.
 
 Submission completion reporting aggregates the split parent's child phases.
 Any unfinished child keeps the run degraded, including an accepted Delivery

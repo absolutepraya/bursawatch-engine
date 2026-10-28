@@ -133,7 +133,7 @@ def route_enabled(state: Mapping[str, object], candidate_key: str, route: Destin
     record = provenance(state, candidate_key)
     if record is None or route is Destination.EXCLUDE:
         return True
-    capability = "company_news" if route is Destination.ID_STOCKS_NEWS else "macro_news"
+    capability = "company_news" if route in {Destination.ID_STOCKS_NEWS, Destination.INDUSTRY_NEWS} else "macro_news"
     return capability in record["enabled_capabilities"]
 
 

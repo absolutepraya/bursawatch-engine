@@ -402,3 +402,22 @@ def test_shared_tracker_can_use_ihsg_heading_without_changing_stock_defaults():
     assert default.startswith('Harga terakhir (IDR): **9.175**') and news_format.GREY in default
     assert custom.startswith('Penutupan IHSG terakhir (IDR): **9.175**') and '1W: **-**' in custom
     assert news_format.GREY not in custom
+
+
+@pytest.mark.parametrize('kind,route,title,name,ticker,expected_tracker', [
+    ('company', 'id_stocks_news', 'ACME: Ekspansi bisnis baru', 'ACME', None, False),
+    ('company', 'id_stocks_news', 'BACH: Laba bersih meningkat', 'Bach Multi Global', 'BACH', True),
+    ('industry', 'id_industry_news', 'Permintaan sawit tumbuh, AALI diuntungkan', 'Sawit', None, False),
+    ('macro', 'macro_news', 'Inflasi melandai', 'Inflasi', None, False),
+])
+def test_subject_cards_use_explicit_security_and_keep_frozen_shape(kind, route, title, name, ticker, expected_tracker):
+    calls = []
+    item = dict(title=title, summary='Fakta bersumber.', route=route, ticker=ticker,
+                subject={'kind':kind, 'name':name, 'evidence':'Fakta bersumber.'})
+    cards = news.freeze_cards([item], lambda row:'### '+row['title'], 'https://example.invalid/news', 'Source',
+                              fetch=lambda *args:calls.append(args), context_fetch=lambda *_:None)
+    assert news.validate_cards(cards) == cards
+    assert cards[0]['ticker'] == ticker
+    assert ('Harga terakhir' in '\n'.join(cards[0]['messages'])) == expected_tracker
+    assert len(calls) == int(ticker is not None)
+    assert cards[0]['subject'] == item['subject']

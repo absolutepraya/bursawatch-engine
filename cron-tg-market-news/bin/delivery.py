@@ -163,7 +163,8 @@ def _issuer_entry(
     if market_metadata is not None:
         market_metadata.update(market_data_as_of=getattr(snapshot, "as_of", None), renderer_version=news_format.VERSION)
     context = get_company_context(item.ticker, item.route.value) if item.route is Destination.ID_STOCKS_NEWS and item.ticker is not None else None
-    messages = news_format.render_card(heading, summary, source_message_url(item.candidate), "Telegram", route=item.route.value, snapshot=snapshot, ticker=item.ticker, context=context)
+    show_market_block = not (item.subject is not None and item.subject["kind"] == "company" and item.ticker is None)
+    messages = news_format.render_card(heading, summary, source_message_url(item.candidate), "Telegram", route=item.route.value, snapshot=snapshot, ticker=item.ticker, context=context, show_market_block=show_market_block)
     # This owner's historical contract remains one card per candidate.
     return "\n\n".join(messages)
 
@@ -190,7 +191,12 @@ def _phintraco_source_title(item: SelectionCandidate) -> str:
 
 
 def _phintraco_entry(item: SelectionCandidate, market_metadata=None) -> str:
-    if item.route is not Destination.ID_STOCKS_NEWS or item.ticker is None:
+    if item.route is not Destination.ID_STOCKS_NEWS:
+        raise ValueError("Phintraco issuer entries require a ticker")
+    if item.subject is not None and item.ticker is None:
+        return _issuer_entry(item, f"### {_PROVIDER_EMOJIS['Phintraco']} {item.title}\n-# Phintraco",
+                             load_market_data=False, market_metadata=market_metadata)
+    if item.ticker is None:
         raise ValueError("Phintraco issuer entries require a ticker")
     snapshot = get_market_snapshot(item.ticker, item.candidate.source_text)
     company_name = (
@@ -208,7 +214,7 @@ def _phintraco_entry(item: SelectionCandidate, market_metadata=None) -> str:
 
 
 def _phintraco_macro_entry(item: SelectionCandidate, market_metadata=None) -> str:
-    if item.route is not Destination.MACRO_NEWS:
+    if item.route not in {Destination.MACRO_NEWS, Destination.INDUSTRY_NEWS}:
         raise ValueError("Phintraco macro entries require the macro_news route")
     return _issuer_entry(
         item,
@@ -222,7 +228,7 @@ def _entry(item: SelectionCandidate, market_metadata=None) -> str:
     if item.provider is Provider.TUNTUN and item.title:
         return _tuntun_entry(item, market_metadata)
     if item.provider is Provider.PHINTRACO:
-        if item.route is Destination.MACRO_NEWS:
+        if item.route in {Destination.MACRO_NEWS, Destination.INDUSTRY_NEWS}:
             return _phintraco_macro_entry(item, market_metadata)
         if item.route is Destination.ID_STOCKS_NEWS:
             return _phintraco_entry(item, market_metadata)

@@ -13,7 +13,7 @@ from typing import Any
 
 import config
 import scan
-from agent_protocol import agent_item, build_wake_payload
+from agent_protocol import agent_item, build_wake_payload, mark_subject_contract
 from domain import Provider
 from news_source_work import candidate_keys, loaded_config_for, provenance, put_provenance
 from sources import PhintracoNewsAdapter, TuntunNewsAdapter
@@ -261,12 +261,14 @@ def claim_agent(now: datetime | None = None) -> dict[str, Any]:
         candidate = claim_oldest_pending_analysis(state, now, candidate_keys=keys)
         if candidate is None:
             return {"wakeAgent": False, "items": []}
+        mark_subject_contract(state, candidate.key)
+        save_state(state)
         frozen = loaded_config_for(state, candidate.key)
         assert frozen is not None
         with config.activate_watch_config(frozen.config):
             import summary_context
             import state as owner_state
-            item = agent_item(candidate)
+            item = agent_item(candidate, subject_classification=True)
             instruction_suffix = summary_context.context_instruction(
                 summary_context.claim_from_state(state, candidate.key, owner_state._state_path().parent / "summary-context"),
                 "~/.hermes/scripts/bursawatch-tg-market-news.sh prepare-summary-images --json",

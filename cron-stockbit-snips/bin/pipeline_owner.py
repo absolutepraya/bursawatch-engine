@@ -13,7 +13,7 @@ from typing import Any
 
 import config
 import state
-from agent_protocol import build_wake_payload
+from agent_protocol import build_wake_payload, news_subject
 from models import Article
 
 
@@ -145,8 +145,11 @@ def claim_agent(*, path: Path | None = None, no_post: bool = False, now: datetim
         if not state._valid_config_snapshot(snapshot):
             raise ValueError("Stockbit source article has invalid frozen configuration")
         state.claim_agent(record, observed)
+        semantic = "industry_news_channel_id" in snapshot
+        if semantic:
+            record["news_subject_contract"] = news_subject.CONTRACT
         state.save_state(destination, value)
-        return build_wake_payload(article, snapshot["additional_prompt_instruction"])
+        return build_wake_payload(article, snapshot["additional_prompt_instruction"], subject_classification=semantic)
 
 
 

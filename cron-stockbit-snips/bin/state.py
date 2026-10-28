@@ -229,12 +229,13 @@ def _valid_retry(value: object) -> bool:
 
 
 def _valid_config_snapshot(value: object) -> bool:
-    if type(value) is not dict or set(value) != {
+    fields = {
         "revision",
         "additional_prompt_instruction",
         "id_stocks_news_channel_id",
         "macro_news_channel_id",
-    }:
+    }
+    if type(value) is not dict or set(value) not in [fields, fields | {"industry_news_channel_id"}]:
         return False
     if type(value["revision"]) is not int or value["revision"] < 1:
         return False
@@ -243,7 +244,8 @@ def _valid_config_snapshot(value: object) -> bool:
         return False
     issuer = value["id_stocks_news_channel_id"]
     macro = value["macro_news_channel_id"]
-    return all(type(channel) is str and channel.isascii() and channel.isdecimal() and 17 <= len(channel) <= 20 for channel in (issuer, macro)) and issuer != macro
+    channels = [issuer, macro] + ([value["industry_news_channel_id"]] if "industry_news_channel_id" in value else [])
+    return all(type(channel) is str and channel.isascii() and channel.isdecimal() and 17 <= len(channel) <= 20 for channel in channels) and len(channels) == len(set(channels))
 
 
 def save_state(path: Path, value: dict[str, object]) -> None:

@@ -429,19 +429,15 @@ def test_agent_routing_instruction_prioritizes_market_thesis_over_company_exampl
     config_path.write_text(__import__("json").dumps({"version": 1, "profiles": [profile_payload]}), encoding="utf-8")
     profile = __import__("config").load_watch_config(config_path).profiles[0]
     instruction = agent_protocol.instruction_for(profile).lower()
-    assert "central thesis, not named entities" in instruction
-    assert "leverage, derivatives, liquidity" in instruction
-    assert "companies or etfs are examples" in instruction
-    assert "issuer, exchange, or listing country is unknown or ambiguous" in instruction
-    assert "yahoo finance tool first, then brave search" in instruction
-    assert "do not add any other lookup fact to the title or summary" in instruction
-    assert "lookup remains inconclusive" in instruction
-    assert "choose macro_news" in instruction
+    assert "actual central subject" in instruction
+    assert "companies mentioned as examples" in instruction
+    assert "never use macro news as a fallback" in instruction
+    assert "unknown company, missing ticker" in instruction
+    assert "id_industry_news" in instruction
     assert "id_stocks_swing" in instruction
-    assert "ihsg always takes precedence over id_stocks_swing" in instruction
-    assert "a target derived from earnings, dcf, or valuation remains id_stocks_news" in instruction
-    assert "there is no separate us swing route" in instruction
-    assert "ticker, number, target price, company name, or chart image alone" in instruction
+    assert "overall index thesis remains macro" in instruction
+    assert "valuation-derived target remains stock news" in instruction
+    assert "choose macro_news" not in instruction
     assert "spcx" not in instruction
 
 
@@ -470,7 +466,7 @@ def test_financial_market_scope_accepts_cross_asset_context(config_path, profile
     assert "financial markets" in instruction
     assert "commodities, energy, bonds, yields, interest rates, fx, currencies" in instruction
     assert "crypto" in instruction
-    assert "cross-asset, and financial-market theses" in instruction
+    assert "cross-industry, or cross-asset development" in instruction
     assert agent_protocol.requires_relevance(post, profile=profile) is True
 
 

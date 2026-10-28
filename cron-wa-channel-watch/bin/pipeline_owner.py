@@ -449,6 +449,8 @@ def claim_agent(
             event = deserialize_queue_event(record["event"])
             record["agent_phase"] = "awaiting_agent"
             record["agent_lease_until"] = state.lease_until(observed)
+            if profile.enable_llm_routing:
+                record["news_subject_contract"] = agent_protocol.news_subject.CONTRACT
             route_override = agent_protocol.deterministic_route(profile, event)
             agent_event = replace(event, media=()) if record.get("source_media_unavailable") is True else event
             claimed = agent_protocol.agent_item(profile, agent_event, relevance_guard_required=route_override is not None)

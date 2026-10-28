@@ -11,7 +11,15 @@ import os
 from pathlib import Path
 import re
 import stat
+import sys
 import tempfile
+
+_subject_bin = Path(__file__).resolve().parents[2] / "lib-news-classification" / "bin"
+if not _subject_bin.is_dir():
+    _subject_bin = Path.home() / ".agents/skills/lib-news-classification/bin"
+if str(_subject_bin) not in sys.path:
+    sys.path.insert(0, str(_subject_bin))
+import news_subject
 
 from domain import (
     Classification,
@@ -464,7 +472,8 @@ def has_stock_status_event(state: dict[str, object], source_message_id: int) -> 
 def _validate_selection_data(value: object, field_name: str) -> None:
     if value is None:
         return
-    if not isinstance(value, dict) or frozenset(value) not in _VALID_SELECTION_DATA_KEYS:
+    semantic_keys = _SELECTION_DATA_KEYS_WITH_TITLE_AND_ROUTE | {"subject", "ticker"}
+    if not isinstance(value, dict) or frozenset(value) not in _VALID_SELECTION_DATA_KEYS | {semantic_keys}:
         raise StateBlockedError(f"malformed state: {field_name} has invalid selection data")
     if "summary" in value and (not isinstance(value["summary"], str) or not value["summary"].strip()):
         raise StateBlockedError(f"malformed state: {field_name}.summary must be nonempty text")
@@ -475,6 +484,15 @@ def _validate_selection_data(value: object, field_name: str) -> None:
             Destination(value["route"])
         except (TypeError, ValueError) as error:
             raise StateBlockedError(f"malformed state: {field_name}.route is invalid") from error
+    if "subject" in value:
+        try:
+            news_subject.validate_subject(value["subject"])
+            if not isinstance(value["ticker"], str):
+                raise ValueError("subject ticker must be text")
+            if value["route"] != Destination.EXCLUDE:
+                news_subject.validate_route(value["subject"], value["route"])
+        except ValueError as error:
+            raise StateBlockedError(f"malformed state: {field_name} has invalid subject classification") from error
     ranking_band = value["ranking_band"]
     if not _is_plain_int(ranking_band) or not 1 <= ranking_band <= 5:
         raise StateBlockedError(f"malformed state: {field_name}.ranking_band must be from 1 through 5")

@@ -15,6 +15,7 @@ RED_EMOJI = "<:red:1531274756853202974>"
 HEARTBEAT_CHANNEL_ID = "1505162000420835388"
 ID_STOCKS_NEWS_CHANNEL_ID = "1525102508714889257"
 MACRO_NEWS_CHANNEL_ID = "1531655369884045382"
+INDUSTRY_NEWS_CHANNEL_ID = "1549418098807930880"
 WATCHER_NAME = "stockbit-snips"
 WATCHER_ID = "bursawatch-stockbit-snips"
 
@@ -81,15 +82,18 @@ def load_watch_config_data(raw: object) -> StockbitWatchConfig:
         "id_stocks_news_channel_id",
         "macro_news_channel_id",
     }
-    if type(destinations) is not dict or set(destinations) != expected_destinations:
+    if type(destinations) is not dict or set(destinations) not in [expected_destinations, expected_destinations | {"industry_news_channel_id"}]:
         raise ValueError("Stockbit destinations have an invalid shape")
-    for key in expected_destinations:
+    for key in destinations:
         value = destinations[key]
         if type(value) is not str or _DISCORD_ID_RE.fullmatch(value) is None:
             raise ValueError(f"{key} must be a Discord snowflake")
     issuer_channel = destinations["id_stocks_news_channel_id"]
     macro_channel = destinations["macro_news_channel_id"]
     if issuer_channel == macro_channel:
+        raise ValueError("Stockbit destinations must differ")
+    industry_channel = destinations.get("industry_news_channel_id", INDUSTRY_NEWS_CHANNEL_ID)
+    if industry_channel in {issuer_channel, macro_channel}:
         raise ValueError("Stockbit destinations must differ")
     instruction = root["additional_prompt_instruction"]
     if type(instruction) is not str:
@@ -102,6 +106,7 @@ def load_watch_config_data(raw: object) -> StockbitWatchConfig:
         id_stocks_news_channel_id=issuer_channel,
         macro_news_channel_id=macro_channel,
         additional_prompt_instruction=instruction,
+        industry_news_channel_id=industry_channel,
     )
 
 
