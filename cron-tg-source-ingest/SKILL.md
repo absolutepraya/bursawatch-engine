@@ -27,15 +27,16 @@ candidate. Return exactly this JSON shape, including a source-grounded
 ```json
 {
   "candidate_key": "<supplied candidate_key>",
-  "ticker": "<supplied ticker>",
+  "ticker": "<verified ticker from the supplied source, or empty text>",
   "event_class": "<allowed event class>",
   "title": "<source-grounded headline, prefixed with TICKER: for issuer news>",
   "summary": "<source-grounded Indonesian summary>",
   "material_facts": ["<source-supported fact>"],
   "ranking_band": 1,
   "dedupe_facts": ["<normalized source-supported fact>"],
+  "subject": {"kind": "<company | industry | macro>", "name": "<central subject>", "evidence": "<short exact source quotation>"},
   "eligible": true,
-  "route": "<id_stocks_news | macro_news | exclude>",
+  "route": "<id_stocks_news | id_industry_news | macro_news | exclude>",
   "source_evidence": "<source-supported evidence>"
 }
 ```
@@ -44,12 +45,26 @@ Use event class `financial_results_or_guidance`, `corporate_action`,
 `financing_or_ownership`, `mna_or_asset_transaction`, `material_contract`,
 `listing_legal_regulatory_or_credit`, `quantified_operational_execution`,
 `other_company_operation`, `routine_status`, or `not_eligible`. Use
-`id_stocks_news` only when one supplied issuer is central, and `macro_news` for
-a material broad policy, legal, regulatory, or economic topic, including a
-multi-company impact. A Phintraco note may use `macro_news` while naming a
-ticker. Use `exclude` for ineligible material and set `not_eligible`.
-`eligible` must be false exactly when the route is `exclude` or the event class
-is `not_eligible`. `candidate_key` and `ticker` must exactly match the item.
+Classify each ordinary item from the complete supplied source meaning before
+choosing its destination. Return `subject` with exactly `kind`, `name`, and
+`evidence`: kind is `company`, `industry`, or `macro`; evidence is a short exact
+quotation from the supplied source. Company news concerns one company's own
+development and uses Stock News. Sector background does not change that.
+Industry news concerns a sector as a whole, including industry-focused policy,
+and uses `id_industry_news` even when named companies are examples or top picks.
+Economy-wide, cross-industry, cross-asset, or overall-market developments use
+`macro_news`. Source headings, publisher, ticker presence and ticker counts do
+not determine the subject. Split independent company developments, while
+keeping a connected transaction or one shared thesis together.
+
+Resolve tickers separately from category. A named company with no verified
+ticker stays in Stock News using its source name, an empty ticker, and no price
+tracker. Never use Macro as a missing-ticker, foreign-company, unavailable-quote,
+or missing-destination fallback. Preserve configured market coverage, relevance
+exclusions, and specialized Swing/status contracts. Do not invent evidence,
+tickers, or facts. Follow the trusted item's shared subject instruction.
+
+Use `exclude` and `not_eligible` for ineligible material; `eligible` is false exactly for exclusion. `candidate_key` must match the item. The supplied ticker is only a hint.
 Keep summaries factual and source-grounded. Attribute research estimates to
 Phintraco, distinguish estimates from reported results and company guidance,
 and preserve period, units, and forward-looking framing. The summary must not
@@ -161,12 +176,29 @@ Apply requires the unchanged private preview plan and
 outside the state root.
 
 Both News providers now request a source-grounded headline. Issuer headlines
-start with the supplied ticker and colon; macro headlines stay natural.
+start with a verified ticker and colon when available, otherwise the source company name; industry and macro headlines stay natural.
 Phintraco submissions without a title remain accepted for older leases, with
 a descriptive source-headline fallback when available, then the source name.
 The shared `lib-news-format` renderer owns source
 bylines and the quote block. Swing and deterministic Stock Information keep
 their existing contracts.
+
+## Company identity lookup
+
+The general no-browsing and no-other-program rules allow this one explicit
+read-only exception for a clearly named source company whose ticker is missing:
+
+```bash
+"$HOME/.hermes/scripts/bursawatch-tg-market-news.sh" lookup-company --json '{"company":"<exact source company name>","market":"ID"}'
+```
+
+The tool searches Yahoo Finance for a unique company-name and exchange match.
+Use `US` only within configured US coverage. A verified result supplies only
+ticker and exchange for deterministic price enrichment, never extra news facts.
+Use no arbitrary URL or shell helper. The owner independently verifies an
+externally proposed ticker. If lookup is unavailable, ambiguous, or unresolved,
+submit Stock News using the company name and an empty ticker with no tracker.
+The lookup never selects a category, sends a message, or changes source state.
 
 ## Optional image context
 

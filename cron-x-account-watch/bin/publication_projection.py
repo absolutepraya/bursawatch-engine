@@ -23,6 +23,7 @@ _ROUTES = {
     "id_stocks_news": "idx_company_news",
     "us_stocks_news": "us_company_news",
     "macro_news": "macro_news",
+    "id_industry_news": "industry_news",
     "id_stocks_swing": "swing_context",
 }
 
@@ -193,7 +194,7 @@ def publication_snapshot(
     owner_key, version, supersedes = _version_identity(state, event)
     title = event.get("title") if isinstance(event.get("title"), str) and event["title"].strip() else profile.display_name
     ticker_match = _TICKER.match(title)
-    ticker = ticker_match.group(1) if ticker_match else None
+    ticker = event.get("ticker") if "subject" in event else ticker_match.group(1) if ticker_match else None
     source_key = event.get("source_event_key")
     source_version = None
     if isinstance(source_key, str):

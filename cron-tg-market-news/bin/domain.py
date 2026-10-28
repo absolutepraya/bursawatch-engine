@@ -40,6 +40,7 @@ class EventClass(StrEnum):
 
 class Destination(StrEnum):
     ID_STOCKS_NEWS = "id_stocks_news"
+    INDUSTRY_NEWS = "id_industry_news"
     MACRO_NEWS = "macro_news"
     EXCLUDE = "exclude"
 

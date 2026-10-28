@@ -186,6 +186,7 @@ const coverage: OperatorFieldCoverage[] = [
       "feeds[].enabled",
       "destinations.id_stocks_news_channel_id",
       "destinations.macro_news_channel_id",
+      "destinations.industry_news_channel_id",
       "additional_prompt_instruction",
     ],
     "cron-stockbit-snips scan and config owner",

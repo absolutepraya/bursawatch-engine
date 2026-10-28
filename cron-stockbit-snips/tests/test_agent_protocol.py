@@ -128,3 +128,25 @@ def test_summary_requires_nonempty_text(article, summary):
     payload["summary"] = summary
     with pytest.raises(ValueError):
         validate_submission(article, payload)
+
+
+@pytest.mark.parametrize('kind,route,source,title,ticker,name', [
+    ('company', 'id_stocks_news', 'Perusahaan Nusantara memperluas kapasitas meski industri melemah.', 'Perusahaan Nusantara memperluas kapasitas', '', 'Perusahaan Nusantara'),
+    ('industry', 'id_industry_news', 'Industri sawit meningkatkan ekspor; AALI merupakan contoh emiten terdampak.', 'Ekspor industri sawit meningkat', '', 'Sawit'),
+    ('macro', 'macro_news', 'Inflasi nasional turun meski harga pangan naik.', 'Inflasi nasional menurun', '', 'Inflasi'),
+])
+def test_semantic_category_is_independent_of_ticker_and_source_lane(article, monkeypatch, kind, route, source, title, ticker, name):
+    from dataclasses import replace
+    candidate = replace(article, source_title='Catatan bisnis terbaru', source_text=source)
+    payload = {**valid_payload(candidate), 'route':route, 'title':title, 'ticker':ticker,
+               'subject':{'kind':kind,'name':name,'evidence':source}}
+    result = validate_submission(candidate, payload, subject_required=True)
+    assert result.route.value == route
+    assert result.ticker == ticker
+    if kind == "company" and not ticker:
+        import scan
+        monkeypatch.setattr(scan, "get_market_snapshot", lambda *_: pytest.fail("unverified company must not fetch prices"))
+        assert "Harga terakhir" not in scan._render_record({}, candidate, result)
+    if kind != 'macro':
+        with pytest.raises(ValueError, match='subject'):
+            validate_submission(candidate, {**payload,'route':'macro_news'}, subject_required=True)

@@ -59,7 +59,8 @@ def render(article: Article, analysis: Analysis, snapshot: MarketSnapshot | None
         raise ValueError("excluded Stockbit article cannot be rendered")
     if not analysis.title or not analysis.summary:
         raise ValueError("Stockbit analysis title and summary are required")
-    messages = news_format.render_card(f"### {STOCKBIT_EMOJI} {analysis.title}\n-# Stockbit", analysis.summary, article.url, "Stockbit", route=analysis.route.value, snapshot=snapshot, ticker=analysis.ticker, context=context)
+    messages = news_format.render_card(f"### {STOCKBIT_EMOJI} {analysis.title}\n-# Stockbit", analysis.summary, article.url, "Stockbit", route=analysis.route.value, snapshot=snapshot, ticker=analysis.ticker, context=context,
+                                      show_market_block=not (analysis.subject is not None and analysis.subject["kind"] == "company" and not analysis.ticker))
     result = "\n\n".join(messages)
     if news_format.discord_length(result) > DISCORD_LIMIT:
         raise ValueError("Stockbit Discord content exceeds 2,000 characters")

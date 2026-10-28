@@ -147,6 +147,8 @@ class SelectionCandidate:
     summary: str = ""
     title: str = ""
     route: Destination = Destination.ID_STOCKS_NEWS
+    subject: dict[str, str] | None = None
+    resolved_ticker: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.candidate, CompanyCandidate):
@@ -174,6 +176,15 @@ class SelectionCandidate:
         object.__setattr__(self, "summary", summary)
         title = " ".join(self.title.split())
         object.__setattr__(self, "title", title)
+        if self.subject is not None:
+            from news_subject import validate_subject, validate_ticker, validate_route
+            object.__setattr__(self, "subject", validate_subject(self.subject, self.candidate.source_text))
+            if self.route is not Destination.EXCLUDE:
+                validate_route(self.subject, self.route.value)
+            if self.subject["kind"] == "company":
+                validate_ticker(self.resolved_ticker or "", self.candidate.source_text, verified_ticker=self.resolved_ticker)
+            elif self.resolved_ticker is not None:
+                raise ValueError("non-company subject must not have a ticker")
 
     @classmethod
     def from_validated_submission(
@@ -193,6 +204,8 @@ class SelectionCandidate:
             summary=submission.get("summary", ""),  # type: ignore[arg-type]
             title=submission.get("title", ""),  # type: ignore[arg-type]
             route=Destination(submission.get("route", Destination.ID_STOCKS_NEWS.value)),
+            subject=submission.get("subject"),
+            resolved_ticker=submission.get("ticker") or None,
         )
 
     @property
@@ -205,7 +218,7 @@ class SelectionCandidate:
 
     @property
     def ticker(self) -> str | None:
-        return self.candidate.ticker
+        return self.resolved_ticker if self.subject is not None else self.candidate.ticker
 
     @property
     def published_at(self) -> datetime:
@@ -291,6 +304,8 @@ def _selection_candidate_from_record(key: str, record: Mapping[str, object]) -> 
             summary=selection_data.get("summary", ""),
             title=selection_data.get("title", ""),
             route=Destination(selection_data.get("route", Destination.ID_STOCKS_NEWS.value)),
+            subject=selection_data.get("subject"),
+            resolved_ticker=selection_data.get("ticker") or None,
         )
     except (KeyError, TypeError, ValueError) as error:
         raise StateBlockedError(f"candidate {key!r} has invalid durable selection data") from error
@@ -337,7 +352,7 @@ def assign_tier(state: dict[str, object], item: SelectionCandidate) -> Tier | No
         save_state(state)
         return None
     tier = tier_for_event_class(item.event_class)
-    if item.route is Destination.MACRO_NEWS or tier in {Tier.ONE, Tier.TWO}:
+    if item.route in {Destination.MACRO_NEWS, Destination.INDUSTRY_NEWS} or tier in {Tier.ONE, Tier.TWO}:
         _set_phase(record, "pending_delivery")
     else:
         _set_phase(record, "suppressed_ineligible")

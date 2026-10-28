@@ -92,6 +92,7 @@ def _snapshot(value: dict[str, object], article_key: str, confirmed_at: datetime
             eligible=analysis_data["eligible"],
             route=Route(analysis_data["route"]),
             source_evidence=analysis_data["source_evidence"],
+            subject=analysis_data.get("subject"),
         )
     except (KeyError, TypeError, ValueError):
         raise IncompletePublication("Stockbit saved analysis is invalid") from None
@@ -101,6 +102,8 @@ def _snapshot(value: dict[str, object], article_key: str, confirmed_at: datetime
         publication_type = "idx_company_news"
     elif analysis.route is Route.MACRO_NEWS:
         publication_type = "macro_news"
+    elif analysis.route is Route.INDUSTRY_NEWS:
+        publication_type = "industry_news"
     else:
         raise IncompletePublication("Stockbit article route is invalid")
     frozen = record.get("config_snapshot")
@@ -132,7 +135,7 @@ def _snapshot(value: dict[str, object], article_key: str, confirmed_at: datetime
         "market_data_as_of": record.get("market_data_as_of"),
         "delivery_confirmed_at": delivery.get("delivered_at", confirmed_at.isoformat()),
         "title": analysis.title[:300],
-        "ticker": analysis.ticker if analysis.route is Route.ID_STOCKS_NEWS else None,
+        "ticker": (analysis.ticker or None) if analysis.route is Route.ID_STOCKS_NEWS else None,
         "broker_levels": None,
         "parent_publication_id": None,
         "board_episode_id": None,

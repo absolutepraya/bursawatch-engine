@@ -45,7 +45,7 @@ export function nextDestination(
   kind: ProfileKind,
   rows: unknown[],
 ): Record<string, unknown> | null {
-  const keys = ["id_stocks_news", "macro_news", "id_stocks_swing"];
+  const keys = ["id_stocks_news", "macro_news", "id_stocks_swing", "id_industry_news"];
   const available = keys.find((key) => !rows.some((row) => configValue(row, ["key"]) === key));
   if (kind === "whatsapp" && !available) return null;
   return { key: kind === "whatsapp" ? available : "", channel_id: "", description: "" };
@@ -303,10 +303,14 @@ export function validateWatcherConfig(
     }
     const destinations: ConfigPath = ["destinations"];
     const routeKeys = ["id_stocks_news_channel_id", "macro_news_channel_id"];
+    if (configValue(config, ["destinations", "industry_news_channel_id"]) !== undefined)
+      routeKeys.push("industry_news_channel_id");
     if (exactKeys(config.destinations, destinations, routeKeys)) {
       routeKeys.forEach((key) => discord([...destinations, key]));
-      if (get([...destinations, routeKeys[0]]) === get([...destinations, routeKeys[1]]))
-        error([...destinations, routeKeys[1]], "Choose a different destination channel.");
+      routeKeys.forEach((key, index) => {
+        if (routeKeys.slice(0, index).some((prior) => get([...destinations, prior]) === get([...destinations, key])))
+          error([...destinations, key], "Choose a different destination channel.");
+      });
     }
     prompt(["additional_prompt_instruction"], true);
     return errors;

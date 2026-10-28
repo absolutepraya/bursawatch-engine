@@ -165,3 +165,13 @@ The Market News JSON example includes `title` for both news providers. Keep
 that executable example aligned with its surrounding instruction. Missing
 Phintraco titles remain compatible and use the owner's bounded source-headline
 fallback when preparing a new card, without changing already frozen output.
+
+## Subject classification contract
+
+New routed ordinary-news claims use `subject-v1` from `lib-news-classification`.
+Validate the source quotation and company name against complete supplied text,
+then validate subject-to-route consistency before state mutation or delivery.
+Ticker hints never choose a news category. Named companies without verified
+tickers retain Stock News with no tracker. Existing relevance and specialized
+Swing/status rules remain. Already frozen output and destinations are never
+reclassified. Older outstanding leases settle with their original schema.

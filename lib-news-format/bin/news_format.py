@@ -26,8 +26,16 @@ DOWN = "<:down:1531285063986053200>"
 HOLD = "<:hold:1531284248235868333>"
 from writing_contract import COMMON_WRITING_INSTRUCTION, PresentationCategory, category_instruction
 
+_subject_bin = Path(__file__).resolve().parents[2] / "lib-news-classification" / "bin"
+if not _subject_bin.is_dir():
+    _subject_bin = Path.home() / ".agents/skills/lib-news-classification/bin"
+if str(_subject_bin) not in sys.path:
+    sys.path.insert(0, str(_subject_bin))
+import news_subject
+
 WRITING_INSTRUCTION = COMMON_WRITING_INSTRUCTION + (
-    "For issuer news, start the headline with the exact exchange TICKER followed by a colon. "
+    "For issuer news with a verified ticker, start the headline with the exact exchange TICKER followed by a colon. "
+    "When the company is known but its ticker is not verified, use its source-grounded company name instead. "
     "For macro or industry news, use a natural headline. Return plain summary text without a Ringkasan label; "
     "the renderer adds it once. Do not generate the latest quote or 1D/1W/1M/3M tracker in the summary. "
 ) + category_instruction("macro") + category_instruction("industry")
@@ -406,11 +414,11 @@ def _fit_index(value: str, limit: int) -> int:
     return len(value)
 
 
-def render_card(heading: str, summary: str, source_url: str, source_label: str, *, route=None, snapshot=None, ticker=None, context=None) -> list[str]:
+def render_card(heading: str, summary: str, source_url: str, source_label: str, *, route=None, snapshot=None, ticker=None, context=None, show_market_block=True) -> list[str]:
     heading = _normalize_heading(heading, route)
     body = normalize_summary(summary, marked=True)
     sections = [heading, body]
-    if route in {"id_stocks_news", "us_stocks_news"}:
+    if show_market_block and route in {"id_stocks_news", "us_stocks_news"}:
         sections.append(market_block(snapshot, "USD" if route == "us_stocks_news" else "IDR"))
     if route == "id_stocks_news":
         extra = company_context_block(ticker, context)
@@ -452,7 +460,10 @@ def freeze_cards(items: list[dict], heading_for, source_url: str, source_label: 
         route, title = item.get("route"), item.get("title") or ""
         title = normalize_headline(title, route)
         item = {**item, "title": title}
-        ticker = ticker_from_title(title, route)
+        subject = news_subject.validate_subject(item["subject"]) if "subject" in item else None
+        if subject is not None:
+            news_subject.validate_route(subject, route)
+        ticker = (item.get("ticker") or None) if subject is not None else ticker_from_title(title, route)
         try:
             snapshot = _bounded_quote(fetch, ticker, route, min(3.0, max(0, quote_deadline - time.monotonic()))) if ticker and time.monotonic() < quote_deadline else None
         except Exception:
@@ -467,7 +478,9 @@ def freeze_cards(items: list[dict], heading_for, source_url: str, source_label: 
                 context = None
         cards.append({"destination": target_for(item) if target_for else None, "title": title, "summary": normalize_summary(item["summary"]), "route": route, "ticker": ticker,
                       "market_data_as_of": _field(snapshot, "as_of"),
-                      "messages": render_card(heading_for(item), item["summary"], source_url, source_label, route=route, snapshot=snapshot, ticker=ticker, context=context)})
+                      "messages": render_card(heading_for(item), item["summary"], source_url, source_label, route=route, snapshot=snapshot, ticker=ticker, context=context,
+                                              show_market_block=not (subject is not None and subject["kind"] == "company" and ticker is None)),
+                      **({"subject": subject} if subject is not None else {})})
     return cards
 
 
@@ -475,7 +488,8 @@ def validate_cards(cards) -> list[dict]:
     if type(cards) is not list or not 1 <= len(cards) <= 16:
         raise ValueError("news cards must be a bounded nonempty array")
     for card in cards:
-        if type(card) is not dict or set(card) != {"title", "summary", "route", "ticker", "market_data_as_of", "messages", "destination"}:
+        fields = {"title", "summary", "route", "ticker", "market_data_as_of", "messages", "destination"}
+        if type(card) is not dict or set(card) not in [fields, fields | {"subject"}]:
             raise ValueError("news card has an invalid schema")
         if card["destination"] is not None and (type(card["destination"]) is not str or not card["destination"].isdigit()):
             raise ValueError("news card destination is invalid")
@@ -483,7 +497,12 @@ def validate_cards(cards) -> list[dict]:
             raise ValueError("news card text is invalid")
         if card["route"] not in {"id_stocks_news", "us_stocks_news", "macro_news", "id_industry_news"}:
             raise ValueError("news card route is invalid")
-        if card["ticker"] != ticker_from_title(card["title"], card["route"]):
+        if "subject" in card:
+            subject = news_subject.validate_subject(card["subject"])
+            news_subject.validate_route(subject, card["route"])
+            if card["ticker"] is not None and (subject["kind"] != "company" or not isinstance(card["ticker"], str) or not card["title"].startswith(card["ticker"] + ": ")):
+                raise ValueError("news card ticker conflicts with its subject or headline")
+        elif card["ticker"] != ticker_from_title(card["title"], card["route"]):
             raise ValueError("news card ticker conflicts with its headline")
         if card["market_data_as_of"] is not None:
             stamp = datetime.fromisoformat(card["market_data_as_of"])

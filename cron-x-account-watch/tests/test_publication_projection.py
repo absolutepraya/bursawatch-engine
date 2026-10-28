@@ -290,3 +290,12 @@ def test_split_cards_have_distinct_feed_keys_and_keep_versions_on_source_edit(mo
     assert len(latest)==2
     assert {r['owner_key'] for r in latest}=={r['owner_key'] for r in originals}
     assert all(r['supersedes_version']==1 for r in latest)
+
+
+def test_named_company_without_verified_security_keeps_null_ticker_in_published():
+    event = _event()
+    event.update(title='ACME: Kontrak baru', ticker=None,
+                 subject={'kind':'company','name':'ACME','evidence':'ACME mendapat kontrak'})
+    snapshot = projection.publication_snapshot(state.new_state(), event, _profile(), NOW)
+    assert snapshot['type'] == 'idx_company_news'
+    assert snapshot['ticker'] is None

@@ -143,6 +143,7 @@ const cases: Array<[string, Record<string, unknown>]> = [
       destinations: {
         id_stocks_news_channel_id: "100000000000000001",
         macro_news_channel_id: "100000000000000002",
+        industry_news_channel_id: "100000000000000003",
       },
       additional_prompt_instruction: "",
     },

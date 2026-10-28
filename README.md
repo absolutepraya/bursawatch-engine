@@ -30,7 +30,7 @@ Operator workspace: [dash.bursawatch.abhipraya.dev](https://dash.bursawatch.abhi
 
 | Product | What you get |
 |---|---|
-| **News pipeline** | Company, industry and macro news as separate cards, each with a source link. Company news carries 1D, 1W, 1M and 3M price moves. |
+| **News pipeline** | Company, industry and macro news as separate cards, each with a source link. Company news with a verified ticker carries 1D, 1W, 1M and 3M price moves. |
 | **Swing trading plan** | Analyst calls (Phintraco, Kelas Investasi, X analysts and more) normalized into one format and tracked on a board, one thread per plan, as price moves from entry toward target or stop-loss. |
 | **Morning brief** | A frozen-evidence pre-market brief for the IHSG session with sector and conglomerate rotation charts, published only after delivery receipts confirm each step. |
 
@@ -47,9 +47,17 @@ and a receipt, so retries are safe.
 ![News pipeline architecture](docs/images/news-pipeline.png)
 
 Sources are polled by Python cron adapters, saved in a durable SQLite inbox
-(timestamped, linked and deduplicated), judged by an AI step for relevance with
+(timestamped, linked and deduplicated), judged by an AI step for relevance and central subject, with
 an Indonesian title and summary, and sent through the delivery owner to
-Discord. A company catalog (Sectors data and filings) lets the impact check
+Discord. `lib-news-classification` separates company, industry, and macro
+subjects from ticker resolution. A missing ticker leaves a named company in
+Stock News without a tracker; the bounded `lookup-company` tool can verify a
+unique Yahoo company/exchange match before prices are enriched. Company examples
+do not turn a sector thesis into Stock News, and sector context does not turn
+a company development into Industry or Macro. New leases require a source
+quotation and reject contradictory subject/route combinations before delivery.
+
+![Subject classification and security lookup](docs/images/news-subject.svg) A company catalog (Sectors data and filings) lets the impact check
 name a company only when it can state a mechanism, which then shapes the
 industry, company and macro cards.
 
@@ -94,7 +102,7 @@ flowchart LR
 
   subgraph Runtime["VPS runtime (Hermes crons)"]
     Intake["cron-*-source-ingest<br/>adapters"] --> Inbox[("Durable inbox")]
-    Inbox --> Owners["Domain owners<br/>news, swing, morning brief"]
+    Inbox --> Owners["Domain owners<br/>news subject and identity, swing, morning brief"]
   end
 
   Media["service-bursawatch-source-media<br/>contract only; no live bucket or service bootstrap"]
@@ -154,7 +162,7 @@ on a current schedule or release claim.
 
 | Development package | Runtime identity | What it is | Production schedule state |
 |---|---|---|---|
-| `cron-tg-market-news` | `bursawatch-tg-market-news` | Telegram IDX company and macro-news domain owner | Standalone watcher paused; shared Telegram source job dispatches owner work |
+| `cron-tg-market-news` | `bursawatch-tg-market-news` | Telegram company, industry and macro-news domain owner | Standalone watcher paused; shared Telegram source job dispatches owner work |
 | `cron-tg-phintraco-swing` | `bursawatch-tg-phintraco-swing` | Phintraco Daily cash-Swing domain owner | Standalone watcher paused; shared Telegram source job dispatches owner work |
 | `cron-tg-kelas-investasi-gtw` | `bursawatch-tg-kelas-investasi-gtw` | Kelas Investasi GTW domain owner | Standalone watcher paused; shared Telegram source job dispatches owner work |
 | `cron-dc-swing-board` | `bursawatch-dc-swing-board` | Discord Swing board owner and lifecycle/retry jobs | Active maintenance jobs |
@@ -213,7 +221,8 @@ automatic releases.
 its compose files, credentials, cookies, proxy configuration, or runtime data
 into source control.
 
-The news owners share `lib-news-format` for generated Telegram, X, WhatsApp,
+The news owners share `lib-news-classification` for semantic subject contracts
+and bounded Yahoo identity discovery, and `lib-news-format` for generated Telegram, X, WhatsApp,
 Instagram, and Stockbit cards. Independent issuer stories receive separate
 cards with native-currency quotes and 1D/1W/1M/3M changes. Existing saved
 payloads, raw-forwarding profiles, and specialized Swing/status output retain

@@ -84,7 +84,7 @@ def test_unknown_ticker_omission_keeps_relevant_technical_review_in_swing():
         "text": "#TechnicalReview\nTINS dan ANTM menguji resistance.", "media": [],
     })
     prompt = agent_item(profile(), technical)["instruction"]
-    assert "For ordinary issuer-news items only" in prompt
+    assert "Keep a clearly named company" in prompt
     assert "A relevant leading #TechnicalReview remains one id_stocks_swing item even without a unique ticker" in prompt
     result = validate_submission(profile(), {
         "event_key": technical.event_key, "is_relevant": True,
@@ -190,7 +190,7 @@ def test_wake_prompt_does_not_tell_classifier_to_dump_stock_roundups_or_unknown_
     assert "If the issuer or listing identity is unclear, choose macro_news" not in prompt
     assert "Split independent issuer developments before routing each item" in prompt
     assert "Corporate-action calendars and issuer earnings roundups are not macro news" in prompt
-    assert "Never use macro_news as a fallback for an unresolved company identity" in prompt
+    assert "Never use macro_news as a fallback for an unresolved ticker" in prompt
 
 
 def test_many_items_cannot_reuse_one_source_image():
@@ -233,6 +233,6 @@ def test_technical_review_is_the_only_deterministic_swing_route():
 
     prompt = instruction_for(profile()).lower()
     assert "one clearly dominant lead issuer" in prompt
-    assert "a broad sector thesis remains macro_news even when it names a top pick" in prompt
+    assert "company examples and top picks do not change an industry subject" in prompt
     assert "exact, case-sensitive #technicalreview tag" in prompt
     assert "never route to id_stocks_swing" in prompt

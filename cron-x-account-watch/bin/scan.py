@@ -43,6 +43,7 @@ BOARD_RETRY_CAP_SECONDS = 15 * 60
 ROUTE_CAPABILITIES = {
     "id_stocks_news": "company_news",
     "us_stocks_news": "company_news",
+    "id_industry_news": "company_news",
     "macro_news": "macro_news",
     "id_stocks_swing": "swing_chart_context",
 }
@@ -156,6 +157,8 @@ def _prepare_article_context(thread_posts: tuple[SourcePost, ...] | None, dry_ru
 
 
 def _cleanup_agent_vision(storage: Path, event: dict) -> None:
+    import subject_context
+    subject_context.cleanup(storage, event)
     try:
         vision_media.cleanup_event(
             vision_media.default_root(storage),
@@ -959,6 +962,10 @@ def run(
                     article_bundle = None
             item = agent_item(profiles[event["profile_id"]], post, thread_posts, vision_bundle, article_bundle) if event and post else None
             if item is not None:
+                if profiles[event["profile_id"]].enable_llm_routing:
+                    import subject_context
+                    subject_context.freeze(storage, event, item)
+                    state.save_state(storage, value)
                 import summary_context
                 item["instruction"] += summary_context.context_instruction(
                     summary_context.claim_from_state(value, item["event_key"], storage.parent / "summary-context"),
@@ -1061,8 +1068,10 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
             profile = profiles.get(profile_id)
             if profile is None or not profile.uses_llm:
                 raise ValueError("analysis profile is not enabled")
-            analysis = validate_submission(profile, payload)
-            event = state.awaiting_analysis_event(value, analysis["event_key"])
+            event = state.awaiting_analysis_event(value, payload["event_key"])
+            import subject_context
+            subject_source = subject_context.read(storage, event)
+            analysis = validate_submission(profile, payload, subject_required=subject_source is not None, source_text=subject_source)
             import summary_context
             optional_context = summary_context.claim_from_state(value, analysis["event_key"], storage.parent / "summary-context")
             post = state.deserialize_post(event["post"])
@@ -1085,7 +1094,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 _finish_control_run(reporter, run_id, "ok")
                 return {"submitted": True, "ignored": True, "delivered": 0}
             news_items = analysis.pop("news_items", None)
-            route_override = deterministic_route(profile, post, thread_posts) if news_items is None else None
+            route_override = deterministic_route(profile, post, thread_posts) if news_items is None and subject_source is None else None
             if route_override is not None:
                 analysis["route"] = route_override
             if news_items is not None:
@@ -1113,8 +1122,8 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 )
                 _finish_control_run(reporter, run_id, "ok")
                 return {"submitted": True, "suppressed": "suppressed_ineligible", "delivered": 0}
-            if profile.enable_llm_summary and candidate_route in {"id_stocks_news", "us_stocks_news", "macro_news"}:
-                analysis["news_cards"] = render.freeze_news(profile, post, news_items or [{"title": analysis.get("title") or profile.display_name, "summary": analysis["summary"], "route": candidate_route}], updated_tweet=bool(event.get("updated_tweet")))
+            if profile.enable_llm_summary and candidate_route in {"id_stocks_news", "us_stocks_news", "id_industry_news", "macro_news"}:
+                analysis["news_cards"] = render.freeze_news(profile, post, news_items or [{**{key: analysis[key] for key in ("summary", "subject", "ticker") if key in analysis}, "title": analysis.get("title") or profile.display_name, "route": candidate_route}], updated_tweet=bool(event.get("updated_tweet")))
             state.submit_analysis(value, analysis["event_key"], {key: item for key, item in analysis.items() if key not in {"event_key", "is_relevant"}})
             state.save_state(storage, value)
             summary_context.cleanup_claim_context(optional_context)
@@ -1230,9 +1239,14 @@ if __name__ == "__main__":
     recover.add_argument("--apply", action="store_true")
     images = subparsers.add_parser("prepare-summary-images")
     images.add_argument("--json", required=True, dest="payload")
+    lookup = subparsers.add_parser("lookup-company")
+    lookup.add_argument("--json", required=True, dest="payload")
     arguments = parser.parse_args()
     try:
-        if arguments.command == "prepare-summary-images":
+        if arguments.command == "lookup-company":
+            import news_identity
+            result = news_identity.lookup_payload(json.loads(arguments.payload))
+        elif arguments.command == "prepare-summary-images":
             import summary_context
             result = summary_context.prepare_summary_context(json.loads(arguments.payload))
         elif arguments.command == "submit-analysis":

@@ -175,6 +175,8 @@ describe("watcher configuration drafts", () => {
     expect(routes[1]?.key).toBe("macro_news");
     routes.push(nextDestination("whatsapp", routes));
     expect(routes[2]?.key).toBe("id_stocks_swing");
+    routes.push(nextDestination("whatsapp", routes));
+    expect(routes[3]?.key).toBe("id_industry_news");
     expect(nextDestination("whatsapp", routes)).toBeNull();
   });
 
@@ -559,4 +561,14 @@ describe("morning brief operator configuration", () => {
       Object.keys(validateWatcherConfig("bursawatch-dc-morning-brief", { ...config(), ...change })),
     ).not.toHaveLength(0);
   });
+});
+
+it("accepts an optional distinct industry destination for Stockbit", () => {
+  const config = validStockbitConfig();
+  const destinations = { ...config.destinations, industry_news_channel_id: "100000000000000009" };
+  expect(validateWatcherConfig(stockbitWatcherId, { ...config, destinations })).toEqual({});
+  expect(validateWatcherConfig(stockbitWatcherId, {
+    ...config,
+    destinations: { ...destinations, industry_news_channel_id: destinations.id_stocks_news_channel_id },
+  })).toHaveProperty("destinations.industry_news_channel_id");
 });

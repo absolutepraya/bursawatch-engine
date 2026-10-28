@@ -33,7 +33,7 @@ poller beside the active adapter.
 - Each run requires one validated live control-plane configuration revision.
   A missing or invalid revision blocks new RSS intake; there is no static
   configuration fallback. The four RSS URLs and lane IDs remain source-owned.
-- The database owns each lane's enabled switch, the two Discord destinations,
+- The database owns each lane's enabled switch, the company and macro destinations plus the optional industry destination,
   and the bounded additional operator instruction. The heartbeat destination,
   output schema, and agent safety rules stay fixed.
 - State version 2 upgrades version 1 in place without dropping cursors,
@@ -52,13 +52,25 @@ poller beside the active adapter.
   preserve tickers, acronyms, proper nouns, and official names where needed.
 - The first summary paragraph starts with `*(Ringkasan)* `, added by the
   renderer rather than the agent.
-- A central single IDX issuer routes to `id_stocks_news` and receives the
-  standard latest price, 1D, 1W, 1M, and 3M card.
-- A connected multi-issuer, sector, or macro thesis routes once to `macro_news` without
-  a price card. Supporting ticker mentions do not create issuer cards.
-- Missing market data renders `-` with the existing grey direction marker. It
-  is not rendered as zero and does not fail the article.
-- AI Reports does not receive an additional AI disclaimer in the Discord copy.
+Classify each ordinary item from the complete supplied source meaning before
+choosing its destination. Return `subject` with exactly `kind`, `name`, and
+`evidence`: kind is `company`, `industry`, or `macro`; evidence is a short exact
+quotation from the supplied source. Company news concerns one company's own
+development and uses Stock News. Sector background does not change that.
+Industry news concerns a sector as a whole, including industry-focused policy,
+and uses `id_industry_news` even when named companies are examples or top picks.
+Economy-wide, cross-industry, cross-asset, or overall-market developments use
+`macro_news`. Source headings, publisher, ticker presence and ticker counts do
+not determine the subject. Split independent company developments, while
+keeping a connected transaction or one shared thesis together.
+
+Resolve tickers separately from category. A named company with no verified
+ticker stays in Stock News using its source name, an empty ticker, and no price
+tracker. Never use Macro as a missing-ticker, foreign-company, unavailable-quote,
+or missing-destination fallback. Preserve configured market coverage, relevance
+exclusions, and specialized Swing/status contracts. Do not invent evidence,
+tickers, or facts. Follow the trusted item's shared subject instruction.
+
 
 ## Safe operation
 
@@ -139,7 +151,7 @@ Source owners retain structural, identity, capability and source-safety checks.
 
 Split independent issuer developments into ordered items, including separate
 issuer dividends and suspension reopenings. Keep a connected transaction or
-one broad thesis as one story. Each generated issuer card has a ticker-led
+one broad thesis as one story. Each generated issuer card with a verified ticker has a ticker-led
 headline, source byline, latest native-currency price and 1D/1W/1M/3M absolute
 and percentage changes, plus the original source link. IDX uses IDR and US
 uses USD. Missing quotes or individual horizons use grey `-` placeholders;
@@ -181,3 +193,13 @@ Any unfinished child keeps the run degraded, including an accepted Delivery
 Owner operation awaiting its terminal receipt. Report success only when all
 children are delivered or excluded. Keep accepted pending operations on the
 existing owner retry path without advancing a local retry clock.
+
+## Subject classification contract
+
+New routed ordinary-news claims use `subject-v1` from `lib-news-classification`.
+Validate the source quotation and company name against complete supplied text,
+then validate subject-to-route consistency before state mutation or delivery.
+Ticker hints never choose a news category. Named companies without verified
+tickers retain Stock News with no tracker. Existing relevance and specialized
+Swing/status rules remain. Already frozen output and destinations are never
+reclassified. Older outstanding leases settle with their original schema.

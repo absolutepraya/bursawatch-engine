@@ -8,6 +8,7 @@ import re
 
 class Route(StrEnum):
     ID_STOCKS_NEWS = "id_stocks_news"
+    INDUSTRY_NEWS = "id_industry_news"
     MACRO_NEWS = "macro_news"
     EXCLUDE = "exclude"
 
@@ -38,6 +39,7 @@ class StockbitWatchConfig:
     id_stocks_news_channel_id: str
     macro_news_channel_id: str
     additional_prompt_instruction: str
+    industry_news_channel_id: str = "1549418098807930880"
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,3 +105,4 @@ class Analysis:
     eligible: bool
     route: Route
     source_evidence: str
+    subject: dict[str, str] | None = None

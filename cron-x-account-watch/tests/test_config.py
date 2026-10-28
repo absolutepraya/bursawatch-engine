@@ -116,6 +116,7 @@ def test_canonical_insider_tracker_profile_is_threaded_and_routed():
         ("macro_news", "1531655369884045382", "Broad economic, business, market, sector, and cross-asset analysis."),
         ("id_stocks_news", "1525102508714889257", "Direct IDX-listed company or ticker thesis."),
         ("us_stocks_news", "1532266331737686199", "Direct NYSE- or Nasdaq-listed security thesis, including ADRs."),
+        ("id_industry_news", "1549418098807930880", "Industry-wide and sector-specific developments; company mentions may be examples."),
     ]
     assert (profile.forward_normal_post, profile.forward_quote_post, profile.forward_reply, profile.forward_repost, profile.forward_media) == (True, True, False, False, True)
     assert profile.enable_llm_title is True
@@ -143,6 +144,7 @@ def test_canonical_doktermarket_profile_is_routed_and_media_enabled():
         ("macro_news", "1531655369884045382", "Broad economic, business, market, sector, and cross-asset analysis."),
         ("id_stocks_news", "1525102508714889257", "Direct IDX-listed company or ticker thesis."),
         ("id_stocks_swing", "1525102458253217803", "Direct IDX technical-analysis or swing-trading thesis."),
+        ("id_industry_news", "1549418098807930880", "Industry-wide and sector-specific developments; company mentions may be examples."),
     ]
     assert (profile.forward_normal_post, profile.forward_quote_post, profile.forward_reply, profile.forward_repost, profile.forward_media) == (True, True, False, False, True)
     assert profile.enable_llm_title is True
@@ -168,6 +170,7 @@ def test_canonical_txthariansaham_profile_is_routed_and_uses_rsshub():
         ("macro_news", "1531655369884045382"),
         ("id_stocks_news", "1525102508714889257"),
         ("id_stocks_swing", "1525102458253217803"),
+        ("id_industry_news", "1549418098807930880"),
     ]
     assert (profile.forward_normal_post, profile.forward_quote_post, profile.forward_reply, profile.forward_repost, profile.forward_media) == (True, True, False, False, True)
     assert (profile.enable_llm_title, profile.enable_llm_summary, profile.enable_llm_routing, profile.enable_llm_relevance_filter) == (True, True, True, True)
@@ -190,6 +193,7 @@ def test_canonical_aldotjahjadi8_profile_is_routed_and_threaded():
     assert [(channel.key, channel.channel_id) for channel in profile.discord_channels] == [
         ("macro_news", "1531655369884045382"),
         ("id_stocks_news", "1525102508714889257"),
+        ("id_industry_news", "1549418098807930880"),
     ]
     assert (profile.forward_normal_post, profile.forward_quote_post, profile.forward_reply, profile.forward_repost, profile.forward_media) == (True, True, False, False, True)
     assert (profile.enable_llm_title, profile.enable_llm_summary, profile.enable_llm_routing, profile.enable_llm_relevance_filter) == (True, True, True, True)
@@ -213,6 +217,7 @@ def test_canonical_kobeissi_profile_is_financial_market_scoped():
     assert [(channel.key, channel.channel_id) for channel in profile.discord_channels] == [
         ("macro_news", "1531655369884045382"),
         ("us_stocks_news", "1532266331737686199"),
+        ("id_industry_news", "1549418098807930880"),
     ]
     assert (profile.forward_normal_post, profile.forward_quote_post, profile.forward_reply, profile.forward_repost, profile.forward_media) == (True, True, False, False, True)
     assert (profile.enable_llm_title, profile.enable_llm_summary, profile.enable_llm_routing, profile.enable_llm_relevance_filter) == (True, True, True, True)
@@ -246,6 +251,7 @@ def test_canonical_wavetiga_profile_is_direct_x_and_fully_routed():
         ("id_stocks_news", "1525102508714889257"),
         ("id_stocks_swing", "1525102458253217803"),
         ("us_stocks_news", "1532266331737686199"),
+        ("id_industry_news", "1549418098807930880"),
     ]
     assert (profile.forward_normal_post, profile.forward_quote_post, profile.forward_reply, profile.forward_repost, profile.forward_media) == (True, True, False, False, True)
     assert (profile.enable_llm_title, profile.enable_llm_summary, profile.enable_llm_routing, profile.enable_llm_relevance_filter) == (True, True, True, True)

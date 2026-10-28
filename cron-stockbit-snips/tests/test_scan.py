@@ -21,8 +21,8 @@ def article(lane: FeedLane, *, day: int = 23, suffix: str = "new") -> Article:
         lane_label=next(feed.label for feed in config.FEEDS if feed.lane is lane),
         guid=f"{lane.value}-{suffix}",
         url=f"https://snips.stockbit.com/{lane.value}/{suffix}",
-        source_title="Pemerintah bahas perkembangan pasar",
-        source_text="Pemerintah membahas perkembangan pasar dan kebijakan ekonomi.",
+        source_title="SWAP: profil bisnis produk kesehatan" if lane is FeedLane.UNBOXING_IPO else "Pemerintah bahas perkembangan pasar",
+        source_text="SWAP memproduksi produk kesehatan." if lane is FeedLane.UNBOXING_IPO else "Pemerintah membahas perkembangan pasar dan kebijakan ekonomi.",
         published_at=datetime(2026, 9, day, 6, 0, tzinfo=UTC),
     )
 
@@ -417,6 +417,7 @@ def _issuer_payload(item: Article) -> dict[str, object]:
     return {
         "candidate_key": item.key,
         "ticker": "SWAP",
+        "subject": {"kind": "company", "name": "SWAP", "evidence": item.source_text},
         "title": "SWAP: profil bisnis produk kesehatan",
         "summary": "SWAP memproduksi produk kesehatan.",
         "material_facts": ["SWAP memproduksi produk kesehatan."],
@@ -452,6 +453,7 @@ def test_frozen_config_survives_submission_and_delivery_retry(monkeypatch, tmp_p
     assert record["config_snapshot"] == {
         "revision": 7,
         "additional_prompt_instruction": "instruction A",
+        "industry_news_channel_id": "1549418098807930880",
         "id_stocks_news_channel_id": "123456789012345678",
         "macro_news_channel_id": "234567890123456789",
     }
@@ -1190,7 +1192,7 @@ def test_split_submission_reports_all_child_delivery_states(tmp_path, monkeypatc
 
 
 def test_duplicate_stockbit_items_create_one_child_delivery(tmp_path, monkeypatch):
-    source = article(FeedLane.STOCKBIT_COMMENTARY)
+    source = replace(article(FeedLane.STOCKBIT_COMMENTARY), source_title="SWAP: profil bisnis", source_text="SWAP memproduksi produk kesehatan.")
     value = state.new_state(config.FEEDS)
     state.queue_article(value, source, source.published_at)
     value['articles'][source.key]['config_snapshot'] = scan._snapshot(config.LoadedStockbitConfig(watch_config(), 7))

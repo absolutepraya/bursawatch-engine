@@ -59,6 +59,11 @@
           "key": "us_stocks_news",
           "channel_id": "1532266331737686199",
           "description": "Direct NYSE- or Nasdaq-listed security thesis, including ADRs."
+        },
+        {
+          "key": "id_industry_news",
+          "channel_id": "1549418098807930880",
+          "description": "Industry-wide and sector-specific developments; company mentions may be examples."
         }
       ],
       "forward_normal_post": true,
@@ -99,6 +104,11 @@
           "key": "id_stocks_news",
           "channel_id": "1525102508714889257",
           "description": "Direct IDX-listed company or ticker thesis."
+        },
+        {
+          "key": "id_industry_news",
+          "channel_id": "1549418098807930880",
+          "description": "Industry-wide and sector-specific developments; company mentions may be examples."
         }
       ],
       "forward_normal_post": true,
@@ -144,6 +154,11 @@
           "key": "us_stocks_news",
           "channel_id": "1532266331737686199",
           "description": "Direct NYSE- or Nasdaq-listed security thesis, including ADRs."
+        },
+        {
+          "key": "id_industry_news",
+          "channel_id": "1549418098807930880",
+          "description": "Industry-wide and sector-specific developments; company mentions may be examples."
         }
       ],
       "forward_normal_post": true,
@@ -190,6 +205,11 @@
           "key": "us_stocks_news",
           "channel_id": "1532266331737686199",
           "description": "Direct NYSE- or Nasdaq-listed security thesis, including ADRs."
+        },
+        {
+          "key": "id_industry_news",
+          "channel_id": "1549418098807930880",
+          "description": "Industry-wide and sector-specific developments; company mentions may be examples."
         }
       ],
       "forward_normal_post": true,
@@ -235,6 +255,11 @@
           "key": "id_stocks_swing",
           "channel_id": "1525102458253217803",
           "description": "Direct IDX technical-analysis or swing-trading thesis."
+        },
+        {
+          "key": "id_industry_news",
+          "channel_id": "1549418098807930880",
+          "description": "Industry-wide and sector-specific developments; company mentions may be examples."
         }
       ],
       "forward_normal_post": true,
@@ -280,6 +305,11 @@
           "key": "id_stocks_swing",
           "channel_id": "1525102458253217803",
           "description": "Direct IDX technical-analysis or swing-trading thesis."
+        },
+        {
+          "key": "id_industry_news",
+          "channel_id": "1549418098807930880",
+          "description": "Industry-wide and sector-specific developments; company mentions may be examples."
         }
       ],
       "forward_normal_post": true,
@@ -331,6 +361,11 @@
           "key": "us_stocks_news",
           "channel_id": "1532266331737686199",
           "description": "Direct NYSE- or Nasdaq-listed security thesis, including ADRs."
+        },
+        {
+          "key": "id_industry_news",
+          "channel_id": "1549418098807930880",
+          "description": "Industry-wide and sector-specific developments; company mentions may be examples."
         }
       ],
       "forward_normal_post": true,
@@ -372,6 +407,11 @@
           "key": "id_stocks_news",
           "channel_id": "1525102508714889257",
           "description": "Direct IDX-listed company or ticker thesis."
+        },
+        {
+          "key": "id_industry_news",
+          "channel_id": "1549418098807930880",
+          "description": "Industry-wide and sector-specific developments; company mentions may be examples."
         }
       ],
       "forward_normal_post": true,
@@ -413,6 +453,11 @@
           "key": "us_stocks_news",
           "channel_id": "1532266331737686199",
           "description": "Direct NYSE- or Nasdaq-listed security thesis, including ADRs."
+        },
+        {
+          "key": "id_industry_news",
+          "channel_id": "1549418098807930880",
+          "description": "Industry-wide and sector-specific developments; company mentions may be examples."
         }
       ],
       "forward_normal_post": true,
@@ -426,7 +471,7 @@
       "enable_llm_routing": true,
       "enable_llm_relevance_filter": true,
       "relevance_scope": "financial_market",
-      "additional_prompt_instruction": "Forward substantive analysis across the configured financial-market scope, including commodities. Route direct US-listed company theses to us_stocks_news and other substantive theses to macro_news. Exclude distribution notices whose main purpose is announcing, linking to, or soliciting signups for The Kobeissi Letter, weekly-letter, newsletter, reports, research products, or Chart of the Week. This includes published, view/read-through-link, sign-up, FREE, free, paid, and member-only access notices. Only forward posts whose supplied text contains a substantive market fact, analysis, forecast, or argument. Exclude generic trading or investing education and unrelated political or social commentary. A link, account identity, date, chart label, or BREAKING alone is not substantive.",
+      "additional_prompt_instruction": "Forward substantive analysis across the configured financial-market scope, including commodities. Route direct US-listed company theses to us_stocks_news and industry theses to id_industry_news; broad theses use macro_news. Exclude distribution notices whose main purpose is announcing, linking to, or soliciting signups for The Kobeissi Letter, weekly-letter, newsletter, reports, research products, or Chart of the Week. Exclude published, view/read-through-link, signup, free, paid, and member-only notices. Only forward posts whose supplied text contains a substantive market fact, analysis, forecast, or argument. Exclude generic trading or investing education and unrelated political or social commentary. A link, account identity, date, chart label, or BREAKING alone is not substantive.",
       "max_items_per_poll": 50,
       "thread_handling": {
         "mode": "self_chain",

@@ -671,6 +671,8 @@ def _run(
         event = deserialize_queue_event(record["event"])
         record["agent_phase"] = "awaiting_agent"
         record["agent_lease_until"] = state.lease_until(now)
+        if profile.enable_llm_routing:
+            record["news_subject_contract"] = agent_protocol.news_subject.CONTRACT
         route_override = agent_protocol.deterministic_route(profile, event)
         claimed_item = agent_protocol.agent_item(
             profile,
@@ -760,7 +762,8 @@ def submit_analysis(
         import summary_context
         optional_context = summary_context.claim_from_state(value, event_key, state_path.parent / "summary-context")
         route_override = agent_protocol.deterministic_route(profile, event)
-        result = agent_protocol.validate_submission(profile, payload, event=event)
+        result = agent_protocol.validate_submission(profile, payload, event=event,
+            subject_required=record.get("news_subject_contract") == agent_protocol.news_subject.CONTRACT)
         if profile.enable_llm_routing and result.get("is_relevant") is not False:
             items = result.get("items")
             if type(items) is not list or not items:
@@ -852,7 +855,7 @@ def submit_analysis(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Process WhatsApp Channel queue")
-    parser.add_argument("command", nargs="?", choices={"run", "submit-analysis", "prepare-summary-images"}, default="run")
+    parser.add_argument("command", nargs="?", choices={"run", "submit-analysis", "prepare-summary-images", "lookup-company"}, default="run")
     parser.add_argument("--json", dest="payload")
     parser.add_argument("--no-post", action="store_true")
     parser.add_argument("--config", type=Path, default=_default_path("WHATSAPP_CHANNEL_WATCH_CONFIG_PATH", "config/watches.json"))
@@ -862,7 +865,12 @@ def main() -> int:
     parser.add_argument("--media-staging-dir", type=Path, default=_default_path("WHATSAPP_CHANNEL_WATCH_MEDIA_STAGING_DIR", str(Path.home() / ".hermes/state/whatsapp-channel-watch/media-staging")))
     args = parser.parse_args()
     no_post = args.no_post or os.environ.get("WHATSAPP_CHANNEL_WATCH_NO_POST") == "1"
-    if args.command == "prepare-summary-images":
+    if args.command == "lookup-company":
+        if not args.payload:
+            parser.error("lookup-company requires --json")
+        import news_identity
+        result = news_identity.lookup_payload(json.loads(args.payload))
+    elif args.command == "prepare-summary-images":
         if not args.payload:
             parser.error("prepare-summary-images requires --json")
         import summary_context

@@ -8,7 +8,8 @@
   ],
   "destinations": {
     "id_stocks_news_channel_id": "1525102508714889257",
-    "macro_news_channel_id": "1531655369884045382"
+    "macro_news_channel_id": "1531655369884045382",
+    "industry_news_channel_id": "1549418098807930880"
   },
   "additional_prompt_instruction": ""
 }

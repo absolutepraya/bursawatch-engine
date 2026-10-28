@@ -43,7 +43,7 @@ an object-storage owner and upload policy are approved. No browser-local source
 preferences count as saved catalog records. Preserve all nine watcher editors and their input, processing and output
 summaries. WhatsApp requires configuration version 2 and explicit observe/forward
 modes; the other eight editors require version 1. Stockbit's v1 editor exposes
-only four fixed feed switches, two distinct Discord route IDs and an optional
+only four fixed feed switches, company and macro Discord route IDs plus an optional distinct industry route ID and an optional
 800-code-point additive instruction. RSS URLs, the heartbeat, credentials,
 parser behavior and agent rules remain system-owned. Mode changes must not silently
 discard routing or processing settings. Source profiles load from the separate

@@ -415,7 +415,7 @@ Source owners retain structural, identity, capability and source-safety checks.
 
 Split independent issuer developments into ordered items, including separate
 issuer dividends and suspension reopenings. Keep a connected transaction or
-one broad thesis as one story. Each generated issuer card has a ticker-led
+one broad thesis as one story. Each generated issuer card with a verified ticker has a ticker-led
 headline, source byline, latest native-currency price and 1D/1W/1M/3M absolute
 and percentage changes, plus the original source link. IDX uses IDR and US
 uses USD. Missing quotes or individual horizons use grey `-` placeholders;
@@ -446,3 +446,13 @@ Optional summary-image context is limited to news claims. Leading
 TechnicalReview Swing claims expose no optional news-image instruction, and
 the helper refuses those claims. Their specialized source media and Board
 handling remain authoritative.
+
+## Subject classification contract
+
+New routed ordinary-news claims use `subject-v1` from `lib-news-classification`.
+Validate the source quotation and company name against complete supplied text,
+then validate subject-to-route consistency before state mutation or delivery.
+Ticker hints never choose a news category. Named companies without verified
+tickers retain Stock News with no tracker. Existing relevance and specialized
+Swing/status rules remain. Already frozen output and destinations are never
+reclassified. Older outstanding leases settle with their original schema.

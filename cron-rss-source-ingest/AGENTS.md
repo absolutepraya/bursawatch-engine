@@ -226,3 +226,13 @@ proven.
 
 Run `../../../.venv/bin/python -m pytest -q tests` in this worktree. Tests
 use fake feed pages, temporary state, and no Discord or source network calls.
+
+## Subject classification contract
+
+New routed ordinary-news claims use `subject-v1` from `lib-news-classification`.
+Validate the source quotation and company name against complete supplied text,
+then validate subject-to-route consistency before state mutation or delivery.
+Ticker hints never choose a news category. Named companies without verified
+tickers retain Stock News with no tracker. Existing relevance and specialized
+Swing/status rules remain. Already frozen output and destinations are never
+reclassified. Older outstanding leases settle with their original schema.

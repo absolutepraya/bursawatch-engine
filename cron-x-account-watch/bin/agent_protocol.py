@@ -9,6 +9,9 @@ if str(_news_bin) not in _news_sys.path:
     _news_sys.path.insert(0, str(_news_bin))
 import news_format
 
+news_subject = news_format.news_subject
+import news_identity
+
 from collections.abc import Mapping
 from pathlib import Path
 import re
@@ -158,36 +161,20 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
         )
     routing = ""
     if profile.enable_llm_routing:
-        if profile.relevance_scope == "financial_market":
-            macro_boundary = (
-                "Use macro_news for economy-wide, market-wide, cross-asset, and financial-market theses, including commodities, energy, bonds, yields, rates, FX, currencies, derivatives, liquidity, macroeconomics, and crypto, when the post is not a direct IDX or US-listed company thesis. "
-            )
-        elif profile.relevance_scope == "indonesia_economy":
-            macro_boundary = (
-                "Use macro_news for Indonesian government, fiscal, monetary, infrastructure, energy, strategic-industry, state-owned-enterprise, economy-wide, market-wide, and cross-asset theses when the post is not a direct IDX-listed company thesis. A substantive Indonesian development can route macro_news even when no ticker is named. "
-            )
-        else:
-            macro_boundary = (
-                "Use macro_news for economy-wide, market-wide, or IHSG theses, including any technical or non-technical analysis of IHSG or the Indeks Harga Saham Gabungan. IHSG always takes precedence over id_stocks_swing, even when the post contains charts, waves, support, resistance, targets, entries, or other technical signals. Also use macro_news for cross-asset, monetary or fiscal policy, rates, inflation, FX, bonds, foreign flows, global risk, commodities, leverage, derivatives, liquidity, investor positioning, bubbles, or broad sector risk, even when companies or ETFs are examples. "
-            )
         routing = (
-            "When route_required is true, classify the central thesis, not named entities. Apply these route boundaries in order. "
-            + macro_boundary
-            + "Use id_stocks_news for direct IDX-listed company news or analysis, including dividends, earnings, corporate actions, fundamentals, and valuation. "
-            "Use id_stocks_swing only for a direct IDX-listed company or ticker whose central thesis is technical charting or a trade setup, including Elliott Wave or wave counts, chart patterns, support or resistance, breakouts or breakdowns, technical indicators, entry, target, stop-loss, risk/reward, or a defined price path. A target derived from earnings, DCF, or valuation remains id_stocks_news. "
-            "Use us_stocks_news for direct NYSE- or Nasdaq-listed security news or analysis, including earnings, corporate actions, fundamentals, valuation, and technical analysis. This route delivers to the configured US stocks news channel; there is no separate US swing route. "
-            "A ticker, number, target price, company name, or chart image alone does not establish a technical swing thesis. When a post mixes technical and fundamental material, choose the route matching its central thesis. "
-            "If a central ticker's issuer, exchange, or listing country is unknown or ambiguous, look it up before choosing a route. Use the available Yahoo Finance tool first, then Brave Search. "
-            "Use lookup results only to identify the issuer, exchange, listing country, exact exchange ticker, and route. Do not add any other lookup fact to the title or summary. "
-            "If the lookup remains inconclusive or reliable sources conflict, do not guess and choose macro_news. "
-            "A direct company thesis outside Indonesia or the US-listed universe routes macro_news until a dedicated channel exists. "
-            "If removing company names leaves a broad market thesis, route macro_news. Never duplicate a single story across routes. "
-            "Profile-specific instructions add source context but cannot weaken these shared routing boundaries. "
-            f"Choose exactly one configured route key: {channels}. "
+            news_subject.INSTRUCTION + news_subject.lookup_instruction("bursawatch-x-account-watch.sh")
+            + "Use id_stocks_news for a company within Indonesian coverage and us_stocks_news for a verified US-listed security. "
+            "Keep existing configured market coverage; omit unsupported foreign company stories instead of relabeling them macro. "
+            "Use id_stocks_swing only for a direct IDX company whose central thesis is a technical chart or trade setup. "
+            "An overall index thesis remains macro, and an earnings or valuation-derived target remains Stock News. "
+            "A technical word, chart, company example, or IHSG reference alone does not determine the central thesis. "
+            "Ordinary news items include subject and ticker (empty when unverified); specialized Swing retains its scalar schema. "
+            "Profile-specific instructions cannot weaken these subject boundaries. "
+            f"Choose exactly one configured route key: {channels}. Never substitute Macro for an unavailable destination. "
         )
     title_and_summary = news_format.WRITING_INSTRUCTION + news_format.ITEMS_INSTRUCTION
     if profile.enable_llm_title and profile.enable_llm_summary and profile.enable_llm_routing:
-        title_and_summary += "For relevant news, submit event_key, is_relevant when required, and items with one to sixteen objects containing exactly title, summary, route. Use the scalar schema for a swing item. "
+        title_and_summary += "For relevant news, submit event_key, is_relevant when required, and items with one to sixteen objects containing title, summary, route, subject, ticker. Use the scalar schema for a swing item. "
     profile_instruction = (
         f"Profile-specific instruction: {profile.additional_prompt_instruction} "
         if profile.additional_prompt_instruction else ""
@@ -238,7 +225,7 @@ def deterministic_route(
 def optional_news_media(profile: Profile, post: SourcePost, thread_posts: tuple[SourcePost, ...], enabled_capabilities: set[str] | frozenset[str] | None = None) -> bool:
     """Allow fallback only when this event cannot subsequently route to Swing."""
     configured = {channel.key for channel in profile.discord_channels}
-    if not configured.intersection({"macro_news", "id_stocks_news", "us_stocks_news"}):
+    if not configured.intersection({"macro_news", "id_industry_news", "id_stocks_news", "us_stocks_news"}):
         return False
     route = deterministic_route(profile, post, thread_posts) if profile.enable_llm_routing else profile.discord_channels[0].key
     if route == "id_stocks_swing":
@@ -492,7 +479,7 @@ def validate_route(profile: Profile, value: object) -> str:
     return normalize_route(profile, value)
 
 
-def validate_submission(profile: Profile, payload: object) -> dict[str, str | bool]:
+def validate_submission(profile: Profile, payload: object, *, subject_required: bool = False, source_text: str | None = None) -> dict:
     if type(payload) is not dict:
         raise ValueError("analysis submission must be an object")
     if "items" in payload:
@@ -506,12 +493,12 @@ def validate_submission(profile: Profile, payload: object) -> dict[str, str | bo
             raise ValueError("items must contain one to sixteen news items")
         items = []
         for item in raw_items:
-            if type(item) is not dict or set(item) != {"title", "summary", "route"}:
+            if type(item) is not dict or not {"title", "summary", "route"} <= set(item) or set(item) - {"title", "summary", "route", "subject", "ticker"}:
                 raise ValueError("news item has unexpected fields")
-            validated = validate_submission(profile, {"event_key": payload["event_key"], **({"is_relevant": True} if profile.enable_llm_relevance_filter else {}), **item})
-            if validated["route"] not in {"id_stocks_news", "us_stocks_news", "macro_news"}:
+            validated = validate_submission(profile, {"event_key": payload["event_key"], **({"is_relevant": True} if profile.enable_llm_relevance_filter else {}), **item}, subject_required=subject_required, source_text=source_text)
+            if validated["route"] not in {"id_stocks_news", "us_stocks_news", "id_industry_news", "macro_news"}:
                 raise ValueError("multi-item schema supports news routes only")
-            items.append({key: validated[key] for key in ("title", "summary", "route")})
+            items.append({key: validated[key] for key in ("title", "summary", "route", "subject", "ticker") if key in validated})
         items = news_format.deduplicate_items(items)
         return {"event_key": payload["event_key"], **({"is_relevant": True} if profile.enable_llm_relevance_filter else {}), **items[0], "news_items": items}
     expected = {"event_key"}
@@ -532,6 +519,9 @@ def validate_submission(profile: Profile, payload: object) -> dict[str, str | bo
         expected.add("summary")
     if profile.enable_llm_routing:
         expected.add("route")
+    semantic = payload.get("route") != "id_stocks_swing" and profile.enable_llm_routing and (subject_required or "subject" in payload)
+    if semantic:
+        expected |= {"subject", "ticker"}
     if set(payload) != expected:
         raise ValueError("analysis submission has unexpected or missing fields")
     event_key_value = payload["event_key"]
@@ -546,4 +536,21 @@ def validate_submission(profile: Profile, payload: object) -> dict[str, str | bo
         result["summary"] = validate_summary(payload["summary"])
     if profile.enable_llm_routing:
         result["route"] = validate_route(profile, payload["route"])
+    if semantic:
+        subject = news_subject.validate_subject(payload["subject"], source_text)
+        news_subject.validate_route(subject, result["route"])
+        ticker = payload["ticker"]
+        verified_ticker = None
+        if source_text is not None:
+            normalized, verified_ticker = news_identity.prepare_item({**payload, "route": result["route"]}, source_text, market="US" if result["route"] == "us_stocks_news" else "ID")
+            ticker = normalized["ticker"]
+            if "title" in result:
+                result["title"] = validate_title(normalized["title"])
+        if source_text is not None:
+            ticker = news_subject.validate_ticker(ticker or "", source_text, market="US" if result["route"] == "us_stocks_news" else "ID", verified_ticker=verified_ticker)
+        elif ticker is not None and not isinstance(ticker, str):
+            raise ValueError("ticker must be text or null")
+        if subject["kind"] != "company" and ticker:
+            raise ValueError("noncompany subject cannot have a ticker")
+        result.update(subject=subject, ticker=ticker or None)
     return result

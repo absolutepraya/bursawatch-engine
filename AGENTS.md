@@ -94,6 +94,7 @@ this contract:
 - `lib-bursawatch-discord-delivery/AGENTS.md`
 - `lib-bursawatch-source-media/AGENTS.md`
 - `lib-news-format/AGENTS.md`
+- `lib-news-classification/AGENTS.md`
 - `cron-dc-swing-board/AGENTS.md`
 - `cron-tg-phintraco-swing/AGENTS.md`
 - `cron-ig-account-watch/AGENTS.md`

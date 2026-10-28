@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 import config
 import discord
 import state
-from agent_protocol import analysis_payload, build_wake_payload, validate_submissions
+from agent_protocol import analysis_payload, build_wake_payload, validate_submissions, news_subject
 from market_data import get_company_context, get_market_snapshot
 from models import Analysis, Article, Route, StockbitWatchConfig
 from render import render
@@ -165,6 +165,7 @@ def _analysis_from_record(record: Mapping[str, object]) -> Analysis:
             eligible=bool(payload["eligible"]),
             route=Route(payload["route"]),
             source_evidence=str(payload["source_evidence"]),
+            subject=payload.get("subject"),
         )
     except (KeyError, TypeError, ValueError) as error:
         raise RuntimeError("Stockbit article analysis is malformed") from error
@@ -185,6 +186,7 @@ def _snapshot(loaded: config.LoadedStockbitConfig) -> dict[str, object]:
         "additional_prompt_instruction": watch.additional_prompt_instruction,
         "id_stocks_news_channel_id": watch.id_stocks_news_channel_id,
         "macro_news_channel_id": watch.macro_news_channel_id,
+        "industry_news_channel_id": watch.industry_news_channel_id,
     }
 
 
@@ -201,6 +203,10 @@ def _channel(record: Mapping[str, object], route: Route) -> str:
         return str(snapshot["id_stocks_news_channel_id"])
     if route is Route.MACRO_NEWS:
         return str(snapshot["macro_news_channel_id"])
+    if route is Route.INDUSTRY_NEWS:
+        if "industry_news_channel_id" not in snapshot:
+            raise ValueError("Stockbit article has no frozen Industry News destination")
+        return str(snapshot["industry_news_channel_id"])
     raise ValueError("excluded Stockbit article has no Discord channel")
 
 
@@ -219,7 +225,7 @@ def _render_record(record: dict[str, object], article: Article, analysis: Analys
     existing = record.get("rendered")
     if isinstance(existing, str) and existing:
         return existing
-    snapshot = get_market_snapshot(analysis.ticker) if load_market_data and analysis.route is Route.ID_STOCKS_NEWS else None
+    snapshot = get_market_snapshot(analysis.ticker) if load_market_data and analysis.route is Route.ID_STOCKS_NEWS and analysis.ticker else None
     context = get_company_context(analysis.ticker, analysis.route.value) if load_market_data and analysis.route is Route.ID_STOCKS_NEWS and analysis.ticker else None
     content = render(article, analysis, snapshot, context=context)
     record["rendered"] = content
@@ -428,10 +434,13 @@ def _run_once(
                 assert loaded is not None
                 record["config_snapshot"] = _snapshot(loaded)
             state.claim_agent(record, now)
+            semantic = "industry_news_channel_id" in record["config_snapshot"]
+            if semantic:
+                record["news_subject_contract"] = news_subject.CONTRACT
             state.save_state(runtime.state_path, value)
             snapshot = _bound_snapshot(record)
             assert snapshot is not None
-            payload = build_wake_payload(article, str(snapshot["additional_prompt_instruction"]))
+            payload = build_wake_payload(article, str(snapshot["additional_prompt_instruction"]), subject_classification=semantic)
         articles = value["articles"]
         pending = sum(
             1
@@ -475,7 +484,7 @@ def submit_analysis(payload: object) -> dict[str, object]:
         article = state.article_from_record(candidate_key, record)
         if record.get("phase") not in {"awaiting_agent"}:
             raise ValueError("Stockbit article is not awaiting agent analysis")
-        analyses = validate_submissions(article, payload)
+        analyses = validate_submissions(article, payload, subject_required=record.get("news_subject_contract") == news_subject.CONTRACT)
         analysis = analyses[0]
         if _bound_snapshot(record) is None:
             record["config_snapshot"] = _snapshot(config.load_watch_config_for_run())
@@ -631,9 +640,14 @@ def main(argv: list[str] | None = None) -> int:
     preview_parser.add_argument("--pages", type=int, default=1)
     submit_parser = subparsers.add_parser("submit-analysis")
     submit_parser.add_argument("--json", required=True, dest="payload")
+    lookup = subparsers.add_parser("lookup-company")
+    lookup.add_argument("--json", required=True, dest="payload")
     arguments = parser.parse_args(argv)
     try:
-        if arguments.command == "preview":
+        if arguments.command == "lookup-company":
+            import news_identity
+            result = news_identity.lookup_payload(json.loads(arguments.payload))
+        elif arguments.command == "preview":
             result = preview(arguments.pages)
         elif arguments.command == "submit-analysis":
             result = submit_analysis(json.loads(arguments.payload))

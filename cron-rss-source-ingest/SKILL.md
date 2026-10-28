@@ -19,6 +19,23 @@ Source work is admitted to the existing Stockbit article ledger by the
 cursor. Any future state transfer or rollback needs an exact queue and receipt
 inventory.
 
+## Company identity lookup
+
+The general no-browsing and no-other-program rules allow this one explicit
+read-only exception for a clearly named source company whose ticker is missing:
+
+```bash
+"$HOME/.hermes/scripts/bursawatch-stockbit-snips.sh" lookup-company --json '{"company":"<exact source company name>","market":"ID"}'
+```
+
+The tool searches Yahoo Finance for a unique company-name and exchange match.
+Use `US` only within configured US coverage. A verified result supplies only
+ticker and exchange for deterministic price enrichment, never extra news facts.
+Use no arbitrary URL or shell helper. The owner independently verifies an
+externally proposed ticker. If lookup is unavailable, ambiguous, or unresolved,
+submit Stock News using the company name and an empty ticker with no tracker.
+The lookup never selects a category, sends a message, or changes source state.
+
 ## Catalog revision transitions
 
 Each `legacy_seed.catalog_revision` is immutable cursor-boundary provenance.
@@ -124,17 +141,33 @@ Return exactly this JSON object with no extra fields:
   "summary":"<one to five factual Indonesian sentences>",
   "material_facts":["<source-supported fact>"],
   "dedupe_facts":["<normalized source-supported fact>"],
+  "subject": {"kind": "<company | industry | macro>", "name": "<central subject>", "evidence": "<short exact source quotation>"},
   "eligible":true,
-  "route":"<id_stocks_news | macro_news | exclude>",
+  "route":"<id_stocks_news | id_industry_news | macro_news | exclude>",
   "source_evidence":"<source-supported evidence>"
 }
 ```
 
-Use `id_stocks_news` only for one central IDX issuer, with its exact ticker and
-`TICKER: ` at the start of the title. Use `macro_news` for market-wide, sector,
-commodity, macro, or multi-issuer material, with an empty ticker. Use `exclude`
-and `eligible: false` for irrelevant, promotional, generic educational, or
-unsupported material. Supporting ticker mentions do not change a macro route.
+Classify each ordinary item from the complete supplied source meaning before
+choosing its destination. Return `subject` with exactly `kind`, `name`, and
+`evidence`: kind is `company`, `industry`, or `macro`; evidence is a short exact
+quotation from the supplied source. Company news concerns one company's own
+development and uses Stock News. Sector background does not change that.
+Industry news concerns a sector as a whole, including industry-focused policy,
+and uses `id_industry_news` even when named companies are examples or top picks.
+Economy-wide, cross-industry, cross-asset, or overall-market developments use
+`macro_news`. Source headings, publisher, ticker presence and ticker counts do
+not determine the subject. Split independent company developments, while
+keeping a connected transaction or one shared thesis together.
+
+Resolve tickers separately from category. A named company with no verified
+ticker stays in Stock News using its source name, an empty ticker, and no price
+tracker. Never use Macro as a missing-ticker, foreign-company, unavailable-quote,
+or missing-destination fallback. Preserve configured market coverage, relevance
+exclusions, and specialized Swing/status contracts. Do not invent evidence,
+tickers, or facts. Follow the trusted item's shared subject instruction.
+
+Use `exclude` with `eligible: false` for ineligible material.
 Keep the title natural and sentence case. Preserve official names, tickers,
 acronyms, and proper nouns. Write one to five factual Indonesian summary
 sentences, without the `*(Ringkasan)*` marker, which the renderer adds. Do not

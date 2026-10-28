@@ -558,6 +558,7 @@ def _item(article: Any, loaded_config: Any) -> dict[str, Any]:
         "additional_prompt_instruction": watch.additional_prompt_instruction,
         "id_stocks_news_channel_id": watch.id_stocks_news_channel_id,
         "macro_news_channel_id": watch.macro_news_channel_id,
+        "industry_news_channel_id": watch.industry_news_channel_id,
     }
     return {"provider_event_id": hashlib.sha256(article.guid.encode("utf-8")).hexdigest(), "published_at": article.published_at.isoformat(), "source_url": article.url, "payload": {"article": payload, "watch_config_revision": loaded_config.revision, "watch_config_snapshot": frozen}, "media_required": False, "media_refs": []}
 

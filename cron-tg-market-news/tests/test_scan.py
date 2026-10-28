@@ -1269,3 +1269,38 @@ def test_regular_phintraco_company_flash_and_tuntun_paths_still_ingest(
     assert result["stock_status_events"] == 0
     assert "phintraco:500:PTBA" in persisted["candidates"]
     assert "tuntun:201:CBRE" in persisted["candidates"]
+
+
+def test_subject_routes_ignore_update_section_labels_and_preserve_lead_budget(tmp_state, monkeypatch):
+    monkeypatch.setenv('IDX_MARKET_NEWS_STATE_PATH', str(tmp_state))
+    now = datetime.fromisoformat('2026-10-28T12:00:00+07:00')
+    value = empty_state()
+    rows = [
+        ('lead', SourceKind.TUNTUN_UPDATE_LEAD, 'industry', 'id_industry_news', 'Permintaan industri sawit naik'),
+        ('industry-1', SourceKind.TUNTUN_UPDATE_SECTION, 'industry', 'id_industry_news', 'Produksi industri unggas naik'),
+        ('industry-2', SourceKind.TUNTUN_UPDATE_SECTION, 'industry', 'id_industry_news', 'Penjualan sektor otomotif naik'),
+        ('industry-3', SourceKind.TUNTUN_UPDATE_SECTION, 'industry', 'id_industry_news', 'Ekspor industri baja naik'),
+        ('company', SourceKind.TUNTUN_UPDATE_INDUSTRY, 'company', 'id_stocks_news', 'ACME memperoleh kontrak baru'),
+        ('macro', SourceKind.TUNTUN_UPDATE_INDUSTRY, 'macro', 'macro_news', 'Inflasi nasional melandai'),
+    ]
+    candidates = {}
+    for index, (key, source_kind, kind, route, source) in enumerate(rows):
+        item = CompanyCandidate(provider=Provider.TUNTUN, source_message_id=18000,
+                                ticker=None, candidate_id=key, source_kind=source_kind,
+                                published_at=now, source_text=source, direct_image=False)
+        candidates[key] = item
+        enqueue_candidate(value, item, now)
+        record = value['candidates'][item.key]
+        record.update(phase='pending_selection', classification=EventClass.OTHER_COMPANY_OPERATION.value,
+                      selection={'summary':source, 'ranking_band':min(index + 1, 5),
+                                 'material_facts':[source], 'dedupe_facts':[source], 'title':source,
+                                 'route':route, 'ticker':'',
+                                 'subject':{'kind':kind,'name':'ACME' if kind=='company' else kind,'evidence':source}})
+    assert scan._route_pending(value) == len(rows)
+    assert value['candidates'][candidates['lead'].key]['phase'] == 'pending_delivery'
+    assert value['candidates'][candidates['industry-3'].key]['phase'] == 'suppressed_rank'
+    assert value['candidates'][candidates['company'].key]['phase'] == 'pending_delivery'
+    selections = {item.candidate.candidate_id:item for item in scan._all_classified(value)}
+    assert scan._delivery_channel(selections['lead']) == scan.INDUSTRY_CHANNEL_ID
+    assert scan._delivery_channel(selections['company']) == scan.ALERT_CHANNEL_ID
+    assert scan._delivery_channel(selections['macro']) == scan.MACRO_CHANNEL_ID
