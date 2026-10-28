@@ -19,7 +19,9 @@ from control_plane.contract import config_checksum
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "migrations/022_rename_x_source_display_names.sql"
 WATCHER = "bursawatch-x-account-watch"
-RENAMED = json.loads((ROOT / "baseline-configs" / f"{WATCHER}.json").read_text())
+# This migration recognizes one immutable historical baseline, not whatever
+# configuration a future release uses for a fresh installation.
+RENAMED = json.loads((ROOT / "tests/fixtures/x-source-labels-migration-022.json").read_text())
 PREVIOUS = deepcopy(RENAMED)
 for profile in PREVIOUS["profiles"]:
     if profile["id"] == "doktermarket":
@@ -56,7 +58,8 @@ def connection():
             yield conn
 
 
-def seed_config(conn, *, revision=1, actor="source-baseline", checksum=None):
+def seed_config(conn, *, revision=1, actor="source-baseline", checksum=None, config=None):
+    config = PREVIOUS if config is None else config
     conn.execute(
         "insert into bursawatch_watchers (watcher_id, display_name, validator_key) values (%s, 'X Watch', 'x')",
         (WATCHER,),
@@ -65,9 +68,14 @@ def seed_config(conn, *, revision=1, actor="source-baseline", checksum=None):
         """insert into bursawatch_config_revisions
            (watcher_id, revision, config_version, config, config_sha256, actor_id)
            values (%s, %s, 1, %s, %s, %s)""",
-        (WATCHER, revision, Jsonb(PREVIOUS), checksum or config_checksum(PREVIOUS), actor),
+        (WATCHER, revision, Jsonb(config), checksum or config_checksum(config), actor),
     )
     conn.execute("update bursawatch_watchers set current_revision = %s", (revision,))
+
+
+def test_historical_fixtures_match_the_immutable_migration_checksums():
+    assert config_checksum(PREVIOUS) == "7f0698fe5bd298335280355fa846e14fc4578806e108afadb77defe153a3e437"
+    assert config_checksum(RENAMED) == "b6220865ba93f81e96332b7b32b9744b73e6e42bf418a413879c03c62c942d81"
 
 
 def test_manual_migration_preserves_history_and_changes_only_the_reviewed_labels(connection):
@@ -104,6 +112,15 @@ def test_migration_does_not_promote_operator_or_unrecognized_configurations(conn
     assert connection.execute("select current_revision from bursawatch_watchers").fetchone() == (
         overrides.get("revision", 1),
     )
+
+
+def test_migration_preserves_the_newer_source_baseline(connection):
+    current = json.loads((ROOT / "baseline-configs" / f"{WATCHER}.json").read_text())
+    seed_config(connection, config=current)
+    before = connection.execute("select * from bursawatch_config_revisions").fetchall()
+    connection.execute(MIGRATION.read_text())
+    assert connection.execute("select * from bursawatch_config_revisions").fetchall() == before
+    assert connection.execute("select current_revision from bursawatch_watchers").fetchone() == (1,)
 
 
 def test_migration_preserves_custom_publisher_labels_and_works_before_baseline_seeding(connection):
