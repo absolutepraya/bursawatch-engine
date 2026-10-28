@@ -518,7 +518,7 @@ def _phintraco_headline_ticker(headline: str) -> str | None:
     issuer = _PHINTRACO_ISSUER_HEADING.fullmatch(headline)
     if issuer is not None:
         # Only the first headline slot supplies identity, never later body mentions.
-        if len(_PHINTRACO_COMPANY_NOTES_TICKER.findall(headline)) != 1:
+        if len(re.findall(rf"\b{_IDX_TICKER}\.IJ\b", headline)) != 1:
             return None
         return _ticker_from_match(issuer)
     title = _PHINTRACO_HEADLINE_TICKER.match(headline)

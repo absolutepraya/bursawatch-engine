@@ -147,25 +147,44 @@ def submit_news(work: dict[str, Any], *, no_post: bool = False, inbox: Any = Non
     keys = _news_siblings(work, inbox if inbox is not None else _inbox_client())
     if provider is Provider.PHINTRACO and is_stock_information(text):
         return "irrelevant"
-    direct_image = any(ref.get("kind") == "image" for ref in envelope["media_refs"])
-    if provider is Provider.TUNTUN:
-        topic_id = payload.get("topic_id")
-        if topic_id is not None and (type(topic_id) is not int or topic_id < 1):
-            raise ValueError("Tuntun topic identity is invalid")
-        extracted = TuntunNewsAdapter().extract_candidates(message_id, text, published_at, topic_id, direct_image)
-    else:
-        extracted = PhintracoNewsAdapter().extract_candidates(message_id, text, published_at, direct_image)
-    if not extracted:
-        return "irrelevant"
-    if (
-        any(candidate.provider is not provider for candidate in extracted)
-        or len({candidate.key for candidate in extracted}) != len(extracted)
-    ):
-        raise ValueError("News source produced an unexpected candidate set")
     with run_lock():
         state = load_state()
         candidates = state["candidates"]
         assert isinstance(candidates, dict)
+        accepted = []
+        for key in candidate_keys(state):
+            origin = provenance(state, key)
+            assert origin is not None
+            if (origin["event_key"], origin["version"]) == (work["event_key"], work["version"]):
+                accepted.append(key)
+        if accepted:
+            # A new parser must not turn an accepted publication into new work.
+            frozen = loaded_config_for(state, accepted[0])
+            assert frozen is not None
+            for key in accepted:
+                if loaded_config_for(state, key) != frozen:
+                    raise StateBlockedError("one News source event has conflicting frozen config snapshots")
+                put_provenance(
+                    state, key, event_key=work["event_key"], version=work["version"],
+                    content_hash=envelope["content_hash"], source_url=envelope["source_url"],
+                    work_keys=keys, loaded_config=frozen,
+                )
+            return "accepted"
+        direct_image = any(ref.get("kind") == "image" for ref in envelope["media_refs"])
+        if provider is Provider.TUNTUN:
+            topic_id = payload.get("topic_id")
+            if topic_id is not None and (type(topic_id) is not int or topic_id < 1):
+                raise ValueError("Tuntun topic identity is invalid")
+            extracted = TuntunNewsAdapter().extract_candidates(message_id, text, published_at, topic_id, direct_image)
+        else:
+            extracted = PhintracoNewsAdapter().extract_candidates(message_id, text, published_at, direct_image)
+        if not extracted:
+            return "irrelevant"
+        if (
+            any(candidate.provider is not provider for candidate in extracted)
+            or len({candidate.key for candidate in extracted}) != len(extracted)
+        ):
+            raise ValueError("News source produced an unexpected candidate set")
         loaded = None
         for candidate in extracted:
             existing = provenance(state, candidate.key)

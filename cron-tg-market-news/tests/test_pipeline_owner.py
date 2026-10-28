@@ -172,6 +172,33 @@ def test_phintraco_news_sibling_work_claims_one_frozen_agent_item_and_renders_go
     assert pipeline_owner.agent_status()["candidates"]["pending_analysis"] == 0
 
 
+@pytest.mark.parametrize("capability", ["company_news", "macro_news"])
+def test_accepted_bach_source_keeps_original_candidate_after_parser_upgrade(tmp_path, monkeypatch, load_fixture, capability):
+    state_path = tmp_path / "news.json"
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(state_path))
+    monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
+    text = load_fixture("phintraco-bach-36061.txt")
+    work, inspection = _news_work("company_news", message_id="36061", text=text)
+    extract = pipeline_owner.PhintracoNewsAdapter.extract_candidates
+
+    def legacy_extract(self, *args, **kwargs):
+        return [replace(candidate, ticker=None, candidate_id="news") for candidate in extract(self, *args, **kwargs)]
+
+    with monkeypatch.context() as legacy:
+        legacy.setattr(pipeline_owner.PhintracoNewsAdapter, "extract_candidates", legacy_extract)
+        assert pipeline_owner.submit(work, no_post=True, inbox=_Inbox(inspection)) == "accepted"
+    before = state_path.read_bytes()
+    replay, replay_inspection = _news_work(capability, message_id="36061", text=text)
+    assert pipeline_owner.submit(replay, no_post=True, inbox=_Inbox(replay_inspection)) == "accepted"
+    assert set(load_state()["candidates"]) == {"phintraco:36061:news"}
+    assert state_path.read_bytes() == before
+
+    replay["envelope"]["content_hash"] = "d" * 64
+    with pytest.raises(scan.StateBlockedError, match="conflicting source-work provenance"):
+        pipeline_owner.submit(replay, no_post=True, inbox=_Inbox(replay_inspection))
+    assert state_path.read_bytes() == before
+
+
 def test_tuntun_corporate_source_work_accepts_all_ticker_candidates_once(tmp_path, monkeypatch):
     monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_path / "news.json"))
     monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")

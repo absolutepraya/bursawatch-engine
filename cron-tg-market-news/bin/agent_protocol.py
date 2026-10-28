@@ -36,7 +36,7 @@ PHINTRACO_INSTRUCTION = _BASE_INSTRUCTION + (
     "Use id_stocks_news only when the supplied IDX issuer is clearly central to the report. Use macro_news for a "
     "material policy, legal, regulatory, or economic topic affecting the broader market, including a note that names "
     "several affected companies; summarize it once as macro news. An issuer-specific earnings report belongs in "
-    "id_stocks_news when its issuer ticker is supplied. If an issuer-specific report has no supplied ticker, use exclude "
+    "id_stocks_news when its issuer ticker is supplied. If a single-issuer report has no supplied ticker, use exclude "
     "rather than macro_news; missing issuer identity never makes company news macro. Do not invent a ticker. "
     "Use exclude for immaterial, promotional, routine, or "
     "advice-only trading material. Attribute research estimates to "

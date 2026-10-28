@@ -504,6 +504,7 @@ def test_phintraco_explicit_issuer_heading_preserves_identity(header, separator)
     "Reformasi pasar modal",
     "PT Bach Multi Global Tbk - BACH.IJ dan UNTR.IJ",
     "PT Bach Multi Global Tbk - BACH.IJ / PT United Tractors Tbk - UNTR.IJ",
+    "PT Bach Multi Global Tbk (BACH.IJ) dan PT United Tractors Tbk - UNTR.IJ",
     "PT Badan Usaha Milik Negara Tbk - BUMN.IJ",
 ])
 def test_phintraco_issuer_heading_never_guesses_from_body_or_multiple_issuers(headline):
