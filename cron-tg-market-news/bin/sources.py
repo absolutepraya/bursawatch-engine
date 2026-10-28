@@ -51,6 +51,9 @@ _PHINTRACO_TICKER_TITLE = re.compile(
     rf"^(?:Notes|Company Flash):\s*(?P<ticker>{_IDX_TICKER})(?=\s|:|-|\(|$)"
 )
 _PHINTRACO_COMPANY_NOTES_TICKER = re.compile(rf"[–-]\s*(?P<ticker>{_IDX_TICKER})\.IJ\b")
+_PHINTRACO_ISSUER_HEADING = re.compile(
+    rf"PT\s+[^\r\n]+?\s+Tbk\s*[–-]\s*(?P<ticker>{_IDX_TICKER})\.IJ"
+)
 _PHINTRACO_BRANDED_NOTES = re.compile(r"^Phintraco Sekuritas Notes\s*\|", re.IGNORECASE)
 _PHINTRACO_QUICK_NOTES = re.compile(r"^PHINTAS Quick Notes\s*\|", re.IGNORECASE)
 _PHINTRACO_COMPANY_UPDATE = re.compile(r"^Phintraco Sekuritas Company Update\s*:?[ \t]*$", re.IGNORECASE)
@@ -512,6 +515,12 @@ def phintraco_news_headline(candidate: CompanyCandidate) -> str:
 
 
 def _phintraco_headline_ticker(headline: str) -> str | None:
+    issuer = _PHINTRACO_ISSUER_HEADING.fullmatch(headline)
+    if issuer is not None:
+        # Only the first headline slot supplies identity, never later body mentions.
+        if len(re.findall(rf"\b{_IDX_TICKER}\.IJ\b", headline)) != 1:
+            return None
+        return _ticker_from_match(issuer)
     title = _PHINTRACO_HEADLINE_TICKER.match(headline)
     if title is not None:
         return _ticker_from_match(title)

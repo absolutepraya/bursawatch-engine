@@ -484,6 +484,38 @@ def test_phintraco_financial_identity_never_comes_from_body_or_a_multi_issuer_he
     assert candidate.ticker is None
 
 
+@pytest.mark.parametrize("header", [
+    "Phintraco Sekuritas Notes | 28 Oktober 2026",
+    "PHINTAS Quick Notes | 28 Oktober 2026",
+    "Phintraco Sekuritas Company Update",
+])
+@pytest.mark.parametrize("separator", ["–", "-"])
+def test_phintraco_explicit_issuer_heading_preserves_identity(header, separator):
+    candidate, = PhintracoNewsAdapter().extract_candidates(
+        36061, f"{header}\n\nPT Bach Multi Global Tbk {separator} BACH.IJ\n\n"
+        "BACH: Pertumbuhan Laba 32.05% YoY\nBACH membukukan pendapatan Rp1.45 triliun.",
+        datetime(2026, 10, 28, tzinfo=timezone.utc), False,
+    )
+    assert candidate.ticker == "BACH"
+    assert candidate.key == "phintraco:36061:BACH"
+
+
+@pytest.mark.parametrize("headline", [
+    "Reformasi pasar modal",
+    "PT Bach Multi Global Tbk - BACH.IJ dan UNTR.IJ",
+    "PT Bach Multi Global Tbk - BACH.IJ / PT United Tractors Tbk - UNTR.IJ",
+    "PT Bach Multi Global Tbk (BACH.IJ) dan PT United Tractors Tbk - UNTR.IJ",
+    "PT Badan Usaha Milik Negara Tbk - BUMN.IJ",
+])
+def test_phintraco_issuer_heading_never_guesses_from_body_or_multiple_issuers(headline):
+    candidate, = PhintracoNewsAdapter().extract_candidates(
+        36061, f"Phintraco Sekuritas Notes | 28 Oktober 2026\n{headline}\n\n"
+        "PT Bach Multi Global Tbk - BACH.IJ\nBACH: Pertumbuhan Laba 32.05% YoY",
+        datetime(2026, 10, 28, tzinfo=timezone.utc), False,
+    )
+    assert candidate.ticker is None
+
+
 def test_phintraco_quick_notes_extracts_issuer_from_the_headline():
     content = (
         "PHINTAS Quick Notes | 23 September 2026\n\n"
