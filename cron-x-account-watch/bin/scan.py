@@ -388,19 +388,21 @@ def board_source_event(event: dict, profile, *, status_date: datetime | None = N
     ticker = source_match.group(1)
     if title_ticker is None or ticker != title_ticker or not _source_title_is_single_ticker(source_title, ticker):
         return None
-    all_content = "\n\n".join(
-        render.render_post(
-            profile,
-            post,
-            event.get("summary") if profile.enable_llm_summary else None,
-            event.get("title"),
-            thread_posts,
-            bool(event.get("updated_tweet")),
-            include_board=False,
-            include_status_date=True,
-            status_date=status_date,
+    all_content = event.get("swing_text_snapshot", {}).get("board_content")
+    if all_content is None:
+        all_content = "\n\n".join(
+            render.render_post(
+                profile,
+                post,
+                event.get("summary") if profile.enable_llm_summary else None,
+                event.get("title"),
+                thread_posts,
+                bool(event.get("updated_tweet")),
+                include_board=False,
+                include_status_date=True,
+                status_date=status_date,
+            )
         )
-    )
     normalized_source_title = f"{ticker}: {source_match.group(2).strip()}"
     skipped_media = set(event.get("media_skipped_urls", []))
     source_paths = event.get("source_media_paths", {})
@@ -624,26 +626,34 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
     event.setdefault("media_errors", [])
     post = state.deserialize_post(event["post"])
     thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]]))
-    channel_id = _target_channel(profile, event)
     attempt_at = now or datetime.now(WIB)
     delivery_at = _delivery_at(event, attempt_at)
-    if event.get("route") == "id_stocks_swing" and event.get("delivery_at") is None:
-        # Freeze before handing a request to the Delivery Owner. Its receipt
-        # may settle after this process exits, so a later retry must render
-        # the same status date under the same immutable operation key.
-        event["delivery_at"] = delivery_at.isoformat()
-        state.save_state(storage, value)
-    messages = render.render_post(
-        profile,
-        post,
-        event.get("summary") if profile.enable_llm_summary else None,
-        event.get("title"),
-        thread_posts,
-        bool(event.get("updated_tweet")),
-        include_board=event.get("route") == "id_stocks_swing",
-        include_status_date=event.get("route") == "id_stocks_swing",
-        status_date=delivery_at if event.get("route") == "id_stocks_swing" else None,
-    )
+    swing = event.get("route") == "id_stocks_swing"
+    frozen = event.get("swing_text_snapshot") if swing else None
+    if frozen is not None:
+        if (type(frozen) is not dict or set(frozen) != {"channel_id", "messages", "board_content"}
+                or not isinstance(frozen["channel_id"], str) or not frozen["channel_id"].isdigit()
+                or type(frozen["messages"]) is not list or not frozen["messages"]
+                or any(not isinstance(text, str) or not text or len(text) > 2000 for text in frozen["messages"])
+                or not isinstance(frozen["board_content"], str)):
+            raise ValueError("invalid frozen Swing text")
+        channel_id, messages = frozen["channel_id"], frozen["messages"]
+    else:
+        channel_id = _target_channel(profile, event)
+        arguments = (profile, post, event.get("summary") if profile.enable_llm_summary else None,
+                     event.get("title"), thread_posts, bool(event.get("updated_tweet")))
+        messages = render.render_post(*arguments, include_board=swing, include_status_date=swing,
+                                      status_date=delivery_at if swing else None)
+        if swing:
+            # All request text and its destination must survive both pending
+            # receipts and live profile edits under the same operation key.
+            event["delivery_at"] = delivery_at.isoformat()
+            event["swing_text_snapshot"] = {
+                "channel_id": channel_id, "messages": messages,
+                "board_content": "\n\n".join(render.render_post(
+                    *arguments, include_board=False, include_status_date=True, status_date=delivery_at)),
+            }
+            state.save_state(storage, value)
     cards = event.get("news_cards")
     targets = None
     if cards is not None:
@@ -767,13 +777,17 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
         stats.reasons.append("board topic is not materialized yet")
         state.save_state(storage, value)
         return False
-    if not discord.edit_board_links(
-        channel_id,
-        event.get("text_message_ids", []),
-        payload.get("_board_url"),
-        dry_run,
-        event_key=f"{profile.id}:{post.post_id}",
-    ):
+    try:
+        links_complete = discord.edit_board_links(
+            channel_id, event.get("text_message_ids", []), payload.get("_board_url"), dry_run,
+            event_key=f"{profile.id}:{post.post_id}",
+        )
+    except discord.DeliveryOwnerPending:
+        stats.owner_pending += 1
+        event["last_error"] = "Delivery Owner accepted pending board link"
+        state.save_state(storage, value)
+        return False
+    if not links_complete:
         _record_board_failure(event, delivered_at)
         stats.degraded = True
         stats.needs_attention = True

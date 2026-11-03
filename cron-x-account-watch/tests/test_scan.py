@@ -581,7 +581,8 @@ def test_swing_all_delivery_includes_board_link_before_view_on_x(tmp_path, monke
     assert value["outbox"][0]["delivery_at"] == now().isoformat()
 
 
-def test_pending_swing_text_receipt_survives_restart_and_next_day(tmp_path, monkeypatch):
+@pytest.mark.parametrize("change_profile", [False, True])
+def test_pending_swing_text_receipt_survives_restart_and_next_day(tmp_path, monkeypatch, change_profile):
     from bursawatch_discord_delivery.models import OperationReceipt
 
     storage = tmp_path / "state.json"
@@ -624,11 +625,31 @@ def test_pending_swing_text_receipt_survives_restart_and_next_day(tmp_path, monk
     # The receipt settles while this owner is down. A new process must reuse
     # the original request after midnight instead of rendering a new date.
     restarted = state.load_state(storage)
-    scan._deliver(restarted, profiles(), 0, False, storage, stats(), now() + timedelta(days=1))
+    current = profiles()
+    if change_profile:
+        changed = replace(profile_fixture(), display_name="Changed profile", discord_channels=(
+            DiscordChannel("id_stocks_swing", "1525102458253217899", "Changed destination"),
+        ))
+        current = {changed.id: changed}
+    scan._deliver(restarted, current, 0, False, storage, stats(), now() + timedelta(days=1))
     assert restarted["outbox"][0]["text_index"] == 1
     assert restarted["outbox"][0]["text_message_ids"] == ["7001"]
     assert len(submissions) == 1
     assert persisted_times == [now().isoformat()]
+
+
+def test_pending_board_link_is_contained_for_account_isolation(tmp_path, monkeypatch):
+    value = ready_swing_state(tmp_path)
+    monkeypatch.setattr(scan, "submit_board_event", lambda *_: True)
+
+    def pending(*args, **kwargs):
+        raise scan.discord.DeliveryOwnerPending("board edit pending")
+
+    monkeypatch.setattr(scan.discord, "edit_board_links", pending)
+    observed = stats()
+    assert scan._deliver(value, profiles(), 0, False, tmp_path / "state.json", observed, now()) is False
+    assert observed.owner_pending == 1
+    assert len(value["outbox"]) == 1
 
 
 def test_delivery_conflict_does_not_starve_other_accounts(tmp_path, monkeypatch):

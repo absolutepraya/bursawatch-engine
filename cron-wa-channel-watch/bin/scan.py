@@ -411,6 +411,7 @@ def _deliver_ready(
     return delivered
 
 
+@state.serialized_writer
 def run(
     *,
     config_path: Path,
@@ -709,6 +710,7 @@ def _run(
     }
 
 
+@state.serialized_writer
 def submit_analysis(
     *,
     config_path: Path,

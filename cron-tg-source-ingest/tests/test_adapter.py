@@ -472,6 +472,7 @@ def test_tuntun_outside_news_topic_never_uploads_unrelated_documents(tmp_path, t
     assert result["accepted"] == 2
     assert result["cursor"] == 102
     assert inbox.accepted[0]["payload"]["attachment_omitted_reason"] == "outside_subscribed_topic"
+    assert inbox.accepted[0]["payload"]["topic_id"] == topic
     assert inbox.accepted[0]["media_refs"] == []
     assert inbox.accepted[0]["media_required"] is False
     assert inbox.accepted[1]["payload"]["topic_id"] == 3743
@@ -483,6 +484,26 @@ def test_tuntun_in_scope_document_still_requires_durable_media():
     news.document = SimpleNamespace(mime_type="application/pdf", size=100)
     with pytest.raises(IntakeBlocked, match="durable media reference"):
         telegram_envelope(TUNTUN_NEWS_ENDPOINT, news, NOW)
+
+
+def test_tuntun_news_pdf_upload_precedes_acceptance(tmp_path):
+    client = FakeTelegram([message(100)], address="tuntunsekuritas", entity_id=582001)
+    inbox, media = FakeInbox(), FakeMediaStore()
+    asyncio.run(ingest_endpoint(client, TUNTUN_NEWS_ENDPOINT, tmp_path, inbox, NOW))
+    pdf = message(101, "Corporate news with a PDF")
+    pdf.reply_to_top_id = 3743
+    pdf.document = SimpleNamespace(mime_type="application/pdf", size=20)
+    pdf.file = SimpleNamespace(name="report.pdf")
+    client.messages.append(pdf)
+
+    async def download(message, *, file, progress_callback=None):
+        Path(file).write_bytes(b"%PDF-1.7 source attachment")
+
+    client.download_media = download
+    result = asyncio.run(ingest_endpoint(client, TUNTUN_NEWS_ENDPOINT, tmp_path, inbox, NOW, media_store=media))
+    assert result["cursor"] == 101
+    assert len(media.uploads) == 1
+    assert inbox.accepted[0]["media_refs"] == [media.uploads[0][2]]
 
 
 @pytest.mark.parametrize(

@@ -336,8 +336,43 @@ def test_boundary_symlink_and_naive_configuration_fail_closed(tmp_path):
     path.symlink_to(target)
     with pytest.raises(IntakeBlocked):
         run_once(snapshot, profiles, tmp_path / 'q', state, Inbox(), NOW)
+
     path.unlink()
     path.write_text(json.dumps({'version': 1, 'published_after': '2026-09-24T00:00:00'}))
     path.chmod(0o600)
     with pytest.raises(IntakeBlocked):
         run_once(snapshot, profiles, tmp_path / 'q', state, Inbox(), NOW)
+
+
+@pytest.mark.parametrize('milliseconds', [False, True])
+def test_boundary_accepts_bridge_numeric_publication_time(tmp_path, milliseconds):
+    profiles, bri, snapshot, endpoint_id = context()
+    root = tmp_path / 'state'
+    root.mkdir()
+    boundary = root / 'publication-boundary.json'
+    boundary.write_text(json.dumps({'version': 1, 'published_after': NOW.isoformat()}))
+    boundary.chmod(0o600)
+    queue = tmp_path / 'queue'
+    run_once(snapshot, profiles, queue, root, Inbox(), NOW)
+    event = ChannelEvent(bri.channel_jid, 'numeric', NOW + timedelta(seconds=1), 'text', (), (), NOW)
+    path = queue_event(queue, event, 1000000000000000000)
+    data = json.loads(path.read_text())
+    data['published_at'] = int(event.published_at.timestamp()) * (1000 if milliseconds else 1)
+    path.write_text(json.dumps(data))
+    inbox = Inbox()
+    assert run_once(snapshot, profiles, queue, root, inbox, NOW)[0]['accepted'] == 1
+    assert inbox.events[0]['published_at'] == event.published_at.isoformat()
+
+
+def test_boundary_blocks_removal_after_freeze(tmp_path):
+    from source_ingest import IntakeBlocked
+    profiles, _, snapshot, _ = context()
+    root = tmp_path / 'state'
+    root.mkdir()
+    path = root / 'publication-boundary.json'
+    path.write_text(json.dumps({'version': 1, 'published_after': NOW.isoformat()}))
+    path.chmod(0o600)
+    run_once(snapshot, profiles, tmp_path / 'queue', root, Inbox(), NOW)
+    path.unlink()
+    with pytest.raises(IntakeBlocked):
+        run_once(snapshot, profiles, tmp_path / 'queue', root, Inbox(), NOW)

@@ -92,7 +92,7 @@ def bounded_queue(queue_dir: Path, cursor: dict[str, Any] | None, profile: Any, 
             raise IntakeBlocked("new WhatsApp queue item exceeds the safe read bound")
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
-            if require_aware:
+            if require_aware and type(raw.get("published_at")) is str:
                 _aware_time(raw.get("published_at"))
             event = deserialize_queue_event(raw)
         except (OSError, ValueError) as error:

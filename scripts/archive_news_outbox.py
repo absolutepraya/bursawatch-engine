@@ -44,6 +44,16 @@ def _read(path):
 def _selection(kind, value):
     if kind not in {"x", "wa"} or type(value) is not dict or type(value.get("outbox")) is not list:
         raise ValueError("unsupported owner state")
+    if type(value.get("profiles")) is not dict:
+        raise ValueError("state does not match the requested owner")
+    if kind == "x":
+        matches = (value.get("version") == 3 and type(value.get("deliveries")) is list
+                   and type(value.get("source_events")) is dict and type(value.get("cleanup")) is list)
+    else:
+        matches = (value.get("version") == 1 and "deliveries" not in value and "source_events" not in value
+                   and type(value.get("publication_ledger", {})) is dict)
+    if not matches:
+        raise ValueError("state does not match the requested owner")
     result = []
     for index, item in enumerate(value["outbox"]):
         if type(item) is not dict:

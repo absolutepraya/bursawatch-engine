@@ -12,6 +12,8 @@ This file supplements the repository root `AGENTS.md`. It is the development and
 - When a channel message or media operation is accepted with a nonterminal receipt, wait for up to the shared `DELIVERY_RECEIPT_WAIT_SECONDS` setting (10 seconds) for that same operation to settle before advancing its durable delivery state. This keeps a healthy text-plus-image bundle together in one queue run while preserving stable-key retries when Discord is slow.
 - Persist the Swing status timestamp before the first message submission. A
   pending receipt or process restart must never change that operation's text.
+  Freeze its rendered text, Board content and destination at that boundary too,
+  so a profile edit cannot change a retry's immutable payload.
   A failed delivery stops that account for the current drain while other
   accounts continue; keep the failed account's ordering and immutable keys.
 - `bin/state.py` owns the canonical watcher-state path used by scanning, source acceptance, and Delivery Owner handoff. The default is `state/state.json` inside the deployed watcher package; `X_POST_WATCH_STATE_PATH` overrides it for every process. Never give a source or queue owner a separate state file.
