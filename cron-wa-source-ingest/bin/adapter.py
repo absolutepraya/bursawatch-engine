@@ -66,7 +66,7 @@ def _arrival_position(stamp_ns: int, name: str) -> str:
     return f"{stamp_ns:020d}:{name}"
 
 
-def bounded_queue(queue_dir: Path, cursor: dict[str, Any] | None, profile: Any) -> dict[str, Any]:
+def bounded_queue(queue_dir: Path, cursor: dict[str, Any] | None, profile: Any, *, require_aware: bool = False) -> dict[str, Any]:
     """Inspect metadata for all files, but parse only a bounded new prefix."""
     if not queue_dir.exists():
         return {"items": [], "truncated": False, "contiguous": True}
@@ -91,7 +91,10 @@ def bounded_queue(queue_dir: Path, cursor: dict[str, Any] | None, profile: Any) 
         if size > MAX_QUEUE_ITEM_BYTES:
             raise IntakeBlocked("new WhatsApp queue item exceeds the safe read bound")
         try:
-            event = deserialize_queue_event(json.loads(path.read_text(encoding="utf-8")))
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if require_aware and type(raw.get("published_at")) is str:
+                _aware_time(raw.get("published_at"))
+            event = deserialize_queue_event(raw)
         except (OSError, ValueError) as error:
             raise IntakeBlocked("new WhatsApp queue item is invalid") from error
         scanned = position
@@ -353,24 +356,85 @@ def _fallback_media_descriptors(
         return None
 
 
+def _aware_time(value: Any) -> datetime:
+    if type(value) is not str or len(value) > 128:
+        raise ValueError("invalid timestamp")
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("timestamp has no timezone")
+    return parsed.astimezone(timezone.utc)
+
+
+def _publication_boundary(root: Path) -> datetime | None:
+    path = root / "publication-boundary.json"
+    frozen = root / ".publication-boundary-frozen.json"
+    try:
+        exists = path.exists() or path.is_symlink()
+        frozen_exists = frozen.exists() or frozen.is_symlink()
+        if not exists:
+            if frozen_exists:
+                raise ValueError("boundary removed")
+            return None
+        details = path.lstat()
+        if details.st_mode & 0o077:
+            raise ValueError("boundary is not private")
+        raw = _read_regular_file(path, 1024)
+        value = json.loads(raw)
+        if type(value) is not dict or set(value) != {"version", "published_after"} or type(value["version"]) is not int or value["version"] != 1:
+            raise ValueError("invalid boundary")
+        boundary = _aware_time(value["published_after"])
+        if frozen_exists:
+            if _read_regular_file(frozen, 1024) != raw:
+                raise ValueError("boundary changed")
+        else:
+            # A recovery boundary is only safe on a fresh root, before any
+            # previous handoff intent can be flushed by the shared reader.
+            if any(child.name != path.name for child in root.iterdir()):
+                raise ValueError("boundary requires a fresh state root")
+            fd = os.open(frozen, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(raw)
+                handle.flush()
+                os.fsync(handle.fileno())
+            dir_fd = os.open(root, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        return boundary
+    except (OSError, ValueError, TypeError, UnicodeError) as error:
+        raise IntakeBlocked("WhatsApp publication boundary is invalid or changed") from error
+
+
 def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], queue_dir: Path, state_root: Path, inbox: Any, observed_at: datetime, *, scan_queue: Any = None, archive_root: Path | None = None, media_store: Any = None, owner_config_revision: int | None = None) -> list[dict[str, Any]]:
+    boundary = _publication_boundary(state_root)
     selected, by_endpoint = endpoints(snapshot, profiles)
     bind_catalog_revision(state_root, snapshot["revision"])
     if owner_config_revision is not None and (type(owner_config_revision) is not int or owner_config_revision < 1):
         raise IntakeBlocked("WhatsApp watcher configuration revision is invalid")
     if scan_queue is None:
-        scan_queue = bounded_queue
+        scan_queue = lambda queue, cursor, profile: bounded_queue(queue, cursor, profile, require_aware=boundary is not None)
     # The bridge and existing archive retain their own queue and state. This
     # reader never deletes a queue file or marks the old archive delivered.
     fetchers = {}
+    excluded_counts: dict[str, int] = {}
     for endpoint_id, endpoint in selected.items():
         profile = by_endpoint[endpoint_id]
-        def fetch(cursor: dict[str, Any] | None, profile: Any = profile) -> dict[str, Any]:
+        excluded_counts[endpoint_id] = 0
+        def fetch(cursor: dict[str, Any] | None, profile: Any = profile, endpoint_id: str = endpoint_id) -> dict[str, Any]:
             page = scan_queue(queue_dir, cursor, profile)
             if type(page) is not dict or type(page.get("items")) is not list:
                 return page
             prepared_items = []
             for item in page["items"]:
+                if boundary is not None:
+                    try:
+                        published = _aware_time(item.get("published_at"))
+                    except (ValueError, TypeError, AttributeError) as error:
+                        raise IntakeBlocked("WhatsApp publication time is invalid") from error
+                    if published <= boundary:
+                        excluded_counts[endpoint_id] += 1
+                        continue
                 prepared = dict(item)
                 descriptors = prepared.pop("_source_media", None)
                 payload = dict(prepared.get("payload", {}))
@@ -401,4 +465,8 @@ def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], queue_dir: Pat
                 prepared_items.append(prepared)
             return {**page, "items": prepared_items}
         fetchers[endpoint_id] = fetch
-    return ingest_all(selected, fetchers, state_root, inbox, observed_at, "whatsapp-bridge-queue-1")
+    outcomes = ingest_all(selected, fetchers, state_root, inbox, observed_at, "whatsapp-bridge-queue-1")
+    if boundary is not None:
+        for outcome in outcomes:
+            outcome["publication_excluded_observed"] = excluded_counts[outcome["endpoint_id"]]
+    return outcomes

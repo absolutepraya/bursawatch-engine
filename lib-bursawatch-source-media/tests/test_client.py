@@ -185,3 +185,14 @@ def test_download_optional_bounds_preserve_existing_calls(clients):
     assert reader.download(metadata["ref"], max_bytes=len(data), timeout_seconds=1).data == data
     with pytest.raises(SourceMediaClientError):
         reader.download(metadata["ref"], max_bytes=len(data)-1)
+
+
+def test_client_upload_and_download_exact_object_limit(clients):
+    base_url, upload_token, read_token = clients
+    uploader = SourceMediaClient(base_url, upload_token)
+    reader = SourceMediaClient(base_url, read_token)
+    data = b"\xff\xd8\xff" + b"x" * (15 * 1024 * 1024 - 3)
+    metadata = uploader.upload("boundary:1", data, kind="image", content_type="image/jpeg", filename="chart.jpg")
+    assert reader.download(metadata["ref"]).data == data
+    with pytest.raises(SourceMediaClientError):
+        uploader.upload("boundary:2", data + b"x", kind="image", content_type="image/jpeg", filename="chart.jpg")

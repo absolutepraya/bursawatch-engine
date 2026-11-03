@@ -13,6 +13,10 @@ durable bridge queue and hands accepted Source Inbox work to
 outbox, agent analysis, BRI Board, rendering, Delivery Owner, and pending
 message/Board retries. The adapter emits the existing `whatsapp-channel`
 heartbeat through the shared Delivery Owner.
+Every owner intake, agent claim, scan run and analysis submission holds the
+same `pipeline-owner.lock` across its state load and final save. The recovery
+archive tool takes that lock too; scheduler writers must additionally be paused
+and quiescent before applying an archive.
 Frozen source capabilities constrain which validated routes may be delivered;
 a truthful but unsubscribed classification becomes a terminal
 `route_not_subscribed` outcome. INS and Samuel remain observe-only without

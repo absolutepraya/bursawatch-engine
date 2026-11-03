@@ -2,8 +2,30 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import json
+import fcntl
 import os
+from contextlib import contextmanager
+from functools import wraps
 from pathlib import Path
+
+
+@contextmanager
+def writer_lock(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(path.parent / "pipeline-owner.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(descriptor)
+
+
+def serialized_writer(function):
+    @wraps(function)
+    def locked(*args, **kwargs):
+        with writer_lock(kwargs["state_path"]):
+            return function(*args, **kwargs)
+    return locked
 
 
 STATE_VERSION = 1

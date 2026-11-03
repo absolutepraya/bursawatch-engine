@@ -227,10 +227,13 @@ def format_fatal(now: datetime, reason: str) -> str:
 
 
 def _next_deliverable_index(value: dict, profiles: dict, now: datetime) -> int | None:
+    seen = set()
     for index, event in enumerate(value["outbox"]):
-        profile = profiles.get(event["profile_id"])
-        if profile is None:
+        profile_id = event["profile_id"]
+        profile = profiles.get(profile_id)
+        if profile is None or profile_id in seen:
             continue
+        seen.add(profile_id)
         if (
             state.is_ready(event, now)
             and _board_retry_due(event, now)
@@ -238,6 +241,17 @@ def _next_deliverable_index(value: dict, profiles: dict, now: datetime) -> int |
         ):
             return index
     return None
+
+
+def _drain_ready_deliveries(value: dict, profiles: dict, dry_run: bool, storage: Path, stats: RunStats, now: datetime) -> None:
+    available = dict(profiles)
+    while (index := _next_deliverable_index(value, available, now)) is not None:
+        profile_id = value["outbox"][index]["profile_id"]
+        if not _deliver(value, profiles, index, dry_run, storage, stats, now):
+            # Retain this account's ordering and exact pending operation.
+            # Other accounts can progress without retrying this failure in
+            # a tight loop during the same invocation.
+            available.pop(profile_id, None)
 
 
 def _queue_metrics(value: dict, profiles: dict, now: datetime) -> tuple[int, int]:
@@ -374,19 +388,21 @@ def board_source_event(event: dict, profile, *, status_date: datetime | None = N
     ticker = source_match.group(1)
     if title_ticker is None or ticker != title_ticker or not _source_title_is_single_ticker(source_title, ticker):
         return None
-    all_content = "\n\n".join(
-        render.render_post(
-            profile,
-            post,
-            event.get("summary") if profile.enable_llm_summary else None,
-            event.get("title"),
-            thread_posts,
-            bool(event.get("updated_tweet")),
-            include_board=False,
-            include_status_date=True,
-            status_date=status_date,
+    all_content = event.get("swing_text_snapshot", {}).get("board_content")
+    if all_content is None:
+        all_content = "\n\n".join(
+            render.render_post(
+                profile,
+                post,
+                event.get("summary") if profile.enable_llm_summary else None,
+                event.get("title"),
+                thread_posts,
+                bool(event.get("updated_tweet")),
+                include_board=False,
+                include_status_date=True,
+                status_date=status_date,
+            )
         )
-    )
     normalized_source_title = f"{ticker}: {source_match.group(2).strip()}"
     skipped_media = set(event.get("media_skipped_urls", []))
     source_paths = event.get("source_media_paths", {})
@@ -610,20 +626,34 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
     event.setdefault("media_errors", [])
     post = state.deserialize_post(event["post"])
     thread_posts = tuple(state.deserialize_post(item) for item in event.get("thread_posts", [event["post"]]))
-    channel_id = _target_channel(profile, event)
     attempt_at = now or datetime.now(WIB)
     delivery_at = _delivery_at(event, attempt_at)
-    messages = render.render_post(
-        profile,
-        post,
-        event.get("summary") if profile.enable_llm_summary else None,
-        event.get("title"),
-        thread_posts,
-        bool(event.get("updated_tweet")),
-        include_board=event.get("route") == "id_stocks_swing",
-        include_status_date=event.get("route") == "id_stocks_swing",
-        status_date=delivery_at if event.get("route") == "id_stocks_swing" else None,
-    )
+    swing = event.get("route") == "id_stocks_swing"
+    frozen = event.get("swing_text_snapshot") if swing else None
+    if frozen is not None:
+        if (type(frozen) is not dict or set(frozen) != {"channel_id", "messages", "board_content"}
+                or not isinstance(frozen["channel_id"], str) or not frozen["channel_id"].isdigit()
+                or type(frozen["messages"]) is not list or not frozen["messages"]
+                or any(not isinstance(text, str) or not text or len(text) > 2000 for text in frozen["messages"])
+                or not isinstance(frozen["board_content"], str)):
+            raise ValueError("invalid frozen Swing text")
+        channel_id, messages = frozen["channel_id"], frozen["messages"]
+    else:
+        channel_id = _target_channel(profile, event)
+        arguments = (profile, post, event.get("summary") if profile.enable_llm_summary else None,
+                     event.get("title"), thread_posts, bool(event.get("updated_tweet")))
+        messages = render.render_post(*arguments, include_board=swing, include_status_date=swing,
+                                      status_date=delivery_at if swing else None)
+        if swing:
+            # All request text and its destination must survive both pending
+            # receipts and live profile edits under the same operation key.
+            event["delivery_at"] = delivery_at.isoformat()
+            event["swing_text_snapshot"] = {
+                "channel_id": channel_id, "messages": messages,
+                "board_content": "\n\n".join(render.render_post(
+                    *arguments, include_board=False, include_status_date=True, status_date=delivery_at)),
+            }
+            state.save_state(storage, value)
     cards = event.get("news_cards")
     targets = None
     if cards is not None:
@@ -747,13 +777,17 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
         stats.reasons.append("board topic is not materialized yet")
         state.save_state(storage, value)
         return False
-    if not discord.edit_board_links(
-        channel_id,
-        event.get("text_message_ids", []),
-        payload.get("_board_url"),
-        dry_run,
-        event_key=f"{profile.id}:{post.post_id}",
-    ):
+    try:
+        links_complete = discord.edit_board_links(
+            channel_id, event.get("text_message_ids", []), payload.get("_board_url"), dry_run,
+            event_key=f"{profile.id}:{post.post_id}",
+        )
+    except discord.DeliveryOwnerPending:
+        stats.owner_pending += 1
+        event["last_error"] = "Delivery Owner accepted pending board link"
+        state.save_state(storage, value)
+        return False
+    if not links_complete:
         _record_board_failure(event, delivered_at)
         stats.degraded = True
         stats.needs_attention = True
@@ -877,8 +911,7 @@ def run(
                             message=f"{profile.id}: source fetch failed",
                             attributes={"profile_id": profile.id, "error": _sanitize_reason(exc)},
                         )
-            while (event_index := _next_deliverable_index(value, profiles, now)) is not None:
-                if not _deliver(value, profiles, event_index, dry_run, storage, stats, now): break
+            _drain_ready_deliveries(value, profiles, dry_run, storage, stats, now)
             _retry_cleanup(value, dry_run, storage, stats)
             _drain_publications(value, dry_run, storage, stats, now)
             stats.pending, stats.oldest_pending_minutes = _queue_metrics(value, profiles, now)
@@ -1130,9 +1163,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
             _cleanup_agent_vision(storage, event)
             stats = RunStats()
             now = datetime.now(WIB)
-            while (event_index := _next_deliverable_index(value, profiles, now)) is not None:
-                if not _deliver(value, profiles, event_index, dry_run, storage, stats, now):
-                    break
+            _drain_ready_deliveries(value, profiles, dry_run, storage, stats, now)
             _retry_cleanup(value, dry_run, storage, stats)
             _drain_publications(value, dry_run, storage, stats, now)
             _report_control_event(

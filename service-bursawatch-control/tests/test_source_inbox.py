@@ -282,8 +282,11 @@ def test_correction_tombstone_and_durable_media_refs():
     accepted_event = inbox.events[accepted.json()["event_key"]]["versions"][0]["envelope"]
     assert accepted_event["media_refs"] == media["media_refs"]
 
+    exact = envelope("exact-media")
+    exact["media_refs"] = [{**media["media_refs"][0], "size_bytes": 15 * 1024 * 1024}]
+    assert api.post("/v1/source-events", headers=MACHINE, json={"envelope": exact}).status_code == 200
     too_large = envelope("too-large-media")
-    too_large["media_refs"] = [{**media["media_refs"][0], "ref": "00000000-0000-4000-8000-000000000002", "size_bytes": 8 * 1024 * 1024 + 1}]
+    too_large["media_refs"] = [{**media["media_refs"][0], "ref": "00000000-0000-4000-8000-000000000002", "size_bytes": 15 * 1024 * 1024 + 1}]
     assert api.post("/v1/source-events", headers=MACHINE, json={"envelope": too_large}).status_code == 422
     aggregate = envelope("aggregate-media")
     aggregate["media_refs"] = [{**media["media_refs"][0], "ref": f"00000000-0000-4000-8000-{number:012x}", "size_bytes": 8 * 1024 * 1024} for number in range(3, 7)]
@@ -291,7 +294,7 @@ def test_correction_tombstone_and_durable_media_refs():
     exposed_url = envelope("url-media")
     exposed_url["media_refs"] = [{**media["media_refs"][0], "ref": "00000000-0000-4000-8000-000000000007", "url": "https://storage.example/signed"}]
     assert api.post("/v1/source-events", headers=MACHINE, json={"envelope": exposed_url}).status_code == 422
-    assert len(inbox.events) == 2
+    assert len(inbox.events) == 3
 
 
 def test_override_resolution_and_bounded_dead_letter():

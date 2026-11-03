@@ -113,7 +113,7 @@ PHASE_PENDING_TEXT = "pending_text"
 PHASE_PENDING_CHART = "pending_chart"
 PHASE_PENDING_BOARD = "pending_board"
 PHASE_DELIVERED = "delivered"
-MAX_WEEKLY_PDF_BYTES = 8 * 1024 * 1024
+MAX_WEEKLY_PDF_BYTES = 15 * 1024 * 1024
 WEEKLY_PDF_PREFIX = "PHINTAS Weekly Swing Trading Ideas_"
 WEEKLY_PDF_FILENAME_RE = re.compile(
     r"^PHINTAS Weekly Swing Trading Ideas_\d{8}\.pdf$"
@@ -1495,7 +1495,7 @@ def _upload_pdf_source_media(state: dict, event: dict) -> None:
         chart_digest = hashlib.sha256(chart_bytes).hexdigest() if chart_bytes else None
         if (
             not chart_bytes
-            or len(chart_bytes) > MAX_WEEKLY_PDF_BYTES
+            or len(chart_bytes) > 8 * 1024 * 1024
             or (plan["chart_sha256"] is not None and chart_digest != plan["chart_sha256"])
         ):
             raise RuntimeError("cached weekly chart failed its size or digest check")
@@ -1917,7 +1917,7 @@ async def _ingest_weekly_pdf_document(
     if len(content) > MAX_WEEKLY_PDF_BYTES:
         created = _record_quarantined_document(
             state, source_message_id, filename, mime_type,
-            "weekly PDF exceeds the 8 MiB size limit", now, pdf_sha256=pdf_digest,
+            "weekly PDF exceeds the 15 MiB size limit", now, pdf_sha256=pdf_digest,
         )
         return True, 0, int(created)
 

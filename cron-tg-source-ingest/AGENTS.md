@@ -21,6 +21,10 @@ message ID without replaying source history. Enabled Telegram identities and
 capabilities must match the exact publisher or intake fails closed. Tuntun
 events include their Telegram forum topic ID so the Market News owner can
 apply its existing thread-3743 parser without searching Telegram history.
+Attachments outside that supported Tuntun topic are not downloaded or
+uploaded. Their source identity, text, topic and explicit omission reason
+still enter the inbox for the owner's irrelevant outcome; the cursor advances
+only after durable acceptance. In-scope attachments still require durable refs.
 
 `adapter.plan_legacy_cursor_seed` previews a seed from an explicit Phintraco,
 Tuntun, or Kelas JSON snapshot. It records the snapshot SHA-256, endpoint

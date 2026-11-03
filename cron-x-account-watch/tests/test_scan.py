@@ -581,6 +581,131 @@ def test_swing_all_delivery_includes_board_link_before_view_on_x(tmp_path, monke
     assert value["outbox"][0]["delivery_at"] == now().isoformat()
 
 
+@pytest.mark.parametrize("change_profile", [False, True])
+def test_pending_swing_text_receipt_survives_restart_and_next_day(tmp_path, monkeypatch, change_profile):
+    from bursawatch_discord_delivery.models import OperationReceipt
+
+    storage = tmp_path / "state.json"
+    value = ready_swing_state(tmp_path)
+    value["outbox"][0]["text_index"] = 0
+    value["outbox"][0]["text_message_ids"] = []
+    submissions = []
+    persisted_times = []
+    receipts = {}
+
+    class Owner:
+        def status(self, key):
+            return receipts.get(key)
+
+        def submit(self, operation):
+            submissions.append(operation)
+            persisted_times.append(json.loads(storage.read_text())["outbox"][0].get("delivery_at"))
+            receipt = OperationReceipt("op", operation.key, operation.digest, "pending", None)
+            receipts[operation.key] = receipt
+            return receipt
+
+        def wait(self, key, timeout):
+            return receipts[key]
+
+    monkeypatch.setattr(
+        scan.discord,
+        "delivery_client_from_environment",
+        lambda **kwargs: Owner(),
+    )
+    monkeypatch.setattr(scan.publication_projection, "enabled", lambda: False)
+    monkeypatch.setattr(scan, "submit_board_event", lambda *_: False)
+    assert scan._deliver(value, profiles(), 0, False, storage, stats(), now()) is False
+    assert len(submissions) == 1
+    operation = submissions[0]
+    receipts[operation.key] = OperationReceipt(
+        "op", operation.key, operation.digest, "delivered",
+        {"channel_id": operation.target["channel_id"], "message_id": "7001"},
+    )
+
+    # The receipt settles while this owner is down. A new process must reuse
+    # the original request after midnight instead of rendering a new date.
+    restarted = state.load_state(storage)
+    current = profiles()
+    if change_profile:
+        changed = replace(profile_fixture(), display_name="Changed profile", discord_channels=(
+            DiscordChannel("id_stocks_swing", "1525102458253217899", "Changed destination"),
+        ))
+        current = {changed.id: changed}
+    scan._deliver(restarted, current, 0, False, storage, stats(), now() + timedelta(days=1))
+    assert restarted["outbox"][0]["text_index"] == 1
+    assert restarted["outbox"][0]["text_message_ids"] == ["7001"]
+    assert len(submissions) == 1
+    assert persisted_times == [now().isoformat()]
+
+
+def test_pending_board_link_is_contained_for_account_isolation(tmp_path, monkeypatch):
+    value = ready_swing_state(tmp_path)
+    monkeypatch.setattr(scan, "submit_board_event", lambda *_: True)
+
+    def pending(*args, **kwargs):
+        raise scan.discord.DeliveryOwnerPending("board edit pending")
+
+    monkeypatch.setattr(scan.discord, "edit_board_links", pending)
+    observed = stats()
+    assert scan._deliver(value, profiles(), 0, False, tmp_path / "state.json", observed, now()) is False
+    assert observed.owner_pending == 1
+    assert len(value["outbox"]) == 1
+
+
+def test_delivery_conflict_does_not_starve_other_accounts(tmp_path, monkeypatch):
+    storage = tmp_path / "state.json"
+    value = ready_swing_state(tmp_path)
+    first = value["outbox"][0]
+    first["text_index"] = 0
+    other = replace(profile_fixture(), id="otherwriter", discord_channels=(
+        DiscordChannel("id_stocks_swing", "1525102458253217804", "Other swing"),
+    ))
+    second = swing_event("KPIG: Independent account setup")
+    second.update(profile_id=other.id, text_index=0, text_message_ids=[])
+    value["outbox"].append(second)
+    later_same_account = swing_event("KPIG: Later setup from blocked account")
+    later_same_account.update(post_id="102", text_index=0)
+    value["outbox"].append(later_same_account)
+    attempted = []
+
+    def post(content, channel, *_args):
+        attempted.append(channel)
+        if channel == profile_fixture().channel_for("id_stocks_swing").channel_id:
+            raise scan.discord.DeliveryOwnerError("Delivery Owner operation identity conflict")
+        return "7002"
+
+    monkeypatch.setattr(scan.discord, "post_text", post)
+    monkeypatch.setattr(scan.publication_projection, "enabled", lambda: False)
+    monkeypatch.setattr(scan, "submit_board_event", lambda *_: False)
+    scan._drain_ready_deliveries(value, {**profiles(), other.id: other}, False, storage, stats(), now())
+    assert len(attempted) == 2
+    assert first["text_index"] == 0
+    assert second["text_index"] == 1
+    assert later_same_account["text_index"] == 0
+
+
+def test_account_in_board_backoff_cannot_be_overtaken_on_next_drain(tmp_path, monkeypatch):
+    value = state.new_state()
+    head = swing_event("KPIG: First setup")
+    head.update(board_phase="pending", board_next_attempt_at=(now() + timedelta(minutes=5)).isoformat())
+    later = swing_event("KPIG: Later setup")
+    later["post_id"] = "102"
+    other = replace(profile_fixture(), id="otherwriter")
+    independent = swing_event("KPIG: Independent account")
+    independent["profile_id"] = other.id
+    value["outbox"] = [head, later, independent]
+    delivered = []
+
+    def deliver(value, profiles, index, *args):
+        delivered.append(value["outbox"].pop(index)["profile_id"])
+        return True
+
+    monkeypatch.setattr(scan, "_deliver", deliver)
+    scan._drain_ready_deliveries(value, {**profiles(), other.id: other}, False, tmp_path / "state.json", stats(), now())
+    assert delivered == [other.id]
+    assert value["outbox"] == [head, later]
+
+
 def test_board_retry_accepts_without_reposting_all_messages(tmp_path, monkeypatch) -> None:
     value = ready_swing_state(tmp_path)
     all_messages = []

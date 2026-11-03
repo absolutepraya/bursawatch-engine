@@ -48,7 +48,7 @@ ACTIVE_MARKET_NEWS_PHASES = frozenset({
     "pending_analysis", "awaiting_agent", "pending_selection", "pending_delivery",
 })
 MAX_BATCH = 20
-MAX_MEDIA_OBJECT_BYTES = 8 * 1024 * 1024
+MAX_MEDIA_OBJECT_BYTES = 15 * 1024 * 1024
 
 
 class IntakeBlocked(RuntimeError):
@@ -518,7 +518,7 @@ async def _upload_message_media(client: Any, endpoint: dict[str, Any], message: 
         raise IntakeBlocked("Telegram media requires the Source Media Owner")
     size_hint = getattr(document, "size", None) if document is not None else None
     if type(size_hint) is int and size_hint > MAX_MEDIA_OBJECT_BYTES:
-        raise IntakeBlocked("Telegram media exceeds the 8 MiB object bound")
+        raise IntakeBlocked("Telegram media exceeds the 15 MiB object bound")
     staging_root = state_root / "media-staging"
     staging_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(staging_root, 0o700)
@@ -528,7 +528,7 @@ async def _upload_message_media(client: Any, endpoint: dict[str, Any], message: 
     try:
         def enforce_download_limit(downloaded: int, _total: int) -> None:
             if downloaded > MAX_MEDIA_OBJECT_BYTES:
-                raise IntakeBlocked("Telegram media exceeds the 8 MiB object bound")
+                raise IntakeBlocked("Telegram media exceeds the 15 MiB object bound")
 
         await client.download_media(
             message,
@@ -539,7 +539,7 @@ async def _upload_message_media(client: Any, endpoint: dict[str, Any], message: 
             raise IntakeBlocked("Telegram media download did not produce a file")
         size = temporary_path.stat().st_size
         if not 1 <= size <= MAX_MEDIA_OBJECT_BYTES:
-            raise IntakeBlocked("Telegram media size is outside the 8 MiB object bound")
+            raise IntakeBlocked("Telegram media size is outside the 15 MiB object bound")
         data = temporary_path.read_bytes()
     finally:
         shutil.rmtree(temporary_dir, ignore_errors=True)
@@ -562,6 +562,13 @@ def _has_media_attachment(message: Any) -> bool:
     return getattr(message, "photo", None) is not None or getattr(message, "document", None) is not None
 
 
+def _attachment_outside_news_scope(endpoint: dict[str, Any], message: Any) -> bool:
+    # Tuntun News already accepts only forum topic 3743 in the domain owner.
+    # Preserve the source identity/text for that owner's irrelevant receipt,
+    # but do not fetch customer-service files from other topics first.
+    return endpoint["endpoint_id"] == "telegram:tuntunsekuritas" and _message_topic_id(message) != 3743
+
+
 def envelope(endpoint: dict[str, Any], message: Any, observed_at: datetime, *, reply_parent: Any = None, media_refs: list[dict[str, Any]] | None = None, previous_message_id: int | None = None, bootstrap_message_id: int | None = None) -> dict[str, Any]:
     message_id = getattr(message, "id", None)
     if type(message_id) is not int or message_id <= 0:
@@ -570,12 +577,15 @@ def envelope(endpoint: dict[str, Any], message: Any, observed_at: datetime, *, r
     if type(text) is not str:
         raise IntakeBlocked("Telegram message text is invalid")
     media_refs = list(media_refs or [])
-    if _has_media_attachment(message) and not media_refs:
+    omitted_attachment = _has_media_attachment(message) and _attachment_outside_news_scope(endpoint, message)
+    if _has_media_attachment(message) and not media_refs and not omitted_attachment:
         raise IntakeBlocked("Telegram media requires a durable media reference")
     reply = getattr(message, "reply_to_msg_id", None)
     if reply is not None and (type(reply) is not int or reply <= 0):
         raise IntakeBlocked("Telegram reply identity is invalid")
     body = {"text": text, "reply_to_message_id": reply}
+    if omitted_attachment and not media_refs:
+        body["attachment_omitted_reason"] = "outside_subscribed_topic"
     if endpoint["endpoint_id"] == "telegram:tuntunsekuritas":
         body["topic_id"] = _message_topic_id(message)
     if endpoint["endpoint_id"] == "telegram:kelasinvestasiid":
@@ -669,7 +679,7 @@ async def ingest_endpoint(client: Any, endpoint: dict[str, Any], state_root: Pat
         if message.id <= cursor:
             continue
         media_refs: list[dict[str, Any]] = []
-        if _has_media_attachment(message):
+        if _has_media_attachment(message) and not _attachment_outside_news_scope(endpoint, message):
             set_stage("upload_media")
             _write_json(root / "blocked-media.json", {"endpoint_id": endpoint["endpoint_id"], "message_id": message.id, "published_at": _stamp(message.date), "media_type": type(getattr(message, "media", None)).__name__})
             try:

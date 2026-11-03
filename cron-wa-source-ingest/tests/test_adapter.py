@@ -5,6 +5,8 @@ import json
 import os
 import sys
 from datetime import datetime, timedelta, timezone
+import pytest
+
 from pathlib import Path
 import uuid
 
@@ -257,3 +259,120 @@ def test_retained_history_over_500_files_is_not_parsed_on_new_arrival(tmp_path):
     assert inbox.events[0]["provider_event_id"] == "fresh"
     assert cursor(state_root, endpoint_id)["anchor"] == "fresh"
     assert (queue_dir / "old-0000.json").read_text() == "invalid retained payload"
+
+
+def test_publication_boundary_excludes_old_arrivals_before_media_and_handoff(tmp_path, monkeypatch):
+    import adapter
+    profiles, bri, snapshot, endpoint_id = context()
+    state = tmp_path / 'state'
+    state.mkdir()
+    (state / 'publication-boundary.json').write_text(json.dumps({'version': 1, 'published_after': NOW.isoformat()}))
+    (state / 'publication-boundary.json').chmod(0o600)
+    queue = tmp_path / 'queue'
+    inbox = Inbox()
+    run_once(snapshot, profiles, queue, state, inbox, NOW)
+    paths = []
+    for i, stamp in enumerate((NOW - timedelta(days=1), NOW, NOW + timedelta(seconds=1)), 1):
+        event = ChannelEvent(bri.channel_jid, f'event-{i}', stamp, 'text', (), (ChannelMedia('image', 0, 'image/jpeg', '/private/x'),) if i < 3 else (), NOW)
+        paths.append(queue_event(queue, event, i * 1000000000000000000))
+    before = [p.read_bytes() for p in paths]
+    monkeypatch.setattr(adapter, '_upload_archive_media', lambda *args: pytest.fail('old media uploaded'))
+    result = run_once(snapshot, profiles, queue, state, inbox, NOW)
+    assert result[0]['accepted'] == 1
+    assert result[0]['publication_excluded_observed'] == 2
+    assert [e['provider_event_id'] for e in inbox.events] == ['event-3']
+    assert [p.read_bytes() for p in paths] == before
+    assert cursor(state, endpoint_id)['position'].endswith(paths[-1].name)
+
+
+def test_boundary_rejects_bad_injected_timestamp_and_changed_boundary(tmp_path):
+    import pytest
+    from source_ingest import IntakeBlocked
+    profiles, bri, snapshot, _ = context()
+    state = tmp_path / 'state'
+    state.mkdir()
+    path = state / 'publication-boundary.json'
+    path.write_text(json.dumps({'version': 1, 'published_after': NOW.isoformat()}))
+    path.chmod(0o600)
+    run_once(snapshot, profiles, tmp_path / 'q', state, Inbox(), NOW)
+    item = {'provider_event_id': 'bad', 'published_at': 'invalid', 'ingest_position': '1', 'payload': {}, 'media_refs': []}
+    result = run_once(snapshot, profiles, tmp_path / 'q', state, Inbox(), NOW, scan_queue=lambda *args: {'items': [item], 'contiguous': True, 'truncated': False, 'scanned_through': '1'})
+    assert result[0]['status'] == 'blocked'
+    path.write_text(json.dumps({'version': 1, 'published_after': (NOW + timedelta(days=1)).isoformat()}))
+    with pytest.raises(IntakeBlocked):
+        run_once(snapshot, profiles, tmp_path / 'q', state, Inbox(), NOW)
+
+
+@pytest.mark.parametrize('value', ['2026-09-24T00:00:00', 'nonsense'])
+def test_boundary_rejects_invalid_raw_queue_time(tmp_path, value):
+    profiles, bri, snapshot, endpoint_id = context()
+    state = tmp_path / 'state'
+    state.mkdir()
+    boundary = state / 'publication-boundary.json'
+    boundary.write_text(json.dumps({'version': 1, 'published_after': NOW.isoformat()}))
+    boundary.chmod(0o600)
+    queue = tmp_path / 'queue'
+    run_once(snapshot, profiles, queue, state, Inbox(), NOW)
+    event = ChannelEvent(bri.channel_jid, 'bad', NOW, 'text', (), (), NOW)
+    path = queue_event(queue, event, 1000000000000000000)
+    data = json.loads(path.read_text())
+    data['published_at'] = value
+    path.write_text(json.dumps(data))
+    inbox = Inbox()
+    assert run_once(snapshot, profiles, queue, state, inbox, NOW)[0]['status'] == 'blocked'
+    assert not inbox.events
+    assert cursor(state, endpoint_id)['position'] is None
+
+
+def test_boundary_symlink_and_naive_configuration_fail_closed(tmp_path):
+    from source_ingest import IntakeBlocked
+    profiles, _, snapshot, _ = context()
+    state = tmp_path / 'state'
+    state.mkdir()
+    target = tmp_path / 'target'
+    target.write_text(json.dumps({'version': 1, 'published_after': NOW.isoformat()}))
+    target.chmod(0o600)
+    path = state / 'publication-boundary.json'
+    path.symlink_to(target)
+    with pytest.raises(IntakeBlocked):
+        run_once(snapshot, profiles, tmp_path / 'q', state, Inbox(), NOW)
+
+    path.unlink()
+    path.write_text(json.dumps({'version': 1, 'published_after': '2026-09-24T00:00:00'}))
+    path.chmod(0o600)
+    with pytest.raises(IntakeBlocked):
+        run_once(snapshot, profiles, tmp_path / 'q', state, Inbox(), NOW)
+
+
+@pytest.mark.parametrize('milliseconds', [False, True])
+def test_boundary_accepts_bridge_numeric_publication_time(tmp_path, milliseconds):
+    profiles, bri, snapshot, endpoint_id = context()
+    root = tmp_path / 'state'
+    root.mkdir()
+    boundary = root / 'publication-boundary.json'
+    boundary.write_text(json.dumps({'version': 1, 'published_after': NOW.isoformat()}))
+    boundary.chmod(0o600)
+    queue = tmp_path / 'queue'
+    run_once(snapshot, profiles, queue, root, Inbox(), NOW)
+    event = ChannelEvent(bri.channel_jid, 'numeric', NOW + timedelta(seconds=1), 'text', (), (), NOW)
+    path = queue_event(queue, event, 1000000000000000000)
+    data = json.loads(path.read_text())
+    data['published_at'] = int(event.published_at.timestamp()) * (1000 if milliseconds else 1)
+    path.write_text(json.dumps(data))
+    inbox = Inbox()
+    assert run_once(snapshot, profiles, queue, root, inbox, NOW)[0]['accepted'] == 1
+    assert inbox.events[0]['published_at'] == event.published_at.isoformat()
+
+
+def test_boundary_blocks_removal_after_freeze(tmp_path):
+    from source_ingest import IntakeBlocked
+    profiles, _, snapshot, _ = context()
+    root = tmp_path / 'state'
+    root.mkdir()
+    path = root / 'publication-boundary.json'
+    path.write_text(json.dumps({'version': 1, 'published_after': NOW.isoformat()}))
+    path.chmod(0o600)
+    run_once(snapshot, profiles, tmp_path / 'queue', root, Inbox(), NOW)
+    path.unlink()
+    with pytest.raises(IntakeBlocked):
+        run_once(snapshot, profiles, tmp_path / 'queue', root, Inbox(), NOW)

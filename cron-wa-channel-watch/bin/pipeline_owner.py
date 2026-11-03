@@ -1,7 +1,6 @@
 """Accept WhatsApp source work into the existing Channel watcher ledger."""
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
@@ -10,11 +9,10 @@ import stat
 import sys
 import tempfile
 import uuid
-from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 for package in ("lib-bursawatch-control", "lib-bursawatch-source-media"):
@@ -81,16 +79,7 @@ def _assert_no_post_isolated(no_post: bool, paths: tuple[Path, ...]) -> None:
             raise ValueError("no-post requires absolute paths outside live WhatsApp watcher state")
 
 
-@contextmanager
-def _state_lock(path: Path) -> Iterator[None]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = path.parent / "pipeline-owner.lock"
-    with lock_path.open("a+", encoding="utf-8") as handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+_state_lock = state.writer_lock
 
 
 def _inbox_client():
