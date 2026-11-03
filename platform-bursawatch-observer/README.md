@@ -14,6 +14,9 @@ provider fields are discarded.
 The declared names include `bursawatch-dc-morning-brief`. Register its reviewed
 Hermes job before installing this allowlist update; the observer reports its
 natural last execution and never creates or enables it.
+Stockbit uses the runtime name `bursawatch-stockbit-snips` in the registry
+and observation payload. `cron-stockbit-snips` is its source package name,
+not a Hermes registry identity.
 
 ## Local checks
 
