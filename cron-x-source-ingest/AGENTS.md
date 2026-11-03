@@ -94,9 +94,20 @@ Apply requires that unchanged preview and
 `BURSAWATCH_X_CATALOG_TRANSITION_ALLOW_APPLY=1`. The
 transition changes only the catalog marker and journal. It does not seed or
 rewrite endpoint cursors, accepted-event indexes, or handoff work. Runtime at
-revision 8 requires the complete existing 5 to 7 journal followed by a
+revision 8 on an existing generation requires the complete existing 5 to 7 journal followed by a
 completed package-owned 7 to 8 journal. A marker change without this chain
 blocks intake.
+
+An absent or empty private state root may instead begin a new future-only
+generation at revision 8. Validate the full effective X projection against
+the same pinned hash before atomically creating its generation catalog marker.
+Stage marker bytes beside the root so a hard crash cannot leave a blocking
+temporary file inside it. Each later poll revalidates the frozen generation
+proof and projection. Never adopt existing files or cursors into this path,
+mix it with transition journals, or accept an unreviewed later revision.
+Production generation replacement still requires an approved writer fence
+and preservation of the original root. Provider high-water bootstrap accepts
+no historical items; never copy old catalog markers or journals into it.
 
 The X watcher owns one state file for scanning, accepted source work, and
 Delivery Owner handoff. All watcher processes resolve it through

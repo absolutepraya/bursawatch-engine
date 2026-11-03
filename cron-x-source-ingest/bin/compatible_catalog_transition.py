@@ -171,14 +171,58 @@ def _require_x_transition_chain(root: Path, revision: int, *, allow_in_progress_
                 raise IntakeBlocked("X 7 to 8 journal does not prove the reviewed projection")
 
 
-def require_catalog_revision(root: Path, revision: int, bind: Any) -> None:
+def _fresh_generation_record(revision: int, snapshot: dict[str, Any] | None, profiles: tuple[Any, ...]) -> dict[str, Any]:
+    if revision != 8 or type(snapshot) is not dict or snapshot.get("revision") != revision:
+        raise IntakeBlocked("fresh X generation requires the reviewed revision 8 catalog")
+    try:
+        digest = _sha(_canonical(_projection(snapshot, profiles)))
+    except (TransitionBlocked, TypeError, ValueError, KeyError) as error:
+        raise IntakeBlocked("fresh X generation projection is unavailable") from error
+    if digest != REVIEWED_PROJECTION_SHA256:
+        raise IntakeBlocked("fresh X generation projection differs from the reviewed catalog")
+    return {"revision": revision, "generation": {"version": 1, "mode": "future_only", "projection_sha256": digest}}
+
+
+def _write_fresh_generation_marker(root: Path, record: dict[str, Any]) -> None:
+    root.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # Stage beside the root. A hard crash must not leave an orphan inside the
+    # empty generation and prevent its next natural bootstrap.
+    fd, temporary = tempfile.mkstemp(prefix=".x-generation-", dir=root.parent)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(_canonical(record))
+            stream.flush()
+            os.fsync(stream.fileno())
+        root.mkdir(mode=0o700, exist_ok=True)
+        os.link(temporary, root / "catalog-revision.json")
+        for directory in (root, root.parent):
+            descriptor = os.open(directory, os.O_RDONLY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def require_catalog_revision(root: Path, revision: int, bind: Any, *, snapshot: dict[str, Any] | None = None, profiles: tuple[Any, ...] = ()) -> None:
     root = Path(root).expanduser()
+    if root.is_symlink():
+        raise IntakeBlocked("X source state root cannot be a symlink")
     marker = root / "catalog-revision.json"
     if marker.is_symlink():
         raise IntakeBlocked("source catalog revision record cannot be a symlink")
     if not marker.exists():
         if revision > 7:
-            raise IntakeBlocked("new X source state cannot start from an unjournaled catalog revision")
+            record = _fresh_generation_record(revision, snapshot, profiles)
+            if root.exists() and (not root.is_dir() or stat.S_IMODE(root.stat().st_mode) != 0o700 or any(root.iterdir())):
+                raise IntakeBlocked("fresh X generation requires an empty private state root")
+            # A new generation has no historical cursor transitions. Freeze its
+            # reviewed starting projection atomically before provider bootstrap.
+            _write_fresh_generation_marker(root, record)
+            return
         bind(root, revision)
         return
     try:
@@ -187,6 +231,12 @@ def require_catalog_revision(root: Path, revision: int, bind: Any) -> None:
         raise IntakeBlocked("source catalog revision record is unavailable") from error
     if type(record) is not dict or type(record.get("revision")) is not int or record["revision"] != revision:
         raise IntakeBlocked("source catalog revision requires a package-owned transition")
+    if "generation" in record:
+        if (record != _fresh_generation_record(revision, snapshot, profiles)
+            or stat.S_IMODE(root.stat().st_mode) != 0o700 or stat.S_IMODE(marker.stat().st_mode) != 0o600
+            or (root / "catalog-transitions").exists() or (root / "catalog-transitions").is_symlink()):
+            raise IntakeBlocked("fresh X generation record is invalid")
+        return
     _require_x_transition_chain(root, revision)
 
 

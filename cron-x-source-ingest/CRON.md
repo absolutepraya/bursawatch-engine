@@ -67,12 +67,24 @@ corrections; it does not re-evaluate current catalog settings.
 
 ## Source Catalog revision transition
 
-The effective catalog and the X reader marker must agree before polling. The
-reader accepts revision 8 only when its private journal directory contains the
+The effective catalog and the X reader marker must agree before polling. An
+existing reader accepts revision 8 only when its private journal directory contains the
 completed historical 5 to 7 revision-only transition and the completed
 package-owned 7 to 8 transition. The 7 to 8 journal records the reviewed hash
 of all 30 effective X subscription rows, including disabled capabilities.
 Missing, incomplete, malformed, or extra journal entries block the reader.
+
+A new future-only generation may start at revision 8 with an absent or empty
+mode-0700 state root. Before fetching, the adapter verifies the complete
+effective X projection against the same reviewed hash and atomically records
+its starting revision and `generation` proof in the private catalog marker.
+Provider cursors then bootstrap naturally without accepting historical items.
+Subsequent polls validate that proof and projection again. Existing cursors,
+unrelated files, mixed transition journals, unsafe permissions, changed
+projections and later catalog revisions fail closed. Existing roots retain
+their journal requirements; never copy old markers or journals into a fresh
+generation. A production generation change still requires the separately
+approved writer fence and preserved original source root.
 
 Use `bin/compatible_catalog_transition.py preview` with the exact prior and
 target effective catalog JSON and the current source state root. Review and
