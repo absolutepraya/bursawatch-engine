@@ -26,14 +26,14 @@ async def _read_bounded_body(request: Request) -> bytes:
     if declared_size is not None:
         try:
             if int(declared_size) > MAX_OBJECT_BYTES:
-                raise ValidationError("media object exceeds 8 MiB")
+                raise ValidationError("media object exceeds 15 MiB")
         except ValueError as exc:
             raise ValidationError("invalid content length") from exc
     data = bytearray()
     async for chunk in request.stream():
         data.extend(chunk)
         if len(data) > MAX_OBJECT_BYTES:
-            raise ValidationError("media object exceeds 8 MiB")
+            raise ValidationError("media object exceeds 15 MiB")
     return bytes(data)
 
 

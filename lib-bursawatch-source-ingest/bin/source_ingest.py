@@ -21,7 +21,7 @@ from source_event_client import SourceEventHandoff
 MAX_BATCH = 20
 MAX_PAGE = 100
 MAX_MEDIA_REFS = 16
-MAX_MEDIA_OBJECT_BYTES = 8 * 1024 * 1024
+MAX_MEDIA_OBJECT_BYTES = 15 * 1024 * 1024
 MAX_EVENT_MEDIA_BYTES = 25 * 1024 * 1024
 _MEDIA_REF = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z")
 _MEDIA_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
@@ -214,7 +214,7 @@ def _validate_media_refs(value: Any) -> list[dict[str, Any]]:
             raise IntakeBlocked("source media kind and content type do not match")
         size = reference.get("size_bytes")
         if type(size) is not int or not 1 <= size <= MAX_MEDIA_OBJECT_BYTES:
-            raise IntakeBlocked("source media object exceeds the 8 MiB bound")
+            raise IntakeBlocked("source media object exceeds the 15 MiB bound")
         filename = reference.get("filename")
         if type(filename) is not str or not _MEDIA_FILENAME.fullmatch(filename):
             raise IntakeBlocked("source media filename is invalid")

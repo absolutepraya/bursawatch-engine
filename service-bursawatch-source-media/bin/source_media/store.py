@@ -44,13 +44,30 @@ class MediaStore:
                 sha256 TEXT NOT NULL,
                 kind TEXT NOT NULL,
                 content_type TEXT NOT NULL,
-                size_bytes INTEGER NOT NULL CHECK(size_bytes > 0 AND size_bytes <= 8388608),
+                size_bytes INTEGER NOT NULL CHECK(size_bytes > 0 AND size_bytes <= 15728640),
                 filename TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             CREATE INDEX IF NOT EXISTS media_objects_ref_idx ON media_objects(ref);
             """
         )
+        # Upgrade the original ledger constraint atomically, preserving every row.
+        # BEGIN IMMEDIATE serializes simultaneous service startups.
+        self._db.execute("BEGIN IMMEDIATE")
+        try:
+            sql = self._db.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='media_objects'"
+            ).fetchone()[0]
+            if "size_bytes <= 8388608" in sql:
+                self._db.execute("ALTER TABLE media_objects RENAME TO media_objects_legacy")
+                self._db.execute(sql.replace("size_bytes <= 8388608", "size_bytes <= 15728640"))
+                self._db.execute("INSERT INTO media_objects SELECT * FROM media_objects_legacy")
+                self._db.execute("DROP TABLE media_objects_legacy")
+                self._db.execute("CREATE INDEX IF NOT EXISTS media_objects_ref_idx ON media_objects(ref)")
+            self._db.commit()
+        except Exception:
+            self._db.rollback()
+            raise
         self._lock = threading.RLock()
 
     def upload(

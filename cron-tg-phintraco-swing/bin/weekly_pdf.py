@@ -10,7 +10,7 @@ from typing import Any
 import pymupdf
 
 
-MAX_PDF_BYTES = 8 * 1024 * 1024
+MAX_PDF_BYTES = 15 * 1024 * 1024
 MAX_PAGES = 12
 MAX_PLANS = 24
 MAX_CHART_BYTES = 8 * 1024 * 1024

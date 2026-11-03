@@ -134,3 +134,11 @@ def test_owner_rejects_source_mismatch_before_state_or_delivery(tmp_state, monke
     import pytest
     with pytest.raises(ValueError, match="verified channel"):
         pipeline_owner.submit({}, no_post=True)
+
+
+def test_weekly_pdf_reader_accepts_exact_source_object_limit():
+    data = b"%PDF-" + b"0" * (15 * 1024 * 1024 - 5)
+    reference = {"ref": "ref", "kind": "document", "content_type": "application/pdf",
+                 "filename": "weekly.pdf", "size_bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+    store = SimpleNamespace(download=lambda ref: SimpleNamespace(data=data, kind="document", content_type="application/pdf", filename="weekly.pdf"))
+    assert pipeline_owner._download_source_pdf({"media_refs": [reference]}, store) == data

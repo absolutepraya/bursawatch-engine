@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
-MAX_OBJECT_BYTES = 8 * 1024 * 1024
+MAX_OBJECT_BYTES = 15 * 1024 * 1024
 KINDS = frozenset({"image", "video", "document", "audio"})
 IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$")
 MEDIA_REF = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
@@ -155,7 +155,7 @@ def validate_upload(
     if not isinstance(idempotency_key, str) or not IDEMPOTENCY_KEY.fullmatch(idempotency_key):
         raise ValidationError("invalid idempotency key")
     if not isinstance(data, bytes) or not data or len(data) > MAX_OBJECT_BYTES:
-        raise ValidationError("media object must be between 1 byte and 8 MiB")
+        raise ValidationError("media object must be between 1 byte and 15 MiB")
     if kind not in KINDS:
         raise ValidationError("invalid media kind")
     canonical_type = normalize_content_type(content_type)

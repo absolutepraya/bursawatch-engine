@@ -21,7 +21,7 @@ _HEX = re.compile(r"[0-9a-f]{64}\Z")
 _MEDIA_REF = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z")
 _MEDIA_FILENAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _PIPELINE = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
-_MAX_MEDIA_OBJECT_BYTES = 8 * 1024 * 1024
+_MAX_MEDIA_OBJECT_BYTES = 15 * 1024 * 1024
 _MAX_EVENT_MEDIA_BYTES = 25 * 1024 * 1024
 _MEDIA_KIND_TYPES = {
     "image": {"image/jpeg", "image/png", "image/gif", "image/webp", "image/avif"},
@@ -107,7 +107,7 @@ def validate_envelope(value: object) -> dict[str, Any]:
         if ref["content_type"] not in _MEDIA_KIND_TYPES[ref["kind"]]:
             raise ValueError("media kind and content type do not match")
         if type(ref["size_bytes"]) is not int or not 1 <= ref["size_bytes"] <= _MAX_MEDIA_OBJECT_BYTES:
-            raise ValueError("media object size is outside the 8 MiB bound")
+            raise ValueError("media object size is outside the 15 MiB bound")
         if type(ref["filename"]) is not str or not _MEDIA_FILENAME.fullmatch(ref["filename"]):
             raise ValueError("media filename is invalid")
         total_media_bytes += ref["size_bytes"]

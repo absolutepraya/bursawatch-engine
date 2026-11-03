@@ -451,6 +451,40 @@ def test_tuntun_ingest_stages_forum_topic_identity(tmp_path):
     assert inbox.accepted[0]["payload"]["topic_id"] == 3743
 
 
+@pytest.mark.parametrize("topic", [None, 9999])
+def test_tuntun_outside_news_topic_never_uploads_unrelated_documents(tmp_path, topic):
+    endpoint_root = tmp_path / "telegram-tuntunsekuritas"
+    endpoint_root.mkdir()
+    (endpoint_root / "cursor.json").write_text(json.dumps({"cursor": 100}))
+    form = message(101, "Customer exercise form")
+    form.document = SimpleNamespace(mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", size=22476)
+    form.reply_to_top_id = topic
+    news = message(102, "Corporate news")
+    news.reply_to_top_id = 3743
+    client = FakeTelegram([form, news], address="tuntunsekuritas", entity_id=582001)
+
+    async def no_download(*args, **kwargs):
+        pytest.fail("unrelated customer form was downloaded")
+
+    client.download_media = no_download
+    inbox = FakeInbox()
+    result = asyncio.run(ingest_endpoint(client, TUNTUN_NEWS_ENDPOINT, tmp_path, inbox, NOW))
+    assert result["accepted"] == 2
+    assert result["cursor"] == 102
+    assert inbox.accepted[0]["payload"]["attachment_omitted_reason"] == "outside_subscribed_topic"
+    assert inbox.accepted[0]["media_refs"] == []
+    assert inbox.accepted[0]["media_required"] is False
+    assert inbox.accepted[1]["payload"]["topic_id"] == 3743
+
+
+def test_tuntun_in_scope_document_still_requires_durable_media():
+    news = message(101, "News attachment")
+    news.reply_to_top_id = 3743
+    news.document = SimpleNamespace(mime_type="application/pdf", size=100)
+    with pytest.raises(IntakeBlocked, match="durable media reference"):
+        telegram_envelope(TUNTUN_NEWS_ENDPOINT, news, NOW)
+
+
 @pytest.mark.parametrize(
     ("candidate_phase", "status_phase", "message"),
     [
@@ -657,12 +691,12 @@ async def _oversized_telegram_media_stops_during_download_before_upload(tmp_path
         async def download_media(self, message, *, file, progress_callback=None):
             Path(file).write_bytes(b"partial")
             assert progress_callback is not None
-            progress_callback(8 * 1024 * 1024 + 1, 8 * 1024 * 1024 + 1)
+            progress_callback(15 * 1024 * 1024 + 1, 15 * 1024 * 1024 + 1)
             raise AssertionError("oversized transfer was not stopped")
 
     oversized = OversizedTelegram([message(11, "chart", media=object())])
     media_store = FakeMediaStore()
-    with pytest.raises(IntakeBlocked, match="exceeds the 8 MiB"):
+    with pytest.raises(IntakeBlocked, match="exceeds the 15 MiB"):
         await ingest_endpoint(oversized, ENDPOINT, tmp_path, inbox, NOW, media_store=media_store)
 
     cursor = tmp_path / "telegram-phintraprofits" / "cursor.json"

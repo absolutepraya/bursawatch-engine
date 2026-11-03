@@ -47,3 +47,16 @@ the skipped backlog. Already-accepted Source Inbox and watcher owner work stays
 in its existing state and continues normally. This setting does not change the
 bridge, archive, destinations, or cadence, and it does not authorize a cursor
 reset or replay.
+
+For an explicitly approved future-only recovery, provision a fresh private state
+root with mode 0600 `publication-boundary.json` containing exactly
+`{"version": 1, "published_after": "2026-01-01T00:00:00+00:00"}`,
+using the approved timezone-aware boundary instead of this example. The reader
+freezes its exact contents at first start and rejects removal or changes. It
+excludes publications at or before the boundary before media or inbox work;
+invalid publication timestamps block intake. The result reports observed
+exclusion counts, while the persisted arrival cursor and frozen boundary provide
+progress evidence. Counts on a blocked run are observations, not committed
+exclusions. The queue remains untouched. This relies on provider timestamps,
+which cannot establish that a falsified timestamp is truthful. Without this file,
+legacy arrival-based behavior remains unchanged.

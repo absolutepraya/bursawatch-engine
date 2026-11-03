@@ -155,7 +155,7 @@ def test_type_and_signature_mismatch_are_rejected_before_storage(tmp_path, kind,
 
 def test_upload_size_limit_is_enforced_without_storage_call(tmp_path):
     client, _store, provider = setup_service(tmp_path)
-    too_large = b"\xff\xd8\xff" + b"x" * (8 * 1024 * 1024)
+    too_large = b"\xff\xd8\xff" + b"x" * (15 * 1024 * 1024 - 2)
     response = upload(client, data=too_large)
     assert response.status_code == 422
     assert provider.put_calls == 0
@@ -259,3 +259,25 @@ def test_download_requires_ledger_reference_and_checks_storage_integrity(tmp_pat
         store.download("123e4567-e89b-12d3-a456-426614174000")
     assert (tmp_path / "state" / "media.sqlite3").stat().st_mode & 0o777 == 0o600
     assert (tmp_path / "state").stat().st_mode & 0o777 == 0o700
+
+
+def test_exact_object_limit_and_legacy_ledger_migration(tmp_path):
+    import sqlite3
+    client, store, provider = setup_service(tmp_path)
+    old = upload(client, key="old")
+    path = store.state_path
+    store.close()
+    db = sqlite3.connect(path)
+    sql = db.execute("SELECT sql FROM sqlite_master WHERE name='media_objects'").fetchone()[0]
+    db.execute("ALTER TABLE media_objects RENAME TO legacy")
+    db.execute(sql.replace("15728640", "8388608"))
+    db.execute("INSERT INTO media_objects SELECT * FROM legacy")
+    db.execute("DROP TABLE legacy")
+    db.commit()
+    db.close()
+    store = MediaStore(path, provider)
+    data = b"\xff\xd8\xff" + b"x" * (15 * 1024 * 1024 - 3)
+    result = store.upload("new", data, kind="image", content_type="image/jpeg", filename="chart.jpg")
+    assert store.download(result.ref).data == data
+    assert store.download(old.json()["ref"]).data == b"\xff\xd8\xffchart"
+    store.close()

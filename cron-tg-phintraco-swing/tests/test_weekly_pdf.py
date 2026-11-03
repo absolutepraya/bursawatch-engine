@@ -198,7 +198,7 @@ def test_preserves_an_unnumbered_target_range_and_plan_context():
     [
         ("weekly-swing.pdf", make_pdf()),
         ("PHINTAS Weekly Swing Trading Ideas_20260928.pdf", b"not a PDF"),
-        ("PHINTAS Weekly Swing Trading Ideas_20260928.pdf", b"%PDF-" + b"0" * (8 * 1024 * 1024)),
+        ("PHINTAS Weekly Swing Trading Ideas_20260928.pdf", b"%PDF-" + b"0" * (15 * 1024 * 1024)),
     ],
 )
 def test_rejects_wrong_filename_invalid_pdf_and_oversized_document(filename, payload):

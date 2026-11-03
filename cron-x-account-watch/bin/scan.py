@@ -227,10 +227,13 @@ def format_fatal(now: datetime, reason: str) -> str:
 
 
 def _next_deliverable_index(value: dict, profiles: dict, now: datetime) -> int | None:
+    seen = set()
     for index, event in enumerate(value["outbox"]):
-        profile = profiles.get(event["profile_id"])
-        if profile is None:
+        profile_id = event["profile_id"]
+        profile = profiles.get(profile_id)
+        if profile is None or profile_id in seen:
             continue
+        seen.add(profile_id)
         if (
             state.is_ready(event, now)
             and _board_retry_due(event, now)
@@ -238,6 +241,17 @@ def _next_deliverable_index(value: dict, profiles: dict, now: datetime) -> int |
         ):
             return index
     return None
+
+
+def _drain_ready_deliveries(value: dict, profiles: dict, dry_run: bool, storage: Path, stats: RunStats, now: datetime) -> None:
+    available = dict(profiles)
+    while (index := _next_deliverable_index(value, available, now)) is not None:
+        profile_id = value["outbox"][index]["profile_id"]
+        if not _deliver(value, profiles, index, dry_run, storage, stats, now):
+            # Retain this account's ordering and exact pending operation.
+            # Other accounts can progress without retrying this failure in
+            # a tight loop during the same invocation.
+            available.pop(profile_id, None)
 
 
 def _queue_metrics(value: dict, profiles: dict, now: datetime) -> tuple[int, int]:
@@ -613,6 +627,12 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
     channel_id = _target_channel(profile, event)
     attempt_at = now or datetime.now(WIB)
     delivery_at = _delivery_at(event, attempt_at)
+    if event.get("route") == "id_stocks_swing" and event.get("delivery_at") is None:
+        # Freeze before handing a request to the Delivery Owner. Its receipt
+        # may settle after this process exits, so a later retry must render
+        # the same status date under the same immutable operation key.
+        event["delivery_at"] = delivery_at.isoformat()
+        state.save_state(storage, value)
     messages = render.render_post(
         profile,
         post,
@@ -877,8 +897,7 @@ def run(
                             message=f"{profile.id}: source fetch failed",
                             attributes={"profile_id": profile.id, "error": _sanitize_reason(exc)},
                         )
-            while (event_index := _next_deliverable_index(value, profiles, now)) is not None:
-                if not _deliver(value, profiles, event_index, dry_run, storage, stats, now): break
+            _drain_ready_deliveries(value, profiles, dry_run, storage, stats, now)
             _retry_cleanup(value, dry_run, storage, stats)
             _drain_publications(value, dry_run, storage, stats, now)
             stats.pending, stats.oldest_pending_minutes = _queue_metrics(value, profiles, now)
@@ -1130,9 +1149,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
             _cleanup_agent_vision(storage, event)
             stats = RunStats()
             now = datetime.now(WIB)
-            while (event_index := _next_deliverable_index(value, profiles, now)) is not None:
-                if not _deliver(value, profiles, event_index, dry_run, storage, stats, now):
-                    break
+            _drain_ready_deliveries(value, profiles, dry_run, storage, stats, now)
             _retry_cleanup(value, dry_run, storage, stats)
             _drain_publications(value, dry_run, storage, stats, now)
             _report_control_event(
