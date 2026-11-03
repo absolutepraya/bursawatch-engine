@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import subprocess
 import sys
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -26,6 +28,119 @@ import compatible_catalog_transition as x_transition
 from source_ingest import IntakeBlocked
 
 NOW = datetime(2026, 9, 24, tzinfo=timezone.utc)
+
+
+@pytest.fixture
+def fresh_catalog(monkeypatch):
+    configured = load_watch_config(ROOT / "cron-x-account-watch/config/watches.json")
+    enabled = {"kutekians", "rickyho1989", "writingtorch", "arvinhonami", "doktermarket", "txthariansaham", "aldotjahjadi8", "kobeissiletter"}
+    profiles = tuple(replace(p, enabled=p.id in enabled, source="rsshub") for p in configured.profiles)
+    rows = [{
+        "platform": "x", "endpoint_id": f"x:{p.handle.casefold()}",
+        "publisher_id": REVIEWED_PUBLISHERS[p.id], "address": p.handle, "provider_id": None,
+        "capability_id": capability, "verification_status": "verified",
+        "enabled": p.enabled and capability in {"company_news", "macro_news"},
+    } for p in profiles for capability in ("company_news", "macro_news", "swing_chart_context")]
+    rows.sort(key=lambda row: (row["endpoint_id"], row["capability_id"]))
+    digest = hashlib.sha256(x_transition._canonical(rows)).hexdigest()
+    monkeypatch.setattr(x_transition, "REVIEWED_PROJECTION_SHA256", digest)
+    return {"revision": 8, "subscriptions": rows}, profiles
+
+
+def test_fresh_revision_eight_bootstraps_without_historical_output(tmp_path, fresh_catalog):
+    snapshot, profiles = fresh_catalog
+    inbox = Inbox()
+    root = tmp_path / "fresh"
+    def fetch(profile, **_kwargs):
+        return [SourcePost(profile.id, "10", f"https://x.com/{profile.handle}/status/10", NOW,
+                           "<p>Market</p>", PostKind.NORMAL, None, None, (), ())]
+    result = run_once(snapshot, profiles, root, inbox, NOW, fetch_profile=fetch)
+    assert len(result) == 8 and all(row["status"] == "bootstrapped" for row in result)
+    assert inbox.events == []
+    marker = json.loads((root / "catalog-revision.json").read_text())
+    assert marker["generation"]["mode"] == "future_only"
+    assert not (root / "catalog-transitions").exists()
+    assert all(row["accepted"] == 0 for row in run_once(snapshot, profiles, root, inbox, NOW, fetch_profile=fetch))
+
+
+@pytest.mark.parametrize("existing", ["cursor", "unrelated", "legacy_marker"])
+def test_fresh_generation_never_adopts_existing_state(tmp_path, fresh_catalog, existing):
+    snapshot, profiles = fresh_catalog
+    if existing == "cursor":
+        (tmp_path / "x-kutekians").mkdir()
+        (tmp_path / "x-kutekians/cursor.json").write_text('{"anchor":"10"}')
+    elif existing == "legacy_marker":
+        (tmp_path / "catalog-revision.json").write_text('{"revision":8}')
+    else:
+        (tmp_path / "unexpected").write_text("retained")
+    before = {str(p): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+    with pytest.raises(IntakeBlocked):
+        run_once(snapshot, profiles, tmp_path, Inbox(), NOW, fetch_profile=lambda *_a, **_k: [])
+    assert before == {str(p): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+
+
+def test_fresh_generation_rejects_changed_projection_and_future_revision(tmp_path, fresh_catalog):
+    snapshot, profiles = fresh_catalog
+    changed = json.loads(json.dumps(snapshot))
+    changed["subscriptions"][0]["settings"] = {"changed": True}
+    for candidate in (changed, dict(snapshot, revision=9)):
+        with pytest.raises(IntakeBlocked):
+            run_once(candidate, profiles, tmp_path, Inbox(), NOW, fetch_profile=lambda *_a, **_k: [])
+        assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("tamper", ["digest", "version", "permission", "journal", "revision"])
+def test_fresh_generation_revalidates_its_frozen_proof(tmp_path, fresh_catalog, tamper):
+    snapshot, profiles = fresh_catalog
+    run_once(snapshot, profiles, tmp_path, Inbox(), NOW, fetch_profile=lambda *_a, **_k: [])
+    marker = tmp_path / "catalog-revision.json"
+    record = json.loads(marker.read_text())
+    if tamper == "digest":
+        record["generation"]["projection_sha256"] = "0" * 64
+    elif tamper == "version":
+        record["generation"]["version"] = 2
+    elif tamper == "permission":
+        marker.chmod(0o644)
+    elif tamper == "journal":
+        (tmp_path / "catalog-transitions").mkdir(mode=0o700)
+    else:
+        snapshot = dict(snapshot, revision=9)
+    marker.write_text(json.dumps(record))
+    with pytest.raises(IntakeBlocked):
+        run_once(snapshot, profiles, tmp_path, Inbox(), NOW, fetch_profile=lambda *_a, **_k: [])
+
+
+def test_fresh_generation_rejects_symlinked_root(tmp_path, fresh_catalog):
+    snapshot, profiles = fresh_catalog
+    target = tmp_path / "target"
+    target.mkdir(mode=0o700)
+    root = tmp_path / "link"
+    root.symlink_to(target, target_is_directory=True)
+    with pytest.raises(IntakeBlocked):
+        run_once(snapshot, profiles, root, Inbox(), NOW, fetch_profile=lambda *_a, **_k: [])
+    assert list(target.iterdir()) == []
+
+
+def test_fresh_generation_resumes_after_hard_crash_before_marker_link(tmp_path, fresh_catalog):
+    snapshot, profiles = fresh_catalog
+    root = tmp_path / "fresh"
+    code = """
+import os, sys, json
+from pathlib import Path
+import compatible_catalog_transition as transition
+transition.os.link = lambda *_args: os._exit(77)
+transition._write_fresh_generation_marker(Path(sys.argv[1]), json.loads(sys.argv[2]))
+"""
+    record = x_transition._fresh_generation_record(8, snapshot, profiles)
+    result = subprocess.run([sys.executable, "-c", code, str(root), json.dumps(record)],
+                            env=dict(os.environ, PYTHONPATH=str(ROOT / "cron-x-source-ingest/bin")),
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 77, result.stderr
+    assert list(root.iterdir()) == []
+    assert len(list(tmp_path.glob(".x-generation-*"))) == 1
+    outcomes = run_once(snapshot, profiles, root, Inbox(), NOW, fetch_profile=lambda *_a, **_k: [])
+    assert len(outcomes) == 8
+    assert json.loads((root / "catalog-revision.json").read_text()) == record
 
 
 def test_x_revision_eight_requires_both_completed_journal_edges(tmp_path):

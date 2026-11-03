@@ -374,7 +374,7 @@ def _flush_corrections(handoff: SourceEventHandoff, inbox: Any, outcomes: list[d
 def run_once(snapshot: dict[str, Any], profiles: tuple[Any, ...], state_root: Path, inbox: Any, observed_at: datetime, *, fetch_profile: Any = None, fetch_direct_x_head: Any = None, media_store: Any = None, media_preparer: Any = None) -> list[dict[str, Any]]:
     selected, by_endpoint = endpoints(snapshot, profiles)
     from compatible_catalog_transition import require_catalog_revision
-    require_catalog_revision(state_root, snapshot["revision"], bind_catalog_revision)
+    require_catalog_revision(state_root, snapshot["revision"], bind_catalog_revision, snapshot=snapshot, profiles=profiles)
     tracked = _TrackedInbox(inbox, state_root)
     observed: dict[str, tuple[Any, ...]] = {}
     if fetch_profile is None:
