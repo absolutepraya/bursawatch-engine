@@ -1278,13 +1278,17 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
 def _main() -> int:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command")
+    lookup = subparsers.add_parser("lookup-company")
+    lookup.add_argument("--json", required=True, dest="payload")
     submit = subparsers.add_parser("submit-analysis")
     submit.add_argument("--json", required=True, dest="payload")
     images = subparsers.add_parser("prepare-summary-images")
     images.add_argument("--json", required=True, dest="payload")
     arguments = parser.parse_args()
     try:
-        if arguments.command == "prepare-summary-images":
+        if arguments.command == "lookup-company":
+            result = agent_protocol.news_identity.lookup_payload(json.loads(arguments.payload))
+        elif arguments.command == "prepare-summary-images":
             import summary_context
             result = summary_context.prepare_summary_context(json.loads(arguments.payload))
         elif arguments.command == "submit-analysis":

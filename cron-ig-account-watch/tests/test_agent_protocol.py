@@ -35,6 +35,18 @@ def _profile(config_path: Path):
     return config.load_watch_config(config_path).profiles[0]
 
 
+def test_managed_company_lookup_dispatches_without_running_intake(monkeypatch, capsys):
+    import scan
+    import sys
+    calls = []
+    monkeypatch.setattr(sys, "argv", ["scan.py", "lookup-company", "--json", '{"company":"Example Business","market":"US"}'])
+    monkeypatch.setattr(agent_protocol.news_identity, "lookup_payload", lambda value: calls.append(value) or {"status": "unresolved"})
+    monkeypatch.setattr(scan, "run", lambda: pytest.fail("lookup must not run source intake"))
+    assert scan._main() == 0
+    assert calls == [{"company": "Example Business", "market": "US"}]
+    assert json.loads(capsys.readouterr().out) == {"status": "unresolved"}
+
+
 def test_v2_private_company_supports_natural_headline_and_truthful_missing_destination(config_path):
     profile = _profile(config_path)
     source = "Example Business plans an IPO."
