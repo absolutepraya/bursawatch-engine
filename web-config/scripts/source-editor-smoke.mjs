@@ -425,7 +425,7 @@ async function socialEditor(kind) {
     display_name: `Synthetic added ${kind}`,
     emoji,
     discord_channels: [
-      { key: "id_stocks_news", channel_id: addedChannel, description: "Stock news" },
+      { key: "id_stocks_news", channel_id: addedChannel, description: "Indonesia company news" },
     ],
   });
   await profile.getByLabel("Profile ID", { exact: true }).fill(added.id);
