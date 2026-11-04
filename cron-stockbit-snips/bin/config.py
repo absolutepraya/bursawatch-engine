@@ -82,7 +82,7 @@ def load_watch_config_data(raw: object) -> StockbitWatchConfig:
         "id_stocks_news_channel_id",
         "macro_news_channel_id",
     }
-    if type(destinations) is not dict or set(destinations) not in [expected_destinations, expected_destinations | {"industry_news_channel_id"}]:
+    if type(destinations) is not dict or (not expected_destinations <= set(destinations) or set(destinations) - expected_destinations - {"industry_news_channel_id", "us_stocks_news_channel_id", "global_company_news_channel_id"}):
         raise ValueError("Stockbit destinations have an invalid shape")
     for key in destinations:
         value = destinations[key]
@@ -94,6 +94,8 @@ def load_watch_config_data(raw: object) -> StockbitWatchConfig:
         raise ValueError("Stockbit destinations must differ")
     industry_channel = destinations.get("industry_news_channel_id", INDUSTRY_NEWS_CHANNEL_ID)
     if industry_channel in {issuer_channel, macro_channel}:
+        raise ValueError("Stockbit destinations must differ")
+    if len({*destinations.values(), industry_channel}) != len(destinations) + ("industry_news_channel_id" not in destinations):
         raise ValueError("Stockbit destinations must differ")
     instruction = root["additional_prompt_instruction"]
     if type(instruction) is not str:
@@ -107,6 +109,8 @@ def load_watch_config_data(raw: object) -> StockbitWatchConfig:
         macro_news_channel_id=macro_channel,
         additional_prompt_instruction=instruction,
         industry_news_channel_id=industry_channel,
+        us_stocks_news_channel_id=destinations.get("us_stocks_news_channel_id"),
+        global_company_news_channel_id=destinations.get("global_company_news_channel_id"),
     )
 
 

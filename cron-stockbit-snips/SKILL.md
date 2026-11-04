@@ -46,7 +46,7 @@ Classify each ordinary item from the complete supplied source meaning before
 choosing its destination. Return `subject` with exactly `kind`, `name`, and
 `evidence`: kind is `company`, `industry`, or `macro`; evidence is a short exact
 quotation from the supplied source. Company news concerns one company's own
-development and uses Stock News. Sector background does not change that.
+development and uses Company News. Sector background does not change that.
 Industry news concerns a sector as a whole, including industry-focused policy,
 and uses `id_industry_news` even when named companies are examples or top picks.
 Economy-wide, cross-industry, cross-asset, or overall-market developments use
@@ -55,7 +55,7 @@ not determine the subject. Split independent company developments, while
 keeping a connected transaction or one shared thesis together.
 
 Resolve tickers separately from category. A named company with no verified
-ticker stays in Stock News using its source name, an empty ticker, and no price
+ticker stays in Company News using its source name, an empty ticker, and no price
 tracker. Never use Macro as a missing-ticker, foreign-company, unavailable-quote,
 or missing-destination fallback. Preserve configured market coverage, relevance
 exclusions, and specialized Swing/status contracts. Do not invent evidence,
@@ -116,7 +116,7 @@ Use `US` only within configured US coverage. A verified result supplies only
 ticker and exchange for deterministic price enrichment, never extra news facts.
 Use no arbitrary URL or shell helper. The owner independently verifies an
 externally proposed ticker. If lookup is unavailable, ambiguous, or unresolved,
-submit Stock News using the company name and an empty ticker with no tracker.
+submit Company News using the company name and an empty ticker with no tracker.
 The lookup never selects a category, sends a message, or changes source state.
 
 ## Discord delivery receipt wait
@@ -188,3 +188,19 @@ Any unfinished child keeps the run degraded, including an accepted Delivery
 Owner operation awaiting its terminal receipt. Report success only when all
 children are delivered or excluded. Keep accepted pending operations on the
 existing owner retry path without advancing a local retry clock.
+
+## Company News contract (subject-v2)
+
+Follow the trusted shared instruction for new ordinary-news claims. Company
+subjects add the closed `company` object (`business_home`, `listing_status`,
+`security_market`); v1 examples elsewhere remain legacy-only. Every card has
+one focus company, public or private, and a natural headline without a
+mandatory ticker prefix. Counterparties are context, not duplicate stories.
+
+Primary business home selects Indonesia, US or Global Company News; unknown
+home uses Global. Quote market is separate and supports verified current
+focus-company ID/US securities only. Missing destinations are audited terminal
+skips without Macro fallback or later backlog. Preserve v1 leases, frozen
+cards, operation identities, raw forwarding and specialized Swing/status paths.
+See the [shared contract](../lib-news-classification/README.md) and accepted
+[design](../docs/specs/2026-11-03-company-news-format.md).

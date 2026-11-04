@@ -19,7 +19,7 @@ Return exactly this JSON object with no extra fields. For a Tuntun candidate, in
   "candidate_key":"<supplied candidate_key>",
   "ticker":"<verified ticker from the supplied source, or empty text>",
   "event_class":"<allowed event class>",
-  "title":"<TICKER>: <source-grounded Indonesian sentence-case headline>",
+  "title":"<company name and source-grounded Indonesian sentence-case headline>",
   "summary":"<source-grounded summary>",
   "material_facts":["<source-supported fact>"],
   "ranking_band":1,
@@ -35,7 +35,7 @@ Return exactly this JSON object with no extra fields. For a Tuntun candidate, in
 choosing its destination. Return `subject` with exactly `kind`, `name`, and
 `evidence`: kind is `company`, `industry`, or `macro`; evidence is a short exact
 quotation from the supplied source. Company news concerns one company's own
-development and uses Stock News. Sector background does not change that.
+development and uses Company News. Sector background does not change that.
 Industry news concerns a sector as a whole, including industry-focused policy,
 and uses `id_industry_news` even when named companies are examples or top picks.
 Economy-wide, cross-industry, cross-asset, or overall-market developments use
@@ -44,7 +44,7 @@ not determine the subject. Split independent company developments, while
 keeping a connected transaction or one shared thesis together.
 
 Resolve tickers separately from category. A named company with no verified
-ticker stays in Stock News using its source name, an empty ticker, and no price
+ticker stays in Company News using its source name, an empty ticker, and no price
 tracker. Never use Macro as a missing-ticker, foreign-company, unavailable-quote,
 or missing-destination fallback. Preserve configured market coverage, relevance
 exclusions, and specialized Swing/status contracts. Do not invent evidence,
@@ -90,7 +90,7 @@ Use `US` only within configured US coverage. A verified result supplies only
 ticker and exchange for deterministic price enrichment, never extra news facts.
 Use no arbitrary URL or shell helper. The owner independently verifies an
 externally proposed ticker. If lookup is unavailable, ambiguous, or unresolved,
-submit Stock News using the company name and an empty ticker with no tracker.
+submit Company News using the company name and an empty ticker with no tracker.
 The lookup never selects a category, sends a message, or changes source state.
 
 ## Discord delivery receipt wait
@@ -100,7 +100,7 @@ After an accepted operation returns a nonterminal receipt, the sender waits for 
 After every required delivery receipt is durably confirmed, the Market News owner stores the exact output and a pending Published Feed projection intent. The owner retries that projection through the Control Plane without submitting another Discord operation. Projection reporting is enabled only with `BURSAWATCH_TG_MARKET_NEWS_PUBLICATION_ENABLED=1` after the forward-only feed cutover; the agent never submits feed records itself.
 
 Both News providers now request a source-grounded headline. Issuer headlines
-start with a verified ticker and colon when available, otherwise the source company name; industry and macro headlines stay natural.
+use a natural company headline without a ticker prefix; industry and macro headlines stay natural.
 Phintraco submissions without a title remain accepted for older leases, with
 a descriptive source-headline fallback when available, then the source name.
 The shared `lib-news-format` renderer owns source
@@ -110,3 +110,19 @@ their existing contracts.
 ## Optional image context
 
 Screen ordinary news from supplied text first. Only when that text is eligible, the trusted item instruction may expose `prepare-summary-images`. Call that command with its exact bound request, then use the actual image viewer on returned paths. Paths indicate availability, not inspection. Images are additional context for the same supplied story, never a substitute for eligible text. Do not inspect any other files. On unavailable images or viewer failure, submit the text-supported result without holding delivery or retrying optional context. Specialized Swing and required outgoing media retain their owner contracts.
+
+## Company News contract (subject-v2)
+
+Follow the trusted shared instruction for new ordinary-news claims. Company
+subjects add the closed `company` object (`business_home`, `listing_status`,
+`security_market`); v1 examples elsewhere remain legacy-only. Every card has
+one focus company, public or private, and a natural headline without a
+mandatory ticker prefix. Counterparties are context, not duplicate stories.
+
+Primary business home selects Indonesia, US or Global Company News; unknown
+home uses Global. Quote market is separate and supports verified current
+focus-company ID/US securities only. Missing destinations are audited terminal
+skips without Macro fallback or later backlog. Preserve v1 leases, frozen
+cards, operation identities, raw forwarding and specialized Swing/status paths.
+See the [shared contract](../lib-news-classification/README.md) and accepted
+[design](../docs/specs/2026-11-03-company-news-format.md).

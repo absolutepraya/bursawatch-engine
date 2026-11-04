@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 
-CONTRACT = "subject-v1"
+CONTRACT = "subject-v2"
 MAX_BYTES = 256_000
 
 
@@ -41,7 +41,7 @@ def freeze(storage: Path, event: dict, item: dict) -> None:
 def read(storage: Path, event: dict) -> str | None:
     if "news_subject_contract" not in event:
         return None
-    if event["news_subject_contract"] != CONTRACT:
+    if event["news_subject_contract"] not in {CONTRACT, "subject-v1"}:
         raise ValueError("unsupported subject contract")
     path = _path(storage, event)
     if path.is_symlink() or path.stat().st_size > MAX_BYTES:

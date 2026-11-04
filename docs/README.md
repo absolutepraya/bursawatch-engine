@@ -144,6 +144,18 @@ issuer; connected stories remain together. The design records the local
 implementation, education-filter conflict, and bounded source evidence.
 Production rollout remains separate from design approval and local validation.
 
+The [company-news format design](specs/2026-11-03-company-news-format.md)
+records the accepted 3 November revisions: listing-independent company news,
+natural headlines, applicable market context, and exactly one focus company
+per card. Worldwide coverage, contextual counterparty mentions, the Company
+News name, and Indonesia, US, and other-company destinations are accepted.
+Routing follows primary business home, independently of listing exchange.
+Price-tracker expansion beyond Indonesia and the US is deferred. Unclear
+business-home attribution uses Global Company News; a missing destination
+skips delivery with a visible warning and no later backlog. The interview is
+complete and the feature-branch implementation has local validation. Production
+adoption still requires release and natural-run evidence.
+
 The separate Macro, Industry, then Swing follow-up is consolidated in the
 [`shared category design`](specs/2026-10-03-shared-category-contracts.md),
 with its [`working discussion`](notes/2026-10-03-shared-category-contracts-working-notes.md),

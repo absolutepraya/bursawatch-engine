@@ -445,7 +445,7 @@ def test_agent_relevance_instruction_excludes_non_stock_and_generic_advice(confi
     instruction = agent_protocol.instruction_for(__import__("config").load_watch_config(config_path).profiles[0]).lower()
 
     assert "central thesis is substantively about the stock market" in instruction
-    assert "no concrete stock-market thesis" in instruction
+    assert "company developments qualify without a stock-price thesis" in instruction
     assert "finance or economics relevance is necessary but not sufficient" in instruction
     assert "publication notice" in instruction
     assert "generic trading or investing education and advice" in instruction
@@ -494,9 +494,9 @@ def test_indonesia_economy_scope_uses_profile_guidance_for_source_exceptions(con
     assert "donald trump personally buys or discloses buying spacex shares" in instruction
 
 
-def test_agent_instruction_requires_ticker_first_stock_titles_and_direct_summary_voice(config_path, profile_payload):
+def test_agent_instruction_uses_natural_company_titles_and_direct_summary_voice(config_path, profile_payload):
     instruction = agent_protocol.instruction_for(__import__("config").load_watch_config(config_path).profiles[0]).lower()
-    assert "exact exchange ticker followed by a colon" in instruction
+    assert "do not prefix it with ticker colon" in instruction
     assert "renderer adds it once" in instruction
     assert "avoid generic writer narration" in instruction
     assert "without a fixed length threshold" in instruction

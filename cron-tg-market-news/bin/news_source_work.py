@@ -32,6 +32,8 @@ def _config_data(value: config.WatchConfig) -> dict[str, Any]:
             "macro_news_discord_channel_id": fields["macro_news_channel_id"],
             "industry_news_discord_channel_id": fields["industry_news_channel_id"],
             "heartbeat_discord_channel_id": fields["heartbeat_channel_id"],
+            **({"us_stocks_news_discord_channel_id": fields["us_stocks_news_channel_id"]} if fields["us_stocks_news_channel_id"] else {}),
+            **({"global_company_news_discord_channel_id": fields["global_company_news_channel_id"]} if fields["global_company_news_channel_id"] else {}),
         },
         "additional_prompt_instruction": fields["additional_prompt_instruction"],
     }
@@ -133,7 +135,7 @@ def route_enabled(state: Mapping[str, object], candidate_key: str, route: Destin
     record = provenance(state, candidate_key)
     if record is None or route is Destination.EXCLUDE:
         return True
-    capability = "company_news" if route in {Destination.ID_STOCKS_NEWS, Destination.INDUSTRY_NEWS} else "macro_news"
+    capability = "company_news" if route in {Destination.ID_STOCKS_NEWS, Destination.US_STOCKS_NEWS, Destination.GLOBAL_COMPANY_NEWS, Destination.INDUSTRY_NEWS} else "macro_news"
     return capability in record["enabled_capabilities"]
 
 

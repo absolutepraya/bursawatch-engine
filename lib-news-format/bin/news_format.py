@@ -34,16 +34,16 @@ if str(_subject_bin) not in sys.path:
 import news_subject
 
 WRITING_INSTRUCTION = COMMON_WRITING_INSTRUCTION + (
-    "For issuer news with a verified ticker, start the headline with the exact exchange TICKER followed by a colon. "
-    "When the company is known but its ticker is not verified, use its source-grounded company name instead. "
+    "For company news, write a natural descriptive headline naming the focus company. Do not prefix it with TICKER colon, including for listed companies. "
+    "Report the event, supported figures, timing and significance regardless of listing status. Proposed IPOs remain plans, and former tickers are historical context. "
     "For macro or industry news, use a natural headline. Return plain summary text without a Ringkasan label; "
     "the renderer adds it once. Do not generate the latest quote or 1D/1W/1M/3M tracker in the summary. "
 ) + category_instruction("macro") + category_instruction("industry")
 ITEMS_INSTRUCTION = (
-    "Split clearly independent issuer developments into ordered items, one per issuer, even when several dividends or "
+    "Split clearly independent company developments into ordered items, one per focus company, even when several dividends or "
     "suspension reopenings share a sentence. GIAA rights issue and UNTR buyback are two items; dividends for DADA and NICL, "
     "ENRG rights issue and reopening SINI/SMMT/SONA are six items. Keep a connected transaction or a shared macro/sector "
-    "thesis as one item, using its central issuer when appropriate. Mere company mentions are not separate stories. "
+    "thesis as one item, keeping exactly one focus company and naming counterparties only as necessary context. Mere company mentions are not separate stories. "
     "Preserve the original source URL and date. Omit missing amounts rather than inventing them. "
 )
 
@@ -74,6 +74,15 @@ def normalize_headline(title: str, route: str | None = None) -> str:
             upper = character.upper()
             # Expanding a Unicode character must not consume more transport space.
             return title[:index] + upper + title[index + 1:] if len(upper) == 1 else title
+    return title
+
+
+def company_headline(title: str, subject, ticker) -> str:
+    """Nonblocking cleanup for newly prepared company cards only."""
+    if subject is not None and "company" in subject and ticker and title.startswith(ticker + ":"):
+        body = title[len(ticker) + 1:].strip()
+        if body:
+            return body if subject["name"].casefold() in body.casefold() else subject["name"] + " " + body
     return title
 
 
@@ -200,7 +209,7 @@ def deduplicate_items(items):
     unique, seen = [], set()
     for item in items:
         route = _field(item, "route")
-        if route in {"id_stocks_news", "us_stocks_news", "macro_news", "id_industry_news"}:
+        if route in {"id_stocks_news", "us_stocks_news", "global_company_news", "macro_news", "id_industry_news"}:
             title = _field(item, "title") or ""
             key = (route, " ".join(title.split()),
                    " ".join(normalize_summary(_field(item, "summary")).split()),
@@ -414,13 +423,16 @@ def _fit_index(value: str, limit: int) -> int:
     return len(value)
 
 
-def render_card(heading: str, summary: str, source_url: str, source_label: str, *, route=None, snapshot=None, ticker=None, context=None, show_market_block=True) -> list[str]:
+def render_card(heading: str, summary: str, source_url: str, source_label: str, *, route=None, snapshot=None, ticker=None, context=None, show_market_block=True, quote_route=None, show_security=False) -> list[str]:
     heading = _normalize_heading(heading, route)
     body = normalize_summary(summary, marked=True)
     sections = [heading, body]
-    if show_market_block and route in {"id_stocks_news", "us_stocks_news"}:
-        sections.append(market_block(snapshot, "USD" if route == "us_stocks_news" else "IDR"))
-    if route == "id_stocks_news":
+    market_route = quote_route or route
+    if show_security and ticker and show_market_block:
+        sections.append(f"-# Saham: {ticker} ({'IDX' if market_route == 'id_stocks_news' else 'US'})")
+    if show_market_block and market_route in {"id_stocks_news", "us_stocks_news"}:
+        sections.append(market_block(snapshot, "USD" if market_route == "us_stocks_news" else "IDR"))
+    if market_route == "id_stocks_news":
         extra = company_context_block(ticker, context)
         if extra:
             sections.append(extra)
@@ -458,28 +470,32 @@ def freeze_cards(items: list[dict], heading_for, source_url: str, source_label: 
     context_deadline = time.monotonic() + CONTEXT_BATCH_SECONDS
     for item in deduplicate_items(items):
         route, title = item.get("route"), item.get("title") or ""
+        subject = news_subject.validate_subject(item["subject"]) if "subject" in item else None
+        title = company_headline(title, subject, item.get("ticker"))
         title = normalize_headline(title, route)
         item = {**item, "title": title}
-        subject = news_subject.validate_subject(item["subject"]) if "subject" in item else None
         if subject is not None:
             news_subject.validate_route(subject, route)
         ticker = (item.get("ticker") or None) if subject is not None else ticker_from_title(title, route)
+        market_route = news_subject.quote_route(subject, route)
+        if subject is not None and "company" in subject and market_route is None:
+            ticker = None
         try:
-            snapshot = _bounded_quote(fetch, ticker, route, min(3.0, max(0, quote_deadline - time.monotonic()))) if ticker and time.monotonic() < quote_deadline else None
+            snapshot = _bounded_quote(fetch, ticker, market_route, min(3.0, max(0, quote_deadline - time.monotonic()))) if ticker and time.monotonic() < quote_deadline else None
         except Exception:
             snapshot = None
         context = None
-        if context_fetch and ticker and route == "id_stocks_news" and time.monotonic() < context_deadline:
+        if context_fetch and ticker and market_route == "id_stocks_news" and time.monotonic() < context_deadline:
             try:
                 # Bounded like quotes: a slow or injected lookup cannot stall card creation.
-                context = _bounded_quote(context_fetch, ticker, route,
+                context = _bounded_quote(context_fetch, ticker, market_route,
                                          min(CONTEXT_LOOKUP_SECONDS, max(0, context_deadline - time.monotonic())), _CONTEXT_FETCH_SLOTS)
             except Exception:
                 context = None
         cards.append({"destination": target_for(item) if target_for else None, "title": title, "summary": normalize_summary(item["summary"]), "route": route, "ticker": ticker,
                       "market_data_as_of": _field(snapshot, "as_of"),
                       "messages": render_card(heading_for(item), item["summary"], source_url, source_label, route=route, snapshot=snapshot, ticker=ticker, context=context,
-                                              show_market_block=not (subject is not None and subject["kind"] == "company" and ticker is None)),
+                                              show_market_block=not (subject is not None and subject["kind"] == "company" and (ticker is None or market_route is None)), quote_route=market_route, show_security=subject is not None and "company" in subject),
                       **({"subject": subject} if subject is not None else {})})
     return cards
 
@@ -495,12 +511,14 @@ def validate_cards(cards) -> list[dict]:
             raise ValueError("news card destination is invalid")
         if any(type(card[k]) is not str for k in ("title", "summary", "route")):
             raise ValueError("news card text is invalid")
-        if card["route"] not in {"id_stocks_news", "us_stocks_news", "macro_news", "id_industry_news"}:
+        if card["route"] not in {"id_stocks_news", "us_stocks_news", "global_company_news", "macro_news", "id_industry_news"}:
             raise ValueError("news card route is invalid")
         if "subject" in card:
             subject = news_subject.validate_subject(card["subject"])
             news_subject.validate_route(subject, card["route"])
-            if card["ticker"] is not None and (subject["kind"] != "company" or not isinstance(card["ticker"], str) or not card["title"].startswith(card["ticker"] + ": ")):
+            if "company" in subject and card["ticker"] and news_subject.quote_route(subject, card["route"]) is None:
+                raise ValueError("news card ticker requires a current supported focus-company security")
+            if card["ticker"] is not None and (subject["kind"] != "company" or not isinstance(card["ticker"], str) or re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,19}", card["ticker"]) is None or ("company" not in subject and not card["title"].startswith(card["ticker"] + ": "))):
                 raise ValueError("news card ticker conflicts with its subject or headline")
         elif card["ticker"] != ticker_from_title(card["title"], card["route"]):
             raise ValueError("news card ticker conflicts with its headline")

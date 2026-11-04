@@ -79,13 +79,13 @@ def instruction_for(profile: ChannelProfile, relevance_guard_required: bool = Fa
         routing = (
             "Split independent issuer developments before routing each item. When route_required is true, classify each item's central thesis and choose exactly one configured route per item. Never duplicate a single story across routes. The parent post's heading, number of tickers, or mixture of sectors does not determine an individual item's route. "
             "Use id_industry_news for an industry or sector-wide thesis, including a policy, infrastructure, investment, or capacity story whose central subject is that industry. Company examples and top picks do not change an industry subject. Use macro_news for a substantive economy-wide or market-wide thesis, cross-asset factors, or broad financial-market analysis. Corporate-action calendars and issuer earnings roundups are not macro news: separate their independent issuer developments into id_stocks_news items even under one shared headline or across sectors. A stock screen, watchlist, or set of company figures alone does not establish a macro thesis; apply the profile's relevance exclusions. "
-            "Use id_stocks_news for direct IDX-listed issuer news or analysis, including earnings, dividends, corporate actions, fundamentals, valuation, and a multi-stock post with one clearly dominant lead issuer. "
+            "Use company routes for substantive public, private, pre-IPO or formerly listed company news worldwide, including earnings, dividends, corporate actions, fundamentals, valuation, and a multi-stock post with one clearly dominant lead issuer. "
             "Use id_stocks_swing only when the first meaningful token is the exact, case-sensitive #TechnicalReview tag after optional whitespace or Markdown wrapper characters. That tag is a deterministic route override to id_stocks_swing, including when the post contains a chart, support, resistance, breakout, indicator, entry, target, or stop-loss. A technical word, ticker, chart image, or trade setup appearing later without that leading tag must never route to id_stocks_swing. Choose id_stocks_news, id_industry_news, or macro_news for such a post according to its central thesis. "
-            "Filter minor exchange-rule or market-mechanics changes when the source does not support a meaningful consequence. Keep a change eligible when the source supports a significant effect on trading, liquidity, listing eligibility, issuers, or investors. Assess other exchange-rule changes on their own merits. Never use macro_news as a fallback for an unresolved ticker. Keep a clearly named company in id_stocks_news using its source name when no ticker is verified. A relevant leading #TechnicalReview remains one id_stocks_swing item even without a unique ticker; do not discard it for that reason or invent a ticker prefix. If no independently eligible item remains, return exactly event_key and is_relevant false with no items, including when only routing is enabled. "
+            "Filter minor exchange-rule or market-mechanics changes when the source does not support a meaningful consequence. Keep a change eligible when the source supports a significant effect on trading, liquidity, listing eligibility, issuers, or investors. Assess other exchange-rule changes on their own merits. Never use macro_news as a fallback for an unresolved ticker. Route the focus company by primary business home: ID to id_stocks_news, US to us_stocks_news, elsewhere or unknown to global_company_news, irrespective of listing. Missing configured destinations remain truthful company routes for terminal audited skips, never Macro. A relevant leading #TechnicalReview remains one id_stocks_swing item even without a unique ticker; do not discard it for that reason or invent a ticker prefix. If no independently eligible item remains, return exactly event_key and is_relevant false with no items, including when only routing is enabled. "
             f"Configured routes: {_channels(profile)}. "
         )
     title_summary = (
-        "Write concise, source-grounded Bahasa Indonesia. For id_stocks_news, prefix the title with the verified IDX ticker and colon when present, otherwise use the source company name without inventing a ticker. For id_stocks_swing, use that prefix only when a unique issuer is established; otherwise use a source-grounded descriptive title without an invented ticker. For id_industry_news and macro_news, write a natural headline and do not invent a ticker. "
+        "Write concise, source-grounded Bahasa Indonesia. For ordinary company news use a natural headline naming the focus company, without a ticker prefix. For id_stocks_swing, use that prefix only when a unique issuer is established; otherwise use a source-grounded descriptive title without an invented ticker. For id_industry_news and macro_news, write a natural headline and do not invent a ticker. "
         "Return one ordered items array with one to eight independently relevant News Items. Keep a connected transaction or a source-supported shared macro thesis as one item; split independent issuer stories even when they share a heading, paragraph, calendar, or earnings roundup. When more than eight items qualify, select the eight most material and retain their source order; never dump remaining issuer stories into a macro item. Do not add a category prefix to a substantive macro title. Return plain summaries without a Ringkasan marker, which the renderer adds once. Summarize the source instead of copying its full bullet format or disclaimer. Preserve material source-supported numbers, price levels, named issuers, ratings, and implications without adding facts or advice. Do not describe the Channel or writer as a narrator. "
         "For an id_stocks_swing item, provide one concise Reasons paragraph without a Reasons or *(Ringkasan)* label, do not use a second paragraph, and provide a sentiment field containing exactly one of Bullish, Bearish, or Sideways. Preserve an explicit source stance when present; otherwise classify the dominant direction of the supplied technical evidence, using Sideways only for a genuinely balanced or explicitly sideways setup. "
     )
@@ -182,14 +182,14 @@ def validate_title(value: object) -> str:
     return title
 
 
-def _validate_item(profile: ChannelProfile, value: object, event: ChannelEvent | None, *, subject_required: bool = False) -> NewsItem:
+def _validate_item(profile: ChannelProfile, value: object, event: ChannelEvent | None, *, subject_required: bool = False, company_required: bool = False) -> NewsItem:
     if type(value) is not dict or set(value) - {"title", "summary", "route", "ticker", "sentiment", "subject"} or not {"title", "summary", "route"}.issubset(value):
         raise ValueError("news item has unexpected or missing fields")
     route = value["route"]
     if not isinstance(route, str):
         raise ValueError("route must be a configured channel key")
     canonical = ROUTE_ALIASES.get(route, route)
-    if canonical not in {channel.key for channel in profile.discord_channels}:
+    if canonical not in {channel.key for channel in profile.discord_channels} and not (canonical in news_subject.COMPANY_ROUTES and "company" in value.get("subject", {})):
         raise ValueError("route must be a configured channel key")
     ticker = value.get("ticker")
     semantic = "subject" in value
@@ -197,6 +197,8 @@ def _validate_item(profile: ChannelProfile, value: object, event: ChannelEvent |
     verified_ticker = None
     if canonical != "id_stocks_swing" and (semantic or subject_required):
         subject = news_subject.validate_subject(value.get("subject"), event.text if event is not None else None)
+        if company_required:
+            news_subject.require_company_details(subject)
         news_subject.validate_route(subject, canonical)
         if event is not None:
             value, verified_ticker = news_identity.prepare_item({**value, "route": canonical}, event.text)
@@ -205,7 +207,7 @@ def _validate_item(profile: ChannelProfile, value: object, event: ChannelEvent |
         if subject["kind"] != "company" and ticker is not None:
             raise ValueError("non-company subject must not have a ticker")
     if ticker is not None:
-        if not isinstance(ticker, str) or not _TICKER_RE.fullmatch(ticker):
+        if not isinstance(ticker, str) or not (re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,19}", ticker) if subject and "company" in subject and news_subject.ticker_market(subject) == "US" else _TICKER_RE.fullmatch(ticker)):
             raise ValueError("ticker must be an uppercase IDX token or null")
         if ticker != verified_ticker and (event is None or re.search(rf"(?<![A-Z0-9]){re.escape(ticker)}(?![A-Z0-9])", event.text) is None):
             raise ValueError("ticker must occur in the raw Source Post")
@@ -239,6 +241,7 @@ def validate_submission(
     *,
     event: ChannelEvent | None = None,
     subject_required: bool = False,
+    company_required: bool = False,
 ) -> dict[str, object]:
     if type(payload) is not dict:
         raise ValueError("analysis submission must be an object")
@@ -262,7 +265,7 @@ def validate_submission(
         raw_items = payload["items"]
         if type(raw_items) is not list or not 1 <= len(raw_items) <= MAX_NEWS_ITEMS:
             raise ValueError("relevant submission must contain one to eight news items")
-        items = [_validate_item(profile, item, event, subject_required=subject_required) for item in raw_items]
+        items = [_validate_item(profile, item, event, subject_required=subject_required, company_required=company_required) for item in raw_items]
         if event is not None and is_technical_review(event.text):
             if len(items) != 1 or items[0].route != "id_stocks_swing":
                 raise ValueError("TechnicalReview requires exactly one id_stocks_swing item")

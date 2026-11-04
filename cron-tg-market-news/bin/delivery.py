@@ -158,6 +158,15 @@ def _issuer_entry(
     market_metadata: dict | None = None,
 ) -> str:
     summary = _render_tuntun_summary(item)
+    if item.subject is not None and "company" in item.subject:
+        quote_route = news_format.news_subject.quote_route(item.subject, item.route.value)
+        snapshot = news_format.get_market_snapshot(item.ticker, quote_route) if load_market_data and item.ticker and quote_route else None
+        context = get_company_context(item.ticker, quote_route) if item.ticker and quote_route == "id_stocks_news" else None
+        if market_metadata is not None:
+            market_metadata.update(market_data_as_of=snapshot.get("as_of") if snapshot else None, renderer_version=news_format.VERSION)
+        return "\n\n".join(news_format.render_card(heading, summary, source_message_url(item.candidate), "Telegram",
+            route=item.route.value, snapshot=snapshot, ticker=item.ticker, context=context,
+            show_market_block=bool(item.ticker and quote_route), quote_route=quote_route, show_security=True))
     if load_market_data and item.route is Destination.ID_STOCKS_NEWS and item.ticker is not None:
         snapshot = get_market_snapshot(item.ticker, item.candidate.source_text)
     if market_metadata is not None:
@@ -225,6 +234,8 @@ def _phintraco_macro_entry(item: SelectionCandidate, market_metadata=None) -> st
 
 
 def _entry(item: SelectionCandidate, market_metadata=None) -> str:
+    if item.subject is not None and "company" in item.subject:
+        return _issuer_entry(item, f"### {_PROVIDER_EMOJIS[_source_name(item)]} {item.title}\n-# {_source_name(item)}", market_metadata=market_metadata)
     if item.provider is Provider.TUNTUN and item.title:
         return _tuntun_entry(item, market_metadata)
     if item.provider is Provider.PHINTRACO:

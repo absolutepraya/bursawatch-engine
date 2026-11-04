@@ -1184,7 +1184,7 @@ async function scenario(role) {
       const feedLabels = ["Stockbit Commentary", "Unboxing", "Unboxing IPO", "AI Reports Stockbit"];
       for (const label of feedLabels)
         assert.equal(await page.getByRole("checkbox", { name: label, exact: true }).count(), 1);
-      for (const label of ["Stock news channel ID", "Macro news channel ID", "Additional instructions"])
+      for (const label of ["Indonesia company news channel ID", "Macro news channel ID", "Additional instructions"])
         assert.equal(await page.getByLabel(label, { exact: true }).count(), 1);
       assert.equal(await page.getByLabel("Heartbeat channel ID", { exact: true }).count(), 0);
       const unboxing = page.getByRole("checkbox", { name: "Unboxing", exact: true });
@@ -1404,7 +1404,7 @@ async function scenario(role) {
         const feedLabels = ["Stockbit Commentary", "Unboxing", "Unboxing IPO", "AI Reports Stockbit"];
         for (const label of feedLabels)
           assert.equal(await page.getByRole("checkbox", { name: label, exact: true }).count(), 1);
-        for (const label of ["Stock news channel ID", "Macro news channel ID", "Additional instructions"])
+        for (const label of ["Indonesia company news channel ID", "Macro news channel ID", "Additional instructions"])
           assert.equal(await page.getByLabel(label, { exact: true }).count(), 1);
         assert.equal(await page.getByLabel("Heartbeat channel ID", { exact: true }).count(), 0);
         if (textSize === "100%") {
@@ -1431,7 +1431,7 @@ async function scenario(role) {
             }[feed.id];
             await page.getByRole("checkbox", { name: label, exact: true }).setChecked(feed.enabled);
           }
-          await page.getByLabel("Stock news channel ID", { exact: true }).fill(expectedConfig.destinations.id_stocks_news_channel_id);
+          await page.getByLabel("Indonesia company news channel ID", { exact: true }).fill(expectedConfig.destinations.id_stocks_news_channel_id);
           await page.getByLabel("Macro news channel ID", { exact: true }).fill(expectedConfig.destinations.macro_news_channel_id);
           const mobileInstruction = page.getByLabel("Additional instructions", { exact: true });
           await mobileInstruction.fill(expectedConfig.additional_prompt_instruction);
@@ -1458,7 +1458,7 @@ async function scenario(role) {
           );
           await page.getByText("Revision 3 · Stockbit Snips", { exact: true }).waitFor();
           assert.equal(await mobileInstruction.inputValue(), expectedConfig.additional_prompt_instruction);
-          assert.equal(await page.getByLabel("Stock news channel ID", { exact: true }).inputValue(), expectedConfig.destinations.id_stocks_news_channel_id);
+          assert.equal(await page.getByLabel("Indonesia company news channel ID", { exact: true }).inputValue(), expectedConfig.destinations.id_stocks_news_channel_id);
           assert.equal(await page.getByLabel("Macro news channel ID", { exact: true }).inputValue(), expectedConfig.destinations.macro_news_channel_id);
           for (const feed of expectedConfig.feeds) {
             const label = {

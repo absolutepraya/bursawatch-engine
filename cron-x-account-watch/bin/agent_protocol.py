@@ -120,7 +120,7 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
     if profile.enable_llm_relevance_filter:
         if profile.relevance_scope == "financial_market":
             relevance = (
-                "First decide whether the central thesis is substantively about financial markets: listed shares, stock indices, listed companies or issuers, stock prices, equity valuation, earnings, dividends, corporate actions, commodities, energy, bonds, yields, interest rates, FX, currencies, options, derivatives, liquidity, macroeconomics, or crypto. For a thread, decide from the combined thread, not only its latest post. "
+                "First decide whether the central thesis is substantively about financial markets: listed shares, stock indices, public or private companies, including pre-IPO and formerly listed businesses, stock prices, equity valuation, earnings, dividends, corporate actions, commodities, energy, bonds, yields, interest rates, FX, currencies, options, derivatives, liquidity, macroeconomics, or crypto. For a thread, decide from the combined thread, not only its latest post. "
             )
         elif profile.relevance_scope == "indonesia_economy":
             relevance = (
@@ -128,8 +128,8 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
             )
         else:
             relevance = (
-                "First decide whether the central thesis is substantively about the stock market: listed shares, stock indices, listed companies or issuers, stock prices, equity valuation, earnings, dividends, corporate actions, or a macro or cross-asset factor with an explicit stock-market implication. For a thread, decide from the combined thread, not only its latest post. "
-                "Exclude general economy, business, AI, technology, productivity, career, personal-finance, crypto, forex, commodities, bonds, or other content when it has no concrete stock-market thesis. "
+                "First decide whether the central thesis is substantively about the stock market: listed shares, stock indices, public or private companies, including pre-IPO and formerly listed businesses, stock prices, equity valuation, earnings, dividends, corporate actions, or a macro or cross-asset factor with an explicit stock-market implication. For a thread, decide from the combined thread, not only its latest post. "
+                "Substantive company developments qualify without a stock-price thesis or active listing. Exclude general education, routine promotion, personal-finance advice and unrelated content. "
             )
         if profile.relevance_scope == "financial_market":
             eligibility = (
@@ -163,14 +163,14 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
     if profile.enable_llm_routing:
         routing = (
             news_subject.INSTRUCTION + news_subject.lookup_instruction("bursawatch-x-account-watch.sh")
-            + "Use id_stocks_news for a company within Indonesian coverage and us_stocks_news for a verified US-listed security. "
-            "Keep existing configured market coverage; omit unsupported foreign company stories instead of relabeling them macro. "
+            + "Route company news by primary business home: id_stocks_news for ID, us_stocks_news for US, global_company_news for elsewhere or unknown. "
+            "Worldwide substantive company news is eligible regardless of listing status, within the configured source relevance rules. Return the truthful company route even if its destination is absent; the owner records a terminal routing warning instead of a Macro fallback or backlog. "
             "Use id_stocks_swing only for a direct IDX company whose central thesis is a technical chart or trade setup. "
             "An overall index thesis remains macro, and an earnings or valuation-derived target remains Stock News. "
             "A technical word, chart, company example, or IHSG reference alone does not determine the central thesis. "
             "Ordinary news items include subject and ticker (empty when unverified); specialized Swing retains its scalar schema. "
             "Profile-specific instructions cannot weaken these subject boundaries. "
-            f"Choose exactly one configured route key: {channels}. Never substitute Macro for an unavailable destination. "
+            f"Configured destinations are {channels}. Company routes follow business_home even if missing; other routes must be configured. Never substitute Macro for an unavailable destination. "
         )
     title_and_summary = news_format.WRITING_INSTRUCTION + news_format.ITEMS_INSTRUCTION
     if profile.enable_llm_title and profile.enable_llm_summary and profile.enable_llm_routing:
@@ -479,7 +479,7 @@ def validate_route(profile: Profile, value: object) -> str:
     return normalize_route(profile, value)
 
 
-def validate_submission(profile: Profile, payload: object, *, subject_required: bool = False, source_text: str | None = None) -> dict:
+def validate_submission(profile: Profile, payload: object, *, subject_required: bool = False, company_required: bool = False, source_text: str | None = None) -> dict:
     if type(payload) is not dict:
         raise ValueError("analysis submission must be an object")
     if "items" in payload:
@@ -495,8 +495,8 @@ def validate_submission(profile: Profile, payload: object, *, subject_required: 
         for item in raw_items:
             if type(item) is not dict or not {"title", "summary", "route"} <= set(item) or set(item) - {"title", "summary", "route", "subject", "ticker"}:
                 raise ValueError("news item has unexpected fields")
-            validated = validate_submission(profile, {"event_key": payload["event_key"], **({"is_relevant": True} if profile.enable_llm_relevance_filter else {}), **item}, subject_required=subject_required, source_text=source_text)
-            if validated["route"] not in {"id_stocks_news", "us_stocks_news", "id_industry_news", "macro_news"}:
+            validated = validate_submission(profile, {"event_key": payload["event_key"], **({"is_relevant": True} if profile.enable_llm_relevance_filter else {}), **item}, subject_required=subject_required, company_required=company_required, source_text=source_text)
+            if validated["route"] not in {"id_stocks_news", "us_stocks_news", "global_company_news", "id_industry_news", "macro_news"}:
                 raise ValueError("multi-item schema supports news routes only")
             items.append({key: validated[key] for key in ("title", "summary", "route", "subject", "ticker") if key in validated})
         items = news_format.deduplicate_items(items)
@@ -535,19 +535,21 @@ def validate_submission(profile: Profile, payload: object, *, subject_required: 
     if profile.enable_llm_summary:
         result["summary"] = validate_summary(payload["summary"])
     if profile.enable_llm_routing:
-        result["route"] = validate_route(profile, payload["route"])
+        result["route"] = payload["route"] if semantic and "company" in payload.get("subject", {}) and payload["route"] in news_subject.COMPANY_ROUTES else validate_route(profile, payload["route"])
     if semantic:
         subject = news_subject.validate_subject(payload["subject"], source_text)
+        if company_required:
+            news_subject.require_company_details(subject)
         news_subject.validate_route(subject, result["route"])
         ticker = payload["ticker"]
         verified_ticker = None
         if source_text is not None:
-            normalized, verified_ticker = news_identity.prepare_item({**payload, "route": result["route"]}, source_text, market="US" if result["route"] == "us_stocks_news" else "ID")
+            normalized, verified_ticker = news_identity.prepare_item({**payload, "route": result["route"]}, source_text, market=news_subject.ticker_market(subject, "US" if result["route"] == "us_stocks_news" else "ID"))
             ticker = normalized["ticker"]
             if "title" in result:
                 result["title"] = validate_title(normalized["title"])
         if source_text is not None:
-            ticker = news_subject.validate_ticker(ticker or "", source_text, market="US" if result["route"] == "us_stocks_news" else "ID", verified_ticker=verified_ticker)
+            ticker = news_subject.validate_ticker(ticker or "", source_text, market=news_subject.ticker_market(subject, "US" if result["route"] == "us_stocks_news" else "ID"), verified_ticker=verified_ticker)
         elif ticker is not None and not isinstance(ticker, str):
             raise ValueError("ticker must be text or null")
         if subject["kind"] != "company" and ticker:

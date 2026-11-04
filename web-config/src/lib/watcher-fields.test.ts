@@ -62,6 +62,26 @@ function profile(kind: ProfileKind) {
 }
 
 describe("watcher configuration drafts", () => {
+  it("accepts optional company destinations and rejects a duplicate channel", () => {
+    const config = validStockbitConfig();
+    Object.assign(config.destinations, {
+      us_stocks_news_channel_id: "345678901234567890",
+      global_company_news_channel_id: "456789012345678901",
+    });
+    expect(validateWatcherConfig(stockbitWatcherId, config)).toEqual({});
+    Object.assign(config.destinations, { global_company_news_channel_id: config.destinations.macro_news_channel_id });
+    expect(validateWatcherConfig(stockbitWatcherId, config)).toHaveProperty("destinations.global_company_news_channel_id");
+  });
+
+  it("accepts US and Global company routes for WhatsApp", () => {
+    const value = profile("whatsapp");
+    value.discord_channels = [
+      { key: "us_stocks_news", channel_id: destination, description: "US public and private companies" },
+      { key: "global_company_news", channel_id: heartbeat, description: "Other business homes" },
+    ];
+    expect(validateWatcherConfig(watcherFor.whatsapp, { version: 2, profiles: [value] })).toEqual({});
+  });
+
   it("accepts the X hybrid source while rejecting it for Instagram", () => {
     const x = { ...profile("x"), source: "hybrid" };
     expect(validateWatcherConfig(watcherFor.x, { version: 1, profiles: [x] })).toEqual({});

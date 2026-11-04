@@ -214,7 +214,9 @@ function Channels({ path, kind }: { path: ConfigPath; kind: ProfileKind }) {
               options={
                 kind === "whatsapp"
                   ? [
-                      ["id_stocks_news", "Stock news"],
+                      ["id_stocks_news", "Indonesia company news"],
+                      ["us_stocks_news", "US company news"],
+                      ["global_company_news", "Global company news"],
                       ["macro_news", "Macro news"],
                       ["id_industry_news", "Industry news"],
                       ["id_stocks_swing", "Swing calls"],
@@ -590,6 +592,54 @@ function ProfileFields({ index, kind }: { index: number; kind: ProfileKind }) {
   );
 }
 
+function OptionalCompanyDestinations({ telegram = false }: { telegram?: boolean }) {
+  const { draft, update } = useEditor();
+  const suffix = telegram ? "_discord_channel_id" : "_channel_id";
+  return (
+    <>
+      {(
+        [
+          ["us_stocks_news", "US company news"],
+          ["global_company_news", "Global company news"],
+        ] as const
+      ).map(([route, label]) => {
+        const key = route + suffix;
+        const exists = configValue(draft, ["destinations", key]) !== undefined;
+        return (
+          <div key={key}>
+            {exists ? (
+              <>
+                <Field path={["destinations", key]} label={`${label} channel ID`} />
+                <button
+                  type="button"
+                  className="button ghost"
+                  onClick={() => {
+                    const destinations = {
+                      ...(configValue(draft, ["destinations"]) as Record<string, unknown>),
+                    };
+                    delete destinations[key];
+                    update(["destinations"], destinations);
+                  }}
+                >
+                  Remove {label} destination
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="button ghost"
+                onClick={() => update(["destinations", key], "")}
+              >
+                Add {label} destination
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 function TelegramFields({ watcherId }: { watcherId: string }) {
   const news = watcherId === "bursawatch-tg-market-news";
   const board = watcherId === "bursawatch-dc-swing-board";
@@ -642,8 +692,9 @@ function TelegramFields({ watcherId }: { watcherId: string }) {
           <>
             <Field
               path={["destinations", "id_stocks_news_discord_channel_id"]}
-              label="Stock news channel ID"
+              label="Indonesia company news channel ID"
             />
+            <OptionalCompanyDestinations telegram />
             <Field
               path={["destinations", "macro_news_discord_channel_id"]}
               label="Macro news channel ID"
@@ -790,7 +841,11 @@ function StockbitFields() {
         title="Discord destinations"
         hint="Route names are fixed. Use distinct channel IDs from the Discord server you manage."
       >
-        <Field path={["destinations", "id_stocks_news_channel_id"]} label="Stock news channel ID" />
+        <Field
+          path={["destinations", "id_stocks_news_channel_id"]}
+          label="Indonesia company news channel ID"
+        />
+        <OptionalCompanyDestinations />
         <Field path={["destinations", "macro_news_channel_id"]} label="Macro news channel ID" />
         {configValue(draft, ["destinations", "industry_news_channel_id"]) !== undefined && (
           <Field

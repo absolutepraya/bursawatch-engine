@@ -35,6 +35,16 @@ def test_delivery_receipt_wait_interval_is_shared_and_bounded():
     assert DELIVERY_RECEIPT_WAIT_SECONDS == 10
 
 
+def test_company_news_provisioning_has_typed_text_channels_and_inventory():
+    operation = OperationIntent("company-news:global", "text_channel_create", "company-news:channels",
+        {"guild_id": "123456789012345678"}, {"name": "global-company-news", "parent_id": "234567890123456789",
+            "permission_overwrites": [{"id": "123456789012345678", "type": 0, "allow": "1024", "deny": "2048"}]})
+    assert operation.kind == "text_channel_create"
+    assert client_models.validate_receipt({"channel_id": "345678901234567890"}, operation.kind, operation.target)
+    query = DiscordQuery("guild_channels", guild_id="123456789012345678")
+    assert query.kind == "guild_channels"
+
+
 def make_operation(
     key: str = "news:event-1:text",
     *,

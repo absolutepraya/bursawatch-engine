@@ -100,6 +100,10 @@ def _snapshot(value: dict[str, object], article_key: str, confirmed_at: datetime
         return None
     if analysis.route is Route.ID_STOCKS_NEWS:
         publication_type = "idx_company_news"
+    elif analysis.route is Route.US_STOCKS_NEWS:
+        publication_type = "us_company_news"
+    elif analysis.route is Route.GLOBAL_COMPANY_NEWS:
+        publication_type = "global_company_news"
     elif analysis.route is Route.MACRO_NEWS:
         publication_type = "macro_news"
     elif analysis.route is Route.INDUSTRY_NEWS:

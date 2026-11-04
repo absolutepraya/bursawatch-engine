@@ -408,7 +408,7 @@ def test_no_post_delivery_handles_source_media_without_network(tmp_path, capsys)
                 "summary": "*(Ringkasan)* Laba bersih naik.",
                 "route": "id_stocks_news",
                 "ticker": "BBCA",
-                "subject": {"kind": "company", "name": "BBCA", "evidence": "BBCA mencatat laba bersih naik"},
+                "subject": {"kind": "company", "name": "BBCA", "evidence": "BBCA mencatat laba bersih naik", "company": {"business_home": "ID", "listing_status": "unknown", "security_market": ""}},
             }],
         },
     )
@@ -794,7 +794,7 @@ def test_delivery_never_uses_a_queue_media_path_outside_archive_staging(tmp_path
                 "summary": "*(Ringkasan)* BBCA mencatat laba bersih naik.",
                 "route": "id_stocks_news",
                 "ticker": "BBCA",
-                "subject": {"kind": "company", "name": "BBCA", "evidence": "BBCA mencatat laba bersih naik"},
+                "subject": {"kind": "company", "name": "BBCA", "evidence": "BBCA mencatat laba bersih naik", "company": {"business_home": "ID", "listing_status": "unknown", "security_market": ""}},
             }],
         },
     )
@@ -975,7 +975,7 @@ def test_many_items_never_duplicate_one_source_image(tmp_path, capsys):
             "event_key": claimed["item"]["event_key"],
             "is_relevant": True,
             "items": [
-                {"title": "BBCA: Laba Bersih Meningkat", "summary": "*(Ringkasan)* BBCA melaporkan laba meningkat.", "route": "id_stocks_news", "ticker": "BBCA", "subject": {"kind": "company", "name": "BBCA", "evidence": "BBCA melaporkan laba"}},
+                {"title": "BBCA: Laba Bersih Meningkat", "summary": "*(Ringkasan)* BBCA melaporkan laba meningkat.", "route": "id_stocks_news", "ticker": "BBCA", "subject": {"kind": "company", "name": "BBCA", "evidence": "BBCA melaporkan laba", "company": {"business_home": "ID", "listing_status": "unknown", "security_market": ""}}},
                 {"title": "Revisi Kebijakan Nikel", "summary": "*(Ringkasan)* Pemerintah merevisi kebijakan nikel.", "route": "id_industry_news", "ticker": None, "subject": {"kind": "industry", "name": "Nikel", "evidence": "Kebijakan nikel direvisi"}},
             ],
         },

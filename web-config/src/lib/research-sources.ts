@@ -13,14 +13,15 @@ export const topics = {
     description: "Rates, currencies, policy and the wider market.",
   },
   id_stocks_news: {
-    label: "IDX company news",
-    description: "Earnings, dividends and corporate developments.",
+    label: "Indonesia company news",
+    description: "Developments in public and private companies based in Indonesia.",
   },
   id_stocks_swing: {
     label: "Technical research",
     description: "Source-published charts and trading setups.",
   },
-  us_stocks_news: { label: "US company news", description: "Developments in US-listed companies." },
+  global_company_news: { label: "Global company news", description: "Companies based elsewhere or with an unconfirmed business home." },
+  us_stocks_news: { label: "US company news", description: "Developments in public and private companies based in the US." },
 } as const;
 export type Topic = keyof typeof topics;
 
@@ -85,7 +86,7 @@ const sourceFieldsSchema = z.object({
   platform: z.enum(["x", "instagram", "whatsapp", "telegram"]),
   url: z.string().trim().max(300),
   topics: z
-    .array(z.enum(["macro_news", "id_stocks_news", "id_stocks_swing", "us_stocks_news"]))
+    .array(z.enum(["macro_news", "id_stocks_news", "id_stocks_swing", "us_stocks_news", "global_company_news"]))
     .min(1, "Choose at least one topic.")
     .max(4)
     .refine((v) => new Set(v).size === v.length, "Choose each topic once."),
@@ -104,7 +105,7 @@ export const sourceDraftSchema = sourceFieldsSchema.extend({
   name: z.string().max(60),
   url: z.string().max(300),
   topics: z
-    .array(z.enum(["macro_news", "id_stocks_news", "id_stocks_swing", "us_stocks_news"]))
+    .array(z.enum(["macro_news", "id_stocks_news", "id_stocks_swing", "us_stocks_news", "global_company_news"]))
     .max(4),
 });
 export const sourceInputSchema = sourceFieldsSchema

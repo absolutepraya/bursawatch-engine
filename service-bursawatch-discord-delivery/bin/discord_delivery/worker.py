@@ -183,7 +183,7 @@ class DeliveryWorker:
         try:
             if operation.kind == "forum_thread_create":
                 return self._reconcile_forum(intent, snapshot)
-            if operation.kind == "forum_channel_create":
+            if operation.kind in {"forum_channel_create", "text_channel_create"}:
                 # Discord has no safe guild channel history boundary for this create.
                 return ReconcileResult("inconclusive")
             if operation.kind == "guild_emoji_create":

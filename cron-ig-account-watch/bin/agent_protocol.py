@@ -8,6 +8,8 @@ if not _news_bin.is_dir():
 if str(_news_bin) not in _news_sys.path:
     _news_sys.path.insert(0, str(_news_bin))
 import news_format
+news_subject = news_format.news_subject
+import news_identity
 
 from collections.abc import Mapping
 from html.parser import HTMLParser
@@ -203,7 +205,7 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
     if profile.enable_llm_relevance_filter:
         relevance = (
             "First decide whether the central thesis of this single Instagram publication is substantively "
-            "about the stock market: listed shares, stock indices, listed companies or issuers, stock prices, "
+            "about the stock market: listed shares, stock indices, public or private companies, including pre-IPO and formerly listed businesses, stock prices, "
             "equity valuation, earnings, dividends, corporate actions, or a macro or cross-asset factor with "
             "an explicit stock-market implication. Screen ordinary news from the caption text alone. "
             "Exclude generic trading and investing education or advice, including tips, how-to guides, "
@@ -229,21 +231,13 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
         )
     routing = ""
     if profile.enable_llm_routing:
-        routing = (
-            "When route_required is true, classify the central thesis, not named entities. Use macro_news "
-            "for market-wide financial conditions or behavior, including leverage, derivatives, liquidity, "
-            "valuations, investor positioning, bubbles, broad sector or AI-cycle risk, even when companies "
-            "or ETFs are examples. Use id_stocks_news only for a direct IDX-listed company or ticker thesis, "
-            "earnings, corporate action, fundamentals, or valuation. If removing company names leaves a "
-            "broad market thesis, route macro_news. Never duplicate a single story across routes. If an issuer, "
-            "exchange, or listing country is uncertain, use the available Yahoo Finance tool first, then "
-            "Brave Search. Use lookup results only to identify the issuer, exchange, listing "
-            "country, exact exchange ticker, and route. Do not add any other lookup fact to the title or "
-            f"summary. Choose exactly one configured route key: {channels}. "
+        routing = news_subject.INSTRUCTION + news_subject.lookup_instruction("bursawatch-ig-account-watch.sh") + (
+            f"Configured destinations: {channels}. Company routes follow primary business home even if their destination is absent; "
+            "the owner records a terminal routing warning. Other routes must be configured. "
         )
     title_and_summary = news_format.WRITING_INSTRUCTION + news_format.ITEMS_INSTRUCTION
     if profile.enable_llm_title and profile.enable_llm_summary and profile.enable_llm_routing:
-        title_and_summary += "For relevant news, submit event_key, is_relevant when required, and items with one to sixteen objects containing exactly title, summary, route. "
+        title_and_summary += "For relevant news, submit event_key, is_relevant when required, and items with one to sixteen objects containing exactly title, summary, route, subject, ticker. "
     profile_instruction = ""
     if profile.additional_prompt_instruction:
         profile_instruction = f"Profile-specific instruction: {_clean_text(profile.additional_prompt_instruction, 800)} "
@@ -774,7 +768,7 @@ def _validated_vision_selection(
 
 
 def _event_parts(profile: Profile, event: dict) -> tuple[SourcePost, object, tuple[OCRResult, ...], object]:
-    if type(event) is not dict or set(event) != _EVENT_KEYS:
+    if type(event) is not dict or not _EVENT_KEYS <= set(event) or set(event) - _EVENT_KEYS - {"news_subject_contract", "news_subject_context_key", "news_subject_context_sha256", "subject", "ticker", "news_cards"}:
         raise ValueError("analysis event has an unexpected schema")
     try:
         normalized_event = _normalize_reel_event(event)
@@ -1103,7 +1097,7 @@ def validate_route(profile: Profile, value: object) -> str:
     return canonical
 
 
-def validate_submission(profile: Profile, payload: object) -> dict[str, str | bool]:
+def validate_submission(profile: Profile, payload: object, *, subject_required: bool = False, source_text: str | None = None) -> dict:
     if type(payload) is not dict:
         raise ValueError("analysis submission must be an object")
     if "items" in payload:
@@ -1117,12 +1111,12 @@ def validate_submission(profile: Profile, payload: object) -> dict[str, str | bo
             raise ValueError("items must contain one to sixteen news items")
         items = []
         for item in raw_items:
-            if type(item) is not dict or set(item) != {"title", "summary", "route"}:
+            if type(item) is not dict or not {"title", "summary", "route"} <= set(item) or set(item) - {"title", "summary", "route", "subject", "ticker"}:
                 raise ValueError("news item has unexpected fields")
-            validated = validate_submission(profile, {"event_key": payload["event_key"], **({"is_relevant": True} if profile.enable_llm_relevance_filter else {}), **item})
-            if validated["route"] not in {"id_stocks_news", "us_stocks_news", "macro_news"}:
+            validated = validate_submission(profile, {"event_key": payload["event_key"], **({"is_relevant": True} if profile.enable_llm_relevance_filter else {}), **item}, subject_required=subject_required, source_text=source_text)
+            if validated["route"] not in {"id_stocks_news", "us_stocks_news", "global_company_news", "id_industry_news", "macro_news"}:
                 raise ValueError("multi-item schema supports news routes only")
-            items.append({key: validated[key] for key in ("title", "summary", "route")})
+            items.append({key: validated[key] for key in ("title", "summary", "route", "subject", "ticker") if key in validated})
         items = news_format.deduplicate_items(items)
         return {"event_key": payload["event_key"], **({"is_relevant": True} if profile.enable_llm_relevance_filter else {}), **items[0], "news_items": items}
     expected = {"event_key"}
@@ -1143,6 +1137,9 @@ def validate_submission(profile: Profile, payload: object) -> dict[str, str | bo
         expected.add("summary")
     if profile.enable_llm_routing:
         expected.add("route")
+    semantic = profile.enable_llm_routing and (subject_required or "subject" in payload)
+    if semantic:
+        expected |= {"subject", "ticker"}
     if set(payload) != expected:
         raise ValueError("analysis submission has unexpected or missing fields")
     event_key_value = payload["event_key"]
@@ -1153,10 +1150,25 @@ def validate_submission(profile: Profile, payload: object) -> dict[str, str | bo
         result["is_relevant"] = True
     route_value: str | None = None
     if profile.enable_llm_routing:
-        route_value = validate_route(profile, payload["route"])
+        route_value = payload["route"] if semantic and "company" in payload.get("subject", {}) and payload["route"] in news_subject.COMPANY_ROUTES else validate_route(profile, payload["route"])
         result["route"] = route_value
     if profile.enable_llm_title:
-        result["title"] = validate_title(payload["title"], route_value)
+        result["title"] = validate_title(payload["title"], None if semantic else route_value)
     if profile.enable_llm_summary:
         result["summary"] = validate_summary(payload["summary"])
+    if semantic:
+        subject = news_subject.validate_subject(payload["subject"], source_text)
+        if subject_required:
+            news_subject.require_company_details(subject)
+        news_subject.validate_route(subject, route_value)
+        normalized = payload
+        verified = None
+        if source_text is not None:
+            normalized, verified = news_identity.prepare_item(payload, source_text, market=news_subject.ticker_market(subject))
+        ticker = normalized["ticker"] or ""
+        if source_text is not None:
+            ticker = news_subject.validate_ticker(ticker, source_text, market=news_subject.ticker_market(subject), verified_ticker=verified)
+        if subject["kind"] != "company" and ticker:
+            raise ValueError("noncompany subject cannot have a ticker")
+        result.update(subject=subject, ticker=ticker or None)
     return result

@@ -51,11 +51,20 @@ Sources are polled by Python cron adapters, saved in a durable SQLite inbox
 an Indonesian title and summary, and sent through the delivery owner to
 Discord. `lib-news-classification` separates company, industry, and macro
 subjects from ticker resolution. A missing ticker leaves a named company in
-Stock News without a tracker; the bounded `lookup-company` tool can verify a
+Company News without a tracker; the bounded `lookup-company` tool can verify a
 unique Yahoo company/exchange match before prices are enriched. Company examples
-do not turn a sector thesis into Stock News, and sector context does not turn
+do not turn a sector thesis into Company News, and sector context does not turn
 a company development into Industry or Macro. New leases require a source
 quotation and reject contradictory subject/route combinations before delivery.
+
+Company News covers substantive public, private, pre-IPO and formerly listed
+company developments worldwide, with one focus company per card and natural
+headlines. Primary business home selects Indonesia, US or Global destinations
+(unknown business home also uses Global). Optional security and ID/US quote
+markets are independent of that geography. Missing destinations skip delivery
+with a visible routing warning and no backlog; they never select Macro.
+The [accepted design](docs/specs/2026-11-03-company-news-format.md) defines the
+forward-only contract and legacy compatibility.
 
 ![Subject classification and security lookup](docs/images/news-subject.svg) A company catalog (Sectors data and filings) lets the impact check
 name a company only when it can state a mechanism, which then shapes the

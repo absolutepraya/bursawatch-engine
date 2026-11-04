@@ -39,7 +39,7 @@ capability, and source-specific safety checks remain mandatory.
 
 Split independent issuer developments into ordered items, including separate
 issuer dividends and suspension reopenings. Keep a connected transaction or
-one broad thesis as one story. Each generated issuer card has a ticker-led
+one broad thesis as one story. Each generated company card has a natural
 headline, source byline, latest native-currency price and 1D/1W/1M/3M absolute
 and percentage changes, plus the original source link. IDX uses IDR and US
 uses USD. Missing quotes or individual horizons use grey `-` placeholders;
@@ -78,3 +78,19 @@ eligible item's destination, after all text cards.
 ## Optional image context
 
 Screen ordinary news from supplied text first. Only when that text is eligible, the trusted item instruction may expose `prepare-summary-images`. Call that command with its exact bound request, then use the actual image viewer on returned paths. Paths indicate availability, not inspection. Images are additional context for the same supplied story, never a substitute for eligible text. Do not inspect any other files. On unavailable images or viewer failure, submit the text-supported result without holding delivery or retrying optional context. Specialized Swing and required outgoing media retain their owner contracts.
+
+## Company News contract (subject-v2)
+
+Follow the trusted shared instruction for new ordinary-news claims. Company
+subjects add the closed `company` object (`business_home`, `listing_status`,
+`security_market`); v1 examples elsewhere remain legacy-only. Every card has
+one focus company, public or private, and a natural headline without a
+mandatory ticker prefix. Counterparties are context, not duplicate stories.
+
+Primary business home selects Indonesia, US or Global Company News; unknown
+home uses Global. Quote market is separate and supports verified current
+focus-company ID/US securities only. Missing destinations are audited terminal
+skips without Macro fallback or later backlog. Preserve v1 leases, frozen
+cards, operation identities, raw forwarding and specialized Swing/status paths.
+See the [shared contract](../lib-news-classification/README.md) and accepted
+[design](../docs/specs/2026-11-03-company-news-format.md).

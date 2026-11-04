@@ -21,6 +21,8 @@ _TICKER = re.compile(r"^([A-Z0-9][A-Z0-9.\-]{0,19}):(?:\s|$)")
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _ROUTES = {
     "id_stocks_news": "idx_company_news",
+        "global_company_news": "global_company_news",
+        "us_stocks_news": "us_company_news",
     "us_stocks_news": "us_company_news",
     "macro_news": "macro_news",
     "id_industry_news": "industry_news",

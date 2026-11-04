@@ -67,19 +67,19 @@ class _Inbox:
     (
         "Phintraco Sekuritas Notes | 28 Oktober 2026\nKabar perusahaan\n"
         "PT Bach Multi Global Tbk membukukan pertumbuhan laba 32,05%.",
-        {"kind": "company", "name": "Bach Multi Global", "evidence": "PT Bach Multi Global Tbk membukukan pertumbuhan laba 32,05%"},
+        {"kind": "company", "name": "Bach Multi Global", "evidence": "PT Bach Multi Global Tbk membukukan pertumbuhan laba 32,05%", "company": {"business_home": "ID", "listing_status": "listed", "security_market": "ID"}},
         "BACH", "id_stocks_news", "1525102508714889257",
     ),
     (
         "Phintraco Sekuritas Notes | 28 Oktober 2026\nHasil sembilan bulan terbaru\n"
         "PT Bach Multi Global Tbk (BACH) membukukan pertumbuhan laba 32,05%.",
-        {"kind": "company", "name": "Bach Multi Global", "evidence": "PT Bach Multi Global Tbk (BACH) membukukan pertumbuhan laba 32,05%"},
+        {"kind": "company", "name": "Bach Multi Global", "evidence": "PT Bach Multi Global Tbk (BACH) membukukan pertumbuhan laba 32,05%", "company": {"business_home": "ID", "listing_status": "listed", "security_market": "ID"}},
         "BACH", "id_stocks_news", "1525102508714889257",
     ),
     (
         "Phintraco Sekuritas Notes | 28 Oktober 2026\nKabar perusahaan\n"
         "Perusahaan Nusantara memperoleh kontrak baru di tengah pertumbuhan sektor pertanian.",
-        {"kind": "company", "name": "Perusahaan Nusantara", "evidence": "Perusahaan Nusantara memperoleh kontrak baru"},
+        {"kind": "company", "name": "Perusahaan Nusantara", "evidence": "Perusahaan Nusantara memperoleh kontrak baru", "company": {"business_home": "ID", "listing_status": "listed", "security_market": "ID"}},
         "", "id_stocks_news", "1525102508714889257",
     ),
     (
@@ -111,7 +111,7 @@ def test_subject_classification_routes_complete_story_without_header_identity(tm
     now = datetime.now(scan.WIB) + timedelta(seconds=1)
     item, = pipeline_owner.claim_agent(now)["items"]
     assert item["candidate_type"] == "unclassified"
-    assert item["classification_contract"] == "subject-v1"
+    assert item["classification_contract"] == "subject-v2"
     title = f"{ticker}: Laba tumbuh 32,05%" if ticker else f"{subject['name']}: Perkembangan terbaru"
     payload = {
         "candidate_key": item["candidate_key"], "ticker": ticker, "subject": subject,
@@ -152,13 +152,13 @@ def test_financial_headline_reaches_stock_destination_through_source_owner(tmp_p
         "title": f"{ticker}: Kinerja keuangan 9M26", "material_facts": [summary],
         "ranking_band": 1, "dedupe_facts": [summary], "eligible": True,
         "route": "id_stocks_news", "source_evidence": summary,
-        "subject": {"kind": "company", "name": ticker, "evidence": summary},
+        "subject": {"kind": "company", "name": ticker, "evidence": summary, "company": {"business_home": "ID", "listing_status": "listed", "security_market": "ID"}},
     }
     result = asyncio.run(scan.submit_classification_payload(payload, now + timedelta(seconds=30)))
     assert result["news_delivered"] == 1
     delivered = load_state()["stats"]["delivery_payloads"][item["candidate_key"]]
     assert delivered["channel_id"] == "1525102508714889257"
-    assert f"{ticker}: Kinerja keuangan 9M26" in delivered["content"]
+    assert f"{ticker} Kinerja keuangan 9M26" in delivered["content"]
     assert "Harga terakhir (IDR)" in delivered["content"]
 
 
@@ -180,13 +180,13 @@ def test_bach_issuer_heading_reaches_stock_destination_through_source_owner(tmp_
         "title": "BACH: Laba tumbuh 32,05% pada 9M26", "material_facts": [summary],
         "ranking_band": 1, "dedupe_facts": [summary], "eligible": True,
         "route": "id_stocks_news", "source_evidence": summary,
-        "subject": {"kind": "company", "name": "BACH", "evidence": "BACH: Pertumbuhan Laba 32.05% YoY"},
+        "subject": {"kind": "company", "name": "BACH", "evidence": "BACH: Pertumbuhan Laba 32.05% YoY", "company": {"business_home": "ID", "listing_status": "listed", "security_market": "ID"}},
     }
     result = asyncio.run(scan.submit_classification_payload(payload, now + timedelta(seconds=30)))
     assert result["news_delivered"] == 1
     delivered = load_state()["stats"]["delivery_payloads"][item["candidate_key"]]
     assert delivered["channel_id"] == "1525102508714889257"
-    assert "BACH: Laba tumbuh 32,05% pada 9M26" in delivered["content"]
+    assert "BACH Laba tumbuh 32,05% pada 9M26" in delivered["content"]
     assert "Harga terakhir (IDR)" in delivered["content"]
     assert "https://t.me/phintasprofits/36061" in delivered["content"]
 
@@ -229,13 +229,13 @@ def test_phintraco_news_sibling_work_claims_one_frozen_agent_item_and_renders_go
         "material_facts": ["Kontrak DEWA bernilai Rp22 triliun."],
         "ranking_band": 1, "dedupe_facts": ["DEWA kontrak Rp22 triliun"],
         "eligible": True, "route": "id_stocks_news", "title": "DEWA: Kontrak bernilai Rp22 triliun",
-        "subject": {"kind": "company", "name": "DEWA", "evidence": "DEWA secures a Rp22 trillion contract"},
+        "subject": {"kind": "company", "name": "DEWA", "evidence": "DEWA secures a Rp22 trillion contract", "company": {"business_home": "ID", "listing_status": "listed", "security_market": "ID"}},
         "source_evidence": "Pesan Phintraco menyebut kontrak DEWA bernilai Rp22 triliun.",
     }
     result = asyncio.run(scan.submit_classification_payload(payload, now + timedelta(seconds=30)))
     assert result["news_delivered"] == 1
     delivered = load_state()["stats"]["delivery_payloads"][item["candidate_key"]]
-    assert delivered["content"].startswith("### <:phintraco:1531272488645038091> DEWA: Kontrak bernilai Rp22 triliun\n-# Phintraco")
+    assert delivered["content"].startswith("### <:phintraco:1531272488645038091> DEWA Kontrak bernilai Rp22 triliun\n-# Phintraco")
     assert "*(Ringkasan)* DEWA mendapat kontrak bernilai Rp22 triliun." in delivered["content"]
     assert "Harga terakhir (IDR)" in delivered["content"]
     assert "https://t.me/phintasprofits/35390" in delivered["content"]
@@ -517,3 +517,14 @@ def test_split_tuntun_image_context_remains_candidate_bound(tmp_path, monkeypatc
     response = summary_context.prepare_summary_context(request, now=current, no_post=True)
     assert response["status"] == "ready" and calls == ["publication-image"]
     assert response["assets"][0]["association"] == "source publication; only this candidate's supplied story"
+
+
+@pytest.fixture(autouse=True)
+def synthetic_company_security(monkeypatch):
+    import news_identity
+    import delivery
+    def identity(company, market="ID"):
+        ticker = "BACH" if "Bach" in company else company if company.isupper() and len(company) == 4 else None
+        return {"status": "verified", "ticker": ticker} if ticker else {"status": "unresolved"}
+    monkeypatch.setattr(news_identity, "lookup_company", identity)
+    monkeypatch.setattr(delivery.news_format, "get_market_snapshot", lambda *_: None)

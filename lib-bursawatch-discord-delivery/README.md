@@ -112,3 +112,18 @@ Planning and testing use local files and loopback fake HTTP. This library contai
 Delivery Owner. `create_guild_emoji(guild_id, name, png_bytes)` submits a
 durable keyed create with a PNG attachment; callers can use `wait` for its
 receipt. Neither method receives a Discord bot token.
+
+## Company News channel provisioning
+
+The typed `guild_channels` query returns a bounded, read-only guild channel
+inventory. `text_channel_create` fixes Discord channel type to ordinary text;
+`text_channel_edit` changes reviewed name/topic/parent/permission-overwrite
+fields. Both use the same stable operation keys, digest validation and receipts
+as existing operations. A channel-create response loss is inconclusive and
+must remain ambiguous rather than blindly creating another channel.
+
+These operations support separately approved Company News destination
+provisioning. Inventory first, reuse existing channels where appropriate,
+preserve category and permission overwrites, and verify read-back. They send
+no test messages and add no delete operation. Source owners still use the
+loopback owner and must never access the bot credential or Discord REST.
