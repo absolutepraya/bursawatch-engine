@@ -44,3 +44,22 @@ def test_guild_channel_inventory_is_read_only_and_bounded(monkeypatch):
     assert calls == [("GET", "/guilds/123456789012345678/channels")]
     with pytest.raises(ValidationError):
         validate_query({**query, "url": "https://example.test"})
+
+
+@pytest.mark.parametrize("channel_type", [0, 2, 13, 15])
+def test_text_edit_checks_channel_type_before_any_patch(monkeypatch, channel_type):
+    from discord_delivery.discord_gateway import GatewayError
+    gateway = DiscordGateway("synthetic-token")
+    calls = []
+    def request(method, path, **kwargs):
+        calls.append(method)
+        return {"id": "234567890123456789", "type": channel_type}
+    monkeypatch.setattr(gateway, "_request", request)
+    operation = intent("text_channel_edit", {"name": "company-news"})
+    if channel_type == 0:
+        assert gateway.execute(operation, ()) == {"channel_id": "234567890123456789"}
+        assert calls == ["GET", "PATCH"]
+    else:
+        with pytest.raises(GatewayError, match="rejected"):
+            gateway.execute(operation, ())
+        assert calls == ["GET"]

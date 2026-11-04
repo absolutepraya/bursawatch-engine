@@ -56,7 +56,7 @@ accepted = client.submit(operation)
 current = client.status(operation.key)
 ```
 
-Attachments are immutable in-memory byte values, not caller paths. `submit` sends the operation as multipart form data so binary bytes survive unchanged. Media adoption also sends the ordered attachment bytes with its administrative envelope, preserving the original payload digest. `query` accepts only the service's seven allowlisted read kinds. `wait` first performs one status lookup using the normal client request timeout. Its `timeout_seconds` value bounds only the polling phase after that lookup; each polling request is capped to the remaining budget, and the latest receipt is returned when that budget expires. It never sends another create.
+Attachments are immutable in-memory byte values, not caller paths. `submit` sends the operation as multipart form data so binary bytes survive unchanged. Media adoption also sends the ordered attachment bytes with its administrative envelope, preserving the original payload digest. `query` accepts only the service's eight allowlisted read kinds. `wait` first performs one status lookup using the normal client request timeout. Its `timeout_seconds` value bounds only the polling phase after that lookup; each polling request is capped to the remaining budget, and the latest receipt is returned when that budget expires. It never sends another create.
 
 ## Receipt observation
 

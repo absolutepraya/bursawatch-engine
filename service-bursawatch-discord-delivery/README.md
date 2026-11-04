@@ -19,7 +19,7 @@ All authenticated requests use a bearer token. `DISCORD_DELIVERY_API_TOKEN` auth
 | `GET /v1/admin/operations` | Admin token | List sanitized operation summaries without message bodies or media bytes |
 | `POST /v1/admin/operations/{key}/retry` | Admin token | Retry a blocked operation after exact digest verification |
 
-Mutation kinds are `channel_message_create`, `channel_message_edit`, `channel_message_delete`, `forum_thread_create`, `forum_thread_update`, `forum_thread_archive`, `thread_message_create`, `thread_message_edit`, `thread_message_delete`, `forum_channel_create`, `forum_channel_edit`, `forum_channel_delete`, and `guild_emoji_create`. Query kinds are `forum_thread_read`, `thread_message_read`, `forum_channel_read`, `channel_messages`, `thread_messages`, `forum_threads`, and `guild_emojis`. The service validates identifiers, payload fields, attachment names and sizes, and allowed mentions before accepting work.
+Mutation kinds are `channel_message_create`, `channel_message_edit`, `channel_message_delete`, `forum_thread_create`, `forum_thread_update`, `forum_thread_archive`, `thread_message_create`, `thread_message_edit`, `thread_message_delete`, `forum_channel_create`, `forum_channel_edit`, `forum_channel_delete`, `text_channel_create`, `text_channel_edit`, and `guild_emoji_create`. Query kinds are `forum_thread_read`, `thread_message_read`, `forum_channel_read`, `channel_messages`, `thread_messages`, `forum_threads`, `guild_emojis`, and `guild_channels`. The service validates identifiers, payload fields, attachment names and sizes, and allowed mentions before accepting work.
 
 ## Durable operation and recovery contract
 

@@ -124,3 +124,16 @@ def test_subject_context_rejects_changed_evidence_and_cleans_replaced_lease(tmp_
     subject_context.freeze(storage, event, {"post_text": "Fresh source"})
     assert not path.exists()
     assert subject_context.read(storage, event).strip() == "Fresh source"
+
+
+def test_company_security_cannot_be_submitted_without_source_evidence(config_path):
+    from dataclasses import replace
+    from agent_protocol import validate_submission
+    profile = replace(config.load_watch_config(config_path).profiles[0], enable_llm_title=True,
+        enable_llm_summary=True, enable_llm_routing=True)
+    payload = {'event_key': profile.id+':102', 'is_relevant': True, 'title': 'Example expands',
+        'summary': 'Example expands its business.', 'route': 'global_company_news', 'ticker': 'EXAMPLE',
+        'subject': {'kind': 'company', 'name': 'Example', 'evidence': 'Example expands',
+                    'company': {'business_home': 'GLOBAL', 'listing_status': 'listed', 'security_market': 'US'}}}
+    with pytest.raises(ValueError, match='source evidence'):
+        validate_submission(profile, payload)

@@ -84,8 +84,9 @@ def lookup_payload(payload: object) -> dict:
 def _without_security(item: dict, subject: dict, ticker: str) -> dict:
     result = {**item, "ticker": ""}
     title = result.get("title")
-    if ticker and isinstance(title, str) and title.startswith(ticker + ":"):
-        body = title[len(ticker) + 1:].strip()
+    prefix = re.match(rf"^{re.escape(ticker)}\s*:\s*", title) if ticker and isinstance(title, str) else None
+    if prefix is not None:
+        body = title[prefix.end():].strip()
         result["title"] = body if subject["name"].casefold() in body.casefold() else subject["name"] + " " + body
     return result
 

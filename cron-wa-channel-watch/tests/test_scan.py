@@ -1256,3 +1256,30 @@ def test_news_image_context_is_not_exposed_to_swing_in_either_claim_path(tmp_pat
     instruction = wake["item"]["instruction"]
     assert ("prepare-summary-images" in instruction) is (has_optional_news_context and not fixed_swing)
     assert wake["item"]["relevance_guard_required"] is (not has_optional_news_context and not fixed_swing)
+
+
+@pytest.mark.parametrize("forward_media", [False, True])
+@pytest.mark.parametrize("route", ["id_stocks_news", "us_stocks_news", "global_company_news"])
+def test_frozen_news_retry_never_resolves_a_removed_profile_route(tmp_path, monkeypatch, forward_media, route):
+    p = scan.config.load_data({'version': 2, 'profiles': [profile(forward_media=forward_media)]}).profiles[0]
+    source = event('frozen', '2026-09-10T00:01:00Z')
+    items = [{'title': 'BBCA: Laba meningkat', 'summary': 'BBCA mencatat laba meningkat.', 'route': route}]
+    cards = scan.render.news_format.freeze_cards(items, lambda item: '### ' + item['title'], p.channel_url,
+        'WhatsApp', fetch=lambda *_: None, target_for=lambda _: '1525102508714889257')
+    record = {'event_key': source.event_key, 'profile_id': p.id, 'event': serialize_event(source),
+              'agent_phase': 'ready', 'items': items, 'news_cards': cards}
+    value = {'version': 1, 'profiles': {}, 'outbox': [record]}
+    monkeypatch.setattr(scan, '_delivery_channel', lambda *_: pytest.fail('resolved a removed profile route'))
+    monkeypatch.setattr(scan.render, 'render_post', lambda *a, **k: pytest.fail('rendered frozen cards'))
+    sent = []
+    monkeypatch.setattr(scan.discord, 'post_text', lambda text, channel, *a: sent.append((text, channel)) or '7001')
+    errors = []
+    assert scan._deliver_ready(value, {p.id: p}, dry_run=False, state_path=tmp_path/'state.json',
+        archive_dir=tmp_path/'archive', errors=errors) == 1
+    assert errors == []
+    assert sent == [(cards[0]['messages'][0], cards[0]['destination'])]
+    import publication_projection
+    snapshots = publication_projection._capture_record(value, record, {p.id: p}, tmp_path/'archive', source.published_at)
+    assert len(snapshots) == 1
+    assert snapshots[0]['route'] == route
+    assert snapshots[0]['_operation_descriptors'][0]['destination'] == cards[0]['destination']

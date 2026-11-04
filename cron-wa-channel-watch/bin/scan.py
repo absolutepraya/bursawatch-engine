@@ -202,7 +202,6 @@ def _deliver_ready(
                 item = items[item_index]
                 if type(item) is not dict:
                     raise ValueError("ready news item is invalid")
-                target = _delivery_channel(profile, item)
                 board_acknowledgement = record.get("board_acknowledgement")
                 board_url = (
                     board_acknowledgement.get("board_url")
@@ -212,20 +211,22 @@ def _deliver_ready(
                 sentiment = item.get("sentiment") if isinstance(item.get("sentiment"), str) else None
                 if technical_review and sentiment is None:
                     sentiment = _legacy_sentiment(event)
-                messages = render.render_post(
-                    profile,
-                    event,
-                    title=item.get("title") if profile.enable_llm_title else None,
-                    summary=item.get("summary") if profile.enable_llm_summary else None,
-                    route=item.get("route") if isinstance(item.get("route"), str) else None,
-                    sentiment=sentiment,
-                    board_url=board_url if isinstance(board_url, str) else None,
-                    source_chart_unavailable=chart_unavailable,
-                )
                 if record.get("news_cards") is not None:
                     render.news_format.validate_cards(record["news_cards"])
                     messages = record["news_cards"][item_index]["messages"]
                     target = record["news_cards"][item_index]["destination"]
+                else:
+                    target = _delivery_channel(profile, item)
+                    messages = render.render_post(
+                        profile,
+                        event,
+                        title=item.get("title") if profile.enable_llm_title else None,
+                        summary=item.get("summary") if profile.enable_llm_summary else None,
+                        route=item.get("route") if isinstance(item.get("route"), str) else None,
+                        sentiment=sentiment,
+                        board_url=board_url if isinstance(board_url, str) else None,
+                        source_chart_unavailable=chart_unavailable,
+                    )
                 text_index = int(record.get("text_index", 0))
                 while text_index < len(messages):
                     message_id = discord.post_text(
@@ -270,7 +271,9 @@ def _deliver_ready(
                     )
             media_index = int(record.get("media_index", 0))
             if profile.forward_media or technical_review:
-                target = _delivery_channel(profile, items[0])
+                target = (record["news_cards"][0]["destination"]
+                          if record.get("news_cards") is not None and not technical_review
+                          else _delivery_channel(profile, items[0]))
                 while media_index < len(media_indexes):
                     if technical_review:
                         source_index, media, media_path = image_uploads[media_index]

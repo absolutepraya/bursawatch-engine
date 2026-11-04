@@ -211,3 +211,12 @@ def test_projection_outage_retries_snapshot_without_reposting(tmp_path, monkeypa
     assert client.submissions == [snapshot, snapshot]
     assert saved["articles"][article.key]["phase"] == "delivered"
     assert client.checkpoints[-1]["confirmed_through_at"] == client.checkpoints[-1]["accepted_through_at"]
+
+
+@pytest.mark.parametrize("route,expected", [("us_stocks_news", "us_company_news"), ("global_company_news", "global_company_news")])
+def test_verified_security_survives_non_indonesia_company_projection(route, expected):
+    value, article, _, _ = _bound_state(route)
+    value["articles"][article.key]["analysis"]["ticker"] = "EXAMPLE"
+    snapshot = projection._snapshot(value, article.key, NOW)
+    assert snapshot["type"] == expected
+    assert snapshot["ticker"] == "EXAMPLE"

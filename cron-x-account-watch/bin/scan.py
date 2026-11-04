@@ -632,7 +632,14 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
     delivery_at = _delivery_at(event, attempt_at)
     swing = event.get("route") == "id_stocks_swing"
     frozen = event.get("swing_text_snapshot") if swing else None
-    if frozen is not None:
+    cards = event.get("news_cards")
+    targets = None
+    if cards is not None:
+        render.news_format.validate_cards(cards)
+        messages = [message for card in cards for message in card["messages"]]
+        targets = [card["destination"] for card in cards for message in card["messages"]]
+        channel_id = targets[0]
+    elif frozen is not None:
         if (type(frozen) is not dict or set(frozen) != {"channel_id", "messages", "board_content"}
                 or not isinstance(frozen["channel_id"], str) or not frozen["channel_id"].isdigit()
                 or type(frozen["messages"]) is not list or not frozen["messages"]
@@ -656,13 +663,6 @@ def _deliver(value: dict, profiles: dict, event_index: int, dry_run: bool, stora
                     *arguments, include_board=False, include_status_date=True, status_date=delivery_at)),
             }
             state.save_state(storage, value)
-    cards = event.get("news_cards")
-    targets = None
-    if cards is not None:
-        render.news_format.validate_cards(cards)
-        messages = [message for card in cards for message in card["messages"]]
-        targets = [card["destination"] for card in cards for message in card["messages"]]
-        channel_id = targets[0]
     media_url: str | None = None
     try:
         while event["text_index"] < len(messages):

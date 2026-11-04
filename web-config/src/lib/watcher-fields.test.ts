@@ -197,6 +197,10 @@ describe("watcher configuration drafts", () => {
     expect(routes[2]?.key).toBe("id_stocks_swing");
     routes.push(nextDestination("whatsapp", routes));
     expect(routes[3]?.key).toBe("id_industry_news");
+    routes.push(nextDestination("whatsapp", routes));
+    expect(routes[4]?.key).toBe("us_stocks_news");
+    routes.push(nextDestination("whatsapp", routes));
+    expect(routes[5]?.key).toBe("global_company_news");
     expect(nextDestination("whatsapp", routes)).toBeNull();
   });
 

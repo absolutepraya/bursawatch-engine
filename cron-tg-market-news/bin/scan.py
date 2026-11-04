@@ -165,6 +165,7 @@ def format_heartbeat(
     retrying: bool = False,
     delivery_pending: bool = False,
     status_rejected: bool = False,
+    routing_warning: bool = False,
 ) -> str:
     """Render the fixed watcher heartbeat, including only operational counters."""
     _require_aware(now)
@@ -174,7 +175,7 @@ def format_heartbeat(
         f"{news_delivered} news delivered · {pending} pending"
     )
     return line + (
-        " ⚠️" if provider_errored or retrying or delivery_pending or status_rejected else ""
+        " ⚠️" if provider_errored or retrying or delivery_pending or status_rejected or routing_warning else ""
     )
 
 
@@ -665,6 +666,9 @@ def _update_is_ready(state: Mapping[str, object], source_message_id: int) -> boo
 
 
 def _route_one(state: dict[str, object], item: SelectionCandidate, classified: Sequence[SelectionCandidate]) -> None:
+    if not route_enabled(state, item.key, item.route):
+        mark_terminal(state, item.key, "suppressed_ineligible")
+        return
     if item.route in {Destination.US_STOCKS_NEWS, Destination.GLOBAL_COMPANY_NEWS}:
         loaded = loaded_config_for(state, item.key)
         watch = loaded.config if loaded is not None else config.active_watch_config()
@@ -674,9 +678,6 @@ def _route_one(state: dict[str, object], item: SelectionCandidate, classified: S
             state["stats"]["last_company_routing_warning"] = {"candidate_key": item.key, "route": item.route.value, "reason": "destination_missing"}
             mark_terminal(state, item.key, "suppressed_ineligible")
             return
-    if not route_enabled(state, item.key, item.route):
-        mark_terminal(state, item.key, "suppressed_ineligible")
-        return
     earlier = [
         existing
         for existing in classified
@@ -902,6 +903,7 @@ def _post_heartbeat_if_due(
     *,
     delivery_client: object | None = None,
     status_rejected: bool = False,
+    routing_warning: bool = False,
 ) -> bool:
     hour = _hour_key(now)
     if os.environ.get("IDX_MARKET_NEWS_FORCE_HEARTBEAT") != "1" and state.get("last_heartbeat_hour") == hour:
@@ -918,6 +920,7 @@ def _post_heartbeat_if_due(
             retrying=retrying,
             delivery_pending=delivery_pending,
             status_rejected=status_rejected,
+            routing_warning=routing_warning,
         ),
         f"heartbeat-{hour}",
         dry_run,
@@ -1092,6 +1095,7 @@ async def _run_loaded_config(
                 source_candidates += ingest.candidates
                 stock_status_events += ingest.status_events
                 stock_status_rejected += ingest.status_rejected
+            routing_warnings_before = state["stats"].get("company_destination_missing", 0)
             classified, news_delivered = await _route_and_deliver(
                 state,
                 runtime,
@@ -1099,6 +1103,11 @@ async def _run_loaded_config(
                 dry_run,
                 delivery_client=shared_delivery_client,
             )
+            routing_warnings = state["stats"].get("company_destination_missing", 0) - routing_warnings_before
+            if routing_warnings:
+                control_run.event("company-destination-missing", level="warning", phase="routing",
+                    event_type="delivery.drain.completed", message="Company News destination missing; delivery skipped without backlog",
+                    attributes={"reason": "destination_missing", "skipped": routing_warnings})
             stock_status_delivered = await _drain_stock_status_events(
                 state,
                 now,
@@ -1134,10 +1143,11 @@ async def _run_loaded_config(
                 dry_run,
                 delivery_client=shared_delivery_client,
                 status_rejected=stock_status_rejected > 0,
+                routing_warning=bool(routing_warnings),
             )
             control_run.event(
                 "delivery-drain-completed",
-                level="warning" if retrying or delivery_pending or stock_status_rejected else "info",
+                level="warning" if retrying or delivery_pending or stock_status_rejected or routing_warnings else "info",
                 phase="delivery",
                 event_type="delivery.drain.completed",
                 message="Telegram Market News delivery drain completed",
@@ -1167,6 +1177,7 @@ async def _run_loaded_config(
                 "stock_status_events": stock_status_events,
                 "stock_status_delivered": stock_status_delivered,
                 "stock_status_rejected": stock_status_rejected,
+                **({"routing_warning": "destination_missing", "skipped": routing_warnings} if routing_warnings else {}),
             }
             if candidate is None:
                 result.update({"wakeAgent": False, "items": []})
@@ -1186,7 +1197,7 @@ async def _run_loaded_config(
                 )
             outcome = (
                 "degraded"
-                if provider_errored or retrying or delivery_pending or stock_status_rejected
+                if provider_errored or retrying or delivery_pending or stock_status_rejected or routing_warnings
                 else "ok"
             )
             return result

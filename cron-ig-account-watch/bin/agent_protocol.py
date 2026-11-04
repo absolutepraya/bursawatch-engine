@@ -1165,7 +1165,11 @@ def validate_submission(profile: Profile, payload: object, *, subject_required: 
         verified = None
         if source_text is not None:
             normalized, verified = news_identity.prepare_item(payload, source_text, market=news_subject.ticker_market(subject))
+            if "title" in result:
+                result["title"] = validate_title(normalized["title"])
         ticker = normalized["ticker"] or ""
+        if ticker and source_text is None:
+            raise ValueError("ticker requires supplied source evidence")
         if source_text is not None:
             ticker = news_subject.validate_ticker(ticker, source_text, market=news_subject.ticker_market(subject), verified_ticker=verified)
         if subject["kind"] != "company" and ticker:

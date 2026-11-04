@@ -444,13 +444,6 @@ def _deliver(
         if downloaded_raw is None:
             raise ValueError("downloaded media is unavailable")
         downloaded = state.deserialize_downloaded_publication(downloaded_raw)
-        channel_id = _target_channel(profile, event)
-        messages = render.render_publication(
-            profile,
-            post,
-            event.get("summary") if profile.enable_llm_summary else None,
-            event.get("title") if profile.enable_llm_title else None,
-        )
         cards = event.get("news_cards")
         targets = None
         if cards is not None:
@@ -458,6 +451,14 @@ def _deliver(
             messages = [message for card in cards for message in card["messages"]]
             targets = [card["destination"] for card in cards for message in card["messages"]]
             channel_id = targets[0]
+        else:
+            channel_id = _target_channel(profile, event)
+            messages = render.render_publication(
+                profile,
+                post,
+                event.get("summary") if profile.enable_llm_summary else None,
+                event.get("title") if profile.enable_llm_title else None,
+            )
         if event["text_index"] < len(messages):
             index = event["text_index"]
             stats.delivery_legs += 1

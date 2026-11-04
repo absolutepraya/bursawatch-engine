@@ -1304,3 +1304,37 @@ def test_subject_routes_ignore_update_section_labels_and_preserve_lead_budget(tm
     assert scan._delivery_channel(selections['lead']) == scan.INDUSTRY_CHANNEL_ID
     assert scan._delivery_channel(selections['company']) == scan.ALERT_CHANNEL_ID
     assert scan._delivery_channel(selections['macro']) == scan.MACRO_CHANNEL_ID
+
+
+def test_unsubscribed_company_route_does_not_emit_a_destination_warning(candidate, monkeypatch):
+    item = SelectionCandidate(candidate=candidate, event_class=EventClass.CORPORATE_ACTION,
+        ranking_band=1, material_facts=('IPO planned',), dedupe_facts=('IPO',), route=Destination.GLOBAL_COMPANY_NEWS)
+    value = empty_state()
+    enqueue_candidate(value, candidate, candidate.published_at)
+    monkeypatch.setattr(scan, 'route_enabled', lambda *_: False)
+    monkeypatch.setattr(scan, 'loaded_config_for', lambda *_: pytest.fail('looked up an unsubscribed destination'))
+    scan._route_one(value, item, ())
+    assert value['stats'].get('company_destination_missing', 0) == 0
+
+
+def test_scheduled_destination_skip_reports_warning_and_degraded_outcome(tmp_state, monkeypatch):
+    _bootstrapped_state(tmp_state)
+    monkeypatch.setenv('IDX_MARKET_NEWS_STATE_PATH', str(tmp_state))
+    monkeypatch.setenv('IDX_MARKET_NEWS_NO_POST', '1')
+    async def route(value, *_args, **_kwargs):
+        value['stats']['company_destination_missing'] = value['stats'].get('company_destination_missing', 0) + 1
+        return 1, 0
+    monkeypatch.setattr(scan, '_route_and_deliver', route)
+    events = []
+    class Run:
+        def event(self, name, **kwargs): events.append((name, kwargs))
+        def finish(self, *args): pass
+    monkeypatch.setattr(scan.ControlPlaneRun, 'begin', lambda *a, **k: Run())
+    heartbeats = []
+    monkeypatch.setattr(scan, 'post_hermes_text', lambda text, *a, **k: heartbeats.append(text) or '7001')
+    now = datetime.fromisoformat('2026-07-14T16:30:00+07:00')
+    result = asyncio.run(scan.run(now=now, clients=FakeClients()))
+    assert result['routing_warning'] == 'destination_missing' and result['skipped'] == 1
+    assert any(name == 'company-destination-missing' and details['level'] == 'warning' for name, details in events)
+    assert any(name == 'run-completed' and details['level'] == 'warning' for name, details in events)
+    assert heartbeats[0].endswith(' ⚠️')
