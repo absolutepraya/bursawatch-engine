@@ -765,7 +765,7 @@ def submit_analysis(
         optional_context = summary_context.claim_from_state(value, event_key, state_path.parent / "summary-context")
         route_override = agent_protocol.deterministic_route(profile, event)
         result = agent_protocol.validate_submission(profile, payload, event=event,
-            subject_required=record.get("news_subject_contract") == agent_protocol.news_subject.CONTRACT)
+            subject_required=record.get("news_subject_contract") in {"subject-v1", "subject-v2"}, company_required=record.get("news_subject_contract") == "subject-v2")
         if profile.enable_llm_routing and result.get("is_relevant") is not False:
             items = result.get("items")
             if type(items) is not list or not items:
@@ -774,6 +774,14 @@ def submit_analysis(
             if "id_stocks_swing" in routes and route_override != "id_stocks_swing":
                 raise ValueError("id_stocks_swing requires a leading #TechnicalReview tag")
         selected_items = None if result.get("is_relevant") is False else result.get("items") or _deterministic_items(profile)
+        if selected_items:
+            configured = {channel.key for channel in profile.discord_channels}
+            missing = [item["route"] for item in selected_items if item["route"] in agent_protocol.news_subject.COMPANY_ROUTES and item["route"] not in configured]
+            if missing:
+                selected_items = [item for item in selected_items if item["route"] not in missing]
+                record["last_error"] = "Company News destination missing; skipped without backlog"
+                control_run.event("company-destination-missing", level="warning", phase="agent", event_type="agent.submission.accepted",
+                    message="Company News destination missing; delivery skipped without backlog", attributes={"reason": "destination_missing", "delivered": 0})
         if selected_items is not None and source_work_routes.scoped_routes(record) is not None:
             selected_items, scope_outcome, dropped = source_work_routes.filter_items(record, selected_items)
             record["pipeline_scope_outcome"] = scope_outcome

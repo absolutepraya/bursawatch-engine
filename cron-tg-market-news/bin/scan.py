@@ -665,6 +665,15 @@ def _update_is_ready(state: Mapping[str, object], source_message_id: int) -> boo
 
 
 def _route_one(state: dict[str, object], item: SelectionCandidate, classified: Sequence[SelectionCandidate]) -> None:
+    if item.route in {Destination.US_STOCKS_NEWS, Destination.GLOBAL_COMPANY_NEWS}:
+        loaded = loaded_config_for(state, item.key)
+        watch = loaded.config if loaded is not None else config.active_watch_config()
+        destination = watch.us_stocks_news_channel_id if item.route is Destination.US_STOCKS_NEWS else watch.global_company_news_channel_id
+        if not destination:
+            state["stats"]["company_destination_missing"] = state["stats"].get("company_destination_missing", 0) + 1
+            state["stats"]["last_company_routing_warning"] = {"candidate_key": item.key, "route": item.route.value, "reason": "destination_missing"}
+            mark_terminal(state, item.key, "suppressed_ineligible")
+            return
     if not route_enabled(state, item.key, item.route):
         mark_terminal(state, item.key, "suppressed_ineligible")
         return
@@ -728,7 +737,7 @@ def _route_pending(state: dict[str, object]) -> int:
         ]
         leads = [item for item in update_items if item.candidate.source_kind is SourceKind.TUNTUN_UPDATE_LEAD]
         sections = [item for item in update_items if item.candidate.source_kind is not SourceKind.TUNTUN_UPDATE_LEAD]
-        company_sections = [item for item in sections if item.subject is not None and item.route is Destination.ID_STOCKS_NEWS]
+        company_sections = [item for item in sections if item.subject is not None and item.route in {Destination.ID_STOCKS_NEWS, Destination.US_STOCKS_NEWS, Destination.GLOBAL_COMPANY_NEWS}]
         macro_sections = [
             item for item in sections if (item.route is Destination.MACRO_NEWS if item.subject is not None else item.candidate.source_kind is SourceKind.TUNTUN_UPDATE_SECTION)
         ]
@@ -776,6 +785,10 @@ def _delivery_channel(item: SelectionCandidate) -> str:
         return watch_config.industry_news_channel_id
     if item.route is Destination.MACRO_NEWS:
         return watch_config.macro_news_channel_id
+    if item.route is Destination.US_STOCKS_NEWS:
+        return watch_config.us_stocks_news_channel_id
+    if item.route is Destination.GLOBAL_COMPANY_NEWS:
+        return watch_config.global_company_news_channel_id
     return watch_config.id_stocks_news_channel_id
 
 
@@ -1303,6 +1316,7 @@ async def _submit_classification_payload_loaded(
             runtime = _provided_runtime_clients(clients) if clients is not None else None
             dry_run = _dry_run()
             shared_delivery_client = None if dry_run else delivery_client_from_environment()
+            routing_warnings_before = state["stats"].get("company_destination_missing", 0)
             classified, news_delivered = await _route_and_deliver(
                 state,
                 runtime,
@@ -1310,8 +1324,13 @@ async def _submit_classification_payload_loaded(
                 dry_run,
                 delivery_client=shared_delivery_client,
             )
+            routing_warnings = state["stats"].get("company_destination_missing", 0) - routing_warnings_before
+            if routing_warnings:
+                control_run.event("company-destination-missing", level="warning", phase="agent", event_type="agent.submission.accepted",
+                    message="Company News destination missing; delivery skipped without backlog",
+                    attributes={"reason": "destination_missing", "delivered": 0})
             provider_errored, retrying, delivery_pending = _health_and_warning(state)
-            outcome = "degraded" if provider_errored or retrying or delivery_pending else "ok"
+            outcome = "degraded" if provider_errored or retrying or delivery_pending or routing_warnings else "ok"
             control_run.event(
                 "agent-delivery-drain-completed",
                 level="warning" if outcome == "degraded" else "info",
@@ -1327,6 +1346,7 @@ async def _submit_classification_payload_loaded(
             return {
                 "classified_candidates": classified,
                 "news_delivered": news_delivered,
+                **({"routing_warning": "destination_missing", "skipped": routing_warnings} if routing_warnings else {}),
             }
         except ValueError as error:
             failure = _clean_reason(error)

@@ -5,7 +5,18 @@ from collections.abc import Mapping
 import re
 
 
-CONTRACT = "subject-v1"
+CONTRACT = "subject-v2"
+LEGACY_CONTRACT = "subject-v1"
+COMPANY_ROUTES = frozenset({"id_stocks_news", "us_stocks_news", "global_company_news"})
+COMPANY_SCHEMA = {
+    "type": "object", "additionalProperties": False,
+    "required": ["business_home", "listing_status", "security_market"],
+    "properties": {
+        "business_home": {"type": "string", "enum": ["ID", "US", "GLOBAL", "UNKNOWN"]},
+        "listing_status": {"type": "string", "enum": ["listed", "private", "pre_ipo", "formerly_listed", "unknown"]},
+        "security_market": {"type": "string", "enum": ["ID", "US", ""]},
+    },
+}
 KINDS = frozenset({"company", "industry", "macro"})
 SUBJECT_SCHEMA = {
     "type": "object",
@@ -13,13 +24,14 @@ SUBJECT_SCHEMA = {
     "required": ["kind", "name", "evidence"],
     "properties": {
         "kind": {"type": "string", "enum": sorted(KINDS)},
+        "company": COMPANY_SCHEMA,
         "name": {"type": "string", "minLength": 1, "maxLength": 200},
         "evidence": {"type": "string", "minLength": 1, "maxLength": 1000},
     },
 }
 INSTRUCTION = (
     "Classify each ordinary news item's actual central subject from the complete supplied evidence, before choosing "
-    "a channel or resolving a security. Return subject with exactly kind, name, and evidence. Kind is company, industry, "
+    "a channel or resolving a security. Return subject with kind, name, evidence, and company for company news only. Kind is company, industry, "
     "or macro; name identifies the central company, industry, or economic subject. Evidence is a short exact quotation "
     "from supplied authored text or retrieved article context supporting that subject. Do not invent evidence. "
     "Company means the central development concerns a particular company's business, earnings, guidance, contracts, "
@@ -35,9 +47,9 @@ INSTRUCTION = (
     "do not change a genuinely broad thesis. A commodity-price headline is classified by its central economic scope, "
     "not by the presence of a commodity word. Source brand, headline template, capital letters, ticker position, "
     "number of tickers, and source section labels are context, never the subject classification. "
-    "Company maps to the appropriate Stock News route; industry maps to id_industry_news; macro maps to macro_news. "
+    "Company news covers substantive developments about public, private, pre-IPO, and formerly listed companies worldwide. Every company card has exactly one focus company; counterparties are context, not duplicate transaction cards. For a company subject, include company with exactly business_home, listing_status, security_market. business_home is ID, US, GLOBAL (other countries), or UNKNOWN; use the principal business home supported by evidence, never the listing exchange, legal shell, source language or publisher location. When uncertain choose UNKNOWN. listing_status is listed, private, pre_ipo, formerly_listed, or unknown. security_market is ID, US, or empty, separately from business_home, and is nonempty only for a verified current focus-company listing. Never inherit a parent or counterparty security. Company maps by business_home to id_stocks_news for ID, us_stocks_news for US, or global_company_news for GLOBAL/UNKNOWN; industry maps to id_industry_news; macro maps to macro_news. "
     "Never use Macro News as a fallback for an unknown company, missing ticker, unavailable quote, or unavailable "
-    "destination. Keep a clearly named company in Stock News when its ticker cannot be established: use its source "
+    "destination. Keep a clearly named company in Company News when its ticker cannot be established: use its source "
     "name, leave ticker empty, and do not invent a ticker or price tracker. Resolve a ticker only from reliable supplied or owner-verified identity-lookup "
     "evidence; a ticker hint is optional evidence, not a classification. Existing relevance exclusions, configured "
     "market coverage, and specialized Swing/status contracts still apply. "
@@ -54,13 +66,23 @@ def _text(value: object, label: str, limit: int) -> str:
 
 
 def validate_subject(value: object, source_text: str | None = None) -> dict[str, str]:
-    if not isinstance(value, Mapping) or set(value) != {"kind", "name", "evidence"}:
+    if not isinstance(value, Mapping) or set(value) not in [{"kind", "name", "evidence"}, {"kind", "name", "evidence", "company"}]:
         raise ValueError("subject has an unexpected schema")
     kind = value["kind"]
     if not isinstance(kind, str) or kind not in KINDS:
         raise ValueError("subject kind must be company, industry, or macro")
     result = {"kind": kind, "name": _text(value["name"], "name", 200),
               "evidence": _text(value["evidence"], "evidence", 1000)}
+    if "company" in value:
+        company = value["company"]
+        if kind != "company" or not isinstance(company, Mapping) or set(company) != set(COMPANY_SCHEMA["required"]):
+            raise ValueError("company details have an unexpected schema")
+        for key, field in COMPANY_SCHEMA["properties"].items():
+            if not isinstance(company[key], str) or company[key] not in field["enum"]:
+                raise ValueError(f"company {key} is invalid")
+        if company["listing_status"] != "listed" and company["security_market"]:
+            raise ValueError("only currently listed companies may identify a security market")
+        result["company"] = dict(company)
     if source_text is not None:
         source = " ".join(source_text.split()).casefold()
         if result["evidence"].casefold() not in source:
@@ -72,13 +94,15 @@ def validate_subject(value: object, source_text: str | None = None) -> dict[str,
 
 def route_for(subject: Mapping[str, str], *, company_route: str = "id_stocks_news") -> str:
     kind = validate_subject(subject)["kind"]
-    if company_route not in {"id_stocks_news", "us_stocks_news"}:
+    if company_route not in COMPANY_ROUTES:
         raise ValueError("subject company route is invalid")
+    if kind == "company" and "company" in subject:
+        company_route = {"ID": "id_stocks_news", "US": "us_stocks_news"}.get(subject["company"]["business_home"], "global_company_news")
     return {"company": company_route, "industry": "id_industry_news", "macro": "macro_news"}[kind]
 
 
 def validate_route(subject: Mapping[str, str], route: str) -> str:
-    company_route = route if route in {"id_stocks_news", "us_stocks_news"} else "id_stocks_news"
+    company_route = route if route in COMPANY_ROUTES else "id_stocks_news"
     if route != route_for(subject, company_route=company_route):
         raise ValueError("route conflicts with the classified subject")
     return route
@@ -103,9 +127,27 @@ def lookup_instruction(wrapper: str) -> str:
     return (
         "When a company is clearly named but its ticker is missing, you may run only this bounded read-only "
         f"identity tool: \"$HOME/.hermes/scripts/{wrapper}\" lookup-company --json "
-        "'{\"company\":\"<exact source company name>\",\"market\":\"ID\"}'. Use US only for configured US coverage. "
+        "'{\"company\":\"<exact source company name>\",\"market\":\"ID\"}'. Use ID or US for supported current securities independently of the company destination. "
         "The tool searches Yahoo Finance and returns a verified unique company-name and exchange match, or unresolved. "
         "Use a verified result only for the ticker and exchange, never add lookup facts to the news summary. "
         "Do not guess from a search snippet. On unresolved, ambiguous, unavailable, or failed lookup, submit company-name "
-        "Stock News with an empty ticker and no tracker. The owner independently verifies externally proposed tickers. "
+        "Company News with an empty ticker and no tracker. The owner independently verifies externally proposed tickers. "
     )
+
+
+def require_company_details(subject: Mapping) -> None:
+    if subject["kind"] == "company" and "company" not in subject:
+        raise ValueError("new company news requires separate company and security details")
+
+
+def quote_route(subject: Mapping | None, fallback: str) -> str | None:
+    if subject is not None and "company" in subject:
+        company = subject["company"]
+        return {"ID": "id_stocks_news", "US": "us_stocks_news"}.get(company["security_market"]) if company["listing_status"] == "listed" else None
+    return fallback if fallback in {"id_stocks_news", "us_stocks_news"} else None
+
+
+def ticker_market(subject: Mapping, fallback: str = "ID") -> str:
+    if "company" in subject:
+        return subject["company"]["security_market"] or fallback
+    return fallback

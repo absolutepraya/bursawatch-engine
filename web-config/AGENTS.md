@@ -43,7 +43,7 @@ an object-storage owner and upload policy are approved. No browser-local source
 preferences count as saved catalog records. Preserve all nine watcher editors and their input, processing and output
 summaries. WhatsApp requires configuration version 2 and explicit observe/forward
 modes; the other eight editors require version 1. Stockbit's v1 editor exposes
-only four fixed feed switches, company and macro Discord route IDs plus an optional distinct industry route ID and an optional
+only four fixed feed switches, company and macro Discord route IDs plus optional distinct industry, US Company News and Global Company News route IDs and an optional
 800-code-point additive instruction. RSS URLs, the heartbeat, credentials,
 parser behavior and agent rules remain system-owned. Mode changes must not silently
 discard routing or processing settings. Source profiles load from the separate
@@ -166,3 +166,11 @@ it does not certify trading sessions or data freshness.
 Saving these settings does not create or activate a job. Job enablement/cadence
 remains in Jobs. Credentials, shared provider stores and proof/rights inputs
 remain host-owned; never expose them as web fields.
+
+Company News uses Indonesia, US and Global groups by primary business home,
+including public and private companies. The Global group includes unknown
+business home. Publication types retain legacy `idx_company_news` and
+`us_company_news` identifiers and add `global_company_news`; labels must not
+claim that listing exchange establishes company geography. Telegram Market
+News and Stockbit expose optional US/Global destinations without rewriting
+existing configurations. WhatsApp supports the same company route keys.

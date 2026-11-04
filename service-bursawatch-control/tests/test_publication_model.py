@@ -10,6 +10,14 @@ from control_plane.publication_model import validate_publication
 OWNER = "bursawatch-tg-market-news"
 
 
+@pytest.mark.parametrize("owner_id", ["bursawatch-tg-market-news", "bursawatch-stockbit-snips",
+    "bursawatch-x-account-watch", "bursawatch-ig-account-watch", "bursawatch-wa-channel-watch"])
+@pytest.mark.parametrize("kind,route", [("global_company_news", "global_company_news"), ("us_company_news", "us_stocks_news")])
+def test_worldwide_private_company_publications_are_accepted_for_each_news_owner(owner_id, kind, route):
+    record = validate_publication(publication(type=kind, route=route, ticker=None), owner_id)
+    assert record["type"] == kind and record["ticker"] is None
+
+
 def publication(**changes):
     value = {
         "api_version": 1,

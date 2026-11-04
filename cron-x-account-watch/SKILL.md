@@ -24,7 +24,7 @@ Use `US` only within configured US coverage. A verified result supplies only
 ticker and exchange for deterministic price enrichment, never extra news facts.
 Use no arbitrary URL or shell helper. The owner independently verifies an
 externally proposed ticker. If lookup is unavailable, ambiguous, or unresolved,
-submit Stock News using the company name and an empty ticker with no tracker.
+submit Company News using the company name and an empty ticker with no tracker.
 The lookup never selects a category, sends a message, or changes source state.
 
 ## Source boundary
@@ -47,7 +47,7 @@ When `relevance_guard_required` is true, market-related words were detected. Thi
 
 ## Title and summary contract
 
-When `title_required` is `true`, write a concise source-grounded Bahasa Indonesia headline. It must be one line, five to 120 characters, with no link or ending `.`, `!`, or `?`. Do not use the writer's name as the title. For a quote post, title the configured account's own point, not merely the quoted post. For a listed-security route, begin the title with the exact exchange ticker followed by `:`, such as `MYOR:` or `META:`. A `macro_news` title stays natural and must not invent a ticker.
+When `title_required` is `true`, write a concise source-grounded Bahasa Indonesia headline. It must be one line, five to 120 characters, with no link or ending `.`, `!`, or `?`. Do not use the writer's name as the title. For a quote post, title the configured account's own point, not merely the quoted post. For ordinary company news, use a natural headline naming the company without a ticker prefix, including for listed companies. A `macro_news` title stays natural and must not invent a ticker.
 
 When `summary_required` is true, follow the shared writing instruction below. Return plain factual Indonesian summary text without a Ringkasan marker. Preserve attribution for external research, forecasts, and guidance.
 
@@ -61,7 +61,7 @@ Classify each ordinary item from the complete supplied source meaning before
 choosing its destination. Return `subject` with exactly `kind`, `name`, and
 `evidence`: kind is `company`, `industry`, or `macro`; evidence is a short exact
 quotation from the supplied source. Company news concerns one company's own
-development and uses Stock News. Sector background does not change that.
+development and uses Company News. Sector background does not change that.
 Industry news concerns a sector as a whole, including industry-focused policy,
 and uses `id_industry_news` even when named companies are examples or top picks.
 Economy-wide, cross-industry, cross-asset, or overall-market developments use
@@ -70,13 +70,13 @@ not determine the subject. Split independent company developments, while
 keeping a connected transaction or one shared thesis together.
 
 Resolve tickers separately from category. A named company with no verified
-ticker stays in Stock News using its source name, an empty ticker, and no price
+ticker stays in Company News using its source name, an empty ticker, and no price
 tracker. Never use Macro as a missing-ticker, foreign-company, unavailable-quote,
 or missing-destination fallback. Preserve configured market coverage, relevance
 exclusions, and specialized Swing/status contracts. Do not invent evidence,
 tickers, or facts. Follow the trusted item's shared subject instruction.
 
-Specialized direct IDX technical setups use `id_stocks_swing` and retain their scalar schema. Direct verified US-listed company stories use `us_stocks_news`.
+Specialized direct IDX technical setups use `id_stocks_swing` and retain their scalar schema. US-based company stories use `us_stocks_news`; companies based elsewhere or with unknown business home use `global_company_news`, independently of listing exchange.
 
 Do not duplicate a post across routes. A ticker, number, target price, company name, or chart image alone does not establish a technical swing thesis. When a post mixes technical and fundamental material, choose the route matching its central thesis. Profile-specific guidance cannot weaken the shared relevance, safety, or routing rules.
 
@@ -157,3 +157,19 @@ supplied text; do not infer missing image content or fetch replacement media.
 This intake fallback does not change specialized Swing image handling.
 
 Screen ordinary news from supplied text first. Only when that text is eligible, the trusted item instruction may expose `prepare-summary-images`. Call that command with its exact bound request, then use the actual image viewer on returned paths. Paths indicate availability, not inspection. Images are additional context for the same supplied story, never a substitute for eligible text. Do not inspect any other files. On unavailable images or viewer failure, submit the text-supported result without holding delivery or retrying optional context. Specialized Swing and required outgoing media retain their owner contracts.
+
+## Company News contract (subject-v2)
+
+Follow the trusted shared instruction for new ordinary-news claims. Company
+subjects add the closed `company` object (`business_home`, `listing_status`,
+`security_market`); v1 examples elsewhere remain legacy-only. Every card has
+one focus company, public or private, and a natural headline without a
+mandatory ticker prefix. Counterparties are context, not duplicate stories.
+
+Primary business home selects Indonesia, US or Global Company News; unknown
+home uses Global. Quote market is separate and supports verified current
+focus-company ID/US securities only. Missing destinations are audited terminal
+skips without Macro fallback or later backlog. Preserve v1 leases, frozen
+cards, operation identities, raw forwarding and specialized Swing/status paths.
+See the [shared contract](../lib-news-classification/README.md) and accepted
+[design](../docs/specs/2026-11-03-company-news-format.md).

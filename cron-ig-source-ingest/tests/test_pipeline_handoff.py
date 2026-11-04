@@ -93,8 +93,9 @@ class MediaStore:
         return SimpleNamespace(data=self.content, content_type="image/jpeg", kind="image")
 
 
-@pytest.mark.parametrize("irrelevant", [False, True])
-def test_source_work_uses_existing_analysis_and_records_unsubscribed_route_without_delivery(tmp_path, monkeypatch, irrelevant):
+@pytest.mark.parametrize("outcome", ["route_not_subscribed", "irrelevant", "destination_missing"])
+def test_source_work_uses_existing_analysis_and_records_unsubscribed_route_without_delivery(tmp_path, monkeypatch, outcome):
+    irrelevant = outcome == "irrelevant"
     watch = load_watch_config(ROOT / "cron-ig-account-watch" / "config" / "watches.json")
     profile = watch.profiles[0]
     storage = tmp_path / "owner" / "state.json"
@@ -119,7 +120,7 @@ def test_source_work_uses_existing_analysis_and_records_unsubscribed_route_witho
     old = SourcePost(profile.id, "old", "https://www.instagram.com/p/old/", NOW, "old", PublicationKind.POST, ())
     current = SourcePost(
         profile.id, "new", "https://www.instagram.com/p/new/", NOW + timedelta(minutes=1),
-        "Aggregate earnings indicate broad equity market pressure", PublicationKind.POST,
+        ("Example Business plans an IPO" if outcome == "destination_missing" else "Aggregate earnings indicate broad equity market pressure"), PublicationKind.POST,
         (SourceMedia("https://cdn.example/original.jpg", MediaKind.IMAGE, 0),),
     )
     posts = [old]
@@ -152,10 +153,10 @@ def test_source_work_uses_existing_analysis_and_records_unsubscribed_route_witho
     assert result["item"]["event_key"] == f"{profile.id}:new"
     assert result["item"]["ocr_assets"] == []
     assert result["item"]["vision_asset_paths"] == []
-    assert "Aggregate earnings" in result["item"]["post_text"]
+    assert ("Example Business" if outcome == "destination_missing" else "Aggregate earnings") in result["item"]["post_text"]
     assert "macro_news" in result["item"]["instruction"]
     assert media.downloads == [media.reference]
-    assert source_work_routes.allowed_routes(storage, f"{profile.id}:new") == frozenset({"id_stocks_news"})
+    assert source_work_routes.allowed_routes(storage, f"{profile.id}:new") == frozenset({"id_stocks_news", "us_stocks_news", "global_company_news", "id_industry_news"})
 
     if irrelevant:
         result = scan.submit_analysis_payload({"event_key": f"{profile.id}:new", "is_relevant": False}, dry_run=True)
@@ -164,15 +165,20 @@ def test_source_work_uses_existing_analysis_and_records_unsubscribed_route_witho
         result = scan.submit_analysis_payload({
             "event_key": f"{profile.id}:new", "is_relevant": True,
             "title": "Pelemahan prospek laba di pasar saham", "summary": "Prospek laba agregat menekan pasar saham.",
-            "route": "macro_news",
+            "route": "global_company_news" if outcome == "destination_missing" else "macro_news",
+            "ticker": "",
+            "subject": ({"kind": "company", "name": "Example Business", "evidence": "Example Business plans an IPO",
+                         "company": {"business_home": "UNKNOWN", "listing_status": "pre_ipo", "security_market": ""}}
+                        if outcome == "destination_missing" else
+                        {"kind": "macro", "name": "Equity market", "evidence": "Aggregate earnings indicate broad equity market pressure"}),
         }, dry_run=True)
-        assert result == {"submitted": True, "ignored": True, "delivered": 0, "outcome": "route_not_subscribed"}
+        assert result["submitted"] is True and result["delivered"] == 0 and result["outcome"] == outcome
     assert state.load_state(storage)["outbox"] == []
     audit_path = next((storage.parent / "source-work").glob("*.outcome.json"))
     audit = json.loads(audit_path.read_text())
-    assert audit["outcome"] == ("irrelevant" if irrelevant else "route_not_subscribed")
+    assert audit["outcome"] == outcome
     if not irrelevant:
-        assert audit["classified_route"] == "macro_news"
+        assert audit["classified_route"] == ("global_company_news" if outcome == "destination_missing" else "macro_news")
 
     # Retry of the already settled source work does not fetch or enqueue it.
     item = {**inbox.rows[0], "event_kind": "original", "envelope": inbox.events[0]}

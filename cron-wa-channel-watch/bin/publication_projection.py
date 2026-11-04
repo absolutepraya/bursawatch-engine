@@ -50,6 +50,8 @@ def _delivery_owner() -> Any:
 def publication_type_for_route(route: str) -> str:
     return {
         "id_stocks_news": "idx_company_news",
+        "us_stocks_news": "us_company_news",
+        "global_company_news": "global_company_news",
         "id_industry_news": "industry_news",
         "macro_news": "macro_news",
         "id_stocks_swing": "swing_context",

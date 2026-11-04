@@ -81,6 +81,15 @@ def lookup_payload(payload: object) -> dict:
     return lookup_company(payload["company"], payload["market"])
 
 
+def _without_security(item: dict, subject: dict, ticker: str) -> dict:
+    result = {**item, "ticker": ""}
+    title = result.get("title")
+    if ticker and isinstance(title, str) and title.startswith(ticker + ":"):
+        body = title[len(ticker) + 1:].strip()
+        result["title"] = body if subject["name"].casefold() in body.casefold() else subject["name"] + " " + body
+    return result
+
+
 def prepare_item(item: dict, source_text: str, *, market: str = "ID") -> tuple[dict, str | None]:
     """Verify externally discovered tickers; degrade lookup failure to name-only."""
     subject = news_subject.validate_subject(item["subject"], source_text)
@@ -95,6 +104,15 @@ def prepare_item(item: dict, source_text: str, *, market: str = "ID") -> tuple[d
         if ticker:
             raise ValueError("noncompany subject cannot have a ticker")
         return item, None
+    if "company" in subject:
+        quote_route = news_subject.quote_route(subject, item.get("route", ""))
+        if not ticker or quote_route is None:
+            return _without_security(item, subject, ticker), None
+        market = "US" if quote_route == "us_stocks_news" else "ID"
+        identity = lookup_company(subject["name"], market)
+        if identity.get("status") == "verified" and identity.get("ticker") == ticker:
+            return item, ticker
+        return _without_security(item, subject, ticker), None
     # A ticker supplied by the source keeps the existing source-only contract.
     # Discovery is needed only when the agent proposes a ticker from its lookup.
     try:

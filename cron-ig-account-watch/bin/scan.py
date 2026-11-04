@@ -782,6 +782,11 @@ def _claim_agent(
     state.save_state(storage, value)
     try:
         item = agent_protocol.agent_item(profiles[event["profile_id"]], event, news_screening=True)
+        if profiles[event["profile_id"]].enable_llm_routing:
+            import subject_context
+            subject_context.freeze(storage, event, item)
+            item["instruction"] += " Return subject and ticker for ordinary news, including each item; ticker is empty when unverified. "
+            state.save_state(storage, value)
         import summary_context
         item["instruction"] += summary_context.context_instruction(
             summary_context.claim_from_state(value, event["event_key"], storage.parent / "summary-context", source_work_routes.read(storage, event["event_key"])),
@@ -1130,7 +1135,9 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
             event = state.awaiting_analysis_event(value, event_key)
             import summary_context
             optional_context = summary_context.claim_from_state(value, event_key, storage.parent / "summary-context", source_work_routes.read(storage, event_key))
-            analysis = agent_protocol.validate_submission(profile, payload)
+            import subject_context
+            source_text = subject_context.read(storage, event)
+            analysis = agent_protocol.validate_submission(profile, payload, subject_required=True, source_text=source_text) if source_text is not None else agent_protocol.validate_submission(profile, payload)
             post = state.deserialize_post(event["post"])
             ocr_text = _analysis_ocr_text(event)
             irrelevant = analysis.get("is_relevant") is False
@@ -1140,6 +1147,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 state.discard_analysis(value, analysis["event_key"], now)
                 state.save_state(storage, value)
                 summary_context.cleanup_claim_context(optional_context)
+                subject_context.cleanup(storage, event)
                 stats = RunStats()
                 _retry_media_cleanup(value, storage, stats, no_post=no_post)
                 if stats.degraded and not no_post:
@@ -1160,6 +1168,25 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
             # publication for an unsubscribed route has its own no-match
             # outcome; it is never mislabeled irrelevant or delivered there.
             news_items = analysis.pop("news_items", None)
+            configured = {channel.key for channel in profile.discord_channels}
+            candidates = news_items if news_items is not None else [analysis]
+            missing = [item["route"] for item in candidates if item.get("route") in agent_protocol.news_subject.COMPANY_ROUTES and item["route"] not in configured]
+            if missing:
+                control_run.event("company-destination-missing", level="warning", phase="agent", event_type="agent.submission.accepted",
+                    message="Company News destination missing; delivery skipped without backlog", attributes={"reason": "destination_missing", "delivered": 0})
+                candidates = [item for item in candidates if item.get("route") not in missing]
+                if not candidates:
+                    if source_work_routes.read(storage, event_key) is not None:
+                        source_work_routes.record_terminal(storage, event_key, "destination_missing", missing[0])
+                    state.discard_analysis(value, analysis["event_key"], now)
+                    state.save_state(storage, value)
+                    summary_context.cleanup_claim_context(optional_context)
+                    subject_context.cleanup(storage, event)
+                    control_run.finish("degraded", "Company News destination missing")
+                    return {"submitted": True, "delivered": 0, "outcome": "destination_missing", "routing_warning": True}
+                if news_items is not None:
+                    news_items = candidates
+                    analysis.update(news_items[0])
             allowed_routes = source_work_routes.allowed_routes(storage, event_key)
             if news_items is not None and allowed_routes is not None:
                 news_items = [item for item in news_items if item["route"] in allowed_routes]
@@ -1172,6 +1199,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 state.discard_analysis(value, analysis["event_key"], now)
                 state.save_state(storage, value)
                 summary_context.cleanup_claim_context(optional_context)
+                subject_context.cleanup(storage, event)
                 stats = RunStats()
                 _retry_media_cleanup(value, storage, stats, no_post=no_post)
                 if stats.degraded and not no_post:
@@ -1194,10 +1222,11 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 now,
             )
             if profile.enable_llm_summary:
-                event["news_cards"] = render.freeze_news(profile, post, news_items or [{"title": analysis.get("title") or profile.display_name, "summary": analysis["summary"], "route": analysis.get("route") or profile.discord_channels[0].key}])
+                event["news_cards"] = render.freeze_news(profile, post, news_items or [{**{key: analysis[key] for key in ("subject", "ticker") if key in analysis}, "title": analysis.get("title") or profile.display_name, "summary": analysis["summary"], "route": analysis.get("route") or profile.discord_channels[0].key}])
             state.save_state(storage, value)
             stats = RunStats()
             summary_context.cleanup_claim_context(optional_context)
+            subject_context.cleanup(storage, event)
             if not no_post:
                 _drain_deliveries(value, profiles, storage, stats, now, limit=1)
                 _retry_media_cleanup(value, storage, stats, no_post=False)

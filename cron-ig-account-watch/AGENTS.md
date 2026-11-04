@@ -161,7 +161,7 @@ Source owners retain structural, identity, capability and source-safety checks.
 
 Split independent issuer developments into ordered items, including separate
 issuer dividends and suspension reopenings. Keep a connected transaction or
-one broad thesis as one story. Each generated issuer card has a ticker-led
+one broad thesis as one story. Each generated company card has a natural
 headline, source byline, latest native-currency price and 1D/1W/1M/3M absolute
 and percentage changes, plus the original source link. IDX uses IDR and US
 uses USD. Missing quotes or individual horizons use grey `-` placeholders;
@@ -187,3 +187,19 @@ The LLM owns semantic relevance. Market-keyword signals are advisory and
 cannot veto `is_relevant: false`. Generic investing education remains
 excluded even when it mentions earnings, dividends, charting, or an issuer.
 There is no deterministic education denylist.
+
+## Company News contract (subject-v2)
+
+Follow the trusted shared instruction for new ordinary-news claims. Company
+subjects add the closed `company` object (`business_home`, `listing_status`,
+`security_market`); v1 examples elsewhere remain legacy-only. Every card has
+one focus company, public or private, and a natural headline without a
+mandatory ticker prefix. Counterparties are context, not duplicate stories.
+
+Primary business home selects Indonesia, US or Global Company News; unknown
+home uses Global. Quote market is separate and supports verified current
+focus-company ID/US securities only. Missing destinations are audited terminal
+skips without Macro fallback or later backlog. Preserve v1 leases, frozen
+cards, operation identities, raw forwarding and specialized Swing/status paths.
+See the [shared contract](../lib-news-classification/README.md) and accepted
+[design](../docs/specs/2026-11-03-company-news-format.md).

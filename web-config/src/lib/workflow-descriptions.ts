@@ -45,6 +45,6 @@ export const workflowDescriptions: Record<
   "bursawatch-stockbit-snips": {
     input: "Four Stockbit Snips feeds",
     processing: "Article analysis and source summaries",
-    output: "Two Discord news routes",
+    output: "Company, industry and macro Discord channels",
   },
 };

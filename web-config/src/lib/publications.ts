@@ -46,6 +46,7 @@ const owner = z.enum([
 const type = z.enum([
   "idx_company_news",
   "us_company_news",
+  "global_company_news",
   "industry_news",
   "macro_news",
   "stock_status",
@@ -60,6 +61,7 @@ const route = z.enum([
   "id_industry_news",
   "macro_news",
   "us_stocks_news",
+  "global_company_news",
   "id_stocks_swing",
   "swing_board",
 ]);
@@ -234,8 +236,9 @@ export type PublicationCoverage = z.infer<typeof publicationCoverage>;
 export type PublicationFilters = z.infer<typeof publicationFilters>;
 
 export const publicationTypeLabels: Record<Publication["type"], string> = {
-  idx_company_news: "IDX company news",
+  idx_company_news: "Indonesia company news",
   us_company_news: "US company news",
+  global_company_news: "Global company news",
   industry_news: "Industry news",
   macro_news: "Macro news",
   stock_status: "Stock status",

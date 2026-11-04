@@ -105,10 +105,10 @@ SUBJECT_INSTRUCTION = _BASE_INSTRUCTION + news_subject.INSTRUCTION + news_subjec
     "Return candidate_key, ticker, subject, event_class, title, summary, material_facts, ranking_band, dedupe_facts, "
     "eligible, route, and source_evidence. The supplied ticker is only an optional hint: establish the central "
     "issuer from the full source text, or leave ticker empty. A source-supported name without a verified ticker "
-    "still belongs in id_stocks_news and uses that company name in its headline. For industry and macro, ticker "
-    "is empty. Use id_stocks_news for company, id_industry_news for industry, macro_news for macro, and exclude "
+    "still belongs in the Company News route derived from business_home and uses that company name in its headline. For industry and macro, ticker "
+    "is empty. Use business_home to choose id_stocks_news, us_stocks_news, or global_company_news for company; use id_industry_news for industry, macro_news for macro, and exclude "
     "for ineligible material. Include subject for every result, including excluded material, so the routing decision "
-    "remains auditable. A verified ticker starts the headline as TICKER colon. Otherwise use a natural source-grounded "
+    "remains auditable. Write a natural source-grounded company headline without a ticker prefix, even for verified listed companies. Use a natural "
     "headline. Do not include a Ringkasan marker or an ending punctuation mark. Preserve Phintraco research attribution "
     "and distinguish forecasts from reported results."
 )
@@ -119,7 +119,7 @@ def mark_subject_contract(state: dict[str, object], key: str) -> None:
 
 
 def subject_contract_required(state: Mapping[str, object], key: str) -> bool:
-    return state.get("stats", {}).get("news_subject_contracts", {}).get(key) == news_subject.CONTRACT
+    return state.get("stats", {}).get("news_subject_contracts", {}).get(key) in {news_subject.CONTRACT, news_subject.LEGACY_CONTRACT}
 
 
 def presentation_category(candidate: CompanyCandidate) -> news_format.PresentationCategory:
@@ -190,7 +190,7 @@ def build_wake_payload(items: Sequence[Mapping[str, str]], *, instruction_suffix
         source_kind = SourceKind(item["source_kind"])
     except ValueError as error:
         raise ValueError("wake payload source kind is unknown") from error
-    semantic = item.get("classification_contract") == news_subject.CONTRACT
+    semantic = item.get("classification_contract") in {news_subject.CONTRACT, news_subject.LEGACY_CONTRACT}
     if "classification_contract" in item and not semantic:
         raise ValueError("wake payload classification contract is unknown")
     candidate_type = "unclassified" if semantic else ("issuer" if item["ticker"] else "macro")
@@ -262,7 +262,7 @@ def _route_from_submission(candidate: CompanyCandidate, payload: Mapping[str, ob
     return route
 
 
-def validate_agent_submission(candidate: CompanyCandidate, payload: Mapping[str, object], *, subject_required: bool = False, verified_ticker: str | None = None) -> EventClass:
+def validate_agent_submission(candidate: CompanyCandidate, payload: Mapping[str, object], *, subject_required: bool = False, company_required: bool = False, verified_ticker: str | None = None) -> EventClass:
     """Reject every nonconforming agent response before durable-state mutation."""
     if not isinstance(candidate, CompanyCandidate):
         raise ValueError("candidate must be a CompanyCandidate")
@@ -287,7 +287,9 @@ def validate_agent_submission(candidate: CompanyCandidate, payload: Mapping[str,
     if semantic:
         subject = news_subject.validate_subject(payload["subject"], candidate.source_text)
         if subject["kind"] == "company":
-            news_subject.validate_ticker(payload["ticker"], candidate.source_text, verified_ticker=verified_ticker)
+            if company_required:
+                news_subject.require_company_details(subject)
+            news_subject.validate_ticker(payload["ticker"], candidate.source_text, market=news_subject.ticker_market(subject), verified_ticker=verified_ticker)
         elif payload["ticker"] != "":
             raise ValueError("non-company subject must have an empty ticker")
     elif not isinstance(payload["ticker"], str) or payload["ticker"] != (candidate.ticker or ""):
@@ -300,7 +302,7 @@ def validate_agent_submission(candidate: CompanyCandidate, payload: Mapping[str,
     route = _route_from_submission(candidate, payload)
     summary = _validate_summary(payload["summary"])
     if "title" in payload:
-        _validate_title(payload["title"], (payload["ticker"] or None) if semantic else candidate.ticker if route is Destination.ID_STOCKS_NEWS else None,
+        _validate_title(payload["title"], (payload["ticker"] or None) if semantic and "company" not in subject else None if semantic else candidate.ticker if route is Destination.ID_STOCKS_NEWS else None,
                         company_name=semantic and subject["kind"] == "company")
     material_facts = _validate_fact_array(payload["material_facts"], "material_facts")
     ranking_band = payload["ranking_band"]
@@ -331,7 +333,7 @@ def submit_classification(
     verified_ticker = None
     if "subject" in payload:
         payload, verified_ticker = news_identity.prepare_item(dict(payload), candidate.source_text)
-    event_class = validate_agent_submission(candidate, payload, subject_required=subject_contract_required(state, candidate.key), verified_ticker=verified_ticker)
+    event_class = validate_agent_submission(candidate, payload, subject_required=subject_contract_required(state, candidate.key), company_required=state.get("stats", {}).get("news_subject_contracts", {}).get(candidate.key) == news_subject.CONTRACT, verified_ticker=verified_ticker)
     classification = Classification(candidate=candidate, event_class=event_class)
     persist_classification(
         state,
@@ -345,8 +347,8 @@ def submit_classification(
             **(
                 {
                     "title": _validate_title(
-                        payload["title"],
-                        (payload["ticker"] or None) if "subject" in payload else candidate.ticker
+                        news_format.company_headline(payload["title"], payload.get("subject"), payload.get("ticker")),
+                        (payload["ticker"] or None) if "subject" in payload and "company" not in payload["subject"] else None if "subject" in payload else candidate.ticker
                         if _route_from_submission(candidate, payload) is Destination.ID_STOCKS_NEWS
                         else None,
                         company_name="subject" in payload and payload["subject"]["kind"] == "company",

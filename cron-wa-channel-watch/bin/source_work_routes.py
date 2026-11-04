@@ -3,7 +3,7 @@ from __future__ import annotations
 
 
 CAPABILITY_ROUTE_KEYS = {
-    "company_news": {"id_stocks_news", "id_industry_news"},
+    "company_news": {"id_stocks_news", "us_stocks_news", "global_company_news", "id_industry_news"},
     "macro_news": {"macro_news"},
     "swing_chart_context": {"id_stocks_swing"},
 }

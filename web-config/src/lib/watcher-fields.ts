@@ -109,7 +109,7 @@ export function newProfile(kind: ProfileKind): Record<string, unknown> {
     enabled: false,
     display_name: "",
     emoji: "",
-    discord_channels: [{ key: "id_stocks_news", channel_id: "", description: "Stock news" }],
+    discord_channels: [{ key: "id_stocks_news", channel_id: "", description: "Indonesia company news" }],
     forward_media: true,
     enable_llm_title: true,
     enable_llm_summary: true,
@@ -305,6 +305,8 @@ export function validateWatcherConfig(
     const routeKeys = ["id_stocks_news_channel_id", "macro_news_channel_id"];
     if (configValue(config, ["destinations", "industry_news_channel_id"]) !== undefined)
       routeKeys.push("industry_news_channel_id");
+    for (const key of ["us_stocks_news_channel_id", "global_company_news_channel_id"])
+      if (configValue(config, ["destinations", key]) !== undefined) routeKeys.push(key);
     if (exactKeys(config.destinations, destinations, routeKeys)) {
       routeKeys.forEach((key) => discord([...destinations, key]));
       routeKeys.forEach((key, index) => {
@@ -481,7 +483,7 @@ export function validateWatcherConfig(
         if (kind === "whatsapp")
           choice(
             [...route, "key"],
-            ["macro_news", "id_stocks_news", "id_industry_news", "id_stocks_swing"],
+            ["macro_news", "id_stocks_news", "us_stocks_news", "global_company_news", "id_industry_news", "id_stocks_swing"],
           );
         else
           text(
@@ -537,6 +539,9 @@ export function validateWatcherConfig(
           "heartbeat_discord_channel_id",
         ]
       : ["alert_discord_channel_id", "heartbeat_discord_channel_id"];
+  if (news)
+    for (const key of ["us_stocks_news_discord_channel_id", "global_company_news_discord_channel_id"])
+      if (configValue(config, ["destinations", key]) !== undefined) destinationKeys.push(key);
   destinationKeys.forEach((key) => discord(["destinations", key]));
   unique(
     destinationKeys.map((key) => get(["destinations", key])),

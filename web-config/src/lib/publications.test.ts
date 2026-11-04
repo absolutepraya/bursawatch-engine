@@ -51,6 +51,12 @@ function sample(id = "a".repeat(64)) {
 }
 
 describe("published read contract", () => {
+  it("accepts Global company news without a listed security", () => {
+    const value = { ...sample(), type: "global_company_news", route: "global_company_news", ticker: null };
+    expect(publication.parse(value).type).toBe("global_company_news");
+    expect(publicationFilters.parse({ type: "global_company_news", route: "global_company_news" }).type).toBe("global_company_news");
+  });
+
   it("keeps context distinct from a validated broker plan and rejects private fields", () => {
     expect(publication.parse(sample()).type).toBe("swing_context");
     expect(publication.safeParse({ ...sample(), type: "broker_swing_plan" }).success).toBe(false);

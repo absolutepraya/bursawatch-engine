@@ -177,12 +177,12 @@ class SelectionCandidate:
         title = " ".join(self.title.split())
         object.__setattr__(self, "title", title)
         if self.subject is not None:
-            from news_subject import validate_subject, validate_ticker, validate_route
+            from news_subject import validate_subject, validate_ticker, validate_route, ticker_market
             object.__setattr__(self, "subject", validate_subject(self.subject, self.candidate.source_text))
             if self.route is not Destination.EXCLUDE:
                 validate_route(self.subject, self.route.value)
             if self.subject["kind"] == "company":
-                validate_ticker(self.resolved_ticker or "", self.candidate.source_text, verified_ticker=self.resolved_ticker)
+                validate_ticker(self.resolved_ticker or "", self.candidate.source_text, market=ticker_market(self.subject), verified_ticker=self.resolved_ticker)
             elif self.resolved_ticker is not None:
                 raise ValueError("non-company subject must not have a ticker")
 

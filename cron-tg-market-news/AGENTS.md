@@ -358,6 +358,22 @@ New routed ordinary-news claims use `subject-v1` from `lib-news-classification`.
 Validate the source quotation and company name against complete supplied text,
 then validate subject-to-route consistency before state mutation or delivery.
 Ticker hints never choose a news category. Named companies without verified
-tickers retain Stock News with no tracker. Existing relevance and specialized
+tickers retain Company News with no tracker. Existing relevance and specialized
 Swing/status rules remain. Already frozen output and destinations are never
 reclassified. Older outstanding leases settle with their original schema.
+
+## Company News contract (subject-v2)
+
+Follow the trusted shared instruction for new ordinary-news claims. Company
+subjects add the closed `company` object (`business_home`, `listing_status`,
+`security_market`); v1 examples elsewhere remain legacy-only. Every card has
+one focus company, public or private, and a natural headline without a
+mandatory ticker prefix. Counterparties are context, not duplicate stories.
+
+Primary business home selects Indonesia, US or Global Company News; unknown
+home uses Global. Quote market is separate and supports verified current
+focus-company ID/US securities only. Missing destinations are audited terminal
+skips without Macro fallback or later backlog. Preserve v1 leases, frozen
+cards, operation identities, raw forwarding and specialized Swing/status paths.
+See the [shared contract](../lib-news-classification/README.md) and accepted
+[design](../docs/specs/2026-11-03-company-news-format.md).

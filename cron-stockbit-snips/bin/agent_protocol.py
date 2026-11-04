@@ -104,7 +104,7 @@ def _validate_summary(value: str) -> str:
     return value
 
 
-def validate_submission(article: Article, payload: object, *, subject_required: bool = False) -> Analysis:
+def validate_submission(article: Article, payload: object, *, subject_required: bool = False, company_required: bool = False) -> Analysis:
     if not isinstance(payload, Mapping):
         raise ValueError("Stockbit analysis must be an object")
     expected = {
@@ -144,12 +144,14 @@ def validate_submission(article: Article, payload: object, *, subject_required: 
         raise ValueError("title must be from 5 to 120 characters")
     if title[-1] in ".!?" or "http://" in title.casefold() or "https://" in title.casefold():
         raise ValueError("title must be a plain headline without ending punctuation or URL")
-    if route is Route.ID_STOCKS_NEWS:
+    if route in {Route.ID_STOCKS_NEWS, Route.US_STOCKS_NEWS, Route.GLOBAL_COMPANY_NEWS}:
         if subject is not None:
-            news_subject.validate_ticker(ticker, source_text, verified_ticker=verified_ticker)
+            if company_required:
+                news_subject.require_company_details(subject)
+            news_subject.validate_ticker(ticker, source_text, market=news_subject.ticker_market(subject), verified_ticker=verified_ticker)
         elif TICKER_RE.fullmatch(ticker) is None:
             raise ValueError("issuer route requires a valid IDX ticker")
-        if ticker and not title.startswith(f"{ticker}: "):
+        if ticker and (subject is None or "company" not in subject) and not title.startswith(f"{ticker}: "):
             raise ValueError("issuer title must start with the exact ticker and colon")
     else:
         if ticker:
@@ -161,7 +163,7 @@ def validate_submission(article: Article, payload: object, *, subject_required: 
     return Analysis(
         candidate_key=article.key,
         ticker=ticker,
-        title=news_format.normalize_headline(title, route.value),
+        title=news_format.normalize_headline(news_format.company_headline(title, subject, ticker), route.value),
         summary=summary,
         material_facts=_facts(payload, "material_facts"),
         dedupe_facts=_facts(payload, "dedupe_facts"),
@@ -182,7 +184,7 @@ def analysis_payload(analysis: Analysis) -> dict[str, object]:
     return value
 
 
-def validate_submissions(article: Article, payload: object, *, subject_required: bool = False) -> list[Analysis]:
+def validate_submissions(article: Article, payload: object, *, subject_required: bool = False, company_required: bool = False) -> list[Analysis]:
     if isinstance(payload, Mapping) and "items" in payload:
         if set(payload) != {"candidate_key", "items"} or payload["candidate_key"] != article.key:
             raise ValueError("Stockbit item submission has an unexpected schema")
@@ -193,6 +195,6 @@ def validate_submissions(article: Article, payload: object, *, subject_required:
         for item in items:
             if type(item) is not dict or "candidate_key" in item:
                 raise ValueError("Stockbit item must omit candidate_key")
-            analyses.append(validate_submission(article, {"candidate_key": article.key, **item}, subject_required=subject_required))
+            analyses.append(validate_submission(article, {"candidate_key": article.key, **item}, subject_required=subject_required, company_required=company_required))
         return news_format.deduplicate_items(analyses)
-    return [validate_submission(article, payload, subject_required=subject_required)]
+    return [validate_submission(article, payload, subject_required=subject_required, company_required=company_required)]

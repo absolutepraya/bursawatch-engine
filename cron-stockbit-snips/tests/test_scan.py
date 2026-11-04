@@ -417,7 +417,7 @@ def _issuer_payload(item: Article) -> dict[str, object]:
     return {
         "candidate_key": item.key,
         "ticker": "SWAP",
-        "subject": {"kind": "company", "name": "SWAP", "evidence": item.source_text},
+        "subject": {"kind": "company", "name": "SWAP", "evidence": item.source_text, "company": {"business_home": "ID", "listing_status": "listed", "security_market": "ID"}},
         "title": "SWAP: profil bisnis produk kesehatan",
         "summary": "SWAP memproduksi produk kesehatan.",
         "material_facts": ["SWAP memproduksi produk kesehatan."],
@@ -1218,3 +1218,10 @@ def test_duplicate_stockbit_items_create_one_child_delivery(tmp_path, monkeypatc
     assert calls == result['news_item_keys']
     saved = state.load_state(path, config.FEEDS)
     assert len(saved['articles']) == 2
+
+
+@pytest.fixture(autouse=True)
+def synthetic_company_security(monkeypatch):
+    import news_identity
+    monkeypatch.setattr(news_identity, "lookup_company", lambda company, market="ID": {"status": "verified", "ticker": company} if company.isupper() and len(company) == 4 else {"status": "unresolved"})
+    monkeypatch.setattr(scan.news_format, "get_market_snapshot", lambda *_: None)

@@ -24,6 +24,8 @@ OperationKind = Literal[
     "thread_message_create",
     "thread_message_edit",
     "thread_message_delete",
+    "text_channel_create",
+    "text_channel_edit",
     "forum_channel_create",
     "forum_channel_edit",
     "forum_channel_delete",
@@ -37,6 +39,7 @@ QueryKind = Literal[
     "thread_messages",
     "forum_threads",
     "guild_emojis",
+    "guild_channels",
 ]
 OperationStatus = Literal[
     "pending",
@@ -54,12 +57,13 @@ KINDS = frozenset({
     "forum_thread_create", "forum_thread_update", "forum_thread_archive",
     "thread_message_create", "thread_message_edit", "thread_message_delete",
     "forum_channel_create", "forum_channel_edit", "forum_channel_delete",
+    "text_channel_create", "text_channel_edit",
     "guild_emoji_create",
 })
 QUERY_KINDS = frozenset({
     "forum_thread_read", "thread_message_read", "forum_channel_read",
     "channel_messages", "thread_messages", "forum_threads",
-    "guild_emojis",
+    "guild_emojis", "guild_channels",
 })
 STATUSES = frozenset({
     "pending", "pending_reconciliation", "retrying", "delivering",
@@ -75,6 +79,8 @@ TARGET_FIELDS = {
     "thread_message_create": frozenset({"thread_id"}),
     "thread_message_edit": frozenset({"thread_id", "message_id"}),
     "thread_message_delete": frozenset({"thread_id", "message_id"}),
+    "text_channel_create": frozenset({"guild_id"}),
+    "text_channel_edit": frozenset({"channel_id"}),
     "forum_channel_create": frozenset({"guild_id"}),
     "forum_channel_edit": frozenset({"channel_id"}),
     "forum_channel_delete": frozenset({"channel_id"}),
@@ -90,6 +96,8 @@ PAYLOAD_FIELDS = {
     "thread_message_create": frozenset({"content", "allowed_mentions"}),
     "thread_message_edit": frozenset({"content", "allowed_mentions", "attachments_mode"}),
     "thread_message_delete": frozenset(),
+    "text_channel_create": frozenset({"name", "topic", "parent_id", "permission_overwrites"}),
+    "text_channel_edit": frozenset({"name", "topic", "parent_id", "permission_overwrites"}),
     "forum_channel_create": frozenset({"name", "topic"}),
     "forum_channel_edit": frozenset({"name", "topic"}),
     "forum_channel_delete": frozenset(),
@@ -103,6 +111,7 @@ QUERY_FIELDS = {
     "thread_messages": ({"thread_id"}, {"thread_id", "before", "after", "limit"}),
     "forum_threads": ({"channel_id"}, {"channel_id", "before", "limit"}),
     "guild_emojis": ({"guild_id"}, {"guild_id"}),
+    "guild_channels": ({"guild_id"}, {"guild_id"}),
 }
 MAX_CONTENT = 2000
 MAX_ATTACHMENTS = 10
@@ -203,7 +212,7 @@ class OperationIntent:
             raise ValidationError("edit requires content")
         if "allowed_mentions" in payload and payload["allowed_mentions"] != {"parse": []}:
             raise ValidationError("allowed mentions must disable parsing")
-        if self.kind in {"forum_thread_create", "forum_channel_create"}:
+        if self.kind in {"forum_thread_create", "forum_channel_create", "text_channel_create"}:
             name = payload.get("name")
             if not isinstance(name, str) or not 1 <= len(name) <= 100:
                 raise ValidationError("invalid thread name")
@@ -216,10 +225,22 @@ class OperationIntent:
                     or not 8 <= len(self.attachments[0].data) <= 256 * 1024
                     or not self.attachments[0].data.startswith(b"\x89PNG\r\n\x1a\n")):
                 raise ValidationError("invalid emoji PNG")
-        if self.kind in {"forum_thread_update", "forum_channel_edit"} and not payload:
+        if self.kind in {"forum_thread_update", "forum_channel_edit", "text_channel_edit"} and not payload:
             raise ValidationError("update requires a change")
         if "name" in payload and (not isinstance(payload["name"], str) or not 1 <= len(payload["name"]) <= 100):
             raise ValidationError("invalid name")
+        if "parent_id" in payload:
+            if not isinstance(payload["parent_id"], str) or not SNOWFLAKE.fullmatch(payload["parent_id"]):
+                raise ValidationError("invalid channel parent")
+        if "permission_overwrites" in payload:
+            rows = payload["permission_overwrites"]
+            if not isinstance(rows, list) or len(rows) > 100:
+                raise ValidationError("invalid channel permissions")
+            for row in rows:
+                if (not isinstance(row, dict) or set(row) != {"id", "type", "allow", "deny"}
+                        or type(row["type"]) is not int or row["type"] not in {0, 1}
+                        or any(not isinstance(row[key], str) or not SNOWFLAKE.fullmatch(row[key]) for key in ("id", "allow", "deny"))):
+                    raise ValidationError("invalid channel permissions")
         if "topic" in payload and (not isinstance(payload["topic"], str) or len(payload["topic"]) > 1024):
             raise ValidationError("invalid topic")
         if "auto_archive_duration" in payload and payload["auto_archive_duration"] not in (60, 1440, 4320, 10080):
@@ -367,7 +388,7 @@ def validate_receipt(receipt: Mapping[str, str], kind: str, target: Mapping[str,
     if kind.startswith("forum_thread_"):
         required = {"thread_id"}
         allowed = {"thread_id", "message_id"}
-    elif kind.startswith("forum_channel_"):
+    elif kind.startswith(("forum_channel_", "text_channel_")):
         required = {"channel_id"}
         allowed = {"channel_id"}
     elif kind == "guild_emoji_create":

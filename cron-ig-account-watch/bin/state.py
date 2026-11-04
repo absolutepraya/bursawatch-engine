@@ -117,7 +117,9 @@ _CLEANUP_KEYS = {
     "last_error",
 }
 _PHASES = {"pending", "awaiting_agent", "ready"}
-_ANALYSIS_KEYS = {"title", "summary", "route", "is_relevant"}
+_ANALYSIS_KEYS = {"title", "summary", "route", "is_relevant", "subject", "ticker"}
+_SUBJECT_CONTEXT_KEYS = {"news_subject_contract", "news_subject_context_key", "news_subject_context_sha256"}
+_SUBJECT_ANALYSIS_KEYS = {"subject", "ticker"}
 
 
 def new_state() -> dict:
@@ -675,8 +677,22 @@ def _validate_optional_analysis(value: object, key: str) -> None:
 
 def _validate_event(value: object) -> dict[str, object]:
     event = _require_object(value)
-    if set(event) not in (_EVENT_KEYS, _EVENT_KEYS | {"news_cards"}):
+    extra = set(event) - _EVENT_KEYS
+    if not _EVENT_KEYS <= set(event) or extra - ({"news_cards"} | _SUBJECT_CONTEXT_KEYS | _SUBJECT_ANALYSIS_KEYS):
         raise _invalid()
+    if extra & _SUBJECT_CONTEXT_KEYS:
+        if not _SUBJECT_CONTEXT_KEYS <= extra or event["news_subject_contract"] != "subject-v2":
+            raise _invalid()
+        for key in ("news_subject_context_key", "news_subject_context_sha256"):
+            if not isinstance(event[key], str) or not _SAFE_HASH.fullmatch(event[key]):
+                raise _invalid()
+    if extra & _SUBJECT_ANALYSIS_KEYS:
+        if not _SUBJECT_ANALYSIS_KEYS <= extra:
+            raise _invalid()
+        import render
+        render.news_format.news_subject.validate_subject(event["subject"])
+        if event["ticker"] is not None and (not isinstance(event["ticker"], str) or not re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,19}", event["ticker"])):
+            raise _invalid()
     if "news_cards" in event:
         import render
         render.news_format.validate_cards(event["news_cards"])
@@ -735,7 +751,7 @@ def _validate_event(value: object) -> dict[str, object]:
         _safe_error(last_error)
     if type(event["cleanup_pending"]) is not bool:
         raise _invalid()
-    for key in _ANALYSIS_KEYS:
+    for key in _ANALYSIS_KEYS - _SUBJECT_ANALYSIS_KEYS:
         _validate_optional_analysis(event[key], key)
     return event
 
@@ -1278,6 +1294,15 @@ def _validate_analysis(value: object) -> dict[str, object]:
         raise ValueError("analysis fields are invalid")
     result: dict[str, object] = {}
     for key, item in value.items():
+        if key == "subject":
+            import render
+            result[key] = render.news_format.news_subject.validate_subject(item)
+            continue
+        if key == "ticker":
+            if item is not None and (not isinstance(item, str) or not re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,19}", item)):
+                raise ValueError("analysis ticker is invalid")
+            result[key] = item
+            continue
         if item is None:
             raise ValueError("analysis fields are invalid")
         _validate_optional_analysis(item, key)

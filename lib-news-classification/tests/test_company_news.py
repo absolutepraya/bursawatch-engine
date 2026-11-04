@@ -1,0 +1,79 @@
+from pathlib import Path
+import sys
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bin"))
+import news_identity
+import news_subject
+
+
+def subject(home="UNKNOWN", status="private", market=""):
+    return {"kind": "company", "name": "Example Business", "evidence": "Example Business plans an IPO",
+            "company": {"business_home": home, "listing_status": status, "security_market": market}}
+
+
+@pytest.mark.parametrize("home,route", [("ID", "id_stocks_news"), ("US", "us_stocks_news"),
+                                         ("GLOBAL", "global_company_news"), ("UNKNOWN", "global_company_news")])
+def test_business_home_controls_company_route_independently_of_listing(home, route):
+    value = news_subject.validate_subject(subject(home), "Example Business plans an IPO")
+    assert news_subject.route_for(value) == route
+    assert news_subject.quote_route(value, route) is None
+    for wrong in news_subject.COMPANY_ROUTES | {"macro_news"} - {route}:
+        if wrong != route:
+            with pytest.raises(ValueError, match="subject"):
+                news_subject.validate_route(value, wrong)
+
+
+def test_foreign_business_can_have_a_verified_us_security():
+    value = news_subject.validate_subject(subject("GLOBAL", "listed", "US"))
+    assert news_subject.route_for(value) == "global_company_news"
+    assert news_subject.quote_route(value, "global_company_news") == "us_stocks_news"
+
+
+@pytest.mark.parametrize("status", ["private", "pre_ipo", "formerly_listed", "unknown"])
+def test_nonlisted_focus_company_never_inherits_a_source_ticker(monkeypatch, status):
+    monkeypatch.setattr(news_identity, "lookup_company", lambda *_: pytest.fail("nonlisted company must not look up a ticker"))
+    item = {"subject": subject("US", status), "route": "us_stocks_news", "ticker": "PARENT",
+            "title": "PARENT: Plans an IPO"}
+    normalized, verified = news_identity.prepare_item(item, "Example Business plans an IPO; PARENT is mentioned")
+    assert normalized["ticker"] == "" and verified is None
+    assert normalized["title"].startswith("Example Business ") and "PARENT:" not in normalized["title"]
+
+
+def test_even_source_mentioned_security_requires_focus_company_verification(monkeypatch):
+    monkeypatch.setattr(news_identity, "lookup_company", lambda *_: {"status": "verified", "ticker": "OTHER"})
+    item = {"subject": subject("GLOBAL", "listed", "US"), "route": "global_company_news", "ticker": "PARENT"}
+    normalized, verified = news_identity.prepare_item(item, "Example Business plans an IPO; PARENT is mentioned")
+    assert normalized["ticker"] == "" and verified is None
+
+
+def test_verified_current_security_can_be_used_without_a_ticker_headline(monkeypatch):
+    calls = []
+    def lookup(company, market):
+        calls.append((company, market))
+        return {"status": "verified", "ticker": "EXAMPLE"}
+    monkeypatch.setattr(news_identity, "lookup_company", lookup)
+    item = {"subject": subject("GLOBAL", "listed", "US"), "route": "global_company_news", "ticker": "EXAMPLE",
+            "title": "Example Business expands production"}
+    normalized, verified = news_identity.prepare_item(item, "Example Business plans an IPO; EXAMPLE is mentioned")
+    assert calls == [("Example Business", "US")]
+    assert verified == normalized["ticker"] == "EXAMPLE"
+    assert normalized["title"] == item["title"]
+
+
+@pytest.mark.parametrize("change", [{"business_home": "CN"}, {"security_market": "CN"},
+                                  {"listing_status": "private", "security_market": "US"}, {"extra": "ignored"}])
+def test_company_details_remain_closed_and_consistent(change):
+    value = subject()
+    value["company"].update(change)
+    with pytest.raises(ValueError, match="company|listed"):
+        news_subject.validate_subject(value)
+
+
+def test_legacy_subject_remains_readable_but_new_claim_requires_details():
+    legacy = {"kind": "company", "name": "Example", "evidence": "Example expands"}
+    assert news_subject.validate_subject(legacy) == legacy
+    assert news_subject.validate_route(legacy, "us_stocks_news") == "us_stocks_news"
+    with pytest.raises(ValueError, match="details"):
+        news_subject.require_company_details(legacy)

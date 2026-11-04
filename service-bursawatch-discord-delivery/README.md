@@ -99,3 +99,18 @@ Every token file must be a regular file with mode `0600`. The service rejects a 
 Tests use temporary SQLite/media paths, fake Discord sessions, and loopback fake HTTP servers. Do not start `bin/serve.py` as a test or send test messages to Discord. Watcher, Board, and release-agent no-post controls remain package-owned; they must not enable the live worker or submit a Discord operation during verification. `GET /healthz` does not prove Discord delivery.
 
 `deploy.sh plan`, `status`, and `verify` are read-only. `sync`, `restart`, and `release` require `--apply`; the helper also requires a clean commit published to `origin`. Run those mutating commands only after explicit current-chat deployment approval and after comparing the exact payload and target. The helper assumes a separately installed systemd unit, environment file, secrets, virtual environment, and first service state directory. It does not install those host assets, change network exposure, or migrate source-watcher state. This entire service package is a manual release-manifest unit, outside automatic runtime deployment.
+
+## Company News channel provisioning
+
+The typed `guild_channels` query returns a bounded, read-only guild channel
+inventory. `text_channel_create` fixes Discord channel type to ordinary text;
+`text_channel_edit` changes reviewed name/topic/parent/permission-overwrite
+fields. Both use the same stable operation keys, digest validation and receipts
+as existing operations. A channel-create response loss is inconclusive and
+must remain ambiguous rather than blindly creating another channel.
+
+These operations support separately approved Company News destination
+provisioning. Inventory first, reuse existing channels where appropriate,
+preserve category and permission overwrites, and verify read-back. They send
+no test messages and add no delete operation. Source owners still use the
+loopback owner and must never access the bot credential or Discord REST.

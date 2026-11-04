@@ -174,6 +174,10 @@ def _publication_type(item: SelectionCandidate) -> tuple[str, str]:
         return "industry_news", "id_industry_news"
     if item.route is Destination.MACRO_NEWS:
         return "macro_news", "macro_news"
+    if item.route is Destination.US_STOCKS_NEWS:
+        return "us_company_news", "us_stocks_news"
+    if item.route is Destination.GLOBAL_COMPANY_NEWS:
+        return "global_company_news", "global_company_news"
     return "idx_company_news", "id_stocks_news"
 
 

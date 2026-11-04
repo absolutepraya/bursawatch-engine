@@ -35,6 +35,23 @@ def _profile(config_path: Path):
     return config.load_watch_config(config_path).profiles[0]
 
 
+def test_v2_private_company_supports_natural_headline_and_truthful_missing_destination(config_path):
+    profile = _profile(config_path)
+    source = "Example Business plans an IPO."
+    value = {"event_key": profile.id + ":ABC123", "is_relevant": True, "items": [{
+        "title": "Example Business plans an IPO", "summary": source, "route": "global_company_news", "ticker": "",
+        "subject": {"kind": "company", "name": "Example Business", "evidence": source,
+                    "company": {"business_home": "UNKNOWN", "listing_status": "pre_ipo", "security_market": ""}},
+    }]}
+    result = agent_protocol.validate_submission(profile, value, subject_required=True, source_text=source)
+    item, = result["news_items"]
+    assert item["route"] == "global_company_news" and item["ticker"] is None
+    assert item["subject"]["company"]["listing_status"] == "pre_ipo"
+    changed = {**value, "items": [{**value["items"][0], "route": "macro_news"}]}
+    with pytest.raises(ValueError, match="subject"):
+        agent_protocol.validate_submission(profile, changed, subject_required=True, source_text=source)
+
+
 def test_duplicate_news_array_is_removed_before_cards_are_frozen(config_path):
     profile = _profile(config_path)
     first = {'title':'BBCA: Pembagian dividen','summary':'BBCA membagikan dividen.','route':'id_stocks_news'}
@@ -984,12 +1001,13 @@ def test_instruction_contains_exact_routes_and_no_untrusted_source_text(config_p
     profile = _profile(config_path)
     instruction = agent_protocol.instruction_for(profile).lower()
 
-    assert "choose exactly one configured route key" in instruction
+    assert "configured destinations:" in instruction
+    assert "company routes follow primary business home" in instruction
     assert "macro_news" in instruction
     assert "id_stocks_news" in instruction
     assert "generic trading and investing education" in instruction
     assert "actionable trade setups" in instruction
-    assert "do not add any other lookup fact" in instruction
+    assert "never add lookup facts to the news summary" in instruction
     assert "fetch instagram" in instruction
 
 

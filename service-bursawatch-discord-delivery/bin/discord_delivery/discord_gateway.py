@@ -74,6 +74,10 @@ class DiscordGateway:
             return "PATCH", f"/channels/{target['thread_id']}", payload
         if kind == "forum_thread_archive":
             return "PATCH", f"/channels/{target['thread_id']}", {"archived": True}
+        if kind == "text_channel_create":
+            return "POST", f"/guilds/{target['guild_id']}/channels", {**payload, "type": 0}
+        if kind == "text_channel_edit":
+            return "PATCH", f"/channels/{target['channel_id']}", payload
         if kind == "forum_channel_create":
             return "POST", f"/guilds/{target['guild_id']}/channels", {**payload, "type": 15}
         if kind == "forum_channel_edit":
@@ -206,7 +210,7 @@ class DiscordGateway:
                 receipt = {"thread_id": result["id"], "message_id": result["message"]["id"]}
             elif intent.kind.startswith("forum_thread_"):
                 receipt = {"thread_id": result["id"]}
-            elif intent.kind.startswith("forum_channel_"):
+            elif intent.kind.startswith(("forum_channel_", "text_channel_")):
                 receipt = {"channel_id": result["id"]}
             else:
                 receipt = {"message_id": result["id"]}
@@ -233,6 +237,11 @@ class DiscordGateway:
     def query(self, query: Mapping[str, Any]) -> object:
         value = validate_query(dict(query))
         kind = value["kind"]
+        if kind == "guild_channels":
+            result = self._request("GET", f"/guilds/{value['guild_id']}/channels")
+            if not isinstance(result, list) or len(result) > 500 or any(not isinstance(row, dict) for row in result):
+                raise GatewayError("invalid_response")
+            return result
         if kind == "guild_emojis":
             result = self._request("GET", f"/guilds/{value['guild_id']}/emojis")
             if not isinstance(result, list) or len(result) > 500:
