@@ -142,3 +142,5 @@ Existing v1 leases, prepared cards, delivery destinations and operations retain
 their original contract. Raw forwarding, Swing/Board and Stock Information
 retain their specialized behavior. See the accepted
 [design](../docs/specs/2026-11-03-company-news-format.md).
+
+New verified company cards retain natural headlines and append the current ticker in parentheses when it is absent from the headline. The security label and latest-price line are consecutive lines in one price block. Frozen cards retain their saved output.
