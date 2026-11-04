@@ -426,12 +426,18 @@ def _fit_index(value: str, limit: int) -> int:
 def render_card(heading: str, summary: str, source_url: str, source_label: str, *, route=None, snapshot=None, ticker=None, context=None, show_market_block=True, quote_route=None, show_security=False) -> list[str]:
     heading = _normalize_heading(heading, route)
     body = normalize_summary(summary, marked=True)
+    if show_security and ticker and show_market_block:
+        lines = heading.split("\n")
+        if re.search(rf"(?<![A-Za-z0-9]){re.escape(ticker)}(?![A-Za-z0-9])", lines[0]) is None:
+            lines[0] += f" ({ticker})"
+        heading = "\n".join(lines)
     sections = [heading, body]
     market_route = quote_route or route
-    if show_security and ticker and show_market_block:
-        sections.append(f"-# Saham: {ticker} ({'IDX' if market_route == 'id_stocks_news' else 'US'})")
     if show_market_block and market_route in {"id_stocks_news", "us_stocks_news"}:
-        sections.append(market_block(snapshot, "USD" if market_route == "us_stocks_news" else "IDR"))
+        price = market_block(snapshot, "USD" if market_route == "us_stocks_news" else "IDR")
+        if show_security and ticker:
+            price = f"-# Saham: {ticker} ({'IDX' if market_route == 'id_stocks_news' else 'US'})\n" + price
+        sections.append(price)
     if market_route == "id_stocks_news":
         extra = company_context_block(ticker, context)
         if extra:

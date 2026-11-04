@@ -51,3 +51,17 @@ def test_validation_does_not_modify_frozen_legacy_messages():
     before = deepcopy(cards)
     assert news_format.validate_cards(cards) == before
     assert cards == before
+
+
+def test_verified_ticker_is_visible_in_headline_and_security_price_lines_are_adjacent():
+    value = item("ID", "listed", "ID", "DGIK")
+    value["title"] = "Nusa Konstruksi Enjiniring mengalihkan saham treasuri"
+    cards = news_format.freeze_cards([value], lambda i: "### " + i["title"] + "\n-# Torch",
+        "https://example.test/news", "X", fetch=lambda *_: {"latest_price": 132, "currency": "IDR"})
+    text = cards[0]["messages"][0]
+    assert text.splitlines()[0].endswith(" (DGIK)")
+    assert "Saham: DGIK (IDX)\nHarga terakhir (IDR): **132**" in text
+    assert "Saham: DGIK (IDX)\n\n" not in text
+    already_named = news_format.render_card("### DGIK mengalihkan saham", "Summary", "https://example.test", "X",
+        route="id_stocks_news", ticker="DGIK", show_security=True)
+    assert already_named[0].splitlines()[0].count("DGIK") == 1
