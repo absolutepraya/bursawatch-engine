@@ -423,6 +423,8 @@ def test_independent_news_cards_freeze_quote_and_resume_after_second_card_pendin
     frozen=saved['outbox'][0]['news_cards']
     assert saved['outbox'][0]['text_index']==1
     monkeypatch.setattr(scan.render.news_format,'get_market_snapshot',lambda *args:pytest.fail('retry fetched quotes'))
+    monkeypatch.setattr(scan, '_target_channel', lambda *_: pytest.fail('retry resolved a removed profile route'))
+    monkeypatch.setattr(scan.render, 'render_post', lambda *a, **k: pytest.fail('retry rendered frozen cards'))
     assert scan._deliver(saved,{profile.id:profile},0,False,storage,scan.RunStats(),datetime.now(UTC))
     assert len(attempts)==3 and attempts[1]==attempts[2]
     assert all(card['messages'][0].count('Harga terakhir')==1 for card in frozen)

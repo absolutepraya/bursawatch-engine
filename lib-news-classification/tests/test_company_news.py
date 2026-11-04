@@ -32,10 +32,11 @@ def test_foreign_business_can_have_a_verified_us_security():
 
 
 @pytest.mark.parametrize("status", ["private", "pre_ipo", "formerly_listed", "unknown"])
-def test_nonlisted_focus_company_never_inherits_a_source_ticker(monkeypatch, status):
+@pytest.mark.parametrize("prefix", ["PARENT:", "PARENT :"])
+def test_nonlisted_focus_company_never_inherits_a_source_ticker(monkeypatch, status, prefix):
     monkeypatch.setattr(news_identity, "lookup_company", lambda *_: pytest.fail("nonlisted company must not look up a ticker"))
     item = {"subject": subject("US", status), "route": "us_stocks_news", "ticker": "PARENT",
-            "title": "PARENT: Plans an IPO"}
+            "title": prefix + " Plans an IPO"}
     normalized, verified = news_identity.prepare_item(item, "Example Business plans an IPO; PARENT is mentioned")
     assert normalized["ticker"] == "" and verified is None
     assert normalized["title"].startswith("Example Business ") and "PARENT:" not in normalized["title"]

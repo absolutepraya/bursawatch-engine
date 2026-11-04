@@ -1076,6 +1076,10 @@ def test_independent_news_cards_freeze_delivery_and_projection(tmp_path,monkeypa
     ]},dry_run=True)
     assert result['delivered']==0 and quotes==['GIAA','UNTR']
     saved=state.load_state(storage);record=saved['outbox'][0]
+    monkeypatch.setattr(scan, '_target_channel', lambda *_: pytest.fail('retry resolved a removed profile route'))
+    monkeypatch.setattr(scan.render, 'render_publication', lambda *a, **k: pytest.fail('retry rendered frozen cards'))
+    monkeypatch.setattr(scan.discord, 'post_text', lambda *a: '7001')
+    assert scan._deliver(saved, {profile.id: profile}, 0, False, storage, scan.RunStats(), NOW)
     record['text_index']=2;record['text_message_ids']=['7001','7002']
     record['media_index']=1;record['media_message_ids']=['7003']
     monkeypatch.setattr(scan.render.news_format,'get_market_snapshot',lambda *args:pytest.fail('projection fetched quotes'))

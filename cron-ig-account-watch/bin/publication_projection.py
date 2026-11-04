@@ -80,18 +80,20 @@ def _confirmed_leg(operation: Any, receipt: object, text: str | None) -> dict[st
 
 def _candidate(event: dict[str, Any], profile: Any, confirmed_at: datetime, card_index: int | None = None) -> tuple[dict[str, Any], list[tuple[Any, str | None]]]:
     post = state.deserialize_post(event["post"])
-    channel_id = scan._target_channel(profile, event)
-    messages = render.render_publication(
-        profile, post,
-        event.get("summary") if profile.enable_llm_summary else None,
-        event.get("title") if profile.enable_llm_title else None,
-    )
     cards = event.get("news_cards")
     text_offset = 0
     card = None
     if cards is not None:
         render.news_format.validate_cards(cards)
         messages = [message for item in cards for message in item["messages"]]
+        channel_id = cards[0]["destination"]
+    else:
+        channel_id = scan._target_channel(profile, event)
+        messages = render.render_publication(
+            profile, post,
+            event.get("summary") if profile.enable_llm_summary else None,
+            event.get("title") if profile.enable_llm_title else None,
+        )
     if (event.get("is_relevant") is False or event.get("text_index") != len(messages)
             or len(event.get("text_message_ids", [])) != len(messages)):
         raise ValueError("Instagram publication text delivery is incomplete")

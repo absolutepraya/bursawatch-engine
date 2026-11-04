@@ -139,7 +139,7 @@ def _snapshot(value: dict[str, object], article_key: str, confirmed_at: datetime
         "market_data_as_of": record.get("market_data_as_of"),
         "delivery_confirmed_at": delivery.get("delivered_at", confirmed_at.isoformat()),
         "title": analysis.title[:300],
-        "ticker": (analysis.ticker or None) if analysis.route is Route.ID_STOCKS_NEWS else None,
+        "ticker": (analysis.ticker or None) if analysis.route in {Route.ID_STOCKS_NEWS, Route.US_STOCKS_NEWS, Route.GLOBAL_COMPANY_NEWS} else None,
         "broker_levels": None,
         "parent_publication_id": None,
         "board_episode_id": None,

@@ -166,6 +166,10 @@ class DiscordGateway:
     def execute(self, intent: OperationIntent, attachments: Sequence[StoredAttachment],
                 *, before_mutation: Callable[[], None] | None = None) -> dict[str, str]:
         method, path, body = self.request_spec(intent)
+        if intent.kind == "text_channel_edit":
+            current = self._request("GET", f"/channels/{intent.target['channel_id']}")
+            if not isinstance(current, dict) or current.get("type") != 0:
+                raise GatewayError("rejected")
         if intent.kind == "guild_emoji_create":
             if len(attachments) != 1:
                 raise GatewayError("invalid_attachment_state")

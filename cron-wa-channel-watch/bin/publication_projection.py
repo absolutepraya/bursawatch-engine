@@ -90,31 +90,33 @@ def _capture_record(value: dict[str, object], record: dict[str, Any], profiles: 
         selected: list[tuple[int, str, dict[str, Any], list[str]]] = []
         for item_index, item in enumerate(raw_items):
             route = item.get("route")
-            if route not in {"macro_news", "id_stocks_news", "id_industry_news", "id_stocks_swing"}:
+            if route not in {"macro_news", "id_stocks_news", "us_stocks_news", "global_company_news", "id_industry_news", "id_stocks_swing"}:
                 continue
-            channel_id = scan._delivery_channel(profile, item)
-            create_messages = render.render_post(
-                profile, event,
-                title=item.get("title") if profile.enable_llm_title else None,
-                summary=item.get("summary") if profile.enable_llm_summary else None,
-                route=route, sentiment=item.get("sentiment"), board_url=None,
-            )
-            board_ack = record.get("board_acknowledgement")
-            board_url = (
-                board_ack.get("board_url")
-                if route == "id_stocks_swing" and record.get("board_link_phase") == "patched"
-                and isinstance(board_ack, dict) and isinstance(board_ack.get("board_url"), str)
-                else None
-            )
-            messages = render.render_post(
-                profile, event,
-                title=item.get("title") if profile.enable_llm_title else None,
-                summary=item.get("summary") if profile.enable_llm_summary else None,
-                route=route, sentiment=item.get("sentiment"), board_url=board_url,
-            )
             if record.get("news_cards") is not None:
+                render.news_format.validate_cards(record["news_cards"])
                 create_messages = messages = record["news_cards"][item_index]["messages"]
                 channel_id = record["news_cards"][item_index]["destination"]
+            else:
+                channel_id = scan._delivery_channel(profile, item)
+                create_messages = render.render_post(
+                    profile, event,
+                    title=item.get("title") if profile.enable_llm_title else None,
+                    summary=item.get("summary") if profile.enable_llm_summary else None,
+                    route=route, sentiment=item.get("sentiment"), board_url=None,
+                )
+                board_ack = record.get("board_acknowledgement")
+                board_url = (
+                    board_ack.get("board_url")
+                    if route == "id_stocks_swing" and record.get("board_link_phase") == "patched"
+                    and isinstance(board_ack, dict) and isinstance(board_ack.get("board_url"), str)
+                    else None
+                )
+                messages = render.render_post(
+                    profile, event,
+                    title=item.get("title") if profile.enable_llm_title else None,
+                    summary=item.get("summary") if profile.enable_llm_summary else None,
+                    route=route, sentiment=item.get("sentiment"), board_url=board_url,
+                )
             if not messages or len(create_messages) != len(messages):
                 continue
             owner_key = f"{event.event_key}:item:{item_index}"

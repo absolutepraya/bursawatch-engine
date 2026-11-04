@@ -542,6 +542,8 @@ def validate_submission(profile: Profile, payload: object, *, subject_required: 
             news_subject.require_company_details(subject)
         news_subject.validate_route(subject, result["route"])
         ticker = payload["ticker"]
+        if ticker and source_text is None:
+            raise ValueError("ticker requires supplied source evidence")
         verified_ticker = None
         if source_text is not None:
             normalized, verified_ticker = news_identity.prepare_item({**payload, "route": result["route"]}, source_text, market=news_subject.ticker_market(subject, "US" if result["route"] == "us_stocks_news" else "ID"))

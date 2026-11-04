@@ -1139,3 +1139,13 @@ def test_submission_uses_only_profile_enabled_fields(config_path, profile_payloa
             profile,
             {"event_key": f"{profile.id}:ABC123", "is_relevant": True, "title": "Extra"},
         )
+
+
+def test_company_security_cannot_be_submitted_without_source_evidence(config_path):
+    profile = _profile(config_path)
+    payload = {'event_key': profile.id+':ABC123', 'is_relevant': True, 'title': 'Example expands',
+        'summary': 'Example expands its business.', 'route': 'global_company_news', 'ticker': 'EXAMPLE',
+        'subject': {'kind': 'company', 'name': 'Example', 'evidence': 'Example expands',
+                    'company': {'business_home': 'GLOBAL', 'listing_status': 'listed', 'security_market': 'US'}}}
+    with pytest.raises(ValueError, match='source evidence'):
+        agent_protocol.validate_submission(profile, payload)
