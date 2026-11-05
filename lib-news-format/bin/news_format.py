@@ -34,7 +34,7 @@ if str(_subject_bin) not in sys.path:
 import news_subject
 
 WRITING_INSTRUCTION = COMMON_WRITING_INSTRUCTION + (
-    "For company news, write a natural descriptive headline naming the focus company. Do not prefix it with TICKER colon, including for listed companies. "
+    "For company news with a verified current ticker, begin the descriptive headline with TICKER colon. Without a verified ticker, use a natural company-name headline without inventing a ticker. "
     "Report the event, supported figures, timing and significance regardless of listing status. Proposed IPOs remain plans, and former tickers are historical context. "
     "For macro or industry news, use a natural headline. Return plain summary text without a Ringkasan label; "
     "the renderer adds it once. Do not generate the latest quote or 1D/1W/1M/3M tracker in the summary. "
@@ -77,18 +77,28 @@ def normalize_headline(title: str, route: str | None = None) -> str:
     return title
 
 
+def _ticker_headline(title: str, ticker: str) -> str:
+    body = re.sub(rf"\s*\({re.escape(ticker)}\)\s*$", "", title).strip()
+    body = re.sub(rf"^{re.escape(ticker)}(?:\s*:\s*|\s+)", "", body).strip()
+    return normalize_headline(f"{ticker}: {body or title}", "us_stocks_news")
+
+
 def company_headline(title: str, subject, ticker) -> str:
-    """Nonblocking cleanup for newly prepared company cards only."""
-    if subject is not None and "company" in subject and ticker and title.startswith(ticker + ":"):
-        body = title[len(ticker) + 1:].strip()
-        if body:
-            return body if subject["name"].casefold() in body.casefold() else subject["name"] + " " + body
+    """Format newly prepared titles; validation never rewrites frozen cards."""
+    if subject is not None and "company" in subject and ticker:
+        if news_subject.quote_route(subject, "id_stocks_news") is not None:
+            return _ticker_headline(title, ticker)
+        prefix = re.match(rf"^{re.escape(ticker)}\s*:\s*", title)
+        if prefix:
+            body = title[prefix.end():].strip()
+            if body:
+                return body if subject["name"].casefold() in body.casefold() else subject["name"] + " " + body
     return title
 
 
 def _normalize_heading(heading: str, route: str | None) -> str:
     first, separator, rest = heading.partition("\n")
-    match = re.match(r"^###\s+(?:<a?:[^:>]+:\d+>\s+)?", first)
+    match = re.match(r"^###\s+(?:(?:<a?:[^:>]+:\d+>|[^\w\s<]+)\s+)?", first)
     if match is None:
         return heading
     return first[:match.end()] + normalize_headline(first[match.end():], route) + separator + rest
@@ -427,10 +437,10 @@ def render_card(heading: str, summary: str, source_url: str, source_label: str, 
     heading = _normalize_heading(heading, route)
     body = normalize_summary(summary, marked=True)
     if show_security and ticker and show_market_block:
-        lines = heading.split("\n")
-        if re.search(rf"(?<![A-Za-z0-9]){re.escape(ticker)}(?![A-Za-z0-9])", lines[0]) is None:
-            lines[0] += f" ({ticker})"
-        heading = "\n".join(lines)
+        first, separator, rest = heading.partition("\n")
+        markup = re.match(r"^###\s+(?:(?:<a?:[^:>]+:\d+>|[^\w\s<]+)\s+)?", first)
+        offset = markup.end() if markup else 0
+        heading = first[:offset] + _ticker_headline(first[offset:], ticker) + separator + rest
     sections = [heading, body]
     market_route = quote_route or route
     if show_market_block and market_route in {"id_stocks_news", "us_stocks_news"}:

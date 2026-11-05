@@ -496,7 +496,8 @@ def test_indonesia_economy_scope_uses_profile_guidance_for_source_exceptions(con
 
 def test_agent_instruction_uses_natural_company_titles_and_direct_summary_voice(config_path, profile_payload):
     instruction = agent_protocol.instruction_for(__import__("config").load_watch_config(config_path).profiles[0]).lower()
-    assert "do not prefix it with ticker colon" in instruction
+    assert "verified current ticker" in instruction
+    assert "begin the descriptive headline with ticker colon" in instruction
     assert "renderer adds it once" in instruction
     assert "avoid generic writer narration" in instruction
     assert "without a fixed length threshold" in instruction

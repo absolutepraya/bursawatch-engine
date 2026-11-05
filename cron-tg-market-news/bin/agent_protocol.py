@@ -108,7 +108,7 @@ SUBJECT_INSTRUCTION = _BASE_INSTRUCTION + news_subject.INSTRUCTION + news_subjec
     "still belongs in the Company News route derived from business_home and uses that company name in its headline. For industry and macro, ticker "
     "is empty. Use business_home to choose id_stocks_news, us_stocks_news, or global_company_news for company; use id_industry_news for industry, macro_news for macro, and exclude "
     "for ineligible material. Include subject for every result, including excluded material, so the routing decision "
-    "remains auditable. Write a natural source-grounded company headline without a ticker prefix, even for verified listed companies. Use a natural "
+    "remains auditable. For a verified current security, begin the company headline with TICKER colon; otherwise use a natural company-name "
     "headline. Do not include a Ringkasan marker or an ending punctuation mark. Preserve Phintraco research attribution "
     "and distinguish forecasts from reported results."
 )

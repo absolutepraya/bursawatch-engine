@@ -25,8 +25,9 @@ company details. Reject unknown fields and contradictory subject/route pairs.
 
 Every card focuses on one company, public or private. Counterparties can supply
 necessary context; do not duplicate a connected transaction. Use natural
-headlines naming the company, without a mandatory ticker prefix. Report the
-event, figures, timing and source-supported significance without inventing a
+headlines prefixed with the verified current ticker and a colon when available;
+otherwise use the company name. Report the event, figures, timing and
+source-supported significance without inventing a
 stock-price implication. Keep IPO plans and former tickers qualified.
 
 Route by primary business home: `id_stocks_news` for Indonesia,

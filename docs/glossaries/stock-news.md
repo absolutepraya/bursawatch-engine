@@ -51,8 +51,9 @@ _Avoid_: First ticker mentioned, every company named
 
 **News headline**:
 A natural, descriptive statement of the selected news that names the focus
-company when central. A ticker prefix is not required for a listed company.
-_Avoid_: Mandatory ticker prefix, source account name, investment instruction
+company when central. Prefix the headline with the verified current ticker
+and a colon when available; otherwise use the company name.
+_Avoid_: Invented or former ticker prefix, source account name, investment instruction
 
 **Company-news item**:
 A substantive, source-supported development focused on one company,

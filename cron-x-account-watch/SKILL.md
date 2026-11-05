@@ -47,7 +47,7 @@ When `relevance_guard_required` is true, market-related words were detected. Thi
 
 ## Title and summary contract
 
-When `title_required` is `true`, write a concise source-grounded Bahasa Indonesia headline. It must be one line, five to 120 characters, with no link or ending `.`, `!`, or `?`. Do not use the writer's name as the title. For a quote post, title the configured account's own point, not merely the quoted post. For ordinary company news, use a natural headline naming the company without a ticker prefix, including for listed companies. A `macro_news` title stays natural and must not invent a ticker.
+When `title_required` is `true`, write a concise source-grounded Bahasa Indonesia headline. It must be one line, five to 120 characters, with no link or ending `.`, `!`, or `?`. Do not use the writer's name as the title. For a quote post, title the configured account's own point, not merely the quoted post. For ordinary company news, use a verified current ticker followed by a colon and the descriptive headline; without a verified ticker, use a company-name headline. A `macro_news` title stays natural and must not invent a ticker.
 
 When `summary_required` is true, follow the shared writing instruction below. Return plain factual Indonesian summary text without a Ringkasan marker. Preserve attribution for external research, forecasts, and guidance.
 

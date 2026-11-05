@@ -100,7 +100,7 @@ After an accepted operation returns a nonterminal receipt, the sender waits for 
 After every required delivery receipt is durably confirmed, the Market News owner stores the exact output and a pending Published Feed projection intent. The owner retries that projection through the Control Plane without submitting another Discord operation. Projection reporting is enabled only with `BURSAWATCH_TG_MARKET_NEWS_PUBLICATION_ENABLED=1` after the forward-only feed cutover; the agent never submits feed records itself.
 
 Both News providers now request a source-grounded headline. Issuer headlines
-use a natural company headline without a ticker prefix; industry and macro headlines stay natural.
+use the verified current ticker and a colon when available, otherwise a company-name headline; industry and macro headlines stay natural.
 Phintraco submissions without a title remain accepted for older leases, with
 a descriptive source-headline fallback when available, then the source name.
 The shared `lib-news-format` renderer owns source
