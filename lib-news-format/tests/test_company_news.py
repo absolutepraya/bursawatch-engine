@@ -24,7 +24,7 @@ def test_global_destination_can_render_us_quote_without_rewriting_heading():
     assert news_format.validate_cards(cards) == cards
     assert cards[0]["route"] == "global_company_news"
     text = "\n".join(cards[0]["messages"])
-    assert text.startswith("### Example Business expands production")
+    assert text.startswith("### EXAMPLE: Example Business expands production")
     assert "USD" in text and "Saham: EXAMPLE (US)" in text and "IDR" not in text
 
 
@@ -59,9 +59,22 @@ def test_verified_ticker_is_visible_in_headline_and_security_price_lines_are_adj
     cards = news_format.freeze_cards([value], lambda i: "### " + i["title"] + "\n-# Torch",
         "https://example.test/news", "X", fetch=lambda *_: {"latest_price": 132, "currency": "IDR"})
     text = cards[0]["messages"][0]
-    assert text.splitlines()[0].endswith(" (DGIK)")
+    assert text.splitlines()[0] == "### DGIK: Nusa Konstruksi Enjiniring mengalihkan saham treasuri"
     assert "Saham: DGIK (IDX)\nHarga terakhir (IDR): **132**" in text
     assert "Saham: DGIK (IDX)\n\n" not in text
     already_named = news_format.render_card("### DGIK mengalihkan saham", "Summary", "https://example.test", "X",
         route="id_stocks_news", ticker="DGIK", show_security=True)
     assert already_named[0].splitlines()[0].count("DGIK") == 1
+
+
+@pytest.mark.parametrize("emoji", ["<:source:123>", "📸", "🗞️"])
+@pytest.mark.parametrize("title", ["DGIK: Mengalihkan saham", "DGIK : Mengalihkan saham", "Mengalihkan saham (DGIK)", "DGIK mengalihkan saham"])
+def test_verified_ticker_prefix_is_idempotent(title, emoji):
+    value = item("ID", "listed", "ID", "DGIK")
+    value["title"] = title
+    cards = news_format.freeze_cards([value], lambda i: "### " + emoji + " " + i["title"] + "\n-# Publisher",
+        "https://example.test/news", "X", fetch=lambda *_: None)
+    card = cards[0]
+    assert card["title"] == "DGIK: Mengalihkan saham"
+    assert card["messages"][0].splitlines()[:2] == ["### " + emoji + " DGIK: Mengalihkan saham", "-# Publisher"]
+    assert news_format.validate_cards(cards) == cards

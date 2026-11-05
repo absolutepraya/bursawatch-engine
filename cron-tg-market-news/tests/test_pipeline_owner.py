@@ -158,7 +158,7 @@ def test_financial_headline_reaches_stock_destination_through_source_owner(tmp_p
     assert result["news_delivered"] == 1
     delivered = load_state()["stats"]["delivery_payloads"][item["candidate_key"]]
     assert delivered["channel_id"] == "1525102508714889257"
-    assert f"{ticker} Kinerja keuangan 9M26" in delivered["content"]
+    assert f"{ticker}: Kinerja keuangan 9M26" in delivered["content"]
     assert "Harga terakhir (IDR)" in delivered["content"]
 
 
@@ -186,7 +186,7 @@ def test_bach_issuer_heading_reaches_stock_destination_through_source_owner(tmp_
     assert result["news_delivered"] == 1
     delivered = load_state()["stats"]["delivery_payloads"][item["candidate_key"]]
     assert delivered["channel_id"] == "1525102508714889257"
-    assert "BACH Laba tumbuh 32,05% pada 9M26" in delivered["content"]
+    assert "BACH: Laba tumbuh 32,05% pada 9M26" in delivered["content"]
     assert "Harga terakhir (IDR)" in delivered["content"]
     assert "https://t.me/phintasprofits/36061" in delivered["content"]
 
@@ -235,7 +235,7 @@ def test_phintraco_news_sibling_work_claims_one_frozen_agent_item_and_renders_go
     result = asyncio.run(scan.submit_classification_payload(payload, now + timedelta(seconds=30)))
     assert result["news_delivered"] == 1
     delivered = load_state()["stats"]["delivery_payloads"][item["candidate_key"]]
-    assert delivered["content"].startswith("### <:phintraco:1531272488645038091> DEWA Kontrak bernilai Rp22 triliun\n-# Phintraco")
+    assert delivered["content"].startswith("### <:phintraco:1531272488645038091> DEWA: Kontrak bernilai Rp22 triliun\n-# Phintraco")
     assert "*(Ringkasan)* DEWA mendapat kontrak bernilai Rp22 triliun." in delivered["content"]
     assert "Harga terakhir (IDR)" in delivered["content"]
     assert "https://t.me/phintasprofits/35390" in delivered["content"]

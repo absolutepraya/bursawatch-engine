@@ -121,8 +121,9 @@ company details. Reject unknown fields and contradictory subject/route pairs.
 
 Every card focuses on one company, public or private. Counterparties can supply
 necessary context; do not duplicate a connected transaction. Use natural
-headlines naming the company, without a mandatory ticker prefix. Report the
-event, figures, timing and source-supported significance without inventing a
+headlines prefixed with the verified current ticker and a colon when available;
+otherwise use the company name. Report the event, figures, timing and
+source-supported significance without inventing a
 stock-price implication. Keep IPO plans and former tickers qualified.
 
 Route by primary business home: `id_stocks_news` for Indonesia,
@@ -143,4 +144,4 @@ their original contract. Raw forwarding, Swing/Board and Stock Information
 retain their specialized behavior. See the accepted
 [design](../docs/specs/2026-11-03-company-news-format.md).
 
-New verified company cards retain natural headlines and append the current ticker in parentheses when it is absent from the headline. The security label and latest-price line are consecutive lines in one price block. Frozen cards retain their saved output.
+New verified company cards prefix descriptive headlines with the current ticker and a colon. Private or untickered companies retain company-name headlines. The security label and latest-price line are consecutive lines in one price block. Frozen cards retain their saved output.

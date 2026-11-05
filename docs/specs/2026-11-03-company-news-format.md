@@ -122,3 +122,7 @@ examples, terminal missing-destination behavior, full package suites, both web
 checks, Workers packaging, and local sample-workspace destination save/read-back
 at desktop and 375px widths. Live rollout and natural-run evidence remain
 separate from these local checks.
+
+## Headline clarification, 5 November 2026
+
+The user clarified that a verified current ticker uses `DGIK: ...` in the title. Private or untickered companies retain company-name headlines. This supersedes decision 2's no-prefix rule and the later parenthetical ticker presentation. The security label remains directly above the latest-price line without a blank line. Geography, one-company focus, eligibility and frozen-card retry rules remain unchanged.
