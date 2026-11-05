@@ -21,7 +21,9 @@ type Requester = <T>(
 ) => Promise<T>;
 const routes = [
   ["id_stocks_news", "Indonesia company news"],
-  ["id_industry_news", "Industry news"],
+  ["id_industry_news", "Indonesia industry news"],
+  ["us_industry_news", "US industry news"],
+  ["global_industry_news", "Global industry news"],
   ["macro_news", "Macro news"],
   ["us_stocks_news", "US company news"],
   ["global_company_news", "Global company news"],

@@ -30,7 +30,7 @@ Operator workspace: [dash.bursawatch.abhipraya.dev](https://dash.bursawatch.abhi
 
 | Product | What you get |
 |---|---|
-| **News pipeline** | Company, industry and macro news as separate cards, each with a source link. Company news with a verified ticker carries 1D, 1W, 1M and 3M price moves. |
+| **News pipeline** | Company, industry and macro news as separate cards, each with a source link. Industry destinations distinguish Indonesia, US and Global by the central industry market. Company news with a verified ticker carries 1D, 1W, 1M and 3M price moves. |
 | **Swing trading plan** | Analyst calls (Phintraco, Kelas Investasi, X analysts and more) normalized into one format and tracked on a board, one thread per plan, as price moves from entry toward target or stop-loss. |
 | **Morning brief** | A frozen-evidence pre-market brief for the IHSG session with sector and conglomerate rotation charts, published only after delivery receipts confirm each step. |
 

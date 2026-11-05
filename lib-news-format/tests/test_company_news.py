@@ -78,3 +78,14 @@ def test_verified_ticker_prefix_is_idempotent(title, emoji):
     assert card["title"] == "DGIK: Mengalihkan saham"
     assert card["messages"][0].splitlines()[:2] == ["### " + emoji + " DGIK: Mengalihkan saham", "-# Publisher"]
     assert news_format.validate_cards(cards) == cards
+
+
+@pytest.mark.parametrize('region,route',[('US','us_industry_news'),('GLOBAL','global_industry_news')])
+def test_regional_industry_cards_keep_geography_and_never_fetch_company_quotes(region,route):
+    value={'title':'Semiconductor industry volatility rises','summary':'US semiconductor sector index declined.',
+        'route':route,'ticker':'','subject':{'kind':'industry','name':'Semiconductors','evidence':'US semiconductor sector index declined', 'industry':{'region':region}}}
+    cards=news_format.freeze_cards([value],lambda item:'### '+item['title'],'https://example.test/news','X',
+        fetch=lambda *_:pytest.fail('industry quote lookup'),target_for=lambda _:'123456789012345678')
+    assert news_format.validate_cards(cards)==cards
+    assert cards[0]['route']==route and cards[0]['ticker'] is None
+    assert 'Harga terakhir' not in cards[0]['messages'][0]

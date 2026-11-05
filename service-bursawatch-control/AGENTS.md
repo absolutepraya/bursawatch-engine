@@ -234,3 +234,18 @@ without it capture reports unknown history and incomplete evidence. The API
 limits candidates to 1000 and explicit batch reads to 100; final selection and
 cross-route publisher caps belong to the morning owner. See README for the
 stable response fields, hash convention and provenance limitations.
+
+## Industry geography
+
+New industry classifications include `subject.industry` with exactly `region`:
+`ID`, `US`, `GLOBAL`, or `UNKNOWN`. Route by the central industry market, not
+publisher, source language, currency, company example or listing exchange:
+`id_industry_news`, `us_industry_news`, or `global_industry_news`. Other-country,
+worldwide and unresolved geography use Global. US sector indices and US Big
+Tech aggregates are US; Malaysian palm oil and global oil shipping are Global.
+Company stories still focus on one company; industry examples do not create
+duplicate company cards. Industry cards have no company ticker or price block.
+Missing configured destinations are terminal audited skips with a visible
+warning, never an Indonesia or Macro fallback. Industry metadata is an additive
+subject-v2 extension; retained legacy subjects, prepared cards, destinations
+and operation identities keep their saved contract.

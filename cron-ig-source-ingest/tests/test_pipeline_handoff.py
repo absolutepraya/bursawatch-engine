@@ -93,8 +93,10 @@ class MediaStore:
         return SimpleNamespace(data=self.content, content_type="image/jpeg", kind="image")
 
 
-@pytest.mark.parametrize("outcome", ["route_not_subscribed", "irrelevant", "destination_missing"])
+@pytest.mark.parametrize("outcome", ["route_not_subscribed", "route_not_subscribed_array", "irrelevant", "destination_missing"])
 def test_source_work_uses_existing_analysis_and_records_unsubscribed_route_without_delivery(tmp_path, monkeypatch, outcome):
+    array_submission = outcome.endswith("_array")
+    outcome = outcome.removesuffix("_array")
     irrelevant = outcome == "irrelevant"
     watch = load_watch_config(ROOT / "cron-ig-account-watch" / "config" / "watches.json")
     profile = watch.profiles[0]
@@ -156,13 +158,13 @@ def test_source_work_uses_existing_analysis_and_records_unsubscribed_route_witho
     assert ("Example Business" if outcome == "destination_missing" else "Aggregate earnings") in result["item"]["post_text"]
     assert "macro_news" in result["item"]["instruction"]
     assert media.downloads == [media.reference]
-    assert source_work_routes.allowed_routes(storage, f"{profile.id}:new") == frozenset({"id_stocks_news", "us_stocks_news", "global_company_news", "id_industry_news"})
+    assert source_work_routes.allowed_routes(storage, f"{profile.id}:new") == frozenset({"id_stocks_news", "us_stocks_news", "global_company_news", "id_industry_news", "us_industry_news", "global_industry_news"})
 
     if irrelevant:
         result = scan.submit_analysis_payload({"event_key": f"{profile.id}:new", "is_relevant": False}, dry_run=True)
         assert result == {"submitted": True, "ignored": True, "delivered": 0}
     else:
-        result = scan.submit_analysis_payload({
+        payload = {
             "event_key": f"{profile.id}:new", "is_relevant": True,
             "title": "Pelemahan prospek laba di pasar saham", "summary": "Prospek laba agregat menekan pasar saham.",
             "route": "global_company_news" if outcome == "destination_missing" else "macro_news",
@@ -171,7 +173,10 @@ def test_source_work_uses_existing_analysis_and_records_unsubscribed_route_witho
                          "company": {"business_home": "UNKNOWN", "listing_status": "pre_ipo", "security_market": ""}}
                         if outcome == "destination_missing" else
                         {"kind": "macro", "name": "Equity market", "evidence": "Aggregate earnings indicate broad equity market pressure"}),
-        }, dry_run=True)
+        }
+        if array_submission:
+            payload = {"event_key": payload["event_key"], "is_relevant": True, "items": [{k: v for k, v in payload.items() if k not in {"event_key", "is_relevant"}}]}
+        result = scan.submit_analysis_payload(payload, dry_run=True)
         assert result["submitted"] is True and result["delivered"] == 0 and result["outcome"] == outcome
     assert state.load_state(storage)["outbox"] == []
     audit_path = next((storage.parent / "source-work").glob("*.outcome.json"))

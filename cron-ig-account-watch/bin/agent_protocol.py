@@ -1114,7 +1114,7 @@ def validate_submission(profile: Profile, payload: object, *, subject_required: 
             if type(item) is not dict or not {"title", "summary", "route"} <= set(item) or set(item) - {"title", "summary", "route", "subject", "ticker"}:
                 raise ValueError("news item has unexpected fields")
             validated = validate_submission(profile, {"event_key": payload["event_key"], **({"is_relevant": True} if profile.enable_llm_relevance_filter else {}), **item}, subject_required=subject_required, source_text=source_text)
-            if validated["route"] not in {"id_stocks_news", "us_stocks_news", "global_company_news", "id_industry_news", "macro_news"}:
+            if validated["route"] not in {"id_stocks_news", "us_stocks_news", "global_company_news", "id_industry_news", "macro_news", "us_industry_news", "global_industry_news"}:
                 raise ValueError("multi-item schema supports news routes only")
             items.append({key: validated[key] for key in ("title", "summary", "route", "subject", "ticker") if key in validated})
         items = news_format.deduplicate_items(items)
@@ -1150,7 +1150,7 @@ def validate_submission(profile: Profile, payload: object, *, subject_required: 
         result["is_relevant"] = True
     route_value: str | None = None
     if profile.enable_llm_routing:
-        route_value = payload["route"] if semantic and "company" in payload.get("subject", {}) and payload["route"] in news_subject.COMPANY_ROUTES else validate_route(profile, payload["route"])
+        route_value = payload["route"] if semantic and ("company" in payload.get("subject", {}) or "industry" in payload.get("subject", {})) and payload["route"] in news_subject.GEOGRAPHIC_NEWS_ROUTES else validate_route(profile, payload["route"])
         result["route"] = route_value
     if profile.enable_llm_title:
         result["title"] = validate_title(payload["title"], None if semantic else route_value)

@@ -1338,3 +1338,15 @@ def test_scheduled_destination_skip_reports_warning_and_degraded_outcome(tmp_sta
     assert any(name == 'company-destination-missing' and details['level'] == 'warning' for name, details in events)
     assert any(name == 'run-completed' and details['level'] == 'warning' for name, details in events)
     assert heartbeats[0].endswith(' ⚠️')
+
+
+@pytest.mark.parametrize('region,route,field',[('US',Destination.US_INDUSTRY_NEWS,'us_industry_news_channel_id'),('GLOBAL',Destination.GLOBAL_INDUSTRY_NEWS,'global_industry_news_channel_id')])
+def test_industry_delivery_uses_the_frozen_regional_destination_without_prices(candidate,region,route,field):
+    item=SelectionCandidate(candidate=replace(candidate,ticker=None,source_text='The semiconductor sector index fell.'),
+        event_class=EventClass.CORPORATE_ACTION,ranking_band=1,material_facts=('Sector declined',),dedupe_facts=('sector',),
+        route=route,title='Volatilitas sektor meningkat',subject={'kind':'industry','name':'Semiconductors','evidence':'sector index fell', 'industry':{'region':region}})
+    watch=replace(config.default_watch_config(),**{field:'123456789012345678'})
+    with config.activate_watch_config(watch):
+        assert scan._delivery_channel(item)=='123456789012345678'
+    import publication_projection
+    assert publication_projection._publication_type(item)==('industry_news',route.value)

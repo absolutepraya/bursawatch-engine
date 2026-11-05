@@ -189,6 +189,8 @@ def _snapshot(loaded: config.LoadedStockbitConfig) -> dict[str, object]:
         "industry_news_channel_id": watch.industry_news_channel_id,
         **({"us_stocks_news_channel_id": watch.us_stocks_news_channel_id} if watch.us_stocks_news_channel_id else {}),
         **({"global_company_news_channel_id": watch.global_company_news_channel_id} if watch.global_company_news_channel_id else {}),
+        **({"us_industry_news_channel_id": watch.us_industry_news_channel_id} if watch.us_industry_news_channel_id else {}),
+        **({"global_industry_news_channel_id": watch.global_industry_news_channel_id} if watch.global_industry_news_channel_id else {}),
     }
 
 
@@ -201,10 +203,10 @@ def _channel(record: Mapping[str, object], route: Route) -> str:
     snapshot = _bound_snapshot(record)
     if snapshot is None:
         raise ValueError("Stockbit article has no bound configuration")
-    if route in {Route.US_STOCKS_NEWS, Route.GLOBAL_COMPANY_NEWS}:
+    if route in {Route.US_STOCKS_NEWS, Route.GLOBAL_COMPANY_NEWS, Route.US_INDUSTRY_NEWS, Route.GLOBAL_INDUSTRY_NEWS}:
         channel = snapshot.get(route.value + "_channel_id")
         if not channel:
-            raise ValueError("Company News destination missing")
+            raise ValueError("News destination missing")
         return str(channel)
     if route is Route.ID_STOCKS_NEWS:
         return str(snapshot["id_stocks_news_channel_id"])
@@ -570,10 +572,10 @@ def _submit_split_analysis(value, record, article, analyses, runtime, now, error
                              "phase": "excluded" if analysis.route is Route.EXCLUDE else "pending_delivery"})
         child_record.pop("rendered", None)
         child_record.pop("delivery", None)
-        missing_destination = analysis.route in {Route.US_STOCKS_NEWS, Route.GLOBAL_COMPANY_NEWS} and not (_bound_snapshot(child_record) or {}).get(analysis.route.value + "_channel_id")
+        missing_destination = analysis.route in {Route.US_STOCKS_NEWS, Route.GLOBAL_COMPANY_NEWS, Route.US_INDUSTRY_NEWS, Route.GLOBAL_INDUSTRY_NEWS} and not (_bound_snapshot(child_record) or {}).get(analysis.route.value + "_channel_id")
         if missing_destination:
-            child_record.update(phase="excluded", last_error="Company News destination missing; skipped without backlog")
-            errors.append("Company News destination missing")
+            child_record.update(phase="excluded", last_error="News destination missing; skipped without backlog")
+            errors.append("News destination missing")
         if child_analysis.route is not Route.EXCLUDE and not missing_destination:
             _render_record(child_record, child, child_analysis, load_market_data=time.monotonic() < quote_deadline)
         staged[child.key] = child_record
@@ -593,10 +595,10 @@ def _submit_bound_analysis(
 ) -> dict[str, object]:
     record["analysis"] = analysis_payload(analysis)
     record["agent_lease_until"] = None
-    missing_destination = analysis.route in {Route.US_STOCKS_NEWS, Route.GLOBAL_COMPANY_NEWS} and not (_bound_snapshot(record) or {}).get(analysis.route.value + "_channel_id")
+    missing_destination = analysis.route in {Route.US_STOCKS_NEWS, Route.GLOBAL_COMPANY_NEWS, Route.US_INDUSTRY_NEWS, Route.GLOBAL_INDUSTRY_NEWS} and not (_bound_snapshot(record) or {}).get(analysis.route.value + "_channel_id")
     if missing_destination:
-        record["last_error"] = "Company News destination missing; skipped without backlog"
-        delivery_errors.append("Company News destination missing")
+        record["last_error"] = "News destination missing; skipped without backlog"
+        delivery_errors.append("News destination missing")
     if analysis.route is Route.EXCLUDE or missing_destination:
         record["phase"] = "excluded"
         result = {"wakeAgent": False, "accepted": True, "excluded": True, "candidate_key": article.key}

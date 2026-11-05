@@ -145,3 +145,18 @@ retain their specialized behavior. See the accepted
 [design](../docs/specs/2026-11-03-company-news-format.md).
 
 New verified company cards prefix descriptive headlines with the current ticker and a colon. Private or untickered companies retain company-name headlines. The security label and latest-price line are consecutive lines in one price block. Frozen cards retain their saved output.
+
+## Industry geography
+
+New industry classifications include `subject.industry` with exactly `region`:
+`ID`, `US`, `GLOBAL`, or `UNKNOWN`. Route by the central industry market, not
+publisher, source language, currency, company example or listing exchange:
+`id_industry_news`, `us_industry_news`, or `global_industry_news`. Other-country,
+worldwide and unresolved geography use Global. US sector indices and US Big
+Tech aggregates are US; Malaysian palm oil and global oil shipping are Global.
+Company stories still focus on one company; industry examples do not create
+duplicate company cards. Industry cards have no company ticker or price block.
+Missing configured destinations are terminal audited skips with a visible
+warning, never an Indonesia or Macro fallback. Industry metadata is an additive
+subject-v2 extension; retained legacy subjects, prepared cards, destinations
+and operation identities keep their saved contract.

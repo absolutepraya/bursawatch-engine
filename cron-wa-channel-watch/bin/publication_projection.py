@@ -52,7 +52,7 @@ def publication_type_for_route(route: str) -> str:
         "id_stocks_news": "idx_company_news",
         "us_stocks_news": "us_company_news",
         "global_company_news": "global_company_news",
-        "id_industry_news": "industry_news",
+        "id_industry_news": "industry_news", "us_industry_news": "industry_news", "global_industry_news": "industry_news",
         "macro_news": "macro_news",
         "id_stocks_swing": "swing_context",
     }[route]
@@ -90,7 +90,7 @@ def _capture_record(value: dict[str, object], record: dict[str, Any], profiles: 
         selected: list[tuple[int, str, dict[str, Any], list[str]]] = []
         for item_index, item in enumerate(raw_items):
             route = item.get("route")
-            if route not in {"macro_news", "id_stocks_news", "us_stocks_news", "global_company_news", "id_industry_news", "id_stocks_swing"}:
+            if route not in {"macro_news", "id_stocks_news", "us_stocks_news", "global_company_news", "id_industry_news", "id_stocks_swing", "us_industry_news", "global_industry_news"}:
                 continue
             if record.get("news_cards") is not None:
                 render.news_format.validate_cards(record["news_cards"])

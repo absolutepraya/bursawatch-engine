@@ -225,7 +225,7 @@ def deterministic_route(
 def optional_news_media(profile: Profile, post: SourcePost, thread_posts: tuple[SourcePost, ...], enabled_capabilities: set[str] | frozenset[str] | None = None) -> bool:
     """Allow fallback only when this event cannot subsequently route to Swing."""
     configured = {channel.key for channel in profile.discord_channels}
-    if not configured.intersection({"macro_news", "id_industry_news", "id_stocks_news", "us_stocks_news"}):
+    if not configured.intersection({"macro_news", "id_industry_news", "id_stocks_news", "us_stocks_news", "us_industry_news", "global_industry_news"}):
         return False
     route = deterministic_route(profile, post, thread_posts) if profile.enable_llm_routing else profile.discord_channels[0].key
     if route == "id_stocks_swing":
@@ -496,7 +496,7 @@ def validate_submission(profile: Profile, payload: object, *, subject_required: 
             if type(item) is not dict or not {"title", "summary", "route"} <= set(item) or set(item) - {"title", "summary", "route", "subject", "ticker"}:
                 raise ValueError("news item has unexpected fields")
             validated = validate_submission(profile, {"event_key": payload["event_key"], **({"is_relevant": True} if profile.enable_llm_relevance_filter else {}), **item}, subject_required=subject_required, company_required=company_required, source_text=source_text)
-            if validated["route"] not in {"id_stocks_news", "us_stocks_news", "global_company_news", "id_industry_news", "macro_news"}:
+            if validated["route"] not in {"id_stocks_news", "us_stocks_news", "global_company_news", "id_industry_news", "macro_news", "us_industry_news", "global_industry_news"}:
                 raise ValueError("multi-item schema supports news routes only")
             items.append({key: validated[key] for key in ("title", "summary", "route", "subject", "ticker") if key in validated})
         items = news_format.deduplicate_items(items)
@@ -535,7 +535,7 @@ def validate_submission(profile: Profile, payload: object, *, subject_required: 
     if profile.enable_llm_summary:
         result["summary"] = validate_summary(payload["summary"])
     if profile.enable_llm_routing:
-        result["route"] = payload["route"] if semantic and "company" in payload.get("subject", {}) and payload["route"] in news_subject.COMPANY_ROUTES else validate_route(profile, payload["route"])
+        result["route"] = payload["route"] if semantic and ("company" in payload.get("subject", {}) or "industry" in payload.get("subject", {})) and payload["route"] in news_subject.GEOGRAPHIC_NEWS_ROUTES else validate_route(profile, payload["route"])
     if semantic:
         subject = news_subject.validate_subject(payload["subject"], source_text)
         if company_required:

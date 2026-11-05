@@ -218,7 +218,9 @@ function Channels({ path, kind }: { path: ConfigPath; kind: ProfileKind }) {
                       ["us_stocks_news", "US company news"],
                       ["global_company_news", "Global company news"],
                       ["macro_news", "Macro news"],
-                      ["id_industry_news", "Industry news"],
+                      ["id_industry_news", "Indonesia industry news"],
+                      ["us_industry_news", "US industry news"],
+                      ["global_industry_news", "Global industry news"],
                       ["id_stocks_swing", "Swing calls"],
                     ]
                   : undefined
@@ -592,7 +594,7 @@ function ProfileFields({ index, kind }: { index: number; kind: ProfileKind }) {
   );
 }
 
-function OptionalCompanyDestinations({ telegram = false }: { telegram?: boolean }) {
+function OptionalGeographicDestinations({ telegram = false }: { telegram?: boolean }) {
   const { draft, update } = useEditor();
   const suffix = telegram ? "_discord_channel_id" : "_channel_id";
   return (
@@ -601,6 +603,8 @@ function OptionalCompanyDestinations({ telegram = false }: { telegram?: boolean 
         [
           ["us_stocks_news", "US company news"],
           ["global_company_news", "Global company news"],
+          ["us_industry_news", "US industry news"],
+          ["global_industry_news", "Global industry news"],
         ] as const
       ).map(([route, label]) => {
         const key = route + suffix;
@@ -694,7 +698,7 @@ function TelegramFields({ watcherId }: { watcherId: string }) {
               path={["destinations", "id_stocks_news_discord_channel_id"]}
               label="Indonesia company news channel ID"
             />
-            <OptionalCompanyDestinations telegram />
+            <OptionalGeographicDestinations telegram />
             <Field
               path={["destinations", "macro_news_discord_channel_id"]}
               label="Macro news channel ID"
@@ -845,7 +849,7 @@ function StockbitFields() {
           path={["destinations", "id_stocks_news_channel_id"]}
           label="Indonesia company news channel ID"
         />
-        <OptionalCompanyDestinations />
+        <OptionalGeographicDestinations />
         <Field path={["destinations", "macro_news_channel_id"]} label="Macro news channel ID" />
         {configValue(draft, ["destinations", "industry_news_channel_id"]) !== undefined && (
           <Field

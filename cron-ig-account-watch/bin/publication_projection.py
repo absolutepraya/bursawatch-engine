@@ -133,13 +133,13 @@ def _candidate(event: dict[str, Any], profile: Any, confirmed_at: datetime, card
     if not messages or not required:
         raise ValueError("Instagram publication has no delivered output")
     route = card["route"] if card is not None else event.get("route")
-    if route not in {"macro_news", "id_stocks_news", "us_stocks_news", "global_company_news", "id_industry_news"}:
+    if route not in {"macro_news", "id_stocks_news", "us_stocks_news", "global_company_news", "id_industry_news", "us_industry_news", "global_industry_news"}:
         raise ValueError("Instagram publication route is not a Published Feed news route")
     title = (card["title"] if card is not None else event.get("title")) or messages[0].splitlines()[0].strip().lstrip("# ").strip()
     if not isinstance(title, str) or not title:
         raise ValueError("Instagram publication title is missing")
     owner_key = f"{event['event_key']}" + (f":item:{card_index}" if card_index is not None else "")
-    kind = {"macro_news": "macro_news", "id_stocks_news": "idx_company_news", "us_stocks_news": "us_company_news", "global_company_news": "global_company_news", "id_industry_news": "industry_news"}[route]
+    kind = {"macro_news": "macro_news", "id_stocks_news": "idx_company_news", "us_stocks_news": "us_company_news", "global_company_news": "global_company_news", "id_industry_news": "industry_news", "us_industry_news": "industry_news", "global_industry_news": "industry_news"}[route]
     snapshot = {
         "api_version": 1, "owner_key": owner_key, "version": 1, "supersedes_version": None,
         "type": kind, "route": route, "source_event_key": event["event_key"],
@@ -157,7 +157,7 @@ def _candidate(event: dict[str, Any], profile: Any, confirmed_at: datetime, card
 def record_intent(value: dict, event: dict, profile: Any, confirmed_at: datetime, delivery_owner: Any | None = None) -> bool:
     if not enabled():
         return False
-    if event.get("is_relevant") is False or event.get("route") not in {"macro_news", "id_stocks_news", "us_stocks_news", "global_company_news", "id_industry_news"}:
+    if event.get("is_relevant") is False or event.get("route") not in {"macro_news", "id_stocks_news", "us_stocks_news", "global_company_news", "id_industry_news", "us_industry_news", "global_industry_news"}:
         return False
     if event.get("news_cards") is not None:
         changed = False

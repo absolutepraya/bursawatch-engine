@@ -45,7 +45,7 @@ export function nextDestination(
   kind: ProfileKind,
   rows: unknown[],
 ): Record<string, unknown> | null {
-  const keys = ["id_stocks_news", "macro_news", "id_stocks_swing", "id_industry_news", "us_stocks_news", "global_company_news"];
+  const keys = ["id_stocks_news", "macro_news", "id_stocks_swing", "id_industry_news", "us_stocks_news", "global_company_news", "us_industry_news", "global_industry_news"];
   const available = keys.find((key) => !rows.some((row) => configValue(row, ["key"]) === key));
   if (kind === "whatsapp" && !available) return null;
   return { key: kind === "whatsapp" ? available : "", channel_id: "", description: "" };
@@ -305,7 +305,7 @@ export function validateWatcherConfig(
     const routeKeys = ["id_stocks_news_channel_id", "macro_news_channel_id"];
     if (configValue(config, ["destinations", "industry_news_channel_id"]) !== undefined)
       routeKeys.push("industry_news_channel_id");
-    for (const key of ["us_stocks_news_channel_id", "global_company_news_channel_id"])
+    for (const key of ["us_stocks_news_channel_id", "global_company_news_channel_id", "us_industry_news_channel_id", "global_industry_news_channel_id"])
       if (configValue(config, ["destinations", key]) !== undefined) routeKeys.push(key);
     if (exactKeys(config.destinations, destinations, routeKeys)) {
       routeKeys.forEach((key) => discord([...destinations, key]));
@@ -483,7 +483,7 @@ export function validateWatcherConfig(
         if (kind === "whatsapp")
           choice(
             [...route, "key"],
-            ["macro_news", "id_stocks_news", "us_stocks_news", "global_company_news", "id_industry_news", "id_stocks_swing"],
+            ["macro_news", "id_stocks_news", "us_stocks_news", "global_company_news", "id_industry_news", "us_industry_news", "global_industry_news", "id_stocks_swing"],
           );
         else
           text(
@@ -540,7 +540,7 @@ export function validateWatcherConfig(
         ]
       : ["alert_discord_channel_id", "heartbeat_discord_channel_id"];
   if (news)
-    for (const key of ["us_stocks_news_discord_channel_id", "global_company_news_discord_channel_id"])
+    for (const key of ["us_stocks_news_discord_channel_id", "global_company_news_discord_channel_id", "us_industry_news_discord_channel_id", "global_industry_news_discord_channel_id"])
       if (configValue(config, ["destinations", key]) !== undefined) destinationKeys.push(key);
   destinationKeys.forEach((key) => discord(["destinations", key]));
   unique(

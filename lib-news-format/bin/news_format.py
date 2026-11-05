@@ -219,7 +219,7 @@ def deduplicate_items(items):
     unique, seen = [], set()
     for item in items:
         route = _field(item, "route")
-        if route in {"id_stocks_news", "us_stocks_news", "global_company_news", "macro_news", "id_industry_news"}:
+        if route in {"id_stocks_news", "us_stocks_news", "global_company_news", "macro_news", "id_industry_news", "us_industry_news", "global_industry_news"}:
             title = _field(item, "title") or ""
             key = (route, " ".join(title.split()),
                    " ".join(normalize_summary(_field(item, "summary")).split()),
@@ -527,7 +527,7 @@ def validate_cards(cards) -> list[dict]:
             raise ValueError("news card destination is invalid")
         if any(type(card[k]) is not str for k in ("title", "summary", "route")):
             raise ValueError("news card text is invalid")
-        if card["route"] not in {"id_stocks_news", "us_stocks_news", "global_company_news", "macro_news", "id_industry_news"}:
+        if card["route"] not in {"id_stocks_news", "us_stocks_news", "global_company_news", "macro_news", "id_industry_news", "us_industry_news", "global_industry_news"}:
             raise ValueError("news card route is invalid")
         if "subject" in card:
             subject = news_subject.validate_subject(card["subject"])

@@ -1149,3 +1149,15 @@ def test_company_security_cannot_be_submitted_without_source_evidence(config_pat
                     'company': {'business_home': 'GLOBAL', 'listing_status': 'listed', 'security_market': 'US'}}}
     with pytest.raises(ValueError, match='source evidence'):
         agent_protocol.validate_submission(profile, payload)
+
+
+@pytest.mark.parametrize('region,route',[('US','us_industry_news'),('GLOBAL','global_industry_news')])
+def test_industry_region_is_accepted_without_company_ticker_or_config_fallback(config_path,region,route):
+    profile = _profile(config_path)
+    source = 'The semiconductor sector index fell 5%.'
+    payload={'event_key':profile.id+':ABC123','is_relevant':True,'items':[{
+        'title':'Volatilitas sektor semikonduktor meningkat','summary':source,'route':route,'ticker':'',
+        'subject':{'kind':'industry','name':'Semiconductors','evidence':source,'industry':{'region':region}}}]}
+    result=agent_protocol.validate_submission(profile,payload,subject_required=True,source_text=source)
+    item,=result['news_items']
+    assert item['route']==route and item['ticker'] is None

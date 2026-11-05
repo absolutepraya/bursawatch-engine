@@ -43,6 +43,8 @@ class Destination(StrEnum):
     US_STOCKS_NEWS = "us_stocks_news"
     GLOBAL_COMPANY_NEWS = "global_company_news"
     INDUSTRY_NEWS = "id_industry_news"
+    US_INDUSTRY_NEWS = "us_industry_news"
+    GLOBAL_INDUSTRY_NEWS = "global_industry_news"
     MACRO_NEWS = "macro_news"
     EXCLUDE = "exclude"
 

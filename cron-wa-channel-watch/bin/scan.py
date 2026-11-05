@@ -779,12 +779,12 @@ def submit_analysis(
         selected_items = None if result.get("is_relevant") is False else result.get("items") or _deterministic_items(profile)
         if selected_items:
             configured = {channel.key for channel in profile.discord_channels}
-            missing = [item["route"] for item in selected_items if item["route"] in agent_protocol.news_subject.COMPANY_ROUTES and item["route"] not in configured]
+            missing = [item["route"] for item in selected_items if item["route"] in agent_protocol.news_subject.GEOGRAPHIC_NEWS_ROUTES and item["route"] not in configured]
             if missing:
                 selected_items = [item for item in selected_items if item["route"] not in missing]
-                record["last_error"] = "Company News destination missing; skipped without backlog"
+                record["last_error"] = "News destination missing; skipped without backlog"
                 control_run.event("company-destination-missing", level="warning", phase="agent", event_type="agent.submission.accepted",
-                    message="Company News destination missing; delivery skipped without backlog", attributes={"reason": "destination_missing", "delivered": 0})
+                    message="News destination missing; delivery skipped without backlog", attributes={"reason": "destination_missing", "delivered": 0})
         if selected_items is not None and source_work_routes.scoped_routes(record) is not None:
             selected_items, scope_outcome, dropped = source_work_routes.filter_items(record, selected_items)
             record["pipeline_scope_outcome"] = scope_outcome

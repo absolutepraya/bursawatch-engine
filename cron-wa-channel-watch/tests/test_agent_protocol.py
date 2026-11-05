@@ -236,3 +236,14 @@ def test_technical_review_is_the_only_deterministic_swing_route():
     assert "company examples and top picks do not change an industry subject" in prompt
     assert "exact, case-sensitive #technicalreview tag" in prompt
     assert "never route to id_stocks_swing" in prompt
+
+
+@pytest.mark.parametrize('region,route',[('US','us_industry_news'),('GLOBAL','global_industry_news')])
+def test_industry_submission_keeps_its_region_without_a_fallback_destination(region,route):
+    source=normalize_bridge_event({'channel_jid':'12345@newsletter','message_id':'sector','published_at':'2026-11-05T01:00:00Z',
+        'text':'The semiconductor industry index fell 5%.','media':[]})
+    payload={'event_key':source.event_key,'is_relevant':True,'items':[{'title':'Volatilitas industri semikonduktor meningkat',
+        'summary':'The semiconductor industry index fell 5%.','route':route,'ticker':'',
+        'subject':{'kind':'industry','name':'Semiconductors','evidence':source.text,'industry':{'region':region}}}]}
+    result=validate_submission(profile(),payload,event=source,subject_required=True)
+    assert result['items'][0]['route']==route and not result['items'][0]['ticker']

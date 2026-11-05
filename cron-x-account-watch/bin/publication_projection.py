@@ -25,7 +25,7 @@ _ROUTES = {
         "us_stocks_news": "us_company_news",
     "us_stocks_news": "us_company_news",
     "macro_news": "macro_news",
-    "id_industry_news": "industry_news",
+    "id_industry_news": "industry_news", "us_industry_news": "industry_news", "global_industry_news": "industry_news",
     "id_stocks_swing": "swing_context",
 }
 

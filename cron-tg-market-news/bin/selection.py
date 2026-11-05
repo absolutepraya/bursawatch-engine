@@ -352,7 +352,7 @@ def assign_tier(state: dict[str, object], item: SelectionCandidate) -> Tier | No
         save_state(state)
         return None
     tier = tier_for_event_class(item.event_class)
-    if item.route in {Destination.MACRO_NEWS, Destination.INDUSTRY_NEWS} or tier in {Tier.ONE, Tier.TWO}:
+    if item.route in {Destination.MACRO_NEWS, Destination.INDUSTRY_NEWS, Destination.US_INDUSTRY_NEWS, Destination.GLOBAL_INDUSTRY_NEWS} or tier in {Tier.ONE, Tier.TWO}:
         _set_phase(record, "pending_delivery")
     else:
         _set_phase(record, "suppressed_ineligible")

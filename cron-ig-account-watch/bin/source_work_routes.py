@@ -88,7 +88,7 @@ def allowed_routes(storage: Path, owner_event_key: str) -> frozenset[str] | None
     record = read(storage, owner_event_key)
     if record is None:
         return None
-    return frozenset({CAPABILITY_ROUTES[capability] for capability in record["capabilities"]} | ({"us_stocks_news", "global_company_news", "id_industry_news"} if "company_news" in record["capabilities"] else set()))
+    return frozenset({CAPABILITY_ROUTES[capability] for capability in record["capabilities"]} | ({"us_stocks_news", "global_company_news", "id_industry_news", "us_industry_news", "global_industry_news"} if "company_news" in record["capabilities"] else set()))
 
 
 def terminal(storage: Path, owner_event_key: str) -> dict | None:
@@ -109,7 +109,7 @@ def terminal(storage: Path, owner_event_key: str) -> dict | None:
         or value["source_event_key"] != record["source_event_key"]
         or value["content_hash"] != record["content_hash"]
         or value["outcome"] not in {"route_not_subscribed", "destination_missing", "irrelevant", "delivered"}
-        or (value["classified_route"] not in (set(CAPABILITY_ROUTES.values()) | {"us_stocks_news", "global_company_news", "id_industry_news"}) if value["outcome"] in {"route_not_subscribed", "destination_missing"} else value["classified_route"] is not None)
+        or (value["classified_route"] not in (set(CAPABILITY_ROUTES.values()) | {"us_stocks_news", "global_company_news", "id_industry_news", "us_industry_news", "global_industry_news"}) if value["outcome"] in {"route_not_subscribed", "destination_missing"} else value["classified_route"] is not None)
     ):
         raise ValueError("Instagram source outcome audit is invalid")
     return value
@@ -121,7 +121,7 @@ def record_terminal(storage: Path, owner_event_key: str, outcome: str, route: st
     if allowed is None or outcome not in {"route_not_subscribed", "destination_missing", "irrelevant", "delivered"}:
         raise ValueError("Instagram source terminal outcome is invalid")
     if outcome in {"route_not_subscribed", "destination_missing"}:
-        if route not in (set(CAPABILITY_ROUTES.values()) | {"us_stocks_news", "global_company_news", "id_industry_news"}) or (outcome == "route_not_subscribed" and route in allowed):
+        if route not in (set(CAPABILITY_ROUTES.values()) | {"us_stocks_news", "global_company_news", "id_industry_news", "us_industry_news", "global_industry_news"}) or (outcome == "route_not_subscribed" and route in allowed):
             raise ValueError("Instagram route no-match is invalid")
     elif route is not None:
         raise ValueError("Instagram source terminal route is invalid")

@@ -157,6 +157,8 @@ class StockbitSnipsHandoffAdapter:
                 channel_id = snapshot["id_stocks_news_channel_id"]
             elif route == "id_industry_news" and isinstance(snapshot.get("industry_news_channel_id"), str):
                 channel_id = snapshot["industry_news_channel_id"]
+            elif route in {"us_stocks_news", "global_company_news", "us_industry_news", "global_industry_news"} and isinstance(snapshot.get(route + "_channel_id"), str):
+                channel_id = snapshot[route + "_channel_id"]
             elif route == "macro_news":
                 channel_id = snapshot["macro_news_channel_id"]
             else:
