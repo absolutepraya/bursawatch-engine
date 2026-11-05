@@ -1066,6 +1066,21 @@ def run(
             raise
 
 
+def _routing_diagnostics(items: list[dict]) -> list[dict]:
+    """Record validated decision enums without source text or identities."""
+    decisions = []
+    for item in items:
+        subject = item.get("subject")
+        if not isinstance(subject, dict):
+            continue
+        company = subject.get("company") or {}
+        decisions.append({"route": item.get("route"), "kind": subject.get("kind"),
+                          "business_home": company.get("business_home"),
+                          "security_market": company.get("security_market"),
+                          "security_present": bool(item.get("ticker"))})
+    return decisions
+
+
 def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dict[str, object]:
     if type(payload) is not dict or not isinstance(payload.get("event_key"), str):
         raise ValueError("analysis submission requires an event_key")
@@ -1197,7 +1212,8 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 phase="agent",
                 event_type="agent.submission.accepted",
                 message="X agent submission accepted",
-                attributes={"is_relevant": True, "delivered": stats.delivered},
+                attributes={"is_relevant": True, "delivered": stats.delivered,
+                            "routing_decisions": _routing_diagnostics(news_items or [analysis])},
             )
             _report_control_event(
                 reporter,

@@ -6,8 +6,11 @@ categories from keywords, tickers, publishers, templates, or section names.
 `news_subject.py` performs no I/O. The separate `news_identity.py` allows only
 bounded read-only Yahoo company/security discovery, never arbitrary URLs,
 source-state mutation, model calls, delivery, or extra news facts. Require
-unique normalized company-name and exchange agreement; ambiguity or failure
+unique normalized company-name or exact-symbol and exchange agreement; ambiguity or failure
 retains company-name Company News without a tracker.
+An exact source product-name and ticker pair may support ticker lookup, but an
+indirect association cannot. Optional provider headquarters country is a hint,
+not proof of the primary business home, and never changes the route on its own.
 
 Keep category and security resolution separate. Company, industry and macro
 are semantic subjects. An unknown ticker never changes a company into Macro.

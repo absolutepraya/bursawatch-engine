@@ -56,6 +56,14 @@ def stats() -> scan.RunStats:
     return scan.RunStats()
 
 
+def test_routing_diagnostics_record_decision_without_source_text():
+    items = [{"route":"global_company_news", "ticker":None,
+              "subject":{"kind":"company", "name":"Secret name", "evidence":"Secret source", "company":{"business_home":"UNKNOWN", "security_market":"", "listing_status":"unknown"}}}]
+    decision = scan._routing_diagnostics(items)
+    assert decision == [{"route":"global_company_news", "kind":"company", "business_home":"UNKNOWN", "security_market":"", "security_present":False}]
+    assert "Secret" not in json.dumps(decision)
+
+
 def swing_event(source_text: str) -> dict:
     profile = profile_fixture()
     post = SourcePost(
