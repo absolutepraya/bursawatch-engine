@@ -223,7 +223,7 @@ def _phintraco_entry(item: SelectionCandidate, market_metadata=None) -> str:
 
 
 def _phintraco_macro_entry(item: SelectionCandidate, market_metadata=None) -> str:
-    if item.route not in {Destination.MACRO_NEWS, Destination.INDUSTRY_NEWS}:
+    if item.route not in {Destination.MACRO_NEWS, Destination.INDUSTRY_NEWS, Destination.US_INDUSTRY_NEWS, Destination.GLOBAL_INDUSTRY_NEWS}:
         raise ValueError("Phintraco macro entries require the macro_news route")
     return _issuer_entry(
         item,
@@ -239,7 +239,7 @@ def _entry(item: SelectionCandidate, market_metadata=None) -> str:
     if item.provider is Provider.TUNTUN and item.title:
         return _tuntun_entry(item, market_metadata)
     if item.provider is Provider.PHINTRACO:
-        if item.route in {Destination.MACRO_NEWS, Destination.INDUSTRY_NEWS}:
+        if item.route in {Destination.MACRO_NEWS, Destination.INDUSTRY_NEWS, Destination.US_INDUSTRY_NEWS, Destination.GLOBAL_INDUSTRY_NEWS}:
             return _phintraco_macro_entry(item, market_metadata)
         if item.route is Destination.ID_STOCKS_NEWS:
             return _phintraco_entry(item, market_metadata)

@@ -106,7 +106,7 @@ def _snapshot(value: dict[str, object], article_key: str, confirmed_at: datetime
         publication_type = "global_company_news"
     elif analysis.route is Route.MACRO_NEWS:
         publication_type = "macro_news"
-    elif analysis.route is Route.INDUSTRY_NEWS:
+    elif analysis.route in {Route.INDUSTRY_NEWS, Route.US_INDUSTRY_NEWS, Route.GLOBAL_INDUSTRY_NEWS}:
         publication_type = "industry_news"
     else:
         raise IncompletePublication("Stockbit article route is invalid")

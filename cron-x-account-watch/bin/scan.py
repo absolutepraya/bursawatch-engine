@@ -45,7 +45,7 @@ ROUTE_CAPABILITIES = {
     "id_stocks_news": "company_news",
     "us_stocks_news": "company_news",
     "global_company_news": "company_news",
-    "id_industry_news": "company_news",
+    "id_industry_news": "company_news", "us_industry_news": "company_news", "global_industry_news": "company_news",
     "macro_news": "macro_news",
     "id_stocks_swing": "swing_chart_context",
 }
@@ -1131,10 +1131,10 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
             news_items = analysis.pop("news_items", None)
             configured_routes = {channel.key for channel in profile.discord_channels}
             candidates = news_items if news_items is not None else [analysis]
-            missing = [item["route"] for item in candidates if item.get("route") in agent_protocol.news_subject.COMPANY_ROUTES and item["route"] not in configured_routes]
+            missing = [item["route"] for item in candidates if item.get("route") in agent_protocol.news_subject.GEOGRAPHIC_NEWS_ROUTES and item["route"] not in configured_routes]
             if missing:
                 _report_control_event(reporter, run_id, "company-destination-missing", level="warning", phase="agent",
-                    event_type="agent.submission.accepted", message="Company News destination missing; delivery skipped without backlog",
+                    event_type="agent.submission.accepted", message="News destination missing; delivery skipped without backlog",
                     attributes={"reason": "destination_missing", "delivered": 0})
                 candidates = [item for item in candidates if item.get("route") not in missing]
                 if not candidates:
@@ -1145,7 +1145,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                     state.save_state(storage, value)
                     summary_context.cleanup_claim_context(optional_context)
                     _cleanup_agent_vision(storage, event)
-                    _finish_control_run(reporter, run_id, "degraded", "Company News destination missing")
+                    _finish_control_run(reporter, run_id, "degraded", "News destination missing")
                     return {"submitted": True, "delivered": 0, "outcome": "destination_missing", "routing_warning": True}
                 if news_items is not None:
                     news_items = candidates
@@ -1178,7 +1178,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 )
                 _finish_control_run(reporter, run_id, "ok")
                 return {"submitted": True, "suppressed": "suppressed_ineligible", "delivered": 0}
-            if profile.enable_llm_summary and candidate_route in {"id_stocks_news", "us_stocks_news", "global_company_news", "id_industry_news", "macro_news"}:
+            if profile.enable_llm_summary and candidate_route in {"id_stocks_news", "us_stocks_news", "global_company_news", "id_industry_news", "macro_news", "us_industry_news", "global_industry_news"}:
                 analysis["news_cards"] = render.freeze_news(profile, post, news_items or [{**{key: analysis[key] for key in ("summary", "subject", "ticker") if key in analysis}, "title": analysis.get("title") or profile.display_name, "route": candidate_route}], updated_tweet=bool(event.get("updated_tweet")))
             state.submit_analysis(value, analysis["event_key"], {key: item for key, item in analysis.items() if key not in {"event_key", "is_relevant"}})
             state.save_state(storage, value)

@@ -82,7 +82,7 @@ def load_watch_config_data(raw: object) -> StockbitWatchConfig:
         "id_stocks_news_channel_id",
         "macro_news_channel_id",
     }
-    if type(destinations) is not dict or (not expected_destinations <= set(destinations) or set(destinations) - expected_destinations - {"industry_news_channel_id", "us_stocks_news_channel_id", "global_company_news_channel_id"}):
+    if type(destinations) is not dict or (not expected_destinations <= set(destinations) or set(destinations) - expected_destinations - {"industry_news_channel_id", "us_stocks_news_channel_id", "global_company_news_channel_id", "us_industry_news_channel_id", "global_industry_news_channel_id"}):
         raise ValueError("Stockbit destinations have an invalid shape")
     for key in destinations:
         value = destinations[key]
@@ -111,6 +111,8 @@ def load_watch_config_data(raw: object) -> StockbitWatchConfig:
         industry_news_channel_id=industry_channel,
         us_stocks_news_channel_id=destinations.get("us_stocks_news_channel_id"),
         global_company_news_channel_id=destinations.get("global_company_news_channel_id"),
+        us_industry_news_channel_id=destinations.get("us_industry_news_channel_id"),
+        global_industry_news_channel_id=destinations.get("global_industry_news_channel_id"),
     )
 
 

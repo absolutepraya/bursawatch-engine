@@ -220,3 +220,10 @@ def test_verified_security_survives_non_indonesia_company_projection(route, expe
     snapshot = projection._snapshot(value, article.key, NOW)
     assert snapshot["type"] == expected
     assert snapshot["ticker"] == "EXAMPLE"
+
+
+@pytest.mark.parametrize('route',['us_industry_news','global_industry_news'])
+def test_regional_industry_publications_keep_the_common_type_and_exact_route(route):
+    value,article,_,_=_bound_state(route)
+    snapshot=projection._snapshot(value,article.key,NOW)
+    assert snapshot['type']=='industry_news' and snapshot['route']==route and snapshot['ticker'] is None

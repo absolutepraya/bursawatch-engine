@@ -31,7 +31,8 @@ concurrency:
 
 jobs:
   web:
-    runs-on: ubuntu-latest
+    # Playwright 1.58 supports Ubuntu 24.04, not the moving latest image.
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
       fail-fast: false

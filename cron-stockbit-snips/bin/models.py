@@ -11,6 +11,8 @@ class Route(StrEnum):
     US_STOCKS_NEWS = "us_stocks_news"
     GLOBAL_COMPANY_NEWS = "global_company_news"
     INDUSTRY_NEWS = "id_industry_news"
+    US_INDUSTRY_NEWS = "us_industry_news"
+    GLOBAL_INDUSTRY_NEWS = "global_industry_news"
     MACRO_NEWS = "macro_news"
     EXCLUDE = "exclude"
 
@@ -44,6 +46,8 @@ class StockbitWatchConfig:
     industry_news_channel_id: str = "1549418098807930880"
     us_stocks_news_channel_id: str | None = None
     global_company_news_channel_id: str | None = None
+    us_industry_news_channel_id: str | None = None
+    global_industry_news_channel_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

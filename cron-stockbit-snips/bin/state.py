@@ -235,7 +235,7 @@ def _valid_config_snapshot(value: object) -> bool:
         "id_stocks_news_channel_id",
         "macro_news_channel_id",
     }
-    if type(value) is not dict or (not fields <= set(value) or set(value) - fields - {"industry_news_channel_id", "us_stocks_news_channel_id", "global_company_news_channel_id"}):
+    if type(value) is not dict or (not fields <= set(value) or set(value) - fields - {"industry_news_channel_id", "us_stocks_news_channel_id", "global_company_news_channel_id", "us_industry_news_channel_id", "global_industry_news_channel_id"}):
         return False
     if type(value["revision"]) is not int or value["revision"] < 1:
         return False
@@ -244,7 +244,7 @@ def _valid_config_snapshot(value: object) -> bool:
         return False
     issuer = value["id_stocks_news_channel_id"]
     macro = value["macro_news_channel_id"]
-    channels = [issuer, macro] + [value[key] for key in ("industry_news_channel_id", "us_stocks_news_channel_id", "global_company_news_channel_id") if key in value]
+    channels = [issuer, macro] + [value[key] for key in ("industry_news_channel_id", "us_stocks_news_channel_id", "global_company_news_channel_id", "us_industry_news_channel_id", "global_industry_news_channel_id") if key in value]
     return all(type(channel) is str and channel.isascii() and channel.isdecimal() and 17 <= len(channel) <= 20 for channel in channels) and len(channels) == len(set(channels))
 
 

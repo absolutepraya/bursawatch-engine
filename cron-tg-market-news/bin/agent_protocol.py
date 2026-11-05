@@ -106,7 +106,7 @@ SUBJECT_INSTRUCTION = _BASE_INSTRUCTION + news_subject.INSTRUCTION + news_subjec
     "eligible, route, and source_evidence. The supplied ticker is only an optional hint: establish the central "
     "issuer from the full source text, or leave ticker empty. A source-supported name without a verified ticker "
     "still belongs in the Company News route derived from business_home and uses that company name in its headline. For industry and macro, ticker "
-    "is empty. Use business_home to choose id_stocks_news, us_stocks_news, or global_company_news for company; use id_industry_news for industry, macro_news for macro, and exclude "
+    "is empty. Use business_home to choose id_stocks_news, us_stocks_news, or global_company_news for company; use the industry region to choose id_industry_news, us_industry_news, or global_industry_news; use macro_news for macro, and exclude "
     "for ineligible material. Include subject for every result, including excluded material, so the routing decision "
     "remains auditable. For a verified current security, begin the company headline with TICKER colon; otherwise use a natural company-name "
     "headline. Do not include a Ringkasan marker or an ending punctuation mark. Preserve Phintraco research attribution "
@@ -250,7 +250,7 @@ def _route_from_submission(candidate: CompanyCandidate, payload: Mapping[str, ob
         if route is not Destination.EXCLUDE:
             news_subject.validate_route(subject, route.value)
         return route
-    if route is Destination.INDUSTRY_NEWS:
+    if route in {Destination.INDUSTRY_NEWS, Destination.US_INDUSTRY_NEWS, Destination.GLOBAL_INDUSTRY_NEWS}:
         raise ValueError("Industry news requires subject classification")
     if candidate.ticker is None and route is Destination.ID_STOCKS_NEWS:
         raise ValueError("a macro candidate cannot route to id_stocks_news")

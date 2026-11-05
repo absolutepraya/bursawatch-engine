@@ -201,6 +201,10 @@ describe("watcher configuration drafts", () => {
     expect(routes[4]?.key).toBe("us_stocks_news");
     routes.push(nextDestination("whatsapp", routes));
     expect(routes[5]?.key).toBe("global_company_news");
+    routes.push(nextDestination("whatsapp", routes));
+    expect(routes[6]?.key).toBe("us_industry_news");
+    routes.push(nextDestination("whatsapp", routes));
+    expect(routes[7]?.key).toBe("global_industry_news");
     expect(nextDestination("whatsapp", routes)).toBeNull();
   });
 
@@ -595,4 +599,13 @@ it("accepts an optional distinct industry destination for Stockbit", () => {
     ...config,
     destinations: { ...destinations, industry_news_channel_id: destinations.id_stocks_news_channel_id },
   })).toHaveProperty("destinations.industry_news_channel_id");
+});
+
+
+it("accepts distinct regional industry destinations and rejects duplicates", () => {
+  const config = validStockbitConfig();
+  Object.assign(config.destinations, { us_industry_news_channel_id: "345678901234567890", global_industry_news_channel_id: "456789012345678901" });
+  expect(validateWatcherConfig(stockbitWatcherId, config)).toEqual({});
+  Object.assign(config.destinations, { global_industry_news_channel_id: "345678901234567890" });
+  expect(validateWatcherConfig(stockbitWatcherId, config)).toHaveProperty("destinations.global_industry_news_channel_id");
 });

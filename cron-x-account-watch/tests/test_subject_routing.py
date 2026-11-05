@@ -10,7 +10,8 @@ import state
 import subject_context
 
 
-def test_missing_global_destination_is_terminal_without_macro_or_backlog(tmp_path, monkeypatch, config_path, profile_payload):
+@pytest.mark.parametrize("industry_region", [None, "US", "GLOBAL"])
+def test_missing_global_destination_is_terminal_without_macro_or_backlog(tmp_path, monkeypatch, config_path, profile_payload, industry_region):
     profile_payload.update(enable_llm_title=True, enable_llm_summary=True,
                            enable_llm_routing=True, enable_llm_relevance_filter=True)
     profile_payload["discord_channels"] = [
@@ -42,6 +43,9 @@ def test_missing_global_destination_is_terminal_without_macro_or_backlog(tmp_pat
         "subject": {"kind": "company", "name": "Example Business", "evidence": "Example Business plans an IPO",
                     "company": {"business_home": "UNKNOWN", "listing_status": "pre_ipo", "security_market": ""}},
     }]}
+    if industry_region:
+        payload["items"][0].update(route="us_industry_news" if industry_region == "US" else "global_industry_news",
+            subject={"kind":"industry","name":"Production","evidence":text,"industry":{"region":industry_region}})
     result = scan.submit_analysis_payload(payload, dry_run=True)
     assert result["outcome"] == "destination_missing" and result["delivered"] == 0
     saved = state.load_state(storage)
@@ -57,6 +61,12 @@ def test_outstanding_v1_subject_context_still_reads(tmp_path):
 
 
 @pytest.mark.parametrize("source,subject,route,ticker,title", [
+    ("US semiconductor sector index fell 5%.",
+     {"kind":"industry","name":"Semiconductors","evidence":"US semiconductor sector index fell", "industry":{"region":"US"}},
+     "us_industry_news", "", "Volatilitas semikonduktor AS meningkat"),
+    ("Malaysian palm oil futures rose 1%.",
+     {"kind":"industry","name":"Palm oil","evidence":"Malaysian palm oil futures rose", "industry":{"region":"GLOBAL"}},
+     "global_industry_news", "", "Harga CPO Malaysia meningkat"),
     ("ACME memperoleh kontrak baru meski IHSG melemah.",
      {"kind": "company", "name": "ACME", "evidence": "ACME memperoleh kontrak baru", "company": {"business_home": "ID", "listing_status": "private", "security_market": ""}},
      "id_stocks_news", "", "ACME: Memperoleh kontrak baru"),
@@ -74,7 +84,7 @@ def test_claim_validates_subject_and_preserves_route_without_lexical_override(
                            enable_llm_routing=True, enable_llm_relevance_filter=True)
     profile_payload["discord_channels"] = [
         {"key": key, "channel_id": str(100000000000000001 + index), "description": key}
-        for index, key in enumerate(("id_stocks_news", "id_industry_news", "macro_news"))
+        for index, key in enumerate(("id_stocks_news", "id_industry_news", "macro_news", "us_industry_news", "global_industry_news"))
     ]
     config_path.write_text(json.dumps({"version": 1, "profiles": [profile_payload]}))
     profile = config.load_watch_config(config_path).profiles[0]

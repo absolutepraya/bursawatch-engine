@@ -46,6 +46,8 @@ class WatchConfig:
     additional_prompt_instruction: str
     us_stocks_news_channel_id: str | None = None
     global_company_news_channel_id: str | None = None
+    us_industry_news_channel_id: str | None = None
+    global_industry_news_channel_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -88,7 +90,7 @@ def load_watch_config_data(raw: object) -> WatchConfig:
     if set(phintraco) != {"telegram_username"} or set(tuntun) != {"telegram_username"}:
         raise ValueError("each provider must contain only telegram_username")
     destinations = _object(root["destinations"], "destinations")
-    if not _DESTINATIONS <= set(destinations) or set(destinations) - _DESTINATIONS - {"us_stocks_news_discord_channel_id", "global_company_news_discord_channel_id"}:
+    if not _DESTINATIONS <= set(destinations) or set(destinations) - _DESTINATIONS - {"us_stocks_news_discord_channel_id", "global_company_news_discord_channel_id", "us_industry_news_discord_channel_id", "global_industry_news_discord_channel_id"}:
         raise ValueError("destinations has an unsupported schema")
     values = {
         key: _discord(destinations[key], f"destinations.{key}")
@@ -112,6 +114,8 @@ def load_watch_config_data(raw: object) -> WatchConfig:
         prompt,
         values.get("us_stocks_news_discord_channel_id"),
         values.get("global_company_news_discord_channel_id"),
+        values.get("us_industry_news_discord_channel_id"),
+        values.get("global_industry_news_discord_channel_id"),
     )
 
 

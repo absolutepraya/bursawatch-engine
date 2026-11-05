@@ -87,3 +87,5 @@ _Avoid_: Historical ticker, inherited parent ticker
 The fixed representation of a news card chosen for publication, including
 the market values displayed with it.
 _Avoid_: Freshly repriced retry, source publication
+
+**Industry region**: The central industry market supported by the story: Indonesia, US, other-country/global, or unresolved. This differs from publisher location, language, currency and company listing exchange. Regional industry routes retain the common Industry News publication type.

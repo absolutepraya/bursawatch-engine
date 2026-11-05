@@ -833,7 +833,7 @@ components:
         version: {type: integer, minimum: 1, maximum: 1000000}
         supersedes_version: {type: [integer, 'null']}
         type: {type: string, enum: [idx_company_news, us_company_news, global_company_news, industry_news, macro_news, stock_status, broker_swing_plan, broker_swing_update, swing_context, swing_bundle, swing_board_update]}
-        route: {type: string, enum: [id_stocks_news, id_industry_news, macro_news, us_stocks_news, id_stocks_swing, swing_board]}
+        route: {type: string, enum: [id_stocks_news, id_industry_news, us_industry_news, global_industry_news, macro_news, us_stocks_news, global_company_news, id_stocks_swing, swing_board]}
         source_event_key: {type: [string, 'null'], maxLength: 256}
         source_name: {type: string, minLength: 1, maxLength: 200}
         source_url: {type: [string, 'null'], format: uri}
@@ -873,7 +873,7 @@ components:
         version: {type: integer}
         supersedes_version: {type: [integer, 'null']}
         type: {type: string, enum: [idx_company_news, us_company_news, global_company_news, industry_news, macro_news, stock_status, broker_swing_plan, broker_swing_update, swing_context, swing_bundle, swing_board_update]}
-        route: {type: string, enum: [id_stocks_news, id_industry_news, macro_news, us_stocks_news, id_stocks_swing, swing_board]}
+        route: {type: string, enum: [id_stocks_news, id_industry_news, us_industry_news, global_industry_news, macro_news, us_stocks_news, global_company_news, id_stocks_swing, swing_board]}
         source_event_key: {type: [string, 'null']}
         source_name: {type: string}
         source_url: {type: [string, 'null'], format: uri}

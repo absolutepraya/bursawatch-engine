@@ -59,6 +59,8 @@ const type = z.enum([
 const route = z.enum([
   "id_stocks_news",
   "id_industry_news",
+  "us_industry_news",
+  "global_industry_news",
   "macro_news",
   "us_stocks_news",
   "global_company_news",

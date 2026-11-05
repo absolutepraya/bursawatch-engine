@@ -1171,10 +1171,10 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
             news_items = analysis.pop("news_items", None)
             configured = {channel.key for channel in profile.discord_channels}
             candidates = news_items if news_items is not None else [analysis]
-            missing = [item["route"] for item in candidates if item.get("route") in agent_protocol.news_subject.COMPANY_ROUTES and item["route"] not in configured]
+            missing = [item["route"] for item in candidates if item.get("route") in agent_protocol.news_subject.GEOGRAPHIC_NEWS_ROUTES and item["route"] not in configured]
             if missing:
                 control_run.event("company-destination-missing", level="warning", phase="agent", event_type="agent.submission.accepted",
-                    message="Company News destination missing; delivery skipped without backlog", attributes={"reason": "destination_missing", "delivered": 0})
+                    message="News destination missing; delivery skipped without backlog", attributes={"reason": "destination_missing", "delivered": 0})
                 candidates = [item for item in candidates if item.get("route") not in missing]
                 if not candidates:
                     if source_work_routes.read(storage, event_key) is not None:
@@ -1183,7 +1183,7 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                     state.save_state(storage, value)
                     summary_context.cleanup_claim_context(optional_context)
                     subject_context.cleanup(storage, event)
-                    control_run.finish("degraded", "Company News destination missing")
+                    control_run.finish("degraded", "News destination missing")
                     return {"submitted": True, "delivered": 0, "outcome": "destination_missing", "routing_warning": True}
                 if news_items is not None:
                     news_items = candidates
@@ -1193,8 +1193,6 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
                 news_items = [item for item in news_items if item["route"] in allowed_routes]
                 if news_items:
                     analysis.update(news_items[0])
-            if news_items == []:
-                analysis["route"] = "route_not_subscribed"
             if allowed_routes is not None and analysis.get("route") not in allowed_routes:
                 source_work_routes.record_terminal(storage, event_key, "route_not_subscribed", analysis["route"])
                 state.discard_analysis(value, analysis["event_key"], now)

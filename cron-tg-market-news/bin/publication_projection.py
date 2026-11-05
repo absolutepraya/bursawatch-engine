@@ -170,8 +170,8 @@ def _finish_snapshot(
 
 
 def _publication_type(item: SelectionCandidate) -> tuple[str, str]:
-    if item.route is Destination.INDUSTRY_NEWS or (item.subject is None and item.candidate.source_kind is SourceKind.TUNTUN_UPDATE_INDUSTRY):
-        return "industry_news", "id_industry_news"
+    if item.route in {Destination.INDUSTRY_NEWS, Destination.US_INDUSTRY_NEWS, Destination.GLOBAL_INDUSTRY_NEWS} or (item.subject is None and item.candidate.source_kind is SourceKind.TUNTUN_UPDATE_INDUSTRY):
+        return "industry_news", item.route.value if item.route in {Destination.US_INDUSTRY_NEWS, Destination.GLOBAL_INDUSTRY_NEWS} else "id_industry_news"
     if item.route is Destination.MACRO_NEWS:
         return "macro_news", "macro_news"
     if item.route is Destination.US_STOCKS_NEWS:
