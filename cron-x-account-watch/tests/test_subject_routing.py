@@ -8,6 +8,26 @@ from models import PostKind, SourcePost
 import scan
 import state
 import subject_context
+import agent_protocol
+import news_identity
+
+
+@pytest.mark.parametrize("name,ticker,market,home,text", [
+    ("Snapchat", "SNAP", "US", "US", "Snapchat stock, $SNAP, falls over -10% after earnings."),
+    ("ASSA", "ASSA", "ID", "ID", "ASSA akan membagikan dividen interim Rp 20/saham."),
+])
+def test_source_company_identity_survives_submission(name, ticker, market, home, text, monkeypatch, config_path, profile_payload):
+    profile_payload.update(enable_llm_title=True, enable_llm_summary=True, enable_llm_routing=True, enable_llm_relevance_filter=True)
+    profile_payload["discord_channels"] = [{"key":key,"channel_id":str(100000000000000001 + i),"description":key} for i,key in enumerate(("id_stocks_news","us_stocks_news","global_company_news"))]
+    config_path.write_text(json.dumps({"version": 1, "profiles": [profile_payload]}))
+    profile = config.load_watch_config(config_path).profiles[0]
+    monkeypatch.setattr(news_identity, "lookup_company", lambda query, selected: {"status":"verified", "ticker":ticker} if query == ticker and selected == market else {"status":"unresolved"})
+    route = "us_stocks_news" if home == "US" else "id_stocks_news"
+    payload = {"event_key":"source:1", "is_relevant":True, "items":[{"title":ticker + ": Company update", "summary":text, "route":route, "ticker":ticker,
+        "subject":{"kind":"company", "name":name, "evidence":text, "company":{"business_home":home, "listing_status":"listed", "security_market":market}}}]}
+    result = agent_protocol.validate_submission(profile, payload, subject_required=True, company_required=True, source_text=text)
+    assert result["news_items"][0]["route"] == route
+    assert result["news_items"][0]["ticker"] == ticker
 
 
 @pytest.mark.parametrize("industry_region", [None, "US", "GLOBAL"])

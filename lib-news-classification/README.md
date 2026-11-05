@@ -14,10 +14,16 @@ economic stories remain Macro News when companies or sectors are examples.
 Independent company stories split; a connected transaction stays together.
 
 `news_subject.py` has no I/O. The separate `news_identity.py` performs bounded
-read-only Yahoo Finance searches for exact company-name and exchange matches.
+read-only Yahoo Finance searches for exact company-name or exact symbol and
+exchange matches. Exact symbol queries can return the provider's company name
+and, when available, a matching record's headquarters country as a hint. The
+country and exchange do not establish primary business home by themselves.
 It has no credentials, source state, model calls, or message delivery.
 Owners expose `lookup-company` through their managed wrappers. An externally
-proposed ticker is independently verified before selection is persisted;
+proposed ticker is independently verified before selection is persisted. When
+the source directly binds a product name to an explicit ticker, owners may
+verify that exact ticker even when the legal company name differs from the
+source wording; ambiguous or indirect mentions remain unresolved;
 unresolved identity falls back to company-name Company News without a tracker. Owners retain source eligibility, market coverage, intake, leases,
 frozen destinations, and delivery receipts. Specialized Swing and Stock
 Information retain their separate contracts. Old frozen output is never

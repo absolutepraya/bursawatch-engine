@@ -9,6 +9,7 @@ import news_subject
 
 
 _SLOTS = threading.BoundedSemaphore(4)
+_DETAIL_SLOTS = threading.BoundedSemaphore(2)
 _US_EXCHANGES = frozenset({"NMS", "NGM", "NCM", "NYQ", "ASE", "PCX", "BTS", "BATS"})
 
 
@@ -27,7 +28,37 @@ def _search(company: str) -> list[dict]:
                      include_cb=False, enable_fuzzy_query=False, timeout=3).quotes
 
 
-def lookup_company(company: str, market: str = "ID", *, search=None) -> dict:
+def _details(symbol: str) -> dict:
+    import yfinance as yf
+    return yf.Ticker(symbol).get_info()
+
+
+def _headquarters_country(symbol: str, details) -> str | None:
+    if not _DETAIL_SLOTS.acquire(blocking=False):
+        return None
+    results = []
+
+    def run():
+        try:
+            results.append(details(symbol))
+        except Exception:
+            pass
+        finally:
+            _DETAIL_SLOTS.release()
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(3.5)
+    if worker.is_alive() or not results or not isinstance(results[0], dict):
+        return None
+    info = results[0]
+    country = info.get("country")
+    if info.get("symbol") != symbol or not isinstance(country, str) or not 1 <= len(country.strip()) <= 80:
+        return None
+    return country.strip()
+
+
+def lookup_company(company: str, market: str = "ID", *, search=None, details=None) -> dict:
     if not isinstance(company, str) or not company.strip() or len(company) > 200:
         raise ValueError("company must contain one to 200 characters")
     if market not in {"ID", "US"}:
@@ -67,18 +98,29 @@ def lookup_company(company: str, market: str = "ID", *, search=None) -> dict:
             ticker = symbol
         names = [row.get("longname"), row.get("shortname")]
         name = next((name for name in names if isinstance(name, str) and _name(name) == _name(company)), None)
+        # An exact, explicitly requested exchange symbol is a different query
+        # from a fuzzy company-name search. Keep both market and type checks.
+        if name is None and row.get("quoteType") == "EQUITY" and company.strip() == ticker:
+            name = next((name for name in names if isinstance(name, str) and name.strip()), None)
         if name is None:
             continue
         matches[symbol] = {"status": "verified", "company": company, "market": market,
                            "ticker": ticker, "symbol": symbol, "exchange": exchange,
                            "name": name, "source_url": f"https://finance.yahoo.com/quote/{symbol}/"}
-    return next(iter(matches.values())) if len(matches) == 1 else unresolved
+    if len(matches) != 1:
+        return unresolved
+    match = next(iter(matches.values()))
+    if details is not None:
+        country = _headquarters_country(match["symbol"], details)
+        if country:
+            match["headquarters_country"] = country
+    return match
 
 
 def lookup_payload(payload: object) -> dict:
     if type(payload) is not dict or set(payload) != {"company", "market"}:
         raise ValueError("lookup requires exactly company and market")
-    return lookup_company(payload["company"], payload["market"])
+    return lookup_company(payload["company"], payload["market"], details=_details)
 
 
 def _without_security(item: dict, subject: dict, ticker: str) -> dict:
@@ -111,6 +153,8 @@ def prepare_item(item: dict, source_text: str, *, market: str = "ID") -> tuple[d
             return _without_security(item, subject, ticker), None
         market = "US" if quote_route == "us_stocks_news" else "ID"
         identity = lookup_company(subject["name"], market)
+        if identity.get("status") != "verified" and _source_binds_ticker(subject, ticker):
+            identity = lookup_company(ticker, market)
         if identity.get("status") == "verified" and identity.get("ticker") == ticker:
             return item, ticker
         return _without_security(item, subject, ticker), None
@@ -129,3 +173,11 @@ def prepare_item(item: dict, source_text: str, *, market: str = "ID") -> tuple[d
     if isinstance(title, str) and title.startswith(ticker + ":"):
         result["title"] = subject["name"] + ":" + title[len(ticker) + 1:]
     return result, None
+
+
+def _source_binds_ticker(subject: dict, ticker: str) -> bool:
+    """Accept only a short, explicit name/security pair in source evidence."""
+    name = re.escape(subject["name"])
+    symbol = re.escape(ticker)
+    pattern = rf"(?<!\w){name}\s*(?:(?:stock|shares|saham)\s*,?\s*)?(?:\(\s*\$?{symbol}\s*\)|,\s*\${symbol}(?![A-Za-z0-9.-])|\${symbol}(?![A-Za-z0-9.-]))"
+    return re.search(pattern, subject["evidence"], flags=re.IGNORECASE) is not None

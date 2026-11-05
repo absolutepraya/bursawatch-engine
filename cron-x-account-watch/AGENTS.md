@@ -41,7 +41,8 @@ This file supplements the repository root `AGENTS.md`. It is the development and
 With live configuration, the dashboard records one frozen revision per source,
 queue-worker, or agent-submission invocation. It receives lifecycle, per-profile
 source, delivery-drain, agent-wake, and submission events containing only
-profile IDs, counts, modes, and sanitized reasons. It never receives X text,
+profile IDs, counts, modes, sanitized reasons, and bounded routing-decision
+enums plus whether a security was retained. It never receives X text,
 quoted text, source URLs, linked-article text, media paths, state payloads, or
 credentials.
 

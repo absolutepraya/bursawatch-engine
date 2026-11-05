@@ -39,6 +39,48 @@ def test_lookup_does_not_fuzzy_match_short_names_or_subsidiaries():
     assert news_identity.lookup_company("Bach Multi Global Logistics", search=lambda _: [row()])["status"] == "unresolved"
 
 
+def test_lookup_exact_source_symbol_requires_matching_market_and_equity():
+    issuer = row("ASSA.JK", "PT Adi Sarana Armada Tbk", "JKT")
+    assert news_identity.lookup_company("ASSA", "ID", search=lambda _: [issuer])["ticker"] == "ASSA"
+    assert news_identity.lookup_company("ASSA", "US", search=lambda _: [issuer])["status"] == "unresolved"
+    assert news_identity.lookup_company("ASSA", "ID", search=lambda _: [row("ASSA-B.ST", "ASSA ABLOY", "STO")])["status"] == "unresolved"
+
+
+def test_lookup_may_supply_matching_headquarters_as_a_hint():
+    issuer = row("ASSA.JK", "PT Adi Sarana Armada Tbk", "JKT")
+    match = lambda _: {"symbol":"ASSA.JK", "country":"Indonesia"}
+    assert news_identity.lookup_company("ASSA", "ID", search=lambda _: [issuer], details=match)["headquarters_country"] == "Indonesia"
+    other = lambda _: {"symbol":"OTHER.JK", "country":"Indonesia"}
+    assert "headquarters_country" not in news_identity.lookup_company("ASSA", "ID", search=lambda _: [issuer], details=other)
+
+
+def test_busy_optional_country_lookup_does_not_block_security_lookup():
+    issuer = row("ASSA.JK", "PT Adi Sarana Armada Tbk", "JKT")
+    assert news_identity._DETAIL_SLOTS.acquire(blocking=False)
+    assert news_identity._DETAIL_SLOTS.acquire(blocking=False)
+    try:
+        result = news_identity.lookup_company("ASSA", "ID", search=lambda _: [issuer], details=lambda _: pytest.fail("no slot"))
+        assert result["ticker"] == "ASSA" and "headquarters_country" not in result
+    finally:
+        news_identity._DETAIL_SLOTS.release()
+        news_identity._DETAIL_SLOTS.release()
+
+
+def test_source_ticker_and_product_alias_are_accepted_only_when_directly_linked(monkeypatch):
+    source = "BREAKING: Snapchat stock, $SNAP, falls over -10% after posting weaker than expected earnings."
+    subject = {"kind":"company", "name":"Snapchat", "evidence":"Snapchat stock, $SNAP, falls over -10% after posting weaker than expected earnings.", "company":{"business_home":"US", "listing_status":"listed", "security_market":"US"}}
+    item = {"title":"SNAP: Snapchat falls after earnings", "ticker":"SNAP", "route":"us_stocks_news", "subject":subject}
+    monkeypatch.setattr(news_identity, "lookup_company", lambda name, market: {"status":"verified", "ticker":"SNAP"} if name == "SNAP" else {"status":"unresolved"})
+    result, ticker = news_identity.prepare_item(item, source)
+    assert ticker == "SNAP" and result["route"] == "us_stocks_news"
+    unrelated = "Snapchat expands while another company $SNAP declines."
+    other = {**item, "subject":{**subject,"evidence":unrelated}}
+    assert news_identity.prepare_item(other, unrelated)[1] is None
+    different_security = "Snapchat stock, $SNAP.B, falls after earnings."
+    other = {**item, "subject":{**subject,"evidence":different_security}}
+    assert news_identity.prepare_item(other, different_security)[1] is None
+
+
 def company_item():
     return {"title": "BACH: Laba meningkat", "ticker": "BACH", "route": "id_stocks_news",
             "subject": {"kind": "company", "name": "Bach Multi Global", "evidence": "Bach Multi Global mencatat laba meningkat"}}
