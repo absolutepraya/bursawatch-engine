@@ -63,6 +63,8 @@ def lookup_company(company: str, market: str = "ID", *, search=None, details=Non
         raise ValueError("company must contain one to 200 characters")
     if market not in {"ID", "US"}:
         raise ValueError("market must be ID or US")
+    idx_symbol = re.fullmatch(r"([A-Z]{4})(?:\.JK)?", company.strip()) if market == "ID" else None
+    expected_idx = idx_symbol.group(1) + ".JK" if idx_symbol else None
     unresolved = {"status": "unresolved", "company": company, "market": market}
     if not _SLOTS.acquire(blocking=False):
         return unresolved
@@ -70,9 +72,23 @@ def lookup_company(company: str, market: str = "ID", *, search=None, details=Non
 
     def run():
         try:
-            results.extend((search or _search)(company))
-        except Exception:
-            pass
+            search_fn = search or _search
+            queries = [expected_idx, idx_symbol.group(1)] if idx_symbol else [company]
+            for query in dict.fromkeys(queries):
+                try:
+                    found = search_fn(query)
+                    results.extend(found)
+                except Exception:
+                    continue
+                if expected_idx and any(
+                    isinstance(row, dict)
+                    and row.get("symbol") == expected_idx
+                    and row.get("exchange") == "JKT"
+                    and row.get("quoteType") == "EQUITY"
+                    and any(isinstance(row.get(field), str) and row[field].strip() for field in ("longname", "shortname"))
+                    for row in found
+                ):
+                    break
         finally:
             _SLOTS.release()
 
@@ -91,6 +107,8 @@ def lookup_company(company: str, market: str = "ID", *, search=None, details=Non
         if market == "ID":
             if not re.fullmatch(r"[A-Z]{4}\.JK", symbol) or exchange != "JKT":
                 continue
+            if expected_idx and (symbol != expected_idx or row.get("quoteType") != "EQUITY"):
+                continue
             ticker = symbol[:-3]
         else:
             if exchange not in _US_EXCHANGES or not re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,19}", symbol):
@@ -100,10 +118,12 @@ def lookup_company(company: str, market: str = "ID", *, search=None, details=Non
         name = next((name for name in names if isinstance(name, str) and _name(name) == _name(company)), None)
         # An exact, explicitly requested exchange symbol is a different query
         # from a fuzzy company-name search. Keep both market and type checks.
-        if name is None and row.get("quoteType") == "EQUITY" and company.strip() == ticker:
+        if name is None and row.get("quoteType") == "EQUITY" and (company.strip() == ticker or expected_idx == symbol):
             name = next((name for name in names if isinstance(name, str) and name.strip()), None)
         if name is None:
             continue
+        if symbol in matches and _name(matches[symbol]["name"]) != _name(name):
+            return unresolved
         matches[symbol] = {"status": "verified", "company": company, "market": market,
                            "ticker": ticker, "symbol": symbol, "exchange": exchange,
                            "name": name, "source_url": f"https://finance.yahoo.com/quote/{symbol}/"}

@@ -8,6 +8,8 @@ bounded read-only Yahoo company/security discovery, never arbitrary URLs,
 source-state mutation, model calls, delivery, or extra news facts. Require
 unique normalized company-name or exact-symbol and exchange agreement; ambiguity or failure
 retains company-name Company News without a tracker.
+For an explicit IDX ticker, first search its exact `.JK` symbol and accept only
+the corresponding Jakarta-listed equity, with a bounded unqualified fallback.
 An exact source product-name and ticker pair may support ticker lookup, but an
 indirect association cannot. Optional provider headquarters country is a hint,
 not proof of the primary business home, and never changes the route on its own.
