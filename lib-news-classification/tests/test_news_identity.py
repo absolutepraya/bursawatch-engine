@@ -1,5 +1,6 @@
 from pathlib import Path
 import sys
+import time
 
 import pytest
 
@@ -44,6 +45,83 @@ def test_lookup_exact_source_symbol_requires_matching_market_and_equity():
     assert news_identity.lookup_company("ASSA", "ID", search=lambda _: [issuer])["ticker"] == "ASSA"
     assert news_identity.lookup_company("ASSA", "US", search=lambda _: [issuer])["status"] == "unresolved"
     assert news_identity.lookup_company("ASSA", "ID", search=lambda _: [row("ASSA-B.ST", "ASSA ABLOY", "STO")])["status"] == "unresolved"
+
+
+def test_idx_ticker_qualifies_search_before_unrelated_us_results():
+    searches = []
+    def search(query):
+        searches.append(query)
+        return [row("BULL.JK", "PT Buana Lintas Lautan Tbk", "JKT")] if query == "BULL.JK" else [row("BULL", "Webull Corporation", "NCM")]
+    result = news_identity.lookup_company("BULL", "ID", search=search)
+    assert (result["ticker"], result["symbol"], result["exchange"]) == ("BULL", "BULL.JK", "JKT")
+    assert searches == ["BULL.JK"]
+    assert "business_home" not in result
+
+
+def test_idx_already_qualified_symbol_and_us_collision_stay_distinct():
+    def search(query):
+        return {"BULL.JK": [row("BULL.JK", "PT Buana Lintas Lautan Tbk", "JKT")],
+                "BULL": [row("BULL", "Webull Corporation", "NCM")]}.get(query, [])
+    assert news_identity.lookup_company("BULL.JK", "ID", search=search)["ticker"] == "BULL"
+    assert news_identity.lookup_company("BULL", "US", search=search)["name"] == "Webull Corporation"
+
+
+def test_idx_symbol_fallback_never_accepts_another_security_or_wrong_exchange():
+    calls = []
+    def search(query):
+        calls.append(query)
+        if query == "BULL.JK":
+            return [row("BULL.JK", "PT Buana Lintas Lautan Tbk", "NYQ")]
+        return [row("BUIL.JK", "BULL", "JKT"), row("BULL", "Webull Corporation", "NCM")]
+    assert news_identity.lookup_company("BULL", "ID", search=search)["status"] == "unresolved"
+    assert calls == ["BULL.JK", "BULL"]
+
+
+def test_idx_unqualified_fallback_runs_when_qualified_search_fails():
+    def search(query):
+        if query == "BULL.JK":
+            raise OSError("temporary provider failure")
+        return [row("BULL.JK", "PT Buana Lintas Lautan Tbk", "JKT")]
+    assert news_identity.lookup_company("BULL", "ID", search=search)["ticker"] == "BULL"
+
+
+
+def test_idx_fallback_gets_time_after_a_slow_qualified_search():
+    def search(query):
+        if query == "BULL.JK":
+            time.sleep(3.0)
+            return []
+        time.sleep(0.7)
+        return [row("BULL.JK", "PT Buana Lintas Lautan Tbk", "JKT")]
+    assert news_identity.lookup_company("BULL", "ID", search=search)["ticker"] == "BULL"
+
+
+def test_ticker_like_company_name_requires_source_evidence_for_symbol(monkeypatch):
+    issuer = row("BULL.JK", "PT Buana Lintas Lautan Tbk", "JKT")
+    monkeypatch.setattr(news_identity, "_search", lambda _: [issuer])
+    item = {"title":"BULL: Opens a factory", "route":"id_stocks_news", "ticker":"BULL",
+            "subject":{"kind":"company", "name":"BULL", "evidence":"BULL opens a factory",
+                       "company":{"business_home":"ID", "listing_status":"listed", "security_market":"ID"}}}
+    assert news_identity.prepare_item(item, "BULL opens a factory")[1] is None
+    assert news_identity.prepare_item(item, "BULL: Company update\nBULL opens a factory")[1] == "BULL"
+    assert news_identity.prepare_item(item, "Other company $BULL.B rises. BULL opens a factory")[1] is None
+
+def test_idx_conflicting_company_names_for_same_symbol_are_unresolved():
+    rows = [row("BULL.JK", "PT Buana Lintas Lautan Tbk", "JKT"),
+            row("BULL.JK", "Other Issuer Tbk", "JKT")]
+    assert news_identity.lookup_company("BULL", "ID", search=lambda _: rows)["status"] == "unresolved"
+
+
+def test_idx_security_lookup_does_not_rewrite_business_home(monkeypatch):
+    issuer = row("BULL.JK", "PT Buana Lintas Lautan Tbk", "JKT")
+    monkeypatch.setattr(news_identity, "_search", lambda query: [issuer] if query == "BULL.JK" else [])
+    text = "BULL: New shipping contracts\nBULL announced new shipping contracts."
+    item = {"title":"BULL: New shipping contracts", "route":"global_company_news", "ticker":"BULL",
+            "subject":{"kind":"company", "name":"BULL", "evidence":text,
+                       "company":{"business_home":"GLOBAL", "listing_status":"listed", "security_market":"ID"}}}
+    result, ticker = news_identity.prepare_item(item, text)
+    assert ticker == "BULL" and result["route"] == "global_company_news"
+    assert result["subject"]["company"]["business_home"] == "GLOBAL"
 
 
 def test_lookup_may_supply_matching_headquarters_as_a_hint():

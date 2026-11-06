@@ -10,7 +10,10 @@ import pytest
 import pipeline_owner
 import scan
 import config
+import news_identity
 from state import load_state
+
+_REAL_IDENTITY_LOOKUP = news_identity.lookup_company
 
 
 def _news_work(
@@ -61,6 +64,33 @@ class _Inbox:
     def inspect(self, key):
         assert key == self.inspection["event"]["event_key"]
         return self.inspection
+
+
+def test_bull_qualified_lookup_reaches_id_company_channel(tmp_path, monkeypatch):
+    monkeypatch.setattr(news_identity, "lookup_company", _REAL_IDENTITY_LOOKUP)
+    rows = {"BULL.JK": [{"symbol":"BULL.JK", "longname":"PT Buana Lintas Lautan Tbk", "exchange":"JKT", "quoteType":"EQUITY"}],
+            "BULL": [{"symbol":"BULL", "longname":"Webull Corporation", "exchange":"NCM", "quoteType":"EQUITY"}]}
+    monkeypatch.setattr(news_identity, "_search", lambda query: rows.get(query, []))
+    monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_path / "news.json"))
+    monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
+    text = "Phintraco Sekuritas Company Update\nBULL: Revenue Remains Supported by Elevated Rates\n\nBULL booked 3Q26 revenue of US$54 million."
+    work, inspection = _news_work("company_news", message_id="36258", text=text)
+    assert pipeline_owner.submit(work, no_post=True, inbox=_Inbox(inspection)) == "accepted"
+    now = datetime.now(scan.WIB) + timedelta(seconds=1)
+    item, = pipeline_owner.claim_agent(now)["items"]
+    evidence = "BULL booked 3Q26 revenue of US$54 million"
+    payload = {"candidate_key":item["candidate_key"], "ticker":"BULL", "event_class":"financial_results_or_guidance",
+               "summary":evidence, "title":"BULL: Revenue remains supported", "material_facts":[evidence],
+               "ranking_band":1, "dedupe_facts":[evidence], "eligible":True, "route":"id_stocks_news", "source_evidence":evidence,
+               "subject":{"kind":"company", "name":"BULL", "evidence":evidence,
+                          "company":{"business_home":"ID", "listing_status":"listed", "security_market":"ID"}}}
+    result = asyncio.run(scan.submit_classification_payload(payload, now + timedelta(seconds=30)))
+    assert result["news_delivered"] == 1
+    saved = load_state()
+    delivered = saved["stats"]["delivery_payloads"][item["candidate_key"]]
+    assert delivered["channel_id"] == "1525102508714889257"
+    assert "BULL: Revenue remains supported" in delivered["content"]
+    assert "Saham: BULL (IDX)" in delivered["content"]
 
 
 @pytest.mark.parametrize("text,subject,ticker,route,destination", [
@@ -158,8 +188,10 @@ def test_financial_headline_reaches_stock_destination_through_source_owner(tmp_p
     assert result["news_delivered"] == 1
     delivered = load_state()["stats"]["delivery_payloads"][item["candidate_key"]]
     assert delivered["channel_id"] == "1525102508714889257"
-    assert f"{ticker}: Kinerja keuangan 9M26" in delivered["content"]
-    assert "Harga terakhir (IDR)" in delivered["content"]
+    # The source names the company with a ticker-like word but does not
+    # explicitly identify it as a symbol, so preserve the news without a quote.
+    assert f"{ticker} Kinerja keuangan 9M26" in delivered["content"]
+    assert "Harga terakhir (IDR)" not in delivered["content"]
 
 
 def test_bach_issuer_heading_reaches_stock_destination_through_source_owner(tmp_path, monkeypatch, load_fixture):
@@ -235,9 +267,9 @@ def test_phintraco_news_sibling_work_claims_one_frozen_agent_item_and_renders_go
     result = asyncio.run(scan.submit_classification_payload(payload, now + timedelta(seconds=30)))
     assert result["news_delivered"] == 1
     delivered = load_state()["stats"]["delivery_payloads"][item["candidate_key"]]
-    assert delivered["content"].startswith("### <:phintraco:1531272488645038091> DEWA: Kontrak bernilai Rp22 triliun\n-# Phintraco")
+    assert delivered["content"].startswith("### <:phintraco:1531272488645038091> DEWA Kontrak bernilai Rp22 triliun\n-# Phintraco")
     assert "*(Ringkasan)* DEWA mendapat kontrak bernilai Rp22 triliun." in delivered["content"]
-    assert "Harga terakhir (IDR)" in delivered["content"]
+    assert "Harga terakhir (IDR)" not in delivered["content"]
     assert "https://t.me/phintasprofits/35390" in delivered["content"]
     assert delivered["channel_id"] == "1525102508714889257"
     assert pipeline_owner.agent_status()["candidates"]["pending_analysis"] == 0

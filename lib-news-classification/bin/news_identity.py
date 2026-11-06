@@ -63,6 +63,8 @@ def lookup_company(company: str, market: str = "ID", *, search=None, details=Non
         raise ValueError("company must contain one to 200 characters")
     if market not in {"ID", "US"}:
         raise ValueError("market must be ID or US")
+    idx_symbol = re.fullmatch(r"([A-Z]{4})(?:\.JK)?", company.strip()) if market == "ID" else None
+    expected_idx = idx_symbol.group(1) + ".JK" if idx_symbol else None
     unresolved = {"status": "unresolved", "company": company, "market": market}
     if not _SLOTS.acquire(blocking=False):
         return unresolved
@@ -70,15 +72,31 @@ def lookup_company(company: str, market: str = "ID", *, search=None, details=Non
 
     def run():
         try:
-            results.extend((search or _search)(company))
-        except Exception:
-            pass
+            search_fn = search or _search
+            queries = [expected_idx, idx_symbol.group(1)] if idx_symbol else [company]
+            for query in dict.fromkeys(queries):
+                try:
+                    found = search_fn(query)
+                    results.extend(found)
+                except Exception:
+                    continue
+                if expected_idx and any(
+                    isinstance(row, dict)
+                    and row.get("symbol") == expected_idx
+                    and row.get("exchange") == "JKT"
+                    and row.get("quoteType") == "EQUITY"
+                    and any(isinstance(row.get(field), str) and row[field].strip() for field in ("longname", "shortname"))
+                    for row in found
+                ):
+                    break
         finally:
             _SLOTS.release()
 
     worker = threading.Thread(target=run, daemon=True)
     worker.start()
-    worker.join(3.5)
+    # IDX symbol lookup may make two sequential requests, each with a
+    # three-second provider timeout. Reserve time for both attempts.
+    worker.join(6.5 if expected_idx else 3.5)
     if worker.is_alive():
         return unresolved
     matches = {}
@@ -91,6 +109,8 @@ def lookup_company(company: str, market: str = "ID", *, search=None, details=Non
         if market == "ID":
             if not re.fullmatch(r"[A-Z]{4}\.JK", symbol) or exchange != "JKT":
                 continue
+            if expected_idx and (symbol != expected_idx or row.get("quoteType") != "EQUITY"):
+                continue
             ticker = symbol[:-3]
         else:
             if exchange not in _US_EXCHANGES or not re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,19}", symbol):
@@ -100,10 +120,12 @@ def lookup_company(company: str, market: str = "ID", *, search=None, details=Non
         name = next((name for name in names if isinstance(name, str) and _name(name) == _name(company)), None)
         # An exact, explicitly requested exchange symbol is a different query
         # from a fuzzy company-name search. Keep both market and type checks.
-        if name is None and row.get("quoteType") == "EQUITY" and company.strip() == ticker:
+        if name is None and row.get("quoteType") == "EQUITY" and (company.strip() == ticker or expected_idx == symbol):
             name = next((name for name in names if isinstance(name, str) and name.strip()), None)
         if name is None:
             continue
+        if symbol in matches and _name(matches[symbol]["name"]) != _name(name):
+            return unresolved
         matches[symbol] = {"status": "verified", "company": company, "market": market,
                            "ticker": ticker, "symbol": symbol, "exchange": exchange,
                            "name": name, "source_url": f"https://finance.yahoo.com/quote/{symbol}/"}
@@ -155,7 +177,11 @@ def prepare_item(item: dict, source_text: str, *, market: str = "ID") -> tuple[d
         identity = lookup_company(subject["name"], market)
         if identity.get("status") != "verified" and _source_binds_ticker(subject, ticker):
             identity = lookup_company(ticker, market)
-        if identity.get("status") == "verified" and identity.get("ticker") == ticker:
+        symbol_like_name = subject["name"].strip().casefold() == ticker.casefold()
+        issuer_name = identity.get("name")
+        exact_issuer = isinstance(issuer_name, str) and _name(issuer_name) == _name(subject["name"])
+        symbol_evidence = not symbol_like_name or exact_issuer or _source_explicit_symbol(source_text, subject["evidence"], ticker)
+        if identity.get("status") == "verified" and identity.get("ticker") == ticker and symbol_evidence:
             return item, ticker
         return _without_security(item, subject, ticker), None
     # A ticker supplied by the source keeps the existing source-only contract.
@@ -181,3 +207,11 @@ def _source_binds_ticker(subject: dict, ticker: str) -> bool:
     symbol = re.escape(ticker)
     pattern = rf"(?<!\w){name}\s*(?:(?:stock|shares|saham)\s*,?\s*)?(?:\(\s*\$?{symbol}\s*\)|,\s*\${symbol}(?![A-Za-z0-9.-])|\${symbol}(?![A-Za-z0-9.-]))"
     return re.search(pattern, subject["evidence"], flags=re.IGNORECASE) is not None
+
+
+def _source_explicit_symbol(source_text: str, evidence: str, ticker: str) -> bool:
+    """Require a ticker headline or explicit symbol in the subject evidence."""
+    symbol = re.escape(ticker)
+    return (re.search(rf"(?m)^[ \t]*{symbol}[ \t]*:", source_text) is not None
+            or re.search(rf"(?<!\w)\${symbol}(?![A-Za-z0-9.-])", evidence) is not None
+            or re.search(rf"(?<!\w){symbol}\.JK(?![A-Za-z0-9.-])", evidence) is not None)

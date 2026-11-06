@@ -18,6 +18,10 @@ read-only Yahoo Finance searches for exact company-name or exact symbol and
 exchange matches. Exact symbol queries can return the provider's company name
 and, when available, a matching record's headquarters country as a hint. The
 country and exchange do not establish primary business home by themselves.
+For an uppercase four-letter IDX ticker, the lookup searches its `.JK` symbol
+first, then tries the unqualified ticker if necessary. It accepts only the exact
+symbol on the Jakarta exchange, preventing a same-named foreign security or
+another company's name from being substituted.
 It has no credentials, source state, model calls, or message delivery.
 Owners expose `lookup-company` through their managed wrappers. An externally
 proposed ticker is independently verified before selection is persisted. When
