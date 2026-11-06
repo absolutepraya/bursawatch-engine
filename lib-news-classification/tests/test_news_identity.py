@@ -1,5 +1,6 @@
 from pathlib import Path
 import sys
+import time
 
 import pytest
 
@@ -84,6 +85,27 @@ def test_idx_unqualified_fallback_runs_when_qualified_search_fails():
     assert news_identity.lookup_company("BULL", "ID", search=search)["ticker"] == "BULL"
 
 
+
+def test_idx_fallback_gets_time_after_a_slow_qualified_search():
+    def search(query):
+        if query == "BULL.JK":
+            time.sleep(3.0)
+            return []
+        time.sleep(0.7)
+        return [row("BULL.JK", "PT Buana Lintas Lautan Tbk", "JKT")]
+    assert news_identity.lookup_company("BULL", "ID", search=search)["ticker"] == "BULL"
+
+
+def test_ticker_like_company_name_requires_source_evidence_for_symbol(monkeypatch):
+    issuer = row("BULL.JK", "PT Buana Lintas Lautan Tbk", "JKT")
+    monkeypatch.setattr(news_identity, "_search", lambda _: [issuer])
+    item = {"title":"BULL: Opens a factory", "route":"id_stocks_news", "ticker":"BULL",
+            "subject":{"kind":"company", "name":"BULL", "evidence":"BULL opens a factory",
+                       "company":{"business_home":"ID", "listing_status":"listed", "security_market":"ID"}}}
+    assert news_identity.prepare_item(item, "BULL opens a factory")[1] is None
+    assert news_identity.prepare_item(item, "BULL: Company update\nBULL opens a factory")[1] == "BULL"
+    assert news_identity.prepare_item(item, "Other company $BULL.B rises. BULL opens a factory")[1] is None
+
 def test_idx_conflicting_company_names_for_same_symbol_are_unresolved():
     rows = [row("BULL.JK", "PT Buana Lintas Lautan Tbk", "JKT"),
             row("BULL.JK", "Other Issuer Tbk", "JKT")]
@@ -93,7 +115,7 @@ def test_idx_conflicting_company_names_for_same_symbol_are_unresolved():
 def test_idx_security_lookup_does_not_rewrite_business_home(monkeypatch):
     issuer = row("BULL.JK", "PT Buana Lintas Lautan Tbk", "JKT")
     monkeypatch.setattr(news_identity, "_search", lambda query: [issuer] if query == "BULL.JK" else [])
-    text = "BULL announced new shipping contracts."
+    text = "BULL: New shipping contracts\nBULL announced new shipping contracts."
     item = {"title":"BULL: New shipping contracts", "route":"global_company_news", "ticker":"BULL",
             "subject":{"kind":"company", "name":"BULL", "evidence":text,
                        "company":{"business_home":"GLOBAL", "listing_status":"listed", "security_market":"ID"}}}
