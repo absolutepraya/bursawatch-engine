@@ -106,6 +106,20 @@ def test_ticker_like_company_name_requires_source_evidence_for_symbol(monkeypatc
     assert news_identity.prepare_item(item, "BULL: Company update\nBULL opens a factory")[1] == "BULL"
     assert news_identity.prepare_item(item, "Other company $BULL.B rises. BULL opens a factory")[1] is None
 
+
+def test_ticker_like_name_can_use_source_pair_with_verified_issuer(monkeypatch):
+    issuer = row("CASA.JK", "PT Capital Financial Indonesia Tbk", "JKT")
+    monkeypatch.setattr(news_identity, "_search", lambda _: [issuer])
+    item = {"title":"CASA: BEI memeriksa saham", "route":"id_stocks_news", "ticker":"CASA",
+            "subject":{"kind":"company", "name":"CASA", "evidence":"CASA",
+                       "company":{"business_home":"ID", "listing_status":"listed", "security_market":"ID"}}}
+    paired = "BEI memeriksa saham PT Capital Financial Indonesia Tbk (CASA)."
+    assert news_identity.prepare_item(item, paired)[1] == "CASA"
+    unrelated = "CASA expands while PT Other Company Tbk (CASA) falls."
+    assert news_identity.prepare_item(item, unrelated)[1] is None
+    other_symbol = "CASA expands while PT Capital Financial Indonesia Tbk (CASA.B) falls."
+    assert news_identity.prepare_item(item, other_symbol)[1] is None
+
 def test_idx_conflicting_company_names_for_same_symbol_are_unresolved():
     rows = [row("BULL.JK", "PT Buana Lintas Lautan Tbk", "JKT"),
             row("BULL.JK", "Other Issuer Tbk", "JKT")]
