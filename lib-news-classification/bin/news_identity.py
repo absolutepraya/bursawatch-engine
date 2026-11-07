@@ -180,7 +180,11 @@ def prepare_item(item: dict, source_text: str, *, market: str = "ID") -> tuple[d
         symbol_like_name = subject["name"].strip().casefold() == ticker.casefold()
         issuer_name = identity.get("name")
         exact_issuer = isinstance(issuer_name, str) and _name(issuer_name) == _name(subject["name"])
-        symbol_evidence = not symbol_like_name or exact_issuer or _source_explicit_symbol(source_text, subject["evidence"], ticker)
+        issuer_pair = isinstance(issuer_name, str) and _source_binds_ticker(
+            {"name": issuer_name, "evidence": source_text}, ticker
+        )
+        symbol_evidence = (not symbol_like_name or exact_issuer or issuer_pair
+                           or _source_explicit_symbol(source_text, subject["evidence"], ticker))
         if identity.get("status") == "verified" and identity.get("ticker") == ticker and symbol_evidence:
             return item, ticker
         return _without_security(item, subject, ticker), None
