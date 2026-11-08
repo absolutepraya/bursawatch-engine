@@ -120,6 +120,28 @@ def test_ticker_like_name_can_use_source_pair_with_verified_issuer(monkeypatch):
     other_symbol = "CASA expands while PT Capital Financial Indonesia Tbk (CASA.B) falls."
     assert news_identity.prepare_item(item, other_symbol)[1] is None
 
+
+@pytest.mark.parametrize("ticker,name,source,evidence", [
+    ("ROTI", "PT Nippon Indosari Corpindo Tbk", "$ROTI AKAN MUSNAHKAN SAHAM\nSari Roti berencana menarik saham.", "Sari Roti berencana menarik saham."),
+    ("AMMN", "PT Amman Mineral Internasional Tbk", "PENDAPATAN AMMN TURUN\nForeign net outflow saham AMMN Rp4,75 triliun.", "PENDAPATAN AMMN TURUN"),
+])
+def test_explicit_source_stock_symbol_retained(ticker, name, source, evidence, monkeypatch):
+    monkeypatch.setattr(news_identity, "_search", lambda _: [row(ticker + ".JK", name, "JKT")])
+    item = {"title": ticker + ": Kabar perusahaan", "route":"id_stocks_news", "ticker":ticker,
+            "subject":{"kind":"company", "name":ticker, "evidence":evidence,
+                       "company":{"business_home":"ID", "listing_status":"listed", "security_market":"ID"}}}
+    assert news_identity.prepare_item(item, source)[1] == ticker
+
+
+def test_unrelated_or_partial_source_symbol_is_not_accepted(monkeypatch):
+    monkeypatch.setattr(news_identity, "_search", lambda _: [row("ROTI.JK", "PT Nippon Indosari Corpindo Tbk", "JKT")])
+    item = {"title":"ROTI: Kabar perusahaan", "route":"id_stocks_news", "ticker":"ROTI",
+            "subject":{"kind":"company", "name":"ROTI", "evidence":"ROTI expands",
+                       "company":{"business_home":"ID", "listing_status":"listed", "security_market":"ID"}}}
+    for source in ("ROTI expands while $ROTI.B falls.", "ROTI expands while saham ROTIX falls.",
+                   "ROTI expands while another firm $ROTI falls."):
+        assert news_identity.prepare_item(item, source)[1] is None
+
 def test_idx_conflicting_company_names_for_same_symbol_are_unresolved():
     rows = [row("BULL.JK", "PT Buana Lintas Lautan Tbk", "JKT"),
             row("BULL.JK", "Other Issuer Tbk", "JKT")]

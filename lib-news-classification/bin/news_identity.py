@@ -214,8 +214,11 @@ def _source_binds_ticker(subject: dict, ticker: str) -> bool:
 
 
 def _source_explicit_symbol(source_text: str, evidence: str, ticker: str) -> bool:
-    """Require a ticker headline or explicit symbol in the subject evidence."""
+    """Require a ticker headline or an explicit reference to the security."""
     symbol = re.escape(ticker)
-    return (re.search(rf"(?m)^[ \t]*{symbol}[ \t]*:", source_text) is not None
+    first_line = next((line.strip() for line in source_text.splitlines() if line.strip()), "")
+    return (re.search(rf"^\${symbol}(?![A-Za-z0-9.-])", first_line) is not None
+            or re.search(rf"(?m)^[ \t]*{symbol}[ \t]*:", source_text) is not None
+            or re.search(rf"\b(?i:saham)\s+{symbol}(?![A-Za-z0-9.-])", source_text) is not None
             or re.search(rf"(?<!\w)\${symbol}(?![A-Za-z0-9.-])", evidence) is not None
             or re.search(rf"(?<!\w){symbol}\.JK(?![A-Za-z0-9.-])", evidence) is not None)
