@@ -135,7 +135,7 @@ def validate_submission(article: Article, payload: object, *, subject_required: 
     source_text = f"{article.source_title}\n{article.source_text}"
     verified_ticker = None
     if "subject" in payload:
-        payload, verified_ticker = news_identity.prepare_item(payload, source_text)
+        payload, verified_ticker = news_identity.prepare_item(payload, source_text, source_openings=(article.source_text,))
         ticker, title = payload["ticker"], _text(payload, "title")
         subject = news_subject.validate_subject(payload["subject"], source_text)
         if route is not Route.EXCLUDE:

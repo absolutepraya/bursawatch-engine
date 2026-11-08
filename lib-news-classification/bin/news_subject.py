@@ -144,6 +144,7 @@ def lookup_instruction(wrapper: str) -> str:
         "'{\"company\":\"<exact source company name>\",\"market\":\"ID\"}'. Use ID or US for supported current securities independently of the company destination. "
         "The tool searches Yahoo Finance and returns a verified unique company-name or exact ticker and exchange match, or unresolved. For an explicit ticker, pass the uppercase ticker as company; never infer the business home from the exchange. "
         "A headquarters_country, when returned, is an identity hint, not proof of the primary business home; use it with other reliable context and keep UNKNOWN when the home remains unclear. "
+        "When the focus company is named by its ticker and the source explicitly says saham followed by that ticker for the same company, include that phrase in subject.evidence; never use a counterparty's stock reference. "
         "Use verified lookup data only to identify the security and cautiously assess company geography, never add lookup facts to the news summary. "
         "Do not guess from a search snippet. On unresolved, ambiguous, unavailable, or failed lookup, submit company-name "
         "Company News with an empty ticker and no tracker. The owner independently verifies externally proposed tickers. "

@@ -123,7 +123,7 @@ def test_ticker_like_name_can_use_source_pair_with_verified_issuer(monkeypatch):
 
 @pytest.mark.parametrize("ticker,name,source,evidence", [
     ("ROTI", "PT Nippon Indosari Corpindo Tbk", "$ROTI AKAN MUSNAHKAN SAHAM\nSari Roti berencana menarik saham.", "Sari Roti berencana menarik saham."),
-    ("AMMN", "PT Amman Mineral Internasional Tbk", "PENDAPATAN AMMN TURUN\nForeign net outflow saham AMMN Rp4,75 triliun.", "PENDAPATAN AMMN TURUN"),
+    ("AMMN", "PT Amman Mineral Internasional Tbk", "PENDAPATAN AMMN TURUN\nForeign net outflow saham AMMN Rp4,75 triliun.", "saham AMMN"),
 ])
 def test_explicit_source_stock_symbol_retained(ticker, name, source, evidence, monkeypatch):
     monkeypatch.setattr(news_identity, "_search", lambda _: [row(ticker + ".JK", name, "JKT")])
@@ -141,6 +141,32 @@ def test_unrelated_or_partial_source_symbol_is_not_accepted(monkeypatch):
     for source in ("ROTI expands while $ROTI.B falls.", "ROTI expands while saham ROTIX falls.",
                    "ROTI expands while another firm $ROTI falls."):
         assert news_identity.prepare_item(item, source)[1] is None
+
+
+@pytest.mark.parametrize("source,evidence,expected", [
+    ("$ROTI_BARU grows", "ROTI_BARU grows", False),
+    ("ROTI grows. saham ROTI_BARU rises", "ROTI grows. saham ROTI_BARU rises", False),
+    ("ROTI grows. saham\n\nROTI rises", "ROTI grows. saham\n\nROTI rises", False),
+    ("ROTI grows. Another firm holds saham ROTI", "ROTI grows", False),
+    ("$ROTI announces a deal with OTHER", "OTHER announces a deal", False),
+    ("$ROTI. Company update", "ROTI", True),
+    ("saham ROTI.", "saham ROTI.", True),
+    ("saham $ROTI.", "saham $ROTI.", True),
+    ("$ROTI.B falls", "ROTI.B falls", False),
+])
+def test_explicit_symbol_boundaries_and_focus_evidence(source, evidence, expected):
+    assert news_identity._source_explicit_symbol(source, evidence, "ROTI") is expected
+
+
+def test_mixed_case_ticker_subject_uses_explicit_symbol_lookup(monkeypatch):
+    def search(query):
+        return [row("ROTI.JK", "PT Nippon Indosari Corpindo Tbk", "JKT")] if query == "ROTI.JK" else []
+    monkeypatch.setattr(news_identity, "_search", search)
+    source = "$ROTI earns revenue. Roti grows."
+    item = {"title":"ROTI: Kabar perusahaan", "route":"id_stocks_news", "ticker":"ROTI",
+            "subject":{"kind":"company", "name":"Roti", "evidence":"Roti grows",
+                       "company":{"business_home":"ID", "listing_status":"listed", "security_market":"ID"}}}
+    assert news_identity.prepare_item(item, source)[1] == "ROTI"
 
 def test_idx_conflicting_company_names_for_same_symbol_are_unresolved():
     rows = [row("BULL.JK", "PT Buana Lintas Lautan Tbk", "JKT"),

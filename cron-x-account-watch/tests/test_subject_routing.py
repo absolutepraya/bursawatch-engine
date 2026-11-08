@@ -33,7 +33,7 @@ def test_source_company_identity_survives_submission(name, ticker, market, home,
 
 @pytest.mark.parametrize("ticker,company,text,evidence", [
     ("ROTI", "PT Nippon Indosari Corpindo Tbk", "$ROTI AKAN MUSNAHKAN SAHAM\nSari Roti berencana menarik saham.", "Sari Roti berencana menarik saham."),
-    ("AMMN", "PT Amman Mineral Internasional Tbk", "PENDAPATAN AMMN TURUN\nForeign net outflow saham AMMN Rp4,75 triliun.", "PENDAPATAN AMMN TURUN"),
+    ("AMMN", "PT Amman Mineral Internasional Tbk", "PENDAPATAN AMMN TURUN\nForeign net outflow saham AMMN Rp4,75 triliun.", "saham AMMN"),
 ])
 def test_explicit_stock_reference_keeps_x_news_ticker(ticker, company, text, evidence, monkeypatch, config_path, profile_payload):
     profile_payload.update(enable_llm_title=True, enable_llm_summary=True, enable_llm_routing=True, enable_llm_relevance_filter=True)

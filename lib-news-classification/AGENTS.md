@@ -13,9 +13,10 @@ the corresponding Jakarta-listed equity, with a bounded unqualified fallback.
 An exact source product-name and ticker pair may support ticker lookup, but an
 indirect association cannot. When a subject name is indistinguishable from a
 proposed ticker and differs from the provider's issuer name, require an
-explicit source ticker headline, an opening cashtag or an explicit `saham`
-and uppercase ticker in the supplied source, a symbol in the subject evidence,
-or the verified issuer name directly paired with that symbol in the source.
+explicit source ticker headline, an opening cashtag in a source field, an
+explicit `saham` and uppercase ticker in the subject evidence, a symbol in
+the subject evidence, or the verified issuer name directly paired with that
+symbol in the source.
 Otherwise retain the company story without a ticker. Optional provider headquarters country is a hint,
 not proof of the primary business home, and never changes the route on its own.
 

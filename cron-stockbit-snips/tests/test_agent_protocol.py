@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from dataclasses import replace
 
 import pytest
 
@@ -62,6 +63,16 @@ def test_operator_instruction_cannot_relax_fixed_protocol(article: Article) -> N
 def test_valid_issuer_submission_is_accepted(article: Article) -> None:
     result = validate_submission(article, valid_payload(article))
     assert result.route is Route.ID_STOCKS_NEWS
+    assert result.ticker == "SWAP"
+
+
+def test_description_opening_cashtag_is_validated_separately_from_title(article, monkeypatch):
+    import news_identity
+    article = replace(article, source_title="Company update", source_text="$SWAP memproduksi produk kesehatan.")
+    monkeypatch.setattr(news_identity, "_search", lambda _: [{"symbol":"SWAP.JK", "exchange":"JKT", "quoteType":"EQUITY", "longname":"Swap Company Tbk"}])
+    payload = {**valid_payload(article), "subject":{"kind":"company", "name":"SWAP", "evidence":"SWAP memproduksi produk kesehatan.",
+               "company":{"business_home":"ID", "listing_status":"listed", "security_market":"ID"}}}
+    result = validate_submission(article, payload, subject_required=True, company_required=True)
     assert result.ticker == "SWAP"
 
 
