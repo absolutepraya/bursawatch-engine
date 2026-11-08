@@ -155,7 +155,7 @@ def _without_security(item: dict, subject: dict, ticker: str) -> dict:
     return result
 
 
-def prepare_item(item: dict, source_text: str, *, market: str = "ID") -> tuple[dict, str | None]:
+def prepare_item(item: dict, source_text: str, *, market: str = "ID", source_openings: tuple[str, ...] = ()) -> tuple[dict, str | None]:
     """Verify externally discovered tickers; degrade lookup failure to name-only."""
     subject = news_subject.validate_subject(item["subject"], source_text)
     if item.get("route") != "exclude":
@@ -174,17 +174,18 @@ def prepare_item(item: dict, source_text: str, *, market: str = "ID") -> tuple[d
         if not ticker or quote_route is None:
             return _without_security(item, subject, ticker), None
         market = "US" if quote_route == "us_stocks_news" else "ID"
-        identity = lookup_company(subject["name"], market)
-        if identity.get("status") != "verified" and _source_binds_ticker(subject, ticker):
-            identity = lookup_company(ticker, market)
         symbol_like_name = subject["name"].strip().casefold() == ticker.casefold()
+        explicit_symbol = _source_explicit_symbol(source_text, subject["evidence"], ticker, source_openings)
+        identity = lookup_company(subject["name"], market)
+        if identity.get("status") != "verified" and (_source_binds_ticker(subject, ticker)
+                                                       or (symbol_like_name and explicit_symbol)):
+            identity = lookup_company(ticker, market)
         issuer_name = identity.get("name")
         exact_issuer = isinstance(issuer_name, str) and _name(issuer_name) == _name(subject["name"])
         issuer_pair = isinstance(issuer_name, str) and _source_binds_ticker(
             {"name": issuer_name, "evidence": source_text}, ticker
         )
-        symbol_evidence = (not symbol_like_name or exact_issuer or issuer_pair
-                           or _source_explicit_symbol(source_text, subject["evidence"], ticker))
+        symbol_evidence = not symbol_like_name or exact_issuer or issuer_pair or explicit_symbol
         if identity.get("status") == "verified" and identity.get("ticker") == ticker and symbol_evidence:
             return item, ticker
         return _without_security(item, subject, ticker), None
@@ -209,13 +210,20 @@ def _source_binds_ticker(subject: dict, ticker: str) -> bool:
     """Accept only a short, explicit name/security pair in source evidence."""
     name = re.escape(subject["name"])
     symbol = re.escape(ticker)
-    pattern = rf"(?<!\w){name}\s*(?:(?:stock|shares|saham)\s*,?\s*)?(?:\(\s*\$?{symbol}\s*\)|,\s*\${symbol}(?![A-Za-z0-9.-])|\${symbol}(?![A-Za-z0-9.-]))"
+    end = r"(?!\w|[.-]\w)"
+    pattern = rf"(?<!\w){name}[ \t]*(?:(?:stock|shares|saham)[ \t]*,?[ \t]*)?(?:\([ \t]*\$?{symbol}[ \t]*\)|,[ \t]*\${symbol}{end}|\${symbol}{end})"
     return re.search(pattern, subject["evidence"], flags=re.IGNORECASE) is not None
 
 
-def _source_explicit_symbol(source_text: str, evidence: str, ticker: str) -> bool:
-    """Require a ticker headline or explicit symbol in the subject evidence."""
+def _source_explicit_symbol(source_text: str, evidence: str, ticker: str, source_openings: tuple[str, ...] = ()) -> bool:
+    """Require a ticker headline or an explicit reference to the security."""
     symbol = re.escape(ticker)
-    return (re.search(rf"(?m)^[ \t]*{symbol}[ \t]*:", source_text) is not None
-            or re.search(rf"(?<!\w)\${symbol}(?![A-Za-z0-9.-])", evidence) is not None
-            or re.search(rf"(?<!\w){symbol}\.JK(?![A-Za-z0-9.-])", evidence) is not None)
+    end = r"(?!\w|[.-]\w)"
+    sources = [source_text, *(part for part in source_openings if part and part in source_text)]
+    first_lines = (next((line.strip() for line in part.splitlines() if line.strip()), "") for part in sources)
+    focus_mentioned = re.search(rf"(?<!\w){symbol}(?!\w)", evidence, re.IGNORECASE) is not None
+    return ((focus_mentioned and any(re.search(rf"^\${symbol}{end}", line) is not None for line in first_lines))
+            or (focus_mentioned and re.search(rf"(?m)^[ \t]*{symbol}[ \t]*:", source_text) is not None)
+            or re.search(rf"\b(?i:saham)[ \t]+\$?{symbol}{end}", evidence) is not None
+            or re.search(rf"(?<!\w)\${symbol}{end}", evidence) is not None
+            or re.search(rf"(?<!\w){symbol}\.JK{end}", evidence) is not None)

@@ -31,6 +31,23 @@ def test_source_company_identity_survives_submission(name, ticker, market, home,
     assert result["news_items"][0]["ticker"] == expected_ticker
 
 
+@pytest.mark.parametrize("ticker,company,text,evidence", [
+    ("ROTI", "PT Nippon Indosari Corpindo Tbk", "$ROTI AKAN MUSNAHKAN SAHAM\nSari Roti berencana menarik saham.", "Sari Roti berencana menarik saham."),
+    ("AMMN", "PT Amman Mineral Internasional Tbk", "PENDAPATAN AMMN TURUN\nForeign net outflow saham AMMN Rp4,75 triliun.", "saham AMMN"),
+])
+def test_explicit_stock_reference_keeps_x_news_ticker(ticker, company, text, evidence, monkeypatch, config_path, profile_payload):
+    profile_payload.update(enable_llm_title=True, enable_llm_summary=True, enable_llm_routing=True, enable_llm_relevance_filter=True)
+    profile_payload["discord_channels"] = [{"key":key, "channel_id":str(100000000000000001 + i), "description":key} for i,key in enumerate(("id_stocks_news", "us_stocks_news", "global_company_news"))]
+    config_path.write_text(json.dumps({"version":1, "profiles":[profile_payload]}))
+    profile = config.load_watch_config(config_path).profiles[0]
+    monkeypatch.setattr(news_identity, "_search", lambda _: [{"symbol":ticker + ".JK", "exchange":"JKT", "quoteType":"EQUITY", "longname":company}])
+    payload = {"event_key":"source:1", "is_relevant":True, "items":[{"title":ticker + ": Kabar perusahaan", "summary":evidence,
+        "route":"id_stocks_news", "ticker":ticker, "subject":{"kind":"company", "name":ticker, "evidence":evidence,
+        "company":{"business_home":"ID", "listing_status":"listed", "security_market":"ID"}}}]}
+    item, = agent_protocol.validate_submission(profile, payload, subject_required=True, company_required=True, source_text=text)["news_items"]
+    assert item["ticker"] == ticker and item["title"].startswith(ticker + ":")
+
+
 @pytest.mark.parametrize("industry_region", [None, "US", "GLOBAL"])
 def test_missing_global_destination_is_terminal_without_macro_or_backlog(tmp_path, monkeypatch, config_path, profile_payload, industry_region):
     profile_payload.update(enable_llm_title=True, enable_llm_summary=True,
