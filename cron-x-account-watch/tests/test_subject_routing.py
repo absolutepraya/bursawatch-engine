@@ -15,7 +15,7 @@ import news_identity
 @pytest.mark.parametrize("name,ticker,market,home,text,expected_ticker", [
     ("Snapchat", "SNAP", "US", "US", "Snapchat stock, $SNAP, falls over -10% after earnings.", "SNAP"),
     ("ASSA", "ASSA", "ID", "ID", "ASSA akan membagikan dividen interim Rp 20/saham.", None),
-    ("ASSA", "ASSA", "ID", "ID", "ASSA: akan membagikan dividen interim Rp 20/saham.", "ASSA"),
+    ("ASSA", "ASSA", "ID", "ID", "ASSA: akan membagikan dividen interim Rp 20/saham.", None),
 ])
 def test_source_company_identity_survives_submission(name, ticker, market, home, text, expected_ticker, monkeypatch, config_path, profile_payload):
     profile_payload.update(enable_llm_title=True, enable_llm_summary=True, enable_llm_routing=True, enable_llm_relevance_filter=True)
@@ -35,7 +35,7 @@ def test_source_company_identity_survives_submission(name, ticker, market, home,
     ("ROTI", "PT Nippon Indosari Corpindo Tbk", "$ROTI AKAN MUSNAHKAN SAHAM\nSari Roti berencana menarik saham.", "Sari Roti berencana menarik saham."),
     ("AMMN", "PT Amman Mineral Internasional Tbk", "PENDAPATAN AMMN TURUN\nForeign net outflow saham AMMN Rp4,75 triliun.", "saham AMMN"),
 ])
-def test_explicit_stock_reference_keeps_x_news_ticker(ticker, company, text, evidence, monkeypatch, config_path, profile_payload):
+def test_explicit_stock_reference_without_issuer_stays_text_only(ticker, company, text, evidence, monkeypatch, config_path, profile_payload):
     profile_payload.update(enable_llm_title=True, enable_llm_summary=True, enable_llm_routing=True, enable_llm_relevance_filter=True)
     profile_payload["discord_channels"] = [{"key":key, "channel_id":str(100000000000000001 + i), "description":key} for i,key in enumerate(("id_stocks_news", "us_stocks_news", "global_company_news"))]
     config_path.write_text(json.dumps({"version":1, "profiles":[profile_payload]}))
@@ -45,7 +45,7 @@ def test_explicit_stock_reference_keeps_x_news_ticker(ticker, company, text, evi
         "route":"id_stocks_news", "ticker":ticker, "subject":{"kind":"company", "name":ticker, "evidence":evidence,
         "company":{"business_home":"ID", "listing_status":"listed", "security_market":"ID"}}}]}
     item, = agent_protocol.validate_submission(profile, payload, subject_required=True, company_required=True, source_text=text)["news_items"]
-    assert item["ticker"] == ticker and item["title"].startswith(ticker + ":")
+    assert item["ticker"] is None and not item["title"].startswith(ticker + ":")
 
 
 @pytest.mark.parametrize("industry_region", [None, "US", "GLOBAL"])

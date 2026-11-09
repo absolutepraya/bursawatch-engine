@@ -66,7 +66,8 @@ class _Inbox:
         return self.inspection
 
 
-def test_bull_qualified_lookup_reaches_id_company_channel(tmp_path, monkeypatch):
+@pytest.mark.parametrize("has_issuer_evidence", [False, True])
+def test_bull_qualified_lookup_reaches_id_company_channel(tmp_path, monkeypatch, has_issuer_evidence):
     monkeypatch.setattr(news_identity, "lookup_company", _REAL_IDENTITY_LOOKUP)
     rows = {"BULL.JK": [{"symbol":"BULL.JK", "longname":"PT Buana Lintas Lautan Tbk", "exchange":"JKT", "quoteType":"EQUITY"}],
             "BULL": [{"symbol":"BULL", "longname":"Webull Corporation", "exchange":"NCM", "quoteType":"EQUITY"}]}
@@ -74,6 +75,8 @@ def test_bull_qualified_lookup_reaches_id_company_channel(tmp_path, monkeypatch)
     monkeypatch.setenv("IDX_MARKET_NEWS_STATE_PATH", str(tmp_path / "news.json"))
     monkeypatch.setenv("IDX_MARKET_NEWS_NO_POST", "1")
     text = "Phintraco Sekuritas Company Update\nBULL: Revenue Remains Supported by Elevated Rates\n\nBULL booked 3Q26 revenue of US$54 million."
+    if has_issuer_evidence:
+        text += " PT Buana Lintas Lautan Tbk (BULL) reported the results."
     work, inspection = _news_work("company_news", message_id="36258", text=text)
     assert pipeline_owner.submit(work, no_post=True, inbox=_Inbox(inspection)) == "accepted"
     now = datetime.now(scan.WIB) + timedelta(seconds=1)
@@ -82,15 +85,15 @@ def test_bull_qualified_lookup_reaches_id_company_channel(tmp_path, monkeypatch)
     payload = {"candidate_key":item["candidate_key"], "ticker":"BULL", "event_class":"financial_results_or_guidance",
                "summary":evidence, "title":"BULL: Revenue remains supported", "material_facts":[evidence],
                "ranking_band":1, "dedupe_facts":[evidence], "eligible":True, "route":"id_stocks_news", "source_evidence":evidence,
-               "subject":{"kind":"company", "name":"BULL", "evidence":evidence,
+               "subject":{"kind":"company", "name":"BULL", "evidence":"PT Buana Lintas Lautan Tbk (BULL)" if has_issuer_evidence else evidence,
                           "company":{"business_home":"ID", "listing_status":"listed", "security_market":"ID"}}}
     result = asyncio.run(scan.submit_classification_payload(payload, now + timedelta(seconds=30)))
     assert result["news_delivered"] == 1
     saved = load_state()
     delivered = saved["stats"]["delivery_payloads"][item["candidate_key"]]
     assert delivered["channel_id"] == "1525102508714889257"
-    assert "BULL: Revenue remains supported" in delivered["content"]
-    assert "Saham: BULL (IDX)" in delivered["content"]
+    assert ("BULL: Revenue remains supported" in delivered["content"]) is has_issuer_evidence
+    assert ("Saham: BULL (IDX)" in delivered["content"]) is has_issuer_evidence
 
 
 @pytest.mark.parametrize("text,subject,ticker,route,destination", [
@@ -218,8 +221,8 @@ def test_bach_issuer_heading_reaches_stock_destination_through_source_owner(tmp_
     assert result["news_delivered"] == 1
     delivered = load_state()["stats"]["delivery_payloads"][item["candidate_key"]]
     assert delivered["channel_id"] == "1525102508714889257"
-    assert "BACH: Laba tumbuh 32,05% pada 9M26" in delivered["content"]
-    assert "Harga terakhir (IDR)" in delivered["content"]
+    assert "BACH Laba tumbuh 32,05% pada 9M26" in delivered["content"]
+    assert "Harga terakhir (IDR)" not in delivered["content"]
     assert "https://t.me/phintasprofits/36061" in delivered["content"]
 
 
