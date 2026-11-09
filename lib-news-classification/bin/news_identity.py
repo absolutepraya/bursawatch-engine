@@ -181,11 +181,35 @@ def prepare_item(item: dict, source_text: str, *, market: str = "ID", source_ope
                                                        or (symbol_like_name and explicit_symbol)):
             identity = lookup_company(ticker, market)
         issuer_name = identity.get("name")
+        if symbol_like_name and (not isinstance(issuer_name, str) or not issuer_name.strip()):
+            return _without_security(item, subject, ticker), None
+        if (not symbol_like_name and not _issuer_named_in(subject["name"], subject["evidence"], anchored=True)
+                and not _source_binds_ticker(subject, ticker, anchored=True)):
+            return _without_security(item, subject, ticker), None
         exact_issuer = isinstance(issuer_name, str) and _name(issuer_name) == _name(subject["name"])
         issuer_pair = isinstance(issuer_name, str) and _source_binds_ticker(
-            {"name": issuer_name, "evidence": source_text}, ticker
+            {"name": issuer_name, "evidence": subject["evidence"]}, ticker, anchored=True
         )
         symbol_evidence = not symbol_like_name or exact_issuer or issuer_pair or explicit_symbol
+        if symbol_like_name and isinstance(issuer_name, str):
+            evidence = subject["evidence"]
+            named_issuer = _name(issuer_name) != ticker.casefold() and _issuer_named_in(issuer_name, evidence, anchored=True)
+            if not issuer_pair and not named_issuer:
+                return _without_security(item, subject, ticker), None
+            # A symbol can identify different companies on different exchanges.
+            # If the focus evidence names a different issuer, do not let the
+            # model-selected market attach this issuer's quote to it.
+            other_market = "US" if market == "ID" else "ID"
+            other = lookup_company(ticker, other_market)
+            other_name = other.get("name") if other.get("status") == "verified" else None
+            if (isinstance(other_name, str) and _name(other_name) != _name(issuer_name)
+                    and _issuer_named_in(other_name, evidence)):
+                return _without_security(item, subject, ticker), None
+            # Even an unavailable other-market lookup must not turn an explicit
+            # different legal company name into proof of this issuer.
+            if (_has_legal_company_name(evidence) and not _issuer_named_in(issuer_name, evidence)
+                    and not _source_binds_ticker({"name": issuer_name, "evidence": evidence}, ticker)):
+                return _without_security(item, subject, ticker), None
         if identity.get("status") == "verified" and identity.get("ticker") == ticker and symbol_evidence:
             return item, ticker
         return _without_security(item, subject, ticker), None
@@ -206,13 +230,40 @@ def prepare_item(item: dict, source_text: str, *, market: str = "ID", source_ope
     return result, None
 
 
-def _source_binds_ticker(subject: dict, ticker: str) -> bool:
+def _source_binds_ticker(subject: dict, ticker: str, *, anchored: bool = False) -> bool:
     """Accept only a short, explicit name/security pair in source evidence."""
     name = re.escape(subject["name"])
     symbol = re.escape(ticker)
     end = r"(?!\w|[.-]\w)"
-    pattern = rf"(?<!\w){name}[ \t]*(?:(?:stock|shares|saham)[ \t]*,?[ \t]*)?(?:\([ \t]*\$?{symbol}[ \t]*\)|,[ \t]*\${symbol}{end}|\${symbol}{end})"
-    return re.search(pattern, subject["evidence"], flags=re.IGNORECASE) is not None
+    start = r"\A\s*" if anchored else r"(?<!\w)"
+    pattern = rf"{start}{name}[ \t]*(?:(?:stock|shares|saham)[ \t]*,?[ \t]*)?(?:\([ \t]*\$?{symbol}[ \t]*\)|,[ \t]*\${symbol}{end}|\${symbol}{end})"
+    if re.search(pattern, subject["evidence"], flags=re.IGNORECASE) is not None:
+        return True
+    # Indonesian legal suffix punctuation and the parenthesized state-owned
+    # designation vary between source articles and the provider's name. Do
+    # not fuzzy-match the substantive issuer name or an intervening company.
+    issuer = subject["name"]
+    match = re.fullmatch(r"(?i)PT\s+(.+?)\s+(?:\(Persero\)\s+)?Tbk\.?", issuer.strip())
+    if not match:
+        return False
+    core = re.escape(match.group(1))
+    idx_pair = rf"{start}(?:PT\s+)?{core}\s+(?:\(Persero\)\s+)?Tbk\.?[ \t]*\([ \t]*\$?{symbol}[ \t]*\)"
+    return re.search(idx_pair, subject["evidence"], flags=re.IGNORECASE) is not None
+
+
+def _issuer_named_in(name: str, evidence: str, *, anchored: bool = False) -> bool:
+    """Match a normalized issuer name in the bounded focus evidence."""
+    tokens = _name(name).split()
+    if not tokens or sum(map(len, tokens)) < 4:
+        return False
+    start = r"\A\s*(?:pt\s+)?" if anchored else r"(?<!\w)"
+    pattern = start + r"[\W_]+".join(map(re.escape, tokens)) + r"(?!\w)"
+    return re.search(pattern, unicodedata.normalize("NFKC", evidence).casefold()) is not None
+
+
+def _has_legal_company_name(evidence: str) -> bool:
+    """Recognize legal-name markers that require issuer corroboration."""
+    return re.search(r"(?i)\b(?:corporation|incorporated|inc|corp|tbk|limited|ltd|plc)\b", evidence) is not None
 
 
 def _source_explicit_symbol(source_text: str, evidence: str, ticker: str, source_openings: tuple[str, ...] = ()) -> bool:

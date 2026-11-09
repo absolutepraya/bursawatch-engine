@@ -8,6 +8,139 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bin"))
 import news_identity
 
 
+@pytest.mark.parametrize("ticker,issuer,source,evidence", [
+    ("BBRI", "PT Bank Rakyat Indonesia (Persero) Tbk",
+     "Muncul Lapkeu BBRI\nPT Bank Rakyat Indonesia Tbk (BBRI) mengumumkan laba meningkat.",
+     "mengumumkan laba meningkat"),
+    ("RAJA", "PT Rukun Raharja Tbk",
+     "RAJA Ekspansi Bisnis\nPT Rukun Raharja Tbk. (RAJA) mengakuisisi KNJ.",
+     "RAJA Ekspansi Bisnis"),
+])
+def test_issuer_pair_elsewhere_does_not_bind_focus(ticker, issuer, source, evidence, monkeypatch):
+    monkeypatch.setattr(news_identity, "_search", lambda _: [row(ticker + ".JK", issuer)])
+    item = {"title": ticker + ": Berita", "ticker": ticker, "route": "id_stocks_news",
+            "subject": {"kind": "company", "name": ticker, "evidence": evidence,
+                        "company": {"business_home": "ID", "listing_status": "listed", "security_market": "ID"}}}
+    assert news_identity.prepare_item(item, source)[1] is None
+
+
+@pytest.mark.parametrize("ticker,issuer,evidence", [
+    ("BBRI", "PT Bank Rakyat Indonesia (Persero) Tbk", "PT Bank Rakyat Indonesia Tbk (BBRI) mengumumkan laba meningkat"),
+    ("BBRI", "PT Bank Rakyat Indonesia (Persero) Tbk", "Bank Rakyat Indonesia Tbk (BBRI) mengumumkan laba meningkat"),
+    ("RAJA", "PT Rukun Raharja Tbk", "PT Rukun Raharja Tbk. (RAJA) mengakuisisi KNJ"),
+])
+def test_focus_evidence_can_bind_normalized_issuer_pair(ticker, issuer, evidence, monkeypatch):
+    monkeypatch.setattr(news_identity, "_search", lambda _: [row(ticker + ".JK", issuer)])
+    item = {"title": ticker + ": Berita", "ticker": ticker, "route": "id_stocks_news",
+            "subject": {"kind": "company", "name": ticker, "evidence": evidence,
+                        "company": {"business_home": "ID", "listing_status": "listed", "security_market": "ID"}}}
+    assert news_identity.prepare_item(item, evidence + ".")[1] == ticker
+
+
+def test_short_focus_name_with_direct_verified_pair_retains_ticker(monkeypatch):
+    monkeypatch.setattr(news_identity, "_search", lambda _: [row("BBCA.JK", "PT Bank Central Asia Tbk")])
+    evidence = "BCA (BBCA) reports earnings"
+    item = {"title": "BBCA: Earnings", "ticker": "BBCA", "route": "id_stocks_news",
+            "subject": {"kind": "company", "name": "BCA", "evidence": evidence,
+                        "company": {"business_home": "ID", "listing_status": "listed", "security_market": "ID"}}}
+    assert news_identity.prepare_item(item, evidence + ".")[1] == "BBCA"
+    item["subject"]["evidence"] = "BCA reports earnings"
+    assert news_identity.prepare_item(item, "BCA reports earnings; other firm $BBCA falls.")[1] is None
+
+
+def test_issuer_pair_does_not_accept_related_or_different_company(monkeypatch):
+    monkeypatch.setattr(news_identity, "_search", lambda _: [row("BBRI.JK", "PT Bank Rakyat Indonesia (Persero) Tbk")])
+    source = "BBRI expands. PT Bank Rakyat Indonesia Syariah Tbk. (BBRI) reports results."
+    item = {"title": "BBRI: Berita", "ticker": "BBRI", "route": "id_stocks_news",
+            "subject": {"kind": "company", "name": "BBRI", "evidence": "BBRI expands",
+                        "company": {"business_home": "ID", "listing_status": "listed", "security_market": "ID"}}}
+    assert news_identity.prepare_item(item, source)[1] is None
+
+
+def test_explicit_symbol_does_not_override_wrong_market_issuer(monkeypatch):
+    def search(query):
+        return {"BULL.JK": [row("BULL.JK", "PT Buana Lintas Lautan Tbk")],
+                "BULL": [row("BULL", "Webull Corporation", "NCM")]}.get(query, [])
+    monkeypatch.setattr(news_identity, "_search", search)
+    source = "$BULL Webull Corporation reports earnings."
+    item = {"title": "BULL: Earnings", "ticker": "BULL", "route": "us_stocks_news",
+            "subject": {"kind": "company", "name": "BULL", "evidence": source,
+                        "company": {"business_home": "US", "listing_status": "listed", "security_market": "ID"}}}
+    assert news_identity.prepare_item(item, source)[1] is None
+
+
+def test_wrong_named_issuer_is_not_accepted_when_other_market_is_unavailable(monkeypatch):
+    monkeypatch.setattr(news_identity, "_search", lambda query: [row("BULL.JK", "PT Buana Lintas Lautan Tbk")] if query == "BULL.JK" else [])
+    source = "$BULL Webull Corporation reports earnings."
+    item = {"title": "BULL: Earnings", "ticker": "BULL", "route": "us_stocks_news",
+            "subject": {"kind": "company", "name": "BULL", "evidence": source,
+                        "company": {"business_home": "US", "listing_status": "listed", "security_market": "ID"}}}
+    assert news_identity.prepare_item(item, source)[1] is None
+
+
+def test_unknown_other_market_does_not_validate_different_focus_name(monkeypatch):
+    def search(query):
+        if query == "BULL.JK":
+            return [row("BULL.JK", "PT Buana Lintas Lautan Tbk")]
+        raise TimeoutError("provider unavailable")
+    monkeypatch.setattr(news_identity, "_search", search)
+    source = "$BULL Webull reports earnings."
+    item = {"title": "BULL: Earnings", "ticker": "BULL", "route": "us_stocks_news",
+            "subject": {"kind": "company", "name": "BULL", "evidence": source,
+                        "company": {"business_home": "US", "listing_status": "listed", "security_market": "ID"}}}
+    assert news_identity.prepare_item(item, source)[1] is None
+
+
+def test_shared_symbol_without_focus_issuer_does_not_choose_a_market(monkeypatch):
+    def search(query):
+        return {"BULL.JK": [row("BULL.JK", "PT Buana Lintas Lautan Tbk")],
+                "BULL": [row("BULL", "Webull Corporation", "NCM")]}.get(query, [])
+    monkeypatch.setattr(news_identity, "_search", search)
+    source = "$BULL reports earnings."
+    item = {"title": "BULL: Earnings", "ticker": "BULL", "route": "us_stocks_news",
+            "subject": {"kind": "company", "name": "BULL", "evidence": source,
+                        "company": {"business_home": "US", "listing_status": "listed", "security_market": "ID"}}}
+    assert news_identity.prepare_item(item, source)[1] is None
+
+
+def test_source_pair_for_other_company_cannot_override_focus_issuer(monkeypatch):
+    def search(query):
+        return {"BULL.JK": [row("BULL.JK", "PT Buana Lintas Lautan Tbk")],
+                "BULL": [row("BULL", "Webull Corporation", "NCM")]}.get(query, [])
+    monkeypatch.setattr(news_identity, "_search", search)
+    evidence = "$BULL Webull reports earnings."
+    source = evidence + " PT Buana Lintas Lautan Tbk (BULL) is a different company."
+    item = {"title": "BULL: Earnings", "ticker": "BULL", "route": "us_stocks_news",
+            "subject": {"kind": "company", "name": "BULL", "evidence": evidence,
+                        "company": {"business_home": "US", "listing_status": "listed", "security_market": "ID"}}}
+    assert news_identity.prepare_item(item, source)[1] is None
+
+
+def test_issuer_pair_elsewhere_is_not_proof_of_private_focus(monkeypatch):
+    monkeypatch.setattr(news_identity, "_search", lambda query: [row("BULL.JK", "PT Buana Lintas Lautan Tbk")] if query == "BULL.JK" else [])
+    evidence = "BULL startup launches a product"
+    source = evidence + ". Separately, PT Buana Lintas Lautan Tbk (BULL) reported its earnings."
+    item = {"title": "BULL: New product", "ticker": "BULL", "route": "id_stocks_news",
+            "subject": {"kind": "company", "name": "BULL", "evidence": evidence,
+                        "company": {"business_home": "ID", "listing_status": "listed", "security_market": "ID"}}}
+    assert news_identity.prepare_item(item, source)[1] is None
+    item["subject"]["evidence"] = source.rstrip(".")
+    assert news_identity.prepare_item(item, source)[1] is None
+
+
+def test_named_counterparty_is_not_focus_evidence(monkeypatch):
+    monkeypatch.setattr(news_identity, "_search", lambda _: [row("BULL.JK", "PT Buana Lintas Lautan Tbk")])
+    evidence = "Private startup announces a new product"
+    source = evidence + ". PT Buana Lintas Lautan Tbk (BULL) is also mentioned."
+    item = {"title": "BULL: New product", "ticker": "BULL", "route": "id_stocks_news",
+            "subject": {"kind": "company", "name": "Buana Lintas Lautan", "evidence": evidence,
+                        "company": {"business_home": "ID", "listing_status": "listed", "security_market": "ID"}}}
+    assert news_identity.prepare_item(item, source)[1] is None
+    long_evidence = source.rstrip(".")
+    item["subject"]["evidence"] = long_evidence
+    assert news_identity.prepare_item(item, source)[1] is None
+
+
 def row(symbol="BACH.JK", name="Bach Multi Global Tbk.", exchange="JKT"):
     return {"symbol": symbol, "longname": name, "exchange": exchange, "quoteType": "EQUITY"}
 
@@ -103,7 +236,7 @@ def test_ticker_like_company_name_requires_source_evidence_for_symbol(monkeypatc
             "subject":{"kind":"company", "name":"BULL", "evidence":"BULL opens a factory",
                        "company":{"business_home":"ID", "listing_status":"listed", "security_market":"ID"}}}
     assert news_identity.prepare_item(item, "BULL opens a factory")[1] is None
-    assert news_identity.prepare_item(item, "BULL: Company update\nBULL opens a factory")[1] == "BULL"
+    assert news_identity.prepare_item(item, "BULL: Company update\nBULL opens a factory")[1] is None
     assert news_identity.prepare_item(item, "Other company $BULL.B rises. BULL opens a factory")[1] is None
 
 
@@ -114,7 +247,9 @@ def test_ticker_like_name_can_use_source_pair_with_verified_issuer(monkeypatch):
             "subject":{"kind":"company", "name":"CASA", "evidence":"CASA",
                        "company":{"business_home":"ID", "listing_status":"listed", "security_market":"ID"}}}
     paired = "BEI memeriksa saham PT Capital Financial Indonesia Tbk (CASA)."
-    assert news_identity.prepare_item(item, paired)[1] == "CASA"
+    assert news_identity.prepare_item(item, paired)[1] is None
+    bound = {**item, "subject": {**item["subject"], "evidence": "PT Capital Financial Indonesia Tbk (CASA)"}}
+    assert news_identity.prepare_item(bound, paired)[1] == "CASA"
     unrelated = "CASA expands while PT Other Company Tbk (CASA) falls."
     assert news_identity.prepare_item(item, unrelated)[1] is None
     other_symbol = "CASA expands while PT Capital Financial Indonesia Tbk (CASA.B) falls."
@@ -125,12 +260,12 @@ def test_ticker_like_name_can_use_source_pair_with_verified_issuer(monkeypatch):
     ("ROTI", "PT Nippon Indosari Corpindo Tbk", "$ROTI AKAN MUSNAHKAN SAHAM\nSari Roti berencana menarik saham.", "Sari Roti berencana menarik saham."),
     ("AMMN", "PT Amman Mineral Internasional Tbk", "PENDAPATAN AMMN TURUN\nForeign net outflow saham AMMN Rp4,75 triliun.", "saham AMMN"),
 ])
-def test_explicit_source_stock_symbol_retained(ticker, name, source, evidence, monkeypatch):
+def test_explicit_source_stock_symbol_alone_does_not_identify_issuer(ticker, name, source, evidence, monkeypatch):
     monkeypatch.setattr(news_identity, "_search", lambda _: [row(ticker + ".JK", name, "JKT")])
     item = {"title": ticker + ": Kabar perusahaan", "route":"id_stocks_news", "ticker":ticker,
             "subject":{"kind":"company", "name":ticker, "evidence":evidence,
                        "company":{"business_home":"ID", "listing_status":"listed", "security_market":"ID"}}}
-    assert news_identity.prepare_item(item, source)[1] == ticker
+    assert news_identity.prepare_item(item, source)[1] is None
 
 
 def test_unrelated_or_partial_source_symbol_is_not_accepted(monkeypatch):
@@ -166,7 +301,7 @@ def test_mixed_case_ticker_subject_uses_explicit_symbol_lookup(monkeypatch):
     item = {"title":"ROTI: Kabar perusahaan", "route":"id_stocks_news", "ticker":"ROTI",
             "subject":{"kind":"company", "name":"Roti", "evidence":"Roti grows",
                        "company":{"business_home":"ID", "listing_status":"listed", "security_market":"ID"}}}
-    assert news_identity.prepare_item(item, source)[1] == "ROTI"
+    assert news_identity.prepare_item(item, source)[1] is None
 
 def test_idx_conflicting_company_names_for_same_symbol_are_unresolved():
     rows = [row("BULL.JK", "PT Buana Lintas Lautan Tbk", "JKT"),
@@ -182,7 +317,7 @@ def test_idx_security_lookup_does_not_rewrite_business_home(monkeypatch):
             "subject":{"kind":"company", "name":"BULL", "evidence":text,
                        "company":{"business_home":"GLOBAL", "listing_status":"listed", "security_market":"ID"}}}
     result, ticker = news_identity.prepare_item(item, text)
-    assert ticker == "BULL" and result["route"] == "global_company_news"
+    assert ticker is None and result["route"] == "global_company_news"
     assert result["subject"]["company"]["business_home"] == "GLOBAL"
 
 
