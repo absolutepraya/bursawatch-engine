@@ -183,7 +183,8 @@ def prepare_item(item: dict, source_text: str, *, market: str = "ID", source_ope
         issuer_name = identity.get("name")
         if symbol_like_name and (not isinstance(issuer_name, str) or not issuer_name.strip()):
             return _without_security(item, subject, ticker), None
-        if not symbol_like_name and not _issuer_named_in(subject["name"], subject["evidence"], anchored=True):
+        if (not symbol_like_name and not _issuer_named_in(subject["name"], subject["evidence"], anchored=True)
+                and not _source_binds_ticker(subject, ticker, anchored=True)):
             return _without_security(item, subject, ticker), None
         exact_issuer = isinstance(issuer_name, str) and _name(issuer_name) == _name(subject["name"])
         issuer_pair = isinstance(issuer_name, str) and _source_binds_ticker(
@@ -246,11 +247,12 @@ def _source_binds_ticker(subject: dict, ticker: str, *, anchored: bool = False) 
     if not match:
         return False
     core = re.escape(match.group(1))
-    idx_pair = rf"{start}PT\s+{core}\s+(?:\(Persero\)\s+)?Tbk\.?[ \t]*\([ \t]*\$?{symbol}[ \t]*\)"
+    idx_pair = rf"{start}(?:PT\s+)?{core}\s+(?:\(Persero\)\s+)?Tbk\.?[ \t]*\([ \t]*\$?{symbol}[ \t]*\)"
     return re.search(idx_pair, subject["evidence"], flags=re.IGNORECASE) is not None
 
 
 def _issuer_named_in(name: str, evidence: str, *, anchored: bool = False) -> bool:
+    """Match a normalized issuer name in the bounded focus evidence."""
     tokens = _name(name).split()
     if not tokens or sum(map(len, tokens)) < 4:
         return False
@@ -260,6 +262,7 @@ def _issuer_named_in(name: str, evidence: str, *, anchored: bool = False) -> boo
 
 
 def _has_legal_company_name(evidence: str) -> bool:
+    """Recognize legal-name markers that require issuer corroboration."""
     return re.search(r"(?i)\b(?:corporation|incorporated|inc|corp|tbk|limited|ltd|plc)\b", evidence) is not None
 
 

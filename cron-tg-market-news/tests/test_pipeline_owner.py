@@ -221,7 +221,7 @@ def test_bach_issuer_heading_reaches_stock_destination_through_source_owner(tmp_
     assert result["news_delivered"] == 1
     delivered = load_state()["stats"]["delivery_payloads"][item["candidate_key"]]
     assert delivered["channel_id"] == "1525102508714889257"
-    assert "BACH Laba tumbuh 32,05% pada 9M26" in delivered["content"]
+    assert delivered["content"].splitlines()[0] == "### <:phintraco:1531272488645038091> BACH Laba tumbuh 32,05% pada 9M26"
     assert "Harga terakhir (IDR)" not in delivered["content"]
     assert "https://t.me/phintasprofits/36061" in delivered["content"]
 

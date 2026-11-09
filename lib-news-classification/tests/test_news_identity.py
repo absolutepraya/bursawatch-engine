@@ -26,6 +26,7 @@ def test_issuer_pair_elsewhere_does_not_bind_focus(ticker, issuer, source, evide
 
 @pytest.mark.parametrize("ticker,issuer,evidence", [
     ("BBRI", "PT Bank Rakyat Indonesia (Persero) Tbk", "PT Bank Rakyat Indonesia Tbk (BBRI) mengumumkan laba meningkat"),
+    ("BBRI", "PT Bank Rakyat Indonesia (Persero) Tbk", "Bank Rakyat Indonesia Tbk (BBRI) mengumumkan laba meningkat"),
     ("RAJA", "PT Rukun Raharja Tbk", "PT Rukun Raharja Tbk. (RAJA) mengakuisisi KNJ"),
 ])
 def test_focus_evidence_can_bind_normalized_issuer_pair(ticker, issuer, evidence, monkeypatch):
@@ -34,6 +35,17 @@ def test_focus_evidence_can_bind_normalized_issuer_pair(ticker, issuer, evidence
             "subject": {"kind": "company", "name": ticker, "evidence": evidence,
                         "company": {"business_home": "ID", "listing_status": "listed", "security_market": "ID"}}}
     assert news_identity.prepare_item(item, evidence + ".")[1] == ticker
+
+
+def test_short_focus_name_with_direct_verified_pair_retains_ticker(monkeypatch):
+    monkeypatch.setattr(news_identity, "_search", lambda _: [row("BBCA.JK", "PT Bank Central Asia Tbk")])
+    evidence = "BCA (BBCA) reports earnings"
+    item = {"title": "BBCA: Earnings", "ticker": "BBCA", "route": "id_stocks_news",
+            "subject": {"kind": "company", "name": "BCA", "evidence": evidence,
+                        "company": {"business_home": "ID", "listing_status": "listed", "security_market": "ID"}}}
+    assert news_identity.prepare_item(item, evidence + ".")[1] == "BBCA"
+    item["subject"]["evidence"] = "BCA reports earnings"
+    assert news_identity.prepare_item(item, "BCA reports earnings; other firm $BBCA falls.")[1] is None
 
 
 def test_issuer_pair_does_not_accept_related_or_different_company(monkeypatch):
