@@ -151,7 +151,7 @@ def _without_security(item: dict, subject: dict, ticker: str) -> dict:
     prefix = re.match(rf"^{re.escape(ticker)}\s*:\s*", title) if ticker and isinstance(title, str) else None
     if prefix is not None:
         body = title[prefix.end():].strip()
-        result["title"] = body if subject["name"].casefold() in body.casefold() else subject["name"] + " " + body
+        result["title"] = news_subject.name_headline(subject["name"], body, ticker)
     return result
 
 
@@ -183,7 +183,7 @@ def prepare_item(item: dict, source_text: str, *, market: str = "ID", source_ope
         issuer_name = identity.get("name")
         if symbol_like_name and (not isinstance(issuer_name, str) or not issuer_name.strip()):
             return _without_security(item, subject, ticker), None
-        if (not symbol_like_name and not _issuer_named_in(subject["name"], subject["evidence"], anchored=True)
+        if (not symbol_like_name and not _issuer_named_in(subject["name"], _focus_sentence(item["subject"]["evidence"]))
                 and not _source_binds_ticker(subject, ticker, anchored=True)):
             return _without_security(item, subject, ticker), None
         exact_issuer = isinstance(issuer_name, str) and _name(issuer_name) == _name(subject["name"])
@@ -259,6 +259,25 @@ def _issuer_named_in(name: str, evidence: str, *, anchored: bool = False) -> boo
     start = r"\A\s*(?:pt\s+)?" if anchored else r"(?<!\w)"
     pattern = start + r"[\W_]+".join(map(re.escape, tokens)) + r"(?!\w)"
     return re.search(pattern, unicodedata.normalize("NFKC", evidence).casefold()) is not None
+
+
+_ABBREVIATIONS = frozenset({"inc", "corp", "ltd", "co", "tbk", "pt", "persero", "no", "st", "dr", "mr", "mrs", "ms", "jr", "sr", "vs"})
+
+
+def _focus_sentence(evidence: str) -> str:
+    """The first sentence or line: the focus company is named there, not in a later counterparty mention.
+
+    Takes the raw evidence, because validation collapses line breaks. A sentence ends at `.`, `!` or `?`
+    followed by whitespace, whatever case the next sentence starts with, except after a legal or title
+    abbreviation such as `Inc.`, `Tbk.` or `Dr.`.
+    """
+    text = evidence.strip()
+    for match in re.finditer(r"\n|(\w*)([.!?])[\"')\]]*\s+", text):
+        if match.group(2) is None:
+            return text[:match.start()]
+        if match.group(1).casefold() not in _ABBREVIATIONS:
+            return text[:match.end(2)]
+    return text
 
 
 def _has_legal_company_name(evidence: str) -> bool:

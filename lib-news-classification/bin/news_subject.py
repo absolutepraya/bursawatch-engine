@@ -163,6 +163,17 @@ def quote_route(subject: Mapping | None, fallback: str) -> str | None:
     return fallback if fallback in {"id_stocks_news", "us_stocks_news"} else None
 
 
+def name_headline(name: str, body: str, ticker: str = "") -> str:
+    """Replace a dropped `TICKER:` prefix with the focus company name, unless the body already names it.
+
+    A real company name takes `Name: body`. A name that is only the unverified symbol stays `SYMBOL body`,
+    because a `TICKER:` prefix is the visible mark of a verified security.
+    """
+    if name.casefold() in body.casefold():
+        return body
+    return f"{name} {body}" if ticker and name.strip().casefold() == ticker.casefold() else f"{name}: {body}"
+
+
 def ticker_market(subject: Mapping, fallback: str = "ID") -> str:
     if "company" in subject:
         return subject["company"]["security_market"] or fallback

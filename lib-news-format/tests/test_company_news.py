@@ -89,3 +89,18 @@ def test_regional_industry_cards_keep_geography_and_never_fetch_company_quotes(r
     assert news_format.validate_cards(cards)==cards
     assert cards[0]['route']==route and cards[0]['ticker'] is None
     assert 'Harga terakhir' not in cards[0]['messages'][0]
+
+
+def test_company_headline_uses_a_colon_when_a_ticker_prefix_is_replaced_by_the_company_name():
+    """Renderer-side twin of the identity fallback: no `<Name> <predicate>` run-on."""
+    value = item("US", "private", "")
+    subject = news_format.news_subject.validate_subject(value["subject"])
+    assert news_format.company_headline("EXAMPLE: Laporan kaitkan CEO dengan chip", subject, "EXAMPLE") == \
+        "Example Business: Laporan kaitkan CEO dengan chip"
+
+
+def test_company_headline_keeps_a_symbol_only_name_unprefixed():
+    value = item("ID", "listed", "")
+    value["subject"]["name"] = "EXAMPLE"
+    subject = news_format.news_subject.validate_subject(value["subject"])
+    assert news_format.company_headline("EXAMPLE: Transaksi nego besar", subject, "EXAMPLE") == "EXAMPLE Transaksi nego besar"

@@ -39,7 +39,7 @@ def test_nonlisted_focus_company_never_inherits_a_source_ticker(monkeypatch, sta
             "title": prefix + " Plans an IPO"}
     normalized, verified = news_identity.prepare_item(item, "Example Business plans an IPO; PARENT is mentioned")
     assert normalized["ticker"] == "" and verified is None
-    assert normalized["title"].startswith("Example Business ") and "PARENT:" not in normalized["title"]
+    assert normalized["title"] == "Example Business: Plans an IPO" and "PARENT" not in normalized["title"]
 
 
 def test_even_source_mentioned_security_requires_focus_company_verification(monkeypatch):
@@ -78,3 +78,30 @@ def test_legacy_subject_remains_readable_but_new_claim_requires_details():
     assert news_subject.validate_route(legacy, "us_stocks_news") == "us_stocks_news"
     with pytest.raises(ValueError, match="details"):
         news_subject.require_company_details(legacy)
+
+
+@pytest.mark.parametrize("title", ["PARENT: Laporan kaitkan CEO dengan pengiriman chip", "PARENT : Laporan kaitkan CEO dengan pengiriman chip"])
+def test_dropped_ticker_prefix_becomes_a_colon_separated_company_name(monkeypatch, title):
+    """A ticker that fails verification must not leave `<Name> <predicate>` (live bug: `Nvidia Laporan kaitkan...`)."""
+    monkeypatch.setattr(news_identity, "lookup_company", lambda *_: {"status": "unresolved"})
+    item = {"subject": subject("US", "listed", "US"), "route": "us_stocks_news", "ticker": "PARENT", "title": title}
+    normalized, verified = news_identity.prepare_item(item, "Example Business plans an IPO; PARENT is mentioned")
+    assert verified is None and normalized["ticker"] == ""
+    assert normalized["title"] == "Example Business: Laporan kaitkan CEO dengan pengiriman chip"
+
+
+def test_dropped_ticker_prefix_keeps_a_body_that_already_names_the_company(monkeypatch):
+    monkeypatch.setattr(news_identity, "lookup_company", lambda *_: {"status": "unresolved"})
+    item = {"subject": subject("US", "listed", "US"), "route": "us_stocks_news", "ticker": "PARENT",
+            "title": "PARENT: Saham Example Business turun"}
+    assert news_identity.prepare_item(item, "Example Business plans an IPO; PARENT is mentioned")[0]["title"] == "Saham Example Business turun"
+
+
+def test_dropped_symbol_only_name_never_renders_as_a_verified_ticker_prefix(monkeypatch):
+    """A `SYMBOL:` prefix would claim a verified security; the symbol-like name keeps the unprefixed form."""
+    monkeypatch.setattr(news_identity, "lookup_company", lambda *_: {"status": "unresolved"})
+    value = subject("ID", "listed", "ID")
+    value["name"] = value["evidence"] = "PARENT"
+    item = {"subject": value, "route": "id_stocks_news", "ticker": "PARENT", "title": "PARENT: Transaksi nego besar"}
+    normalized, verified = news_identity.prepare_item(item, "PARENT mencatat transaksi nego besar")
+    assert verified is None and normalized["title"] == "PARENT Transaksi nego besar"

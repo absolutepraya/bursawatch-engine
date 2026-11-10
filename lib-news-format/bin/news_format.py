@@ -92,7 +92,7 @@ def company_headline(title: str, subject, ticker) -> str:
         if prefix:
             body = title[prefix.end():].strip()
             if body:
-                return body if subject["name"].casefold() in body.casefold() else subject["name"] + " " + body
+                return news_subject.name_headline(subject["name"], body, ticker)
     return title
 
 

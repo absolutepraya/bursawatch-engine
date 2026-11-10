@@ -144,7 +144,7 @@ their original contract. Raw forwarding, Swing/Board and Stock Information
 retain their specialized behavior. See the accepted
 [design](../docs/specs/2026-11-03-company-news-format.md).
 
-New verified company cards prefix descriptive headlines with the current ticker and a colon. Private or untickered companies retain company-name headlines. The security label and latest-price line are consecutive lines in one price block. Frozen cards retain their saved output.
+New verified company cards prefix descriptive headlines with the current ticker and a colon. Private or untickered companies retain company-name headlines, written `Name: headline` when the name is not already in the headline. The security label and latest-price line are consecutive lines in one price block. Frozen cards retain their saved output.
 
 ## Industry geography
 
