@@ -28,6 +28,7 @@ Ticker-only mentions can therefore remain text-only even when a market lookup
 returns a security. For a named focus, the evidence's first sentence or line must name it, so a company
 mentioned only in a later sentence stays a counterparty.
 A matching issuer elsewhere in the source is insufficient.
+An unresolved lookup says why in `reason`: `no_match` (the provider answered and has no record), `ambiguous`, `error`, `timeout` or `busy`. Only `no_match` lets an IDX symbol-only subject be forwarded as the sender wrote it.
 It has no credentials, source state, model calls, or message delivery.
 Owners expose `lookup-company` through their managed wrappers. An externally
 proposed ticker is independently verified before selection is persisted. When

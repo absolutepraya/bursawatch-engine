@@ -19,6 +19,7 @@ company to the issuer. A matching issuer elsewhere in the source is not focus
 evidence. Treat other-market conflicts as ambiguous.
 For a named focus company, naming it in the first sentence or line of the evidence is enough; a later mention is a counterparty.
 A dropped ticker prefix becomes `Name: headline` for a real company name. A name that is only the unverified symbol stays unprefixed, because a `TICKER:` prefix marks a verified security.
+This is a forwarder: an IDX subject the sender names only by a four-letter symbol that the focus evidence contains, and which Yahoo has no record of at all (lookup `reason: no_match`), keeps that symbol as written and its tracker falls back to placeholders. A timeout, provider error or ambiguous result still drops the ticker.
 Otherwise retain the company story without a ticker. Optional provider headquarters country is a hint,
 not proof of the primary business home, and never changes the route on its own.
 

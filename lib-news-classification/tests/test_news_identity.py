@@ -433,3 +433,64 @@ def test_legal_and_title_abbreviations_do_not_end_the_focus_sentence(monkeypatch
             "subject": {"kind": "company", "name": "Nvidia", "evidence": evidence,
                         "company": {"business_home": "US", "listing_status": "listed", "security_market": "US"}}}
     assert news_identity.prepare_item(item, evidence, market="US")[1] == "NVDA"
+
+
+def _meta_search(query):
+    """Yahoo knows US `META` (Meta Platforms) but has no Jakarta `META.JK` at all."""
+    return [row("META", "Meta Platforms, Inc.", "NMS")] if query == "META" else []
+
+
+def test_lookup_reports_why_a_symbol_is_unresolved():
+    assert news_identity.lookup_company("META", "ID", search=_meta_search) == {
+        "status": "unresolved", "company": "META", "market": "ID", "reason": "no_match"}
+
+    def broken(_):
+        raise TimeoutError("provider down")
+    assert news_identity.lookup_company("META", "ID", search=broken)["reason"] == "error"
+    conflicting = lambda q: [row("BULL.JK", "PT Buana Lintas Lautan Tbk", "JKT"), row("BULL.JK", "Other Company Tbk", "JKT")]
+    assert news_identity.lookup_company("BULL", "ID", search=conflicting)["reason"] == "ambiguous"
+
+
+def _symbol_item(ticker, name="META", evidence="META memasuki cum date dividen interim Rp3,5", home="ID", market="ID"):
+    return {"title": f"{name} memasuki cum date dividen interim Rp3,5", "ticker": ticker, "route": "id_stocks_news",
+            "subject": {"kind": "company", "name": name, "evidence": evidence,
+                        "company": {"business_home": home, "listing_status": "listed", "security_market": market}}}
+
+
+@pytest.mark.parametrize("proposed", ["META", ""])
+def test_idx_symbol_unknown_to_yahoo_is_forwarded_as_the_source_wrote_it(proposed, monkeypatch):
+    """Forwarder policy: a sender-written IDX symbol that Yahoo knows nothing about still gets its ticker."""
+    monkeypatch.setattr(news_identity, "_search", _meta_search)
+    item = _symbol_item(proposed)
+    normalized, verified = news_identity.prepare_item(item, item["subject"]["evidence"])
+    assert verified == "META" and normalized["ticker"] == "META"
+
+
+@pytest.mark.parametrize("case", ["provider_error", "conflicting_issuers", "named_company", "symbol_not_in_evidence", "five_letters"])
+def test_unknown_symbol_fallback_never_overrides_an_unclear_lookup(case, monkeypatch):
+    item = _symbol_item("META")
+    if case == "provider_error":
+        def broken(_):
+            raise TimeoutError("provider down")
+        monkeypatch.setattr(news_identity, "_search", broken)
+    elif case == "conflicting_issuers":
+        monkeypatch.setattr(news_identity, "_search", lambda q: [row("META.JK", "PT Alpha Tbk", "JKT"), row("META.JK", "PT Beta Tbk", "JKT")])
+    else:
+        monkeypatch.setattr(news_identity, "_search", _meta_search)
+    if case == "named_company":
+        item["subject"]["name"] = item["subject"]["evidence"] = "Nusantara Infrastructure memasuki cum date dividen"
+    source = item["subject"]["evidence"]
+    if case == "symbol_not_in_evidence":
+        item["subject"]["evidence"] = "Emiten memasuki cum date dividen interim"
+        source = "META disebut dalam daftar. " + item["subject"]["evidence"]
+    if case == "five_letters":
+        item["ticker"] = item["subject"]["name"] = "BWPYT"
+        item["subject"]["evidence"] = source = "BWPYT memasuki cum date dividen interim Rp1"
+    assert news_identity.prepare_item(item, source)[1] is None
+
+
+def test_unknown_symbol_fallback_stays_on_the_indonesian_market(monkeypatch):
+    monkeypatch.setattr(news_identity, "_search", _meta_search)
+    item = _symbol_item("META", home="US", market="US")
+    item["route"] = "us_stocks_news"
+    assert news_identity.prepare_item(item, item["subject"]["evidence"], market="US")[1] is None
