@@ -52,7 +52,7 @@ INSTRUCTION = (
     "do not change a genuinely broad thesis. A commodity-price headline is classified by its central economic scope, "
     "not by the presence of a commodity word. Source brand, headline template, capital letters, ticker position, "
     "number of tickers, and source section labels are context, never the subject classification. "
-    "Company news covers substantive developments about public, private, pre-IPO, and formerly listed companies worldwide. Every company card has exactly one focus company; counterparties are context, not duplicate transaction cards. For a company subject, include company with exactly business_home, listing_status, security_market. business_home is ID, US, GLOBAL (other countries), or UNKNOWN; use the principal business home supported by evidence, never the listing exchange, legal shell, source language or publisher location. When uncertain choose UNKNOWN. listing_status is listed, private, pre_ipo, formerly_listed, or unknown. security_market is ID, US, or empty, separately from business_home, and is nonempty only for a verified current focus-company listing. Never inherit a parent or counterparty security. Company maps by business_home to id_stocks_news for ID, us_stocks_news for US, or global_company_news for GLOBAL/UNKNOWN; For industry subjects include industry with exactly region: ID, US, GLOBAL, or UNKNOWN. Classify the central industry market from supplied evidence: Indonesia to id_industry_news, US to us_industry_news, other countries or genuinely cross-border/global to global_industry_news. Unknown region also uses Global without inventing a country. Publisher location, source language, currency and example company listing do not establish industry geography. US sector indices and industry-wide US company aggregates are US; Malaysian palm oil or global oil shipping are Global, even with Indonesian investors affected. Macro maps to macro_news. "
+    "Company news covers substantive developments about public, private, pre-IPO, and formerly listed companies worldwide. Every company card has exactly one focus company; counterparties are context, not duplicate transaction cards. For a company subject, include company with exactly business_home, listing_status, security_market. business_home is ID, US, GLOBAL (other countries), or UNKNOWN; use the principal business home supported by evidence, never the listing exchange, legal shell, source language or publisher location. Indonesia-specific business evidence supports ID, unlike source language or publisher location: rupiah amounts, an IDX, BEI or OJK action, a cum date or RUPS for an Indonesian issuer, or an Indonesian bank or app brand. Choose UNKNOWN only when no such evidence exists. listing_status is listed, private, pre_ipo, formerly_listed, or unknown. security_market is ID, US, or empty, separately from business_home, and is nonempty only for a verified current focus-company listing. Never inherit a parent or counterparty security. Company maps by business_home to id_stocks_news for ID, us_stocks_news for US, or global_company_news for GLOBAL/UNKNOWN; For industry subjects include industry with exactly region: ID, US, GLOBAL, or UNKNOWN. Classify the central industry market from supplied evidence: Indonesia to id_industry_news, US to us_industry_news, other countries or genuinely cross-border/global to global_industry_news. Unknown region also uses Global without inventing a country. Publisher location, source language, currency and example company listing do not establish industry geography. US sector indices and industry-wide US company aggregates are US; Malaysian palm oil or global oil shipping are Global, even with Indonesian investors affected. Macro maps to macro_news. "
     "Never use Macro News as a fallback for an unknown company, missing ticker, unavailable quote, or unavailable "
     "destination. Keep a clearly named company in Company News when its ticker cannot be established: use its source "
     "name, leave ticker empty, and do not invent a ticker or price tracker. Resolve a ticker only from reliable supplied or owner-verified identity-lookup "
@@ -161,6 +161,27 @@ def quote_route(subject: Mapping | None, fallback: str) -> str | None:
         company = subject["company"]
         return {"ID": "id_stocks_news", "US": "us_stocks_news"}.get(company["security_market"]) if company["listing_status"] == "listed" else None
     return fallback if fallback in {"id_stocks_news", "us_stocks_news"} else None
+
+
+_MARKET_FOR_ROUTE = {"id_stocks_news": "ID", "us_stocks_news": "US", "global_company_news": "GLOBAL",
+                     "id_industry_news": "ID", "us_industry_news": "US", "global_industry_news": "GLOBAL"}
+
+
+def snap_unknown_geography(subject: Mapping, configured_routes) -> tuple[dict, str] | None:
+    """Send an uncertain company or industry subject to the one destination of its kind an account has.
+
+    Only UNKNOWN geography moves: an explicit US or GLOBAL call from a single-market account stays a missing
+    destination. Returns the subject with its geography rewritten, plus the route, or None when it does not apply.
+    """
+    detail, family = ("company", COMPANY_ROUTES) if "company" in subject else ("industry", INDUSTRY_ROUTES) if "industry" in subject else (None, None)
+    if detail is None:
+        return None
+    field = "business_home" if detail == "company" else "region"
+    allowed = sorted(set(configured_routes) & family)
+    if subject[detail][field] != "UNKNOWN" or len(allowed) != 1:
+        return None
+    snapped = {**subject, detail: {**subject[detail], field: _MARKET_FOR_ROUTE[allowed[0]]}}
+    return snapped, allowed[0]
 
 
 def name_headline(name: str, body: str, ticker: str = "") -> str:
