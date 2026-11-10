@@ -412,3 +412,24 @@ def test_company_named_only_after_the_first_evidence_sentence_is_still_a_counter
             "subject": {"kind": "company", "name": "Nvidia", "evidence": evidence,
                         "company": {"business_home": "US", "listing_status": "listed", "security_market": "US"}}}
     assert news_identity.prepare_item(item, evidence, market="US")[1] is None
+
+
+@pytest.mark.parametrize("evidence", [
+    "Startup meluncurkan produk\nNvidia disebut dalam laporan",
+    "Startup meluncurkan produk. kemudian Nvidia disebut dalam laporan",
+])
+def test_company_in_a_later_line_or_lowercase_sentence_is_still_a_counterparty(evidence, monkeypatch):
+    monkeypatch.setattr(news_identity, "_search", lambda _: [row("NVDA", "NVIDIA Corporation", "NMS")])
+    item = {"title": "NVDA: Produk baru", "ticker": "NVDA", "route": "us_stocks_news",
+            "subject": {"kind": "company", "name": "Nvidia", "evidence": evidence,
+                        "company": {"business_home": "US", "listing_status": "listed", "security_market": "US"}}}
+    assert news_identity.prepare_item(item, evidence, market="US")[1] is None
+
+
+def test_legal_and_title_abbreviations_do_not_end_the_focus_sentence(monkeypatch):
+    monkeypatch.setattr(news_identity, "_search", lambda _: [row("NVDA", "NVIDIA Corporation", "NMS")])
+    evidence = "Menurut Dr. Smith, Nvidia melaporkan pengiriman chip baru"
+    item = {"title": "NVDA: Chip baru", "ticker": "NVDA", "route": "us_stocks_news",
+            "subject": {"kind": "company", "name": "Nvidia", "evidence": evidence,
+                        "company": {"business_home": "US", "listing_status": "listed", "security_market": "US"}}}
+    assert news_identity.prepare_item(item, evidence, market="US")[1] == "NVDA"
