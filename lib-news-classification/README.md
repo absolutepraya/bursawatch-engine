@@ -22,10 +22,12 @@ For an uppercase four-letter IDX ticker, the lookup searches its `.JK` symbol
 first, then tries the unqualified ticker if necessary. It accepts only the exact
 symbol on the Jakarta exchange, preventing a same-named foreign security or
 another company's name from being substituted.
-When the focus name is just the ticker, the quoted focus evidence must also
-begin with the verified issuer or directly pair that issuer with the ticker.
-Ticker-only mentions can therefore remain text-only even when a market lookup
-returns a security. For a named focus, the evidence's first sentence or line must name it, so a company
+When the focus name is just the ticker and the quoted focus evidence contains it,
+the owner forwards the symbol once Yahoo verifies the exact Jakarta symbol,
+unless the same symbol exists on the US market, the source writes a suffixed
+variant, or the source ties it to a different legal issuer. Otherwise the
+evidence must begin with the verified issuer or directly pair that issuer with
+the ticker, and a ticker-only mention remains text-only. For a named focus, the evidence's first sentence or line must name it, so a company
 mentioned only in a later sentence stays a counterparty.
 A matching issuer elsewhere in the source is insufficient.
 An unresolved lookup says why in `reason`: `no_match` (the provider answered and has no record), `ambiguous`, `error`, `timeout` or `busy`. Only `no_match` lets an IDX symbol-only subject be forwarded as the sender wrote it.

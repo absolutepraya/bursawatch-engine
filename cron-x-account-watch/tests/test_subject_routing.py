@@ -33,7 +33,6 @@ def test_source_company_identity_survives_submission(name, ticker, market, home,
 
 @pytest.mark.parametrize("ticker,company,text,evidence", [
     ("ROTI", "PT Nippon Indosari Corpindo Tbk", "$ROTI AKAN MUSNAHKAN SAHAM\nSari Roti berencana menarik saham.", "Sari Roti berencana menarik saham."),
-    ("AMMN", "PT Amman Mineral Internasional Tbk", "PENDAPATAN AMMN TURUN\nForeign net outflow saham AMMN Rp4,75 triliun.", "saham AMMN"),
 ])
 def test_explicit_stock_reference_without_issuer_stays_text_only(ticker, company, text, evidence, monkeypatch, config_path, profile_payload):
     profile_payload.update(enable_llm_title=True, enable_llm_summary=True, enable_llm_routing=True, enable_llm_relevance_filter=True)
@@ -185,3 +184,19 @@ def test_company_security_cannot_be_submitted_without_source_evidence(config_pat
                     'company': {'business_home': 'GLOBAL', 'listing_status': 'listed', 'security_market': 'US'}}}
     with pytest.raises(ValueError, match='source evidence'):
         validate_submission(profile, payload)
+
+
+def test_symbol_named_in_focus_evidence_keeps_its_ticker(monkeypatch, config_path, profile_payload):
+    """Forwarder policy: AMMN is named in the focus evidence and Yahoo verifies it, so it keeps its ticker."""
+    profile_payload.update(enable_llm_title=True, enable_llm_summary=True, enable_llm_routing=True, enable_llm_relevance_filter=True)
+    profile_payload["discord_channels"] = [{"key":key, "channel_id":str(100000000000000001 + i), "description":key} for i,key in enumerate(("id_stocks_news", "us_stocks_news", "global_company_news"))]
+    config_path.write_text(json.dumps({"version":1, "profiles":[profile_payload]}))
+    profile = config.load_watch_config(config_path).profiles[0]
+    text = "PENDAPATAN AMMN TURUN\nForeign net outflow saham AMMN Rp4,75 triliun."
+    evidence = "saham AMMN"
+    monkeypatch.setattr(news_identity, "_search", lambda _: [{"symbol":"AMMN.JK", "exchange":"JKT", "quoteType":"EQUITY", "longname":"PT Amman Mineral Internasional Tbk"}])
+    payload = {"event_key":"source:1", "is_relevant":True, "items":[{"title":"AMMN: Kabar perusahaan", "summary":evidence,
+        "route":"id_stocks_news", "ticker":"AMMN", "subject":{"kind":"company", "name":"AMMN", "evidence":evidence,
+        "company":{"business_home":"ID", "listing_status":"listed", "security_market":"ID"}}}]}
+    item, = agent_protocol.validate_submission(profile, payload, subject_required=True, company_required=True, source_text=text)["news_items"]
+    assert item["ticker"] == "AMMN" and item["title"].startswith("AMMN:")

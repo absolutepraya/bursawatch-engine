@@ -66,14 +66,14 @@ def test_valid_issuer_submission_is_accepted(article: Article) -> None:
     assert result.ticker == "SWAP"
 
 
-def test_description_opening_cashtag_without_issuer_is_text_only(article, monkeypatch):
+def test_description_opening_cashtag_in_focus_evidence_keeps_the_verified_ticker(article, monkeypatch):
     import news_identity
     article = replace(article, source_title="Company update", source_text="$SWAP memproduksi produk kesehatan.")
     monkeypatch.setattr(news_identity, "_search", lambda _: [{"symbol":"SWAP.JK", "exchange":"JKT", "quoteType":"EQUITY", "longname":"Swap Company Tbk"}])
     payload = {**valid_payload(article), "subject":{"kind":"company", "name":"SWAP", "evidence":"SWAP memproduksi produk kesehatan.",
                "company":{"business_home":"ID", "listing_status":"listed", "security_market":"ID"}}}
     result = validate_submission(article, payload, subject_required=True, company_required=True)
-    assert result.ticker == ""
+    assert result.ticker == "SWAP"
 
 
 @pytest.mark.parametrize('summary', [
