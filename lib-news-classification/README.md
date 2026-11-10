@@ -25,7 +25,8 @@ another company's name from being substituted.
 When the focus name is just the ticker, the quoted focus evidence must also
 begin with the verified issuer or directly pair that issuer with the ticker.
 Ticker-only mentions can therefore remain text-only even when a market lookup
-returns a security. For a named focus, the evidence must begin with that name.
+returns a security. For a named focus, the evidence's first sentence or line must name it, so a company
+mentioned only in a later sentence stays a counterparty.
 A matching issuer elsewhere in the source is insufficient.
 It has no credentials, source state, model calls, or message delivery.
 Owners expose `lookup-company` through their managed wrappers. An externally

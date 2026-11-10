@@ -391,3 +391,24 @@ def test_lookup_has_closed_input_schema():
                     {"company": "", "market": "ID"}, {"company": "Bach", "market": "unknown"}]:
         with pytest.raises(ValueError):
             news_identity.lookup_payload(payload)
+
+
+def test_company_named_within_its_first_evidence_sentence_keeps_its_verified_ticker(monkeypatch):
+    """Live miss: `Menurut The Information, hubungan CEO Nvidia ...` named the focus mid-sentence and lost NVDA."""
+    monkeypatch.setattr(news_identity, "_search", lambda _: [row("NVDA", "NVIDIA Corporation", "NMS")])
+    evidence = "Menurut The Information, hubungan CEO Nvidia Jensen Huang dengan seseorang yang diduga mata-mata China"
+    source = evidence + " memfasilitasi pengiriman chip."
+    item = {"title": "NVDA: Laporan kaitkan Jensen Huang dengan pengiriman chip", "ticker": "NVDA", "route": "us_stocks_news",
+            "subject": {"kind": "company", "name": "Nvidia", "evidence": evidence,
+                        "company": {"business_home": "US", "listing_status": "listed", "security_market": "US"}}}
+    normalized, verified = news_identity.prepare_item(item, source, market="US")
+    assert verified == "NVDA" and normalized["title"].startswith("NVDA: ")
+
+
+def test_company_named_only_after_the_first_evidence_sentence_is_still_a_counterparty(monkeypatch):
+    monkeypatch.setattr(news_identity, "_search", lambda _: [row("NVDA", "NVIDIA Corporation", "NMS")])
+    evidence = "Seorang startup swasta meluncurkan produk. Nvidia juga disebut dalam laporan itu"
+    item = {"title": "NVDA: Produk baru", "ticker": "NVDA", "route": "us_stocks_news",
+            "subject": {"kind": "company", "name": "Nvidia", "evidence": evidence,
+                        "company": {"business_home": "US", "listing_status": "listed", "security_market": "US"}}}
+    assert news_identity.prepare_item(item, evidence, market="US")[1] is None

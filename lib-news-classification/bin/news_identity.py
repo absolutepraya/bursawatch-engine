@@ -151,7 +151,7 @@ def _without_security(item: dict, subject: dict, ticker: str) -> dict:
     prefix = re.match(rf"^{re.escape(ticker)}\s*:\s*", title) if ticker and isinstance(title, str) else None
     if prefix is not None:
         body = title[prefix.end():].strip()
-        result["title"] = body if subject["name"].casefold() in body.casefold() else subject["name"] + " " + body
+        result["title"] = news_subject.name_headline(subject["name"], body, ticker)
     return result
 
 
@@ -183,7 +183,7 @@ def prepare_item(item: dict, source_text: str, *, market: str = "ID", source_ope
         issuer_name = identity.get("name")
         if symbol_like_name and (not isinstance(issuer_name, str) or not issuer_name.strip()):
             return _without_security(item, subject, ticker), None
-        if (not symbol_like_name and not _issuer_named_in(subject["name"], subject["evidence"], anchored=True)
+        if (not symbol_like_name and not _issuer_named_in(subject["name"], _focus_sentence(subject["evidence"]))
                 and not _source_binds_ticker(subject, ticker, anchored=True)):
             return _without_security(item, subject, ticker), None
         exact_issuer = isinstance(issuer_name, str) and _name(issuer_name) == _name(subject["name"])
@@ -259,6 +259,11 @@ def _issuer_named_in(name: str, evidence: str, *, anchored: bool = False) -> boo
     start = r"\A\s*(?:pt\s+)?" if anchored else r"(?<!\w)"
     pattern = start + r"[\W_]+".join(map(re.escape, tokens)) + r"(?!\w)"
     return re.search(pattern, unicodedata.normalize("NFKC", evidence).casefold()) is not None
+
+
+def _focus_sentence(evidence: str) -> str:
+    """The first sentence or line: the focus company is named there, not in a later counterparty mention."""
+    return re.split(r"(?<=[.!?])\s+(?=[A-Z\"(])|\n", evidence.strip(), maxsplit=1)[0]
 
 
 def _has_legal_company_name(evidence: str) -> bool:

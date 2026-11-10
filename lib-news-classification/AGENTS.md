@@ -17,6 +17,8 @@ evidence naming the verified issuer or directly pairing it with the symbol.
 A ticker headline, cashtag or stock reference alone does not bind the focus
 company to the issuer. A matching issuer elsewhere in the source is not focus
 evidence. Treat other-market conflicts as ambiguous.
+For a named focus company, naming it in the first sentence or line of the evidence is enough; a later mention is a counterparty.
+A dropped ticker prefix becomes `Name: headline` for a real company name. A name that is only the unverified symbol stays unprefixed, because a `TICKER:` prefix marks a verified security.
 Otherwise retain the company story without a ticker. Optional provider headquarters country is a hint,
 not proof of the primary business home, and never changes the route on its own.
 
