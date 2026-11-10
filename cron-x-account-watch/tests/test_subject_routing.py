@@ -78,7 +78,7 @@ def test_missing_global_destination_is_terminal_without_macro_or_backlog(tmp_pat
     payload = {"event_key": wake["item"]["event_key"], "is_relevant": True, "items": [{
         "title": "Example Business plans an IPO", "summary": text, "route": "global_company_news", "ticker": "",
         "subject": {"kind": "company", "name": "Example Business", "evidence": "Example Business plans an IPO",
-                    "company": {"business_home": "UNKNOWN", "listing_status": "pre_ipo", "security_market": ""}},
+                    "company": {"business_home": "GLOBAL", "listing_status": "pre_ipo", "security_market": ""}},
     }]}
     if industry_region:
         payload["items"][0].update(route="us_industry_news" if industry_region == "US" else "global_industry_news",
@@ -200,3 +200,41 @@ def test_symbol_named_in_focus_evidence_keeps_its_ticker(monkeypatch, config_pat
         "company":{"business_home":"ID", "listing_status":"listed", "security_market":"ID"}}}]}
     item, = agent_protocol.validate_submission(profile, payload, subject_required=True, company_required=True, source_text=text)["news_items"]
     assert item["ticker"] == "AMMN" and item["title"].startswith("AMMN:")
+
+
+def _single_market_scan(tmp_path, monkeypatch, config_path, profile_payload, keys):
+    profile_payload.update(enable_llm_title=True, enable_llm_summary=True, enable_llm_routing=True, enable_llm_relevance_filter=True)
+    profile_payload["discord_channels"] = [{"key": key, "channel_id": str(100000000000000001 + index), "description": key} for index, key in enumerate(keys)]
+    config_path.write_text(json.dumps({"version": 1, "profiles": [profile_payload]}))
+    profile = config.load_watch_config(config_path).profiles[0]
+    now = datetime.now(scan.WIB)
+    text = "BNI Mobile Banking beralih ke Wondr by BNI secara bertahap."
+    post = SourcePost(profile.id, "101", "https://x.com/Kutekians/status/101", now - timedelta(hours=2), text, PostKind.NORMAL, None, None, (), ())
+    value = state.new_state()
+    value["profiles"][profile.id] = {"cursor": "100"}
+    state.observe_posts(value, profile, [post], lambda _: True, now=now - timedelta(hours=2))
+    storage = tmp_path / "state.json"
+    state.save_state(storage, value)
+    monkeypatch.setattr(scan, "state_path", lambda: storage)
+    monkeypatch.setattr(scan, "config_path", lambda: config_path)
+    monkeypatch.setenv("X_POST_WATCH_QUEUE_ONLY", "1")
+    monkeypatch.setattr(scan.discord, "post_text", lambda content, channel, dry_run, *_a: "synthetic-heartbeat")
+    wake = scan.run(now=now, dry_run=True)
+    return profile, wake, text
+
+
+@pytest.mark.parametrize("home,outcome_is_missing", [("UNKNOWN", False), ("GLOBAL", True)])
+def test_single_market_account_receives_uncertain_company_news_but_not_a_truthful_foreign_call(tmp_path, monkeypatch, config_path, profile_payload, home, outcome_is_missing):
+    profile, wake, text = _single_market_scan(tmp_path, monkeypatch, config_path, profile_payload, ("id_stocks_news", "id_industry_news", "macro_news"))
+    seen = []
+    real = scan.render.freeze_news
+    monkeypatch.setattr(scan.render, "freeze_news", lambda prof, post, items, **kw: seen.append([(i["route"], i["subject"]["company"]["business_home"]) for i in items]) or real(prof, post, items, **kw))
+    payload = {"event_key": wake["item"]["event_key"], "is_relevant": True, "items": [{
+        "title": "BNI Mobile Banking beralih ke Wondr", "summary": text, "route": "global_company_news", "ticker": "",
+        "subject": {"kind": "company", "name": "BNI", "evidence": "BNI Mobile Banking beralih ke Wondr by BNI",
+                    "company": {"business_home": home, "listing_status": "listed", "security_market": ""}}}]}
+    result = scan.submit_analysis_payload(payload, dry_run=True)
+    if outcome_is_missing:
+        assert result["outcome"] == "destination_missing" and not seen
+    else:
+        assert result.get("outcome") != "destination_missing" and seen == [[("id_stocks_news", "ID")]]

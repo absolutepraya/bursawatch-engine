@@ -170,7 +170,7 @@ def instruction_for(profile: Profile, relevance_guard_required: bool = False) ->
             "A technical word, chart, company example, or IHSG reference alone does not determine the central thesis. "
             "Ordinary news items include subject and ticker (empty when unverified); specialized Swing retains its scalar schema. "
             "Profile-specific instructions cannot weaken these subject boundaries. "
-            f"Configured destinations are {channels}. Company routes follow business_home even if missing; other routes must be configured. Never substitute Macro for an unavailable destination. "
+            f"Configured destinations are {channels}. Company routes follow business_home even if missing; other routes must be configured. Never substitute Macro for an unavailable destination. An account with exactly one destination of a kind receives its UNKNOWN-geography stories there, but a truthful US or GLOBAL call for another market stays unrouted. "
         )
     title_and_summary = news_format.WRITING_INSTRUCTION + news_format.ITEMS_INSTRUCTION
     if profile.enable_llm_title and profile.enable_llm_summary and profile.enable_llm_routing:

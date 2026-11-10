@@ -105,3 +105,43 @@ def test_dropped_symbol_only_name_never_renders_as_a_verified_ticker_prefix(monk
     item = {"subject": value, "route": "id_stocks_news", "ticker": "PARENT", "title": "PARENT: Transaksi nego besar"}
     normalized, verified = news_identity.prepare_item(item, "PARENT mencatat transaksi nego besar")
     assert verified is None and normalized["title"] == "PARENT Transaksi nego besar"
+
+
+def _unknown_company():
+    return {"kind": "company", "name": "BNI", "evidence": "BNI Mobile Banking",
+            "company": {"business_home": "UNKNOWN", "listing_status": "listed", "security_market": ""}}
+
+
+def test_uncertain_company_follows_an_account_with_one_company_destination():
+    snapped, route = news_subject.snap_unknown_geography(_unknown_company(), {"macro_news", "id_stocks_news", "id_stocks_swing"})
+    assert route == "id_stocks_news" and snapped["company"]["business_home"] == "ID"
+    assert news_subject.route_for(snapped) == "id_stocks_news"
+    assert _unknown_company()["company"]["business_home"] == "UNKNOWN"  # the input is never mutated
+
+
+@pytest.mark.parametrize("configured", [
+    {"macro_news"},                                   # no destination of its kind
+    {"id_stocks_news", "us_stocks_news"},             # two destinations: nothing to infer
+    {"id_stocks_news", "id_industry_news"},           # an industry destination is another kind
+])
+def test_snap_needs_exactly_one_company_destination(configured):
+    result = news_subject.snap_unknown_geography(_unknown_company(), configured)
+    assert (result is None) == ("id_stocks_news" not in configured or len(configured & news_subject.COMPANY_ROUTES) != 1)
+
+
+@pytest.mark.parametrize("home", ["ID", "US", "GLOBAL"])
+def test_snap_never_overrides_an_explicit_geography(home):
+    value = _unknown_company()
+    value["company"]["business_home"] = home
+    assert news_subject.snap_unknown_geography(value, {"id_stocks_news"}) is None
+
+
+def test_uncertain_industry_follows_an_account_with_one_industry_destination():
+    value = {"kind": "industry", "name": "Perbankan", "evidence": "NIM perbankan", "industry": {"region": "UNKNOWN"}}
+    snapped, route = news_subject.snap_unknown_geography(value, {"macro_news", "id_industry_news"})
+    assert route == "id_industry_news" and snapped["industry"]["region"] == "ID"
+    assert news_subject.snap_unknown_geography({**value, "industry": {"region": "US"}}, {"id_industry_news"}) is None
+
+
+def test_macro_subject_is_never_snapped():
+    assert news_subject.snap_unknown_geography({"kind": "macro", "name": "Inflasi", "evidence": "CPI"}, {"id_stocks_news"}) is None
