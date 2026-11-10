@@ -66,9 +66,15 @@ def lookup_company(company: str, market: str = "ID", *, search=None, details=Non
     idx_symbol = re.fullmatch(r"([A-Z]{4})(?:\.JK)?", company.strip()) if market == "ID" else None
     expected_idx = idx_symbol.group(1) + ".JK" if idx_symbol else None
     unresolved = {"status": "unresolved", "company": company, "market": market}
+
+    def unresolved_for(reason: str) -> dict:
+        """Say why: only `no_match` means the provider answered and genuinely knows nothing."""
+        return {**unresolved, "reason": reason}
+
     if not _SLOTS.acquire(blocking=False):
-        return unresolved
+        return unresolved_for("busy")
     results = []
+    answered = []
 
     def run():
         try:
@@ -78,6 +84,7 @@ def lookup_company(company: str, market: str = "ID", *, search=None, details=Non
                 try:
                     found = search_fn(query)
                     results.extend(found)
+                    answered.append(query)
                 except Exception:
                     continue
                 if expected_idx and any(
@@ -98,7 +105,7 @@ def lookup_company(company: str, market: str = "ID", *, search=None, details=Non
     # three-second provider timeout. Reserve time for both attempts.
     worker.join(6.5 if expected_idx else 3.5)
     if worker.is_alive():
-        return unresolved
+        return unresolved_for("timeout")
     matches = {}
     for row in results:
         if not isinstance(row, dict) or row.get("quoteType") not in {"EQUITY", "ETF"}:
@@ -125,12 +132,12 @@ def lookup_company(company: str, market: str = "ID", *, search=None, details=Non
         if name is None:
             continue
         if symbol in matches and _name(matches[symbol]["name"]) != _name(name):
-            return unresolved
+            return unresolved_for("ambiguous")
         matches[symbol] = {"status": "verified", "company": company, "market": market,
                            "ticker": ticker, "symbol": symbol, "exchange": exchange,
                            "name": name, "source_url": f"https://finance.yahoo.com/quote/{symbol}/"}
     if len(matches) != 1:
-        return unresolved
+        return unresolved_for("ambiguous" if matches else "no_match" if answered else "error")
     match = next(iter(matches.values()))
     if details is not None:
         country = _headquarters_country(match["symbol"], details)
@@ -171,6 +178,10 @@ def prepare_item(item: dict, source_text: str, *, market: str = "ID", source_ope
         return item, None
     if "company" in subject:
         quote_route = news_subject.quote_route(subject, item.get("route", ""))
+        if not ticker and quote_route == "id_stocks_news" and _is_symbol_name(subject):
+            # The sender wrote only a symbol. Verify it like a proposed ticker rather than leaving it unprefixed.
+            ticker = subject["name"].strip()
+            item = {**item, "ticker": ticker}
         if not ticker or quote_route is None:
             return _without_security(item, subject, ticker), None
         market = "US" if quote_route == "us_stocks_news" else "ID"
@@ -180,6 +191,12 @@ def prepare_item(item: dict, source_text: str, *, market: str = "ID", source_ope
         if identity.get("status") != "verified" and (_source_binds_ticker(subject, ticker)
                                                        or (symbol_like_name and explicit_symbol)):
             identity = lookup_company(ticker, market)
+        if (symbol_like_name and identity.get("status") != "verified" and identity.get("reason") == "no_match"
+                and market == "ID" and _is_symbol_name(subject) and subject["name"].strip() == ticker):
+            # This is a forwarder: an IDX symbol the sender wrote, which Yahoo has no record of at all, is
+            # kept as written. Its tracker falls back to placeholders. Any ambiguity or provider failure
+            # still drops the ticker below.
+            return item, ticker
         issuer_name = identity.get("name")
         if symbol_like_name and (not isinstance(issuer_name, str) or not issuer_name.strip()):
             return _without_security(item, subject, ticker), None
@@ -228,6 +245,13 @@ def prepare_item(item: dict, source_text: str, *, market: str = "ID", source_ope
     if isinstance(title, str) and title.startswith(ticker + ":"):
         result["title"] = subject["name"] + ":" + title[len(ticker) + 1:]
     return result, None
+
+
+def _is_symbol_name(subject: dict) -> bool:
+    """A subject named only by a four-letter IDX-style symbol that the focus evidence also contains."""
+    name = subject["name"].strip()
+    return (re.fullmatch(r"[A-Z]{4}", name) is not None
+            and re.search(rf"(?<![A-Za-z0-9]){name}(?![A-Za-z0-9])", subject["evidence"]) is not None)
 
 
 def _source_binds_ticker(subject: dict, ticker: str, *, anchored: bool = False) -> bool:

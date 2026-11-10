@@ -104,3 +104,14 @@ def test_company_headline_keeps_a_symbol_only_name_unprefixed():
     value["subject"]["name"] = "EXAMPLE"
     subject = news_format.news_subject.validate_subject(value["subject"])
     assert news_format.company_headline("EXAMPLE: Transaksi nego besar", subject, "EXAMPLE") == "EXAMPLE Transaksi nego besar"
+
+
+def test_forwarded_symbol_without_a_quote_renders_the_prefix_and_placeholder_tracker():
+    value = item("ID", "listed", "ID", "META")
+    value["subject"]["name"] = "META"
+    value["title"] = "META memasuki cum date dividen interim Rp3,5"
+    cards = news_format.freeze_cards([value], lambda i: "### " + i["title"] + "\n-# Dokter Market",
+        "https://example.test/news", "X", fetch=lambda *_: None)
+    text = cards[0]["messages"][0]
+    assert text.splitlines()[0] == "### META: Memasuki cum date dividen interim Rp3,5"
+    assert "-# Saham: META (IDX)\nHarga terakhir (IDR): **-**" in text
