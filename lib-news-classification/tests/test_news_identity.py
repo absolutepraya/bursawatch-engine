@@ -12,9 +12,6 @@ import news_identity
     ("BBRI", "PT Bank Rakyat Indonesia (Persero) Tbk",
      "Muncul Lapkeu BBRI\nPT Bank Rakyat Indonesia Tbk (BBRI) mengumumkan laba meningkat.",
      "mengumumkan laba meningkat"),
-    ("RAJA", "PT Rukun Raharja Tbk",
-     "RAJA Ekspansi Bisnis\nPT Rukun Raharja Tbk. (RAJA) mengakuisisi KNJ.",
-     "RAJA Ekspansi Bisnis"),
 ])
 def test_issuer_pair_elsewhere_does_not_bind_focus(ticker, issuer, source, evidence, monkeypatch):
     monkeypatch.setattr(news_identity, "_search", lambda _: [row(ticker + ".JK", issuer)])
@@ -22,6 +19,16 @@ def test_issuer_pair_elsewhere_does_not_bind_focus(ticker, issuer, source, evide
             "subject": {"kind": "company", "name": ticker, "evidence": evidence,
                         "company": {"business_home": "ID", "listing_status": "listed", "security_market": "ID"}}}
     assert news_identity.prepare_item(item, source)[1] is None
+
+
+def test_symbol_in_focus_evidence_is_forwarded_when_the_issuer_pair_is_elsewhere(monkeypatch):
+    """Forwarder policy: the focus evidence contains the symbol, Yahoo verifies it and nothing contradicts it."""
+    monkeypatch.setattr(news_identity, "_search", lambda _: [row("RAJA.JK", "PT Rukun Raharja Tbk")])
+    source = "RAJA Ekspansi Bisnis\nPT Rukun Raharja Tbk. (RAJA) mengakuisisi KNJ."
+    item = {"title": "RAJA: Ekspansi Bisnis", "ticker": "RAJA", "route": "id_stocks_news",
+            "subject": {"kind": "company", "name": "RAJA", "evidence": "RAJA Ekspansi Bisnis",
+                        "company": {"business_home": "ID", "listing_status": "listed", "security_market": "ID"}}}
+    assert news_identity.prepare_item(item, source)[1] == "RAJA"
 
 
 @pytest.mark.parametrize("ticker,issuer,evidence", [
@@ -117,7 +124,8 @@ def test_source_pair_for_other_company_cannot_override_focus_issuer(monkeypatch)
 
 
 def test_issuer_pair_elsewhere_is_not_proof_of_private_focus(monkeypatch):
-    monkeypatch.setattr(news_identity, "_search", lambda query: [row("BULL.JK", "PT Buana Lintas Lautan Tbk")] if query == "BULL.JK" else [])
+    # BULL is also a US issuer (Webull), so a bare BULL is ambiguous and the ticker is dropped.
+    monkeypatch.setattr(news_identity, "_search", lambda query: {"BULL.JK": [row("BULL.JK", "PT Buana Lintas Lautan Tbk")], "BULL": [row("BULL", "Webull Corporation", "NCM")]}.get(query, []))
     evidence = "BULL startup launches a product"
     source = evidence + ". Separately, PT Buana Lintas Lautan Tbk (BULL) reported its earnings."
     item = {"title": "BULL: New product", "ticker": "BULL", "route": "id_stocks_news",
@@ -231,13 +239,25 @@ def test_idx_fallback_gets_time_after_a_slow_qualified_search():
 
 def test_ticker_like_company_name_requires_source_evidence_for_symbol(monkeypatch):
     issuer = row("BULL.JK", "PT Buana Lintas Lautan Tbk", "JKT")
-    monkeypatch.setattr(news_identity, "_search", lambda _: [issuer])
+    # The same symbol is a US issuer, so the bare symbol cannot choose a market.
+    monkeypatch.setattr(news_identity, "_search", lambda query: {"BULL.JK": [issuer], "BULL": [row("BULL", "Webull Corporation", "NCM")]}.get(query, []))
     item = {"title":"BULL: Opens a factory", "route":"id_stocks_news", "ticker":"BULL",
             "subject":{"kind":"company", "name":"BULL", "evidence":"BULL opens a factory",
                        "company":{"business_home":"ID", "listing_status":"listed", "security_market":"ID"}}}
     assert news_identity.prepare_item(item, "BULL opens a factory")[1] is None
     assert news_identity.prepare_item(item, "BULL: Company update\nBULL opens a factory")[1] is None
     assert news_identity.prepare_item(item, "Other company $BULL.B rises. BULL opens a factory")[1] is None
+
+
+def test_ticker_like_name_without_a_cross_market_collision_is_forwarded(monkeypatch):
+    monkeypatch.setattr(news_identity, "_search", lambda query: [row("BULL.JK", "PT Buana Lintas Lautan Tbk", "JKT")] if query == "BULL.JK" else [])
+    item = {"title": "BULL: Opens a factory", "route": "id_stocks_news", "ticker": "BULL",
+            "subject": {"kind": "company", "name": "BULL", "evidence": "BULL opens a factory",
+                        "company": {"business_home": "ID", "listing_status": "listed", "security_market": "ID"}}}
+    assert news_identity.prepare_item(item, "BULL opens a factory")[1] == "BULL"
+    item["subject"]["company"]["business_home"] = "US"
+    item["route"] = "us_stocks_news"
+    assert news_identity.prepare_item(item, "BULL opens a factory")[1] is None
 
 
 def test_ticker_like_name_can_use_source_pair_with_verified_issuer(monkeypatch):
@@ -247,7 +267,7 @@ def test_ticker_like_name_can_use_source_pair_with_verified_issuer(monkeypatch):
             "subject":{"kind":"company", "name":"CASA", "evidence":"CASA",
                        "company":{"business_home":"ID", "listing_status":"listed", "security_market":"ID"}}}
     paired = "BEI memeriksa saham PT Capital Financial Indonesia Tbk (CASA)."
-    assert news_identity.prepare_item(item, paired)[1] is None
+    assert news_identity.prepare_item(item, paired)[1] == "CASA"
     bound = {**item, "subject": {**item["subject"], "evidence": "PT Capital Financial Indonesia Tbk (CASA)"}}
     assert news_identity.prepare_item(bound, paired)[1] == "CASA"
     unrelated = "CASA expands while PT Other Company Tbk (CASA) falls."
@@ -258,7 +278,6 @@ def test_ticker_like_name_can_use_source_pair_with_verified_issuer(monkeypatch):
 
 @pytest.mark.parametrize("ticker,name,source,evidence", [
     ("ROTI", "PT Nippon Indosari Corpindo Tbk", "$ROTI AKAN MUSNAHKAN SAHAM\nSari Roti berencana menarik saham.", "Sari Roti berencana menarik saham."),
-    ("AMMN", "PT Amman Mineral Internasional Tbk", "PENDAPATAN AMMN TURUN\nForeign net outflow saham AMMN Rp4,75 triliun.", "saham AMMN"),
 ])
 def test_explicit_source_stock_symbol_alone_does_not_identify_issuer(ticker, name, source, evidence, monkeypatch):
     monkeypatch.setattr(news_identity, "_search", lambda _: [row(ticker + ".JK", name, "JKT")])
@@ -268,14 +287,25 @@ def test_explicit_source_stock_symbol_alone_does_not_identify_issuer(ticker, nam
     assert news_identity.prepare_item(item, source)[1] is None
 
 
+def test_symbol_named_in_focus_evidence_is_forwarded(monkeypatch):
+    monkeypatch.setattr(news_identity, "_search", lambda _: [row("AMMN.JK", "PT Amman Mineral Internasional Tbk", "JKT")])
+    source = "PENDAPATAN AMMN TURUN\nForeign net outflow saham AMMN Rp4,75 triliun."
+    item = {"title": "AMMN: Kabar perusahaan", "route": "id_stocks_news", "ticker": "AMMN",
+            "subject": {"kind": "company", "name": "AMMN", "evidence": "Foreign net outflow saham AMMN Rp4,75 triliun.",
+                        "company": {"business_home": "ID", "listing_status": "listed", "security_market": "ID"}}}
+    assert news_identity.prepare_item(item, source)[1] == "AMMN"
+
+
 def test_unrelated_or_partial_source_symbol_is_not_accepted(monkeypatch):
     monkeypatch.setattr(news_identity, "_search", lambda _: [row("ROTI.JK", "PT Nippon Indosari Corpindo Tbk", "JKT")])
     item = {"title":"ROTI: Kabar perusahaan", "route":"id_stocks_news", "ticker":"ROTI",
             "subject":{"kind":"company", "name":"ROTI", "evidence":"ROTI expands",
                        "company":{"business_home":"ID", "listing_status":"listed", "security_market":"ID"}}}
-    for source in ("ROTI expands while $ROTI.B falls.", "ROTI expands while saham ROTIX falls.",
-                   "ROTI expands while another firm $ROTI falls."):
-        assert news_identity.prepare_item(item, source)[1] is None
+    # A suffixed variant is another instrument, so the bare symbol is ambiguous.
+    assert news_identity.prepare_item(item, "ROTI expands while $ROTI.B falls.")[1] is None
+    # A look-alike symbol elsewhere in the source does not contradict a symbol the focus evidence names.
+    for source in ("ROTI expands while saham ROTIX falls.", "ROTI expands while another firm $ROTI falls."):
+        assert news_identity.prepare_item(item, source)[1] == "ROTI"
 
 
 @pytest.mark.parametrize("source,evidence,expected", [

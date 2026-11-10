@@ -14,8 +14,13 @@ An exact source product-name and ticker pair may support ticker lookup, but an
 indirect association cannot. When a subject name is indistinguishable from a
 proposed ticker and differs from the provider's issuer name, require focus
 evidence naming the verified issuer or directly pairing it with the symbol.
-A ticker headline, cashtag or stock reference alone does not bind the focus
-company to the issuer. A matching issuer elsewhere in the source is not focus
+A ticker headline, cashtag or stock reference alone does not bind a named
+focus company to the issuer. A subject the sender names only by an IDX symbol is
+forwarded instead: when the focus evidence contains the symbol and Yahoo
+verifies the exact `.JK` symbol, it keeps its ticker, provided the model set
+business home ID, the US market positively has no record of the symbol (a US
+issuer with that symbol is a collision), the source writes no suffixed variant
+such as `ROTI.B`, and the source does not tie it to a different legal issuer. A matching issuer elsewhere in the source is not focus
 evidence. Treat other-market conflicts as ambiguous.
 For a named focus company, naming it in the first sentence or line of the evidence is enough; a later mention is a counterparty.
 A dropped ticker prefix becomes `Name: headline` for a real company name. A name that is only the unverified symbol stays unprefixed, because a `TICKER:` prefix marks a verified security.

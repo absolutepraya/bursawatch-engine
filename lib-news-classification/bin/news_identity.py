@@ -187,12 +187,13 @@ def prepare_item(item: dict, source_text: str, *, market: str = "ID", source_ope
         market = "US" if quote_route == "us_stocks_news" else "ID"
         symbol_like_name = subject["name"].strip().casefold() == ticker.casefold()
         explicit_symbol = _source_explicit_symbol(source_text, subject["evidence"], ticker, source_openings)
+        forwarded = (market == "ID" and _is_symbol_name(subject) and subject["name"].strip() == ticker
+                     and subject["company"]["business_home"] == "ID")
         identity = lookup_company(subject["name"], market)
         if identity.get("status") != "verified" and (_source_binds_ticker(subject, ticker)
                                                        or (symbol_like_name and explicit_symbol)):
             identity = lookup_company(ticker, market)
-        if (symbol_like_name and identity.get("status") != "verified" and identity.get("reason") == "no_match"
-                and market == "ID" and _is_symbol_name(subject) and subject["name"].strip() == ticker):
+        if forwarded and identity.get("status") != "verified" and identity.get("reason") == "no_match":
             # This is a forwarder: an IDX symbol the sender wrote, which Yahoo has no record of at all, is
             # kept as written. Its tracker falls back to placeholders. Any ambiguity or provider failure
             # still drops the ticker below.
@@ -207,17 +208,24 @@ def prepare_item(item: dict, source_text: str, *, market: str = "ID", source_ope
         issuer_pair = isinstance(issuer_name, str) and _source_binds_ticker(
             {"name": issuer_name, "evidence": subject["evidence"]}, ticker, anchored=True
         )
-        symbol_evidence = not symbol_like_name or exact_issuer or issuer_pair or explicit_symbol
+        symbol_evidence = not symbol_like_name or exact_issuer or issuer_pair or explicit_symbol or forwarded
         if symbol_like_name and isinstance(issuer_name, str):
             evidence = subject["evidence"]
             named_issuer = _name(issuer_name) != ticker.casefold() and _issuer_named_in(issuer_name, evidence, anchored=True)
-            if not issuer_pair and not named_issuer:
+            if not issuer_pair and not named_issuer and not forwarded:
                 return _without_security(item, subject, ticker), None
             # A symbol can identify different companies on different exchanges.
             # If the focus evidence names a different issuer, do not let the
             # model-selected market attach this issuer's quote to it.
             other_market = "US" if market == "ID" else "ID"
             other = lookup_company(ticker, other_market)
+            if forwarded and not issuer_pair and not named_issuer and (
+                    other.get("status") == "verified" or other.get("reason") != "no_match"
+                              or _source_has_symbol_variant(source_text, ticker)
+                              or _source_pairs_other_issuer(source_text, ticker, issuer_name)):
+                # The same symbol is another issuer on the other market, the other market could not be ruled out, or
+                # the source itself ties the symbol to a different legal company: a bare symbol is ambiguous.
+                return _without_security(item, subject, ticker), None
             other_name = other.get("name") if other.get("status") == "verified" else None
             if (isinstance(other_name, str) and _name(other_name) != _name(issuer_name)
                     and _issuer_named_in(other_name, evidence)):
@@ -252,6 +260,18 @@ def _is_symbol_name(subject: dict) -> bool:
     name = subject["name"].strip()
     return (re.fullmatch(r"[A-Z]{4}", name) is not None
             and re.search(rf"(?<![A-Za-z0-9]){name}(?![A-Za-z0-9])", subject["evidence"]) is not None)
+
+
+def _source_has_symbol_variant(source_text: str, ticker: str) -> bool:
+    """True when the source also writes the symbol with a suffix (`ROTI.B`, `ROTI-W`), which is another instrument."""
+    return re.search(rf"(?<![A-Za-z0-9])\$?{re.escape(ticker)}(?:\.(?!JK(?![A-Za-z0-9]))|-)[A-Za-z0-9]", source_text) is not None
+
+
+def _source_pairs_other_issuer(source_text: str, ticker: str, issuer_name: str) -> bool:
+    """True when the source writes `PT Some Name Tbk (SYMBOL)` for a company other than the verified issuer."""
+    pair = rf"(?:PT\s+)?([^()\n]{{2,80}}?\bTbk\.?)\s*\(\s*\$?{re.escape(ticker)}\s*\)"
+    return any(_name(found) != _name(issuer_name) and not _issuer_named_in(issuer_name, found)
+               for found in re.findall(pair, source_text, flags=re.IGNORECASE))
 
 
 def _source_binds_ticker(subject: dict, ticker: str, *, anchored: bool = False) -> bool:
