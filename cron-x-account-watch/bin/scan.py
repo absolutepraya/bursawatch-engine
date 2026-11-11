@@ -1146,11 +1146,6 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
             news_items = analysis.pop("news_items", None)
             configured_routes = {channel.key for channel in profile.discord_channels}
             candidates = news_items if news_items is not None else [analysis]
-            for item in candidates:
-                if item.get("route") in agent_protocol.news_subject.GEOGRAPHIC_NEWS_ROUTES and item["route"] not in configured_routes and item.get("subject"):
-                    snapped = agent_protocol.news_subject.snap_unknown_geography(item["subject"], configured_routes)
-                    if snapped is not None:
-                        item["subject"], item["route"] = snapped
             missing = [item["route"] for item in candidates if item.get("route") in agent_protocol.news_subject.GEOGRAPHIC_NEWS_ROUTES and item["route"] not in configured_routes]
             if missing:
                 _report_control_event(reporter, run_id, "company-destination-missing", level="warning", phase="agent",

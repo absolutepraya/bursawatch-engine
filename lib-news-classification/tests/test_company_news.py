@@ -145,3 +145,12 @@ def test_uncertain_industry_follows_an_account_with_one_industry_destination():
 
 def test_macro_subject_is_never_snapped():
     assert news_subject.snap_unknown_geography({"kind": "macro", "name": "Inflasi", "evidence": "CPI"}, {"id_stocks_news"}) is None
+
+
+def test_snapped_listed_company_gets_the_destinations_security_market():
+    snapped, _ = news_subject.snap_unknown_geography(_unknown_company(), {"id_stocks_news"})
+    assert snapped["company"]["security_market"] == "ID"
+    private = _unknown_company()
+    private["company"]["listing_status"] = "private"
+    assert news_subject.snap_unknown_geography(private, {"id_stocks_news"})[0]["company"]["security_market"] == ""
+    assert news_subject.snap_unknown_geography(_unknown_company(), {"global_company_news"})[0]["company"]["security_market"] == ""

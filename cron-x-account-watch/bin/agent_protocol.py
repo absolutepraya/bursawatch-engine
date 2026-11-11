@@ -540,13 +540,18 @@ def validate_submission(profile: Profile, payload: object, *, subject_required: 
         subject = news_subject.validate_subject(payload["subject"], source_text)
         if company_required:
             news_subject.require_company_details(subject)
+        configured_routes = {channel.key for channel in profile.discord_channels}
+        if result["route"] not in configured_routes:
+            snapped = news_subject.snap_unknown_geography(subject, configured_routes)  # before identity, so a snapped card is treated as a native one
+            if snapped is not None:
+                subject, result["route"] = snapped
         news_subject.validate_route(subject, result["route"])
         ticker = payload["ticker"]
         if ticker and source_text is None:
             raise ValueError("ticker requires supplied source evidence")
         verified_ticker = None
         if source_text is not None:
-            normalized, verified_ticker = news_identity.prepare_item({**payload, "route": result["route"]}, source_text, market=news_subject.ticker_market(subject, "US" if result["route"] == "us_stocks_news" else "ID"))
+            normalized, verified_ticker = news_identity.prepare_item({**payload, "route": result["route"], "subject": subject}, source_text, market=news_subject.ticker_market(subject, "US" if result["route"] == "us_stocks_news" else "ID"))
             ticker = normalized["ticker"]
             if "title" in result:
                 result["title"] = validate_title(normalized["title"])

@@ -184,7 +184,7 @@ worldwide and unresolved geography use Global. US sector indices and US Big
 Tech aggregates are US; Malaysian palm oil and global oil shipping are Global.
 Company stories still focus on one company; industry examples do not create
 duplicate company cards. Industry cards have no company ticker or price block.
-An uncertain (UNKNOWN) company or industry subject follows an account that has exactly one destination of its kind, so a single-market account receives it there; an explicit US or GLOBAL call for another market is never moved. Missing configured destinations are terminal audited skips with a visible
+An uncertain (UNKNOWN) company or industry subject follows an account that has exactly one destination of its kind, so a single-market account receives it there; an explicit US or GLOBAL call for another market is never moved. The move happens during submission validation, before ticker resolution, and a listed company takes that destination's security market, so it is looked up and rendered like any native card. Missing configured destinations are terminal audited skips with a visible
 warning, never an Indonesia or Macro fallback. Industry metadata is an additive
 subject-v2 extension; retained legacy subjects, prepared cards, destinations
 and operation identities keep their saved contract.

@@ -180,7 +180,10 @@ def snap_unknown_geography(subject: Mapping, configured_routes) -> tuple[dict, s
     allowed = sorted(set(configured_routes) & family)
     if subject[detail][field] != "UNKNOWN" or len(allowed) != 1:
         return None
-    snapped = {**subject, detail: {**subject[detail], field: _MARKET_FOR_ROUTE[allowed[0]]}}
+    market = _MARKET_FOR_ROUTE[allowed[0]]
+    snapped = {**subject, detail: {**subject[detail], field: market}}
+    if detail == "company" and market != "GLOBAL" and snapped[detail]["listing_status"] == "listed" and not snapped[detail]["security_market"]:
+        snapped[detail]["security_market"] = market  # lets the ticker step look the listed company up on that market
     return snapped, allowed[0]
 
 

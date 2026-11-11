@@ -238,3 +238,26 @@ def test_single_market_account_receives_uncertain_company_news_but_not_a_truthfu
         assert result["outcome"] == "destination_missing" and not seen
     else:
         assert result.get("outcome") != "destination_missing" and seen == [[("id_stocks_news", "ID")]]
+
+
+@pytest.mark.parametrize("name,ticker,text,evidence,lookup,title", [
+    # Live 11 Nov: an uncertain IDX symbol Yahoo does not know was posted bare, with no `META:` and no tracker.
+    ("META", "", "Hari ini cum date dividen interim IFII (Rp 5), MIDI (Rp 3,8) dan META (Rp 3,5).", "META (Rp 3,5)",
+     {"status": "unresolved", "reason": "no_match"}, "Cum date dividen interim berlangsung hari ini"),
+    # Live 11 Nov: Yahoo verified ITMG.JK, yet the uncertain call left no ticker and no price block.
+    ("Indo Tambangraya Megah", "ITMG", "Indo Tambangraya Megah (ITMG) Raup Rp 28 Triliun", "Indo Tambangraya Megah (ITMG) Raup Rp 28 Triliun",
+     {"status": "verified", "ticker": "ITMG"}, "Raup Rp28 triliun"),
+])
+def test_uncertain_company_snapped_to_the_only_market_is_treated_as_a_native_one(monkeypatch, config_path, profile_payload, name, ticker, text, evidence, lookup, title):
+    profile_payload.update(enable_llm_title=True, enable_llm_summary=True, enable_llm_routing=True, enable_llm_relevance_filter=True)
+    profile_payload["discord_channels"] = [{"key": key, "channel_id": str(100000000000000001 + i), "description": key} for i, key in enumerate(("macro_news", "id_stocks_news", "id_industry_news"))]
+    config_path.write_text(json.dumps({"version": 1, "profiles": [profile_payload]}))
+    profile = config.load_watch_config(config_path).profiles[0]
+    monkeypatch.setattr(news_identity, "lookup_company", lambda query, market: {**lookup, "company": query, "market": market})
+    payload = {"event_key": "source:1", "is_relevant": True, "items": [{"title": title, "summary": evidence, "route": "global_company_news", "ticker": ticker,
+        "subject": {"kind": "company", "name": name, "evidence": evidence,
+                    "company": {"business_home": "UNKNOWN", "listing_status": "listed", "security_market": ""}}}]}
+    item, = agent_protocol.validate_submission(profile, payload, subject_required=True, company_required=True, source_text=text)["news_items"]
+    assert item["route"] == "id_stocks_news" and item["subject"]["company"]["business_home"] == "ID"
+    assert item["subject"]["company"]["security_market"] == "ID"
+    assert item["ticker"] == (ticker or name) and item["title"] == title
