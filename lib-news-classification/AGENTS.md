@@ -27,6 +27,7 @@ A dropped ticker prefix becomes `Name: headline` for a real company name. A name
 This is a forwarder: an IDX subject the sender names only by a four-letter symbol that the focus evidence contains, and which Yahoo has no record of at all (lookup `reason: no_match`), keeps that symbol as written and its tracker falls back to placeholders. A timeout, provider error or ambiguous result still drops the ticker.
 Otherwise retain the company story without a ticker. Optional provider headquarters country is a hint,
 not proof of the primary business home, and never changes the route on its own.
+A company name written with its own ticker, such as `PT Indika Energy Tbk (INDY)`, is looked up by the bare name: only a trailing all-capital symbol in parentheses is removed, so `(Persero)` stays. The provider matches the bare name, and the original wording is kept in the result.
 
 Keep category and security resolution separate. Company, industry and macro
 are semantic subjects. An unknown ticker never changes a company into Macro.
