@@ -88,6 +88,19 @@ that no run is in flight. Do not trigger the job manually, replay or backfill
 RSS, reset a cursor, or send a test post. Resume only through the approved
 scheduler path after the complete chain is verified.
 
+## Future-only restart
+
+A change to the live Stockbit watcher-config revision blocks new intake (`Stockbit live configuration revision
+changed; reviewed future-only transition required`), and the journals of a legacy-seeded root stay bound to the
+revision they were written under. The runner applies the legacy seed gate only to a root whose cursors carry
+`legacy_seed`; a fresh or natively bootstrapped root has none, so its first poll anchors each lane at the newest
+item and posts nothing. To resume after such a block without replaying the missed items, pause the source writer
+through the authenticated desired-schedule interface, prove no run is in flight, move the whole state root to
+`~/backup/hermes/runtime-cutovers/<YYYY-MM-DD>/bursawatch-rss-source-ingest/` (never edit or delete it in place), and
+resume. The next run creates the fresh root and records `bootstrapped` for all four lanes. Items published while the
+source was blocked are skipped by design. The new root blocks again on the next watcher-config revision change, so
+repeat this procedure after any feed toggle.
+
 The adapter stores its own conditional HTTP validators per endpoint in
 `http-validators.json`. A 304 is an empty poll and does not move the source
 cursor. New response validators are saved only after successful endpoint

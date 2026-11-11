@@ -106,6 +106,24 @@ def run_once(snapshot: dict | None, loaded_config: object | None, root: Path, in
     return {"source": source, "work": work, "owner_delivery": delivery, "owner_delivery_error": delivery_error, **agent}
 
 
+def uses_legacy_seed(root: Path) -> bool:
+    """True when the state root came from the legacy cutover and so keeps its reviewed seed gate.
+
+    A root with no cursor is fresh, and one whose cursors carry no `legacy_seed` was bootstrapped natively. Both
+    are future-only by construction: the first poll anchors at the newest item and never backfills. An unreadable
+    cursor counts as seeded, so the gate still fails closed on damaged state.
+    """
+    try:
+        cursors = list(Path(root).glob("rss-stockbit-*/cursor.json"))
+        for path in cursors:
+            value = json.loads(path.read_text(encoding="utf-8"))
+            if type(value) is not dict or "legacy_seed" in value:
+                return True
+    except (OSError, UnicodeDecodeError, ValueError):
+        return True
+    return False
+
+
 def main() -> int:
     if sys.argv[1:] == ["--verify-synthetic"]:
         return verify_synthetic()
@@ -121,14 +139,15 @@ def main() -> int:
     except Exception:
         snapshot = None
     observed_at = datetime.now(timezone.utc)
+    root = state_root("BURSAWATCH_RSS_SOURCE", "bursawatch-rss-source-ingest")
     try:
         results = run_once(
             snapshot,
             loaded,
-            state_root("BURSAWATCH_RSS_SOURCE", "bursawatch-rss-source-ingest"),
+            root,
             inbox,
             observed_at,
-            require_legacy_seed=True,
+            require_legacy_seed=uses_legacy_seed(root),
         )
     except Exception:
         try:
