@@ -63,7 +63,10 @@ def lookup_company(company: str, market: str = "ID", *, search=None, details=Non
         raise ValueError("company must contain one to 200 characters")
     if market not in {"ID", "US"}:
         raise ValueError("market must be ID or US")
-    idx_symbol = re.fullmatch(r"([A-Z]{4})(?:\.JK)?", company.strip()) if market == "ID" else None
+    # A name written with its own ticker, "PT Indika Energy Tbk (INDY)", is the company plus a symbol. Look the
+    # company up by its bare name: the provider matches that, and not the parenthetical.
+    bare = re.sub(r"\s*\(\s*[A-Z][A-Z0-9.\-]{0,19}\s*\)\s*$", "", company).strip() or company.strip()
+    idx_symbol = re.fullmatch(r"([A-Z]{4})(?:\.JK)?", bare) if market == "ID" else None
     expected_idx = idx_symbol.group(1) + ".JK" if idx_symbol else None
     unresolved = {"status": "unresolved", "company": company, "market": market}
 
@@ -79,7 +82,7 @@ def lookup_company(company: str, market: str = "ID", *, search=None, details=Non
     def run():
         try:
             search_fn = search or _search
-            queries = [expected_idx, idx_symbol.group(1)] if idx_symbol else [company]
+            queries = [expected_idx, idx_symbol.group(1)] if idx_symbol else [bare]
             for query in dict.fromkeys(queries):
                 try:
                     found = search_fn(query)
@@ -124,10 +127,10 @@ def lookup_company(company: str, market: str = "ID", *, search=None, details=Non
                 continue
             ticker = symbol
         names = [row.get("longname"), row.get("shortname")]
-        name = next((name for name in names if isinstance(name, str) and _name(name) == _name(company)), None)
+        name = next((name for name in names if isinstance(name, str) and _name(name) == _name(bare)), None)
         # An exact, explicitly requested exchange symbol is a different query
         # from a fuzzy company-name search. Keep both market and type checks.
-        if name is None and row.get("quoteType") == "EQUITY" and (company.strip() == ticker or expected_idx == symbol):
+        if name is None and row.get("quoteType") == "EQUITY" and (bare == ticker or expected_idx == symbol):
             name = next((name for name in names if isinstance(name, str) and name.strip()), None)
         if name is None:
             continue

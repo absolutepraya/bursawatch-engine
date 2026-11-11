@@ -524,3 +524,34 @@ def test_unknown_symbol_fallback_stays_on_the_indonesian_market(monkeypatch):
     item = _symbol_item("META", home="US", market="US")
     item["route"] = "us_stocks_news"
     assert news_identity.prepare_item(item, item["subject"]["evidence"], market="US")[1] is None
+
+
+def test_name_written_with_its_own_ticker_is_looked_up_by_the_bare_name():
+    """Live 11 Nov: `PT Indika Energy Tbk (INDY)` had no Yahoo match, so INDY lost its ticker and price block."""
+    queries = []
+
+    def search(query):
+        queries.append(query)
+        return [row("INDY.JK", "PT. Indika Energy Tbk")]
+
+    result = news_identity.lookup_company("PT Indika Energy Tbk (INDY)", "ID", search=search)
+    assert result["status"] == "verified" and result["ticker"] == "INDY"
+    assert result["company"] == "PT Indika Energy Tbk (INDY)"      # the caller's wording is kept
+    assert queries == ["PT Indika Energy Tbk"]
+
+
+@pytest.mark.parametrize("name", ["Telkom Indonesia (Persero) Tbk", "Bank Mandiri (Persero)", "Example (inc)"])
+def test_only_a_trailing_symbol_is_stripped_from_a_company_name(name):
+    queries = []
+    news_identity.lookup_company(name, "ID", search=lambda query: queries.append(query) or [])
+    assert queries == [name]
+
+
+def test_card_keeps_its_ticker_when_the_subject_name_carries_it(monkeypatch):
+    monkeypatch.setattr(news_identity, "_search", lambda query: [row("INDY.JK", "PT. Indika Energy Tbk")] if query == "PT Indika Energy Tbk" else [])
+    source = "PT Indika Energy Tbk (INDY) mendirikan anak usaha baru bernama PT Natura Aromatik Niaga (NANI)."
+    item = {"title": "INDY: Dirikan anak usaha baru", "route": "id_stocks_news", "ticker": "INDY",
+            "subject": {"kind": "company", "name": "PT Indika Energy Tbk (INDY)", "evidence": "PT Indika Energy Tbk (INDY) mendirikan anak usaha baru",
+                        "company": {"business_home": "ID", "listing_status": "listed", "security_market": "ID"}}}
+    normalized, verified = news_identity.prepare_item(item, source)
+    assert verified == normalized["ticker"] == "INDY" and normalized["title"] == "INDY: Dirikan anak usaha baru"
