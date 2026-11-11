@@ -204,9 +204,22 @@ def test_reader_heartbeat_uses_delivery_owner_and_contains_only_counts():
     assert len(calls) == 1
     content, channel, kwargs = calls[0]
     assert channel == "1505162000420835388"
-    assert content == "🫀 stockbit-snips · 11:22 WIB · 4 fetched · 2 queued · 0 delivered · 1 errors · 3 pending ⚠️"
+    assert content == "🫀 stockbit-snips · 11:22 WIB · 4 fetched · 2 queued · 0 delivered · 1 errors · 3 pending · blocked: media_blocked ⚠️"
     assert kwargs == {"dry_run": False, "event_key": "heartbeat:202609281122", "leg": "heartbeat"}
     assert PRIVATE_SOURCE_TEXT not in content
+
+
+@pytest.mark.parametrize("reason,shown", [
+    ("intake_config_mismatch", " · blocked: intake_config_mismatch"),
+    ("Contains source TEXT with spaces", ""),   # not a closed code: never echoed
+    (None, ""),
+])
+def test_blocked_heartbeat_shows_only_a_closed_reason_code(reason, shown):
+    calls = []
+    row = {"endpoint_id": "rss:stockbit", "status": "blocked", **({"reason": reason} if reason is not None else {})}
+    send_heartbeat({"source": [row, dict(row)], "work": []}, datetime(2026, 11, 11, 3, 0, tzinfo=timezone.utc), pending_count=0,
+                   post_text=lambda content, *_args, **_kwargs: calls.append(content))
+    assert calls == [f"🫀 stockbit-snips · 10:00 WIB · 0 fetched · 0 queued · 0 delivered · 2 errors · 0 pending{shown} ⚠️"]
 
 
 def _write_cursor(root: Path, lane: str, value: object) -> None:

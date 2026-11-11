@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -106,6 +107,9 @@ def run_once(snapshot: dict | None, loaded_config: object | None, root: Path, in
     return {"source": source, "work": work, "owner_delivery": delivery, "owner_delivery_error": delivery_error, **agent}
 
 
+_REASON_CODE = re.compile(r"[a-z][a-z0-9_]{0,47}")
+
+
 def uses_legacy_seed(root: Path) -> bool:
     """True when the state root came from the legacy cutover and so keeps its reviewed seed gate.
 
@@ -201,9 +205,13 @@ def send_heartbeat(result: dict, now: datetime, *, pending_count: int | None = N
         raise RuntimeError("RSS heartbeat pending count is invalid")
     local = now.astimezone(ZoneInfo("Asia/Jakarta"))
     warning = " ⚠️" if errors else ""
+    # A blocked source names its fixed reason code, so a stuck intake is visible without reading logs. Codes are
+    # closed snake_case identifiers; anything else (and all source text) stays out of the heartbeat.
+    reasons = sorted({row["reason"] for row in source if row.get("status") == "blocked" and type(row.get("reason")) is str and _REASON_CODE.fullmatch(row["reason"])})
+    blocked = f" · blocked: {','.join(reasons)}" if reasons else ""
     content = (
         f"🫀 {WATCHER_NAME} · {local:%H:%M} WIB · {fetched} fetched · "
-        f"{queued} queued · {delivered} delivered · {errors} errors · {pending} pending{warning}"
+        f"{queued} queued · {delivered} delivered · {errors} errors · {pending} pending{blocked}{warning}"
     )
     sender = post_text
     if sender is None:

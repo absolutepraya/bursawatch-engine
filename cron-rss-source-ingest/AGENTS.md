@@ -101,6 +101,12 @@ resume. The next run creates the fresh root and records `bootstrapped` for all f
 source was blocked are skipped by design. The new root blocks again on the next watcher-config revision change, so
 repeat this procedure after any feed toggle.
 
+A blocked source puts its fixed reason code in the #hermes heartbeat, before the warning, for example
+`... · 0 pending · blocked: intake_config_mismatch ⚠️`. `intake_config_unavailable` means the live catalog or watcher
+config could not be read; `migration_cursor_handoff_invalid` means a legacy-seeded root failed its seed gate; and
+`intake_config_mismatch` means a catalog or watcher-config revision changed, which needs the restart above. Only
+closed snake_case codes are shown, never source text.
+
 The adapter stores its own conditional HTTP validators per endpoint in
 `http-validators.json`. A 304 is an empty poll and does not move the source
 cursor. New response validators are saved only after successful endpoint
