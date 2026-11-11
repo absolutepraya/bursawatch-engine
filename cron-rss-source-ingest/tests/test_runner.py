@@ -207,3 +207,69 @@ def test_reader_heartbeat_uses_delivery_owner_and_contains_only_counts():
     assert content == "🫀 stockbit-snips · 11:22 WIB · 4 fetched · 2 queued · 0 delivered · 1 errors · 3 pending ⚠️"
     assert kwargs == {"dry_run": False, "event_key": "heartbeat:202609281122", "leg": "heartbeat"}
     assert PRIVATE_SOURCE_TEXT not in content
+
+
+def _write_cursor(root: Path, lane: str, value: object) -> None:
+    lane_root = root / f"rss-stockbit-{lane}"
+    lane_root.mkdir(parents=True, exist_ok=True)
+    (lane_root / "cursor.json").write_text(value if isinstance(value, str) else json.dumps(value), encoding="utf-8")
+
+
+def test_only_a_root_carrying_the_legacy_seed_keeps_the_seed_gate(tmp_path: Path):
+    lane = FEEDS[0].lane.value
+    assert rss_runner.uses_legacy_seed(tmp_path / "missing") is False          # fresh root
+    assert rss_runner.uses_legacy_seed(tmp_path) is False                       # empty root
+    _write_cursor(tmp_path, lane, {"initialized": True, "anchor": "a" * 64, "position": None})
+    assert rss_runner.uses_legacy_seed(tmp_path) is False                       # natively bootstrapped
+    _write_cursor(tmp_path, FEEDS[1].lane.value, {"initialized": True, "anchor": "a" * 64, "position": None, "legacy_seed": {}})
+    assert rss_runner.uses_legacy_seed(tmp_path) is True                        # any seeded lane keeps the gate
+
+
+@pytest.mark.parametrize("damaged", ["{not json", "[]"])
+def test_damaged_cursor_keeps_the_seed_gate_closed(tmp_path: Path, damaged: str):
+    _write_cursor(tmp_path, FEEDS[0].lane.value, damaged)
+    assert rss_runner.uses_legacy_seed(tmp_path) is True
+
+
+def test_fresh_root_restarts_future_only_without_backfilling_history(tmp_path: Path):
+    """A blocked legacy root is retired by starting a fresh one: the first poll anchors at the newest item and posts nothing."""
+    from types import SimpleNamespace
+    from datetime import timedelta
+    sys.path.insert(0, str(ROOT / "cron-stockbit-snips" / "bin"))
+    from models import Article
+    now = datetime(2026, 11, 11, 3, 0, tzinfo=timezone.utc)
+    settings = {"version": 1, "feeds": [{"id": feed.lane.value, "enabled": True} for feed in FEEDS],
+                "destinations": {"id_stocks_news_channel_id": "1525102508714889257", "macro_news_channel_id": "1531655369884045382"},
+                "additional_prompt_instruction": ""}
+    loaded = LoadedStockbitConfig(load_watch_config_data(settings), 3)
+    snapshot = {"revision": 8, "subscriptions": [{"platform": "rss", "endpoint_id": f"rss:stockbit:{feed.lane.value}", "publisher_id": "stockbit",
+        "address": feed.url, "provider_id": feed.lane.value, "capability_id": "stockbit_snips", "verification_status": "verified", "enabled": True} for feed in FEEDS]}
+
+    accepted = []
+
+    class Inbox:
+        def accept(self, event):
+            accepted.append(event)
+            return {"event_key": hashlib.sha256(event["provider_event_id"].encode()).hexdigest(), "version": 1, "duplicate": False, "work_keys": []}
+
+        def claim(self, _pipelines, _limit):
+            return []
+
+    def owner(command):
+        assert command in {"drain-delivery", "agent-status"}
+        return {"delivered": 0, "pending_delivery": 0} if command == "drain-delivery" else {"ready": False}
+
+    def article(feed, guid, when):
+        return Article(feed.lane, feed.label, guid, f"https://snips.stockbit.com/{guid}", "Title", "Text", when)
+
+    history = {feed.lane.value: [article(feed, f"{feed.lane.value}-{n}", now - timedelta(days=13 - n)) for n in range(5)] for feed in FEEDS}
+    fetch = lambda feed, **_kwargs: SimpleNamespace(not_modified=False, articles=list(reversed(history[feed.lane.value])), etag=None, last_modified=None)
+    root = tmp_path / "bursawatch-rss-source-ingest"
+
+    first = run_once(snapshot, loaded, root, Inbox(), now, fetch_feed=fetch, owner_command=owner, require_legacy_seed=rss_runner.uses_legacy_seed(root))
+    assert [row["status"] for row in first["source"]] == ["bootstrapped"] * 4 and accepted == []
+
+    history[FEEDS[0].lane.value].append(article(FEEDS[0], "future", now + timedelta(minutes=1)))
+    second = run_once(snapshot, loaded, root, Inbox(), now, fetch_feed=fetch, owner_command=owner, require_legacy_seed=rss_runner.uses_legacy_seed(root))
+    assert second["source"][0]["accepted"] == 1 and [event["payload"]["article"]["guid"] for event in accepted] == ["future"]
+    assert rss_runner.uses_legacy_seed(root) is False
