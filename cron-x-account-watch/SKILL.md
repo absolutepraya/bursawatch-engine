@@ -89,7 +89,7 @@ Use the wrapper below exactly. It selects the managed VPS interpreter. Never inv
 "$HOME/.hermes/scripts/bursawatch-x-account-watch.sh" submit-analysis --json '<payload>'
 ```
 
-The scanner validates the exact event key, requested field shapes, and active 15-minute agent lease. It then persists the result, handles Discord text and ordered media, and owns heartbeat and failure reporting. Do not compensate for a rejected, expired, or invalid submission.
+The scanner validates the exact event key, requested field shapes, and active 15-minute agent lease. It then persists the result, handles Discord text and ordered media, and owns heartbeat and failure reporting. When `submit-analysis` prints an `error`, it also prints a `fix`. Apply that fix to the named field using only the supplied text and submit once more in the same run. Never invent, translate, or loosen evidence to pass a check. Stop when `final` is true or the error says the event is no longer awaiting the agent. A later run that carries a Scanner note repeats the earlier fix. Each rejection counts, and the third one skips the item. Do not compensate for an expired submission.
 
 When the X owner's optional Published projection is enabled, the scanner
 records the exact output only after every required Discord Delivery Owner

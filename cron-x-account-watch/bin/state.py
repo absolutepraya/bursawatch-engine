@@ -428,6 +428,14 @@ def suppress_ineligible(value: dict, event: dict) -> None:
     value["outbox"].remove(event)
 
 
+def record_agent_rejection(event: dict, guidance: str) -> int:
+    """Count a rejected submission on its event and keep the latest fix for the next agent run."""
+    attempts = event.get("agent_rejections")
+    event["agent_rejections"] = (attempts if type(attempts) is int and attempts > 0 else 0) + 1
+    event["agent_last_rejection"] = guidance
+    return event["agent_rejections"]
+
+
 def awaiting_analysis_event(value: dict, event_key: str) -> dict:
     profile_id, separator, post_id = event_key.partition(":")
     if not separator or not profile_id or not post_id:
