@@ -23,6 +23,7 @@ import vision_media
 import recovery
 import publication_projection
 import agent_protocol
+import agent_feedback
 from agent_protocol import (
     normalize_route,
     agent_item,
@@ -1006,6 +1007,8 @@ def run(
                     summary_context.claim_from_state(value, item["event_key"], storage.parent / "summary-context"),
                     "~/.hermes/scripts/bursawatch-x-account-watch.sh prepare-summary-images --json",
                 )
+            if event is not None and item is not None:
+                item["instruction"] += agent_feedback.retry_note(event)
             wake_payload = build_wake_payload(item)
             try:
                 discord.post_text(
@@ -1121,7 +1124,24 @@ def submit_analysis_payload(payload: object, dry_run: bool | None = None) -> dic
             event = state.awaiting_analysis_event(value, payload["event_key"])
             import subject_context
             subject_source = subject_context.read(storage, event)
-            analysis = validate_submission(profile, payload, subject_required=subject_source is not None, company_required=event.get("news_subject_contract") == "subject-v2", source_text=subject_source)
+            try:
+                analysis = validate_submission(profile, payload, subject_required=subject_source is not None, company_required=event.get("news_subject_contract") == "subject-v2", source_text=subject_source)
+            except ValueError as error:
+                guidance = agent_feedback.guidance_for(error)
+                attempts = state.record_agent_rejection(event, guidance)
+                final = attempts >= agent_feedback.MAX_REJECTIONS
+                if final:
+                    if event.get("source_event_key") in value.get("source_events", {}):
+                        state.suppress_ineligible(value, event)
+                    else:
+                        state.discard_analysis(value, payload["event_key"])
+                    _report_control_event(reporter, run_id, "agent-submission-skipped-after-rejections", level="warning", phase="agent",
+                        event_type="agent.submission.rejected", message="X item skipped after repeated rejected submissions",
+                        attributes={"reason": "rejections_exhausted", "attempts": attempts})
+                state.save_state(storage, value)
+                if final:
+                    _cleanup_agent_vision(storage, event)
+                raise agent_feedback.AgentRejection(" ".join(str(error).split()), guidance, attempts, final) from error
             import summary_context
             optional_context = summary_context.claim_from_state(value, analysis["event_key"], storage.parent / "summary-context")
             post = state.deserialize_post(event["post"])
@@ -1299,6 +1319,18 @@ def recover_missing_source(urls: list[str], *, apply: bool = False) -> dict[str,
     }
 
 
+def cli_error_report(exc: BaseException) -> dict[str, object]:
+    """What a failed command prints for the agent: the short error, plus a fix when it is a rejection."""
+    report: dict[str, object] = {"wakeAgent": False, "error": " ".join(str(exc).split())[:180]}
+    if isinstance(exc, (ValueError, json.JSONDecodeError)):
+        report["fix"] = getattr(exc, "guidance", None) or agent_feedback.guidance_for(exc)
+    if isinstance(exc, agent_feedback.AgentRejection):
+        report.update(attempt=exc.attempts, attempts_allowed=agent_feedback.MAX_REJECTIONS, final=exc.final)
+        if exc.final:
+            report["fix"] += " This item has now been skipped. Stop."
+    return report
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command")
@@ -1326,6 +1358,6 @@ if __name__ == "__main__":
         else:
             result = run()
     except Exception as exc:
-        print(json.dumps({"wakeAgent": False, "error": " ".join(str(exc).split())[:180]}, ensure_ascii=False))
+        print(json.dumps(cli_error_report(exc), ensure_ascii=False))
         raise SystemExit(1)
     print(json.dumps(result, ensure_ascii=False))

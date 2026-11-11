@@ -390,3 +390,11 @@ An uncertain (UNKNOWN) company or industry subject follows an account that has e
 warning, never an Indonesia or Macro fallback. Industry metadata is an additive
 subject-v2 extension; retained legacy subjects, prepared cards, destinations
 and operation identities keep their saved contract.
+
+Rejected submissions get a fix, not just an error. `bin/agent_feedback.py` maps every validator message an agent can
+trigger to fixed guidance, and `submit-analysis` prints it as `fix`, with `attempt`, `attempts_allowed` and `final`.
+Each rejection is counted on the outbox event (`agent_rejections`, `agent_last_rejection`). The next claim of that item
+appends a Scanner note with the last fix to its wake instruction, and the third rejection skips the item for good
+(suppressed like a missing destination, with a warning control event), so one unfixable post cannot be re-claimed every
+15 minutes forever. A test fails when a validator raises a message that has no guidance. Malformed JSON gets its own
+guidance but is not attributed to an event, so it is not counted.

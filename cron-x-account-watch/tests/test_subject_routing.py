@@ -261,3 +261,51 @@ def test_uncertain_company_snapped_to_the_only_market_is_treated_as_a_native_one
     assert item["route"] == "id_stocks_news" and item["subject"]["company"]["business_home"] == "ID"
     assert item["subject"]["company"]["security_market"] == "ID"
     assert item["ticker"] == (ticker or name) and item["title"] == title
+
+
+def _rejected_payload(wake, text):
+    """A relevant macro item whose evidence is a paraphrase, so the quote check rejects it."""
+    return {"event_key": wake["item"]["event_key"], "is_relevant": True, "items": [{
+        "title": "BNI beralih ke Wondr", "summary": text, "route": "macro_news", "ticker": "",
+        "subject": {"kind": "macro", "name": "Perbankan", "evidence": "BNI Mobile Banking is moving to Wondr"}}]}
+
+
+def test_rejections_are_counted_explained_to_the_next_agent_and_capped(tmp_path, monkeypatch, config_path, profile_payload):
+    import agent_feedback
+    profile, wake, text = _single_market_scan(tmp_path, monkeypatch, config_path, profile_payload, ("id_stocks_news", "id_industry_news", "macro_news"))
+    payload = _rejected_payload(wake, text)
+    storage = tmp_path / "state.json"
+
+    with pytest.raises(agent_feedback.AgentRejection) as first:
+        scan.submit_analysis_payload(payload, dry_run=True)
+    assert first.value.attempts == 1 and first.value.final is False and "character for character" in first.value.guidance
+    report = scan.cli_error_report(first.value)
+    assert report["error"].startswith("subject evidence must be quoted") and report["attempt"] == 1
+    assert report["attempts_allowed"] == 3 and report["final"] is False and "Bursa Efek Indonesia (BEI)" in report["fix"]
+
+    event, = state.load_state(storage)["outbox"]
+    assert event["agent_rejections"] == 1 and event["agent_last_rejection"] == first.value.guidance
+
+    # The lease ends, the item is claimed again, and the next agent is told what to fix.
+    value = state.load_state(storage)
+    value["outbox"][0]["agent_lease_until"] = "2000-01-01T00:00:00+00:00"
+    state.save_state(storage, value)
+    again = scan.run(now=datetime.now(scan.WIB), dry_run=True)
+    assert again["item"]["event_key"] == wake["item"]["event_key"]
+    assert "Scanner note: your previous submission for this item was rejected (1 of 3 allowed)" in again["item"]["instruction"]
+    assert first.value.guidance in again["item"]["instruction"]
+
+    with pytest.raises(agent_feedback.AgentRejection) as second:
+        scan.submit_analysis_payload(payload, dry_run=True)
+    assert second.value.attempts == 2 and second.value.final is False
+    with pytest.raises(agent_feedback.AgentRejection) as third:
+        scan.submit_analysis_payload(payload, dry_run=True)
+    assert third.value.attempts == 3 and third.value.final is True
+    assert scan.cli_error_report(third.value)["fix"].endswith("This item has now been skipped. Stop.")
+    assert state.load_state(storage)["outbox"] == []              # skipped for good, not re-claimed forever
+
+
+def test_cli_error_report_adds_a_fix_only_for_rejections():
+    assert scan.cli_error_report(ValueError("title must be a plain headline without a link or ending punctuation"))["fix"].startswith("Remove any link")
+    assert "fix" not in scan.cli_error_report(RuntimeError("delivery failed"))
+    assert len(scan.cli_error_report(ValueError("x " * 400))["error"]) <= 180
