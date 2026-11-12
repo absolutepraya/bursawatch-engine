@@ -11,6 +11,7 @@
         ".gitignore",
         ".wt/**",
         "AGENTS.md",
+        "CLAUDE.md",
         "GLOSSARY.md",
         "bursawatch.png",
         "DEPLOYMENT.md",
