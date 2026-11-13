@@ -175,20 +175,23 @@ Use this workflow:
    replay, then run the reviewed test, publish, deploy, and verify the natural
    execution and delivery path.
 
-A watcher profile alone never starts intake. `cron-x-source-ingest` raises
-`IntakeBlocked` for every enabled profile that lacks a reviewed publisher
-binding or a verified catalog subscription, and that fails the whole X intake
-run for all accounts. Before enabling a new profile live, in order: add its
-`REVIEWED_PUBLISHERS` entry (and the byte-identical validator-sources copy);
-register its publisher, endpoint and compatibility in the source catalog through
-a manual migration that also sets `dispatch_group = 'x_post_route'` on its three
-route capabilities (the column is stored, not derived); release through the
-release agent's `--release-manual`; enable its `company_news` and `macro_news`
-overrides in the catalog configuration; then enable the profile in the live
-watcher configuration and confirm the next `x-source-ingest` heartbeat counts the
-new endpoint without an error. Live configuration is the Supabase control plane;
-the git `watches.json` and baseline are disabled seeds, so never edit them to
-activate a profile.
+A watcher profile alone never starts intake, and a new X account cannot be
+onboarded by configuration or a data migration alone. `cron-x-source-ingest` is
+pinned to source-catalog revision 8 and to the exact effective projection of
+every X registry row (`REVIEWED_PROJECTION_SHA256`, exactly eight enabled
+profiles). Registering another X endpoint changes that projection, and any
+catalog revision above 8 has no reviewed package transition, so either one makes
+the whole X intake run fail closed for every account (Telegram intake is pinned
+to its revision-8 state marker the same way, so a revision bump stops it too).
+An enabled profile that lacks a `REVIEWED_PUBLISHERS` binding or a verified
+catalog subscription fails the run the same way. Onboarding therefore needs a
+reviewed code change first: a new reviewed X transition edge and pinned
+projection, the matching Telegram revision-only transition, and the cursor plan
+for the new endpoint. Only after that is released and its state transitions are
+applied may the registry migration, catalog overrides and live profile follow.
+The git `watches.json` and baseline are disabled seeds, so never edit them to
+activate a profile. Serenity (@aleabitoreddit) was rolled back from this path on
+2026-11-13 (migration 029); his Discord emoji already exists.
 
 The onboarding response must clearly separate observed facts, proposed defaults,
 and unresolved decisions. A missing custom emoji may remain an explicit empty
