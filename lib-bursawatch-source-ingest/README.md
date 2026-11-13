@@ -81,3 +81,16 @@ other subscription and selected security must remain identical. Store its
 private plan outside the source state root. Preview and apply both require
 the prior catalog, target catalog, and same fresh legacy Market News snapshot.
 This is a cutover operation, not a cron entry point.
+
+
+## Unchanged-projection catalog transition
+
+`bin/unchanged_projection_transition.py preview|apply --platform P --prior-catalog F --target-catalog F --state-root ROOT --plan-file PLAN`
+advances a source state root across one adjacent catalog revision when the revision
+changed only other platforms. It proves that every effective row of platform `P` and the
+selected securities are byte-identical across the two catalogs, then uses the shared
+source-state planner for a revision-only transition: fingerprint the state, write the
+private `catalog-transitions/N-to-N+1.json` journal, and advance `catalog-revision.json`
+last. It never reads or rewrites cursors. `apply` needs the unchanged preview plan and
+`BURSAWATCH_UNCHANGED_PROJECTION_TRANSITION_ALLOW_APPLY=1`. A root whose marker carries a
+frozen generation proof (the X ingest) must use its package-owned edge instead.

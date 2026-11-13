@@ -128,12 +128,13 @@ def test_discover_migrations_uses_the_checked_legacy_eligibility_registry():
         "027_x_serenity_source.sql",
         "028_x_serenity_dispatch_group.sql",
         "029_x_serenity_rollback.sql",
+        "030_x_serenity_source_registration.sql",
     }
     assert next(m.release_eligibility for m in migrations if m.name == "023_morning_brief_configuration.sql") == "automatic"
     assert next(m.release_eligibility for m in migrations if m.name == "024_morning_brief_schedule.sql") == "manual"
     assert next(m.release_eligibility for m in migrations if m.name == "025_morning_brief_job_link.sql") == "automatic"
     assert next(m.release_eligibility for m in migrations if m.name == "026_publication_cutover_owners.sql") == "manual"
-    for name in ("027_x_serenity_source.sql", "028_x_serenity_dispatch_group.sql", "029_x_serenity_rollback.sql"):
+    for name in ("027_x_serenity_source.sql", "028_x_serenity_dispatch_group.sql", "029_x_serenity_rollback.sql", "030_x_serenity_source_registration.sql"):
         assert next(m.release_eligibility for m in migrations if m.name == name) == "manual"
     assert {migration.release_eligibility for migration in migrations} == {"automatic", "manual"}
     assert next(

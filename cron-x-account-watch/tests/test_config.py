@@ -100,6 +100,21 @@ def test_every_canonical_profile_has_a_reviewed_source_publisher():
     assert all(publisher == f"x-{profile_id}" for profile_id, publisher in config_module.REVIEWED_PUBLISHERS.items())
 
 
+def test_canonical_serenity_profile_is_us_global_routed_and_unthreaded():
+    canonical_config = Path(__file__).resolve().parents[1] / "config" / "watches.json"
+    profile = {item.id: item for item in config_module.load_watch_config(canonical_config).profiles}["aleabitoreddit"]
+
+    assert profile.handle == "aleabitoreddit"
+    assert profile.display_name == "Serenity"
+    assert profile.emoji == "<:aleabitoreddit:1570634436037582911>"
+    assert [channel.key for channel in profile.discord_channels] == [
+        "macro_news", "us_stocks_news", "global_company_news", "us_industry_news", "global_industry_news",
+    ]
+    assert profile.relevance_scope == "stock_market"
+    assert profile.thread_handling.mode == "disabled"
+    assert profile.forward_reply is False and profile.forward_repost is False
+
+
 def test_canonical_thread_handling_matches_writer_patterns():
     canonical_config = Path(__file__).resolve().parents[1] / "config" / "watches.json"
     profiles = {profile.id: profile for profile in config_module.load_watch_config(canonical_config).profiles}

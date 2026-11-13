@@ -16,6 +16,7 @@ REVIEWED_PUBLISHERS = {
     "insidertracker": "x-insidertracker", "doktermarket": "x-doktermarket",
     "txthariansaham": "x-txthariansaham", "wavetiga": "x-wavetiga",
     "aldotjahjadi8": "x-aldotjahjadi8", "kobeissiletter": "x-kobeissiletter",
+    "aleabitoreddit": "x-aleabitoreddit",
 }
 
 
