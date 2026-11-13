@@ -4,8 +4,9 @@
 -- X source ingest is pinned to catalog revision 8 and an exact effective projection
 -- of every X registry row, and Telegram ingest to its revision-8 state marker, so
 -- adding an X endpoint or publishing revision 9 fails both closed. Restore the exact
--- pre-onboarding catalog. Guarded so it refuses anything but that precise state, and
--- idempotent so it is a no-op where the same rollback was already applied.
+-- pre-onboarding catalog. Revision 9 is removed only when it is exactly the reviewed
+-- Serenity-only change (anything else raises); where it does not exist (production,
+-- where the same rollback was already applied, or a fresh database) it changes nothing.
 do $migration$
 declare
     latest bigint;
@@ -34,8 +35,6 @@ begin
         delete from bursawatch_source_endpoint_overrides where revision = 9;
         delete from bursawatch_source_catalog_audit where revision = 9;
         delete from bursawatch_source_catalog_revisions where revision = 9;
-    elsif latest <> 8 then
-        raise exception 'unexpected latest source catalog revision %', latest;
     end if;
 end
 $migration$;
