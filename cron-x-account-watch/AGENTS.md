@@ -175,6 +175,21 @@ Use this workflow:
    replay, then run the reviewed test, publish, deploy, and verify the natural
    execution and delivery path.
 
+A watcher profile alone never starts intake. `cron-x-source-ingest` raises
+`IntakeBlocked` for every enabled profile that lacks a reviewed publisher
+binding or a verified catalog subscription, and that fails the whole X intake
+run for all accounts. Before enabling a new profile live, in order: add its
+`REVIEWED_PUBLISHERS` entry (and the byte-identical validator-sources copy);
+register its publisher, endpoint and compatibility in the source catalog through
+a manual migration that also sets `dispatch_group = 'x_post_route'` on its three
+route capabilities (the column is stored, not derived); release through the
+release agent's `--release-manual`; enable its `company_news` and `macro_news`
+overrides in the catalog configuration; then enable the profile in the live
+watcher configuration and confirm the next `x-source-ingest` heartbeat counts the
+new endpoint without an error. Live configuration is the Supabase control plane;
+the git `watches.json` and baseline are disabled seeds, so never edit them to
+activate a profile.
+
 The onboarding response must clearly separate observed facts, proposed defaults,
 and unresolved decisions. A missing custom emoji may remain an explicit empty
 value when the user accepts that default. Never invent a Discord emoji ID or
