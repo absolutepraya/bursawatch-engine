@@ -242,11 +242,12 @@ def require_catalog_revision(root: Path, revision: int, bind: Any, *, snapshot: 
         raise IntakeBlocked("source catalog revision requires a package-owned transition")
     if "generation" in record:
         transitions = root / "catalog-transitions"
-        if (record != _fresh_generation_record(revision, snapshot, profiles)
+        expected = _fresh_generation_record(revision, snapshot, profiles)
+        if (record not in (expected, _transitioned_record(expected) if revision == 9 else expected)
             or stat.S_IMODE(root.stat().st_mode) != 0o700 or stat.S_IMODE(marker.stat().st_mode) != 0o600):
             raise IntakeBlocked("fresh X generation record is invalid")
-        if revision == 9 and (transitions.exists() or transitions.is_symlink()):
-            _require_generation_journal(root, record)
+        if revision == 9 and record == _transitioned_record(expected):
+            _require_generation_journal(root, record)  # a transitioned root always needs its completed journal
         elif transitions.exists() or transitions.is_symlink():
             raise IntakeBlocked("fresh X generation record is invalid")
         return
@@ -263,6 +264,11 @@ def _load_profiles() -> tuple[int, tuple[Any, ...]]:
     if type(watcher_revision) is not int or watcher_revision < 1 or type(profiles) not in {tuple, list}:
         raise TransitionBlocked("current X watcher config revision or profiles are invalid")
     return watcher_revision, tuple(profiles)
+
+
+def _transitioned_record(fresh: dict[str, Any]) -> dict[str, Any]:
+    """The revision 9 marker written by the reviewed 8 to 9 edge records its origin."""
+    return {**fresh, "generation": {**fresh["generation"], "edge": "8-to-9"}}
 
 
 def _with_serenity(profiles: tuple[Any, ...], enabled: bool) -> tuple[Any, ...]:
@@ -322,7 +328,7 @@ def _generation_plan(prior: dict[str, Any], target: dict[str, Any], root: Path) 
     prior_profiles, target_profiles = _with_serenity(live_profiles, False), _with_serenity(live_profiles, True)
     try:
         prior_record = _fresh_generation_record(8, prior, prior_profiles)
-        target_record = _fresh_generation_record(9, target, target_profiles)
+        target_record = _transitioned_record(_fresh_generation_record(9, target, target_profiles))
         prior_rows, target_rows = _projection(prior, prior_profiles, (8,)), _projection(target, target_profiles, (9,))
     except (IntakeBlocked, TransitionBlocked) as error:
         raise TransitionBlocked("catalog projections differ from the reviewed X generation edge") from error

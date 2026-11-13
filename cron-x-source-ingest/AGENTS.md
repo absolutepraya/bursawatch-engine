@@ -107,7 +107,7 @@ reviewed Serenity endpoint (`x:aleabitoreddit`); both projections are pinned
 and fingerprints every state file; `apply` additionally needs the unchanged
 preview plan and `BURSAWATCH_X_CATALOG_TRANSITION_ALLOW_APPLY=1`. It writes the
 private `catalog-transitions/generation-8-to-9.json` journal, replaces the
-marker atomically, then completes the journal; cursors, accepted-event indexes
+marker atomically (the revision 9 marker records `edge: 8-to-9`, so a transitioned root can never pass as a fresh one and always needs its completed journal), then completes the journal; cursors, accepted-event indexes
 and handoff work are never touched, and an interrupted apply resumes. Each later
 poll requires the completed journal. The Serenity profile and catalog rows must
 agree: an enabled catalog subscription without an enabled watcher profile (or the

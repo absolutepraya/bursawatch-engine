@@ -1493,3 +1493,20 @@ def test_generation_edge_revision_9_fails_closed_unless_serenity_profile_and_cat
     with pytest.raises(IntakeBlocked):
         run_once(prior, profiles9, root, Inbox(), NOW, fetch_profile=_fetch_one)
     assert _cursor_bytes(root) == before
+
+
+def test_generation_edge_runtime_requires_the_journal_even_if_the_directory_is_removed(tmp_path, monkeypatch):
+    import shutil
+    profiles, profiles9, prior, target = _generation_world(monkeypatch)
+    root = _bootstrapped_generation_root(tmp_path, profiles, prior)
+    monkeypatch.setenv(x_transition.APPLY_ENV, "1")
+    x_transition.apply(x_transition.preview(prior, target, root), prior, target, root)
+    marker = json.loads((root / "catalog-revision.json").read_text())
+    assert marker["generation"]["edge"] == "8-to-9"
+    shutil.rmtree(root / "catalog-transitions")
+    with pytest.raises(IntakeBlocked):
+        x_transition.require_catalog_revision(root, 9, lambda *_a: None, snapshot=target, profiles=profiles9)
+    # a genuine fresh revision 9 generation (no origin) still needs no journal and rejects one
+    fresh = tmp_path / "fresh9"
+    run_once(target, profiles9, fresh, Inbox(), NOW, fetch_profile=_fetch_one)
+    assert "edge" not in json.loads((fresh / "catalog-revision.json").read_text())["generation"]

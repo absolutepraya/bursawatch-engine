@@ -73,10 +73,20 @@ def _state_root(value: Path) -> Path:
     return resolved
 
 
+def _is_generation_root(root: Path) -> bool:
+    try:
+        record = json.loads((root / "catalog-revision.json").read_text())
+    except (OSError, ValueError):
+        return False
+    return type(record) is dict and "generation" in record
+
+
 def build_plan(platform: str, prior: dict[str, Any], target: dict[str, Any], root: Path) -> dict[str, Any]:
     if platform not in PLATFORMS:
         raise TransitionBlocked("platform is not supported")
     root = _state_root(root)
+    if _is_generation_root(root):
+        raise TransitionBlocked("generation roots advance only through their package-owned transition")
     prior_rows, target_rows = _projection(prior, platform, "prior"), _projection(target, platform, "target")
     if target["revision"] != prior["revision"] + 1:
         raise TransitionBlocked("transition requires one adjacent catalog revision")

@@ -116,3 +116,10 @@ def test_command_line_preview_then_apply(tmp_path):
     assert json.loads((root / "catalog-revision.json").read_text()) == {"revision": 9} and cursor.read_bytes() == before
     inside = subprocess.run(base + ["preview", *args[:-1], str(root / "plan.json")], capture_output=True, text=True)
     assert inside.returncode == 2
+
+
+def test_rejects_a_generation_root(tmp_path):
+    root, _ = _root(tmp_path)
+    (root / "catalog-revision.json").write_text(json.dumps({"revision": 8, "generation": {"mode": "future_only", "version": 1, "projection_sha256": "0" * 64}}))
+    with pytest.raises(transition.TransitionBlocked):
+        transition.build_plan("rss", _catalog(8), _catalog(9), root)
