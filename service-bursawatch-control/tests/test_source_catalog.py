@@ -66,7 +66,7 @@ def test_x_route_compatibility_is_grouped_and_disabled_until_configured():
     catalog = api.get("/v1/source-catalog", headers=ADMIN).json()
     effective = api.get("/v1/source-catalog/effective", headers=MACHINE).json()
     x_ids = {item["id"] for item in catalog["endpoints"] if item["platform"] == "x"}
-    assert len(x_ids) == 10
+    assert len(x_ids) == 11
     grouped = [item for item in catalog["compatibility"] if item["endpoint_id"] in x_ids]
     assert {(item["endpoint_id"], item["capability_id"], item["dispatch_group"]) for item in grouped} == {
         (endpoint_id, capability, "x_post_route")
@@ -75,7 +75,7 @@ def test_x_route_compatibility_is_grouped_and_disabled_until_configured():
     }
     assert all(item["dispatch_group"] is None for item in catalog["compatibility"] if item["endpoint_id"] not in x_ids)
     x_subs = [item for item in effective["subscriptions"] if item["endpoint_id"] in x_ids]
-    assert len(x_subs) == 30
+    assert len(x_subs) == 33
     assert all(item["dispatch_group"] == "x_post_route" and item["enabled"] is False and item["source"] == "unset" for item in x_subs)
     assert all(item["dispatch_group"] is None for item in effective["subscriptions"] if item["endpoint_id"] not in x_ids)
 
@@ -180,7 +180,11 @@ def test_every_seeded_endpoint_matches_checked_in_source_identity_and_provider_i
         expected[f"rss:stockbit:{lane}"] = ("stockbit", url, lane)
 
     assert set(actual) == set(expected)
-    migration = (root / "service-bursawatch-control/migrations/013_source_catalog.sql").read_text()
+    # 013 seeded the original registry; later migrations add reviewed endpoints one at a time.
+    migration = "".join(
+        (root / "service-bursawatch-control/migrations" / name).read_text()
+        for name in ("013_source_catalog.sql", "027_x_serenity_source.sql")
+    )
     for endpoint_id, (publisher_id, address, provider_id) in expected.items():
         row = actual[endpoint_id]
         assert (row["publisher_id"], row["address"], row["provider_id"]) == (publisher_id, address, provider_id)
